@@ -17,11 +17,11 @@ jobs:
     
     - name: Create SDK directory structure
       run: |
-        mkdir pitchflattener/SDK
+        mkdir SDK
     
     - name: Setup JUCE
       run: |
-        cd pitchflattener/SDK
+        cd SDK
         git clone https://github.com/juce-framework/JUCE.git
         cd JUCE
         git checkout 7.0.12
@@ -40,7 +40,7 @@ jobs:
     - name: Download and Build Rubberband
       shell: cmd
       run: |
-        cd pitchflattener\SDK
+        cd SDK
         git clone https://github.com/breakfastquay/rubberband.git rubberband-4.0.0
         cd rubberband-4.0.0
         git checkout v4.0.0
@@ -61,7 +61,7 @@ jobs:
     - name: Download and Build WORLD
       shell: cmd
       run: |
-        cd pitchflattener\SDK
+        cd SDK
         REM Remove World directory if it exists from previous runs
         if exist World rmdir /s /q World
         git clone https://github.com/mmorise/World.git World
@@ -159,11 +159,11 @@ jobs:
     
     - name: Create SDK directory structure
       run: |
-        mkdir pitchflattener/SDK
+        mkdir SDK
     
     - name: Setup JUCE
       run: |
-        cd pitchflattener/SDK
+        cd SDK
         git clone https://github.com/juce-framework/JUCE.git
         cd JUCE
         git checkout 7.0.12
@@ -174,7 +174,7 @@ jobs:
     
     - name: Download and Build Rubberband
       run: |
-        cd pitchflattener/SDK
+        cd SDK
         curl -L https://breakfastquay.com/files/releases/rubberband-4.0.0.tar.bz2 -o rubberband.tar.bz2
         tar xjf rubberband.tar.bz2
         cd rubberband-4.0.0
@@ -191,7 +191,7 @@ jobs:
     
     - name: Download and Build WORLD
       run: |
-        cd pitchflattener/SDK
+        cd SDK
         # Remove World directory if it exists from previous runs
         rm -rf World
         git clone https://github.com/mmorise/World.git World

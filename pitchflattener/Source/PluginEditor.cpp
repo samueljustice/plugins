@@ -510,6 +510,7 @@ PitchFlattenerAudioProcessorEditor::PitchFlattenerAudioProcessorEditor (PitchFla
     statusLabel.setText("Ready", juce::dontSendNotification);
     statusLabel.setJustificationType(juce::Justification::centred);
     statusLabel.setColour(juce::Label::textColourId, juce::Colours::grey);
+    statusLabel.setFont(juce::Font(14.0f)); // Smaller font
     statusLabel.setTooltip("Current processing status");
     addAndMakeVisible(statusLabel);
     
@@ -621,9 +622,9 @@ PitchFlattenerAudioProcessorEditor::PitchFlattenerAudioProcessorEditor (PitchFla
     updateAlgorithmControls();
     
     // Set size at the end after all components are created
-    setSize (900, 800);  // Wider layout with side panels
+    setSize (950, 850);  // Wider and longer layout to accommodate all elements
     setResizable(true, true);
-    setResizeLimits(800, 700, 1200, 1000);
+    setResizeLimits(850, 750, 1300, 1100);
 }
 
 PitchFlattenerAudioProcessorEditor::~PitchFlattenerAudioProcessorEditor()
@@ -678,11 +679,14 @@ void PitchFlattenerAudioProcessorEditor::resized()
     auto meterArea = area.removeFromTop(120).reduced(20, 10);
     pitchMeter.setBounds(meterArea);
     
-    // Status label below meter
-    area.removeFromTop(5); // Small space before status
-    statusLabel.setBounds(area.removeFromTop(25).reduced(20, 0));
+    // Status label positioned between note name and pitch deviation meter
+    // Move it up into the meter area
+    auto statusArea = meterArea;
+    statusArea.setY(meterArea.getBottom() - 30); // Position between note and deviation meter
+    statusArea.setHeight(20); // Slightly smaller height
+    statusLabel.setBounds(statusArea.reduced(20, 0));
     
-    area.removeFromTop(15); // More space after status label to avoid overlap
+    area.removeFromTop(30); // More space after status label
     
     // Split into left and right sections
     auto mainArea = area.reduced(10, 0);
@@ -976,13 +980,13 @@ void PitchFlattenerAudioProcessorEditor::timerCallback()
             statusLabel.setText("Processing - Detected: " + 
                                juce::String(detectedPitch, 1) + " Hz", 
                                juce::dontSendNotification);
-            statusLabel.setColour(juce::Label::textColourId, juce::Colours::green);
+            statusLabel.setColour(juce::Label::textColourId, juce::Colours::lightgreen);
         }
         else
         {
             statusLabel.setText("Processing - Waiting for pitch...", 
                                juce::dontSendNotification);
-            statusLabel.setColour(juce::Label::textColourId, juce::Colours::orange);
+            statusLabel.setColour(juce::Label::textColourId, juce::Colours::yellow);
         }
     }
     else
