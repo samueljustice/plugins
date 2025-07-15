@@ -57,6 +57,7 @@ target_sources(PitchFlattener
         Source/PluginEditor.cpp
         Source/PitchDetector.cpp
         Source/PitchFlattenerEngine.cpp
+        Source/PresetManager.cpp
         ${WORLD_SOURCES}
 )
 

@@ -3,6 +3,49 @@
 #include <JuceHeader.h>
 #include "PluginProcessor.h"
 
+class SliderWithReset : public juce::Component
+{
+public:
+    SliderWithReset(const juce::String& paramID, juce::AudioProcessorValueTreeState& apvts)
+        : parameterID(paramID), valueTreeState(apvts)
+    {
+        addAndMakeVisible(slider);
+        
+        resetButton.setButtonText("R");
+        resetButton.setTooltip("Reset to default value");
+        resetButton.onClick = [this]()
+        {
+            if (auto* param = valueTreeState.getParameter(parameterID))
+            {
+                auto defaultValue = param->getDefaultValue();
+                param->setValueNotifyingHost(defaultValue);
+            }
+        };
+        // Reset button should always be enabled, even if slider is disabled
+        resetButton.setAlwaysOnTop(true);
+        addAndMakeVisible(resetButton);
+    }
+    
+    juce::Slider slider;
+    
+    void resized() override
+    {
+        auto area = getLocalBounds();
+        resetButton.setBounds(area.removeFromRight(18).reduced(1));
+        slider.setBounds(area);
+    }
+    
+    std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> createAttachment()
+    {
+        return std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(valueTreeState, parameterID, slider);
+    }
+    
+private:
+    juce::TextButton resetButton;
+    juce::String parameterID;
+    juce::AudioProcessorValueTreeState& valueTreeState;
+};
+
 class PitchMeter : public juce::Component, public juce::Timer
 {
 public:
@@ -22,6 +65,32 @@ private:
     float frequencyToCents(float frequency, float referenceFreq = 440.0f);
 };
 
+class PresetManager : public juce::Component
+{
+public:
+    PresetManager(PitchFlattenerAudioProcessor& p);
+    
+    void resized() override;
+    void savePreset();
+    void deletePreset();
+    void loadPresetFromFile(const juce::File& file);
+    void savePresetToFile(const juce::File& file);
+    void resetToDefaults();
+    
+private:
+    PitchFlattenerAudioProcessor& processor;
+    juce::ComboBox presetSelector;
+    juce::TextButton saveButton{"Save Preset"};
+    juce::TextButton deleteButton{"Delete"};
+    juce::TextButton resetAllButton{"Reset All"};
+    
+    juce::File getPresetsDirectory();
+    void refreshPresetList();
+    void loadFactoryPresets();
+    
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(PresetManager)
+};
+
 class PitchFlattenerAudioProcessorEditor : public juce::AudioProcessorEditor, 
                                             public juce::Timer
 {
@@ -32,27 +101,30 @@ public:
     void paint (juce::Graphics&) override;
     void resized() override;
     void timerCallback() override;
+    void updateAlgorithmControls();
 
 private:
     PitchFlattenerAudioProcessor& audioProcessor;
-    void updateAlgorithmControls();
     
-    // UI Components
-    juce::Slider targetPitchSlider;
+    // Preset Manager
+    std::unique_ptr<PresetManager> presetManager;
+    
+    // UI Components with reset buttons
+    std::unique_ptr<SliderWithReset> targetPitchSlider;
     juce::Label targetPitchLabel;
     juce::Label targetPitchValueLabel;
     
-    juce::Slider smoothingTimeSlider;
+    std::unique_ptr<SliderWithReset> smoothingTimeSlider;
     juce::Label smoothingTimeLabel;
     
-    juce::Slider mixSlider;
+    std::unique_ptr<SliderWithReset> mixSlider;
     juce::Label mixLabel;
     
-    juce::Slider lookaheadSlider;
+    std::unique_ptr<SliderWithReset> lookaheadSlider;
     juce::Label lookaheadLabel;
     
     juce::ToggleButton manualOverrideButton;
-    juce::Slider overrideFreqSlider;
+    std::unique_ptr<SliderWithReset> overrideFreqSlider;
     juce::Label overrideFreqLabel;
     juce::Label overrideFreqValueLabel;
     
@@ -61,7 +133,7 @@ private:
     juce::TextButton resetBasePitchButton;
     juce::Label latchStatusLabel;
     juce::Label latchStatusValueLabel;
-    juce::Slider flattenSensitivitySlider;
+    std::unique_ptr<SliderWithReset> flattenSensitivitySlider;
     juce::Label flattenSensitivityLabel;
     juce::ToggleButton hardFlattenModeButton;
     
@@ -69,40 +141,40 @@ private:
     juce::Label basePitchValueLabel;
     
     // Pitch detection controls
-    juce::Slider detectionRateSlider;
+    std::unique_ptr<SliderWithReset> detectionRateSlider;
     juce::Label detectionRateLabel;
     
-    juce::Slider pitchThresholdSlider;
+    std::unique_ptr<SliderWithReset> pitchThresholdSlider;
     juce::Label pitchThresholdLabel;
     
-    juce::Slider minFreqSlider;
+    std::unique_ptr<SliderWithReset> minFreqSlider;
     juce::Label minFreqLabel;
     
-    juce::Slider maxFreqSlider;
+    std::unique_ptr<SliderWithReset> maxFreqSlider;
     juce::Label maxFreqLabel;
     
-    juce::Slider volumeThresholdSlider;
+    std::unique_ptr<SliderWithReset> volumeThresholdSlider;
     juce::Label volumeThresholdLabel;
     juce::Label volumeLevelLabel;
     
     // Advanced pitch detection controls
-    juce::Slider pitchHoldTimeSlider;
+    std::unique_ptr<SliderWithReset> pitchHoldTimeSlider;
     juce::Label pitchHoldTimeLabel;
     
-    juce::Slider pitchJumpThresholdSlider;
+    std::unique_ptr<SliderWithReset> pitchJumpThresholdSlider;
     juce::Label pitchJumpThresholdLabel;
     
-    juce::Slider minConfidenceSlider;
+    std::unique_ptr<SliderWithReset> minConfidenceSlider;
     juce::Label minConfidenceLabel;
     
-    juce::Slider pitchSmoothingSlider;
+    std::unique_ptr<SliderWithReset> pitchSmoothingSlider;
     juce::Label pitchSmoothingLabel;
     
     // Detection filter controls
-    juce::Slider detectionHighpassSlider;
+    std::unique_ptr<SliderWithReset> detectionHighpassSlider;
     juce::Label detectionHighpassLabel;
     
-    juce::Slider detectionLowpassSlider;
+    std::unique_ptr<SliderWithReset> detectionLowpassSlider;
     juce::Label detectionLowpassLabel;
     
     // Pitch algorithm selector
@@ -110,15 +182,15 @@ private:
     juce::Label pitchAlgorithmLabel;
     
     // DIO-specific controls (hidden when YIN is selected)
-    juce::Slider dioSpeedSlider;
+    std::unique_ptr<SliderWithReset> dioSpeedSlider;
     juce::Label dioSpeedLabel;
-    juce::Slider dioFramePeriodSlider;
+    std::unique_ptr<SliderWithReset> dioFramePeriodSlider;
     juce::Label dioFramePeriodLabel;
-    juce::Slider dioAllowedRangeSlider;
+    std::unique_ptr<SliderWithReset> dioAllowedRangeSlider;
     juce::Label dioAllowedRangeLabel;
-    juce::Slider dioChannelsSlider;
+    std::unique_ptr<SliderWithReset> dioChannelsSlider;
     juce::Label dioChannelsLabel;
-    juce::Slider dioBufferTimeSlider;
+    std::unique_ptr<SliderWithReset> dioBufferTimeSlider;
     juce::Label dioBufferTimeLabel;
     
     PitchMeter pitchMeter;

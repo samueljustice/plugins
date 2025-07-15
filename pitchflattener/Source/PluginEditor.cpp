@@ -117,7 +117,7 @@ juce::String PitchMeter::frequencyToNote(float frequency)
     float a4 = 440.0f;
     float c0 = a4 * std::pow(2.0f, -4.75f);
     
-    int midiNote = std::round(12.0f * std::log2(frequency / c0));
+    int midiNote = static_cast<int>(std::round(12.0f * std::log2(frequency / c0)));
     int octave = midiNote / 12;
     int noteIndex = midiNote % 12;
     
@@ -159,9 +159,12 @@ PitchFlattenerAudioProcessorEditor::PitchFlattenerAudioProcessorEditor (PitchFla
     titleLabel.setTooltip("Real-time pitch flattening for Doppler effects and pitch modulation");
     addAndMakeVisible(titleLabel);
     
-    
     // Pitch meter
     addAndMakeVisible(pitchMeter);
+    
+    // Preset Manager
+    presetManager = std::make_unique<PresetManager>(audioProcessor);
+    addAndMakeVisible(presetManager.get());
     
     // Create section labels with consistent styling
     auto createSectionLabel = [this](const juce::String& text, const juce::String& tooltip = "") {
@@ -183,12 +186,13 @@ PitchFlattenerAudioProcessorEditor::PitchFlattenerAudioProcessorEditor (PitchFla
     advancedLabel.reset(createSectionLabel("Advanced Detection", "Fine-tune pitch tracking stability"));
     
     // Target pitch slider
-    targetPitchSlider.setSliderStyle(juce::Slider::RotaryVerticalDrag);
-    targetPitchSlider.setTextBoxStyle(juce::Slider::TextBoxBelow, false, 80, 20);
-    targetPitchSlider.setTextValueSuffix(" Hz");
-    targetPitchSlider.setTooltip("The target frequency to flatten all pitches to. "
+    targetPitchSlider = std::make_unique<SliderWithReset>("targetPitch", audioProcessor.parameters);
+    targetPitchSlider->slider.setSliderStyle(juce::Slider::RotaryVerticalDrag);
+    targetPitchSlider->slider.setTextBoxStyle(juce::Slider::TextBoxBelow, false, 80, 20);
+    targetPitchSlider->slider.setTextValueSuffix(" Hz");
+    targetPitchSlider->slider.setTooltip("The target frequency to flatten all pitches to. "
                                  "For example, set to 440Hz to make everything sound like an A4 note.");
-    addAndMakeVisible(targetPitchSlider);
+    addAndMakeVisible(targetPitchSlider.get());
     
     targetPitchLabel.setText("Flatten To", juce::dontSendNotification);
     targetPitchLabel.setJustificationType(juce::Justification::centred);
@@ -197,13 +201,14 @@ PitchFlattenerAudioProcessorEditor::PitchFlattenerAudioProcessorEditor (PitchFla
     addAndMakeVisible(targetPitchLabel);
     
     // Smoothing time slider
-    smoothingTimeSlider.setSliderStyle(juce::Slider::RotaryVerticalDrag);
-    smoothingTimeSlider.setTextBoxStyle(juce::Slider::TextBoxBelow, false, 80, 20);
-    smoothingTimeSlider.setTextValueSuffix(" ms");
-    smoothingTimeSlider.setTooltip("Time for pitch detection to adapt to changes. "
+    smoothingTimeSlider = std::make_unique<SliderWithReset>("smoothingTimeMs", audioProcessor.parameters);
+    smoothingTimeSlider->slider.setSliderStyle(juce::Slider::RotaryVerticalDrag);
+    smoothingTimeSlider->slider.setTextBoxStyle(juce::Slider::TextBoxBelow, false, 80, 20);
+    smoothingTimeSlider->slider.setTextValueSuffix(" ms");
+    smoothingTimeSlider->slider.setTooltip("Time for pitch detection to adapt to changes. "
                                    "10-50ms = fast response, 150-300ms = natural Doppler flattening, "
                                    "500-1000ms = very smooth ambient drift.");
-    addAndMakeVisible(smoothingTimeSlider);
+    addAndMakeVisible(smoothingTimeSlider.get());
     
     smoothingTimeLabel.setText("Smoothing Time", juce::dontSendNotification);
     smoothingTimeLabel.setJustificationType(juce::Justification::centred);
@@ -212,12 +217,13 @@ PitchFlattenerAudioProcessorEditor::PitchFlattenerAudioProcessorEditor (PitchFla
     addAndMakeVisible(smoothingTimeLabel);
     
     // Mix slider
-    mixSlider.setSliderStyle(juce::Slider::RotaryVerticalDrag);
-    mixSlider.setTextBoxStyle(juce::Slider::TextBoxBelow, false, 60, 20);
-    mixSlider.setTextValueSuffix(" %");
-    mixSlider.setTooltip("Blend between the original (dry) and pitch-flattened (wet) signal. "
+    mixSlider = std::make_unique<SliderWithReset>("mix", audioProcessor.parameters);
+    mixSlider->slider.setSliderStyle(juce::Slider::RotaryVerticalDrag);
+    mixSlider->slider.setTextBoxStyle(juce::Slider::TextBoxBelow, false, 60, 20);
+    mixSlider->slider.setTextValueSuffix(" %");
+    mixSlider->slider.setTooltip("Blend between the original (dry) and pitch-flattened (wet) signal. "
                          "100% = fully processed, 0% = original signal.");
-    addAndMakeVisible(mixSlider);
+    addAndMakeVisible(mixSlider.get());
     
     mixLabel.setText("Mix", juce::dontSendNotification);
     mixLabel.setJustificationType(juce::Justification::centred);
@@ -226,12 +232,13 @@ PitchFlattenerAudioProcessorEditor::PitchFlattenerAudioProcessorEditor (PitchFla
     addAndMakeVisible(mixLabel);
     
     // Lookahead slider
-    lookaheadSlider.setSliderStyle(juce::Slider::RotaryVerticalDrag);
-    lookaheadSlider.setTextBoxStyle(juce::Slider::TextBoxBelow, false, 60, 20);
-    lookaheadSlider.setTextValueSuffix("x");
-    lookaheadSlider.setTooltip("Lookahead buffer multiplier. Higher values provide more consistent processing "
+    lookaheadSlider = std::make_unique<SliderWithReset>("lookahead", audioProcessor.parameters);
+    lookaheadSlider->slider.setSliderStyle(juce::Slider::RotaryVerticalDrag);
+    lookaheadSlider->slider.setTextBoxStyle(juce::Slider::TextBoxBelow, false, 60, 20);
+    lookaheadSlider->slider.setTextValueSuffix("x");
+    lookaheadSlider->slider.setTooltip("Lookahead buffer multiplier. Higher values provide more consistent processing "
                                "but increase latency. 2x = buffer 2x the block size ahead.");
-    addAndMakeVisible(lookaheadSlider);
+    addAndMakeVisible(lookaheadSlider.get());
     
     lookaheadLabel.setText("Lookahead", juce::dontSendNotification);
     lookaheadLabel.setJustificationType(juce::Justification::centred);
@@ -245,11 +252,12 @@ PitchFlattenerAudioProcessorEditor::PitchFlattenerAudioProcessorEditor (PitchFla
     manualOverrideButton.setTooltip("Enable to use a fixed frequency instead of auto-detected base pitch");
     addAndMakeVisible(manualOverrideButton);
     
-    overrideFreqSlider.setSliderStyle(juce::Slider::LinearHorizontal);
-    overrideFreqSlider.setTextBoxStyle(juce::Slider::TextBoxRight, false, 60, 20);
-    overrideFreqSlider.setTextValueSuffix(" Hz");
-    overrideFreqSlider.setTooltip("Manual frequency to flatten to when override is enabled");
-    addAndMakeVisible(overrideFreqSlider);
+    overrideFreqSlider = std::make_unique<SliderWithReset>("overrideFreq", audioProcessor.parameters);
+    overrideFreqSlider->slider.setSliderStyle(juce::Slider::LinearHorizontal);
+    overrideFreqSlider->slider.setTextBoxStyle(juce::Slider::TextBoxRight, false, 60, 20);
+    overrideFreqSlider->slider.setTextValueSuffix(" Hz");
+    overrideFreqSlider->slider.setTooltip("Manual frequency to flatten to when override is enabled");
+    addAndMakeVisible(overrideFreqSlider.get());
     
     overrideFreqLabel.setText("Override Freq:", juce::dontSendNotification);
     overrideFreqLabel.setColour(juce::Label::textColourId, juce::Colours::white);
@@ -286,11 +294,12 @@ PitchFlattenerAudioProcessorEditor::PitchFlattenerAudioProcessorEditor (PitchFla
     addAndMakeVisible(latchStatusValueLabel);
     
     // Flatten sensitivity control
-    flattenSensitivitySlider.setSliderStyle(juce::Slider::LinearHorizontal);
-    flattenSensitivitySlider.setTextBoxStyle(juce::Slider::TextBoxRight, false, 60, 20);
-    flattenSensitivitySlider.setTextValueSuffix(" %");
-    flattenSensitivitySlider.setTooltip("Ignore pitch variations smaller than this percentage. 0% = flatten all variations, 5% = ignore small wobbles");
-    addAndMakeVisible(flattenSensitivitySlider);
+    flattenSensitivitySlider = std::make_unique<SliderWithReset>("flattenSensitivity", audioProcessor.parameters);
+    flattenSensitivitySlider->slider.setSliderStyle(juce::Slider::LinearHorizontal);
+    flattenSensitivitySlider->slider.setTextBoxStyle(juce::Slider::TextBoxRight, false, 60, 20);
+    flattenSensitivitySlider->slider.setTextValueSuffix(" %");
+    flattenSensitivitySlider->slider.setTooltip("Ignore pitch variations smaller than this percentage. 0% = flatten all variations, 5% = ignore small wobbles");
+    addAndMakeVisible(flattenSensitivitySlider.get());
     
     flattenSensitivityLabel.setText("Sensitivity:", juce::dontSendNotification);
     flattenSensitivityLabel.setColour(juce::Label::textColourId, juce::Colours::white);
@@ -316,54 +325,59 @@ PitchFlattenerAudioProcessorEditor::PitchFlattenerAudioProcessorEditor (PitchFla
     addAndMakeVisible(basePitchValueLabel);
     
     // Pitch detection controls
-    detectionRateSlider.setSliderStyle(juce::Slider::LinearHorizontal);
-    detectionRateSlider.setTextBoxStyle(juce::Slider::TextBoxRight, false, 60, 20);
-    detectionRateSlider.setTextValueSuffix(" smp");
-    detectionRateSlider.setTooltip("How often pitch detection runs (in samples). Lower = more responsive but more CPU. 64-128 samples recommended.");
-    addAndMakeVisible(detectionRateSlider);
+    detectionRateSlider = std::make_unique<SliderWithReset>("detectionRate", audioProcessor.parameters);
+    detectionRateSlider->slider.setSliderStyle(juce::Slider::LinearHorizontal);
+    detectionRateSlider->slider.setTextBoxStyle(juce::Slider::TextBoxRight, false, 60, 20);
+    detectionRateSlider->slider.setTextValueSuffix(" smp");
+    detectionRateSlider->slider.setTooltip("How often pitch detection runs (in samples). Lower = more responsive but more CPU. 64-128 samples recommended.");
+    addAndMakeVisible(detectionRateSlider.get());
     
     detectionRateLabel.setText("Detection Rate:", juce::dontSendNotification);
     detectionRateLabel.setColour(juce::Label::textColourId, juce::Colours::white);
     detectionRateLabel.setTooltip("How often pitch detection runs (in samples)");
     addAndMakeVisible(detectionRateLabel);
     
-    pitchThresholdSlider.setSliderStyle(juce::Slider::LinearHorizontal);
-    pitchThresholdSlider.setTextBoxStyle(juce::Slider::TextBoxRight, false, 60, 20);
-    pitchThresholdSlider.setTooltip("Pitch detection confidence threshold. Lower = more sensitive but may get false detections. 0.10-0.15 recommended.");
-    addAndMakeVisible(pitchThresholdSlider);
+    pitchThresholdSlider = std::make_unique<SliderWithReset>("pitchThreshold", audioProcessor.parameters);
+    pitchThresholdSlider->slider.setSliderStyle(juce::Slider::LinearHorizontal);
+    pitchThresholdSlider->slider.setTextBoxStyle(juce::Slider::TextBoxRight, false, 60, 20);
+    pitchThresholdSlider->slider.setTooltip("Pitch detection confidence threshold. Lower = more sensitive but may get false detections. 0.10-0.15 recommended.");
+    addAndMakeVisible(pitchThresholdSlider.get());
     
     pitchThresholdLabel.setText("Threshold:", juce::dontSendNotification);
     pitchThresholdLabel.setColour(juce::Label::textColourId, juce::Colours::white);
     pitchThresholdLabel.setTooltip("Detection sensitivity - lower values detect weaker pitches");
     addAndMakeVisible(pitchThresholdLabel);
     
-    minFreqSlider.setSliderStyle(juce::Slider::LinearHorizontal);
-    minFreqSlider.setTextBoxStyle(juce::Slider::TextBoxRight, false, 60, 20);
-    minFreqSlider.setTextValueSuffix(" Hz");
-    minFreqSlider.setTooltip("Minimum frequency to detect. Set this below your source's lowest expected pitch.");
-    addAndMakeVisible(minFreqSlider);
+    minFreqSlider = std::make_unique<SliderWithReset>("minFreq", audioProcessor.parameters);
+    minFreqSlider->slider.setSliderStyle(juce::Slider::LinearHorizontal);
+    minFreqSlider->slider.setTextBoxStyle(juce::Slider::TextBoxRight, false, 60, 20);
+    minFreqSlider->slider.setTextValueSuffix(" Hz");
+    minFreqSlider->slider.setTooltip("Minimum frequency to detect. Set this below your source's lowest expected pitch.");
+    addAndMakeVisible(minFreqSlider.get());
     
     minFreqLabel.setText("Min Freq:", juce::dontSendNotification);
     minFreqLabel.setColour(juce::Label::textColourId, juce::Colours::white);
     minFreqLabel.setTooltip("Lowest frequency the detector will look for");
     addAndMakeVisible(minFreqLabel);
     
-    maxFreqSlider.setSliderStyle(juce::Slider::LinearHorizontal);
-    maxFreqSlider.setTextBoxStyle(juce::Slider::TextBoxRight, false, 60, 20);
-    maxFreqSlider.setTextValueSuffix(" Hz");
-    maxFreqSlider.setTooltip("Maximum frequency to detect. Set this above your source's highest expected pitch.");
-    addAndMakeVisible(maxFreqSlider);
+    maxFreqSlider = std::make_unique<SliderWithReset>("maxFreq", audioProcessor.parameters);
+    maxFreqSlider->slider.setSliderStyle(juce::Slider::LinearHorizontal);
+    maxFreqSlider->slider.setTextBoxStyle(juce::Slider::TextBoxRight, false, 60, 20);
+    maxFreqSlider->slider.setTextValueSuffix(" Hz");
+    maxFreqSlider->slider.setTooltip("Maximum frequency to detect. Set this above your source's highest expected pitch.");
+    addAndMakeVisible(maxFreqSlider.get());
     
     maxFreqLabel.setText("Max Freq:", juce::dontSendNotification);
     maxFreqLabel.setColour(juce::Label::textColourId, juce::Colours::white);
     maxFreqLabel.setTooltip("Highest frequency the detector will look for");
     addAndMakeVisible(maxFreqLabel);
     
-    volumeThresholdSlider.setSliderStyle(juce::Slider::LinearHorizontal);
-    volumeThresholdSlider.setTextBoxStyle(juce::Slider::TextBoxRight, false, 60, 20);
-    volumeThresholdSlider.setTextValueSuffix(" dB");
-    volumeThresholdSlider.setTooltip("Minimum volume level for pitch detection to activate. Signal must be louder than this to detect pitch.");
-    addAndMakeVisible(volumeThresholdSlider);
+    volumeThresholdSlider = std::make_unique<SliderWithReset>("volumeThreshold", audioProcessor.parameters);
+    volumeThresholdSlider->slider.setSliderStyle(juce::Slider::LinearHorizontal);
+    volumeThresholdSlider->slider.setTextBoxStyle(juce::Slider::TextBoxRight, false, 60, 20);
+    volumeThresholdSlider->slider.setTextValueSuffix(" dB");
+    volumeThresholdSlider->slider.setTooltip("Minimum volume level for pitch detection to activate. Signal must be louder than this to detect pitch.");
+    addAndMakeVisible(volumeThresholdSlider.get());
     
     volumeThresholdLabel.setText("Volume Gate:", juce::dontSendNotification);
     volumeThresholdLabel.setColour(juce::Label::textColourId, juce::Colours::white);
@@ -377,42 +391,46 @@ PitchFlattenerAudioProcessorEditor::PitchFlattenerAudioProcessorEditor (PitchFla
     addAndMakeVisible(volumeLevelLabel);
     
     // Advanced pitch detection controls
-    pitchHoldTimeSlider.setSliderStyle(juce::Slider::LinearHorizontal);
-    pitchHoldTimeSlider.setTextBoxStyle(juce::Slider::TextBoxRight, false, 60, 20);
-    pitchHoldTimeSlider.setTextValueSuffix(" ms");
-    pitchHoldTimeSlider.setTooltip("Time to hold current pitch before accepting a new one. Prevents rapid jumping between pitches. 200-500ms recommended.");
-    addAndMakeVisible(pitchHoldTimeSlider);
+    pitchHoldTimeSlider = std::make_unique<SliderWithReset>("pitchHoldTime", audioProcessor.parameters);
+    pitchHoldTimeSlider->slider.setSliderStyle(juce::Slider::LinearHorizontal);
+    pitchHoldTimeSlider->slider.setTextBoxStyle(juce::Slider::TextBoxRight, false, 60, 20);
+    pitchHoldTimeSlider->slider.setTextValueSuffix(" ms");
+    pitchHoldTimeSlider->slider.setTooltip("Time to hold current pitch before accepting a new one. Prevents rapid jumping between pitches. 200-500ms recommended.");
+    addAndMakeVisible(pitchHoldTimeSlider.get());
     
     pitchHoldTimeLabel.setText("Hold Time:", juce::dontSendNotification);
     pitchHoldTimeLabel.setColour(juce::Label::textColourId, juce::Colours::white);
     pitchHoldTimeLabel.setTooltip("Minimum time before switching to a new pitch");
     addAndMakeVisible(pitchHoldTimeLabel);
     
-    pitchJumpThresholdSlider.setSliderStyle(juce::Slider::LinearHorizontal);
-    pitchJumpThresholdSlider.setTextBoxStyle(juce::Slider::TextBoxRight, false, 60, 20);
-    pitchJumpThresholdSlider.setTextValueSuffix(" Hz");
-    pitchJumpThresholdSlider.setTooltip("Maximum allowed pitch jump in Hz. Larger jumps are rejected as false detections. 50-200Hz prevents octave errors.");
-    addAndMakeVisible(pitchJumpThresholdSlider);
+    pitchJumpThresholdSlider = std::make_unique<SliderWithReset>("pitchJumpThreshold", audioProcessor.parameters);
+    pitchJumpThresholdSlider->slider.setSliderStyle(juce::Slider::LinearHorizontal);
+    pitchJumpThresholdSlider->slider.setTextBoxStyle(juce::Slider::TextBoxRight, false, 60, 20);
+    pitchJumpThresholdSlider->slider.setTextValueSuffix(" Hz");
+    pitchJumpThresholdSlider->slider.setTooltip("Maximum allowed pitch jump in Hz. Larger jumps are rejected as false detections. 50-200Hz prevents octave errors.");
+    addAndMakeVisible(pitchJumpThresholdSlider.get());
     
     pitchJumpThresholdLabel.setText("Jump Limit:", juce::dontSendNotification);
     pitchJumpThresholdLabel.setColour(juce::Label::textColourId, juce::Colours::white);
     pitchJumpThresholdLabel.setTooltip("Maximum Hz change allowed between detections");
     addAndMakeVisible(pitchJumpThresholdLabel);
     
-    minConfidenceSlider.setSliderStyle(juce::Slider::LinearHorizontal);
-    minConfidenceSlider.setTextBoxStyle(juce::Slider::TextBoxRight, false, 60, 20);
-    minConfidenceSlider.setTooltip("Minimum confidence level to accept a pitch. Higher values = more stable but may miss quick changes. 0.5-0.8 is typical.");
-    addAndMakeVisible(minConfidenceSlider);
+    minConfidenceSlider = std::make_unique<SliderWithReset>("minConfidence", audioProcessor.parameters);
+    minConfidenceSlider->slider.setSliderStyle(juce::Slider::LinearHorizontal);
+    minConfidenceSlider->slider.setTextBoxStyle(juce::Slider::TextBoxRight, false, 60, 20);
+    minConfidenceSlider->slider.setTooltip("Minimum confidence level to accept a pitch. Higher values = more stable but may miss quick changes. 0.5-0.8 is typical.");
+    addAndMakeVisible(minConfidenceSlider.get());
     
     minConfidenceLabel.setText("Confidence:", juce::dontSendNotification);
     minConfidenceLabel.setColour(juce::Label::textColourId, juce::Colours::white);
     minConfidenceLabel.setTooltip("How certain the detector must be before accepting a pitch");
     addAndMakeVisible(minConfidenceLabel);
     
-    pitchSmoothingSlider.setSliderStyle(juce::Slider::LinearHorizontal);
-    pitchSmoothingSlider.setTextBoxStyle(juce::Slider::TextBoxRight, false, 60, 20);
-    pitchSmoothingSlider.setTooltip("Additional smoothing for pitch detection. 0 = no smoothing, 0.99 = maximum smoothing. 0.8-0.9 reduces jitter.");
-    addAndMakeVisible(pitchSmoothingSlider);
+    pitchSmoothingSlider = std::make_unique<SliderWithReset>("pitchSmoothing", audioProcessor.parameters);
+    pitchSmoothingSlider->slider.setSliderStyle(juce::Slider::LinearHorizontal);
+    pitchSmoothingSlider->slider.setTextBoxStyle(juce::Slider::TextBoxRight, false, 60, 20);
+    pitchSmoothingSlider->slider.setTooltip("Additional smoothing for pitch detection. 0 = no smoothing, 0.99 = maximum smoothing. 0.8-0.9 reduces jitter.");
+    addAndMakeVisible(pitchSmoothingSlider.get());
     
     pitchSmoothingLabel.setText("Smoothing:", juce::dontSendNotification);
     pitchSmoothingLabel.setColour(juce::Label::textColourId, juce::Colours::white);
@@ -420,22 +438,24 @@ PitchFlattenerAudioProcessorEditor::PitchFlattenerAudioProcessorEditor (PitchFla
     addAndMakeVisible(pitchSmoothingLabel);
     
     // Detection filter controls
-    detectionHighpassSlider.setSliderStyle(juce::Slider::LinearHorizontal);
-    detectionHighpassSlider.setTextBoxStyle(juce::Slider::TextBoxRight, false, 60, 20);
-    detectionHighpassSlider.setTextValueSuffix(" Hz");
-    detectionHighpassSlider.setTooltip("High-pass filter for pitch detection. Cuts out low frequencies to improve detection accuracy.");
-    addAndMakeVisible(detectionHighpassSlider);
+    detectionHighpassSlider = std::make_unique<SliderWithReset>("detectionHighpass", audioProcessor.parameters);
+    detectionHighpassSlider->slider.setSliderStyle(juce::Slider::LinearHorizontal);
+    detectionHighpassSlider->slider.setTextBoxStyle(juce::Slider::TextBoxRight, false, 60, 20);
+    detectionHighpassSlider->slider.setTextValueSuffix(" Hz");
+    detectionHighpassSlider->slider.setTooltip("High-pass filter for pitch detection. Cuts out low frequencies to improve detection accuracy.");
+    addAndMakeVisible(detectionHighpassSlider.get());
     
     detectionHighpassLabel.setText("Detection HP:", juce::dontSendNotification);
     detectionHighpassLabel.setColour(juce::Label::textColourId, juce::Colours::white);
     detectionHighpassLabel.setTooltip("High-pass filter frequency for pitch detection signal");
     addAndMakeVisible(detectionHighpassLabel);
     
-    detectionLowpassSlider.setSliderStyle(juce::Slider::LinearHorizontal);
-    detectionLowpassSlider.setTextBoxStyle(juce::Slider::TextBoxRight, false, 60, 20);
-    detectionLowpassSlider.setTextValueSuffix(" Hz");
-    detectionLowpassSlider.setTooltip("Low-pass filter for pitch detection. Cuts out high frequencies to reduce noise. 6kHz gives good results.");
-    addAndMakeVisible(detectionLowpassSlider);
+    detectionLowpassSlider = std::make_unique<SliderWithReset>("detectionLowpass", audioProcessor.parameters);
+    detectionLowpassSlider->slider.setSliderStyle(juce::Slider::LinearHorizontal);
+    detectionLowpassSlider->slider.setTextBoxStyle(juce::Slider::TextBoxRight, false, 60, 20);
+    detectionLowpassSlider->slider.setTextValueSuffix(" Hz");
+    detectionLowpassSlider->slider.setTooltip("Low-pass filter for pitch detection. Cuts out high frequencies to reduce noise. 6kHz gives good results.");
+    addAndMakeVisible(detectionLowpassSlider.get());
     
     detectionLowpassLabel.setText("Detection LP:", juce::dontSendNotification);
     detectionLowpassLabel.setColour(juce::Label::textColourId, juce::Colours::white);
@@ -454,52 +474,57 @@ PitchFlattenerAudioProcessorEditor::PitchFlattenerAudioProcessorEditor (PitchFla
     addAndMakeVisible(pitchAlgorithmLabel);
     
     // DIO-specific controls
-    dioSpeedSlider.setSliderStyle(juce::Slider::LinearHorizontal);
-    dioSpeedSlider.setTextBoxStyle(juce::Slider::TextBoxRight, false, 60, 20);
-    dioSpeedSlider.setTooltip("DIO analysis speed. 1=fastest (best for real-time), 12=most accurate (slower). Lower values are more responsive.");
-    addAndMakeVisible(dioSpeedSlider);
+    dioSpeedSlider = std::make_unique<SliderWithReset>("dioSpeed", audioProcessor.parameters);
+    dioSpeedSlider->slider.setSliderStyle(juce::Slider::LinearHorizontal);
+    dioSpeedSlider->slider.setTextBoxStyle(juce::Slider::TextBoxRight, false, 60, 20);
+    dioSpeedSlider->slider.setTooltip("DIO analysis speed. 1=fastest (best for real-time), 12=most accurate (slower). Lower values are more responsive.");
+    addAndMakeVisible(dioSpeedSlider.get());
     
     dioSpeedLabel.setText("DIO Speed:", juce::dontSendNotification);
     dioSpeedLabel.setColour(juce::Label::textColourId, juce::Colours::white);
     dioSpeedLabel.setTooltip("Processing speed vs accuracy tradeoff");
     addAndMakeVisible(dioSpeedLabel);
     
-    dioFramePeriodSlider.setSliderStyle(juce::Slider::LinearHorizontal);
-    dioFramePeriodSlider.setTextBoxStyle(juce::Slider::TextBoxRight, false, 60, 20);
-    dioFramePeriodSlider.setTextValueSuffix(" ms");
-    dioFramePeriodSlider.setTooltip("Frame analysis period in milliseconds. Lower values = more responsive but more CPU.");
-    addAndMakeVisible(dioFramePeriodSlider);
+    dioFramePeriodSlider = std::make_unique<SliderWithReset>("dioFramePeriod", audioProcessor.parameters);
+    dioFramePeriodSlider->slider.setSliderStyle(juce::Slider::LinearHorizontal);
+    dioFramePeriodSlider->slider.setTextBoxStyle(juce::Slider::TextBoxRight, false, 60, 20);
+    dioFramePeriodSlider->slider.setTextValueSuffix(" ms");
+    dioFramePeriodSlider->slider.setTooltip("Frame analysis period in milliseconds. Lower values = more responsive but more CPU.");
+    addAndMakeVisible(dioFramePeriodSlider.get());
     
     dioFramePeriodLabel.setText("Frame Period:", juce::dontSendNotification);
     dioFramePeriodLabel.setColour(juce::Label::textColourId, juce::Colours::white);
     dioFramePeriodLabel.setTooltip("How often DIO analyzes pitch");
     addAndMakeVisible(dioFramePeriodLabel);
     
-    dioAllowedRangeSlider.setSliderStyle(juce::Slider::LinearHorizontal);
-    dioAllowedRangeSlider.setTextBoxStyle(juce::Slider::TextBoxRight, false, 60, 20);
-    dioAllowedRangeSlider.setTooltip("Threshold for fixing F0 contour. Lower = more strict pitch tracking, higher = allows more variation.");
-    addAndMakeVisible(dioAllowedRangeSlider);
+    dioAllowedRangeSlider = std::make_unique<SliderWithReset>("dioAllowedRange", audioProcessor.parameters);
+    dioAllowedRangeSlider->slider.setSliderStyle(juce::Slider::LinearHorizontal);
+    dioAllowedRangeSlider->slider.setTextBoxStyle(juce::Slider::TextBoxRight, false, 60, 20);
+    dioAllowedRangeSlider->slider.setTooltip("Threshold for fixing F0 contour. Lower = more strict pitch tracking, higher = allows more variation.");
+    addAndMakeVisible(dioAllowedRangeSlider.get());
     
     dioAllowedRangeLabel.setText("Allowed Range:", juce::dontSendNotification);
     dioAllowedRangeLabel.setColour(juce::Label::textColourId, juce::Colours::white);
     dioAllowedRangeLabel.setTooltip("F0 contour smoothing threshold");
     addAndMakeVisible(dioAllowedRangeLabel);
     
-    dioChannelsSlider.setSliderStyle(juce::Slider::LinearHorizontal);
-    dioChannelsSlider.setTextBoxStyle(juce::Slider::TextBoxRight, false, 60, 20);
-    dioChannelsSlider.setTooltip("Frequency resolution. More channels = better frequency accuracy but more CPU. 2-4 recommended.");
-    addAndMakeVisible(dioChannelsSlider);
+    dioChannelsSlider = std::make_unique<SliderWithReset>("dioChannelsInOctave", audioProcessor.parameters);
+    dioChannelsSlider->slider.setSliderStyle(juce::Slider::LinearHorizontal);
+    dioChannelsSlider->slider.setTextBoxStyle(juce::Slider::TextBoxRight, false, 60, 20);
+    dioChannelsSlider->slider.setTooltip("Frequency resolution. More channels = better frequency accuracy but more CPU. 2-4 recommended.");
+    addAndMakeVisible(dioChannelsSlider.get());
     
     dioChannelsLabel.setText("Channels/Oct:", juce::dontSendNotification);
     dioChannelsLabel.setColour(juce::Label::textColourId, juce::Colours::white);
     dioChannelsLabel.setTooltip("Frequency analysis resolution");
     addAndMakeVisible(dioChannelsLabel);
     
-    dioBufferTimeSlider.setSliderStyle(juce::Slider::LinearHorizontal);
-    dioBufferTimeSlider.setTextBoxStyle(juce::Slider::TextBoxRight, false, 60, 20);
-    dioBufferTimeSlider.setTextValueSuffix(" s");
-    dioBufferTimeSlider.setTooltip("Analysis buffer time. Larger = better accuracy but more latency. You'll get silence for this duration when switching to DIO.");
-    addAndMakeVisible(dioBufferTimeSlider);
+    dioBufferTimeSlider = std::make_unique<SliderWithReset>("dioBufferTime", audioProcessor.parameters);
+    dioBufferTimeSlider->slider.setSliderStyle(juce::Slider::LinearHorizontal);
+    dioBufferTimeSlider->slider.setTextBoxStyle(juce::Slider::TextBoxRight, false, 60, 20);
+    dioBufferTimeSlider->slider.setTextValueSuffix(" s");
+    dioBufferTimeSlider->slider.setTooltip("Analysis buffer time. Larger = better accuracy but more latency. You'll get silence for this duration when switching to DIO.");
+    addAndMakeVisible(dioBufferTimeSlider.get());
     
     dioBufferTimeLabel.setText("Buffer Time:", juce::dontSendNotification);
     dioBufferTimeLabel.setColour(juce::Label::textColourId, juce::Colours::white);
@@ -515,83 +540,45 @@ PitchFlattenerAudioProcessorEditor::PitchFlattenerAudioProcessorEditor (PitchFla
     addAndMakeVisible(statusLabel);
     
     // Attachments
-    targetPitchAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
-        audioProcessor.parameters, "targetPitch", targetPitchSlider);
-    
-    smoothingTimeAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
-        audioProcessor.parameters, "smoothingTimeMs", smoothingTimeSlider);
-    
-    mixAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
-        audioProcessor.parameters, "mix", mixSlider);
-    
-    lookaheadAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
-        audioProcessor.parameters, "lookahead", lookaheadSlider);
+    targetPitchAttachment = targetPitchSlider->createAttachment();
+    smoothingTimeAttachment = smoothingTimeSlider->createAttachment();
+    mixAttachment = mixSlider->createAttachment();
+    lookaheadAttachment = lookaheadSlider->createAttachment();
     
     manualOverrideAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment>(
         audioProcessor.parameters, "manualOverride", manualOverrideButton);
     
-    overrideFreqAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
-        audioProcessor.parameters, "overrideFreq", overrideFreqSlider);
+    overrideFreqAttachment = overrideFreqSlider->createAttachment();
+    detectionRateAttachment = detectionRateSlider->createAttachment();
+    pitchThresholdAttachment = pitchThresholdSlider->createAttachment();
+    minFreqAttachment = minFreqSlider->createAttachment();
+    maxFreqAttachment = maxFreqSlider->createAttachment();
     
-    detectionRateAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
-        audioProcessor.parameters, "detectionRate", detectionRateSlider);
-    
-    pitchThresholdAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
-        audioProcessor.parameters, "pitchThreshold", pitchThresholdSlider);
-    
-    minFreqAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
-        audioProcessor.parameters, "minFreq", minFreqSlider);
-    
-    maxFreqAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
-        audioProcessor.parameters, "maxFreq", maxFreqSlider);
-    
-    volumeThresholdAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
-        audioProcessor.parameters, "volumeThreshold", volumeThresholdSlider);
-    
-    pitchHoldTimeAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
-        audioProcessor.parameters, "pitchHoldTime", pitchHoldTimeSlider);
-    
-    pitchJumpThresholdAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
-        audioProcessor.parameters, "pitchJumpThreshold", pitchJumpThresholdSlider);
-    
-    minConfidenceAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
-        audioProcessor.parameters, "minConfidence", minConfidenceSlider);
-    
-    pitchSmoothingAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
-        audioProcessor.parameters, "pitchSmoothing", pitchSmoothingSlider);
+    volumeThresholdAttachment = volumeThresholdSlider->createAttachment();
+    pitchHoldTimeAttachment = pitchHoldTimeSlider->createAttachment();
+    pitchJumpThresholdAttachment = pitchJumpThresholdSlider->createAttachment();
+    minConfidenceAttachment = minConfidenceSlider->createAttachment();
+    pitchSmoothingAttachment = pitchSmoothingSlider->createAttachment();
     
     basePitchLatchAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment>(
         audioProcessor.parameters, "basePitchLatch", basePitchLatchButton);
     
-    flattenSensitivityAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
-        audioProcessor.parameters, "flattenSensitivity", flattenSensitivitySlider);
+    flattenSensitivityAttachment = flattenSensitivitySlider->createAttachment();
     
     hardFlattenModeAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment>(
         audioProcessor.parameters, "hardFlattenMode", hardFlattenModeButton);
     
-    detectionHighpassAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
-        audioProcessor.parameters, "detectionHighpass", detectionHighpassSlider);
-    
-    detectionLowpassAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
-        audioProcessor.parameters, "detectionLowpass", detectionLowpassSlider);
+    detectionHighpassAttachment = detectionHighpassSlider->createAttachment();
+    detectionLowpassAttachment = detectionLowpassSlider->createAttachment();
     
     pitchAlgorithmAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment>(
         audioProcessor.parameters, "pitchAlgorithm", pitchAlgorithmSelector);
     
-    dioSpeedAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
-        audioProcessor.parameters, "dioSpeed", dioSpeedSlider);
-    
-    dioFramePeriodAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
-        audioProcessor.parameters, "dioFramePeriod", dioFramePeriodSlider);
-    
-    dioAllowedRangeAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
-        audioProcessor.parameters, "dioAllowedRange", dioAllowedRangeSlider);
-    
-    dioChannelsAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
-        audioProcessor.parameters, "dioChannelsInOctave", dioChannelsSlider);
-    
-    dioBufferTimeAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
-        audioProcessor.parameters, "dioBufferTime", dioBufferTimeSlider);
+    dioSpeedAttachment = dioSpeedSlider->createAttachment();
+    dioFramePeriodAttachment = dioFramePeriodSlider->createAttachment();
+    dioAllowedRangeAttachment = dioAllowedRangeSlider->createAttachment();
+    dioChannelsAttachment = dioChannelsSlider->createAttachment();
+    dioBufferTimeAttachment = dioBufferTimeSlider->createAttachment();
     
     // Setup algorithm change callback
     pitchAlgorithmSelector.onChange = [this]() { updateAlgorithmControls(); };
@@ -604,11 +591,11 @@ PitchFlattenerAudioProcessorEditor::PitchFlattenerAudioProcessorEditor (PitchFla
     };
     
     // Convert mix slider to percentage display
-    mixSlider.textFromValueFunction = [](double value) {
+    mixSlider->slider.textFromValueFunction = [](double value) {
         return juce::String(static_cast<int>(value * 100));
     };
     
-    mixSlider.valueFromTextFunction = [](const juce::String& text) {
+    mixSlider->slider.valueFromTextFunction = [](const juce::String& text) {
         return text.getDoubleValue() / 100.0;
     };
     
@@ -622,9 +609,9 @@ PitchFlattenerAudioProcessorEditor::PitchFlattenerAudioProcessorEditor (PitchFla
     updateAlgorithmControls();
     
     // Set size at the end after all components are created
-    setSize (950, 850);  // Wider and longer layout to accommodate all elements
+    setSize (1100, 800);  // Wider to accommodate reset buttons
     setResizable(true, true);
-    setResizeLimits(850, 750, 1300, 1100);
+    setResizeLimits(900, 700, 1400, 1000);
 }
 
 PitchFlattenerAudioProcessorEditor::~PitchFlattenerAudioProcessorEditor()
@@ -634,36 +621,54 @@ PitchFlattenerAudioProcessorEditor::~PitchFlattenerAudioProcessorEditor()
 
 void PitchFlattenerAudioProcessorEditor::paint (juce::Graphics& g)
 {
-    // Dark background
-    g.fillAll(juce::Colours::darkgrey.darker().darker());
+    // Gradient background for more depth
+    auto bgColour1 = juce::Colour(0xff1a1a1a);
+    auto bgColour2 = juce::Colour(0xff2a2a2a);
+    g.setGradientFill(juce::ColourGradient(bgColour1, 0, 0, 
+                                           bgColour2, 0, static_cast<float>(getHeight()), false));
+    g.fillAll();
     
-    // Draw pitch meter background
-    g.setColour(juce::Colours::darkgrey);
-    g.fillRoundedRectangle(10, 60, getWidth() - 20, 120, 10);
+    // Draw pitch meter background with subtle gradient
+    auto meterBounds = juce::Rectangle<float>(10, 65, getWidth() - 20, 140);
+    g.setGradientFill(juce::ColourGradient(juce::Colour(0xff2a2a2a), meterBounds.getX(), meterBounds.getY(),
+                                           juce::Colour(0xff1f1f1f), meterBounds.getX(), meterBounds.getBottom(), false));
+    g.fillRoundedRectangle(meterBounds, 12);
     
-    // Draw subtle border around pitch meter
-    g.setColour(juce::Colours::darkgrey.darker());
-    g.drawRoundedRectangle(10, 60, getWidth() - 20, 120, 10, 2);
+    // Draw subtle inner shadow for depth
+    g.setColour(juce::Colours::black.withAlpha(0.3f));
+    g.drawRoundedRectangle(meterBounds.reduced(1), 11, 1);
+    
+    // Draw subtle highlight on top edge
+    g.setColour(juce::Colours::white.withAlpha(0.05f));
+    g.drawLine(meterBounds.getX() + 12, meterBounds.getY() + 1, 
+               meterBounds.getRight() - 12, meterBounds.getY() + 1, 1);
     
     // Draw subtle backgrounds for panels
     auto bounds = getLocalBounds();
-    bounds.removeFromTop(210); // Skip header, meter and status label
-    auto mainArea = bounds.reduced(10, 0);
-    auto leftPanelWidth = mainArea.getWidth() * 0.55f;
+    bounds.removeFromTop(235); // Skip header, preset bar, meter and status label
+    auto mainArea = bounds.reduced(15, 0);
+    auto leftPanelWidth = static_cast<int>(mainArea.getWidth() * 0.52f);
     
-    // Left panel background
-    g.setColour(juce::Colours::darkgrey.withAlpha(0.3f));
-    g.fillRoundedRectangle(mainArea.getX(), mainArea.getY(), 
-                           leftPanelWidth - 5, mainArea.getHeight() - 10, 10);
+    // Left panel background with subtle gradient
+    auto leftPanelBounds = juce::Rectangle<float>(mainArea.getX(), mainArea.getY(), 
+                                                  leftPanelWidth - 8, mainArea.getHeight() - 15);
+    g.setGradientFill(juce::ColourGradient(juce::Colour(0xff252525), leftPanelBounds.getCentreX(), leftPanelBounds.getY(),
+                                           juce::Colour(0xff1f1f1f), leftPanelBounds.getCentreX(), leftPanelBounds.getBottom(), false));
+    g.fillRoundedRectangle(leftPanelBounds, 12);
     
     // Right panel background
-    g.fillRoundedRectangle(mainArea.getX() + leftPanelWidth + 5, mainArea.getY(), 
-                           mainArea.getWidth() - leftPanelWidth - 5, mainArea.getHeight() - 10, 10);
+    auto rightPanelBounds = juce::Rectangle<float>(mainArea.getX() + leftPanelWidth + 8, mainArea.getY(), 
+                                                   mainArea.getWidth() - leftPanelWidth - 8, mainArea.getHeight() - 15);
+    g.setGradientFill(juce::ColourGradient(juce::Colour(0xff252525), rightPanelBounds.getCentreX(), rightPanelBounds.getY(),
+                                           juce::Colour(0xff1f1f1f), rightPanelBounds.getCentreX(), rightPanelBounds.getBottom(), false));
+    g.fillRoundedRectangle(rightPanelBounds, 12);
     
-    // Draw subtle separator line
-    g.setColour(juce::Colours::grey.withAlpha(0.3f));
-    g.drawLine(mainArea.getX() + leftPanelWidth, mainArea.getY() + 20, 
-               mainArea.getX() + leftPanelWidth, mainArea.getBottom() - 20, 1.0f);
+    // Draw subtle separator with gradient
+    auto sepX = mainArea.getX() + leftPanelWidth;
+    g.setGradientFill(juce::ColourGradient(juce::Colours::transparentBlack, 0, mainArea.getY() + 20,
+                                           juce::Colours::grey.withAlpha(0.2f), 0, mainArea.getCentreY(),
+                                           false));
+    g.drawLine(sepX, mainArea.getY() + 20, sepX, mainArea.getBottom() - 20, 1.0f);
 }
 
 void PitchFlattenerAudioProcessorEditor::resized()
@@ -674,9 +679,13 @@ void PitchFlattenerAudioProcessorEditor::resized()
     websiteLink.setBounds(area.removeFromTop(20));
     titleLabel.setBounds(area.removeFromTop(40));
     
-    // Pitch meter section - full width
-    area.removeFromTop(10); // Space before pitch meter
-    auto meterArea = area.removeFromTop(120).reduced(20, 10);
+    // Preset Manager section - more compact
+    area.removeFromTop(3);
+    presetManager->setBounds(area.removeFromTop(30).reduced(15, 0));
+    
+    // Pitch meter section - full width with proper height
+    area.removeFromTop(5); // Space before pitch meter
+    auto meterArea = area.removeFromTop(140).reduced(15, 5);
     pitchMeter.setBounds(meterArea);
     
     // Status label positioned in the lower part of the dark grey meter area
@@ -687,11 +696,11 @@ void PitchFlattenerAudioProcessorEditor::resized()
     statusArea.setHeight(20);
     statusLabel.setBounds(statusArea.reduced(20, 0));
     
-    area.removeFromTop(30); // More space after status label
+    area.removeFromTop(20); // Space after status label
     
     // Split into left and right sections
-    auto mainArea = area.reduced(10, 0);
-    auto leftPanelWidth = mainArea.getWidth() * 0.55f; // 55% for main controls
+    auto mainArea = area.reduced(15, 0);
+    auto leftPanelWidth = static_cast<int>(mainArea.getWidth() * 0.52f); // 52% for main controls to accommodate reset buttons
     auto leftPanel = mainArea.removeFromLeft(leftPanelWidth);
     mainArea.removeFromLeft(10); // Gap between panels
     auto rightPanel = mainArea;
@@ -705,9 +714,9 @@ void PitchFlattenerAudioProcessorEditor::resized()
     leftContent.removeFromTop(5);
     
     // Target pitch (larger, centered)
-    auto targetArea = leftContent.removeFromTop(130);
-    targetPitchLabel.setBounds(targetArea.removeFromTop(25));
-    targetPitchSlider.setBounds(targetArea.withSizeKeepingCentre(100, 100));
+    auto targetArea = leftContent.removeFromTop(125);
+    targetPitchLabel.setBounds(targetArea.removeFromTop(20));
+    targetPitchSlider->setBounds(targetArea.withSizeKeepingCentre(140, 100));
     
     // Base pitch display
     auto basePitchArea = leftContent.removeFromTop(35).reduced(20, 0);
@@ -720,16 +729,16 @@ void PitchFlattenerAudioProcessorEditor::resized()
     auto thirdWidth = bottomControls.getWidth() / 3;
     
     auto smoothingArea = bottomControls.removeFromLeft(thirdWidth);
-    smoothingTimeLabel.setBounds(smoothingArea.removeFromTop(25));
-    smoothingTimeSlider.setBounds(smoothingArea.withSizeKeepingCentre(80, 80));
+    smoothingTimeLabel.setBounds(smoothingArea.removeFromTop(20));
+    smoothingTimeSlider->setBounds(smoothingArea.withSizeKeepingCentre(120, 80));
     
     auto mixArea = bottomControls.removeFromLeft(thirdWidth);
-    mixLabel.setBounds(mixArea.removeFromTop(25));
-    mixSlider.setBounds(mixArea.withSizeKeepingCentre(80, 80));
+    mixLabel.setBounds(mixArea.removeFromTop(20));
+    mixSlider->setBounds(mixArea.withSizeKeepingCentre(120, 80));
     
     auto lookaheadArea = bottomControls;
-    lookaheadLabel.setBounds(lookaheadArea.removeFromTop(25));
-    lookaheadSlider.setBounds(lookaheadArea.withSizeKeepingCentre(80, 80));
+    lookaheadLabel.setBounds(lookaheadArea.removeFromTop(20));
+    lookaheadSlider->setBounds(lookaheadArea.withSizeKeepingCentre(120, 80));
     
     // Override section
     leftContent.removeFromTop(10);
@@ -742,7 +751,7 @@ void PitchFlattenerAudioProcessorEditor::resized()
     overrideArea.removeFromTop(5);
     auto freqArea = overrideArea.removeFromTop(30);
     overrideFreqLabel.setBounds(freqArea.removeFromLeft(100));
-    overrideFreqSlider.setBounds(freqArea.removeFromLeft(200));
+    overrideFreqSlider->setBounds(freqArea.removeFromLeft(240));
     freqArea.removeFromLeft(10);
     overrideFreqValueLabel.setBounds(freqArea);
     
@@ -774,7 +783,7 @@ void PitchFlattenerAudioProcessorEditor::resized()
     latchArea.removeFromTop(10);
     auto latchRow3 = latchArea.removeFromTop(30);
     flattenSensitivityLabel.setBounds(latchRow3.removeFromLeft(80));
-    flattenSensitivitySlider.setBounds(latchRow3.removeFromLeft(180));
+    flattenSensitivitySlider->setBounds(latchRow3.removeFromLeft(220));
     
     latchArea.removeFromTop(5);
     hardFlattenModeButton.setBounds(latchArea.removeFromTop(30));
@@ -784,9 +793,9 @@ void PitchFlattenerAudioProcessorEditor::resized()
     
     // Pitch algorithm selector at the top
     rightContent.removeFromTop(5);
-    auto algorithmArea = rightContent.removeFromTop(32);
-    pitchAlgorithmLabel.setBounds(algorithmArea.removeFromLeft(100));
-    pitchAlgorithmSelector.setBounds(algorithmArea);
+    auto algorithmArea = rightContent.removeFromTop(30);
+    pitchAlgorithmLabel.setBounds(algorithmArea.removeFromLeft(80));
+    pitchAlgorithmSelector.setBounds(algorithmArea.reduced(0, 2));
     
     rightContent.removeFromTop(10);
     
@@ -800,27 +809,27 @@ void PitchFlattenerAudioProcessorEditor::resized()
     // Detection rate
     auto rateArea = detectionArea.removeFromTop(32);
     detectionRateLabel.setBounds(rateArea.removeFromLeft(100));
-    detectionRateSlider.setBounds(rateArea);
+    detectionRateSlider->setBounds(rateArea);
     
     // Threshold
     auto thresholdArea = detectionArea.removeFromTop(32);
     pitchThresholdLabel.setBounds(thresholdArea.removeFromLeft(100));
-    pitchThresholdSlider.setBounds(thresholdArea);
+    pitchThresholdSlider->setBounds(thresholdArea);
     
     // Min frequency
     auto minFreqArea = detectionArea.removeFromTop(32);
     minFreqLabel.setBounds(minFreqArea.removeFromLeft(100));
-    minFreqSlider.setBounds(minFreqArea);
+    minFreqSlider->setBounds(minFreqArea);
     
     // Max frequency
     auto maxFreqArea = detectionArea.removeFromTop(32);
     maxFreqLabel.setBounds(maxFreqArea.removeFromLeft(100));
-    maxFreqSlider.setBounds(maxFreqArea);
+    maxFreqSlider->setBounds(maxFreqArea);
     
     // Volume threshold
     auto volumeArea = detectionArea.removeFromTop(32);
     volumeThresholdLabel.setBounds(volumeArea.removeFromLeft(100));
-    volumeThresholdSlider.setBounds(volumeArea);
+    volumeThresholdSlider->setBounds(volumeArea);
     
     // Volume level display
     detectionArea.removeFromTop(5);
@@ -843,53 +852,53 @@ void PitchFlattenerAudioProcessorEditor::resized()
         // YIN-specific controls
         auto holdTimeArea = advancedArea.removeFromTop(32);
         pitchHoldTimeLabel.setBounds(holdTimeArea.removeFromLeft(100));
-        pitchHoldTimeSlider.setBounds(holdTimeArea);
+        pitchHoldTimeSlider->setBounds(holdTimeArea);
         
         auto jumpArea = advancedArea.removeFromTop(32);
         pitchJumpThresholdLabel.setBounds(jumpArea.removeFromLeft(100));
-        pitchJumpThresholdSlider.setBounds(jumpArea);
+        pitchJumpThresholdSlider->setBounds(jumpArea);
         
         auto confidenceArea = advancedArea.removeFromTop(32);
         minConfidenceLabel.setBounds(confidenceArea.removeFromLeft(100));
-        minConfidenceSlider.setBounds(confidenceArea);
+        minConfidenceSlider->setBounds(confidenceArea);
         
         auto pitchSmoothArea = advancedArea.removeFromTop(32);
         pitchSmoothingLabel.setBounds(pitchSmoothArea.removeFromLeft(100));
-        pitchSmoothingSlider.setBounds(pitchSmoothArea);
+        pitchSmoothingSlider->setBounds(pitchSmoothArea);
     }
     else
     {
         // DIO-specific controls
         auto speedArea = advancedArea.removeFromTop(32);
         dioSpeedLabel.setBounds(speedArea.removeFromLeft(100));
-        dioSpeedSlider.setBounds(speedArea);
+        dioSpeedSlider->setBounds(speedArea);
         
         auto periodArea = advancedArea.removeFromTop(32);
         dioFramePeriodLabel.setBounds(periodArea.removeFromLeft(100));
-        dioFramePeriodSlider.setBounds(periodArea);
+        dioFramePeriodSlider->setBounds(periodArea);
         
         auto rangeArea = advancedArea.removeFromTop(32);
         dioAllowedRangeLabel.setBounds(rangeArea.removeFromLeft(100));
-        dioAllowedRangeSlider.setBounds(rangeArea);
+        dioAllowedRangeSlider->setBounds(rangeArea);
         
         auto channelsArea = advancedArea.removeFromTop(32);
         dioChannelsLabel.setBounds(channelsArea.removeFromLeft(100));
-        dioChannelsSlider.setBounds(channelsArea);
+        dioChannelsSlider->setBounds(channelsArea);
         
         auto bufferTimeArea = advancedArea.removeFromTop(32);
         dioBufferTimeLabel.setBounds(bufferTimeArea.removeFromLeft(100));
-        dioBufferTimeSlider.setBounds(bufferTimeArea);
+        dioBufferTimeSlider->setBounds(bufferTimeArea);
     }
     
     // Detection filters at the bottom
     advancedArea.removeFromTop(10);
     auto highpassArea = advancedArea.removeFromTop(32);
     detectionHighpassLabel.setBounds(highpassArea.removeFromLeft(100));
-    detectionHighpassSlider.setBounds(highpassArea);
+    detectionHighpassSlider->setBounds(highpassArea);
     
     auto lowpassArea = advancedArea.removeFromTop(32);
     detectionLowpassLabel.setBounds(lowpassArea.removeFromLeft(100));
-    detectionLowpassSlider.setBounds(lowpassArea);
+    detectionLowpassSlider->setBounds(lowpassArea);
 }
 
 void PitchFlattenerAudioProcessorEditor::timerCallback()
@@ -1004,23 +1013,23 @@ void PitchFlattenerAudioProcessorEditor::updateAlgorithmControls()
     
     // Enable/disable controls in Pitch Detection section based on algorithm
     // Detection Rate and Pitch Threshold are only used by YIN
-    detectionRateSlider.setEnabled(!isDIO);
+    detectionRateSlider->slider.setEnabled(!isDIO);
     detectionRateLabel.setEnabled(!isDIO);
-    pitchThresholdSlider.setEnabled(!isDIO);
+    pitchThresholdSlider->slider.setEnabled(!isDIO);
     pitchThresholdLabel.setEnabled(!isDIO);
     
     // Min/Max Freq and Volume Threshold are used by both
-    minFreqSlider.setEnabled(true);
+    minFreqSlider->slider.setEnabled(true);
     minFreqLabel.setEnabled(true);
-    maxFreqSlider.setEnabled(true);
+    maxFreqSlider->slider.setEnabled(true);
     maxFreqLabel.setEnabled(true);
-    volumeThresholdSlider.setEnabled(true);
+    volumeThresholdSlider->slider.setEnabled(true);
     volumeThresholdLabel.setEnabled(true);
     
     // Detection filters are used by both YIN and DIO
-    detectionHighpassSlider.setEnabled(true);
+    detectionHighpassSlider->slider.setEnabled(true);
     detectionHighpassLabel.setEnabled(true);
-    detectionLowpassSlider.setEnabled(true);
+    detectionLowpassSlider->slider.setEnabled(true);
     detectionLowpassLabel.setEnabled(true);
     
     // Update colors for disabled controls
@@ -1033,25 +1042,25 @@ void PitchFlattenerAudioProcessorEditor::updateAlgorithmControls()
     detectionLowpassLabel.setColour(juce::Label::textColourId, normalColor);   // Used by both
     
     // Show/hide YIN-specific controls in Advanced section
-    pitchHoldTimeSlider.setVisible(!isDIO);
+    pitchHoldTimeSlider->setVisible(!isDIO);
     pitchHoldTimeLabel.setVisible(!isDIO);
-    pitchJumpThresholdSlider.setVisible(!isDIO);
+    pitchJumpThresholdSlider->setVisible(!isDIO);
     pitchJumpThresholdLabel.setVisible(!isDIO);
-    minConfidenceSlider.setVisible(!isDIO);
+    minConfidenceSlider->setVisible(!isDIO);
     minConfidenceLabel.setVisible(!isDIO);
-    pitchSmoothingSlider.setVisible(!isDIO);
+    pitchSmoothingSlider->setVisible(!isDIO);
     pitchSmoothingLabel.setVisible(!isDIO);
     
     // Show/hide DIO-specific controls
-    dioSpeedSlider.setVisible(isDIO);
+    dioSpeedSlider->setVisible(isDIO);
     dioSpeedLabel.setVisible(isDIO);
-    dioFramePeriodSlider.setVisible(isDIO);
+    dioFramePeriodSlider->setVisible(isDIO);
     dioFramePeriodLabel.setVisible(isDIO);
-    dioAllowedRangeSlider.setVisible(isDIO);
+    dioAllowedRangeSlider->setVisible(isDIO);
     dioAllowedRangeLabel.setVisible(isDIO);
-    dioChannelsSlider.setVisible(isDIO);
+    dioChannelsSlider->setVisible(isDIO);
     dioChannelsLabel.setVisible(isDIO);
-    dioBufferTimeSlider.setVisible(isDIO);
+    dioBufferTimeSlider->setVisible(isDIO);
     dioBufferTimeLabel.setVisible(isDIO);
     
     // Update section label tooltip
@@ -1070,18 +1079,18 @@ void PitchFlattenerAudioProcessorEditor::updateAlgorithmControls()
     // Update tooltips for disabled controls
     if (isDIO)
     {
-        detectionRateSlider.setTooltip("Detection rate is not used by WORLD DIO algorithm");
-        pitchThresholdSlider.setTooltip("Pitch threshold is not used by WORLD DIO algorithm");
-        detectionHighpassSlider.setTooltip("Detection filters are not used by WORLD DIO algorithm");
-        detectionLowpassSlider.setTooltip("Detection filters are not used by WORLD DIO algorithm");
+        detectionRateSlider->slider.setTooltip("Detection rate is not used by WORLD DIO algorithm");
+        pitchThresholdSlider->slider.setTooltip("Pitch threshold is not used by WORLD DIO algorithm");
+        detectionHighpassSlider->slider.setTooltip("Detection filters are not used by WORLD DIO algorithm");
+        detectionLowpassSlider->slider.setTooltip("Detection filters are not used by WORLD DIO algorithm");
     }
     else
     {
         // Restore original tooltips for YIN
-        detectionRateSlider.setTooltip("How often pitch detection runs (in samples). Lower = more responsive but more CPU. 64-128 samples recommended.");
-        pitchThresholdSlider.setTooltip("Pitch detection confidence threshold. Lower = more sensitive but may get false detections. 0.10-0.15 recommended.");
-        detectionHighpassSlider.setTooltip("High-pass filter before pitch detection. Helps remove low frequency noise and improve detection.");
-        detectionLowpassSlider.setTooltip("Low-pass filter before pitch detection. Reduces high frequency noise for cleaner detection.");
+        detectionRateSlider->slider.setTooltip("How often pitch detection runs (in samples). Lower = more responsive but more CPU. 64-128 samples recommended.");
+        pitchThresholdSlider->slider.setTooltip("Pitch detection confidence threshold. Lower = more sensitive but may get false detections. 0.10-0.15 recommended.");
+        detectionHighpassSlider->slider.setTooltip("High-pass filter before pitch detection. Helps remove low frequency noise and improve detection.");
+        detectionLowpassSlider->slider.setTooltip("Low-pass filter before pitch detection. Reduces high frequency noise for cleaner detection.");
     }
     
     // Trigger layout update

@@ -977,6 +977,7 @@ juce::AudioProcessorEditor* PitchFlattenerAudioProcessor::createEditor()
 
 void PitchFlattenerAudioProcessor::getStateInformation (juce::MemoryBlock& destData)
 {
+    // Use the same XML format as the preset manager for consistency
     auto state = parameters.copyState();
     std::unique_ptr<juce::XmlElement> xml (state.createXml());
     copyXmlToBinary (*xml, destData);
@@ -987,8 +988,18 @@ void PitchFlattenerAudioProcessor::setStateInformation (const void* data, int si
     std::unique_ptr<juce::XmlElement> xmlState (getXmlFromBinary (data, sizeInBytes));
  
     if (xmlState.get() != nullptr)
+    {
         if (xmlState->hasTagName (parameters.state.getType()))
+        {
             parameters.replaceState (juce::ValueTree::fromXml (*xmlState));
+            
+            // Force update of algorithm controls after loading state
+            if (auto* editor = dynamic_cast<PitchFlattenerAudioProcessorEditor*>(getActiveEditor()))
+            {
+                editor->updateAlgorithmControls();
+            }
+        }
+    }
 }
 
 juce::AudioProcessor* JUCE_CALLTYPE createPluginFilter()
