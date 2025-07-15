@@ -147,7 +147,7 @@ jobs:
       uses: actions/upload-artifact@v4
       with:
         name: windows-vst3
-        path: pitchflattener/build/PitchFlattener_artefacts/Release/VST3/*.vst3
+        path: pitchflattener/build/PitchFlattener_artefacts/Release/VST3/
     
   build-macos:
     runs-on: macos-latest
