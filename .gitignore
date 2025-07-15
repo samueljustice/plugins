@@ -2,6 +2,7 @@
 build/
 Build/
 [Bb]uild/
+pitchflattener/build/
 
 # Xcode
 *.xcworkspace
