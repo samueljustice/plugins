@@ -1,0 +1,32 @@
+# Build directories
+build/
+Build/
+[Bb]uild/
+
+# Xcode
+*.xcworkspace
+*.xcuserdata
+*.xcuserdatad
+xcuserdata/
+
+# Visual Studio
+.vs/
+*.vcxproj.user
+*.sln
+*.suo
+
+# macOS
+.DS_Store
+
+# JUCE Builds
+Builds/
+
+# SDK directory
+SDK/
+
+# Compiled binaries
+*.vst3
+*.component
+*.vst
+*.au
+*.aaxplugin
