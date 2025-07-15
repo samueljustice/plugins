@@ -135,17 +135,26 @@ jobs:
         Get-ChildItem -Path "build\PitchFlattener_artefacts\Release\VST3"
         echo "Listing VST3 bundle contents:"
         Get-ChildItem -Path "build\PitchFlattener_artefacts\Release\VST3\SammyJs Pitch Flattener.vst3" -Recurse
+        echo "Listing windows-vst3-package directory:"
+        if (Test-Path "windows-vst3-package") {
+          Get-ChildItem -Path "windows-vst3-package" -Recurse
+        } else {
+          echo "windows-vst3-package directory not found!"
+        }
         
         # Build installer with better error handling
-        try {
-          & "${env:ProgramFiles(x86)}\Inno Setup 6\iscc.exe" installer.iss /O"." /F"SammyJs_Pitch_Flattener_Installer"
-          if ($LASTEXITCODE -ne 0) {
-            Write-Error "Inno Setup failed with exit code $LASTEXITCODE"
-            exit $LASTEXITCODE
-          }
-        } catch {
-          Write-Error "Failed to build installer: $_"
-          exit 1
+        echo "Running Inno Setup compiler..."
+        & "${env:ProgramFiles(x86)}\Inno Setup 6\iscc.exe" installer.iss /O"." /F"SammyJs_Pitch_Flattener_Installer"
+        $exitCode = $LASTEXITCODE
+        
+        # Always show what files were created
+        echo "Files in current directory after Inno Setup:"
+        Get-ChildItem -Path "." -Filter "*.exe"
+        
+        # Check if compilation was successful
+        if ($exitCode -ne 0) {
+          Write-Error "Inno Setup failed with exit code $exitCode"
+          exit $exitCode
         }
         
         # Check if installer was created
