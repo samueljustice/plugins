@@ -679,11 +679,12 @@ void PitchFlattenerAudioProcessorEditor::resized()
     auto meterArea = area.removeFromTop(120).reduced(20, 10);
     pitchMeter.setBounds(meterArea);
     
-    // Status label positioned between note name and pitch deviation meter
-    // Move it up into the meter area
+    // Status label positioned in the lower part of the dark grey meter area
+    // Position it above the pitch deviation meter line
     auto statusArea = meterArea;
-    statusArea.setY(meterArea.getBottom() - 30); // Position between note and deviation meter
-    statusArea.setHeight(20); // Slightly smaller height
+    // Place it 25 pixels from the bottom of the meter area
+    statusArea.setY(meterArea.getBottom() - 25);
+    statusArea.setHeight(20);
     statusLabel.setBounds(statusArea.reduced(20, 0));
     
     area.removeFromTop(30); // More space after status label
