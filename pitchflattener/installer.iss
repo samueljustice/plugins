@@ -30,10 +30,8 @@ ArchitecturesAllowed=x64
 Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [Files]
-; Try to copy from VST3 bundle directory first
-Source: "build\PitchFlattener_artefacts\Release\VST3\SammyJs Pitch Flattener.vst3\*"; DestDir: "{app}\SammyJs Pitch Flattener.vst3"; Flags: ignoreversion recursesubdirs createallsubdirs; Check: DirExists(ExpandConstant('{#SourcePath}\build\PitchFlattener_artefacts\Release\VST3\SammyJs Pitch Flattener.vst3'))
-; If no bundle exists, copy from windows-vst3-package
-Source: "windows-vst3-package\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs; Check: DirExists(ExpandConstant('{#SourcePath}\windows-vst3-package'))
+; Use the packaged VST3 from windows-vst3-package directory
+Source: "windows-vst3-package\SammyJs Pitch Flattener.vst3\*"; DestDir: "{app}\SammyJs Pitch Flattener.vst3"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
 Name: "{group}\{cm:UninstallProgram,{#MyAppName}}"; Filename: "{uninstallexe}"

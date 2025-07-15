@@ -104,24 +104,9 @@ jobs:
         $vst3Dir = "windows-vst3-package"
         New-Item -ItemType Directory -Force -Path $vst3Dir
         
-        # Copy the entire VST3 bundle structure
-        $vst3Bundle = Get-ChildItem -Path "build\PitchFlattener_artefacts\Release\VST3" -Filter "*.vst3" -Directory
-        if ($vst3Bundle) {
-          Copy-Item -Path $vst3Bundle.FullName -Destination $vst3Dir -Recurse
-          echo "Copied VST3 bundle: $($vst3Bundle.Name)"
-        } else {
-          # If no .vst3 directory exists, create proper VST3 structure
-          $vst3Name = "SammyJs Pitch Flattener.vst3"
-          $vst3Path = "$vst3Dir\$vst3Name"
-          New-Item -ItemType Directory -Force -Path "$vst3Path\Contents\x86_64-win"
-          
-          # Copy the DLL to the proper location
-          $dll = Get-ChildItem -Path "build\PitchFlattener_artefacts\Release\VST3" -Filter "*.vst3" -File
-          if ($dll) {
-            Copy-Item -Path $dll.FullName -Destination "$vst3Path\Contents\x86_64-win\$vst3Name"
-            echo "Copied DLL to VST3 structure"
-          }
-        }
+        # Copy the entire VST3 bundle (the .vst3 directory)
+        Copy-Item -Path "build\PitchFlattener_artefacts\Release\VST3\SammyJs Pitch Flattener.vst3" -Destination $vst3Dir -Recurse
+        echo "Copied VST3 bundle to package directory"
         
         # Verify the package structure
         echo "Final VST3 package structure:"
@@ -597,8 +582,9 @@ jobs:
     
     - name: Create ZIP files
       run: |
+        # Windows VST3 - only include the .vst3 bundle directory
         cd windows-vst3
-        zip -r ../PitchFlattener-Windows-VST3.zip *
+        zip -r ../PitchFlattener-Windows-VST3.zip *.vst3
         cd ../macos-vst3
         zip -r ../PitchFlattener-macOS-VST3.zip *
         cd ../macos-au
