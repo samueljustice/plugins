@@ -1,5 +1,7 @@
 # SammyJs Pitch Flattener
 
+### 🎉 Latest Release v1.1.0 - [Download Here](https://github.com/samueljustice/plugins/releases/tag/pitchflattener)
+
 A VST3/AU audio plugin that flattens pitch variations in real-time, perfect for removing sweeping Doppler effects, stabilizing warbling tones, or creating unique pitch-locked effects. When you want the energy of a recording but the pitch to be mallaeable again.
 
 <img width="948" height="883" alt="Screenshot 2025-07-15 at 19 06 14" src="https://github.com/user-attachments/assets/451b49f2-c3ab-4f1d-943a-0e887eea1bea" />
