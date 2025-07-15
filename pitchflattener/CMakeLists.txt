@@ -6,15 +6,15 @@ set(CMAKE_OSX_ARCHITECTURES "x86_64;arm64" CACHE STRING "Build architectures for
 project(PitchFlattener VERSION 1.0.0)
 
 # Add JUCE subdirectory
-add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/SDK/JUCE JUCE)
+add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/../SDK/JUCE JUCE)
 
 # Find Rubberband
-set(RUBBERBAND_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/SDK/rubberband-4.0.0")
+set(RUBBERBAND_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/../SDK/rubberband-4.0.0")
 set(RUBBERBAND_INCLUDE_DIR "${RUBBERBAND_ROOT}/rubberband")
 set(RUBBERBAND_LIB "${RUBBERBAND_ROOT}/lib/librubberband.a")
 
 # Find WORLD
-set(WORLD_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/SDK/World")
+set(WORLD_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/../SDK/World")
 set(WORLD_INCLUDE_DIR "${WORLD_ROOT}/src")
 set(WORLD_SOURCES
     "${WORLD_ROOT}/src/dio.cpp"
