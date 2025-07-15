@@ -1,4 +1,5 @@
 # SammyJs Pitch Flattener
+(a crazy toy that sometimes flattens pitch and mostly makes weird cool sounds)
 
 ### 🎉 Latest Release v1.1.0 - [Download Here](https://github.com/samueljustice/plugins/releases/tag/pitchflattener)
 
