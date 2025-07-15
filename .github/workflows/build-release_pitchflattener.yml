@@ -92,6 +92,41 @@ jobs:
         cd pitchflattener
         cmake --build build --config Release
     
+    - name: Package Windows VST3
+      run: |
+        cd pitchflattener
+        
+        # List what's in the VST3 directory
+        echo "Contents of VST3 directory:"
+        Get-ChildItem -Path "build\PitchFlattener_artefacts\Release\VST3" -Recurse | Select-Object FullName, Length, Mode
+        
+        # Create a clean VST3 package directory
+        $vst3Dir = "windows-vst3-package"
+        New-Item -ItemType Directory -Force -Path $vst3Dir
+        
+        # Copy the entire VST3 bundle structure
+        $vst3Bundle = Get-ChildItem -Path "build\PitchFlattener_artefacts\Release\VST3" -Filter "*.vst3" -Directory
+        if ($vst3Bundle) {
+          Copy-Item -Path $vst3Bundle.FullName -Destination $vst3Dir -Recurse
+          echo "Copied VST3 bundle: $($vst3Bundle.Name)"
+        } else {
+          # If no .vst3 directory exists, create proper VST3 structure
+          $vst3Name = "SammyJs Pitch Flattener.vst3"
+          $vst3Path = "$vst3Dir\$vst3Name"
+          New-Item -ItemType Directory -Force -Path "$vst3Path\Contents\x86_64-win"
+          
+          # Copy the DLL to the proper location
+          $dll = Get-ChildItem -Path "build\PitchFlattener_artefacts\Release\VST3" -Filter "*.vst3" -File
+          if ($dll) {
+            Copy-Item -Path $dll.FullName -Destination "$vst3Path\Contents\x86_64-win\$vst3Name"
+            echo "Copied DLL to VST3 structure"
+          }
+        }
+        
+        # Verify the package structure
+        echo "Final VST3 package structure:"
+        Get-ChildItem -Path $vst3Dir -Recurse | Select-Object FullName
+    
     - name: Create Windows Installer
       run: |
         cd pitchflattener
@@ -147,7 +182,7 @@ jobs:
       uses: actions/upload-artifact@v4
       with:
         name: windows-vst3
-        path: pitchflattener/build/PitchFlattener_artefacts/Release/VST3/
+        path: pitchflattener/windows-vst3-package/
     
   build-macos:
     runs-on: macos-latest

@@ -93,6 +93,14 @@ if(APPLE)
     target_link_libraries(PitchFlattener PRIVATE "-framework Accelerate")
 endif()
 
+if(WIN32)
+    # Windows specific settings for VST3
+    set_target_properties(PitchFlattener_VST3 PROPERTIES
+        SUFFIX ".vst3"
+        PREFIX ""
+    )
+endif()
+
 # Set C++ standard
 target_compile_features(PitchFlattener PRIVATE cxx_std_17)
 
