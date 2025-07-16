@@ -49,6 +49,12 @@ public:
     float getCurrentVolumeDb() const { return currentVolumeDb.load(); }
     float getLatchedBasePitch() const { return latchedBasePitch.load(); }
     bool isBasePitchLocked() const { return basePitchLocked.load(); }
+    void resetLatchedBasePitch() { 
+        latchedBasePitch.store(0.0f); 
+        basePitchLocked.store(false);
+        hasBasePitch = false;
+        basePitch = 0.0f;
+    }
 
 private:
     std::unique_ptr<PitchDetector> pitchDetector;

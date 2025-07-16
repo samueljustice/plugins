@@ -1,0 +1,128 @@
+name: Build PitchFlattener
+
+on:
+  push:
+    branches: [ main ]
+    tags:
+      - 'pitchflattener-v*'
+  pull_request:
+    branches: [ main ]
+
+env:
+  CMAKE_VERSION: 3.21.1
+  BUILD_TYPE: Release
+  PROJECT_NAME: PitchFlattener
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        os: [macos-latest, windows-latest]
+        include:
+          - os: macos-latest
+            name: macOS
+            artifact_name: PitchFlattener-macOS
+          - os: windows-latest
+            name: Windows
+            artifact_name: PitchFlattener-Windows
+
+    runs-on: ${{ matrix.os }}
+    name: Build on ${{ matrix.name }}
+
+    steps:
+    - uses: actions/checkout@v3
+      with:
+        submodules: recursive
+
+    - name: Set up build environment (macOS)
+      if: runner.os == 'macOS'
+      run: |
+        brew update
+        brew install cmake
+
+    - name: Set up build environment (Windows)
+      if: runner.os == 'Windows'
+      uses: microsoft/setup-msbuild@v1.1
+
+    - name: Configure CMake
+      run: |
+        cmake -B build -DCMAKE_BUILD_TYPE=${{ env.BUILD_TYPE }}
+
+    - name: Build
+      run: |
+        cmake --build build --config ${{ env.BUILD_TYPE }} --parallel
+
+    - name: Create installer (macOS)
+      if: runner.os == 'macOS'
+      run: |
+        cd build
+        cpack -G DragNDrop
+        mv *.dmg ../PitchFlattener-${{ github.ref_name }}-macOS.dmg
+
+    - name: Create installer (Windows)
+      if: runner.os == 'Windows'
+      run: |
+        cd build
+        cpack -G ZIP
+        mv *.zip ../PitchFlattener-${{ github.ref_name }}-Windows.zip
+
+    - name: Upload artifacts
+      uses: actions/upload-artifact@v3
+      with:
+        name: ${{ matrix.artifact_name }}
+        path: |
+          *.dmg
+          *.zip
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/pitchflattener-v')
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Download artifacts
+      uses: actions/download-artifact@v3
+      
+    - name: Extract version from tag
+      id: get_version
+      run: echo "VERSION=${GITHUB_REF#refs/tags/pitchflattener-v}" >> $GITHUB_OUTPUT
+      
+    - name: Create Release
+      uses: softprops/action-gh-release@v1
+      with:
+        tag_name: ${{ github.ref_name }}
+        name: PitchFlattener v${{ steps.get_version.outputs.VERSION }}
+        draft: false
+        prerelease: false
+        files: |
+          PitchFlattener-macOS/*.dmg
+          PitchFlattener-Windows/*.zip
+        body: |
+          # PitchFlattener v${{ steps.get_version.outputs.VERSION }}
+          
+          ## What's New
+          - Added About dialog with version checking
+          - Improved UI scaling system
+          - Fixed tooltip positioning issues
+          
+          ## Downloads
+          - **macOS**: Universal binary (Intel + Apple Silicon)
+          - **Windows**: 64-bit VST3
+          
+          ## Installation
+          ### macOS
+          1. Download the .dmg file
+          2. Open the disk image
+          3. Drag the plugins to your plugin folder
+          
+          ### Windows
+          1. Download the .zip file
+          2. Extract to your VST3 plugin folder
+          
+          ## Technologies Used
+          - JUCE Framework
+          - Rubber Band Library
+          - WORLD Vocoder (DIO)
+          - YIN Pitch Detection

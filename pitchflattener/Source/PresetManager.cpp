@@ -229,6 +229,9 @@ void PresetManager::resetToDefaults()
             p->setValueNotifyingHost(p->getDefaultValue());
         }
     }
+    
+    // Also reset the latched base pitch
+    processor.resetLatchedBasePitch();
 }
 
 juce::File PresetManager::getPresetsDirectory()
