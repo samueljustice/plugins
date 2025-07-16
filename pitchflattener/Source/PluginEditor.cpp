@@ -211,8 +211,8 @@ PitchFlattenerAudioProcessorEditor::PitchFlattenerAudioProcessorEditor (PitchFla
     smoothingTimeSlider->slider.setTextBoxStyle(juce::Slider::TextBoxBelow, false, 80, 20);
     smoothingTimeSlider->slider.setTextValueSuffix(" ms");
     smoothingTimeSlider->slider.setTooltip("Time for pitch detection to adapt to changes. "
-                                   "10-50ms = fast response, 150-300ms = natural Doppler flattening, "
-                                   "500-1000ms = very smooth ambient drift.");
+                                   "5-50ms = fast response, 100-150ms = natural Doppler flattening, "
+                                   "150-200ms = smooth ambient drift.");
     addAndMakeVisible(smoothingTimeSlider.get());
     
     smoothingTimeLabel.setText("Smoothing Time", juce::dontSendNotification);
