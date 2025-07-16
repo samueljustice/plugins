@@ -4,9 +4,11 @@ A VST3/AU audio plugin that flattens pitch variations in real-time, perfect for 
 ### 🎉 Latest Release v1.2.0 - [Download Here](https://github.com/samueljustice/plugins/releases/tag/pitchflattener-v1.2.0)
 
   • Enhanced UI 
+  
   • Streamlined Preset Management - Simplified preset system with "Reset
   All" button that now properly resets all parameters including latched
   pitch. All controls support double-click to reset to default values.
+  
   • Better DAW Integration - All 28 audio parameters are now exposed for
   automation, including pitch algorithm selection, DIO settings, and
   advanced detection controls. Fixed interface scaling issues for
