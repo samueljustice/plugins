@@ -137,6 +137,42 @@ private:
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(PresetManager)
 };
 
+class AboutWindow : public juce::DocumentWindow
+{
+public:
+    AboutWindow();
+    ~AboutWindow() override;
+    
+    void closeButtonPressed() override;
+    
+private:
+    class AboutContent : public juce::Component
+    {
+    public:
+        AboutContent();
+        void paint(juce::Graphics& g) override;
+        void resized() override;
+        
+    private:
+        juce::Label titleLabel;
+        juce::Label versionLabel;
+        juce::Label authorLabel;
+        juce::HyperlinkButton emailButton;
+        juce::HyperlinkButton websiteButton;
+        juce::TextButton checkUpdateButton{"Check for Updates"};
+        juce::Label updateStatusLabel;
+        juce::TextEditor licenseInfo;
+        
+        void checkForUpdates();
+        
+        JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(AboutContent)
+    };
+    
+    std::unique_ptr<AboutContent> content;
+    
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(AboutWindow)
+};
+
 class PitchFlattenerAudioProcessorEditor : public juce::AudioProcessorEditor, 
                                             public juce::Timer
 {
@@ -148,6 +184,8 @@ public:
     void resized() override;
     void timerCallback() override;
     void updateAlgorithmControls();
+    void mouseEnter(const juce::MouseEvent& event) override;
+    void mouseExit(const juce::MouseEvent& event) override;
 
 private:
     PitchFlattenerAudioProcessor& audioProcessor;
@@ -251,8 +289,6 @@ private:
     std::unique_ptr<juce::Label> detectionLabel;
     std::unique_ptr<juce::Label> advancedLabel;
     
-    // Tooltip window
-    std::unique_ptr<juce::TooltipWindow> tooltipWindow;
     
     // Attachments
     std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> targetPitchAttachment;
@@ -287,8 +323,18 @@ private:
     
     // Scaling
     static constexpr int defaultWidth = 1000;
-    static constexpr int defaultHeight = 850;  // Increased to show all controls
+    static constexpr int defaultHeight = 870;  // Increased for help text
     float currentScale = 1.0f;
+    
+    // Help text label for parameter info
+    juce::Label helpTextLabel;
+    
+    // About button
+    juce::TextButton aboutButton{"About"};
+    std::unique_ptr<AboutWindow> aboutWindow;
+    
+    // Standard tooltip window
+    juce::TooltipWindow tooltipWindow{this, 700};
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (PitchFlattenerAudioProcessorEditor)
 };

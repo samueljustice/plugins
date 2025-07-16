@@ -3,7 +3,7 @@ cmake_minimum_required(VERSION 3.15)
 # Set universal binary architectures BEFORE project()
 set(CMAKE_OSX_ARCHITECTURES "x86_64;arm64" CACHE STRING "Build architectures for macOS")
 
-project(PitchFlattener VERSION 1.0.0)
+project(PitchFlattener VERSION 1.2.0)
 
 # Add JUCE subdirectory
 add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/../SDK/JUCE JUCE)
@@ -64,9 +64,13 @@ target_sources(PitchFlattener
 # Compile definitions
 target_compile_definitions(PitchFlattener
     PUBLIC
-        JUCE_WEB_BROWSER=0
-        JUCE_USE_CURL=0
+        JUCE_WEB_BROWSER=1
+        JUCE_USE_CURL=1
         JUCE_VST3_CAN_REPLACE_VST2=0
+        PLUGIN_VERSION="${PROJECT_VERSION}"
+        PLUGIN_VERSION_MAJOR=${PROJECT_VERSION_MAJOR}
+        PLUGIN_VERSION_MINOR=${PROJECT_VERSION_MINOR}
+        PLUGIN_VERSION_PATCH=${PROJECT_VERSION_PATCH}
 )
 
 # Include directories
@@ -114,3 +118,28 @@ if(APPLE)
 endif()
 
 # Post-build installation is handled by JUCE's COPY_PLUGIN_AFTER_BUILD flag
+
+# CPack configuration for creating installers
+set(CPACK_PACKAGE_NAME "PitchFlattener")
+set(CPACK_PACKAGE_VENDOR "Samuel Justice")
+set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "Real-time pitch flattening audio plugin")
+set(CPACK_PACKAGE_VERSION "${PROJECT_VERSION}")
+set(CPACK_PACKAGE_VERSION_MAJOR "${PROJECT_VERSION_MAJOR}")
+set(CPACK_PACKAGE_VERSION_MINOR "${PROJECT_VERSION_MINOR}")
+set(CPACK_PACKAGE_VERSION_PATCH "${PROJECT_VERSION_PATCH}")
+set(CPACK_PACKAGE_CONTACT "sam@sweetjusticesound.com")
+
+if(APPLE)
+    set(CPACK_GENERATOR "DragNDrop")
+    set(CPACK_DMG_VOLUME_NAME "PitchFlattener ${PROJECT_VERSION}")
+    set(CPACK_DMG_BACKGROUND_IMAGE "${CMAKE_CURRENT_SOURCE_DIR}/Resources/dmg_background.png")
+    set(CPACK_DMG_DS_STORE "${CMAKE_CURRENT_SOURCE_DIR}/Resources/DS_Store")
+elseif(WIN32)
+    set(CPACK_GENERATOR "ZIP;NSIS")
+    set(CPACK_NSIS_DISPLAY_NAME "SammyJs Pitch Flattener")
+    set(CPACK_NSIS_HELP_LINK "https://www.sweetjusticesound.com")
+    set(CPACK_NSIS_URL_INFO_ABOUT "https://www.sweetjusticesound.com")
+    set(CPACK_NSIS_CONTACT "sam@sweetjusticesound.com")
+endif()
+
+include(CPack)

@@ -138,8 +138,9 @@ PitchFlattenerAudioProcessorEditor::PitchFlattenerAudioProcessorEditor (PitchFla
       hardFlattenModeButton("hardFlattenMode", audioProcessor.parameters),
       pitchAlgorithmSelector("pitchAlgorithm", audioProcessor.parameters)
 {
-    // Enable tooltips
+    // Enable mouse tracking for help text
     setRepaintsOnMouseActivity(true);
+    setMouseClickGrabsKeyboardFocus(false);
     
     // Configure look and feel
     lookAndFeel.setColour(juce::Slider::textBoxTextColourId, juce::Colours::white);
@@ -606,8 +607,25 @@ PitchFlattenerAudioProcessorEditor::PitchFlattenerAudioProcessorEditor (PitchFla
     // Start timer for updates
     startTimerHz(30);
     
-    // Initialize tooltip window
-    tooltipWindow = std::make_unique<juce::TooltipWindow>(this, 700);
+    // Tooltips will work automatically with the tooltipWindow member
+    
+    // Setup help text label
+    helpTextLabel.setJustificationType(juce::Justification::centred);
+    helpTextLabel.setColour(juce::Label::textColourId, juce::Colours::lightgrey);
+    helpTextLabel.setText("Hover over controls for help", juce::dontSendNotification);
+    addAndMakeVisible(helpTextLabel);
+    
+    // Setup about button
+    aboutButton.setColour(juce::TextButton::buttonColourId, juce::Colours::darkgrey.darker());
+    aboutButton.setColour(juce::TextButton::textColourOnId, juce::Colours::lightgrey);
+    aboutButton.onClick = [this] 
+    { 
+        if (!aboutWindow)
+            aboutWindow = std::make_unique<AboutWindow>();
+        else
+            aboutWindow->setVisible(true);
+    };
+    addAndMakeVisible(aboutButton);
     
     // Initial algorithm control visibility
     updateAlgorithmControls();
@@ -700,6 +718,7 @@ void PitchFlattenerAudioProcessorEditor::resized()
     float widthScale = static_cast<float>(getWidth()) / static_cast<float>(defaultWidth);
     float heightScale = static_cast<float>(getHeight()) / static_cast<float>(defaultHeight);
     currentScale = juce::jmin(widthScale, heightScale);
+    
     
     // Calculate centering offset
     float scaledWidth = defaultWidth * currentScale;
@@ -947,6 +966,12 @@ void PitchFlattenerAudioProcessorEditor::resized()
     auto lowpassArea = advancedArea.removeFromTop(32);
     detectionLowpassLabel.setBounds(lowpassArea.removeFromLeft(100));
     detectionLowpassSlider->setBounds(lowpassArea);
+    
+    // Help text and about button at the bottom
+    auto bottomArea = juce::Rectangle<int>(0, defaultHeight - 20, defaultWidth, 20);
+    auto aboutArea = bottomArea.removeFromRight(60).reduced(2);
+    aboutButton.setBounds(aboutArea);
+    helpTextLabel.setBounds(bottomArea);
 }
 
 void PitchFlattenerAudioProcessorEditor::timerCallback()
@@ -1143,4 +1168,268 @@ void PitchFlattenerAudioProcessorEditor::updateAlgorithmControls()
     
     // Trigger layout update
     resized();
+}
+
+void PitchFlattenerAudioProcessorEditor::mouseEnter(const juce::MouseEvent& event)
+{
+    auto* source = event.eventComponent;
+    
+    // Check which component the mouse is over and update help text
+    if (source == &targetPitchSlider->slider)
+        helpTextLabel.setText("Target Pitch: Set the target frequency for pitch flattening", juce::dontSendNotification);
+    else if (source == &smoothingTimeSlider->slider)
+        helpTextLabel.setText("Smoothing Time: Controls how quickly pitch changes are applied", juce::dontSendNotification);
+    else if (source == &mixSlider->slider)
+        helpTextLabel.setText("Mix: Blend between dry and processed signal", juce::dontSendNotification);
+    else if (source == &lookaheadSlider->slider)
+        helpTextLabel.setText("Lookahead: Buffer lookahead for smoother processing", juce::dontSendNotification);
+    else if (source == &manualOverrideButton)
+        helpTextLabel.setText("Manual Override: Use a fixed frequency instead of auto-detected pitch", juce::dontSendNotification);
+    else if (source == &overrideFreqSlider->slider)
+        helpTextLabel.setText("Override Frequency: Manual frequency to flatten to when override is enabled", juce::dontSendNotification);
+    else if (source == &basePitchLatchButton)
+        helpTextLabel.setText("Base Pitch Latch: Lock onto the first stable pitch detected", juce::dontSendNotification);
+    else if (source == &flattenSensitivitySlider->slider)
+        helpTextLabel.setText("Sensitivity: How aggressively to flatten pitch variations", juce::dontSendNotification);
+    else if (source == &hardFlattenModeButton)
+        helpTextLabel.setText("Hard Flatten: Force output to exactly match the target pitch", juce::dontSendNotification);
+    else if (source == &pitchAlgorithmSelector)
+        helpTextLabel.setText("Algorithm: YIN for clean signals, WORLD DIO for noisy recordings", juce::dontSendNotification);
+    else if (source == &detectionRateSlider->slider)
+        helpTextLabel.setText("Detection Rate: How often pitch is analyzed (lower = more CPU)", juce::dontSendNotification);
+    else if (source == &pitchThresholdSlider->slider)
+        helpTextLabel.setText("Threshold: Confidence threshold for pitch detection", juce::dontSendNotification);
+    else if (source == &minFreqSlider->slider)
+        helpTextLabel.setText("Min Frequency: Lowest frequency to detect", juce::dontSendNotification);
+    else if (source == &maxFreqSlider->slider)
+        helpTextLabel.setText("Max Frequency: Highest frequency to detect", juce::dontSendNotification);
+    else if (source == &volumeThresholdSlider->slider)
+        helpTextLabel.setText("Volume Gate: Minimum level for pitch detection", juce::dontSendNotification);
+    else if (source == &pitchHoldTimeSlider->slider)
+        helpTextLabel.setText("Pitch Hold Time: Time to hold pitch before accepting new detection", juce::dontSendNotification);
+    else if (source == &pitchJumpThresholdSlider->slider)
+        helpTextLabel.setText("Jump Threshold: Maximum allowed pitch change in Hz", juce::dontSendNotification);
+    else if (source == &minConfidenceSlider->slider)
+        helpTextLabel.setText("Min Confidence: Minimum detection confidence required", juce::dontSendNotification);
+    else if (source == &pitchSmoothingSlider->slider)
+        helpTextLabel.setText("Pitch Smoothing: Smooths pitch detection results", juce::dontSendNotification);
+    else if (source == &detectionHighpassSlider->slider)
+        helpTextLabel.setText("Detection HP: High-pass filter for pitch detection signal", juce::dontSendNotification);
+    else if (source == &detectionLowpassSlider->slider)
+        helpTextLabel.setText("Detection LP: Low-pass filter for pitch detection signal", juce::dontSendNotification);
+    else if (source == &dioSpeedSlider->slider)
+        helpTextLabel.setText("DIO Speed: Speed vs accuracy trade-off for WORLD DIO", juce::dontSendNotification);
+    else if (source == &dioFramePeriodSlider->slider)
+        helpTextLabel.setText("Frame Period: Analysis frame period in ms", juce::dontSendNotification);
+    else if (source == &dioAllowedRangeSlider->slider)
+        helpTextLabel.setText("Allowed Range: Pitch detection range multiplier", juce::dontSendNotification);
+    else if (source == &dioChannelsSlider->slider)
+        helpTextLabel.setText("Channels/Oct: Frequency resolution", juce::dontSendNotification);
+    else if (source == &dioBufferTimeSlider->slider)
+        helpTextLabel.setText("Buffer Time: Extra buffering for DIO algorithm", juce::dontSendNotification);
+}
+
+void PitchFlattenerAudioProcessorEditor::mouseExit(const juce::MouseEvent& event)
+{
+    helpTextLabel.setText("Hover over controls for help", juce::dontSendNotification);
+}
+
+//==============================================================================
+// AboutWindow implementation
+AboutWindow::AboutWindow()
+    : DocumentWindow("About SammyJs Pitch Flattener", 
+                     juce::Colours::darkgrey, 
+                     DocumentWindow::closeButton)
+{
+    content = std::make_unique<AboutContent>();
+    setContentOwned(content.get(), false);
+    
+    centreWithSize(500, 650);
+    setVisible(true);
+    setResizable(false, false);
+    setAlwaysOnTop(true);
+    toFront(true);
+}
+
+AboutWindow::~AboutWindow()
+{
+}
+
+void AboutWindow::closeButtonPressed()
+{
+    setVisible(false);
+}
+
+//==============================================================================
+// AboutContent implementation
+AboutWindow::AboutContent::AboutContent()
+{
+    titleLabel.setText("SammyJs Pitch Flattener", juce::dontSendNotification);
+    titleLabel.setFont(juce::Font(24.0f, juce::Font::bold));
+    titleLabel.setJustificationType(juce::Justification::centred);
+    addAndMakeVisible(titleLabel);
+    
+    juce::String versionText = "Version " PLUGIN_VERSION;
+    versionLabel.setText(versionText, juce::dontSendNotification);
+    versionLabel.setFont(juce::Font(16.0f));
+    versionLabel.setJustificationType(juce::Justification::centred);
+    addAndMakeVisible(versionLabel);
+    
+    authorLabel.setText("Created by Samuel Justice", juce::dontSendNotification);
+    authorLabel.setFont(juce::Font(14.0f));
+    authorLabel.setJustificationType(juce::Justification::centred);
+    addAndMakeVisible(authorLabel);
+    
+    emailButton.setButtonText("sam@sweetjusticesound.com");
+    emailButton.setURL(juce::URL("mailto:sam@sweetjusticesound.com"));
+    emailButton.setFont(juce::Font(14.0f), false);
+    addAndMakeVisible(emailButton);
+    
+    websiteButton.setButtonText("www.sweetjusticesound.com");
+    websiteButton.setURL(juce::URL("https://www.sweetjusticesound.com"));
+    websiteButton.setFont(juce::Font(14.0f), false);
+    addAndMakeVisible(websiteButton);
+    
+    checkUpdateButton.onClick = [this] { checkForUpdates(); };
+    addAndMakeVisible(checkUpdateButton);
+    
+    updateStatusLabel.setText("", juce::dontSendNotification);
+    updateStatusLabel.setJustificationType(juce::Justification::centred);
+    updateStatusLabel.setFont(juce::Font(12.0f));
+    addAndMakeVisible(updateStatusLabel);
+    
+    licenseInfo.setMultiLine(true);
+    licenseInfo.setReadOnly(true);
+    licenseInfo.setScrollbarsShown(true);
+    licenseInfo.setCaretVisible(false);
+    licenseInfo.setColour(juce::TextEditor::backgroundColourId, juce::Colours::darkgrey.darker());
+    licenseInfo.setColour(juce::TextEditor::textColourId, juce::Colours::lightgrey);
+    licenseInfo.setColour(juce::TextEditor::outlineColourId, juce::Colours::transparentBlack);
+    
+    juce::String licenseText = 
+        "Technologies Used:\n\n"
+        "JUCE Framework\n"
+        "Copyright (c) 2022 - Raw Material Software Limited\n"
+        "Licensed under the GPL/Commercial license\n\n"
+        
+        "Rubber Band Library\n"
+        "Copyright (c) 2007-2024 Particular Programs Ltd.\n"
+        "Licensed under the GPL/Commercial license\n\n"
+        
+        "WORLD Vocoder (DIO)\n"
+        "Copyright (c) 2017 Masanori Morise\n"
+        "Licensed under the modified BSD license\n\n"
+        
+        "YIN Pitch Detection\n"
+        "Based on: De Cheveigné, A., & Kawahara, H. (2002)\n"
+        "YIN, a fundamental frequency estimator for speech and music\n"
+        "The Journal of the Acoustical Society of America, 111(4), 1917-1930";
+    
+    licenseInfo.setText(licenseText);
+    addAndMakeVisible(licenseInfo);
+}
+
+void AboutWindow::AboutContent::paint(juce::Graphics& g)
+{
+    g.fillAll(juce::Colours::darkgrey);
+}
+
+void AboutWindow::AboutContent::resized()
+{
+    auto area = getLocalBounds().reduced(20);
+    
+    titleLabel.setBounds(area.removeFromTop(40));
+    versionLabel.setBounds(area.removeFromTop(30));
+    area.removeFromTop(10);
+    
+    authorLabel.setBounds(area.removeFromTop(25));
+    emailButton.setBounds(area.removeFromTop(25).withSizeKeepingCentre(250, 25));
+    websiteButton.setBounds(area.removeFromTop(25).withSizeKeepingCentre(250, 25));
+    area.removeFromTop(20);
+    
+    checkUpdateButton.setBounds(area.removeFromTop(30).withSizeKeepingCentre(150, 30));
+    updateStatusLabel.setBounds(area.removeFromTop(25));
+    area.removeFromTop(20);
+    
+    licenseInfo.setBounds(area);
+}
+
+void AboutWindow::AboutContent::checkForUpdates()
+{
+    updateStatusLabel.setText("Checking for updates...", juce::dontSendNotification);
+    updateStatusLabel.setColour(juce::Label::textColourId, juce::Colours::yellow);
+    
+    // Create URL for GitHub API to check latest release with pitchflattener tag
+    juce::URL apiUrl("https://api.github.com/repos/samueljustice/plugins/releases");
+    
+    // Use a thread to download the data
+    juce::Thread::launch([this, apiUrl]
+    {
+        auto stream = apiUrl.createInputStream(juce::URL::InputStreamOptions(juce::URL::ParameterHandling::inAddress)
+                                               .withConnectionTimeoutMs(5000));
+        
+        if (!stream)
+        {
+            juce::MessageManager::callAsync([this]
+            {
+                updateStatusLabel.setText("Failed to check for updates", juce::dontSendNotification);
+                updateStatusLabel.setColour(juce::Label::textColourId, juce::Colours::red);
+            });
+            return;
+        }
+        
+        auto content = stream->readEntireStreamAsString();
+        auto releases = juce::JSON::parse(content);
+        
+        if (auto* releasesArray = releases.getArray())
+        {
+            juce::String latestVersion;
+            
+            // Look for releases with pitchflattener tag
+            for (const auto& release : *releasesArray)
+            {
+                if (auto* obj = release.getDynamicObject())
+                {
+                    auto tagName = obj->getProperty("tag_name").toString();
+                    
+                    // Check if this is a pitchflattener release
+                    if (tagName.startsWith("pitchflattener-v"))
+                    {
+                        latestVersion = tagName.substring(16); // Skip "pitchflattener-v"
+                        break; // Found the latest pitchflattener release
+                    }
+                }
+            }
+            
+            if (latestVersion.isNotEmpty())
+            {
+                auto currentVersion = juce::String(PLUGIN_VERSION);
+                
+                juce::MessageManager::callAsync([this, latestVersion, currentVersion]
+                {
+                    // Simple version comparison
+                    if (latestVersion > currentVersion)
+                    {
+                        updateStatusLabel.setText("New version " + latestVersion + " available!", 
+                                                juce::dontSendNotification);
+                        updateStatusLabel.setColour(juce::Label::textColourId, juce::Colours::lightgreen);
+                    }
+                    else
+                    {
+                        updateStatusLabel.setText("You have the latest version", 
+                                                juce::dontSendNotification);
+                        updateStatusLabel.setColour(juce::Label::textColourId, juce::Colours::lightblue);
+                    }
+                });
+            }
+            else
+            {
+                juce::MessageManager::callAsync([this]
+                {
+                    updateStatusLabel.setText("No releases found", juce::dontSendNotification);
+                    updateStatusLabel.setColour(juce::Label::textColourId, juce::Colours::orange);
+                });
+            }
+        }
+    });
 }

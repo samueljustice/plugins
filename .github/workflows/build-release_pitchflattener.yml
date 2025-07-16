@@ -3,7 +3,7 @@ name: Build and Release
 on:
   push:
     tags:
-      - 'v*'
+      - 'pitchflattener-v*'
   workflow_dispatch:
 
 jobs:
@@ -396,16 +396,22 @@ jobs:
         done
         
         # Create component packages
+        # Extract version from tag or use default
+        VERSION="${GITHUB_REF#refs/tags/pitchflattener-v}"
+        if [ -z "$VERSION" ] || [ "$VERSION" = "$GITHUB_REF" ]; then
+          VERSION="1.2.0"
+        fi
+        
         pkgbuild --identifier "com.sweetjusticesound.pitchflattener.vst3" \
           --install-location "/Library/Audio/Plug-Ins/VST3" \
           --root installer/vst3 \
-          --version "1.0.0" \
+          --version "$VERSION" \
           vst3.pkg
           
         pkgbuild --identifier "com.sweetjusticesound.pitchflattener.au" \
           --install-location "/Library/Audio/Plug-Ins/Components" \
           --root installer/au \
-          --version "1.0.0" \
+          --version "$VERSION" \
           au.pkg
         
         # Create distribution XML
@@ -434,7 +440,7 @@ jobs:
         # Build final installer package
         productbuild --distribution distribution.xml \
           --package-path . \
-          --version "1.0.0" \
+          --version "$VERSION" \
           "SammyJs_Pitch_Flattener_Installer.pkg"
         
         # Sign the installer if certificates are available
@@ -479,19 +485,19 @@ jobs:
           pkgbuild --identifier "com.sweetjusticesound.pitchflattener.vst3" \
             --install-location "/Library/Audio/Plug-Ins/VST3" \
             --root installer/vst3 \
-            --version "1.0.0" \
+            --version "$VERSION" \
             vst3.pkg
             
           pkgbuild --identifier "com.sweetjusticesound.pitchflattener.au" \
             --install-location "/Library/Audio/Plug-Ins/Components" \
             --root installer/au \
-            --version "1.0.0" \
+            --version "$VERSION" \
             au.pkg
           
           # Rebuild the installer
           productbuild --distribution distribution.xml \
             --package-path . \
-            --version "1.0.0" \
+            --version "$VERSION" \
             "SammyJs_Pitch_Flattener_Installer.pkg"
           
           # Sign the installer package
