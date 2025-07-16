@@ -5,7 +5,7 @@
 
 A VST3/AU audio plugin that flattens pitch variations in real-time, perfect for removing sweeping Doppler effects, stabilizing warbling tones, or creating unique pitch-locked effects. When you want the energy of a recording but the pitch to be mallaeable again. Works a bit like z-noise, give it a little bit to warm up.
 
-<img width="948" height="883" alt="Screenshot 2025-07-15 at 19 06 14" src="https://github.com/user-attachments/assets/451b49f2-c3ab-4f1d-943a-0e887eea1bea" />
+<img width="995" height="893" alt="Screenshot 2025-07-16 at 11 24 23" src="https://github.com/user-attachments/assets/11f673f5-f635-4d8f-9b40-62466e57eddb" />
 
 ## Features
 
