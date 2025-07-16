@@ -325,115 +325,17 @@ void PresetManager::loadFactoryPresets()
 {
     auto factoryDir = getPresetsDirectory().getChildFile("Factory");
     
-    // Check if factory presets already exist
-    if (factoryDir.getChildFile("Subtle Flattening.xml").existsAsFile())
+    // Check if default preset already exists
+    if (factoryDir.getChildFile("Default.xml").existsAsFile())
         return;
     
-    // Create factory presets
-    struct FactoryPreset
-    {
-        juce::String name;
-        std::vector<std::pair<juce::String, float>> values;
-    };
+    // Create only the default preset
+    resetToDefaults();
     
-    std::vector<FactoryPreset> factoryPresets =
-    {
-        {
-            "Default",
-            {} // Empty - will use all default values
-        },
-        {
-            "Subtle Flattening",
-            {
-                {"targetPitch", 1200.0f},
-                {"smoothingTimeMs", 150.0f},
-                {"mix", 0.5f},
-                {"pitchSmoothing", 0.85f},
-                {"minConfidence", 0.4f}
-            }
-        },
-        {
-            "Aggressive Flattening",
-            {
-                {"targetPitch", 1200.0f},
-                {"smoothingTimeMs", 50.0f},
-                {"mix", 1.0f},
-                {"pitchSmoothing", 0.5f},
-                {"minConfidence", 0.2f},
-                {"pitchHoldTime", 100.0f}
-            }
-        },
-        {
-            "Pitch Sweep Tamer",
-            {
-                {"targetPitch", 1200.0f},
-                {"smoothingTimeMs", 200.0f},
-                {"mix", 0.75f},
-                {"pitchJumpThreshold", 150.0f},
-                {"pitchHoldTime", 800.0f},
-                {"pitchSmoothing", 0.9f}
-            }
-        },
-        {
-            "Fast Tracking",
-            {
-                {"targetPitch", 1200.0f},
-                {"smoothingTimeMs", 20.0f},
-                {"mix", 1.0f},
-                {"detectionRate", 64.0f},
-                {"pitchSmoothing", 0.3f},
-                {"minConfidence", 0.15f}
-            }
-        },
-        {
-            "Vocoder Helper",
-            {
-                {"targetPitch", 800.0f},
-                {"smoothingTimeMs", 100.0f},
-                {"mix", 0.7f},
-                {"minFreq", 400.0f},
-                {"maxFreq", 1600.0f},
-                {"detectionHighpass", 400.0f},
-                {"detectionLowpass", 1600.0f},
-                {"pitchAlgorithm", 0.0f}  // YIN algorithm
-            }
-        },
-        {
-            "DIO FFT Mode",
-            {
-                {"targetPitch", 1200.0f},
-                {"smoothingTimeMs", 100.0f},
-                {"mix", 1.0f},
-                {"pitchAlgorithm", 1.0f},  // WORLD DIO algorithm
-                {"dioSpeed", 1.0f},
-                {"dioFramePeriod", 2.0f}
-            }
-        }
-    };
+    // Save to file in Factory folder
+    auto presetFile = factoryDir.getChildFile("Default.xml");
+    savePresetToFile(presetFile);
     
-    // Save each factory preset
-    for (const auto& preset : factoryPresets)
-    {
-        // First reset to defaults
-        resetToDefaults();
-        
-        // Apply preset values
-        auto& params = processor.parameters;
-        for (const auto& [paramID, value] : preset.values)
-        {
-            if (auto* param = params.getParameter(paramID))
-            {
-                auto range = param->getNormalisableRange();
-                auto normalizedValue = range.convertTo0to1(value);
-                param->setValueNotifyingHost(normalizedValue);
-            }
-        }
-        
-        // Save to file in Factory folder
-        auto presetFile = factoryDir.getChildFile(preset.name + ".xml");
-        savePresetToFile(presetFile);
-    }
-    
-    // Reset to defaults after creating presets
+    // Reset to defaults after creating preset
     resetToDefaults();
 }

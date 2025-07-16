@@ -132,7 +132,11 @@ float PitchMeter::frequencyToCents(float frequency, float referenceFreq)
 
 // Main Editor
 PitchFlattenerAudioProcessorEditor::PitchFlattenerAudioProcessorEditor (PitchFlattenerAudioProcessor& p)
-    : AudioProcessorEditor (&p), audioProcessor (p)
+    : AudioProcessorEditor (&p), audioProcessor (p),
+      manualOverrideButton("manualOverride", audioProcessor.parameters),
+      basePitchLatchButton("basePitchLatch", audioProcessor.parameters),
+      hardFlattenModeButton("hardFlattenMode", audioProcessor.parameters),
+      pitchAlgorithmSelector("pitchAlgorithm", audioProcessor.parameters)
 {
     // Enable tooltips
     setRepaintsOnMouseActivity(true);
@@ -249,7 +253,7 @@ PitchFlattenerAudioProcessorEditor::PitchFlattenerAudioProcessorEditor (PitchFla
     // Manual override controls
     manualOverrideButton.setButtonText("Manual Override");
     manualOverrideButton.setColour(juce::ToggleButton::textColourId, juce::Colours::white);
-    manualOverrideButton.setTooltip("Enable to use a fixed frequency instead of auto-detected base pitch");
+    manualOverrideButton.setTooltip("Enable to use a fixed frequency instead of auto-detected base pitch. Double-click to reset to default.");
     addAndMakeVisible(manualOverrideButton);
     
     overrideFreqSlider = std::make_unique<SliderWithReset>("overrideFreq", audioProcessor.parameters);
@@ -273,7 +277,7 @@ PitchFlattenerAudioProcessorEditor::PitchFlattenerAudioProcessorEditor (PitchFla
     // Base pitch latch controls
     basePitchLatchButton.setButtonText("Base Pitch Latch");
     basePitchLatchButton.setColour(juce::ToggleButton::textColourId, juce::Colours::white);
-    basePitchLatchButton.setTooltip("Enable to latch onto the first stable pitch detected and use it as the flattening target");
+    basePitchLatchButton.setTooltip("Enable to latch onto the first stable pitch detected and use it as the flattening target. Double-click to reset to default.");
     addAndMakeVisible(basePitchLatchButton);
     
     resetBasePitchButton.setButtonText("Reset Latch");
@@ -309,7 +313,7 @@ PitchFlattenerAudioProcessorEditor::PitchFlattenerAudioProcessorEditor (PitchFla
     // Hard flatten mode
     hardFlattenModeButton.setButtonText("Hard Flatten");
     hardFlattenModeButton.setColour(juce::ToggleButton::textColourId, juce::Colours::white);
-    hardFlattenModeButton.setTooltip("Force output to exactly match the latched pitch for complete pitch neutralization");
+    hardFlattenModeButton.setTooltip("Force output to exactly match the latched pitch for complete pitch neutralization. Double-click to reset to default.");
     addAndMakeVisible(hardFlattenModeButton);
     
     // Flattening target display
@@ -465,7 +469,7 @@ PitchFlattenerAudioProcessorEditor::PitchFlattenerAudioProcessorEditor (PitchFla
     // Pitch algorithm selector
     pitchAlgorithmSelector.addItem("YIN", 1);
     pitchAlgorithmSelector.addItem("WORLD (DIO) FFT", 2);
-    pitchAlgorithmSelector.setTooltip("Choose pitch detection algorithm. YIN is fast autocorrelation-based for clean signals. WORLD DIO uses FFT-based analysis for better performance with noisy field recordings.");
+    pitchAlgorithmSelector.setTooltip("Choose pitch detection algorithm. YIN is fast autocorrelation-based for clean signals. WORLD DIO uses FFT-based analysis for better performance with noisy field recordings. Double-click to reset to default.");
     addAndMakeVisible(pitchAlgorithmSelector);
     
     pitchAlgorithmLabel.setText("Algorithm:", juce::dontSendNotification);
@@ -609,9 +613,9 @@ PitchFlattenerAudioProcessorEditor::PitchFlattenerAudioProcessorEditor (PitchFla
     updateAlgorithmControls();
     
     // Set size at the end after all components are created
-    setSize (1100, 800);  // Wider to accommodate reset buttons
+    setSize (defaultWidth, defaultHeight);
     setResizable(true, true);
-    setResizeLimits(900, 700, 1400, 1000);
+    setResizeLimits(600, 510, 2000, 1700);  // Allow flexible resizing with proper scaling
 }
 
 PitchFlattenerAudioProcessorEditor::~PitchFlattenerAudioProcessorEditor()
@@ -621,15 +625,34 @@ PitchFlattenerAudioProcessorEditor::~PitchFlattenerAudioProcessorEditor()
 
 void PitchFlattenerAudioProcessorEditor::paint (juce::Graphics& g)
 {
+    // Fill the entire background first
+    g.fillAll(juce::Colour(0xff1a1a1a));
+    
+    // Save the current graphics state
+    juce::Graphics::ScopedSaveState state(g);
+    
+    // Calculate centering offset
+    float scaledWidth = defaultWidth * currentScale;
+    float scaledHeight = defaultHeight * currentScale;
+    float xOffset = (getWidth() - scaledWidth) * 0.5f;
+    float yOffset = (getHeight() - scaledHeight) * 0.5f;
+    
+    // Apply scaling and centering transform
+    g.addTransform(juce::AffineTransform::scale(currentScale)
+                                        .translated(xOffset, yOffset));
+    
+    // Draw at default size (the transform will scale it)
+    auto scaledBounds = juce::Rectangle<int>(0, 0, defaultWidth, defaultHeight);
+    
     // Gradient background for more depth
     auto bgColour1 = juce::Colour(0xff1a1a1a);
     auto bgColour2 = juce::Colour(0xff2a2a2a);
     g.setGradientFill(juce::ColourGradient(bgColour1, 0, 0, 
-                                           bgColour2, 0, static_cast<float>(getHeight()), false));
-    g.fillAll();
+                                           bgColour2, 0, static_cast<float>(defaultHeight), false));
+    g.fillRect(scaledBounds);
     
     // Draw pitch meter background with subtle gradient
-    auto meterBounds = juce::Rectangle<float>(10, 65, getWidth() - 20, 140);
+    auto meterBounds = juce::Rectangle<float>(10, 65, defaultWidth - 20, 140);
     g.setGradientFill(juce::ColourGradient(juce::Colour(0xff2a2a2a), meterBounds.getX(), meterBounds.getY(),
                                            juce::Colour(0xff1f1f1f), meterBounds.getX(), meterBounds.getBottom(), false));
     g.fillRoundedRectangle(meterBounds, 12);
@@ -644,7 +667,7 @@ void PitchFlattenerAudioProcessorEditor::paint (juce::Graphics& g)
                meterBounds.getRight() - 12, meterBounds.getY() + 1, 1);
     
     // Draw subtle backgrounds for panels
-    auto bounds = getLocalBounds();
+    auto bounds = juce::Rectangle<int>(0, 0, defaultWidth, defaultHeight);
     bounds.removeFromTop(235); // Skip header, preset bar, meter and status label
     auto mainArea = bounds.reduced(15, 0);
     auto leftPanelWidth = static_cast<int>(mainArea.getWidth() * 0.52f);
@@ -673,7 +696,33 @@ void PitchFlattenerAudioProcessorEditor::paint (juce::Graphics& g)
 
 void PitchFlattenerAudioProcessorEditor::resized()
 {
-    auto area = getLocalBounds();
+    // Calculate scale factor based on current window size
+    float widthScale = static_cast<float>(getWidth()) / static_cast<float>(defaultWidth);
+    float heightScale = static_cast<float>(getHeight()) / static_cast<float>(defaultHeight);
+    currentScale = juce::jmin(widthScale, heightScale);
+    
+    // Calculate centering offset
+    float scaledWidth = defaultWidth * currentScale;
+    float scaledHeight = defaultHeight * currentScale;
+    float xOffset = (getWidth() - scaledWidth) * 0.5f;
+    float yOffset = (getHeight() - scaledHeight) * 0.5f;
+    
+    // Create a transform to scale and center all components
+    auto transform = juce::AffineTransform::scale(currentScale)
+                                          .translated(xOffset, yOffset);
+    
+    // Apply the transform to all child components except the resize corner
+    for (auto* child : getChildren())
+    {
+        // Skip the ResizableCornerComponent which JUCE adds automatically
+        if (dynamic_cast<juce::ResizableCornerComponent*>(child) == nullptr)
+        {
+            child->setTransform(transform);
+        }
+    }
+    
+    // Layout components at their default positions (unscaled)
+    auto area = juce::Rectangle<int>(0, 0, defaultWidth, defaultHeight);
     
     // Top section - website link and title
     websiteLink.setBounds(area.removeFromTop(20));
@@ -765,7 +814,7 @@ void PitchFlattenerAudioProcessorEditor::resized()
     latchSectionLabel->setBounds(leftContent.removeFromTop(25));
     
     leftContent.removeFromTop(5);
-    auto latchArea = leftContent.removeFromTop(135);
+    auto latchArea = leftContent.removeFromTop(105);  // Reduced since hard flatten is on same line
     
     // First row - toggle and reset button
     auto latchRow1 = latchArea.removeFromTop(35);
@@ -783,10 +832,9 @@ void PitchFlattenerAudioProcessorEditor::resized()
     latchArea.removeFromTop(10);
     auto latchRow3 = latchArea.removeFromTop(30);
     flattenSensitivityLabel.setBounds(latchRow3.removeFromLeft(80));
-    flattenSensitivitySlider->setBounds(latchRow3.removeFromLeft(220));
-    
-    latchArea.removeFromTop(5);
-    hardFlattenModeButton.setBounds(latchArea.removeFromTop(30));
+    flattenSensitivitySlider->setBounds(latchRow3.removeFromLeft(170));
+    latchRow3.removeFromLeft(10);
+    hardFlattenModeButton.setBounds(latchRow3);
     
     // RIGHT PANEL - Detection controls
     auto rightContent = rightPanel;

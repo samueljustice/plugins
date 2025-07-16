@@ -6,42 +6,88 @@
 class SliderWithReset : public juce::Component
 {
 public:
-    SliderWithReset(const juce::String& paramID, juce::AudioProcessorValueTreeState& apvts)
-        : parameterID(paramID), valueTreeState(apvts)
+    class ResetSlider : public juce::Slider
     {
-        addAndMakeVisible(slider);
+    public:
+        ResetSlider(const juce::String& paramID, juce::AudioProcessorValueTreeState& apvts)
+            : parameterID(paramID), valueTreeState(apvts)
+        {
+            setTooltip("Double-click to reset to default value");
+        }
         
-        resetButton.setButtonText("R");
-        resetButton.setTooltip("Reset to default value");
-        resetButton.onClick = [this]()
+        void mouseDoubleClick(const juce::MouseEvent& event) override
         {
             if (auto* param = valueTreeState.getParameter(parameterID))
             {
                 auto defaultValue = param->getDefaultValue();
                 param->setValueNotifyingHost(defaultValue);
             }
-        };
-        // Reset button should always be enabled, even if slider is disabled
-        resetButton.setAlwaysOnTop(true);
-        addAndMakeVisible(resetButton);
+        }
+        
+        const juce::String parameterID;
+        juce::AudioProcessorValueTreeState& valueTreeState;
+    };
+    
+    SliderWithReset(const juce::String& paramID, juce::AudioProcessorValueTreeState& apvts)
+        : slider(paramID, apvts)
+    {
+        addAndMakeVisible(slider);
     }
     
-    juce::Slider slider;
+    ResetSlider slider;
     
     void resized() override
     {
-        auto area = getLocalBounds();
-        resetButton.setBounds(area.removeFromRight(18).reduced(1));
-        slider.setBounds(area);
+        slider.setBounds(getLocalBounds());
     }
     
     std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> createAttachment()
     {
-        return std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(valueTreeState, parameterID, slider);
+        return std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
+            slider.valueTreeState, slider.parameterID, slider);
+    }
+};
+
+class ResetToggleButton : public juce::ToggleButton
+{
+public:
+    ResetToggleButton(const juce::String& paramID, juce::AudioProcessorValueTreeState& apvts)
+        : parameterID(paramID), valueTreeState(apvts)
+    {
+    }
+    
+    void mouseDoubleClick(const juce::MouseEvent& event) override
+    {
+        if (auto* param = valueTreeState.getParameter(parameterID))
+        {
+            auto defaultValue = param->getDefaultValue();
+            param->setValueNotifyingHost(defaultValue);
+        }
     }
     
 private:
-    juce::TextButton resetButton;
+    juce::String parameterID;
+    juce::AudioProcessorValueTreeState& valueTreeState;
+};
+
+class ResetComboBox : public juce::ComboBox
+{
+public:
+    ResetComboBox(const juce::String& paramID, juce::AudioProcessorValueTreeState& apvts)
+        : parameterID(paramID), valueTreeState(apvts)
+    {
+    }
+    
+    void mouseDoubleClick(const juce::MouseEvent& event) override
+    {
+        if (auto* param = valueTreeState.getParameter(parameterID))
+        {
+            auto defaultValue = param->getDefaultValue();
+            param->setValueNotifyingHost(defaultValue);
+        }
+    }
+    
+private:
     juce::String parameterID;
     juce::AudioProcessorValueTreeState& valueTreeState;
 };
@@ -123,19 +169,19 @@ private:
     std::unique_ptr<SliderWithReset> lookaheadSlider;
     juce::Label lookaheadLabel;
     
-    juce::ToggleButton manualOverrideButton;
+    ResetToggleButton manualOverrideButton;
     std::unique_ptr<SliderWithReset> overrideFreqSlider;
     juce::Label overrideFreqLabel;
     juce::Label overrideFreqValueLabel;
     
     // Base pitch latch controls
-    juce::ToggleButton basePitchLatchButton;
+    ResetToggleButton basePitchLatchButton;
     juce::TextButton resetBasePitchButton;
     juce::Label latchStatusLabel;
     juce::Label latchStatusValueLabel;
     std::unique_ptr<SliderWithReset> flattenSensitivitySlider;
     juce::Label flattenSensitivityLabel;
-    juce::ToggleButton hardFlattenModeButton;
+    ResetToggleButton hardFlattenModeButton;
     
     juce::Label basePitchLabel;
     juce::Label basePitchValueLabel;
@@ -178,7 +224,7 @@ private:
     juce::Label detectionLowpassLabel;
     
     // Pitch algorithm selector
-    juce::ComboBox pitchAlgorithmSelector;
+    ResetComboBox pitchAlgorithmSelector;
     juce::Label pitchAlgorithmLabel;
     
     // DIO-specific controls (hidden when YIN is selected)
@@ -238,6 +284,11 @@ private:
     
     // Look and Feel
     juce::LookAndFeel_V4 lookAndFeel;
+    
+    // Scaling
+    static constexpr int defaultWidth = 1000;
+    static constexpr int defaultHeight = 850;  // Increased to show all controls
+    float currentScale = 1.0f;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (PitchFlattenerAudioProcessorEditor)
 };
