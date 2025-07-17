@@ -18,13 +18,10 @@ void ReverseEngine::prepare(double newSampleRate, int samplesPerBlock, int newNu
     {
         auto channel = std::make_unique<Channel>();
         channel->windowSamples = static_cast<int>(windowTime * sampleRate);
-        channel->circularBuffer.resize(channel->windowSamples * 3);  // Extra space to prevent wrap errors
-        // Dynamic fade ratio: smaller percentage for tiny windows
-        float fadeRatio = juce::jlimit(0.05f, 0.15f, 0.15f * static_cast<float>(windowTime * sampleRate / 44100.0));
-        channel->fadeLength = std::max(
-            static_cast<int>(windowTime * sampleRate * fadeRatio),
-            static_cast<int>(0.005f * sampleRate)  // 5ms minimum
-        );
+        channel->circularBuffer.resize(channel->windowSamples);
+        
+        // Simple fade length - 2ms
+        channel->fadeLength = static_cast<int>(0.002f * sampleRate);
         channel->fadeInBuffer.resize(channel->fadeLength);
         channel->fadeOutBuffer.resize(channel->fadeLength);
         channel->repeatBuffer.resize(channel->windowSamples);
@@ -52,13 +49,6 @@ void ReverseEngine::reset()
         channel->repeatPosition = 0;
         channel->isRepeating = false;
         channel->vibratoPhase.setCurrentAndTargetValue(0.0f);
-        
-        // Pre-fill buffers with silence to avoid initial clicks
-        for (int i = 0; i < channel->fadeLength; ++i)
-        {
-            channel->circularBuffer[i] = 0.0f;
-            channel->circularBuffer[channel->windowSamples - 1 - i] = 0.0f;
-        }
     }
 }
 
@@ -70,7 +60,7 @@ void ReverseEngine::setParameters(float windowTimeSeconds, float feedbackAmount,
     wetMix = wetMixAmount;
     dryMix = dryMixAmount;
     effectMode = mode;
-    crossfadeTime = crossfadePercent / 100.0f; // Convert percentage to 0-1 range
+    crossfadeTime = crossfadePercent / 100.0f;
     
     int newWindowSamples = static_cast<int>(windowTime * sampleRate);
     
@@ -79,20 +69,15 @@ void ReverseEngine::setParameters(float windowTimeSeconds, float feedbackAmount,
         if (newWindowSamples != channel->windowSamples)
         {
             channel->windowSamples = newWindowSamples;
-            channel->circularBuffer.resize(channel->windowSamples * 3);  // Extra space to prevent wrap errors
+            channel->circularBuffer.resize(channel->windowSamples);
             channel->repeatBuffer.resize(channel->windowSamples);
             std::fill(channel->circularBuffer.begin(), channel->circularBuffer.end(), 0.0f);
             std::fill(channel->repeatBuffer.begin(), channel->repeatBuffer.end(), 0.0f);
             channel->writePosition = 0;
             channel->readPosition = channel->windowSamples - 1;
             
-            // Update fade buffers for new window size
-            // Dynamic fade ratio: smaller percentage for tiny windows
-        float fadeRatio = juce::jlimit(0.05f, 0.15f, 0.15f * static_cast<float>(windowTime * sampleRate / 44100.0));
-        channel->fadeLength = std::max(
-            static_cast<int>(windowTime * sampleRate * fadeRatio),
-            static_cast<int>(0.005f * sampleRate)  // 5ms minimum
-        );
+            // Update fade buffers - keep it simple at 2ms
+            channel->fadeLength = static_cast<int>(0.002f * sampleRate);
             channel->fadeInBuffer.resize(channel->fadeLength);
             channel->fadeOutBuffer.resize(channel->fadeLength);
             createFadeWindow(channel->fadeInBuffer, channel->fadeOutBuffer, channel->fadeLength);
@@ -129,29 +114,34 @@ void ReverseEngine::processReversePlayback(Channel& ch, float* channelData, int 
     {
         float inputSample = channelData[i];
         
-        // Add anti-denormal noise to prevent silence clicks
-        const float noise = (float) juce::Random::getSystemRandom().nextDouble() * 1.0e-7f - 5.0e-8f;
-        inputSample += noise;
-        
+        // Write input to buffer
         ch.circularBuffer[ch.writePosition] = inputSample + (ch.feedbackSample * feedback);
         
+        // Read in reverse
         float outputSample = ch.circularBuffer[ch.readPosition];
         
-        int fadePosition = (ch.windowSamples - 1 - ch.readPosition);
-        if (fadePosition < ch.fadeLength)
+        // Simple fade at chunk boundaries
+        if (ch.readPosition < ch.fadeLength)
         {
-            outputSample *= ch.fadeInBuffer[fadePosition];
+            float fade = static_cast<float>(ch.readPosition) / static_cast<float>(ch.fadeLength);
+            outputSample *= fade;
         }
-        else if (ch.readPosition < ch.fadeLength)
+        else if (ch.readPosition >= ch.windowSamples - ch.fadeLength)
         {
-            outputSample *= ch.fadeOutBuffer[ch.readPosition];
+            float fade = static_cast<float>(ch.windowSamples - 1 - ch.readPosition) / static_cast<float>(ch.fadeLength);
+            outputSample *= fade;
         }
         
         ch.feedbackSample = outputSample;
         
+        // Mix output
         channelData[i] = outputSample * wetMix + inputSample * dryMix;
         
-        ch.writePosition = (ch.writePosition + 1) % ch.windowSamples;
+        // Update positions
+        ch.writePosition++;
+        if (ch.writePosition >= ch.windowSamples)
+            ch.writePosition = 0;
+            
         ch.readPosition--;
         if (ch.readPosition < 0)
             ch.readPosition = ch.windowSamples - 1;
@@ -164,56 +154,44 @@ void ReverseEngine::processForwardBackwards(Channel& ch, float* channelData, int
     {
         float inputSample = channelData[i];
         
-        // Add anti-denormal noise to prevent silence clicks
-        const float noise = (float) juce::Random::getSystemRandom().nextDouble() * 1.0e-7f - 5.0e-8f;
-        inputSample += noise;
-        
+        // Write to buffer
         ch.circularBuffer[ch.writePosition] = inputSample + (ch.feedbackSample * feedback);
-        ch.circularBuffer[ch.writePosition + ch.windowSamples] = ch.circularBuffer[ch.writePosition];
         
-        int forwardPos = ch.writePosition;
-        int backwardPos = ch.windowSamples - 1 - (ch.writePosition % ch.windowSamples);
+        // Determine position in cycle (0-1)
+        float cyclePos = static_cast<float>(ch.writePosition) / static_cast<float>(ch.windowSamples);
         
-        float forwardSample = ch.circularBuffer[forwardPos];
-        float backwardSample = ch.circularBuffer[backwardPos + ch.windowSamples];
+        float outputSample;
         
-        // Apply fade windows to prevent clicks at boundaries
-        float fadeFactor = 1.0f;
-        if (ch.writePosition < ch.fadeLength)
+        // First half: play forward
+        if (cyclePos < 0.5f)
         {
-            fadeFactor = ch.fadeInBuffer[ch.writePosition];
+            outputSample = ch.circularBuffer[ch.writePosition];
         }
-        else if (ch.writePosition >= ch.windowSamples - ch.fadeLength)
+        // Second half: play backward
+        else
         {
-            int fadeIndex = ch.writePosition - (ch.windowSamples - ch.fadeLength);
-            fadeFactor = ch.fadeOutBuffer[fadeIndex];
+            int reversePos = ch.windowSamples - 1 - ch.writePosition;
+            outputSample = ch.circularBuffer[reversePos];
         }
         
-        forwardSample *= fadeFactor;
-        backwardSample *= fadeFactor;
-        
-        // Simple sine wave crossfade
-        float crossfade = 0.5f + 0.5f * std::sin(2.0f * juce::MathConstants<float>::pi * ch.crossfadePosition);
-        
-        // Apply user crossfade setting
-        if (crossfadeTime > 0.0f)
+        // Apply crossfade at transition point
+        float transitionZone = crossfadeTime * 0.5f; // crossfade zone size
+        if (cyclePos > 0.5f - transitionZone && cyclePos < 0.5f + transitionZone)
         {
-            // Smooth the crossfade transitions
-            float smoothness = crossfadeTime;
-            crossfade = 0.5f + (crossfade - 0.5f) * smoothness;
+            float crossfadePos = (cyclePos - (0.5f - transitionZone)) / (2.0f * transitionZone);
+            float forward = ch.circularBuffer[ch.writePosition];
+            int reversePos = ch.windowSamples - 1 - ch.writePosition;
+            float backward = ch.circularBuffer[reversePos];
+            outputSample = forward * (1.0f - crossfadePos) + backward * crossfadePos;
         }
-        
-        float outputSample = forwardSample * (1.0f - crossfade) + backwardSample * crossfade;
         
         ch.feedbackSample = outputSample;
         
         channelData[i] = outputSample * wetMix + inputSample * dryMix;
         
-        ch.crossfadePosition += 1.0f / (ch.windowSamples * 2.0f);
-        if (ch.crossfadePosition >= 1.0f)
-            ch.crossfadePosition -= 1.0f;
-        
-        ch.writePosition = (ch.writePosition + 1) % ch.windowSamples;
+        ch.writePosition++;
+        if (ch.writePosition >= ch.windowSamples)
+            ch.writePosition = 0;
     }
 }
 
@@ -223,12 +201,10 @@ void ReverseEngine::processReverseRepeat(Channel& ch, float* channelData, int nu
     {
         float inputSample = channelData[i];
         
-        // Add anti-denormal noise to prevent silence clicks
-        const float noise = (float) juce::Random::getSystemRandom().nextDouble() * 1.0e-7f - 5.0e-8f;
-        inputSample += noise;
-        
+        // Always write to circular buffer
         ch.circularBuffer[ch.writePosition] = inputSample + (ch.feedbackSample * feedback);
         
+        // Copy to repeat buffer when not repeating
         if (!ch.isRepeating)
         {
             ch.repeatBuffer[ch.writePosition] = ch.circularBuffer[ch.writePosition];
@@ -238,31 +214,21 @@ void ReverseEngine::processReverseRepeat(Channel& ch, float* channelData, int nu
         
         if (ch.isRepeating)
         {
+            // Play reversed from repeat buffer
             int reversePos = ch.windowSamples - 1 - ch.repeatPosition;
             outputSample = ch.repeatBuffer[reversePos];
             
+            // Add vibrato in second half
             if (ch.repeatPosition >= ch.windowSamples / 2)
             {
                 float vibrato = getVibratoModulation(ch);
-                int vibratoSampleDelay = static_cast<int>(vibrato * 10.0f);
-                if (reversePos - vibratoSampleDelay >= 0)
+                int vibratoOffset = static_cast<int>(vibrato * 5.0f);
+                int modulatedPos = reversePos + vibratoOffset;
+                if (modulatedPos >= 0 && modulatedPos < ch.windowSamples)
                 {
-                    outputSample = ch.repeatBuffer[reversePos - vibratoSampleDelay];
+                    outputSample = ch.repeatBuffer[modulatedPos];
                 }
             }
-            
-            // Apply fade at repeat boundaries
-            float fadeFactor = 1.0f;
-            if (ch.repeatPosition < ch.fadeLength)
-            {
-                fadeFactor = ch.fadeInBuffer[ch.repeatPosition];
-            }
-            else if (ch.repeatPosition >= ch.windowSamples - ch.fadeLength)
-            {
-                int fadeIndex = ch.repeatPosition - (ch.windowSamples - ch.fadeLength);
-                fadeFactor = ch.fadeOutBuffer[fadeIndex];
-            }
-            outputSample *= fadeFactor;
             
             ch.repeatPosition++;
             if (ch.repeatPosition >= ch.windowSamples)
@@ -273,6 +239,7 @@ void ReverseEngine::processReverseRepeat(Channel& ch, float* channelData, int nu
         }
         else
         {
+            // Normal forward playback
             outputSample = ch.circularBuffer[ch.writePosition];
         }
         
@@ -280,12 +247,16 @@ void ReverseEngine::processReverseRepeat(Channel& ch, float* channelData, int nu
         
         channelData[i] = outputSample * wetMix + inputSample * dryMix;
         
-        ch.writePosition = (ch.writePosition + 1) % ch.windowSamples;
-        
-        if (ch.writePosition == 0 && !ch.isRepeating)
+        ch.writePosition++;
+        if (ch.writePosition >= ch.windowSamples)
         {
-            ch.isRepeating = true;
-            ch.repeatPosition = 0;
+            ch.writePosition = 0;
+            // Start repeat cycle
+            if (!ch.isRepeating)
+            {
+                ch.isRepeating = true;
+                ch.repeatPosition = 0;
+            }
         }
     }
 }
@@ -295,10 +266,10 @@ void ReverseEngine::createFadeWindow(std::vector<float>& fadeIn, std::vector<flo
     for (int i = 0; i < length; ++i)
     {
         float position = static_cast<float>(i) / static_cast<float>(length - 1);
-        // Use Hann window for smoother transitions
-        float hannValue = 0.5f * (1.0f - std::cos(2.0f * position * juce::MathConstants<float>::pi));
-        fadeIn[i] = hannValue;
-        fadeOut[i] = 1.0f - hannValue;
+        // Hann window
+        float value = 0.5f * (1.0f - std::cos(2.0f * position * juce::MathConstants<float>::pi));
+        fadeIn[i] = value;
+        fadeOut[i] = 1.0f - value;
     }
 }
 

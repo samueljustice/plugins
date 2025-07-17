@@ -119,9 +119,9 @@ void PitchMeter::timerCallback()
             float outputFrequency = displayFrequency;
             if (currentPitchRatio > 0.0f && displayFrequency > 0.0f)
             {
-                // Output frequency = detected frequency / pitch ratio
-                // This shows the actual real-time processed pitch
-                outputFrequency = displayFrequency / currentPitchRatio;
+                // Output frequency = detected frequency * pitch ratio
+                // When ratio > 1, pitch goes up; when ratio < 1, pitch goes down
+                outputFrequency = displayFrequency * currentPitchRatio;
             }
             
             spectrogramVisualizer->setProcessedFrequency(outputFrequency);
