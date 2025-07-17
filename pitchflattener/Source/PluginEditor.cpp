@@ -865,14 +865,16 @@ void PitchFlattenerAudioProcessorEditor::paint (juce::Graphics& g)
 void PitchFlattenerAudioProcessorEditor::resized()
 {
     // Calculate scale factor based on current window size
+    // Use actual height when RubberBand is expanded
+    int actualHeight = rbSectionExpanded ? (defaultHeight + 180) : defaultHeight;
     float widthScale = static_cast<float>(getWidth()) / static_cast<float>(defaultWidth);
-    float heightScale = static_cast<float>(getHeight()) / static_cast<float>(defaultHeight);
+    float heightScale = static_cast<float>(getHeight()) / static_cast<float>(actualHeight);
     currentScale = juce::jmin(widthScale, heightScale);
     
     
     // Calculate centering offset
     float scaledWidth = defaultWidth * currentScale;
-    float scaledHeight = defaultHeight * currentScale;
+    float scaledHeight = actualHeight * currentScale;
     float xOffset = (getWidth() - scaledWidth) * 0.5f;
     float yOffset = (getHeight() - scaledHeight) * 0.5f;
     
@@ -891,7 +893,9 @@ void PitchFlattenerAudioProcessorEditor::resized()
     }
     
     // Layout components at their default positions (unscaled)
-    auto area = juce::Rectangle<int>(0, 0, defaultWidth, defaultHeight);
+    // Use actual height when RubberBand is expanded
+    int layoutHeight = rbSectionExpanded ? (defaultHeight + 180) : defaultHeight;
+    auto area = juce::Rectangle<int>(0, 0, defaultWidth, layoutHeight);
     
     // Top section - website link and title
     websiteLink.setBounds(area.removeFromTop(20));
