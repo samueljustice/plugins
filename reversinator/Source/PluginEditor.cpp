@@ -85,7 +85,7 @@ AboutWindow::AboutContent::AboutContent()
         "- Reverse Playback - Continuous reverse effect\n"
         "- Forward Backwards - Smooth crossfade\n"
         "- Reverse Repeat - Double playback with vibrato\n"
-        "- Adjustable window time (10ms - 2 seconds)\n"
+        "- Adjustable window time (30ms - 2 seconds)\n"
         "- Feedback control\n"
         "- Wet/Dry mix controls";
     
@@ -416,11 +416,12 @@ void ReversinatorAudioProcessorEditor::resized()
     titleLabel.setBounds(area.removeFromTop(35));
     area.removeFromTop(2);
     
-    // Reverser section - bigger and better centered
+    // Reverser section - properly centered
     auto reverserArea = area.removeFromTop(65).reduced(20, 10);
-    auto reverserContent = reverserArea.withSizeKeepingCentre(200, 35);
-    reverserLabel.setBounds(reverserContent.removeFromLeft(80));
-    reverserButton.setBounds(reverserContent.withSizeKeepingCentre(80, 25));
+    auto reverserRow = reverserArea.withSizeKeepingCentre(200, reverserArea.getHeight());
+    auto labelArea = reverserRow.removeFromLeft(80);
+    reverserLabel.setBounds(labelArea.withSizeKeepingCentre(labelArea.getWidth(), 20));
+    reverserButton.setBounds(reverserRow.withSizeKeepingCentre(80, 25));
     
     area.removeFromTop(5);
     
@@ -434,54 +435,60 @@ void ReversinatorAudioProcessorEditor::resized()
     
     // Controls section
     auto controlsArea = area.removeFromTop(140).reduced(20, 10);
-    auto sliderSize = 80;
+    auto sliderSize = 70;  // Smaller knobs
     
     // Check if crossfade is visible to adjust spacing
     bool isForwardBackwards = crossfadeSlider.isVisible();
     int numSliders = isForwardBackwards ? 5 : 4;
-    auto spacing = (controlsArea.getWidth() - (numSliders * sliderSize)) / (numSliders + 1);
+    auto totalSliderWidth = numSliders * sliderSize;
+    auto spacing = (controlsArea.getWidth() - totalSliderWidth) / (numSliders + 1);
     
     auto sliderY = controlsArea.getY() + 20;
     
     // Position sliders
     if (isForwardBackwards)
     {
-        // 5 sliders layout
-        auto sliderX = spacing;
+        // 5 sliders layout - properly centered
+        auto sliderX = controlsArea.getX() + spacing;
         
-        timeLabel.setBounds(sliderX, sliderY - 20, sliderSize, 20);
+        timeLabel.setBounds(sliderX - 10, sliderY - 20, sliderSize + 20, 20);
         timeSlider.setBounds(sliderX, sliderY, sliderSize, sliderSize + 20);
         sliderX += sliderSize + spacing;
         
-        crossfadeLabel.setBounds(sliderX, sliderY - 20, sliderSize, 20);
+        crossfadeLabel.setBounds(sliderX - 10, sliderY - 20, sliderSize + 20, 20);
         crossfadeSlider.setBounds(sliderX, sliderY, sliderSize, sliderSize + 20);
         sliderX += sliderSize + spacing;
         
-        feedbackLabel.setBounds(sliderX, sliderY - 20, sliderSize, 20);
+        feedbackLabel.setBounds(sliderX - 10, sliderY - 20, sliderSize + 20, 20);
         feedbackSlider.setBounds(sliderX, sliderY, sliderSize, sliderSize + 20);
         sliderX += sliderSize + spacing;
         
-        wetMixLabel.setBounds(sliderX, sliderY - 20, sliderSize, 20);
+        wetMixLabel.setBounds(sliderX - 10, sliderY - 20, sliderSize + 20, 20);
         wetMixSlider.setBounds(sliderX, sliderY, sliderSize, sliderSize + 20);
         sliderX += sliderSize + spacing;
         
-        dryMixLabel.setBounds(sliderX, sliderY - 20, sliderSize, 20);
+        dryMixLabel.setBounds(sliderX - 10, sliderY - 20, sliderSize + 20, 20);
         dryMixSlider.setBounds(sliderX, sliderY, sliderSize, sliderSize + 20);
     }
     else
     {
-        // 4 sliders layout
-        timeLabel.setBounds(spacing, sliderY - 20, sliderSize, 20);
-        timeSlider.setBounds(spacing, sliderY, sliderSize, sliderSize + 20);
+        // 4 sliders layout - properly centered
+        auto startX = controlsArea.getX() + spacing;
         
-        feedbackLabel.setBounds(spacing * 2 + sliderSize, sliderY - 20, sliderSize, 20);
-        feedbackSlider.setBounds(spacing * 2 + sliderSize, sliderY, sliderSize, sliderSize + 20);
+        timeLabel.setBounds(startX - 10, sliderY - 20, sliderSize + 20, 20);
+        timeSlider.setBounds(startX, sliderY, sliderSize, sliderSize + 20);
+        startX += sliderSize + spacing;
         
-        wetMixLabel.setBounds(spacing * 3 + sliderSize * 2, sliderY - 20, sliderSize, 20);
-        wetMixSlider.setBounds(spacing * 3 + sliderSize * 2, sliderY, sliderSize, sliderSize + 20);
+        feedbackLabel.setBounds(startX - 10, sliderY - 20, sliderSize + 20, 20);
+        feedbackSlider.setBounds(startX, sliderY, sliderSize, sliderSize + 20);
+        startX += sliderSize + spacing;
         
-        dryMixLabel.setBounds(spacing * 4 + sliderSize * 3, sliderY - 20, sliderSize, 20);
-        dryMixSlider.setBounds(spacing * 4 + sliderSize * 3, sliderY, sliderSize, sliderSize + 20);
+        wetMixLabel.setBounds(startX - 10, sliderY - 20, sliderSize + 20, 20);
+        wetMixSlider.setBounds(startX, sliderY, sliderSize, sliderSize + 20);
+        startX += sliderSize + spacing;
+        
+        dryMixLabel.setBounds(startX - 10, sliderY - 20, sliderSize + 20, 20);
+        dryMixSlider.setBounds(startX, sliderY, sliderSize, sliderSize + 20);
     }
     
     // About button at bottom - less bottom space

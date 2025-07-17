@@ -20,8 +20,8 @@ void ReverseEngine::prepare(double newSampleRate, int samplesPerBlock, int newNu
         channel->windowSamples = static_cast<int>(windowTime * sampleRate);
         channel->circularBuffer.resize(channel->windowSamples);
         
-        // Simple fade length - 2ms
-        channel->fadeLength = static_cast<int>(0.002f * sampleRate);
+        // Fade length - 5ms for smoother transitions
+        channel->fadeLength = static_cast<int>(0.005f * sampleRate);
         channel->fadeInBuffer.resize(channel->fadeLength);
         channel->fadeOutBuffer.resize(channel->fadeLength);
         channel->repeatBuffer.resize(channel->windowSamples);
@@ -76,8 +76,8 @@ void ReverseEngine::setParameters(float windowTimeSeconds, float feedbackAmount,
             channel->writePosition = 0;
             channel->readPosition = channel->windowSamples - 1;
             
-            // Update fade buffers - keep it simple at 2ms
-            channel->fadeLength = static_cast<int>(0.002f * sampleRate);
+            // Update fade buffers - use 5ms for smoother transitions
+            channel->fadeLength = static_cast<int>(0.005f * sampleRate);
             channel->fadeInBuffer.resize(channel->fadeLength);
             channel->fadeOutBuffer.resize(channel->fadeLength);
             createFadeWindow(channel->fadeInBuffer, channel->fadeOutBuffer, channel->fadeLength);
@@ -120,16 +120,14 @@ void ReverseEngine::processReversePlayback(Channel& ch, float* channelData, int 
         // Read in reverse
         float outputSample = ch.circularBuffer[ch.readPosition];
         
-        // Simple fade at chunk boundaries
+        // Apply fade at chunk boundaries using precomputed windows
         if (ch.readPosition < ch.fadeLength)
         {
-            float fade = static_cast<float>(ch.readPosition) / static_cast<float>(ch.fadeLength);
-            outputSample *= fade;
+            outputSample *= ch.fadeInBuffer[ch.readPosition];
         }
         else if (ch.readPosition >= ch.windowSamples - ch.fadeLength)
         {
-            float fade = static_cast<float>(ch.windowSamples - 1 - ch.readPosition) / static_cast<float>(ch.fadeLength);
-            outputSample *= fade;
+            outputSample *= ch.fadeOutBuffer[ch.windowSamples - 1 - ch.readPosition];
         }
         
         ch.feedbackSample = outputSample;
@@ -266,8 +264,8 @@ void ReverseEngine::createFadeWindow(std::vector<float>& fadeIn, std::vector<flo
     for (int i = 0; i < length; ++i)
     {
         float position = static_cast<float>(i) / static_cast<float>(length - 1);
-        // Hann window
-        float value = 0.5f * (1.0f - std::cos(2.0f * position * juce::MathConstants<float>::pi));
+        // Raised cosine window for smoother fades
+        float value = 0.5f * (1.0f - std::cos(position * juce::MathConstants<float>::pi));
         fadeIn[i] = value;
         fadeOut[i] = 1.0f - value;
     }

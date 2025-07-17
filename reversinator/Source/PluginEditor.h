@@ -94,7 +94,7 @@ private:
     std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> crossfadeAttachment;
     
     // Scaling
-    static constexpr int defaultWidth = 500;
+    static constexpr int defaultWidth = 600;
     static constexpr int defaultHeight = 380;
     float currentScale = 1.0f;
     

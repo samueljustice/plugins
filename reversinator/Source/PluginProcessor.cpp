@@ -132,7 +132,7 @@ void ReversinatorAudioProcessor::changeProgramName (int index, const juce::Strin
 void ReversinatorAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
 {
     reverseEngine->prepare(sampleRate, samplesPerBlock, getTotalNumOutputChannels());
-    reverserCrossfade.reset(sampleRate, 0.02); // 20ms crossfade for smooth on/off
+    reverserCrossfade.reset(sampleRate, 0.1); // 100ms crossfade for smooth on/off
     reverserCrossfade.setCurrentAndTargetValue(reverserEnabled->load() ? 1.0f : 0.0f);
 }
 
