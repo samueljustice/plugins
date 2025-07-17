@@ -1154,8 +1154,8 @@ void PitchFlattenerAudioProcessorEditor::resized()
         rbWindowSelector.setBounds(windowArea.removeFromLeft(150));
     }
     
-    // Help text and about button at the bottom
-    auto bottomArea = juce::Rectangle<int>(0, getHeight() - 20, getWidth(), 20);
+    // Help text and about button at the bottom (positioned in unscaled coordinates)
+    auto bottomArea = area.removeFromBottom(20);
     auto aboutArea = bottomArea.removeFromRight(60).reduced(2);
     aboutButton.setBounds(aboutArea);
     helpTextLabel.setBounds(bottomArea);

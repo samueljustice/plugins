@@ -1,5 +1,5 @@
 #define MyAppName "SammyJs Pitch Flattener"
-#define MyAppVersion "1.0.0"
+#define MyAppVersion "1.2.5"
 #define MyAppPublisher "Samuel Justice"
 #define MyAppURL "https://github.com/samueljustice/pitchflattener"
 
