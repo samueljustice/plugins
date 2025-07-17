@@ -1,10 +1,6 @@
 # SammyJs Reversinator
 
-A VST3/AU audio plugin that provides real-time audio reversal effects, inspired by the classic Backwards Machine plugin. Create psychedelic reverse effects, experimental soundscapes, and unique time-based audio manipulations.
-
-### 🎉 Latest Release v1.0.0 - [Download Here](https://github.com/samueljustice/plugins/releases/tag/reversinator-v1.0.0)
-
-<img width="600" alt="Reversinator Plugin" src="https://github.com/user-attachments/assets/reversinator-screenshot.png" />
+A VST3/AU audio plugin that provides real-time audio reversal effects, inspired by the classic Backwards Machine plugin. Create reverse effects, experimental soundscapes, and unique time-based audio manipulations.
 
 ## Features
 
