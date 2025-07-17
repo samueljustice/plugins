@@ -1,22 +1,9 @@
 # SammyJs Pitch Flattener
 A VST3/AU audio plugin that flattens pitch variations in real-time, perfect for removing sweeping Doppler effects, stabilizing warbling tones, or creating unique pitch-locked effects. When you want the energy of a recording but the pitch to be mallaeable again. Works a bit like z-noise, give it a little bit to warm up. TLDR a crazy toy that sometimes flattens pitch and mostly makes weird cool sounds
 
-### 🎉 Latest Release v1.2.0 - [Download Here](https://github.com/samueljustice/plugins/releases/tag/pitchflattener-v1.2.0)
+### 🎉 Latest Release v1.2.5 - [Download Here](https://github.com/samueljustice/plugins/releases/tag/pitchflattener-v1.2.5)
 
-  • Enhanced UI 
-  
-  • Streamlined Preset Management - Simplified preset system with "Reset
-  All" button that now properly resets all parameters including latched
-  pitch. All controls support double-click to reset to default values.
-  
-  • Better DAW Integration - All 28 audio parameters are now exposed for
-  automation, including pitch algorithm selection, DIO settings, and
-  advanced detection controls. Fixed interface scaling issues for
-  consistent appearance across different screen sizes.
-
-
-
-<img width="995" height="893" alt="Screenshot 2025-07-16 at 11 24 23" src="https://github.com/user-attachments/assets/11f673f5-f635-4d8f-9b40-62466e57eddb" />
+<img width="1986" height="1784" alt="Screenshot 2025-07-17 at 19 27 57" src="https://github.com/user-attachments/assets/01d17365-6eeb-4a02-be70-2ce37aa67c3f" />
 
 ## Features
 
@@ -26,7 +13,8 @@ A VST3/AU audio plugin that flattens pitch variations in real-time, perfect for 
   - **WORLD DIO** (default) - FFT-based algorithm optimized for noisy field recordings and complex audio
   - **YIN** - Fast autocorrelation-based algorithm for clean, simple sources
 - **High-quality pitch shifting** using the RubberBand library for artifact-free processing
-- **Visual pitch meter** showing detected pitch, target pitch, and pitch deviation
+- **FFT Visualiser** for the DIO algorithm
+- **Visual pitch meter** for the YIN algorithm, showing detected pitch, target pitch, and pitch deviation
 - **Manual override mode** for locking to specific frequencies
 - **Volume gating** to prevent false pitch detection from noise
 - **Comprehensive controls** for fine-tuning detection behavior
