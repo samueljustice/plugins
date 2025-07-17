@@ -286,6 +286,8 @@ private:
     juce::Label dioBufferTimeLabel;
     
     // RubberBand controls
+    juce::TextButton rbExpandButton{"▶"};  // Expand/collapse button
+    bool rbSectionExpanded = false;
     juce::ToggleButton rbFormantPreserveButton;
     juce::Label rbFormantPreserveLabel;
     ResetComboBox rbPitchModeSelector;
@@ -351,7 +353,7 @@ private:
     
     // Scaling
     static constexpr int defaultWidth = 1000;
-    static constexpr int defaultHeight = 1050;  // Increased for RubberBand controls
+    static constexpr int defaultHeight = 870;  // Default with RubberBand collapsed
     float currentScale = 1.0f;
     
     // Help text label for parameter info

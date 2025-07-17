@@ -583,13 +583,38 @@ PitchFlattenerAudioProcessorEditor::PitchFlattenerAudioProcessorEditor (PitchFla
     addAndMakeVisible(dioBufferTimeLabel);
     
     // RubberBand controls
+    rbExpandButton.setTooltip("Show/hide RubberBand settings");
+    rbExpandButton.onClick = [this]() {
+        rbSectionExpanded = !rbSectionExpanded;
+        rbExpandButton.setButtonText(rbSectionExpanded ? "▼" : "▶");
+        
+        // Show/hide RubberBand controls
+        rbFormantPreserveButton.setVisible(rbSectionExpanded);
+        rbFormantPreserveLabel.setVisible(rbSectionExpanded);
+        rbPitchModeSelector.setVisible(rbSectionExpanded);
+        rbPitchModeLabel.setVisible(rbSectionExpanded);
+        rbTransientsSelector.setVisible(rbSectionExpanded);
+        rbTransientsLabel.setVisible(rbSectionExpanded);
+        rbPhaseSelector.setVisible(rbSectionExpanded);
+        rbPhaseLabel.setVisible(rbSectionExpanded);
+        rbWindowSelector.setVisible(rbSectionExpanded);
+        rbWindowLabel.setVisible(rbSectionExpanded);
+        
+        // Resize window
+        int newHeight = rbSectionExpanded ? 1050 : 870;
+        setSize(getWidth(), static_cast<int>(newHeight * currentScale));
+    };
+    addAndMakeVisible(rbExpandButton);
+    
     rbFormantPreserveButton.setButtonText("Preserve");
     rbFormantPreserveButton.setTooltip("Preserve formants during pitch shifting for more natural sound");
+    rbFormantPreserveButton.setVisible(false);  // Initially hidden
     addAndMakeVisible(rbFormantPreserveButton);
     
     rbFormantPreserveLabel.setText("Formants:", juce::dontSendNotification);
     rbFormantPreserveLabel.setColour(juce::Label::textColourId, juce::Colours::white);
     rbFormantPreserveLabel.setTooltip("Formant preservation mode");
+    rbFormantPreserveLabel.setVisible(false);
     addAndMakeVisible(rbFormantPreserveLabel);
     
     rbPitchModeSelector.addItem("High Speed", 1);
@@ -597,10 +622,12 @@ PitchFlattenerAudioProcessorEditor::PitchFlattenerAudioProcessorEditor (PitchFla
     rbPitchModeSelector.addItem("High Consistency", 3);
     rbPitchModeSelector.setSelectedId(3);
     rbPitchModeSelector.setTooltip("Pitch shifting algorithm mode");
+    rbPitchModeSelector.setVisible(false);
     addAndMakeVisible(rbPitchModeSelector);
     
     rbPitchModeLabel.setText("Pitch Mode:", juce::dontSendNotification);
     rbPitchModeLabel.setColour(juce::Label::textColourId, juce::Colours::white);
+    rbPitchModeLabel.setVisible(false);
     addAndMakeVisible(rbPitchModeLabel);
     
     rbTransientsSelector.addItem("Crisp", 1);
@@ -608,20 +635,24 @@ PitchFlattenerAudioProcessorEditor::PitchFlattenerAudioProcessorEditor (PitchFla
     rbTransientsSelector.addItem("Smooth", 3);
     rbTransientsSelector.setSelectedId(2);
     rbTransientsSelector.setTooltip("Transient handling mode");
+    rbTransientsSelector.setVisible(false);
     addAndMakeVisible(rbTransientsSelector);
     
     rbTransientsLabel.setText("Transients:", juce::dontSendNotification);
     rbTransientsLabel.setColour(juce::Label::textColourId, juce::Colours::white);
+    rbTransientsLabel.setVisible(false);
     addAndMakeVisible(rbTransientsLabel);
     
     rbPhaseSelector.addItem("Laminar", 1);
     rbPhaseSelector.addItem("Independent", 2);
     rbPhaseSelector.setSelectedId(1);
     rbPhaseSelector.setTooltip("Phase coherence mode - Laminar keeps channels together");
+    rbPhaseSelector.setVisible(false);
     addAndMakeVisible(rbPhaseSelector);
     
     rbPhaseLabel.setText("Phase:", juce::dontSendNotification);
     rbPhaseLabel.setColour(juce::Label::textColourId, juce::Colours::white);
+    rbPhaseLabel.setVisible(false);
     addAndMakeVisible(rbPhaseLabel);
     
     rbWindowSelector.addItem("Standard", 1);
@@ -629,10 +660,12 @@ PitchFlattenerAudioProcessorEditor::PitchFlattenerAudioProcessorEditor (PitchFla
     rbWindowSelector.addItem("Long", 3);
     rbWindowSelector.setSelectedId(1);
     rbWindowSelector.setTooltip("Analysis window size");
+    rbWindowSelector.setVisible(false);
     addAndMakeVisible(rbWindowSelector);
     
     rbWindowLabel.setText("Window:", juce::dontSendNotification);
     rbWindowLabel.setColour(juce::Label::textColourId, juce::Colours::white);
+    rbWindowLabel.setVisible(false);
     addAndMakeVisible(rbWindowLabel);
     
     // Status label
@@ -1084,30 +1117,36 @@ void PitchFlattenerAudioProcessorEditor::resized()
     
     // RubberBand section
     advancedArea.removeFromTop(20);
-    rubberBandLabel->setBounds(advancedArea.removeFromTop(25));
+    auto rbHeaderArea = advancedArea.removeFromTop(25);
+    auto rbLabelBounds = rbHeaderArea;
+    rbExpandButton.setBounds(rbLabelBounds.removeFromLeft(25));
+    rubberBandLabel->setBounds(rbLabelBounds);
     
-    auto formantArea = advancedArea.removeFromTop(32);
-    rbFormantPreserveLabel.setBounds(formantArea.removeFromLeft(100));
-    rbFormantPreserveButton.setBounds(formantArea.removeFromLeft(80));
-    
-    auto pitchModeArea = advancedArea.removeFromTop(32);
-    rbPitchModeLabel.setBounds(pitchModeArea.removeFromLeft(100));
-    rbPitchModeSelector.setBounds(pitchModeArea.removeFromLeft(150));
-    
-    auto transientsArea = advancedArea.removeFromTop(32);
-    rbTransientsLabel.setBounds(transientsArea.removeFromLeft(100));
-    rbTransientsSelector.setBounds(transientsArea.removeFromLeft(150));
-    
-    auto phaseArea = advancedArea.removeFromTop(32);
-    rbPhaseLabel.setBounds(phaseArea.removeFromLeft(100));
-    rbPhaseSelector.setBounds(phaseArea.removeFromLeft(150));
-    
-    auto windowArea = advancedArea.removeFromTop(32);
-    rbWindowLabel.setBounds(windowArea.removeFromLeft(100));
-    rbWindowSelector.setBounds(windowArea.removeFromLeft(150));
+    if (rbSectionExpanded)
+    {
+        auto formantArea = advancedArea.removeFromTop(32);
+        rbFormantPreserveLabel.setBounds(formantArea.removeFromLeft(100));
+        rbFormantPreserveButton.setBounds(formantArea.removeFromLeft(80));
+        
+        auto pitchModeArea = advancedArea.removeFromTop(32);
+        rbPitchModeLabel.setBounds(pitchModeArea.removeFromLeft(100));
+        rbPitchModeSelector.setBounds(pitchModeArea.removeFromLeft(150));
+        
+        auto transientsArea = advancedArea.removeFromTop(32);
+        rbTransientsLabel.setBounds(transientsArea.removeFromLeft(100));
+        rbTransientsSelector.setBounds(transientsArea.removeFromLeft(150));
+        
+        auto phaseArea = advancedArea.removeFromTop(32);
+        rbPhaseLabel.setBounds(phaseArea.removeFromLeft(100));
+        rbPhaseSelector.setBounds(phaseArea.removeFromLeft(150));
+        
+        auto windowArea = advancedArea.removeFromTop(32);
+        rbWindowLabel.setBounds(windowArea.removeFromLeft(100));
+        rbWindowSelector.setBounds(windowArea.removeFromLeft(150));
+    }
     
     // Help text and about button at the bottom
-    auto bottomArea = juce::Rectangle<int>(0, defaultHeight - 20, defaultWidth, 20);
+    auto bottomArea = juce::Rectangle<int>(0, getHeight() - 20, getWidth(), 20);
     auto aboutArea = bottomArea.removeFromRight(60).reduced(2);
     aboutButton.setBounds(aboutArea);
     helpTextLabel.setBounds(bottomArea);
