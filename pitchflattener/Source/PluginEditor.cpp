@@ -605,6 +605,7 @@ PitchFlattenerAudioProcessorEditor::PitchFlattenerAudioProcessorEditor (PitchFla
         int newHeight = rbSectionExpanded ? (870 + 180) : 870;
         setSize(getWidth(), static_cast<int>(newHeight * currentScale));
         resized();  // Force layout recalculation
+        repaint();  // Force redraw to update background
     };
     addAndMakeVisible(rbExpandButton);
     
@@ -835,7 +836,9 @@ void PitchFlattenerAudioProcessorEditor::paint (juce::Graphics& g)
                meterBounds.getRight() - 12, meterBounds.getY() + 1, 1);
     
     // Draw subtle backgrounds for panels
-    auto bounds = juce::Rectangle<int>(0, 0, defaultWidth, defaultHeight);
+    // Use dynamic height when RubberBand is expanded
+    int layoutHeight = rbSectionExpanded ? (defaultHeight + 180) : defaultHeight;
+    auto bounds = juce::Rectangle<int>(0, 0, defaultWidth, layoutHeight);
     bounds.removeFromTop(235); // Skip header, preset bar, meter and status label
     auto mainArea = bounds.reduced(15, 0);
     auto leftPanelWidth = static_cast<int>(mainArea.getWidth() * 0.52f);
