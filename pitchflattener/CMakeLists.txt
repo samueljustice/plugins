@@ -58,6 +58,7 @@ target_sources(PitchFlattener
         Source/PitchDetector.cpp
         Source/PitchFlattenerEngine.cpp
         Source/PresetManager.cpp
+        Source/SpectrogramVisualizer.cpp
         ${WORLD_SOURCES}
 )
 

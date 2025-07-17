@@ -488,6 +488,19 @@ void PitchFlattenerAudioProcessor::processBlock (juce::AudioBuffer<float>& buffe
         // For DIO, continuously feed filtered samples and get pitch
         float pitch = pitchDetector->detectPitch(filteredData, numSamples);
         
+        // Store filtered audio for FFT visualization (only for DIO)
+        {
+            std::lock_guard<std::mutex> lock(visualizationBufferMutex);
+            if (visualizationBuffer.getNumChannels() > 0 && visualizationBuffer.getNumSamples() > 0)
+            {
+                for (int i = 0; i < numSamples; ++i)
+                {
+                    visualizationBuffer.setSample(0, visualizationBufferWritePos, filteredData[i]);
+                    visualizationBufferWritePos = (visualizationBufferWritePos + 1) % visualizationBuffer.getNumSamples();
+                }
+            }
+        }
+        
         // Check if we're still in prebuffer phase
         bool inPrebufferPhase = (pitch == 0.0f && smoothedPitch == 0.0f);
         
@@ -962,6 +975,21 @@ void PitchFlattenerAudioProcessor::processBlock (juce::AudioBuffer<float>& buffe
         lastSetPitchRatio = effectivePitchRatio;
     }
     
+    // Calculate and set additional latency for dry signal compensation
+    int additionalLatency = 0;
+    if (algorithmChoice == 1) // WORLD_DIO
+    {
+        // DIO buffer time latency
+        float dioBufferTime = *parameters.getRawParameterValue("dioBufferTime");
+        additionalLatency = static_cast<int>(getSampleRate() * dioBufferTime);
+    }
+    else // YIN
+    {
+        // YIN analysis buffer latency (half the buffer size)
+        additionalLatency = analysisBufferSize / 2;
+    }
+    
+    pitchEngine->setAdditionalLatency(additionalLatency);
     pitchEngine->process(buffer, mix);
 }
 
@@ -1000,6 +1028,51 @@ void PitchFlattenerAudioProcessor::setStateInformation (const void* data, int si
             }
         }
     }
+}
+
+void PitchFlattenerAudioProcessor::getLatestAudioBlock(float* buffer, int numSamples)
+{
+    if (!buffer || numSamples <= 0)
+        return;
+        
+    std::lock_guard<std::mutex> lock(visualizationBufferMutex);
+    
+    // Check if buffer is initialized
+    if (visualizationBuffer.getNumChannels() == 0 || visualizationBuffer.getNumSamples() == 0)
+    {
+        // Zero out the buffer if not initialized
+        for (int i = 0; i < numSamples; ++i)
+            buffer[i] = 0.0f;
+        return;
+    }
+    
+    int availableSamples = std::min(numSamples, visualizationBuffer.getNumSamples());
+    int readStart = visualizationBufferWritePos - availableSamples;
+    if (readStart < 0)
+        readStart += visualizationBuffer.getNumSamples();
+    
+    for (int i = 0; i < availableSamples; ++i)
+    {
+        int readPos = (readStart + i) % visualizationBuffer.getNumSamples();
+        buffer[i] = visualizationBuffer.getSample(0, readPos);
+    }
+    
+    // Zero out remaining samples if requested more than available
+    for (int i = availableSamples; i < numSamples; ++i)
+        buffer[i] = 0.0f;
+}
+
+bool PitchFlattenerAudioProcessor::isUsingDIO() const
+{
+    int algorithmChoice = static_cast<int>(*parameters.getRawParameterValue("pitchAlgorithm"));
+    return algorithmChoice == 1; // 1 = WORLD DIO
+}
+
+float PitchFlattenerAudioProcessor::getCurrentPitchRatio() const
+{
+    if (pitchEngine)
+        return pitchEngine->getCurrentPitchRatio();
+    return 1.0f;
 }
 
 juce::AudioProcessor* JUCE_CALLTYPE createPluginFilter()

@@ -2,6 +2,7 @@
 
 #include <JuceHeader.h>
 #include "PluginProcessor.h"
+#include "SpectrogramVisualizer.h"
 
 class SliderWithReset : public juce::Component
 {
@@ -99,7 +100,11 @@ public:
     void paint(juce::Graphics& g) override;
     void setFrequency(float freq);
     void setTargetFrequency(float freq);
+    void setPitchRatio(float ratio) { currentPitchRatio = ratio; }
     void timerCallback() override;
+    void resized() override;
+    void pushAudioSample(float sample);
+    void setVisualizerEnabled(bool enabled);
     
     static juce::String frequencyToNote(float frequency);
     
@@ -107,6 +112,9 @@ private:
     float currentFrequency = 0.0f;
     float targetFrequency = 440.0f;
     float displayFrequency = 0.0f;
+    float currentPitchRatio = 1.0f;
+    
+    std::unique_ptr<SpectrogramVisualizer> spectrogramVisualizer;
     
     float frequencyToCents(float frequency, float referenceFreq = 440.0f);
 };

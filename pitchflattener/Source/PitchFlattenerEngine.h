@@ -16,6 +16,8 @@ public:
     
     void setParameters(float detectedPitch, float targetPitch, float smoothing, float lookaheadMultiplier = 2.0f);
     void process(juce::AudioBuffer<float>& buffer, float mixAmount);
+    void setAdditionalLatency(int samples) { totalProcessingLatency = latencyInSamples + samples; }
+    float getCurrentPitchRatio() const { return currentPitchRatio; }
     
 private:
     double sampleRate = 48000.0;
@@ -49,6 +51,11 @@ private:
     int framesPushed = 0;
     bool isWarmedUp = false;
     
+    // Dry signal delay buffer for wet/dry alignment
+    juce::AudioBuffer<float> dryDelayBuffer;
+    int dryDelayWritePos = 0;
+    int totalProcessingLatency = 0;
+    
     // Pitch shift parameters
     float currentPitchRatio = 1.0f;
     float targetPitchRatio = 1.0f;
@@ -61,4 +68,5 @@ private:
     
     void updatePitchRatio(float detectedPitch, float targetPitch);
     void warmUpRubberBand();
+    void processDryDelay(juce::AudioBuffer<float>& dryBuffer);
 };

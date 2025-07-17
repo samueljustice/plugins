@@ -367,9 +367,9 @@ void PitchFlattenerEngine::process(juce::AudioBuffer<float>& buffer, float mixAm
             outputPointers[0] = outputBufferLeft.data();
             rubberBandLeft->retrieve(outputPointers.data(), static_cast<size_t>(samplesToProcess));
             
-            // Mix processed with original for available samples
+            // Mix processed with time-aligned dry signal for available samples
             float* outputLeft = buffer.getWritePointer(0);
-            const float* dryLeft = dryBuffer.getReadPointer(0);
+            const float* dryLeft = dryBuffer.getReadPointer(0); // Now time-aligned
             for (int i = 0; i < samplesToProcess; ++i)
             {
                 outputLeft[i] = dryLeft[i] * (1.0f - mixAmount) + outputBufferLeft[i] * mixAmount;
@@ -415,9 +415,9 @@ void PitchFlattenerEngine::process(juce::AudioBuffer<float>& buffer, float mixAm
         outputPointers[0] = outputBufferRight.data();
         rubberBandRight->retrieve(outputPointers.data(), static_cast<size_t>(samplesToProcess));
         
-        // Mix processed with original for available samples
+        // Mix processed with time-aligned dry signal for available samples
         float* outputRight = buffer.getWritePointer(1);
-        const float* dryRight = dryBuffer.getReadPointer(1);
+        const float* dryRight = dryBuffer.getReadPointer(1); // Now time-aligned
         for (int i = 0; i < samplesToProcess; ++i)
         {
             outputRight[i] = dryRight[i] * (1.0f - mixAmount) + outputBufferRight[i] * mixAmount;
@@ -433,6 +433,42 @@ void PitchFlattenerEngine::process(juce::AudioBuffer<float>& buffer, float mixAm
                 outputRight[i] = lastSample * 0.999f;  // Slight decay to avoid DC buildup
                 lastSample = outputRight[i];
             }
+        }
+    }
+}
+
+void PitchFlattenerEngine::processDryDelay(juce::AudioBuffer<float>& dryBuffer)
+{
+    const int numChannels = dryBuffer.getNumChannels();
+    const int numSamples = dryBuffer.getNumSamples();
+    
+    if (totalProcessingLatency == 0)
+    {
+        // No delay needed
+        return;
+    }
+    
+    // Process each channel
+    for (int ch = 0; ch < numChannels; ++ch)
+    {
+        const float* input = dryBuffer.getReadPointer(ch);
+        float* output = dryBuffer.getWritePointer(ch);
+        
+        // Write new samples to delay buffer and read delayed samples
+        for (int i = 0; i < numSamples; ++i)
+        {
+            // Write to delay buffer
+            dryDelayBuffer.setSample(ch, dryDelayWritePos, input[i]);
+            
+            // Read from delay buffer (with latency offset)
+            int readPos = dryDelayWritePos - totalProcessingLatency;
+            if (readPos < 0)
+                readPos += dryDelayBuffer.getNumSamples();
+                
+            output[i] = dryDelayBuffer.getSample(ch, readPos);
+            
+            // Advance write position
+            dryDelayWritePos = (dryDelayWritePos + 1) % dryDelayBuffer.getNumSamples();
         }
     }
 }

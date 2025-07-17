@@ -4,6 +4,9 @@
 // PitchMeter implementation
 PitchMeter::PitchMeter()
 {
+    spectrogramVisualizer = std::make_unique<SpectrogramVisualizer>();
+    addAndMakeVisible(spectrogramVisualizer.get());
+    spectrogramVisualizer->setVisible(false); // Start hidden, will be enabled for DIO
     startTimerHz(30);
 }
 
@@ -19,36 +22,39 @@ void PitchMeter::paint(juce::Graphics& g)
     if (bounds.isEmpty())
         return;
     
-    // Background
-    g.setColour(juce::Colours::darkgrey.darker());
-    g.fillRoundedRectangle(bounds.toFloat(), 5.0f);
+    // Only draw dark background if spectrogram is not visible
+    if (!spectrogramVisualizer || !spectrogramVisualizer->isVisible())
+    {
+        g.setColour(juce::Colours::darkgrey.darker());
+        g.fillRoundedRectangle(bounds.toFloat(), 5.0f);
+    }
     
-    // Draw frequency display
-    g.setColour(juce::Colours::white);
-    g.setFont(24.0f);
-    
+    // Draw frequency display with background for visibility
     if (displayFrequency > 0)
     {
         juce::String freqText = juce::String(displayFrequency, 1) + " Hz";
         juce::String noteText = frequencyToNote(displayFrequency);
         
-        auto topBounds = bounds.removeFromTop(bounds.getHeight() / 2);
-        if (!topBounds.isEmpty())
-        {
-            g.drawText(freqText, topBounds, juce::Justification::centred);
-        }
+        // Draw semi-transparent background for text
+        auto textArea = bounds.removeFromTop(60).reduced(20, 5);
+        g.setColour(juce::Colours::black.withAlpha(0.7f));
+        g.fillRoundedRectangle(textArea.toFloat(), 5.0f);
         
+        // Draw frequency text
+        g.setColour(juce::Colours::white);
+        g.setFont(24.0f);
+        auto freqBounds = textArea.removeFromTop(30);
+        g.drawText(freqText, freqBounds, juce::Justification::centred);
+        
+        // Draw note text
         g.setFont(18.0f);
         g.setColour(juce::Colours::lightblue);
-        if (!bounds.isEmpty())
-        {
-            g.drawText(noteText, bounds, juce::Justification::centred);
-        }
+        g.drawText(noteText, textArea, juce::Justification::centred);
     }
     else
     {
         g.setColour(juce::Colours::grey);
-        g.drawText("No Input", bounds, juce::Justification::centred);
+        g.drawText("No Input", bounds.removeFromTop(60), juce::Justification::centred);
     }
     
     // Draw target indicator
@@ -104,8 +110,42 @@ void PitchMeter::timerCallback()
     if (std::abs(displayFrequency - currentFrequency) > 0.1f)
     {
         displayFrequency += (currentFrequency - displayFrequency) * 0.3f;
+        if (spectrogramVisualizer)
+        {
+            spectrogramVisualizer->setDetectedFrequency(displayFrequency);
+            
+            // Calculate actual output frequency based on pitch ratio
+            // The pitch ratio is target/source, so output = detected * ratio
+            float outputFrequency = displayFrequency;
+            if (currentPitchRatio > 0.0f && displayFrequency > 0.0f)
+            {
+                // Output frequency = detected frequency * pitch ratio
+                // This shows the actual real-time processed pitch
+                outputFrequency = displayFrequency * currentPitchRatio;
+            }
+            
+            spectrogramVisualizer->setProcessedFrequency(outputFrequency);
+        }
         repaint();
     }
+}
+
+void PitchMeter::resized()
+{
+    if (spectrogramVisualizer)
+        spectrogramVisualizer->setBounds(getLocalBounds());
+}
+
+void PitchMeter::pushAudioSample(float sample)
+{
+    if (spectrogramVisualizer)
+        spectrogramVisualizer->pushSample(sample);
+}
+
+void PitchMeter::setVisualizerEnabled(bool enabled)
+{
+    if (spectrogramVisualizer)
+        spectrogramVisualizer->setVisible(enabled);
 }
 
 juce::String PitchMeter::frequencyToNote(float frequency)
@@ -993,6 +1033,24 @@ void PitchFlattenerAudioProcessorEditor::timerCallback()
     
     pitchMeter.setFrequency(detectedPitch);
     pitchMeter.setTargetFrequency(targetPitch);
+    pitchMeter.setPitchRatio(audioProcessor.getCurrentPitchRatio());
+    
+    // Update FFT visualization only if using DIO
+    bool usingDIO = audioProcessor.isUsingDIO();
+    pitchMeter.setVisualizerEnabled(usingDIO);
+    
+    if (usingDIO)
+    {
+        const int samplesNeeded = 64; // Process small chunks for real-time display
+        float audioData[samplesNeeded];
+        audioProcessor.getLatestAudioBlock(audioData, samplesNeeded);
+        
+        for (int i = 0; i < samplesNeeded; ++i)
+            pitchMeter.pushAudioSample(audioData[i]);
+            
+        // Update the pitch meter with the actual target frequency being used
+        pitchMeter.setTargetFrequency(targetPitch);
+    }
     
     // Get base pitch latch info before using it
     bool isLocked = audioProcessor.isBasePitchLocked();

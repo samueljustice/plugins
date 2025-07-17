@@ -55,6 +55,13 @@ public:
         hasBasePitch = false;
         basePitch = 0.0f;
     }
+    
+    // Audio data access for FFT visualization
+    void getLatestAudioBlock(float* buffer, int numSamples);
+    bool isUsingDIO() const;
+    
+    // Get the current pitch ratio for visualization
+    float getCurrentPitchRatio() const;
 
 private:
     std::unique_ptr<PitchDetector> pitchDetector;
@@ -120,6 +127,11 @@ private:
     juce::dsp::IIR::Filter<float> detectionHighpass;
     juce::dsp::IIR::Filter<float> detectionLowpass;
     juce::AudioBuffer<float> filteredAnalysisBuffer;
+    
+    // Audio buffer for FFT visualization
+    juce::AudioBuffer<float> visualizationBuffer;
+    std::mutex visualizationBufferMutex;
+    int visualizationBufferWritePos = 0;
     
     juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
 
