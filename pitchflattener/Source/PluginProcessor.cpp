@@ -165,6 +165,31 @@ juce::AudioProcessorValueTreeState::ParameterLayout PitchFlattenerAudioProcessor
         juce::NormalisableRange<float>(0.1f, 1.5f, 0.1f), 
         0.5f));  // Buffer time in seconds (limited to 1.5s to prevent crashes)
     
+    // RubberBand parameters
+    params.push_back(std::make_unique<juce::AudioParameterBool>(
+        "rbFormantPreserve", "Formant Preserve", 
+        true));  // Preserve formants during pitch shifting
+    
+    params.push_back(std::make_unique<juce::AudioParameterChoice>(
+        "rbPitchMode", "Pitch Mode", 
+        juce::StringArray{"High Speed", "High Quality", "High Consistency"}, 
+        2));  // Default to High Consistency
+    
+    params.push_back(std::make_unique<juce::AudioParameterChoice>(
+        "rbTransients", "Transients", 
+        juce::StringArray{"Crisp", "Mixed", "Smooth"}, 
+        1));  // Default to Mixed
+    
+    params.push_back(std::make_unique<juce::AudioParameterChoice>(
+        "rbPhase", "Phase", 
+        juce::StringArray{"Laminar", "Independent"}, 
+        0));  // Default to Laminar (channels together)
+    
+    params.push_back(std::make_unique<juce::AudioParameterChoice>(
+        "rbWindow", "Window", 
+        juce::StringArray{"Standard", "Short", "Long"}, 
+        0));  // Default to Standard
+    
     return { params.begin(), params.end() };
 }
 
@@ -308,6 +333,15 @@ void PitchFlattenerAudioProcessor::processBlock (juce::AudioBuffer<float>& buffe
     float smoothingTimeMs = *parameters.getRawParameterValue("smoothingTimeMs");
     float mix = *parameters.getRawParameterValue("mix");
     
+    // Update RubberBand options if they've changed
+    bool rbFormantPreserve = *parameters.getRawParameterValue("rbFormantPreserve") > 0.5f;
+    int rbPitchMode = static_cast<int>(*parameters.getRawParameterValue("rbPitchMode"));
+    int rbTransients = static_cast<int>(*parameters.getRawParameterValue("rbTransients"));
+    int rbPhase = static_cast<int>(*parameters.getRawParameterValue("rbPhase"));
+    int rbWindow = static_cast<int>(*parameters.getRawParameterValue("rbWindow"));
+    
+    pitchEngine->setRubberBandOptions(rbFormantPreserve, rbPitchMode, rbTransients, rbPhase, rbWindow);
+    
     // Convert smoothing time to exponential smoothing coefficient
     float smoothingTimeSec = smoothingTimeMs / 1000.0f;
     float smoothingCoeff = 1.0f - std::exp(-1.0f / (smoothingTimeSec * getSampleRate()));
@@ -362,6 +396,7 @@ void PitchFlattenerAudioProcessor::processBlock (juce::AudioBuffer<float>& buffe
     {
         pitchDetector->setAlgorithm(static_cast<PitchDetector::Algorithm>(algorithmChoice));
         lastAlgorithmChoice = algorithmChoice;
+        frozenPitchRatio = 1.0f;  // Reset frozen ratio on algorithm change
         DBG("Algorithm changed to: " << (algorithmChoice == 0 ? "YIN" : "WORLD DIO"));
     }
     
@@ -749,6 +784,8 @@ void PitchFlattenerAudioProcessor::processBlock (juce::AudioBuffer<float>& buffe
         basePitchLocked.store(false);
         latchedBasePitch.store(0.0f);
         hasBasePitch = false;
+        frozenPitchRatio = 1.0f;  // Reset frozen ratio
+        wasFreezeEnabled = false;  // Reset freeze state tracking
         // Reset tracking variables
         dampedInputPitch = 0.0f;
         lastSetPitchRatio = 1.0f;
@@ -804,7 +841,9 @@ void PitchFlattenerAudioProcessor::processBlock (juce::AudioBuffer<float>& buffe
                     latchedBasePitch.store(avgPitch);
                     basePitchLocked.store(true);
                     hasBasePitch = true;
-                    DBG("Base pitch latched at: " << avgPitch << " Hz");
+                    basePitch = currentPitch;  // Store the current detected pitch for frozen ratio
+                    frozenPitchRatio = 1.0f;   // Reset to recalculate in hard flatten mode
+                    DBG("Base pitch latched at: " << avgPitch << " Hz, current pitch: " << currentPitch << " Hz");
                 }
             }
         }
@@ -833,6 +872,8 @@ void PitchFlattenerAudioProcessor::processBlock (juce::AudioBuffer<float>& buffe
     float effectivePitchRatio = 1.0f;
     float flattenSensitivity = *parameters.getRawParameterValue("flattenSensitivity");
     bool hardFlattenMode = *parameters.getRawParameterValue("hardFlattenMode") > 0.5f;
+    
+    // For true pitch flattening, we don't need to track state - we dynamically compensate
     
     // Smooth the input pitch before processing to reduce jitter
     if (currentPitch > 0)
@@ -891,10 +932,15 @@ void PitchFlattenerAudioProcessor::processBlock (juce::AudioBuffer<float>& buffe
         float lockedBase = latchedBasePitch.load();
         if (lockedBase > 0)
         {
-            if (hardFlattenMode)
+            if (hardFlattenMode && currentPitch > 0)
             {
-                // Hard flatten mode - RubberBand expects source/target ratio
+                // Hard flatten mode - Dynamically calculate ratio to ALWAYS output the latched frequency
+                // This compensates for any input pitch variation in real-time
+                // We want: output = lockedBase (constant)
+                // RubberBand: output = input / ratio
+                // Therefore: ratio = input / lockedBase
                 effectivePitchRatio = currentPitch / lockedBase;
+                DBG("Freeze mode: flattening " << currentPitch << " Hz to " << lockedBase << " Hz (ratio: " << effectivePitchRatio << ")");
             }
             else
             {
@@ -914,10 +960,13 @@ void PitchFlattenerAudioProcessor::processBlock (juce::AudioBuffer<float>& buffe
                 }
             }
             
-            // Smooth the pitch ratio transitions to avoid artifacts
-            float ratioSmoothingCoeff = 0.95f; // Heavy smoothing for stability
-            smoothedPitchRatio += (effectivePitchRatio - smoothedPitchRatio) * (1.0f - ratioSmoothingCoeff);
-            effectivePitchRatio = smoothedPitchRatio;
+            // Smooth the pitch ratio transitions to avoid artifacts (but not in freeze mode)
+            if (!hardFlattenMode)
+            {
+                float ratioSmoothingCoeff = 0.95f; // Heavy smoothing for stability
+                smoothedPitchRatio += (effectivePitchRatio - smoothedPitchRatio) * (1.0f - ratioSmoothingCoeff);
+                effectivePitchRatio = smoothedPitchRatio;
+            }
             
             // Clamp to reasonable bounds
             effectivePitchRatio = std::clamp(effectivePitchRatio, 0.25f, 4.0f);
@@ -965,11 +1014,13 @@ void PitchFlattenerAudioProcessor::processBlock (juce::AudioBuffer<float>& buffe
     float lookahead = *parameters.getRawParameterValue("lookahead");
     
     // Only update RubberBand if ratio has changed significantly (5% threshold)
+    // BUT: Always update in freeze mode to ensure consistent output
     float ratioDelta = std::abs(effectivePitchRatio - lastSetPitchRatio);
-    if (ratioDelta > 0.05f || lastSetPitchRatio == 1.0f)
+    if (ratioDelta > 0.05f || lastSetPitchRatio == 1.0f || (hardFlattenMode && basePitchLocked.load()))
     {
         // RubberBand setParameters expects: source pitch, target pitch
         // So for ratio 2.0 (up an octave): source=440, target=220
+        // Always use the actual detected pitch and calculated target
         float targetPitchForEngine = currentPitch / effectivePitchRatio;
         pitchEngine->setParameters(currentPitch, targetPitchForEngine, smoothingCoeff, lookahead);
         lastSetPitchRatio = effectivePitchRatio;
@@ -988,6 +1039,15 @@ void PitchFlattenerAudioProcessor::processBlock (juce::AudioBuffer<float>& buffe
         // YIN analysis buffer latency (half the buffer size)
         additionalLatency = analysisBufferSize / 2;
     }
+    
+    // Update RubberBand options if changed
+    bool formantPreserve = *parameters.getRawParameterValue("rbFormantPreserve") > 0.5f;
+    int pitchMode = static_cast<int>(*parameters.getRawParameterValue("rbPitchMode"));
+    int transients = static_cast<int>(*parameters.getRawParameterValue("rbTransients"));
+    int phase = static_cast<int>(*parameters.getRawParameterValue("rbPhase"));
+    int window = static_cast<int>(*parameters.getRawParameterValue("rbWindow"));
+    
+    pitchEngine->setRubberBandOptions(formantPreserve, pitchMode, transients, phase, window);
     
     pitchEngine->setAdditionalLatency(additionalLatency);
     pitchEngine->process(buffer, mix);

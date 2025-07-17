@@ -9,17 +9,95 @@ PitchFlattenerEngine::~PitchFlattenerEngine()
 {
 }
 
+void PitchFlattenerEngine::setRubberBandOptions(bool formantPreserve, int pitchMode, int transients, int phase, int window)
+{
+    // Check if options have changed
+    if (formantPreserve != currentFormantPreserve ||
+        pitchMode != currentPitchMode ||
+        transients != currentTransients ||
+        phase != currentPhase ||
+        window != currentWindow)
+    {
+        currentFormantPreserve = formantPreserve;
+        currentPitchMode = pitchMode;
+        currentTransients = transients;
+        currentPhase = phase;
+        currentWindow = window;
+        optionsChanged = true;
+        
+        // Recreate RubberBand instances with new options
+        if (sampleRate > 0 && maxBlockSize > 0)
+        {
+            prepare(sampleRate, maxBlockSize);
+        }
+    }
+}
+
 void PitchFlattenerEngine::prepare(double newSampleRate, int newMaxBlockSize)
 {
     sampleRate = newSampleRate;
     maxBlockSize = newMaxBlockSize;
     
-    // Create RubberBand stretchers with settings optimized for real-time pitch shifting
+    // Create RubberBand stretchers with configurable options
     RubberBand::RubberBandStretcher::Options options = 
-        RubberBand::RubberBandStretcher::OptionProcessRealTime |
-        RubberBand::RubberBandStretcher::OptionPitchHighConsistency |  // Better for continuous sounds
-        RubberBand::RubberBandStretcher::OptionFormantPreserved |
-        RubberBand::RubberBandStretcher::OptionChannelsTogether;
+        RubberBand::RubberBandStretcher::OptionProcessRealTime;
+    
+    // Formant preservation
+    if (currentFormantPreserve)
+        options |= RubberBand::RubberBandStretcher::OptionFormantPreserved;
+    
+    // Pitch mode
+    switch (currentPitchMode)
+    {
+        case 0: // High Speed
+            options |= RubberBand::RubberBandStretcher::OptionPitchHighSpeed;
+            break;
+        case 1: // High Quality
+            options |= RubberBand::RubberBandStretcher::OptionPitchHighQuality;
+            break;
+        case 2: // High Consistency
+            options |= RubberBand::RubberBandStretcher::OptionPitchHighConsistency;
+            break;
+    }
+    
+    // Transients
+    switch (currentTransients)
+    {
+        case 0: // Crisp
+            options |= RubberBand::RubberBandStretcher::OptionTransientsCrisp;
+            break;
+        case 1: // Mixed
+            options |= RubberBand::RubberBandStretcher::OptionTransientsMixed;
+            break;
+        case 2: // Smooth
+            options |= RubberBand::RubberBandStretcher::OptionTransientsSmooth;
+            break;
+    }
+    
+    // Phase
+    switch (currentPhase)
+    {
+        case 0: // Laminar (channels together)
+            options |= RubberBand::RubberBandStretcher::OptionChannelsTogether;
+            break;
+        case 1: // Independent
+            options |= RubberBand::RubberBandStretcher::OptionChannelsApart;
+            break;
+    }
+    
+    // Window
+    switch (currentWindow)
+    {
+        case 0: // Standard
+            // Default window
+            break;
+        case 1: // Short
+            options |= RubberBand::RubberBandStretcher::OptionWindowShort;
+            break;
+        case 2: // Long
+            options |= RubberBand::RubberBandStretcher::OptionWindowLong;
+            break;
+    }
     
     rubberBandLeft = std::make_unique<RubberBand::RubberBandStretcher>(
         static_cast<size_t>(sampleRate), 1, options);

@@ -115,13 +115,13 @@ void PitchMeter::timerCallback()
             spectrogramVisualizer->setDetectedFrequency(displayFrequency);
             
             // Calculate actual output frequency based on pitch ratio
-            // The pitch ratio is target/source, so output = detected * ratio
+            // RubberBand uses: output = input / ratio
             float outputFrequency = displayFrequency;
             if (currentPitchRatio > 0.0f && displayFrequency > 0.0f)
             {
-                // Output frequency = detected frequency * pitch ratio
+                // Output frequency = detected frequency / pitch ratio
                 // This shows the actual real-time processed pitch
-                outputFrequency = displayFrequency * currentPitchRatio;
+                outputFrequency = displayFrequency / currentPitchRatio;
             }
             
             spectrogramVisualizer->setProcessedFrequency(outputFrequency);
@@ -176,7 +176,11 @@ PitchFlattenerAudioProcessorEditor::PitchFlattenerAudioProcessorEditor (PitchFla
       manualOverrideButton("manualOverride", audioProcessor.parameters),
       basePitchLatchButton("basePitchLatch", audioProcessor.parameters),
       hardFlattenModeButton("hardFlattenMode", audioProcessor.parameters),
-      pitchAlgorithmSelector("pitchAlgorithm", audioProcessor.parameters)
+      pitchAlgorithmSelector("pitchAlgorithm", audioProcessor.parameters),
+      rbPitchModeSelector("rbPitchMode", audioProcessor.parameters),
+      rbTransientsSelector("rbTransients", audioProcessor.parameters),
+      rbPhaseSelector("rbPhase", audioProcessor.parameters),
+      rbWindowSelector("rbWindow", audioProcessor.parameters)
 {
     // Enable mouse tracking for help text
     setRepaintsOnMouseActivity(true);
@@ -229,6 +233,7 @@ PitchFlattenerAudioProcessorEditor::PitchFlattenerAudioProcessorEditor (PitchFla
     overrideLabel.reset(createSectionLabel("Manual Override", "Override automatic pitch detection"));
     detectionLabel.reset(createSectionLabel("Pitch Detection", "Configure pitch detection behavior"));
     advancedLabel.reset(createSectionLabel("Advanced Detection", "Fine-tune pitch tracking stability"));
+    rubberBandLabel.reset(createSectionLabel("RubberBand", "Pitch shifting engine parameters"));
     
     // Target pitch slider
     targetPitchSlider = std::make_unique<SliderWithReset>("targetPitch", audioProcessor.parameters);
@@ -352,9 +357,10 @@ PitchFlattenerAudioProcessorEditor::PitchFlattenerAudioProcessorEditor (PitchFla
     addAndMakeVisible(flattenSensitivityLabel);
     
     // Hard flatten mode
-    hardFlattenModeButton.setButtonText("Hard Flatten");
+    hardFlattenModeButton.setButtonText("Freeze Ratio");
     hardFlattenModeButton.setColour(juce::ToggleButton::textColourId, juce::Colours::white);
-    hardFlattenModeButton.setTooltip("Force output to exactly match the latched pitch for complete pitch neutralization. Double-click to reset to default.");
+    hardFlattenModeButton.setTooltip("Freeze the pitch ratio when base pitch is latched. This completely locks the output pitch, "
+                                     "ignoring all pitch variations for true flattening. Double-click to reset to default.");
     addAndMakeVisible(hardFlattenModeButton);
     
     // Flattening target display
@@ -576,6 +582,59 @@ PitchFlattenerAudioProcessorEditor::PitchFlattenerAudioProcessorEditor (PitchFla
     dioBufferTimeLabel.setTooltip("DIO analysis buffer duration");
     addAndMakeVisible(dioBufferTimeLabel);
     
+    // RubberBand controls
+    rbFormantPreserveButton.setButtonText("Preserve");
+    rbFormantPreserveButton.setTooltip("Preserve formants during pitch shifting for more natural sound");
+    addAndMakeVisible(rbFormantPreserveButton);
+    
+    rbFormantPreserveLabel.setText("Formants:", juce::dontSendNotification);
+    rbFormantPreserveLabel.setColour(juce::Label::textColourId, juce::Colours::white);
+    rbFormantPreserveLabel.setTooltip("Formant preservation mode");
+    addAndMakeVisible(rbFormantPreserveLabel);
+    
+    rbPitchModeSelector.addItem("High Speed", 1);
+    rbPitchModeSelector.addItem("High Quality", 2);
+    rbPitchModeSelector.addItem("High Consistency", 3);
+    rbPitchModeSelector.setSelectedId(3);
+    rbPitchModeSelector.setTooltip("Pitch shifting algorithm mode");
+    addAndMakeVisible(rbPitchModeSelector);
+    
+    rbPitchModeLabel.setText("Pitch Mode:", juce::dontSendNotification);
+    rbPitchModeLabel.setColour(juce::Label::textColourId, juce::Colours::white);
+    addAndMakeVisible(rbPitchModeLabel);
+    
+    rbTransientsSelector.addItem("Crisp", 1);
+    rbTransientsSelector.addItem("Mixed", 2);
+    rbTransientsSelector.addItem("Smooth", 3);
+    rbTransientsSelector.setSelectedId(2);
+    rbTransientsSelector.setTooltip("Transient handling mode");
+    addAndMakeVisible(rbTransientsSelector);
+    
+    rbTransientsLabel.setText("Transients:", juce::dontSendNotification);
+    rbTransientsLabel.setColour(juce::Label::textColourId, juce::Colours::white);
+    addAndMakeVisible(rbTransientsLabel);
+    
+    rbPhaseSelector.addItem("Laminar", 1);
+    rbPhaseSelector.addItem("Independent", 2);
+    rbPhaseSelector.setSelectedId(1);
+    rbPhaseSelector.setTooltip("Phase coherence mode - Laminar keeps channels together");
+    addAndMakeVisible(rbPhaseSelector);
+    
+    rbPhaseLabel.setText("Phase:", juce::dontSendNotification);
+    rbPhaseLabel.setColour(juce::Label::textColourId, juce::Colours::white);
+    addAndMakeVisible(rbPhaseLabel);
+    
+    rbWindowSelector.addItem("Standard", 1);
+    rbWindowSelector.addItem("Short", 2);
+    rbWindowSelector.addItem("Long", 3);
+    rbWindowSelector.setSelectedId(1);
+    rbWindowSelector.setTooltip("Analysis window size");
+    addAndMakeVisible(rbWindowSelector);
+    
+    rbWindowLabel.setText("Window:", juce::dontSendNotification);
+    rbWindowLabel.setColour(juce::Label::textColourId, juce::Colours::white);
+    addAndMakeVisible(rbWindowLabel);
+    
     // Status label
     statusLabel.setText("Ready", juce::dontSendNotification);
     statusLabel.setJustificationType(juce::Justification::centred);
@@ -624,6 +683,22 @@ PitchFlattenerAudioProcessorEditor::PitchFlattenerAudioProcessorEditor (PitchFla
     dioAllowedRangeAttachment = dioAllowedRangeSlider->createAttachment();
     dioChannelsAttachment = dioChannelsSlider->createAttachment();
     dioBufferTimeAttachment = dioBufferTimeSlider->createAttachment();
+    
+    // RubberBand attachments
+    rbFormantPreserveAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment>(
+        audioProcessor.parameters, "rbFormantPreserve", rbFormantPreserveButton);
+    
+    rbPitchModeAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment>(
+        audioProcessor.parameters, "rbPitchMode", rbPitchModeSelector);
+    
+    rbTransientsAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment>(
+        audioProcessor.parameters, "rbTransients", rbTransientsSelector);
+    
+    rbPhaseAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment>(
+        audioProcessor.parameters, "rbPhase", rbPhaseSelector);
+    
+    rbWindowAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment>(
+        audioProcessor.parameters, "rbWindow", rbWindowSelector);
     
     // Setup algorithm change callback
     pitchAlgorithmSelector.onChange = [this]() { updateAlgorithmControls(); };
@@ -1007,6 +1082,30 @@ void PitchFlattenerAudioProcessorEditor::resized()
     detectionLowpassLabel.setBounds(lowpassArea.removeFromLeft(100));
     detectionLowpassSlider->setBounds(lowpassArea);
     
+    // RubberBand section
+    advancedArea.removeFromTop(20);
+    rubberBandLabel->setBounds(advancedArea.removeFromTop(25));
+    
+    auto formantArea = advancedArea.removeFromTop(32);
+    rbFormantPreserveLabel.setBounds(formantArea.removeFromLeft(100));
+    rbFormantPreserveButton.setBounds(formantArea.removeFromLeft(80));
+    
+    auto pitchModeArea = advancedArea.removeFromTop(32);
+    rbPitchModeLabel.setBounds(pitchModeArea.removeFromLeft(100));
+    rbPitchModeSelector.setBounds(pitchModeArea.removeFromLeft(150));
+    
+    auto transientsArea = advancedArea.removeFromTop(32);
+    rbTransientsLabel.setBounds(transientsArea.removeFromLeft(100));
+    rbTransientsSelector.setBounds(transientsArea.removeFromLeft(150));
+    
+    auto phaseArea = advancedArea.removeFromTop(32);
+    rbPhaseLabel.setBounds(phaseArea.removeFromLeft(100));
+    rbPhaseSelector.setBounds(phaseArea.removeFromLeft(150));
+    
+    auto windowArea = advancedArea.removeFromTop(32);
+    rbWindowLabel.setBounds(windowArea.removeFromLeft(100));
+    rbWindowSelector.setBounds(windowArea.removeFromLeft(150));
+    
     // Help text and about button at the bottom
     auto bottomArea = juce::Rectangle<int>(0, defaultHeight - 20, defaultWidth, 20);
     auto aboutArea = bottomArea.removeFromRight(60).reduced(2);
@@ -1250,7 +1349,7 @@ void PitchFlattenerAudioProcessorEditor::mouseEnter(const juce::MouseEvent& even
     else if (source == &flattenSensitivitySlider->slider)
         helpTextLabel.setText("Sensitivity: How aggressively to flatten pitch variations", juce::dontSendNotification);
     else if (source == &hardFlattenModeButton)
-        helpTextLabel.setText("Hard Flatten: Force output to exactly match the target pitch", juce::dontSendNotification);
+        helpTextLabel.setText("Freeze Ratio: Lock the pitch ratio to completely flatten pitch variations", juce::dontSendNotification);
     else if (source == &pitchAlgorithmSelector)
         helpTextLabel.setText("Algorithm: YIN for clean signals, WORLD DIO for noisy recordings", juce::dontSendNotification);
     else if (source == &detectionRateSlider->slider)
@@ -1285,6 +1384,16 @@ void PitchFlattenerAudioProcessorEditor::mouseEnter(const juce::MouseEvent& even
         helpTextLabel.setText("Channels/Oct: Frequency resolution", juce::dontSendNotification);
     else if (source == &dioBufferTimeSlider->slider)
         helpTextLabel.setText("Buffer Time: Extra buffering for DIO algorithm", juce::dontSendNotification);
+    else if (source == &rbFormantPreserveButton)
+        helpTextLabel.setText("Formant Preserve: Maintain voice characteristics during pitch shifting", juce::dontSendNotification);
+    else if (source == &rbPitchModeSelector)
+        helpTextLabel.setText("Pitch Mode: Speed vs Quality tradeoff for pitch shifting", juce::dontSendNotification);
+    else if (source == &rbTransientsSelector)
+        helpTextLabel.setText("Transients: How to handle percussive sounds", juce::dontSendNotification);
+    else if (source == &rbPhaseSelector)
+        helpTextLabel.setText("Phase: Channel processing mode (Laminar keeps stereo image)", juce::dontSendNotification);
+    else if (source == &rbWindowSelector)
+        helpTextLabel.setText("Window: Analysis window size (affects frequency/time resolution)", juce::dontSendNotification);
 }
 
 void PitchFlattenerAudioProcessorEditor::mouseExit(const juce::MouseEvent& event)

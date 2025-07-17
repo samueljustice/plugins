@@ -19,6 +19,9 @@ public:
     void setAdditionalLatency(int samples) { totalProcessingLatency = latencyInSamples + samples; }
     float getCurrentPitchRatio() const { return currentPitchRatio; }
     
+    // RubberBand configuration
+    void setRubberBandOptions(bool formantPreserve, int pitchMode, int transients, int phase, int window);
+    
 private:
     double sampleRate = 48000.0;
     int maxBlockSize = 512;
@@ -61,6 +64,14 @@ private:
     float targetPitchRatio = 1.0f;
     float lastPitchRatio = 1.0f;
     float smoothingFactor = 0.95f;
+    
+    // RubberBand options
+    bool currentFormantPreserve = true;
+    int currentPitchMode = 2; // High Consistency
+    int currentTransients = 1; // Mixed
+    int currentPhase = 0; // Laminar
+    int currentWindow = 0; // Standard
+    bool optionsChanged = false;
     
     // Convert input/output pointers for RubberBand
     std::vector<const float*> inputPointers;

@@ -54,6 +54,8 @@ public:
         basePitchLocked.store(false);
         hasBasePitch = false;
         basePitch = 0.0f;
+        frozenPitchRatio = 1.0f;
+        wasFreezeEnabled = false;
     }
     
     // Audio data access for FFT visualization
@@ -83,6 +85,8 @@ private:
     int pitchHoldFrames = 0;
     int silenceFrames = 0;  // Frames of silence to reset base pitch
     int lastAlgorithmChoice = -1;  // Track algorithm changes
+    float frozenPitchRatio = 1.0f;  // Locked pitch ratio for hard flatten mode
+    bool wasFreezeEnabled = false;  // Track freeze mode state changes
     
     // DIO parameter tracking
     int lastDioSpeed = -1;

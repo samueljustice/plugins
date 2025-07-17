@@ -285,6 +285,18 @@ private:
     std::unique_ptr<SliderWithReset> dioBufferTimeSlider;
     juce::Label dioBufferTimeLabel;
     
+    // RubberBand controls
+    juce::ToggleButton rbFormantPreserveButton;
+    juce::Label rbFormantPreserveLabel;
+    ResetComboBox rbPitchModeSelector;
+    juce::Label rbPitchModeLabel;
+    ResetComboBox rbTransientsSelector;
+    juce::Label rbTransientsLabel;
+    ResetComboBox rbPhaseSelector;
+    juce::Label rbPhaseLabel;
+    ResetComboBox rbWindowSelector;
+    juce::Label rbWindowLabel;
+    
     PitchMeter pitchMeter;
     
     juce::Label titleLabel;
@@ -296,6 +308,7 @@ private:
     std::unique_ptr<juce::Label> overrideLabel;
     std::unique_ptr<juce::Label> detectionLabel;
     std::unique_ptr<juce::Label> advancedLabel;
+    std::unique_ptr<juce::Label> rubberBandLabel;
     
     
     // Attachments
@@ -326,12 +339,19 @@ private:
     std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> dioChannelsAttachment;
     std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> dioBufferTimeAttachment;
     
+    // RubberBand attachments
+    std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> rbFormantPreserveAttachment;
+    std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> rbPitchModeAttachment;
+    std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> rbTransientsAttachment;
+    std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> rbPhaseAttachment;
+    std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> rbWindowAttachment;
+    
     // Look and Feel
     juce::LookAndFeel_V4 lookAndFeel;
     
     // Scaling
     static constexpr int defaultWidth = 1000;
-    static constexpr int defaultHeight = 870;  // Increased for help text
+    static constexpr int defaultHeight = 1050;  // Increased for RubberBand controls
     float currentScale = 1.0f;
     
     // Help text label for parameter info
