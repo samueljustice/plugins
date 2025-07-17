@@ -14,7 +14,7 @@ public:
     void reset();
     void process(juce::AudioBuffer<float>& buffer);
     
-    void setParameters(float windowTimeSeconds, float feedbackAmount, float wetMix, float dryMix, int mode);
+    void setParameters(float windowTimeSeconds, float feedbackAmount, float wetMix, float dryMix, int mode, float crossfadePercent = 20.0f);
     
     enum EffectMode
     {
@@ -32,6 +32,7 @@ private:
     float wetMix = 1.0f;
     float dryMix = 0.0f;
     int effectMode = ReversePlayback;
+    float crossfadeTime = 0.2f; // percentage of window time for crossfade
     
     struct Channel
     {

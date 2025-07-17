@@ -58,6 +58,7 @@ private:
     std::atomic<float>* wetMix = nullptr;
     std::atomic<float>* dryMix = nullptr;
     std::atomic<float>* effectMode = nullptr;
+    std::atomic<float>* crossfadeTime = nullptr;
     
     bool previousReverserState = false;
     juce::SmoothedValue<float> reverserCrossfade;

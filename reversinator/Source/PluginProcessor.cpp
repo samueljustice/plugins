@@ -20,6 +20,7 @@ ReversinatorAudioProcessor::ReversinatorAudioProcessor()
     wetMix = valueTreeState.getRawParameterValue("wetmix");
     dryMix = valueTreeState.getRawParameterValue("drymix");
     effectMode = valueTreeState.getRawParameterValue("mode");
+    crossfadeTime = valueTreeState.getRawParameterValue("crossfade");
     
     reverseEngine = std::make_unique<ReverseEngine>();
 }
@@ -37,8 +38,8 @@ juce::AudioProcessorValueTreeState::ParameterLayout ReversinatorAudioProcessor::
     
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         "time", "Time", 
-        juce::NormalisableRange<float>(0.1f, 5.0f, 0.01f, 0.5f), 
-        2.0f));
+        juce::NormalisableRange<float>(0.03f, 2.0f, 0.001f, 0.5f),  // min 30ms to prevent crackling
+        0.5f));
     
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         "feedback", "Feedback Depth", 
@@ -59,6 +60,11 @@ juce::AudioProcessorValueTreeState::ParameterLayout ReversinatorAudioProcessor::
         "mode", "Effect Mode", 
         juce::StringArray{"Reverse Playback", "Forward Backwards", "Reverse Repeat"}, 
         0));
+    
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        "crossfade", "Crossfade Time", 
+        juce::NormalisableRange<float>(0.0f, 100.0f, 0.1f), 
+        20.0f));
     
     return { params.begin(), params.end() };
 }
@@ -126,7 +132,7 @@ void ReversinatorAudioProcessor::changeProgramName (int index, const juce::Strin
 void ReversinatorAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
 {
     reverseEngine->prepare(sampleRate, samplesPerBlock, getTotalNumOutputChannels());
-    reverserCrossfade.reset(sampleRate, 0.01);
+    reverserCrossfade.reset(sampleRate, 0.02); // 20ms crossfade for smooth on/off
     reverserCrossfade.setCurrentAndTargetValue(reverserEnabled->load() ? 1.0f : 0.0f);
 }
 
@@ -177,7 +183,8 @@ void ReversinatorAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
         feedbackDepth->load() / 100.0f,
         wetMix->load() / 100.0f,
         dryMix->load() / 100.0f,
-        static_cast<int>(effectMode->load())
+        static_cast<int>(effectMode->load()),
+        crossfadeTime->load()
     );
     
     if (reverserCrossfade.isSmoothing() || currentReverserState)

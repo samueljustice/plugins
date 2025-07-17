@@ -15,6 +15,7 @@ AboutWindow::AboutWindow()
     centreWithSize(500, 600);
     setVisible(true);
     setResizable(false, false);
+    setAlwaysOnTop(true);
 }
 
 AboutWindow::~AboutWindow()
@@ -81,12 +82,12 @@ AboutWindow::AboutContent::AboutContent()
         "Licensed under the GPL/Commercial license\n\n"
         
         "Features:\n"
-        "• Reverse Playback - Continuous reverse effect\n"
-        "• Forward Backwards - Smooth crossfade\n"
-        "• Reverse Repeat - Double playback with vibrato\n"
-        "• Adjustable window time (0.1 - 5 seconds)\n"
-        "• Feedback control\n"
-        "• Wet/Dry mix controls";
+        "- Reverse Playback - Continuous reverse effect\n"
+        "- Forward Backwards - Smooth crossfade\n"
+        "- Reverse Repeat - Double playback with vibrato\n"
+        "- Adjustable window time (10ms - 2 seconds)\n"
+        "- Feedback control\n"
+        "- Wet/Dry mix controls";
     
     licenseInfo.setText(licenseText);
     addAndMakeVisible(licenseInfo);
@@ -198,196 +199,102 @@ void AboutWindow::AboutContent::checkForUpdates()
 }
 
 //==============================================================================
-void ModeButton::paint(juce::Graphics& g)
-{
-    auto bounds = getLocalBounds().toFloat();
-    
-    if (isSelected)
-    {
-        g.setColour(juce::Colour(0xff5cb85c));
-        g.fillEllipse(bounds.reduced(4));
-        g.setColour(juce::Colours::darkgreen);
-        g.drawEllipse(bounds.reduced(4), 2.0f);
-    }
-    else
-    {
-        g.setColour(juce::Colour(0xff3e342a));
-        g.fillEllipse(bounds.reduced(4));
-        g.setColour(juce::Colour(0xff5e4e3a));
-        g.drawEllipse(bounds.reduced(4), 2.0f);
-    }
-    
-    g.setColour(juce::Colours::black);
-    g.setFont(11.0f);
-    g.drawText(buttonText, bounds.withY(bounds.getBottom()), 
-               juce::Justification::centredTop, false);
-}
-
-void ModeButton::mouseDown(const juce::MouseEvent&)
-{
-    if (onClick)
-        onClick();
-}
-
-HourglassDisplay::HourglassDisplay()
-{
-    startTimerHz(30);
-}
-
-void HourglassDisplay::paint(juce::Graphics& g)
-{
-    auto bounds = getLocalBounds().toFloat();
-    auto hourglassBounds = bounds.reduced(10);
-    
-    g.setColour(juce::Colour(0xffcccccc));
-    g.fillRoundedRectangle(hourglassBounds, 5.0f);
-    
-    g.setColour(juce::Colour(0xff666666));
-    g.drawRoundedRectangle(hourglassBounds, 5.0f, 2.0f);
-    
-    auto centerX = hourglassBounds.getCentreX();
-    auto topY = hourglassBounds.getY() + 10;
-    auto bottomY = hourglassBounds.getBottom() - 10;
-    auto width = hourglassBounds.getWidth() * 0.6f;
-    auto middleY = hourglassBounds.getCentreY();
-    
-    juce::Path hourglass;
-    hourglass.startNewSubPath(centerX - width/2, topY);
-    hourglass.lineTo(centerX + width/2, topY);
-    hourglass.lineTo(centerX + 3, middleY);
-    hourglass.lineTo(centerX + width/2, bottomY);
-    hourglass.lineTo(centerX - width/2, bottomY);
-    hourglass.lineTo(centerX - 3, middleY);
-    hourglass.closeSubPath();
-    
-    g.setColour(juce::Colour(0xff999999));
-    g.strokePath(hourglass, juce::PathStrokeType(2.0f));
-    
-    float sandLevel = 0.3f + 0.2f * std::sin(animationPhase);
-    float topSandY = topY + (middleY - topY) * (1.0f - sandLevel);
-    float bottomSandY = middleY + (bottomY - middleY) * sandLevel;
-    
-    g.setColour(juce::Colour(0xffffcc66));
-    
-    juce::Path topSand;
-    topSand.startNewSubPath(centerX - width/2 + 5, topSandY);
-    topSand.lineTo(centerX + width/2 - 5, topSandY);
-    topSand.lineTo(centerX + 2, middleY - 2);
-    topSand.lineTo(centerX - 2, middleY - 2);
-    topSand.closeSubPath();
-    g.fillPath(topSand);
-    
-    juce::Path bottomSand;
-    bottomSand.startNewSubPath(centerX - 2, middleY + 2);
-    bottomSand.lineTo(centerX + 2, middleY + 2);
-    bottomSand.lineTo(centerX + width/2 - 5, bottomSandY);
-    bottomSand.lineTo(centerX - width/2 + 5, bottomSandY);
-    bottomSand.closeSubPath();
-    g.fillPath(bottomSand);
-    
-    g.setColour(juce::Colours::orange.withAlpha(0.5f));
-    g.drawLine(centerX, middleY - 1, centerX, middleY + 1, 1.0f);
-}
-
-void HourglassDisplay::timerCallback()
-{
-    animationPhase += 0.05f;
-    if (animationPhase > juce::MathConstants<float>::twoPi)
-        animationPhase -= juce::MathConstants<float>::twoPi;
-    repaint();
-}
-
 ReversinatorAudioProcessorEditor::ReversinatorAudioProcessorEditor (ReversinatorAudioProcessor& p)
     : AudioProcessorEditor (&p), audioProcessor (p)
 {
-    // Allow flexible resizing with proper scaling
-    setResizeLimits(400, 300, 1200, 1000);
-    setSize (defaultWidth, defaultHeight);
+    // Set up look and feel
+    lookAndFeel.setColour(juce::Slider::textBoxTextColourId, juce::Colours::black);
+    lookAndFeel.setColour(juce::Slider::textBoxBackgroundColourId, juce::Colours::lightgrey);
+    lookAndFeel.setColour(juce::Slider::textBoxOutlineColourId, juce::Colours::grey);
+    setLookAndFeel(&lookAndFeel);
     
-    reverserButton.setButtonText("REVERSER");
+    // Set size and resizing at the end
+    setSize (defaultWidth, defaultHeight);
+    setResizable(true, true);
+    setResizeLimits(400, 320, 1000, 800);
+    
+    // Website link
+    websiteLink.setButtonText("www.sweetjusticesound.com");
+    websiteLink.setURL(juce::URL("https://www.sweetjusticesound.com"));
+    websiteLink.setJustificationType(juce::Justification::centred);
+    websiteLink.setColour(juce::HyperlinkButton::textColourId, juce::Colours::lightblue);
+    websiteLink.setTooltip("Visit Sweet Justice Sound website for more plugins and music");
+    addAndMakeVisible(websiteLink);
+    
+    // Title
+    titleLabel.setText("SammyJs Reversinator", juce::dontSendNotification);
+    titleLabel.setFont(juce::Font(24.0f, juce::Font::bold));
+    titleLabel.setJustificationType(juce::Justification::centred);
+    titleLabel.setTooltip("Real-time audio reversing effect");
+    addAndMakeVisible(titleLabel);
+    
+    // Mode selector
+    modeLabel.setText("Effect Mode", juce::dontSendNotification);
+    modeLabel.setJustificationType(juce::Justification::centred);
+    addAndMakeVisible(modeLabel);
+    
+    modeSelector.addItem("Reverse Playback", 1);
+    modeSelector.addItem("Forward Backwards", 2);
+    modeSelector.addItem("Reverse Repeat", 3);
+    modeSelector.setSelectedId(1);
+    modeSelector.setJustificationType(juce::Justification::centred);
+    modeSelector.setTooltip("Select the reverse effect mode: Reverse Playback (continuous reverse), Forward Backwards (smooth crossfade), or Reverse Repeat (double playback with vibrato)");
+    addAndMakeVisible(modeSelector);
+    
+    // Reverser toggle
+    reverserLabel.setText("Reverser", juce::dontSendNotification);
+    reverserLabel.setJustificationType(juce::Justification::centred);
+    addAndMakeVisible(reverserLabel);
+    
+    reverserButton.setButtonText("Enable");
     reverserButton.setToggleState(false, juce::dontSendNotification);
+    reverserButton.setTooltip("Enable or disable the reverse effect");
     addAndMakeVisible(reverserButton);
     
-    timeSlider.setSliderStyle(juce::Slider::LinearVertical);
-    timeSlider.setTextBoxStyle(juce::Slider::NoTextBox, false, 0, 0);
-    timeSlider.setColour(juce::Slider::backgroundColourId, juce::Colour(0xff666666));
-    timeSlider.setColour(juce::Slider::trackColourId, juce::Colour(0xffffcc66));
-    timeSlider.setColour(juce::Slider::thumbColourId, juce::Colour(0xffffcc66));
-    timeSlider.addListener(this);
-    addAndMakeVisible(timeSlider);
+    // Time slider
+    setupSlider(timeSlider, timeLabel, timeValueLabel, "Window Time", " s");
+    timeSlider.setRange(0.03, 2.0, 0.001);  // min 30ms to prevent crackling
+    timeSlider.setSkewFactorFromMidPoint(0.5);
+    timeSlider.setDoubleClickReturnValue(true, 0.5);
+    timeSlider.setTooltip("Size of the reverse window in seconds (30ms - 2s). Smaller values create granular effects, larger values create smoother reverses.");
     
-    timeLabel.setText("TIME", juce::dontSendNotification);
-    timeLabel.setJustificationType(juce::Justification::centred);
-    addAndMakeVisible(timeLabel);
+    // Feedback slider
+    setupSlider(feedbackSlider, feedbackLabel, feedbackValueLabel, "Feedback Depth", "%");
+    feedbackSlider.setDoubleClickReturnValue(true, 0.0);
+    feedbackSlider.setTooltip("Amount of feedback applied to the reversed signal. Creates echo-like effects.");
     
-    timeValueLabel.setText("2.00 sec", juce::dontSendNotification);
-    timeValueLabel.setJustificationType(juce::Justification::centred);
-    addAndMakeVisible(timeValueLabel);
+    // Wet mix slider
+    setupSlider(wetMixSlider, wetMixLabel, wetMixValueLabel, "Wet Mix", "%");
+    wetMixSlider.setDoubleClickReturnValue(true, 100.0);
+    wetMixSlider.setTooltip("Level of the reversed signal. 100% = fully reversed, 0% = no reversed signal.");
     
-    feedbackSlider.setSliderStyle(juce::Slider::LinearHorizontal);
-    feedbackSlider.setTextBoxStyle(juce::Slider::NoTextBox, false, 0, 0);
-    feedbackSlider.setColour(juce::Slider::backgroundColourId, juce::Colour(0xff666666));
-    feedbackSlider.setColour(juce::Slider::trackColourId, juce::Colour(0xff999999));
-    addAndMakeVisible(feedbackSlider);
+    // Dry mix slider
+    setupSlider(dryMixSlider, dryMixLabel, dryMixValueLabel, "Dry Mix", "%");
+    dryMixSlider.setDoubleClickReturnValue(true, 0.0);
+    dryMixSlider.setTooltip("Level of the original signal. Mix with wet signal for blended effects.");
     
-    feedbackLabel.setText("FEEDBACK DEPTH", juce::dontSendNotification);
-    feedbackLabel.setJustificationType(juce::Justification::centred);
-    addAndMakeVisible(feedbackLabel);
+    // Crossfade slider (hidden by default)
+    setupSlider(crossfadeSlider, crossfadeLabel, crossfadeValueLabel, "Crossfade", "%");
+    crossfadeSlider.setDoubleClickReturnValue(true, 20.0);
+    crossfadeSlider.setTooltip("Crossfade time between forward and backward sections in Forward Backwards mode. Lower = sharper transitions, Higher = smoother blending.");
+    crossfadeSlider.setVisible(false);
+    crossfadeLabel.setVisible(false);
+    crossfadeValueLabel.setVisible(false);
     
-    wetMixSlider.setSliderStyle(juce::Slider::LinearVertical);
-    wetMixSlider.setTextBoxStyle(juce::Slider::NoTextBox, false, 0, 0);
-    wetMixSlider.setColour(juce::Slider::backgroundColourId, juce::Colour(0xff666666));
-    wetMixSlider.setColour(juce::Slider::trackColourId, juce::Colour(0xff6699ff));
-    addAndMakeVisible(wetMixSlider);
-    
-    wetMixLabel.setText("WET", juce::dontSendNotification);
-    wetMixLabel.setJustificationType(juce::Justification::centred);
-    addAndMakeVisible(wetMixLabel);
-    
-    dryMixSlider.setSliderStyle(juce::Slider::LinearVertical);
-    dryMixSlider.setTextBoxStyle(juce::Slider::NoTextBox, false, 0, 0);
-    dryMixSlider.setColour(juce::Slider::backgroundColourId, juce::Colour(0xff666666));
-    dryMixSlider.setColour(juce::Slider::trackColourId, juce::Colour(0xff6699ff));
-    addAndMakeVisible(dryMixSlider);
-    
-    dryMixLabel.setText("DRY", juce::dontSendNotification);
-    dryMixLabel.setJustificationType(juce::Justification::centred);
-    addAndMakeVisible(dryMixLabel);
-    
-    volumeSlider.setSliderStyle(juce::Slider::LinearVertical);
-    volumeSlider.setTextBoxStyle(juce::Slider::NoTextBox, false, 0, 0);
-    volumeSlider.setRange(0.0, 1.0);
-    volumeSlider.setValue(1.0);
-    volumeSlider.setColour(juce::Slider::backgroundColourId, juce::Colour(0xff666666));
-    volumeSlider.setColour(juce::Slider::trackColourId, juce::Colour(0xff6699ff));
-    addAndMakeVisible(volumeSlider);
-    
-    volumeLabel.setText("Volume\nControl", juce::dontSendNotification);
-    volumeLabel.setJustificationType(juce::Justification::centred);
-    addAndMakeVisible(volumeLabel);
-    
-    addAndMakeVisible(reversePlaybackButton);
-    addAndMakeVisible(forwardBackwardsButton);
-    addAndMakeVisible(reverseRepeatButton);
-    addAndMakeVisible(hourglassDisplay);
-    
-    reversePlaybackButton.onClick = [this]() {
-        audioProcessor.getValueTreeState().getParameter("mode")->setValueNotifyingHost(0.0f);
-        updateModeButtons(0);
+    // About button
+    aboutButton.setColour(juce::TextButton::buttonColourId, juce::Colours::darkgrey.darker());
+    aboutButton.setColour(juce::TextButton::textColourOnId, juce::Colours::lightgrey);
+    aboutButton.onClick = [this] 
+    {
+        if (!aboutWindow)
+            aboutWindow = std::make_unique<AboutWindow>();
+        else
+            aboutWindow->setVisible(true);
     };
+    aboutButton.setTooltip("About SammyJs Reversinator");
+    addAndMakeVisible(aboutButton);
     
-    forwardBackwardsButton.onClick = [this]() {
-        audioProcessor.getValueTreeState().getParameter("mode")->setValueNotifyingHost(0.5f);
-        updateModeButtons(1);
-    };
-    
-    reverseRepeatButton.onClick = [this]() {
-        audioProcessor.getValueTreeState().getParameter("mode")->setValueNotifyingHost(1.0f);
-        updateModeButtons(2);
-    };
-    
-    updateModeButtons(0);
-    
+    // Create attachments
     reverserAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment>(
         audioProcessor.getValueTreeState(), "reverser", reverserButton);
     timeAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
@@ -398,34 +305,55 @@ ReversinatorAudioProcessorEditor::ReversinatorAudioProcessorEditor (Reversinator
         audioProcessor.getValueTreeState(), "wetmix", wetMixSlider);
     dryMixAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
         audioProcessor.getValueTreeState(), "drymix", dryMixSlider);
+    modeAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment>(
+        audioProcessor.getValueTreeState(), "mode", modeSelector);
+    crossfadeAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
+        audioProcessor.getValueTreeState(), "crossfade", crossfadeSlider);
     
-    // Setup website link
-    websiteLink.setButtonText("www.sweetjusticesound.com");
-    websiteLink.setURL(juce::URL("https://www.sweetjusticesound.com"));
-    websiteLink.setJustificationType(juce::Justification::centred);
-    websiteLink.setColour(juce::HyperlinkButton::textColourId, juce::Colours::lightblue);
-    websiteLink.setTooltip("Visit Sweet Justice Sound website for more plugins and music");
-    addAndMakeVisible(websiteLink);
-    
-    // Setup about button
-    aboutButton.setColour(juce::TextButton::buttonColourId, darkPanelColour);
-    aboutButton.setColour(juce::TextButton::textColourOnId, lightTextColour);
-    aboutButton.onClick = [this] 
+    // Add mode change listener
+    modeSelector.onChange = [this]
     {
-        if (!aboutWindow)
-            aboutWindow = std::make_unique<AboutWindow>();
-        else
-            aboutWindow->setVisible(true);
+        bool isForwardBackwards = (modeSelector.getSelectedId() == 2);
+        crossfadeSlider.setVisible(isForwardBackwards);
+        crossfadeLabel.setVisible(isForwardBackwards);
+        crossfadeValueLabel.setVisible(isForwardBackwards);
+        resized();
     };
-    addAndMakeVisible(aboutButton);
 }
 
 ReversinatorAudioProcessorEditor::~ReversinatorAudioProcessorEditor()
 {
+    setLookAndFeel(nullptr);
+}
+
+void ReversinatorAudioProcessorEditor::setupSlider(juce::Slider& slider, juce::Label& label, 
+                                                  juce::Label& valueLabel, const juce::String& labelText, 
+                                                  const juce::String& suffix)
+{
+    slider.setSliderStyle(juce::Slider::RotaryVerticalDrag);
+    slider.setTextBoxStyle(juce::Slider::TextBoxBelow, false, 80, 20);
+    slider.setColour(juce::Slider::rotarySliderFillColourId, juce::Colour(0xff4a90e2));
+    slider.setColour(juce::Slider::textBoxTextColourId, juce::Colours::black);
+    slider.setColour(juce::Slider::textBoxBackgroundColourId, juce::Colours::white);
+    slider.setColour(juce::Slider::textBoxOutlineColourId, juce::Colours::grey);
+    slider.setTextValueSuffix(suffix);
+    addAndMakeVisible(slider);
+    
+    label.setText(labelText, juce::dontSendNotification);
+    label.setJustificationType(juce::Justification::centred);
+    label.setColour(juce::Label::textColourId, juce::Colours::white);
+    addAndMakeVisible(label);
+    
+    valueLabel.setJustificationType(juce::Justification::centred);
+    valueLabel.setColour(juce::Label::textColourId, juce::Colours::lightgrey);
+    addAndMakeVisible(valueLabel);
 }
 
 void ReversinatorAudioProcessorEditor::paint (juce::Graphics& g)
 {
+    // Fill the entire component with dark background first
+    g.fillAll(juce::Colour(0xff1a1a1a));
+    
     // Calculate scale factor and center offset
     float scaledWidth = defaultWidth * currentScale;
     float scaledHeight = defaultHeight * currentScale;
@@ -436,53 +364,21 @@ void ReversinatorAudioProcessorEditor::paint (juce::Graphics& g)
     g.addTransform(juce::AffineTransform::scale(currentScale)
                   .translated(xOffset / currentScale, yOffset / currentScale));
     
-    // Draw at default size (the transform will scale it)
-    auto scaledBounds = juce::Rectangle<int>(0, 0, defaultWidth, defaultHeight);
+    // Draw background gradient
+    g.setGradientFill(juce::ColourGradient(juce::Colour(0xff2a2a2a), 0, 0,
+                                           juce::Colour(0xff1a1a1a), 0, defaultHeight, false));
+    g.fillRect(0, 0, defaultWidth, defaultHeight);
     
-    g.fillAll(backgroundColour);
+    // Draw sections with more space for top controls
+    g.setColour(juce::Colour(0xff3a3a3a));
+    g.fillRoundedRectangle(10, 70, defaultWidth - 20, 55, 5.0f);  // Reverser section - bigger
+    g.fillRoundedRectangle(10, 135, defaultWidth - 20, 55, 5.0f);  // Mode section - bigger
+    g.fillRoundedRectangle(10, 200, defaultWidth - 20, 140, 5.0f); // Controls section
     
-    auto topBar = scaledBounds.removeFromTop(60);
-    g.setColour(darkPanelColour);
-    g.fillRect(topBar);
-    
-    g.setColour(lightTextColour);
-    g.setFont(juce::Font(24.0f, juce::Font::bold));
-    g.drawText("BACKWARDS", topBar.removeFromLeft(200).withTrimmedTop(15), juce::Justification::centred);
-    g.setFont(juce::Font(16.0f));
-    g.drawText("MACHINE", topBar.removeFromLeft(100).withTrimmedTop(20), juce::Justification::left);
-    
-    auto bounds = scaledBounds.withTrimmedTop(60);
-    
-    auto leftPanel = bounds.removeFromLeft(200).reduced(10);
-    g.setColour(panelColour);
-    g.fillRoundedRectangle(leftPanel.toFloat(), 10.0f);
-    g.setColour(darkPanelColour);
-    g.drawRoundedRectangle(leftPanel.toFloat(), 10.0f, 2.0f);
-    
-    auto centerPanel = bounds.removeFromLeft(300).reduced(10);
-    g.setColour(panelColour);
-    g.fillRoundedRectangle(centerPanel.toFloat(), 10.0f);
-    g.setColour(darkPanelColour);
-    g.drawRoundedRectangle(centerPanel.toFloat(), 10.0f, 2.0f);
-    
-    auto rightPanel = bounds.reduced(10);
-    g.setColour(darkPanelColour);
-    g.fillRoundedRectangle(rightPanel.toFloat(), 10.0f);
-    
-    auto waveformArea = topBar.withX(defaultWidth - 200).withWidth(180).reduced(5);
-    g.setColour(juce::Colour(0xff000000));
-    g.fillRoundedRectangle(waveformArea.toFloat(), 5.0f);
-    
-    g.setColour(juce::Colour(0xff00ff00));
-    juce::Path waveform;
-    float centerY = waveformArea.getCentreY();
-    waveform.startNewSubPath(waveformArea.getX(), centerY);
-    for (int x = 0; x < waveformArea.getWidth(); x += 2)
-    {
-        float y = centerY + std::sin(x * 0.1f) * 10.0f * std::sin(x * 0.02f);
-        waveform.lineTo(waveformArea.getX() + x, y);
-    }
-    g.strokePath(waveform, juce::PathStrokeType(1.0f));
+    g.setColour(juce::Colours::grey);
+    g.drawRoundedRectangle(10, 70, defaultWidth - 20, 55, 5.0f, 1.0f);
+    g.drawRoundedRectangle(10, 135, defaultWidth - 20, 55, 5.0f, 1.0f);
+    g.drawRoundedRectangle(10, 200, defaultWidth - 20, 140, 5.0f, 1.0f);
 }
 
 void ReversinatorAudioProcessorEditor::resized()
@@ -504,67 +400,91 @@ void ReversinatorAudioProcessorEditor::resized()
     
     // Apply the transform to all child components
     for (auto* child : getChildren())
-        child->setTransform(transform);
+    {
+        // Skip the ResizableCornerComponent which JUCE adds automatically
+        if (dynamic_cast<juce::ResizableCornerComponent*>(child) == nullptr)
+        {
+            child->setTransform(transform);
+        }
+    }
     
     // Layout components at their default positions (unscaled)
-    auto defaultBounds = juce::Rectangle<int>(0, 0, defaultWidth, defaultHeight);
+    auto area = juce::Rectangle<int>(0, 0, defaultWidth, defaultHeight);
     
-    // Website link at the top
-    websiteLink.setBounds(defaultBounds.removeFromTop(20));
+    // Top section
+    websiteLink.setBounds(area.removeFromTop(18));
+    titleLabel.setBounds(area.removeFromTop(35));
+    area.removeFromTop(2);
     
-    auto bounds = defaultBounds.withTrimmedTop(40);
+    // Reverser section - bigger and better centered
+    auto reverserArea = area.removeFromTop(65).reduced(20, 10);
+    auto reverserContent = reverserArea.withSizeKeepingCentre(200, 35);
+    reverserLabel.setBounds(reverserContent.removeFromLeft(80));
+    reverserButton.setBounds(reverserContent.withSizeKeepingCentre(80, 25));
     
-    auto leftPanel = bounds.removeFromLeft(200).reduced(20);
-    auto buttonSize = 60;
-    auto buttonY = leftPanel.getY() + 20;
+    area.removeFromTop(5);
     
-    reversePlaybackButton.setBounds(leftPanel.getX() + (leftPanel.getWidth() - buttonSize) / 2, 
-                                   buttonY, buttonSize, buttonSize + 20);
-    forwardBackwardsButton.setBounds(leftPanel.getX() + (leftPanel.getWidth() - buttonSize) / 2, 
-                                    buttonY + 90, buttonSize, buttonSize + 20);
-    reverseRepeatButton.setBounds(leftPanel.getX() + (leftPanel.getWidth() - buttonSize) / 2, 
-                                 buttonY + 180, buttonSize, buttonSize + 20);
+    // Mode section - bigger
+    auto modeArea = area.removeFromTop(65).reduced(20, 10);
+    modeLabel.setBounds(modeArea.removeFromTop(20));
+    auto modeWidth = 250;
+    modeSelector.setBounds(modeArea.withSizeKeepingCentre(modeWidth, 28));
     
-    auto centerPanel = bounds.removeFromLeft(300).reduced(20);
+    area.removeFromTop(5);
     
-    reverserButton.setBounds(centerPanel.getX() + 170, centerPanel.getY() + 20, 100, 30);
+    // Controls section
+    auto controlsArea = area.removeFromTop(140).reduced(20, 10);
+    auto sliderSize = 80;
     
-    hourglassDisplay.setBounds(centerPanel.getX() + 20, centerPanel.getY() + 70, 80, 120);
+    // Check if crossfade is visible to adjust spacing
+    bool isForwardBackwards = crossfadeSlider.isVisible();
+    int numSliders = isForwardBackwards ? 5 : 4;
+    auto spacing = (controlsArea.getWidth() - (numSliders * sliderSize)) / (numSliders + 1);
     
-    timeSlider.setBounds(centerPanel.getX() + 120, centerPanel.getY() + 70, 30, 120);
-    timeLabel.setBounds(centerPanel.getX() + 90, centerPanel.getY() + 195, 80, 20);
-    timeValueLabel.setBounds(centerPanel.getX() + 20, centerPanel.getY() + 50, 80, 20);
+    auto sliderY = controlsArea.getY() + 20;
     
-    feedbackSlider.setBounds(centerPanel.getX() + 20, centerPanel.getY() + 250, 250, 30);
-    feedbackLabel.setBounds(centerPanel.getX() + 20, centerPanel.getY() + 285, 250, 20);
-    
-    auto rightPanel = bounds.reduced(20);
-    
-    volumeLabel.setBounds(rightPanel.getX(), rightPanel.getY() + 10, 80, 40);
-    
-    wetMixLabel.setBounds(rightPanel.getX() + 10, rightPanel.getY() + 200, 30, 20);
-    wetMixSlider.setBounds(rightPanel.getX() + 10, rightPanel.getY() + 60, 30, 140);
-    
-    dryMixLabel.setBounds(rightPanel.getX() + 50, rightPanel.getY() + 200, 30, 20);
-    dryMixSlider.setBounds(rightPanel.getX() + 50, rightPanel.getY() + 60, 30, 140);
-    
-    // About button at the bottom right
-    aboutButton.setBounds(defaultWidth - 70, defaultHeight - 30, 60, 25);
-}
-
-void ReversinatorAudioProcessorEditor::sliderValueChanged(juce::Slider* slider)
-{
-    if (slider == &timeSlider)
+    // Position sliders
+    if (isForwardBackwards)
     {
-        float value = slider->getValue();
-        timeValueLabel.setText(juce::String::formatted("%.2f sec", value), juce::dontSendNotification);
-        hourglassDisplay.setTimeValue(value);
+        // 5 sliders layout
+        auto sliderX = spacing;
+        
+        timeLabel.setBounds(sliderX, sliderY - 20, sliderSize, 20);
+        timeSlider.setBounds(sliderX, sliderY, sliderSize, sliderSize + 20);
+        sliderX += sliderSize + spacing;
+        
+        crossfadeLabel.setBounds(sliderX, sliderY - 20, sliderSize, 20);
+        crossfadeSlider.setBounds(sliderX, sliderY, sliderSize, sliderSize + 20);
+        sliderX += sliderSize + spacing;
+        
+        feedbackLabel.setBounds(sliderX, sliderY - 20, sliderSize, 20);
+        feedbackSlider.setBounds(sliderX, sliderY, sliderSize, sliderSize + 20);
+        sliderX += sliderSize + spacing;
+        
+        wetMixLabel.setBounds(sliderX, sliderY - 20, sliderSize, 20);
+        wetMixSlider.setBounds(sliderX, sliderY, sliderSize, sliderSize + 20);
+        sliderX += sliderSize + spacing;
+        
+        dryMixLabel.setBounds(sliderX, sliderY - 20, sliderSize, 20);
+        dryMixSlider.setBounds(sliderX, sliderY, sliderSize, sliderSize + 20);
     }
-}
-
-void ReversinatorAudioProcessorEditor::updateModeButtons(int mode)
-{
-    reversePlaybackButton.setSelected(mode == 0);
-    forwardBackwardsButton.setSelected(mode == 1);
-    reverseRepeatButton.setSelected(mode == 2);
+    else
+    {
+        // 4 sliders layout
+        timeLabel.setBounds(spacing, sliderY - 20, sliderSize, 20);
+        timeSlider.setBounds(spacing, sliderY, sliderSize, sliderSize + 20);
+        
+        feedbackLabel.setBounds(spacing * 2 + sliderSize, sliderY - 20, sliderSize, 20);
+        feedbackSlider.setBounds(spacing * 2 + sliderSize, sliderY, sliderSize, sliderSize + 20);
+        
+        wetMixLabel.setBounds(spacing * 3 + sliderSize * 2, sliderY - 20, sliderSize, 20);
+        wetMixSlider.setBounds(spacing * 3 + sliderSize * 2, sliderY, sliderSize, sliderSize + 20);
+        
+        dryMixLabel.setBounds(spacing * 4 + sliderSize * 3, sliderY - 20, sliderSize, 20);
+        dryMixSlider.setBounds(spacing * 4 + sliderSize * 3, sliderY, sliderSize, sliderSize + 20);
+    }
+    
+    // About button at bottom - less bottom space
+    auto bottomArea = area.removeFromBottom(20);
+    aboutButton.setBounds(bottomArea.removeFromRight(60).withSizeKeepingCentre(50, 20));
 }
