@@ -601,8 +601,10 @@ PitchFlattenerAudioProcessorEditor::PitchFlattenerAudioProcessorEditor (PitchFla
         rbWindowLabel.setVisible(rbSectionExpanded);
         
         // Resize window
-        int newHeight = rbSectionExpanded ? 1050 : 870;
+        // RubberBand section adds: 20 (spacing) + 25 (header) + 5*32 (controls) = 205 pixels
+        int newHeight = rbSectionExpanded ? (870 + 180) : 870;
         setSize(getWidth(), static_cast<int>(newHeight * currentScale));
+        resized();  // Force layout recalculation
     };
     addAndMakeVisible(rbExpandButton);
     
