@@ -3,7 +3,7 @@ A VST3/AU audio plugin that provides real-time audio reversal effects with grain
 
 ### 🎉 Latest Release v1.0.0 - [Download Here](https://github.com/samueljustice/plugins/releases/tag/reversinator-v1.0.0)
 
-<img width="748" height="377" alt="Screenshot 2025-07-18 at 16 45 05" src="https://github.com/user-attachments/assets/b23d33bf-f564-4057-8600-baf14f932dc4" />
+<img width="747" height="377" alt="Screenshot 2025-07-18 at 17 31 14" src="https://github.com/user-attachments/assets/3f52904c-898b-4316-a99d-79d55e076ad6" />
 
 ## Features
 
