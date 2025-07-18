@@ -197,7 +197,6 @@ PitchFlattenerAudioProcessorEditor::PitchFlattenerAudioProcessorEditor (PitchFla
     websiteLink.setURL(juce::URL("https://www.sweetjusticesound.com"));
     websiteLink.setJustificationType(juce::Justification::centred);
     websiteLink.setColour(juce::HyperlinkButton::textColourId, juce::Colours::lightblue);
-    websiteLink.setTooltip("Visit Sweet Justice Sound website for more plugins and music");
     addAndMakeVisible(websiteLink);
     
     // Title

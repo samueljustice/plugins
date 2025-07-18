@@ -243,7 +243,6 @@ ReversinatorAudioProcessorEditor::ReversinatorAudioProcessorEditor (Reversinator
     websiteLink.setJustificationType(juce::Justification::centred);
     websiteLink.setFont(getCustomFonts()->getFont(14.0f, juce::Font::bold), false);
     websiteLink.setColour(juce::HyperlinkButton::textColourId, accentColor);
-    websiteLink.setTooltip("Visit Sweet Justice Sound website for more plugins and music");
     addAndMakeVisible(websiteLink);
     
     // Title
