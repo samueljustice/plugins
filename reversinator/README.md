@@ -89,7 +89,7 @@ To install:
 
 ### Feedback & Mix
 
-- **Feedback Depth** (0-100%): Amount of reversed signal fed back into the input
+- **Feedback** (0-100%): Amount of reversed signal fed back into the input
   - 0%: No feedback
   - 50%: Moderate echo/delay effects
   - 100%: Extreme feedback with soft saturation for wild effects
@@ -175,7 +175,7 @@ The feedback path includes:
 
 - **No sound**: Ensure Reverser is enabled and Wet Mix is above 0%
 - **Clicks or pops**: Should not occur with grain system - try increasing Envelope time
-- **Distortion**: Lower Feedback Depth or reduce input level
+- **Distortion**: Lower Feedback or reduce input level
 - **CPU spikes**: Increase buffer size in your DAW settings
 
 ## Developer

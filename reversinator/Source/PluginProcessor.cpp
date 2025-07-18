@@ -43,7 +43,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout ReversinatorAudioProcessor::
         2.0f));
     
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
-        "feedback", "Feedback Depth", 
+        "feedback", "Feedback", 
         juce::NormalisableRange<float>(0.0f, 100.0f, 0.1f), 
         0.0f));
     

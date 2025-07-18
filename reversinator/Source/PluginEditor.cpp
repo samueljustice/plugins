@@ -302,7 +302,7 @@ ReversinatorAudioProcessorEditor::ReversinatorAudioProcessorEditor (Reversinator
     timeLabel.setTooltip(timeTooltip);
     
     // Feedback slider
-    setupSlider(feedbackSlider, feedbackLabel, feedbackValueLabel, "Feedback Depth", "%");
+    setupSlider(feedbackSlider, feedbackLabel, feedbackValueLabel, "Feedback", "%");
     feedbackSlider.setDoubleClickReturnValue(true, 0.0);
     auto feedbackTooltip = "Amount of feedback applied to the reversed signal. Creates echo-like effects.";
     feedbackSlider.setTooltip(feedbackTooltip);
