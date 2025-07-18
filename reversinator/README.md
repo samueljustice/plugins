@@ -1,164 +1,182 @@
 # SammyJs Reversinator
+A VST3/AU audio plugin that provides real-time audio reversal effects with grain-based overlap-add processing, inspired by the classic Backwards Machine plugin. Create smooth reverse effects, experimental soundscapes, and unique time-based audio manipulations without clicks or pops.
 
-A VST3/AU audio plugin that provides real-time audio reversal effects, inspired by the classic Backwards Machine plugin. Create reverse effects, experimental soundscapes, and unique time-based audio manipulations.
+### 🎉 Latest Release v1.0.0 - [Download Here](https://github.com/samueljustice/plugins/releases/tag/reversinator-v1.0.0)
+
+<img width="750" height="380" alt="Reversinator Screenshot" src="https://github.com/user-attachments/assets/reversinator-screenshot" />
 
 ## Features
 
-- **Three Reverse Modes**:
-  - **Reverse Playback** - Continuous reverse effect with smooth transitions
-  - **Forward Backwards** - Alternating forward and reverse playback with crossfading
-  - **Reverse Repeat** - Double playback with vibrato effect on the reversed portion
-  
-- **Adjustable Window Time** (30ms - 2s) - Control the size of the reverse buffer
-- **Feedback Control** - Add echo-like effects to the reversed signal
-- **Wet/Dry Mix Controls** - Blend reversed and original signals independently
-- **Crossfade Control** - Smooth transitions in Forward Backwards mode
-- **Low Latency Processing** - Optimized for real-time performance
-- **Click-Free Operation** - Advanced anti-click algorithms for smooth audio
+- **Grain-based overlap-add architecture** - Click-free reversal using phase-continuous windowing
+- **Three reverse modes**:
+  - **Reverse Playback** - Continuous reverse effect with smooth grain transitions
+  - **Forward Backwards** - Palindromic playback (forward then reverse from midpoint)
+  - **Reverse Repeat** - Plays snippets backwards twice, with vibrato on the second repeat
+- **Adjustable window time** (30ms - 5s) - Control the size of each reverse grain
+- **Envelope control** (10-100ms) - Fine-tune fade in/out for each grain
+- **Enhanced feedback system** - More extreme feedback effects with soft saturation
+- **Independent wet/dry mix** - Blend reversed and original signals precisely
+- **Crossfade control** - Smooth transitions in Forward Backwards mode
+- **Zero-latency processing** - Real-time performance with minimal CPU usage
+- **Full DAW automation** - All parameters can be automated
 
 ## Building
 
 ### Prerequisites
-- macOS (tested on macOS 12+) or Windows 10/11
+- macOS (tested on macOS 12+)
 - CMake 3.15 or higher
-- Xcode Command Line Tools (macOS) or Visual Studio 2022 (Windows)
+- Xcode Command Line Tools
 
 ### Build Instructions
 
-#### macOS
-```bash
-cd reversinator
-mkdir build
-cd build
-cmake .. -DCMAKE_BUILD_TYPE=Release
-cmake --build . --config Release
-```
-
-#### Windows
-```cmd
-cd reversinator
-mkdir build
-cd build
-cmake .. -DCMAKE_BUILD_TYPE=Release
-cmake --build . --config Release
-```
+1. Clone or download this repository
+2. Navigate to the reversinator folder and run:
+   ```bash
+   mkdir build
+   cd build
+   cmake .. -DCMAKE_BUILD_TYPE=Release
+   cmake --build . --config Release
+   ```
 
 The plugin will be built to:
 - VST3: `build/Reversinator_artefacts/Release/VST3/`
-- AU (macOS only): `build/Reversinator_artefacts/Release/AU/`
+- AU: `build/Reversinator_artefacts/Release/AU/`
 
-## Installation
-
-### macOS
-- Copy the `.vst3` file to `/Library/Audio/Plug-Ins/VST3/`
-- Copy the `.component` file to `/Library/Audio/Plug-Ins/Components/`
-
-### Windows
-- Copy the `.vst3` folder to `C:\Program Files\Common Files\VST3\`
+To install:
+- Copy the `.vst3` file to `~/Library/Audio/Plug-Ins/VST3/`
+- Copy the `.component` file to `~/Library/Audio/Plug-Ins/Components/`
 
 ## Usage
 
 1. Load the plugin in your DAW as a VST3 or AU effect
-2. Enable the **Reverser** button to activate the effect
+2. Click the **Enable** button to activate the effect
 3. Select your desired **Effect Mode**:
-   - **Reverse Playback**: Classic tape-reverse effect
-   - **Forward Backwards**: Ping-pong style forward/reverse
-   - **Reverse Repeat**: Adds vibrato to the reversed signal
-4. Adjust the **Window Time** to control the reverse buffer size
-5. Set **Wet Mix** and **Dry Mix** levels to taste
+   - **Reverse Playback**: Classic continuous reverse effect
+   - **Forward Backwards**: Plays forward to midpoint, then reverses back
+   - **Reverse Repeat**: Plays backwards twice with vibrato on second repeat
+4. Adjust parameters to taste
 
 ## Controls
 
 ### Main Controls
 
-- **Reverser** - Master on/off switch for the effect
+- **Reverser Enable**: Master on/off switch for the effect
+  - Click to toggle between enabled/disabled states
+  - When disabled, audio passes through unprocessed
 
-- **Effect Mode** - Choose between three reverse algorithms:
-  - **Reverse Playback**: Continuously reverses audio in chunks
-  - **Forward Backwards**: Alternates between forward and reverse playback
-  - **Reverse Repeat**: Plays forward then reverses with vibrato
+- **Effect Mode**: Choose between three reverse algorithms
+  - **Reverse Playback**: Continuously reverses audio in overlapping grains
+  - **Forward Backwards**: Creates a palindromic effect - forward then reverse
+  - **Reverse Repeat**: Plays audio backwards twice - second time with vibrato effect
 
-### Time & Modulation
+### Time & Window Controls
 
-- **Window Time** (30ms - 2s): Size of the reverse window
-  - Smaller values (30-200ms): Granular, glitchy effects
-  - Medium values (200-500ms): Classic reverse sounds
-  - Larger values (500ms-2s): Long, sweeping reverses
+- **Window Time** (30ms - 5s): Size of each reverse grain
+  - 30-100ms: Granular, metallic textures
+  - 100-500ms: Classic reverse effects
+  - 500ms-5s: Long, sweeping reverses
+  - Directly affects the character of the reversal
 
-- **Crossfade** (0-100%): Smoothness of transitions (Forward Backwards mode only)
-  - 0%: Sharp transitions
-  - 50%: Balanced blend
-  - 100%: Maximum smoothing
+- **Envelope** (10-100ms): Fade in/out time for each grain
+  - Lower values (10-30ms): Sharper transitions, more definition
+  - Higher values (50-100ms): Smoother blending between grains
+  - Automatically limited to 50% of window time to prevent overlap issues
+
+- **Crossfade** (0-100%): Blend amount between forward/reverse sections
+  - Only visible in Forward Backwards mode
+  - 0%: Hard switch between directions
+  - 100%: Maximum crossfade for seamless transitions
 
 ### Feedback & Mix
 
-- **Feedback Depth** (0-100%): Amount of reversed signal fed back
-  - Creates echo and delay-like effects
-  - Higher values create more complex textures
+- **Feedback Depth** (0-100%): Amount of reversed signal fed back into the input
+  - 0%: No feedback
+  - 50%: Moderate echo/delay effects
+  - 100%: Extreme feedback with soft saturation for wild effects
+  - Different scaling per mode for optimal results
 
-- **Wet Mix** (0-100%): Level of the reversed signal
-  - 0%: No reversed signal
-  - 100%: Full reversed signal
+- **Wet Mix** (0-100%): Level of the reversed/processed signal
+  - 0%: No effect signal
+  - 100%: Only reversed signal
+  - Use with Dry Mix for parallel processing
 
-- **Dry Mix** (0-100%): Level of the original signal
-  - 0%: No original signal
+- **Dry Mix** (0-100%): Level of the original unprocessed signal
+  - 0%: No original signal (full effect)
   - 100%: Full original signal
+  - Combine with Wet Mix for blended effects
 
-## Tips & Tricks
+## Tips & Creative Uses
 
-### Creative Uses
+### For Smooth Reverses
+- Use longer window times (500ms+) with moderate envelope (50ms)
+- Keep feedback below 50% for clarity
+- Balance wet/dry mix around 70/30 for natural effect
 
-1. **Reverse Reverb**: Place before a reverb for classic reverse reverb effects
-2. **Rhythmic Effects**: Sync window time to tempo for rhythmic reversing
-3. **Ambient Textures**: Long window times with high feedback for soundscapes
-4. **Glitch Effects**: Short window times (30-100ms) for stuttering effects
-5. **Transition Effects**: Automate the Reverser button for dramatic transitions
+### For Glitch Effects
+- Short window times (30-100ms) with minimal envelope (10-20ms)
+- High feedback (80-100%) for chaos
+- 100% wet mix for full transformation
 
-### Recommended Settings
+### For Rhythmic Patterns
+- Sync window time to your tempo (e.g., 250ms = 16th note at 120 BPM)
+- Use Reverse Repeat mode for triplet-like patterns
+- Moderate feedback (40-60%) maintains rhythm while adding texture
 
-**Subtle Reverse Effect**
-- Mode: Reverse Playback
-- Window: 500ms
-- Feedback: 20%
-- Wet: 50%, Dry: 50%
+### For Ambient Soundscapes
+- Maximum window time (5s) with high envelope (80-100ms)
+- Low feedback (20-40%) for subtle evolution
+- Equal wet/dry mix (50/50) for spacious effect
 
-**Psychedelic Sweep**
-- Mode: Forward Backwards
-- Window: 1s
-- Crossfade: 70%
-- Feedback: 40%
-- Wet: 80%, Dry: 20%
-
-**Glitch Stutter**
-- Mode: Reverse Repeat
-- Window: 50ms
-- Feedback: 60%
-- Wet: 100%, Dry: 0%
-
-## Troubleshooting
-
-- **Clicking or popping**: Window time is automatically limited to 30ms minimum to prevent clicks
-- **No sound**: Check that Reverser is enabled and Wet Mix is above 0%
-- **CPU usage**: Larger window times use more memory but not necessarily more CPU
+### Production Techniques
+- **Reverse reverb**: Place before a reverb for classic effect
+- **Vocal effects**: Short windows on vocals for robotic textures
+- **Transition tool**: Automate the Enable button for dramatic sweeps
+- **Sidechain**: Use on a bus with rhythmic material for pumping effects
 
 ## Technical Details
 
-### Anti-Click Technology
+### Grain-Based Overlap-Add System
 
-Reversinator uses several techniques to ensure click-free operation:
-- Dynamic fade lengths that scale with window size
-- Hann window fading for smooth transitions
-- Circular buffer with 3x overallocation to prevent wrap errors
-- Anti-denormal noise injection
-- Minimum 30ms window time enforcement
+Reversinator uses an advanced grain-based architecture for click-free operation:
 
-### Buffer Management
+1. **Grain Buffering**: Audio is captured into overlapping grains (4 concurrent grains per channel)
+2. **50% Overlap**: Grains overlap by 50% ensuring continuous coverage
+3. **Hann Windowing**: Each grain uses a Hann window for smooth fade in/out
+4. **Phase Continuity**: Grains maintain phase alignment preventing discontinuities
+5. **Output Accumulation**: Overlapping grains are summed in an accumulation buffer
 
-The plugin uses efficient circular buffers for each channel with:
-- Real-time safe memory allocation
-- Lock-free audio processing
-- Automatic buffer resizing when parameters change
-- Separate buffers for each effect mode
+### Processing Modes
+
+**Reverse Playback**
+- Continuously captures and reverses audio grains
+- Each grain plays backwards while maintaining smooth transitions
+- Feedback is applied before grain capture for echo effects
+
+**Forward Backwards**
+- First half of grain plays forward (0% to 50%)
+- Second half plays reverse from midpoint back to start
+- Creates a palindromic "there and back again" effect
+- Includes grain spawn offset variation to prevent feedback loops
+
+**Reverse Repeat**
+- Plays each grain backwards twice
+- Second repeat includes subtle vibrato modulation (0.5% depth)
+- Creates unique doubled reverse effect
+
+### Feedback System
+
+The feedback path includes:
+- Mode-specific gain scaling (0.5x, 0.3x, 0.5x)
+- Soft saturation above 90% for harmonic richness
+- Tanh limiting to prevent hard clipping
+- Separate feedback sample per channel
+
+## Troubleshooting
+
+- **No sound**: Ensure Reverser is enabled and Wet Mix is above 0%
+- **Clicks or pops**: Should not occur with grain system - try increasing Envelope time
+- **Distortion**: Lower Feedback Depth or reduce input level
+- **CPU spikes**: Increase buffer size in your DAW settings
 
 ## Developer
 
@@ -168,12 +186,8 @@ Email: sam@sweetjusticesound.com
 
 ## License
 
-Copyright (c) 2025 Samuel Justice. All rights reserved.
-
-This plugin is released under the MIT License. See LICENSE file for details.
-
-Uses the JUCE framework. Please refer to JUCE's license for terms of use.
+This plugin uses the JUCE framework. Please refer to JUCE's license for terms of use.
 
 ## Version History
 
-- v1.0.0 - Initial release with three reverse modes and anti-click improvements
+- v1.0.0 - Initial release with grain-based overlap-add system, three reverse modes, and modern UI

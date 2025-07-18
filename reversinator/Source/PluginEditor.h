@@ -2,6 +2,18 @@
 
 #include <JuceHeader.h>
 #include "PluginProcessor.h"
+#include "CustomFonts.h"
+
+// Custom LookAndFeel to handle tooltip font
+class CustomLookAndFeel : public juce::LookAndFeel_V4
+{
+public:
+    CustomLookAndFeel() 
+    {
+        // Set the default font for the look and feel
+        setDefaultSansSerifTypeface(getCustomFonts()->getMediumTypeface());
+    }
+};
 
 class AboutWindow : public juce::DocumentWindow
 {
@@ -59,6 +71,7 @@ private:
     juce::Slider dryMixSlider;
     juce::ComboBox modeSelector;
     juce::Slider crossfadeSlider;
+    juce::Slider envelopeSlider;
     
     // Labels
     juce::Label titleLabel;
@@ -69,6 +82,7 @@ private:
     juce::Label dryMixLabel;
     juce::Label modeLabel;
     juce::Label crossfadeLabel;
+    juce::Label envelopeLabel;
     
     // Value labels
     juce::Label timeValueLabel;
@@ -76,6 +90,7 @@ private:
     juce::Label wetMixValueLabel;
     juce::Label dryMixValueLabel;
     juce::Label crossfadeValueLabel;
+    juce::Label envelopeValueLabel;
     
     // Website link
     juce::HyperlinkButton websiteLink;
@@ -92,14 +107,18 @@ private:
     std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> dryMixAttachment;
     std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> modeAttachment;
     std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> crossfadeAttachment;
+    std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> envelopeAttachment;
     
     // Scaling
-    static constexpr int defaultWidth = 600;
+    static constexpr int defaultWidth = 750;
     static constexpr int defaultHeight = 380;
     float currentScale = 1.0f;
     
     // Look and feel
-    juce::LookAndFeel_V4 lookAndFeel;
+    CustomLookAndFeel lookAndFeel;
+    
+    // Tooltip window
+    juce::TooltipWindow tooltipWindow{this, 700};
     
     void setupSlider(juce::Slider& slider, juce::Label& label, juce::Label& valueLabel, 
                      const juce::String& labelText, const juce::String& suffix = "");

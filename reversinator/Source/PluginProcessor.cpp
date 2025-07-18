@@ -21,6 +21,7 @@ ReversinatorAudioProcessor::ReversinatorAudioProcessor()
     dryMix = valueTreeState.getRawParameterValue("drymix");
     effectMode = valueTreeState.getRawParameterValue("mode");
     crossfadeTime = valueTreeState.getRawParameterValue("crossfade");
+    envelopeTime = valueTreeState.getRawParameterValue("envelope");
     
     reverseEngine = std::make_unique<ReverseEngine>();
 }
@@ -38,8 +39,8 @@ juce::AudioProcessorValueTreeState::ParameterLayout ReversinatorAudioProcessor::
     
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         "time", "Time", 
-        juce::NormalisableRange<float>(0.03f, 2.0f, 0.001f, 0.5f),  // min 30ms to prevent crackling
-        0.5f));
+        juce::NormalisableRange<float>(0.03f, 5.0f, 0.001f, 0.5f),  // min 30ms, max 5s
+        2.0f));
     
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         "feedback", "Feedback Depth", 
@@ -65,6 +66,11 @@ juce::AudioProcessorValueTreeState::ParameterLayout ReversinatorAudioProcessor::
         "crossfade", "Crossfade Time", 
         juce::NormalisableRange<float>(0.0f, 100.0f, 0.1f), 
         20.0f));
+    
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        "envelope", "Envelope", 
+        juce::NormalisableRange<float>(10.0f, 100.0f, 1.0f), 
+        30.0f));
     
     return { params.begin(), params.end() };
 }
@@ -184,7 +190,8 @@ void ReversinatorAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
         wetMix->load() / 100.0f,
         dryMix->load() / 100.0f,
         static_cast<int>(effectMode->load()),
-        crossfadeTime->load()
+        crossfadeTime->load(),
+        envelopeTime->load() / 1000.0f  // Convert ms to seconds
     );
     
     if (reverserCrossfade.isSmoothing() || currentReverserState)

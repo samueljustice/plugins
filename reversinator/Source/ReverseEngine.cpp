@@ -18,16 +18,35 @@ void ReverseEngine::prepare(double newSampleRate, int samplesPerBlock, int newNu
     {
         auto channel = std::make_unique<Channel>();
         channel->windowSamples = static_cast<int>(windowTime * sampleRate);
-        channel->circularBuffer.resize(channel->windowSamples);
+        channel->hopSize = channel->windowSamples / 2;  // 50% overlap
         
-        // Fade length - 5ms for smoother transitions
-        channel->fadeLength = static_cast<int>(0.005f * sampleRate);
-        channel->fadeInBuffer.resize(channel->fadeLength);
-        channel->fadeOutBuffer.resize(channel->fadeLength);
+        // Initialize delay line (2x window size for safety)
+        channel->delayLine.resize(channel->windowSamples * 2);
+        channel->delayWritePos = 0;
+        
+        // Initialize grains
+        for (int g = 0; g < Channel::NUM_GRAINS; ++g)
+        {
+            channel->grains[g].buffer.resize(channel->windowSamples);
+            channel->grains[g].grainSize = channel->windowSamples;
+            channel->grains[g].active = false;
+            channel->grains[g].readPosition = 0;
+        }
+        
+        // Initialize output buffer (2x window size for overlap accumulation)
+        channel->outputBuffer.resize(channel->windowSamples * 2);
+        channel->outputReadPos = 0;
+        channel->outputWritePos = channel->windowSamples; // Start with latency
+        
+        // Initialize window function
+        channel->windowFunction.resize(channel->windowSamples);
         channel->repeatBuffer.resize(channel->windowSamples);
-        channel->vibratoPhase.reset(sampleRate, 0.001);
         
-        createFadeWindow(channel->fadeInBuffer, channel->fadeOutBuffer, channel->fadeLength);
+        channel->vibratoPhase.reset(sampleRate, 0.001);
+        channel->feedbackGainSmoothed.reset(sampleRate, 0.001); // 1ms smoothing like original
+        
+        // Create window function
+        createWindowFunction(channel->windowFunction, channel->windowSamples);
         
         channels.push_back(std::move(channel));
     }
@@ -39,20 +58,36 @@ void ReverseEngine::reset()
 {
     for (auto& channel : channels)
     {
-        std::fill(channel->circularBuffer.begin(), channel->circularBuffer.end(), 0.0f);
+        std::fill(channel->delayLine.begin(), channel->delayLine.end(), 0.0f);
+        std::fill(channel->outputBuffer.begin(), channel->outputBuffer.end(), 0.0f);
         std::fill(channel->repeatBuffer.begin(), channel->repeatBuffer.end(), 0.0f);
-        channel->writePosition = 0;
-        channel->readPosition = channel->windowSamples - 1;
+        
+        channel->delayWritePos = 0;
+        channel->outputReadPos = 0;
+        channel->outputWritePos = channel->windowSamples;
+        channel->currentGrain = 0;
+        channel->grainCounter = 0;
+        
+        // Reset all grains
+        for (int g = 0; g < Channel::NUM_GRAINS; ++g)
+        {
+            std::fill(channel->grains[g].buffer.begin(), channel->grains[g].buffer.end(), 0.0f);
+            channel->grains[g].active = false;
+            channel->grains[g].readPosition = 0;
+        }
+        
         channel->feedbackSample = 0.0f;
         channel->crossfadePosition = 0.0f;
         channel->crossfadeDirection = true;
         channel->repeatPosition = 0;
         channel->isRepeating = false;
         channel->vibratoPhase.setCurrentAndTargetValue(0.0f);
+        channel->grainSpawnOffset = 0;
+        channel->feedbackGainSmoothed.setCurrentAndTargetValue(0.0f);
     }
 }
 
-void ReverseEngine::setParameters(float windowTimeSeconds, float feedbackAmount, float wetMixAmount, float dryMixAmount, int mode, float crossfadePercent)
+void ReverseEngine::setParameters(float windowTimeSeconds, float feedbackAmount, float wetMixAmount, float dryMixAmount, int mode, float crossfadePercent, float envelopeSeconds)
 {
     // Clamp minimum window time to 30ms to prevent excessive crackling
     windowTime = std::max(0.03f, windowTimeSeconds);
@@ -62,25 +97,43 @@ void ReverseEngine::setParameters(float windowTimeSeconds, float feedbackAmount,
     effectMode = mode;
     crossfadeTime = crossfadePercent / 100.0f;
     
+    // Limit envelope time to maximum 50% of window time to prevent overlap distortion
+    float maxEnvelopeTime = windowTime * 0.5f;
+    envelopeTime = std::min(envelopeSeconds, maxEnvelopeTime);
+    
     int newWindowSamples = static_cast<int>(windowTime * sampleRate);
     
     for (auto& channel : channels)
     {
-        if (newWindowSamples != channel->windowSamples)
+        if (channel->windowSamples != newWindowSamples)
         {
             channel->windowSamples = newWindowSamples;
-            channel->circularBuffer.resize(channel->windowSamples);
-            channel->repeatBuffer.resize(channel->windowSamples);
-            std::fill(channel->circularBuffer.begin(), channel->circularBuffer.end(), 0.0f);
-            std::fill(channel->repeatBuffer.begin(), channel->repeatBuffer.end(), 0.0f);
-            channel->writePosition = 0;
-            channel->readPosition = channel->windowSamples - 1;
+            channel->hopSize = channel->windowSamples / 2;
             
-            // Update fade buffers - use 5ms for smoother transitions
-            channel->fadeLength = static_cast<int>(0.005f * sampleRate);
-            channel->fadeInBuffer.resize(channel->fadeLength);
-            channel->fadeOutBuffer.resize(channel->fadeLength);
-            createFadeWindow(channel->fadeInBuffer, channel->fadeOutBuffer, channel->fadeLength);
+            // Resize buffers
+            channel->delayLine.resize(channel->windowSamples * 2);
+            channel->outputBuffer.resize(channel->windowSamples * 2);
+            channel->windowFunction.resize(channel->windowSamples);
+            channel->repeatBuffer.resize(channel->windowSamples);
+            
+            // Reset positions
+            channel->delayWritePos = 0;
+            channel->outputReadPos = 0;
+            channel->outputWritePos = channel->windowSamples;
+            channel->currentGrain = 0;
+            channel->grainCounter = 0;
+            
+            // Resize grain buffers
+            for (int g = 0; g < Channel::NUM_GRAINS; ++g)
+            {
+                channel->grains[g].buffer.resize(channel->windowSamples);
+                channel->grains[g].grainSize = channel->windowSamples;
+                channel->grains[g].active = false;
+                channel->grains[g].readPosition = 0;
+            }
+            
+            // Recreate window function
+            createWindowFunction(channel->windowFunction, channel->windowSamples);
         }
     }
 }
@@ -89,6 +142,7 @@ void ReverseEngine::process(juce::AudioBuffer<float>& buffer)
 {
     const int numSamples = buffer.getNumSamples();
     
+    // Process each channel
     for (int ch = 0; ch < numChannels && ch < buffer.getNumChannels(); ++ch)
     {
         float* channelData = buffer.getWritePointer(ch);
@@ -110,164 +164,425 @@ void ReverseEngine::process(juce::AudioBuffer<float>& buffer)
 
 void ReverseEngine::processReversePlayback(Channel& ch, float* channelData, int numSamples)
 {
+    // Match original: feedback * 0.5 safety factor
+    const float FEEDBACK_SAFETY_FACTOR = 0.5f;
+    const float FEEDBACK_HARD_LIMIT = 0.95f;
+    
+    // Update smoothed feedback gain
+    ch.feedbackGainSmoothed.setTargetValue(feedback * FEEDBACK_SAFETY_FACTOR);
+    
     for (int i = 0; i < numSamples; ++i)
     {
         float inputSample = channelData[i];
         
-        // Write input to buffer
-        ch.circularBuffer[ch.writePosition] = inputSample + (ch.feedbackSample * feedback);
+        // Get smoothed feedback gain
+        float currentFeedbackGain = ch.feedbackGainSmoothed.getNextValue();
         
-        // Read in reverse
-        float outputSample = ch.circularBuffer[ch.readPosition];
+        // Write to delay line WITHOUT feedback (feedback comes from output)
+        ch.delayLine[ch.delayWritePos] = inputSample;
+        ch.delayWritePos = (ch.delayWritePos + 1) % ch.delayLine.size();
         
-        // Apply fade at chunk boundaries using precomputed windows
-        if (ch.readPosition < ch.fadeLength)
+        // Clear output buffer position
+        ch.outputBuffer[ch.outputWritePos] = 0.0f;
+        
+        // Process active grains
+        for (int g = 0; g < Channel::NUM_GRAINS; ++g)
         {
-            outputSample *= ch.fadeInBuffer[ch.readPosition];
+            if (ch.grains[g].active)
+            {
+                int readPos = ch.grains[g].readPosition;
+                if (readPos < ch.grains[g].grainSize)
+                {
+                    // Read from grain buffer in reverse
+                    int reverseIndex = ch.grains[g].grainSize - 1 - readPos;
+                    float grainSample = ch.grains[g].buffer[reverseIndex];
+                    
+                    // Apply window
+                    float windowGain = ch.windowFunction[readPos];
+                    
+                    // Accumulate to output
+                    ch.outputBuffer[ch.outputWritePos] += grainSample * windowGain * ch.grains[g].amplitude;
+                    
+                    ch.grains[g].readPosition++;
+                }
+                else
+                {
+                    ch.grains[g].active = false;
+                }
+            }
         }
-        else if (ch.readPosition >= ch.windowSamples - ch.fadeLength)
+        
+        // Spawn new grain at hop intervals
+        ch.grainCounter++;
+        if (ch.grainCounter >= ch.hopSize)
         {
-            outputSample *= ch.fadeOutBuffer[ch.windowSamples - 1 - ch.readPosition];
-        }
-        
-        ch.feedbackSample = outputSample;
-        
-        // Mix output
-        channelData[i] = outputSample * wetMix + inputSample * dryMix;
-        
-        // Update positions
-        ch.writePosition++;
-        if (ch.writePosition >= ch.windowSamples)
-            ch.writePosition = 0;
+            ch.grainCounter = 0;
             
-        ch.readPosition--;
-        if (ch.readPosition < 0)
-            ch.readPosition = ch.windowSamples - 1;
+            // Find inactive grain
+            for (int g = 0; g < Channel::NUM_GRAINS; ++g)
+            {
+                if (!ch.grains[g].active)
+                {
+                    // Copy from delay line to grain buffer
+                    int delayReadPos = (ch.delayWritePos - ch.windowSamples + ch.delayLine.size()) % ch.delayLine.size();
+                    
+                    for (int s = 0; s < ch.windowSamples; ++s)
+                    {
+                        ch.grains[g].buffer[s] = ch.delayLine[(delayReadPos + s) % ch.delayLine.size()];
+                    }
+                    
+                    ch.grains[g].active = true;
+                    ch.grains[g].readPosition = 0;
+                    ch.grains[g].amplitude = 1.0f;
+                    ch.grains[g].grainSize = ch.windowSamples;
+                    
+                    break;
+                }
+            }
+        }
+        
+        // Read from output buffer
+        float outputSample = ch.outputBuffer[ch.outputReadPos];
+        
+        // Add feedback from previous output (matching original)
+        float wetSignal = outputSample + (ch.feedbackSample * currentFeedbackGain);
+        
+        // Apply soft limiting like original
+        if (std::fabs(wetSignal) > FEEDBACK_HARD_LIMIT)
+        {
+            wetSignal = std::tanh(wetSignal * 0.7f) * 1.4286f;
+        }
+        
+        // Mix with dry signal
+        float processedSample = inputSample * dryMix + wetSignal * wetMix;
+        
+        // Store output for next sample's feedback (matching original)
+        ch.feedbackSample = processedSample;
+        
+        channelData[i] = processedSample;
+        
+        // Update output buffer positions
+        ch.outputReadPos = (ch.outputReadPos + 1) % ch.outputBuffer.size();
+        ch.outputWritePos = (ch.outputWritePos + 1) % ch.outputBuffer.size();
     }
 }
 
 void ReverseEngine::processForwardBackwards(Channel& ch, float* channelData, int numSamples)
 {
+    // Match original with 0.5 safety factor
+    const float FEEDBACK_SAFETY_FACTOR = 0.5f;
+    const float FEEDBACK_HARD_LIMIT = 0.95f;
+    const int crossfadeSamples = static_cast<int>(ch.windowSamples * crossfadeTime);
+    
+    // Update smoothed feedback gain
+    ch.feedbackGainSmoothed.setTargetValue(feedback * FEEDBACK_SAFETY_FACTOR);
+    
     for (int i = 0; i < numSamples; ++i)
     {
         float inputSample = channelData[i];
+        float currentFeedbackGain = ch.feedbackGainSmoothed.getNextValue();
         
-        // Write to buffer
-        ch.circularBuffer[ch.writePosition] = inputSample + (ch.feedbackSample * feedback);
+        // Write to delay line without feedback
+        ch.delayLine[ch.delayWritePos] = inputSample;
         
-        // Determine position in cycle (0-1)
-        float cyclePos = static_cast<float>(ch.writePosition) / static_cast<float>(ch.windowSamples);
+        // Clear output buffer
+        ch.outputBuffer[ch.outputWritePos] = 0.0f;
         
-        float outputSample;
-        
-        // First half: play forward
-        if (cyclePos < 0.5f)
+        // Process active grains
+        for (int g = 0; g < Channel::NUM_GRAINS; ++g)
         {
-            outputSample = ch.circularBuffer[ch.writePosition];
+            if (ch.grains[g].active)
+            {
+                int readPos = ch.grains[g].readPosition;
+                if (readPos < ch.grains[g].grainSize)
+                {
+                    float grainSample;
+                    
+                    // First half: forward playback
+                    if (readPos < ch.grains[g].grainSize / 2)
+                    {
+                        grainSample = ch.grains[g].buffer[readPos];
+                    }
+                    // Second half: backward playback
+                    else
+                    {
+                        int reversePos = ch.grains[g].grainSize - 1 - (readPos - ch.grains[g].grainSize / 2);
+                        grainSample = ch.grains[g].buffer[reversePos];
+                    }
+                    
+                    float windowGain = ch.windowFunction[readPos];
+                    
+                    // Apply crossfade at the transition point
+                    float grainFade = 1.0f;
+                    int halfGrain = ch.grains[g].grainSize / 2;
+                    
+                    if (readPos >= halfGrain - crossfadeSamples && readPos < halfGrain)
+                    {
+                        // Fade out forward
+                        float fadePos = (float)(readPos - (halfGrain - crossfadeSamples)) / crossfadeSamples;
+                        grainFade = 1.0f - fadePos;
+                    }
+                    else if (readPos >= halfGrain && readPos < halfGrain + crossfadeSamples)
+                    {
+                        // Fade in backward
+                        float fadePos = (float)(readPos - halfGrain) / crossfadeSamples;
+                        grainFade = fadePos;
+                    }
+                    
+                    ch.outputBuffer[ch.outputWritePos] += grainSample * windowGain * grainFade * ch.grains[g].amplitude;
+                    
+                    ch.grains[g].readPosition++;
+                }
+                else
+                {
+                    ch.grains[g].active = false;
+                }
+            }
         }
-        // Second half: play backward
-        else
+        
+        // Spawn new grain pair at hop intervals
+        ch.grainCounter++;
+        if (ch.grainCounter >= ch.hopSize)
         {
-            int reversePos = ch.windowSamples - 1 - ch.writePosition;
-            outputSample = ch.circularBuffer[reversePos];
+            ch.grainCounter = 0;
+            
+            // Find two inactive grains for forward and backward
+            int forwardGrain = -1, reverseGrain = -1;
+            
+            for (int g = 0; g < Channel::NUM_GRAINS; ++g)
+            {
+                if (!ch.grains[g].active)
+                {
+                    if (forwardGrain == -1)
+                        forwardGrain = g;
+                    else if (reverseGrain == -1)
+                    {
+                        reverseGrain = g;
+                        break;
+                    }
+                }
+            }
+            
+            if (forwardGrain != -1)
+            {
+                // Vary the read position to prevent feedback loops
+                int baseReadPos = (ch.delayWritePos - ch.windowSamples + ch.delayLine.size()) % ch.delayLine.size();
+                int delayReadPos = (baseReadPos - ch.grainSpawnOffset + ch.delayLine.size()) % ch.delayLine.size();
+                
+                // Copy from delay line
+                for (int s = 0; s < ch.windowSamples; ++s)
+                {
+                    float sample = ch.delayLine[(delayReadPos + s) % ch.delayLine.size()];
+                    ch.grains[forwardGrain].buffer[s] = sample;
+                    if (reverseGrain != -1)
+                        ch.grains[reverseGrain].buffer[s] = sample;
+                }
+                
+                ch.grains[forwardGrain].active = true;
+                ch.grains[forwardGrain].readPosition = 0;
+                ch.grains[forwardGrain].amplitude = 0.7f;  // Reduce amplitude to prevent buildup
+                ch.grains[forwardGrain].grainSize = ch.windowSamples;
+                
+                // Update spawn offset for next grain pair (cycle through 25% of window)
+                ch.grainSpawnOffset = (ch.grainSpawnOffset + ch.windowSamples / 4) % (ch.windowSamples / 2);
+            }
         }
         
-        // Apply crossfade at transition point
-        float transitionZone = crossfadeTime * 0.5f; // crossfade zone size
-        if (cyclePos > 0.5f - transitionZone && cyclePos < 0.5f + transitionZone)
+        // Read from output buffer
+        float outputSample = ch.outputBuffer[ch.outputReadPos];
+        
+        // Add feedback from previous output
+        float wetSignal = outputSample + (ch.feedbackSample * currentFeedbackGain);
+        
+        // Apply soft limiting like original
+        if (std::fabs(wetSignal) > FEEDBACK_HARD_LIMIT)
         {
-            float crossfadePos = (cyclePos - (0.5f - transitionZone)) / (2.0f * transitionZone);
-            float forward = ch.circularBuffer[ch.writePosition];
-            int reversePos = ch.windowSamples - 1 - ch.writePosition;
-            float backward = ch.circularBuffer[reversePos];
-            outputSample = forward * (1.0f - crossfadePos) + backward * crossfadePos;
+            wetSignal = std::tanh(wetSignal * 0.7f) * 1.4286f;
         }
         
-        ch.feedbackSample = outputSample;
+        // Mix with dry signal
+        float processedSample = inputSample * dryMix + wetSignal * wetMix;
         
-        channelData[i] = outputSample * wetMix + inputSample * dryMix;
+        // Store output for next sample's feedback
+        ch.feedbackSample = processedSample;
         
-        ch.writePosition++;
-        if (ch.writePosition >= ch.windowSamples)
-            ch.writePosition = 0;
+        channelData[i] = processedSample;
+        
+        // Update positions
+        ch.delayWritePos = (ch.delayWritePos + 1) % ch.delayLine.size();
+        ch.outputReadPos = (ch.outputReadPos + 1) % ch.outputBuffer.size();
+        ch.outputWritePos = (ch.outputWritePos + 1) % ch.outputBuffer.size();
     }
 }
 
 void ReverseEngine::processReverseRepeat(Channel& ch, float* channelData, int numSamples)
 {
+    // Match original with 0.5 safety factor
+    const float FEEDBACK_SAFETY_FACTOR = 0.5f;
+    const float FEEDBACK_HARD_LIMIT = 0.95f;
+    
+    // Update smoothed feedback gain
+    ch.feedbackGainSmoothed.setTargetValue(feedback * FEEDBACK_SAFETY_FACTOR);
+    
     for (int i = 0; i < numSamples; ++i)
     {
         float inputSample = channelData[i];
+        float currentFeedbackGain = ch.feedbackGainSmoothed.getNextValue();
         
-        // Always write to circular buffer
-        ch.circularBuffer[ch.writePosition] = inputSample + (ch.feedbackSample * feedback);
+        // Write to delay line without feedback
+        ch.delayLine[ch.delayWritePos] = inputSample;
         
-        // Copy to repeat buffer when not repeating
-        if (!ch.isRepeating)
+        // Clear output buffer
+        ch.outputBuffer[ch.outputWritePos] = 0.0f;
+        
+        // Process active grains
+        for (int g = 0; g < Channel::NUM_GRAINS; ++g)
         {
-            ch.repeatBuffer[ch.writePosition] = ch.circularBuffer[ch.writePosition];
+            if (ch.grains[g].active)
+            {
+                int readPos = ch.grains[g].readPosition;
+                if (readPos < ch.grains[g].grainSize)
+                {
+                    float grainSample;
+                    
+                    // Always read in reverse
+                    int reverseIndex = ch.grains[g].grainSize - 1 - readPos;
+                    
+                    // Apply vibrato only on second repeat
+                    if (ch.isRepeating && readPos >= ch.grains[g].grainSize / 2)
+                    {
+                        // Apply subtle vibrato modulation
+                        float vibratoMod = getVibratoModulation(ch);
+                        float vibratoDepth = 0.005f; // 0.5% pitch variation - much more subtle
+                        
+                        // Apply vibrato to forward position first, then reverse
+                        float modulatedPos = (float)readPos + vibratoMod * vibratoDepth * ch.grains[g].grainSize;
+                        int modulatedIndex = (int)modulatedPos;
+                        float frac = modulatedPos - modulatedIndex;
+                        
+                        // Clamp and reverse the modulated position
+                        modulatedIndex = std::clamp(modulatedIndex, 0, ch.grains[g].grainSize - 1);
+                        int modulatedReverseIndex = ch.grains[g].grainSize - 1 - modulatedIndex;
+                        int nextIndex = std::max(0, modulatedReverseIndex - 1);
+                        
+                        float sample1 = ch.grains[g].buffer[modulatedReverseIndex];
+                        float sample2 = ch.grains[g].buffer[nextIndex];
+                        grainSample = sample1 * (1.0f - frac) + sample2 * frac;
+                    }
+                    else
+                    {
+                        grainSample = ch.grains[g].buffer[reverseIndex];
+                    }
+                    
+                    float windowGain = ch.windowFunction[readPos];
+                    ch.outputBuffer[ch.outputWritePos] += grainSample * windowGain * ch.grains[g].amplitude;
+                    
+                    ch.grains[g].readPosition++;
+                }
+                else
+                {
+                    // Check if we should repeat
+                    if (!ch.isRepeating)
+                    {
+                        ch.isRepeating = true;
+                        ch.grains[g].readPosition = 0;  // Restart for second pass
+                    }
+                    else
+                    {
+                        ch.grains[g].active = false;
+                        ch.isRepeating = false;
+                    }
+                }
+            }
         }
         
-        float outputSample;
-        
-        if (ch.isRepeating)
+        // Spawn new grain at hop intervals
+        ch.grainCounter++;
+        if (ch.grainCounter >= ch.hopSize)
         {
-            // Play reversed from repeat buffer
-            int reversePos = ch.windowSamples - 1 - ch.repeatPosition;
-            outputSample = ch.repeatBuffer[reversePos];
+            ch.grainCounter = 0;
             
-            // Add vibrato in second half
-            if (ch.repeatPosition >= ch.windowSamples / 2)
+            // Find inactive grain
+            int grainToUse = -1;
+            for (int g = 0; g < Channel::NUM_GRAINS; ++g)
             {
-                float vibrato = getVibratoModulation(ch);
-                int vibratoOffset = static_cast<int>(vibrato * 5.0f);
-                int modulatedPos = reversePos + vibratoOffset;
-                if (modulatedPos >= 0 && modulatedPos < ch.windowSamples)
+                if (!ch.grains[g].active)
                 {
-                    outputSample = ch.repeatBuffer[modulatedPos];
+                    grainToUse = g;
+                    break;
                 }
             }
             
-            ch.repeatPosition++;
-            if (ch.repeatPosition >= ch.windowSamples)
+            if (grainToUse != -1)
             {
-                ch.repeatPosition = 0;
-                ch.isRepeating = false;
+                int delayReadPos = (ch.delayWritePos - ch.windowSamples + ch.delayLine.size()) % ch.delayLine.size();
+                
+                for (int s = 0; s < ch.windowSamples; ++s)
+                {
+                    ch.grains[grainToUse].buffer[s] = ch.delayLine[(delayReadPos + s) % ch.delayLine.size()];
+                }
+                
+                ch.grains[grainToUse].active = true;
+                ch.grains[grainToUse].readPosition = 0;
+                ch.grains[grainToUse].amplitude = 1.0f;
+                ch.grains[grainToUse].grainSize = ch.windowSamples;
+                ch.isRepeating = false;  // Reset repeat state for new grain
             }
         }
-        else
+        
+        // Read from output buffer
+        float outputSample = ch.outputBuffer[ch.outputReadPos];
+        
+        // Add feedback from previous output
+        float wetSignal = outputSample + (ch.feedbackSample * currentFeedbackGain);
+        
+        // Apply soft limiting like original
+        if (std::fabs(wetSignal) > FEEDBACK_HARD_LIMIT)
         {
-            // Normal forward playback
-            outputSample = ch.circularBuffer[ch.writePosition];
+            wetSignal = std::tanh(wetSignal * 0.7f) * 1.4286f;
         }
         
-        ch.feedbackSample = outputSample;
+        // Mix with dry signal
+        float processedSample = inputSample * dryMix + wetSignal * wetMix;
         
-        channelData[i] = outputSample * wetMix + inputSample * dryMix;
+        // Store output for next sample's feedback
+        ch.feedbackSample = processedSample;
         
-        ch.writePosition++;
-        if (ch.writePosition >= ch.windowSamples)
-        {
-            ch.writePosition = 0;
-            // Start repeat cycle
-            if (!ch.isRepeating)
-            {
-                ch.isRepeating = true;
-                ch.repeatPosition = 0;
-            }
-        }
+        channelData[i] = processedSample;
+        
+        // Update positions
+        ch.delayWritePos = (ch.delayWritePos + 1) % ch.delayLine.size();
+        ch.outputReadPos = (ch.outputReadPos + 1) % ch.outputBuffer.size();
+        ch.outputWritePos = (ch.outputWritePos + 1) % ch.outputBuffer.size();
     }
 }
 
-void ReverseEngine::createFadeWindow(std::vector<float>& fadeIn, std::vector<float>& fadeOut, int length)
+void ReverseEngine::createWindowFunction(std::vector<float>& window, int length)
 {
+    // Create Hann window
     for (int i = 0; i < length; ++i)
     {
-        float position = static_cast<float>(i) / static_cast<float>(length - 1);
-        // Raised cosine window for smoother fades
-        float value = 0.5f * (1.0f - std::cos(position * juce::MathConstants<float>::pi));
-        fadeIn[i] = value;
-        fadeOut[i] = 1.0f - value;
+        float value = 0.5f - 0.5f * std::cos(2.0f * juce::MathConstants<float>::pi * i / (length - 1));
+        
+        // Apply envelope at edges based on envelope time
+        if (envelopeTime > 0.0f)
+        {
+            int fadeLength = static_cast<int>(envelopeTime * sampleRate);
+            fadeLength = std::min(fadeLength, length / 2);  // Limit to half window
+            
+            if (i < fadeLength)
+            {
+                float fadeIn = static_cast<float>(i) / static_cast<float>(fadeLength);
+                value *= fadeIn * fadeIn;  // Square for smoother fade
+            }
+            else if (i >= length - fadeLength)
+            {
+                float fadeOut = static_cast<float>(length - 1 - i) / static_cast<float>(fadeLength);
+                value *= fadeOut * fadeOut;  // Square for smoother fade
+            }
+        }
+        
+        window[i] = value;
     }
 }
 

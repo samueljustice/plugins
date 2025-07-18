@@ -39,7 +39,19 @@ target_sources(Reversinator
         Source/PluginProcessor.cpp
         Source/PluginEditor.cpp
         Source/ReverseEngine.cpp
+        Source/CustomFonts.cpp
 )
+
+# Add binary resources (fonts)
+juce_add_binary_data(ReversinatorBinaryData
+    SOURCES
+        Resources/Fonts/AzeretMono-Regular.ttf
+        Resources/Fonts/AzeretMono-Medium.ttf
+        Resources/Fonts/AzeretMono-Bold.ttf
+)
+
+# Link binary data
+target_link_libraries(Reversinator PRIVATE ReversinatorBinaryData)
 
 # Compile definitions
 target_compile_definitions(Reversinator
