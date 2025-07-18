@@ -9,6 +9,14 @@ A VST3/AU audio plugin that flattens pitch variations in real-time. Perfect for 
 
 - Location: `/pitchflattener/`
 - [Project README](pitchflattener/README.md)
+- [Latest Release](https://github.com/samueljustice/plugins/releases/tag/pitchflattener-v1.2.5)
+
+### Reversinator
+A VST3/AU audio plugin that provides real-time audio reversal effects with grain-based overlap-add processing. Create smooth reverse effects, experimental soundscapes, and unique time-based audio manipulations without clicks or pops.
+
+- Location: `/reversinator/`
+- [Project README](reversinator/README.md)
+- [Latest Release](https://github.com/samueljustice/plugins/releases/tag/reversinator-v1.0.0)
 
 ## Dependencies
 
