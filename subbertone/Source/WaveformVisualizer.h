@@ -25,6 +25,7 @@ public:
     // Visibility toggles
     bool showInput = true;
     bool showOutput = true;
+    bool showHarmonicResidual = true;
     
 private:
     SubbertoneAudioProcessor& audioProcessor;
@@ -34,6 +35,7 @@ private:
     static constexpr int historySize = 32;
     std::vector<std::vector<float>> inputHistory;
     std::vector<std::vector<float>> outputHistory;
+    std::vector<std::vector<float>> harmonicResidualHistory;
     int historyWritePos = 0;
     
     // PS1 Wipeout style colors
@@ -41,6 +43,7 @@ private:
     const juce::Colour gridColor{ 0xff0a2a4a };   // Dark blue grid
     const juce::Colour inputColor{ 0xff00ffff };   // Cyan
     const juce::Colour outputColor{ 0xffff00ff };  // Magenta
+    const juce::Colour harmonicResidualColor{ 0xffffff00 };  // Yellow
     const juce::Colour glowColor{ 0xff4080ff };   // Blue glow
     const juce::Colour textColor{ 0xffffffff };
     

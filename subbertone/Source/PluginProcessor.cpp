@@ -14,11 +14,12 @@ SubbertoneAudioProcessor::SubbertoneAudioProcessor()
 #endif
        parameters(*this, nullptr, juce::Identifier("SubbertoneParameters"), createParameterLayout())
 {
-    fundamentalDetector = std::make_unique<FundamentalDetector>();
+    pitchDetector = std::make_unique<PitchDetector>();
     subharmonicEngine = std::make_unique<SubharmonicEngine>();
     
     inputVisualBuffer.resize(visualBufferSize, 0.0f);
     outputVisualBuffer.resize(visualBufferSize, 0.0f);
+    harmonicResidualVisualBuffer.resize(visualBufferSize, 0.0f);
 }
 
 SubbertoneAudioProcessor::~SubbertoneAudioProcessor()
@@ -54,7 +55,10 @@ juce::AudioProcessorValueTreeState::ParameterLayout SubbertoneAudioProcessor::cr
         "outputGain", "Output Gain", -24.0f, 24.0f, 0.0f));
     
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
-        "yinThreshold", "YIN Threshold", -60.0f, -20.0f, -40.0f));
+        "pitchThreshold", "Pitch Threshold", -60.0f, -20.0f, -40.0f));
+    
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        "fundamentalLimit", "Max Fundamental", 100.0f, 800.0f, 250.0f));
     
     return { params.begin(), params.end() };
 }
@@ -121,7 +125,7 @@ void SubbertoneAudioProcessor::changeProgramName(int index, const juce::String& 
 
 void SubbertoneAudioProcessor::prepareToPlay(double sampleRate, int samplesPerBlock)
 {
-    fundamentalDetector->prepare(sampleRate, samplesPerBlock);
+    pitchDetector->prepare(sampleRate, samplesPerBlock);
     subharmonicEngine->prepare(sampleRate, samplesPerBlock);
 }
 
@@ -169,7 +173,8 @@ void SubbertoneAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
     float postDriveLowpass = parameters.getRawParameterValue("postDriveLowpass")->load();
     float outputGain = juce::Decibels::decibelsToGain(
         parameters.getRawParameterValue("outputGain")->load());
-    float yinThreshold = parameters.getRawParameterValue("yinThreshold")->load();
+    float pitchThreshold = parameters.getRawParameterValue("pitchThreshold")->load();
+    float fundamentalLimit = parameters.getRawParameterValue("fundamentalLimit")->load();
 
     // Handle mono/stereo configurations
     const int numChannelsToProcess = juce::jmin(totalNumInputChannels, totalNumOutputChannels);
@@ -204,8 +209,17 @@ void SubbertoneAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
             float signalDb = maxInput > 0.0f ? 20.0f * std::log10(maxInput) : -100.0f;
             currentSignalLevel.store(signalDb);
             
-            float fundamental = fundamentalDetector->detectFundamental(
-                inputData, buffer.getNumSamples(), yinThreshold);
+            // Convert pitch threshold (in dB) to linear threshold for pitch detector
+            float linearThreshold = std::pow(10.0f, pitchThreshold / 20.0f);
+            float fundamental = pitchDetector->detectPitch(
+                inputData, buffer.getNumSamples(), linearThreshold);
+            
+            // Apply fundamental frequency limit
+            if (fundamental > fundamentalLimit)
+            {
+                fundamental = 0.0f; // Treat as no detection if above limit
+            }
+            
             currentFundamental.store(fundamental);
             
         }
@@ -214,10 +228,13 @@ void SubbertoneAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
         std::vector<float> subharmonicBuffer(buffer.getNumSamples());
         
         // Process with subharmonic engine
-        subharmonicEngine->process(inputData, subharmonicBuffer.data(), buffer.getNumSamples(),
+        subharmonicEngine->process(subharmonicBuffer.data(), buffer.getNumSamples(),
                                   currentFundamental.load(),
                                   distortion, inverseMix, distortionType, 
                                   distortionTone, postDriveLowpass);
+        
+        // Get harmonic residual buffer for visualization
+        const auto& harmonicResidual = subharmonicEngine->getHarmonicResidualBuffer();
         
         // Apply mix and output gain
         static int mixDebugCount = 0;
@@ -243,6 +260,16 @@ void SubbertoneAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
                 const juce::ScopedLock sl(visualBufferLock);
                 int writePos = (visualBufferWritePos.load() + i) % visualBufferSize;
                 outputVisualBuffer[writePos] = channelData[i];
+                
+                // Store harmonic residual if available
+                if (i < harmonicResidual.size())
+                {
+                    harmonicResidualVisualBuffer[writePos] = harmonicResidual[i];
+                }
+                else
+                {
+                    harmonicResidualVisualBuffer[writePos] = 0.0f;
+                }
             }
         }
     }
@@ -281,6 +308,20 @@ std::vector<float> SubbertoneAudioProcessor::getOutputWaveform() const
     for (int i = 0; i < visualBufferSize; ++i)
     {
         result[i] = outputVisualBuffer[(readPos + i) % visualBufferSize];
+    }
+    return result;
+}
+
+std::vector<float> SubbertoneAudioProcessor::getHarmonicResidualWaveform() const
+{
+    const juce::ScopedLock sl(visualBufferLock);
+    std::vector<float> result(visualBufferSize);
+    int readPos = visualBufferWritePos.load();
+    
+    // Copy from circular buffer in the correct order
+    for (int i = 0; i < visualBufferSize; ++i)
+    {
+        result[i] = harmonicResidualVisualBuffer[(readPos + i) % visualBufferSize];
     }
     return result;
 }

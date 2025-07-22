@@ -13,11 +13,13 @@ WaveformVisualizer::WaveformVisualizer(SubbertoneAudioProcessor& p)
     // Initialize history buffers
     inputHistory.resize(historySize);
     outputHistory.resize(historySize);
+    harmonicResidualHistory.resize(historySize);
     
     for (int i = 0; i < historySize; ++i)
     {
         inputHistory[i].resize(512, 0.0f);
         outputHistory[i].resize(512, 0.0f);
+        harmonicResidualHistory[i].resize(512, 0.0f);
     }
     
     openGLContext.setRenderer(this);
@@ -52,6 +54,10 @@ void WaveformVisualizer::paint(juce::Graphics& g)
     g.setColour(showInput ? inputColor : inputColor.withAlpha(0.3f));
     g.drawText("INPUT" + juce::String(showInput ? "" : " (OFF)"), 10, 10, 150, 25, juce::Justification::left);
     
+    // Draw HARMONIC RESIDUAL with toggle state in the middle
+    g.setColour(showHarmonicResidual ? harmonicResidualColor : harmonicResidualColor.withAlpha(0.3f));
+    g.drawText("HARMONICS" + juce::String(showHarmonicResidual ? "" : " (OFF)"), 10, getHeight() / 2 - 12, 150, 25, juce::Justification::left);
+    
     // Draw OUTPUT with toggle state
     g.setColour(showOutput ? outputColor : outputColor.withAlpha(0.3f));
     g.drawText("OUTPUT" + juce::String(showOutput ? "" : " (OFF)"), 10, getHeight() - 35, 150, 25, juce::Justification::left);
@@ -59,7 +65,7 @@ void WaveformVisualizer::paint(juce::Graphics& g)
     // Add click instruction
     g.setColour(textColor.withAlpha(0.6f));
     g.setFont(juce::Font(juce::FontOptions("Courier New", 12.0f, juce::Font::plain)));
-    g.drawText("Click top/bottom to toggle waveforms", getWidth() - 250, 10, 240, 20, juce::Justification::right);
+    g.drawText("Click top/middle/bottom to toggle waveforms", getWidth() - 280, 10, 270, 20, juce::Justification::right);
     
     // Draw fundamental frequency
     float fundamental = audioProcessor.getCurrentFundamental();
@@ -92,11 +98,13 @@ void WaveformVisualizer::timerCallback()
     // Update waveform history
     auto input = audioProcessor.getInputWaveform();
     auto output = audioProcessor.getOutputWaveform();
+    auto harmonicResidual = audioProcessor.getHarmonicResidualWaveform();
     
     // Downsample to 512 points for performance
     const int targetSize = 512;
     inputHistory[historyWritePos].resize(targetSize);
     outputHistory[historyWritePos].resize(targetSize);
+    harmonicResidualHistory[historyWritePos].resize(targetSize);
     
     if (!input.empty())
     {
@@ -131,6 +139,24 @@ void WaveformVisualizer::timerCallback()
         for (int i = 0; i < targetSize; ++i)
         {
             outputHistory[historyWritePos][i] = 0.0f;
+        }
+    }
+    
+    if (!harmonicResidual.empty())
+    {
+        float ratio = harmonicResidual.size() / float(targetSize);
+        for (int i = 0; i < targetSize; ++i)
+        {
+            int idx = static_cast<int>(i * ratio);
+            harmonicResidualHistory[historyWritePos][i] = harmonicResidual[idx] * 2.0f; // Scale up for visibility
+        }
+    }
+    else
+    {
+        // Clear if no harmonic residual
+        for (int i = 0; i < targetSize; ++i)
+        {
+            harmonicResidualHistory[historyWritePos][i] = 0.0f;
         }
     }
     
@@ -191,15 +217,20 @@ void WaveformVisualizer::mouseDown(const juce::MouseEvent& event)
     auto width = getWidth();
     auto height = getHeight();
     
-    // Check if click is in top half (input) or bottom half (output)
-    if (clickY < height / 2)
+    // Divide into three zones: top third (input), middle third (harmonic residual), bottom third (output)
+    if (clickY < height / 3)
     {
-        // Clicked on input area
+        // Clicked on input area (top third)
         showInput = !showInput;
+    }
+    else if (clickY < 2 * height / 3)
+    {
+        // Clicked on harmonic residual area (middle third)
+        showHarmonicResidual = !showHarmonicResidual;
     }
     else
     {
-        // Clicked on output area
+        // Clicked on output area (bottom third)
         showOutput = !showOutput;
     }
     
@@ -440,6 +471,8 @@ void WaveformVisualizer::renderOpenGL()
     // Draw waveforms with trails
     if (showInput)
         drawWaveform3D(inputHistory, inputColor, 0.5f, true);
+    if (showHarmonicResidual)
+        drawWaveform3D(harmonicResidualHistory, harmonicResidualColor, 0.0f, false);
     if (showOutput)
         drawWaveform3D(outputHistory, outputColor, -0.5f, false);
     

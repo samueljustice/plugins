@@ -102,9 +102,13 @@ SubbertoneAudioProcessorEditor::SubbertoneAudioProcessorEditor(SubbertoneAudioPr
     outputGainSlider.setTooltip("Final output gain control (-24dB to +24dB)");
     outputGainSlider.setTextValueSuffix(" dB");
     
-    setupSlider(yinThresholdSlider, yinThresholdLabel, "YIN Threshold");
-    yinThresholdSlider.setTooltip("Threshold for fundamental frequency detection (-60dB to -20dB). Lower values detect quieter signals but may be less accurate");
-    yinThresholdSlider.setTextValueSuffix(" dB");
+    setupSlider(pitchThresholdSlider, pitchThresholdLabel, "Pitch Threshold");
+    pitchThresholdSlider.setTooltip("Threshold for pitch detection (-60dB to -20dB). Lower values detect quieter signals but may be less accurate");
+    pitchThresholdSlider.setTextValueSuffix(" dB");
+    
+    setupSlider(fundamentalLimitSlider, fundamentalLimitLabel, "Max Freq");
+    fundamentalLimitSlider.setTooltip("Maximum fundamental frequency to process (100Hz to 800Hz). Frequencies above this limit will be ignored");
+    fundamentalLimitSlider.setTextValueSuffix(" Hz");
     
     // Setup signal level label
     signalLevelLabel.setText("Signal: -∞ dB", juce::dontSendNotification);
@@ -113,15 +117,15 @@ SubbertoneAudioProcessorEditor::SubbertoneAudioProcessorEditor(SubbertoneAudioPr
     addAndMakeVisible(signalLevelLabel);
     
     // Setup distortion type combo
-    distortionTypeCombo.addItem("Soft Clip", 1);
-    distortionTypeCombo.addItem("Hard Clip", 2);
-    distortionTypeCombo.addItem("Tube", 3);
-    distortionTypeCombo.addItem("Foldback", 4);
-    distortionTypeCombo.setTooltip("Distortion character:\n"
-                                  "• Soft Clip: Smooth, musical saturation\n"
-                                  "• Hard Clip: Aggressive digital clipping\n"
-                                  "• Tube: Warm, analog-style saturation\n"
-                                  "• Foldback: Extreme waveshaping effect");
+    distortionTypeCombo.addItem("Tape Saturation", 1);
+    distortionTypeCombo.addItem("Valve Warmth", 2);
+    distortionTypeCombo.addItem("Console Drive", 3);
+    distortionTypeCombo.addItem("Transformer", 4);
+    distortionTypeCombo.setTooltip("Harmonic character:\n"
+                                  "• Tape Saturation: Smooth, musical compression\n"
+                                  "• Valve Warmth: Tube-style even harmonics\n"
+                                  "• Console Drive: Preamp-style soft clipping\n"
+                                  "• Transformer: Gentle S-curve saturation");
     addAndMakeVisible(distortionTypeCombo);
     
     distortionTypeLabel.setText("Distortion Type", juce::dontSendNotification);
@@ -140,8 +144,10 @@ SubbertoneAudioProcessorEditor::SubbertoneAudioProcessorEditor(SubbertoneAudioPr
         audioProcessor.parameters, "postDriveLowpass", postDriveLowpassSlider);
     outputGainAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
         audioProcessor.parameters, "outputGain", outputGainSlider);
-    yinThresholdAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
-        audioProcessor.parameters, "yinThreshold", yinThresholdSlider);
+    pitchThresholdAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
+        audioProcessor.parameters, "pitchThreshold", pitchThresholdSlider);
+    fundamentalLimitAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
+        audioProcessor.parameters, "fundamentalLimit", fundamentalLimitSlider);
     distortionTypeAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment>(
         audioProcessor.parameters, "distortionType", distortionTypeCombo);
     
@@ -236,23 +242,24 @@ void SubbertoneAudioProcessorEditor::resized()
     
     // Second row of controls
     auto secondRow = controlBounds;
-    auto secondRowWidth = secondRow.getWidth() / 4;
+    auto secondRowWidth = secondRow.getWidth() / 5;  // Changed from 4 to 5 controls
     
     distortionTypeCombo.setBounds(secondRow.removeFromLeft(secondRowWidth).reduced(20, 30));
     toneSlider.setBounds(secondRow.removeFromLeft(secondRowWidth).reduced(10));
     postDriveLowpassSlider.setBounds(secondRow.removeFromLeft(secondRowWidth).reduced(10));
-    yinThresholdSlider.setBounds(secondRow.removeFromLeft(secondRowWidth).reduced(10));
+    pitchThresholdSlider.setBounds(secondRow.removeFromLeft(secondRowWidth).reduced(10));
+    fundamentalLimitSlider.setBounds(secondRow.removeFromLeft(secondRowWidth).reduced(10));
     
-    // Signal level label positioned below YIN threshold slider
-    auto yinBounds = yinThresholdSlider.getBounds();
-    signalLevelLabel.setBounds(yinBounds.getX(), yinBounds.getBottom() - 25, yinBounds.getWidth(), 20);
+    // Signal level label positioned below pitch threshold slider
+    auto pitchBounds = pitchThresholdSlider.getBounds();
+    signalLevelLabel.setBounds(pitchBounds.getX(), pitchBounds.getBottom() - 25, pitchBounds.getWidth(), 20);
 }
 
 void SubbertoneAudioProcessorEditor::timerCallback()
 {
     // Update signal level display
     float signalDb = audioProcessor.getCurrentSignalLevel();
-    float threshold = yinThresholdSlider.getValue();
+    float threshold = pitchThresholdSlider.getValue();
     
     juce::String levelText;
     if (signalDb <= -99.0f)

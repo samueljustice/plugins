@@ -19,7 +19,7 @@ add_compile_definitions(
 # Add the JUCE library subdirectory
 add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/../SDK/JUCE ${CMAKE_CURRENT_BINARY_DIR}/SDK/JUCE)
 
-# Yin algorithm is now implemented directly in FundamentalDetector
+# JUCE-native pitch detection using autocorrelation
 
 # Main plugin target
 juce_add_plugin(Subbertone
@@ -55,7 +55,7 @@ target_sources(Subbertone
     PRIVATE
     Source/PluginProcessor.cpp
     Source/PluginEditor.cpp
-    Source/FundamentalDetector.cpp
+    Source/PitchDetector.cpp
     Source/SubharmonicEngine.cpp
     Source/WaveformVisualizer.cpp
     Source/AboutWindow.cpp

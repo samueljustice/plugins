@@ -2,7 +2,7 @@
 
 #include <JuceHeader.h>
 #include "SubharmonicEngine.h"
-#include "FundamentalDetector.h"
+#include "PitchDetector.h"
 
 class SubbertoneAudioProcessor : public juce::AudioProcessor
 {
@@ -44,17 +44,19 @@ public:
     // Get current waveform data for visualization
     std::vector<float> getInputWaveform() const;
     std::vector<float> getOutputWaveform() const;
+    std::vector<float> getHarmonicResidualWaveform() const;
     float getCurrentFundamental() const { return currentFundamental.load(); }
     float getCurrentSignalLevel() const { return currentSignalLevel.load(); }
 
 private:
-    std::unique_ptr<FundamentalDetector> fundamentalDetector;
+    std::unique_ptr<PitchDetector> pitchDetector;
     std::unique_ptr<SubharmonicEngine> subharmonicEngine;
     
     // Circular buffers for visualization
     static constexpr int visualBufferSize = 2048;
     std::vector<float> inputVisualBuffer;
     std::vector<float> outputVisualBuffer;
+    std::vector<float> harmonicResidualVisualBuffer;
     std::atomic<int> visualBufferWritePos{ 0 };
     mutable juce::CriticalSection visualBufferLock;
     

@@ -40,7 +40,8 @@ private:
     juce::Slider toneSlider;
     juce::Slider postDriveLowpassSlider;
     juce::Slider outputGainSlider;
-    juce::Slider yinThresholdSlider;
+    juce::Slider pitchThresholdSlider;
+    juce::Slider fundamentalLimitSlider;
     
     juce::ComboBox distortionTypeCombo;
     
@@ -50,7 +51,8 @@ private:
     juce::Label postDriveLowpassLabel;
     juce::Label distortionTypeLabel;
     juce::Label outputGainLabel;
-    juce::Label yinThresholdLabel;
+    juce::Label pitchThresholdLabel;
+    juce::Label fundamentalLimitLabel;
     juce::Label signalLevelLabel;
     
     // Parameter attachments
@@ -59,7 +61,8 @@ private:
     std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> toneAttachment;
     std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> postDriveLowpassAttachment;
     std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> outputGainAttachment;
-    std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> yinThresholdAttachment;
+    std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> pitchThresholdAttachment;
+    std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> fundamentalLimitAttachment;
     std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> distortionTypeAttachment;
     
     // About button

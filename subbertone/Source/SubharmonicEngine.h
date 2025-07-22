@@ -1,6 +1,7 @@
 #pragma once
 
 #include <JuceHeader.h>
+#include <atomic>
 
 class SubharmonicEngine
 {
@@ -9,57 +10,57 @@ public:
     ~SubharmonicEngine();
     
     void prepare(double sampleRate, int maxBlockSize);
-    void process(const float* inputBuffer, float* outputBuffer, int numSamples, float fundamental,
+    void process(float* outputBuffer, int numSamples, float fundamental,
                 float distortionAmount, float inverseMixAmount, 
                 int distortionType, float toneFreq, float postDriveLowpass);
     
-private:
-    double sampleRate = 44100.0;
-    double sampleRateReciprocal = 1.0 / 44100.0;
+    // Get harmonic residual buffer for visualization
+    const std::vector<float>& getHarmonicResidualBuffer() const { return harmonicResidualBuffer; }
     
-    // PolyBLEP Oscillator
-    double phase = 0.0;
-    double phaseIncrement = 0.0;
-    double lastPhaseIncrement = 0.0;
+private:
+    // Core parameters
+    double sampleRate = 44100.0;
+    juce::dsp::Oscillator<float> sineOscillator { [](float x) { return std::sin(x); } };
     
     // Frequency management
     double currentFrequency = 0.0;
     double targetFrequency = 0.0;
-    static constexpr double frequencySmoothingCoeff = 0.999; // Much smoother frequency transitions
+    double lastSetFrequency = 0.0;
+    static constexpr double frequencySmoothingCoeff = 0.99;
     
-    // Envelope - using one-pole filters for smooth transitions
+    // Envelope parameters
     double envelopeFollower = 0.0;
     double envelopeTarget = 0.0;
     double attackCoeff = 0.0;
     double releaseCoeff = 0.0;
-    static constexpr double attackTimeMs = 10.0;  // 10ms attack
-    static constexpr double releaseTimeMs = 100.0; // 100ms release
+    static constexpr double attackTimeMs = 20.0;
+    static constexpr double releaseTimeMs = 100.0;
+    static constexpr double envelopeFloor = 0.05;
     
-    // Signal detection with hysteresis
+    // Signal detection
     bool signalPresent = false;
-    int silenceCounter = 0;
-    static constexpr int silenceThreshold = 2048; // ~43ms at 48kHz
+    int signalOnCounter = 0;
+    int signalOffCounter = 0;
+    static constexpr int signalOnThreshold = 64;     // ~1.3ms at 48kHz
+    static constexpr int signalOffThreshold = 24000; // ~500ms at 48kHz
     
-    // DC offset removal
-    double dcBlockerState = 0.0;
-    static constexpr double dcBlockerCoeff = 0.995;
-    
-    // Filters for smoothing
-    juce::dsp::StateVariableTPTFilter<float> lowpassFilter;      // Pre-distortion tone control
-    juce::dsp::StateVariableTPTFilter<float> postDriveLowpassFilter; // Post-drive lowpass
+    // Filters
+    juce::dsp::IIR::Filter<float> dcBlockingFilter;
+    juce::dsp::StateVariableTPTFilter<float> toneFilter;
+    juce::dsp::StateVariableTPTFilter<float> postDriveLowpassFilter;
     juce::dsp::StateVariableTPTFilter<float> highpassFilter;
-    
-    // Anti-aliasing filters
+    juce::dsp::StateVariableTPTFilter<float> postSubtractionFilter;
+    juce::dsp::StateVariableTPTFilter<float> lowFreqSmoothingFilter;
+    juce::dsp::IIR::Filter<float> preDistortionFilter;
     juce::dsp::IIR::Filter<float> antiAliasingFilter1;
     juce::dsp::IIR::Filter<float> antiAliasingFilter2;
     juce::dsp::IIR::Filter<float> antiAliasingFilter3;
     juce::dsp::IIR::Filter<float> antiAliasingFilter4;
     
-    // Pre-distortion filter
-    juce::dsp::IIR::Filter<float> preDistortionFilter;
-    
     // Oversampling
     std::unique_ptr<juce::dsp::Oversampling<float>> oversampler;
+    int currentMaxBlockSize = 0;
+    bool oversamplerReady = false;
     
     // Distortion types
     enum DistortionType
@@ -70,19 +71,18 @@ private:
         Foldback
     };
     
-    // Distortion
-    float applyDistortion(float sample, float amount, int type);
-    
-    // Temporary buffers
+    // Processing buffers
     std::vector<float> sineBuffer;
-    std::vector<float> cleanSineBuffer;  // Store clean sine before distortion
+    std::vector<float> cleanSineBuffer;
     std::vector<float> distortedBuffer;
+    std::vector<float> harmonicResidualBuffer;
     
     // Helper functions
-    inline double polyBlepResidue(double t);
-    double generatePolyBlepSine();
     void updateEnvelope(bool signalDetected);
-    
-    // Calculate coefficients
     void calculateEnvelopeCoefficients();
+    float applyDistortion(float sample, float amount, int type);
+    
+    // Thread safety
+    std::atomic<bool> isPrepared{false};
+    
 };
