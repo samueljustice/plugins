@@ -1,0 +1,570 @@
+name: Build and Release Subbertone
+
+on:
+  push:
+    tags:
+      - 'subbertone-v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        submodules: recursive
+    
+    - name: Create SDK directory structure
+      run: |
+        mkdir SDK
+    
+    - name: Setup JUCE
+      run: |
+        cd SDK
+        git clone https://github.com/juce-framework/JUCE.git
+        cd JUCE
+        git checkout 7.0.12
+    
+    - name: Download and Build WORLD
+      shell: cmd
+      run: |
+        cd SDK
+        REM Remove World directory if it exists from previous runs
+        if exist World rmdir /s /q World
+        git clone https://github.com/mmorise/World.git World
+        cd World
+        
+        REM Create build directory
+        mkdir build
+        cd build
+        
+        REM Setup Visual Studio environment
+        call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvars64.bat"
+        
+        REM Configure with CMake
+        cmake .. -G "Visual Studio 17 2022" -A x64 -DCMAKE_BUILD_TYPE=Release
+        
+        REM Build
+        cmake --build . --config Release
+        
+        cd ..\..
+    
+    - name: Configure CMake
+      run: |
+        cd subbertone
+        cmake -B build -S . -DCMAKE_BUILD_TYPE=Release
+    
+    - name: Build VST3
+      run: |
+        cd subbertone
+        cmake --build build --config Release
+    
+    - name: Package Windows VST3
+      run: |
+        cd subbertone
+        
+        # List what's in the VST3 directory
+        echo "Contents of VST3 directory:"
+        Get-ChildItem -Path "build\Subbertone_artefacts\Release\VST3" -Recurse | Select-Object FullName, Length, Mode
+        
+        # Create a clean VST3 package directory
+        $vst3Dir = "windows-vst3-package"
+        New-Item -ItemType Directory -Force -Path $vst3Dir
+        
+        # Copy the entire VST3 bundle (the .vst3 directory)
+        Copy-Item -Path "build\Subbertone_artefacts\Release\VST3\SammyJs Subbertone.vst3" -Destination $vst3Dir -Recurse
+        echo "Copied VST3 bundle to package directory"
+        
+        # Verify the package structure
+        echo "Final VST3 package structure:"
+        Get-ChildItem -Path $vst3Dir -Recurse | Select-Object FullName
+    
+    - name: Create Windows Installer
+      run: |
+        cd subbertone
+        
+        # Check if LICENSE exists, if not create a simple one
+        if (!(Test-Path "LICENSE")) {
+          echo "Copyright (c) 2025 Samuel Justice. All rights reserved." > LICENSE
+          echo "" >> LICENSE
+          echo "This software is provided as-is, without warranty of any kind." >> LICENSE
+        }
+        
+        # Download and install Inno Setup
+        curl -L https://files.jrsoftware.org/is/6/innosetup-6.2.2.exe -o innosetup.exe
+        .\innosetup.exe /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /SP-
+        
+        # Add Inno Setup to PATH
+        $env:Path += ";${env:ProgramFiles(x86)}\Inno Setup 6"
+        
+        # Check if files exist
+        echo "Listing VST3 directory:"
+        Get-ChildItem -Path "build\Subbertone_artefacts\Release\VST3"
+        echo "Listing VST3 bundle contents:"
+        Get-ChildItem -Path "build\Subbertone_artefacts\Release\VST3\SammyJs Subbertone.vst3" -Recurse
+        echo "Listing windows-vst3-package directory:"
+        if (Test-Path "windows-vst3-package") {
+          Get-ChildItem -Path "windows-vst3-package" -Recurse
+        } else {
+          echo "windows-vst3-package directory not found!"
+        }
+        
+        # Build installer with better error handling
+        echo "Running Inno Setup compiler..."
+        & "${env:ProgramFiles(x86)}\Inno Setup 6\iscc.exe" installer.iss /O"." /F"SammyJs_Subbertone_Installer"
+        $exitCode = $LASTEXITCODE
+        
+        # Always show what files were created
+        echo "Files in current directory after Inno Setup:"
+        Get-ChildItem -Path "." -Filter "*.exe"
+        
+        # Check if compilation was successful
+        if ($exitCode -ne 0) {
+          Write-Error "Inno Setup failed with exit code $exitCode"
+          exit $exitCode
+        }
+        
+        # Check if installer was created
+        if (Test-Path "SammyJs_Subbertone_Installer.exe") {
+          echo "Installer created successfully"
+          Get-Item "SammyJs_Subbertone_Installer.exe"
+        } else {
+          Write-Error "Installer file not found"
+          exit 1
+        }
+    
+    - name: Upload Windows Installer
+      uses: actions/upload-artifact@v4
+      with:
+        name: windows-installer
+        path: subbertone/SammyJs_Subbertone_Installer.exe
+    
+    - name: Upload Windows VST3
+      uses: actions/upload-artifact@v4
+      with:
+        name: windows-vst3
+        path: subbertone/windows-vst3-package/
+    
+  build-macos:
+    runs-on: macos-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        submodules: recursive
+    
+    - name: Create SDK directory structure
+      run: |
+        mkdir SDK
+    
+    - name: Setup JUCE
+      run: |
+        cd SDK
+        git clone https://github.com/juce-framework/JUCE.git
+        cd JUCE
+        git checkout 7.0.12
+    
+    - name: Download and Build WORLD
+      run: |
+        cd SDK
+        # Remove World directory if it exists from previous runs
+        rm -rf World
+        git clone https://github.com/mmorise/World.git World
+        cd World
+        
+        # Remove build directory if it exists (might be in the repo) and create fresh
+        rm -rf build
+        mkdir build
+        cd build
+        
+        # Configure with CMake for universal binary
+        cmake .. -G "Xcode" \
+          -DCMAKE_BUILD_TYPE=Release \
+          -DCMAKE_OSX_ARCHITECTURES="x86_64;arm64"
+        
+        # Build
+        cmake --build . --config Release
+        
+        cd ../..
+    
+    - name: Check for Certificates
+      id: check_certs
+      run: |
+        if [[ -n "${{ secrets.APPLE_DEVELOPER_CERTIFICATE_P12_BASE64 }}" ]]; then
+          echo "has_certs=true" >> $GITHUB_OUTPUT
+        else
+          echo "has_certs=false" >> $GITHUB_OUTPUT
+          echo "No certificates found in secrets"
+        fi
+    
+    - name: Import Certificates
+      if: steps.check_certs.outputs.has_certs == 'true'
+      uses: apple-actions/import-codesign-certs@v2
+      with:
+        p12-file-base64: ${{ secrets.APPLE_DEVELOPER_CERTIFICATE_P12_BASE64 }}
+        p12-password: ${{ secrets.APPLE_DEVELOPER_CERTIFICATE_PASSWORD }}
+    
+    - name: Verify Certificates
+      if: steps.check_certs.outputs.has_certs == 'true'
+      run: |
+        echo "Verifying imported certificates..."
+        echo "Listing all certificates:"
+        security find-identity -v
+        echo ""
+        echo "Codesigning certificates:"
+        security find-identity -v -p codesigning
+        echo ""
+        echo "Basic certificates:"
+        security find-identity -v -p basic
+        echo ""
+        
+        APP_CERT=$(security find-identity -v -p codesigning | grep "Developer ID Application" | head -1)
+        INST_CERT=$(security find-identity -v -p basic | grep "Developer ID Installer" | head -1)
+        
+        if [ -z "$APP_CERT" ]; then
+          echo "ERROR: Developer ID Application certificate not found!"
+          echo "The P12 file may not contain the Application certificate or import failed."
+          exit 1
+        fi
+        
+        if [ -z "$INST_CERT" ]; then
+          echo "ERROR: Developer ID Installer certificate not found!"
+          echo "The P12 file may not contain the Installer certificate or import failed."
+          exit 1
+        fi
+        
+        echo "✓ Both certificates imported successfully"
+    
+    - name: Configure CMake
+      run: |
+        cd subbertone
+        cmake -B build -S . -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_ARCHITECTURES="x86_64;arm64"
+    
+    - name: Build VST3 and AU
+      run: |
+        cd subbertone
+        cmake --build build --config Release
+    
+    - name: Sign Plugins
+      if: steps.check_certs.outputs.has_certs == 'true'
+      env:
+        APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      run: |
+        cd subbertone
+        
+        # Find the certificate identity
+        IDENTITY=$(security find-identity -v -p codesigning | grep "Developer ID Application" | head -1 | awk -F'"' '{print $2}')
+        
+        # Sign VST3
+        codesign --force --sign "$IDENTITY" --timestamp \
+          --options runtime \
+          --deep \
+          build/Subbertone_artefacts/Release/VST3/*.vst3
+        
+        # Sign AU
+        codesign --force --sign "$IDENTITY" --timestamp \
+          --options runtime \
+          --deep \
+          build/Subbertone_artefacts/Release/AU/*.component
+    
+    - name: Notarize Plugins
+      if: steps.check_certs.outputs.has_certs == 'true'
+      env:
+        APPLE_ID: ${{ secrets.APPLE_ID }}
+        APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+        APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      run: |
+        cd subbertone
+        
+        # Create zips for notarization
+        cd build/Subbertone_artefacts/Release/VST3
+        zip -r ../../../../VST3.zip *.vst3
+        cd ../AU
+        zip -r ../../../../AU.zip *.component
+        cd ../../../..
+        
+        # Notarize VST3
+        echo "Notarizing VST3..."
+        xcrun notarytool submit VST3.zip \
+          --apple-id "$APPLE_ID" \
+          --password "$APPLE_APP_PASSWORD" \
+          --team-id "$APPLE_TEAM_ID" \
+          --wait
+        
+        # Notarize AU
+        echo "Notarizing AU..."
+        xcrun notarytool submit AU.zip \
+          --apple-id "$APPLE_ID" \
+          --password "$APPLE_APP_PASSWORD" \
+          --team-id "$APPLE_TEAM_ID" \
+          --wait
+        
+        # Staple notarization
+        cd build/Subbertone_artefacts/Release/VST3
+        for plugin in *.vst3; do
+          xcrun stapler staple "$plugin"
+        done
+        cd ../AU
+        for plugin in *.component; do
+          xcrun stapler staple "$plugin"
+        done
+        cd ../../../..
+    
+    - name: Create macOS Installer Package
+      env:
+        APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      run: |
+        cd subbertone
+        
+        # Create directory structure for installer
+        mkdir -p installer/vst3
+        mkdir -p installer/au
+        
+        # Copy notarized plugins to installer directories
+        cp -R build/Subbertone_artefacts/Release/VST3/*.vst3 installer/vst3/
+        cp -R build/Subbertone_artefacts/Release/AU/*.component installer/au/
+        
+        # Verify plugins are signed and notarized
+        echo "Verifying VST3 signature..."
+        codesign -dvv installer/vst3/*.vst3
+        echo "Verifying AU signature..."
+        codesign -dvv installer/au/*.component
+        
+        # Check notarization ticket
+        echo "Checking for notarization tickets..."
+        for plugin in installer/vst3/*.vst3; do
+          echo "Checking VST3: $plugin"
+          xcrun stapler validate "$plugin" || echo "No ticket found for $plugin"
+        done
+        for plugin in installer/au/*.component; do
+          echo "Checking AU: $plugin"
+          xcrun stapler validate "$plugin" || echo "No ticket found for $plugin"
+        done
+        
+        # Create component packages
+        # Extract version from tag or use default
+        VERSION="${GITHUB_REF#refs/tags/subbertone-v}"
+        if [ -z "$VERSION" ] || [ "$VERSION" = "$GITHUB_REF" ]; then
+          VERSION="1.0.0"
+        fi
+        
+        pkgbuild --identifier "com.sweetjusticesound.subbertone.vst3" \
+          --install-location "/Library/Audio/Plug-Ins/VST3" \
+          --root installer/vst3 \
+          --version "$VERSION" \
+          vst3.pkg
+          
+        pkgbuild --identifier "com.sweetjusticesound.subbertone.au" \
+          --install-location "/Library/Audio/Plug-Ins/Components" \
+          --root installer/au \
+          --version "$VERSION" \
+          au.pkg
+        
+        # Create distribution XML
+        cat > distribution.xml << EOF
+        <?xml version="1.0" encoding="utf-8"?>
+        <installer-gui-script minSpecVersion="2.0">
+            <title>SammyJs Subbertone</title>
+            <organization>com.sweetjusticesound</organization>
+            <domains enable_localSystem="true"/>
+            <options customize="always" require-scripts="false" hostArchitectures="x86_64,arm64"/>
+            <choices-outline>
+                <line choice="com.sweetjusticesound.subbertone.vst3"/>
+                <line choice="com.sweetjusticesound.subbertone.au"/>
+            </choices-outline>
+            <choice id="com.sweetjusticesound.subbertone.vst3" title="VST3 Plugin">
+                <pkg-ref id="com.sweetjusticesound.subbertone.vst3"/>
+            </choice>
+            <choice id="com.sweetjusticesound.subbertone.au" title="Audio Unit">
+                <pkg-ref id="com.sweetjusticesound.subbertone.au"/>
+            </choice>
+            <pkg-ref id="com.sweetjusticesound.subbertone.vst3">vst3.pkg</pkg-ref>
+            <pkg-ref id="com.sweetjusticesound.subbertone.au">au.pkg</pkg-ref>
+        </installer-gui-script>
+        EOF
+        
+        # Build final installer package
+        productbuild --distribution distribution.xml \
+          --package-path . \
+          --version "$VERSION" \
+          "SammyJs_Subbertone_Installer.pkg"
+        
+        # Sign the installer if certificates are available
+        if [[ -n "$APPLE_TEAM_ID" ]]; then
+          # Re-sign the plugins in the installer with hardened runtime
+          echo "Re-signing plugins in installer with hardened runtime..."
+          IDENTITY=$(security find-identity -v -p codesigning | grep "Developer ID Application" | head -1 | awk -F'"' '{print $2}')
+          echo "Using identity: $IDENTITY"
+          
+          # Sign each component of VST3 bundle
+          for vst in installer/vst3/*.vst3; do
+            echo "Signing VST3: $vst"
+            # Sign from inside out
+            find "$vst" -name "*.dylib" -o -name "*.framework" | while read -r item; do
+              echo "  Signing: $item"
+              codesign --force --sign "$IDENTITY" --timestamp --options runtime "$item"
+            done
+            # Sign the bundle itself
+            codesign --force --sign "$IDENTITY" --timestamp --options runtime --deep "$vst"
+            # Verify
+            codesign --verify --deep --strict "$vst"
+          done
+          
+          # Sign each component of AU bundle
+          for au in installer/au/*.component; do
+            echo "Signing AU: $au"
+            # Sign from inside out
+            find "$au" -name "*.dylib" -o -name "*.framework" | while read -r item; do
+              echo "  Signing: $item"
+              codesign --force --sign "$IDENTITY" --timestamp --options runtime "$item"
+            done
+            # Sign the bundle itself
+            codesign --force --sign "$IDENTITY" --timestamp --options runtime --deep "$au"
+            # Verify
+            codesign --verify --deep --strict "$au"
+          done
+          
+          # Rebuild packages with signed plugins
+          echo "Rebuilding packages with signed plugins..."
+          rm -f vst3.pkg au.pkg
+          
+          pkgbuild --identifier "com.sweetjusticesound.subbertone.vst3" \
+            --install-location "/Library/Audio/Plug-Ins/VST3" \
+            --root installer/vst3 \
+            --version "$VERSION" \
+            vst3.pkg
+            
+          pkgbuild --identifier "com.sweetjusticesound.subbertone.au" \
+            --install-location "/Library/Audio/Plug-Ins/Components" \
+            --root installer/au \
+            --version "$VERSION" \
+            au.pkg
+          
+          # Rebuild the installer
+          productbuild --distribution distribution.xml \
+            --package-path . \
+            --version "$VERSION" \
+            "SammyJs_Subbertone_Installer.pkg"
+          
+          # Sign the installer package
+          INSTALLER_IDENTITY=$(security find-identity -v -p basic | grep "Developer ID Installer" | head -1 | awk -F'"' '{print $2}')
+          productsign --sign "$INSTALLER_IDENTITY" \
+            "SammyJs_Subbertone_Installer.pkg" \
+            "SammyJs_Subbertone_Installer_Signed.pkg"
+          mv "SammyJs_Subbertone_Installer_Signed.pkg" "SammyJs_Subbertone_Installer.pkg"
+        fi
+    
+    - name: Notarize Installer
+      if: steps.check_certs.outputs.has_certs == 'true'
+      env:
+        APPLE_ID: ${{ secrets.APPLE_ID }}
+        APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+        APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      run: |
+        cd subbertone
+        
+        echo "Notarizing installer package..."
+        
+        # First check package signature
+        echo "Checking installer package signature..."
+        pkgutil --check-signature "SammyJs_Subbertone_Installer.pkg"
+        
+        # Submit for notarization and capture submission ID
+        SUBMISSION_ID=$(xcrun notarytool submit "SammyJs_Subbertone_Installer.pkg" \
+          --apple-id "$APPLE_ID" \
+          --password "$APPLE_APP_PASSWORD" \
+          --team-id "$APPLE_TEAM_ID" \
+          --output-format json | jq -r '.id')
+        
+        echo "Submission ID: $SUBMISSION_ID"
+        
+        # Wait for notarization
+        echo "Waiting for notarization..."
+        xcrun notarytool wait "$SUBMISSION_ID" \
+          --apple-id "$APPLE_ID" \
+          --password "$APPLE_APP_PASSWORD" \
+          --team-id "$APPLE_TEAM_ID"
+        
+        # Get the log
+        echo "Getting notarization log..."
+        xcrun notarytool log "$SUBMISSION_ID" \
+          --apple-id "$APPLE_ID" \
+          --password "$APPLE_APP_PASSWORD" \
+          --team-id "$APPLE_TEAM_ID" \
+          notarization-log.json
+        
+        # Display log contents
+        echo "Notarization log contents:"
+        cat notarization-log.json | jq '.'
+        
+        # Check status
+        STATUS=$(xcrun notarytool info "$SUBMISSION_ID" \
+          --apple-id "$APPLE_ID" \
+          --password "$APPLE_APP_PASSWORD" \
+          --team-id "$APPLE_TEAM_ID" \
+          --output-format json | jq -r '.status')
+        
+        if [ "$STATUS" != "Accepted" ]; then
+          echo "Notarization failed with status: $STATUS"
+          echo "Package contents:"
+          pkgutil --payload-files "SammyJs_Subbertone_Installer.pkg"
+          exit 1
+        fi
+        
+        # Staple notarization
+        xcrun stapler staple "SammyJs_Subbertone_Installer.pkg"
+    
+    - name: Upload macOS Installer
+      uses: actions/upload-artifact@v4
+      with:
+        name: macos-installer
+        path: subbertone/SammyJs_Subbertone_Installer.pkg
+    
+    - name: Upload macOS VST3
+      uses: actions/upload-artifact@v4
+      with:
+        name: macos-vst3
+        path: subbertone/build/Subbertone_artefacts/Release/VST3/*.vst3
+    
+    - name: Upload macOS AU
+      uses: actions/upload-artifact@v4
+      with:
+        name: macos-au
+        path: subbertone/build/Subbertone_artefacts/Release/AU/*.component
+  
+  create-release:
+    needs: [build-windows, build-macos]
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+    
+    steps:
+    - name: Download all artifacts
+      uses: actions/download-artifact@v4
+    
+    - name: Create ZIP files
+      run: |
+        # Windows VST3 - only include the .vst3 bundle directory
+        cd windows-vst3
+        zip -r ../Subbertone-Windows-VST3.zip *.vst3
+        cd ../macos-vst3
+        zip -r ../Subbertone-macOS-VST3.zip *
+        cd ../macos-au
+        zip -r ../Subbertone-macOS-AU.zip *
+        cd ..
+    
+    - name: Create Release
+      uses: softprops/action-gh-release@v1
+      with:
+        files: |
+          Subbertone-Windows-VST3.zip
+          Subbertone-macOS-VST3.zip
+          Subbertone-macOS-AU.zip
+          windows-installer/*.exe
+          macos-installer/*.pkg
+        generate_release_notes: true
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
