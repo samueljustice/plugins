@@ -2,51 +2,30 @@
 
 SubharmonicEngine::SubharmonicEngine()
 {
-    // Back to 8x oversampling as requested
+    // 8x oversampling for anti-aliasing
     oversampler = std::make_unique<juce::dsp::Oversampling<float>>(
         1, 3, juce::dsp::Oversampling<float>::filterHalfBandPolyphaseIIR, true);
-    
-    // DON'T open debug file in constructor - wait for prepare() to ensure clean start
 }
 
-SubharmonicEngine::~SubharmonicEngine()
-{
-    closeDebugFile();
-}
+SubharmonicEngine::~SubharmonicEngine() = default;
 
 void SubharmonicEngine::prepare(double newSampleRate, int maxBlockSize)
 {
     sampleRate = newSampleRate;
     
-    // Debug output to console
-    DBG("SubharmonicEngine::prepare called - Sample rate: " << sampleRate << ", Block size: " << maxBlockSize);
+    // Calculate envelope rates
+    attackRate = 1.0 / (attackTime * sampleRate);
+    releaseRate = 1.0 / (releaseTime * sampleRate);
     
-    // Open debug file on prepare to ensure clean start
-    openDebugFile();
-    
-    if (debugFileStream && debugFileStream->openedOk())
-    {
-        debugFileStream->writeText("\n=== PREPARE CALLED ===\n", false, false, nullptr);
-        debugFileStream->writeText("Sample rate: " + juce::String(sampleRate) + " Hz\n", false, false, nullptr);
-        debugFileStream->writeText("Max block size: " + juce::String(maxBlockSize) + "\n\n", false, false, nullptr);
-        debugFileStream->flush();
-    }
-    
-    // Reset phase and smoothing
+    // Reset state
     phase = 0.0;
-    lastPhase = 0.0;
-    phaseReset = false;
-    phaseIncrement = 0.0;
-    targetPhaseIncrement = 0.0;
-    lastStableIncrement = 0.0;
-    currentAmplitude = 0.0f;
-    targetAmplitude = 0.0f;
-    lastFundamental = 0.0f;
-    smoothedFrequency = 0.0f;
-    lockedFundamental = 0.0f;
-    lockCounter = 0;
-    amplitudeRampSamplesRemaining = 0;
-    outputSmoothPrev = 0.0f;
+    currentFrequency = 0.0;
+    targetFrequency = 0.0;
+    envelopeLevel = 0.0;
+    envelopeState = EnvelopeState::Idle;
+    signalDetected = false;
+    previousSignalDetected = false;
+    signalHoldoffCounter = 0;
     
     // Reset DC blocker
     dcBlockerX1 = 0.0f;
@@ -54,12 +33,8 @@ void SubharmonicEngine::prepare(double newSampleRate, int maxBlockSize)
     
     // Resize buffers for oversampling (8x)
     sineBuffer.resize(maxBlockSize * 8);
+    cleanSineBuffer.resize(maxBlockSize);  // Store at native rate
     distortedBuffer.resize(maxBlockSize * 8);
-    
-    // Initialize delay compensation buffer
-    delayBuffer.resize(delayBufferSize);
-    std::fill(delayBuffer.begin(), delayBuffer.end(), 0.0f);
-    delayWritePos = 0;
     
     // Initialize oversampling
     oversampler->initProcessing(static_cast<size_t>(maxBlockSize));
@@ -73,17 +48,25 @@ void SubharmonicEngine::prepare(double newSampleRate, int maxBlockSize)
     
     // Prepare oversampled spec for filters that run at higher rate
     juce::dsp::ProcessSpec oversampledSpec = spec;
-    oversampledSpec.sampleRate = sampleRate * 8.0; // 8x oversampling
+    oversampledSpec.sampleRate = sampleRate * 8.0;
     oversampledSpec.maximumBlockSize = maxBlockSize * 8;
     
-    // Tone filter runs at native rate, not oversampled
+    // Tone filter runs at native rate
     lowpassFilter.prepare(spec);
     lowpassFilter.setType(juce::dsp::StateVariableTPTFilterType::lowpass);
     
-    // Much more aggressive cutoff - 10% of oversampled rate
+    // Post-drive lowpass at oversampled rate
+    postDriveLowpassFilter.prepare(oversampledSpec);
+    postDriveLowpassFilter.setType(juce::dsp::StateVariableTPTFilterType::lowpass);
+    
+    // High-pass filter for DC blocking at native rate
+    highpassFilter.prepare(spec);
+    highpassFilter.setType(juce::dsp::StateVariableTPTFilterType::highpass);
+    highpassFilter.setCutoffFrequency(20.0f);
+    
+    // Anti-aliasing filters
     float cutoffFreq = static_cast<float>(oversampledSpec.sampleRate * 0.1);
     
-    // Create 4-stage lowpass with lower resonance for steeper rolloff
     auto coeffs1 = juce::dsp::IIR::Coefficients<float>::makeLowPass(
         oversampledSpec.sampleRate, cutoffFreq, 0.3f);
     auto coeffs2 = juce::dsp::IIR::Coefficients<float>::makeLowPass(
@@ -102,383 +85,204 @@ void SubharmonicEngine::prepare(double newSampleRate, int maxBlockSize)
     antiAliasingFilter4.prepare(oversampledSpec);
     antiAliasingFilter4.coefficients = coeffs4;
     
-    // Pre-distortion filter to limit input bandwidth
+    // Pre-distortion filter
     auto preDistCoeffs = juce::dsp::IIR::Coefficients<float>::makeLowPass(
-        oversampledSpec.sampleRate, oversampledSpec.sampleRate * 0.4f, 0.7071f);
+        oversampledSpec.sampleRate, 2000.0f, 0.7f);
     preDistortionFilter.prepare(oversampledSpec);
     preDistortionFilter.coefficients = preDistCoeffs;
-    
-    postDriveLowpassFilter.prepare(spec);
-    postDriveLowpassFilter.setType(juce::dsp::StateVariableTPTFilterType::lowpass);
-    
-    highpassFilter.prepare(spec);
-    highpassFilter.setType(juce::dsp::StateVariableTPTFilterType::highpass);
-    highpassFilter.setCutoffFrequency(20.0f); // High-pass at 20Hz to remove DC
 }
 
-void SubharmonicEngine::process(const float* inputBuffer, float* outputBuffer, int numSamples, float fundamental,
-                               float distortionAmount, float inverseMixAmount,
+void SubharmonicEngine::process(const float* inputBuffer, float* outputBuffer, int numSamples, 
+                               float fundamental, float distortionAmount, float inverseMixAmount,
                                int distortionType, float toneFreq, float postDriveLowpass)
 {
-    juce::ScopedNoDenormals noDenormals;
+    // Signal detection with hysteresis
+    bool currentSignalDetected = fundamental > 20.0f && fundamental < 2000.0f;
     
-    // Debug buffer processing
-    static int processCallCount = 0;
-    processCallCount++;
-    
-    // Console debug output
-    if (processCallCount <= 5)
+    // Apply holdoff to prevent flutter
+    if (currentSignalDetected)
     {
-        DBG("SubharmonicEngine::process called - Count: " << processCallCount << ", Samples: " << numSamples << ", Fundamental: " << fundamental);
-        DBG("  Current amplitude: " << currentAmplitude << ", Target amplitude: " << targetAmplitude);
-        DBG("  Phase: " << phase << ", Phase increment: " << phaseIncrement);
+        signalHoldoffCounter = signalHoldoffSamples;
+        signalDetected = true;
     }
-    
-    // Force create debug file if not open
-    if (!isDebugFileOpen() && processCallCount == 1)
+    else if (signalHoldoffCounter > 0)
     {
-        DBG("Debug file not open on first process call, attempting to open...");
-        openDebugFile();
-    }
-    
-    if (isDebugFileOpen() && processCallCount <= 10)
-    {
-        writeDebugLine("\n=== PROCESS CALL " + juce::String(processCallCount) + " ===");
-        writeDebugLine("NumSamples: " + juce::String(numSamples));
-        writeDebugLine("Fundamental: " + juce::String(fundamental) + " Hz");
-        writeDebugLine("Sample Rate: " + juce::String(sampleRate) + " Hz");
-        writeDebugLine("Phase before processing: " + juce::String(phase));
-        writeDebugLine("Phase increment: " + juce::String(phaseIncrement));
-        debugFileStream->flush();
-    }
-    
-    // DISABLED: Early exit if no fundamental or very quiet
-    // Allowing all frequencies for testing
-    /*
-    if (fundamental < 20.0f || fundamental > 2000.0f)
-    {
-        // Fade out amplitude smoothly
-        targetAmplitude = 0.0f;
-        amplitudeRampSamplesRemaining = 0;
-        lockCounter = 0; // Reset lock when no fundamental
-        lockedFundamental = 0.0f;
-        smoothedFrequency = 0.0f; // Reset smoothed frequency
-        
-        // Still process to apply fade out AND keep phase running
-        for (int i = 0; i < numSamples; ++i)
-        {
-            currentAmplitude = currentAmplitude * amplitudeRelease + 
-                             targetAmplitude * (1.0f - amplitudeRelease);
-            outputBuffer[i] = 0.0f;
-            
-            // Debug logging
-            logDebugData(fundamental, phase, phaseIncrement, outputBuffer[i]);
-            
-            // IMPORTANT: Keep phase running even during silence to maintain continuity
-            phase += phaseIncrement;
-            phase = std::fmod(phase, juce::MathConstants<double>::twoPi);
-            if (phase < 0.0)
-                phase += juce::MathConstants<double>::twoPi;
-        }
-        return;
-    }
-    */
-    
-    // Clamp micro-jitter in fundamental detection
-    float effectiveFundamental = fundamental;
-    if (lastFundamental > 0.0f && std::abs(fundamental - lastFundamental) < frequencyJitterThreshold)
-    {
-        // Ignore small jitter - keep using last fundamental
-        effectiveFundamental = lastFundamental;
+        signalHoldoffCounter--;
+        signalDetected = true; // Keep signal active during holdoff
     }
     else
     {
-        // Significant change - update last fundamental
-        lastFundamental = fundamental;
+        signalDetected = false;
     }
     
-    // Initialize smoothed frequency on first use
-    if (smoothedFrequency == 0.0f && effectiveFundamental > 0.0f)  // Changed from 20.0f to 0.0f
+    // Update target frequency when signal is detected
+    if (signalDetected && fundamental > 20.0f)
     {
-        smoothedFrequency = effectiveFundamental;
-        if (isDebugFileOpen())
-        {
-            writeDebugLine("!!! INITIAL SMOOTHED FREQUENCY: " + juce::String(smoothedFrequency) + " Hz");
-        }
-    }
-    
-    // Apply frequency smoothing with adaptive rate
-    if (smoothedFrequency > 0.0f)
-    {
-        float frequencyRatio = effectiveFundamental / smoothedFrequency;
-        float smoothingFactor;
+        float newTargetFreq = fundamental * 0.5f; // One octave below
         
-        // Adaptive smoothing based on frequency change magnitude
-        if (frequencyRatio > 2.0f || frequencyRatio < 0.5f)
+        // Only update if change is significant
+        if (std::abs(newTargetFreq - targetFrequency) > frequencyThreshold)
         {
-            // Octave jump - faster smoothing
-            smoothingFactor = 0.9f;
-            if (isDebugFileOpen())
-            {
-                writeDebugLine("!!! OCTAVE JUMP DETECTED - Fast smoothing");
-            }
-        }
-        else if (frequencyRatio > 1.2f || frequencyRatio < 0.83f)
-        {
-            // Significant change - medium smoothing
-            smoothingFactor = 0.95f;
-        }
-        else
-        {
-            // Small change - slow smoothing
-            smoothingFactor = 0.99f;
-        }
-        
-        // Apply smoothing
-        smoothedFrequency = smoothedFrequency * smoothingFactor + 
-                           effectiveFundamental * (1.0f - smoothingFactor);
-    }
-    else
-    {
-        smoothedFrequency = effectiveFundamental;
-    }
-    
-    
-    // Generate subharmonic (one octave below) using SMOOTHED frequency
-    float subharmonicFreq = smoothedFrequency * 0.5f;
-    
-    // Calculate target phase increment from smoothed frequency
-    targetPhaseIncrement = (2.0 * juce::MathConstants<double>::pi * subharmonicFreq) / sampleRate;
-    
-    // Debug target phase increment right after calculation
-    if (isDebugFileOpen() && processCallCount <= 20 && smoothedFrequency > 0)
-    {
-        writeDebugLine("!!! Target phase increment calculated: " + juce::String(targetPhaseIncrement) + 
-                      " for freq " + juce::String(subharmonicFreq) + " Hz");
-    }
-    
-    // Debug phase increment calculation
-    if (isDebugFileOpen() && subharmonicFreq > 0.0f)
-    {
-        static int calcDebugCount = 0;
-        if (calcDebugCount < 10)
-        {
-            writeDebugLine("\n=== PHASE INCREMENT CALCULATION ===");
-            writeDebugLine("Smoothed frequency: " + juce::String(smoothedFrequency) + " Hz");
-            writeDebugLine("Subharmonic freq (smoothed * 0.5): " + juce::String(subharmonicFreq) + " Hz");
-            writeDebugLine("Sample rate: " + juce::String(sampleRate) + " Hz");
-            writeDebugLine("Target phase inc = (2π * " + juce::String(subharmonicFreq) + ") / " + juce::String(sampleRate));
-            writeDebugLine("Target phase inc = " + juce::String(targetPhaseIncrement));
-            writeDebugLine("Expected samples per cycle: " + juce::String(sampleRate / subharmonicFreq));
-            writeDebugLine("Expected phase inc per sample: " + juce::String(targetPhaseIncrement) + " radians\n");
-            calcDebugCount++;
+            targetFrequency = newTargetFreq;
         }
     }
     
-    // Check if we're starting from silence (new note attack)
-    // Consider both amplitude and ramp state to avoid false positives
-    bool isStartingFromSilence = currentAmplitude < 0.001f && targetAmplitude < 0.01f && amplitudeRampSamplesRemaining == 0;
+    // Set tone filter frequency
+    lowpassFilter.setCutoffFrequency(toneFreq);
     
-    // SIMPLIFIED: Always generate at full amplitude when fundamental is valid
-    if (fundamental > 0.0f)  // Changed from 20.0f to 0.0f for testing
-    {
-        // Set amplitudes first, before checking for phase reset
-        float previousTargetAmplitude = targetAmplitude;
-        targetAmplitude = 1.0f;
-        currentAmplitude = 1.0f; // Instant full amplitude for testing
-        
-        // Only reset phase on first detection (when going from silent to active)
-        if (previousTargetAmplitude < 0.5f)
-        {
-            phase = 0.0;
-            if (isDebugFileOpen())
-            {
-                writeDebugLine("!!! PHASE RESET TO 0 (first detection)");
-            }
-        }
-            
-        
-        // Reopen debug file to clear it for new generation - only when truly starting from silence
-        if (isStartingFromSilence)
-        {
-            closeDebugFile();
-            openDebugFile();
-            
-            // Reset debug counter when starting new generation
-            debugSampleCount = 0;
-            generationSampleCount = 0; // Reset generation sample counter
-            if (isDebugFileOpen())
-            {
-                writeDebugLine("\n=== NEW GENERATION STARTED ===");
-                writeDebugLine("Initial fundamental: " + juce::String(fundamental) + " Hz");
-                writeDebugLine("Effective (clamped) fundamental: " + juce::String(effectiveFundamental) + " Hz");
-                writeDebugLine("Smoothed frequency: " + juce::String(smoothedFrequency) + " Hz");
-                writeDebugLine("Subharmonic frequency: " + juce::String(smoothedFrequency * 0.5f) + " Hz");
-                writeDebugLine("Sample rate: " + juce::String(sampleRate) + " Hz");
-                writeDebugLine("Target phase increment: " + juce::String(targetPhaseIncrement));
-                writeDebugLine("Current phase: " + juce::String(phase));
-                writeDebugLine("Actual phase increment: " + juce::String(phaseIncrement));
-                writeDebugLine("Expected phase inc: " + juce::String((2.0 * juce::MathConstants<double>::pi * smoothedFrequency * 0.5) / sampleRate));
-                debugFileStream->flush();
-            }
-        }
-    }
-    /* DISABLED for testing
-    else if (fundamental < 20.0f || fundamental > 2000.0f)
-    {
-        targetAmplitude = 0.0f;
-    }
-    */
-    else
-    {
-        targetAmplitude = 1.0f;
-        lastStableIncrement = phaseIncrement;
-    }
-    
-    // Debug logging at start of generation loop
-    static int bufferCount = 0;
-    bufferCount++;
-    if (isDebugFileOpen() && bufferCount <= 20)
-    {
-        writeDebugLine("\n=== BUFFER " + juce::String(bufferCount) + " START ===");
-        writeDebugLine("Fundamental: " + juce::String(fundamental) + " Hz");
-        writeDebugLine("Effective fundamental: " + juce::String(effectiveFundamental) + " Hz");
-        writeDebugLine("Smoothed frequency: " + juce::String(smoothedFrequency) + " Hz");
-        writeDebugLine("Subharmonic freq (smoothed * 0.5): " + juce::String(smoothedFrequency * 0.5f) + " Hz");
-        writeDebugLine("Target phase increment: " + juce::String(targetPhaseIncrement));
-        writeDebugLine("Current phase increment: " + juce::String(phaseIncrement));
-        writeDebugLine("Phase before loop: " + juce::String(phase));
-        writeDebugLine("Current amplitude: " + juce::String(currentAmplitude));
-        writeDebugLine("Target amplitude: " + juce::String(targetAmplitude));
-        writeDebugLine("Ramp samples remaining: " + juce::String(amplitudeRampSamplesRemaining));
-        debugFileStream->flush();
-    }
-    
-    // SIMPLIFIED SINE GENERATION - just generate a basic sine wave
-    // Ignore all smoothing and ramping for now
-    phaseIncrement = targetPhaseIncrement;
-    
-    // Write debug samples
-    if (isDebugFileOpen() && processCallCount <= 20)
-    {
-        writeDebugLine("\n=== SINE GENERATION START ===");
-        writeDebugLine("Target phase increment: " + juce::String(targetPhaseIncrement));
-        writeDebugLine("Phase increment (after assignment): " + juce::String(phaseIncrement));
-        writeDebugLine("Starting phase: " + juce::String(phase));
-        writeDebugLine("Fundamental: " + juce::String(fundamental) + " Hz");
-        writeDebugLine("Smoothed frequency: " + juce::String(smoothedFrequency) + " Hz");
-        debugFileStream->flush();
-    }
-    
+    // Generate sine wave with envelope
     for (int i = 0; i < numSamples; ++i)
     {
-        // Generate pure sine wave at full amplitude
-        float sineValue = static_cast<float>(std::sin(phase));
-        sineBuffer[i] = sineValue; // Full amplitude, no envelope
+        // Update envelope
+        updateEnvelope();
         
-        // Debug first few samples
-        if (i < 10 && isDebugFileOpen() && bufferCount <= 5)
+        // Apply frequency slewing
+        if (targetFrequency > 0.0)
         {
-            writeDebugLine("Sample[" + juce::String(i) + "]: phase=" + juce::String(phase) +
-                          ", sin(phase)=" + juce::String(sineValue) +
-                          ", output=" + juce::String(sineBuffer[i]) +
-                          ", phaseInc=" + juce::String(phaseIncrement));
+            currentFrequency = currentFrequency * frequencySlewRate + 
+                              targetFrequency * (1.0 - frequencySlewRate);
         }
         
-        // Simple debug logging
-        if (isDebugFileOpen() && i % 100 == 0 && bufferCount <= 10)
-        {
-            writeDebugLine("Sample " + juce::String(i) + ": sine=" + juce::String(sineValue) +
-                          ", phase=" + juce::String(phase) + ", freq=" + 
-                          juce::String(phaseIncrement * sampleRate / (2.0 * juce::MathConstants<double>::pi)) + " Hz");
-        }
+        // Generate sine wave
+        float sineSample = static_cast<float>(generateSineWave() * envelopeLevel);
         
-        // Update phase
-        phase += phaseIncrement;
+        // Apply tone filter
+        sineSample = lowpassFilter.processSample(0, sineSample);
         
-        // Wrap phase
-        while (phase >= juce::MathConstants<double>::twoPi)
-            phase -= juce::MathConstants<double>::twoPi;
-        while (phase < 0.0)
-            phase += juce::MathConstants<double>::twoPi;
+        // Store clean sine for mixing later
+        cleanSineBuffer[i] = sineSample;
+        
+        // Store in buffer for oversampling
+        sineBuffer[i] = sineSample;
     }
     
-    // ALWAYS output pure sine wave for debugging - ignore distortion
+    // Oversample for distortion processing
+    float* sineData = sineBuffer.data();
+    auto oversampledBlock = oversampler->processSamplesUp(
+        juce::dsp::AudioBlock<float>(&sineData, 1, 0, static_cast<size_t>(numSamples)));
+    
+    float* oversampledData = oversampledBlock.getChannelPointer(0);
+    size_t oversampledLength = oversampledBlock.getNumSamples();
+    
+    // Apply distortion and filters at oversampled rate
+    postDriveLowpassFilter.setCutoffFrequency(postDriveLowpass);
+    
+    for (size_t i = 0; i < oversampledLength; ++i)
+    {
+        float sample = oversampledData[i];
+        
+        // Pre-distortion filtering
+        sample = preDistortionFilter.processSample(sample);
+        
+        // Apply distortion
+        float distorted = applyDistortion(sample, distortionAmount, distortionType);
+        
+        // Post-drive lowpass
+        distorted = postDriveLowpassFilter.processSample(0, distorted);
+        
+        // Cascaded anti-aliasing filters
+        distorted = antiAliasingFilter1.processSample(distorted);
+        distorted = antiAliasingFilter2.processSample(distorted);
+        distorted = antiAliasingFilter3.processSample(distorted);
+        distorted = antiAliasingFilter4.processSample(distorted);
+        
+        distortedBuffer[i] = distorted;
+    }
+    
+    // Copy distorted signal back
+    std::copy(distortedBuffer.begin(), distortedBuffer.begin() + oversampledLength, oversampledData);
+    
+    // Downsample back to original rate
+    oversampler->processSamplesDown(oversampledBlock);
+    
+    // Mix original sine and distorted signals
     for (int i = 0; i < numSamples; ++i)
     {
-        outputBuffer[i] = sineBuffer[i];
+        // Get the original clean sine wave
+        float sine = cleanSineBuffer[i];
+        
+        // Get the distorted signal
+        float distorted = sineBuffer[i]; // Now contains the processed signal
+        
+        // Inverse mix: blend between clean sine and distorted
+        float output = sine * (1.0f - inverseMixAmount) + distorted * inverseMixAmount;
+        
+        // DC blocker
+        float dcBlockedOutput = output - dcBlockerX1 + dcBlockerCutoff * dcBlockerY1;
+        dcBlockerY1 = dcBlockedOutput;
+        dcBlockerX1 = output;
+        
+        // Apply high-pass filter for additional DC removal
+        output = highpassFilter.processSample(0, dcBlockedOutput);
+        
+        outputBuffer[i] = output;
     }
     
-    // Write actual sine wave samples to debug file
-    if (isDebugFileOpen() && processCallCount <= 3)
+    previousSignalDetected = signalDetected;
+}
+
+void SubharmonicEngine::updateEnvelope()
+{
+    switch (envelopeState)
     {
-        writeDebugLine("\n=== SINE WAVE OUTPUT ===");
-        writeDebugLine("First 20 samples:");
-        for (int i = 0; i < std::min(20, numSamples); ++i)
-        {
-            writeDebugLine("Sample[" + juce::String(i) + "] = " + juce::String(outputBuffer[i]));
-        }
-        debugFileStream->flush();
+        case EnvelopeState::Idle:
+            if (signalDetected)
+            {
+                envelopeState = EnvelopeState::Attack;
+            }
+            break;
+            
+        case EnvelopeState::Attack:
+            envelopeLevel += attackRate;
+            if (envelopeLevel >= 1.0)
+            {
+                envelopeLevel = 1.0;
+                envelopeState = EnvelopeState::Sustain;
+            }
+            break;
+            
+        case EnvelopeState::Sustain:
+            if (!signalDetected)
+            {
+                envelopeState = EnvelopeState::Release;
+            }
+            break;
+            
+        case EnvelopeState::Release:
+            envelopeLevel -= releaseRate;
+            if (envelopeLevel <= 0.0)
+            {
+                envelopeLevel = 0.0;
+                envelopeState = EnvelopeState::Idle;
+            }
+            else if (signalDetected)
+            {
+                // If signal comes back during release, go back to attack
+                envelopeState = EnvelopeState::Attack;
+            }
+            break;
     }
+}
+
+double SubharmonicEngine::generateSineWave()
+{
+    if (currentFrequency <= 0.0)
+        return 0.0;
     
-    // Debug final output
-    if (isDebugFileOpen() && bufferCount <= 10)
-    {
-        juce::String outputSamples = "First 5 output samples: ";
-        for (int i = 0; i < std::min(5, numSamples); ++i)
-        {
-            outputSamples += juce::String(outputBuffer[i]) + " ";
-        }
-        writeDebugLine(outputSamples);
-        
-        // Calculate RMS and peak values
-        float rms = 0.0f;
-        float peak = 0.0f;
-        for (int i = 0; i < numSamples; ++i)
-        {
-            float absVal = std::abs(outputBuffer[i]);
-            peak = std::max(peak, absVal);
-            rms += outputBuffer[i] * outputBuffer[i];
-        }
-        rms = std::sqrt(rms / numSamples);
-        
-        writeDebugLine("Output stats - Peak: " + juce::String(peak) + ", RMS: " + juce::String(rms));
-        writeDebugLine("Phase after buffer: " + juce::String(phase));
-        writeDebugLine("Samples processed: " + juce::String(numSamples));
-        debugFileStream->flush();
-    }
+    // Calculate phase increment
+    double phaseIncrement = (2.0 * juce::MathConstants<double>::pi * currentFrequency) / sampleRate;
     
-    // DISABLED post-drive lowpass filter for debugging
-    // postDriveLowpassFilter.setCutoffFrequency(postDriveLowpass);
-    // float* outputChannelData[] = { outputBuffer };
-    // juce::dsp::AudioBlock<float> outputBlock(outputChannelData, 1, 0, numSamples);
-    // juce::dsp::ProcessContextReplacing<float> outputContext(outputBlock);
-    // postDriveLowpassFilter.process(outputContext);
+    // Generate sine wave
+    double sineValue = std::sin(phase);
     
-    // Debug the output stage - ALWAYS log the first buffer to see what's happening
-    if (isDebugFileOpen() && processCallCount <= 5)
-    {
-        writeDebugLine("\n=== BUFFER " + juce::String(processCallCount) + " OUTPUT ===");
-        writeDebugLine("Fundamental: " + juce::String(fundamental) + " Hz");
-        writeDebugLine("Target freq: " + juce::String(fundamental * 0.5f) + " Hz");
-        writeDebugLine("Phase increment: " + juce::String(phaseIncrement));
-        writeDebugLine("Current phase: " + juce::String(phase));
-        
-        juce::String sineSamples = "First 10 sine samples: ";
-        for (int i = 0; i < std::min(10, numSamples); ++i)
-        {
-            sineSamples += juce::String(sineBuffer[i]) + " ";
-        }
-        writeDebugLine(sineSamples);
-        
-        juce::String outputSamples = "First 10 output samples: ";
-        for (int i = 0; i < std::min(10, numSamples); ++i)
-        {
-            outputSamples += juce::String(outputBuffer[i]) + " ";
-        }
-        writeDebugLine(outputSamples + "\n");
-        debugFileStream->flush();
-    }
+    // Update phase
+    phase += phaseIncrement;
+    
+    // Wrap phase to prevent numerical issues
+    while (phase >= 2.0 * juce::MathConstants<double>::pi)
+        phase -= 2.0 * juce::MathConstants<double>::pi;
+    
+    return sineValue;
 }
 
 float SubharmonicEngine::applyDistortion(float sample, float amount, int type)
@@ -586,155 +390,5 @@ float SubharmonicEngine::applyDistortion(float sample, float amount, int type)
             
         default:
             return sample;
-    }
-}
-
-void SubharmonicEngine::openDebugFile()
-{
-    // Create debug file in user's home directory for easy access
-    auto homeDir = juce::File::getSpecialLocation(juce::File::userHomeDirectory);
-    debugFile = homeDir.getChildFile("subbertone_debug.txt");
-    
-    DBG("Attempting to create debug file at: " << debugFile.getFullPathName());
-    
-    // Delete existing file first to ensure clean start
-    if (debugFile.existsAsFile())
-    {
-        debugFile.deleteFile();
-        DBG("Deleted existing debug file");
-    }
-    
-    // Create new file output stream
-    debugFileStream = std::make_unique<juce::FileOutputStream>(debugFile);
-    
-    if (debugFileStream->openedOk())
-    {
-        DBG("Debug file opened successfully!");
-        debugFileStream->setPosition(0);
-        debugFileStream->truncate();
-        
-        // Write header
-        debugFileStream->writeText("=== SUBBERTONE DEBUG LOG - NEW SESSION ===\n", false, false, nullptr);
-        debugFileStream->writeText("Timestamp: " + juce::Time::getCurrentTime().toString(true, true) + "\n\n", false, false, nullptr);
-        debugFileStream->writeText("Sample#,Fundamental,Phase,PhaseIncrement,Output,PhaseDelta\n", false, false, nullptr);
-        debugFileStream->flush();
-    }
-    else
-    {
-        DBG("Failed to open debug file for writing! Error: " << debugFileStream->getStatus().getErrorMessage());
-        debugFileStream.reset();
-    }
-    
-    debugSampleCount = 0;
-    generationSampleCount = 0; // Reset generation counter too
-}
-
-void SubharmonicEngine::closeDebugFile()
-{
-    if (debugFileStream)
-    {
-        debugFileStream->flush();
-        debugFileStream.reset();
-    }
-}
-
-void SubharmonicEngine::writeDebugLine(const juce::String& text)
-{
-    if (debugFileStream && debugFileStream->openedOk())
-    {
-        debugFileStream->writeText(text + "\n", false, false, nullptr);
-    }
-}
-
-bool SubharmonicEngine::isDebugFileOpen() const
-{
-    return debugFileStream && debugFileStream->openedOk();
-}
-
-void SubharmonicEngine::logDebugData(float fundamental, float currentPhase, float phaseInc, float output)
-{
-    if (isDebugFileOpen() && debugSampleCount < debugMaxSamples)
-    {
-        static float lastPhase = 0.0f;
-        static float lastFundamental = 0.0f;
-        static float lastPhaseIncrement = 0.0f;
-        static float lastOutput = 0.0f;
-        static int bufferCount = 0;
-        
-        // Track buffer changes
-        if (debugSampleCount == 0 || (debugSampleCount % 512 == 0))
-        {
-            bufferCount++;
-            writeDebugLine("\n--- Buffer " + juce::String(bufferCount) + " ---");
-            writeDebugLine("Sample Rate: " + juce::String(sampleRate) + " Hz");
-            writeDebugLine("Buffer size: 512 samples");
-            writeDebugLine("Phase at buffer start: " + juce::String(currentPhase));
-            writeDebugLine("Phase increment: " + juce::String(phaseInc));
-            writeDebugLine("Current amplitude: " + juce::String(currentAmplitude));
-            
-            // Check for buffer boundary issues
-            if (bufferCount > 1 && std::abs(currentPhase - lastPhase) > juce::MathConstants<float>::pi)
-            {
-                writeDebugLine("!!! BUFFER BOUNDARY PHASE JUMP: " + juce::String(currentPhase - lastPhase));
-            }
-        }
-        
-        // Log fundamental changes
-        if (std::abs(fundamental - lastFundamental) > 0.1f)
-        {
-            writeDebugLine("!!! FUNDAMENTAL CHANGED: " + juce::String(lastFundamental) + " -> " + juce::String(fundamental) + " Hz");
-            writeDebugLine("!!! Phase at change: " + juce::String(currentPhase) + ", Last phase: " + juce::String(lastPhase));
-            writeDebugLine("!!! Phase increment changed: " + juce::String(lastPhaseIncrement) + " -> " + juce::String(phaseInc));
-        }
-        
-        float phaseDelta = currentPhase - lastPhase;
-        
-        // Handle phase wrap
-        if (phaseDelta < -juce::MathConstants<float>::pi)
-            phaseDelta += 2.0f * juce::MathConstants<float>::pi;
-        else if (phaseDelta > juce::MathConstants<float>::pi)
-            phaseDelta -= 2.0f * juce::MathConstants<float>::pi;
-        
-        // Detect phase discontinuities
-        if (std::abs(phaseDelta) > 0.1f && debugSampleCount > 0)
-        {
-            writeDebugLine("!!! PHASE DISCONTINUITY: delta = " + juce::String(phaseDelta));
-        }
-        
-        // Detect output discontinuities (potential source of crackling)
-        float outputDelta = output - lastOutput;
-        if (std::abs(outputDelta) > 0.5f && debugSampleCount > 0)
-        {
-            writeDebugLine("!!! OUTPUT DISCONTINUITY: delta = " + juce::String(outputDelta) + 
-                          ", output = " + juce::String(output) + ", lastOutput = " + juce::String(lastOutput));
-        }
-        
-        // Log with more precision when there's activity
-        if (fundamental > 0.0f || output != 0.0f)
-        {
-            writeDebugLine(juce::String(debugSampleCount) + "," +
-                          juce::String(fundamental) + "," +
-                          juce::String(currentPhase) + "," +
-                          juce::String(phaseInc) + "," +
-                          juce::String(output) + "," +
-                          juce::String(phaseDelta));
-            
-            // Flush more frequently when there's activity
-            if (debugSampleCount % 100 == 0 && debugFileStream)
-                debugFileStream->flush();
-        }
-        
-        lastPhase = currentPhase;
-        lastFundamental = fundamental;
-        lastPhaseIncrement = phaseInc;
-        lastOutput = output;
-        debugSampleCount++;
-        
-        if (debugSampleCount >= debugMaxSamples)
-        {
-            writeDebugLine("Debug logging stopped at sample limit.");
-            if (debugFileStream)
-                debugFileStream->flush();
-        }
     }
 }
