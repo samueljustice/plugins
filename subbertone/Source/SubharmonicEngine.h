@@ -15,37 +15,34 @@ public:
     
 private:
     double sampleRate = 44100.0;
+    double sampleRateReciprocal = 1.0 / 44100.0;
     
-    // Oscillator
+    // PolyBLEP Oscillator
     double phase = 0.0;
+    double phaseIncrement = 0.0;
+    double lastPhaseIncrement = 0.0;
+    
+    // Frequency management
     double currentFrequency = 0.0;
     double targetFrequency = 0.0;
+    static constexpr double frequencySmoothingCoeff = 0.999; // Much smoother frequency transitions
     
-    // Frequency slewing
-    static constexpr double frequencySlewRate = 0.95; // How quickly frequency changes (0.0 = instant, 0.99 = very slow)
-    static constexpr double frequencyThreshold = 0.5; // Hz - ignore smaller changes
+    // Envelope - using one-pole filters for smooth transitions
+    double envelopeFollower = 0.0;
+    double envelopeTarget = 0.0;
+    double attackCoeff = 0.0;
+    double releaseCoeff = 0.0;
+    static constexpr double attackTimeMs = 10.0;  // 10ms attack
+    static constexpr double releaseTimeMs = 100.0; // 100ms release
     
-    // ADSR Envelope
-    enum class EnvelopeState
-    {
-        Idle,
-        Attack,
-        Sustain,
-        Release
-    };
+    // Signal detection with hysteresis
+    bool signalPresent = false;
+    int silenceCounter = 0;
+    static constexpr int silenceThreshold = 2048; // ~43ms at 48kHz
     
-    EnvelopeState envelopeState = EnvelopeState::Idle;
-    double envelopeLevel = 0.0;
-    double attackTime = 0.005;  // 5ms attack
-    double releaseTime = 0.05;  // 50ms release
-    double attackRate = 0.0;
-    double releaseRate = 0.0;
-    
-    // Signal detection
-    bool signalDetected = false;
-    bool previousSignalDetected = false;
-    int signalHoldoffCounter = 0;
-    static constexpr int signalHoldoffSamples = 512; // Hold signal for 512 samples to avoid flutter
+    // DC offset removal
+    double dcBlockerState = 0.0;
+    static constexpr double dcBlockerCoeff = 0.995;
     
     // Filters for smoothing
     juce::dsp::StateVariableTPTFilter<float> lowpassFilter;      // Pre-distortion tone control
@@ -63,11 +60,6 @@ private:
     
     // Oversampling
     std::unique_ptr<juce::dsp::Oversampling<float>> oversampler;
-    
-    // DC blocker
-    float dcBlockerX1 = 0.0f;
-    float dcBlockerY1 = 0.0f;
-    static constexpr float dcBlockerCutoff = 0.999f;
     
     // Distortion types
     enum DistortionType
@@ -87,6 +79,10 @@ private:
     std::vector<float> distortedBuffer;
     
     // Helper functions
-    void updateEnvelope();
-    double generateSineWave();
+    inline double polyBlepResidue(double t);
+    double generatePolyBlepSine();
+    void updateEnvelope(bool signalDetected);
+    
+    // Calculate coefficients
+    void calculateEnvelopeCoefficients();
 };

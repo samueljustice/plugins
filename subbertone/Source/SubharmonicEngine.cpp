@@ -1,4 +1,5 @@
 #include "SubharmonicEngine.h"
+#include <cmath>
 
 SubharmonicEngine::SubharmonicEngine()
 {
@@ -12,29 +13,27 @@ SubharmonicEngine::~SubharmonicEngine() = default;
 void SubharmonicEngine::prepare(double newSampleRate, int maxBlockSize)
 {
     sampleRate = newSampleRate;
+    sampleRateReciprocal = 1.0 / sampleRate;
     
-    // Calculate envelope rates
-    attackRate = 1.0 / (attackTime * sampleRate);
-    releaseRate = 1.0 / (releaseTime * sampleRate);
+    // Calculate envelope coefficients
+    calculateEnvelopeCoefficients();
     
     // Reset state
     phase = 0.0;
+    phaseIncrement = 0.0;
+    lastPhaseIncrement = 0.0;
     currentFrequency = 0.0;
     targetFrequency = 0.0;
-    envelopeLevel = 0.0;
-    envelopeState = EnvelopeState::Idle;
-    signalDetected = false;
-    previousSignalDetected = false;
-    signalHoldoffCounter = 0;
-    
-    // Reset DC blocker
-    dcBlockerX1 = 0.0f;
-    dcBlockerY1 = 0.0f;
+    envelopeFollower = 0.0;
+    envelopeTarget = 0.0;
+    signalPresent = false;
+    silenceCounter = 0;
+    dcBlockerState = 0.0;
     
     // Resize buffers for oversampling (8x)
-    sineBuffer.resize(maxBlockSize * 8);
-    cleanSineBuffer.resize(maxBlockSize);  // Store at native rate
-    distortedBuffer.resize(maxBlockSize * 8);
+    sineBuffer.resize(static_cast<size_t>(maxBlockSize * 8));
+    cleanSineBuffer.resize(static_cast<size_t>(maxBlockSize));
+    distortedBuffer.resize(static_cast<size_t>(maxBlockSize * 8));
     
     // Initialize oversampling
     oversampler->initProcessing(static_cast<size_t>(maxBlockSize));
@@ -43,13 +42,13 @@ void SubharmonicEngine::prepare(double newSampleRate, int maxBlockSize)
     // Prepare filters
     juce::dsp::ProcessSpec spec;
     spec.sampleRate = sampleRate;
-    spec.maximumBlockSize = maxBlockSize;
+    spec.maximumBlockSize = static_cast<juce::uint32>(maxBlockSize);
     spec.numChannels = 1;
     
     // Prepare oversampled spec for filters that run at higher rate
     juce::dsp::ProcessSpec oversampledSpec = spec;
     oversampledSpec.sampleRate = sampleRate * 8.0;
-    oversampledSpec.maximumBlockSize = maxBlockSize * 8;
+    oversampledSpec.maximumBlockSize = static_cast<juce::uint32>(maxBlockSize * 8);
     
     // Tone filter runs at native rate
     lowpassFilter.prepare(spec);
@@ -92,6 +91,70 @@ void SubharmonicEngine::prepare(double newSampleRate, int maxBlockSize)
     preDistortionFilter.coefficients = preDistCoeffs;
 }
 
+void SubharmonicEngine::calculateEnvelopeCoefficients()
+{
+    // Convert time constants to filter coefficients
+    attackCoeff = 1.0 - std::exp(-1000.0 / (attackTimeMs * sampleRate));
+    releaseCoeff = 1.0 - std::exp(-1000.0 / (releaseTimeMs * sampleRate));
+}
+
+inline double SubharmonicEngine::polyBlepResidue(double t)
+{
+    // PolyBLEP residue calculation
+    if (t < 0.0) t += 1.0;
+    if (t < 1.0)
+    {
+        if (t < 0.5)
+        {
+            t = 2.0 * t;
+            return t * t - 2.0 * t * t * t;
+        }
+        else
+        {
+            t = 2.0 * (t - 0.5);
+            return 2.0 * t * t * t - t * t - 1.0;
+        }
+    }
+    return 0.0;
+}
+
+double SubharmonicEngine::generatePolyBlepSine()
+{
+    // Generate band-limited sine using PolyBLEP
+    double value = std::sin(2.0 * juce::MathConstants<double>::pi * phase);
+    
+    // Apply PolyBLEP correction at discontinuities
+    double t = phase;
+    
+    // Check for wrap-around
+    if (phaseIncrement > 0.0)
+    {
+        // Forward wrap
+        if (phase < phaseIncrement)
+        {
+            double correction = polyBlepResidue(t / phaseIncrement);
+            value += phaseIncrement * correction;
+        }
+    }
+    
+    // Update phase with wrapping
+    phase += phaseIncrement;
+    if (phase >= 1.0)
+        phase -= 1.0;
+    
+    return value;
+}
+
+void SubharmonicEngine::updateEnvelope(bool signalDetected)
+{
+    // Update envelope target based on signal detection
+    envelopeTarget = signalDetected ? 1.0 : 0.0;
+    
+    // Apply one-pole filter for smooth transitions
+    double coeff = (envelopeTarget > envelopeFollower) ? attackCoeff : releaseCoeff;
+    envelopeFollower += coeff * (envelopeTarget - envelopeFollower);
+}
+
 void SubharmonicEngine::process(const float* inputBuffer, float* outputBuffer, int numSamples, 
                                float fundamental, float distortionAmount, float inverseMixAmount,
                                int distortionType, float toneFreq, float postDriveLowpass)
@@ -99,61 +162,72 @@ void SubharmonicEngine::process(const float* inputBuffer, float* outputBuffer, i
     // Signal detection with hysteresis
     bool currentSignalDetected = fundamental > 20.0f && fundamental < 2000.0f;
     
-    // Apply holdoff to prevent flutter
     if (currentSignalDetected)
     {
-        signalHoldoffCounter = signalHoldoffSamples;
-        signalDetected = true;
-    }
-    else if (signalHoldoffCounter > 0)
-    {
-        signalHoldoffCounter--;
-        signalDetected = true; // Keep signal active during holdoff
+        silenceCounter = 0;
+        signalPresent = true;
+        
+        // Update target frequency
+        targetFrequency = fundamental * 0.5; // One octave below
     }
     else
     {
-        signalDetected = false;
-    }
-    
-    // Update target frequency when signal is detected
-    if (signalDetected && fundamental > 20.0f)
-    {
-        float newTargetFreq = fundamental * 0.5f; // One octave below
-        
-        // Only update if change is significant
-        if (std::abs(newTargetFreq - targetFrequency) > frequencyThreshold)
+        silenceCounter++;
+        if (silenceCounter > silenceThreshold)
         {
-            targetFrequency = newTargetFreq;
+            signalPresent = false;
         }
     }
     
     // Set tone filter frequency
     lowpassFilter.setCutoffFrequency(toneFreq);
     
-    // Generate sine wave with envelope
+    // Generate sine wave with envelope and frequency smoothing
     for (int i = 0; i < numSamples; ++i)
     {
         // Update envelope
-        updateEnvelope();
+        updateEnvelope(signalPresent);
         
-        // Apply frequency slewing
-        if (targetFrequency > 0.0)
+        // Smooth frequency transitions
+        if (signalPresent && targetFrequency > 0.0)
         {
-            currentFrequency = currentFrequency * frequencySlewRate + 
-                              targetFrequency * (1.0 - frequencySlewRate);
+            currentFrequency = currentFrequency * frequencySmoothingCoeff + 
+                              targetFrequency * (1.0 - frequencySmoothingCoeff);
+            
+            // Update phase increment
+            lastPhaseIncrement = phaseIncrement;
+            phaseIncrement = currentFrequency * sampleRateReciprocal;
+            
+            // Limit phase increment changes to prevent clicks
+            double maxChange = 0.0001; // Very small change limit
+            double change = phaseIncrement - lastPhaseIncrement;
+            if (std::abs(change) > maxChange)
+            {
+                phaseIncrement = lastPhaseIncrement + (change > 0 ? maxChange : -maxChange);
+            }
+        }
+        else
+        {
+            // Gradually reduce frequency when no signal
+            currentFrequency *= 0.99;
+            phaseIncrement = currentFrequency * sampleRateReciprocal;
         }
         
-        // Generate sine wave
-        float sineSample = static_cast<float>(generateSineWave() * envelopeLevel);
+        // Generate band-limited sine wave
+        double sineSample = generatePolyBlepSine() * envelopeFollower;
+        
+        // Apply DC blocker
+        double dcCorrected = sineSample - dcBlockerState;
+        dcBlockerState = dcBlockerState * dcBlockerCoeff + sineSample * (1.0 - dcBlockerCoeff);
         
         // Apply tone filter
-        sineSample = lowpassFilter.processSample(0, sineSample);
+        float filtered = lowpassFilter.processSample(0, static_cast<float>(dcCorrected));
         
         // Store clean sine for mixing later
-        cleanSineBuffer[i] = sineSample;
+        cleanSineBuffer[static_cast<size_t>(i)] = filtered;
         
         // Store in buffer for oversampling
-        sineBuffer[i] = sineSample;
+        sineBuffer[static_cast<size_t>(i)] = filtered;
     }
     
     // Oversample for distortion processing
@@ -190,7 +264,7 @@ void SubharmonicEngine::process(const float* inputBuffer, float* outputBuffer, i
     }
     
     // Copy distorted signal back
-    std::copy(distortedBuffer.begin(), distortedBuffer.begin() + oversampledLength, oversampledData);
+    std::copy(distortedBuffer.begin(), distortedBuffer.begin() + static_cast<std::ptrdiff_t>(oversampledLength), oversampledData);
     
     // Downsample back to original rate
     oversampler->processSamplesDown(oversampledBlock);
@@ -199,90 +273,19 @@ void SubharmonicEngine::process(const float* inputBuffer, float* outputBuffer, i
     for (int i = 0; i < numSamples; ++i)
     {
         // Get the original clean sine wave
-        float sine = cleanSineBuffer[i];
+        float sine = cleanSineBuffer[static_cast<size_t>(i)];
         
         // Get the distorted signal
-        float distorted = sineBuffer[i]; // Now contains the processed signal
+        float distorted = sineBuffer[static_cast<size_t>(i)]; // Now contains the processed signal
         
         // Inverse mix: blend between clean sine and distorted
         float output = sine * (1.0f - inverseMixAmount) + distorted * inverseMixAmount;
         
-        // DC blocker
-        float dcBlockedOutput = output - dcBlockerX1 + dcBlockerCutoff * dcBlockerY1;
-        dcBlockerY1 = dcBlockedOutput;
-        dcBlockerX1 = output;
-        
         // Apply high-pass filter for additional DC removal
-        output = highpassFilter.processSample(0, dcBlockedOutput);
+        output = highpassFilter.processSample(0, output);
         
         outputBuffer[i] = output;
     }
-    
-    previousSignalDetected = signalDetected;
-}
-
-void SubharmonicEngine::updateEnvelope()
-{
-    switch (envelopeState)
-    {
-        case EnvelopeState::Idle:
-            if (signalDetected)
-            {
-                envelopeState = EnvelopeState::Attack;
-            }
-            break;
-            
-        case EnvelopeState::Attack:
-            envelopeLevel += attackRate;
-            if (envelopeLevel >= 1.0)
-            {
-                envelopeLevel = 1.0;
-                envelopeState = EnvelopeState::Sustain;
-            }
-            break;
-            
-        case EnvelopeState::Sustain:
-            if (!signalDetected)
-            {
-                envelopeState = EnvelopeState::Release;
-            }
-            break;
-            
-        case EnvelopeState::Release:
-            envelopeLevel -= releaseRate;
-            if (envelopeLevel <= 0.0)
-            {
-                envelopeLevel = 0.0;
-                envelopeState = EnvelopeState::Idle;
-            }
-            else if (signalDetected)
-            {
-                // If signal comes back during release, go back to attack
-                envelopeState = EnvelopeState::Attack;
-            }
-            break;
-    }
-}
-
-double SubharmonicEngine::generateSineWave()
-{
-    if (currentFrequency <= 0.0)
-        return 0.0;
-    
-    // Calculate phase increment
-    double phaseIncrement = (2.0 * juce::MathConstants<double>::pi * currentFrequency) / sampleRate;
-    
-    // Generate sine wave
-    double sineValue = std::sin(phase);
-    
-    // Update phase
-    phase += phaseIncrement;
-    
-    // Wrap phase to prevent numerical issues
-    while (phase >= 2.0 * juce::MathConstants<double>::pi)
-        phase -= 2.0 * juce::MathConstants<double>::pi;
-    
-    return sineValue;
 }
 
 float SubharmonicEngine::applyDistortion(float sample, float amount, int type)
