@@ -451,7 +451,7 @@ void SubharmonicEngine::process(float* outputBuffer, int numSamples,
     }
     
     // Enable oversampling only when distortion is used AND there's actual signal
-    bool useOversampling = (distortionAmount > 0.01f) && (maxSample > 0.0001f) && oversampler && oversamplerReady;
+    bool useOversampling = false;
     
     // Defensive check - ensure block size hasn't changed
     if (useOversampling && numSamples > currentMaxBlockSize)

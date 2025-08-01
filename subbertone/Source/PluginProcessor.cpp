@@ -179,13 +179,50 @@ void SubbertoneAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
     // Handle mono/stereo configurations
     const int numChannelsToProcess = juce::jmin(totalNumInputChannels, totalNumOutputChannels);
     
-    // Process each channel
+    // STEP 1: Detect fundamental FIRST (using first channel)
+    float detectedFundamental = 0.0f;
+    if (numChannelsToProcess > 0)
+    {
+        const auto* inputData = buffer.getReadPointer(0);
+        
+        float maxInput = 0.0f;
+        for (int i = 0; i < buffer.getNumSamples(); ++i)
+        {
+            maxInput = std::max(maxInput, std::abs(inputData[i]));
+        }
+        
+        // Store signal level in dB
+        float signalDb = maxInput > 0.0f ? 20.0f * std::log10(maxInput) : -100.0f;
+        currentSignalLevel.store(signalDb);
+        
+        // Convert pitch threshold (in dB) to linear threshold for pitch detector
+        float linearThreshold = std::pow(10.0f, pitchThreshold / 20.0f);
+        detectedFundamental = pitchDetector->detectPitch(
+                                                         inputData, buffer.getNumSamples(), linearThreshold);
+        
+        // Apply fundamental frequency limit
+        if (detectedFundamental > fundamentalLimit)
+        {
+            detectedFundamental = 0.0f;
+        }
+        
+        currentFundamental.store(detectedFundamental);
+    }
+    
+    // STEP 2: Process subharmonic engine with CURRENT fundamental
+    std::vector<float> subharmonicBuffer(buffer.getNumSamples());
+    subharmonicEngine->process(subharmonicBuffer.data(), buffer.getNumSamples(),
+                               detectedFundamental, // Use fresh fundamental, not stored one
+                               distortion, inverseMix, distortionType,
+                               distortionTone, postDriveLowpass);
+    
+    // STEP 3: Apply to each channel
     for (int channel = 0; channel < numChannelsToProcess; ++channel)
     {
         auto* channelData = buffer.getWritePointer(channel);
         const auto* inputData = buffer.getReadPointer(channel);
         
-        // Store input for visualization (only for first channel to avoid duplication)
+        // Store input for visualization (only for first channel)
         if (channel == 0)
         {
             const juce::ScopedLock sl(visualBufferLock);
@@ -196,58 +233,7 @@ void SubbertoneAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
             }
         }
         
-        // Detect fundamental (using first channel only)
-        if (channel == 0)
-        {
-            float maxInput = 0.0f;
-            for (int i = 0; i < buffer.getNumSamples(); ++i)
-            {
-                maxInput = std::max(maxInput, std::abs(inputData[i]));
-            }
-            
-            // Store signal level in dB
-            float signalDb = maxInput > 0.0f ? 20.0f * std::log10(maxInput) : -100.0f;
-            currentSignalLevel.store(signalDb);
-            
-            // Convert pitch threshold (in dB) to linear threshold for pitch detector
-            float linearThreshold = std::pow(10.0f, pitchThreshold / 20.0f);
-            float fundamental = pitchDetector->detectPitch(
-                inputData, buffer.getNumSamples(), linearThreshold);
-            
-            // Apply fundamental frequency limit
-            if (fundamental > fundamentalLimit)
-            {
-                fundamental = 0.0f; // Treat as no detection if above limit
-            }
-            
-            currentFundamental.store(fundamental);
-            
-        }
-        
-        // Create temporary buffer for subharmonic processing
-        std::vector<float> subharmonicBuffer(buffer.getNumSamples());
-        
-        // Process with subharmonic engine
-        subharmonicEngine->process(subharmonicBuffer.data(), buffer.getNumSamples(),
-                                  currentFundamental.load(),
-                                  distortion, inverseMix, distortionType, 
-                                  distortionTone, postDriveLowpass);
-        
-        // Get harmonic residual buffer for visualization
-        const auto& harmonicResidual = subharmonicEngine->getHarmonicResidualBuffer();
-        
         // Apply mix and output gain
-        static int mixDebugCount = 0;
-        if (channel == 0 && mixDebugCount < 10)
-        {
-            DBG("=== MIX STAGE DEBUG ===");
-            DBG("Mix: " << mix << " (0=dry, 1=wet)");
-            DBG("Output Gain: " << outputGain);
-            DBG("First 5 dry samples: " << inputData[0] << " " << inputData[1] << " " << inputData[2] << " " << inputData[3] << " " << inputData[4]);
-            DBG("First 5 wet samples: " << subharmonicBuffer[0] << " " << subharmonicBuffer[1] << " " << subharmonicBuffer[2] << " " << subharmonicBuffer[3] << " " << subharmonicBuffer[4]);
-            mixDebugCount++;
-        }
-        
         for (int i = 0; i < buffer.getNumSamples(); ++i)
         {
             float dry = inputData[i];
@@ -262,7 +248,8 @@ void SubbertoneAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
                 outputVisualBuffer[writePos] = channelData[i];
                 
                 // Store harmonic residual if available
-                if (i < harmonicResidual.size())
+                const auto& harmonicResidual = subharmonicEngine->getHarmonicResidualBuffer();
+                if (i < static_cast<int>(harmonicResidual.size()))
                 {
                     harmonicResidualVisualBuffer[writePos] = harmonicResidual[i];
                 }
@@ -274,7 +261,7 @@ void SubbertoneAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
         }
     }
     
-    // Handle mono output by copying channel 0 to channel 1 if needed
+    // Handle mono to stereo
     if (totalNumInputChannels == 1 && totalNumOutputChannels == 2)
     {
         buffer.copyFrom(1, 0, buffer, 0, 0, buffer.getNumSamples());
