@@ -60,6 +60,8 @@ juce::AudioProcessorValueTreeState::ParameterLayout SubbertoneAudioProcessor::cr
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         "fundamentalLimit", "Max Fundamental", 100.0f, 800.0f, 250.0f));
     
+    params.push_back(std::make_unique<juce::AudioParameterBool>("inverseMixMode", "Inverse Mix Mode", false));
+    
     return { params.begin(), params.end() };
 }
 

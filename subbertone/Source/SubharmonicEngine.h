@@ -12,7 +12,7 @@ public:
     void prepare(double sampleRate, int maxBlockSize);
     void process(float* outputBuffer, int numSamples, float fundamental,
                 float distortionAmount, float inverseMixAmount, 
-                int distortionType, float toneFreq, float postDriveLowpass);
+                int distortionType, float toneFreq, float postDriveLowpass, bool inverseMixMode = false);
     
     // Get harmonic residual buffer for visualization
     const std::vector<float>& getHarmonicResidualBuffer() const { return harmonicResidualBuffer; }

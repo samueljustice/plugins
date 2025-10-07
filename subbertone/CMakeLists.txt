@@ -17,7 +17,7 @@ add_compile_definitions(
 )
 
 # Add the JUCE library subdirectory
-add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/../SDK/JUCE ${CMAKE_CURRENT_BINARY_DIR}/SDK/JUCE)
+add_subdirectory("/Users/ernest/JUCE" "${CMAKE_CURRENT_BINARY_DIR}/JUCE-build")
 
 # JUCE-native pitch detection using autocorrelation
 
@@ -59,6 +59,13 @@ target_sources(Subbertone
     Source/SubharmonicEngine.cpp
     Source/WaveformVisualizer.cpp
     Source/AboutWindow.cpp
+
+    Source/PluginProcessor.h
+    Source/PluginEditor.h
+    Source/PitchDetector.h
+    Source/SubharmonicEngine.h
+    Source/WaveformVisualizer.h
+    Source/AboutWindow.h
 )
 
 # Plugin unique ID is set in juce_add_plugin above

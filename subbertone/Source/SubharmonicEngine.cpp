@@ -242,7 +242,7 @@ void SubharmonicEngine::updateEnvelope(bool signalDetected)
 
 void SubharmonicEngine::process(float* outputBuffer, int numSamples, 
                                float fundamental, float distortionAmount, float inverseMixAmount,
-                               int distortionType, float toneFreq, float postDriveLowpass)
+                               int distortionType, float toneFreq, float postDriveLowpass, bool inverseMixMode)
 {
     // Validate parameters and check if engine is prepared
     if (!outputBuffer || numSamples <= 0 || numSamples > 8192 || !isPrepared)
@@ -604,30 +604,21 @@ void SubharmonicEngine::process(float* outputBuffer, int numSamples,
             continue;
         }
         
-        // Get the original clean sine wave
         float sine = cleanSineBuffer[idx];
+        float distorted = sineBuffer[idx];
         
-        // Get the distorted signal
-        float distorted = sineBuffer[idx]; // Now contains the processed signal
-        
-        // Clamp values to prevent extreme outputs
         sine = std::max(-1.0f, std::min(1.0f, sine));
         distorted = std::max(-1.0f, std::min(1.0f, distorted));
         
-        // Apply the consistent block envelope
         float envelopedSine = sine * blockEnvelope;
         float envelopedDistorted = distorted * blockEnvelope;
-        
-        // When distortion is minimal, output the clean sine wave
-        // When distortion is high, extract the harmonic content
+
         float output;
         
         if (distortionAmount < 0.01f)
         {
-            // No distortion - output clean subharmonic sine wave
-            output = envelopedSine * inverseMixAmount;
+            output = inverseMixMode ? 0.0f : envelopedSine * inverseMixAmount;
             
-            // Keep filters in sync
             highpassFilter.processSample(0, 0.0f);
             postSubtractionFilter.processSample(0, 0.0f);
             
@@ -638,28 +629,26 @@ void SubharmonicEngine::process(float* outputBuffer, int numSamples,
         }
         else
         {
-            // Harmonic extraction for distorted signals
-            // Subtract clean from distorted to isolate harmonics
             float harmonics = envelopedDistorted - envelopedSine;
-            
-            // Apply high-pass filter to remove DC
             float highPassed = highpassFilter.processSample(0, harmonics);
-            
-            // Apply post-subtraction lowpass to smooth any harsh artifacts
             float smoothedHarmonics = postSubtractionFilter.processSample(0, highPassed);
             
-            // Store harmonic residual for visualization
+            // Store harmonic residual for visualization / Apply (inverse) mix
             if (idx < harmonicResidualBuffer.size())
             {
                 harmonicResidualBuffer[idx] = smoothedHarmonics;
             }
-            
-            // Mix between clean sine and extracted harmonics based on distortion amount
-            float harmonicMix = std::min(1.0f, distortionAmount * 2.0f); // Scale up for more audible effect
-            output = (envelopedSine * (1.0f - harmonicMix) + smoothedHarmonics * harmonicMix) * inverseMixAmount;
+            if (inverseMixMode)
+            {
+                output = smoothedHarmonics * inverseMixAmount;
+            }
+            else
+            {
+                float harmonicMix = std::min(1.0f, distortionAmount * 2.0f);
+                output = (envelopedSine * (1.0f - harmonicMix) + smoothedHarmonics * harmonicMix) * inverseMixAmount;
+            }
         }
-        
-        // Final output clamping
+
         outputBuffer[i] = std::max(-1.0f, std::min(1.0f, output));
     }
     
