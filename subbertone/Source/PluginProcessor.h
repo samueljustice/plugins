@@ -47,6 +47,10 @@ public:
     std::vector<float> getHarmonicResidualWaveform() const;
     float getCurrentFundamental() const { return currentFundamental.load(); }
     float getCurrentSignalLevel() const { return currentSignalLevel.load(); }
+    
+    //Solo
+    enum class SoloMode { None, Input, Harmonics, Output };
+    SoloMode getSoloMode() const;
 
 private:
     std::unique_ptr<PitchDetector> pitchDetector;

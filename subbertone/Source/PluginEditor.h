@@ -14,6 +14,9 @@ public:
     void paint(juce::Graphics&) override;
     void resized() override;
     void timerCallback() override;
+    
+    enum class SoloMode { None, Input, Harmonics, Output };
+    SoloMode currentSoloMode = SoloMode::None;
 
 private:
     SubbertoneAudioProcessor& audioProcessor;
@@ -75,7 +78,8 @@ private:
     // Visualizer toggles
     juce::ToggleButton showInputToggle;
     juce::ToggleButton showOutputToggle;
-    
+    juce::ToggleButton showHarmonicsToggle;
+
     // Tooltip window
     std::unique_ptr<juce::TooltipWindow> tooltipWindow;
     

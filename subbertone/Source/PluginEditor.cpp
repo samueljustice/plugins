@@ -165,19 +165,49 @@ SubbertoneAudioProcessorEditor::SubbertoneAudioProcessorEditor(SubbertoneAudioPr
     // Setup visualizer toggles
     showInputToggle.setButtonText("Show Input");
     showInputToggle.setToggleState(true, juce::dontSendNotification);
-    showInputToggle.onClick = [this] { 
-        waveformVisualizer->showInput = showInputToggle.getToggleState(); 
+    showInputToggle.onClick = [this] {
+        if (currentSoloMode == SoloMode::Input) {
+            currentSoloMode = SoloMode::None;  // Turn off solo
+        } else {
+            currentSoloMode = SoloMode::Input;  // Solo input
+        }
+        waveformVisualizer->showInput = (currentSoloMode == SoloMode::Input);
+        waveformVisualizer->showOutput = (currentSoloMode != SoloMode::Input);
+        waveformVisualizer->showHarmonicResidual = (currentSoloMode != SoloMode::Input);
         waveformVisualizer->repaint();
     };
     addAndMakeVisible(showInputToggle);
     
     showOutputToggle.setButtonText("Show Output");
     showOutputToggle.setToggleState(true, juce::dontSendNotification);
-    showOutputToggle.onClick = [this] { 
-        waveformVisualizer->showOutput = showOutputToggle.getToggleState();
+    showOutputToggle.onClick = [this] {
+        if (currentSoloMode == SoloMode::Output) {
+            currentSoloMode = SoloMode::None;  // Turn off solo
+        } else {
+            currentSoloMode = SoloMode::Output;  // Solo output
+        }
+        waveformVisualizer->showOutput = (currentSoloMode == SoloMode::Output);
+        waveformVisualizer->showInput = (currentSoloMode != SoloMode::Output);
+        waveformVisualizer->showHarmonicResidual = (currentSoloMode != SoloMode::Output);
         waveformVisualizer->repaint();
     };
     addAndMakeVisible(showOutputToggle);
+    
+    // Add after showOutputToggle setup:
+    showHarmonicsToggle.setButtonText("Show Harmonics");
+    showHarmonicsToggle.setToggleState(true, juce::dontSendNotification);
+    showHarmonicsToggle.onClick = [this] {
+        if (currentSoloMode == SoloMode::Harmonics) {
+            currentSoloMode = SoloMode::None;  // Turn off solo
+        } else {
+            currentSoloMode = SoloMode::Harmonics;  // Solo harmonics
+        }
+        waveformVisualizer->showHarmonicResidual = (currentSoloMode == SoloMode::Harmonics);
+        waveformVisualizer->showInput = (currentSoloMode != SoloMode::Harmonics);
+        waveformVisualizer->showOutput = (currentSoloMode != SoloMode::Harmonics);
+        waveformVisualizer->repaint();
+    };
+    addAndMakeVisible(showHarmonicsToggle);
     
     setSize(900, 550);
     

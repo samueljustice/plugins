@@ -26,6 +26,12 @@ void PitchDetector::prepare(double newSampleRate, int maxBlockSize)
         static_cast<size_t>(windowSize), 
         juce::dsp::WindowingFunction<float>::WindowingMethod::hann);
     
+    // Setup pre-filter
+    auto spec = juce::dsp::ProcessSpec{newSampleRate, static_cast<juce::uint32>(maxBlockSize), 1};
+    preFilter.prepare(spec);
+    auto coeffs = juce::dsp::IIR::Coefficients<float>::makeHighPass(newSampleRate, 30.0f, 0.707f);
+    preFilter.coefficients = coeffs;
+    
     // Reset pitch tracking
     previousPitch = 0.0f;
     smoothedPitch = 0.0f;
@@ -65,26 +71,40 @@ float PitchDetector::detectPitch(const float* inputBuffer, int numSamples, float
     std::memcpy(windowBuffer.data() + (windowSize - copySize), 
                 inputBuffer + startIdx, copySize * sizeof(float));
     
+    // Apply prefiltering
+    preFilter.reset();
+    for (int i = 0; i < windowSize; ++i)
+    {
+        windowBuffer[i] = preFilter.processSample(windowBuffer[i]);
+    }
+    
     // Detect pitch using autocorrelation
     float detectedPitch = detectPitchAutocorrelation(windowBuffer.data(), windowSize);
     
-    // Apply smoothing
+    // Apply (Adaptive) Smoothing
     if (detectedPitch > 0.0f)
     {
         if (previousPitch == 0.0f)
         {
-            // Initialize immediately if no previous pitch
             smoothedPitch = detectedPitch;
         }
         else
         {
-            // Check if pitch jump is reasonable (within 1 octave)
             float ratio = detectedPitch / previousPitch;
             if (ratio > 0.5f && ratio < 2.0f)
             {
-                // Normal smoothing
-                smoothedPitch = smoothedPitch * pitchSmoothingFactor + 
-                               detectedPitch * (1.0f - pitchSmoothingFactor);
+                float adaptiveSmoothingFactor;
+                if (detectedPitch < 100.0f)
+                {
+                    adaptiveSmoothingFactor = 0.8f;
+                }
+                else
+                {
+                    adaptiveSmoothingFactor = 0.85f;
+                }
+                
+                smoothedPitch = smoothedPitch * adaptiveSmoothingFactor +
+                detectedPitch * (1.0f - adaptiveSmoothingFactor);
             }
             else
             {
@@ -110,19 +130,14 @@ float PitchDetector::detectPitch(const float* inputBuffer, int numSamples, float
 
 float PitchDetector::detectPitchAutocorrelation(const float* buffer, int bufferSize)
 {
-    // Apply window to reduce edge artifacts
     std::vector<float> windowedBuffer(bufferSize);
     std::memcpy(windowedBuffer.data(), buffer, bufferSize * sizeof(float));
     window->multiplyWithWindowingTable(windowedBuffer.data(), static_cast<size_t>(bufferSize));
     
-    // Calculate autocorrelation
     calculateAutocorrelation(windowedBuffer.data(), bufferSize);
     
-    // Find the peak in the autocorrelation function
     int maxLag = static_cast<int>(sampleRate / minFrequency);
     int minLag = static_cast<int>(sampleRate / maxFrequency);
-    
-    // Ensure we don't exceed buffer bounds
     maxLag = std::min(maxLag, bufferSize - 1);
     
     int peakLag = findPeakInRange(minLag, maxLag);
@@ -130,18 +145,37 @@ float PitchDetector::detectPitchAutocorrelation(const float* buffer, int bufferS
     if (peakLag <= 0)
         return 0.0f;
     
-    // Check if peak is strong enough (using normalized autocorrelation)
+    // Dynamic threshold based on signal characteristics
     float normalizedPeak = normalizeAutocorrelation(peakLag);
-    if (normalizedPeak < 0.3f) // Threshold for reliable detection
+    
+    // Calculate signal's harmonic richness by looking at autocorr variance
+    float variance = 0.0f;
+    float mean = 0.0f;
+    int sampleCount = maxLag - minLag;
+    
+    for (int i = minLag; i < maxLag; ++i)
+    {
+        mean += autocorrelation[i];
+    }
+    mean /= sampleCount;
+    
+    for (int i = minLag; i < maxLag; ++i)
+    {
+        float diff = autocorrelation[i] - mean;
+        variance += diff * diff;
+    }
+    variance /= sampleCount;
+    
+    // Higher variance = more harmonic content = lower threshold needed
+    float adaptiveThreshold = juce::jmap(variance, 0.0f, 0.1f, 0.45f, 0.25f);
+    adaptiveThreshold = juce::jlimit(0.2f, 0.5f, adaptiveThreshold);
+    
+    if (normalizedPeak < adaptiveThreshold)
         return 0.0f;
     
-    // Refine peak position using parabolic interpolation
     float refinedLag = refineWithParabolicInterpolation(peakLag);
-    
-    // Convert lag to frequency
     float frequency = static_cast<float>(sampleRate) / refinedLag;
     
-    // Clamp to valid range
     return juce::jlimit(minFrequency, maxFrequency, frequency);
 }
 
@@ -165,11 +199,9 @@ void PitchDetector::calculateAutocorrelation(const float* buffer, int bufferSize
 
 int PitchDetector::findPeakInRange(int minLag, int maxLag)
 {
-    // Skip lag 0 (always maximum)
     float maxValue = -std::numeric_limits<float>::infinity();
     int maxIndex = -1;
     
-    // Find first significant peak after the initial decline
     bool foundValley = false;
     float previousValue = autocorrelation[minLag];
     
@@ -177,13 +209,13 @@ int PitchDetector::findPeakInRange(int minLag, int maxLag)
     {
         float currentValue = autocorrelation[lag];
         
-        // Look for valley first (autocorrelation typically drops after lag 0)
-        if (!foundValley && currentValue < previousValue * 0.9f)
+        // Mark valley when value drops significantly
+        if (!foundValley && currentValue < previousValue * 0.85f)
         {
             foundValley = true;
         }
         
-        // After finding valley, look for peak
+        // After valley, find highest peak
         if (foundValley && currentValue > maxValue)
         {
             maxValue = currentValue;
@@ -193,12 +225,17 @@ int PitchDetector::findPeakInRange(int minLag, int maxLag)
         previousValue = currentValue;
     }
     
-    // Verify this is a true peak (not just noise)
+    // Validate peak is local maximum and significant
     if (maxIndex > minLag && maxIndex < maxLag - 1)
     {
-        // Check if it's a local maximum
-        if (autocorrelation[maxIndex] > autocorrelation[maxIndex - 1] &&
-            autocorrelation[maxIndex] > autocorrelation[maxIndex + 1])
+        bool isLocalMax = autocorrelation[maxIndex] > autocorrelation[maxIndex - 1] &&
+        autocorrelation[maxIndex] > autocorrelation[maxIndex + 1];
+        
+        // Must be significantly above zero lag normalized value
+        float normalizedPeak = autocorrelation[maxIndex] / autocorrelation[0];
+        bool isSignificant = normalizedPeak > 0.4f;
+        
+        if (isLocalMax && isSignificant)
         {
             return maxIndex;
         }

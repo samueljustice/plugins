@@ -24,6 +24,7 @@ private:
     // Pitch smoothing
     float previousPitch = 0.0f;
     float smoothedPitch = 0.0f;
+    juce::dsp::IIR::Filter<float> preFilter;
     static constexpr float pitchSmoothingFactor = 0.9f;
     
     // Detection parameters
@@ -32,6 +33,7 @@ private:
     
     // Autocorrelation-based pitch detection
     float detectPitchAutocorrelation(const float* buffer, int bufferSize);
+    
     
     // Helper functions
     void calculateAutocorrelation(const float* buffer, int bufferSize);
