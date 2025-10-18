@@ -169,7 +169,8 @@ void SubbertoneAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
     // Get parameter values
     float mix = parameters.getRawParameterValue("mix")->load() / 100.0f;
     float distortion = parameters.getRawParameterValue("distortion")->load() / 100.0f;
-    float inverseMix = 1.0f; // Always 100% inverse mix - the unique feature
+    float inverseMix = 1.0f;
+    bool inverseMixMode = parameters.getRawParameterValue("inverseMixMode")->load() > 0.5f;
     int distortionType = static_cast<int>(parameters.getRawParameterValue("distortionType")->load());
     float distortionTone = parameters.getRawParameterValue("distortionTone")->load();
     float postDriveLowpass = parameters.getRawParameterValue("postDriveLowpass")->load();
@@ -214,9 +215,9 @@ void SubbertoneAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
     // STEP 2: Process subharmonic engine with CURRENT fundamental
     std::vector<float> subharmonicBuffer(buffer.getNumSamples());
     subharmonicEngine->process(subharmonicBuffer.data(), buffer.getNumSamples(),
-                               detectedFundamental, // Use fresh fundamental, not stored one
+                               detectedFundamental,
                                distortion, inverseMix, distortionType,
-                               distortionTone, postDriveLowpass);
+                               distortionTone, postDriveLowpass, inverseMixMode);
     
     // STEP 3: Apply to each channel
     for (int channel = 0; channel < numChannelsToProcess; ++channel)

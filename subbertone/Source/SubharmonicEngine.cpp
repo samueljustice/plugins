@@ -224,7 +224,7 @@ void SubharmonicEngine::updateEnvelope(bool signalDetected)
     // Otherwise keep envelope at full volume
     if (signalDetected || signalOffCounter < signalOffThreshold)
     {
-        envelopeTarget = 1.0;  // Keep at full volume during hold time
+        envelopeTarget = 1.0;
     }
     else
     {
@@ -240,11 +240,11 @@ void SubharmonicEngine::updateEnvelope(bool signalDetected)
         envelopeFollower = dynamicFloor;
 }
 
-void SubharmonicEngine::process(float* outputBuffer, int numSamples, 
-                               float fundamental, float distortionAmount, float inverseMixAmount,
-                               int distortionType, float toneFreq, float postDriveLowpass, bool inverseMixMode)
+void SubharmonicEngine::process(float* outputBuffer, int numSamples,
+                                float fundamental, float distortionAmount, float inverseMixAmount,
+                                int distortionType, float toneFreq, float postDriveLowpass, bool inverseMixMode)
 {
-    // Validate parameters and check if engine is prepared
+    // Validation
     if (!outputBuffer || numSamples <= 0 || numSamples > 8192 || !isPrepared)
     {
         if (outputBuffer && numSamples > 0 && numSamples <= 8192)
@@ -252,111 +252,86 @@ void SubharmonicEngine::process(float* outputBuffer, int numSamples,
         return;
     }
     
-    // Check if block size is within expected range
     if (numSamples > currentMaxBlockSize)
     {
         std::fill_n(outputBuffer, numSamples, 0.0f);
         return;
     }
-        
-    // Ensure buffers are properly sized
+    
     size_t requiredSize = static_cast<size_t>(numSamples);
     size_t oversampledSize = requiredSize * 8;
     
-    // Only clear the harmonic residual buffer - don't clear sine buffers as it causes discontinuities
     std::fill(harmonicResidualBuffer.begin(), harmonicResidualBuffer.begin() + requiredSize, 0.0f);
     
-    if (sineBuffer.size() < oversampledSize || 
+    if (sineBuffer.size() < oversampledSize ||
         cleanSineBuffer.size() < requiredSize ||
         distortedBuffer.size() < oversampledSize ||
         harmonicResidualBuffer.size() < requiredSize)
     {
-        // Buffers not properly initialized
         std::fill_n(outputBuffer, numSamples, 0.0f);
         return;
     }
     
-    // Signal detection with hysteresis
+    // Signal detection
     bool currentSignalDetected = fundamental > 20.0f && fundamental < 2000.0f;
     
     if (currentSignalDetected)
     {
-        signalOnCounter += numSamples;  // Count samples, not blocks!
-        signalOffCounter = 0;  // Reset off counter when signal is present
+        signalOnCounter += numSamples;
+        signalOffCounter = 0;
         
-        // Require signal to be present for a few samples before turning on
         if (!signalPresent && signalOnCounter >= signalOnThreshold)
         {
             signalPresent = true;
-            // Start envelope at a reasonable level to avoid ramping artifacts
-            // This prevents the square-wave appearance during attack
-            // Don't jump the envelope - let it ramp smoothly
-            // This prevents clicks at low frequencies
             envelopeTarget = 1.0;
         }
         
-        // Update target frequency with Nyquist limit to prevent aliasing
         float nyquist = static_cast<float>(sampleRate * 0.5);
-        float subFreq = fundamental * 0.5f; // One octave below
-        targetFrequency = juce::jlimit(20.0f, nyquist * 0.9f, subFreq); // Clamp to 90% of Nyquist
+        float subFreq = fundamental * 0.5f;
+        targetFrequency = juce::jlimit(20.0f, nyquist * 0.9f, subFreq);
     }
     else
     {
         signalOnCounter = 0;
         
-        // Use hysteresis for turning off to prevent flickering
         if (signalPresent)
         {
             signalOffCounter += numSamples;
             
-            // Only turn off if signal has been absent for the threshold duration
             if (signalOffCounter >= signalOffThreshold)
             {
                 signalPresent = false;
                 signalOffCounter = 0;
-                
-                // Don't reset target frequency - keep it for potential resume
-            }
-            else
-            {
-                // Keep running during hold time
             }
         }
     }
     
-    // Set tone filter frequency - use frequency-dependent filtering for cleaner output
-    // For subharmonics, limit the tone filter to 2.5x the fundamental frequency
+    // Tone filter
     float clampedToneFreq = juce::jlimit(40.0f, 20000.0f, toneFreq);
     if (currentFrequency > 20.0)
     {
-        // Apply frequency-dependent filtering to remove potential aliasing
         clampedToneFreq = std::min(clampedToneFreq, static_cast<float>(currentFrequency * 2.5));
     }
     toneFilter.setCutoffFrequency(clampedToneFreq);
     
-    // Update frequency once per block for smooth transitions
+    // Frequency update
     if (signalPresent && targetFrequency > 0.0)
     {
-        // Initialize currentFrequency if it's zero
         if (currentFrequency == 0.0)
         {
             currentFrequency = targetFrequency;
         }
         else
         {
-            // Use adaptive frequency smoothing - faster for low frequencies
             double adaptiveSmoothingCoeff = frequencySmoothingCoeff;
             if (currentFrequency < 200.0)
             {
-                // Less smoothing for low frequencies to prevent pitch drift
                 adaptiveSmoothingCoeff = juce::jmap(currentFrequency, 30.0, 200.0, 0.9, 0.99);
             }
-            currentFrequency = currentFrequency * adaptiveSmoothingCoeff + 
-                              targetFrequency * (1.0 - adaptiveSmoothingCoeff);
+            currentFrequency = currentFrequency * adaptiveSmoothingCoeff +
+            targetFrequency * (1.0 - adaptiveSmoothingCoeff);
         }
         
-        // Only update oscillator frequency if it has changed significantly
-        // For low frequencies, be even more conservative to maintain phase
         double frequencyTolerance = (currentFrequency < 100.0) ? 0.5 : 0.1;
         
         if (std::abs(currentFrequency - lastSetFrequency) > frequencyTolerance)
@@ -365,44 +340,24 @@ void SubharmonicEngine::process(float* outputBuffer, int numSamples,
             lastSetFrequency = currentFrequency;
         }
     }
-    else
-    {
-        // Don't stop the oscillator - just fade it out with envelope
-        // This prevents discontinuities when the signal returns
-        // Keep the last valid frequency to avoid startup artifacts
-        if (currentFrequency > 20.0)
-        {
-            // Keep oscillator running at last valid frequency
-        }
-    }
     
-    // Update envelope only once per block to prevent stepping artifacts
-    // This ensures consistent amplitude throughout the buffer
+    // Envelope
     updateEnvelope(signalPresent);
     const float blockEnvelope = static_cast<float>(envelopeFollower);
     
-    // Generate sine wave with consistent envelope for this block
+    // Generate sine
     for (int i = 0; i < numSamples; ++i)
     {
-        // Always generate sine wave to maintain phase continuity
         float filtered = 0.0f;
         
-        if (currentFrequency > 20.0)  // Only if we have a valid frequency
+        if (currentFrequency > 20.0)
         {
-            // Generate band-limited sine wave using JUCE's oscillator
-            // The oscillator expects a zero input for pure sine generation
             float sineSample = sineOscillator.processSample(0.0f);
+            sineSample *= 0.7f;
             
-            // Ensure the sine wave is properly scaled with more headroom
-            sineSample *= 0.7f; // More headroom to prevent clipping
-            
-            // Apply DC blocker first to prevent any DC offset issues
             float dcCorrected = dcBlockingFilter.processSample(sineSample);
-            
-            // Apply tone filter after DC blocking
             float toneFiltered = toneFilter.processSample(0, dcCorrected);
             
-            // For low frequencies, apply additional smoothing last
             if (currentFrequency < 100.0)
             {
                 filtered = lowFreqSmoothingFilter.processSample(0, toneFiltered);
@@ -414,205 +369,63 @@ void SubharmonicEngine::process(float* outputBuffer, int numSamples,
         }
         else
         {
-            // No valid frequency - output silence and keep filters in sync
             filtered = toneFilter.processSample(0, 0.0f);
         }
         
-        // Store clean sine AFTER tone filter for better phase alignment
         cleanSineBuffer[static_cast<size_t>(i)] = filtered;
         
-        // Only copy to sineBuffer if we're actually going to distort
-        // This prevents any artifacts when distortion is disabled
         if (distortionAmount > 0.01f)
         {
             sineBuffer[static_cast<size_t>(i)] = filtered;
         }
         else
         {
-            sineBuffer[static_cast<size_t>(i)] = 0.0f; // Keep it clean
+            sineBuffer[static_cast<size_t>(i)] = 0.0f;
         }
     }
     
-    // If there's no signal present, skip all processing and output silence
+    // Early exit if no signal
     if (!signalPresent || envelopeFollower < 0.0001)
     {
         std::fill_n(outputBuffer, numSamples, 0.0f);
-        // Clear sine buffers to prevent stale data from being used
         std::fill(sineBuffer.begin(), sineBuffer.begin() + numSamples, 0.0f);
         std::fill(cleanSineBuffer.begin(), cleanSineBuffer.begin() + numSamples, 0.0f);
         return;
     }
     
-    // Check if there's any actual signal in the buffer
-    float maxSample = 0.0f;
-    for (int i = 0; i < std::min(32, numSamples); ++i)
-    {
-        maxSample = std::max(maxSample, std::abs(sineBuffer[static_cast<size_t>(i)]));
-    }
+    // Distortion processing (no oversampling)
+    postDriveLowpassFilter.setCutoffFrequency(postDriveLowpass);
     
-    // Enable oversampling only when distortion is used AND there's actual signal
-    bool useOversampling = false;
-    
-    // Defensive check - ensure block size hasn't changed
-    if (useOversampling && numSamples > currentMaxBlockSize)
+    for (int i = 0; i < numSamples; ++i)
     {
-        useOversampling = false;
-    }
-    
-    if (!useOversampling)
-    {
-        // Process without oversampling for safety
-        postDriveLowpassFilter.setCutoffFrequency(postDriveLowpass);
+        float sample = sineBuffer[static_cast<size_t>(i)];
         
-        for (int i = 0; i < numSamples; ++i)
-        {
-            float sample = sineBuffer[static_cast<size_t>(i)];
-            
-            // Pre-distortion filtering
-            sample = preDistortionFilter.processSample(sample);
-            
-            // Apply distortion
-            sample = applyDistortion(sample, distortionAmount, distortionType);
-            
-            // Post-drive lowpass
-            sample = postDriveLowpassFilter.processSample(0, sample);
-            
-            // Anti-aliasing filters (light filtering at native rate)
-            sample = antiAliasingFilter1.processSample(sample);
-            sample = antiAliasingFilter2.processSample(sample);
-            
-            sineBuffer[static_cast<size_t>(i)] = sample;
-        }
-    }
-    else
-    {
-        // Use oversampling for better quality when distortion is used
-        try {
-            
-            // Create AudioBlock from the first numSamples of sineBuffer
-            float* channelData = sineBuffer.data();
-            juce::dsp::AudioBlock<float> inputBlock(&channelData, 1, 0, static_cast<size_t>(numSamples));
-            
-            // Additional defensive check before oversampling
-            if (!oversampler || !oversamplerReady)
-            {
-                std::fill_n(outputBuffer, numSamples, 0.0f);
-                return;
-            }
-            
-            // Check if input has any non-zero samples
-            bool hasSignal = false;
-            for (size_t i = 0; i < static_cast<size_t>(numSamples); ++i)
-            {
-                if (std::abs(channelData[i]) > 0.0001f)
-                {
-                    hasSignal = true;
-                    break;
-                }
-            }
-            
-            if (!hasSignal)
-            {
-                // Just process without oversampling
-                // Don't use oversampling on silence
-                return;
-            }
-            
-            // Process oversampling - this returns a reference to internal oversampled buffer
-            auto oversampledBlock = oversampler->processSamplesUp(inputBlock);
-            
-            if (oversampledBlock.getNumSamples() == 0)
-            {
-                return;
-            }
-                
-            float* oversampledData = oversampledBlock.getChannelPointer(0);
-            size_t oversampledLength = oversampledBlock.getNumSamples();
-            
-            // Apply distortion and filters at oversampled rate
-            postDriveLowpassFilter.setCutoffFrequency(postDriveLowpass);
-            
-            for (size_t i = 0; i < oversampledLength; ++i)
-            {
-                float sample = oversampledData[i];
-                
-                // Pre-distortion filtering
-                sample = preDistortionFilter.processSample(sample);
-                
-                // Apply distortion
-                float distorted = applyDistortion(sample, distortionAmount, distortionType);
-                
-                // Post-drive lowpass
-                distorted = postDriveLowpassFilter.processSample(0, distorted);
-                
-                // Cascaded anti-aliasing filters
-                distorted = antiAliasingFilter1.processSample(distorted);
-                distorted = antiAliasingFilter2.processSample(distorted);
-                distorted = antiAliasingFilter3.processSample(distorted);
-                distorted = antiAliasingFilter4.processSample(distorted);
-                
-                // Clamp before storing to avoid overshooting
-                distortedBuffer[i] = juce::jlimit(-1.0f, 1.0f, distorted);
-            }
-            
-            // Copy distorted signal back to oversampled block
-            if (oversampledLength > 0 && oversampledLength <= distortedBuffer.size() && oversampledData)
-            {
-                // Use safer memory copy with size validation
-                size_t copySize = std::min(oversampledLength, distortedBuffer.size());
-                for (size_t i = 0; i < copySize; ++i)
-                {
-                    oversampledData[i] = distortedBuffer[i];
-                }
-                
-                // Zero-pad the tail of the input block to avoid aliasing
-                auto* ptr = inputBlock.getChannelPointer(0);
-                if (inputBlock.getNumSamples() > static_cast<size_t>(numSamples))
-                {
-                    std::fill(ptr + numSamples, ptr + inputBlock.getNumSamples(), 0.0f);
-                }
-                
-                // Downsample back to original rate using only the valid portion
-                auto downBlock = inputBlock.getSubBlock(0, static_cast<size_t>(numSamples));
-                oversampler->processSamplesDown(downBlock);
-                
-                // Copy downsampled result back to sineBuffer
-                auto* downsampledData = inputBlock.getChannelPointer(0);
-                for (int i = 0; i < numSamples; ++i)
-                {
-                    sineBuffer[static_cast<size_t>(i)] = downsampledData[i];
-                }
-            }
-        }
-        catch (const std::exception& e) {
-            // If oversampling fails, fill output with silence
-            oversamplerReady = false; // Mark oversampler as not ready to prevent future crashes
-            std::fill_n(outputBuffer, numSamples, 0.0f);
-            return;
-        }
+        sample = preDistortionFilter.processSample(sample);
+        sample = applyDistortion(sample, distortionAmount, distortionType);
+        sample = postDriveLowpassFilter.processSample(0, sample);
+        sample = antiAliasingFilter1.processSample(sample);
+        sample = antiAliasingFilter2.processSample(sample);
+        
+        sineBuffer[static_cast<size_t>(i)] = sample;
     }
     
-    // Mix original sine and distorted signals with bounds checking
+    // Final mixing
     for (int i = 0; i < numSamples; ++i)
     {
         size_t idx = static_cast<size_t>(i);
         
-        // Bounds check
         if (idx >= cleanSineBuffer.size() || idx >= sineBuffer.size())
         {
             outputBuffer[i] = 0.0f;
             continue;
         }
         
-        float sine = cleanSineBuffer[idx];
-        float distorted = sineBuffer[idx];
-        
-        sine = std::max(-1.0f, std::min(1.0f, sine));
-        distorted = std::max(-1.0f, std::min(1.0f, distorted));
+        float sine = std::clamp(cleanSineBuffer[idx], -1.0f, 1.0f);
+        float distorted = std::clamp(sineBuffer[idx], -1.0f, 1.0f);
         
         float envelopedSine = sine * blockEnvelope;
         float envelopedDistorted = distorted * blockEnvelope;
-
+        
         float output;
         
         if (distortionAmount < 0.01f)
@@ -633,11 +446,11 @@ void SubharmonicEngine::process(float* outputBuffer, int numSamples,
             float highPassed = highpassFilter.processSample(0, harmonics);
             float smoothedHarmonics = postSubtractionFilter.processSample(0, highPassed);
             
-            // Store harmonic residual for visualization / Apply (inverse) mix
             if (idx < harmonicResidualBuffer.size())
             {
                 harmonicResidualBuffer[idx] = smoothedHarmonics;
             }
+            
             if (inverseMixMode)
             {
                 output = smoothedHarmonics * inverseMixAmount;
@@ -648,10 +461,9 @@ void SubharmonicEngine::process(float* outputBuffer, int numSamples,
                 output = (envelopedSine * (1.0f - harmonicMix) + smoothedHarmonics * harmonicMix) * inverseMixAmount;
             }
         }
-
-        outputBuffer[i] = std::max(-1.0f, std::min(1.0f, output));
+        
+        outputBuffer[i] = std::clamp(output, -1.0f, 1.0f);
     }
-    
 }
 
 float SubharmonicEngine::applyDistortion(float sample, float amount, int type)

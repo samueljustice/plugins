@@ -36,13 +36,14 @@ private:
     static constexpr double attackTimeMs = 20.0;
     static constexpr double releaseTimeMs = 100.0;
     static constexpr double envelopeFloor = 0.05;
+    float sampleFadeValue = 0.0f;
     
     // Signal detection
     bool signalPresent = false;
     int signalOnCounter = 0;
     int signalOffCounter = 0;
-    static constexpr int signalOnThreshold = 64;     // ~1.3ms at 48kHz
-    static constexpr int signalOffThreshold = 24000; // ~500ms at 48kHz
+    static constexpr int signalOnThreshold = 64;
+    static constexpr int signalOffThreshold = 960;
     
     // Filters
     juce::dsp::IIR::Filter<float> dcBlockingFilter;
