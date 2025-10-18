@@ -56,6 +56,10 @@ private:
     std::unique_ptr<PitchDetector> pitchDetector;
     std::unique_ptr<SubharmonicEngine> subharmonicEngine;
     
+    float wetGainSmoother = 0.0f;
+    bool wetSignalActive = false;
+    static constexpr float wetFadeTime = 0.01f;
+    
     // Circular buffers for visualization
     static constexpr int visualBufferSize = 2048;
     std::vector<float> inputVisualBuffer;

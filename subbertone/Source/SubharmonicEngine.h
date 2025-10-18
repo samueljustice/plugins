@@ -27,10 +27,16 @@ private:
     double lastSetFrequency = 0.0;
     double currentAngle = 0.0;
     double angleDelta = 0.0;
+    double currentPhase = 0.0;
+    double phaseIncrement = 0.0;
     bool waitingForZeroCrossing = false;
     float lastSampleValue = 0.0f;
     static constexpr double frequencySmoothingCoeff = 0.99;
-
+    bool validateInputs(float* outputBuffer, int numSamples);
+    void updateSignalState(float fundamental, int numSamples);
+    void generateAudioBlock(float* outputBuffer, int numSamples, float distortionAmount,
+                            float inverseMixAmount, int distortionType, float toneFreq,
+                            float postDriveLowpass, bool inverseMixMode);
     // Envelope parameters
     double envelopeFollower = 0.0;
     double envelopeTarget = 0.0;

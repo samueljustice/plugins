@@ -238,13 +238,45 @@ void SubbertoneAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
             }
         }
         
-        // Process audio with solo logic
         for (int i = 0; i < buffer.getNumSamples(); ++i)
         {
             float dry = inputData[i];
             float wet = subharmonicBuffer[i];
             
-            // Get harmonic residual
+            // Detect if wet signal should be active
+            bool shouldBeActive = (std::abs(wet) > 0.0001f) && (detectedFundamental > 0.0f);
+            
+            // Calculate fade coefficient (samples for 10ms fade)
+            float fadeSamples = wetFadeTime * static_cast<float>(getSampleRate());
+            float fadeCoeff = 1.0f / fadeSamples;
+            
+            // Smooth wet gain changes
+            if (shouldBeActive && !wetSignalActive)
+            {
+                // Start fading in
+                wetSignalActive = true;
+            }
+            else if (!shouldBeActive && wetSignalActive && wetGainSmoother < 0.001f)
+            {
+                // Finished fading out
+                wetSignalActive = false;
+            }
+            
+            // Update smoother
+            float targetGain = shouldBeActive ? 1.0f : 0.0f;
+            if (wetGainSmoother < targetGain)
+            {
+                wetGainSmoother = std::min(targetGain, wetGainSmoother + fadeCoeff);
+            }
+            else if (wetGainSmoother > targetGain)
+            {
+                wetGainSmoother = std::max(targetGain, wetGainSmoother - fadeCoeff);
+            }
+            
+            // Apply gated wet signal
+            float gatedWet = wet * wetGainSmoother;
+            
+            // Get harmonic residual for visualization
             float harmonics = 0.0f;
             const auto& harmonicResidual = subharmonicEngine->getHarmonicResidualBuffer();
             if (i < static_cast<int>(harmonicResidual.size()))
@@ -252,24 +284,24 @@ void SubbertoneAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
                 harmonics = harmonicResidual[i];
             }
             
-            // Apply solo mode
+            // Apply solo mode with smooth wet signal
             switch (soloMode)
             {
                 case SoloMode::Input:
                     channelData[i] = dry * outputGain;
                     break;
                 case SoloMode::Harmonics:
-                    channelData[i] = harmonics * outputGain;
+                    channelData[i] = harmonics * wetGainSmoother * outputGain;
                     break;
                 case SoloMode::Output:
-                    channelData[i] = (dry * (1.0f - mix) + wet * mix) * outputGain;
+                    channelData[i] = (dry * (1.0f - mix) + gatedWet * mix) * outputGain;
                     break;
                 default: // Normal mode
-                    channelData[i] = (dry * (1.0f - mix) + wet * mix) * outputGain;
+                    channelData[i] = (dry * (1.0f - mix) + gatedWet * mix) * outputGain;
                     break;
             }
             
-            // Store output for visualization (only for first channel)
+            // Store for visualization
             if (channel == 0)
             {
                 const juce::ScopedLock sl(visualBufferLock);

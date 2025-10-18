@@ -235,35 +235,42 @@ void SubharmonicEngine::process(float* outputBuffer, int numSamples,
                                 float fundamental, float distortionAmount, float inverseMixAmount,
                                 int distortionType, float toneFreq, float postDriveLowpass, bool inverseMixMode)
 {
-    // Validation
+    if (!validateInputs(outputBuffer, numSamples)) return;
+    
+    updateSignalState(fundamental, numSamples);
+    generateAudioBlock(outputBuffer, numSamples, distortionAmount, inverseMixAmount,
+                       distortionType, toneFreq, postDriveLowpass, inverseMixMode);
+}
+
+bool SubharmonicEngine::validateInputs(float* outputBuffer, int numSamples)
+{
     if (!outputBuffer || numSamples <= 0 || numSamples > 8192 || !isPrepared)
     {
         if (outputBuffer && numSamples > 0 && numSamples <= 8192)
             std::fill_n(outputBuffer, numSamples, 0.0f);
-        return;
+        return false;
     }
     
     if (numSamples > currentMaxBlockSize)
     {
         std::fill_n(outputBuffer, numSamples, 0.0f);
-        return;
+        return false;
     }
     
     size_t requiredSize = static_cast<size_t>(numSamples);
-    size_t oversampledSize = requiredSize * 8;
-    
     std::fill(harmonicResidualBuffer.begin(), harmonicResidualBuffer.begin() + requiredSize, 0.0f);
     
-    if (sineBuffer.size() < oversampledSize ||
-        cleanSineBuffer.size() < requiredSize ||
-        distortedBuffer.size() < oversampledSize ||
-        harmonicResidualBuffer.size() < requiredSize)
+    if (sineBuffer.size() < requiredSize || cleanSineBuffer.size() < requiredSize)
     {
         std::fill_n(outputBuffer, numSamples, 0.0f);
-        return;
+        return false;
     }
     
-    // Signal detection
+    return true;
+}
+
+void SubharmonicEngine::updateSignalState(float fundamental, int numSamples)
+{
     bool currentSignalDetected = fundamental > 20.0f && fundamental < 2000.0f;
     
     if (currentSignalDetected)
@@ -288,7 +295,6 @@ void SubharmonicEngine::process(float* outputBuffer, int numSamples,
         if (signalPresent)
         {
             signalOffCounter += numSamples;
-            
             if (signalOffCounter >= signalOffThreshold)
             {
                 signalPresent = false;
@@ -297,20 +303,13 @@ void SubharmonicEngine::process(float* outputBuffer, int numSamples,
         }
     }
     
-    // Tone filter
-    float clampedToneFreq = juce::jlimit(40.0f, 20000.0f, toneFreq);
-    if (currentFrequency > 20.0)
-    {
-        clampedToneFreq = std::min(clampedToneFreq, static_cast<float>(currentFrequency * 2.5));
-    }
-    toneFilter.setCutoffFrequency(clampedToneFreq);
-    
-    // Frequency update
+    // Update frequency with smooth phase increment
     if (signalPresent && targetFrequency > 0.0)
     {
         if (currentFrequency == 0.0)
         {
             currentFrequency = targetFrequency;
+            currentAngle = 0.0; // Reset phase on new signal
         }
         else
         {
@@ -323,58 +322,48 @@ void SubharmonicEngine::process(float* outputBuffer, int numSamples,
             targetFrequency * (1.0 - adaptiveSmoothingCoeff);
         }
         
+        // Update angleDelta for smooth frequency changes
         double frequencyTolerance = (currentFrequency < 100.0) ? 0.5 : 0.1;
-        
         if (std::abs(currentFrequency - lastSetFrequency) > frequencyTolerance)
         {
-            double cyclesPerSample = currentFrequency / sampleRate;
-            angleDelta = cyclesPerSample * 2.0 * juce::MathConstants<double>::pi;
+            angleDelta = (currentFrequency * 2.0 * juce::MathConstants<double>::pi) / sampleRate;
             lastSetFrequency = currentFrequency;
         }
     }
+}
+
+void SubharmonicEngine::generateAudioBlock(float* outputBuffer, int numSamples,
+                                           float distortionAmount, float inverseMixAmount,
+                                           int distortionType, float toneFreq, float postDriveLowpass, bool inverseMixMode)
+{
+    // Update filters
+    float clampedToneFreq = juce::jlimit(40.0f, 20000.0f, toneFreq);
+    if (currentFrequency > 20.0)
+    {
+        clampedToneFreq = std::min(clampedToneFreq, static_cast<float>(currentFrequency * 2.5));
+    }
+    toneFilter.setCutoffFrequency(clampedToneFreq);
     
-    // Envelope
+    // Update envelope
     updateEnvelope(signalPresent);
     const float blockEnvelope = static_cast<float>(envelopeFollower);
     
-    // Reset filters on signal state change to prevent transients
-    static bool wasSignalPresent = false;
-    if (signalPresent != wasSignalPresent)
-    {
-        dcBlockingFilter.reset();
-        toneFilter.reset();
-        lowFreqSmoothingFilter.reset();
-        wasSignalPresent = signalPresent;
-    }
-    
-    // Generate sine
+    // Generate audio with PHASE CONTINUITY
     for (int i = 0; i < numSamples; ++i)
     {
-        float filtered = 0.0f;
+        float sineSample = 0.0f;
         
-        if (currentFrequency > 20.0)
+        if (currentFrequency > 20.0 && blockEnvelope > 0.0001f)
         {
-            // Manual phase accumulation
-            float sineSample = static_cast<float>(std::sin(currentAngle));
+            // Use the existing currentAngle and angleDelta variables
+            sineSample = static_cast<float>(std::sin(currentAngle)) * 0.7f;
             
+            // Update phase using the existing angleDelta
             currentAngle += angleDelta;
-            if (currentAngle > juce::MathConstants<double>::twoPi)
-                currentAngle -= juce::MathConstants<double>::twoPi;
             
-            sineSample *= 0.7f;
-            
-            // Zero crossing detection for clean stop
-            if (!signalPresent && blockEnvelope > 0.01f)
-            {
-                if ((lastSampleValue >= 0.0f && sineSample < 0.0f) ||
-                    (lastSampleValue <= 0.0f && sineSample > 0.0f))
-                {
-                    waitingForZeroCrossing = false;
-                    currentAngle = 0.0;
-                }
-            }
-            
-            lastSampleValue = sineSample;
+            // Keep phase in range
+            if (currentAngle >= 2.0 * juce::MathConstants<double>::pi)
+                currentAngle -= 2.0 * juce::MathConstants<double>::pi;
             
             // Apply filters
             float dcCorrected = dcBlockingFilter.processSample(sineSample);
@@ -382,114 +371,31 @@ void SubharmonicEngine::process(float* outputBuffer, int numSamples,
             
             if (currentFrequency < 100.0)
             {
-                filtered = lowFreqSmoothingFilter.processSample(0, toneFiltered);
+                sineSample = lowFreqSmoothingFilter.processSample(0, toneFiltered);
             }
             else
             {
-                filtered = toneFiltered;
+                sineSample = toneFiltered;
             }
         }
         else
         {
-            // No signal - reset phase
-            currentAngle = 0.0;
-            lastSampleValue = 0.0f;
-            filtered = 0.0f;
+            toneFilter.processSample(0, 0.0f);
+            sineSample = 0.0f;
         }
         
-        cleanSineBuffer[static_cast<size_t>(i)] = filtered;
+        cleanSineBuffer[i] = sineSample * blockEnvelope;
         
+        float distorted = sineSample;
         if (distortionAmount > 0.01f)
         {
-            sineBuffer[static_cast<size_t>(i)] = filtered;
-        }
-        else
-        {
-            sineBuffer[static_cast<size_t>(i)] = 0.0f;
-        }
-    }
-    
-    // Early exit if no signal
-    if (!signalPresent || envelopeFollower < 0.0001)
-    {
-        std::fill_n(outputBuffer, numSamples, 0.0f);
-        std::fill(sineBuffer.begin(), sineBuffer.begin() + numSamples, 0.0f);
-        std::fill(cleanSineBuffer.begin(), cleanSineBuffer.begin() + numSamples, 0.0f);
-        return;
-    }
-    
-    // Distortion processing (no oversampling)
-    postDriveLowpassFilter.setCutoffFrequency(postDriveLowpass);
-    
-    for (int i = 0; i < numSamples; ++i)
-    {
-        float sample = sineBuffer[static_cast<size_t>(i)];
-        
-        sample = preDistortionFilter.processSample(sample);
-        sample = applyDistortion(sample, distortionAmount, distortionType);
-        sample = postDriveLowpassFilter.processSample(0, sample);
-        sample = antiAliasingFilter1.processSample(sample);
-        sample = antiAliasingFilter2.processSample(sample);
-        
-        sineBuffer[static_cast<size_t>(i)] = sample;
-    }
-    
-    // Final mixing
-    for (int i = 0; i < numSamples; ++i)
-    {
-        size_t idx = static_cast<size_t>(i);
-        
-        if (idx >= cleanSineBuffer.size() || idx >= sineBuffer.size())
-        {
-            outputBuffer[i] = 0.0f;
-            continue;
+            distorted = applyDistortion(sineSample, distortionAmount, distortionType);
         }
         
-        float sine = std::clamp(cleanSineBuffer[idx], -1.0f, 1.0f);
-        float distorted = std::clamp(sineBuffer[idx], -1.0f, 1.0f);
-        
-        float envelopedSine = sine * blockEnvelope;
-        float envelopedDistorted = distorted * blockEnvelope;
-        
-        float output;
-        
-        if (distortionAmount < 0.01f)
-        {
-            output = inverseMixMode ? 0.0f : envelopedSine * inverseMixAmount;
-            
-            highpassFilter.processSample(0, 0.0f);
-            postSubtractionFilter.processSample(0, 0.0f);
-            
-            if (idx < harmonicResidualBuffer.size())
-            {
-                harmonicResidualBuffer[idx] = 0.0f;
-            }
-        }
-        else
-        {
-            float harmonics = envelopedDistorted - envelopedSine;
-            float highPassed = highpassFilter.processSample(0, harmonics);
-            float smoothedHarmonics = postSubtractionFilter.processSample(0, highPassed);
-            
-            if (idx < harmonicResidualBuffer.size())
-            {
-                harmonicResidualBuffer[idx] = smoothedHarmonics;
-            }
-            
-            if (inverseMixMode)
-            {
-                output = smoothedHarmonics * inverseMixAmount;
-            }
-            else
-            {
-                float harmonicMix = std::min(1.0f, distortionAmount * 2.0f);
-                output = (envelopedSine * (1.0f - harmonicMix) + smoothedHarmonics * harmonicMix) * inverseMixAmount;
-            }
-        }
-        
-        outputBuffer[i] = std::clamp(output, -1.0f, 1.0f);
+        outputBuffer[i] = distorted * blockEnvelope * inverseMixAmount;
     }
 }
+
 
 float SubharmonicEngine::applyDistortion(float sample, float amount, int type)
 {
