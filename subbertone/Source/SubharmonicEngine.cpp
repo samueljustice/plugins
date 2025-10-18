@@ -119,11 +119,9 @@ void SubharmonicEngine::prepare(double newSampleRate, int maxBlockSize)
     spec.maximumBlockSize = static_cast<juce::uint32>(maxBlockSize);
     spec.numChannels = 1;
     
-    // Initialize the band-limited sine oscillator with 512-point wavetable
-    sineOscillator.prepare(spec);
-    // Use a larger wavetable for better quality at low frequencies
-    sineOscillator.initialise([](float x) { return std::sin(x); }, 2048);
-    sineOscillator.setFrequency(100.0f); // Start with a default frequency to avoid startup artifacts
+    // Initialize the band-limited sine oscillator
+    currentAngle = 0.0;
+    angleDelta = 0.0;
     
     // Prepare oversampled spec for filters that run at higher rate
     juce::dsp::ProcessSpec oversampledSpec = spec;
@@ -203,16 +201,13 @@ void SubharmonicEngine::calculateEnvelopeCoefficients()
 
 void SubharmonicEngine::updateEnvelope(bool signalDetected)
 {
-    // Make envelope floor frequency-dependent - lower frequencies get lower floor
-    // This prevents rumble at very low frequencies
+
     double dynamicFloor = 0.0;
     if (currentFrequency > 20.0)
     {
         dynamicFloor = juce::jmap(currentFrequency, 20.0, 100.0, 0.0, 0.05);
     }
     
-    // Only update envelope if signal is actually present
-    // This prevents ramping up when there's no signal
     if (!signalPresent)
     {
         envelopeTarget = dynamicFloor;  // Keep at floor level instead of zero
@@ -220,8 +215,6 @@ void SubharmonicEngine::updateEnvelope(bool signalDetected)
         return;
     }
     
-    // Only start fading if signal has been lost for the hold time
-    // Otherwise keep envelope at full volume
     if (signalDetected || signalOffCounter < signalOffThreshold)
     {
         envelopeTarget = 1.0;
@@ -231,11 +224,9 @@ void SubharmonicEngine::updateEnvelope(bool signalDetected)
         envelopeTarget = dynamicFloor;  // Fade to floor level, not zero
     }
     
-    // Apply one-pole filter for smooth transitions
     double coeff = (envelopeTarget > envelopeFollower) ? attackCoeff : releaseCoeff;
     envelopeFollower += coeff * (envelopeTarget - envelopeFollower);
     
-    // Ensure we never go below the floor
     if (envelopeFollower < dynamicFloor)
         envelopeFollower = dynamicFloor;
 }
@@ -336,7 +327,8 @@ void SubharmonicEngine::process(float* outputBuffer, int numSamples,
         
         if (std::abs(currentFrequency - lastSetFrequency) > frequencyTolerance)
         {
-            sineOscillator.setFrequency(static_cast<float>(currentFrequency));
+            double cyclesPerSample = currentFrequency / sampleRate;
+            angleDelta = cyclesPerSample * 2.0 * juce::MathConstants<double>::pi;
             lastSetFrequency = currentFrequency;
         }
     }
@@ -345,6 +337,16 @@ void SubharmonicEngine::process(float* outputBuffer, int numSamples,
     updateEnvelope(signalPresent);
     const float blockEnvelope = static_cast<float>(envelopeFollower);
     
+    // Reset filters on signal state change to prevent transients
+    static bool wasSignalPresent = false;
+    if (signalPresent != wasSignalPresent)
+    {
+        dcBlockingFilter.reset();
+        toneFilter.reset();
+        lowFreqSmoothingFilter.reset();
+        wasSignalPresent = signalPresent;
+    }
+    
     // Generate sine
     for (int i = 0; i < numSamples; ++i)
     {
@@ -352,9 +354,29 @@ void SubharmonicEngine::process(float* outputBuffer, int numSamples,
         
         if (currentFrequency > 20.0)
         {
-            float sineSample = sineOscillator.processSample(0.0f);
+            // Manual phase accumulation
+            float sineSample = static_cast<float>(std::sin(currentAngle));
+            
+            currentAngle += angleDelta;
+            if (currentAngle > juce::MathConstants<double>::twoPi)
+                currentAngle -= juce::MathConstants<double>::twoPi;
+            
             sineSample *= 0.7f;
             
+            // Zero crossing detection for clean stop
+            if (!signalPresent && blockEnvelope > 0.01f)
+            {
+                if ((lastSampleValue >= 0.0f && sineSample < 0.0f) ||
+                    (lastSampleValue <= 0.0f && sineSample > 0.0f))
+                {
+                    waitingForZeroCrossing = false;
+                    currentAngle = 0.0;
+                }
+            }
+            
+            lastSampleValue = sineSample;
+            
+            // Apply filters
             float dcCorrected = dcBlockingFilter.processSample(sineSample);
             float toneFiltered = toneFilter.processSample(0, dcCorrected);
             
@@ -369,7 +391,10 @@ void SubharmonicEngine::process(float* outputBuffer, int numSamples,
         }
         else
         {
-            filtered = toneFilter.processSample(0, 0.0f);
+            // No signal - reset phase
+            currentAngle = 0.0;
+            lastSampleValue = 0.0f;
+            filtered = 0.0f;
         }
         
         cleanSineBuffer[static_cast<size_t>(i)] = filtered;

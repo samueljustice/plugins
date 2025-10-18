@@ -20,14 +20,17 @@ public:
 private:
     // Core parameters
     double sampleRate = 44100.0;
-    juce::dsp::Oscillator<float> sineOscillator { [](float x) { return std::sin(x); } };
     
     // Frequency management
     double currentFrequency = 0.0;
     double targetFrequency = 0.0;
     double lastSetFrequency = 0.0;
+    double currentAngle = 0.0;
+    double angleDelta = 0.0;
+    bool waitingForZeroCrossing = false;
+    float lastSampleValue = 0.0f;
     static constexpr double frequencySmoothingCoeff = 0.99;
-    
+
     // Envelope parameters
     double envelopeFollower = 0.0;
     double envelopeTarget = 0.0;
@@ -36,7 +39,6 @@ private:
     static constexpr double attackTimeMs = 20.0;
     static constexpr double releaseTimeMs = 100.0;
     static constexpr double envelopeFloor = 0.05;
-    float sampleFadeValue = 0.0f;
     
     // Signal detection
     bool signalPresent = false;
