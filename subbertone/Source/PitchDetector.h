@@ -11,6 +11,7 @@ public:
     
     void prepare(double sampleRate, int maxBlockSize);
     float detectPitch(const float* inputBuffer, int numSamples, float threshold = 0.1f);
+    void setDetectionMethod(bool useYIN) { currentMethod = useYIN ? DetectionMethod::YIN : DetectionMethod::Autocorrelation; }
     
 private:
     double sampleRate = 44100.0;
@@ -34,10 +35,22 @@ private:
     // Autocorrelation-based pitch detection
     float detectPitchAutocorrelation(const float* buffer, int bufferSize);
     
+    // YIN Pitch-Detection (better for subharmonics)
+    std::vector<float> yin_buffer;
+    static constexpr float yinThreshold = 0.1f;
+    enum class DetectionMethod { Autocorrelation, YIN };
+    DetectionMethod currentMethod = DetectionMethod::YIN;
     
     // Helper functions
     void calculateAutocorrelation(const float* buffer, int bufferSize);
     int findPeakInRange(int minLag, int maxLag);
     float refineWithParabolicInterpolation(int peakIndex);
     float normalizeAutocorrelation(int lag);
+    
+    // YIN Helper functions
+    float detectPitchYIN(const float* buffer, int bufferSize);
+    void calculateDifferenceFunction(const float* buffer, int bufferSize);
+    void calculateCumulativeMeanNormalizedDifference();
+    int findAbsoluteMinimum(int minLag, int maxLag);
+    int findBestLocalMinimum(int minLag, int maxLag);
 };

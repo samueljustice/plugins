@@ -79,7 +79,8 @@ private:
     juce::ToggleButton showInputToggle;
     juce::ToggleButton showOutputToggle;
     juce::ToggleButton showHarmonicsToggle;
-
+    juce::ToggleButton yinToggleButton;
+    
     // Tooltip window
     std::unique_ptr<juce::TooltipWindow> tooltipWindow;
     

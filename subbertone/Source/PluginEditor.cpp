@@ -193,7 +193,7 @@ SubbertoneAudioProcessorEditor::SubbertoneAudioProcessorEditor(SubbertoneAudioPr
     };
     addAndMakeVisible(showOutputToggle);
     
-    // Add after showOutputToggle setup:
+    // Show Harmonics:
     showHarmonicsToggle.setButtonText("Show Harmonics");
     showHarmonicsToggle.setToggleState(true, juce::dontSendNotification);
     showHarmonicsToggle.onClick = [this] {
@@ -208,6 +208,14 @@ SubbertoneAudioProcessorEditor::SubbertoneAudioProcessorEditor(SubbertoneAudioPr
         waveformVisualizer->repaint();
     };
     addAndMakeVisible(showHarmonicsToggle);
+    
+    // Pitch Detection Switch
+    yinToggleButton.setButtonText("Use YIN");
+    yinToggleButton.setToggleState(true, juce::dontSendNotification);
+    yinToggleButton.onClick = [this] {
+        audioProcessor.setPitchDetectionMethod(yinToggleButton.getToggleState());
+    };
+    addAndMakeVisible(yinToggleButton);
     
     setSize(900, 550);
     
@@ -259,6 +267,7 @@ void SubbertoneAudioProcessorEditor::resized()
     showInputToggle.setBounds(10, 60, 100, 25);
     showOutputToggle.setBounds(120, 60, 100, 25);
     inverseMixModeToggle.setBounds(230, 60, 120, 25);
+    yinToggleButton.setBounds(450, 60, 80, 25);
     
     // Visualizer takes up most of the space
     bounds.removeFromTop(90); // Title, subtitle and checkbox space

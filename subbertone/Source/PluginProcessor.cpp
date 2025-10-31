@@ -199,17 +199,18 @@ void SubbertoneAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
         currentSignalLevel.store(signalDb);
         
         // Convert pitch threshold (in dB) to linear threshold for pitch detector
-        float linearThreshold = std::pow(10.0f, pitchThreshold / 20.0f);
-        detectedFundamental = pitchDetector->detectPitch(
-                                                         inputData, buffer.getNumSamples(), linearThreshold);
-        
-        // Apply fundamental frequency limit
-        if (detectedFundamental > fundamentalLimit)
+        if (++pitchDetectionCounter >= pitchDetectionDecimation)
         {
-            detectedFundamental = 0.0f;
+            pitchDetectionCounter = 0;
+            float linearThreshold = std::pow(10.0f, pitchThreshold / 20.0f);
+            detectedFundamental = pitchDetector->detectPitch(
+                                                             inputData, buffer.getNumSamples(), linearThreshold);
+            
+            if (detectedFundamental > fundamentalLimit)
+                detectedFundamental = 0.0f;
+            
+            currentFundamental.store(detectedFundamental);
         }
-        
-        currentFundamental.store(detectedFundamental);
     }
     
     // STEP 2: Process subharmonic engine with CURRENT fundamental
@@ -377,6 +378,14 @@ SubbertoneAudioProcessor::SoloMode SubbertoneAudioProcessor::getSoloMode() const
         }
     }
     return SoloMode::None;
+}
+
+void SubbertoneAudioProcessor::setPitchDetectionMethod(bool useYIN)
+{
+    if (pitchDetector)
+    {
+        pitchDetector->setDetectionMethod(useYIN);
+    }
 }
 
 bool SubbertoneAudioProcessor::hasEditor() const

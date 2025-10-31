@@ -5,8 +5,8 @@
 PitchDetector::PitchDetector()
 {
     window = std::make_unique<juce::dsp::WindowingFunction<float>>(
-        static_cast<size_t>(windowSize), 
-        juce::dsp::WindowingFunction<float>::WindowingMethod::hann);
+                                                                   static_cast<size_t>(windowSize),
+                                                                   juce::dsp::WindowingFunction<float>::WindowingMethod::hann);
 }
 
 void PitchDetector::prepare(double newSampleRate, int maxBlockSize)
@@ -20,11 +20,12 @@ void PitchDetector::prepare(double newSampleRate, int maxBlockSize)
     // Resize buffers
     windowBuffer.resize(windowSize);
     autocorrelation.resize(windowSize);
+    yin_buffer.resize(static_cast<size_t>(windowSize));
     
     // Recreate window function with new size
     window = std::make_unique<juce::dsp::WindowingFunction<float>>(
-        static_cast<size_t>(windowSize), 
-        juce::dsp::WindowingFunction<float>::WindowingMethod::hann);
+                                                                   static_cast<size_t>(windowSize),
+                                                                   juce::dsp::WindowingFunction<float>::WindowingMethod::hann);
     
     // Setup pre-filter
     auto spec = juce::dsp::ProcessSpec{newSampleRate, static_cast<juce::uint32>(maxBlockSize), 1};
@@ -63,12 +64,12 @@ float PitchDetector::detectPitch(const float* inputBuffer, int numSamples, float
     // Shift existing samples if needed
     if (copySize < windowSize)
     {
-        std::memmove(windowBuffer.data(), windowBuffer.data() + copySize, 
+        std::memmove(windowBuffer.data(), windowBuffer.data() + copySize,
                      (windowSize - copySize) * sizeof(float));
     }
     
     // Copy new samples
-    std::memcpy(windowBuffer.data() + (windowSize - copySize), 
+    std::memcpy(windowBuffer.data() + (windowSize - copySize),
                 inputBuffer + startIdx, copySize * sizeof(float));
     
     // Apply prefiltering
@@ -78,8 +79,10 @@ float PitchDetector::detectPitch(const float* inputBuffer, int numSamples, float
         windowBuffer[i] = preFilter.processSample(windowBuffer[i]);
     }
     
-    // Detect pitch using autocorrelation
-    float detectedPitch = detectPitchAutocorrelation(windowBuffer.data(), windowSize);
+    // Detect pitch - Autocorrelation or YIN
+    float detectedPitch = (currentMethod == DetectionMethod::YIN) ?
+    detectPitchYIN(windowBuffer.data(), windowSize) :
+    detectPitchAutocorrelation(windowBuffer.data(), windowSize);
     
     // Apply (Adaptive) Smoothing
     if (detectedPitch > 0.0f)
@@ -244,30 +247,6 @@ int PitchDetector::findPeakInRange(int minLag, int maxLag)
     return -1;
 }
 
-float PitchDetector::refineWithParabolicInterpolation(int peakIndex)
-{
-    // Parabolic interpolation for sub-sample accuracy
-    if (peakIndex <= 0 || peakIndex >= static_cast<int>(autocorrelation.size()) - 1)
-        return static_cast<float>(peakIndex);
-    
-    float y1 = autocorrelation[peakIndex - 1];
-    float y2 = autocorrelation[peakIndex];
-    float y3 = autocorrelation[peakIndex + 1];
-    
-    float a = (y1 - 2.0f * y2 + y3) * 0.5f;
-    float b = (y3 - y1) * 0.5f;
-    
-    if (std::abs(a) < 1e-10f) // Avoid division by very small number
-        return static_cast<float>(peakIndex);
-    
-    float xOffset = -b / (2.0f * a);
-    
-    // Limit offset to reasonable range
-    xOffset = juce::jlimit(-0.5f, 0.5f, xOffset);
-    
-    return static_cast<float>(peakIndex) + xOffset;
-}
-
 float PitchDetector::normalizeAutocorrelation(int lag)
 {
     // Normalize by the zero-lag autocorrelation (signal energy)
@@ -275,4 +254,135 @@ float PitchDetector::normalizeAutocorrelation(int lag)
         return 0.0f;
     
     return autocorrelation[lag] / autocorrelation[0];
+}
+
+float PitchDetector::refineWithParabolicInterpolation(int peakIndex)
+{
+    if (currentMethod == DetectionMethod::YIN)
+    {
+        // Use YIN buffer for interpolation
+        if (peakIndex <= 0 || peakIndex >= static_cast<int>(yin_buffer.size()) - 1)
+            return static_cast<float>(peakIndex);
+        
+        float y1 = yin_buffer[peakIndex - 1];
+        float y2 = yin_buffer[peakIndex];
+        float y3 = yin_buffer[peakIndex + 1];
+        
+        float a = (y1 - 2.0f * y2 + y3) * 0.5f;
+        float b = (y3 - y1) * 0.5f;
+        
+        if (std::abs(a) < 1e-10f)
+            return static_cast<float>(peakIndex);
+        
+        float xOffset = -b / (2.0f * a);
+        xOffset = juce::jlimit(-0.5f, 0.5f, xOffset);
+        
+        return static_cast<float>(peakIndex) + xOffset;
+    }
+    else
+    {
+        // Use autocorrelation buffer for interpolation
+        if (peakIndex <= 0 || peakIndex >= static_cast<int>(autocorrelation.size()) - 1)
+            return static_cast<float>(peakIndex);
+        
+        float y1 = autocorrelation[peakIndex - 1];
+        float y2 = autocorrelation[peakIndex];
+        float y3 = autocorrelation[peakIndex + 1];
+        
+        float a = (y1 - 2.0f * y2 + y3) * 0.5f;
+        float b = (y3 - y1) * 0.5f;
+        
+        if (std::abs(a) < 1e-10f)
+            return static_cast<float>(peakIndex);
+        
+        float xOffset = -b / (2.0f * a);
+        xOffset = juce::jlimit(-0.5f, 0.5f, xOffset);
+        
+        return static_cast<float>(peakIndex) + xOffset;
+    }
+}
+
+// YIN - Pitch Detection Method
+float PitchDetector::detectPitchYIN(const float* buffer, int bufferSize)
+{
+    std::vector<float> windowedBuffer(bufferSize);
+    std::memcpy(windowedBuffer.data(), buffer, bufferSize * sizeof(float));
+    window->multiplyWithWindowingTable(windowedBuffer.data(), static_cast<size_t>(bufferSize));
+    
+    calculateDifferenceFunction(windowedBuffer.data(), bufferSize);
+    calculateCumulativeMeanNormalizedDifference();
+    
+    int minLag = static_cast<int>(sampleRate / maxFrequency);
+    int maxLag = static_cast<int>(sampleRate / minFrequency);
+    maxLag = std::min(maxLag, bufferSize / 2);
+    
+    int bestLag = findAbsoluteMinimum(minLag, maxLag);
+    
+    if (bestLag <= 0)
+        return 0.0f;
+    
+    float refinedLag = refineWithParabolicInterpolation(bestLag);
+    if (refinedLag <= 0.0f) return 0.0f;
+    
+    float frequency = static_cast<float>(sampleRate) / refinedLag;
+    
+    return juce::jlimit(minFrequency, maxFrequency, frequency);
+}
+
+void PitchDetector::calculateDifferenceFunction(const float* buffer, int bufferSize)
+{
+    int halfSize = bufferSize / 2;
+    
+    for (int lag = 0; lag < halfSize; ++lag)
+    {
+        float sum = 0.0f;
+        for (int i = 0; i < halfSize; ++i)
+        {
+            float diff = buffer[i] - buffer[i + lag];
+            sum += diff * diff;
+        }
+        yin_buffer[lag] = sum;
+    }
+}
+
+void PitchDetector::calculateCumulativeMeanNormalizedDifference()
+{
+    yin_buffer[0] = 1.0f;
+    
+    float runningSum = 0.0f;
+    for (int lag = 1; lag < static_cast<int>(yin_buffer.size()) / 2; ++lag)
+    {
+        runningSum += yin_buffer[lag];
+        if (runningSum > 0.0f)
+        {
+            float mean = runningSum / static_cast<float>(lag);
+            yin_buffer[lag] = yin_buffer[lag] / mean;
+        }
+        else
+        {
+            yin_buffer[lag] = 1.0f;
+        }
+    }
+}
+
+int PitchDetector::findAbsoluteMinimum(int minLag, int maxLag)
+{
+    return findBestLocalMinimum(minLag, maxLag);
+}
+
+int PitchDetector::findBestLocalMinimum(int minLag, int maxLag)
+{
+    for (int lag = minLag + 1; lag < maxLag - 1 && lag < static_cast<int>(yin_buffer.size()) - 1; ++lag)
+    {
+        if (yin_buffer[lag] < yin_buffer[lag - 1] &&
+            yin_buffer[lag] < yin_buffer[lag + 1])
+        {
+            if (yin_buffer[lag] < yinThreshold)
+            {
+                return lag;
+            }
+        }
+    }
+    
+    return -1;
 }

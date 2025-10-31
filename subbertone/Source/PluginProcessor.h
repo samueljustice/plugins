@@ -51,6 +51,10 @@ public:
     //Solo
     enum class SoloMode { None, Input, Harmonics, Output };
     SoloMode getSoloMode() const;
+    
+    void setPitchDetectionMethod(bool useYIN);
+    int pitchDetectionCounter = 0;
+    static constexpr int pitchDetectionDecimation = 4;
 
 private:
     std::unique_ptr<PitchDetector> pitchDetector;
