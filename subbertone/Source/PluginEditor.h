@@ -14,6 +14,9 @@ public:
     void paint(juce::Graphics&) override;
     void resized() override;
     void timerCallback() override;
+    
+    enum class SoloMode { None, Input, Harmonics, Output };
+    SoloMode currentSoloMode = SoloMode::None;
 
 private:
     SubbertoneAudioProcessor& audioProcessor;
@@ -55,6 +58,8 @@ private:
     juce::Label fundamentalLimitLabel;
     juce::Label signalLevelLabel;
     
+    juce::ToggleButton inverseMixModeToggle;
+    
     // Parameter attachments
     std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> mixAttachment;
     std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> distortionAttachment;
@@ -64,7 +69,8 @@ private:
     std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> pitchThresholdAttachment;
     std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> fundamentalLimitAttachment;
     std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> distortionTypeAttachment;
-    
+    std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> inverseMixModeAttachment;
+
     // About button
     juce::TextButton aboutButton;
     void showAboutWindow();
@@ -72,6 +78,8 @@ private:
     // Visualizer toggles
     juce::ToggleButton showInputToggle;
     juce::ToggleButton showOutputToggle;
+    juce::ToggleButton showHarmonicsToggle;
+    juce::ToggleButton yinToggleButton;
     
     // Tooltip window
     std::unique_ptr<juce::TooltipWindow> tooltipWindow;

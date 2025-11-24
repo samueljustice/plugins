@@ -47,10 +47,22 @@ public:
     std::vector<float> getHarmonicResidualWaveform() const;
     float getCurrentFundamental() const { return currentFundamental.load(); }
     float getCurrentSignalLevel() const { return currentSignalLevel.load(); }
+    
+    //Solo
+    enum class SoloMode { None, Input, Harmonics, Output };
+    SoloMode getSoloMode() const;
+    
+    void setPitchDetectionMethod(bool useYIN);
+    int pitchDetectionCounter = 0;
+    static constexpr int pitchDetectionDecimation = 4;
 
 private:
     std::unique_ptr<PitchDetector> pitchDetector;
     std::unique_ptr<SubharmonicEngine> subharmonicEngine;
+    
+    float wetGainSmoother = 0.0f;
+    bool wetSignalActive = false;
+    static constexpr float wetFadeTime = 0.01f;
     
     // Circular buffers for visualization
     static constexpr int visualBufferSize = 2048;

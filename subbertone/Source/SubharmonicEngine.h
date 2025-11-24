@@ -12,7 +12,7 @@ public:
     void prepare(double sampleRate, int maxBlockSize);
     void process(float* outputBuffer, int numSamples, float fundamental,
                 float distortionAmount, float inverseMixAmount, 
-                int distortionType, float toneFreq, float postDriveLowpass);
+                int distortionType, float toneFreq, float postDriveLowpass, bool inverseMixMode = false);
     
     // Get harmonic residual buffer for visualization
     const std::vector<float>& getHarmonicResidualBuffer() const { return harmonicResidualBuffer; }
@@ -20,14 +20,23 @@ public:
 private:
     // Core parameters
     double sampleRate = 44100.0;
-    juce::dsp::Oscillator<float> sineOscillator { [](float x) { return std::sin(x); } };
     
     // Frequency management
     double currentFrequency = 0.0;
     double targetFrequency = 0.0;
     double lastSetFrequency = 0.0;
+    double currentAngle = 0.0;
+    double angleDelta = 0.0;
+    double currentPhase = 0.0;
+    double phaseIncrement = 0.0;
+    bool waitingForZeroCrossing = false;
+    float lastSampleValue = 0.0f;
     static constexpr double frequencySmoothingCoeff = 0.99;
-    
+    bool validateInputs(float* outputBuffer, int numSamples);
+    void updateSignalState(float fundamental, int numSamples);
+    void generateAudioBlock(float* outputBuffer, int numSamples, float distortionAmount,
+                            float inverseMixAmount, int distortionType, float toneFreq,
+                            float postDriveLowpass, bool inverseMixMode);
     // Envelope parameters
     double envelopeFollower = 0.0;
     double envelopeTarget = 0.0;
@@ -41,8 +50,8 @@ private:
     bool signalPresent = false;
     int signalOnCounter = 0;
     int signalOffCounter = 0;
-    static constexpr int signalOnThreshold = 64;     // ~1.3ms at 48kHz
-    static constexpr int signalOffThreshold = 24000; // ~500ms at 48kHz
+    static constexpr int signalOnThreshold = 64;
+    static constexpr int signalOffThreshold = 960;
     
     // Filters
     juce::dsp::IIR::Filter<float> dcBlockingFilter;

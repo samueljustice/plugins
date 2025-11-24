@@ -110,6 +110,10 @@ SubbertoneAudioProcessorEditor::SubbertoneAudioProcessorEditor(SubbertoneAudioPr
     fundamentalLimitSlider.setTooltip("Maximum fundamental frequency to process (100Hz to 800Hz). Frequencies above this limit will be ignored");
     fundamentalLimitSlider.setTextValueSuffix(" Hz");
     
+    inverseMixModeToggle.setButtonText("Harmonics Only");
+    inverseMixModeToggle.setTooltip("Output only distortion harmonics");
+    addAndMakeVisible(inverseMixModeToggle);
+    
     // Setup signal level label
     signalLevelLabel.setText("Signal: -∞ dB", juce::dontSendNotification);
     signalLevelLabel.setJustificationType(juce::Justification::centred);
@@ -150,7 +154,8 @@ SubbertoneAudioProcessorEditor::SubbertoneAudioProcessorEditor(SubbertoneAudioPr
         audioProcessor.parameters, "fundamentalLimit", fundamentalLimitSlider);
     distortionTypeAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment>(
         audioProcessor.parameters, "distortionType", distortionTypeCombo);
-    
+    inverseMixModeAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment>(
+        audioProcessor.parameters, "inverseMixMode", inverseMixModeToggle);
     // Setup about button
     aboutButton.setButtonText("?");
     aboutButton.setTooltip("About SammyJs Subbertone - Version info and help");
@@ -160,19 +165,57 @@ SubbertoneAudioProcessorEditor::SubbertoneAudioProcessorEditor(SubbertoneAudioPr
     // Setup visualizer toggles
     showInputToggle.setButtonText("Show Input");
     showInputToggle.setToggleState(true, juce::dontSendNotification);
-    showInputToggle.onClick = [this] { 
-        waveformVisualizer->showInput = showInputToggle.getToggleState(); 
+    showInputToggle.onClick = [this] {
+        if (currentSoloMode == SoloMode::Input) {
+            currentSoloMode = SoloMode::None;  // Turn off solo
+        } else {
+            currentSoloMode = SoloMode::Input;  // Solo input
+        }
+        waveformVisualizer->showInput = (currentSoloMode == SoloMode::Input);
+        waveformVisualizer->showOutput = (currentSoloMode != SoloMode::Input);
+        waveformVisualizer->showHarmonicResidual = (currentSoloMode != SoloMode::Input);
         waveformVisualizer->repaint();
     };
     addAndMakeVisible(showInputToggle);
     
     showOutputToggle.setButtonText("Show Output");
     showOutputToggle.setToggleState(true, juce::dontSendNotification);
-    showOutputToggle.onClick = [this] { 
-        waveformVisualizer->showOutput = showOutputToggle.getToggleState();
+    showOutputToggle.onClick = [this] {
+        if (currentSoloMode == SoloMode::Output) {
+            currentSoloMode = SoloMode::None;  // Turn off solo
+        } else {
+            currentSoloMode = SoloMode::Output;  // Solo output
+        }
+        waveformVisualizer->showOutput = (currentSoloMode == SoloMode::Output);
+        waveformVisualizer->showInput = (currentSoloMode != SoloMode::Output);
+        waveformVisualizer->showHarmonicResidual = (currentSoloMode != SoloMode::Output);
         waveformVisualizer->repaint();
     };
     addAndMakeVisible(showOutputToggle);
+    
+    // Show Harmonics:
+    showHarmonicsToggle.setButtonText("Show Harmonics");
+    showHarmonicsToggle.setToggleState(true, juce::dontSendNotification);
+    showHarmonicsToggle.onClick = [this] {
+        if (currentSoloMode == SoloMode::Harmonics) {
+            currentSoloMode = SoloMode::None;  // Turn off solo
+        } else {
+            currentSoloMode = SoloMode::Harmonics;  // Solo harmonics
+        }
+        waveformVisualizer->showHarmonicResidual = (currentSoloMode == SoloMode::Harmonics);
+        waveformVisualizer->showInput = (currentSoloMode != SoloMode::Harmonics);
+        waveformVisualizer->showOutput = (currentSoloMode != SoloMode::Harmonics);
+        waveformVisualizer->repaint();
+    };
+    addAndMakeVisible(showHarmonicsToggle);
+    
+    // Pitch Detection Switch
+    yinToggleButton.setButtonText("Use YIN");
+    yinToggleButton.setToggleState(true, juce::dontSendNotification);
+    yinToggleButton.onClick = [this] {
+        audioProcessor.setPitchDetectionMethod(yinToggleButton.getToggleState());
+    };
+    addAndMakeVisible(yinToggleButton);
     
     setSize(900, 550);
     
@@ -223,6 +266,8 @@ void SubbertoneAudioProcessorEditor::resized()
     // Visualizer toggles - position them below the title/subtitle area
     showInputToggle.setBounds(10, 60, 100, 25);
     showOutputToggle.setBounds(120, 60, 100, 25);
+    inverseMixModeToggle.setBounds(230, 60, 120, 25);
+    yinToggleButton.setBounds(450, 60, 80, 25);
     
     // Visualizer takes up most of the space
     bounds.removeFromTop(90); // Title, subtitle and checkbox space

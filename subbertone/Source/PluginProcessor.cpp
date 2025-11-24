@@ -60,6 +60,8 @@ juce::AudioProcessorValueTreeState::ParameterLayout SubbertoneAudioProcessor::cr
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         "fundamentalLimit", "Max Fundamental", 100.0f, 800.0f, 250.0f));
     
+    params.push_back(std::make_unique<juce::AudioParameterBool>("inverseMixMode", "Inverse Mix Mode", false));
+    
     return { params.begin(), params.end() };
 }
 
@@ -167,7 +169,8 @@ void SubbertoneAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
     // Get parameter values
     float mix = parameters.getRawParameterValue("mix")->load() / 100.0f;
     float distortion = parameters.getRawParameterValue("distortion")->load() / 100.0f;
-    float inverseMix = 1.0f; // Always 100% inverse mix - the unique feature
+    float inverseMix = 1.0f;
+    bool inverseMixMode = parameters.getRawParameterValue("inverseMixMode")->load() > 0.5f;
     int distortionType = static_cast<int>(parameters.getRawParameterValue("distortionType")->load());
     float distortionTone = parameters.getRawParameterValue("distortionTone")->load();
     float postDriveLowpass = parameters.getRawParameterValue("postDriveLowpass")->load();
@@ -212,11 +215,13 @@ void SubbertoneAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
     // STEP 2: Process subharmonic engine with CURRENT fundamental
     std::vector<float> subharmonicBuffer(buffer.getNumSamples());
     subharmonicEngine->process(subharmonicBuffer.data(), buffer.getNumSamples(),
-                               detectedFundamental, // Use fresh fundamental, not stored one
+                               detectedFundamental,
                                distortion, inverseMix, distortionType,
-                               distortionTone, postDriveLowpass);
+                               distortionTone, postDriveLowpass, inverseMixMode);
     
     // STEP 3: Apply to each channel
+    auto soloMode = getSoloMode(); // Get solo mode once outside the loops
+    
     for (int channel = 0; channel < numChannelsToProcess; ++channel)
     {
         auto* channelData = buffer.getWritePointer(channel);
@@ -233,30 +238,76 @@ void SubbertoneAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
             }
         }
         
-        // Apply mix and output gain
         for (int i = 0; i < buffer.getNumSamples(); ++i)
         {
             float dry = inputData[i];
             float wet = subharmonicBuffer[i];
-            channelData[i] = (dry * (1.0f - mix) + wet * mix) * outputGain;
             
-            // Store output for visualization (only for first channel)
+            // Detect if wet signal should be active
+            bool shouldBeActive = (std::abs(wet) > 0.0001f) && (detectedFundamental > 0.0f);
+            
+            // Calculate fade coefficient (samples for 10ms fade)
+            float fadeSamples = wetFadeTime * static_cast<float>(getSampleRate());
+            float fadeCoeff = 1.0f / fadeSamples;
+            
+            // Smooth wet gain changes
+            if (shouldBeActive && !wetSignalActive)
+            {
+                // Start fading in
+                wetSignalActive = true;
+            }
+            else if (!shouldBeActive && wetSignalActive && wetGainSmoother < 0.001f)
+            {
+                // Finished fading out
+                wetSignalActive = false;
+            }
+            
+            // Update smoother
+            float targetGain = shouldBeActive ? 1.0f : 0.0f;
+            if (wetGainSmoother < targetGain)
+            {
+                wetGainSmoother = std::min(targetGain, wetGainSmoother + fadeCoeff);
+            }
+            else if (wetGainSmoother > targetGain)
+            {
+                wetGainSmoother = std::max(targetGain, wetGainSmoother - fadeCoeff);
+            }
+            
+            // Apply gated wet signal
+            float gatedWet = wet * wetGainSmoother;
+            
+            // Get harmonic residual for visualization
+            float harmonics = 0.0f;
+            const auto& harmonicResidual = subharmonicEngine->getHarmonicResidualBuffer();
+            if (i < static_cast<int>(harmonicResidual.size()))
+            {
+                harmonics = harmonicResidual[i];
+            }
+            
+            // Apply solo mode with smooth wet signal
+            switch (soloMode)
+            {
+                case SoloMode::Input:
+                    channelData[i] = dry * outputGain;
+                    break;
+                case SoloMode::Harmonics:
+                    channelData[i] = harmonics * wetGainSmoother * outputGain;
+                    break;
+                case SoloMode::Output:
+                    channelData[i] = (dry * (1.0f - mix) + gatedWet * mix) * outputGain;
+                    break;
+                default: // Normal mode
+                    channelData[i] = (dry * (1.0f - mix) + gatedWet * mix) * outputGain;
+                    break;
+            }
+            
+            // Store for visualization
             if (channel == 0)
             {
                 const juce::ScopedLock sl(visualBufferLock);
                 int writePos = (visualBufferWritePos.load() + i) % visualBufferSize;
                 outputVisualBuffer[writePos] = channelData[i];
-                
-                // Store harmonic residual if available
-                const auto& harmonicResidual = subharmonicEngine->getHarmonicResidualBuffer();
-                if (i < static_cast<int>(harmonicResidual.size()))
-                {
-                    harmonicResidualVisualBuffer[writePos] = harmonicResidual[i];
-                }
-                else
-                {
-                    harmonicResidualVisualBuffer[writePos] = 0.0f;
-                }
+                harmonicResidualVisualBuffer[writePos] = harmonics;
             }
         }
     }
@@ -311,6 +362,29 @@ std::vector<float> SubbertoneAudioProcessor::getHarmonicResidualWaveform() const
         result[i] = harmonicResidualVisualBuffer[(readPos + i) % visualBufferSize];
     }
     return result;
+}
+
+SubbertoneAudioProcessor::SoloMode SubbertoneAudioProcessor::getSoloMode() const
+{
+    if (auto* editor = dynamic_cast<SubbertoneAudioProcessorEditor*>(getActiveEditor()))
+    {
+        switch (editor->currentSoloMode)
+        {
+            case SubbertoneAudioProcessorEditor::SoloMode::Input: return SoloMode::Input;
+            case SubbertoneAudioProcessorEditor::SoloMode::Harmonics: return SoloMode::Harmonics;
+            case SubbertoneAudioProcessorEditor::SoloMode::Output: return SoloMode::Output;
+            default: return SoloMode::None;
+        }
+    }
+    return SoloMode::None;
+}
+
+void SubbertoneAudioProcessor::setPitchDetectionMethod(bool useYIN)
+{
+    if (pitchDetector)
+    {
+        pitchDetector->setDetectionMethod(useYIN);
+    }
 }
 
 bool SubbertoneAudioProcessor::hasEditor() const
