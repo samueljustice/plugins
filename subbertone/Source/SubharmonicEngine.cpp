@@ -19,7 +19,7 @@ void SubharmonicEngine::prepare(double newSampleRate, int maxBlockSize)
     // Validate parameters
     if (newSampleRate <= 0 || maxBlockSize <= 0 || maxBlockSize > 8192)
         return;
-        
+    
     sampleRate = newSampleRate;
     currentMaxBlockSize = maxBlockSize;
     
@@ -29,12 +29,17 @@ void SubharmonicEngine::prepare(double newSampleRate, int maxBlockSize)
     // Reset state
     currentFrequency = 0.0;
     targetFrequency = 0.0;
-    lastSetFrequency = 0.0;
+    currentAngle = 0.0;
+    angleDelta = 0.0;
+    targetAngleDelta = 0.0;
+    phaseIncrement = 0.0;
     envelopeFollower = 0.0;
     envelopeTarget = 0.0;
+    sampleEnvelope = 0.0;
     signalPresent = false;
     signalOnCounter = 0;
     signalOffCounter = 0;
+    settlingCounter = 0;
     
     // Resize buffers for oversampling (8x) with error checking
     try {
@@ -68,7 +73,7 @@ void SubharmonicEngine::prepare(double newSampleRate, int maxBlockSize)
     try {
         oversampler.reset();
         oversampler = std::make_unique<juce::dsp::Oversampling<float>>(
-            1, 3, juce::dsp::Oversampling<float>::filterHalfBandPolyphaseIIR, true);
+                                                                       1, 3, juce::dsp::Oversampling<float>::filterHalfBandPolyphaseIIR, true);
         
         if (oversampler)
         {
@@ -123,66 +128,23 @@ void SubharmonicEngine::prepare(double newSampleRate, int maxBlockSize)
     currentAngle = 0.0;
     angleDelta = 0.0;
     
-    // Prepare oversampled spec for filters that run at higher rate
-    juce::dsp::ProcessSpec oversampledSpec = spec;
-    oversampledSpec.sampleRate = sampleRate * 8.0;
-    oversampledSpec.maximumBlockSize = static_cast<juce::uint32>(maxBlockSize * 8);
-    
     // Tone filter runs at native rate
     toneFilter.prepare(spec);
     toneFilter.setType(juce::dsp::StateVariableTPTFilterType::lowpass);
     
-    // Post-drive lowpass at native rate (no oversampling)
+    // Post-drive lowpass at native rate
     postDriveLowpassFilter.prepare(spec);
     postDriveLowpassFilter.setType(juce::dsp::StateVariableTPTFilterType::lowpass);
-    
-    // High-pass filter for DC blocking at native rate
-    highpassFilter.prepare(spec);
-    highpassFilter.setType(juce::dsp::StateVariableTPTFilterType::highpass);
-    highpassFilter.setCutoffFrequency(20.0f);
     
     // Post-subtraction filter to smooth harmonic extraction artifacts
     postSubtractionFilter.prepare(spec);
     postSubtractionFilter.setType(juce::dsp::StateVariableTPTFilterType::lowpass);
-    postSubtractionFilter.setCutoffFrequency(4000.0f);  // Gentle roll-off
+    postSubtractionFilter.setCutoffFrequency(4000.0f);
     
-    // Low frequency smoothing filter - helps with sub-100Hz oscillation
-    lowFreqSmoothingFilter.prepare(spec);
-    lowFreqSmoothingFilter.setType(juce::dsp::StateVariableTPTFilterType::lowpass);
-    lowFreqSmoothingFilter.setCutoffFrequency(200.0f);  // Smooth low frequencies
-    
-    // Anti-aliasing filters - prepare at native rate
-    float cutoffFreq = static_cast<float>(spec.sampleRate * 0.45);
-    
-    auto coeffs1 = juce::dsp::IIR::Coefficients<float>::makeLowPass(
-        spec.sampleRate, cutoffFreq, 0.3f);
-    auto coeffs2 = juce::dsp::IIR::Coefficients<float>::makeLowPass(
-        spec.sampleRate, cutoffFreq, 0.3f);
-    auto coeffs3 = juce::dsp::IIR::Coefficients<float>::makeLowPass(
-        spec.sampleRate, cutoffFreq, 0.3f);
-    auto coeffs4 = juce::dsp::IIR::Coefficients<float>::makeLowPass(
-        spec.sampleRate, cutoffFreq, 0.3f);
-    
-    antiAliasingFilter1.prepare(spec);
-    antiAliasingFilter1.coefficients = coeffs1;
-    antiAliasingFilter2.prepare(spec);
-    antiAliasingFilter2.coefficients = coeffs2;
-    antiAliasingFilter3.prepare(spec);
-    antiAliasingFilter3.coefficients = coeffs3;
-    antiAliasingFilter4.prepare(spec);
-    antiAliasingFilter4.coefficients = coeffs4;
-    
-    // Pre-distortion filter
-    auto preDistCoeffs = juce::dsp::IIR::Coefficients<float>::makeLowPass(
-        spec.sampleRate, 2000.0f, 0.7f);
-    preDistortionFilter.prepare(spec);
-    preDistortionFilter.coefficients = preDistCoeffs;
-    
-    // DC blocking filter - 20Hz high-pass
-    auto dcBlockCoeffs = juce::dsp::IIR::Coefficients<float>::makeHighPass(
-        spec.sampleRate, 20.0f, 0.7f);
-    dcBlockingFilter.prepare(spec);
-    dcBlockingFilter.coefficients = dcBlockCoeffs;
+    // Highpass filter for harmonic separation
+    highpassFilter.prepare(spec);
+    highpassFilter.setType(juce::dsp::StateVariableTPTFilterType::highpass);
+    highpassFilter.setCutoffFrequency(40.0f);
     
     isPrepared = true;  // Mark as prepared after all setup is complete
 }
@@ -201,7 +163,6 @@ void SubharmonicEngine::calculateEnvelopeCoefficients()
 
 void SubharmonicEngine::updateEnvelope(bool signalDetected)
 {
-
     double dynamicFloor = 0.0;
     if (currentFrequency > 20.0)
     {
@@ -210,8 +171,9 @@ void SubharmonicEngine::updateEnvelope(bool signalDetected)
     
     if (!signalPresent)
     {
-        envelopeTarget = dynamicFloor;  // Keep at floor level instead of zero
-        envelopeFollower = dynamicFloor;  // Maintain phase continuity
+        envelopeTarget = dynamicFloor;
+        envelopeFollower = dynamicFloor;
+        sampleEnvelope = dynamicFloor;
         return;
     }
     
@@ -221,11 +183,12 @@ void SubharmonicEngine::updateEnvelope(bool signalDetected)
     }
     else
     {
-        envelopeTarget = dynamicFloor;  // Fade to floor level, not zero
+        envelopeTarget = dynamicFloor;
     }
     
     double coeff = (envelopeTarget > envelopeFollower) ? attackCoeff : releaseCoeff;
     envelopeFollower += coeff * (envelopeTarget - envelopeFollower);
+    sampleEnvelope = envelopeFollower;
     
     if (envelopeFollower < dynamicFloor)
         envelopeFollower = dynamicFloor;
@@ -275,6 +238,12 @@ void SubharmonicEngine::process(float* outputBuffer, int numSamples,
         {
             signalPresent = true;
             envelopeTarget = 1.0;
+            settlingCounter = 0;
+        }
+        
+        if (signalPresent && settlingCounter < settlingThreshold)
+        {
+            settlingCounter += numSamples;
         }
         
         float nyquist = static_cast<float>(sampleRate * 0.5);
@@ -293,115 +262,65 @@ void SubharmonicEngine::process(float* outputBuffer, int numSamples,
             {
                 signalPresent = false;
                 signalOffCounter = 0;
+                settlingCounter = 0;
             }
         }
     }
     
-    // Tone filter
-    float clampedToneFreq = juce::jlimit(40.0f, 20000.0f, toneFreq);
-    if (currentFrequency > 20.0)
-    {
-        clampedToneFreq = std::min(clampedToneFreq, static_cast<float>(currentFrequency * 2.5));
-    }
-    toneFilter.setCutoffFrequency(clampedToneFreq);
+    toneFilter.setCutoffFrequency(juce::jlimit(40.0f, 20000.0f, toneFreq));
     
-    // Frequency update
     if (signalPresent && targetFrequency > 0.0)
     {
-        if (currentFrequency == 0.0)
-        {
-            currentFrequency = targetFrequency;
-        }
-        else
-        {
-            double adaptiveSmoothingCoeff = frequencySmoothingCoeff;
-            if (currentFrequency < 200.0)
-            {
-                adaptiveSmoothingCoeff = juce::jmap(currentFrequency, 30.0, 200.0, 0.9, 0.99);
-            }
-            currentFrequency = currentFrequency * adaptiveSmoothingCoeff +
-            targetFrequency * (1.0 - adaptiveSmoothingCoeff);
-        }
-        
-        double frequencyTolerance = (currentFrequency < 100.0) ? 0.5 : 0.1;
-        
-        if (std::abs(currentFrequency - lastSetFrequency) > frequencyTolerance)
-        {
-            double cyclesPerSample = currentFrequency / sampleRate;
-            angleDelta = cyclesPerSample * 2.0 * juce::MathConstants<double>::pi;
-            lastSetFrequency = currentFrequency;
-        }
+        targetAngleDelta = (targetFrequency / sampleRate) * juce::MathConstants<double>::twoPi;
+    }
+    else
+    {
+        targetAngleDelta = 0.0;
     }
     
-    // Envelope
     updateEnvelope(signalPresent);
-    const float blockEnvelope = static_cast<float>(envelopeFollower);
     
-    // Reset filters on signal state change to prevent transients
     static bool wasSignalPresent = false;
     if (signalPresent != wasSignalPresent)
     {
-        dcBlockingFilter.reset();
         toneFilter.reset();
-        lowFreqSmoothingFilter.reset();
+        highpassFilter.reset();
+        postSubtractionFilter.reset();
         wasSignalPresent = signalPresent;
     }
     
-    // Generate sine
+    double deltaStep = (targetAngleDelta - angleDelta) / static_cast<double>(numSamples);
+    
+    if (std::abs(deltaStep) > maxDeltaChangePerSample)
+    {
+        deltaStep = (deltaStep > 0.0) ? maxDeltaChangePerSample : -maxDeltaChangePerSample;
+    }
+    
     for (int i = 0; i < numSamples; ++i)
     {
-        float filtered = 0.0f;
+        double coeff = (envelopeTarget > sampleEnvelope) ? attackCoeff : releaseCoeff;
+        sampleEnvelope += coeff * (envelopeTarget - sampleEnvelope);
         
-        if (currentFrequency > 20.0)
+        angleDelta += deltaStep;
+        angleDelta = juce::jlimit(0.0, targetAngleDelta * 1.1, angleDelta);
+        
+        float sineSample = 0.0f;
+        if (angleDelta > 0.0)
         {
-            // Manual phase accumulation
-            float sineSample = static_cast<float>(std::sin(currentAngle));
-            
+            sineSample = static_cast<float>(std::sin(currentAngle)) * 0.7f;
             currentAngle += angleDelta;
-            if (currentAngle > juce::MathConstants<double>::twoPi)
+            
+            while (currentAngle >= juce::MathConstants<double>::twoPi)
                 currentAngle -= juce::MathConstants<double>::twoPi;
-            
-            sineSample *= 0.7f;
-            
-            // Zero crossing detection for clean stop
-            if (!signalPresent && blockEnvelope > 0.01f)
-            {
-                if ((lastSampleValue >= 0.0f && sineSample < 0.0f) ||
-                    (lastSampleValue <= 0.0f && sineSample > 0.0f))
-                {
-                    waitingForZeroCrossing = false;
-                    currentAngle = 0.0;
-                }
-            }
-            
-            lastSampleValue = sineSample;
-            
-            // Apply filters
-            float dcCorrected = dcBlockingFilter.processSample(sineSample);
-            float toneFiltered = toneFilter.processSample(0, dcCorrected);
-            
-            if (currentFrequency < 100.0)
-            {
-                filtered = lowFreqSmoothingFilter.processSample(0, toneFiltered);
-            }
-            else
-            {
-                filtered = toneFiltered;
-            }
-        }
-        else
-        {
-            // No signal - reset phase
-            currentAngle = 0.0;
-            lastSampleValue = 0.0f;
-            filtered = 0.0f;
         }
         
-        cleanSineBuffer[static_cast<size_t>(i)] = filtered;
+        float filtered = toneFilter.processSample(0, sineSample);
+        
+        cleanSineBuffer[static_cast<size_t>(i)] = filtered * static_cast<float>(sampleEnvelope);
         
         if (distortionAmount > 0.01f)
         {
-            sineBuffer[static_cast<size_t>(i)] = filtered;
+            sineBuffer[static_cast<size_t>(i)] = filtered * static_cast<float>(sampleEnvelope);
         }
         else
         {
@@ -409,32 +328,21 @@ void SubharmonicEngine::process(float* outputBuffer, int numSamples,
         }
     }
     
-    // Early exit if no signal
-    if (!signalPresent || envelopeFollower < 0.0001)
-    {
-        std::fill_n(outputBuffer, numSamples, 0.0f);
-        std::fill(sineBuffer.begin(), sineBuffer.begin() + numSamples, 0.0f);
-        std::fill(cleanSineBuffer.begin(), cleanSineBuffer.begin() + numSamples, 0.0f);
-        return;
-    }
-    
-    // Distortion processing (no oversampling)
     postDriveLowpassFilter.setCutoffFrequency(postDriveLowpass);
     
     for (int i = 0; i < numSamples; ++i)
     {
         float sample = sineBuffer[static_cast<size_t>(i)];
         
-        sample = preDistortionFilter.processSample(sample);
-        sample = applyDistortion(sample, distortionAmount, distortionType);
-        sample = postDriveLowpassFilter.processSample(0, sample);
-        sample = antiAliasingFilter1.processSample(sample);
-        sample = antiAliasingFilter2.processSample(sample);
+        if (distortionAmount > 0.01f)
+        {
+            sample = applyDistortion(sample, distortionAmount, distortionType);
+            sample = postDriveLowpassFilter.processSample(0, sample);
+        }
         
         sineBuffer[static_cast<size_t>(i)] = sample;
     }
     
-    // Final mixing
     for (int i = 0; i < numSamples; ++i)
     {
         size_t idx = static_cast<size_t>(i);
@@ -448,14 +356,11 @@ void SubharmonicEngine::process(float* outputBuffer, int numSamples,
         float sine = std::clamp(cleanSineBuffer[idx], -1.0f, 1.0f);
         float distorted = std::clamp(sineBuffer[idx], -1.0f, 1.0f);
         
-        float envelopedSine = sine * blockEnvelope;
-        float envelopedDistorted = distorted * blockEnvelope;
-        
         float output;
         
         if (distortionAmount < 0.01f)
         {
-            output = inverseMixMode ? 0.0f : envelopedSine * inverseMixAmount;
+            output = inverseMixMode ? 0.0f : sine * inverseMixAmount;
             
             highpassFilter.processSample(0, 0.0f);
             postSubtractionFilter.processSample(0, 0.0f);
@@ -467,7 +372,7 @@ void SubharmonicEngine::process(float* outputBuffer, int numSamples,
         }
         else
         {
-            float harmonics = envelopedDistorted - envelopedSine;
+            float harmonics = distorted - sine;
             float highPassed = highpassFilter.processSample(0, harmonics);
             float smoothedHarmonics = postSubtractionFilter.processSample(0, highPassed);
             
@@ -483,7 +388,7 @@ void SubharmonicEngine::process(float* outputBuffer, int numSamples,
             else
             {
                 float harmonicMix = std::min(1.0f, distortionAmount * 2.0f);
-                output = (envelopedSine * (1.0f - harmonicMix) + smoothedHarmonics * harmonicMix) * inverseMixAmount;
+                output = (sine * (1.0f - harmonicMix) + smoothedHarmonics * harmonicMix) * inverseMixAmount;
             }
         }
         
@@ -560,4 +465,3 @@ float SubharmonicEngine::applyDistortion(float sample, float amount, int type)
             return sample;
     }
 }
-

@@ -5,35 +5,35 @@
 
 class SubharmonicEngine
 {
-public:
+    public:
     SubharmonicEngine();
     ~SubharmonicEngine();
     
     void prepare(double sampleRate, int maxBlockSize);
     void process(float* outputBuffer, int numSamples, float fundamental,
-                float distortionAmount, float inverseMixAmount, 
-                int distortionType, float toneFreq, float postDriveLowpass, bool inverseMixMode = false);
+                 float distortionAmount, float inverseMixAmount,
+                 int distortionType, float toneFreq, float postDriveLowpass, bool inverseMixMode = false);
     
     // Get harmonic residual buffer for visualization
     const std::vector<float>& getHarmonicResidualBuffer() const { return harmonicResidualBuffer; }
     
-private:
+    private:
     // Core parameters
     double sampleRate = 44100.0;
     
     // Frequency management
     double currentFrequency = 0.0;
     double targetFrequency = 0.0;
-    double lastSetFrequency = 0.0;
     double currentAngle = 0.0;
     double angleDelta = 0.0;
-    bool waitingForZeroCrossing = false;
-    float lastSampleValue = 0.0f;
-    static constexpr double frequencySmoothingCoeff = 0.99;
-
+    double targetAngleDelta = 0.0;
+    double phaseIncrement = 0.0;
+    static constexpr double maxDeltaChangePerSample = 0.0001;
+    
     // Envelope parameters
     double envelopeFollower = 0.0;
     double envelopeTarget = 0.0;
+    double sampleEnvelope = 0.0;
     double attackCoeff = 0.0;
     double releaseCoeff = 0.0;
     static constexpr double attackTimeMs = 20.0;
@@ -44,21 +44,16 @@ private:
     bool signalPresent = false;
     int signalOnCounter = 0;
     int signalOffCounter = 0;
+    int settlingCounter = 0;
     static constexpr int signalOnThreshold = 64;
     static constexpr int signalOffThreshold = 960;
+    static constexpr int settlingThreshold = 128;
     
     // Filters
-    juce::dsp::IIR::Filter<float> dcBlockingFilter;
     juce::dsp::StateVariableTPTFilter<float> toneFilter;
     juce::dsp::StateVariableTPTFilter<float> postDriveLowpassFilter;
     juce::dsp::StateVariableTPTFilter<float> highpassFilter;
     juce::dsp::StateVariableTPTFilter<float> postSubtractionFilter;
-    juce::dsp::StateVariableTPTFilter<float> lowFreqSmoothingFilter;
-    juce::dsp::IIR::Filter<float> preDistortionFilter;
-    juce::dsp::IIR::Filter<float> antiAliasingFilter1;
-    juce::dsp::IIR::Filter<float> antiAliasingFilter2;
-    juce::dsp::IIR::Filter<float> antiAliasingFilter3;
-    juce::dsp::IIR::Filter<float> antiAliasingFilter4;
     
     // Oversampling
     std::unique_ptr<juce::dsp::Oversampling<float>> oversampler;
