@@ -55,6 +55,8 @@ private:
     juce::Label fundamentalLimitLabel;
     juce::Label signalLevelLabel;
     
+    juce::ToggleButton inverseMixModeToggle;
+    
     // Parameter attachments
     std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> mixAttachment;
     std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> distortionAttachment;
@@ -64,7 +66,8 @@ private:
     std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> pitchThresholdAttachment;
     std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> fundamentalLimitAttachment;
     std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> distortionTypeAttachment;
-    
+    std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> inverseMixModeAttachment;
+
     // About button
     juce::TextButton aboutButton;
     void showAboutWindow();
