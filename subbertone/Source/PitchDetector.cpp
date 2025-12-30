@@ -1,34 +1,40 @@
 #include "PitchDetector.h"
 #include <algorithm>
-#include <numeric>
+#include <cmath>
 
 PitchDetector::PitchDetector()
 {
-    window = std::make_unique<juce::dsp::WindowingFunction<float>>(
-        static_cast<size_t>(windowSize), 
-        juce::dsp::WindowingFunction<float>::WindowingMethod::hann);
+}
+
+PitchDetector::~PitchDetector()
+{
 }
 
 void PitchDetector::prepare(double newSampleRate, int maxBlockSize)
 {
     sampleRate = newSampleRate;
-    
-    // Adjust window size based on sample rate for consistent frequency resolution
-    windowSize = static_cast<int>(sampleRate * 0.04); // 40ms window
-    windowSize = std::min(windowSize, maxBlockSize * 4); // Limit to reasonable size
-    
-    // Resize buffers
-    windowBuffer.resize(windowSize);
-    autocorrelation.resize(windowSize);
-    
-    // Recreate window function with new size
-    window = std::make_unique<juce::dsp::WindowingFunction<float>>(
-        static_cast<size_t>(windowSize), 
-        juce::dsp::WindowingFunction<float>::WindowingMethod::hann);
-    
+
+    // Buffer size should be large enough for lowest frequency detection
+    // At 40Hz minimum, we need at least 2 periods: 2 * (sampleRate / 40) samples
+    // Using 2048 samples at 44.1kHz gives us down to ~43Hz, 4096 gives ~21Hz
+    bufferSize = static_cast<int>(sampleRate * 0.05); // 50ms window
+    bufferSize = std::max(bufferSize, 2048);
+    bufferSize = std::min(bufferSize, 4096);
+
+    halfBufferSize = bufferSize / 2;
+
+    // Allocate YIN buffer (only needs half the buffer size)
+    yinBuffer.resize(halfBufferSize);
+    std::fill(yinBuffer.begin(), yinBuffer.end(), 0.0f);
+
+    // Allocate input accumulator
+    inputAccumulator.resize(bufferSize);
+    std::fill(inputAccumulator.begin(), inputAccumulator.end(), 0.0f);
+
     // Reset pitch tracking
     previousPitch = 0.0f;
     smoothedPitch = 0.0f;
+    probability = 0.0f;
 }
 
 float PitchDetector::detectPitch(const float* inputBuffer, int numSamples, float threshold)
@@ -40,34 +46,34 @@ float PitchDetector::detectPitch(const float* inputBuffer, int numSamples, float
         rms += inputBuffer[i] * inputBuffer[i];
     }
     rms = std::sqrt(rms / static_cast<float>(numSamples));
-    
+
     // Return smoothed previous pitch if signal is too quiet
     if (rms < threshold * 0.1f)
     {
-        smoothedPitch *= 0.95f; // Gradual decay
+        smoothedPitch *= 0.95f;
         if (smoothedPitch < minFrequency)
             smoothedPitch = 0.0f;
+        probability = 0.0f;
         return smoothedPitch;
     }
-    
-    // Copy input to window buffer (take most recent samples if we have more than windowSize)
-    int startIdx = std::max(0, numSamples - windowSize);
-    int copySize = std::min(numSamples, windowSize);
-    
-    // Shift existing samples if needed
-    if (copySize < windowSize)
+
+    // Accumulate input samples (shift and add new samples)
+    int samplesToShift = std::min(numSamples, bufferSize);
+    if (samplesToShift < bufferSize)
     {
-        std::memmove(windowBuffer.data(), windowBuffer.data() + copySize, 
-                     (windowSize - copySize) * sizeof(float));
+        std::memmove(inputAccumulator.data(),
+                     inputAccumulator.data() + samplesToShift,
+                     (bufferSize - samplesToShift) * sizeof(float));
     }
-    
-    // Copy new samples
-    std::memcpy(windowBuffer.data() + (windowSize - copySize), 
-                inputBuffer + startIdx, copySize * sizeof(float));
-    
-    // Detect pitch using autocorrelation
-    float detectedPitch = detectPitchAutocorrelation(windowBuffer.data(), windowSize);
-    
+
+    int copyStart = std::max(0, numSamples - samplesToShift);
+    std::memcpy(inputAccumulator.data() + (bufferSize - samplesToShift),
+                inputBuffer + copyStart,
+                samplesToShift * sizeof(float));
+
+    // Run YIN pitch detection
+    float detectedPitch = detectPitchYIN(inputAccumulator.data(), bufferSize);
+
     // Apply smoothing
     if (detectedPitch > 0.0f)
     {
@@ -83,7 +89,7 @@ float PitchDetector::detectPitch(const float* inputBuffer, int numSamples, float
             if (ratio > 0.5f && ratio < 2.0f)
             {
                 // Normal smoothing
-                smoothedPitch = smoothedPitch * pitchSmoothingFactor + 
+                smoothedPitch = smoothedPitch * pitchSmoothingFactor +
                                detectedPitch * (1.0f - pitchSmoothingFactor);
             }
             else
@@ -104,138 +110,199 @@ float PitchDetector::detectPitch(const float* inputBuffer, int numSamples, float
             previousPitch = 0.0f;
         }
     }
-    
+
     return smoothedPitch;
 }
 
-float PitchDetector::detectPitchAutocorrelation(const float* buffer, int bufferSize)
+float PitchDetector::detectPitchYIN(const float* buffer, int bufferLength)
 {
-    // Apply window to reduce edge artifacts
-    std::vector<float> windowedBuffer(bufferSize);
-    std::memcpy(windowedBuffer.data(), buffer, bufferSize * sizeof(float));
-    window->multiplyWithWindowingTable(windowedBuffer.data(), static_cast<size_t>(bufferSize));
-    
-    // Calculate autocorrelation
-    calculateAutocorrelation(windowedBuffer.data(), bufferSize);
-    
-    // Find the peak in the autocorrelation function
-    int maxLag = static_cast<int>(sampleRate / minFrequency);
-    int minLag = static_cast<int>(sampleRate / maxFrequency);
-    
-    // Ensure we don't exceed buffer bounds
-    maxLag = std::min(maxLag, bufferSize - 1);
-    
-    int peakLag = findPeakInRange(minLag, maxLag);
-    
-    if (peakLag <= 0)
-        return 0.0f;
-    
-    // Check if peak is strong enough (using normalized autocorrelation)
-    float normalizedPeak = normalizeAutocorrelation(peakLag);
-    if (normalizedPeak < 0.3f) // Threshold for reliable detection
-        return 0.0f;
-    
-    // Refine peak position using parabolic interpolation
-    float refinedLag = refineWithParabolicInterpolation(peakLag);
-    
-    // Convert lag to frequency
-    float frequency = static_cast<float>(sampleRate) / refinedLag;
-    
-    // Clamp to valid range
-    return juce::jlimit(minFrequency, maxFrequency, frequency);
+    // Clear YIN buffer
+    std::fill(yinBuffer.begin(), yinBuffer.end(), 0.0f);
+
+    // Step 1: Calculates the squared difference of the signal with a shifted version of itself
+    yinDifference(buffer);
+
+    // Step 2: Calculate the cumulative mean on the normalized difference
+    yinCumulativeMeanNormalizedDifference();
+
+    // Step 3: Search through the normalized cumulative mean array and find values below threshold
+    int tauEstimate = yinAbsoluteThreshold();
+
+    // Step 4: Parabolic interpolation to improve pitch estimate
+    if (tauEstimate != -1)
+    {
+        float betterTau = yinParabolicInterpolation(tauEstimate);
+        float pitchInHz = static_cast<float>(sampleRate) / betterTau;
+
+        // Clamp to valid frequency range
+        if (pitchInHz >= minFrequency && pitchInHz <= maxFrequency)
+        {
+            return pitchInHz;
+        }
+    }
+
+    return -1.0f;
 }
 
-void PitchDetector::calculateAutocorrelation(const float* buffer, int bufferSize)
+/**
+ * Step 1: Calculates the squared difference of the signal with a shifted version of itself.
+ * This is the YIN algorithm's tweak on autocorrelation.
+ * See: http://audition.ens.fr/adc/pdf/2002_JASA_YIN.pdf
+ */
+void PitchDetector::yinDifference(const float* buffer)
 {
-    // Standard unbiased autocorrelation
-    for (int lag = 0; lag < bufferSize; ++lag)
+    for (int tau = 0; tau < halfBufferSize; ++tau)
     {
-        float sum = 0.0f;
-        int count = bufferSize - lag;
-        
-        for (int i = 0; i < count; ++i)
+        yinBuffer[tau] = 0.0f;
+
+        for (int i = 0; i < halfBufferSize; ++i)
         {
-            sum += buffer[i] * buffer[i + lag];
+            float delta = buffer[i] - buffer[i + tau];
+            yinBuffer[tau] += delta * delta;
         }
-        
-        // Normalize by the number of samples used
-        autocorrelation[lag] = sum / static_cast<float>(count);
     }
 }
 
-int PitchDetector::findPeakInRange(int minLag, int maxLag)
+/**
+ * Step 2: Calculate the cumulative mean on the normalized difference calculated in step 1.
+ * This normalization helps find the true period rather than just the first minimum.
+ */
+void PitchDetector::yinCumulativeMeanNormalizedDifference()
 {
-    // Skip lag 0 (always maximum)
-    float maxValue = -std::numeric_limits<float>::infinity();
-    int maxIndex = -1;
-    
-    // Find first significant peak after the initial decline
-    bool foundValley = false;
-    float previousValue = autocorrelation[minLag];
-    
-    for (int lag = minLag + 1; lag < maxLag; ++lag)
+    float runningSum = 0.0f;
+    yinBuffer[0] = 1.0f;
+
+    for (int tau = 1; tau < halfBufferSize; ++tau)
     {
-        float currentValue = autocorrelation[lag];
-        
-        // Look for valley first (autocorrelation typically drops after lag 0)
-        if (!foundValley && currentValue < previousValue * 0.9f)
+        runningSum += yinBuffer[tau];
+
+        if (runningSum != 0.0f)
         {
-            foundValley = true;
+            yinBuffer[tau] *= static_cast<float>(tau) / runningSum;
         }
-        
-        // After finding valley, look for peak
-        if (foundValley && currentValue > maxValue)
+        else
         {
-            maxValue = currentValue;
-            maxIndex = lag;
-        }
-        
-        previousValue = currentValue;
-    }
-    
-    // Verify this is a true peak (not just noise)
-    if (maxIndex > minLag && maxIndex < maxLag - 1)
-    {
-        // Check if it's a local maximum
-        if (autocorrelation[maxIndex] > autocorrelation[maxIndex - 1] &&
-            autocorrelation[maxIndex] > autocorrelation[maxIndex + 1])
-        {
-            return maxIndex;
+            yinBuffer[tau] = 1.0f;
         }
     }
-    
+}
+
+/**
+ * Step 3: Search through the normalized cumulative mean array and find values below threshold.
+ * Returns the tau (lag) which produces the best autocorrelation, or -1 if not found.
+ */
+int PitchDetector::yinAbsoluteThreshold()
+{
+    int tau;
+
+    // Calculate the minimum tau based on maximum frequency
+    int minTau = static_cast<int>(sampleRate / maxFrequency);
+    minTau = std::max(2, minTau); // At least 2 to avoid edge cases
+
+    // Calculate the maximum tau based on minimum frequency
+    int maxTau = static_cast<int>(sampleRate / minFrequency);
+    maxTau = std::min(maxTau, halfBufferSize);
+
+    // Search through the array of cumulative mean values
+    // Start from minTau to ignore high frequencies outside our range
+    for (tau = minTau; tau < maxTau; ++tau)
+    {
+        if (yinBuffer[tau] < yinThreshold)
+        {
+            // Look for the local minimum
+            while (tau + 1 < maxTau && yinBuffer[tau + 1] < yinBuffer[tau])
+            {
+                ++tau;
+            }
+
+            // Store the probability
+            // From the YIN paper: The threshold determines the list of
+            // candidates admitted to the set, and can be interpreted as the
+            // proportion of aperiodic power tolerated within a periodic signal.
+            // Since we want periodicity and not aperiodicity:
+            // periodicity = 1 - aperiodicity
+            probability = 1.0f - yinBuffer[tau];
+            return tau;
+        }
+    }
+
+    // No pitch found
+    probability = 0.0f;
     return -1;
 }
 
-float PitchDetector::refineWithParabolicInterpolation(int peakIndex)
+/**
+ * Step 4: Interpolate the shift value (tau) to improve the pitch estimate.
+ * The 'best' shift value for autocorrelation is most likely not an integer shift.
+ * As we only autocorrelated using integer shifts, we should check for a better
+ * fractional shift value using parabolic interpolation.
+ */
+float PitchDetector::yinParabolicInterpolation(int tauEstimate)
 {
-    // Parabolic interpolation for sub-sample accuracy
-    if (peakIndex <= 0 || peakIndex >= static_cast<int>(autocorrelation.size()) - 1)
-        return static_cast<float>(peakIndex);
-    
-    float y1 = autocorrelation[peakIndex - 1];
-    float y2 = autocorrelation[peakIndex];
-    float y3 = autocorrelation[peakIndex + 1];
-    
-    float a = (y1 - 2.0f * y2 + y3) * 0.5f;
-    float b = (y3 - y1) * 0.5f;
-    
-    if (std::abs(a) < 1e-10f) // Avoid division by very small number
-        return static_cast<float>(peakIndex);
-    
-    float xOffset = -b / (2.0f * a);
-    
-    // Limit offset to reasonable range
-    xOffset = juce::jlimit(-0.5f, 0.5f, xOffset);
-    
-    return static_cast<float>(peakIndex) + xOffset;
-}
+    float betterTau;
+    int x0, x2;
 
-float PitchDetector::normalizeAutocorrelation(int lag)
-{
-    // Normalize by the zero-lag autocorrelation (signal energy)
-    if (autocorrelation[0] <= 0.0f)
-        return 0.0f;
-    
-    return autocorrelation[lag] / autocorrelation[0];
+    // Calculate the first polynomial coefficient based on the current estimate of tau
+    if (tauEstimate < 1)
+    {
+        x0 = tauEstimate;
+    }
+    else
+    {
+        x0 = tauEstimate - 1;
+    }
+
+    // Calculate the second polynomial coefficient based on the current estimate of tau
+    if (tauEstimate + 1 < halfBufferSize)
+    {
+        x2 = tauEstimate + 1;
+    }
+    else
+    {
+        x2 = tauEstimate;
+    }
+
+    // Algorithm to parabolically interpolate the shift value tau
+    if (x0 == tauEstimate)
+    {
+        if (yinBuffer[tauEstimate] <= yinBuffer[x2])
+        {
+            betterTau = static_cast<float>(tauEstimate);
+        }
+        else
+        {
+            betterTau = static_cast<float>(x2);
+        }
+    }
+    else if (x2 == tauEstimate)
+    {
+        if (yinBuffer[tauEstimate] <= yinBuffer[x0])
+        {
+            betterTau = static_cast<float>(tauEstimate);
+        }
+        else
+        {
+            betterTau = static_cast<float>(x0);
+        }
+    }
+    else
+    {
+        float s0 = yinBuffer[x0];
+        float s1 = yinBuffer[tauEstimate];
+        float s2 = yinBuffer[x2];
+
+        // Fixed AUBIO implementation (thanks to Karl Helgason)
+        float denominator = 2.0f * (2.0f * s1 - s2 - s0);
+
+        if (std::abs(denominator) > 1e-10f)
+        {
+            betterTau = static_cast<float>(tauEstimate) + (s2 - s0) / denominator;
+        }
+        else
+        {
+            betterTau = static_cast<float>(tauEstimate);
+        }
+    }
+
+    return betterTau;
 }

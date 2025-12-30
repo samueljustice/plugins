@@ -1,0 +1,399 @@
+name: Build and Release Stretch Armstrong
+
+on:
+  push:
+    tags:
+      - 'stretcharmstrong-v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        submodules: recursive
+
+    - name: Create SDK directory structure
+      run: |
+        mkdir SDK
+
+    - name: Setup JUCE
+      run: |
+        cd SDK
+        git clone https://github.com/juce-framework/JUCE.git
+        cd JUCE
+        git checkout 7.0.12
+
+    - name: Download and Build Rubber Band
+      shell: cmd
+      run: |
+        cd SDK
+        git clone https://github.com/breakfastquay/rubberband.git rubberband-4.0.0
+        cd rubberband-4.0.0
+        mkdir lib
+        REM Note: Rubber Band needs to be built separately for Windows
+        REM For now, we'll use meson build
+
+    - name: Configure CMake
+      run: |
+        cd stretcharmstrong
+        cmake -B build -S . -DCMAKE_BUILD_TYPE=Release
+
+    - name: Build VST3
+      run: |
+        cd stretcharmstrong
+        cmake --build build --config Release
+
+    - name: Package Windows VST3
+      run: |
+        cd stretcharmstrong
+
+        echo "Contents of VST3 directory:"
+        Get-ChildItem -Path "build\StretchArmstrong_artefacts\Release\VST3" -Recurse | Select-Object FullName, Length, Mode
+
+        $vst3Dir = "windows-vst3-package"
+        New-Item -ItemType Directory -Force -Path $vst3Dir
+
+        Copy-Item -Path "build\StretchArmstrong_artefacts\Release\VST3\SammyJs Stretch Armstrong.vst3" -Destination $vst3Dir -Recurse
+        echo "Copied VST3 bundle to package directory"
+
+        echo "Final VST3 package structure:"
+        Get-ChildItem -Path $vst3Dir -Recurse | Select-Object FullName
+
+    - name: Create Windows Installer
+      run: |
+        cd stretcharmstrong
+
+        if (!(Test-Path "LICENSE")) {
+          echo "Copyright (c) 2025 Samuel Justice. All rights reserved." > LICENSE
+        }
+
+        curl -L https://files.jrsoftware.org/is/6/innosetup-6.2.2.exe -o innosetup.exe
+        .\innosetup.exe /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /SP-
+
+        $env:Path += ";${env:ProgramFiles(x86)}\Inno Setup 6"
+
+        & "${env:ProgramFiles(x86)}\Inno Setup 6\iscc.exe" installer.iss /O"." /F"SammyJs_Stretch_Armstrong_Installer"
+
+    - name: Upload Windows Installer
+      uses: actions/upload-artifact@v4
+      with:
+        name: windows-installer
+        path: stretcharmstrong/SammyJs_Stretch_Armstrong_Installer.exe
+
+    - name: Upload Windows VST3
+      uses: actions/upload-artifact@v4
+      with:
+        name: windows-vst3
+        path: stretcharmstrong/windows-vst3-package/
+
+  build-macos:
+    runs-on: macos-latest
+
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        submodules: recursive
+
+    - name: Create SDK directory structure
+      run: |
+        mkdir SDK
+
+    - name: Setup JUCE
+      run: |
+        cd SDK
+        git clone https://github.com/juce-framework/JUCE.git
+        cd JUCE
+        git checkout 7.0.12
+
+    - name: Download and Build Rubber Band
+      run: |
+        cd SDK
+        git clone https://github.com/breakfastquay/rubberband.git rubberband-4.0.0
+        cd rubberband-4.0.0
+
+        # Build with meson
+        pip3 install meson ninja
+        meson setup build --buildtype=release -Ddefault_library=static
+        cd build
+        ninja
+
+        # Copy library to expected location
+        mkdir -p ../lib
+        cp librubberband.a ../lib/
+
+    - name: Check for Certificates
+      id: check_certs
+      run: |
+        if [[ -n "${{ secrets.APPLE_DEVELOPER_CERTIFICATE_P12_BASE64 }}" ]]; then
+          echo "has_certs=true" >> $GITHUB_OUTPUT
+        else
+          echo "has_certs=false" >> $GITHUB_OUTPUT
+        fi
+
+    - name: Import Certificates
+      if: steps.check_certs.outputs.has_certs == 'true'
+      uses: apple-actions/import-codesign-certs@v2
+      with:
+        p12-file-base64: ${{ secrets.APPLE_DEVELOPER_CERTIFICATE_P12_BASE64 }}
+        p12-password: ${{ secrets.APPLE_DEVELOPER_CERTIFICATE_PASSWORD }}
+
+    - name: Verify Certificates
+      if: steps.check_certs.outputs.has_certs == 'true'
+      run: |
+        echo "Verifying imported certificates..."
+        security find-identity -v -p codesigning
+
+        APP_CERT=$(security find-identity -v -p codesigning | grep "Developer ID Application" | head -1)
+        INST_CERT=$(security find-identity -v -p basic | grep "Developer ID Installer" | head -1)
+
+        if [ -z "$APP_CERT" ]; then
+          echo "ERROR: Developer ID Application certificate not found!"
+          exit 1
+        fi
+
+        if [ -z "$INST_CERT" ]; then
+          echo "ERROR: Developer ID Installer certificate not found!"
+          exit 1
+        fi
+
+        echo "Both certificates imported successfully"
+
+    - name: Configure CMake
+      run: |
+        cd stretcharmstrong
+        cmake -B build -S . -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_ARCHITECTURES="x86_64;arm64"
+
+    - name: Build VST3 and AU
+      run: |
+        cd stretcharmstrong
+        cmake --build build --config Release
+
+    - name: Sign Plugins
+      if: steps.check_certs.outputs.has_certs == 'true'
+      env:
+        APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      run: |
+        cd stretcharmstrong
+
+        IDENTITY=$(security find-identity -v -p codesigning | grep "Developer ID Application" | head -1 | awk -F'"' '{print $2}')
+
+        codesign --force --sign "$IDENTITY" --timestamp \
+          --options runtime \
+          --deep \
+          build/StretchArmstrong_artefacts/Release/VST3/*.vst3
+
+        codesign --force --sign "$IDENTITY" --timestamp \
+          --options runtime \
+          --deep \
+          build/StretchArmstrong_artefacts/Release/AU/*.component
+
+    - name: Notarize Plugins
+      if: steps.check_certs.outputs.has_certs == 'true'
+      env:
+        APPLE_ID: ${{ secrets.APPLE_ID }}
+        APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+        APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      run: |
+        cd stretcharmstrong
+
+        cd build/StretchArmstrong_artefacts/Release/VST3
+        zip -r ../../../../VST3.zip *.vst3
+        cd ../AU
+        zip -r ../../../../AU.zip *.component
+        cd ../../../..
+
+        echo "Notarizing VST3..."
+        xcrun notarytool submit VST3.zip \
+          --apple-id "$APPLE_ID" \
+          --password "$APPLE_APP_PASSWORD" \
+          --team-id "$APPLE_TEAM_ID" \
+          --wait
+
+        echo "Notarizing AU..."
+        xcrun notarytool submit AU.zip \
+          --apple-id "$APPLE_ID" \
+          --password "$APPLE_APP_PASSWORD" \
+          --team-id "$APPLE_TEAM_ID" \
+          --wait
+
+        cd build/StretchArmstrong_artefacts/Release/VST3
+        for plugin in *.vst3; do
+          xcrun stapler staple "$plugin"
+        done
+        cd ../AU
+        for plugin in *.component; do
+          xcrun stapler staple "$plugin"
+        done
+        cd ../../../..
+
+    - name: Create macOS Installer Package
+      env:
+        APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      run: |
+        cd stretcharmstrong
+
+        mkdir -p installer/vst3
+        mkdir -p installer/au
+
+        cp -R build/StretchArmstrong_artefacts/Release/VST3/*.vst3 installer/vst3/
+        cp -R build/StretchArmstrong_artefacts/Release/AU/*.component installer/au/
+
+        VERSION="${GITHUB_REF#refs/tags/stretcharmstrong-v}"
+        if [ -z "$VERSION" ] || [ "$VERSION" = "$GITHUB_REF" ]; then
+          VERSION="1.0.0"
+        fi
+
+        pkgbuild --identifier "com.sweetjusticesound.stretcharmstrong.vst3" \
+          --install-location "/Library/Audio/Plug-Ins/VST3" \
+          --root installer/vst3 \
+          --version "$VERSION" \
+          vst3.pkg
+
+        pkgbuild --identifier "com.sweetjusticesound.stretcharmstrong.au" \
+          --install-location "/Library/Audio/Plug-Ins/Components" \
+          --root installer/au \
+          --version "$VERSION" \
+          au.pkg
+
+        cat > distribution.xml << EOF
+        <?xml version="1.0" encoding="utf-8"?>
+        <installer-gui-script minSpecVersion="2.0">
+            <title>SammyJs Stretch Armstrong</title>
+            <organization>com.sweetjusticesound</organization>
+            <domains enable_localSystem="true"/>
+            <options customize="always" require-scripts="false" hostArchitectures="x86_64,arm64"/>
+            <choices-outline>
+                <line choice="com.sweetjusticesound.stretcharmstrong.vst3"/>
+                <line choice="com.sweetjusticesound.stretcharmstrong.au"/>
+            </choices-outline>
+            <choice id="com.sweetjusticesound.stretcharmstrong.vst3" title="VST3 Plugin">
+                <pkg-ref id="com.sweetjusticesound.stretcharmstrong.vst3"/>
+            </choice>
+            <choice id="com.sweetjusticesound.stretcharmstrong.au" title="Audio Unit">
+                <pkg-ref id="com.sweetjusticesound.stretcharmstrong.au"/>
+            </choice>
+            <pkg-ref id="com.sweetjusticesound.stretcharmstrong.vst3">vst3.pkg</pkg-ref>
+            <pkg-ref id="com.sweetjusticesound.stretcharmstrong.au">au.pkg</pkg-ref>
+        </installer-gui-script>
+        EOF
+
+        productbuild --distribution distribution.xml \
+          --package-path . \
+          --version "$VERSION" \
+          "SammyJs_Stretch_Armstrong_Installer.pkg"
+
+        if [[ -n "$APPLE_TEAM_ID" ]]; then
+          IDENTITY=$(security find-identity -v -p codesigning | grep "Developer ID Application" | head -1 | awk -F'"' '{print $2}')
+
+          for vst in installer/vst3/*.vst3; do
+            codesign --force --sign "$IDENTITY" --timestamp --options runtime --deep "$vst"
+          done
+
+          for au in installer/au/*.component; do
+            codesign --force --sign "$IDENTITY" --timestamp --options runtime --deep "$au"
+          done
+
+          rm -f vst3.pkg au.pkg
+
+          pkgbuild --identifier "com.sweetjusticesound.stretcharmstrong.vst3" \
+            --install-location "/Library/Audio/Plug-Ins/VST3" \
+            --root installer/vst3 \
+            --version "$VERSION" \
+            vst3.pkg
+
+          pkgbuild --identifier "com.sweetjusticesound.stretcharmstrong.au" \
+            --install-location "/Library/Audio/Plug-Ins/Components" \
+            --root installer/au \
+            --version "$VERSION" \
+            au.pkg
+
+          productbuild --distribution distribution.xml \
+            --package-path . \
+            --version "$VERSION" \
+            "SammyJs_Stretch_Armstrong_Installer.pkg"
+
+          INSTALLER_IDENTITY=$(security find-identity -v -p basic | grep "Developer ID Installer" | head -1 | awk -F'"' '{print $2}')
+          productsign --sign "$INSTALLER_IDENTITY" \
+            "SammyJs_Stretch_Armstrong_Installer.pkg" \
+            "SammyJs_Stretch_Armstrong_Installer_Signed.pkg"
+          mv "SammyJs_Stretch_Armstrong_Installer_Signed.pkg" "SammyJs_Stretch_Armstrong_Installer.pkg"
+        fi
+
+    - name: Notarize Installer
+      if: steps.check_certs.outputs.has_certs == 'true'
+      env:
+        APPLE_ID: ${{ secrets.APPLE_ID }}
+        APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+        APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      run: |
+        cd stretcharmstrong
+
+        SUBMISSION_ID=$(xcrun notarytool submit "SammyJs_Stretch_Armstrong_Installer.pkg" \
+          --apple-id "$APPLE_ID" \
+          --password "$APPLE_APP_PASSWORD" \
+          --team-id "$APPLE_TEAM_ID" \
+          --output-format json | jq -r '.id')
+
+        echo "Waiting for notarization..."
+        xcrun notarytool wait "$SUBMISSION_ID" \
+          --apple-id "$APPLE_ID" \
+          --password "$APPLE_APP_PASSWORD" \
+          --team-id "$APPLE_TEAM_ID"
+
+        xcrun stapler staple "SammyJs_Stretch_Armstrong_Installer.pkg"
+
+    - name: Upload macOS Installer
+      uses: actions/upload-artifact@v4
+      with:
+        name: macos-installer
+        path: stretcharmstrong/SammyJs_Stretch_Armstrong_Installer.pkg
+
+    - name: Upload macOS VST3
+      uses: actions/upload-artifact@v4
+      with:
+        name: macos-vst3
+        path: stretcharmstrong/build/StretchArmstrong_artefacts/Release/VST3/*.vst3
+
+    - name: Upload macOS AU
+      uses: actions/upload-artifact@v4
+      with:
+        name: macos-au
+        path: stretcharmstrong/build/StretchArmstrong_artefacts/Release/AU/*.component
+
+  create-release:
+    needs: [build-windows, build-macos]
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+
+    steps:
+    - name: Download all artifacts
+      uses: actions/download-artifact@v4
+
+    - name: Create ZIP files
+      run: |
+        cd windows-vst3
+        zip -r ../StretchArmstrong-Windows-VST3.zip *.vst3
+        cd ../macos-vst3
+        zip -r ../StretchArmstrong-macOS-VST3.zip *
+        cd ../macos-au
+        zip -r ../StretchArmstrong-macOS-AU.zip *
+        cd ..
+
+    - name: Create Release
+      uses: softprops/action-gh-release@v1
+      with:
+        files: |
+          StretchArmstrong-Windows-VST3.zip
+          StretchArmstrong-macOS-VST3.zip
+          StretchArmstrong-macOS-AU.zip
+          windows-installer/*.exe
+          macos-installer/*.pkg
+        generate_release_notes: true
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
