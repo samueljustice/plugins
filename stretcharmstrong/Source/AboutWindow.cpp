@@ -28,21 +28,21 @@ void AboutWindow::closeButtonPressed()
 
 AboutWindow::AboutContent::AboutContent()
 {
-    websiteButton.setButtonText("samueljustice.com");
+    websiteButton.setButtonText("sweetjusticesound.com");
     websiteButton.setColour(juce::TextButton::buttonColourId, juce::Colours::transparentBlack);
     websiteButton.setColour(juce::TextButton::textColourOffId, juce::Colour(0xff00ffff));
     websiteButton.onClick = []
     {
-        juce::URL("https://samueljustice.com").launchInDefaultBrowser();
+        juce::URL("https://sweetjusticesound.com").launchInDefaultBrowser();
     };
     addAndMakeVisible(websiteButton);
 
-    emailButton.setButtonText("sam@samueljustice.com");
+    emailButton.setButtonText("sam@sweetjusticesound.com");
     emailButton.setColour(juce::TextButton::buttonColourId, juce::Colours::transparentBlack);
     emailButton.setColour(juce::TextButton::textColourOffId, juce::Colour(0xff00ffff));
     emailButton.onClick = []
     {
-        juce::URL("mailto:sam@samueljustice.com").launchInDefaultBrowser();
+        juce::URL("mailto:sam@sweetjusticesound.com").launchInDefaultBrowser();
     };
     addAndMakeVisible(emailButton);
 
