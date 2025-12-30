@@ -92,9 +92,6 @@ private:
     std::unique_ptr<PitchDetector> pitchDetector;
     float pitchFollowerValue = 0.0f;
     float slewedPitchFollower = 0.0f; // Slewed version for smooth modulation
-    float referencePitch = 440.0f;    // Reference pitch for normalization
-    float minPitch = 40.0f;
-    float maxPitch = 1000.0f;
 
     // Slewing coefficients
     float modulationSlewCoeff = 0.0f;
