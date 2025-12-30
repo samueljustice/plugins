@@ -15,6 +15,7 @@ StretchArmstrongAudioProcessor::StretchArmstrongAudioProcessor()
        parameters(*this, nullptr, juce::Identifier("StretchArmstrongParameters"), createParameterLayout())
 {
     stretchEngine = std::make_unique<StretchEngine>();
+    pitchDetector = std::make_unique<PitchDetector>();
 
     inputVisualBuffer.resize(visualBufferSize, 0.0f);
     outputVisualBuffer.resize(visualBufferSize, 0.0f);
@@ -74,6 +75,56 @@ juce::AudioProcessorValueTreeState::ParameterLayout StretchArmstrongAudioProcess
         juce::ParameterID("outputGain", 1), "Output Gain",
         juce::NormalisableRange<float>(-24.0f, 24.0f, 0.1f), 0.0f,
         juce::AudioParameterFloatAttributes().withLabel("dB")));
+
+    // ===== ENVELOPE FOLLOWER SECTION =====
+
+    // Envelope follower enable
+    params.push_back(std::make_unique<juce::AudioParameterBool>(
+        juce::ParameterID("envFollowEnable", 1), "Env Enable", false));
+
+    // Envelope follower amount - how much input level modulates stretch ratio
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID("envFollowAmount", 1), "Env Amount",
+        juce::NormalisableRange<float>(0.0f, 100.0f, 0.1f), 50.0f,
+        juce::AudioParameterFloatAttributes().withLabel("%")));
+
+    // Envelope follower attack time
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID("envFollowAttack", 1), "Env Attack",
+        juce::NormalisableRange<float>(0.1f, 100.0f, 0.1f, 0.5f), 5.0f,
+        juce::AudioParameterFloatAttributes().withLabel("ms")));
+
+    // Envelope follower release time
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID("envFollowRelease", 1), "Env Release",
+        juce::NormalisableRange<float>(1.0f, 500.0f, 0.1f, 0.5f), 50.0f,
+        juce::AudioParameterFloatAttributes().withLabel("ms")));
+
+    // ===== PITCH FOLLOWER SECTION =====
+
+    // Pitch follower enable
+    params.push_back(std::make_unique<juce::AudioParameterBool>(
+        juce::ParameterID("pitchFollowEnable", 1), "Pitch Enable", false));
+
+    // Pitch follower amount - how much pitch modulates stretch ratio
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID("pitchFollowAmount", 1), "Pitch Amount",
+        juce::NormalisableRange<float>(0.0f, 100.0f, 0.1f), 50.0f,
+        juce::AudioParameterFloatAttributes().withLabel("%")));
+
+    // Reference pitch for pitch following (center frequency)
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID("pitchFollowRef", 1), "Pitch Ref",
+        juce::NormalisableRange<float>(40.0f, 500.0f, 1.0f, 0.5f), 200.0f,
+        juce::AudioParameterFloatAttributes().withLabel("Hz")));
+
+    // ===== SLEW/SMOOTHING SECTION =====
+
+    // Modulation slew time (affects both env and pitch followers)
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID("modulationSlew", 1), "Mod Slew",
+        juce::NormalisableRange<float>(1.0f, 500.0f, 0.1f, 0.5f), 50.0f,
+        juce::AudioParameterFloatAttributes().withLabel("ms")));
 
     return { params.begin(), params.end() };
 }
@@ -149,6 +200,9 @@ void StretchArmstrongAudioProcessor::prepareToPlay(double sampleRate, int sample
                           static_cast<StretchEngine::StretchType>(stretchType),
                           stretchRatio);
 
+    // Prepare pitch detector
+    pitchDetector->prepare(sampleRate, samplesPerBlock);
+
     // Report latency
     setLatencySamples(stretchEngine->getLatencySamples());
 
@@ -159,6 +213,12 @@ void StretchArmstrongAudioProcessor::prepareToPlay(double sampleRate, int sample
     signalAboveThreshold = false;
     samplesAboveThreshold = 0;
     samplesBelowThreshold = 0;
+
+    // Reset modulation state
+    envFollowerValue = 0.0f;
+    slewedEnvFollower = 0.0f;
+    pitchFollowerValue = 0.0f;
+    slewedPitchFollower = 0.0f;
 }
 
 void StretchArmstrongAudioProcessor::releaseResources()
@@ -207,8 +267,33 @@ void StretchArmstrongAudioProcessor::processBlock(juce::AudioBuffer<float>& buff
     float outputGainDb = parameters.getRawParameterValue("outputGain")->load();
     float outputGain = juce::Decibels::decibelsToGain(outputGainDb);
 
+    // Envelope follower parameters
+    bool envFollowEnable = parameters.getRawParameterValue("envFollowEnable")->load() > 0.5f;
+    float envFollowAmount = parameters.getRawParameterValue("envFollowAmount")->load() / 100.0f;
+    float envFollowAttackMs = parameters.getRawParameterValue("envFollowAttack")->load();
+    float envFollowReleaseMs = parameters.getRawParameterValue("envFollowRelease")->load();
+
+    // Pitch follower parameters
+    bool pitchFollowEnable = parameters.getRawParameterValue("pitchFollowEnable")->load() > 0.5f;
+    float pitchFollowAmount = parameters.getRawParameterValue("pitchFollowAmount")->load() / 100.0f;
+    float pitchFollowRef = parameters.getRawParameterValue("pitchFollowRef")->load();
+
+    // Slew parameter
+    float modulationSlewMs = parameters.getRawParameterValue("modulationSlew")->load();
+
+    // Calculate envelope follower coefficients
+    envFollowerAttackCoeff = std::exp(-1.0f / (envFollowAttackMs * 0.001f * static_cast<float>(currentSampleRate)));
+    envFollowerReleaseCoeff = std::exp(-1.0f / (envFollowReleaseMs * 0.001f * static_cast<float>(currentSampleRate)));
+
+    // Calculate slew coefficient (for smoothing modulation values)
+    modulationSlewCoeff = std::exp(-1.0f / (modulationSlewMs * 0.001f * static_cast<float>(currentSampleRate)));
+
     // Convert threshold to linear
     float thresholdLinear = juce::Decibels::decibelsToGain(thresholdDb);
+
+    // Get buffer dimensions early (needed for pitch detection)
+    int numSamples = buffer.getNumSamples();
+    int numChannels = buffer.getNumChannels();
 
     // Calculate envelope coefficients (samples)
     float attackSamples = (attackMs / 1000.0f) * static_cast<float>(currentSampleRate);
@@ -218,18 +303,75 @@ void StretchArmstrongAudioProcessor::processBlock(juce::AudioBuffer<float>& buff
     float attackCoeff = 1.0f / std::max(1.0f, attackSamples);
     float releaseCoeff = 1.0f / std::max(1.0f, releaseSamples);
 
+    // ===== PITCH DETECTION =====
+    // Run pitch detection on mono input (use first channel or average)
+    if (pitchFollowEnable && numChannels > 0)
+    {
+        const float* monoInput = buffer.getReadPointer(0);
+        float detectedPitch = pitchDetector->detectPitch(monoInput, numSamples, thresholdLinear);
+
+        // Normalize pitch to 0-1 range based on reference
+        // Pitch above reference = positive modulation (more stretch)
+        // Pitch below reference = negative modulation (less stretch)
+        if (detectedPitch > 0.0f)
+        {
+            // Log-scale normalization: pitchFollowerValue ranges from -1 to +1
+            // +1 when pitch is at maxPitch, -1 when pitch is at minPitch, 0 at reference
+            float octavesFromRef = std::log2(detectedPitch / pitchFollowRef);
+            pitchFollowerValue = juce::jlimit(-1.0f, 1.0f, octavesFromRef / 2.0f); // ±2 octaves = ±1
+        }
+        else
+        {
+            // No pitch detected - decay towards 0
+            pitchFollowerValue *= 0.95f;
+        }
+    }
+    else
+    {
+        pitchFollowerValue *= 0.95f;
+    }
+
+    // ===== APPLY SLEWING TO MODULATION SOURCES =====
+    // Smooth envelope follower
+    slewedEnvFollower = slewedEnvFollower * modulationSlewCoeff +
+                        envFollowerValue * (1.0f - modulationSlewCoeff);
+
+    // Smooth pitch follower
+    slewedPitchFollower = slewedPitchFollower * modulationSlewCoeff +
+                          pitchFollowerValue * (1.0f - modulationSlewCoeff);
+
+    // ===== CALCULATE MODULATED STRETCH RATIO =====
+    float totalModulation = 0.0f;
+
+    // Apply envelope follower modulation if enabled
+    if (envFollowEnable)
+    {
+        float envMod = std::min(1.0f, slewedEnvFollower); // 0 to 1
+        totalModulation += envMod * envFollowAmount;
+    }
+
+    // Apply pitch follower modulation if enabled
+    if (pitchFollowEnable)
+    {
+        // Pitch modulation: higher pitch = more stretch, lower = less
+        totalModulation += slewedPitchFollower * pitchFollowAmount;
+    }
+
+    // Modulate stretch ratio:
+    // Base ratio is scaled by (1 + totalModulation)
+    // This means 100% env at full level doubles the stretch effect
+    float modulatedStretchRatio = 1.0f + (stretchRatio - 1.0f) * (1.0f + totalModulation);
+    modulatedStretchRatio = juce::jlimit(0.1f, 8.0f, modulatedStretchRatio); // Safety clamp
+
     // Update stretch engine parameters
     stretchEngine->setStretchType(static_cast<StretchEngine::StretchType>(stretchType));
-    stretchEngine->setStretchRatio(stretchRatio);
+    stretchEngine->setStretchRatio(modulatedStretchRatio);
 
     // Store dry signal
     juce::AudioBuffer<float> dryBuffer;
     dryBuffer.makeCopyOf(buffer);
 
-    int numSamples = buffer.getNumSamples();
-    int numChannels = buffer.getNumChannels();
-
-    // Process each sample for threshold detection and envelope
+    // Process each sample for threshold detection, envelope, and envelope follower
     for (int i = 0; i < numSamples; ++i)
     {
         // Calculate peak level across all channels
@@ -237,6 +379,18 @@ void StretchArmstrongAudioProcessor::processBlock(juce::AudioBuffer<float>& buff
         for (int ch = 0; ch < numChannels; ++ch)
         {
             peakLevel = std::max(peakLevel, std::abs(buffer.getSample(ch, i)));
+        }
+
+        // Update envelope follower (tracks amplitude with attack/release smoothing)
+        if (peakLevel > envFollowerValue)
+        {
+            // Attack: level is rising
+            envFollowerValue = envFollowerAttackCoeff * envFollowerValue + (1.0f - envFollowerAttackCoeff) * peakLevel;
+        }
+        else
+        {
+            // Release: level is falling
+            envFollowerValue = envFollowerReleaseCoeff * envFollowerValue + (1.0f - envFollowerReleaseCoeff) * peakLevel;
         }
 
         // Check threshold with hysteresis

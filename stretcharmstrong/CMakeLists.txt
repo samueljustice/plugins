@@ -65,6 +65,7 @@ target_sources(StretchArmstrong
     Source/WaveformVisualizer.cpp
     Source/PresetManager.cpp
     Source/AboutWindow.cpp
+    Source/PitchDetector.cpp
 )
 
 # Include directories

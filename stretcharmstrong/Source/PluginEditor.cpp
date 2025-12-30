@@ -21,6 +21,36 @@ StretchArmstrongAudioProcessorEditor::StretchArmstrongAudioProcessorEditor(Stret
     setupSlider(mixSlider, mixLabel, "%");
     setupSlider(outputGainSlider, outputGainLabel, " dB");
 
+    // Set up envelope follower controls
+    envFollowEnableButton.setColour(juce::ToggleButton::textColourId, juce::Colour(0xffff9900));
+    envFollowEnableButton.setColour(juce::ToggleButton::tickColourId, juce::Colour(0xffff9900));
+    addAndMakeVisible(envFollowEnableButton);
+
+    setupSlider(envFollowAmountSlider, envFollowAmountLabel, "%");
+    setupSlider(envFollowAttackSlider, envFollowAttackLabel, " ms");
+    setupSlider(envFollowReleaseSlider, envFollowReleaseLabel, " ms");
+
+    // Different color for envelope follower knobs
+    envFollowAmountSlider.setColour(juce::Slider::rotarySliderFillColourId, juce::Colour(0xffff9900));
+    envFollowAttackSlider.setColour(juce::Slider::rotarySliderFillColourId, juce::Colour(0xffff9900));
+    envFollowReleaseSlider.setColour(juce::Slider::rotarySliderFillColourId, juce::Colour(0xffff9900));
+
+    // Set up pitch follower controls
+    pitchFollowEnableButton.setColour(juce::ToggleButton::textColourId, juce::Colour(0xff00ff88));
+    pitchFollowEnableButton.setColour(juce::ToggleButton::tickColourId, juce::Colour(0xff00ff88));
+    addAndMakeVisible(pitchFollowEnableButton);
+
+    setupSlider(pitchFollowAmountSlider, pitchFollowAmountLabel, "%");
+    setupSlider(pitchFollowRefSlider, pitchFollowRefLabel, " Hz");
+
+    // Different color for pitch follower knobs
+    pitchFollowAmountSlider.setColour(juce::Slider::rotarySliderFillColourId, juce::Colour(0xff00ff88));
+    pitchFollowRefSlider.setColour(juce::Slider::rotarySliderFillColourId, juce::Colour(0xff00ff88));
+
+    // Set up slew control
+    setupSlider(modulationSlewSlider, modulationSlewLabel, " ms");
+    modulationSlewSlider.setColour(juce::Slider::rotarySliderFillColourId, juce::Colour(0xffff00ff));
+
     // Stretch type combo box
     stretchTypeCombo.addItem("Varispeed", 1);
     stretchTypeCombo.addItem("Time Stretch", 2);
@@ -48,14 +78,36 @@ StretchArmstrongAudioProcessorEditor::StretchArmstrongAudioProcessorEditor(Stret
     outputGainAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
         audioProcessor.parameters, "outputGain", outputGainSlider);
 
+    // Envelope follower attachments
+    envFollowEnableAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment>(
+        audioProcessor.parameters, "envFollowEnable", envFollowEnableButton);
+    envFollowAmountAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
+        audioProcessor.parameters, "envFollowAmount", envFollowAmountSlider);
+    envFollowAttackAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
+        audioProcessor.parameters, "envFollowAttack", envFollowAttackSlider);
+    envFollowReleaseAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
+        audioProcessor.parameters, "envFollowRelease", envFollowReleaseSlider);
+
+    // Pitch follower attachments
+    pitchFollowEnableAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment>(
+        audioProcessor.parameters, "pitchFollowEnable", pitchFollowEnableButton);
+    pitchFollowAmountAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
+        audioProcessor.parameters, "pitchFollowAmount", pitchFollowAmountSlider);
+    pitchFollowRefAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
+        audioProcessor.parameters, "pitchFollowRef", pitchFollowRefSlider);
+
+    // Slew attachment
+    modulationSlewAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
+        audioProcessor.parameters, "modulationSlew", modulationSlewSlider);
+
     // About button
     aboutButton.setColour(juce::TextButton::buttonColourId, juce::Colour(0xff333333));
     aboutButton.onClick = [this] { showAboutWindow(); };
     addAndMakeVisible(aboutButton);
 
-    setSize(700, 500);
+    setSize(1000, 600);
     setResizable(true, true);
-    setResizeLimits(600, 400, 1200, 800);
+    setResizeLimits(900, 500, 1600, 900);
 }
 
 StretchArmstrongAudioProcessorEditor::~StretchArmstrongAudioProcessorEditor()
@@ -93,16 +145,29 @@ void StretchArmstrongAudioProcessorEditor::paint(juce::Graphics& g)
 
     // Section dividers
     g.setColour(juce::Colour(0xff333333));
-    int controlsY = getHeight() - 180;
+    int controlsY = getHeight() - 280;
     g.drawLine(10, static_cast<float>(controlsY - 5), static_cast<float>(getWidth() - 10), static_cast<float>(controlsY - 5), 1);
 
-    // Section labels
+    // Upper row section labels
     g.setColour(juce::Colour(0xff888888));
     g.setFont(juce::Font(juce::FontOptions(11.0f)));
     g.drawText("THRESHOLD", 20, controlsY, 80, 15, juce::Justification::centred);
     g.drawText("ASR ENVELOPE", 120, controlsY, 200, 15, juce::Justification::centred);
-    g.drawText("STRETCH", 360, controlsY, 120, 15, juce::Justification::centred);
-    g.drawText("OUTPUT", 520, controlsY, 150, 15, juce::Justification::centred);
+    g.drawText("STRETCH", 340, controlsY, 120, 15, juce::Justification::centred);
+    g.drawText("OUTPUT", 480, controlsY, 150, 15, juce::Justification::centred);
+
+    // Modulation section divider
+    int modY = getHeight() - 140;
+    g.setColour(juce::Colour(0xff333333));
+    g.drawLine(10, static_cast<float>(modY - 5), static_cast<float>(getWidth() - 10), static_cast<float>(modY - 5), 1);
+
+    // Modulation section labels
+    g.setColour(juce::Colour(0xffff9900));
+    g.drawText("ENV FOLLOWER", 20, modY, 250, 15, juce::Justification::centred);
+    g.setColour(juce::Colour(0xff00ff88));
+    g.drawText("PITCH FOLLOWER", 300, modY, 200, 15, juce::Justification::centred);
+    g.setColour(juce::Colour(0xffff00ff));
+    g.drawText("SLEW", 520, modY, 80, 15, juce::Justification::centred);
 }
 
 void StretchArmstrongAudioProcessorEditor::resized()
@@ -115,16 +180,16 @@ void StretchArmstrongAudioProcessorEditor::resized()
     presetManager->setBounds(topBar.removeFromRight(350).reduced(3));
 
     // Waveform visualizer takes most of the space
-    int controlsHeight = 180;
+    int controlsHeight = 280;
     auto visualizerArea = bounds.removeFromTop(bounds.getHeight() - controlsHeight);
     waveformVisualizer->setBounds(visualizerArea.reduced(10));
 
     // Controls area
     auto controlsArea = bounds.reduced(10);
-    int knobWidth = 80;
-    int knobHeight = 90;
-    int labelHeight = 20;
-    int spacing = 10;
+    int knobWidth = 70;
+    int knobHeight = 80;
+    int labelHeight = 18;
+    int spacing = 8;
 
     int y = controlsArea.getY() + 20;
 
@@ -134,7 +199,7 @@ void StretchArmstrongAudioProcessorEditor::resized()
     thresholdSlider.setBounds(x, y + labelHeight, knobWidth, knobHeight);
 
     // ASR Envelope section
-    x += knobWidth + spacing + 20;
+    x += knobWidth + spacing + 15;
 
     attackLabel.setBounds(x, y, knobWidth, labelHeight);
     attackSlider.setBounds(x, y + labelHeight, knobWidth, knobHeight);
@@ -148,17 +213,17 @@ void StretchArmstrongAudioProcessorEditor::resized()
     releaseSlider.setBounds(x, y + labelHeight, knobWidth, knobHeight);
 
     // Stretch section
-    x += knobWidth + spacing + 20;
+    x += knobWidth + spacing + 15;
 
     stretchRatioLabel.setBounds(x, y, knobWidth, labelHeight);
     stretchRatioSlider.setBounds(x, y + labelHeight, knobWidth, knobHeight);
     x += knobWidth + spacing;
 
-    stretchTypeLabel.setBounds(x, y, knobWidth, labelHeight);
-    stretchTypeCombo.setBounds(x, y + labelHeight + 30, knobWidth + 20, 25);
+    stretchTypeLabel.setBounds(x, y, knobWidth + 10, labelHeight);
+    stretchTypeCombo.setBounds(x, y + labelHeight + 25, knobWidth + 30, 25);
 
     // Output section
-    x += knobWidth + spacing + 30;
+    x += knobWidth + spacing + 40;
 
     mixLabel.setBounds(x, y, knobWidth, labelHeight);
     mixSlider.setBounds(x, y + labelHeight, knobWidth, knobHeight);
@@ -166,6 +231,44 @@ void StretchArmstrongAudioProcessorEditor::resized()
 
     outputGainLabel.setBounds(x, y, knobWidth, labelHeight);
     outputGainSlider.setBounds(x, y + labelHeight, knobWidth, knobHeight);
+
+    // ===== MODULATION ROW =====
+    int modY = controlsArea.getY() + 140;
+
+    // Envelope follower section
+    x = 20;
+    envFollowEnableButton.setBounds(x, modY + 10, 60, 25);
+    x += 65;
+
+    envFollowAmountLabel.setBounds(x, modY, knobWidth, labelHeight);
+    envFollowAmountSlider.setBounds(x, modY + labelHeight, knobWidth, knobHeight);
+    x += knobWidth + spacing;
+
+    envFollowAttackLabel.setBounds(x, modY, knobWidth, labelHeight);
+    envFollowAttackSlider.setBounds(x, modY + labelHeight, knobWidth, knobHeight);
+    x += knobWidth + spacing;
+
+    envFollowReleaseLabel.setBounds(x, modY, knobWidth, labelHeight);
+    envFollowReleaseSlider.setBounds(x, modY + labelHeight, knobWidth, knobHeight);
+
+    // Pitch follower section
+    x += knobWidth + spacing + 20;
+
+    pitchFollowEnableButton.setBounds(x, modY + 10, 70, 25);
+    x += 75;
+
+    pitchFollowAmountLabel.setBounds(x, modY, knobWidth, labelHeight);
+    pitchFollowAmountSlider.setBounds(x, modY + labelHeight, knobWidth, knobHeight);
+    x += knobWidth + spacing;
+
+    pitchFollowRefLabel.setBounds(x, modY, knobWidth, labelHeight);
+    pitchFollowRefSlider.setBounds(x, modY + labelHeight, knobWidth, knobHeight);
+
+    // Slew section
+    x += knobWidth + spacing + 20;
+
+    modulationSlewLabel.setBounds(x, modY, knobWidth, labelHeight);
+    modulationSlewSlider.setBounds(x, modY + labelHeight, knobWidth, knobHeight);
 }
 
 void StretchArmstrongAudioProcessorEditor::showAboutWindow()

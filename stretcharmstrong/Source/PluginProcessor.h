@@ -2,6 +2,7 @@
 
 #include <JuceHeader.h>
 #include "StretchEngine.h"
+#include "PitchDetector.h"
 #include <atomic>
 #include <vector>
 
@@ -80,6 +81,23 @@ private:
     int samplesBelowThreshold = 0;
     static constexpr int hysteresisOnSamples = 64;   // ~1.5ms at 44.1kHz
     static constexpr int hysteresisOffSamples = 2048; // ~46ms at 44.1kHz
+
+    // Envelope follower state
+    float envFollowerValue = 0.0f;
+    float envFollowerAttackCoeff = 0.0f;
+    float envFollowerReleaseCoeff = 0.0f;
+    float slewedEnvFollower = 0.0f; // Slewed version for smooth modulation
+
+    // Pitch follower state
+    std::unique_ptr<PitchDetector> pitchDetector;
+    float pitchFollowerValue = 0.0f;
+    float slewedPitchFollower = 0.0f; // Slewed version for smooth modulation
+    float referencePitch = 440.0f;    // Reference pitch for normalization
+    float minPitch = 40.0f;
+    float maxPitch = 1000.0f;
+
+    // Slewing coefficients
+    float modulationSlewCoeff = 0.0f;
 
     // Processing state
     double currentSampleRate = 44100.0;
