@@ -110,6 +110,10 @@ SubbertoneAudioProcessorEditor::SubbertoneAudioProcessorEditor(SubbertoneAudioPr
     fundamentalLimitSlider.setTooltip("Maximum fundamental frequency to process (100Hz to 800Hz). Frequencies above this limit will be ignored");
     fundamentalLimitSlider.setTextValueSuffix(" Hz");
     
+    inverseMixModeToggle.setButtonText("Harmonics Only");
+    inverseMixModeToggle.setTooltip("Output only distortion harmonics");
+    addAndMakeVisible(inverseMixModeToggle);
+    
     // Setup signal level label
     signalLevelLabel.setText("Signal: -∞ dB", juce::dontSendNotification);
     signalLevelLabel.setJustificationType(juce::Justification::centred);
@@ -150,7 +154,8 @@ SubbertoneAudioProcessorEditor::SubbertoneAudioProcessorEditor(SubbertoneAudioPr
         audioProcessor.parameters, "fundamentalLimit", fundamentalLimitSlider);
     distortionTypeAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment>(
         audioProcessor.parameters, "distortionType", distortionTypeCombo);
-    
+    inverseMixModeAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment>(
+        audioProcessor.parameters, "inverseMixMode", inverseMixModeToggle);
     // Setup about button
     aboutButton.setButtonText("?");
     aboutButton.setTooltip("About SammyJs Subbertone - Version info and help");
@@ -223,6 +228,7 @@ void SubbertoneAudioProcessorEditor::resized()
     // Visualizer toggles - position them below the title/subtitle area
     showInputToggle.setBounds(10, 60, 100, 25);
     showOutputToggle.setBounds(120, 60, 100, 25);
+    inverseMixModeToggle.setBounds(230, 60, 120, 25);
     
     // Visualizer takes up most of the space
     bounds.removeFromTop(90); // Title, subtitle and checkbox space

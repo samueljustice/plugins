@@ -3,16 +3,16 @@
 
 SubbertoneAudioProcessor::SubbertoneAudioProcessor()
 #ifndef JucePlugin_PreferredChannelConfigurations
-     : AudioProcessor(BusesProperties()
-                     #if ! JucePlugin_IsMidiEffect
-                      #if ! JucePlugin_IsSynth
-                       .withInput("Input", juce::AudioChannelSet::stereo(), true)
-                      #endif
-                       .withOutput("Output", juce::AudioChannelSet::stereo(), true)
-                     #endif
-                       ),
+: AudioProcessor(BusesProperties()
+#if ! JucePlugin_IsMidiEffect
+#if ! JucePlugin_IsSynth
+                 .withInput("Input", juce::AudioChannelSet::stereo(), true)
 #endif
-       parameters(*this, nullptr, juce::Identifier("SubbertoneParameters"), createParameterLayout())
+                 .withOutput("Output", juce::AudioChannelSet::stereo(), true)
+#endif
+                 ),
+#endif
+parameters(*this, nullptr, juce::Identifier("SubbertoneParameters"), createParameterLayout())
 {
     pitchDetector = std::make_unique<PitchDetector>();
     subharmonicEngine = std::make_unique<SubharmonicEngine>();
@@ -31,34 +31,36 @@ juce::AudioProcessorValueTreeState::ParameterLayout SubbertoneAudioProcessor::cr
     std::vector<std::unique_ptr<juce::RangedAudioParameter>> params;
     
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
-        "mix", "Mix", 0.0f, 100.0f, 50.0f));
+                                                                 "mix", "Mix", 0.0f, 100.0f, 50.0f));
     
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
-        "distortion", "Distortion", 0.0f, 100.0f, 50.0f));
+                                                                 "distortion", "Distortion", 0.0f, 100.0f, 50.0f));
     
     
     params.push_back(std::make_unique<juce::AudioParameterChoice>(
-        "distortionType", "Distortion Type", 
-        juce::StringArray{"Soft Clip", "Hard Clip", "Tube", "Foldback"}, 0));
+                                                                  "distortionType", "Distortion Type",
+                                                                  juce::StringArray{"Soft Clip", "Hard Clip", "Tube", "Foldback"}, 0));
     
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
-        juce::ParameterID("distortionTone", 1), "Tone", 
-        juce::NormalisableRange<float>(20.0f, 20000.0f, 0.1f, 0.5f), 1000.0f,
-        juce::AudioParameterFloatAttributes().withLabel("Hz")));
+                                                                 juce::ParameterID("distortionTone", 1), "Tone",
+                                                                 juce::NormalisableRange<float>(20.0f, 20000.0f, 0.1f, 0.5f), 1000.0f,
+                                                                 juce::AudioParameterFloatAttributes().withLabel("Hz")));
     
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
-        juce::ParameterID("postDriveLowpass", 1), "Post-Drive Lowpass", 
-        juce::NormalisableRange<float>(20.0f, 20000.0f, 0.1f, 0.5f), 20000.0f,
-        juce::AudioParameterFloatAttributes().withLabel("Hz")));
+                                                                 juce::ParameterID("postDriveLowpass", 1), "Post-Drive Lowpass",
+                                                                 juce::NormalisableRange<float>(20.0f, 20000.0f, 0.1f, 0.5f), 20000.0f,
+                                                                 juce::AudioParameterFloatAttributes().withLabel("Hz")));
     
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
-        "outputGain", "Output Gain", -24.0f, 24.0f, 0.0f));
+                                                                 "outputGain", "Output Gain", -24.0f, 24.0f, 0.0f));
     
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
-        "pitchThreshold", "Pitch Threshold", -60.0f, -20.0f, -40.0f));
+                                                                 "pitchThreshold", "Pitch Threshold", -60.0f, -20.0f, -40.0f));
     
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
-        "fundamentalLimit", "Max Fundamental", 100.0f, 800.0f, 250.0f));
+                                                                 "fundamentalLimit", "Max Fundamental", 100.0f, 800.0f, 250.0f));
+    
+    params.push_back(std::make_unique<juce::AudioParameterBool>("inverseMixMode", "Inverse Mix Mode", false));
     
     return { params.begin(), params.end() };
 }
@@ -70,29 +72,29 @@ const juce::String SubbertoneAudioProcessor::getName() const
 
 bool SubbertoneAudioProcessor::acceptsMidi() const
 {
-   #if JucePlugin_WantsMidiInput
+#if JucePlugin_WantsMidiInput
     return true;
-   #else
+#else
     return false;
-   #endif
+#endif
 }
 
 bool SubbertoneAudioProcessor::producesMidi() const
 {
-   #if JucePlugin_ProducesMidiOutput
+#if JucePlugin_ProducesMidiOutput
     return true;
-   #else
+#else
     return false;
-   #endif
+#endif
 }
 
 bool SubbertoneAudioProcessor::isMidiEffect() const
 {
-   #if JucePlugin_IsMidiEffect
+#if JucePlugin_IsMidiEffect
     return true;
-   #else
+#else
     return false;
-   #endif
+#endif
 }
 
 double SubbertoneAudioProcessor::getTailLengthSeconds() const
@@ -136,46 +138,47 @@ void SubbertoneAudioProcessor::releaseResources()
 #ifndef JucePlugin_PreferredChannelConfigurations
 bool SubbertoneAudioProcessor::isBusesLayoutSupported(const BusesLayout& layouts) const
 {
-  #if JucePlugin_IsMidiEffect
+#if JucePlugin_IsMidiEffect
     juce::ignoreUnused(layouts);
     return true;
-  #else
+#else
     if (layouts.getMainOutputChannelSet() != juce::AudioChannelSet::mono()
-     && layouts.getMainOutputChannelSet() != juce::AudioChannelSet::stereo())
+        && layouts.getMainOutputChannelSet() != juce::AudioChannelSet::stereo())
         return false;
-
-   #if ! JucePlugin_IsSynth
+    
+#if ! JucePlugin_IsSynth
     if (layouts.getMainOutputChannelSet() != layouts.getMainInputChannelSet())
         return false;
-   #endif
-
+#endif
+    
     return true;
-  #endif
+#endif
 }
 #endif
 
 void SubbertoneAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
-                                           juce::MidiBuffer& midiMessages)
+                                            juce::MidiBuffer& midiMessages)
 {
     juce::ScopedNoDenormals noDenormals;
     auto totalNumInputChannels = getTotalNumInputChannels();
     auto totalNumOutputChannels = getTotalNumOutputChannels();
-
+    
     for (auto i = totalNumInputChannels; i < totalNumOutputChannels; ++i)
         buffer.clear(i, 0, buffer.getNumSamples());
-
+    
     // Get parameter values
     float mix = parameters.getRawParameterValue("mix")->load() / 100.0f;
     float distortion = parameters.getRawParameterValue("distortion")->load() / 100.0f;
-    float inverseMix = 1.0f; // Always 100% inverse mix - the unique feature
+    float inverseMix = 1.0f;
+    bool inverseMixMode = parameters.getRawParameterValue("inverseMixMode")->load() > 0.5f;
     int distortionType = static_cast<int>(parameters.getRawParameterValue("distortionType")->load());
     float distortionTone = parameters.getRawParameterValue("distortionTone")->load();
     float postDriveLowpass = parameters.getRawParameterValue("postDriveLowpass")->load();
     float outputGain = juce::Decibels::decibelsToGain(
-        parameters.getRawParameterValue("outputGain")->load());
+                                                      parameters.getRawParameterValue("outputGain")->load());
     float pitchThreshold = parameters.getRawParameterValue("pitchThreshold")->load();
     float fundamentalLimit = parameters.getRawParameterValue("fundamentalLimit")->load();
-
+    
     // Handle mono/stereo configurations
     const int numChannelsToProcess = juce::jmin(totalNumInputChannels, totalNumOutputChannels);
     
@@ -206,15 +209,48 @@ void SubbertoneAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
             detectedFundamental = 0.0f;
         }
         
-        currentFundamental.store(detectedFundamental);
+        // Frequency-adaptive smoothing: more smoothing at low frequencies
+        if (detectedFundamental > 20.0f)
+        {
+            float smoothingCoeff = 0.98f;
+            
+            if (detectedFundamental < 100.0f)
+            {
+                smoothingCoeff = juce::jmap(detectedFundamental, 20.0f, 100.0f, 0.99f, 0.98f);
+            }
+            else if (detectedFundamental < 200.0f)
+            {
+                smoothingCoeff = 0.95f;
+            }
+            else
+            {
+                smoothingCoeff = 0.90f;
+            }
+            
+            if (smoothedFundamental == 0.0f)
+            {
+                smoothedFundamental = detectedFundamental;
+            }
+            else
+            {
+                smoothedFundamental = smoothedFundamental * smoothingCoeff +
+                detectedFundamental * (1.0f - smoothingCoeff);
+            }
+        }
+        else
+        {
+            smoothedFundamental = 0.0f;
+        }
+        
+        currentFundamental.store(smoothedFundamental);
     }
     
-    // STEP 2: Process subharmonic engine with CURRENT fundamental
+    // STEP 2: Process subharmonic engine with SMOOTHED fundamental
     std::vector<float> subharmonicBuffer(buffer.getNumSamples());
     subharmonicEngine->process(subharmonicBuffer.data(), buffer.getNumSamples(),
-                               detectedFundamental, // Use fresh fundamental, not stored one
+                               smoothedFundamental,
                                distortion, inverseMix, distortionType,
-                               distortionTone, postDriveLowpass);
+                               distortionTone, postDriveLowpass, inverseMixMode);
     
     // STEP 3: Apply to each channel
     for (int channel = 0; channel < numChannelsToProcess; ++channel)
@@ -333,7 +369,7 @@ void SubbertoneAudioProcessor::getStateInformation(juce::MemoryBlock& destData)
 void SubbertoneAudioProcessor::setStateInformation(const void* data, int sizeInBytes)
 {
     std::unique_ptr<juce::XmlElement> xmlState(getXmlFromBinary(data, sizeInBytes));
-
+    
     if (xmlState.get() != nullptr)
         if (xmlState->hasTagName(parameters.state.getType()))
             parameters.replaceState(juce::ValueTree::fromXml(*xmlState));
