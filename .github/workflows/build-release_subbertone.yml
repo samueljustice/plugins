@@ -95,12 +95,14 @@ jobs:
           echo "This software is provided as-is, without warranty of any kind." >> LICENSE
         }
         
-        # Download and install Inno Setup
-        curl -L https://files.jrsoftware.org/is/6/innosetup-6.2.2.exe -o innosetup.exe
-        .\innosetup.exe /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /SP-
-        
+        # Install Inno Setup via chocolatey (more reliable)
+        choco install innosetup -y --no-progress
+
         # Add Inno Setup to PATH
         $env:Path += ";${env:ProgramFiles(x86)}\Inno Setup 6"
+
+        # Show installed version
+        & "${env:ProgramFiles(x86)}\Inno Setup 6\iscc.exe" /? 2>&1 | Select-String "Inno Setup"
         
         # Check if files exist
         echo "Listing VST3 directory:"
@@ -116,8 +118,14 @@ jobs:
         
         # Build installer with better error handling
         echo "Running Inno Setup compiler..."
-        & "${env:ProgramFiles(x86)}\Inno Setup 6\iscc.exe" installer.iss /O"." /F"SammyJs_Subbertone_Installer"
+        & "${env:ProgramFiles(x86)}\Inno Setup 6\iscc.exe" /V9 installer.iss /O"." /F"SammyJs_Subbertone_Installer" 2>&1
         $exitCode = $LASTEXITCODE
+
+        # Check for log file
+        if (Test-Path "Setup Log*.txt") {
+          echo "=== Setup Log ==="
+          Get-Content "Setup Log*.txt"
+        }
         
         # Always show what files were created
         echo "Files in current directory after Inno Setup:"

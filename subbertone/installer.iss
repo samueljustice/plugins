@@ -25,6 +25,7 @@ Compression=lzma/fast
 SolidCompression=no
 ArchitecturesInstallIn64BitMode=x64
 ArchitecturesAllowed=x64
+SignedUninstaller=no
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
