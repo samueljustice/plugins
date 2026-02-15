@@ -27,7 +27,7 @@ jobs:
         cd SDK
         git clone https://github.com/juce-framework/JUCE.git
         cd JUCE
-        git checkout 7.0.12
+        git checkout 8.0.8
     
     - name: Download and Build WORLD
       shell: cmd
@@ -150,7 +150,7 @@ jobs:
         path: subbertone/windows-vst3-package/
     
   build-macos:
-    runs-on: macos-latest
+    runs-on: macos-14
     
     steps:
     - uses: actions/checkout@v4
@@ -166,7 +166,7 @@ jobs:
         cd SDK
         git clone https://github.com/juce-framework/JUCE.git
         cd JUCE
-        git checkout 7.0.12
+        git checkout 8.0.8
     
     - name: Download and Build WORLD
       run: |
