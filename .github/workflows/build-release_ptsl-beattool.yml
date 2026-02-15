@@ -1,0 +1,316 @@
+name: Build and Release PTSL Beat Tool
+
+on:
+  push:
+    tags:
+      - 'ptsl-beattool-v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-macos:
+    runs-on: macos-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        submodules: recursive
+    
+    - name: Install Python and py-ptsl
+      run: |
+        # Install Python 3.13 using homebrew
+        brew install python@3.13
+        
+        # Install py-ptsl directly to the homebrew Python
+        /opt/homebrew/bin/pip3.13 install py-ptsl
+        
+        # Show installed packages for verification
+        /opt/homebrew/bin/pip3.13 list | grep -E "(py-ptsl|grpcio|protobuf)"
+        
+        # Ensure the Python framework is available
+        if [ ! -d "/opt/homebrew/opt/python@3.13/Frameworks/Python.framework" ]; then
+          echo "Error: Python framework not found!"
+          exit 1
+        fi
+    
+    - name: Configure CMake
+      run: |
+        cd PTSL_beattool
+        cmake -B build -S . -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_ARCHITECTURES="x86_64;arm64"
+    
+    - name: Build Application and CLI
+      run: |
+        cd PTSL_beattool
+        cmake --build build --config Release
+    
+    - name: Bundle Python Framework
+      run: |
+        cd PTSL_beattool
+        # The CMake build bundles py-ptsl, but we need to bundle the Python interpreter
+        echo "Bundling Python Framework..."
+        ./bundle_python_framework.sh "build/PTSL Beat Tool.app"
+        
+        # Verify Python is bundled
+        echo "Checking bundled Python..."
+        if [ -f "build/PTSL Beat Tool.app/Contents/MacOS/python3" ]; then
+          echo "✓ Python is bundled"
+          "build/PTSL Beat Tool.app/Contents/MacOS/python3" --version
+        else
+          echo "✗ Python not bundled!"
+          exit 1
+        fi
+        
+        # Verify py-ptsl is bundled
+        echo "Checking bundled py-ptsl..."
+        if [ -d "build/PTSL Beat Tool.app/Contents/Resources/python/ptsl" ]; then
+          echo "✓ py-ptsl is bundled"
+          ls -la "build/PTSL Beat Tool.app/Contents/Resources/python/ptsl/"
+        else
+          echo "✗ py-ptsl not bundled!"
+          exit 1
+        fi
+        
+        # Verify the Python framework directory
+        echo "Checking Python framework..."
+        if [ -d "build/PTSL Beat Tool.app/Contents/Frameworks/Python.framework" ]; then
+          echo "✓ Python framework is bundled"
+          du -sh "build/PTSL Beat Tool.app/Contents/Frameworks/Python.framework"
+        else
+          echo "✗ Python framework not bundled!"
+          exit 1
+        fi
+    
+    - name: Check for Code Signing Certificates
+      id: check_certs
+      run: |
+        if [[ -n "${{ secrets.APPLE_DEVELOPER_CERTIFICATE_P12_BASE64 }}" ]]; then
+          echo "has_certs=true" >> $GITHUB_OUTPUT
+        else
+          echo "has_certs=false" >> $GITHUB_OUTPUT
+          echo "No certificates found in secrets"
+        fi
+    
+    - name: Import Code Signing Certificates
+      if: steps.check_certs.outputs.has_certs == 'true'
+      uses: apple-actions/import-codesign-certs@v2
+      with:
+        p12-file-base64: ${{ secrets.APPLE_DEVELOPER_CERTIFICATE_P12_BASE64 }}
+        p12-password: ${{ secrets.APPLE_DEVELOPER_CERTIFICATE_PASSWORD }}
+    
+    - name: Sign Application
+      if: steps.check_certs.outputs.has_certs == 'true'
+      env:
+        APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      run: |
+        cd PTSL_beattool
+        # Find the certificate identity
+        IDENTITY=$(security find-identity -v -p codesigning | grep "Developer ID Application" | head -1 | awk -F'"' '{print $2}')
+        
+        # Sign the app bundle
+        echo "Signing PTSL Beat Tool.app..."
+        codesign --force --deep --sign "$IDENTITY" \
+          --options runtime \
+          --entitlements Resources/entitlements.plist \
+          --timestamp \
+          "build/PTSL Beat Tool.app"
+        
+        # Verify signature
+        codesign --verify --deep --strict "build/PTSL Beat Tool.app"
+        
+        # Sign the CLI tool
+        echo "Signing ptsl-beat-cli..."
+        codesign --force --sign "$IDENTITY" \
+          --options runtime \
+          --timestamp \
+          "build/ptsl-beat-cli"
+    
+    - name: Create DMG
+      run: |
+        cd PTSL_beattool
+        # Create a folder for DMG contents
+        mkdir -p dmg_contents
+        cp -R "build/PTSL Beat Tool.app" dmg_contents/
+        cp README.md dmg_contents/ || echo "No README found"
+        
+        # Create DMG
+        hdiutil create -volname "PTSL Beat Tool" \
+          -srcfolder dmg_contents \
+          -ov -format UDZO \
+          "PTSL_Beat_Tool.dmg"
+    
+    - name: Sign DMG
+      if: steps.check_certs.outputs.has_certs == 'true'
+      run: |
+        cd PTSL_beattool
+        IDENTITY=$(security find-identity -v -p codesigning | grep "Developer ID Application" | head -1 | awk -F'"' '{print $2}')
+        codesign --force --sign "$IDENTITY" --timestamp "PTSL_Beat_Tool.dmg"
+    
+    - name: Notarize Application
+      if: steps.check_certs.outputs.has_certs == 'true'
+      env:
+        APPLE_ID: ${{ secrets.APPLE_ID }}
+        APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+        APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      run: |
+        cd PTSL_beattool
+        echo "Notarizing DMG..."
+        
+        # Submit for notarization
+        SUBMISSION_ID=$(xcrun notarytool submit "PTSL_Beat_Tool.dmg" \
+          --apple-id "$APPLE_ID" \
+          --password "$APPLE_APP_PASSWORD" \
+          --team-id "$APPLE_TEAM_ID" \
+          --output-format json | jq -r '.id')
+        
+        echo "Submission ID: $SUBMISSION_ID"
+        
+        # Wait for notarization
+        xcrun notarytool wait "$SUBMISSION_ID" \
+          --apple-id "$APPLE_ID" \
+          --password "$APPLE_APP_PASSWORD" \
+          --team-id "$APPLE_TEAM_ID"
+        
+        # Check status
+        STATUS=$(xcrun notarytool info "$SUBMISSION_ID" \
+          --apple-id "$APPLE_ID" \
+          --password "$APPLE_APP_PASSWORD" \
+          --team-id "$APPLE_TEAM_ID" \
+          --output-format json | jq -r '.status')
+        
+        if [ "$STATUS" != "Accepted" ]; then
+          echo "Notarization failed with status: $STATUS"
+          
+          # Get the log
+          xcrun notarytool log "$SUBMISSION_ID" \
+            --apple-id "$APPLE_ID" \
+            --password "$APPLE_APP_PASSWORD" \
+            --team-id "$APPLE_TEAM_ID" \
+            notarization-log.json
+          
+          cat notarization-log.json | jq '.'
+          exit 1
+        fi
+        
+        # Staple notarization
+        xcrun stapler staple "PTSL_Beat_Tool.dmg"
+    
+    - name: Create ZIP of App Bundle
+      run: |
+        cd PTSL_beattool/build
+        zip -r ../../PTSL_Beat_Tool_App.zip "PTSL Beat Tool.app"
+        cd ../..
+    
+    - name: Create CLI Package
+      run: |
+        cd PTSL_beattool
+        # Create a directory for CLI distribution
+        mkdir -p cli_package
+        cp build/ptsl-beat-cli cli_package/
+        cp -R build/python cli_package/
+        cp README.md cli_package/ || echo "No README found"
+        
+        # Create installation script
+        cat > cli_package/install.sh << 'EOF'
+        #!/bin/bash
+        echo "Installing PTSL Beat Tool CLI..."
+        
+        # Check for admin rights
+        if [ "$EUID" -ne 0 ]; then 
+          echo "Please run with sudo: sudo ./install.sh"
+          exit 1
+        fi
+        
+        # Install to /usr/local/bin
+        mkdir -p /usr/local/bin
+        cp ptsl-beat-cli /usr/local/bin/
+        chmod +x /usr/local/bin/ptsl-beat-cli
+        
+        # Install Python support files
+        mkdir -p /usr/local/share/ptsl-beat-tool
+        cp -R python /usr/local/share/ptsl-beat-tool/
+        
+        echo "Installation complete!"
+        echo "You can now use 'ptsl-beat-cli' from anywhere."
+        EOF
+        
+        chmod +x cli_package/install.sh
+        
+        # Create ZIP
+        zip -r ../PTSL_Beat_Tool_CLI.zip cli_package
+    
+    - name: Upload DMG
+      uses: actions/upload-artifact@v4
+      with:
+        name: macos-dmg
+        path: PTSL_beattool/PTSL_Beat_Tool.dmg
+    
+    - name: Upload App ZIP
+      uses: actions/upload-artifact@v4
+      with:
+        name: macos-app
+        path: PTSL_Beat_Tool_App.zip
+    
+    - name: Upload CLI Package
+      uses: actions/upload-artifact@v4
+      with:
+        name: macos-cli
+        path: PTSL_Beat_Tool_CLI.zip
+  
+  create-release:
+    needs: [build-macos]
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+    
+    steps:
+    - name: Download all artifacts
+      uses: actions/download-artifact@v4
+    
+    - name: List artifacts
+      run: |
+        echo "Downloaded artifacts:"
+        ls -la
+        find . -type f -name "*.dmg" -o -name "*.zip" | sort
+    
+    - name: Create Release
+      uses: softprops/action-gh-release@v1
+      with:
+        files: |
+          macos-dmg/*.dmg
+          macos-app/*.zip
+          macos-cli/*.zip
+        body: |
+          # PTSL Beat Tool Release
+          
+          This release includes:
+          - **PTSL_Beat_Tool.dmg** - macOS application with GUI (recommended)
+          - **PTSL_Beat_Tool_App.zip** - macOS application bundle (alternative to DMG)
+          - **PTSL_Beat_Tool_CLI.zip** - Command-line version for advanced users
+          
+          ## Installation
+          
+          ### GUI Application (Recommended)
+          1. Download and open `PTSL_Beat_Tool.dmg`
+          2. Drag "PTSL Beat Tool" to your Applications folder
+          3. On first launch, right-click and select "Open" to bypass Gatekeeper
+          
+          ### CLI Tool
+          1. Download and extract `PTSL_Beat_Tool_CLI.zip`
+          2. Run `sudo ./install.sh` to install system-wide
+          3. Use `ptsl-beat-cli <audiofile>` from terminal
+          
+          ## Requirements
+          - macOS 11.0 or later
+          - Pro Tools with PTSL enabled
+          - Audio files in WAV, AIFF, MP3, or M4A format
+          
+          ## Features
+          - Automatic tempo detection using MiniBPM
+          - Creates Pro Tools markers at detected beat positions
+          - Supports both downbeats only and all beats
+          - Works with any Pro Tools session frame rate
+          - Fully self-contained (no Python installation required)
+        generate_release_notes: true
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

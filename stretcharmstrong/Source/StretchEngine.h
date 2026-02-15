@@ -4,6 +4,7 @@
 #include <rubberband/RubberBandStretcher.h>
 #include <vector>
 #include <memory>
+#include <array>
 
 class StretchEngine
 {
@@ -37,11 +38,13 @@ private:
     // Rubber Band for time-stretching (pitch-preserving)
     std::unique_ptr<RubberBand::RubberBandStretcher> rubberBand;
     bool rubberBandPrimed = false;
+    int primingSamplesNeeded = 0;
+    int primingSamplesFed = 0;
 
-    // Output ring buffer for Rubber Band (to handle variable output sizes)
+    // Output ring buffer for Rubber Band (per-channel positions for stereo)
     std::vector<std::vector<float>> outputRingBuffer;
-    int ringBufferWritePos = 0;
-    int ringBufferReadPos = 0;
+    std::array<int, 2> ringWritePos = {0, 0};
+    std::array<int, 2> ringReadPos = {0, 0};
     int ringBufferAvailable = 0;
     static constexpr int ringBufferSize = 65536;
 
@@ -53,9 +56,7 @@ private:
 
     // Working buffers
     std::vector<std::vector<float>> inputBuffers;
-    std::vector<float*> inputPtrs;
     std::vector<std::vector<float>> retrieveBuffers;
-    std::vector<float*> retrievePtrs;
 
     // Crossfade for smooth transitions
     float currentEnvelope = 0.0f;
@@ -72,9 +73,9 @@ private:
     void processVarispeed(juce::AudioBuffer<float>& buffer, float envelope);
     void processTimeStretch(juce::AudioBuffer<float>& buffer, float envelope);
 
-    // Ring buffer operations
-    void writeToRingBuffer(int channel, const float* data, int numSamples);
-    int readFromRingBuffer(int channel, float* data, int numSamples);
+    // Ring buffer operations (writes both channels together)
+    void writeToRingBuffer(const float* dataL, const float* dataR, int numSamples);
+    void readFromRingBuffer(float* dataL, float* dataR, int numSamples, int numChannels);
 
     // Hermite interpolation for high-quality varispeed
     float hermiteInterpolate(const float* buffer, int bufferSize, double position);

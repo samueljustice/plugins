@@ -4,33 +4,35 @@
 
 class AboutWindow : public juce::DocumentWindow
 {
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(AboutWindow)
+
 public:
     AboutWindow();
-    ~AboutWindow() override;
+    ~AboutWindow() = default;
     
     void closeButtonPressed() override;
     
 private:
     class AboutContent : public juce::Component
     {
+        JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(AboutContent)
+
     public:
         AboutContent();
+
         void paint(juce::Graphics& g) override;
         void resized() override;
         
     private:
-        juce::TextButton websiteButton;
-        juce::TextButton emailButton;
-        juce::TextButton checkUpdatesButton;
-        juce::Label updateStatusLabel;
-        juce::TextEditor licenseText;
-        
         void checkForUpdates();
+
+        juce::TextButton m_websiteButton;
+        juce::TextButton m_emailButton;
+        juce::TextButton m_checkUpdatesButton;
+        juce::Label m_updateStatusLabel;
+        juce::TextEditor m_licenseText;
         
-        JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(AboutContent)
     };
     
-    std::unique_ptr<AboutContent> content;
-    
-    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(AboutWindow)
+    AboutContent m_content;
 };

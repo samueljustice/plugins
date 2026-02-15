@@ -1,141 +1,153 @@
 #include "PitchDetector.h"
+
 #include <algorithm>
 #include <cmath>
 
-PitchDetector::PitchDetector()
+void PitchDetector::prepare(double sampleRate)
 {
-}
-
-PitchDetector::~PitchDetector()
-{
-}
-
-void PitchDetector::prepare(double newSampleRate, int maxBlockSize)
-{
-    sampleRate = newSampleRate;
+    m_sampleRate = sampleRate;
 
     // Buffer size should be large enough for lowest frequency detection
-    // At 40Hz minimum, we need at least 2 periods: 2 * (sampleRate / 40) samples
+    // At 40Hz minimum, we need at least 2 periods: 2 * (m_sampleRate / 40) samples
     // Using 2048 samples at 44.1kHz gives us down to ~43Hz, 4096 gives ~21Hz
-    bufferSize = static_cast<int>(sampleRate * 0.05); // 50ms window
-    bufferSize = std::max(bufferSize, 2048);
-    bufferSize = std::min(bufferSize, 4096);
+    if (m_sampleRate <= 0.0)
+    {
+        m_isPrepared = false;
+        return;
+    }
 
-    halfBufferSize = bufferSize / 2;
+    m_bufferSize = static_cast<int>(m_sampleRate * 0.05); // 50ms window
+    m_bufferSize = std::clamp(m_bufferSize, 2048, 4096);
+
+    m_halfBufferSize = m_bufferSize / 2;
 
     // Allocate YIN buffer (only needs half the buffer size)
-    yinBuffer.resize(halfBufferSize);
-    std::fill(yinBuffer.begin(), yinBuffer.end(), 0.0f);
+    m_yinBuffer.resize(m_halfBufferSize);
+    std::fill(m_yinBuffer.begin(), m_yinBuffer.end(), 0.0f);
 
     // Allocate input accumulator
-    inputAccumulator.resize(bufferSize);
-    std::fill(inputAccumulator.begin(), inputAccumulator.end(), 0.0f);
+    m_inputAccumulator.resize(m_bufferSize);
+    std::fill(m_inputAccumulator.begin(), m_inputAccumulator.end(), 0.0f);
 
     // Reset pitch tracking
-    previousPitch = 0.0f;
-    smoothedPitch = 0.0f;
-    probability = 0.0f;
+    m_previousPitch = 0.0f;
+    m_smoothedPitch = 0.0f;
+    m_probability = 0.0f;
+    m_samplesSinceLastAnalysis = 0;
+    m_isPrepared = true;
 }
 
 float PitchDetector::detectPitch(const float* inputBuffer, int numSamples, float threshold)
 {
+    if (!m_isPrepared || inputBuffer == nullptr || numSamples <= 0 || m_bufferSize <= 0)
+        return 0.0f;
+
     // Check signal level
     float rms = 0.0f;
+
     for (int i = 0; i < numSamples; ++i)
     {
         rms += inputBuffer[i] * inputBuffer[i];
     }
+
     rms = std::sqrt(rms / static_cast<float>(numSamples));
 
     // Return smoothed previous pitch if signal is too quiet
-    if (rms < threshold * 0.1f)
+    if (rms < threshold)
     {
-        smoothedPitch *= 0.95f;
-        if (smoothedPitch < minFrequency)
-            smoothedPitch = 0.0f;
-        probability = 0.0f;
-        return smoothedPitch;
+        m_smoothedPitch *= 0.95f;
+
+        if (m_smoothedPitch < c_minFrequency)
+            m_smoothedPitch = 0.0f;
+
+        m_probability = 0.0f;
+
+        return m_smoothedPitch;
     }
 
     // Accumulate input samples (shift and add new samples)
-    int samplesToShift = std::min(numSamples, bufferSize);
-    if (samplesToShift < bufferSize)
-    {
-        std::memmove(inputAccumulator.data(),
-                     inputAccumulator.data() + samplesToShift,
-                     (bufferSize - samplesToShift) * sizeof(float));
-    }
+    const int samplesToShift = std::min(numSamples, m_bufferSize);
 
-    int copyStart = std::max(0, numSamples - samplesToShift);
-    std::memcpy(inputAccumulator.data() + (bufferSize - samplesToShift),
-                inputBuffer + copyStart,
-                samplesToShift * sizeof(float));
+    if (samplesToShift < m_bufferSize)
+        std::memmove(m_inputAccumulator.data(), m_inputAccumulator.data() + samplesToShift, (m_bufferSize - samplesToShift) * sizeof(float));
+
+    const int copyStart = std::max(0, numSamples - samplesToShift);
+
+    std::memcpy(m_inputAccumulator.data() + (m_bufferSize - samplesToShift), inputBuffer + copyStart, samplesToShift * sizeof(float));
+
+    m_samplesSinceLastAnalysis += samplesToShift;
+
+    // Not enough new data yet; return current smoothed pitch
+    if (m_samplesSinceLastAnalysis < m_halfBufferSize)
+        return m_smoothedPitch;
+
+    m_samplesSinceLastAnalysis = 0;
 
     // Run YIN pitch detection
-    float detectedPitch = detectPitchYIN(inputAccumulator.data(), bufferSize);
+    const float detectedPitch = detectPitchYIN(m_inputAccumulator.data(), m_bufferSize);
 
     // Apply smoothing
     if (detectedPitch > 0.0f)
     {
-        if (previousPitch == 0.0f)
+        if (m_previousPitch == 0.0f)
         {
             // Initialize immediately if no previous pitch
-            smoothedPitch = detectedPitch;
+            m_smoothedPitch = detectedPitch;
         }
         else
         {
             // Check if pitch jump is reasonable (within 1 octave)
-            float ratio = detectedPitch / previousPitch;
-            if (ratio > 0.5f && ratio < 2.0f)
-            {
-                // Normal smoothing
-                smoothedPitch = smoothedPitch * pitchSmoothingFactor +
-                               detectedPitch * (1.0f - pitchSmoothingFactor);
-            }
-            else
-            {
-                // Large jump - update more quickly
-                smoothedPitch = smoothedPitch * 0.5f + detectedPitch * 0.5f;
-            }
+            const float ratio = detectedPitch / m_previousPitch;
+
+            m_smoothedPitch = (ratio > 0.5f && ratio < 2.0f)
+                ? m_smoothedPitch * c_pitchSmoothingFactor + detectedPitch * (1.0f - c_pitchSmoothingFactor)    // Normal smoothing
+                : m_smoothedPitch * 0.5f + detectedPitch * 0.5f;                                                // Large jump - update more quickly
         }
-        previousPitch = detectedPitch;
+
+        m_previousPitch = detectedPitch;
     }
     else
     {
         // No pitch detected - decay smoothly
-        smoothedPitch *= 0.9f;
-        if (smoothedPitch < minFrequency)
+        m_smoothedPitch *= 0.9f;
+
+        if (m_smoothedPitch < c_minFrequency)
         {
-            smoothedPitch = 0.0f;
-            previousPitch = 0.0f;
+            m_smoothedPitch = 0.0f;
+            m_previousPitch = 0.0f;
         }
     }
 
-    return smoothedPitch;
+    return m_smoothedPitch;
 }
 
 float PitchDetector::detectPitchYIN(const float* buffer, int bufferLength)
 {
+    const int halfLength = std::min(m_halfBufferSize, bufferLength / 2);
+
+    if (halfLength <= 1)
+        return -1.0f;
+
     // Clear YIN buffer
-    std::fill(yinBuffer.begin(), yinBuffer.end(), 0.0f);
+    std::fill(m_yinBuffer.begin(), m_yinBuffer.end(), 0.0f);
 
     // Step 1: Calculates the squared difference of the signal with a shifted version of itself
-    yinDifference(buffer);
+    yinDifference(buffer, halfLength);
 
     // Step 2: Calculate the cumulative mean on the normalized difference
-    yinCumulativeMeanNormalizedDifference();
+    yinCumulativeMeanNormalizedDifference(halfLength);
 
     // Step 3: Search through the normalized cumulative mean array and find values below threshold
-    int tauEstimate = yinAbsoluteThreshold();
+    const int tauEstimate = yinAbsoluteThreshold(halfLength);
 
     // Step 4: Parabolic interpolation to improve pitch estimate
     if (tauEstimate != -1)
     {
-        float betterTau = yinParabolicInterpolation(tauEstimate);
-        float pitchInHz = static_cast<float>(sampleRate) / betterTau;
+        const float betterTau = yinParabolicInterpolation(tauEstimate, halfLength);
+        const float pitchInHz = static_cast<float>(m_sampleRate) / betterTau;
 
         // Clamp to valid frequency range
-        if (pitchInHz >= minFrequency && pitchInHz <= maxFrequency)
+        if (pitchInHz >= c_minFrequency && pitchInHz <= c_maxFrequency)
         {
             return pitchInHz;
         }
@@ -149,16 +161,16 @@ float PitchDetector::detectPitchYIN(const float* buffer, int bufferLength)
  * This is the YIN algorithm's tweak on autocorrelation.
  * See: http://audition.ens.fr/adc/pdf/2002_JASA_YIN.pdf
  */
-void PitchDetector::yinDifference(const float* buffer)
+void PitchDetector::yinDifference(const float* buffer, int halfLength)
 {
-    for (int tau = 0; tau < halfBufferSize; ++tau)
+    for (int tau = 0; tau < halfLength; ++tau)
     {
-        yinBuffer[tau] = 0.0f;
+        m_yinBuffer[tau] = 0.0f;
 
-        for (int i = 0; i < halfBufferSize; ++i)
+        for (int i = 0; i < halfLength; ++i)
         {
-            float delta = buffer[i] - buffer[i + tau];
-            yinBuffer[tau] += delta * delta;
+            const float delta = buffer[i] - buffer[i + tau];
+            m_yinBuffer[tau] += delta * delta;
         }
     }
 }
@@ -167,23 +179,16 @@ void PitchDetector::yinDifference(const float* buffer)
  * Step 2: Calculate the cumulative mean on the normalized difference calculated in step 1.
  * This normalization helps find the true period rather than just the first minimum.
  */
-void PitchDetector::yinCumulativeMeanNormalizedDifference()
+void PitchDetector::yinCumulativeMeanNormalizedDifference(int halfLength)
 {
     float runningSum = 0.0f;
-    yinBuffer[0] = 1.0f;
+    m_yinBuffer[0] = 1.0f;
 
-    for (int tau = 1; tau < halfBufferSize; ++tau)
+    for (int tau = 1; tau < halfLength; ++tau)
     {
-        runningSum += yinBuffer[tau];
+        runningSum += m_yinBuffer[tau];
 
-        if (runningSum != 0.0f)
-        {
-            yinBuffer[tau] *= static_cast<float>(tau) / runningSum;
-        }
-        else
-        {
-            yinBuffer[tau] = 1.0f;
-        }
+        m_yinBuffer[tau] = (runningSum != 0.0f) ? m_yinBuffer[tau] * static_cast<float>(tau) / runningSum : 1.0f;
     }
 }
 
@@ -191,43 +196,43 @@ void PitchDetector::yinCumulativeMeanNormalizedDifference()
  * Step 3: Search through the normalized cumulative mean array and find values below threshold.
  * Returns the tau (lag) which produces the best autocorrelation, or -1 if not found.
  */
-int PitchDetector::yinAbsoluteThreshold()
+int PitchDetector::yinAbsoluteThreshold(int halfLength)
 {
-    int tau;
-
     // Calculate the minimum tau based on maximum frequency
-    int minTau = static_cast<int>(sampleRate / maxFrequency);
+    int minTau = static_cast<int>(m_sampleRate / c_maxFrequency);
     minTau = std::max(2, minTau); // At least 2 to avoid edge cases
 
     // Calculate the maximum tau based on minimum frequency
-    int maxTau = static_cast<int>(sampleRate / minFrequency);
-    maxTau = std::min(maxTau, halfBufferSize);
+    int maxTau = static_cast<int>(m_sampleRate / c_minFrequency);
+    maxTau = std::min(maxTau, halfLength);
 
     // Search through the array of cumulative mean values
     // Start from minTau to ignore high frequencies outside our range
-    for (tau = minTau; tau < maxTau; ++tau)
+    for (int tau = minTau; tau < maxTau; ++tau)
     {
-        if (yinBuffer[tau] < yinThreshold)
+        if (m_yinBuffer[tau] < m_yinThreshold)
         {
             // Look for the local minimum
-            while (tau + 1 < maxTau && yinBuffer[tau + 1] < yinBuffer[tau])
+            while (tau + 1 < maxTau && m_yinBuffer[tau + 1] < m_yinBuffer[tau])
             {
                 ++tau;
             }
 
-            // Store the probability
+            // Store the m_probability
             // From the YIN paper: The threshold determines the list of
             // candidates admitted to the set, and can be interpreted as the
             // proportion of aperiodic power tolerated within a periodic signal.
             // Since we want periodicity and not aperiodicity:
             // periodicity = 1 - aperiodicity
-            probability = 1.0f - yinBuffer[tau];
+            m_probability = 1.0f - m_yinBuffer[tau];
+
             return tau;
         }
     }
 
     // No pitch found
-    probability = 0.0f;
+    m_probability = 0.0f;
+
     return -1;
 }
 
@@ -237,72 +242,27 @@ int PitchDetector::yinAbsoluteThreshold()
  * As we only autocorrelated using integer shifts, we should check for a better
  * fractional shift value using parabolic interpolation.
  */
-float PitchDetector::yinParabolicInterpolation(int tauEstimate)
+float PitchDetector::yinParabolicInterpolation(int tauEstimate, int halfLength)
 {
-    float betterTau;
-    int x0, x2;
-
-    // Calculate the first polynomial coefficient based on the current estimate of tau
-    if (tauEstimate < 1)
-    {
-        x0 = tauEstimate;
-    }
-    else
-    {
-        x0 = tauEstimate - 1;
-    }
-
-    // Calculate the second polynomial coefficient based on the current estimate of tau
-    if (tauEstimate + 1 < halfBufferSize)
-    {
-        x2 = tauEstimate + 1;
-    }
-    else
-    {
-        x2 = tauEstimate;
-    }
+    const int x0 = (tauEstimate < 1) ? tauEstimate : tauEstimate - 1;
+    const int x2 = (tauEstimate + 1 < halfLength) ? tauEstimate + 1 : tauEstimate;
 
     // Algorithm to parabolically interpolate the shift value tau
     if (x0 == tauEstimate)
     {
-        if (yinBuffer[tauEstimate] <= yinBuffer[x2])
-        {
-            betterTau = static_cast<float>(tauEstimate);
-        }
-        else
-        {
-            betterTau = static_cast<float>(x2);
-        }
+        return (m_yinBuffer[tauEstimate] <= m_yinBuffer[x2]) ? static_cast<float>(tauEstimate) : static_cast<float>(x2);
     }
     else if (x2 == tauEstimate)
     {
-        if (yinBuffer[tauEstimate] <= yinBuffer[x0])
-        {
-            betterTau = static_cast<float>(tauEstimate);
-        }
-        else
-        {
-            betterTau = static_cast<float>(x0);
-        }
-    }
-    else
-    {
-        float s0 = yinBuffer[x0];
-        float s1 = yinBuffer[tauEstimate];
-        float s2 = yinBuffer[x2];
-
-        // Fixed AUBIO implementation (thanks to Karl Helgason)
-        float denominator = 2.0f * (2.0f * s1 - s2 - s0);
-
-        if (std::abs(denominator) > 1e-10f)
-        {
-            betterTau = static_cast<float>(tauEstimate) + (s2 - s0) / denominator;
-        }
-        else
-        {
-            betterTau = static_cast<float>(tauEstimate);
-        }
+        return (m_yinBuffer[tauEstimate] <= m_yinBuffer[x0]) ? static_cast<float>(tauEstimate) : static_cast<float>(x0);
     }
 
-    return betterTau;
+    const float s0 = m_yinBuffer[x0];
+    const float s1 = m_yinBuffer[tauEstimate];
+    const float s2 = m_yinBuffer[x2];
+
+    // Fixed AUBIO implementation (thanks to Karl Helgason)
+    const float denominator = 2.0f * (2.0f * s1 - s2 - s0);
+
+    return (std::abs(denominator) > 1e-10f) ? static_cast<float>(tauEstimate) + (s2 - s0) / denominator : static_cast<float>(tauEstimate);
 }

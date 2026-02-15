@@ -4,80 +4,79 @@
 #include "PluginProcessor.h"
 #include "WaveformVisualizer.h"
 
-class SubbertoneAudioProcessorEditor : public juce::AudioProcessorEditor,
-                                       private juce::Timer
+class SubbertoneAudioProcessorEditor : public juce::AudioProcessorEditor, private juce::Timer
 {
-public:
-    SubbertoneAudioProcessorEditor(SubbertoneAudioProcessor&);
-    ~SubbertoneAudioProcessorEditor() override;
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(SubbertoneAudioProcessorEditor)
 
-    void paint(juce::Graphics&) override;
+public:
+    explicit SubbertoneAudioProcessorEditor(SubbertoneAudioProcessor& audioProcessor);
+    ~SubbertoneAudioProcessorEditor();
+
+
     void resized() override;
+    void paint(juce::Graphics&) override;
     void timerCallback() override;
 
 private:
-    SubbertoneAudioProcessor& audioProcessor;
+    void layoutTopBar(juce::Rectangle<int>& bounds);
+    void layoutVisualizer(juce::Rectangle<int>& bounds);
+    void layoutControls(juce::Rectangle<int>& bounds);
+
+    void setupRotarySlider(juce::Slider& slider, juce::Label& label, const juce::String& text, const juce::String& tooltip, const juce::String& suffix, int decimalPlaces);
     
+    void showAboutWindow();
+
     // Custom look and feel
     class SubbertoneLookAndFeel : public juce::LookAndFeel_V4
     {
     public:
         SubbertoneLookAndFeel();
         
-        void drawRotarySlider(juce::Graphics& g, int x, int y, int width, int height,
-                             float sliderPos, float rotaryStartAngle, float rotaryEndAngle,
-                             juce::Slider& slider) override;
+        void drawRotarySlider(juce::Graphics& g, int x, int y, int width, int height, float sliderPos, float rotaryStartAngle, float rotaryEndAngle, juce::Slider& slider) override;
+        juce::Slider::SliderLayout getSliderLayout(juce::Slider& slider) override;
     };
-    
-    SubbertoneLookAndFeel lookAndFeel;
+
+    SubbertoneAudioProcessor& m_audioProcessor;
+
+    SubbertoneLookAndFeel m_lookAndFeel;
     
     // Visualizer
-    std::unique_ptr<WaveformVisualizer> waveformVisualizer;
+    WaveformVisualizer m_waveformVisualizer;
     
     // Controls
-    juce::Slider mixSlider;
-    juce::Slider distortionSlider;
-    juce::Slider toneSlider;
-    juce::Slider postDriveLowpassSlider;
-    juce::Slider outputGainSlider;
-    juce::Slider pitchThresholdSlider;
-    juce::Slider fundamentalLimitSlider;
+    juce::Slider m_mixSlider;
+    juce::Slider m_distortionSlider;
+    juce::Slider m_toneSlider;
+    juce::Slider m_postDriveLowpassSlider;
+    juce::Slider m_outputGainSlider;
+    juce::Slider m_pitchThresholdSlider;
+    juce::Slider m_fundamentalLimitSlider;
     
-    juce::ComboBox distortionTypeCombo;
+    juce::ComboBox m_distortionTypeCombo;
     
-    juce::Label mixLabel;
-    juce::Label distortionLabel;
-    juce::Label toneLabel;
-    juce::Label postDriveLowpassLabel;
-    juce::Label distortionTypeLabel;
-    juce::Label outputGainLabel;
-    juce::Label pitchThresholdLabel;
-    juce::Label fundamentalLimitLabel;
-    juce::Label signalLevelLabel;
+    juce::Label m_mixLabel;
+    juce::Label m_distortionLabel;
+    juce::Label m_toneLabel;
+    juce::Label m_postDriveLowpassLabel;
+    juce::Label m_distortionTypeLabel;
+    juce::Label m_outputGainLabel;
+    juce::Label m_pitchThresholdLabel;
+    juce::Label m_fundamentalLimitLabel;
     
-    // Parameter attachments
-    std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> mixAttachment;
-    std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> distortionAttachment;
-    std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> toneAttachment;
-    std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> postDriveLowpassAttachment;
-    std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> outputGainAttachment;
-    std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> pitchThresholdAttachment;
-    std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> fundamentalLimitAttachment;
-    std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> distortionTypeAttachment;
+    // Parameter attachments (constructed after controls)
+    juce::AudioProcessorValueTreeState::SliderAttachment   m_mixAttachment;
+    juce::AudioProcessorValueTreeState::SliderAttachment   m_distortionAttachment;
+    juce::AudioProcessorValueTreeState::SliderAttachment   m_toneAttachment;
+    juce::AudioProcessorValueTreeState::SliderAttachment   m_postDriveLowpassAttachment;
+    juce::AudioProcessorValueTreeState::SliderAttachment   m_outputGainAttachment;
+    juce::AudioProcessorValueTreeState::SliderAttachment   m_pitchThresholdAttachment;
+    juce::AudioProcessorValueTreeState::SliderAttachment   m_fundamentalLimitAttachment;
+    juce::AudioProcessorValueTreeState::ComboBoxAttachment m_distortionTypeAttachment;
     
     // About button
-    juce::TextButton aboutButton;
-    void showAboutWindow();
-    
-    // Visualizer toggles
-    juce::ToggleButton showInputToggle;
-    juce::ToggleButton showOutputToggle;
+    juce::TextButton m_aboutButton;
     
     // Tooltip window
-    std::unique_ptr<juce::TooltipWindow> tooltipWindow;
-    
-    // Signal level monitoring
-    float currentSignalDb = -100.0f;
-    
-    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(SubbertoneAudioProcessorEditor)
+    juce::TooltipWindow m_tooltipWindow;
 };
+

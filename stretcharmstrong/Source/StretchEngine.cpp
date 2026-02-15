@@ -19,14 +19,15 @@ void StretchEngine::prepare(double newSampleRate, int newMaxBlockSize, StretchTy
     targetStretchRatio = ratio;
     smoothedStretchRatio = 1.0f;
 
-    // Initialize Rubber Band for time-stretching with smoother settings
+    // Initialize Rubber Band for time-stretching
+    // Using OptionEngineFiner for better quality (R3 engine)
     RubberBand::RubberBandStretcher::Options options =
         RubberBand::RubberBandStretcher::OptionProcessRealTime |
-        RubberBand::RubberBandStretcher::OptionStretchElastic |
-        RubberBand::RubberBandStretcher::OptionTransientsSmooth |
-        RubberBand::RubberBandStretcher::OptionPhaseIndependent |
+        RubberBand::RubberBandStretcher::OptionEngineFiner |
         RubberBand::RubberBandStretcher::OptionWindowLong |
-        RubberBand::RubberBandStretcher::OptionSmoothingOn;
+        RubberBand::RubberBandStretcher::OptionSmoothingOn |
+        RubberBand::RubberBandStretcher::OptionFormantPreserved |
+        RubberBand::RubberBandStretcher::OptionPitchHighConsistency;
 
     rubberBand = std::make_unique<RubberBand::RubberBandStretcher>(
         static_cast<size_t>(sampleRate),
@@ -38,15 +39,17 @@ void StretchEngine::prepare(double newSampleRate, int newMaxBlockSize, StretchTy
 
     rubberBand->setMaxProcessSize(static_cast<size_t>(maxBlockSize));
     rubberBandPrimed = false;
+    primingSamplesNeeded = static_cast<int>(rubberBand->getLatency()) + maxBlockSize * 2;
+    primingSamplesFed = 0;
 
-    // Initialize output ring buffer for time stretching
+    // Initialize output ring buffer for time stretching (per-channel positions)
     outputRingBuffer.resize(2);
     for (auto& channelBuffer : outputRingBuffer)
     {
         channelBuffer.resize(ringBufferSize, 0.0f);
     }
-    ringBufferWritePos = 0;
-    ringBufferReadPos = 0;
+    ringWritePos.fill(0);
+    ringReadPos.fill(0);
     ringBufferAvailable = 0;
 
     // Initialize varispeed circular buffer
@@ -60,16 +63,12 @@ void StretchEngine::prepare(double newSampleRate, int newMaxBlockSize, StretchTy
 
     // Initialize working buffers
     inputBuffers.resize(2);
-    inputPtrs.resize(2);
     retrieveBuffers.resize(2);
-    retrievePtrs.resize(2);
 
     for (int ch = 0; ch < 2; ++ch)
     {
         inputBuffers[ch].resize(static_cast<size_t>(maxBlockSize));
-        retrieveBuffers[ch].resize(static_cast<size_t>(maxBlockSize * 8)); // Extra room for stretched output
-        inputPtrs[ch] = inputBuffers[ch].data();
-        retrievePtrs[ch] = retrieveBuffers[ch].data();
+        retrieveBuffers[ch].resize(static_cast<size_t>(maxBlockSize * 8));
     }
 
     // Initialize crossfade buffer
@@ -92,9 +91,10 @@ void StretchEngine::reset()
         rubberBand->reset();
     }
     rubberBandPrimed = false;
+    primingSamplesFed = 0;
 
-    ringBufferWritePos = 0;
-    ringBufferReadPos = 0;
+    ringWritePos.fill(0);
+    ringReadPos.fill(0);
     ringBufferAvailable = 0;
 
     for (auto& channelBuffer : outputRingBuffer)
@@ -128,7 +128,7 @@ int StretchEngine::getLatencySamples() const
 {
     if (rubberBand && stretchType == StretchType::TimeStretch)
     {
-        return static_cast<int>(rubberBand->getLatency()) + 512;
+        return static_cast<int>(rubberBand->getLatency()) + 1024;
     }
     return 256;
 }
@@ -136,11 +136,9 @@ int StretchEngine::getLatencySamples() const
 void StretchEngine::process(juce::AudioBuffer<float>& buffer, float envelopeValue)
 {
     previousEnvelope = currentEnvelope;
-
-    // Smooth the envelope to prevent clicks
     currentEnvelope = currentEnvelope * envelopeSmoothingCoeff + envelopeValue * (1.0f - envelopeSmoothingCoeff);
 
-    // Detect transitions
+    // Detect transitions for crossfade
     bool wasActive = previousEnvelope > 0.01f;
     bool isActive = currentEnvelope > 0.01f;
 
@@ -149,7 +147,6 @@ void StretchEngine::process(juce::AudioBuffer<float>& buffer, float envelopeValu
         needsCrossfade = true;
         crossfadeSamples = 0;
 
-        // Store current output for crossfade
         int numChannels = std::min(buffer.getNumChannels(), 2);
         int samplesToStore = std::min(buffer.getNumSamples(), crossfadeLength);
         for (int ch = 0; ch < numChannels; ++ch)
@@ -191,13 +188,10 @@ void StretchEngine::process(juce::AudioBuffer<float>& buffer, float envelopeValu
 
             for (int i = 0; i < numSamples && crossfadeSamples < crossfadeLength; ++i)
             {
-                float crossfadeProgress = static_cast<float>(crossfadeSamples) / static_cast<float>(crossfadeLength);
-                float fadeIn = crossfadeProgress;
-                float fadeOut = 1.0f - crossfadeProgress;
-
-                // Cosine crossfade for smoother transition
-                fadeIn = 0.5f * (1.0f - std::cos(fadeIn * juce::MathConstants<float>::pi));
-                fadeOut = 0.5f * (1.0f + std::cos(fadeIn * juce::MathConstants<float>::pi));
+                float t = static_cast<float>(crossfadeSamples) / static_cast<float>(crossfadeLength);
+                // Equal power crossfade
+                float fadeIn = std::sin(t * juce::MathConstants<float>::halfPi);
+                float fadeOut = std::cos(t * juce::MathConstants<float>::halfPi);
 
                 output[i] = output[i] * fadeIn + crossfadeBuffer[ch][crossfadeSamples] * fadeOut;
                 crossfadeSamples++;
@@ -220,7 +214,6 @@ void StretchEngine::processVarispeed(juce::AudioBuffer<float>& buffer, float env
     float targetRatio = 1.0f + (targetStretchRatio - 1.0f) * envelope;
     smoothedStretchRatio = smoothedStretchRatio * 0.995f + targetRatio * 0.005f;
 
-    // Calculate playback rate (inverse of stretch ratio for varispeed)
     double playbackRate = 1.0 / static_cast<double>(smoothedStretchRatio);
 
     // Write input to circular buffer
@@ -246,7 +239,6 @@ void StretchEngine::processVarispeed(juce::AudioBuffer<float>& buffer, float env
 
         for (int i = 0; i < numSamples; ++i)
         {
-            // Wrap read position
             while (readPos >= varispeedBufferSize)
                 readPos -= varispeedBufferSize;
             while (readPos < 0)
@@ -257,11 +249,9 @@ void StretchEngine::processVarispeed(juce::AudioBuffer<float>& buffer, float env
         }
     }
 
-    // Update positions
     varispeedWritePos = (varispeedWritePos + numSamples) % varispeedBufferSize;
     varispeedReadPos += static_cast<double>(numSamples) * playbackRate;
 
-    // Keep read position wrapped
     while (varispeedReadPos >= varispeedBufferSize)
         varispeedReadPos -= varispeedBufferSize;
     while (varispeedReadPos < 0)
@@ -276,9 +266,9 @@ void StretchEngine::processTimeStretch(juce::AudioBuffer<float>& buffer, float e
     int numSamples = buffer.getNumSamples();
     int numChannels = std::min(buffer.getNumChannels(), 2);
 
-    // Smoothly interpolate the effective ratio
+    // Very smooth ratio interpolation to prevent glitches
     float targetRatio = 1.0f + (targetStretchRatio - 1.0f) * envelope;
-    smoothedStretchRatio = smoothedStretchRatio * 0.99f + targetRatio * 0.01f;
+    smoothedStretchRatio = smoothedStretchRatio * 0.998f + targetRatio * 0.002f;
 
     // Update Rubber Band time ratio
     rubberBand->setTimeRatio(static_cast<double>(smoothedStretchRatio));
@@ -290,7 +280,7 @@ void StretchEngine::processTimeStretch(juce::AudioBuffer<float>& buffer, float e
         std::copy(src, src + numSamples, inputBuffers[ch].begin());
     }
 
-    // If we don't have 2 channels, duplicate mono to stereo for Rubber Band
+    // If mono, duplicate to stereo for Rubber Band
     if (numChannels == 1)
     {
         std::copy(inputBuffers[0].begin(), inputBuffers[0].begin() + numSamples, inputBuffers[1].begin());
@@ -300,7 +290,9 @@ void StretchEngine::processTimeStretch(juce::AudioBuffer<float>& buffer, float e
     const float* ptrs[2] = { inputBuffers[0].data(), inputBuffers[1].data() };
     rubberBand->process(ptrs, static_cast<size_t>(numSamples), false);
 
-    // Retrieve all available output and store in ring buffer
+    primingSamplesFed += numSamples;
+
+    // Retrieve all available output
     while (rubberBand->available() > 0)
     {
         int available = static_cast<int>(rubberBand->available());
@@ -311,120 +303,120 @@ void StretchEngine::processTimeStretch(juce::AudioBuffer<float>& buffer, float e
 
         if (retrieved > 0)
         {
-            for (int ch = 0; ch < 2; ++ch)
-            {
-                writeToRingBuffer(ch, retrieveBuffers[ch].data(), static_cast<int>(retrieved));
-            }
+            writeToRingBuffer(retrieveBuffers[0].data(), retrieveBuffers[1].data(), static_cast<int>(retrieved));
         }
     }
 
-    // Read from ring buffer to output
-    // We want to output numSamples, but we may not have enough yet
-    int availableInRing = ringBufferAvailable;
-
-    if (availableInRing >= numSamples)
+    // Check if we're still priming
+    if (!rubberBandPrimed)
     {
-        // We have enough samples
-        for (int ch = 0; ch < numChannels; ++ch)
-        {
-            float* dest = buffer.getWritePointer(ch);
-            readFromRingBuffer(ch, dest, numSamples);
-        }
-    }
-    else if (availableInRing > 0)
-    {
-        // Partial output - crossfade with input to avoid clicks
-        for (int ch = 0; ch < numChannels; ++ch)
-        {
-            float* dest = buffer.getWritePointer(ch);
-            const float* src = buffer.getReadPointer(ch);
-
-            // Read what we have
-            std::vector<float> tempBuf(availableInRing);
-            readFromRingBuffer(ch, tempBuf.data(), availableInRing);
-
-            // Copy stretched samples
-            for (int i = 0; i < availableInRing; ++i)
-            {
-                dest[i] = tempBuf[i];
-            }
-
-            // Crossfade remaining samples with dry input
-            int crossfadeLen = std::min(64, numSamples - availableInRing);
-            for (int i = 0; i < crossfadeLen; ++i)
-            {
-                float fade = static_cast<float>(i) / static_cast<float>(crossfadeLen);
-                int idx = availableInRing + i;
-                if (idx < numSamples)
-                {
-                    dest[idx] = src[idx] * fade;
-                }
-            }
-
-            // Fill rest with faded dry
-            for (int i = availableInRing + crossfadeLen; i < numSamples; ++i)
-            {
-                dest[i] = src[i] * 0.5f; // Attenuate to reduce artifacts
-            }
-        }
-    }
-    else
-    {
-        // No output yet - we're still priming, pass through with attenuation
-        float atten = rubberBandPrimed ? 0.0f : 1.0f;
-        if (!rubberBandPrimed && ringBufferWritePos > 0)
+        if (primingSamplesFed >= primingSamplesNeeded && ringBufferAvailable >= numSamples)
         {
             rubberBandPrimed = true;
         }
-
-        for (int ch = 0; ch < numChannels; ++ch)
+        else
         {
-            float* dest = buffer.getWritePointer(ch);
-            for (int i = 0; i < numSamples; ++i)
+            // Still priming - output silence or attenuated dry
+            for (int ch = 0; ch < numChannels; ++ch)
             {
-                dest[i] *= atten;
+                float* dest = buffer.getWritePointer(ch);
+                for (int i = 0; i < numSamples; ++i)
+                {
+                    dest[i] *= 0.0f; // Silence during priming
+                }
+            }
+            return;
+        }
+    }
+
+    // Read from ring buffer
+    if (ringBufferAvailable >= numSamples)
+    {
+        readFromRingBuffer(buffer.getWritePointer(0),
+                          numChannels > 1 ? buffer.getWritePointer(1) : nullptr,
+                          numSamples, numChannels);
+    }
+    else
+    {
+        // Buffer underrun - blend with dry signal
+        int available = ringBufferAvailable;
+
+        if (available > 0)
+        {
+            // Temp buffers for what we have
+            std::vector<float> tempL(available), tempR(available);
+            readFromRingBuffer(tempL.data(), tempR.data(), available, 2);
+
+            for (int ch = 0; ch < numChannels; ++ch)
+            {
+                float* dest = buffer.getWritePointer(ch);
+                const float* temp = (ch == 0) ? tempL.data() : tempR.data();
+                const float* dry = buffer.getReadPointer(ch);
+
+                // Output what we have
+                for (int i = 0; i < available; ++i)
+                {
+                    dest[i] = temp[i];
+                }
+
+                // Crossfade to dry for the rest
+                int fadeLen = std::min(128, numSamples - available);
+                for (int i = 0; i < fadeLen; ++i)
+                {
+                    float t = static_cast<float>(i) / static_cast<float>(fadeLen);
+                    int idx = available + i;
+                    dest[idx] = dry[idx] * t;
+                }
+
+                // Dry signal for remainder
+                for (int i = available + fadeLen; i < numSamples; ++i)
+                {
+                    dest[i] = dry[i];
+                }
             }
         }
     }
 }
 
-void StretchEngine::writeToRingBuffer(int channel, const float* data, int numSamples)
+void StretchEngine::writeToRingBuffer(const float* dataL, const float* dataR, int numSamples)
 {
-    if (channel < 0 || channel >= 2 || numSamples <= 0)
+    if (numSamples <= 0)
         return;
-
-    auto& ringBuf = outputRingBuffer[channel];
 
     for (int i = 0; i < numSamples; ++i)
     {
-        ringBuf[ringBufferWritePos] = data[i];
-        ringBufferWritePos = (ringBufferWritePos + 1) % ringBufferSize;
+        int writePos = (ringWritePos[0] + i) % ringBufferSize;
+        outputRingBuffer[0][writePos] = dataL[i];
+        outputRingBuffer[1][writePos] = dataR[i];
     }
+
+    ringWritePos[0] = (ringWritePos[0] + numSamples) % ringBufferSize;
+    ringWritePos[1] = ringWritePos[0]; // Keep in sync
 
     ringBufferAvailable = std::min(ringBufferAvailable + numSamples, ringBufferSize);
 }
 
-int StretchEngine::readFromRingBuffer(int channel, float* data, int numSamples)
+void StretchEngine::readFromRingBuffer(float* dataL, float* dataR, int numSamples, int numChannels)
 {
-    if (channel < 0 || channel >= 2 || numSamples <= 0)
-        return 0;
+    if (numSamples <= 0)
+        return;
 
     int toRead = std::min(numSamples, ringBufferAvailable);
-    auto& ringBuf = outputRingBuffer[channel];
 
     for (int i = 0; i < toRead; ++i)
     {
-        data[i] = ringBuf[ringBufferReadPos];
-        ringBufferReadPos = (ringBufferReadPos + 1) % ringBufferSize;
+        int readPos = (ringReadPos[0] + i) % ringBufferSize;
+        dataL[i] = outputRingBuffer[0][readPos];
+        if (dataR && numChannels > 1)
+        {
+            dataR[i] = outputRingBuffer[1][readPos];
+        }
     }
 
-    // Only update available count once (for channel 0)
-    if (channel == 0)
-    {
-        ringBufferAvailable -= toRead;
-    }
+    ringReadPos[0] = (ringReadPos[0] + toRead) % ringBufferSize;
+    ringReadPos[1] = ringReadPos[0]; // Keep in sync
 
-    return toRead;
+    ringBufferAvailable -= toRead;
 }
 
 float StretchEngine::hermiteInterpolate(const float* buffer, int bufferSize, double position)
@@ -432,7 +424,6 @@ float StretchEngine::hermiteInterpolate(const float* buffer, int bufferSize, dou
     int idx0 = static_cast<int>(position);
     float frac = static_cast<float>(position - idx0);
 
-    // Get 4 points for Hermite interpolation
     int idxM1 = (idx0 - 1 + bufferSize) % bufferSize;
     int idx1 = (idx0 + 1) % bufferSize;
     int idx2 = (idx0 + 2) % bufferSize;
@@ -443,7 +434,6 @@ float StretchEngine::hermiteInterpolate(const float* buffer, int bufferSize, dou
     float x1 = buffer[idx1];
     float x2 = buffer[idx2];
 
-    // Hermite interpolation coefficients
     float c0 = x0;
     float c1 = 0.5f * (x1 - xm1);
     float c2 = xm1 - 2.5f * x0 + 2.0f * x1 - 0.5f * x2;

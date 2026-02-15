@@ -55,11 +55,9 @@ StretchArmstrongAudioProcessorEditor::StretchArmstrongAudioProcessorEditor(Stret
     addAndMakeVisible(pitchFollowEnableButton);
 
     setupSlider(pitchFollowAmountSlider, pitchFollowAmountLabel, "%");
-    setupSlider(pitchFollowRefSlider, pitchFollowRefLabel, " Hz");
 
     juce::Colour pitchGreen(0xff00ff88);
     pitchFollowAmountSlider.setColour(juce::Slider::rotarySliderFillColourId, pitchGreen);
-    pitchFollowRefSlider.setColour(juce::Slider::rotarySliderFillColourId, pitchGreen);
 
     // Set up slew control
     setupSlider(modulationSlewSlider, modulationSlewLabel, " ms");
@@ -109,8 +107,6 @@ StretchArmstrongAudioProcessorEditor::StretchArmstrongAudioProcessorEditor(Stret
         audioProcessor.parameters, "pitchFollowEnable", pitchFollowEnableButton);
     pitchFollowAmountAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
         audioProcessor.parameters, "pitchFollowAmount", pitchFollowAmountSlider);
-    pitchFollowRefAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
-        audioProcessor.parameters, "pitchFollowRef", pitchFollowRefSlider);
 
     // Slew attachment
     modulationSlewAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
@@ -322,10 +318,6 @@ void StretchArmstrongAudioProcessorEditor::resized()
 
     pitchFollowAmountLabel.setBounds(static_cast<int>(x), static_cast<int>(row2Y), static_cast<int>(smallKnobSize), static_cast<int>(labelHeight));
     pitchFollowAmountSlider.setBounds(static_cast<int>(x), static_cast<int>(row2Y + labelHeight), static_cast<int>(smallKnobSize), static_cast<int>(smallKnobSize));
-    x += smallKnobSize + spacing;
-
-    pitchFollowRefLabel.setBounds(static_cast<int>(x), static_cast<int>(row2Y), static_cast<int>(smallKnobSize), static_cast<int>(labelHeight));
-    pitchFollowRefSlider.setBounds(static_cast<int>(x), static_cast<int>(row2Y + labelHeight), static_cast<int>(smallKnobSize), static_cast<int>(smallKnobSize));
     x += smallKnobSize + spacing * 3;
 
     // Slew

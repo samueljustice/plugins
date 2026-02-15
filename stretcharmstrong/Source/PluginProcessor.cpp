@@ -112,12 +112,6 @@ juce::AudioProcessorValueTreeState::ParameterLayout StretchArmstrongAudioProcess
         juce::NormalisableRange<float>(0.0f, 100.0f, 0.1f), 50.0f,
         juce::AudioParameterFloatAttributes().withLabel("%")));
 
-    // Reference pitch for pitch following (center frequency)
-    params.push_back(std::make_unique<juce::AudioParameterFloat>(
-        juce::ParameterID("pitchFollowRef", 1), "Pitch Ref",
-        juce::NormalisableRange<float>(40.0f, 500.0f, 1.0f, 0.5f), 200.0f,
-        juce::AudioParameterFloatAttributes().withLabel("Hz")));
-
     // ===== SLEW/SMOOTHING SECTION =====
 
     // Modulation slew time (affects both env and pitch followers)
@@ -276,7 +270,6 @@ void StretchArmstrongAudioProcessor::processBlock(juce::AudioBuffer<float>& buff
     // Pitch follower parameters
     bool pitchFollowEnable = parameters.getRawParameterValue("pitchFollowEnable")->load() > 0.5f;
     float pitchFollowAmount = parameters.getRawParameterValue("pitchFollowAmount")->load() / 100.0f;
-    float pitchFollowRef = parameters.getRawParameterValue("pitchFollowRef")->load();
 
     // Slew parameter
     float modulationSlewMs = parameters.getRawParameterValue("modulationSlew")->load();
@@ -305,20 +298,21 @@ void StretchArmstrongAudioProcessor::processBlock(juce::AudioBuffer<float>& buff
 
     // ===== PITCH DETECTION =====
     // Run pitch detection on mono input (use first channel or average)
+    // Maps detected pitch directly to modulation: higher pitch = more stretch
     if (pitchFollowEnable && numChannels > 0)
     {
         const float* monoInput = buffer.getReadPointer(0);
         float detectedPitch = pitchDetector->detectPitch(monoInput, numSamples, thresholdLinear);
 
-        // Normalize pitch to 0-1 range based on reference
-        // Pitch above reference = positive modulation (more stretch)
-        // Pitch below reference = negative modulation (less stretch)
         if (detectedPitch > 0.0f)
         {
-            // Log-scale normalization: pitchFollowerValue ranges from -1 to +1
-            // +1 when pitch is at maxPitch, -1 when pitch is at minPitch, 0 at reference
-            float octavesFromRef = std::log2(detectedPitch / pitchFollowRef);
-            pitchFollowerValue = juce::jlimit(-1.0f, 1.0f, octavesFromRef / 2.0f); // ±2 octaves = ±1
+            // Map pitch logarithmically to 0-1 range
+            // 80Hz = 0, 640Hz = 1 (covers ~3 octaves of typical bass-to-treble range)
+            constexpr float minPitch = 80.0f;
+            constexpr float maxPitch = 640.0f;
+            float normalized = (std::log2(detectedPitch) - std::log2(minPitch)) /
+                              (std::log2(maxPitch) - std::log2(minPitch));
+            pitchFollowerValue = juce::jlimit(0.0f, 1.0f, normalized);
         }
         else
         {
@@ -353,7 +347,7 @@ void StretchArmstrongAudioProcessor::processBlock(juce::AudioBuffer<float>& buff
     // Apply pitch follower modulation if enabled
     if (pitchFollowEnable)
     {
-        // Pitch modulation: higher pitch = more stretch, lower = less
+        // Pitch modulation: higher pitch = more stretch (slewedPitchFollower is 0-1)
         totalModulation += slewedPitchFollower * pitchFollowAmount;
     }
 

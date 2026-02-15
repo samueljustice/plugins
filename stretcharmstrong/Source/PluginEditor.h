@@ -42,7 +42,6 @@ private:
     // Pitch follower controls
     juce::ToggleButton pitchFollowEnableButton{"PITCH"};
     juce::Slider pitchFollowAmountSlider;
-    juce::Slider pitchFollowRefSlider;
 
     // Modulation slew control
     juce::Slider modulationSlewSlider;
@@ -64,7 +63,6 @@ private:
 
     // Pitch follower labels
     juce::Label pitchFollowAmountLabel{"", "Amount"};
-    juce::Label pitchFollowRefLabel{"", "Ref Hz"};
 
     // Slew label
     juce::Label modulationSlewLabel{"", "Slew"};
@@ -88,7 +86,6 @@ private:
     // Pitch follower attachments
     std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> pitchFollowEnableAttachment;
     std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> pitchFollowAmountAttachment;
-    std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> pitchFollowRefAttachment;
 
     // Slew attachment
     std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> modulationSlewAttachment;

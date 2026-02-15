@@ -1,0 +1,157 @@
+# Build directories
+build/
+build-*/
+releases/
+release/
+dist/
+out/
+
+# Build artifacts
+*.app
+*.dmg
+*.pkg
+*.zip
+*.tar.gz
+
+# CMake
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+CMakeScripts/
+Makefile
+compile_commands.json
+CTestTestfile.cmake
+_deps/
+*.cmake
+!CMake/*.cmake
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg
+*.egg-info/
+.eggs/
+.Python
+python_bundle/
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.mypy_cache/
+.dmypy.json
+dmypy.json
+.pyre/
+.pytype/
+
+# C++ build artifacts
+*.o
+*.obj
+*.a
+*.lib
+*.dll
+*.dylib
+*.so
+*.exe
+*.out
+*.pdb
+*.ilk
+*.exp
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Test files
+test_*.py
+*.test
+test_output/
+
+# Temporary files
+*.tmp
+*.temp
+*.bak
+.cache/
+
+# Documentation build
+docs/build/
+docs/_build/
+doxygen/
+
+# Conan
+conan.lock
+conaninfo.txt
+conanbuildinfo.*
+graph_info.json
+
+# Package files
+*.tar
+*.tgz
+
+# Debug symbols
+*.dSYM/
+
+# Certificates and keys (never commit these!)
+*.pem
+*.key
+*.crt
+*.p12
+*.pfx
+
+# macOS specific
+Icon?
+.Spotlight-V100
+.Trashes
+.VolumeIcon.icns
+.com.apple.timemachine.donotpresent
+.fseventsd
+
+# Windows specific
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+*.cab
+*.msi
+*.msm
+*.msp
+*.lnk
+
+# Linux specific
+.Trash-*
+.nfs*
+
+# PTSL SDK (keep the extracted version but ignore the zip)
+PTSL_SDK_CPP.*.zip
+!PTSL_SDK_CPP.*/
+
+# MiniBPM (keep the extracted version but ignore the zip)
+minibpm-*.zip
+!minibpm-*/
+
+# Large audio files (except sample files)
+*.wav
+*.aiff
+*.mp3
+*.flac
+# Keep the sample audio file
+!DF_She2_ThemePV_v01.01.0617.wav

@@ -1,8 +1,8 @@
 #include "WaveformVisualizer.h"
 #include "PluginProcessor.h"
 
-WaveformVisualizer::WaveformVisualizer(SubbertoneAudioProcessor& p)
-    : audioProcessor(p)
+WaveformVisualizer::WaveformVisualizer(SubbertoneAudioProcessor& audioProcessor)
+    : m_audioProcessor(audioProcessor)
 {
     // Don't make component opaque so paint() is called for text overlay
     setOpaque(false);
@@ -11,20 +11,24 @@ WaveformVisualizer::WaveformVisualizer(SubbertoneAudioProcessor& p)
     setInterceptsMouseClicks(true, false);
     
     // Initialize history buffers
-    inputHistory.resize(historySize);
-    outputHistory.resize(historySize);
-    harmonicResidualHistory.resize(historySize);
+    m_inputHistory.resize(c_historySize);
+    m_outputHistory.resize(c_historySize);
+    m_harmonicResidualHistory.resize(c_historySize);
     
-    for (int i = 0; i < historySize; ++i)
+    for (int i = 0; i < c_historySize; ++i)
     {
-        inputHistory[i].resize(512, 0.0f);
-        outputHistory[i].resize(512, 0.0f);
-        harmonicResidualHistory[i].resize(512, 0.0f);
+        m_inputHistory[i].resize(512, 0.0f);
+        m_outputHistory[i].resize(512, 0.0f);
+        m_harmonicResidualHistory[i].resize(512, 0.0f);
     }
+
+    m_inputBuffer.resize(2048, 0.0f);
+    m_outputBuffer.resize(2048, 0.0f);
+    m_harmonicResidualBuffer.resize(2048, 0.0f);
     
-    openGLContext.setRenderer(this);
-    openGLContext.attachTo(*this);
-    openGLContext.setContinuousRepainting(true);
+    m_openGLContext.setRenderer(this);
+    m_openGLContext.attachTo(*this);
+    m_openGLContext.setContinuousRepainting(true);
     
     startTimerHz(60); // 60 FPS update
 }
@@ -32,16 +36,16 @@ WaveformVisualizer::WaveformVisualizer(SubbertoneAudioProcessor& p)
 WaveformVisualizer::~WaveformVisualizer()
 {
     stopTimer();
-    openGLContext.detach();
+    m_openGLContext.detach();
 }
 
 void WaveformVisualizer::paint(juce::Graphics& g)
 {
     // Don't fill the background - let OpenGL handle everything
     // Only draw text overlay if OpenGL is not active
-    if (!openGLContext.isAttached())
+    if (!m_openGLContext.isAttached())
     {
-        g.fillAll(bgColor);
+        g.fillAll(m_bgColor);
         g.setColour(juce::Colours::white);
         g.drawText("OpenGL not initialized", getLocalBounds(), juce::Justification::centred);
         return;
@@ -51,68 +55,73 @@ void WaveformVisualizer::paint(juce::Graphics& g)
     g.setFont(juce::Font(juce::FontOptions("Courier New", 18.0f, juce::Font::bold)));
     
     // Draw INPUT with toggle state
-    g.setColour(showInput ? inputColor : inputColor.withAlpha(0.3f));
-    g.drawText("INPUT" + juce::String(showInput ? "" : " (OFF)"), 10, 10, 150, 25, juce::Justification::left);
+    g.setColour(m_showInput ? m_inputColor : m_inputColor.withAlpha(0.3f));
+    g.drawText("INPUT" + juce::String(m_showInput ? "" : " (OFF)"), 10, 10, 150, 25, juce::Justification::left);
     
     // Draw HARMONIC RESIDUAL with toggle state in the middle
-    g.setColour(showHarmonicResidual ? harmonicResidualColor : harmonicResidualColor.withAlpha(0.3f));
-    g.drawText("HARMONICS" + juce::String(showHarmonicResidual ? "" : " (OFF)"), 10, getHeight() / 2 - 12, 150, 25, juce::Justification::left);
+    g.setColour(m_showHarmonicResidual ? m_harmonicResidualColor : m_harmonicResidualColor.withAlpha(0.3f));
+    g.drawText("HARMONICS" + juce::String(m_showHarmonicResidual ? "" : " (OFF)"), 10, getHeight() / 2 - 12, 150, 25, juce::Justification::left);
     
     // Draw OUTPUT with toggle state
-    g.setColour(showOutput ? outputColor : outputColor.withAlpha(0.3f));
-    g.drawText("OUTPUT" + juce::String(showOutput ? "" : " (OFF)"), 10, getHeight() - 35, 150, 25, juce::Justification::left);
+    g.setColour(m_showOutput ? m_outputColor : m_outputColor.withAlpha(0.3f));
+    g.drawText("OUTPUT" + juce::String(m_showOutput ? "" : " (OFF)"), 10, getHeight() - 35, 150, 25, juce::Justification::left);
     
     // Add click instruction
-    g.setColour(textColor.withAlpha(0.6f));
+    g.setColour(m_textColor.withAlpha(0.6f));
     g.setFont(juce::Font(juce::FontOptions("Courier New", 12.0f, juce::Font::plain)));
-    g.drawText("Click top/middle/bottom to toggle waveforms", getWidth() - 280, 10, 270, 20, juce::Justification::right);
+    g.drawText("Click top/middle/bottom to toggle waveforms", getWidth() - 280, 10, 275, 20, juce::Justification::right);
     
     // Draw fundamental frequency
-    float fundamental = audioProcessor.getCurrentFundamental();
-    if (fundamental > 0.0f)
+    const float fundamental = m_audioProcessor.getCurrentFundamental();
+    const bool hasSignal = (fundamental > 0.0f);
+    if (hasSignal)
     {
-        g.setColour(glowColor);
-        g.setFont(juce::Font(juce::FontOptions("Courier New", 20.0f, juce::Font::bold)));
-        g.drawText("F0: " + juce::String(fundamental, 1) + " Hz",
-                  getWidth() - 180, 10, 170, 25, juce::Justification::right);
+        const int bottomTextY = getHeight() - 35;
+        g.setColour(m_glowColor);
+        g.setFont(juce::Font(juce::FontOptions("Courier New", 16.0f, juce::Font::bold)));
+        g.drawText("F0: " + juce::String(fundamental, 1) + " Hz", getWidth() - 180, bottomTextY - 25, 170, 25, juce::Justification::right);
         
         // Draw subharmonic frequency
-        g.setColour(outputColor);
-        g.drawText("SUB: " + juce::String(fundamental * 0.5f, 1) + " Hz",
-                  getWidth() - 180, 40, 170, 25, juce::Justification::right);
+        g.setColour(m_outputColor);
+        g.setFont(juce::Font(juce::FontOptions("Courier New", 16.0f, juce::Font::bold)));
+        g.drawText("SUB: " + juce::String(fundamental * 0.5f, 1) + " Hz", getWidth() - 180, bottomTextY, 170, 25, juce::Justification::right);
     }
     else
     {
         g.setColour(juce::Colour(0xff808080)); // Brighter gray color
         g.setFont(juce::Font(juce::FontOptions("Courier New", 16.0f, juce::Font::plain)));
-        g.drawText("NO SIGNAL", getWidth() - 180, 10, 170, 25, juce::Justification::right);
+        g.drawText("NO SIGNAL", getWidth() - 180, getHeight() - 35, 170, 25, juce::Justification::right);
     }
-}
 
-void WaveformVisualizer::resized()
-{
+    // Draw signal level text near bottom-right (avoid overlap with NO SIGNAL)
+    if (hasSignal)
+    {
+        g.setColour(m_signalAboveThreshold ? m_signalOkColor : m_signalLowColor);
+        g.setFont(juce::Font(juce::FontOptions("Courier New", 14.0f, juce::Font::bold)));
+        g.drawText(m_signalText, getWidth() / 2 - 85, getHeight() - 35, 170, 25, juce::Justification::centred);
+    }
 }
 
 void WaveformVisualizer::timerCallback()
 {
     // Update waveform history
-    auto input = audioProcessor.getInputWaveform();
-    auto output = audioProcessor.getOutputWaveform();
-    auto harmonicResidual = audioProcessor.getHarmonicResidualWaveform();
+    m_audioProcessor.getInputWaveform(m_inputBuffer);
+    m_audioProcessor.getOutputWaveform(m_outputBuffer);
+    m_audioProcessor.getHarmonicResidualWaveform(m_harmonicResidualBuffer);
     
     // Downsample to 512 points for performance
     const int targetSize = 512;
-    inputHistory[historyWritePos].resize(targetSize);
-    outputHistory[historyWritePos].resize(targetSize);
-    harmonicResidualHistory[historyWritePos].resize(targetSize);
+    m_inputHistory[m_historyWritePos].resize(targetSize);
+    m_outputHistory[m_historyWritePos].resize(targetSize);
+    m_harmonicResidualHistory[m_historyWritePos].resize(targetSize);
     
-    if (!input.empty())
+    if (!m_inputBuffer.empty())
     {
-        float ratio = input.size() / float(targetSize);
+        const float ratio = m_inputBuffer.size() / float(targetSize);
         for (int i = 0; i < targetSize; ++i)
         {
-            int idx = static_cast<int>(i * ratio);
-            inputHistory[historyWritePos][i] = input[idx] * 2.0f; // Scale up for visibility
+            const int idx = static_cast<int>(i * ratio);
+            m_inputHistory[m_historyWritePos][i] = m_inputBuffer[idx] * 2.0f; // Scale up for visibility
         }
     }
     else
@@ -120,17 +129,17 @@ void WaveformVisualizer::timerCallback()
         // Clear if no input
         for (int i = 0; i < targetSize; ++i)
         {
-            inputHistory[historyWritePos][i] = 0.0f;
+            m_inputHistory[m_historyWritePos][i] = 0.0f;
         }
     }
     
-    if (!output.empty())
+    if (!m_outputBuffer.empty())
     {
-        float ratio = output.size() / float(targetSize);
+        const float ratio = m_outputBuffer.size() / float(targetSize);
         for (int i = 0; i < targetSize; ++i)
         {
-            int idx = static_cast<int>(i * ratio);
-            outputHistory[historyWritePos][i] = output[idx] * 2.0f; // Scale up for visibility
+            const int idx = static_cast<int>(i * ratio);
+            m_outputHistory[m_historyWritePos][i] = m_outputBuffer[idx] * 2.0f; // Scale up for visibility
         }
     }
     else
@@ -138,17 +147,18 @@ void WaveformVisualizer::timerCallback()
         // Clear if no output
         for (int i = 0; i < targetSize; ++i)
         {
-            outputHistory[historyWritePos][i] = 0.0f;
+            m_outputHistory[m_historyWritePos][i] = 0.0f;
         }
     }
     
-    if (!harmonicResidual.empty())
+    if (!m_harmonicResidualBuffer.empty())
     {
-        float ratio = harmonicResidual.size() / float(targetSize);
+        const float ratio = m_harmonicResidualBuffer.size() / float(targetSize);
+
         for (int i = 0; i < targetSize; ++i)
         {
-            int idx = static_cast<int>(i * ratio);
-            harmonicResidualHistory[historyWritePos][i] = harmonicResidual[idx] * 2.0f; // Scale up for visibility
+            const int idx = static_cast<int>(i * ratio);
+            m_harmonicResidualHistory[m_historyWritePos][i] = m_harmonicResidualBuffer[idx] * 2.0f; // Scale up for visibility
         }
     }
     else
@@ -156,54 +166,53 @@ void WaveformVisualizer::timerCallback()
         // Clear if no harmonic residual
         for (int i = 0; i < targetSize; ++i)
         {
-            harmonicResidualHistory[historyWritePos][i] = 0.0f;
+            m_harmonicResidualHistory[m_historyWritePos][i] = 0.0f;
         }
     }
     
-    historyWritePos = (historyWritePos + 1) % historySize;
-    
     // Update animation
-    timeValue += 0.002f; // Slowed down by 10x
-    gridDepth += 0.01f;
-    if (gridDepth > 1.0f) gridDepth -= 1.0f;
+    m_timeValue += 0.002f; // Slowed down by 10x
     
     // Signal-based rotation
     float signalEnergy = 0.0f;
-    if (!inputHistory.empty() && !inputHistory[historyWritePos].empty())
+
+    if (!m_inputHistory.empty() && !m_inputHistory[m_historyWritePos].empty())
     {
         // Calculate RMS energy of current input
-        for (float sample : inputHistory[historyWritePos])
+        for (float sample : m_inputHistory[m_historyWritePos])
         {
             signalEnergy += sample * sample;
         }
-        signalEnergy = std::sqrt(signalEnergy / inputHistory[historyWritePos].size());
+        signalEnergy = std::sqrt(signalEnergy / m_inputHistory[m_historyWritePos].size());
     }
+
+    m_historyWritePos = (m_historyWritePos + 1) % c_historySize;
     
     // Oscillate between -20 and +20 degrees based on time and signal
     // Convert degrees to radians: 20 degrees = 0.349 radians
-    float oscillationY = std::sin(timeValue * 0.8f) * 0.349f; // Gentle oscillation
-    float signalModulationY = signalEnergy * 0.2f * std::sin(timeValue * 2.0f); // Signal adds variation
+    const float oscillationY = std::sin(m_timeValue * 0.8f) * 0.349f; // Gentle oscillation
+    const float signalModulationY = signalEnergy * 0.2f * std::sin(m_timeValue * 2.0f); // Signal adds variation
     
-    targetRotationY = oscillationY + signalModulationY;
-    targetRotationY = juce::jlimit(-0.349f, 0.349f, targetRotationY); // Clamp to ±20 degrees
+    m_targetRotationY = oscillationY + signalModulationY;
+    m_targetRotationY = std::clamp(m_targetRotationY, -0.349f, 0.349f); // Clamp to +/-20 degrees
     
     // Add X-axis rotation too
-    float oscillationX = std::sin(timeValue * 0.6f + 1.57f) * 0.349f; // Different phase for variety
-    float signalModulationX = signalEnergy * 0.15f * std::sin(timeValue * 1.5f + 0.785f);
+    const float oscillationX = std::sin(m_timeValue * 0.6f + 1.57f) * 0.349f; // Different phase for variety
+    const float signalModulationX = signalEnergy * 0.15f * std::sin(m_timeValue * 1.5f + 0.785f);
     
     float targetRotationX = 0.5f + oscillationX + signalModulationX; // Base angle + oscillation
-    targetRotationX = juce::jlimit(0.15f, 0.85f, targetRotationX); // Keep some perspective
+    targetRotationX = std::clamp(targetRotationX, 0.15f, 0.85f); // Keep some perspective
     
     // Smooth the rotation changes
-    rotationY = rotationY * 0.9f + targetRotationY * 0.1f; // Smooth interpolation
-    rotationX = rotationX * 0.9f + targetRotationX * 0.1f;
+    m_rotationY = m_rotationY * 0.9f + m_targetRotationY * 0.1f; // Smooth interpolation
+    m_rotationX = m_rotationX * 0.9f + targetRotationX * 0.1f;
     
     // Also vary the camera distance slightly based on signal
-    targetCameraZ = -8.0f - signalEnergy * 2.0f;
-    cameraZ = cameraZ * 0.95f + targetCameraZ * 0.05f;
+    m_targetCameraZ = -8.0f - signalEnergy * 2.0f;
+    m_cameraZ = m_cameraZ * 0.95f + m_targetCameraZ * 0.05f;
     
     // Trigger OpenGL repaint
-    openGLContext.triggerRepaint();
+    m_openGLContext.triggerRepaint();
     
     // Also trigger normal repaint for text overlay
     repaint();
@@ -212,253 +221,53 @@ void WaveformVisualizer::timerCallback()
 void WaveformVisualizer::mouseDown(const juce::MouseEvent& event)
 {
     // Get click position relative to component
-    auto clickX = event.x;
-    auto clickY = event.y;
-    auto width = getWidth();
-    auto height = getHeight();
+    const int clickY = event.y;
+    const int height = getHeight();
     
     // Divide into three zones: top third (input), middle third (harmonic residual), bottom third (output)
     if (clickY < height / 3)
     {
         // Clicked on input area (top third)
-        showInput = !showInput;
+        m_showInput = !m_showInput;
     }
     else if (clickY < 2 * height / 3)
     {
         // Clicked on harmonic residual area (middle third)
-        showHarmonicResidual = !showHarmonicResidual;
+        m_showHarmonicResidual = !m_showHarmonicResidual;
     }
     else
     {
         // Clicked on output area (bottom third)
-        showOutput = !showOutput;
+        m_showOutput = !m_showOutput;
     }
     
     repaint();
 }
 
+void WaveformVisualizer::setSignalText(const juce::String& text, bool aboveThreshold)
+{
+    m_signalText = text;
+    m_signalAboveThreshold = aboveThreshold;
+    repaint();
+}
+
 void WaveformVisualizer::newOpenGLContextCreated()
 {
-    createShaders();
-    setupVertexArrays();
-}
-
-void WaveformVisualizer::openGLContextClosing()
-{
-    using namespace juce::gl;
-    
-    waveformShader.reset();
-    gridShader.reset();
-    glowShader.reset();
-    
-    if (vaoWaveform) glDeleteVertexArrays(1, &vaoWaveform);
-    if (vboWaveform) glDeleteBuffers(1, &vboWaveform);
-    if (vaoGrid) glDeleteVertexArrays(1, &vaoGrid);
-    if (vboGrid) glDeleteBuffers(1, &vboGrid);
-}
-
-void WaveformVisualizer::createShaders()
-{
-    using namespace juce::gl;
-    
-    // Waveform shader with glow effect
-    const char* waveformVertexShader = R"(
-        #version 150 core
-        in vec3 position;
-        in float intensity;
-        out float vIntensity;
-        out float vDepth;
-        uniform mat4 projectionMatrix;
-        uniform mat4 viewMatrix;
-        uniform float time;
-        
-        void main()
-        {
-            vec3 pos = position;
-            // Add subtle wave motion
-            pos.y += sin(position.x * 2.0 + time) * 0.02;
-            
-            vec4 viewPos = viewMatrix * vec4(pos, 1.0);
-            gl_Position = projectionMatrix * viewPos;
-            vIntensity = intensity;
-            vDepth = -viewPos.z / 10.0;
-        }
-    )";
-    
-    const char* waveformFragmentShader = R"(
-        #version 150 core
-        in float vIntensity;
-        in float vDepth;
-        uniform vec4 color;
-        uniform float glowIntensity;
-        out vec4 fragColor;
-        
-        void main()
-        {
-            // Fade with depth and intensity
-            float alpha = (1.0 - vDepth) * vIntensity;
-            vec3 glowColor = color.rgb + vec3(glowIntensity * 0.5);
-            
-            // Add bloom effect
-            float bloom = smoothstep(0.0, 1.0, vIntensity) * glowIntensity;
-            glowColor += vec3(bloom);
-            
-            fragColor = vec4(glowColor, alpha * color.a);
-        }
-    )";
-    
-    // Grid shader
-    const char* gridVertexShader = R"(
-        #version 150 core
-        in vec3 position;
-        out vec3 vPosition;
-        uniform mat4 projectionMatrix;
-        uniform mat4 viewMatrix;
-        uniform float depth;
-        
-        void main()
-        {
-            vec3 pos = position;
-            pos.z -= depth * 10.0;
-            
-            gl_Position = projectionMatrix * viewMatrix * vec4(pos, 1.0);
-            vPosition = pos;
-        }
-    )";
-    
-    const char* gridFragmentShader = R"(
-        #version 150 core
-        in vec3 vPosition;
-        uniform vec4 color;
-        out vec4 fragColor;
-        
-        void main()
-        {
-            float fade = 1.0 - smoothstep(0.0, 10.0, -vPosition.z);
-            fragColor = vec4(color.rgb, color.a * fade * 0.5);
-        }
-    )";
-    
-    // Create shader programs
-    waveformShader = std::make_unique<juce::OpenGLShaderProgram>(openGLContext);
-    if (!waveformShader->addVertexShader(waveformVertexShader))
-    {
-        DBG("Waveform vertex shader failed: " << waveformShader->getLastError());
-    }
-    if (!waveformShader->addFragmentShader(waveformFragmentShader))
-    {
-        DBG("Waveform fragment shader failed: " << waveformShader->getLastError());
-    }
-    if (!waveformShader->link())
-    {
-        DBG("Waveform shader link failed: " << waveformShader->getLastError());
-    }
-    else
-    {
-        waveformShader->use();
-    }
-    
-    gridShader = std::make_unique<juce::OpenGLShaderProgram>(openGLContext);
-    if (!gridShader->addVertexShader(gridVertexShader))
-    {
-        DBG("Grid vertex shader failed: " << gridShader->getLastError());
-    }
-    if (!gridShader->addFragmentShader(gridFragmentShader))
-    {
-        DBG("Grid fragment shader failed: " << gridShader->getLastError());
-    }
-    if (!gridShader->link())
-    {
-        DBG("Grid shader link failed: " << gridShader->getLastError());
-    }
-    else
-    {
-        gridShader->use();
-    }
-}
-
-void WaveformVisualizer::setupVertexArrays()
-{
-    using namespace juce::gl;
-    
-    glGenVertexArrays(1, &vaoWaveform);
-    glGenBuffers(1, &vboWaveform);
-    
-    glGenVertexArrays(1, &vaoGrid);
-    glGenBuffers(1, &vboGrid);
-}
-
-juce::Matrix3D<float> WaveformVisualizer::getProjectionMatrix() const
-{
-    float w = (float) getWidth();
-    float h = (float) getHeight();
-    
-    return juce::Matrix3D<float>::fromFrustum(
-        -w/h, w/h,    // left, right
-        -1.0f, 1.0f,  // bottom, top
-        1.0f, 100.0f  // near, far
-    );
-}
-
-juce::Matrix3D<float> WaveformVisualizer::getViewMatrix() const
-{
-    auto matrix = juce::Matrix3D<float>();
-    
-    // Translation
-    matrix = juce::Matrix3D<float>::fromTranslation({ 0, 0, cameraZ }) * matrix;
-    
-    // Rotation around X axis
-    auto rotX = juce::Matrix3D<float>();
-    float cosX = std::cos(rotationX);
-    float sinX = std::sin(rotationX);
-    rotX.mat[5] = cosX;
-    rotX.mat[6] = -sinX;
-    rotX.mat[9] = sinX;
-    rotX.mat[10] = cosX;
-    matrix = rotX * matrix;
-    
-    // Rotation around Y axis
-    auto rotY = juce::Matrix3D<float>();
-    float cosY = std::cos(rotationY);
-    float sinY = std::sin(rotationY);
-    rotY.mat[0] = cosY;
-    rotY.mat[2] = sinY;
-    rotY.mat[8] = -sinY;
-    rotY.mat[10] = cosY;
-    matrix = rotY * matrix;
-    
-    return matrix;
 }
 
 void WaveformVisualizer::renderOpenGL()
 {
     using namespace juce::gl;
     
-    const float desktopScale = static_cast<float>(openGLContext.getRenderingScale());
+    const float desktopScale = static_cast<float>(m_openGLContext.getRenderingScale());
     glViewport(0, 0, 
                juce::roundToInt(desktopScale * getWidth()),
                juce::roundToInt(desktopScale * getHeight()));
     
     // Clear with deep blue-black
-    glClearColor(bgColor.getFloatRed(), bgColor.getFloatGreen(), 
-                 bgColor.getFloatBlue(), bgColor.getFloatAlpha());
+    glClearColor(m_bgColor.getFloatRed(), m_bgColor.getFloatGreen(), 
+                 m_bgColor.getFloatBlue(), m_bgColor.getFloatAlpha());
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-    
-    // Check if shaders are ready
-    if (!waveformShader || !gridShader)
-    {
-        // Draw red X to indicate shaders aren't ready
-        glBegin(GL_LINES);
-        glColor3f(1.0f, 0.0f, 0.0f);
-        glVertex2f(-0.5f, -0.5f);
-        glVertex2f(0.5f, 0.5f);
-        glVertex2f(-0.5f, 0.5f);
-        glVertex2f(0.5f, -0.5f);
-        glEnd();
-        
-        DBG("Shaders not ready!");
-        return;
-    }
     
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
@@ -469,27 +278,26 @@ void WaveformVisualizer::renderOpenGL()
     drawPerspectiveGrid();
     
     // Draw waveforms with trails
-    if (showInput)
-        drawWaveform3D(inputHistory, inputColor, 0.5f, true);
-    if (showHarmonicResidual)
-        drawWaveform3D(harmonicResidualHistory, harmonicResidualColor, 0.0f, false);
-    if (showOutput)
-        drawWaveform3D(outputHistory, outputColor, -0.5f, false);
+    if (m_showInput)
+        drawWaveform3D(m_inputHistory, m_inputColor, 0.5f, true);
+
+    if (m_showHarmonicResidual)
+        drawWaveform3D(m_harmonicResidualHistory, m_harmonicResidualColor, 0.0f, false);
+
+    if (m_showOutput)
+        drawWaveform3D(m_outputHistory, m_outputColor, -0.5f, false);
     
-    // Draw UI text overlay
     glDisable(GL_DEPTH_TEST);
-    
-    // Draw text overlay
-    drawTextOverlay();
+}
+
+void WaveformVisualizer::openGLContextClosing()
+{
 }
 
 void WaveformVisualizer::drawPerspectiveGrid()
 {
     using namespace juce::gl;
-    
-    if (!gridShader) return;
-    
-    // Test with simple immediate mode first
+
     glMatrixMode(GL_PROJECTION);
     glLoadIdentity();
     glFrustum(-1.0, 1.0, -1.0, 1.0, 1.0, 100.0);
@@ -497,13 +305,12 @@ void WaveformVisualizer::drawPerspectiveGrid()
     glMatrixMode(GL_MODELVIEW);
     glLoadIdentity();
     glTranslatef(0.0f, 0.0f, -5.0f);
-    glRotatef(rotationX * 57.3f, 1.0f, 0.0f, 0.0f);
-    glRotatef(rotationY * 57.3f, 0.0f, 1.0f, 0.0f);
+    glRotatef(m_rotationX * 57.3f, 1.0f, 0.0f, 0.0f);
+    glRotatef(m_rotationY * 57.3f, 0.0f, 1.0f, 0.0f);
     glRotatef(10.0f, 0.0f, 0.0f, 1.0f); // Slight tilt for style
     
     // Draw a simple 3D grid
-    glColor4f(gridColor.getFloatRed(), gridColor.getFloatGreen(), 
-              gridColor.getFloatBlue(), 0.5f);
+    glColor4f(m_gridColor.getFloatRed(), m_gridColor.getFloatGreen(), m_gridColor.getFloatBlue(), 0.5f);
     
     glBegin(GL_LINES);
     // Grid lines - wider to match full width
@@ -518,78 +325,16 @@ void WaveformVisualizer::drawPerspectiveGrid()
         glVertex3f(16.0f, -1.0f, i * 0.5f);
     }
     glEnd();
-    
-    return; // Skip shader version for now
-    
-    gridShader->use();
-    
-    auto projMatrix = getProjectionMatrix();
-    auto viewMatrix = getViewMatrix();
-    
-    gridShader->setUniformMat4("projectionMatrix", projMatrix.mat, 1, false);
-    gridShader->setUniformMat4("viewMatrix", viewMatrix.mat, 1, false);
-    gridShader->setUniform("depth", gridDepth);
-    gridShader->setUniform("color", 
-        gridColor.getFloatRed(), gridColor.getFloatGreen(), 
-        gridColor.getFloatBlue(), 0.3f);
-    
-    // Generate grid vertices
-    std::vector<float> gridVertices;
-    const int gridLines = 20;
-    const float gridSize = 10.0f;
-    const float spacing = gridSize / gridLines;
-    
-    // Horizontal lines
-    for (int i = 0; i <= gridLines; ++i)
-    {
-        float z = -gridSize/2 + i * spacing;
-        // Left to right
-        gridVertices.push_back(-gridSize/2);
-        gridVertices.push_back(-1.0f);
-        gridVertices.push_back(z);
-        
-        gridVertices.push_back(gridSize/2);
-        gridVertices.push_back(-1.0f);
-        gridVertices.push_back(z);
-    }
-    
-    // Vertical lines
-    for (int i = 0; i <= gridLines; ++i)
-    {
-        float x = -gridSize/2 + i * spacing;
-        // Front to back
-        gridVertices.push_back(x);
-        gridVertices.push_back(-1.0f);
-        gridVertices.push_back(-gridSize/2);
-        
-        gridVertices.push_back(x);
-        gridVertices.push_back(-1.0f);
-        gridVertices.push_back(gridSize/2);
-    }
-    
-    glBindVertexArray(vaoGrid);
-    glBindBuffer(GL_ARRAY_BUFFER, vboGrid);
-    glBufferData(GL_ARRAY_BUFFER, gridVertices.size() * sizeof(float),
-                 gridVertices.data(), GL_DYNAMIC_DRAW);
-    
-    auto positionAttribute = glGetAttribLocation(gridShader->getProgramID(), "position");
-    glEnableVertexAttribArray(positionAttribute);
-    glVertexAttribPointer(positionAttribute, 3, GL_FLOAT, GL_FALSE, 
-                         3 * sizeof(float), nullptr);
-    
-    glLineWidth(1.0f);
-    glDrawArrays(GL_LINES, 0, gridVertices.size() / 3);
-    
-    glDisableVertexAttribArray(positionAttribute);
-    glBindVertexArray(0);
 }
 
-void WaveformVisualizer::drawWaveform3D(const std::vector<std::vector<float>>& history,
-                                        const juce::Colour& color, float yOffset, bool isInput)
+void WaveformVisualizer::drawWaveform3D(const std::vector<std::vector<float>>& history, const juce::Colour& color, float yOffset, bool isInput)
 {
     using namespace juce::gl;
     
-    if (history.empty()) return;
+    juce::ignoreUnused(isInput);
+
+    if (history.empty())
+        return;
     
     // Use immediate mode for 3D drawing
     glMatrixMode(GL_PROJECTION);
@@ -598,118 +343,37 @@ void WaveformVisualizer::drawWaveform3D(const std::vector<std::vector<float>>& h
     
     glMatrixMode(GL_MODELVIEW);
     glLoadIdentity();
-    glTranslatef(0.0f, 0.0f, cameraZ);
-    glRotatef(rotationX * 57.3f, 1.0f, 0.0f, 0.0f);
-    glRotatef(rotationY * 57.3f, 0.0f, 1.0f, 0.0f);
+    glTranslatef(0.0f, 0.0f, m_cameraZ);
+    glRotatef(m_rotationX * 57.3f, 1.0f, 0.0f, 0.0f);
+    glRotatef(m_rotationY * 57.3f, 0.0f, 1.0f, 0.0f);
     glRotatef(10.0f, 0.0f, 0.0f, 1.0f); // Slight tilt for style
     
     // Draw waveform trails
-    for (int h = 0; h < historySize; ++h)
+    for (int h = 0; h < c_historySize; ++h)
     {
-        int histIdx = (historyWritePos - h - 1 + historySize) % historySize;
-        const auto& waveform = history[histIdx];
+        const int histIdx = (m_historyWritePos - h - 1 + c_historySize) % c_historySize;
+
+        const std::vector<float>& waveform = history[histIdx];
         
-        if (waveform.empty() || waveform.size() < 2) continue;
+        if (waveform.empty() || waveform.size() < 2)
+            continue;
         
-        float intensity = 1.0f - (float)h / historySize;
-        float zPos = -h * 0.3f;
+        const float intensity = 1.0f - static_cast<float>(h) / c_historySize;
+        const float zPos = -static_cast<float>(h) * 0.3f;
         
         // Set color with fade
-        glColor4f(color.getFloatRed(), color.getFloatGreen(), 
-                  color.getFloatBlue(), intensity * 0.8f);
+        glColor4f(color.getFloatRed(), color.getFloatGreen(), color.getFloatBlue(), intensity * 0.8f);
         
-        glLineWidth(3.0f - h * 0.1f);
+        const float lineWidth = std::max(0.001f, 3.0f - static_cast<float>(h) * 0.1f);
+        glLineWidth(lineWidth);
         
         glBegin(GL_LINE_STRIP);
         for (size_t i = 0; i < waveform.size(); ++i)
         {
-            float x = (i / float(waveform.size() - 1)) * 16.0f - 8.0f; // Full width
-            float y = waveform[i] * 2.0f + yOffset;
+            const float x = (i / float(waveform.size() - 1)) * 16.0f - 8.0f; // Full width
+            const float y = waveform[i] * 2.0f + yOffset;
             glVertex3f(x, y, zPos);
         }
-        glEnd();
+    glEnd();
     }
-    
-    return; // Skip shader version for now
-    
-    if (!waveformShader) return;
-    
-    waveformShader->use();
-    
-    auto projMatrix = getProjectionMatrix();
-    auto viewMatrix = getViewMatrix();
-    
-    waveformShader->setUniformMat4("projectionMatrix", projMatrix.mat, 1, false);
-    waveformShader->setUniformMat4("viewMatrix", viewMatrix.mat, 1, false);
-    waveformShader->setUniform("time", timeValue);
-    
-    // Calculate current fundamental for glow effect
-    float fundamental = audioProcessor.getCurrentFundamental();
-    float glow = fundamental > 0 ? 0.5f + 0.5f * std::sin(timeValue * 10.0f) : 0.0f;
-    waveformShader->setUniform("glowIntensity", glow);
-    
-    glBindVertexArray(vaoWaveform);
-    glBindBuffer(GL_ARRAY_BUFFER, vboWaveform);
-    
-    // Draw each history slice with decreasing intensity
-    for (int h = 0; h < historySize; ++h)
-    {
-        int histIdx = (historyWritePos - h - 1 + historySize) % historySize;
-        const auto& waveform = history[histIdx];
-        
-        if (waveform.empty()) continue;
-        
-        float intensity = 1.0f - (float)h / historySize;
-        float zPos = -h * 0.2f;
-        
-        // Create vertex data with position and intensity
-        std::vector<float> vertices;
-        vertices.reserve(waveform.size() * 4); // x, y, z, intensity
-        
-        for (size_t i = 0; i < waveform.size(); ++i)
-        {
-            float x = (i / float(waveform.size() - 1)) * 8.0f - 4.0f;
-            float y = waveform[i] * 2.0f + yOffset;
-            
-            vertices.push_back(x);
-            vertices.push_back(y);
-            vertices.push_back(zPos);
-            vertices.push_back(intensity);
-        }
-        
-        glBufferData(GL_ARRAY_BUFFER, vertices.size() * sizeof(float),
-                     vertices.data(), GL_DYNAMIC_DRAW);
-        
-        auto positionAttribute = glGetAttribLocation(waveformShader->getProgramID(), "position");
-        auto intensityAttribute = glGetAttribLocation(waveformShader->getProgramID(), "intensity");
-        
-        glEnableVertexAttribArray(positionAttribute);
-        glVertexAttribPointer(positionAttribute, 3, GL_FLOAT, GL_FALSE, 
-                             4 * sizeof(float), nullptr);
-        
-        glEnableVertexAttribArray(intensityAttribute);
-        glVertexAttribPointer(intensityAttribute, 1, GL_FLOAT, GL_FALSE, 
-                             4 * sizeof(float), (void*)(3 * sizeof(float)));
-        
-        // Set color with alpha fade
-        float alpha = intensity * 0.8f;
-        waveformShader->setUniform("color", 
-            color.getFloatRed(), color.getFloatGreen(), 
-            color.getFloatBlue(), alpha);
-        
-        glLineWidth(2.0f - h * 0.05f); // Thinner lines as they recede
-        glDrawArrays(GL_LINE_STRIP, 0, waveform.size());
-        
-        glDisableVertexAttribArray(positionAttribute);
-        glDisableVertexAttribArray(intensityAttribute);
-    }
-    
-    glBindVertexArray(0);
-}
-
-void WaveformVisualizer::drawTextOverlay()
-{
-    // Note: This is a placeholder - proper text rendering in OpenGL requires
-    // either bitmap fonts or using JUCE's OpenGL text rendering capabilities
-    // For now, we'll handle text in the paint() method after OpenGL rendering
 }
