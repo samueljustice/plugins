@@ -91,11 +91,19 @@ void AboutWindow::AboutContent::paint(juce::Graphics& g)
     g.setFont(juce::Font(juce::FontOptions(16.0f)));
     g.drawText("Version " PLUGIN_VERSION, 0, 60, getWidth(), 20, juce::Justification::centred);
 
+    g.setColour(juce::Colour(0xff888888));
+    g.setFont(juce::Font(juce::FontOptions(11.0f)));
+#ifdef BUILD_TIMESTAMP
+    g.drawText(juce::String("Built: ") + BUILD_TIMESTAMP, 0, 78, getWidth(), 16, juce::Justification::centred);
+#else
+    g.drawText(juce::String("Built: ") + __DATE__ + " " + __TIME__, 0, 78, getWidth(), 16, juce::Justification::centred);
+#endif
+
     g.setColour(juce::Colour(0xffffffff));
     g.setFont(juce::Font(juce::FontOptions(14.0f)));
-    g.drawText("Threshold-Triggered Time Stretcher", 0, 90, getWidth(), 20, juce::Justification::centred);
+    g.drawText("Threshold-Triggered Time Stretcher", 0, 100, getWidth(), 20, juce::Justification::centred);
 
-    g.drawText("Created by Samuel Justice", 0, 120, getWidth(), 20, juce::Justification::centred);
+    g.drawText("Created by Samuel Justice", 0, 130, getWidth(), 20, juce::Justification::centred);
 
     g.setColour(juce::Colour(0xff1a3a3a));
     g.drawLine(20, 280, getWidth() - 20, 280, 2);
@@ -107,10 +115,10 @@ void AboutWindow::AboutContent::paint(juce::Graphics& g)
 
 void AboutWindow::AboutContent::resized()
 {
-    websiteButton.setBounds(150, 150, 200, 25);
-    emailButton.setBounds(150, 180, 200, 25);
-    checkUpdatesButton.setBounds(150, 215, 200, 30);
-    updateStatusLabel.setBounds(50, 250, getWidth() - 100, 25);
+    websiteButton.setBounds(150, 160, 200, 25);
+    emailButton.setBounds(150, 190, 200, 25);
+    checkUpdatesButton.setBounds(150, 225, 200, 30);
+    updateStatusLabel.setBounds(50, 260, getWidth() - 100, 25);
     licenseText.setBounds(20, 320, getWidth() - 40, getHeight() - 340);
 }
 

@@ -2,7 +2,7 @@
 AppName=SammyJs Stretch Armstrong
 AppVersion=1.0.0
 AppPublisher=Samuel Justice
-AppPublisherURL=https://samueljustice.com
+AppPublisherURL=https://www.sweetjusticesound.com
 DefaultDirName={commonpf}\Steinberg\VST3
 DefaultGroupName=SammyJs Stretch Armstrong
 OutputBaseFilename=SammyJs_Stretch_Armstrong_Installer

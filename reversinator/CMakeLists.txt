@@ -65,6 +65,11 @@ target_compile_definitions(Reversinator
         PLUGIN_VERSION_PATCH=${PROJECT_VERSION_PATCH}
 )
 
+# Build timestamp (passed from CI or defaults to compile time)
+if(BUILD_TIMESTAMP)
+    target_compile_definitions(Reversinator PUBLIC BUILD_TIMESTAMP="${BUILD_TIMESTAMP}")
+endif()
+
 # Link libraries
 target_link_libraries(Reversinator
     PRIVATE

@@ -74,6 +74,11 @@ target_compile_definitions(PitchFlattener
         PLUGIN_VERSION_PATCH=${PROJECT_VERSION_PATCH}
 )
 
+# Build timestamp (passed from CI or defaults to compile time)
+if(BUILD_TIMESTAMP)
+    target_compile_definitions(PitchFlattener PUBLIC BUILD_TIMESTAMP="${BUILD_TIMESTAMP}")
+endif()
+
 # Include directories
 target_include_directories(PitchFlattener
     PRIVATE

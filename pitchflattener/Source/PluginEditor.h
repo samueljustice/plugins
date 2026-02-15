@@ -164,6 +164,7 @@ private:
     private:
         juce::Label titleLabel;
         juce::Label versionLabel;
+        juce::Label buildTimestampLabel;
         juce::Label authorLabel;
         juce::HyperlinkButton emailButton;
         juce::HyperlinkButton websiteButton;

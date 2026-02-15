@@ -1488,8 +1488,18 @@ AboutWindow::AboutContent::AboutContent()
     versionLabel.setFont(juce::Font(16.0f));
     versionLabel.setJustificationType(juce::Justification::centred);
     addAndMakeVisible(versionLabel);
-    
-    authorLabel.setText("Created by Samuel Justice", juce::dontSendNotification);
+
+#ifdef BUILD_TIMESTAMP
+    buildTimestampLabel.setText(juce::String("Built: ") + BUILD_TIMESTAMP, juce::dontSendNotification);
+#else
+    buildTimestampLabel.setText(juce::String("Built: ") + __DATE__ + " " + __TIME__, juce::dontSendNotification);
+#endif
+    buildTimestampLabel.setFont(juce::Font(11.0f));
+    buildTimestampLabel.setJustificationType(juce::Justification::centred);
+    buildTimestampLabel.setColour(juce::Label::textColourId, juce::Colours::grey);
+    addAndMakeVisible(buildTimestampLabel);
+
+    authorLabel.setText("Created by Samuel Justice", juce::dontSendNotification)
     authorLabel.setFont(juce::Font(14.0f));
     authorLabel.setJustificationType(juce::Justification::centred);
     addAndMakeVisible(authorLabel);
@@ -1553,9 +1563,10 @@ void AboutWindow::AboutContent::resized()
     auto area = getLocalBounds().reduced(20);
     
     titleLabel.setBounds(area.removeFromTop(40));
-    versionLabel.setBounds(area.removeFromTop(30));
-    area.removeFromTop(10);
-    
+    versionLabel.setBounds(area.removeFromTop(25));
+    buildTimestampLabel.setBounds(area.removeFromTop(18));
+    area.removeFromTop(5);
+
     authorLabel.setBounds(area.removeFromTop(25));
     emailButton.setBounds(area.removeFromTop(25).withSizeKeepingCentre(250, 25));
     websiteButton.setBounds(area.removeFromTop(25).withSizeKeepingCentre(250, 25));

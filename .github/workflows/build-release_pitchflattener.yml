@@ -27,7 +27,7 @@ jobs:
         cd SDK
         git clone https://github.com/juce-framework/JUCE.git
         cd JUCE
-        git checkout 7.0.12
+        git checkout 8.0.8
     
     - name: Setup Python and Meson
       uses: actions/setup-python@v4
@@ -88,13 +88,14 @@ jobs:
     - name: Configure CMake
       run: |
         cd pitchflattener
-        cmake -B build -S . -DCMAKE_BUILD_TYPE=Release
-    
+        $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm UTC"
+        cmake -B build -S . -DCMAKE_BUILD_TYPE=Release -DBUILD_TIMESTAMP="$timestamp"
+
     - name: Build VST3
       run: |
         cd pitchflattener
         cmake --build build --config Release
-    
+
     - name: Package Windows VST3
       run: |
         cd pitchflattener
@@ -182,7 +183,7 @@ jobs:
         path: pitchflattener/windows-vst3-package/
     
   build-macos:
-    runs-on: macos-latest
+    runs-on: macos-14
     
     steps:
     - uses: actions/checkout@v4
@@ -198,7 +199,7 @@ jobs:
         cd SDK
         git clone https://github.com/juce-framework/JUCE.git
         cd JUCE
-        git checkout 7.0.12
+        git checkout 8.0.8
     
     - name: Install Dependencies
       run: |
@@ -295,7 +296,8 @@ jobs:
     - name: Configure CMake
       run: |
         cd pitchflattener
-        cmake -B build -S . -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_ARCHITECTURES="x86_64;arm64"
+        TIMESTAMP=$(date -u "+%Y-%m-%d %H:%M UTC")
+        cmake -B build -S . -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_ARCHITECTURES="x86_64;arm64" -DBUILD_TIMESTAMP="$TIMESTAMP"
     
     - name: Build VST3 and AU
       run: |
