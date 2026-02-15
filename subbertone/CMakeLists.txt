@@ -16,6 +16,11 @@ add_compile_definitions(
     JUCE_VST3_CAN_REPLACE_VST2=0
 )
 
+# Build timestamp (passed from CI or defaults to compile time)
+if(BUILD_TIMESTAMP)
+    add_compile_definitions(BUILD_TIMESTAMP="${BUILD_TIMESTAMP}")
+endif()
+
 # Add the JUCE library subdirectory
 add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/../SDK/JUCE ${CMAKE_CURRENT_BINARY_DIR}/SDK/JUCE)
 

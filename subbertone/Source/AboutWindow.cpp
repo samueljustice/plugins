@@ -28,21 +28,21 @@ void AboutWindow::closeButtonPressed()
 //-----------------------------------------------------------------
 AboutWindow::AboutContent::AboutContent()
 {
-    m_websiteButton.setButtonText("samueljustice.com");
+    m_websiteButton.setButtonText("sweetjusticesound.com");
     m_websiteButton.setColour(juce::TextButton::buttonColourId, juce::Colours::transparentBlack);
     m_websiteButton.setColour(juce::TextButton::textColourOffId, juce::Colour(0xff00ffff));
     m_websiteButton.onClick = []
     {
-        juce::URL("https://samueljustice.com").launchInDefaultBrowser();
+        juce::URL("https://sweetjusticesound.com").launchInDefaultBrowser();
     };
     addAndMakeVisible(m_websiteButton);
-    
-    m_emailButton.setButtonText("sam@samueljustice.com");
+
+    m_emailButton.setButtonText("sam@sweetjusticesound.com");
     m_emailButton.setColour(juce::TextButton::buttonColourId, juce::Colours::transparentBlack);
     m_emailButton.setColour(juce::TextButton::textColourOffId, juce::Colour(0xff00ffff));
     m_emailButton.onClick = []
     {
-        juce::URL("mailto:sam@samueljustice.com").launchInDefaultBrowser();
+        juce::URL("mailto:sam@sweetjusticesound.com").launchInDefaultBrowser();
     };
     addAndMakeVisible(m_emailButton);
     
@@ -91,12 +91,22 @@ void AboutWindow::AboutContent::paint(juce::Graphics& g)
     g.setFont(juce::Font(juce::FontOptions(16.0f)));
     g.drawText(juce::String("Version ") + JucePlugin_VersionString, 0, 60, getWidth(), 20,
                juce::Justification::centred);
-    
+
+    g.setColour(juce::Colour(0xff888888));
+    g.setFont(juce::Font(juce::FontOptions(11.0f)));
+#ifdef BUILD_TIMESTAMP
+    g.drawText(juce::String("Built: ") + BUILD_TIMESTAMP, 0, 78, getWidth(), 16,
+               juce::Justification::centred);
+#else
+    g.drawText(juce::String("Built: ") + __DATE__ + " " + __TIME__, 0, 78, getWidth(), 16,
+               juce::Justification::centred);
+#endif
+
     g.setColour(juce::Colour(0xffffffff));
     g.setFont(juce::Font(juce::FontOptions(14.0f)));
-    g.drawText("Subharmonic Generator Plugin", 0, 90, getWidth(), 20, juce::Justification::centred);
-    
-    g.drawText("Created by Samuel Justice", 0, 120, getWidth(), 20, juce::Justification::centred);
+    g.drawText("Subharmonic Generator Plugin", 0, 100, getWidth(), 20, juce::Justification::centred);
+
+    g.drawText("Created by Samuel Justice", 0, 130, getWidth(), 20, juce::Justification::centred);
     
     g.setColour(juce::Colour(0xff1a3a3a));
     g.drawLine(20.0f, 280.0f, static_cast<float>(getWidth() - 20), 280.0f, 2.0f);
@@ -108,10 +118,10 @@ void AboutWindow::AboutContent::paint(juce::Graphics& g)
 
 void AboutWindow::AboutContent::resized()
 {
-    m_websiteButton.setBounds(150, 150, 200, 25);
-    m_emailButton.setBounds(150, 180, 200, 25);
-    m_checkUpdatesButton.setBounds(150, 215, 200, 30);
-    m_updateStatusLabel.setBounds(50, 250, getWidth() - 100, 25);
+    m_websiteButton.setBounds(150, 160, 200, 25);
+    m_emailButton.setBounds(150, 190, 200, 25);
+    m_checkUpdatesButton.setBounds(150, 225, 200, 30);
+    m_updateStatusLabel.setBounds(50, 260, getWidth() - 100, 25);
     m_licenseText.setBounds(20, 320, getWidth() - 40, getHeight() - 340);
 }
 

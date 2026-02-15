@@ -56,8 +56,9 @@ jobs:
     - name: Configure CMake
       run: |
         cd subbertone
-        cmake -B build -S . -DCMAKE_BUILD_TYPE=Release
-    
+        $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm UTC"
+        cmake -B build -S . -DCMAKE_BUILD_TYPE=Release -DBUILD_TIMESTAMP="$timestamp"
+
     - name: Build VST3
       run: |
         cd subbertone
@@ -242,8 +243,9 @@ jobs:
     - name: Configure CMake
       run: |
         cd subbertone
-        cmake -B build -S . -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_ARCHITECTURES="x86_64;arm64"
-    
+        TIMESTAMP=$(date -u "+%Y-%m-%d %H:%M UTC")
+        cmake -B build -S . -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_ARCHITECTURES="x86_64;arm64" -DBUILD_TIMESTAMP="$TIMESTAMP"
+
     - name: Build VST3 and AU
       run: |
         cd subbertone
