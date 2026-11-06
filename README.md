@@ -18,6 +18,12 @@ A VST3/AU audio plugin that provides real-time audio reversal effects with grain
 - [Project README](reversinator/README.md)
 - [Latest Release](https://github.com/samueljustice/plugins/releases/tag/reversinator-v1.0.0)
 
+### Subbertone
+A VST3/AU subharmonic generator. Tracks the pitch of your bass and adds a clean sub one octave below, with six saturation types and a resonant, envelope-swept filter for anything from pure sub reinforcement to a growling octave-down bass.
+
+- Location: `/subbertone/`
+- [Project README](subbertone/README.md)
+
 ## Dependencies
 
 ### SDK

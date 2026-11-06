@@ -18,6 +18,15 @@ namespace
                            : juce::String(juce::roundToInt(v)) + " Hz";
     }
 
+    // One decimal with an explicit sign, and no "-0.0" for values that round to zero.
+    juce::String signedText(double v, const char* unit)
+    {
+        const double rounded = std::round(v * 10.0) / 10.0;
+        if (std::abs(rounded) < 0.05)
+            return juce::String("0.0") + unit;
+        return (rounded > 0.0 ? "+" : "") + juce::String(rounded, 1) + unit;
+    }
+
     double parseNumber(const juce::String& text)
     {
         const double value = text.retainCharacters("0123456789.-").getDoubleValue();
@@ -139,10 +148,10 @@ void SubbertoneAudioProcessorEditor::setupKnob(juce::Slider& slider, juce::Label
             slider.textFromValueFunction = [](double v) { return formatHertz(v); };
             break;
         case Format::Decibels:
-            slider.textFromValueFunction = [](double v) { return (v > 0.05 ? "+" : "") + juce::String(v, 1) + " dB"; };
+            slider.textFromValueFunction = [](double v) { return signedText(v, " dB"); };
             break;
         case Format::Octaves:
-            slider.textFromValueFunction = [](double v) { return (v > 0.005 ? "+" : "") + juce::String(v, 1) + " oct"; };
+            slider.textFromValueFunction = [](double v) { return signedText(v, " oct"); };
             break;
         case Format::Milliseconds:
             slider.textFromValueFunction = [](double v) { return v >= 1000.0 ? juce::String(v / 1000.0, 2) + " s"
@@ -157,6 +166,10 @@ void SubbertoneAudioProcessorEditor::setupKnob(juce::Slider& slider, juce::Label
         slider.setDoubleClickReturnValue(true, param->convertFrom0to1(param->getDefaultValue()));
 
     addAndMakeVisible(slider);
+
+    // The value box was created before the slider had a parent, i.e. with the
+    // default LookAndFeel. Setting a colour makes the slider rebuild it via ours.
+    slider.setColour(juce::Slider::textBoxOutlineColourId, juce::Colours::transparentBlack);
 
     label.setText(name.toUpperCase(), juce::dontSendNotification);
     label.setJustificationType(juce::Justification::centred);

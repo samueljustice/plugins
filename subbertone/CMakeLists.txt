@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.21)
-project(Subbertone VERSION 1.0.0)
+project(Subbertone VERSION 1.1.0)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED TRUE)
@@ -31,7 +31,7 @@ add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/../SDK/JUCE ${CMAKE_CURRENT_BINARY_
 
 # Main plugin target
 juce_add_plugin(Subbertone
-    VERSION 1.0.0
+    VERSION ${PROJECT_VERSION}
     COMPANY_NAME "Samuel Justice"
     BUNDLE_ID "com.samueljustice.subbertone"
     IS_SYNTH FALSE
