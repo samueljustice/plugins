@@ -23,6 +23,7 @@ A VST3/AU subharmonic generator. Tracks the pitch of your bass and adds a clean 
 
 - Location: `/subbertone/`
 - [Project README](subbertone/README.md)
+- [Latest Release](https://github.com/samueljustice/plugins/releases/tag/subbertone-v1.1.0)
 
 ## Dependencies
 

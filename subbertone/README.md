@@ -2,6 +2,8 @@
 
 A VST3/AU subharmonic generator. Subbertone tracks the pitch of your bass, synthesises a clean sine one octave below it, and can push that sub through saturation and a resonant, envelope-swept filter for anything from a pure sub reinforcement to a growling, talking octave-down bass.
 
+### 🎉 Latest Release v1.1.0 - [Download Here](https://github.com/samueljustice/plugins/releases/tag/subbertone-v1.1.0)
+
 ![Subbertone](docs/screenshot.jpg)
 
 ## Features
