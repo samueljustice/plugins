@@ -1,6 +1,7 @@
 #pragma once
 
 #include <JuceHeader.h>
+#include "Theme.h"
 
 class AboutWindow : public juce::DocumentWindow
 {
@@ -8,7 +9,7 @@ class AboutWindow : public juce::DocumentWindow
 
 public:
     AboutWindow();
-    ~AboutWindow() = default;
+    ~AboutWindow() override = default;
     
     void closeButtonPressed() override;
     
@@ -31,6 +32,7 @@ private:
         juce::TextButton m_checkUpdatesButton;
         juce::Label m_updateStatusLabel;
         juce::TextEditor m_licenseText;
+        juce::SharedResourcePointer<Theme::Fonts> m_fonts;
         
     };
     

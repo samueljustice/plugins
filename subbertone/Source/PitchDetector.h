@@ -1,54 +1,68 @@
 #pragma once
 
+#include <array>
 #include <vector>
 
 /**
- * YIN Pitch Detection Algorithm
- * Based on: http://audition.ens.fr/adc/pdf/2002_JASA_YIN.pdf
- * Adapted from: https://github.com/ashokfernandez/Yin-Pitch-Tracking
+ * Streaming YIN pitch detector.
+ *
+ * Fed one full-rate sample at a time (already low-passed by the caller), it
+ * decimates internally to ~11 kHz and runs YIN on a sliding window every few
+ * milliseconds. Analysis cadence is independent of the host block size, and
+ * the cost is bounded and small because YIN runs at the decimated rate.
+ *
+ * No JUCE dependency, no allocation after prepare(): safe for the audio thread.
  */
 class PitchDetector
 {
 public:
-    PitchDetector()  = default;
-    ~PitchDetector() = default;
-
     void prepare(double sampleRate);
-    float detectPitch(const float* inputBuffer, int numSamples, float threshold = 0.1f);
+    void reset();
 
-    // Get the probability/confidence of the last detected pitch (0.0 - 1.0)
-    float getProbability() const { return m_probability; }
+    /** Upper bound for detection; candidates above this are rejected. */
+    void setMaxFrequency(float hz);
+
+    /** Push one band-limited, full-rate sample. Returns true when a new estimate is ready. */
+    bool pushSample(float x);
+
+    /** Most recent estimate in Hz, or 0 when the window was judged unvoiced. */
+    float getFrequency() const  { return m_frequency; }
+    float getConfidence() const { return m_confidence; }
+
+    /** Lag of the analysis, useful for the caller's voicing logic. */
+    int getHopSize() const { return m_hop * m_decimation; }
+
+    static constexpr float c_minFrequency = 40.0f;
+    static constexpr float c_maxFrequency = 1000.0f;
 
 private:
-    // YIN algorithm steps
-    void yinDifference(const float* buffer, int halfLength);
-    void yinCumulativeMeanNormalizedDifference(int halfLength);
-    int yinAbsoluteThreshold(int halfLength);
-    float yinParabolicInterpolation(int tauEstimate, int halfLength);
+    void analyse();
 
-    // Core detection
-    float detectPitchYIN(const float* buffer, int bufferLength);
+    double m_sampleRate = 44100.0;
+    double m_decimatedRate = 11025.0;
+    int m_decimation = 4;
+    int m_decimationCounter = 0;
 
-    double m_sampleRate = 0.0;
-    int m_bufferSize = 0;
-    int m_halfBufferSize = 0;
+    int m_tauMin = 2;
+    int m_tauMax = 300;
+    int m_window = 300;
+    int m_hop = 64;
+    int m_hopCounter = 0;
 
-    // YIN algorithm buffers
-    std::vector<float> m_yinBuffer;           // Stores intermediate YIN processing results
-    std::vector<float> m_inputAccumulator;    // Accumulates input samples
+    std::vector<float> m_ring;
+    int m_ringWrite = 0;
+    int m_ringFilled = 0;
 
-    float m_probability = 0.0f;   // Confidence of detected pitch (0.0 - 1.0)
-    float m_yinThreshold = 0.15f; // YIN threshold (lower = stricter detection)
+    std::vector<float> m_frame;
+    std::vector<float> m_diff;
 
-    // Pitch smoothing
-    float m_previousPitch = 0.0f;
-    float m_smoothedPitch = 0.0f;
-    static constexpr float c_pitchSmoothingFactor = 0.85f;
+    float m_maxFrequency = 250.0f;
+    float m_frequency = 0.0f;
+    float m_confidence = 0.0f;
 
-    // Detection parameters
-    static constexpr float c_minFrequency = 40.0f;   // 40 Hz minimum (bass range)
-    static constexpr float c_maxFrequency = 1000.0f; // 1000 Hz maximum
+    // Median-of-three on voiced estimates to reject isolated octave errors.
+    std::array<float, 3> m_history { 0.0f, 0.0f, 0.0f };
+    int m_historyCount = 0;
 
-    bool m_isPrepared = false;
-    int m_samplesSinceLastAnalysis = 0;
+    static constexpr float c_yinThreshold = 0.2f;
 };

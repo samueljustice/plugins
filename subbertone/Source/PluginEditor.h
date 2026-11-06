@@ -2,6 +2,7 @@
 
 #include <JuceHeader.h>
 #include "PluginProcessor.h"
+#include "Theme.h"
 #include "WaveformVisualizer.h"
 
 class SubbertoneAudioProcessorEditor : public juce::AudioProcessorEditor, private juce::Timer
@@ -10,60 +11,74 @@ class SubbertoneAudioProcessorEditor : public juce::AudioProcessorEditor, privat
 
 public:
     explicit SubbertoneAudioProcessorEditor(SubbertoneAudioProcessor& audioProcessor);
-    ~SubbertoneAudioProcessorEditor();
-
+    ~SubbertoneAudioProcessorEditor() override;
 
     void resized() override;
     void paint(juce::Graphics&) override;
     void timerCallback() override;
 
 private:
-    void layoutTopBar(juce::Rectangle<int>& bounds);
-    void layoutVisualizer(juce::Rectangle<int>& bounds);
-    void layoutControls(juce::Rectangle<int>& bounds);
+    enum class Format { Percent, Hertz, Decibels, Octaves, Milliseconds };
 
-    void setupRotarySlider(juce::Slider& slider, juce::Label& label, const juce::String& text, const juce::String& tooltip, const juce::String& suffix, int decimalPlaces);
-    
+    void setupKnob(juce::Slider& slider, juce::Label& label, const juce::String& name, const juce::String& paramId,
+                   const juce::String& tooltip, juce::Colour accent, Format format);
+    void layoutKnobRow(juce::Rectangle<int> area, std::initializer_list<std::pair<juce::Slider*, juce::Label*>> knobs);
+    void setupChoice(juce::ComboBox& combo, const juce::String& paramId, const juce::String& tooltip,
+                     std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment>& attachment);
     void showAboutWindow();
 
-    // Custom look and feel
-    class SubbertoneLookAndFeel : public juce::LookAndFeel_V4
+    class LookAndFeel : public juce::LookAndFeel_V4
     {
     public:
-        SubbertoneLookAndFeel();
-        
-        void drawRotarySlider(juce::Graphics& g, int x, int y, int width, int height, float sliderPos, float rotaryStartAngle, float rotaryEndAngle, juce::Slider& slider) override;
-        juce::Slider::SliderLayout getSliderLayout(juce::Slider& slider) override;
+        explicit LookAndFeel(const Theme::Fonts& fonts);
+
+        void drawRotarySlider(juce::Graphics&, int x, int y, int width, int height, float sliderPos,
+                              float rotaryStartAngle, float rotaryEndAngle, juce::Slider&) override;
+        juce::Slider::SliderLayout getSliderLayout(juce::Slider&) override;
+        juce::Label* createSliderTextBox(juce::Slider&) override;
+
+        juce::Font getLabelFont(juce::Label&) override;
+
+        void drawComboBox(juce::Graphics&, int width, int height, bool isButtonDown, int buttonX, int buttonY,
+                          int buttonW, int buttonH, juce::ComboBox&) override;
+        juce::Font getComboBoxFont(juce::ComboBox&) override;
+        void positionComboBoxText(juce::ComboBox&, juce::Label&) override;
+        juce::Font getPopupMenuFont() override;
+
+        void drawButtonBackground(juce::Graphics&, juce::Button&, const juce::Colour& backgroundColour,
+                                  bool isMouseOverButton, bool isButtonDown) override;
+        juce::Font getTextButtonFont(juce::TextButton&, int buttonHeight) override;
+
+    private:
+        const Theme::Fonts& m_fonts;
+    };
+
+    struct Section
+    {
+        juce::String title;
+        juce::Colour accent;
+        juce::Rectangle<int> bounds;
     };
 
     SubbertoneAudioProcessor& m_audioProcessor;
 
-    SubbertoneLookAndFeel m_lookAndFeel;
-    
-    // Visualizer
+    juce::SharedResourcePointer<Theme::Fonts> m_fonts;
+    LookAndFeel m_lookAndFeel;
+
     WaveformVisualizer m_waveformVisualizer;
-    
-    // Controls
-    juce::Slider m_mixSlider;
-    juce::Slider m_distortionSlider;
-    juce::Slider m_toneSlider;
-    juce::Slider m_postDriveLowpassSlider;
-    juce::Slider m_outputGainSlider;
-    juce::Slider m_pitchThresholdSlider;
-    juce::Slider m_fundamentalLimitSlider;
-    
+
+    juce::Slider m_mixSlider, m_distortionSlider, m_toneSlider, m_postDriveLowpassSlider,
+                 m_outputGainSlider, m_pitchThresholdSlider, m_fundamentalLimitSlider,
+                 m_resonanceSlider, m_envAmountSlider, m_envReleaseSlider;
+
+    juce::Label m_mixLabel, m_distortionLabel, m_toneLabel, m_postDriveLowpassLabel,
+                m_outputGainLabel, m_pitchThresholdLabel, m_fundamentalLimitLabel,
+                m_resonanceLabel, m_envAmountLabel, m_envReleaseLabel;
+
     juce::ComboBox m_distortionTypeCombo;
-    
-    juce::Label m_mixLabel;
-    juce::Label m_distortionLabel;
-    juce::Label m_toneLabel;
-    juce::Label m_postDriveLowpassLabel;
-    juce::Label m_distortionTypeLabel;
-    juce::Label m_outputGainLabel;
-    juce::Label m_pitchThresholdLabel;
-    juce::Label m_fundamentalLimitLabel;
-    
-    // Parameter attachments (constructed after controls)
+    juce::ComboBox m_filterModeCombo;
+
+    // Attachments are declared after the controls they bind so they are destroyed first.
     juce::AudioProcessorValueTreeState::SliderAttachment   m_mixAttachment;
     juce::AudioProcessorValueTreeState::SliderAttachment   m_distortionAttachment;
     juce::AudioProcessorValueTreeState::SliderAttachment   m_toneAttachment;
@@ -71,12 +86,14 @@ private:
     juce::AudioProcessorValueTreeState::SliderAttachment   m_outputGainAttachment;
     juce::AudioProcessorValueTreeState::SliderAttachment   m_pitchThresholdAttachment;
     juce::AudioProcessorValueTreeState::SliderAttachment   m_fundamentalLimitAttachment;
-    juce::AudioProcessorValueTreeState::ComboBoxAttachment m_distortionTypeAttachment;
-    
-    // About button
-    juce::TextButton m_aboutButton;
-    
-    // Tooltip window
-    juce::TooltipWindow m_tooltipWindow;
-};
+    juce::AudioProcessorValueTreeState::SliderAttachment   m_resonanceAttachment;
+    juce::AudioProcessorValueTreeState::SliderAttachment   m_envAmountAttachment;
+    juce::AudioProcessorValueTreeState::SliderAttachment   m_envReleaseAttachment;
+    std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> m_distortionTypeAttachment;
+    std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> m_filterModeAttachment;
 
+    juce::TextButton m_aboutButton;
+    juce::TooltipWindow m_tooltipWindow;
+
+    std::array<Section, 4> m_sections;
+};

@@ -20,13 +20,22 @@ SubbertoneAudioProcessor::SubbertoneAudioProcessor()
 #endif
       , m_parameters(*this, nullptr, juce::Identifier("SubbertoneParameters"), createParameterLayout())
 {
-    // Double buffering for visualization
-    for (int i = 0; i < 2; ++i)
-    {
-        m_inputVisualBuffer[i].resize(c_visualBufferSize, 0.0f);
-        m_outputVisualBuffer[i].resize(c_visualBufferSize, 0.0f);
-        m_harmonicResidualVisualBuffer[i].resize(c_visualBufferSize, 0.0f);
-    }
+    m_inputVisualBuffer.assign(c_visualBufferSize, 0.0f);
+    m_outputVisualBuffer.assign(c_visualBufferSize, 0.0f);
+    m_harmonicResidualVisualBuffer.assign(c_visualBufferSize, 0.0f);
+
+    m_mixParam              = m_parameters.getRawParameterValue("mix");
+    m_distortionParam       = m_parameters.getRawParameterValue("distortion");
+    m_distortionTypeParam   = m_parameters.getRawParameterValue("distortionType");
+    m_toneParam             = m_parameters.getRawParameterValue("distortionTone");
+    m_postDriveLowpassParam = m_parameters.getRawParameterValue("postDriveLowpass");
+    m_outputGainParam       = m_parameters.getRawParameterValue("outputGain");
+    m_pitchThresholdParam   = m_parameters.getRawParameterValue("pitchThreshold");
+    m_fundamentalLimitParam = m_parameters.getRawParameterValue("fundamentalLimit");
+    m_filterResonanceParam  = m_parameters.getRawParameterValue("filterResonance");
+    m_filterModeParam       = m_parameters.getRawParameterValue("filterMode");
+    m_filterEnvAmountParam  = m_parameters.getRawParameterValue("filterEnvAmount");
+    m_filterEnvReleaseParam = m_parameters.getRawParameterValue("filterEnvRelease");
 }
 
 juce::AudioProcessorValueTreeState::ParameterLayout SubbertoneAudioProcessor::createParameterLayout()
@@ -37,13 +46,28 @@ juce::AudioProcessorValueTreeState::ParameterLayout SubbertoneAudioProcessor::cr
 
         std::make_unique<juce::AudioParameterFloat>("distortion", "Distortion", 0.0f, 100.0f, 50.0f),
 
-        std::make_unique<juce::AudioParameterChoice>("distortionType", "Distortion Type", juce::StringArray{"Soft Clip", "Hard Clip", "Tube", "Foldback"}, 0),
+        std::make_unique<juce::AudioParameterChoice>("distortionType", "Distortion Type", juce::StringArray{"Tape", "Valve", "Console", "Transformer", "Rectifier", "Wavefolder"}, 0),
 
-        std::make_unique<juce::AudioParameterFloat>(juce::ParameterID("distortionTone", 1), "Tone", 
+        std::make_unique<juce::AudioParameterFloat>(juce::ParameterID("distortionTone", 1), "Filter Cutoff", 
                                                     juce::NormalisableRange<float>(20.0f, 20000.0f, 0.1f, 0.5f), 1000.0f,
                                                     juce::AudioParameterFloatAttributes().withLabel("Hz")),
 
-        std::make_unique<juce::AudioParameterFloat>(juce::ParameterID("postDriveLowpass", 1), "Post-Drive Lowpass",
+        std::make_unique<juce::AudioParameterFloat>(juce::ParameterID("filterResonance", 1), "Filter Resonance",
+                                                    juce::NormalisableRange<float>(0.0f, 100.0f, 0.1f), 0.0f,
+                                                    juce::AudioParameterFloatAttributes().withLabel("%")),
+
+        std::make_unique<juce::AudioParameterChoice>(juce::ParameterID("filterMode", 1), "Filter Mode",
+                                                     juce::StringArray{"Lowpass", "Bandpass", "Notch"}, 0),
+
+        std::make_unique<juce::AudioParameterFloat>(juce::ParameterID("filterEnvAmount", 1), "Filter Env Amount",
+                                                    juce::NormalisableRange<float>(-4.0f, 4.0f, 0.01f), 0.0f,
+                                                    juce::AudioParameterFloatAttributes().withLabel("oct")),
+
+        std::make_unique<juce::AudioParameterFloat>(juce::ParameterID("filterEnvRelease", 1), "Filter Env Release",
+                                                    juce::NormalisableRange<float>(5.0f, 2000.0f, 0.1f, 0.35f), 150.0f,
+                                                    juce::AudioParameterFloatAttributes().withLabel("ms")),
+
+        std::make_unique<juce::AudioParameterFloat>(juce::ParameterID("postDriveLowpass", 1), "Hi Cut",
                                                     juce::NormalisableRange<float>(20.0f, 20000.0f, 0.1f, 0.5f), 20000.0f,
                                                     juce::AudioParameterFloatAttributes().withLabel("Hz")),
 
@@ -101,7 +125,7 @@ bool SubbertoneAudioProcessor::isMidiEffect() const
 
 double SubbertoneAudioProcessor::getTailLengthSeconds() const
 {
-    return 0.0;
+    return 0.15; // voicing-gate release
 }
 
 int SubbertoneAudioProcessor::getNumPrograms()
@@ -172,220 +196,141 @@ void SubbertoneAudioProcessor::releaseResources()
 
 void SubbertoneAudioProcessor::prepareToPlay(double sampleRate, int samplesPerBlock)
 {
-    m_currentMaxProcessBlockSize = std::clamp(samplesPerBlock, 1, c_maxProcessBlockSize);
+    juce::ignoreUnused(samplesPerBlock);
 
-    // Prepare processors
-    m_pitchDetector.prepare(sampleRate);
-    m_subharmonicBuffer.resize(m_currentMaxProcessBlockSize, 0.0f);
+    m_monoBuffer.assign(c_chunkSize, 0.0f);
+    m_wetBuffer.assign(c_chunkSize, 0.0f);
+    m_residualBuffer.assign(c_chunkSize, 0.0f);
 
-    m_subharmonicEngine.prepare(sampleRate, samplesPerBlock);
-    m_pitchDetectBuffer.resize(m_currentMaxProcessBlockSize, 0.0f);
+    m_subharmonicEngine.setParameters(readEngineParameters());
+    m_subharmonicEngine.prepare(sampleRate);
 
-    // Prepare parameters
     constexpr double smoothingSeconds = 0.02;
     m_mixSmoothed.reset(sampleRate, smoothingSeconds);
-    m_distortionSmoothed.reset(sampleRate, smoothingSeconds);
-    m_toneSmoothed.reset(sampleRate, smoothingSeconds);
-    m_postDriveLowpassSmoothed.reset(sampleRate, smoothingSeconds);
     m_outputGainSmoothed.reset(sampleRate, smoothingSeconds);
+    m_mixSmoothed.setCurrentAndTargetValue(m_mixParam->load() * 0.01f);
+    m_outputGainSmoothed.setCurrentAndTargetValue(juce::Decibels::decibelsToGain(m_outputGainParam->load()));
 
-    updateParameterCache();
+    m_currentFundamental.store(0.0f);
+    m_currentSignalLevelDb.store(0.0f);
+}
 
-    m_mixSmoothed.setCurrentAndTargetValue(m_parameterCache.m_mix);
-    m_distortionSmoothed.setCurrentAndTargetValue(m_parameterCache.m_distortion);
-    m_toneSmoothed.setCurrentAndTargetValue(m_parameterCache.m_distortionTone);
-    m_postDriveLowpassSmoothed.setCurrentAndTargetValue(m_parameterCache.m_postDriveLowpass);
-    m_outputGainSmoothed.setCurrentAndTargetValue(m_parameterCache.m_outputGain);
+SubharmonicEngine::Parameters SubbertoneAudioProcessor::readEngineParameters() const
+{
+    SubharmonicEngine::Parameters p;
+    p.distortion       = m_distortionParam->load() * 0.01f;
+    p.saturationType   = static_cast<int>(m_distortionTypeParam->load());
+    p.toneHz           = m_toneParam->load();
+    p.postLowpassHz    = m_postDriveLowpassParam->load();
+    p.thresholdDb      = m_pitchThresholdParam->load();
+    p.maxFundamentalHz = m_fundamentalLimitParam->load();
+    p.resonance        = m_filterResonanceParam->load() * 0.01f;
+    p.filterMode       = static_cast<int>(m_filterModeParam->load());
+    p.envAmountOctaves = m_filterEnvAmountParam->load();
+    p.envReleaseMs     = m_filterEnvReleaseParam->load();
+    return p;
 }
 
 void SubbertoneAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midiMessages)
 {
     juce::ignoreUnused(midiMessages);
-
     juce::ScopedNoDenormals noDenormals;
 
-    const int totalNumInputChannels  = getTotalNumInputChannels();
-    const int totalNumOutputChannels = getTotalNumOutputChannels();
-    const int numChannelsToProcess = std::min(totalNumInputChannels, totalNumOutputChannels);
+    const int numInputs  = getTotalNumInputChannels();
+    const int numOutputs = getTotalNumOutputChannels();
     const int numSamples = buffer.getNumSamples();
+    const int numChannels = std::min(numInputs, numOutputs);
 
-    if (numSamples > m_currentMaxProcessBlockSize)
-    {
-        buffer.clear();
+    for (int ch = numInputs; ch < numOutputs; ++ch)
+        buffer.clear(ch, 0, numSamples);
+
+    if (numChannels <= 0 || numSamples <= 0)
         return;
-    }
 
-    for (int i = totalNumInputChannels; i < totalNumOutputChannels; ++i)
-        buffer.clear(i, 0, numSamples);
+    m_subharmonicEngine.setParameters(readEngineParameters());
+    m_mixSmoothed.setTargetValue(m_mixParam->load() * 0.01f);
+    m_outputGainSmoothed.setTargetValue(juce::Decibels::decibelsToGain(m_outputGainParam->load()));
 
-    const float* const* inputPtrs = buffer.getArrayOfReadPointers();
+    const float channelScale = 1.0f / static_cast<float>(numChannels);
 
-    // Get parameter values
-    updateParameterCache();
-    m_mixSmoothed.setTargetValue(m_parameterCache.m_mix);
-    m_distortionSmoothed.setTargetValue(m_parameterCache.m_distortion);
-    m_toneSmoothed.setTargetValue(m_parameterCache.m_distortionTone);
-    m_postDriveLowpassSmoothed.setTargetValue(m_parameterCache.m_postDriveLowpass);
-    m_outputGainSmoothed.setTargetValue(m_parameterCache.m_outputGain);
-
-    const float distortion       = m_parameterCache.m_distortion;
-    const int distortionType     = m_parameterCache.m_distortionType;
-    const float distortionTone   = m_toneSmoothed.getNextValue();
-    const float postDriveLowpass = m_postDriveLowpassSmoothed.getNextValue();
-    const float pitchThreshold   = m_parameterCache.m_pitchThreshold;
-    const float fundamentalLimit = m_parameterCache.m_fundamentalLimit;
-
-    // STEP 1: Detect fundamental FIRST (using first channel)
-    float detectedFundamental = 0.0f;
-
-    // Calculate RMS
-    float rmsSum = 0.0f;
-
-    for (int i = 0; i < numSamples; ++i)
+    // Process in fixed-size chunks so any host block size works without allocation.
+    for (int start = 0; start < numSamples; start += c_chunkSize)
     {
-        float sum = 0.0f;
+        const int n = std::min(c_chunkSize, numSamples - start);
 
-        for (int ch = 0; ch < numChannelsToProcess; ++ch)
-            sum += inputPtrs[ch][i];
-
-        const float monoSample = sum / static_cast<float>(numChannelsToProcess);
-
-        m_pitchDetectBuffer[i] = monoSample;
-        rmsSum += monoSample * monoSample;
-    }
-
-    const float rms = std::sqrt(rmsSum / static_cast<float>(numSamples));
-    m_currentSignalLevelDb.store(rms);
-    
-    const bool inputActive = rms >= pitchThreshold;
-
-    detectedFundamental = (inputActive) ? m_pitchDetector.detectPitch(m_pitchDetectBuffer.data(), numSamples, pitchThreshold) : 0.0f;
-
-    // Apply fundamental frequency limit
-    if (detectedFundamental > fundamentalLimit)
-    {
-        detectedFundamental = 0.0f;
-    }
-    
-    m_currentFundamental.store(detectedFundamental);
-
-    // STEP 2: Process subharmonic engine with CURRENT fundamental
-    m_subharmonicEngine.process(m_subharmonicBuffer.data(), 
-                                numSamples,
-                                detectedFundamental,
-                                distortion, 
-                                distortionType,
-                                distortionTone, 
-                                postDriveLowpass, 
-                                inputActive);
-    
-    // STEP 3: Apply mix + Output gain
-    for (int channel = 0; channel < numChannelsToProcess; ++channel)
-    {
-        const float* inputData = buffer.getReadPointer(channel);
-        float* channelData     = buffer.getWritePointer(channel);
-        
-        // Apply mix and output gain with per-sample smoothing
-        for (int i = 0; i < numSamples; ++i)
+        // Mono sum for analysis/generation
+        for (int i = 0; i < n; ++i)
         {
-            const float mixValue = m_mixSmoothed.getNextValue();
-            const float outputGainValue = m_outputGainSmoothed.getNextValue();
-
-            const float dry = inputData[i];
-            const float wet = m_subharmonicBuffer[i] * -1.0f; // inverse mix? maybe a small delay suit better?
-
-            channelData[i] = outputGainValue * (dry * (1.0f - mixValue) + wet * mixValue);
+            float sum = 0.0f;
+            for (int ch = 0; ch < numChannels; ++ch)
+                sum += buffer.getReadPointer(ch)[start + i];
+            m_monoBuffer[static_cast<size_t>(i)] = sum * channelScale;
         }
+
+        m_subharmonicEngine.process(m_monoBuffer.data(), m_wetBuffer.data(), m_residualBuffer.data(), n);
+
+        // Mix: smoothers advance once per sample, shared by every channel.
+        for (int i = 0; i < n; ++i)
+        {
+            const float mix  = m_mixSmoothed.getNextValue();
+            const float gain = m_outputGainSmoothed.getNextValue();
+            const float wet  = m_wetBuffer[static_cast<size_t>(i)];
+
+            for (int ch = 0; ch < numChannels; ++ch)
+            {
+                float* data = buffer.getWritePointer(ch);
+                const float dry = data[start + i];
+                data[start + i] = gain * (dry * (1.0f - mix) + wet * mix);
+            }
+        }
+
+        pushVisualSamples(m_monoBuffer.data(), buffer.getReadPointer(0) + start, m_residualBuffer.data(), n);
     }
 
-    updateVisualizerBuffers(buffer);
-    
-    // Handle mono to stereo if needed
-    if (totalNumInputChannels == 1 && totalNumOutputChannels == 2)
-    {
+    if (numInputs == 1 && numOutputs >= 2)
         buffer.copyFrom(1, 0, buffer, 0, 0, numSamples);
-    }
+
+    m_currentFundamental.store(m_subharmonicEngine.getFundamental());
+    m_currentSignalLevelDb.store(m_subharmonicEngine.getInputRms());
 }
 
-void SubbertoneAudioProcessor::updateParameterCache()
+void SubbertoneAudioProcessor::pushVisualSamples(const float* input, const float* output, const float* residual, int numSamples)
 {
-    m_parameterCache.m_mix              = m_parameters.getRawParameterValue("mix")->load() * 0.01f;
-    m_parameterCache.m_distortion       = m_parameters.getRawParameterValue("distortion")->load() * 0.01f;
-    m_parameterCache.m_distortionType   = static_cast<int>(m_parameters.getRawParameterValue("distortionType")->load());
-    m_parameterCache.m_distortionTone   = m_parameters.getRawParameterValue("distortionTone")->load();
-    m_parameterCache.m_postDriveLowpass = m_parameters.getRawParameterValue("postDriveLowpass")->load();
-    m_parameterCache.m_outputGain       = juce::Decibels::decibelsToGain(m_parameters.getRawParameterValue("outputGain")->load());
-    m_parameterCache.m_pitchThreshold   = std::pow(10.0f, m_parameters.getRawParameterValue("pitchThreshold")->load() / 20.0f);
-    m_parameterCache.m_fundamentalLimit = m_parameters.getRawParameterValue("fundamentalLimit")->load();
-}
-
-void SubbertoneAudioProcessor::updateVisualizerBuffers(juce::AudioBuffer<float>& buffer)
-{
-    // Store visualization data once per block (only for first channel)
-    const int numSamples = buffer.getNumSamples();
-
-    constexpr int channel0 = 0;
-    const float* outputData = buffer.getReadPointer(channel0);
-
-    const std::vector<float>& harmonicResidual = m_subharmonicEngine.getHarmonicResidualBuffer();
-
-    const int writeIndex = 1 - m_visualReadIndex.load(std::memory_order_relaxed);
-    const int baseWritePos = m_visualBufferWritePos[writeIndex].load(std::memory_order_relaxed);
+    int pos = m_visualWritePos.load(std::memory_order_relaxed);
 
     for (int i = 0; i < numSamples; ++i)
     {
-        const int writePos = (baseWritePos + i) % c_visualBufferSize;
-
-        m_inputVisualBuffer[writeIndex][writePos]  = m_pitchDetectBuffer[i];
-        m_outputVisualBuffer[writeIndex][writePos] = outputData[i];
-        m_harmonicResidualVisualBuffer[writeIndex][writePos] = (i < static_cast<int>(harmonicResidual.size())) ? harmonicResidual[i] : 0.0f;
+        m_inputVisualBuffer[static_cast<size_t>(pos)] = input[i];
+        m_outputVisualBuffer[static_cast<size_t>(pos)] = output[i];
+        m_harmonicResidualVisualBuffer[static_cast<size_t>(pos)] = residual[i];
+        pos = (pos + 1) % c_visualBufferSize;
     }
 
-    m_visualBufferWritePos[writeIndex].store((baseWritePos + numSamples) % c_visualBufferSize, std::memory_order_relaxed);
-    m_visualReadIndex.store(writeIndex, std::memory_order_release);
+    m_visualWritePos.store(pos, std::memory_order_release);
+}
+
+void SubbertoneAudioProcessor::copyVisualRing(const std::vector<float>& ring, std::vector<float>& dest) const
+{
+    if (dest.size() != static_cast<size_t>(c_visualBufferSize))
+        dest.resize(c_visualBufferSize);
+
+    const int readPos = m_visualWritePos.load(std::memory_order_acquire);
+
+    for (int i = 0; i < c_visualBufferSize; ++i)
+        dest[static_cast<size_t>(i)] = ring[static_cast<size_t>((readPos + i) % c_visualBufferSize)];
 }
 
 void SubbertoneAudioProcessor::getInputWaveform(std::vector<float>& dest) const
 {
-    if (dest.size() != c_visualBufferSize)
-        dest.resize(c_visualBufferSize);
-
-    const int readIndex = m_visualReadIndex.load(std::memory_order_acquire);
-    const int readPos   = m_visualBufferWritePos[readIndex].load(std::memory_order_relaxed);
-    
-    // Copy from circular buffer in the correct order
-    for (int i = 0; i < c_visualBufferSize; ++i)
-    {
-        dest[i] = m_inputVisualBuffer[readIndex][(readPos + i) % c_visualBufferSize];
-    }
+    copyVisualRing(m_inputVisualBuffer, dest);
 }
 
 void SubbertoneAudioProcessor::getOutputWaveform(std::vector<float>& dest) const
 {
-    if (dest.size() != c_visualBufferSize)
-        dest.resize(c_visualBufferSize);
-
-    const int readIndex = m_visualReadIndex.load(std::memory_order_acquire);
-    const int readPos   = m_visualBufferWritePos[readIndex].load(std::memory_order_relaxed);
-    
-    // Copy from circular buffer in the correct order
-    for (int i = 0; i < c_visualBufferSize; ++i)
-    {
-        dest[i] = m_outputVisualBuffer[readIndex][(readPos + i) % c_visualBufferSize];
-    }
+    copyVisualRing(m_outputVisualBuffer, dest);
 }
 
 void SubbertoneAudioProcessor::getHarmonicResidualWaveform(std::vector<float>& dest) const
 {
-    if (dest.size() != c_visualBufferSize)
-        dest.resize(c_visualBufferSize);
-
-    const int readIndex = m_visualReadIndex.load(std::memory_order_acquire);
-    const int readPos   = m_visualBufferWritePos[readIndex].load(std::memory_order_relaxed);
-    
-    // Copy from circular buffer in the correct order
-    for (int i = 0; i < c_visualBufferSize; ++i)
-    {
-        dest[i] = m_harmonicResidualVisualBuffer[readIndex][(readPos + i) % c_visualBufferSize];
-    }
+    copyVisualRing(m_harmonicResidualVisualBuffer, dest);
 }

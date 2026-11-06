@@ -1,6 +1,7 @@
 #pragma once
 
 #include <JuceHeader.h>
+#include "Theme.h"
 
 class SubbertoneAudioProcessor;
 
@@ -32,6 +33,7 @@ public:
 private:
     void drawWaveform3D(const std::vector<std::vector<float>>& history, const juce::Colour& color, float yOffset, bool isInput);
     void drawPerspectiveGrid();
+    void drawLegendRow(juce::Graphics& g, int centreY, const juce::String& name, juce::Colour colour, bool on);
 
     SubbertoneAudioProcessor& m_audioProcessor;
     juce::OpenGLContext m_openGLContext;
@@ -49,18 +51,15 @@ private:
     std::vector<float> m_outputBuffer;
     std::vector<float> m_harmonicResidualBuffer;
     
-    // PS1 Wipeout style colors
-    const juce::Colour m_bgColor{ 0xff000510 };     // Deep blue-black
-    const juce::Colour m_gridColor{ 0xff0a2a4a };   // Dark blue grid
-    const juce::Colour m_inputColor{ 0xff00ffff };   // Cyan
-    const juce::Colour m_outputColor{ 0xffff00ff };  // Magenta
-    const juce::Colour m_harmonicResidualColor{ 0xffffff00 };  // Yellow
-    const juce::Colour m_glowColor{ 0xff4080ff };   // Blue glow
-    const juce::Colour m_textColor{ 0xffffffff };
-    const juce::Colour m_signalOkColor{ 0xff90ee90 };
-    const juce::Colour m_signalLowColor{ 0xffff4444 };
+    juce::SharedResourcePointer<Theme::Fonts> m_fonts;
 
-    juce::String m_signalText{ juce::CharPointer_UTF8("Signal: -inf dB") };
+    const juce::Colour m_bgColor { Theme::Colours::scope };
+    const juce::Colour m_gridColor { Theme::Colours::grid };
+    const juce::Colour m_inputColor { Theme::Colours::input };
+    const juce::Colour m_outputColor { Theme::Colours::output };
+    const juce::Colour m_harmonicResidualColor { Theme::Colours::harmonics };
+
+    juce::String m_signalText { "IN  -inf dB" };
 
     bool m_signalAboveThreshold = false;
     

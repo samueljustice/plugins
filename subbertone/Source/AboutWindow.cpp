@@ -5,7 +5,7 @@
 // AboutWindow
 //-----------------------------------------------------------------
 AboutWindow::AboutWindow()
-    : DocumentWindow("About SammyJs Subbertone", juce::Colour(0xff0a0a0a), DocumentWindow::closeButton)
+    : DocumentWindow("About SammyJs Subbertone", Theme::Colours::background, DocumentWindow::closeButton)
 {
     setUsingNativeTitleBar(true);
     setContentNonOwned(&m_content, false);
@@ -30,7 +30,7 @@ AboutWindow::AboutContent::AboutContent()
 {
     m_websiteButton.setButtonText("sweetjusticesound.com");
     m_websiteButton.setColour(juce::TextButton::buttonColourId, juce::Colours::transparentBlack);
-    m_websiteButton.setColour(juce::TextButton::textColourOffId, juce::Colour(0xff00ffff));
+    m_websiteButton.setColour(juce::TextButton::textColourOffId, Theme::Colours::output);
     m_websiteButton.onClick = []
     {
         juce::URL("https://sweetjusticesound.com").launchInDefaultBrowser();
@@ -39,7 +39,7 @@ AboutWindow::AboutContent::AboutContent()
 
     m_emailButton.setButtonText("sam@sweetjusticesound.com");
     m_emailButton.setColour(juce::TextButton::buttonColourId, juce::Colours::transparentBlack);
-    m_emailButton.setColour(juce::TextButton::textColourOffId, juce::Colour(0xff00ffff));
+    m_emailButton.setColour(juce::TextButton::textColourOffId, Theme::Colours::output);
     m_emailButton.onClick = []
     {
         juce::URL("mailto:sam@sweetjusticesound.com").launchInDefaultBrowser();
@@ -52,15 +52,18 @@ AboutWindow::AboutContent::AboutContent()
     
     m_updateStatusLabel.setText("", juce::dontSendNotification);
     m_updateStatusLabel.setJustificationType(juce::Justification::centred);
-    m_updateStatusLabel.setColour(juce::Label::textColourId, juce::Colours::lightblue);
+    m_updateStatusLabel.setColour(juce::Label::textColourId, Theme::Colours::textDim);
+    m_updateStatusLabel.setFont(m_fonts->body(12.0f));
     addAndMakeVisible(m_updateStatusLabel);
     
     m_licenseText.setMultiLine(true);
     m_licenseText.setReadOnly(true);
     m_licenseText.setScrollbarsShown(true);
     m_licenseText.setCaretVisible(false);
-    m_licenseText.setColour(juce::TextEditor::backgroundColourId, juce::Colour(0xff0f0f0f));
-    m_licenseText.setColour(juce::TextEditor::textColourId, juce::Colour(0xffffffff));
+    m_licenseText.setColour(juce::TextEditor::backgroundColourId, Theme::Colours::panel);
+    m_licenseText.setColour(juce::TextEditor::textColourId, Theme::Colours::textDim);
+    m_licenseText.setColour(juce::TextEditor::outlineColourId, Theme::Colours::outlineSoft);
+    m_licenseText.setFont(m_fonts->body(11.0f));
     m_licenseText.setText(
         "MIT License\n\n"
         "Copyright (c) 2025 Samuel Justice\n\n"
@@ -81,19 +84,19 @@ AboutWindow::AboutContent::AboutContent()
 
 void AboutWindow::AboutContent::paint(juce::Graphics& g)
 {
-    g.fillAll(juce::Colour(0xff0a0a0a));
+    g.fillAll(Theme::Colours::background);
     
-    g.setColour(juce::Colour(0xff00ffff));
-    g.setFont(juce::Font(juce::FontOptions("Courier New", 24.0f, juce::Font::bold)));
-    g.drawText("SAMMYJS SUBBERTONE", 0, 20, getWidth(), 30, juce::Justification::centred);
+    g.setColour(Theme::Colours::text);
+    g.setFont(m_fonts->heading(22.0f));
+    g.drawText("SUBBERTONE", 0, 20, getWidth(), 30, juce::Justification::centred);
     
-    g.setColour(juce::Colour(0xffff00ff));
-    g.setFont(juce::Font(juce::FontOptions(16.0f)));
+    g.setColour(Theme::Colours::output);
+    g.setFont(m_fonts->body(13.0f));
     g.drawText(juce::String("Version ") + JucePlugin_VersionString, 0, 60, getWidth(), 20,
                juce::Justification::centred);
 
-    g.setColour(juce::Colour(0xff888888));
-    g.setFont(juce::Font(juce::FontOptions(11.0f)));
+    g.setColour(Theme::Colours::textFaint);
+    g.setFont(m_fonts->body(11.0f));
 #ifdef BUILD_TIMESTAMP
     g.drawText(juce::String("Built: ") + BUILD_TIMESTAMP, 0, 78, getWidth(), 16,
                juce::Justification::centred);
@@ -102,18 +105,18 @@ void AboutWindow::AboutContent::paint(juce::Graphics& g)
                juce::Justification::centred);
 #endif
 
-    g.setColour(juce::Colour(0xffffffff));
-    g.setFont(juce::Font(juce::FontOptions(14.0f)));
-    g.drawText("Subharmonic Generator Plugin", 0, 100, getWidth(), 20, juce::Justification::centred);
+    g.setColour(Theme::Colours::textDim);
+    g.setFont(m_fonts->label(12.0f));
+    g.drawText("SAMMYJS / SUBHARMONIC GENERATOR", 0, 100, getWidth(), 20, juce::Justification::centred);
 
     g.drawText("Created by Samuel Justice", 0, 130, getWidth(), 20, juce::Justification::centred);
     
-    g.setColour(juce::Colour(0xff1a3a3a));
+    g.setColour(Theme::Colours::outlineSoft);
     g.drawLine(20.0f, 280.0f, static_cast<float>(getWidth() - 20), 280.0f, 2.0f);
     
-    g.setColour(juce::Colour(0xffffffff));
-    g.setFont(juce::Font(juce::FontOptions(12.0f)));
-    g.drawText("License Information:", 20, 290, getWidth() - 40, 20, juce::Justification::left);
+    g.setColour(Theme::Colours::textDim);
+    g.setFont(m_fonts->label(11.0f));
+    g.drawText("LICENSE", 20, 290, getWidth() - 40, 20, juce::Justification::left);
 }
 
 void AboutWindow::AboutContent::resized()

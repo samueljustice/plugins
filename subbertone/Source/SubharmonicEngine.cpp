@@ -1,555 +1,450 @@
 #include "SubharmonicEngine.h"
-#include <cmath>
+
 #include <algorithm>
+#include <array>
+#include <cmath>
 
-void SubharmonicEngine::prepare(double newSampleRate, int maxBlockSize)
+namespace
 {
-    m_isPrepared = false;
+    constexpr double c_twoPi = 6.283185307179586;
+    constexpr float c_pi = 3.14159265358979f;
 
-    // Validate parameters
-    if (newSampleRate <= 0 || maxBlockSize <= 0 || maxBlockSize > c_maxBlockSizeSamples)
-        return;
+    constexpr double c_levelTimeSeconds    = 0.020;
+    constexpr double c_bandEnvelopeHz      = 12.0;  // 2-pole smoothing of the band RMS
+    constexpr double c_gateAttackSeconds   = 0.010;
+    constexpr double c_gateReleaseSeconds  = 0.080;
+    constexpr double c_glideSeconds        = 0.012;
+    constexpr double c_paramSeconds        = 0.030;
+    constexpr double c_typeFadeSeconds     = 0.030;
+    constexpr float  c_gateHysteresisDb    = 3.0f;
+    constexpr int    c_unvoicedHopsToClose = 3;
+    constexpr float  c_maxDrive            = 10.0f;
+    constexpr int    c_filterUpdateInterval = 8;
+    constexpr double c_maxResidualPeak     = 1.5;  // relative to a unit sine
+    constexpr double c_filterEnvAttackSecs = 0.003;
+    constexpr float  c_maxResonanceDrive   = 5.0f;
 
-    m_sampleRate = newSampleRate;
-    m_currentMaxBlockSize = maxBlockSize;
-
-    // Calculate envelope coefficients
-    calculateEnvelopeCoefficients();
-
-    m_distortionSmoothed.reset(m_sampleRate, c_parameterSmoothingSeconds);
-    m_toneSmoothed.reset(m_sampleRate, c_parameterSmoothingSeconds);
-    m_postDriveLowpassSmoothed.reset(m_sampleRate, c_parameterSmoothingSeconds);
-    m_distortionSmoothed.setCurrentAndTargetValue(0.0f);
-    m_toneSmoothed.setCurrentAndTargetValue(1000.0f);
-    m_postDriveLowpassSmoothed.setCurrentAndTargetValue(20000.0f);
-
-    // Reset state
-    m_currentFrequency = 0.0;
-    m_targetFrequency = 0.0;
-    m_lastSetFrequency = 0.0;
-    m_envelopeFollower = 0.0;
-    m_envelopeTarget = 0.0;
-    m_signalPresent = false;
-    m_releaseGain = 1.0;
-    m_signalOnCounter = 0;
-    m_signalOffCounter = 0;
-    m_filterUpdateCounter = 0;
-
-    m_signalOnThreshold = static_cast<int>(m_sampleRate * 0.0013);
-    m_signalOffThreshold = static_cast<int>(m_sampleRate * 0.5);
-
-    // Resize buffers with error checking
-    const size_t normalSize = static_cast<size_t>(maxBlockSize);
-
-    m_sineBuffer.resize(normalSize);
-    m_cleanSineBuffer.resize(normalSize);
-    m_harmonicResidualBuffer.resize(normalSize);
-
-    // Clear buffers
-    std::fill(m_sineBuffer.begin(), m_sineBuffer.end(), 0.0f);
-    std::fill(m_cleanSineBuffer.begin(), m_cleanSineBuffer.end(), 0.0f);
-    std::fill(m_harmonicResidualBuffer.begin(), m_harmonicResidualBuffer.end(), 0.0f);
-
-    // Prepare filters and oscillator
-    juce::dsp::ProcessSpec spec;
-    spec.sampleRate = m_sampleRate;
-    spec.maximumBlockSize = static_cast<juce::uint32>(maxBlockSize);
-    spec.numChannels = 1;
-
-    // Initialize the band-limited sine oscillator with 512-point wavetable
-    m_sineOscillator.prepare(spec);
-    // Use a larger wavetable for better quality at low frequencies
-    m_sineOscillator.initialise([](float x) { return std::sin(x); }, 2048);
-    m_sineOscillator.setFrequency(100.0f); // Start with a default frequency to avoid startup artifacts
-
-    // Tone filter
-    m_toneFilter.prepare(spec);
-    m_toneFilter.setType(juce::dsp::StateVariableTPTFilterType::lowpass);
-    m_toneFilter.reset();
-
-    // Post-drive lowpass
-    m_postDriveLowpassFilter.prepare(spec);
-    m_postDriveLowpassFilter.setType(juce::dsp::StateVariableTPTFilterType::lowpass);
-    m_postDriveLowpassFilter.reset();
-
-    // High-pass filter for DC blocking
-    m_highpassFilter.prepare(spec);
-    m_highpassFilter.setType(juce::dsp::StateVariableTPTFilterType::highpass);
-    m_highpassFilter.setCutoffFrequency(20.0f);
-    m_highpassFilter.reset();
-
-    // Post-subtraction filter to smooth harmonic extraction artifacts
-    m_postSubtractionFilter.prepare(spec);
-    m_postSubtractionFilter.setType(juce::dsp::StateVariableTPTFilterType::lowpass);
-    m_postSubtractionFilter.setCutoffFrequency(4000.0f);  // Gentle roll-off
-    m_postSubtractionFilter.reset();
-
-    // Low frequency smoothing filter - helps with sub-100Hz oscillation
-    m_lowFreqSmoothingFilter.prepare(spec);
-    m_lowFreqSmoothingFilter.setType(juce::dsp::StateVariableTPTFilterType::lowpass);
-    m_lowFreqSmoothingFilter.setCutoffFrequency(200.0f);  // Smooth low frequencies
-    m_lowFreqSmoothingFilter.reset();
-
-    // Anti-aliasing filters - prepare at native rate
-    const float cutoffFreq = static_cast<float>(spec.sampleRate * 0.45);
-
-    const juce::dsp::IIR::Coefficients<float>::Ptr coeffs1 = juce::dsp::IIR::Coefficients<float>::makeLowPass(spec.sampleRate, cutoffFreq, 0.3f);
-    const juce::dsp::IIR::Coefficients<float>::Ptr coeffs2 = juce::dsp::IIR::Coefficients<float>::makeLowPass(spec.sampleRate, cutoffFreq, 0.3f);
-
-    m_antiAliasingFilter1.prepare(spec);
-    m_antiAliasingFilter1.coefficients = coeffs1;
-    m_antiAliasingFilter1.reset();
-
-    m_antiAliasingFilter2.prepare(spec);
-    m_antiAliasingFilter2.coefficients = coeffs2;
-    m_antiAliasingFilter2.reset();
-
-    // Pre-distortion filter
-    const juce::dsp::IIR::Coefficients<float>::Ptr preDistCoeffs = juce::dsp::IIR::Coefficients<float>::makeLowPass(spec.sampleRate, 2000.0f, 0.7f);
-    m_preDistortionFilter.prepare(spec);
-    m_preDistortionFilter.coefficients = preDistCoeffs;
-    m_preDistortionFilter.reset();
-
-    // DC blocking filter - 20Hz high-pass
-    const juce::dsp::IIR::Coefficients<float>::Ptr dcBlockCoeffs = juce::dsp::IIR::Coefficients<float>::makeHighPass(spec.sampleRate, 20.0f, 0.7f);
-    m_dcBlockingFilter.prepare(spec);
-    m_dcBlockingFilter.coefficients = dcBlockCoeffs;
-    m_dcBlockingFilter.reset();
-
-    m_isPrepared = true;  // Mark as prepared after all setup is complete
-}
-
-void SubharmonicEngine::calculateEnvelopeCoefficients()
-{
-    // Convert time constants to filter coefficients
-    // Using the standard one-pole filter formula: coeff = 1 - exp(-1/(time_in_samples))
-    const double attackSamples = (c_attackTimeMs / 1000.0) * m_sampleRate;
-    const double releaseSamples = (c_releaseTimeMs / 1000.0) * m_sampleRate;
-
-    m_attackCoeff  = 1.0 - std::exp(-1.0 / attackSamples);
-    m_releaseCoeff = 1.0 - std::exp(-1.0 / releaseSamples);
-}
-
-void SubharmonicEngine::updateEnvelope(bool signalDetected)
-{
-    // Make envelope floor frequency-dependent - lower frequencies get lower floor
-    // This prevents rumble at very low frequencies
-    double dynamicFloor = 0.0;
-
-    if (m_currentFrequency > c_minSignalFrequency)
+    float onePoleCoeff(double seconds, double fs)
     {
-        dynamicFloor = juce::jmap(m_currentFrequency, 20.0, 100.0, 0.0, c_envelopeFloor);
+        return static_cast<float>(1.0 - std::exp(-1.0 / (seconds * fs)));
     }
 
-    // If no signal is present, release smoothly to silence
-    if (!m_signalPresent)
+    // SVF damping from 0..1 resonance: Q 0.707 -> 20, exponential feel.
+    float resonanceK(float resonance)
     {
-        m_envelopeTarget = 0.0;
-    }
-
-    // Only start fading if signal has been lost for the hold time
-    // Otherwise keep envelope at full volume
-    if (m_signalPresent && (signalDetected || m_signalOffCounter < m_signalOffThreshold))
-    {
-        m_envelopeTarget = 1.0;  // Keep at full volume during hold time
-    }
-    else if (m_signalPresent)
-    {
-        m_envelopeTarget = dynamicFloor;  // Fade to floor level, not zero
-    }
-
-    // Apply one-pole filter for smooth transitions
-    const double coeff = (m_envelopeTarget > m_envelopeFollower) ? m_attackCoeff : m_releaseCoeff;
-    m_envelopeFollower += coeff * (m_envelopeTarget - m_envelopeFollower);
-
-    // Ensure we never go below the floor
-    if (m_signalPresent && m_envelopeFollower < dynamicFloor)
-        m_envelopeFollower = dynamicFloor;
-}
-
-void SubharmonicEngine::process(float* outputBuffer,
-                                int numSamples,
-                                float fundamental,
-                                float distortionAmount,
-                                int distortionType,
-                                float toneFreq,
-                                float postDriveLowpass,
-                                bool inputActive)
-{
-    // Validate parameters and check if engine is prepared
-    if (!outputBuffer || numSamples <= 0 || numSamples > c_maxBlockSizeSamples || !m_isPrepared)
-    {
-        if (outputBuffer && numSamples > 0 && numSamples <= c_maxBlockSizeSamples)
-            std::fill_n(outputBuffer, numSamples, 0.0f);
-
-        return;
-    }
-
-    // Check if block size is within expected range
-    if (numSamples > m_currentMaxBlockSize)
-    {
-        std::fill_n(outputBuffer, numSamples, 0.0f);
-
-        return;
-    }
-
-    // Ensure buffers are properly sized
-    const size_t requiredSize = static_cast<size_t>(numSamples);
-
-    // Only clear the harmonic residual buffer - don't clear sine buffers as it causes discontinuities
-    if (m_sineBuffer.size() < requiredSize || m_cleanSineBuffer.size() < requiredSize || m_harmonicResidualBuffer.size() < requiredSize)
-    {
-        // Buffers not properly initialized
-        std::fill_n(outputBuffer, numSamples, 0.0f);
-
-        return;
-    }
-
-    std::fill(m_harmonicResidualBuffer.begin(), m_harmonicResidualBuffer.begin() + requiredSize, 0.0f);
-
-    // Signal detection with hysteresis
-    const bool currentSignalDetected = inputActive && fundamental > c_minSignalFrequency && fundamental < c_maxSignalFrequency;
-
-    if (currentSignalDetected)
-    {
-        m_signalOnCounter += numSamples;  // Count samples, not blocks!
-        m_signalOffCounter = 0;  // Reset off counter when signal is present
-
-        // Require signal to be present for a few samples before turning on
-        if (!m_signalPresent && m_signalOnCounter >= m_signalOnThreshold)
-        {
-            m_signalPresent = true;
-            // Start envelope at a reasonable level to avoid ramping artifacts
-            // This prevents the square-wave appearance during attack
-            // Don't jump the envelope - let it ramp smoothly
-            // This prevents clicks at low frequencies
-            m_envelopeTarget = 1.0;
-        }
-
-        // Update target frequency with Nyquist limit to prevent aliasing
-        const float nyquist = static_cast<float>(m_sampleRate * 0.5);
-        const float subFreq = fundamental * 0.5f; // One octave below
-
-        m_targetFrequency = std::clamp(subFreq, c_minSignalFrequency, nyquist * 0.9f); // Clamp to 90% of Nyquist
-    }
-    else
-    {
-        m_signalOnCounter = 0;
-
-        // Use hysteresis for turning off to prevent flickering
-        if (m_signalPresent)
-        {
-            m_signalOffCounter += numSamples;
-
-            // Only turn off if signal has been absent for the threshold duration
-            if (m_signalOffCounter >= m_signalOffThreshold || !inputActive)
-            {
-                m_signalPresent = false;
-                m_signalOffCounter = 0;
-            }
-        }
-    }
-
-    // Set smoothed targets for sample-accurate control
-    float clampedToneFreq = std::clamp(toneFreq, c_minToneHz, c_maxToneHz);
-
-    if (m_currentFrequency > c_minSignalFrequency)
-        clampedToneFreq = std::min(clampedToneFreq, static_cast<float>(m_currentFrequency * 2.5));
-
-    m_distortionSmoothed.setTargetValue(distortionAmount);
-    m_toneSmoothed.setTargetValue(clampedToneFreq);
-    m_postDriveLowpassSmoothed.setTargetValue(postDriveLowpass);
-
-    // Update frequency once per block for smooth transitions
-    if (m_signalPresent && m_targetFrequency > 0.0)
-    {
-        // Initialize m_currentFrequency if it's zero
-        if (m_currentFrequency == 0.0)
-        {
-            m_currentFrequency = m_targetFrequency;
-        }
-        else
-        {
-            // Use adaptive frequency smoothing - faster for low frequencies
-            double adaptiveSmoothingCoeff = c_frequencySmoothingCoeff;
-            if (m_currentFrequency < 200.0)
-            {
-                // Less smoothing for low frequencies to prevent pitch drift
-                const double clampedFrequency = std::clamp(m_currentFrequency, 30.0, 200.0);
-                adaptiveSmoothingCoeff = juce::jmap(clampedFrequency, 30.0, 200.0, 0.9, 0.99);
-            }
-
-            m_currentFrequency = m_currentFrequency * adaptiveSmoothingCoeff + m_targetFrequency * (1.0 - adaptiveSmoothingCoeff);
-        }
-
-        // Only update oscillator frequency if it has changed significantly
-        // For low frequencies, be even more conservative to maintain phase
-        const double frequencyTolerance = (m_currentFrequency < 100.0) ? 0.5 : 0.1;
-
-        if (std::abs(m_currentFrequency - m_lastSetFrequency) > frequencyTolerance)
-        {
-            m_sineOscillator.setFrequency(static_cast<float>(m_currentFrequency));
-            m_lastSetFrequency = m_currentFrequency;
-        }
-    }
-    // Keep the oscillator running and fade with envelope when no signal is present.
-
-    // Update envelope only once per block to prevent stepping artifacts
-    // This ensures consistent amplitude throughout the buffer
-    updateEnvelope(currentSignalDetected);
-
-    const float blockEnvelope = static_cast<float>(m_envelopeFollower);
-
-    // If we've fully faded out, stop the oscillator to avoid low-level leakage
-    if (!m_signalPresent && m_envelopeFollower <= c_envelopeSilenceThreshold)
-    {
-        m_currentFrequency = 0.0;
-        m_targetFrequency = 0.0;
-        m_lastSetFrequency = 0.0;
-        m_sineOscillator.reset();
-    }
-
-    // Generate sine wave with consistent envelope for this block
-    for (int i = 0; i < numSamples; ++i)
-    {
-        // Always generate sine wave to maintain phase continuity
-        float filtered = 0.0f;
-
-        if (m_currentFrequency > c_minSignalFrequency)  // Only if we have a valid frequency
-        {
-            // Generate band-limited sine wave using JUCE's oscillator
-            // The oscillator expects a zero input for pure sine generation
-            float sineSample = m_sineOscillator.processSample(0.0f);
-
-            // Ensure the sine wave is properly scaled with more headroom
-            sineSample *= c_sineHeadroom; // More headroom to prevent clipping
-
-            // Apply DC blocker first to prevent any DC offset issues
-            const float dcCorrected = m_dcBlockingFilter.processSample(sineSample);
-
-            // Apply tone filter after DC blocking
-            if ((m_filterUpdateCounter++ % c_filterUpdateInterval) == 0)
-                m_toneFilter.setCutoffFrequency(m_toneSmoothed.getNextValue());
-
-            const float toneFiltered = m_toneFilter.processSample(0, dcCorrected);
-
-            // THIS WAS PRODUCING A DISCONTINUITY IN THE SIGNAL WHEN DOING BIG JUMPS IN PITCH
-            // For low frequencies, apply additional smoothing last
-            //filtered = (m_currentFrequency < c_lowFreqSmoothingHz) ? m_lowFreqSmoothingFilter.processSample(0, toneFiltered) : toneFiltered;
-            filtered = toneFiltered;
-        }
-        else
-        {
-            // No valid frequency - output silence and keep filters in sync
-            filtered = m_toneFilter.processSample(0, 0.0f);
-        }
-
-        // Store clean sine AFTER tone filter for better phase alignment
-        m_cleanSineBuffer[static_cast<size_t>(i)] = filtered;
-
-        // Only copy to m_sineBuffer if we're actually going to distort
-        // This prevents any artifacts when distortion is disabled
-        m_sineBuffer[static_cast<size_t>(i)] = (m_distortionSmoothed.getCurrentValue() > 0.01f) ? filtered : 0.0f;
-    }
-
-    // If there's no signal present, let the envelope fade out smoothly.
-
-    // Process without oversampling
-
-    for (int i = 0; i < numSamples; ++i)
-    {
-        float sample = m_sineBuffer[static_cast<size_t>(i)];
-
-        // Pre-distortion filtering
-        sample = m_preDistortionFilter.processSample(sample);
-
-        // Apply distortion
-        sample = applyDistortion(sample, m_distortionSmoothed.getNextValue(), distortionType);
-
-        // Post-drive lowpass
-        if ((m_filterUpdateCounter++ % c_filterUpdateInterval) == 0)
-            m_postDriveLowpassFilter.setCutoffFrequency(m_postDriveLowpassSmoothed.getNextValue());
-
-        sample = m_postDriveLowpassFilter.processSample(0, sample);
-
-        // Anti-aliasing filters (light filtering at native rate)
-        sample = m_antiAliasingFilter1.processSample(sample);
-        sample = m_antiAliasingFilter2.processSample(sample);
-
-        m_sineBuffer[static_cast<size_t>(i)] = sample;
-    }
-
-    // Data flow: clean sine -> optional distortion -> harmonic extraction -> mix -> output.
-    // Mix original sine and distorted signals with bounds checking
-    for (int i = 0; i < numSamples; ++i)
-    {
-        const size_t idx = static_cast<size_t>(i);
-
-        // Bounds check
-        if (idx >= m_cleanSineBuffer.size() || idx >= m_sineBuffer.size())
-        {
-            outputBuffer[i] = 0.0f;
-            continue;
-        }
-
-        // Get the original clean sine wave
-        float sine = m_cleanSineBuffer[idx];
-
-        // Get the distorted signal
-        float distorted = m_sineBuffer[idx]; // Now contains the processed signal
-
-        // Clamp values to prevent extreme outputs
-        sine = std::max(-1.0f, std::min(1.0f, sine));
-        distorted = std::max(-1.0f, std::min(1.0f, distorted));
-
-        // Apply the consistent block envelope
-        float envelopedSine = sine * blockEnvelope;
-        float envelopedDistorted = distorted * blockEnvelope;
-
-        // When distortion is minimal, output the clean sine wave
-        // When distortion is high, extract the harmonic content
-        float output;
-
-        if (m_distortionSmoothed.getCurrentValue() < 0.01f)
-        {
-            // No distortion - output clean subharmonic sine wave
-            output = envelopedSine;
-
-            // Keep filters in sync
-            m_highpassFilter.processSample(0, 0.0f);
-            m_postSubtractionFilter.processSample(0, 0.0f);
-
-            if (idx < m_harmonicResidualBuffer.size())
-            {
-                m_harmonicResidualBuffer[idx] = 0.0f;
-            }
-        }
-        else
-        {
-            // Harmonic extraction for distorted signals
-            // Subtract clean from distorted to isolate harmonics
-            const float harmonics = envelopedDistorted - envelopedSine;
-
-            // Apply high-pass filter to remove DC
-            const float highPassed = m_highpassFilter.processSample(0, harmonics);
-
-            // Apply post-subtraction lowpass to smooth any harsh artifacts
-            const float smoothedHarmonics = m_postSubtractionFilter.processSample(0, highPassed);
-
-            // Store harmonic residual for visualization
-            if (idx < m_harmonicResidualBuffer.size())
-            {
-                m_harmonicResidualBuffer[idx] = smoothedHarmonics;
-            }
-
-            // Mix between clean sine and extracted harmonics based on distortion amount
-            const float harmonicMix = std::min(1.0f, m_distortionSmoothed.getCurrentValue() * 2.0f); // Scale up for more audible effect
-            output = (envelopedSine * (1.0f - harmonicMix) + smoothedHarmonics * harmonicMix);
-        }
-
-        // Final output clamping
-        outputBuffer[i] = std::max(-1.0f, std::min(1.0f, output));
-    }
-
-    // Apply release gain when signal is lost to fade to silence smoothly.
-    if (m_signalPresent)
-    {
-        m_releaseGain = 1.0;
-    }
-    else
-    {
-        const double releaseMultiplier = 1.0 - m_releaseCoeff;
-
-        for (int i = 0; i < numSamples; ++i)
-        {
-            outputBuffer[i] *= static_cast<float>(m_releaseGain);
-            m_releaseGain *= releaseMultiplier;
-        }
-
-        if (m_releaseGain <= c_envelopeSilenceThreshold)
-        {
-            m_releaseGain = 0.0;
-            m_envelopeFollower = 0.0;
-            m_envelopeTarget = 0.0;
-            m_currentFrequency = 0.0;
-            m_targetFrequency = 0.0;
-            m_lastSetFrequency = 0.0;
-
-            m_sineOscillator.reset();
-        }
+        constexpr float maxK = 1.41421356f;
+        constexpr float minK = 0.05f;
+        return maxK * std::pow(minK / maxK, std::clamp(resonance, 0.0f, 1.0f));
     }
 }
 
-float SubharmonicEngine::applyDistortion(float sample, float amount, int type)
+//==============================================================================
+void SubharmonicEngine::Biquad::setLowpass(double fs, double fc, double q)
 {
-    if (amount < 0.001f)
-        return sample;
+    const double w0 = c_twoPi * fc / fs;
+    const double cosw = std::cos(w0);
+    const double alpha = std::sin(w0) / (2.0 * q);
+    const double a0 = 1.0 + alpha;
 
-    // More gentle pre-gain for analogue-style saturation
-    const float drive = 1.0f + amount * 1.5f;  // Less aggressive drive
+    b0 = static_cast<float>(((1.0 - cosw) * 0.5) / a0);
+    b1 = static_cast<float>((1.0 - cosw) / a0);
+    b2 = b0;
+    a1 = static_cast<float>((-2.0 * cosw) / a0);
+    a2 = static_cast<float>((1.0 - alpha) / a0);
+}
 
+void SubharmonicEngine::SvfLowpass::setCutoff(float fc, float fs)
+{
+    fc = std::clamp(fc, 10.0f, fs * 0.45f);
+    g = std::tan(c_pi * fc / fs);
+}
+
+//==============================================================================
+void SubharmonicEngine::prepare(double sampleRate)
+{
+    m_sampleRate = sampleRate > 0.0 ? sampleRate : 44100.0;
+    m_fs = static_cast<float>(m_sampleRate);
+
+    m_detector.prepare(m_sampleRate);
+
+    m_levelCoeff   = onePoleCoeff(c_levelTimeSeconds, m_sampleRate);
+    m_bandEnvCoeff = static_cast<float>(1.0 - std::exp(-c_twoPi * c_bandEnvelopeHz / m_sampleRate));
+    m_gateAttack   = onePoleCoeff(c_gateAttackSeconds, m_sampleRate);
+    m_gateRelease  = onePoleCoeff(c_gateReleaseSeconds, m_sampleRate);
+    m_glideCoeff   = onePoleCoeff(c_glideSeconds, m_sampleRate);
+    m_paramCoeff   = onePoleCoeff(c_paramSeconds, m_sampleRate);
+    m_typeFadeStep = static_cast<float>(1.0 / (c_typeFadeSeconds * m_sampleRate));
+    m_filterEnvAttack = onePoleCoeff(c_filterEnvAttackSecs, m_sampleRate);
+    m_lastReleaseMs = -1.0f; // force recompute
+
+    reset();
+}
+
+void SubharmonicEngine::reset()
+{
+    m_detector.reset();
+    m_detector.setMaxFrequency(m_target.maxFundamentalHz);
+
+    m_bandCutoff = 0.0f;
+    updateDetectionBand(m_target.maxFundamentalHz);
+    m_bandLp1.reset();
+    m_bandLp2.reset();
+
+    m_inputMeanSquare = 0.0f;
+    m_inputRms = 0.0f;
+    m_levelOpen = false;
+    m_bandEnv1 = m_bandEnv2 = 0.0f;
+
+    m_fundamental = 0.0f;
+    m_gate = 0.0f;
+    m_gateTarget = 0.0f;
+    m_unvoicedHops = 0;
+
+    m_phase = 0.0;
+    m_logFreq = m_logFreqTarget = std::log(50.0f);
+
+    m_distortion = m_target.distortion;
+    m_toneHz = m_target.toneHz;
+    m_postLowpassHz = m_target.postLowpassHz;
+
+    m_type = m_previousType = m_target.saturationType;
+    m_typeFade = 1.0f;
+    m_shaper = m_previousShaper = computeShaper(1.0f + m_distortion * (c_maxDrive - 1.0f), m_type);
+    m_shaperCounter = 0;
+
+    m_harmonicFilter.reset();
+    m_postFilter.reset();
+    m_postFilter.setCutoff(m_postLowpassHz, m_fs);
+
+    m_resonance = m_target.resonance;
+    m_envAmount = m_target.envAmountOctaves;
+    m_filterEnv = 0.0f;
+    for (int m = 0; m < 3; ++m)
+        m_modeWeights[m] = (m == m_target.filterMode) ? 1.0f : 0.0f;
+}
+
+void SubharmonicEngine::setParameters(const Parameters& p)
+{
+    m_target = p;
+    m_target.distortion = std::clamp(p.distortion, 0.0f, 1.0f);
+    m_target.saturationType = std::clamp(p.saturationType, 0, NumSaturationTypes - 1);
+    m_target.resonance = std::clamp(p.resonance, 0.0f, 1.0f);
+    m_target.filterMode = std::clamp(p.filterMode, 0, 2);
+    m_target.envAmountOctaves = std::clamp(p.envAmountOctaves, -6.0f, 6.0f);
+    m_target.envReleaseMs = std::clamp(p.envReleaseMs, 1.0f, 5000.0f);
+
+    if (m_target.saturationType != m_type)
+    {
+        // Start a crossfade from whatever we are currently producing.
+        m_previousType = m_type;
+        m_previousShaper = m_shaper;
+        m_type = m_target.saturationType;
+        m_shaper = computeShaper(m_shaper.drive, m_type);
+        m_typeFade = 0.0f;
+    }
+
+    m_detector.setMaxFrequency(m_target.maxFundamentalHz);
+    updateDetectionBand(m_target.maxFundamentalHz);
+}
+
+void SubharmonicEngine::updateDetectionBand(float maxFundamentalHz)
+{
+    // Lowpass a little above the highest fundamental we care about, which also
+    // serves as the anti-alias filter for the detector's internal decimation.
+    const float decimatedNyquist = m_fs / std::max(1.0f, std::round(m_fs / 11025.0f)) * 0.5f;
+    const float fc = std::clamp(maxFundamentalHz * 1.25f, 60.0f, decimatedNyquist * 0.8f);
+
+    if (std::abs(fc - m_bandCutoff) < 0.5f)
+        return;
+
+    m_bandCutoff = fc;
+    // 4th-order Butterworth as two biquads.
+    m_bandLp1.setLowpass(m_sampleRate, fc, 0.5411961);
+    m_bandLp2.setLowpass(m_sampleRate, fc, 1.3065630);
+}
+
+//==============================================================================
+// Every curve has shape(0) == 0 and unit slope at 0. Because the input is
+// always a pure sine, each curve is effectively a harmonic recipe:
+//   odd harmonics of the sub land at 1.5x, 2.5x... the input note (fifths/thirds)
+//   even harmonics land at 1x, 2x... the input note (reinforce its own series)
+float SubharmonicEngine::shape(float x, int type, float drive)
+{
     switch (type)
     {
-        case SoftClip:  // Renamed to "Tape Saturation" in UI
+        case Valve:
         {
-            // Smooth tanh saturation - classic analogue tape emulation
-            const float x = sample * drive;
-            return std::tanh(x);  // Direct tanh without normalization
+            // Bias that scales with drive shifts the clipping point, so the duty
+            // cycle stays asymmetric and the 2nd harmonic survives at any drive.
+            const float bias = 0.2f * drive;
+            return std::tanh(x + bias) - std::tanh(bias);
         }
 
-        case HardClip:  // Renamed to "Valve Warmth" in UI
+        case Console:
         {
-            // Valve/tube-style saturation with 2nd and 3rd harmonics
-            const float x = sample * drive;
-
-            // Asymmetric tube curve for even harmonics
-            if (x > 0)
-            {
-                const float out = 1.5f * x - 0.5f * x * x * x;
-                return std::clamp(out, -1.0f, 1.0f);  // Clamp instead of normalize
-            }
-            else
-            {
-                // Slightly different curve for negative side (tube asymmetry)
-                const float out = 1.4f * x - 0.6f * x * x * x;
-                return std::clamp(out, -1.0f, 1.0f);
-            }
+            // Hard knee: 5th-order polynomial soft clip, flat (C1) at |x| = 1.25.
+            // Flatter top than tanh, so brighter upper odd harmonics.
+            constexpr float k = 1.25f;
+            if (x >= k)  return 1.0f;
+            if (x <= -k) return -1.0f;
+            const float u = x / k;
+            const float u2 = u * u;
+            // p(u) = u - 2/3 u^3 + 1/5 u^5, p'(u) = (1 - u^2)^2, normalised by p(1) = 8/15.
+            return (u - (2.0f / 3.0f) * u * u2 + 0.2f * u * u2 * u2) * (15.0f / 8.0f);
         }
 
-        case Tube:  // Renamed to "Console Drive" in UI
+        case Transformer:
         {
-            // Console preamp-style saturation
-            const float x = sample * drive;
-
-            // Soft knee compression curve
-            const float threshold = 0.7f;
-
-            if (std::abs(x) <= threshold)
-            {
-                return x;
-            }
-            else
-            {
-                const float sign = x > 0 ? 1.0f : -1.0f;
-                const float excess = std::abs(x) - threshold;
-
-                // Smooth logarithmic curve above threshold
-                return sign * (threshold + std::log1p(excess) * 0.5f);
-            }
+            // Soft atan knee with a small drive-scaled bias: mostly odd, a little 2nd.
+            const float bias = 0.07f * drive;
+            const auto curve = [](float v) { return (2.0f / c_pi) * std::atan(v * c_pi * 0.5f); };
+            return curve(x + bias) - curve(bias);
         }
 
-        case Foldback:  // Renamed to "Transformer" in UI
+        case Rectifier:
         {
-            // Transformer-style saturation with gentle S-curve
-            const float x = sample * drive * 0.7f;  // Reduced gain for gentler effect
-
-            // Classic S-curve using arctangent
-            return (2.0f / juce::MathConstants<float>::pi) * std::atan(x * juce::MathConstants<float>::pi / 2.0f);
+            // Smoothed full-wave rectifier: even harmonics only, so every partial
+            // sits on the input note's own harmonic series. The corner radius is
+            // fixed in absolute terms, so as drive scales x up the corner gets
+            // relatively sharper: near-pure 2nd at low drive, full |sin| at high.
+            constexpr float radius = 0.5f;
+            return std::sqrt(x * x + radius * radius) - radius;
         }
 
+        case Wavefolder:
+        {
+            // Sine folder: partials sweep upward as drive rises. Odd only.
+            return std::sin(x * c_pi * 0.5f);
+        }
+
+        case Tape:
         default:
-            break;
+            return std::tanh(x);
+    }
+}
+
+SubharmonicEngine::ShaperCoefficients SubharmonicEngine::computeShaper(float drive, int type)
+{
+    constexpr size_t n = 128;
+    std::array<double, n> sine {}, shaped {};
+
+    ShaperCoefficients c;
+    c.drive = drive;
+
+    // One cycle of shape(drive * sin). Peak is measured, not assumed at +/-drive,
+    // because curves need not be monotonic (e.g. the folder).
+    double peak = 0.0;
+
+    for (size_t i = 0; i < n; ++i)
+    {
+        sine[i] = std::sin(c_twoPi * (static_cast<double>(i) + 0.5) / static_cast<double>(n));
+        shaped[i] = shape(static_cast<float>(drive * sine[i]), type, drive);
+        peak = std::max(peak, std::abs(shaped[i]));
     }
 
-    return sample;
+    c.norm = peak > 1.0e-6 ? static_cast<float>(peak) : 1.0f;
+
+    // Fourier DC and fundamental of the normalised curve.
+    double dc = 0.0, fund = 0.0;
+
+    for (size_t i = 0; i < n; ++i)
+    {
+        dc += shaped[i] / c.norm;
+        fund += shaped[i] / c.norm * sine[i];
+    }
+
+    c.dc = static_cast<float>(dc / static_cast<double>(n));
+    c.fundamental = static_cast<float>(2.0 * fund / static_cast<double>(n));
+
+    // Residual (harmonics only) RMS and peak.
+    double meanSquare = 0.0, residualPeak = 0.0;
+
+    for (size_t i = 0; i < n; ++i)
+    {
+        const double r = shaped[i] / c.norm - c.dc - c.fundamental * sine[i];
+        meanSquare += r * r;
+        residualPeak = std::max(residualPeak, std::abs(r));
+    }
+
+    meanSquare /= static_cast<double>(n);
+
+    // Match the clean sine's RMS so the Distortion knob is a constant-loudness
+    // crossfade, but cap the peak so spiky curves (rectifier) cannot jump out.
+    if (meanSquare > 1.0e-10)
+    {
+        const double rmsGain  = std::sqrt(0.5 / meanSquare);
+        const double peakGain = c_maxResidualPeak / residualPeak;
+        c.harmonicGain = static_cast<float>(std::min({ rmsGain, peakGain, 8.0 }));
+    }
+    else
+    {
+        c.harmonicGain = 0.0f;
+    }
+
+    return c;
+}
+
+float SubharmonicEngine::harmonicResidual(float s, const ShaperCoefficients& c, int type) const
+{
+    return c.harmonicGain * (shape(c.drive * s, type, c.drive) / c.norm - c.dc - c.fundamental * s);
+}
+
+//==============================================================================
+void SubharmonicEngine::onPitchEstimate()
+{
+    const float f0 = m_detector.getFrequency();
+    const bool voiced = m_levelOpen
+                     && f0 >= PitchDetector::c_minFrequency
+                     && f0 <= m_target.maxFundamentalHz * 1.1f;
+
+    if (voiced)
+    {
+        m_unvoicedHops = 0;
+        m_fundamental = f0;
+        m_logFreqTarget = std::log(f0 * 0.5f);
+
+        // At note onset (gate closed) jump straight to the new pitch instead of
+        // gliding from wherever the last note was.
+        if (m_gate < 0.02f)
+            m_logFreq = m_logFreqTarget;
+
+        m_gateTarget = 1.0f;
+    }
+    else if (!m_levelOpen || ++m_unvoicedHops >= c_unvoicedHopsToClose)
+    {
+        m_gateTarget = 0.0f;
+        m_fundamental = 0.0f;
+    }
+}
+
+void SubharmonicEngine::process(const float* in, float* out, float* residual, int numSamples)
+{
+    const float openMs  = std::pow(10.0f, m_target.thresholdDb / 10.0f);
+    const float closeMs = std::pow(10.0f, (m_target.thresholdDb - c_gateHysteresisDb) / 10.0f);
+
+    const float distortionTarget = m_target.distortion;
+    const float toneTarget = m_target.toneHz;
+    const float postTarget = m_target.postLowpassHz;
+    const float resonanceTarget = m_target.resonance;
+    const float envAmountTarget = m_target.envAmountOctaves;
+    const float thresholdDb = std::min(-1.0f, m_target.thresholdDb);
+
+    if (std::abs(m_target.envReleaseMs - m_lastReleaseMs) > 1.0e-3f)
+    {
+        m_lastReleaseMs = m_target.envReleaseMs;
+        m_filterEnvRelease = onePoleCoeff(m_lastReleaseMs * 0.001, m_sampleRate);
+    }
+
+    float filterK = resonanceK(m_resonance);
+
+    for (int i = 0; i < numSamples; ++i)
+    {
+        const float x = in[i];
+
+        // --- Input level gate (full band) --------------------------------------
+        m_inputMeanSquare += m_levelCoeff * (x * x - m_inputMeanSquare);
+
+        if (m_levelOpen)
+            m_levelOpen = m_inputMeanSquare >= closeMs;
+        else
+            m_levelOpen = m_inputMeanSquare >= openMs;
+
+        // --- Detection band: amplitude follower + pitch ------------------------
+        const float band = m_bandLp2.process(m_bandLp1.process(x));
+
+        m_bandEnv1 += m_bandEnvCoeff * (band * band - m_bandEnv1);
+        m_bandEnv2 += m_bandEnvCoeff * (m_bandEnv1 - m_bandEnv2);
+
+        if (m_detector.pushSample(band))
+            onPitchEstimate();
+
+        // --- Parameter smoothing ------------------------------------------------
+        m_distortion    += m_paramCoeff * (distortionTarget - m_distortion);
+        m_toneHz        += m_paramCoeff * (toneTarget - m_toneHz);
+        m_postLowpassHz += m_paramCoeff * (postTarget - m_postLowpassHz);
+        m_resonance     += m_paramCoeff * (resonanceTarget - m_resonance);
+        m_envAmount     += m_paramCoeff * (envAmountTarget - m_envAmount);
+
+        for (int m = 0; m < 3; ++m)
+            m_modeWeights[m] += m_paramCoeff * ((m == m_target.filterMode ? 1.0f : 0.0f) - m_modeWeights[m]);
+
+        if ((m_shaperCounter % c_filterUpdateInterval) == 0)
+        {
+            m_postFilter.setCutoff(m_postLowpassHz, m_fs);
+            filterK = resonanceK(m_resonance);
+        }
+
+        if ((m_shaperCounter % c_shaperUpdateInterval) == 0)
+        {
+            const float drive = 1.0f + m_distortion * (c_maxDrive - 1.0f);
+            m_shaper = computeShaper(drive, m_type);
+
+            if (m_typeFade < 1.0f)
+                m_previousShaper = computeShaper(drive, m_previousType);
+        }
+
+        if (++m_shaperCounter >= c_shaperUpdateInterval * c_filterUpdateInterval)
+            m_shaperCounter = 0;
+
+        // --- Voicing gate and pitch glide ---------------------------------------
+        m_gate += (m_gateTarget > m_gate ? m_gateAttack : m_gateRelease) * (m_gateTarget - m_gate);
+        m_logFreq += m_glideCoeff * (m_logFreqTarget - m_logFreq);
+
+        // --- Oscillator ------------------------------------------------------------
+        const double freq = std::exp(static_cast<double>(m_logFreq));
+        m_phase += freq / m_sampleRate;
+        m_phase -= std::floor(m_phase);
+
+        const float s = static_cast<float>(std::sin(c_twoPi * m_phase));
+
+        // --- Harmonic residual ---------------------------------------------------
+        float harm = harmonicResidual(s, m_shaper, m_type);
+
+        if (m_typeFade < 1.0f)
+        {
+            const float prev = harmonicResidual(s, m_previousShaper, m_previousType);
+            harm = prev + m_typeFade * (harm - prev);
+            m_typeFade = std::min(1.0f, m_typeFade + m_typeFadeStep);
+        }
+
+        const float amplitude = std::min(4.0f, std::sqrt(2.0f * std::max(0.0f, m_bandEnv2)));
+        const float level = amplitude * m_gate;
+
+        // --- Envelope follower: sub level mapped threshold..0 dBFS -> 0..1 ---------
+        const float levelDb = 20.0f * std::log10(level + 1.0e-9f);
+        const float envIn = std::clamp((levelDb - thresholdDb) / -thresholdDb, 0.0f, 1.0f);
+        m_filterEnv += (envIn > m_filterEnv ? m_filterEnvAttack : m_filterEnvRelease) * (envIn - m_filterEnv);
+
+        // --- Resonant multimode filter on the harmonics ---------------------------------
+        const float cutoff = std::clamp(m_toneHz * std::exp2(m_envAmount * m_filterEnv), 20.0f, m_fs * 0.45f);
+        const float g = std::tan(c_pi * cutoff / m_fs);
+        const auto f = m_harmonicFilter.process(harm, g, filterK);
+
+        float harmFiltered = m_modeWeights[0] * f.lp
+                           + m_modeWeights[1] * f.bp * filterK   // unity-gain bandpass
+                           + m_modeWeights[2] * (f.lp + f.hp);   // notch
+
+        // Resonance drive: the resonant peak is pushed into a soft clipper, from
+        // pronounced overtones at low settings to full overdrive at maximum.
+        const float resDrive = 1.0f + (c_maxResonanceDrive - 1.0f) * m_resonance;
+        const float driven = std::tanh(harmFiltered * resDrive) / std::tanh(resDrive);
+        harmFiltered += std::min(1.0f, m_resonance * 3.0f) * (driven - harmFiltered);
+
+        // --- Output ----------------------------------------------------------------
+
+        // Equal-power crossfade: sine and harmonics are uncorrelated.
+        const float cleanWeight = std::cos(m_distortion * c_pi * 0.5f);
+        const float harmWeight  = std::sin(m_distortion * c_pi * 0.5f);
+        const float wet = level * (cleanWeight * s + harmWeight * harmFiltered);
+
+        out[i] = m_postFilter.process(wet);
+
+        if (residual != nullptr)
+            residual[i] = level * harmFiltered;
+    }
+
+    m_inputRms = std::sqrt(std::max(0.0f, m_inputMeanSquare));
+
+    // Flush tiny filter states (belt and braces; the host also sets FTZ).
+    if (std::abs(m_bandEnv2) < 1.0e-20f) m_bandEnv1 = m_bandEnv2 = 0.0f;
 }

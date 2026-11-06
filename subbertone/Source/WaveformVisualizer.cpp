@@ -39,67 +39,76 @@ WaveformVisualizer::~WaveformVisualizer()
     m_openGLContext.detach();
 }
 
+void WaveformVisualizer::drawLegendRow(juce::Graphics& g, int centreY, const juce::String& name, juce::Colour colour, bool on)
+{
+    const auto chip = juce::Rectangle<float>(14.0f, static_cast<float>(centreY) - 9.0f, 112.0f, 18.0f);
+    const float alpha = on ? 1.0f : 0.35f;
+
+    g.setColour(Theme::Colours::scope.withAlpha(0.65f));
+    g.fillRoundedRectangle(chip, 9.0f);
+
+    g.setColour(colour.withAlpha(alpha));
+    g.fillEllipse(juce::Rectangle<float>(7.0f, 7.0f).withCentre({ chip.getX() + 11.0f, chip.getCentreY() }));
+
+    g.setFont(m_fonts->label(10.5f));
+    g.setColour(Theme::Colours::text.withAlpha(on ? 0.9f : 0.35f));
+    g.drawText(name, chip.withTrimmedLeft(22.0f), juce::Justification::centredLeft, false);
+}
+
 void WaveformVisualizer::paint(juce::Graphics& g)
 {
-    // Don't fill the background - let OpenGL handle everything
-    // Only draw text overlay if OpenGL is not active
+    using namespace Theme::Colours;
+
+    const auto bounds = getLocalBounds();
+
     if (!m_openGLContext.isAttached())
     {
         g.fillAll(m_bgColor);
-        g.setColour(juce::Colours::white);
-        g.drawText("OpenGL not initialized", getLocalBounds(), juce::Justification::centred);
-        return;
+        g.setColour(textDim);
+        g.setFont(m_fonts->body(12.0f));
+        g.drawText("OpenGL not available", bounds, juce::Justification::centred);
     }
-    
-    // Draw text overlay on top of OpenGL
-    g.setFont(juce::Font(juce::FontOptions("Courier New", 18.0f, juce::Font::bold)));
-    
-    // Draw INPUT with toggle state
-    g.setColour(m_showInput ? m_inputColor : m_inputColor.withAlpha(0.3f));
-    g.drawText("INPUT" + juce::String(m_showInput ? "" : " (OFF)"), 10, 10, 150, 25, juce::Justification::left);
-    
-    // Draw HARMONIC RESIDUAL with toggle state in the middle
-    g.setColour(m_showHarmonicResidual ? m_harmonicResidualColor : m_harmonicResidualColor.withAlpha(0.3f));
-    g.drawText("HARMONICS" + juce::String(m_showHarmonicResidual ? "" : " (OFF)"), 10, getHeight() / 2 - 12, 150, 25, juce::Justification::left);
-    
-    // Draw OUTPUT with toggle state
-    g.setColour(m_showOutput ? m_outputColor : m_outputColor.withAlpha(0.3f));
-    g.drawText("OUTPUT" + juce::String(m_showOutput ? "" : " (OFF)"), 10, getHeight() - 35, 150, 25, juce::Justification::left);
-    
-    // Add click instruction
-    g.setColour(m_textColor.withAlpha(0.6f));
-    g.setFont(juce::Font(juce::FontOptions("Courier New", 12.0f, juce::Font::plain)));
-    g.drawText("Click top/middle/bottom to toggle waveforms", getWidth() - 280, 10, 275, 20, juce::Justification::right);
-    
-    // Draw fundamental frequency
+
+    // Legend rows double as the click-to-toggle zones (top / middle / bottom thirds).
+    const int third = getHeight() / 3;
+    drawLegendRow(g, third / 2,             "INPUT",     m_inputColor,            m_showInput);
+    drawLegendRow(g, third + third / 2,     "HARMONICS", m_harmonicResidualColor, m_showHarmonicResidual);
+    drawLegendRow(g, 2 * third + third / 2, "SUB OUT",   m_outputColor,           m_showOutput);
+
+    // Readouts, top right
     const float fundamental = m_audioProcessor.getCurrentFundamental();
-    const bool hasSignal = (fundamental > 0.0f);
-    if (hasSignal)
+    auto readout = bounds.reduced(14, 12).removeFromTop(18);
+
+    g.setFont(m_fonts->body(12.5f));
+
+    if (fundamental > 0.0f)
     {
-        const int bottomTextY = getHeight() - 35;
-        g.setColour(m_glowColor);
-        g.setFont(juce::Font(juce::FontOptions("Courier New", 16.0f, juce::Font::bold)));
-        g.drawText("F0: " + juce::String(fundamental, 1) + " Hz", getWidth() - 180, bottomTextY - 25, 170, 25, juce::Justification::right);
-        
-        // Draw subharmonic frequency
+        const auto subText = "SUB " + juce::String(fundamental * 0.5f, 1) + " Hz";
+        const auto f0Text  = "IN " + juce::String(fundamental, 1) + " Hz";
+
         g.setColour(m_outputColor);
-        g.setFont(juce::Font(juce::FontOptions("Courier New", 16.0f, juce::Font::bold)));
-        g.drawText("SUB: " + juce::String(fundamental * 0.5f, 1) + " Hz", getWidth() - 180, bottomTextY, 170, 25, juce::Justification::right);
+        g.drawText(subText, readout.removeFromRight(120), juce::Justification::centredRight, false);
+        g.setColour(m_inputColor);
+        g.drawText(f0Text, readout.removeFromRight(118), juce::Justification::centredRight, false);
     }
     else
     {
-        g.setColour(juce::Colour(0xff808080)); // Brighter gray color
-        g.setFont(juce::Font(juce::FontOptions("Courier New", 16.0f, juce::Font::plain)));
-        g.drawText("NO SIGNAL", getWidth() - 180, getHeight() - 35, 170, 25, juce::Justification::right);
+        g.setColour(textFaint);
+        g.drawText("NO PITCH", readout.removeFromRight(120), juce::Justification::centredRight, false);
     }
 
-    // Draw signal level text near bottom-right (avoid overlap with NO SIGNAL)
-    if (hasSignal)
-    {
-        g.setColour(m_signalAboveThreshold ? m_signalOkColor : m_signalLowColor);
-        g.setFont(juce::Font(juce::FontOptions("Courier New", 14.0f, juce::Font::bold)));
-        g.drawText(m_signalText, getWidth() / 2 - 85, getHeight() - 35, 170, 25, juce::Justification::centred);
-    }
+    // Level, bottom right
+    g.setFont(m_fonts->body(11.5f));
+    g.setColour(m_signalAboveThreshold ? good : textFaint);
+    g.drawText(m_signalText, bounds.reduced(14, 10).removeFromBottom(16), juce::Justification::centredRight, false);
+
+    g.setColour(textFaint.withAlpha(0.7f));
+    g.setFont(m_fonts->label(9.5f));
+    g.drawText("CLICK A ROW TO TOGGLE", bounds.reduced(14, 10).removeFromBottom(16), juce::Justification::centred, false);
+
+    // Frame
+    g.setColour(outlineSoft);
+    g.drawRect(bounds, 1);
 }
 
 void WaveformVisualizer::timerCallback()
@@ -269,10 +278,12 @@ void WaveformVisualizer::renderOpenGL()
                  m_bgColor.getFloatBlue(), m_bgColor.getFloatAlpha());
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
     
+    // Additive blending gives the trails a soft glow where they overlap.
     glEnable(GL_BLEND);
-    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-    glEnable(GL_DEPTH_TEST);
-    glDepthFunc(GL_LEQUAL);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE);
+    glDisable(GL_DEPTH_TEST);
+    glEnable(GL_LINE_SMOOTH);
+    glHint(GL_LINE_SMOOTH_HINT, GL_NICEST);
     
     // Draw perspective grid
     drawPerspectiveGrid();
@@ -286,8 +297,6 @@ void WaveformVisualizer::renderOpenGL()
 
     if (m_showOutput)
         drawWaveform3D(m_outputHistory, m_outputColor, -0.5f, false);
-    
-    glDisable(GL_DEPTH_TEST);
 }
 
 void WaveformVisualizer::openGLContextClosing()
@@ -309,20 +318,24 @@ void WaveformVisualizer::drawPerspectiveGrid()
     glRotatef(m_rotationY * 57.3f, 0.0f, 1.0f, 0.0f);
     glRotatef(10.0f, 0.0f, 0.0f, 1.0f); // Slight tilt for style
     
-    // Draw a simple 3D grid
-    glColor4f(m_gridColor.getFloatRed(), m_gridColor.getFloatGreen(), m_gridColor.getFloatBlue(), 0.5f);
-    
+    // Floor grid that fades into the distance.
+    const float r = m_gridColor.getFloatRed(), gr = m_gridColor.getFloatGreen(), b = m_gridColor.getFloatBlue();
+
+    glLineWidth(1.0f);
     glBegin(GL_LINES);
-    // Grid lines - wider to match full width
     for (int i = -20; i <= 20; ++i)
     {
-        // X direction lines
-        glVertex3f(i * 0.8f, -1.0f, -10.0f);
+        // Lines running into the screen: bright near, faded far.
+        glColor4f(r, gr, b, 0.9f);
         glVertex3f(i * 0.8f, -1.0f, 0.0f);
-        
-        // Z direction lines
-        glVertex3f(-16.0f, -1.0f, i * 0.5f);
-        glVertex3f(16.0f, -1.0f, i * 0.5f);
+        glColor4f(r, gr, b, 0.0f);
+        glVertex3f(i * 0.8f, -1.0f, -10.0f);
+
+        // Cross lines: alpha by depth.
+        const float depth = (i + 20) / 40.0f; // 0 far .. 1 near
+        glColor4f(r, gr, b, 0.9f * depth);
+        glVertex3f(-16.0f, -1.0f, i * 0.25f - 5.0f);
+        glVertex3f(16.0f, -1.0f, i * 0.25f - 5.0f);
     }
     glEnd();
 }
@@ -358,22 +371,35 @@ void WaveformVisualizer::drawWaveform3D(const std::vector<std::vector<float>>& h
         if (waveform.empty() || waveform.size() < 2)
             continue;
         
-        const float intensity = 1.0f - static_cast<float>(h) / c_historySize;
+        const float age = static_cast<float>(h) / c_historySize;
+        const float intensity = (1.0f - age) * (1.0f - age);
         const float zPos = -static_cast<float>(h) * 0.3f;
-        
-        // Set color with fade
-        glColor4f(color.getFloatRed(), color.getFloatGreen(), color.getFloatBlue(), intensity * 0.8f);
-        
-        const float lineWidth = std::max(0.001f, 3.0f - static_cast<float>(h) * 0.1f);
-        glLineWidth(lineWidth);
-        
-        glBegin(GL_LINE_STRIP);
-        for (size_t i = 0; i < waveform.size(); ++i)
+
+        const auto strip = [&]
         {
-            const float x = (i / float(waveform.size() - 1)) * 16.0f - 8.0f; // Full width
-            const float y = waveform[i] * 2.0f + yOffset;
-            glVertex3f(x, y, zPos);
+            glBegin(GL_LINE_STRIP);
+            for (size_t i = 0; i < waveform.size(); ++i)
+            {
+                const float x = (i / float(waveform.size() - 1)) * 16.0f - 8.0f;
+                const float y = waveform[i] * 2.0f + yOffset;
+                glVertex3f(x, y, zPos);
+            }
+            glEnd();
+        };
+
+        if (h == 0)
+        {
+            // Wide, faint halo under the newest trace.
+            glColor4f(color.getFloatRed(), color.getFloatGreen(), color.getFloatBlue(), 0.12f);
+            glLineWidth(9.0f);
+            strip();
+            glColor4f(color.getFloatRed(), color.getFloatGreen(), color.getFloatBlue(), 0.25f);
+            glLineWidth(4.5f);
+            strip();
         }
-    glEnd();
+
+        glColor4f(color.getFloatRed(), color.getFloatGreen(), color.getFloatBlue(), (h == 0 ? 1.0f : 0.45f) * intensity);
+        glLineWidth(h == 0 ? 2.0f : std::max(1.0f, 1.8f - h * 0.05f));
+        strip();
     }
 }

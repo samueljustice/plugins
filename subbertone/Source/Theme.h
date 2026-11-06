@@ -1,0 +1,62 @@
+#pragma once
+
+#include <JuceHeader.h>
+#include "BinaryData.h"
+
+/**
+ * Shared look for Subbertone: one palette and one font family (Azeret Mono,
+ * embedded). Colours are tied to meaning: teal = input/detection,
+ * rose = harmonics/drive, violet = filter, amber = sub/output. Knobs, traces
+ * and labels share these so the UI reads at a glance.
+ */
+namespace Theme
+{
+    namespace Colours
+    {
+        inline const juce::Colour background  { 0xff0d0f14 };
+        inline const juce::Colour panel       { 0xff141720 };
+        inline const juce::Colour panelRaised { 0xff1c202b };
+        inline const juce::Colour outline     { 0xff262b37 };
+        inline const juce::Colour outlineSoft { 0xff1d212b };
+
+        inline const juce::Colour text        { 0xffece9e3 };
+        inline const juce::Colour textDim     { 0xff8d92a0 };
+        inline const juce::Colour textFaint   { 0xff565b68 };
+
+        inline const juce::Colour input       { 0xff5ec8d8 }; // teal
+        inline const juce::Colour harmonics   { 0xffef6f8e }; // rose
+        inline const juce::Colour filter      { 0xffa992ff }; // violet
+        inline const juce::Colour output      { 0xffffb54d }; // amber
+
+        inline const juce::Colour good        { 0xff7fd49b };
+        inline const juce::Colour bad         { 0xffe5686b };
+
+        inline const juce::Colour scope       { 0xff090b0f };
+        inline const juce::Colour grid        { 0xff1e2633 };
+    }
+
+    /** Typefaces loaded once and shared by every editor instance (SharedResourcePointer). */
+    struct Fonts
+    {
+        Fonts()
+            : regular (juce::Typeface::createSystemTypefaceFor(BinaryData::AzeretMonoRegular_ttf, BinaryData::AzeretMonoRegular_ttfSize))
+            , medium  (juce::Typeface::createSystemTypefaceFor(BinaryData::AzeretMonoMedium_ttf,  BinaryData::AzeretMonoMedium_ttfSize))
+            , bold    (juce::Typeface::createSystemTypefaceFor(BinaryData::AzeretMonoBold_ttf,    BinaryData::AzeretMonoBold_ttfSize))
+        {
+        }
+
+        juce::Font make(const juce::Typeface::Ptr& face, float height, float kerning = 0.0f) const
+        {
+            if (face == nullptr)
+                return juce::Font(juce::FontOptions(height));
+
+            return juce::Font(juce::FontOptions(face).withHeight(height)).withExtraKerningFactor(kerning);
+        }
+
+        juce::Font body(float height) const    { return make(regular, height); }
+        juce::Font label(float height) const   { return make(medium, height, 0.08f); }
+        juce::Font heading(float height) const { return make(bold, height, 0.12f); }
+
+        juce::Typeface::Ptr regular, medium, bold;
+    };
+}

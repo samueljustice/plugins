@@ -21,6 +21,9 @@ if(BUILD_TIMESTAMP)
     add_compile_definitions(BUILD_TIMESTAMP="${BUILD_TIMESTAMP}")
 endif()
 
+# Plugin formats; pass -DSUBBERTONE_FORMATS="AU;VST3;Standalone" for a standalone app.
+set(SUBBERTONE_FORMATS "AU;VST3" CACHE STRING "Plugin formats to build")
+
 # Add the JUCE library subdirectory
 add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/../SDK/JUCE ${CMAKE_CURRENT_BINARY_DIR}/SDK/JUCE)
 
@@ -39,7 +42,7 @@ juce_add_plugin(Subbertone
     COPY_PLUGIN_AFTER_BUILD FALSE
     PLUGIN_MANUFACTURER_CODE SJus
     PLUGIN_CODE Subb
-    FORMATS AU VST3
+    FORMATS ${SUBBERTONE_FORMATS}
     PRODUCT_NAME "SammyJs Subbertone"
     MICROPHONE_PERMISSION_ENABLED TRUE
     MICROPHONE_PERMISSION_TEXT "This plugin needs access to your microphone to process real-time audio input"
@@ -88,4 +91,7 @@ target_link_libraries(Subbertone
 juce_add_binary_data(SubbertoneBinaryData
     SOURCES
     LICENSE
+    Resources/Fonts/AzeretMono-Regular.ttf
+    Resources/Fonts/AzeretMono-Medium.ttf
+    Resources/Fonts/AzeretMono-Bold.ttf
 )

@@ -31,3 +31,4 @@ SDK/
 *.vst
 *.au
 *.aaxplugin
+build-*/

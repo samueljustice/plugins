@@ -6,6 +6,8 @@
 #include "PitchDetector.h"
 
 #include <array>
+#include <atomic>
+#include <vector>
 
 class SubbertoneAudioProcessor : public juce::AudioProcessor
 {
@@ -13,7 +15,7 @@ class SubbertoneAudioProcessor : public juce::AudioProcessor
 
 public:
     SubbertoneAudioProcessor();
-    ~SubbertoneAudioProcessor() = default;
+    ~SubbertoneAudioProcessor() override = default;
 
     juce::AudioProcessorEditor* createEditor() override;
     bool hasEditor() const override;
@@ -55,49 +57,45 @@ public:
     juce::AudioProcessorValueTreeState m_parameters;
 
 private:
-    struct ParameterCache
-    {
-        float m_mix = 0.5f;
-        float m_distortion = 0.5f;
-        int m_distortionType = 0;
-        float m_distortionTone = 1000.0f;
-        float m_postDriveLowpass = 20000.0f;
-        float m_outputGain = 1.0f;
-        float m_pitchThreshold = -40.0f;
-        float m_fundamentalLimit = 250.0f;
-    };
-
     juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
 
-    void updateParameterCache();
-    void updateVisualizerBuffers(juce::AudioBuffer<float>& buffer);
-
-    PitchDetector m_pitchDetector;
-    std::vector<float> m_subharmonicBuffer;
+    SubharmonicEngine::Parameters readEngineParameters() const;
+    void pushVisualSamples(const float* input, const float* output, const float* residual, int numSamples);
+    void copyVisualRing(const std::vector<float>& ring, std::vector<float>& dest) const;
 
     SubharmonicEngine m_subharmonicEngine;
-    std::vector<float> m_pitchDetectBuffer;
-    
-    // Circular buffers for visualization
-    static constexpr int c_visualBufferSize = 2048;
-    static constexpr int c_maxProcessBlockSize = 8192;
 
-    int m_currentMaxProcessBlockSize = c_maxProcessBlockSize;
+    // Scratch buffers, sized in prepareToPlay. Blocks larger than this are processed in chunks.
+    static constexpr int c_chunkSize = 512;
+    std::vector<float> m_monoBuffer;
+    std::vector<float> m_wetBuffer;
+    std::vector<float> m_residualBuffer;
 
-    // Double buffering for visualization
-    std::array<std::vector<float>, 2> m_inputVisualBuffer;
-    std::array<std::vector<float>, 2> m_outputVisualBuffer;
-    std::array<std::vector<float>, 2> m_harmonicResidualVisualBuffer;
-    std::array<std::atomic<int>, 2> m_visualBufferWritePos{ 0, 0 };
+    // Raw parameter pointers (looked up once)
+    std::atomic<float>* m_mixParam = nullptr;
+    std::atomic<float>* m_distortionParam = nullptr;
+    std::atomic<float>* m_distortionTypeParam = nullptr;
+    std::atomic<float>* m_toneParam = nullptr;
+    std::atomic<float>* m_postDriveLowpassParam = nullptr;
+    std::atomic<float>* m_outputGainParam = nullptr;
+    std::atomic<float>* m_pitchThresholdParam = nullptr;
+    std::atomic<float>* m_fundamentalLimitParam = nullptr;
+    std::atomic<float>* m_filterResonanceParam = nullptr;
+    std::atomic<float>* m_filterModeParam = nullptr;
+    std::atomic<float>* m_filterEnvAmountParam = nullptr;
+    std::atomic<float>* m_filterEnvReleaseParam = nullptr;
 
-    std::atomic<int> m_visualReadIndex{ 0 };
-    std::atomic<float> m_currentFundamental{ 0.0f };
-    std::atomic<float> m_currentSignalLevelDb{ -100.0f };
-    
-    ParameterCache m_parameterCache;
     juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> m_mixSmoothed;
-    juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> m_distortionSmoothed;
-    juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> m_toneSmoothed;
-    juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> m_postDriveLowpassSmoothed;
-    juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> m_outputGainSmoothed;
+    juce::SmoothedValue<float, juce::ValueSmoothingTypes::Multiplicative> m_outputGainSmoothed;
+
+    // Visualisation: single-writer ring buffers. The reader may see a torn frame,
+    // which is harmless for a display and keeps the audio thread lock-free.
+    static constexpr int c_visualBufferSize = 2048;
+    std::vector<float> m_inputVisualBuffer;
+    std::vector<float> m_outputVisualBuffer;
+    std::vector<float> m_harmonicResidualVisualBuffer;
+    std::atomic<int> m_visualWritePos{ 0 };
+
+    std::atomic<float> m_currentFundamental{ 0.0f };
+    std::atomic<float> m_currentSignalLevelDb{ 0.0f }; // linear RMS despite the name (editor converts)
 };
