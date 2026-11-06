@@ -4,6 +4,8 @@ A VST3/AU subharmonic generator. Subbertone tracks the pitch of your bass, synth
 
 ### 🎉 Latest Release v1.1.0 - [Download Here](https://github.com/samueljustice/plugins/releases/tag/subbertone-v1.1.0)
 
+https://github.com/user-attachments/assets/fccdc149-fdf8-4f65-bdc2-e9ddc40fdcec
+
 ![Subbertone](docs/screenshot.jpg)
 
 ## Features
