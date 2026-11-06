@@ -14,7 +14,7 @@ jobs:
     runs-on: windows-latest
     
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v5
       with:
         submodules: recursive
     
@@ -30,7 +30,7 @@ jobs:
         git checkout 8.0.8
     
     - name: Setup Python and Meson
-      uses: actions/setup-python@v4
+      uses: actions/setup-python@v6
       with:
         python-version: '3.x'
     
@@ -38,7 +38,7 @@ jobs:
       run: pip install meson ninja
     
     - name: Setup MSVC
-      uses: microsoft/setup-msbuild@v1
+      uses: microsoft/setup-msbuild@v3
     
     - name: Download and Build Rubberband
       shell: cmd
@@ -171,13 +171,13 @@ jobs:
         }
     
     - name: Upload Windows Installer
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v6
       with:
         name: windows-installer
         path: pitchflattener/SammyJs_Pitch_Flattener_Installer.exe
     
     - name: Upload Windows VST3
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v6
       with:
         name: windows-vst3
         path: pitchflattener/windows-vst3-package/
@@ -186,7 +186,7 @@ jobs:
     runs-on: macos-15
     
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v5
       with:
         submodules: recursive
     
@@ -257,7 +257,7 @@ jobs:
     
     - name: Import Certificates
       if: steps.check_certs.outputs.has_certs == 'true'
-      uses: apple-actions/import-codesign-certs@v2
+      uses: apple-actions/import-codesign-certs@v6
       with:
         p12-file-base64: ${{ secrets.APPLE_DEVELOPER_CERTIFICATE_P12_BASE64 }}
         p12-password: ${{ secrets.APPLE_DEVELOPER_CERTIFICATE_PASSWORD }}
@@ -574,19 +574,19 @@ jobs:
         xcrun stapler staple "SammyJs_Pitch_Flattener_Installer.pkg"
     
     - name: Upload macOS Installer
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v6
       with:
         name: macos-installer
         path: pitchflattener/SammyJs_Pitch_Flattener_Installer.pkg
     
     - name: Upload macOS VST3
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v6
       with:
         name: macos-vst3
         path: pitchflattener/build/PitchFlattener_artefacts/Release/VST3/*.vst3
     
     - name: Upload macOS AU
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v6
       with:
         name: macos-au
         path: pitchflattener/build/PitchFlattener_artefacts/Release/AU/*.component
@@ -598,7 +598,7 @@ jobs:
     
     steps:
     - name: Download all artifacts
-      uses: actions/download-artifact@v4
+      uses: actions/download-artifact@v7
     
     - name: Create ZIP files
       run: |
@@ -612,7 +612,7 @@ jobs:
         cd ..
     
     - name: Create Release
-      uses: softprops/action-gh-release@v1
+      uses: softprops/action-gh-release@v3
       with:
         files: |
           PitchFlattener-Windows-VST3.zip

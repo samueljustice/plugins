@@ -14,7 +14,7 @@ jobs:
     runs-on: macos-15
     
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v5
       with:
         submodules: recursive
     
@@ -94,7 +94,7 @@ jobs:
     
     - name: Import Code Signing Certificates
       if: steps.check_certs.outputs.has_certs == 'true'
-      uses: apple-actions/import-codesign-certs@v2
+      uses: apple-actions/import-codesign-certs@v6
       with:
         p12-file-base64: ${{ secrets.APPLE_DEVELOPER_CERTIFICATE_P12_BASE64 }}
         p12-password: ${{ secrets.APPLE_DEVELOPER_CERTIFICATE_PASSWORD }}
@@ -241,19 +241,19 @@ jobs:
         zip -r ../PTSL_Beat_Tool_CLI.zip cli_package
     
     - name: Upload DMG
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v6
       with:
         name: macos-dmg
         path: PTSL_beattool/PTSL_Beat_Tool.dmg
     
     - name: Upload App ZIP
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v6
       with:
         name: macos-app
         path: PTSL_Beat_Tool_App.zip
     
     - name: Upload CLI Package
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v6
       with:
         name: macos-cli
         path: PTSL_Beat_Tool_CLI.zip
@@ -265,7 +265,7 @@ jobs:
     
     steps:
     - name: Download all artifacts
-      uses: actions/download-artifact@v4
+      uses: actions/download-artifact@v7
     
     - name: List artifacts
       run: |
@@ -274,7 +274,7 @@ jobs:
         find . -type f -name "*.dmg" -o -name "*.zip" | sort
     
     - name: Create Release
-      uses: softprops/action-gh-release@v1
+      uses: softprops/action-gh-release@v3
       with:
         files: |
           macos-dmg/*.dmg

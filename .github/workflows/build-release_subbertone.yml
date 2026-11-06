@@ -14,7 +14,7 @@ jobs:
     runs-on: windows-latest
     
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v5
       with:
         submodules: recursive
     
@@ -147,13 +147,13 @@ jobs:
         }
     
     - name: Upload Windows Installer
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v6
       with:
         name: windows-installer
         path: subbertone/SammyJs_Subbertone_Installer.exe
     
     - name: Upload Windows VST3
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v6
       with:
         name: windows-vst3
         path: subbertone/windows-vst3-package/
@@ -162,7 +162,7 @@ jobs:
     runs-on: macos-15
     
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v5
       with:
         submodules: recursive
     
@@ -212,7 +212,7 @@ jobs:
     
     - name: Import Certificates
       if: steps.check_certs.outputs.has_certs == 'true'
-      uses: apple-actions/import-codesign-certs@v2
+      uses: apple-actions/import-codesign-certs@v6
       with:
         p12-file-base64: ${{ secrets.APPLE_DEVELOPER_CERTIFICATE_P12_BASE64 }}
         p12-password: ${{ secrets.APPLE_DEVELOPER_CERTIFICATE_PASSWORD }}
@@ -529,19 +529,19 @@ jobs:
         xcrun stapler staple "SammyJs_Subbertone_Installer.pkg"
     
     - name: Upload macOS Installer
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v6
       with:
         name: macos-installer
         path: subbertone/SammyJs_Subbertone_Installer.pkg
     
     - name: Upload macOS VST3
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v6
       with:
         name: macos-vst3
         path: subbertone/build/Subbertone_artefacts/Release/VST3/*.vst3
     
     - name: Upload macOS AU
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v6
       with:
         name: macos-au
         path: subbertone/build/Subbertone_artefacts/Release/AU/*.component
@@ -553,7 +553,7 @@ jobs:
     
     steps:
     - name: Download all artifacts
-      uses: actions/download-artifact@v4
+      uses: actions/download-artifact@v7
     
     - name: Create ZIP files
       run: |
@@ -567,7 +567,7 @@ jobs:
         cd ..
     
     - name: Create Release
-      uses: softprops/action-gh-release@v1
+      uses: softprops/action-gh-release@v3
       with:
         files: |
           Subbertone-Windows-VST3.zip
