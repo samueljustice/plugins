@@ -1,0 +1,1183 @@
+{
+ "people": [
+  {
+   "name": "David Farmer",
+   "role": "Sound designer",
+   "credits": "The Lord of the Rings, The Hobbit, King Kong, Ant-Man",
+   "imdb": "https://www.imdb.com/name/nm0267736/"
+  },
+  {
+   "name": "Tim Nielsen",
+   "role": "Supervising sound editor & sound designer",
+   "credits": "The Lord of the Rings, John Carter, The Dark Crystal: Age of Resistance, Maleficent",
+   "imdb": "https://www.imdb.com/name/nm0631004/"
+  },
+  {
+   "name": "Dave Whitehead",
+   "role": "Sound designer",
+   "credits": "District 9, The Hobbit, Elysium, Dune",
+   "imdb": "https://www.imdb.com/name/nm0925678/"
+  },
+  {
+   "name": "Brent Burge",
+   "role": "Supervising sound editor",
+   "credits": "The Hobbit: The Desolation of Smaug, King Kong, District 9, Avatar: Fire and Ash",
+   "imdb": "https://www.imdb.com/name/nm0121151/"
+  },
+  {
+   "name": "Craig Henighan",
+   "role": "Sound designer & re-recording mixer",
+   "credits": "Stranger Things, Roma, Deadpool & Wolverine, Love, Death & Robots",
+   "imdb": "https://www.imdb.com/name/nm0003357/"
+  },
+  {
+   "name": "Tim Prebble",
+   "role": "Sound designer & supervising sound editor",
+   "credits": "30 Days of Night, Black Sheep, Boy",
+   "imdb": "https://www.imdb.com/name/nm0695670/"
+  }
+ ],
+ "entries": [
+  {
+   "person": "David Farmer",
+   "kind": "insight",
+   "text": "To train his ears, Farmer studied Ben Burtt and Gary Rydstrom films twice over: once watching with the sound muted, then again listening with the picture switched off.",
+   "categories": [
+    "craft",
+    "story"
+   ],
+   "source": {
+    "title": "David Farmer Special: Exclusive Interview",
+    "publication": "Designing Sound",
+    "url": "https://designingsound.org/2010/09/03/david-farmer-special-exclusive-interview/",
+    "year": 2010
+   }
+  },
+  {
+   "person": "David Farmer",
+   "kind": "insight",
+   "text": "Learn to decode the brief. Harry Cohen taught Farmer that when a client asks for a 'small electrical explosion' they mean something like a transformer crashing onto a car. Making things bigger than they look is a skill everyone has to build.",
+   "categories": [
+    "action",
+    "collaboration"
+   ],
+   "source": {
+    "title": "David Farmer Special: Exclusive Interview",
+    "publication": "Designing Sound",
+    "url": "https://designingsound.org/2010/09/03/david-farmer-special-exclusive-interview/",
+    "year": 2010
+   }
+  },
+  {
+   "person": "David Farmer",
+   "kind": "insight",
+   "text": "Farmer delights in casting a sound against type, as when a wet car pass-by became a flare gun firing. If the audience never questions it, the repurposed source has done its job.",
+   "categories": [
+    "craft",
+    "weapons"
+   ],
+   "source": {
+    "title": "David Farmer Special: Exclusive Interview",
+    "publication": "Designing Sound",
+    "url": "https://designingsound.org/2010/09/03/david-farmer-special-exclusive-interview/",
+    "year": 2010
+   }
+  },
+  {
+   "person": "David Farmer",
+   "kind": "insight",
+   "text": "When a design keeps turning to mush no matter how you process it, Farmer suspects the foundation layers. His remedy: sweep the whole thing away and rebuild from completely different source material.",
+   "categories": [
+    "craft"
+   ],
+   "source": {
+    "title": "David Farmer Special: Exclusive Interview",
+    "publication": "Designing Sound",
+    "url": "https://designingsound.org/2010/09/03/david-farmer-special-exclusive-interview/",
+    "year": 2010
+   }
+  },
+  {
+   "person": "David Farmer",
+   "kind": "quote",
+   "text": "There's nothing like a fresh piece of sound that I've never used before!",
+   "categories": [
+    "recording",
+    "craft"
+   ],
+   "source": {
+    "title": "David Farmer Special: Exclusive Interview",
+    "publication": "Designing Sound",
+    "url": "https://designingsound.org/2010/09/03/david-farmer-special-exclusive-interview/",
+    "year": 2010
+   }
+  },
+  {
+   "person": "David Farmer",
+   "kind": "quote",
+   "text": "Sometimes spending too much time on something just works against you.",
+   "categories": [
+    "craft"
+   ],
+   "source": {
+    "title": "David Farmer Special: Exclusive Interview",
+    "publication": "Designing Sound",
+    "url": "https://designingsound.org/2010/09/03/david-farmer-special-exclusive-interview/",
+    "year": 2010
+   }
+  },
+  {
+   "person": "David Farmer",
+   "kind": "insight",
+   "text": "Growls alone never make a creature iconic. Farmer hunts for the projecting, centred bellow at the heart of a voice, the rarest element to find, and he self-funded animal sessions on Lord of the Rings so he would own those sources.",
+   "categories": [
+    "creatures",
+    "recording"
+   ],
+   "source": {
+    "title": "David Farmer Special: Exclusive Interview",
+    "publication": "Designing Sound",
+    "url": "https://designingsound.org/2010/09/03/david-farmer-special-exclusive-interview/",
+    "year": 2010
+   }
+  },
+  {
+   "person": "David Farmer",
+   "kind": "insight",
+   "text": "The Witch-King's 14-second scream climbs in pitch past the edge of hearing. A steady rise felt limp, so Farmer made the pitch sweep accelerate sharply in its final moments to keep the energy building.",
+   "categories": [
+    "creatures",
+    "craft"
+   ],
+   "source": {
+    "title": "David Farmer Special: The Lord of the Rings Exclusive Interview",
+    "publication": "Designing Sound",
+    "url": "https://designingsound.org/2010/09/30/david-farmer-special-the-lord-of-the-rings-exclusive-interview/",
+    "year": 2010
+   }
+  },
+  {
+   "person": "David Farmer",
+   "kind": "insight",
+   "text": "The Ringwraith shrieks centre on Fran Walsh's screams pitched upward, layered with Farmer screaming on the in-breath, a technique so taxing he had to lie down after a few minutes.",
+   "categories": [
+    "creatures",
+    "horror"
+   ],
+   "source": {
+    "title": "David Farmer Special: The Lord of the Rings Exclusive Interview",
+    "publication": "Designing Sound",
+    "url": "https://designingsound.org/2010/09/30/david-farmer-special-the-lord-of-the-rings-exclusive-interview/",
+    "year": 2010
+   }
+  },
+  {
+   "person": "David Farmer",
+   "kind": "insight",
+   "text": "Moria's goblins grew from elephant seal pups Farmer heard at a marine mammal rescue centre; their cries suited a human-ribcage-sized body. For Jackson's 'cockroachy' brief, the crew recorded themselves scrambling around in cleats.",
+   "categories": [
+    "creatures",
+    "foley"
+   ],
+   "source": {
+    "title": "David Farmer Special: The Lord of the Rings Exclusive Interview",
+    "publication": "Designing Sound",
+    "url": "https://designingsound.org/2010/09/30/david-farmer-special-the-lord-of-the-rings-exclusive-interview/",
+    "year": 2010
+   }
+  },
+  {
+   "person": "David Farmer",
+   "kind": "insight",
+   "text": "Uruk-hai voices mix sea lions in pain with tiger and leopard attacks plus crew vocals. Farmer cut the human layers one after another in sequence rather than piling them up, which kept the crowd varied.",
+   "categories": [
+    "creatures",
+    "craft"
+   ],
+   "source": {
+    "title": "David Farmer Special: The Lord of the Rings Exclusive Interview",
+    "publication": "Designing Sound",
+    "url": "https://designingsound.org/2010/09/30/david-farmer-special-the-lord-of-the-rings-exclusive-interview/",
+    "year": 2010
+   }
+  },
+  {
+   "person": "David Farmer",
+   "kind": "insight",
+   "text": "When Foley artist Michael Kamper said a creature sounded like a plastic cup scraping, Farmer bought cups and bowls from Target and recorded them. The scrapes gave the wraiths and others a dry, aggressive rasp.",
+   "categories": [
+    "creatures",
+    "foley",
+    "recording"
+   ],
+   "source": {
+    "title": "David Farmer Special: The Lord of the Rings Exclusive Interview",
+    "publication": "Designing Sound",
+    "url": "https://designingsound.org/2010/09/30/david-farmer-special-the-lord-of-the-rings-exclusive-interview/",
+    "year": 2010
+   }
+  },
+  {
+   "person": "David Farmer",
+   "kind": "quote",
+   "text": "I'm not really about the size as much as the energy.",
+   "categories": [
+    "action",
+    "craft"
+   ],
+   "source": {
+    "title": "David Farmer Special: The Lord of the Rings Exclusive Interview",
+    "publication": "Designing Sound",
+    "url": "https://designingsound.org/2010/09/30/david-farmer-special-the-lord-of-the-rings-exclusive-interview/",
+    "year": 2010
+   }
+  },
+  {
+   "person": "David Farmer",
+   "kind": "insight",
+   "text": "Effects are locked to picture but music can slide. Farmer's rule: if score and effects both slam the same on-screen moment, both lose their punch, so one of them has to give way.",
+   "categories": [
+    "music",
+    "mixing",
+    "silence"
+   ],
+   "source": {
+    "title": "David Farmer Special: The Lord of the Rings Exclusive Interview",
+    "publication": "Designing Sound",
+    "url": "https://designingsound.org/2010/09/30/david-farmer-special-the-lord-of-the-rings-exclusive-interview/",
+    "year": 2010
+   }
+  },
+  {
+   "person": "Tim Nielsen",
+   "kind": "insight",
+   "text": "Recording shaving sounds, Nielsen happened to touch an electric razor to a cheap aluminium bowl and it began to sing. That accident became part of the Ringwraiths entering the Prancing Pony in Bree.",
+   "categories": [
+    "recording",
+    "horror",
+    "craft"
+   ],
+   "source": {
+    "title": "Tim Nielsen Special: Exclusive Interview",
+    "publication": "Designing Sound",
+    "url": "https://designingsound.org/2011/08/04/tim-nielsen-special-exclusive-interview/",
+    "year": 2011
+   }
+  },
+  {
+   "person": "Tim Nielsen",
+   "kind": "insight",
+   "text": "Don't settle for one good door take. Nielsen asks for a whole range: soft, loud, rattled, kicked, pounded, slammed, then the handle alone. The variety is what you cut with later.",
+   "categories": [
+    "recording",
+    "foley"
+   ],
+   "source": {
+    "title": "Tim Nielsen Special: Exclusive Interview",
+    "publication": "Designing Sound",
+    "url": "https://designingsound.org/2011/08/04/tim-nielsen-special-exclusive-interview/",
+    "year": 2011
+   }
+  },
+  {
+   "person": "Tim Nielsen",
+   "kind": "quote",
+   "text": "The best sounds are likely to be the very quiet ones",
+   "categories": [
+    "creatures",
+    "recording"
+   ],
+   "source": {
+    "title": "Tim Nielsen Special: Exclusive Interview",
+    "publication": "Designing Sound",
+    "url": "https://designingsound.org/2011/08/04/tim-nielsen-special-exclusive-interview/",
+    "year": 2011
+   }
+  },
+  {
+   "person": "Tim Nielsen",
+   "kind": "insight",
+   "text": "With animal sessions, Nielsen pulls out the loud takes, normalizes what's left and digs through the soft vocalizations. Strong animal recordings then need only gentle manipulation to become creatures.",
+   "categories": [
+    "creatures",
+    "craft"
+   ],
+   "source": {
+    "title": "Tim Nielsen Special: Exclusive Interview",
+    "publication": "Designing Sound",
+    "url": "https://designingsound.org/2011/08/04/tim-nielsen-special-exclusive-interview/",
+    "year": 2011
+   }
+  },
+  {
+   "person": "Tim Nielsen",
+   "kind": "quote",
+   "text": "Great recordings are way better than great processing chains or great outboard gear.",
+   "categories": [
+    "recording",
+    "craft"
+   ],
+   "source": {
+    "title": "Tim Nielsen Special: Exclusive Interview",
+    "publication": "Designing Sound",
+    "url": "https://designingsound.org/2011/08/04/tim-nielsen-special-exclusive-interview/",
+    "year": 2011
+   }
+  },
+  {
+   "person": "Tim Nielsen",
+   "kind": "insight",
+   "text": "Stuck on a first pass? Nielsen searches the library by emotion, auditions unlikely sounds, and vocalizes the effect himself to find its shape, then swaps the mouth sound for real recordings.",
+   "categories": [
+    "craft",
+    "story"
+   ],
+   "source": {
+    "title": "Tim Nielsen Special: Exclusive Interview",
+    "publication": "Designing Sound",
+    "url": "https://designingsound.org/2011/08/04/tim-nielsen-special-exclusive-interview/",
+    "year": 2011
+   }
+  },
+  {
+   "person": "Tim Nielsen",
+   "kind": "insight",
+   "text": "Nielsen's hardest-won lesson is knowing when to stop. He fought overcutting and overprocessing for years, and now believes the simplest solution is nearly always the right one.",
+   "categories": [
+    "craft",
+    "silence"
+   ],
+   "source": {
+    "title": "Tim Nielsen Special: Exclusive Interview",
+    "publication": "Designing Sound",
+    "url": "https://designingsound.org/2011/08/04/tim-nielsen-special-exclusive-interview/",
+    "year": 2011
+   }
+  },
+  {
+   "person": "Tim Nielsen",
+   "kind": "insight",
+   "text": "Animals often vocalize more freely for their owners than for a stranger with a big microphone, so Nielsen sometimes mails small recorders to pet owners and lets them capture the performance.",
+   "categories": [
+    "recording",
+    "creatures"
+   ],
+   "source": {
+    "title": "Tim Nielsen Special: Exclusive Interview",
+    "publication": "Designing Sound",
+    "url": "https://designingsound.org/2011/08/04/tim-nielsen-special-exclusive-interview/",
+    "year": 2011
+   }
+  },
+  {
+   "person": "Tim Nielsen",
+   "kind": "insight",
+   "text": "Nielsen admires films that leave room for sound, citing Saving Private Ryan and Master and Commander for their restrained scores, and argues most Hollywood films carry far too much music.",
+   "categories": [
+    "music",
+    "silence",
+    "story"
+   ],
+   "source": {
+    "title": "Tim Nielsen Special: Exclusive Interview",
+    "publication": "Designing Sound",
+    "url": "https://designingsound.org/2011/08/04/tim-nielsen-special-exclusive-interview/",
+    "year": 2011
+   }
+  },
+  {
+   "person": "Tim Nielsen",
+   "kind": "insight",
+   "text": "The Garthim in Age of Resistance had to echo the original film's castanet-like clatter yet be new. The answer was a pinecone rolled around a wooden bowl, then pitched down.",
+   "categories": [
+    "creatures",
+    "recording"
+   ],
+   "source": {
+    "title": "The Dark Crystal: Age of Resistance sound",
+    "publication": "A Sound Effect",
+    "url": "https://www.asoundeffect.com/dark-crystal-age-of-resistance-sound",
+    "year": 2019
+   }
+  },
+  {
+   "person": "Tim Nielsen",
+   "kind": "insight",
+   "text": "To make the Skeksis' robes sound repulsive, Nielsen's Foley team soaked all the cloth before recording so every movement came out slimy.",
+   "categories": [
+    "foley",
+    "creatures"
+   ],
+   "source": {
+    "title": "The Dark Crystal: Age of Resistance sound",
+    "publication": "A Sound Effect",
+    "url": "https://www.asoundeffect.com/dark-crystal-age-of-resistance-sound",
+    "year": 2019
+   }
+  },
+  {
+   "person": "Tim Nielsen",
+   "kind": "quote",
+   "text": "the easiest way to get variation is to find new ways to record things.",
+   "categories": [
+    "recording",
+    "craft"
+   ],
+   "source": {
+    "title": "The Dark Crystal: Age of Resistance sound",
+    "publication": "A Sound Effect",
+    "url": "https://www.asoundeffect.com/dark-crystal-age-of-resistance-sound",
+    "year": 2019
+   }
+  },
+  {
+   "person": "Tim Nielsen",
+   "kind": "quote",
+   "text": "a smaller sound becomes a bigger sound better than trying to record a big sound",
+   "categories": [
+    "recording",
+    "craft"
+   ],
+   "source": {
+    "title": "The Dark Crystal: Age of Resistance sound",
+    "publication": "A Sound Effect",
+    "url": "https://www.asoundeffect.com/dark-crystal-age-of-resistance-sound",
+    "year": 2019
+   }
+  },
+  {
+   "person": "Tim Nielsen",
+   "kind": "quote",
+   "text": "My job doesn't end with the mix, my job ends once the mix is delivered.",
+   "categories": [
+    "mixing",
+    "collaboration"
+   ],
+   "source": {
+    "title": "Tim Nielsen on supervising sound editing",
+    "publication": "A Sound Effect",
+    "url": "https://asoundeffect.com/tim-nielsen-supervising-sound-editor/",
+    "year": null
+   }
+  },
+  {
+   "person": "Tim Nielsen",
+   "kind": "insight",
+   "text": "Nielsen gives each editor whole reels, believing one voice should own a large section of the film. He also wants their first ideas before steering them, because they often surprise him.",
+   "categories": [
+    "collaboration"
+   ],
+   "source": {
+    "title": "Tim Nielsen on supervising sound editing",
+    "publication": "A Sound Effect",
+    "url": "https://asoundeffect.com/tim-nielsen-supervising-sound-editor/",
+    "year": null
+   }
+  },
+  {
+   "person": "Dave Whitehead",
+   "kind": "insight",
+   "text": "Whitehead's first District 9 alien tech was polished blockbuster sci-fi; Neill Blomkamp rejected it. The fix was grungier, real-world sources like air-force hydraulics and servos, wrapped around a small alien core.",
+   "categories": [
+    "scifi",
+    "collaboration",
+    "recording"
+   ],
+   "source": {
+    "title": "Exclusive Interview with Dave Whitehead, Sound Designer of District 9",
+    "publication": "Designing Sound",
+    "url": "https://designingsound.org/2009/11/exclusive-interview-with-dave-whitehead-sound-designer-of-district",
+    "year": 2009
+   }
+  },
+  {
+   "person": "Dave Whitehead",
+   "kind": "insight",
+   "text": "Because the District 9 aliens lived in an insect-like hive, Whitehead recorded every insect he could, capturing bumblebees at 192kHz inside a small homemade booth for maximum detail when slowed down.",
+   "categories": [
+    "creatures",
+    "recording"
+   ],
+   "source": {
+    "title": "Exclusive Interview with Dave Whitehead, Sound Designer of District 9",
+    "publication": "Designing Sound",
+    "url": "https://designingsound.org/2009/11/exclusive-interview-with-dave-whitehead-sound-designer-of-district",
+    "year": 2009
+   }
+  },
+  {
+   "person": "Dave Whitehead",
+   "kind": "insight",
+   "text": "Crew bred flies in the studio, then released them into the ADR room at Park Road Post to record swarm ambiences, single fly-bys and close group buzzing.",
+   "categories": [
+    "recording",
+    "creatures",
+    "worlds"
+   ],
+   "source": {
+    "title": "Exclusive Interview with Dave Whitehead, Sound Designer of District 9",
+    "publication": "Designing Sound",
+    "url": "https://designingsound.org/2009/11/exclusive-interview-with-dave-whitehead-sound-designer-of-district",
+    "year": 2009
+   }
+  },
+  {
+   "person": "Dave Whitehead",
+   "kind": "quote",
+   "text": "Its amazing what interesting textures you can get from micro recording.",
+   "categories": [
+    "recording"
+   ],
+   "source": {
+    "title": "Exclusive Interview with Dave Whitehead, Sound Designer of District 9",
+    "publication": "Designing Sound",
+    "url": "https://designingsound.org/2009/11/exclusive-interview-with-dave-whitehead-sound-designer-of-district",
+    "year": 2009
+   }
+  },
+  {
+   "person": "Dave Whitehead",
+   "kind": "insight",
+   "text": "Sea-mammal clicks didn't read as language, so Whitehead invented one with hundreds of words. He performed each alien line himself, then replaced the consonants with a custom palette and the vowels with treated animal and vegetable-rubbing sounds.",
+   "categories": [
+    "creatures",
+    "dialogue",
+    "scifi"
+   ],
+   "source": {
+    "title": "Exclusive Interview with Dave Whitehead, Sound Designer of District 9",
+    "publication": "Designing Sound",
+    "url": "https://designingsound.org/2009/11/exclusive-interview-with-dave-whitehead-sound-designer-of-district",
+    "year": 2009
+   }
+  },
+  {
+   "person": "Dave Whitehead",
+   "kind": "insight",
+   "text": "The finished prawn voices are only about ten percent human. Consonant and vowel layers were premixed separately, with the consonants weighted heavier to push an insect-like quality, and rapid purring clicks act as the aliens' 'hmmm' while thinking.",
+   "categories": [
+    "creatures",
+    "dialogue",
+    "mixing"
+   ],
+   "source": {
+    "title": "Exclusive Interview with Dave Whitehead, Sound Designer of District 9",
+    "publication": "Designing Sound",
+    "url": "https://designingsound.org/2009/11/exclusive-interview-with-dave-whitehead-sound-designer-of-district",
+    "year": 2009
+   }
+  },
+  {
+   "person": "Dave Whitehead",
+   "kind": "quote",
+   "text": "Vegetables can be quite expressive in the right hands.",
+   "categories": [
+    "foley",
+    "creatures"
+   ],
+   "source": {
+    "title": "Exclusive Interview with Dave Whitehead, Sound Designer of District 9",
+    "publication": "Designing Sound",
+    "url": "https://designingsound.org/2009/11/exclusive-interview-with-dave-whitehead-sound-designer-of-district",
+    "year": 2009
+   }
+  },
+  {
+   "person": "Dave Whitehead",
+   "kind": "insight",
+   "text": "Before any animation existed, Whitehead built an alien-weapon palette from bees, pipe hits and blows, nail guns and synths through effects chains, then handed it to Brent Burge, who cut the final booming guns.",
+   "categories": [
+    "weapons",
+    "scifi",
+    "collaboration"
+   ],
+   "source": {
+    "title": "Exclusive Interview with Dave Whitehead, Sound Designer of District 9",
+    "publication": "Designing Sound",
+    "url": "https://designingsound.org/2009/11/exclusive-interview-with-dave-whitehead-sound-designer-of-district",
+    "year": 2009
+   }
+  },
+  {
+   "person": "Dave Whitehead",
+   "kind": "insight",
+   "text": "District 9's exo-suit is built from humble sources: typewriters, small appliance servos, dirt impacts and steam-train chugs. Lo-fi ingredients can make high-tech machinery feel heavy and believable.",
+   "categories": [
+    "scifi",
+    "weapons",
+    "recording"
+   ],
+   "source": {
+    "title": "Exclusive Interview with Dave Whitehead, Sound Designer of District 9",
+    "publication": "Designing Sound",
+    "url": "https://designingsound.org/2009/11/exclusive-interview-with-dave-whitehead-sound-designer-of-district",
+    "year": 2009
+   }
+  },
+  {
+   "person": "Dave Whitehead",
+   "kind": "insight",
+   "text": "District 9's security-camera footage wasn't futzed in editorial. The mixers re-recorded the lo-fi treatment on the stage so they could ride exactly how degraded each moment sounded.",
+   "categories": [
+    "mixing",
+    "story"
+   ],
+   "source": {
+    "title": "Exclusive Interview with Dave Whitehead, Sound Designer of District 9",
+    "publication": "Designing Sound",
+    "url": "https://designingsound.org/2009/11/exclusive-interview-with-dave-whitehead-sound-designer-of-district",
+    "year": 2009
+   }
+  },
+  {
+   "person": "Dave Whitehead",
+   "kind": "insight",
+   "text": "Early on Whitehead leaned on libraries, but he learned to record a fresh palette for every film. On District 9's tight schedule he designed a moment, committed and moved on; long schedules, he notes, invite overthinking.",
+   "categories": [
+    "recording",
+    "craft"
+   ],
+   "source": {
+    "title": "Exclusive Interview with Dave Whitehead, Sound Designer of District 9",
+    "publication": "Designing Sound",
+    "url": "https://designingsound.org/2009/11/exclusive-interview-with-dave-whitehead-sound-designer-of-district",
+    "year": 2009
+   }
+  },
+  {
+   "person": "Dave Whitehead",
+   "kind": "quote",
+   "text": "Great audio files are the building blocks for any great sound design project.",
+   "categories": [
+    "recording",
+    "craft"
+   ],
+   "source": {
+    "title": "Hobbit Sound Designer Talks Technique",
+    "publication": "Sonicstate",
+    "url": "https://sonicstate.com/news/2014/02/11/hobbit-sound-designer-talks-technique/",
+    "year": 2014
+   }
+  },
+  {
+   "person": "Dave Whitehead",
+   "kind": "quote",
+   "text": "record anytime I hear something good come out of my speakers",
+   "categories": [
+    "craft"
+   ],
+   "source": {
+    "title": "Hobbit Sound Designer Talks Technique",
+    "publication": "Sonicstate",
+    "url": "https://sonicstate.com/news/2014/02/11/hobbit-sound-designer-talks-technique/",
+    "year": 2014
+   }
+  },
+  {
+   "person": "Dave Whitehead",
+   "kind": "insight",
+   "text": "Restoration tools are design tools: Whitehead spectrally removed birds and insects from Hobbit field recordings, declicked fire to keep the roar without the crackle, and dereverbed indoor recordings so they'd pass as exteriors.",
+   "categories": [
+    "worlds",
+    "craft",
+    "recording"
+   ],
+   "source": {
+    "title": "Hobbit Sound Designer Talks Technique",
+    "publication": "Sonicstate",
+    "url": "https://sonicstate.com/news/2014/02/11/hobbit-sound-designer-talks-technique/",
+    "year": 2014
+   }
+  },
+  {
+   "person": "Brent Burge",
+   "kind": "quote",
+   "text": "Sound design innovations are always people driven.",
+   "categories": [
+    "collaboration",
+    "craft"
+   ],
+   "source": {
+    "title": "Brent Burge on creating the soundscape for The Hobbit",
+    "publication": "Screen Daily",
+    "url": "https://www.screendaily.com/news/brent-burge-on-creating-the-soundscape-for-the-hobbit/5050505.article",
+    "year": 2013
+   }
+  },
+  {
+   "person": "Brent Burge",
+   "kind": "quote",
+   "text": "Three-stripe mono still is the purest form of sound content.",
+   "categories": [
+    "mixing"
+   ],
+   "source": {
+    "title": "Brent Burge on creating the soundscape for The Hobbit",
+    "publication": "Screen Daily",
+    "url": "https://www.screendaily.com/news/brent-burge-on-creating-the-soundscape-for-the-hobbit/5050505.article",
+    "year": 2013
+   }
+  },
+  {
+   "person": "Brent Burge",
+   "kind": "insight",
+   "text": "For The Hobbit's creatures, the team went back to fresh source: bears recorded in the US and Canada, alligators in the US, all captured on high-resolution mics so designers had maximum room to pitch and process.",
+   "categories": [
+    "creatures",
+    "recording"
+   ],
+   "source": {
+    "title": "Brent Burge on creating the soundscape for The Hobbit",
+    "publication": "Screen Daily",
+    "url": "https://www.screendaily.com/news/brent-burge-on-creating-the-soundscape-for-the-hobbit/5050505.article",
+    "year": 2013
+   }
+  },
+  {
+   "person": "Brent Burge",
+   "kind": "insight",
+   "text": "High frame rate picture revealed so much detail that the team was tempted to fill every corner with sound. Burge held the line: they tightened sync and adjusted dialogue, but kept story as the priority over extra detail.",
+   "categories": [
+    "story",
+    "mixing",
+    "silence"
+   ],
+   "source": {
+    "title": "Brent Burge on creating the soundscape for The Hobbit",
+    "publication": "Screen Daily",
+    "url": "https://www.screendaily.com/news/brent-burge-on-creating-the-soundscape-for-the-hobbit/5050505.article",
+    "year": 2013
+   }
+  },
+  {
+   "person": "Brent Burge",
+   "kind": "insight",
+   "text": "Returning to Middle-earth, Burge's crew rebuilt Lord of the Rings sound signatures with newer tools while honouring their original intent, so the world felt continuous rather than reinvented.",
+   "categories": [
+    "worlds",
+    "craft"
+   ],
+   "source": {
+    "title": "Brent Burge on creating the soundscape for The Hobbit",
+    "publication": "Screen Daily",
+    "url": "https://www.screendaily.com/news/brent-burge-on-creating-the-soundscape-for-the-hobbit/5050505.article",
+    "year": 2013
+   }
+  },
+  {
+   "person": "Brent Burge",
+   "kind": "insight",
+   "text": "Temp mixes earn their keep: by testing ideas against Peter Jackson's themes along the way, Burge's team arrived at the final mix already knowing which direction worked.",
+   "categories": [
+    "mixing",
+    "collaboration"
+   ],
+   "source": {
+    "title": "Brent Burge on creating the soundscape for The Hobbit",
+    "publication": "Screen Daily",
+    "url": "https://www.screendaily.com/news/brent-burge-on-creating-the-soundscape-for-the-hobbit/5050505.article",
+    "year": 2013
+   }
+  },
+  {
+   "person": "Craig Henighan",
+   "kind": "quote",
+   "text": "If you don't experiment, you're never going to happen upon these cool things.",
+   "categories": [
+    "craft"
+   ],
+   "source": {
+    "title": "Stranger Things sound supervisor Craig Henighan talks everything strange, from Demogorgons to grandfather clocks",
+    "publication": "Awards Radar",
+    "url": "https://awardsradar.com/2023/06/23/interview-stranger-things-sound-supervisor-craig-henighan-talks-everything-strange-from-demogorgons-to-grandfather-clocks-in-the-sound-design-of-the-hit-netflix-series/",
+    "year": 2023
+   }
+  },
+  {
+   "person": "Craig Henighan",
+   "kind": "insight",
+   "text": "The Stranger Things season-four clock had to feel familiar but 'stranger-ized.' Henighan made its old, creaky pendulum swing by striking a muted cello with a bow, giving creak without a clear musical pitch.",
+   "categories": [
+    "horror",
+    "foley",
+    "music"
+   ],
+   "source": {
+    "title": "Stranger Things sound supervisor Craig Henighan talks everything strange, from Demogorgons to grandfather clocks",
+    "publication": "Awards Radar",
+    "url": "https://awardsradar.com/2023/06/23/interview-stranger-things-sound-supervisor-craig-henighan-talks-everything-strange-from-demogorgons-to-grandfather-clocks-in-the-sound-design-of-the-hit-netflix-series/",
+    "year": 2023
+   }
+  },
+  {
+   "person": "Craig Henighan",
+   "kind": "insight",
+   "text": "For the clock chime he pitched a standard gong down and drew a pitch envelope so it sags as it rings. When he pushed a heavily distorted version, the creators asked for a normal clock, and simpler won.",
+   "categories": [
+    "horror",
+    "craft",
+    "collaboration"
+   ],
+   "source": {
+    "title": "Stranger Things sound supervisor Craig Henighan talks everything strange, from Demogorgons to grandfather clocks",
+    "publication": "Awards Radar",
+    "url": "https://awardsradar.com/2023/06/23/interview-stranger-things-sound-supervisor-craig-henighan-talks-everything-strange-from-demogorgons-to-grandfather-clocks-in-the-sound-design-of-the-hit-netflix-series/",
+    "year": 2023
+   }
+  },
+  {
+   "person": "Craig Henighan",
+   "kind": "insight",
+   "text": "Working with picture editor Dean Zimmerman, Henighan planted the show's core sonic 'DNA' in episode one so those sounds could return and grow across later episodes and seasons.",
+   "categories": [
+    "story",
+    "collaboration"
+   ],
+   "source": {
+    "title": "Stranger Things sound supervisor Craig Henighan talks everything strange, from Demogorgons to grandfather clocks",
+    "publication": "Awards Radar",
+    "url": "https://awardsradar.com/2023/06/23/interview-stranger-things-sound-supervisor-craig-henighan-talks-everything-strange-from-demogorgons-to-grandfather-clocks-in-the-sound-design-of-the-hit-netflix-series/",
+    "year": 2023
+   }
+  },
+  {
+   "person": "Craig Henighan",
+   "kind": "quote",
+   "text": "If you're working on a monster sequence, you can map it out with your voice",
+   "categories": [
+    "creatures",
+    "craft"
+   ],
+   "source": {
+    "title": "“Deadpool & Wolverine” Sound Designers on Turning Frozen Tea Towels Into Broken Bones",
+    "publication": "Motion Picture Association",
+    "url": "https://www.motionpictures.org/2024/11/deadpool-wolverine-sound-designers-on-turning-frozen-tea-towels-into-broken-bones/",
+    "year": 2024
+   }
+  },
+  {
+   "person": "Craig Henighan",
+   "kind": "quote",
+   "text": "It was more important to lock sound in with what the music was doing.",
+   "categories": [
+    "music",
+    "action",
+    "mixing"
+   ],
+   "source": {
+    "title": "“Deadpool & Wolverine” Sound Designers on Turning Frozen Tea Towels Into Broken Bones",
+    "publication": "Motion Picture Association",
+    "url": "https://www.motionpictures.org/2024/11/deadpool-wolverine-sound-designers-on-turning-frozen-tea-towels-into-broken-bones/",
+    "year": 2024
+   }
+  },
+  {
+   "person": "Craig Henighan",
+   "kind": "insight",
+   "text": "In Deadpool & Wolverine's opening fight, some impacts sit slightly off picture so they land on the song's beats, and music and effects hand the lead back and forth instead of fighting.",
+   "categories": [
+    "music",
+    "action",
+    "mixing"
+   ],
+   "source": {
+    "title": "“Deadpool & Wolverine” Sound Designers on Turning Frozen Tea Towels Into Broken Bones",
+    "publication": "Motion Picture Association",
+    "url": "https://www.motionpictures.org/2024/11/deadpool-wolverine-sound-designers-on-turning-frozen-tea-towels-into-broken-bones/",
+    "year": 2024
+   }
+  },
+  {
+   "person": "Craig Henighan",
+   "kind": "insight",
+   "text": "The adamantium hits sounded cool but lacked edge, so Henighan's team recorded steel rebar striking metal in the Foley stage and added a tremolo flutter to the ringing tails.",
+   "categories": [
+    "weapons",
+    "foley",
+    "action"
+   ],
+   "source": {
+    "title": "“Deadpool & Wolverine” Sound Designers on Turning Frozen Tea Towels Into Broken Bones",
+    "publication": "Motion Picture Association",
+    "url": "https://www.motionpictures.org/2024/11/deadpool-wolverine-sound-designers-on-turning-frozen-tea-towels-into-broken-bones/",
+    "year": 2024
+   }
+  },
+  {
+   "person": "Craig Henighan",
+   "kind": "insight",
+   "text": "Bone breaks layered celery snaps with wet tea towels frozen solid, then twisted. For stabs, Henighan squeezed a dirt, flour and mud mix between his fingers to suggest oozing blood.",
+   "categories": [
+    "foley",
+    "action",
+    "horror"
+   ],
+   "source": {
+    "title": "“Deadpool & Wolverine” Sound Designers on Turning Frozen Tea Towels Into Broken Bones",
+    "publication": "Motion Picture Association",
+    "url": "https://www.motionpictures.org/2024/11/deadpool-wolverine-sound-designers-on-turning-frozen-tea-towels-into-broken-bones/",
+    "year": 2024
+   }
+  },
+  {
+   "person": "Craig Henighan",
+   "kind": "insight",
+   "text": "Henighan pacing comedy leans on Walter Murch's idea that we can only really follow two or three sounds at once: in a joke-dense action scene, pick what the gag needs and let the rest go.",
+   "categories": [
+    "mixing",
+    "silence",
+    "story"
+   ],
+   "source": {
+    "title": "Sound designer Craig Henighan on the challenge of pacing comedy in Deadpool & Wolverine",
+    "publication": "Awards Focus",
+    "url": "https://awardsfocus.com/interviews/sound-designer-craig-henighan-on-the-challenge-of-pacing-comedy-in-deadpool-wolverine/",
+    "year": 2025
+   }
+  },
+  {
+   "person": "Craig Henighan",
+   "kind": "quote",
+   "text": "how do we make it quiet before all hell breaks loose?",
+   "categories": [
+    "silence",
+    "horror",
+    "creatures"
+   ],
+   "source": {
+    "title": "Behind the growing, evolving sound of Stranger Things Season 3",
+    "publication": "A Sound Effect",
+    "url": "https://www.asoundeffect.com/stranger-things-season-3-sound/",
+    "year": 2020
+   }
+  },
+  {
+   "person": "Craig Henighan",
+   "kind": "insight",
+   "text": "Before the Mind Flayer crashes through the mall ceiling, Henighan used just a few creaks and breaks, no vocals and no heavy footfalls, then one or two heavier steps to make characters look up, then the roar.",
+   "categories": [
+    "silence",
+    "horror",
+    "creatures"
+   ],
+   "source": {
+    "title": "Behind the growing, evolving sound of Stranger Things Season 3",
+    "publication": "A Sound Effect",
+    "url": "https://www.asoundeffect.com/stranger-things-season-3-sound/",
+    "year": 2020
+   }
+  },
+  {
+   "person": "Craig Henighan",
+   "kind": "insight",
+   "text": "Mind Flayer details came from odd objects: an ironing-board squeak recorded straight through Krotos Dehumaniser with his monster settings, plus cappuccino machine squeals for the tentacles.",
+   "categories": [
+    "creatures",
+    "recording",
+    "craft"
+   ],
+   "source": {
+    "title": "Behind the growing, evolving sound of Stranger Things Season 3",
+    "publication": "A Sound Effect",
+    "url": "https://www.asoundeffect.com/stranger-things-season-3-sound/",
+    "year": 2020
+   }
+  },
+  {
+   "person": "Tim Prebble",
+   "kind": "quote",
+   "text": "the most valuable work that I do for a film early on, is thinking.",
+   "categories": [
+    "story",
+    "craft"
+   ],
+   "source": {
+    "title": "Behind the Art: Tim Prebble",
+    "publication": "Designing Sound",
+    "url": "https://designingsound.org/2011/02/17/behind-the-art-tim-prebble/",
+    "year": 2011
+   }
+  },
+  {
+   "person": "Tim Prebble",
+   "kind": "quote",
+   "text": "What happens in front of the mic often has more bearing on the final sound",
+   "categories": [
+    "recording",
+    "craft"
+   ],
+   "source": {
+    "title": "Behind the Art: Tim Prebble",
+    "publication": "Designing Sound",
+    "url": "https://designingsound.org/2011/02/17/behind-the-art-tim-prebble/",
+    "year": 2011
+   }
+  },
+  {
+   "person": "Tim Prebble",
+   "kind": "insight",
+   "text": "Prebble's focus shifted from how to why: before choosing a technique, pin down the motivation, intent and dramatic purpose of the sound in the scene.",
+   "categories": [
+    "story",
+    "craft"
+   ],
+   "source": {
+    "title": "Behind the Art: Tim Prebble",
+    "publication": "Designing Sound",
+    "url": "https://designingsound.org/2011/02/17/behind-the-art-tim-prebble/",
+    "year": 2011
+   }
+  },
+  {
+   "person": "Tim Prebble",
+   "kind": "insight",
+   "text": "Even in the final mix, Prebble will approve a scene, set that version aside, and try a completely different approach. Wrong turns are part of finding the right one.",
+   "categories": [
+    "mixing",
+    "craft"
+   ],
+   "source": {
+    "title": "Behind the Art: Tim Prebble",
+    "publication": "Designing Sound",
+    "url": "https://designingsound.org/2011/02/17/behind-the-art-tim-prebble/",
+    "year": 2011
+   }
+  },
+  {
+   "person": "Tim Prebble",
+   "kind": "insight",
+   "text": "Prebble delivers temp sound as early as the first picture assembly, so directors react to the scenes with sound before discussions of intent harden.",
+   "categories": [
+    "collaboration",
+    "story"
+   ],
+   "source": {
+    "title": "Behind the Art: Tim Prebble",
+    "publication": "Designing Sound",
+    "url": "https://designingsound.org/2011/02/17/behind-the-art-tim-prebble/",
+    "year": 2011
+   }
+  },
+  {
+   "person": "Tim Prebble",
+   "kind": "insight",
+   "text": "Reductive approaches in minimalist architecture, music, photography and poetry shape how Prebble mixes; visiting a Tadao Ando gallery on Naoshima changed how he handles certain scenes.",
+   "categories": [
+    "silence",
+    "mixing"
+   ],
+   "source": {
+    "title": "Behind the Art: Tim Prebble",
+    "publication": "Designing Sound",
+    "url": "https://designingsound.org/2011/02/17/behind-the-art-tim-prebble/",
+    "year": 2011
+   }
+  },
+  {
+   "person": "Tim Prebble",
+   "kind": "quote",
+   "text": "Our industry runs on goodwill, make sure you create it.",
+   "categories": [
+    "collaboration",
+    "recording"
+   ],
+   "source": {
+    "title": "Field Recording Tips",
+    "publication": "The Music of Sound",
+    "url": "http://www.musicofsound.co.nz/blog/field-recording-tips",
+    "year": 2012
+   }
+  },
+  {
+   "person": "Tim Prebble",
+   "kind": "insight",
+   "text": "On a field session, record a spoken ID for every mic and recorder, have someone slate each take and prop, photograph every take, clap for video sync, and stay silent through unexpected sounds until they end.",
+   "categories": [
+    "recording"
+   ],
+   "source": {
+    "title": "Field Recording Tips",
+    "publication": "The Music of Sound",
+    "url": "http://www.musicofsound.co.nz/blog/field-recording-tips",
+    "year": 2012
+   }
+  },
+  {
+   "person": "Tim Prebble",
+   "kind": "insight",
+   "text": "Reading the script for Boy, Prebble flagged a corn field as critical because the crop would be harvested before post. He went to the location during the shoot to capture ambiences and the film's vehicles.",
+   "categories": [
+    "recording",
+    "worlds"
+   ],
+   "source": {
+    "title": "Tim Prebble on the sound design of Boy",
+    "publication": "Designing Sound",
+    "url": "https://designingsound.org/2010/03/03/tim-prebble-on-the-sound-design-of-boy/",
+    "year": 2010
+   }
+  },
+  {
+   "person": "Tim Prebble",
+   "kind": "insight",
+   "text": "30 Days of Night's vampire kills used persimmon, rock melon and semi-dry seaweed, plus contact-mic recordings of shellfish being manipulated, aiming for real intent rather than stylized action.",
+   "categories": [
+    "horror",
+    "foley",
+    "action"
+   ],
+   "source": {
+    "title": "Exclusive Interview with Tim Prebble, Supervising Sound Editor of 30 Days of Night",
+    "publication": "Designing Sound",
+    "url": "https://designingsound.org/2007/10/exclusive-interview-with-tim-prebble-supervising-sound-editor-of-30-days-of-night",
+    "year": 2007
+   }
+  },
+  {
+   "person": "Tim Prebble",
+   "kind": "insight",
+   "text": "The vampires speak a linguist-built language voiced on the in-breath by performers including death metal vocalists. Since vampires show no cold breath on screen, that inhaled delivery became their signature.",
+   "categories": [
+    "creatures",
+    "horror",
+    "dialogue"
+   ],
+   "source": {
+    "title": "Exclusive Interview with Tim Prebble, Supervising Sound Editor of 30 Days of Night",
+    "publication": "Designing Sound",
+    "url": "https://designingsound.org/2007/10/exclusive-interview-with-tim-prebble-supervising-sound-editor-of-30-days-of-night",
+    "year": 2007
+   }
+  },
+  {
+   "person": "Tim Prebble",
+   "kind": "insight",
+   "text": "For his favourite scene in 30 Days of Night, the mix slowly strips away every normal, real-world sound until almost nothing is left: a reductive move that pulls the audience in.",
+   "categories": [
+    "silence",
+    "horror",
+    "mixing"
+   ],
+   "source": {
+    "title": "Exclusive Interview with Tim Prebble, Supervising Sound Editor of 30 Days of Night",
+    "publication": "Designing Sound",
+    "url": "https://designingsound.org/2007/10/exclusive-interview-with-tim-prebble-supervising-sound-editor-of-30-days-of-night",
+    "year": 2007
+   }
+  },
+  {
+   "person": "Tim Prebble",
+   "kind": "quote",
+   "text": "a permanent student as to how sound affects us physically and emotionally",
+   "categories": [
+    "story"
+   ],
+   "source": {
+    "title": "Exclusive Interview with Tim Prebble, Supervising Sound Editor of 30 Days of Night",
+    "publication": "Designing Sound",
+    "url": "https://designingsound.org/2007/10/exclusive-interview-with-tim-prebble-supervising-sound-editor-of-30-days-of-night",
+    "year": 2007
+   }
+  }
+ ]
+}

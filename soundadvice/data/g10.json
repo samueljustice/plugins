@@ -1,0 +1,1203 @@
+{
+ "people": [
+  {
+   "name": "Gary Hecker",
+   "role": "Supervising Foley artist",
+   "credits": "War of the Worlds, Watchmen, Spider-Man: Homecoming, Gattaca",
+   "imdb": "https://www.imdb.com/name/nm0373036/"
+  },
+  {
+   "name": "John Roesch",
+   "role": "Foley artist",
+   "credits": "E.T. the Extra-Terrestrial, The Matrix, Inception, The Killer",
+   "imdb": "https://www.imdb.com/name/nm0736430/"
+  },
+  {
+   "name": "Marko Costanzo",
+   "role": "Foley artist",
+   "credits": "The Silence of the Lambs, Life of Pi, The Wolf of Wall Street, Killers of the Flower Moon",
+   "imdb": "https://www.imdb.com/name/nm0003401/"
+  },
+  {
+   "name": "Caoimhe Doyle",
+   "role": "Foley artist",
+   "credits": "The Favourite, Reign of Fire, Disco Pigs",
+   "imdb": "https://www.imdb.com/name/nm0236304/"
+  },
+  {
+   "name": "Shelley Roden",
+   "role": "Foley artist",
+   "credits": "Toy Story 4, Inside Out 2, Andor, The Killer",
+   "imdb": "https://www.imdb.com/name/nm0809950/"
+  },
+  {
+   "name": "Pete Burgis",
+   "role": "Foley artist",
+   "credits": "Harry Potter and the Deathly Hallows: Part 2, Band of Brothers, Paddington 2, Ex Machina",
+   "imdb": "https://www.imdb.com/name/nm0121416/"
+  },
+  {
+   "name": "Sanaa Kelley",
+   "role": "Foley artist",
+   "credits": "Shōgun, Ted Lasso, Cry Macho, Only Murders in the Building",
+   "imdb": "https://www.imdb.com/name/nm0134085/"
+  },
+  {
+   "name": "Simon Hayes",
+   "role": "Production sound mixer",
+   "credits": "Les Misérables (2012), Guardians of the Galaxy, Wicked, Nanny McPhee",
+   "imdb": "https://www.imdb.com/name/nm1536532/"
+  }
+ ],
+ "entries": [
+  {
+   "person": "Gary Hecker",
+   "kind": "insight",
+   "text": "For Freddy Krueger's glove in the Nightmare on Elm Street remake, Hecker built the sound from three layers: a creaky leather ammo belt for the glove itself, a machete for the ring, and surgical steel blades for the sharp edge.",
+   "categories": [
+    "foley",
+    "horror",
+    "weapons"
+   ],
+   "source": {
+    "title": "Did You Hear That? Nightmare on Elm Street Foley Artist Gary Hecker Reveals How Horror Movies' Scariest Sound Effects Are Made",
+    "publication": "The Credits (Motion Picture Association)",
+    "url": "https://www.motionpictures.org/2012/10/did-you-hear-that-nightmare-on-elm-street-foley-artist-gary-hecker-reveals-how-horror-movies-scariest-sound-effects-are-made/",
+    "year": 2012
+   }
+  },
+  {
+   "person": "Gary Hecker",
+   "kind": "insight",
+   "text": "Hecker's blood splatter: soak a leather car chamois in a bucket of water, then squeeze and slap it for sprays and squishes, and layer little squirts done with his own mouth on top.",
+   "categories": [
+    "foley",
+    "horror"
+   ],
+   "source": {
+    "title": "Did You Hear That? Nightmare on Elm Street Foley Artist Gary Hecker Reveals How Horror Movies' Scariest Sound Effects Are Made",
+    "publication": "The Credits (Motion Picture Association)",
+    "url": "https://www.motionpictures.org/2012/10/did-you-hear-that-nightmare-on-elm-street-foley-artist-gary-hecker-reveals-how-horror-movies-scariest-sound-effects-are-made/",
+    "year": 2012
+   }
+  },
+  {
+   "person": "Gary Hecker",
+   "kind": "insight",
+   "text": "Stabs are knives driven into red and green cabbages for the crunch. Hecker dropped his older method of using chicken carcasses because the mess wasn't worth it.",
+   "categories": [
+    "foley",
+    "horror",
+    "action"
+   ],
+   "source": {
+    "title": "Did You Hear That? Nightmare on Elm Street Foley Artist Gary Hecker Reveals How Horror Movies' Scariest Sound Effects Are Made",
+    "publication": "The Credits (Motion Picture Association)",
+    "url": "https://www.motionpictures.org/2012/10/did-you-hear-that-nightmare-on-elm-street-foley-artist-gary-hecker-reveals-how-horror-movies-scariest-sound-effects-are-made/",
+    "year": 2012
+   }
+  },
+  {
+   "person": "Gary Hecker",
+   "kind": "insight",
+   "text": "To break a bone, Hecker wraps a big stalk of celery in a chamois and snaps it in half. Then he layers a wet chamois and his own voice on top so the crack comes with gore.",
+   "categories": [
+    "foley",
+    "horror",
+    "action"
+   ],
+   "source": {
+    "title": "How Foley Artists Make Horror Movie Sound Effects",
+    "publication": "Mental Floss",
+    "url": "https://www.mentalfloss.com/entertainment/movies/how-foley-artists-make-horror-movie-sound-effects",
+    "year": 2015
+   }
+  },
+  {
+   "person": "Gary Hecker",
+   "kind": "insight",
+   "text": "For gurgling blood, Hecker fills his mouth with water and sprays it out at the mic, then pitches the recording down so the liquid reads as thicker than water.",
+   "categories": [
+    "foley",
+    "horror",
+    "creatures"
+   ],
+   "source": {
+    "title": "How Foley Artists Make Horror Movie Sound Effects",
+    "publication": "Mental Floss",
+    "url": "https://www.mentalfloss.com/entertainment/movies/how-foley-artists-make-horror-movie-sound-effects",
+    "year": 2015
+   }
+  },
+  {
+   "person": "Gary Hecker",
+   "kind": "insight",
+   "text": "For footsteps on a giant creature's wet tongue, the Foley crew brought in huge slabs of meat and cracked raw eggs over them as they walked.",
+   "categories": [
+    "foley",
+    "creatures"
+   ],
+   "source": {
+    "title": "Did You Hear That? Nightmare on Elm Street Foley Artist Gary Hecker Reveals How Horror Movies' Scariest Sound Effects Are Made",
+    "publication": "The Credits (Motion Picture Association)",
+    "url": "https://www.motionpictures.org/2012/10/did-you-hear-that-nightmare-on-elm-street-foley-artist-gary-hecker-reveals-how-horror-movies-scariest-sound-effects-are-made/",
+    "year": 2012
+   }
+  },
+  {
+   "person": "Gary Hecker",
+   "kind": "insight",
+   "text": "For the creature in the remake of The Thing, Hecker put on big leather gloves fitted with bony claws and performed them in sync with the monster on screen.",
+   "categories": [
+    "foley",
+    "creatures",
+    "horror"
+   ],
+   "source": {
+    "title": "Did You Hear That? Nightmare on Elm Street Foley Artist Gary Hecker Reveals How Horror Movies' Scariest Sound Effects Are Made",
+    "publication": "The Credits (Motion Picture Association)",
+    "url": "https://www.motionpictures.org/2012/10/did-you-hear-that-nightmare-on-elm-street-foley-artist-gary-hecker-reveals-how-horror-movies-scariest-sound-effects-are-made/",
+    "year": 2012
+   }
+  },
+  {
+   "person": "Gary Hecker",
+   "kind": "quote",
+   "text": "The true art of Foley is to master the sound.",
+   "categories": [
+    "foley",
+    "craft"
+   ],
+   "source": {
+    "title": "This old-school filmmaking technique is still kicking even as AI takes on a bigger role in movies",
+    "publication": "CNBC (via NBC Los Angeles)",
+    "url": "https://www.nbclosangeles.com/news/business/money-report/this-old-school-filmmaking-technique-is-still-kicking-even-as-ai-takes-on-a-bigger-role-in-movies/3665719/",
+    "year": 2025
+   }
+  },
+  {
+   "person": "Gary Hecker",
+   "kind": "quote",
+   "text": "Actors' performances, between motion and detail, AI can't do that.",
+   "categories": [
+    "foley",
+    "craft"
+   ],
+   "source": {
+    "title": "This old-school filmmaking technique is still kicking even as AI takes on a bigger role in movies",
+    "publication": "CNBC (via NBC Los Angeles)",
+    "url": "https://www.nbclosangeles.com/news/business/money-report/this-old-school-filmmaking-technique-is-still-kicking-even-as-ai-takes-on-a-bigger-role-in-movies/3665719/",
+    "year": 2025
+   }
+  },
+  {
+   "person": "Gary Hecker",
+   "kind": "insight",
+   "text": "Sprinkle coffee grounds under ordinary footsteps and they pick up the grit of walking outdoors. Hecker made a sewer cover scraping on pavement by grating a howitzer shell across a concrete slab.",
+   "categories": [
+    "foley",
+    "craft"
+   ],
+   "source": {
+    "title": "This old-school filmmaking technique is still kicking even as AI takes on a bigger role in movies",
+    "publication": "CNBC (via NBC Los Angeles)",
+    "url": "https://www.nbclosangeles.com/news/business/money-report/this-old-school-filmmaking-technique-is-still-kicking-even-as-ai-takes-on-a-bigger-role-in-movies/3665719/",
+    "year": 2025
+   }
+  },
+  {
+   "person": "Gary Hecker",
+   "kind": "insight",
+   "text": "Hecker performs to the body on screen. At 200 pounds, he has to dig deep into the floor to walk as Schwarzenegger, and lighten every step to almost nothing for a small, delicate character.",
+   "categories": [
+    "foley",
+    "story"
+   ],
+   "source": {
+    "title": "This old-school filmmaking technique is still kicking even as AI takes on a bigger role in movies",
+    "publication": "CNBC (via NBC Los Angeles)",
+    "url": "https://www.nbclosangeles.com/news/business/money-report/this-old-school-filmmaking-technique-is-still-kicking-even-as-ai-takes-on-a-bigger-role-in-movies/3665719/",
+    "year": 2025
+   }
+  },
+  {
+   "person": "Gary Hecker",
+   "kind": "insight",
+   "text": "Foley artists can also be the creature. Hecker voiced the dragon in Shrek and the aliens in Independence Day, and performed the breaths, purrs and efforts of the lions in Mufasa: The Lion King.",
+   "categories": [
+    "creatures",
+    "foley",
+    "dialogue"
+   ],
+   "source": {
+    "title": "This old-school filmmaking technique is still kicking even as AI takes on a bigger role in movies",
+    "publication": "CNBC (via NBC Los Angeles)",
+    "url": "https://www.nbclosangeles.com/news/business/money-report/this-old-school-filmmaking-technique-is-still-kicking-even-as-ai-takes-on-a-bigger-role-in-movies/3665719/",
+    "year": 2025
+   }
+  },
+  {
+   "person": "John Roesch",
+   "kind": "quote",
+   "text": "If we've done our job correctly, you don't know we've done it.",
+   "categories": [
+    "foley",
+    "craft"
+   ],
+   "source": {
+    "title": "An Interview with John Roesch",
+    "publication": "Designing Sound",
+    "url": "https://designingsound.org/2013/12/17/an-interview-with-john-roesch/",
+    "year": 2013
+   }
+  },
+  {
+   "person": "John Roesch",
+   "kind": "insight",
+   "text": "Roesch compares a good Foley session to mixing a song. If the artists balance their performances on the stage, the mixer barely has to move a fader afterwards.",
+   "categories": [
+    "foley",
+    "mixing"
+   ],
+   "source": {
+    "title": "An Interview with John Roesch",
+    "publication": "Designing Sound",
+    "url": "https://designingsound.org/2013/12/17/an-interview-with-john-roesch/",
+    "year": 2013
+   }
+  },
+  {
+   "person": "John Roesch",
+   "kind": "insight",
+   "text": "On features, Roesch's team gives each artist one character's footsteps for the whole film. Movement is recorded last, close to picture lock, because ADR and CGI changes keep opening new holes.",
+   "categories": [
+    "foley",
+    "craft"
+   ],
+   "source": {
+    "title": "An Interview with John Roesch",
+    "publication": "Designing Sound",
+    "url": "https://designingsound.org/2013/12/17/an-interview-with-john-roesch/",
+    "year": 2013
+   }
+  },
+  {
+   "person": "John Roesch",
+   "kind": "insight",
+   "text": "Foley mixer Mary Jo Lang caught a performance note Roesch had missed: a nervous character coming in to apologize wouldn't burst through the door. She would enter slowly, and the footsteps had to show it.",
+   "categories": [
+    "foley",
+    "story",
+    "collaboration"
+   ],
+   "source": {
+    "title": "An Interview with John Roesch",
+    "publication": "Designing Sound",
+    "url": "https://designingsound.org/2013/12/17/an-interview-with-john-roesch/",
+    "year": 2013
+   }
+  },
+  {
+   "person": "John Roesch",
+   "kind": "insight",
+   "text": "The River needed rain and flooding performed in sync, so Roesch's crew brought an actual fire hose onto the Foley stage.",
+   "categories": [
+    "foley",
+    "worlds"
+   ],
+   "source": {
+    "title": "An Interview with John Roesch",
+    "publication": "Designing Sound",
+    "url": "https://designingsound.org/2013/12/17/an-interview-with-john-roesch/",
+    "year": 2013
+   }
+  },
+  {
+   "person": "John Roesch",
+   "kind": "insight",
+   "text": "On Frozen, the director wanted the snow to sound cold. Roesch's team gave the snow footsteps a specific character in certain areas, so the texture of the snow carried the temperature.",
+   "categories": [
+    "foley",
+    "worlds",
+    "story"
+   ],
+   "source": {
+    "title": "An Interview with John Roesch",
+    "publication": "Designing Sound",
+    "url": "https://designingsound.org/2013/12/17/an-interview-with-john-roesch/",
+    "year": 2013
+   }
+  },
+  {
+   "person": "John Roesch",
+   "kind": "insight",
+   "text": "In-game Foley is a different job from cut scenes. One character might walk, run and jump on twenty surfaces, with countless permutations of each sound, which Roesch calls very taxing.",
+   "categories": [
+    "games",
+    "foley"
+   ],
+   "source": {
+    "title": "An Interview with John Roesch",
+    "publication": "Designing Sound",
+    "url": "https://designingsound.org/2013/12/17/an-interview-with-john-roesch/",
+    "year": 2013
+   }
+  },
+  {
+   "person": "John Roesch",
+   "kind": "insight",
+   "text": "For E.T., Roesch and Joan Rowe filled a T-shirt with deli liver and Jell-O, gaffer-taped the arm and neck holes, and shook it at the mic whenever E.T. moved, so he never sounded quite real.",
+   "categories": [
+    "foley",
+    "creatures",
+    "scifi"
+   ],
+   "source": {
+    "title": "Time to Hang Up the Heels: Behind the 44-Year Career of The Killer's Legendary Foley Artist",
+    "publication": "Inverse",
+    "url": "https://inverse.com/entertainment/the-killer-foley-artist-john-roesch-interview",
+    "year": 2023
+   }
+  },
+  {
+   "person": "John Roesch",
+   "kind": "insight",
+   "text": "To Foley the 'Thriller' dance, Roesch broke the choreography into sections and matched each one to Michael Jackson's footwork, toe work versus sidesteps. When the feet weren't visible, he played to the beat.",
+   "categories": [
+    "foley",
+    "music"
+   ],
+   "source": {
+    "title": "Time to Hang Up the Heels: Behind the 44-Year Career of The Killer's Legendary Foley Artist",
+    "publication": "Inverse",
+    "url": "https://inverse.com/entertainment/the-killer-foley-artist-john-roesch-interview",
+    "year": 2023
+   }
+  },
+  {
+   "person": "John Roesch",
+   "kind": "insight",
+   "text": "Roesch always records footsteps first, sometimes taking several days, because they set the psychoacoustic space everything else lives in. The shoes he picks decide whether a character sounds big, in control or heroic.",
+   "categories": [
+    "foley",
+    "story"
+   ],
+   "source": {
+    "title": "Time to Hang Up the Heels: Behind the 44-Year Career of The Killer's Legendary Foley Artist",
+    "publication": "Inverse",
+    "url": "https://inverse.com/entertainment/the-killer-foley-artist-john-roesch-interview",
+    "year": 2023
+   }
+  },
+  {
+   "person": "John Roesch",
+   "kind": "insight",
+   "text": "David Fincher's notes on The Killer came through the supervising sound editor in emotional terms, such as wanting a moment to feel as if the walls were closing in on Fassbender. The Foley team had to turn that feeling into props and steps.",
+   "categories": [
+    "foley",
+    "collaboration",
+    "story"
+   ],
+   "source": {
+    "title": "Time to Hang Up the Heels: Behind the 44-Year Career of The Killer's Legendary Foley Artist",
+    "publication": "Inverse",
+    "url": "https://inverse.com/entertainment/the-killer-foley-artist-john-roesch-interview",
+    "year": 2023
+   }
+  },
+  {
+   "person": "John Roesch",
+   "kind": "quote",
+   "text": "Three minds are much better than two.",
+   "categories": [
+    "collaboration",
+    "foley"
+   ],
+   "source": {
+    "title": "Time to Hang Up the Heels: Behind the 44-Year Career of The Killer's Legendary Foley Artist",
+    "publication": "Inverse",
+    "url": "https://inverse.com/entertainment/the-killer-foley-artist-john-roesch-interview",
+    "year": 2023
+   }
+  },
+  {
+   "person": "Marko Costanzo",
+   "kind": "insight",
+   "text": "For the lifeboat in Life of Pi, Costanzo lined up large metal containers to make different resonant cavities. He mapped the boat into zones: a ringing metal rim, a hollow belly, and seats that sounded different from the floor.",
+   "categories": [
+    "foley",
+    "worlds"
+   ],
+   "source": {
+    "title": "What Our Members Do: Marko Costanzo",
+    "publication": "CineMontage",
+    "url": "https://cinemontage.org/members-marko-costanzo/",
+    "year": 2017
+   }
+  },
+  {
+   "person": "Marko Costanzo",
+   "kind": "insight",
+   "text": "When the Life of Pi lifeboat's wooden pallets became makeshift rafts later in the film, the Foley team built a pit big enough to float them, so the raft sounds came from real floating wood.",
+   "categories": [
+    "foley",
+    "worlds",
+    "recording"
+   ],
+   "source": {
+    "title": "What Our Members Do: Marko Costanzo",
+    "publication": "CineMontage",
+    "url": "https://cinemontage.org/members-marko-costanzo/",
+    "year": 2017
+   }
+  },
+  {
+   "person": "Marko Costanzo",
+   "kind": "insight",
+   "text": "Costanzo aims for footsteps that carry the personality the actor is playing on camera, not just sync. Each walk should tell you who the character is.",
+   "categories": [
+    "foley",
+    "story"
+   ],
+   "source": {
+    "title": "What Our Members Do: Marko Costanzo",
+    "publication": "CineMontage",
+    "url": "https://cinemontage.org/members-marko-costanzo/",
+    "year": 2017
+   }
+  },
+  {
+   "person": "Marko Costanzo",
+   "kind": "insight",
+   "text": "Costanzo's first Foley session came about because Elisha Birnbaum had nothing for a lightbulb pull-chain. Costanzo said he had one, brought it in the next morning and performed it. Offering the prop nobody else has can open the door.",
+   "categories": [
+    "collaboration",
+    "foley"
+   ],
+   "source": {
+    "title": "What Our Members Do: Marko Costanzo",
+    "publication": "CineMontage",
+    "url": "https://cinemontage.org/members-marko-costanzo/",
+    "year": 2017
+   }
+  },
+  {
+   "person": "Marko Costanzo",
+   "kind": "insight",
+   "text": "Costanzo learned to balance his performances by listening to the Foley editors at Sound One describe the sound they were after. Their comments taught him what the room should deliver before anyone touched a fader.",
+   "categories": [
+    "foley",
+    "collaboration"
+   ],
+   "source": {
+    "title": "What Our Members Do: Marko Costanzo",
+    "publication": "CineMontage",
+    "url": "https://cinemontage.org/members-marko-costanzo/",
+    "year": 2017
+   }
+  },
+  {
+   "person": "Marko Costanzo",
+   "kind": "quote",
+   "text": "Find any job you can at a facility that has a Foley stage.",
+   "categories": [
+    "collaboration",
+    "foley"
+   ],
+   "source": {
+    "title": "What Our Members Do: Marko Costanzo",
+    "publication": "CineMontage",
+    "url": "https://cinemontage.org/members-marko-costanzo/",
+    "year": 2017
+   }
+  },
+  {
+   "person": "Marko Costanzo",
+   "kind": "quote",
+   "text": "Be proud of what you do! Your name is on it.",
+   "categories": [
+    "craft",
+    "collaboration"
+   ],
+   "source": {
+    "title": "What Our Members Do: Marko Costanzo",
+    "publication": "CineMontage",
+    "url": "https://cinemontage.org/members-marko-costanzo/",
+    "year": 2017
+   }
+  },
+  {
+   "person": "Caoimhe Doyle",
+   "kind": "quote",
+   "text": "The more no one notices our work, the more we've succeeded.",
+   "categories": [
+    "foley",
+    "craft"
+   ],
+   "source": {
+    "title": "The Foley Grail! Interview with Caoimhe Doyle, Foley Artist",
+    "publication": "Pulse College",
+    "url": "https://www.pulsecollege.com/interview-caoimhe-doyle-foley-artist/",
+    "year": null
+   }
+  },
+  {
+   "person": "Caoimhe Doyle",
+   "kind": "quote",
+   "text": "Animation and Foley is such a good partnership.",
+   "categories": [
+    "foley",
+    "story"
+   ],
+   "source": {
+    "title": "The Foley Grail! Interview with Caoimhe Doyle, Foley Artist",
+    "publication": "Pulse College",
+    "url": "https://www.pulsecollege.com/interview-caoimhe-doyle-foley-artist/",
+    "year": null
+   }
+  },
+  {
+   "person": "Caoimhe Doyle",
+   "kind": "insight",
+   "text": "Doyle's most hardworking prop is a car-cleaning chamois. It has stood in for delivering babies, removing horses' heads and pulling hearts out of chests.",
+   "categories": [
+    "foley",
+    "horror"
+   ],
+   "source": {
+    "title": "The Foley Grail! Interview with Caoimhe Doyle, Foley Artist",
+    "publication": "Pulse College",
+    "url": "https://www.pulsecollege.com/interview-caoimhe-doyle-foley-artist/",
+    "year": null
+   }
+  },
+  {
+   "person": "Caoimhe Doyle",
+   "kind": "insight",
+   "text": "For things that don't exist, like an alien moving or a dragon's egg, Doyle says there is no right or wrong answer. The artist's job is to commit and bring something to it.",
+   "categories": [
+    "foley",
+    "creatures",
+    "scifi"
+   ],
+   "source": {
+    "title": "The Foley Grail! Interview with Caoimhe Doyle, Foley Artist",
+    "publication": "Pulse College",
+    "url": "https://www.pulsecollege.com/interview-caoimhe-doyle-foley-artist/",
+    "year": null
+   }
+  },
+  {
+   "person": "Caoimhe Doyle",
+   "kind": "insight",
+   "text": "Doyle collects anything that sounds interesting and is easy to handle, from rigatoni and roast chickens to hubcaps and air vents. She keeps it indexed in drawers so a dog's paws or a vintage lighter can be found in seconds.",
+   "categories": [
+    "foley",
+    "craft"
+   ],
+   "source": {
+    "title": "The Foley Grail! Interview with Caoimhe Doyle, Foley Artist",
+    "publication": "Pulse College",
+    "url": "https://www.pulsecollege.com/interview-caoimhe-doyle-foley-artist/",
+    "year": null
+   }
+  },
+  {
+   "person": "Caoimhe Doyle",
+   "kind": "insight",
+   "text": "No two Foley artists handle the same prop the same way. Doyle stresses recognizing when an approach isn't working and moving on to a new one instead of forcing it.",
+   "categories": [
+    "foley",
+    "craft"
+   ],
+   "source": {
+    "title": "The Foley Grail! Interview with Caoimhe Doyle, Foley Artist",
+    "publication": "Pulse College",
+    "url": "https://www.pulsecollege.com/interview-caoimhe-doyle-foley-artist/",
+    "year": null
+   }
+  },
+  {
+   "person": "Caoimhe Doyle",
+   "kind": "insight",
+   "text": "Doyle says a Foley performance only works if the mixer, in her case Jean McGrath, places the mics and records the room properly. A good mixer also keeps ideas moving when a session stalls.",
+   "categories": [
+    "foley",
+    "collaboration",
+    "mixing"
+   ],
+   "source": {
+    "title": "The Foley Grail! Interview with Caoimhe Doyle, Foley Artist",
+    "publication": "Pulse College",
+    "url": "https://www.pulsecollege.com/interview-caoimhe-doyle-foley-artist/",
+    "year": null
+   }
+  },
+  {
+   "person": "Caoimhe Doyle",
+   "kind": "insight",
+   "text": "Doyle's advice for newcomers is to be on board the moment you walk into the room, acting on what needs doing, and to learn when to step in and when to step back. That gets you invited back.",
+   "categories": [
+    "collaboration"
+   ],
+   "source": {
+    "title": "The Foley Grail! Interview with Caoimhe Doyle, Foley Artist",
+    "publication": "Pulse College",
+    "url": "https://www.pulsecollege.com/interview-caoimhe-doyle-foley-artist/",
+    "year": null
+   }
+  },
+  {
+   "person": "Shelley Roden",
+   "kind": "insight",
+   "text": "For Anxiety plucking Riley's belief strings in Inside Out 2, Roden plucked a low string on a grand piano, damped with a ruler and the pedal to kill the pitch. She layered it with coiled copper wire striking a steel sundial.",
+   "categories": [
+    "foley",
+    "story",
+    "craft"
+   ],
+   "source": {
+    "title": "Playing with Sound: An Interview with Shelley Roden",
+    "publication": "American Journal of Play (The Strong)",
+    "url": "https://www.museumofplay.org/app/uploads/2026/04/AJP-18-1-Roden-Interview.pdf",
+    "year": 2026
+   }
+  },
+  {
+   "person": "Shelley Roden",
+   "kind": "insight",
+   "text": "Baby Groot's dancing feet in Guardians of the Galaxy Vol. 2 were two small wooden temple blocks hit against a folded bamboo scroll on cement. The blocks gave the tone of root feet, and the bamboo gave the texture of woven bark.",
+   "categories": [
+    "foley",
+    "creatures"
+   ],
+   "source": {
+    "title": "Playing with Sound: An Interview with Shelley Roden",
+    "publication": "American Journal of Play (The Strong)",
+    "url": "https://www.museumofplay.org/app/uploads/2026/04/AJP-18-1-Roden-Interview.pdf",
+    "year": 2026
+   }
+  },
+  {
+   "person": "Shelley Roden",
+   "kind": "insight",
+   "text": "For Buzz's footsteps in Toy Story 4, Roden played a hollow, palm-sized triangular plastic night light against cement by hand, rolling it from two sides onto one to make a full plastic heel-toe.",
+   "categories": [
+    "foley",
+    "story"
+   ],
+   "source": {
+    "title": "Playing with Sound: An Interview with Shelley Roden",
+    "publication": "American Journal of Play (The Strong)",
+    "url": "https://www.museumofplay.org/app/uploads/2026/04/AJP-18-1-Roden-Interview.pdf",
+    "year": 2026
+   }
+  },
+  {
+   "person": "Shelley Roden",
+   "kind": "insight",
+   "text": "Roden passed on real cowboy boots for Woody because they tend to sound either too high and clicky or too low and clonky. A pair of boys' dress shoes gave her a cleaner, balanced heel-toe.",
+   "categories": [
+    "foley",
+    "story"
+   ],
+   "source": {
+    "title": "Playing with Sound: An Interview with Shelley Roden",
+    "publication": "American Journal of Play (The Strong)",
+    "url": "https://www.museumofplay.org/app/uploads/2026/04/AJP-18-1-Roden-Interview.pdf",
+    "year": 2026
+   }
+  },
+  {
+   "person": "Shelley Roden",
+   "kind": "insight",
+   "text": "Roden's most versatile tool is a 1950s steel garage cabinet. She walks on it for Andor's workers boarding a transport, presses a rusty hinge against it as a resonator, and hits an iron wagon wheel inside it.",
+   "categories": [
+    "foley",
+    "scifi",
+    "craft"
+   ],
+   "source": {
+    "title": "Playing with Sound: An Interview with Shelley Roden",
+    "publication": "American Journal of Play (The Strong)",
+    "url": "https://www.museumofplay.org/app/uploads/2026/04/AJP-18-1-Roden-Interview.pdf",
+    "year": 2026
+   }
+  },
+  {
+   "person": "Shelley Roden",
+   "kind": "insight",
+   "text": "Thrift-store finds from Roden's stage: an industrial stapler for the ka-chunk of a sword leaving its hilt, a silver platter for a shield ping, and an upturned salad bowl dragged across hardwood for a friction groan.",
+   "categories": [
+    "foley",
+    "weapons"
+   ],
+   "source": {
+    "title": "Playing with Sound: An Interview with Shelley Roden",
+    "publication": "American Journal of Play (The Strong)",
+    "url": "https://www.museumofplay.org/app/uploads/2026/04/AJP-18-1-Roden-Interview.pdf",
+    "year": 2026
+   }
+  },
+  {
+   "person": "Shelley Roden",
+   "kind": "insight",
+   "text": "Roden thinks of props as musical notes and textures. She buys many shapes and sizes of one material, picturing each being hit, rubbed, brushed or used as a resonator.",
+   "categories": [
+    "foley",
+    "music",
+    "recording"
+   ],
+   "source": {
+    "title": "Playing with Sound: An Interview with Shelley Roden",
+    "publication": "American Journal of Play (The Strong)",
+    "url": "https://www.museumofplay.org/app/uploads/2026/04/AJP-18-1-Roden-Interview.pdf",
+    "year": 2026
+   }
+  },
+  {
+   "person": "Shelley Roden",
+   "kind": "insight",
+   "text": "Roden imagines the sound first, holds it in her head (sometimes singing it), and wanders the stage gathering candidates. Then she performs to picture and suspends judgment until playback alongside dialogue and music.",
+   "categories": [
+    "foley",
+    "craft"
+   ],
+   "source": {
+    "title": "Playing with Sound: An Interview with Shelley Roden",
+    "publication": "American Journal of Play (The Strong)",
+    "url": "https://www.museumofplay.org/app/uploads/2026/04/AJP-18-1-Roden-Interview.pdf",
+    "year": 2026
+   }
+  },
+  {
+   "person": "Shelley Roden",
+   "kind": "quote",
+   "text": "Each Foley cue is a mystery to solve.",
+   "categories": [
+    "foley",
+    "craft"
+   ],
+   "source": {
+    "title": "Playing with Sound: An Interview with Shelley Roden",
+    "publication": "American Journal of Play (The Strong)",
+    "url": "https://www.museumofplay.org/app/uploads/2026/04/AJP-18-1-Roden-Interview.pdf",
+    "year": 2026
+   }
+  },
+  {
+   "person": "Shelley Roden",
+   "kind": "quote",
+   "text": "Working with limited resources made me even more inventive.",
+   "categories": [
+    "craft",
+    "foley"
+   ],
+   "source": {
+    "title": "Playing with Sound: An Interview with Shelley Roden",
+    "publication": "American Journal of Play (The Strong)",
+    "url": "https://www.museumofplay.org/app/uploads/2026/04/AJP-18-1-Roden-Interview.pdf",
+    "year": 2026
+   }
+  },
+  {
+   "person": "Shelley Roden",
+   "kind": "insight",
+   "text": "Early on, Roden sat in the control room for playbacks to learn how the microphones heard her materials and how placement changed the frequencies she was getting.",
+   "categories": [
+    "foley",
+    "recording",
+    "mixing"
+   ],
+   "source": {
+    "title": "Playing with Sound: An Interview with Shelley Roden",
+    "publication": "American Journal of Play (The Strong)",
+    "url": "https://www.museumofplay.org/app/uploads/2026/04/AJP-18-1-Roden-Interview.pdf",
+    "year": 2026
+   }
+  },
+  {
+   "person": "Shelley Roden",
+   "kind": "insight",
+   "text": "For game assets, Roden asks clients for short looping animation clips so she still has something to perform against. Games need many variations of every sound, which makes it intensely physical work.",
+   "categories": [
+    "games",
+    "foley"
+   ],
+   "source": {
+    "title": "Playing with Sound: An Interview with Shelley Roden",
+    "publication": "American Journal of Play (The Strong)",
+    "url": "https://www.museumofplay.org/app/uploads/2026/04/AJP-18-1-Roden-Interview.pdf",
+    "year": 2026
+   }
+  },
+  {
+   "person": "Pete Burgis",
+   "kind": "quote",
+   "text": "I realised there is so much character in footsteps.",
+   "categories": [
+    "foley",
+    "story"
+   ],
+   "source": {
+    "title": "'We suspend disbelief': The art of making films sound the way life does",
+    "publication": "Off Script (Goldsmiths, University of London)",
+    "url": "https://mccs-journalism.gold.ac.uk/wp/offscript/we-suspend-disbelief-the-art-of-making-films-sound-the-way-life-does",
+    "year": 2023
+   }
+  },
+  {
+   "person": "Pete Burgis",
+   "kind": "quote",
+   "text": "Vampires don't eat; they puncture and suck.",
+   "categories": [
+    "foley",
+    "horror",
+    "creatures"
+   ],
+   "source": {
+    "title": "'We suspend disbelief': The art of making films sound the way life does",
+    "publication": "Off Script (Goldsmiths, University of London)",
+    "url": "https://mccs-journalism.gold.ac.uk/wp/offscript/we-suspend-disbelief-the-art-of-making-films-sound-the-way-life-does",
+    "year": 2023
+   }
+  },
+  {
+   "person": "Pete Burgis",
+   "kind": "insight",
+   "text": "For vampire bites in Razor Blade Smile, Burgis bit into ripe pears. Their firm skin gave a crack on the puncture, and the juice running down his chin gave the suck.",
+   "categories": [
+    "foley",
+    "horror"
+   ],
+   "source": {
+    "title": "'We suspend disbelief': The art of making films sound the way life does",
+    "publication": "Off Script (Goldsmiths, University of London)",
+    "url": "https://mccs-journalism.gold.ac.uk/wp/offscript/we-suspend-disbelief-the-art-of-making-films-sound-the-way-life-does",
+    "year": 2023
+   }
+  },
+  {
+   "person": "Pete Burgis",
+   "kind": "insight",
+   "text": "Burgis works through a film one character at a time. He can't be Tom Cruise one second and an old woman crossing the street the next, so he holds a single character's energy in his head for the whole day.",
+   "categories": [
+    "foley",
+    "story",
+    "craft"
+   ],
+   "source": {
+    "title": "'We suspend disbelief': The art of making films sound the way life does",
+    "publication": "Off Script (Goldsmiths, University of London)",
+    "url": "https://mccs-journalism.gold.ac.uk/wp/offscript/we-suspend-disbelief-the-art-of-making-films-sound-the-way-life-does",
+    "year": 2023
+   }
+  },
+  {
+   "person": "Pete Burgis",
+   "kind": "insight",
+   "text": "For Band of Brothers, Burgis recorded movement in original World War II American uniforms and boots, so every rustle and buckle had the right fabric weight.",
+   "categories": [
+    "foley",
+    "weapons"
+   ],
+   "source": {
+    "title": "'We suspend disbelief': The art of making films sound the way life does",
+    "publication": "Off Script (Goldsmiths, University of London)",
+    "url": "https://mccs-journalism.gold.ac.uk/wp/offscript/we-suspend-disbelief-the-art-of-making-films-sound-the-way-life-does",
+    "year": 2023
+   }
+  },
+  {
+   "person": "Pete Burgis",
+   "kind": "insight",
+   "text": "Burgis took tap dance lessons so he could convincingly perform Hugh Grant's dancing feet in the Paddington 2 dance scene.",
+   "categories": [
+    "foley",
+    "music"
+   ],
+   "source": {
+    "title": "'We suspend disbelief': The art of making films sound the way life does",
+    "publication": "Off Script (Goldsmiths, University of London)",
+    "url": "https://mccs-journalism.gold.ac.uk/wp/offscript/we-suspend-disbelief-the-art-of-making-films-sound-the-way-life-does",
+    "year": 2023
+   }
+  },
+  {
+   "person": "Pete Burgis",
+   "kind": "insight",
+   "text": "Before his career began, Burgis trained his ear and body on Brighton's seafront, watching people walk past and copying their gaits with his feet while sitting down.",
+   "categories": [
+    "foley",
+    "recording"
+   ],
+   "source": {
+    "title": "'We suspend disbelief': The art of making films sound the way life does",
+    "publication": "Off Script (Goldsmiths, University of London)",
+    "url": "https://mccs-journalism.gold.ac.uk/wp/offscript/we-suspend-disbelief-the-art-of-making-films-sound-the-way-life-does",
+    "year": 2023
+   }
+  },
+  {
+   "person": "Pete Burgis",
+   "kind": "insight",
+   "text": "Burgis recorded movement for Harry Potter wearing Ron Weasley's original Quidditch cape. On the final battle, he kept breaking down in tears on the Hogwarts staircase walk and had to redo it several times.",
+   "categories": [
+    "foley",
+    "story"
+   ],
+   "source": {
+    "title": "'We suspend disbelief': The art of making films sound the way life does",
+    "publication": "Off Script (Goldsmiths, University of London)",
+    "url": "https://mccs-journalism.gold.ac.uk/wp/offscript/we-suspend-disbelief-the-art-of-making-films-sound-the-way-life-does",
+    "year": 2023
+   }
+  },
+  {
+   "person": "Sanaa Kelley",
+   "kind": "quote",
+   "text": "If it's on screen, it's important, and I will do my best to reenact it.",
+   "categories": [
+    "foley",
+    "craft"
+   ],
+   "source": {
+    "title": "Sanaa Kelley of Reel Foley Sound talks all things foley",
+    "publication": "New 32 Productions",
+    "url": "https://www.new32productions.com/sanaa-kelley/",
+    "year": 2024
+   }
+  },
+  {
+   "person": "Sanaa Kelley",
+   "kind": "quote",
+   "text": "Good actors have props for a reason.",
+   "categories": [
+    "foley",
+    "story"
+   ],
+   "source": {
+    "title": "Sanaa Kelley of Reel Foley Sound talks all things foley",
+    "publication": "New 32 Productions",
+    "url": "https://www.new32productions.com/sanaa-kelley/",
+    "year": 2024
+   }
+  },
+  {
+   "person": "Sanaa Kelley",
+   "kind": "insight",
+   "text": "Kelley's bone-break menu: celery for big bones, several stalks for ribs breaking together, a glow stick for a small finger, a carrot for a bigger one, and uncooked lasagna, with cloth on top when there's clothing involved.",
+   "categories": [
+    "foley",
+    "action",
+    "horror"
+   ],
+   "source": {
+    "title": "Sanaa Kelley of Reel Foley Sound talks all things foley",
+    "publication": "New 32 Productions",
+    "url": "https://www.new32productions.com/sanaa-kelley/",
+    "year": 2024
+   }
+  },
+  {
+   "person": "Sanaa Kelley",
+   "kind": "insight",
+   "text": "Coffee grounds on cement dragged with a leather purse made waves for a friend's Gilligan's Island work. Kelley reused the trick for traffic, and ground coffee on a cardboard box gives her snowboarding on ice.",
+   "categories": [
+    "foley",
+    "worlds"
+   ],
+   "source": {
+    "title": "Sanaa Kelley of Reel Foley Sound talks all things foley",
+    "publication": "New 32 Productions",
+    "url": "https://www.new32productions.com/sanaa-kelley/",
+    "year": 2024
+   }
+  },
+  {
+   "person": "Sanaa Kelley",
+   "kind": "insight",
+   "text": "For animal footsteps, Kelley made a homemade prop: gloves with paperclips attached to the fingertips, giving claws you can perform with your hands.",
+   "categories": [
+    "foley",
+    "creatures"
+   ],
+   "source": {
+    "title": "Sanaa Kelley of Reel Foley Sound talks all things foley",
+    "publication": "New 32 Productions",
+    "url": "https://www.new32productions.com/sanaa-kelley/",
+    "year": 2024
+   }
+  },
+  {
+   "person": "Sanaa Kelley",
+   "kind": "insight",
+   "text": "Kelley's practice routine: mute Foley clips online and try to match them at home with whatever is around, recording on a phone. The recordings sound thin, but the skill transfers.",
+   "categories": [
+    "foley",
+    "craft"
+   ],
+   "source": {
+    "title": "Sanaa Kelley of Reel Foley Sound talks all things foley",
+    "publication": "New 32 Productions",
+    "url": "https://www.new32productions.com/sanaa-kelley/",
+    "year": 2024
+   }
+  },
+  {
+   "person": "Sanaa Kelley",
+   "kind": "insight",
+   "text": "Kelley's advice to new Foley artists: don't buy mics, because studios have them, but do buy shoes, at least four pairs of each common style, so two actors in similar shoes can still sound different.",
+   "categories": [
+    "foley",
+    "craft",
+    "collaboration"
+   ],
+   "source": {
+    "title": "Sanaa Kelley of Reel Foley Sound talks all things foley",
+    "publication": "New 32 Productions",
+    "url": "https://www.new32productions.com/sanaa-kelley/",
+    "year": 2024
+   }
+  },
+  {
+   "person": "Simon Hayes",
+   "kind": "insight",
+   "text": "Hayes argued that singing live on Les Misérables only made sense if it survived to the final mix. Falling back on ADR would throw away the reason for doing it, which was letting actors play feelings instead of chasing a tempo.",
+   "categories": [
+    "dialogue",
+    "music",
+    "story"
+   ],
+   "source": {
+    "title": "The Les Misérables Sound Team: Part 1",
+    "publication": "Sound On Sound",
+    "url": "https://www.soundonsound.com/techniques/les-miserables-sound-team-part-1",
+    "year": 2013
+   }
+  },
+  {
+   "person": "Simon Hayes",
+   "kind": "insight",
+   "text": "On Les Misérables, the lavs sat on the outside of costumes at the centre of the chest, disguised with costume offcuts glued over them and painted out with CGI where needed. That kept clothing rustle off the vocals.",
+   "categories": [
+    "dialogue",
+    "recording"
+   ],
+   "source": {
+    "title": "The Les Misérables Sound Team: Part 1",
+    "publication": "Sound On Sound",
+    "url": "https://www.soundonsound.com/techniques/les-miserables-sound-team-part-1",
+    "year": 2013
+   }
+  },
+  {
+   "person": "Simon Hayes",
+   "kind": "insight",
+   "text": "For singers with huge dynamic range, such as Hugh Jackman and Russell Crowe, Hayes put two lavs on each actor: one close to the mouth for quiet passages and one lower down to take the loud ones.",
+   "categories": [
+    "dialogue",
+    "music",
+    "recording"
+   ],
+   "source": {
+    "title": "The Les Misérables Sound Team: Part 1",
+    "publication": "Sound On Sound",
+    "url": "https://www.soundonsound.com/techniques/les-miserables-sound-team-part-1",
+    "year": 2013
+   }
+  },
+  {
+   "person": "Simon Hayes",
+   "kind": "insight",
+   "text": "Les Misérables actors heard a live pianist through tiny earpieces fed by induction loops tuned for each location. The piano was EQ'd to the mid-range, and low notes were avoided so the feed stayed intelligible.",
+   "categories": [
+    "dialogue",
+    "music"
+   ],
+   "source": {
+    "title": "The Les Misérables Sound Team: Part 1",
+    "publication": "Sound On Sound",
+    "url": "https://www.soundonsound.com/techniques/les-miserables-sound-team-part-1",
+    "year": 2013
+   }
+  },
+  {
+   "person": "Simon Hayes",
+   "kind": "insight",
+   "text": "To keep the Les Misérables vocals clean, wind machines stayed outside the stage and blew through long tubes, rain was a fine mist, and the design used real cobblestones and a real oak door so incidental sounds were usable.",
+   "categories": [
+    "dialogue",
+    "recording",
+    "collaboration"
+   ],
+   "source": {
+    "title": "The Les Misérables Sound Team: Part 1",
+    "publication": "Sound On Sound",
+    "url": "https://www.soundonsound.com/techniques/les-miserables-sound-team-part-1",
+    "year": 2013
+   }
+  },
+  {
+   "person": "Simon Hayes",
+   "kind": "insight",
+   "text": "Hayes plans mic placement with costume and makeup from the script breakdown on. His rule is to get the mic as close to the edge of frame as possible, with as little fabric as possible between it and the mouth.",
+   "categories": [
+    "dialogue",
+    "collaboration",
+    "recording"
+   ],
+   "source": {
+    "title": "In Conversation with Simon Hayes",
+    "publication": "DPA Microphones",
+    "url": "https://www.dpamicrophones.com/news/2015/in-conversation-with-simon-hayes/",
+    "year": 2015
+   }
+  },
+  {
+   "person": "Simon Hayes",
+   "kind": "insight",
+   "text": "Hayes matches the mic to the voice: one capsule for bass-heavy voices and chest placements, a brighter one for shrill voices or rigs in the hair and hats. On Guardians of the Galaxy, a cable ran through Bautista's prosthetic scars.",
+   "categories": [
+    "dialogue",
+    "recording"
+   ],
+   "source": {
+    "title": "In Conversation with Simon Hayes",
+    "publication": "DPA Microphones",
+    "url": "https://www.dpamicrophones.com/news/2015/in-conversation-with-simon-hayes/",
+    "year": 2015
+   }
+  },
+  {
+   "person": "Simon Hayes",
+   "kind": "insight",
+   "text": "Hayes pushes producers to fund production sound properly, with two booms at all times and an assistant working full time on radio mics, because better sync sound means less ADR later.",
+   "categories": [
+    "dialogue",
+    "collaboration"
+   ],
+   "source": {
+    "title": "In Conversation with Simon Hayes",
+    "publication": "DPA Microphones",
+    "url": "https://www.dpamicrophones.com/news/2015/in-conversation-with-simon-hayes/",
+    "year": 2015
+   }
+  },
+  {
+   "person": "Simon Hayes",
+   "kind": "insight",
+   "text": "Hayes records multitrack mono rather than surround and delivers isolated stems to the re-recording mixer, so the dialogue stays flexible as scenes get recut.",
+   "categories": [
+    "dialogue",
+    "mixing"
+   ],
+   "source": {
+    "title": "In Conversation with Simon Hayes",
+    "publication": "DPA Microphones",
+    "url": "https://www.dpamicrophones.com/news/2015/in-conversation-with-simon-hayes/",
+    "year": 2015
+   }
+  }
+ ]
+}
