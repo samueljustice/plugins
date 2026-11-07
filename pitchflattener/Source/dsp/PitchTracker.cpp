@@ -329,16 +329,12 @@ namespace pf
 
         const float releaseFrames = (float) (0.25 / hopSec);
         bool active = tr.flag != None && ! (tr.flag == Held && (float) tr.heldFor > releaseFrames);
-        float trackCents = tr.cents;
-
-        if (settings.manualOverride)
-        {
-            active = true;
-            trackCents = hzToCents (settings.overrideHz);
-        }
+        const float trackCents = tr.cents;
 
         // --- latch state -----------------------------------------------------
-        if (relatchPending)
+        // Manual Override replaces the target, so nothing is latched while it is on: turning it off
+        // latches afresh to the next sound.
+        if (relatchPending || settings.manualOverride)
         {
             latched = false;
             relatchPending = false;
@@ -350,7 +346,12 @@ namespace pf
             latched = false;    // a new sound after >1 s of silence re-latches
 
         float target = trackCents;
-        switch (settings.targetMode)
+        if (settings.manualOverride)
+        {
+            // Manual Override: the detected pitch is flattened to Override Hz, whatever the target mode.
+            target = hzToCents (settings.overrideHz);
+        }
+        else switch (settings.targetMode)
         {
             case TargetMode::Fixed:
                 target = hzToCents (settings.targetHz);
@@ -358,7 +359,6 @@ namespace pf
 
             case TargetMode::Auto:
             {
-                if (settings.manualOverride) { target = trackCents; break; }
                 const int K = autoHalfFrames;
                 const float sig = std::max (1.0f, 0.5f * (float) K);
                 const float inv2s2 = 1.0f / (2.0f * sig * sig);
@@ -381,7 +381,7 @@ namespace pf
             case TargetMode::NumModes:
             default:
             {
-                if (! latched && (tr.flag == Voiced || settings.manualOverride))
+                if (! latched && tr.flag == Voiced)
                 {
                     // latch to the median of the first ~300 ms of the sound (we can see ahead)
                     const int ahead = std::min (targetLag, (int) std::lround (0.3 / hopSec));
@@ -392,7 +392,7 @@ namespace pf
                         if (v.flag == Voiced)
                             scratch[(size_t) n++] = v.cents;
                     }
-                    latchedCents = settings.manualOverride ? trackCents : (n > 0 ? medianOf (scratch.data(), n) : trackCents);
+                    latchedCents = n > 0 ? medianOf (scratch.data(), n) : trackCents;
                     latched = true;
                 }
                 target = latched ? latchedCents : trackCents;

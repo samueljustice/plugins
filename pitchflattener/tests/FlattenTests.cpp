@@ -373,6 +373,51 @@ namespace
     }
 
     /** Runs a 900 Hz tone flattened to 1000 Hz; optionally injects a NaN at t=1 s. */
+    /** Manual Override flattens the detected pitch to Override Hz in every target mode. */
+    bool testOverride (double fs)
+    {
+        bool ok = true;
+        for (auto mode : { TargetMode::Latch, TargetMode::Fixed, TargetMode::Auto })
+        {
+            FlattenerCore core;
+            DetectorConfig dc;
+            core.prepare (fs, 512, 2, dc, 1);
+            auto s = LiveSettings {};
+            s.targetMode = mode;
+            s.targetHz = 700.0f;        // must be ignored while Override is on
+            s.manualOverride = true;
+            s.overrideHz = 1000.0f;
+            core.setLiveSettings (s);
+            const int lat = core.getLatencySamples();
+            const int len = (int) (4 * fs), n = lat + len;
+            std::vector<float> l ((size_t) n, 0.0f), r;
+            double ph = 0.0;
+            for (int i = 0; i < len; ++i)
+            {
+                // 900 Hz with a +-100-cent wobble at 2 Hz
+                ph += twoPi * 900.0 * std::pow (2.0, std::sin (twoPi * 2.0 * i / fs) / 12.0) / fs;
+                l[(size_t) i] = (float) (0.3 * std::sin (ph));
+            }
+            r = l;
+            for (int pos = 0; pos < n; pos += 512)
+            {
+                float* ch[2] = { l.data() + pos, r.data() + pos };
+                core.process (ch, 2, std::min (512, n - pos));
+            }
+            float worst = 0.0f;
+            for (double t = 1.0; t < 3.6; t += 0.1)
+            {
+                const float hz = measurePitch (l.data() + lat + (int) (t * fs), (int) (0.04 * fs), fs, 1000.0f);
+                worst = std::max (worst, hz > 0.0f ? std::abs (hzToCents (hz) - hzToCents (1000.0f)) : 1200.0f);
+            }
+            const bool pass = worst < 25.0f;
+            std::printf ("  override in %s mode: worst %.1f cents from Override Hz -> %s\n",
+                         mode == TargetMode::Latch ? "Latch" : mode == TargetMode::Fixed ? "Fixed" : "Auto", worst, pass ? "OK" : "FAIL");
+            ok &= pass;
+        }
+        return ok;
+    }
+
     bool testToneAndNaN (double fs, bool injectNaN, const char* label)
     {
         FlattenerCore core;
@@ -473,6 +518,7 @@ int main (int argc, char** argv)
     for (double odd : { 32000.0, 88200.0, 176400.0 })
         ok &= testToneAndNaN (odd, false, "odd sample rate");
     ok &= testRebuildsMidStream (fs);
+    ok &= testOverride (fs);
 
     const double c = 343.0;
     std::vector<Case> cases = {
