@@ -2,127 +2,83 @@
 
 #include <JuceHeader.h>
 #include "PluginProcessor.h"
-#include "CustomFonts.h"
+#include "Theme.h"
+#include "Controls.h"
+#include "SnippetDisplay.h"
+#include "AboutWindow.h"
 
-// Custom LookAndFeel to handle tooltip font
-class CustomLookAndFeel : public juce::LookAndFeel_V4
-{
-public:
-    CustomLookAndFeel() 
-    {
-        // Set the default font for the look and feel
-        setDefaultSansSerifTypeface(getCustomFonts()->getMediumTypeface());
-    }
-};
-
-class AboutWindow : public juce::DocumentWindow
-{
-public:
-    AboutWindow();
-    ~AboutWindow() override;
-    
-    void closeButtonPressed() override;
-    
-private:
-    class AboutContent : public juce::Component
-    {
-    public:
-        AboutContent();
-        void paint(juce::Graphics& g) override;
-        void resized() override;
-        
-    private:
-        juce::Label titleLabel;
-        juce::Label versionLabel;
-        juce::Label buildTimestampLabel;
-        juce::Label authorLabel;
-        juce::HyperlinkButton emailButton;
-        juce::HyperlinkButton websiteButton;
-        juce::TextButton checkUpdateButton{"Check for Updates"};
-        juce::Label updateStatusLabel;
-        juce::TextEditor licenseInfo;
-        
-        void checkForUpdates();
-        
-        JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(AboutContent)
-    };
-    
-    std::unique_ptr<AboutContent> content;
-    
-    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(AboutWindow)
-};
-
+/**
+ * Laid out at a fixed base size and scaled uniformly, so the window can be
+ * resized (keeping its aspect ratio) without re-flowing anything.
+ */
 class ReversinatorAudioProcessorEditor : public juce::AudioProcessorEditor
 {
 public:
-    ReversinatorAudioProcessorEditor (ReversinatorAudioProcessor&);
+    explicit ReversinatorAudioProcessorEditor(ReversinatorAudioProcessor&);
     ~ReversinatorAudioProcessorEditor() override;
 
-    void paint (juce::Graphics&) override;
+    void paint(juce::Graphics&) override;
     void resized() override;
 
-private:
-    ReversinatorAudioProcessor& audioProcessor;
-    
-    // Main controls
-    juce::ToggleButton reverserButton;
-    juce::Slider timeSlider;
-    juce::Slider feedbackSlider;
-    juce::Slider wetMixSlider;
-    juce::Slider dryMixSlider;
-    juce::ComboBox modeSelector;
-    juce::Slider crossfadeSlider;
-    juce::Slider envelopeSlider;
-    
-    // Labels
-    juce::Label titleLabel;
-    juce::Label reverserLabel;
-    juce::Label timeLabel;
-    juce::Label feedbackLabel;
-    juce::Label wetMixLabel;
-    juce::Label dryMixLabel;
-    juce::Label modeLabel;
-    juce::Label crossfadeLabel;
-    juce::Label envelopeLabel;
-    
-    // Value labels
-    juce::Label timeValueLabel;
-    juce::Label feedbackValueLabel;
-    juce::Label wetMixValueLabel;
-    juce::Label dryMixValueLabel;
-    juce::Label crossfadeValueLabel;
-    juce::Label envelopeValueLabel;
-    
-    // Website link
-    juce::HyperlinkButton websiteLink;
-    
-    // About button
-    juce::TextButton aboutButton{"About"};
-    std::unique_ptr<AboutWindow> aboutWindow;
-    
-    // Attachments
-    std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> reverserAttachment;
-    std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> timeAttachment;
-    std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> feedbackAttachment;
-    std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> wetMixAttachment;
-    std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> dryMixAttachment;
-    std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> modeAttachment;
-    std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> crossfadeAttachment;
-    std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> envelopeAttachment;
-    
-    // Scaling
-    static constexpr int defaultWidth = 750;
-    static constexpr int defaultHeight = 380;
-    float currentScale = 1.0f;
-    
-    // Look and feel
-    CustomLookAndFeel lookAndFeel;
-    
-    // Tooltip window
-    juce::TooltipWindow tooltipWindow{this, 700};
-    
-    void setupSlider(juce::Slider& slider, juce::Label& label, juce::Label& valueLabel, 
-                     const juce::String& labelText, const juce::String& suffix = "");
+    static constexpr int baseWidth = 820;
+    static constexpr int baseHeight = 560;
 
-    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (ReversinatorAudioProcessorEditor)
+private:
+    class Content : public juce::Component, private juce::Value::Listener
+    {
+    public:
+        Content(ReversinatorAudioProcessor&, const Theme::Fonts&, std::function<void()> showAbout);
+        ~Content() override;
+
+        void paint(juce::Graphics&) override;
+        void resized() override;
+
+    private:
+        void valueChanged(juce::Value&) override;
+
+        struct Section
+        {
+            juce::String title;
+            juce::Colour accent;
+            juce::Rectangle<int> bounds;
+        };
+
+        struct Caption
+        {
+            juce::String text;
+            juce::Rectangle<int> bounds;
+        };
+
+        void setupSlider(juce::Slider&, Controls::SliderStyle, const juce::String& paramId, juce::Colour accent,
+                         const juce::String& tooltip, std::function<juce::String(double)> format);
+
+        ReversinatorAudioProcessor& m_processor;
+        const Theme::Fonts& m_fonts;
+
+        SnippetDisplay m_display;
+        Controls::ModeSelector m_modeSelector;
+        Controls::ReverserButton m_reverserButton;
+        juce::Slider m_timeSlider, m_feedbackSlider, m_wetSlider, m_drySlider;
+        juce::TextButton m_aboutButton;
+
+        // Attachments after the controls they bind, so they are destroyed first.
+        juce::AudioProcessorValueTreeState::ButtonAttachment m_reverserAttachment;
+        juce::AudioProcessorValueTreeState::SliderAttachment m_timeAttachment;
+        juce::AudioProcessorValueTreeState::SliderAttachment m_feedbackAttachment;
+        juce::AudioProcessorValueTreeState::SliderAttachment m_wetAttachment;
+        juce::AudioProcessorValueTreeState::SliderAttachment m_dryAttachment;
+
+        std::array<Section, 3> m_sections;
+        std::array<Caption, 4> m_captions;
+        juce::Rectangle<int> m_reverserLabelBounds;
+    };
+
+    ReversinatorAudioProcessor& m_processor;
+    juce::SharedResourcePointer<Theme::Fonts> m_fonts;
+    Controls::LookAndFeel m_lookAndFeel;
+    Content m_content;
+    juce::TooltipWindow m_tooltipWindow;
+    std::unique_ptr<AboutWindow> m_aboutWindow;
+
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(ReversinatorAudioProcessorEditor)
 };
