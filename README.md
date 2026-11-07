@@ -123,7 +123,7 @@ A real-time reverser: a faithful, modernised recreation of Backwards Machine's t
 
 A small, quiet page of advice from the great film, TV and game sound designers and mixers. Pick what you're working on (mixing, trailers, creatures, dialogue, silence, running a creative team...) and roll the die: it deals you a quote or a technique from one of them, with a link to where it came from.
 
-- 📚 **798 entries from 146 people**, every one traced to an interview, article or SoundWorks Collection video
+- 📚 **712 entries from 145 people**, every one traced to an interview, article or SoundWorks Collection video
 - 🗂️ **17 categories**, from Mixing and Dialogue to Horror & Tension and Creativity & Teams
 - 🌗 **Paper by day, ink by night**
 - 🔇 **Audio passes straight through**, so it can sit on a mix bus or on a second screen as an app

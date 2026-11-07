@@ -506,3 +506,91 @@ landaker-22519f  # Gregg Landaker: blaster-era mix moves (pre-2005)
 davis-e8ca4f  # Dane A. Davis: Matrix-era sources (pre-2005)
 davis-872503  # Dane A. Davis: Matrix robots (pre-2005)
 deenen-2f92e4  # Charles Deenen: near-duplicate of the Battlefront tonal/noise split
+
+# Final pass before release: fluff, duplicates, logistics, music-led and context-free entries.
+lee-032589  # Ai-Ling Lee: We imagined it as though the background atmos — vague, lacks context
+nelson-f16ff5  # Andy Nelson: Mixing music for Avatar, Nelson found that the — mainly score placement
+nelson-61a5be  # Andy Nelson: On Wicked, Nelson lays the vocals and dialogue — duplicates his build order
+burtt-b81c88  # Ben Burtt: Better films have areas of no music. — generic, music-focused
+burtt-24d2bb  # Ben Burtt: I have to constantly re-learn the lesson of — abstract less-is-more
+weiser-12e05a  # Bernard Weiser: For Ferrari's pit crews, Weiser cast an all-northern-Italian — casting anecdote
+boyes-fdaad2  # Christopher Boyes: I think of an atomic bomb as pulling — abstract, nothing to try
+boyes-939c17  # Christopher Boyes: Ultron's voice in Age of Ultron was a — credits relay, no technique
+boyes-1895c2  # Christopher Boyes: On Avatar, Boyes didn't bring James Cameron into — director anecdote
+boyes-970c6d  # Christopher Boyes: Avatar was mixed entirely watching 2D picture, then — near-duplicate of boyes-243bb7
+anderson-78cfd8  # Coll Anderson: Differences between Film and TV really means differences — vague one-liner
+acord-70dbd5  # David Acord: The sound of moving water is mostly noise. — fragment without context
+norris-51807d  # Eric Norris: On Springsteen: Deliver Me From Nowhere, the team — abandoned idea, no takeaway
+aadahl-acb4b7  # Erik Aadahl: The most potent sound is the single perfect — abstract, duplicates his others
+aadahl-704321  # Erik Aadahl: When Pain and Gain's hero speedboat couldn't be — logistics, no technique
+ryn-eb9fdd  # Ethan Van der Ryn: Each Transformer got its own palette of — generic, nothing concrete
+gearty-2b5513  # Eugene Gearty: For Hugo's automaton, Gearty learned the real machine — "trial and error", no method
+rizzo-f1d022  # Gary A. Rizzo: In Tenet's red room/blue room conversation, each — trivia, no technique
+whittle-e981cc  # Gwendolyn Yates Whittle: For White Vision in WandaVision, the director asked — anecdote, director picked version
+williamson-5eab55  # Holly Williamson: Williamson puts dark horse picks into her music — music selection, not sound
+marquis-c6673e  # John Marquis: The Wizard's giant head in Wicked had to — vague, no concrete method
+slater-76a79a  # Julian Slater: Baby Driver's opening chains sounds in one key — duplicate of slater-a61866
+davey-ed5377  # Justin Davey: For the new Prodigy tech in Alien: Earth — abstract brief, nothing to try
+orloff-9c4438  # Lee Orloff: Ferrari's pivotal office scene was planned with a — confusing logistics anecdote
+orloff-827be8  # Lee Orloff: For Ferrari's live opera scene, Orloff recorded the — mainly music recording
+shatz-6d25f7  # Leslie Shatz: The emotional feeling of loud is a lot — feely, nothing to try
+shatz-2cf34e  # Leslie Shatz: Any sound that you add takes on a — abstract one-liner
+hirschberg-9d377a  # Lora Hirschberg: Marco Beltrami's World War Z score was recorded twice — mainly score
+andersen-90fc55  # Martin Stig Andersen: Following John Carpenter, Andersen leaves long stretches of — mainly music placement, vague
+hernndez-2066e5  # Martín Hernández: On Birdman he shaped the drum score editorially — mainly music editing
+ellis-82e3e9  # Mary H. Ellis: For Baby Driver's Tequila shootout, where gun flashes — duplicate of ellis-38f6e4
+wood-c46edb  # Matthew Wood: Wood often drops his own voice into a — casting anecdote
+robitaille-850827  # Nathan Robitaille: For The Shape of Water's amphibian man, a — duplicate of robitaille-b9c389
+benitez-155df1  # Odin Benitez: On The Night Of, Benitez worked with Steven — vague "right sound", no method
+massey-700480  # Paul Massey: Many of Ford v Ferrari's race sequences were shaped — vague "less is more"
+massey-61c7dd  # Paul Massey: Napoleon's Austerlitz runs backwards compared with a typical — describes film structure
+menichini-b4e681  # Paul Menichini: For Reaper's Death Blossom attack in the Overwatch — aim, no method
+albrechtsen-8d4576  # Peter Albrechtsen: Don't be afraid of noise – use it — generic slogan
+albrechtsen-1c86d8  # Peter Albrechtsen: On White Black Boy, sound artist Jacob Kirkegaard recorded — anecdote, no transferable technique
+thom-732b68  # Randy Thom: If you really want to impress me send — fluff quote
+klyce-635d2f  # Ren Klyce: For The Social Network's backgrounds, Klyce's team sent — weaker near-duplicate of Button entries
+bologna-836919  # Rich Bologna: Building 1968 Chicago for Judas and the Black — mostly casting
+beggs-902fdb  # Richard Beggs: A trained painter, Beggs works on the track — abstract analogy
+king-d086a9  # Richard King: For the Stuka dive scream in Dunkirk, King — duplicate of king-cc49f3
+king-d4019f  # Richard King: For the Stuka dive siren in Dunkirk, King — duplicate of king-cc49f3
+king-865475  # Richard King: Oppenheimer's Trinity shockwave arrives well after the flash — duplicate of king-0a2541
+king-9aa80b  # Richard King: For inverted gunfire in Tenet, King pulled a — duplicate of king-43c5bf
+king-4bbb84  # Richard King: For Tenet's final battle, King's team shot guns — duplicate of king-ca2e11
+king-752e23  # Richard King: On Christopher Nolan films like Tenet, King predubs — duplicate of king-c2ef92
+king-7bce7e  # Richard King: Tenet's full-throttle 747 sequence needed perspective changes so — duplicate of king-e61d81
+king-609dc3  # Richard King: For the conductor's baton tap opening Tenet, King — anecdote, director's choice
+king-26035d  # Richard King: For Wonder Woman 1984's mall robbery, Patty Jenkins — director's wishes, vague
+hecker-a2873f  # Scott Hecker: Watchmen has four big fight scenes, and Hecker's — vague, nothing to try
+boeddeker-1e39a1  # Steve Boeddeker: For the TRON: Legacy light cycles, Boeddeker's fully — duplicate of boeddeker-cad072
+nielsen-4e278a  # Tim Nielsen: Maleficent's wings were hard because feather recordings tend — vague, no method
+nielsen-890515  # Tim Nielsen: The Aviator's biplane in The Little Prince combines — credit/sourcing anecdote
+nielsen-daf48b  # Tim Nielsen: The best sounds are likely to be the — duplicate of nielsen-4eae32
+prebble-f60b38  # Tim Prebble: What happens in front of the mic often — vague, nothing to try
+murch-5fe454  # Walter Murch: Three is the borderline where you cross — needs missing context
+murch-f2ebf2  # Walter Murch: Conceptual density is something that should obey the — abstract, nothing to try
+murch-859782  # Walter Murch: As horrible as screams are, they are a — abstract fragment
+files-fcca11  # Will Files: Files mixes Stranger Things in a mid-size Atmos — room logistics
+files-52bf52  # Will Files: To get through Stranger Things episodes of 75 — schedule logistics
+rohde-3159a1  # Joe Rohde: To be both the magician and the mystified — fragment, duplicates rohde-9e45a0
+rohde-06dde1  # Joe Rohde: There is always a team, even if you — generic line
+rohde-a7fc2d  # Joe Rohde: Books are the storage batteries for that power — fragment, missing context
+rohde-3ee606  # Joe Rohde: Experience design is, after all, the design of — near-tautology, generic
+rohde-5e6464  # Joe Rohde: Without a clear theme, projects are just random — duplicates theme entries
+rohde-fa1ee0  # Joe Rohde: We are not all geniuses, but we might — generic motivational
+rohde-ab77b2  # Joe Rohde: Developing an experience for Virgin Galactic, Rohde's group — project-specific, lesson implicit
+rohde-7b30d1  # Joe Rohde: Without surprise, there is no attention — near-duplicate of rohde-4aa726
+rohde-1f3cff  # Joe Rohde: On Pandora, the theme statement guided everything from — Pandora-specific, duplicates rohde-c7478f
+rohde-43798b  # Joe Rohde: Settle the unifying theme before the flood of — near-duplicate of rohde-eba4c5
+rohde-cfb7da  # Joe Rohde: Direction must come before action — generic, duplicate
+rohde-060203  # Joe Rohde: To create, people need to feel safe — generic line
+rohde-d22f09  # Joe Rohde: Don't wait for the right moment. Make the — generic motivational
+rohde-ad88a5  # Joe Rohde: Hold tight to a thread that leads back — vague fragment
+rohde-50f848  # Joe Rohde: The purpose of collaboration is discovery, not command — near-duplicate of rohde-b1f480
+rohde-51b700  # Joe Rohde: When every beachfront hotel is forced into the — hotel-specific
+rohde-de8de9  # Joe Rohde: Skeptical Hawaiian artists joined Aulani only because the — hotel project anecdote
+rohde-df91ad  # Joe Rohde: Disruption is a by-product of poor organization — ambiguous one-liner
+rohde-29532f  # Joe Rohde: There is no relationship between material limitations and — near-duplicate of rohde-6b92ee
+rohde-77bc0c  # Joe Rohde: With Animal Kingdom stalled in limbo, Rohde told — Disney project anecdote
+rohde-7ce827  # Joe Rohde: Things are what they do. Action is existence — near-duplicate of rohde-fdb4da
+rohde-d7303c  # Joe Rohde: We create not just art. We create ourselves — generic motivational
+rohde-af5ac6  # Joe Rohde: Rohde says expeditions and projects alike must begin — near-duplicate of rohde-fa1efd
