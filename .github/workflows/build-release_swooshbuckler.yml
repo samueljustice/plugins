@@ -3,6 +3,8 @@ name: Build and Release Swooshbuckler
 # Push a tag like swooshbuckler-v1.0.0 to build, sign, notarise and publish a release.
 # The tag's number becomes the version everywhere: About panel, bundles, installers.
 # Run it by hand (workflow_dispatch) to get the same artefacts without a release.
+# Pull requests that touch Swooshbuckler build, test, sign and package too (no release),
+# so problems show up before a tag is pushed.
 #
 # Secrets (the same ones the other plug-ins use):
 #   APPLE_DEVELOPER_CERTIFICATE_P12_BASE64, APPLE_DEVELOPER_CERTIFICATE_PASSWORD
@@ -16,7 +18,16 @@ on:
   push:
     tags:
       - 'swooshbuckler-v*'
+  pull_request:
+    paths:
+      - 'swooshbuckler/**'
+      - '.github/workflows/build-release_swooshbuckler.yml'
   workflow_dispatch:
+
+# A newer push to the same PR replaces the run in progress.
+concurrency:
+  group: swooshbuckler-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: write
