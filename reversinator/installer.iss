@@ -1,5 +1,8 @@
 #define MyAppName "SammyJs Reversinator"
-#define MyAppVersion "1.0.0"
+; CI passes /DMyAppVersion=<version from CMakeLists.txt>; this is the local fallback.
+#ifndef MyAppVersion
+  #define MyAppVersion "2.0.0"
+#endif
 #define MyAppPublisher "Samuel Justice"
 #define MyAppURL "https://www.sweetjusticesound.com"
 
@@ -23,8 +26,9 @@ OutputBaseFilename=SammyJs_Reversinator_Installer
 SetupLogging=yes
 Compression=lzma/fast
 SolidCompression=no
-ArchitecturesInstallIn64BitMode=x64
-ArchitecturesAllowed=x64
+; x64compatible also covers Windows on Arm, where x64 hosts run under emulation.
+ArchitecturesInstallIn64BitMode=x64compatible
+ArchitecturesAllowed=x64compatible
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"

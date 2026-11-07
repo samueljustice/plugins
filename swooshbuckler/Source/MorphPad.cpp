@@ -5,9 +5,27 @@
 
 namespace
 {
-    constexpr double c_lapT = 12.0 * juce::MathConstants<double>::pi; // the butterfly closes after 12 pi
+    constexpr double c_lapT = 12.0 * juce::MathConstants<double>::pi; // the t range every closed shape is walked over
     constexpr float c_margin = 0.06f;                                 // pad margin for the wander figure
     constexpr float c_precessionPerLap = juce::MathConstants<float>::pi / 180.0f; // 1 degree per lap
+
+    // Lorenz attractor, the classic parameters.
+    constexpr double c_sigma = 10.0, c_rho = 28.0, c_beta = 8.0 / 3.0;
+    constexpr double c_lorenzDt = 0.01; // time step of the faint drawing (2400 steps, about 30 loops)
+
+    juce::Vector3D<double> lorenzDeriv(const juce::Vector3D<double>& v)
+    {
+        return { c_sigma * (v.y - v.x), v.x * (c_rho - v.z) - v.y, v.x * v.y - c_beta * v.z };
+    }
+
+    juce::Vector3D<double> lorenzStep(const juce::Vector3D<double>& v, double h) // RK4
+    {
+        const auto k1 = lorenzDeriv(v);
+        const auto k2 = lorenzDeriv(v + k1 * (h * 0.5));
+        const auto k3 = lorenzDeriv(v + k2 * (h * 0.5));
+        const auto k4 = lorenzDeriv(v + k3 * h);
+        return v + (k1 + k2 * 2.0 + k3 * 2.0 + k4) * (h / 6.0);
+    }
 
     const char* const c_modeNames[MorphPad::c_numModes] = { "Blend", "Glide", "Cross" };
     const char* const c_topLabels[MorphPad::c_numModes] = { "Fuse", "Shape", "A thru B" };
@@ -93,10 +111,10 @@ public:
 
 //==============================================================================
 /** Wander toggle: a plain play / stop button. */
-class MorphPad::ButterflyButton : public juce::Button
+class MorphPad::WanderButton : public juce::Button
 {
 public:
-    ButterflyButton() : juce::Button("Wander")
+    WanderButton() : juce::Button("Wander")
     {
         setClickingTogglesState(true);
         setTooltip("Wander\nPlay: the dot wanders along the chosen shape by itself, so the morph keeps moving. Stop: it stays where you put it.");
@@ -162,7 +180,7 @@ MorphPad::MorphPad(const Theme::Fonts& fonts) : m_fonts(fonts)
     };
     addAndMakeVisible(m_enable);
 
-    m_wanderButton = std::make_unique<ButterflyButton>();
+    m_wanderButton = std::make_unique<WanderButton>();
     m_wanderButton->onClick = [this]
     {
         const bool on = m_wanderButton->getToggleState();
@@ -271,12 +289,27 @@ void MorphPad::buildCurve()
                     break;
                 }
                 case Circle:      m_curve[static_cast<size_t>(i)] = { static_cast<float>(std::cos(twoPi * u)), static_cast<float>(std::sin(twoPi * u)) }; break;
-                case Butterfly:
-                default:          m_curve[static_cast<size_t>(i)] = butterflyRaw(c_lapT * u); break;
+                default: break;
             }
         }
     }
-    updateButterflyTransform();
+    if (m_shape == Lorenz)
+    {
+        // Settle onto the attractor first, then record a long stretch of it.
+        juce::Vector3D<double> v { 1.0, 1.0, 20.0 };
+        for (int i = 0; i < 1500; ++i)
+            v = lorenzStep(v, c_lorenzDt);
+        m_lorenzStates.resize(static_cast<size_t>(c_curvePoints));
+        for (int i = 0; i < c_curvePoints; ++i)
+        {
+            m_lorenzStates[static_cast<size_t>(i)] = v;
+            m_curve[static_cast<size_t>(i)] = { static_cast<float>(v.x), static_cast<float>(v.z) };
+            v = lorenzStep(v, c_lorenzDt);
+        }
+        m_lorenz = m_lorenzStates.front();
+        m_rotation = 0.0f;
+    }
+    updateShapeTransform();
 }
 
 juce::Point<float> MorphPad::shapeRaw(double t) const
@@ -331,13 +364,21 @@ void MorphPad::setWander(bool on, float speed)
     if (on)
     {
         // Join the curve where it passes closest to the dot, so the dot doesn't jump.
-        updateButterflyTransform();
+        updateShapeTransform();
         double bestT = 0.0;
         float best = 1.0e9f;
-        for (int i = 0; i < c_curvePoints; ++i)
+        if (m_shape == Lorenz)
+        {
+            for (const auto& v : m_lorenzStates)
+            {
+                const float d = lorenzNorm(v).getDistanceSquaredFrom({ m_x, m_y });
+                if (d < best) { best = d; m_lorenz = v; }
+            }
+        }
+        else for (int i = 0; i < c_curvePoints; ++i)
         {
             const double t = c_lapT * i / (c_curvePoints - 1);
-            const auto p = butterflyNorm(t);
+            const auto p = shapeNorm(t);
             const float d = p.getDistanceSquaredFrom({ m_x, m_y });
             if (d < best) { best = d; bestT = t; }
         }
@@ -446,7 +487,7 @@ void MorphPad::paint(juce::Graphics& g)
 
         if (m_wander)
         {
-            // The whole butterfly, faintly.
+            // The whole shape, faintly.
             juce::Path figure;
             for (int i = 0; i < c_curvePoints; ++i)
             {
@@ -667,15 +708,8 @@ void MorphPad::endRope(juce::Point<int> screenPos)
 }
 
 //==============================================================================
-// Butterfly (Temple Fay, 1989)
-juce::Point<float> MorphPad::butterflyRaw(double t)
-{
-    const double s5 = std::pow(std::sin((2.0 * t - juce::MathConstants<double>::pi) / 24.0), 5.0);
-    const double r = std::exp(std::sin(t)) - 2.0 * std::cos(4.0 * t) + s5;
-    return { static_cast<float>(r * std::sin(t)), static_cast<float>(r * std::cos(t)) };
-}
-
-void MorphPad::updateButterflyTransform()
+// Wander
+void MorphPad::updateShapeTransform()
 {
     const float c = std::cos(m_rotation), s = std::sin(m_rotation);
     float x0 = 1.0e9f, x1 = -1.0e9f, y0 = 1.0e9f, y1 = -1.0e9f;
@@ -688,7 +722,7 @@ void MorphPad::updateButterflyTransform()
     m_bbox = { x0, y0, std::max(1.0e-3f, x1 - x0), std::max(1.0e-3f, y1 - y0) };
 }
 
-juce::Point<float> MorphPad::butterflyNorm(double t) const
+juce::Point<float> MorphPad::shapeNorm(double t) const
 {
     const auto r = shapeRaw(t);
     const float c = std::cos(m_rotation), s = std::sin(m_rotation);
@@ -703,10 +737,47 @@ float MorphPad::wanderUnitsPerSecond() const
     return 0.05f * std::pow(30.0f, static_cast<float>(m_speed.getValue()));
 }
 
+juce::Point<float> MorphPad::lorenzNorm(const juce::Vector3D<double>& v) const
+{
+    // Side on (x across, z up), in the bounds of the precomputed stretch (rotation is 0 for Lorenz).
+    const auto x = static_cast<float>(v.x), y = static_cast<float>(v.z);
+    return { juce::jlimit(0.0f, 1.0f, c_margin + (x - m_bbox.getX()) / m_bbox.getWidth() * (1.0f - 2.0f * c_margin)),
+             juce::jlimit(0.0f, 1.0f, c_margin + (y - m_bbox.getY()) / m_bbox.getHeight() * (1.0f - 2.0f * c_margin)) };
+}
+
+void MorphPad::stepLorenz(float distance)
+{
+    // Constant visual speed: step the live system by distance / (visual speed) in small RK4 steps.
+    // It's integrated, not looped, so the dot switches wings chaotically and never repeats.
+    for (int i = 0; i < 64 && distance > 1.0e-6f; ++i)
+    {
+        const auto d = lorenzDeriv(m_lorenz);
+        const float vx = static_cast<float>(d.x) / m_bbox.getWidth(), vy = static_cast<float>(d.z) / m_bbox.getHeight();
+        const float rate = std::max(1.0e-3f, std::sqrt(vx * vx + vy * vy) * (1.0f - 2.0f * c_margin));
+        const double h = std::min(static_cast<double>(distance / rate), 0.005);
+        m_lorenz = lorenzStep(m_lorenz, h);
+        distance -= static_cast<float>(h) * rate;
+    }
+}
+
 void MorphPad::stepWander(float dt)
 {
+    if (m_shape == Lorenz)
+    {
+        stepLorenz(wanderUnitsPerSecond() * dt);
+        const auto p = lorenzNorm(m_lorenz);
+        m_x = p.x;
+        m_y = p.y;
+        m_trail[static_cast<size_t>(m_trailHead)] = p;
+        m_trailHead = (m_trailHead + 1) % c_trail;
+        m_trailCount = std::min(m_trailCount + 1, c_trail);
+        if (onXYChanged)
+            onXYChanged(m_x, m_y);
+        return;
+    }
+
     m_rotation = static_cast<float>((m_laps + m_t / c_lapT) * c_precessionPerLap);
-    updateButterflyTransform();
+    updateShapeTransform();
 
     // Constant visual speed: advance t by distance / |dP/dt| in small steps (the curve rushes
     // through its outer loops and crawls near the cusps if t is advanced uniformly).
@@ -714,7 +785,7 @@ void MorphPad::stepWander(float dt)
     for (int i = 0; i < 16 && remaining > 1.0e-6f; ++i)
     {
         constexpr double h = 1.0e-3;
-        const auto p0 = butterflyNorm(m_t), p1 = butterflyNorm(m_t + h);
+        const auto p0 = shapeNorm(m_t), p1 = shapeNorm(m_t + h);
         const float rate = std::max(1.0e-3f, p0.getDistanceFrom(p1) / static_cast<float>(h));
         const double step = std::min(static_cast<double>(remaining / rate), 0.04);
         m_t += step;
@@ -726,7 +797,7 @@ void MorphPad::stepWander(float dt)
         }
     }
 
-    const auto p = butterflyNorm(m_t);
+    const auto p = shapeNorm(m_t);
     m_x = p.x;
     m_y = p.y;
 

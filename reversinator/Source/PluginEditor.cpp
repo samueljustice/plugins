@@ -1,590 +1,274 @@
-#include "PluginProcessor.h"
 #include "PluginEditor.h"
-#include "CustomFonts.h"
 
-//==============================================================================
-// AboutWindow implementation
-AboutWindow::AboutWindow()
-    : DocumentWindow("About SammyJs Reversinator", 
-                     juce::Colour(0xff75fb87),
-                     juce::DocumentWindow::closeButton)
+namespace
 {
-    setUsingNativeTitleBar(true);
-    content = std::make_unique<AboutContent>();
-    setContentOwned(content.release(), false);
-    
-    centreWithSize(500, 600);
-    setVisible(true);
-    setResizable(false, false);
-    setAlwaysOnTop(true);
-}
+    constexpr int c_margin = 16;
+    constexpr int c_headerHeight = 56;
+    constexpr int c_displayHeight = 128;
+    constexpr int c_sectionGap = 12;
+    constexpr int c_sectionHeaderHeight = 32;
+    constexpr int c_captionHeight = 18;
 
-AboutWindow::~AboutWindow()
-{
-}
-
-void AboutWindow::closeButtonPressed()
-{
-    setVisible(false);
-}
-
-//==============================================================================
-// AboutContent implementation
-AboutWindow::AboutContent::AboutContent()
-{
-    juce::Colour accentColor = juce::Colours::black;
-    
-    titleLabel.setText("SammyJs Reversinator", juce::dontSendNotification);
-    titleLabel.setFont(getCustomFonts()->getFont(24.0f, juce::Font::bold));
-    titleLabel.setJustificationType(juce::Justification::centred);
-    titleLabel.setColour(juce::Label::textColourId, accentColor);
-    addAndMakeVisible(titleLabel);
-    
-    juce::String versionText = "Version " PLUGIN_VERSION;
-    versionLabel.setText(versionText, juce::dontSendNotification);
-    versionLabel.setFont(getCustomFonts()->getFont(16.0f));
-    versionLabel.setJustificationType(juce::Justification::centred);
-    versionLabel.setColour(juce::Label::textColourId, juce::Colours::black);
-    addAndMakeVisible(versionLabel);
-
-#ifdef BUILD_TIMESTAMP
-    buildTimestampLabel.setText(juce::String("Built: ") + BUILD_TIMESTAMP, juce::dontSendNotification);
-#else
-    buildTimestampLabel.setText(juce::String("Built: ") + __DATE__ + " " + __TIME__, juce::dontSendNotification);
-#endif
-    buildTimestampLabel.setFont(getCustomFonts()->getFont(11.0f));
-    buildTimestampLabel.setJustificationType(juce::Justification::centred);
-    buildTimestampLabel.setColour(juce::Label::textColourId, juce::Colours::darkgrey);
-    addAndMakeVisible(buildTimestampLabel);
-
-    authorLabel.setText("Created by Samuel Justice", juce::dontSendNotification)
-    authorLabel.setFont(getCustomFonts()->getFont(14.0f));
-    authorLabel.setJustificationType(juce::Justification::centred);
-    authorLabel.setColour(juce::Label::textColourId, juce::Colours::black);
-    addAndMakeVisible(authorLabel);
-    
-    emailButton.setButtonText("sam@sweetjusticesound.com");
-    emailButton.setURL(juce::URL("mailto:sam@sweetjusticesound.com"));
-    emailButton.setFont(getCustomFonts()->getFont(14.0f), false);
-    emailButton.setColour(juce::HyperlinkButton::textColourId, accentColor);
-    addAndMakeVisible(emailButton);
-    
-    websiteButton.setButtonText("www.sweetjusticesound.com");
-    websiteButton.setURL(juce::URL("https://www.sweetjusticesound.com"));
-    websiteButton.setFont(getCustomFonts()->getFont(14.0f), false);
-    websiteButton.setColour(juce::HyperlinkButton::textColourId, accentColor);
-    addAndMakeVisible(websiteButton);
-    
-    checkUpdateButton.setButtonText("Check for Updates");
-    checkUpdateButton.onClick = [this] { checkForUpdates(); };
-    checkUpdateButton.setColour(juce::TextButton::buttonColourId, juce::Colour(0xff65ad6b));
-    checkUpdateButton.setColour(juce::TextButton::textColourOnId, juce::Colours::black);
-    checkUpdateButton.setColour(juce::TextButton::textColourOffId, juce::Colours::black);
-    addAndMakeVisible(checkUpdateButton);
-    
-    updateStatusLabel.setText("", juce::dontSendNotification);
-    updateStatusLabel.setJustificationType(juce::Justification::centred);
-    updateStatusLabel.setFont(getCustomFonts()->getFont(12.0f));
-    updateStatusLabel.setColour(juce::Label::textColourId, juce::Colours::black);
-    addAndMakeVisible(updateStatusLabel);
-    
-    licenseInfo.setMultiLine(true);
-    licenseInfo.setReadOnly(true);
-    licenseInfo.setScrollbarsShown(true);
-    licenseInfo.setCaretVisible(false);
-    licenseInfo.setColour(juce::TextEditor::backgroundColourId, juce::Colour(0xff75fb87).darker(0.3f));
-    licenseInfo.setColour(juce::TextEditor::textColourId, juce::Colours::black);
-    licenseInfo.setColour(juce::TextEditor::outlineColourId, juce::Colour(0xffd22d66).withAlpha(0.3f));
-    licenseInfo.setFont(getCustomFonts()->getFont(12.0f));
-    
-    juce::String licenseText = 
-        "Real-time Audio Reversing Effect\n\n"
-        "Inspired by the classic Backwards Machine plugin\n\n"
-        "Technologies Used:\n\n"
-        "JUCE Framework\n"
-        "Copyright (c) 2022 - Raw Material Software Limited\n"
-        "Licensed under the GPL/Commercial license\n\n"
-        
-        "Features:\n"
-        "- Reverse Playback - Continuous reverse effect\n"
-        "- Forward Backwards - Smooth crossfade\n"
-        "- Reverse Repeat - Double playback with vibrato\n"
-        "- Adjustable window time (30ms - 2 seconds)\n"
-        "- Feedback control\n"
-        "- Wet/Dry mix controls";
-    
-    licenseInfo.setText(licenseText);
-    addAndMakeVisible(licenseInfo);
-}
-
-void AboutWindow::AboutContent::paint(juce::Graphics& g)
-{
-    g.fillAll(juce::Colour(0xff75fb87));
-}
-
-void AboutWindow::AboutContent::resized()
-{
-    auto area = getLocalBounds().reduced(20);
-    
-    titleLabel.setBounds(area.removeFromTop(40));
-    versionLabel.setBounds(area.removeFromTop(25));
-    buildTimestampLabel.setBounds(area.removeFromTop(18));
-    area.removeFromTop(5);
-
-    authorLabel.setBounds(area.removeFromTop(25));
-    emailButton.setBounds(area.removeFromTop(25).withSizeKeepingCentre(250, 25));
-    websiteButton.setBounds(area.removeFromTop(25).withSizeKeepingCentre(250, 25));
-    area.removeFromTop(20);
-    
-    checkUpdateButton.setBounds(area.removeFromTop(30).withSizeKeepingCentre(150, 30));
-    updateStatusLabel.setBounds(area.removeFromTop(25));
-    area.removeFromTop(20);
-    
-    licenseInfo.setBounds(area);
-}
-
-void AboutWindow::AboutContent::checkForUpdates()
-{
-    updateStatusLabel.setText("Checking for updates...", juce::dontSendNotification);
-    updateStatusLabel.setColour(juce::Label::textColourId, juce::Colours::yellow);
-    
-    // Create URL for GitHub API to check latest release with reversinator tag
-    juce::URL apiUrl("https://api.github.com/repos/samueljustice/plugins/releases");
-    
-    // Use a thread to download the data
-    juce::Thread::launch([this, apiUrl]
+    double parseNumber(const juce::String& text)
     {
-        auto stream = apiUrl.createInputStream(juce::URL::InputStreamOptions(juce::URL::ParameterHandling::inAddress)
-                                               .withConnectionTimeoutMs(5000));
-        
-        if (!stream)
-        {
-            juce::MessageManager::callAsync([this]
-            {
-                updateStatusLabel.setText("Failed to check for updates", juce::dontSendNotification);
-                updateStatusLabel.setColour(juce::Label::textColourId, juce::Colours::red);
-            });
-            return;
-        }
-        
-        auto content = stream->readEntireStreamAsString();
-        auto releases = juce::JSON::parse(content);
-        
-        if (auto* releasesArray = releases.getArray())
-        {
-            juce::String latestVersion;
-            
-            // Look for releases with reversinator tag
-            for (const auto& release : *releasesArray)
-            {
-                if (auto* obj = release.getDynamicObject())
-                {
-                    auto tagName = obj->getProperty("tag_name").toString();
-                    
-                    // Check if this is a reversinator release
-                    if (tagName.startsWith("reversinator-v"))
-                    {
-                        latestVersion = tagName.substring(15); // Skip "reversinator-v"
-                        break; // Found the latest reversinator release
-                    }
-                }
-            }
-            
-            if (latestVersion.isNotEmpty())
-            {
-                auto currentVersion = juce::String(PLUGIN_VERSION);
-                
-                juce::MessageManager::callAsync([this, latestVersion, currentVersion]
-                {
-                    // Simple version comparison
-                    if (latestVersion > currentVersion)
-                    {
-                        updateStatusLabel.setText("New version " + latestVersion + " available!", 
-                                                juce::dontSendNotification);
-                        updateStatusLabel.setColour(juce::Label::textColourId, juce::Colours::lightgreen);
-                    }
-                    else
-                    {
-                        updateStatusLabel.setText("You have the latest version", 
-                                                juce::dontSendNotification);
-                        updateStatusLabel.setColour(juce::Label::textColourId, juce::Colours::lightblue);
-                    }
-                });
-            }
-            else
-            {
-                juce::MessageManager::callAsync([this]
-                {
-                    updateStatusLabel.setText("No releases found", juce::dontSendNotification);
-                    updateStatusLabel.setColour(juce::Label::textColourId, juce::Colours::orange);
-                });
-            }
-        }
-    });
+        return text.retainCharacters("0123456789.-").getDoubleValue();
+    }
 }
 
 //==============================================================================
-ReversinatorAudioProcessorEditor::ReversinatorAudioProcessorEditor (ReversinatorAudioProcessor& p)
-    : AudioProcessorEditor (&p), audioProcessor (p)
+ReversinatorAudioProcessorEditor::ReversinatorAudioProcessorEditor(ReversinatorAudioProcessor& p)
+    : AudioProcessorEditor(&p)
+    , m_processor(p)
+    , m_lookAndFeel(*m_fonts)
+    , m_content(p, *m_fonts)
+    , m_tooltipWindow(this, 700)
 {
-    // Define our color scheme
-    juce::Colour accentColor = juce::Colours::black;
-    juce::Colour backgroundGreen(0xff75fb87);
-    juce::Colour sectionGreen(0xff65ad6b);
-    
-    // Set up look and feel with our color scheme
-    lookAndFeel.setColour(juce::Slider::textBoxTextColourId, juce::Colours::black);
-    lookAndFeel.setColour(juce::Slider::textBoxBackgroundColourId, backgroundGreen.darker(0.2f));
-    lookAndFeel.setColour(juce::Slider::textBoxOutlineColourId, accentColor.withAlpha(0.5f));
-    lookAndFeel.setColour(juce::Slider::rotarySliderFillColourId, accentColor);
-    lookAndFeel.setColour(juce::Slider::rotarySliderOutlineColourId, sectionGreen.brighter(0.3f));
-    lookAndFeel.setColour(juce::Slider::thumbColourId, accentColor);
-    lookAndFeel.setColour(juce::Slider::trackColourId, sectionGreen.brighter(0.2f));
-    lookAndFeel.setColour(juce::Slider::backgroundColourId, sectionGreen.darker(0.3f));
-    setLookAndFeel(&lookAndFeel);
-    
-    // Set size and resizing at the end
-    setSize (defaultWidth, defaultHeight);
+    // Read the saved size first: setResizeLimits() below already resizes (and so calls resized()).
+    const int savedWidth = m_processor.getEditorWidth();
+
+    addAndMakeVisible(m_content);
+
+    // Set after the content is added so every child (including slider value boxes) picks it up.
+    setLookAndFeel(&m_lookAndFeel);
+    m_tooltipWindow.setLookAndFeel(&m_lookAndFeel);
+
     setResizable(true, true);
-    setResizeLimits(600, 320, 1200, 800);
-    
-    // Website link
-    websiteLink.setButtonText("www.sweetjusticesound.com");
-    websiteLink.setURL(juce::URL("https://www.sweetjusticesound.com"));
-    websiteLink.setJustificationType(juce::Justification::centred);
-    websiteLink.setFont(getCustomFonts()->getFont(14.0f, juce::Font::bold), false);
-    websiteLink.setColour(juce::HyperlinkButton::textColourId, accentColor);
-    addAndMakeVisible(websiteLink);
-    
-    // Title
-    titleLabel.setText("SammyJs Reversinator", juce::dontSendNotification);
-    titleLabel.setFont(getCustomFonts()->getFont(28.0f, juce::Font::bold));
-    titleLabel.setJustificationType(juce::Justification::centred);
-    titleLabel.setColour(juce::Label::textColourId, accentColor);
-    titleLabel.setTooltip("Real-time audio reversing effect");
-    addAndMakeVisible(titleLabel);
-    
-    // Mode selector
-    modeLabel.setText("Effect Mode", juce::dontSendNotification);
-    modeLabel.setFont(getCustomFonts()->getFont(16.0f, juce::Font::bold));
-    modeLabel.setJustificationType(juce::Justification::centred);
-    modeLabel.setColour(juce::Label::textColourId, accentColor);
-    modeLabel.setTooltip("Select the reverse effect mode");
-    addAndMakeVisible(modeLabel);
-    
-    modeSelector.addItem("Reverse Playback", 1);
-    modeSelector.addItem("Forward Backwards", 2);
-    modeSelector.addItem("Reverse Repeat", 3);
-    modeSelector.setSelectedId(1);
-    modeSelector.setJustificationType(juce::Justification::centred);
-    // Note: ComboBox doesn't have setFont method
-    modeSelector.setColour(juce::ComboBox::backgroundColourId, sectionGreen.darker(0.2f));
-    modeSelector.setColour(juce::ComboBox::textColourId, juce::Colours::black);
-    modeSelector.setColour(juce::ComboBox::outlineColourId, accentColor.withAlpha(0.5f));
-    modeSelector.setColour(juce::ComboBox::arrowColourId, accentColor);
-    modeSelector.setTooltip("Select the reverse effect mode: Reverse Playback (continuous reverse), Forward Backwards (smooth crossfade), or Reverse Repeat (double playback with vibrato)");
-    addAndMakeVisible(modeSelector);
-    
-    // Reverser toggle
-    reverserLabel.setText("Reverser", juce::dontSendNotification);
-    reverserLabel.setFont(getCustomFonts()->getFont(16.0f, juce::Font::bold));
-    reverserLabel.setJustificationType(juce::Justification::centred);
-    reverserLabel.setColour(juce::Label::textColourId, accentColor);
-    reverserLabel.setTooltip("Enable or disable the reverse effect");
-    addAndMakeVisible(reverserLabel);
-    
-    reverserButton.setButtonText("Enable");
-    reverserButton.setToggleState(false, juce::dontSendNotification);
-    reverserButton.setColour(juce::ToggleButton::textColourId, juce::Colours::black);
-    // Note: ToggleButton doesn't have textColourOnId
-    reverserButton.setColour(juce::ToggleButton::tickColourId, juce::Colours::black);
-    reverserButton.setColour(juce::ToggleButton::tickDisabledColourId, sectionGreen.darker());
-    reverserButton.setTooltip("Enable or disable the reverse effect");
-    addAndMakeVisible(reverserButton);
-    
-    // Time slider
-    setupSlider(timeSlider, timeLabel, timeValueLabel, "Window Time", " s");
-    timeSlider.setRange(0.03, 5.0, 0.001);  // min 30ms, max 5s
-    timeSlider.setSkewFactorFromMidPoint(0.5);
-    timeSlider.setDoubleClickReturnValue(true, 2.0);
-    auto timeTooltip = "Size of the reverse window in seconds (30ms - 5s). Smaller values create granular effects, larger values create smoother reverses.";
-    timeSlider.setTooltip(timeTooltip);
-    timeLabel.setTooltip(timeTooltip);
-    
-    // Feedback slider
-    setupSlider(feedbackSlider, feedbackLabel, feedbackValueLabel, "Feedback", "%");
-    feedbackSlider.setDoubleClickReturnValue(true, 0.0);
-    auto feedbackTooltip = "Amount of feedback applied to the reversed signal. Creates echo-like effects.";
-    feedbackSlider.setTooltip(feedbackTooltip);
-    feedbackLabel.setTooltip(feedbackTooltip);
-    
-    // Wet mix slider
-    setupSlider(wetMixSlider, wetMixLabel, wetMixValueLabel, "Wet Mix", "%");
-    wetMixSlider.setDoubleClickReturnValue(true, 100.0);
-    auto wetTooltip = "Level of the reversed signal. 100% = fully reversed, 0% = no reversed signal.";
-    wetMixSlider.setTooltip(wetTooltip);
-    wetMixLabel.setTooltip(wetTooltip);
-    
-    // Dry mix slider
-    setupSlider(dryMixSlider, dryMixLabel, dryMixValueLabel, "Dry Mix", "%");
-    dryMixSlider.setDoubleClickReturnValue(true, 0.0);
-    auto dryTooltip = "Level of the original signal. Mix with wet signal for blended effects.";
-    dryMixSlider.setTooltip(dryTooltip);
-    dryMixLabel.setTooltip(dryTooltip);
-    
-    // Crossfade slider (hidden by default)
-    setupSlider(crossfadeSlider, crossfadeLabel, crossfadeValueLabel, "Crossfade", "%");
-    crossfadeSlider.setDoubleClickReturnValue(true, 20.0);
-    auto crossfadeTooltip = "Crossfade time between forward and backward sections in Forward Backwards mode. Lower = sharper transitions, Higher = smoother blending.";
-    crossfadeSlider.setTooltip(crossfadeTooltip);
-    crossfadeLabel.setTooltip(crossfadeTooltip);
-    crossfadeSlider.setVisible(false);
-    crossfadeLabel.setVisible(false);
-    crossfadeValueLabel.setVisible(false);
-    
-    // Envelope slider
-    setupSlider(envelopeSlider, envelopeLabel, envelopeValueLabel, "Envelope", " ms");
-    envelopeSlider.setRange(10.0, 100.0, 1.0);
-    envelopeSlider.setDoubleClickReturnValue(true, 30.0);
-    auto envelopeTooltip = "Fade in/out time for each reversed segment. Lower = sharper transitions, Higher = smoother transitions.";
-    envelopeSlider.setTooltip(envelopeTooltip);
-    envelopeLabel.setTooltip(envelopeTooltip);
-    
-    // About button
-    aboutButton.setButtonText("About");
-    aboutButton.setColour(juce::TextButton::buttonColourId, sectionGreen.darker(0.2f));
-    aboutButton.setColour(juce::TextButton::textColourOnId, juce::Colours::black);
-    aboutButton.setColour(juce::TextButton::textColourOffId, juce::Colours::black);
-    aboutButton.onClick = [this] 
-    {
-        if (!aboutWindow)
-            aboutWindow = std::make_unique<AboutWindow>();
-        else
-            aboutWindow->setVisible(true);
-    };
-    aboutButton.setTooltip("About SammyJs Reversinator");
-    addAndMakeVisible(aboutButton);
-    
-    // Create attachments
-    reverserAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment>(
-        audioProcessor.getValueTreeState(), "reverser", reverserButton);
-    timeAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
-        audioProcessor.getValueTreeState(), "time", timeSlider);
-    feedbackAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
-        audioProcessor.getValueTreeState(), "feedback", feedbackSlider);
-    wetMixAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
-        audioProcessor.getValueTreeState(), "wetmix", wetMixSlider);
-    dryMixAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
-        audioProcessor.getValueTreeState(), "drymix", dryMixSlider);
-    modeAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment>(
-        audioProcessor.getValueTreeState(), "mode", modeSelector);
-    crossfadeAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
-        audioProcessor.getValueTreeState(), "crossfade", crossfadeSlider);
-    envelopeAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
-        audioProcessor.getValueTreeState(), "envelope", envelopeSlider);
-    
-    // Add mode change listener
-    modeSelector.onChange = [this]
-    {
-        bool isForwardBackwards = (modeSelector.getSelectedId() == 2);
-        crossfadeSlider.setVisible(isForwardBackwards);
-        crossfadeLabel.setVisible(isForwardBackwards);
-        crossfadeValueLabel.setVisible(isForwardBackwards);
-        resized();
-    };
+    getConstrainer()->setFixedAspectRatio(static_cast<double>(baseWidth) / static_cast<double>(baseHeight));
+    setResizeLimits(baseWidth * 3 / 4, baseHeight * 3 / 4, baseWidth * 2, baseHeight * 2);
+
+    const int width = savedWidth > 0 ? juce::jlimit(baseWidth * 3 / 4, baseWidth * 2, savedWidth) : baseWidth;
+    setSize(width, juce::roundToInt(width * static_cast<double>(baseHeight) / baseWidth));
+
+    m_constructed = true;
+    m_processor.setEditorWidth(getWidth());
 }
 
 ReversinatorAudioProcessorEditor::~ReversinatorAudioProcessorEditor()
 {
+    m_tooltipWindow.setLookAndFeel(nullptr);
     setLookAndFeel(nullptr);
 }
 
-void ReversinatorAudioProcessorEditor::setupSlider(juce::Slider& slider, juce::Label& label, 
-                                                  juce::Label& valueLabel, const juce::String& labelText, 
-                                                  const juce::String& suffix)
+void ReversinatorAudioProcessorEditor::paint(juce::Graphics& g)
 {
-    // Define colors
-    juce::Colour accentColor = juce::Colours::black;
-    juce::Colour backgroundGreen(0xff75fb87);
-    juce::Colour sectionGreen(0xff65ad6b);
-    
-    slider.setSliderStyle(juce::Slider::RotaryVerticalDrag);
-    slider.setTextBoxStyle(juce::Slider::TextBoxBelow, false, 80, 20);
-    slider.setColour(juce::Slider::rotarySliderFillColourId, accentColor);
-    slider.setColour(juce::Slider::textBoxTextColourId, juce::Colours::black);
-    slider.setColour(juce::Slider::textBoxBackgroundColourId, backgroundGreen.darker(0.2f));
-    slider.setColour(juce::Slider::textBoxOutlineColourId, accentColor.withAlpha(0.5f));
-    slider.setTextValueSuffix(suffix);
-    addAndMakeVisible(slider);
-    
-    label.setText(labelText, juce::dontSendNotification);
-    label.setFont(getCustomFonts()->getFont(16.0f, juce::Font::bold));
-    label.setJustificationType(juce::Justification::centred);
-    label.setColour(juce::Label::textColourId, accentColor);
-    addAndMakeVisible(label);
-    
-    valueLabel.setJustificationType(juce::Justification::centred);
-    valueLabel.setColour(juce::Label::textColourId, juce::Colours::lightgrey);
-    addAndMakeVisible(valueLabel);
-}
-
-void ReversinatorAudioProcessorEditor::paint (juce::Graphics& g)
-{
-    // Define our color scheme
-    juce::Colour backgroundGreen(0xff75fb87);
-    juce::Colour sectionGreen(0xff65ad6b);
-    juce::Colour accentColor = juce::Colours::black;
-    
-    // Fill the entire component with blue background first
-    g.fillAll(backgroundGreen);
-    
-    // Calculate scale factor and center offset
-    float scaledWidth = defaultWidth * currentScale;
-    float scaledHeight = defaultHeight * currentScale;
-    float xOffset = (getWidth() - scaledWidth) * 0.5f;
-    float yOffset = (getHeight() - scaledHeight) * 0.5f;
-    
-    // Apply scaling and centering transform
-    g.addTransform(juce::AffineTransform::scale(currentScale)
-                  .translated(xOffset / currentScale, yOffset / currentScale));
-    
-    // Draw the main interface area with the same background
-    g.setColour(backgroundGreen);
-    g.fillRect(0, 0, defaultWidth, defaultHeight);
-    
-    // Draw sections with purple background
-    g.setColour(sectionGreen);
-    g.fillRoundedRectangle(10, 70, defaultWidth - 20, 55, 8.0f);  // Reverser section
-    g.fillRoundedRectangle(10, 135, defaultWidth - 20, 55, 8.0f);  // Mode section
-    g.fillRoundedRectangle(10, 200, defaultWidth - 20, 140, 8.0f); // Controls section
-    
-    // Draw subtle borders with accent color
-    g.setColour(accentColor.withAlpha(0.3f));
-    g.drawRoundedRectangle(10, 70, defaultWidth - 20, 55, 8.0f, 1.5f);
-    g.drawRoundedRectangle(10, 135, defaultWidth - 20, 55, 8.0f, 1.5f);
-    g.drawRoundedRectangle(10, 200, defaultWidth - 20, 140, 8.0f, 1.5f);
+    g.fillAll(Theme::Colours::background);
 }
 
 void ReversinatorAudioProcessorEditor::resized()
 {
-    // Calculate scale factor based on current window size
-    float widthScale = static_cast<float>(getWidth()) / static_cast<float>(defaultWidth);
-    float heightScale = static_cast<float>(getHeight()) / static_cast<float>(defaultHeight);
-    currentScale = juce::jmin(widthScale, heightScale);
-    
-    // Calculate center offset
-    float scaledWidth = defaultWidth * currentScale;
-    float scaledHeight = defaultHeight * currentScale;
-    float xOffset = (getWidth() - scaledWidth) * 0.5f;
-    float yOffset = (getHeight() - scaledHeight) * 0.5f;
-    
-    // Create a transform to scale and center all components
-    auto transform = juce::AffineTransform::scale(currentScale)
-                    .translated(xOffset, yOffset);
-    
-    // Apply the transform to all child components
-    for (auto* child : getChildren())
+    const float scale = std::min(static_cast<float>(getWidth()) / baseWidth, static_cast<float>(getHeight()) / baseHeight);
+    const float x = (static_cast<float>(getWidth()) - baseWidth * scale) * 0.5f;
+    const float y = (static_cast<float>(getHeight()) - baseHeight * scale) * 0.5f;
+
+    m_content.setBounds(0, 0, baseWidth, baseHeight);
+    m_content.setTransform(juce::AffineTransform::scale(scale).translated(x, y));
+
+    if (m_constructed)
+        m_processor.setEditorWidth(getWidth());
+}
+
+//==============================================================================
+ReversinatorAudioProcessorEditor::Content::Content(ReversinatorAudioProcessor& p, const Theme::Fonts& fonts)
+    : m_processor(p)
+    , m_fonts(fonts)
+    , m_display(p, fonts)
+    , m_modeSelector(*p.getParameters().getParameter(ParamIDs::mode), fonts)
+    , m_reverserAttachment(p.getParameters(), ParamIDs::reverser, m_reverserButton)
+    , m_timeAttachment(p.getParameters(), ParamIDs::time, m_timeSlider)
+    , m_feedbackAttachment(p.getParameters(), ParamIDs::feedback, m_feedbackSlider)
+    , m_wetAttachment(p.getParameters(), ParamIDs::wetMix, m_wetSlider)
+    , m_dryAttachment(p.getParameters(), ParamIDs::dryMix, m_drySlider)
+    , m_about(fonts)
+{
+    using namespace Theme::Colours;
+
+    m_sections = { Section { "MODE",     mode,     {} },
+                   Section { "REVERSER", reverser, {} },
+                   Section { "VOLUME",   mix,      {} } };
+
+    m_captions = { Caption { "TIME", {} }, Caption { "FEEDBACK DEPTH", {} },
+                   Caption { "WET MIX", {} }, Caption { "DRY MIX", {} } };
+
+    addAndMakeVisible(m_display);
+    addAndMakeVisible(m_modeSelector);
+
+    m_reverserButton.setTooltip("REVERSER: hear the reversed audio (arrow left) or the original forwards audio (arrow right). "
+                                "Switching is crossfaded, so it never clicks.");
+    addAndMakeVisible(m_reverserButton);
+
+    setupSlider(m_timeSlider, Controls::SliderStyle::Hourglass, ParamIDs::time, sand,
+                "TIME: the length of each snippet that is played backwards (0.5 to 4 seconds). "
+                "The default of 2 seconds tends to sound best. Changes are smoothed, so it never clicks.",
+                [](double v) { return juce::String(v, 2) + " s"; });
+
+    setupSlider(m_feedbackSlider, Controls::SliderStyle::Loop, ParamIDs::feedback, feedback,
+                "FEEDBACK DEPTH: feeds the effect back into itself for repeating, cascading reverses. "
+                "Usually not needed, so the default is 0%.",
+                [](double v) { return juce::String(juce::roundToInt(v)) + "%"; });
+
+    setupSlider(m_wetSlider, Controls::SliderStyle::Fader, ParamIDs::wetMix, mix,
+                "WET MIX: level of the effect, and of the forwards audio when REVERSER is set to forwards.",
+                [](double v) { return juce::String(juce::roundToInt(v)) + "%"; });
+
+    setupSlider(m_drySlider, Controls::SliderStyle::Fader, ParamIDs::dryMix, mix,
+                "DRY MIX: mixes in the original input. Usually 0%, but use it to hear the forwards sound "
+                "along with the backwards sound.",
+                [](double v) { return juce::String(juce::roundToInt(v)) + "%"; });
+
+    m_aboutButton.setButtonText("?");
+    m_aboutButton.setTooltip("About SammyJs Reversinator");
+    m_aboutButton.onClick = [this] { m_about.show(); };
+    addAndMakeVisible(m_aboutButton);
+
+    addChildComponent(m_about);   // hidden until "?" is clicked; added last so it sits on top
+
+    // The attachment changes the toggle without notifications (e.g. host automation),
+    // so watch the state value to keep the label in step.
+    m_reverserButton.getToggleStateValue().addListener(this);
+}
+
+ReversinatorAudioProcessorEditor::Content::~Content()
+{
+    m_reverserButton.getToggleStateValue().removeListener(this);
+}
+
+void ReversinatorAudioProcessorEditor::Content::valueChanged(juce::Value&)
+{
+    repaint(m_reverserLabelBounds);
+}
+
+void ReversinatorAudioProcessorEditor::Content::setupSlider(juce::Slider& slider, Controls::SliderStyle style,
+                                                            const juce::String& paramId, juce::Colour accent,
+                                                            const juce::String& tooltip,
+                                                            std::function<juce::String(double)> format)
+{
+    Controls::setStyle(slider, style);
+    slider.setColour(juce::Slider::trackColourId, accent);
+    slider.setTooltip(tooltip);
+    slider.setVelocityBasedMode(false);
+    slider.setMouseDragSensitivity(220);
+    slider.textFromValueFunction = std::move(format);
+    slider.valueFromTextFunction = [](const juce::String& text) { return parseNumber(text); };
+
+    if (auto* param = m_processor.getParameters().getParameter(paramId))
+        slider.setDoubleClickReturnValue(true, param->convertFrom0to1(param->getDefaultValue()));
+
+    slider.updateText();
+    addAndMakeVisible(slider);
+}
+
+void ReversinatorAudioProcessorEditor::Content::resized()
+{
+    auto bounds = getLocalBounds();
+    m_about.setBounds(bounds);
+
+    auto header = bounds.removeFromTop(c_headerHeight).reduced(c_margin, 0);
+    m_aboutButton.setBounds(header.removeFromRight(26).withSizeKeepingCentre(26, 26));
+
+    bounds.reduce(c_margin, 0);
+    bounds.removeFromBottom(c_margin);
+
+    m_display.setBounds(bounds.removeFromTop(c_displayHeight));
+    bounds.removeFromTop(c_sectionGap);
+
+    m_sections[0].bounds = bounds.removeFromLeft(232);
+    bounds.removeFromLeft(c_sectionGap);
+    m_sections[2].bounds = bounds.removeFromRight(184);
+    bounds.removeFromRight(c_sectionGap);
+    m_sections[1].bounds = bounds;
+
+    const auto bodyOf = [](const Section& s) { return s.bounds.withTrimmedTop(c_sectionHeaderHeight).reduced(8, 8); };
+
+    // MODE: three lamps stacked.
+    m_modeSelector.setBounds(bodyOf(m_sections[0]));
+
+    // REVERSER: the button on top, TIME and FEEDBACK DEPTH side by side below.
+    auto centre = bodyOf(m_sections[1]);
+    auto top = centre.removeFromTop(96);
+    m_reverserButton.setBounds(top.removeFromTop(74).withSizeKeepingCentre(74, 74));
+    m_reverserLabelBounds = top.removeFromTop(18);
+
+    auto row = centre.withTrimmedTop(4);
+    auto captions = row.removeFromBottom(c_captionHeight);
+    const int half = row.getWidth() / 2;
+    m_timeSlider.setBounds(row.removeFromLeft(half).reduced(10, 0));
+    m_feedbackSlider.setBounds(row.reduced(10, 0));
+    m_captions[0].bounds = captions.removeFromLeft(half);
+    m_captions[1].bounds = captions;
+
+    // VOLUME: wet and dry faders.
+    auto volume = bodyOf(m_sections[2]);
+    auto volumeCaptions = volume.removeFromBottom(c_captionHeight);
+    const int faderWidth = volume.getWidth() / 2;
+    m_wetSlider.setBounds(volume.removeFromLeft(faderWidth));
+    m_drySlider.setBounds(volume);
+    m_captions[2].bounds = volumeCaptions.removeFromLeft(faderWidth);
+    m_captions[3].bounds = volumeCaptions;
+}
+
+void ReversinatorAudioProcessorEditor::Content::paint(juce::Graphics& g)
+{
+    using namespace Theme::Colours;
+
+    g.fillAll(background);
+
+    // Header: a backwards arrow, the name and the family line.
+    auto header = getLocalBounds().removeFromTop(c_headerHeight).reduced(c_margin, 0).toFloat();
     {
-        // Skip the ResizableCornerComponent which JUCE adds automatically
-        if (dynamic_cast<juce::ResizableCornerComponent*>(child) == nullptr)
-        {
-            child->setTransform(transform);
-        }
+        const auto mark = header.removeFromLeft(34.0f).withSizeKeepingCentre(34.0f, 20.0f);
+        juce::Path arrow;
+        arrow.addTriangle(mark.getX(), mark.getCentreY(), mark.getX() + 11.0f, mark.getY() + 2.0f, mark.getX() + 11.0f, mark.getBottom() - 2.0f);
+        g.setColour(reverser);
+        g.fillPath(arrow);
+
+        juce::Path tail;
+        tail.startNewSubPath(mark.getX() + 10.0f, mark.getCentreY());
+        tail.lineTo(mark.getRight() - 4.0f, mark.getCentreY());
+        tail.quadraticTo(mark.getRight(), mark.getCentreY(), mark.getRight(), mark.getCentreY() + 4.0f);
+        g.strokePath(tail, juce::PathStrokeType(2.4f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
     }
-    
-    // Layout components at their default positions (unscaled)
-    auto area = juce::Rectangle<int>(0, 0, defaultWidth, defaultHeight);
-    
-    // Top section
-    websiteLink.setBounds(area.removeFromTop(18));
-    titleLabel.setBounds(area.removeFromTop(35));
-    area.removeFromTop(2);
-    
-    // Reverser section - properly centered
-    auto reverserArea = area.removeFromTop(65).reduced(20, 5);  // Less vertical reduction
-    reverserArea.removeFromTop(18);  // Add more space at top (was 8, now 18 for 10px lower)
-    auto reverserRow = reverserArea.withSizeKeepingCentre(160, reverserArea.getHeight());  // Balanced width for natural text
-    auto labelArea = reverserRow.removeFromLeft(75);  // Give text more room
-    reverserLabel.setBounds(labelArea.withSizeKeepingCentre(labelArea.getWidth(), 20));
-    reverserButton.setBounds(reverserRow.withSizeKeepingCentre(80, 25));
-    
-    area.removeFromTop(5);
-    
-    // Mode section - bigger
-    auto modeArea = area.removeFromTop(65).reduced(20, 10);
-    modeLabel.setBounds(modeArea.removeFromTop(20));
-    auto modeWidth = 250;
-    modeSelector.setBounds(modeArea.withSizeKeepingCentre(modeWidth, 28));
-    
-    area.removeFromTop(5);
-    
-    // Controls section
-    auto controlsArea = area.removeFromTop(140).reduced(20, 10);
-    auto sliderSize = 70;  // Smaller knobs
-    
-    // Check if crossfade is visible to adjust spacing
-    bool isForwardBackwards = crossfadeSlider.isVisible();
-    int numSliders = isForwardBackwards ? 6 : 5;  // Include envelope slider
-    auto totalSliderWidth = numSliders * sliderSize;
-    auto spacing = (controlsArea.getWidth() - totalSliderWidth) / (numSliders + 1);
-    
-    auto sliderY = controlsArea.getY() + 20;
-    
-    // Position sliders
-    if (isForwardBackwards)
+
+    header.removeFromLeft(12.0f);
+    const auto titleFont = m_fonts.heading(20.0f);
+    const juce::String title = "REVERSINATOR";
+    g.setFont(titleFont);
+    g.setColour(text);
+    const float titleWidth = juce::GlyphArrangement::getStringWidth(titleFont, title);
+    g.drawText(title, header.removeFromLeft(titleWidth + 4.0f), juce::Justification::centredLeft, false);
+
+    header.removeFromLeft(14.0f);
+    g.setFont(m_fonts.label(10.5f));
+    g.setColour(textFaint);
+    g.drawText("SAMMYJS  /  REAL-TIME REVERSER", header.withTrimmedTop(4.0f), juce::Justification::centredLeft, false);
+
+    // Section panels
+    for (const auto& section : m_sections)
     {
-        // 5 sliders layout - properly centered
-        auto sliderX = controlsArea.getX() + spacing;
-        
-        timeLabel.setBounds(sliderX - 10, sliderY - 20, sliderSize + 20, 20);
-        timeSlider.setBounds(sliderX, sliderY, sliderSize, sliderSize + 20);
-        sliderX += sliderSize + spacing;
-        
-        crossfadeLabel.setBounds(sliderX - 10, sliderY - 20, sliderSize + 20, 20);
-        crossfadeSlider.setBounds(sliderX, sliderY, sliderSize, sliderSize + 20);
-        sliderX += sliderSize + spacing;
-        
-        feedbackLabel.setBounds(sliderX - 10, sliderY - 20, sliderSize + 20, 20);
-        feedbackSlider.setBounds(sliderX, sliderY, sliderSize, sliderSize + 20);
-        sliderX += sliderSize + spacing;
-        
-        wetMixLabel.setBounds(sliderX - 10, sliderY - 20, sliderSize + 20, 20);
-        wetMixSlider.setBounds(sliderX, sliderY, sliderSize, sliderSize + 20);
-        sliderX += sliderSize + spacing;
-        
-        dryMixLabel.setBounds(sliderX - 10, sliderY - 20, sliderSize + 20, 20);
-        dryMixSlider.setBounds(sliderX, sliderY, sliderSize, sliderSize + 20);
-        sliderX += sliderSize + spacing;
-        
-        envelopeLabel.setBounds(sliderX - 10, sliderY - 20, sliderSize + 20, 20);
-        envelopeSlider.setBounds(sliderX, sliderY, sliderSize, sliderSize + 20);
+        const auto r = section.bounds.toFloat();
+        g.setColour(panel);
+        g.fillRoundedRectangle(r, 8.0f);
+        g.setColour(outlineSoft);
+        g.drawRoundedRectangle(r.reduced(0.5f), 8.0f, 1.0f);
+
+        auto headerRow = r.withHeight(static_cast<float>(c_sectionHeaderHeight)).reduced(12.0f, 0.0f);
+        g.setColour(section.accent);
+        g.fillEllipse(headerRow.removeFromLeft(6.0f).withSizeKeepingCentre(6.0f, 6.0f));
+        headerRow.removeFromLeft(8.0f);
+        g.setFont(m_fonts.heading(11.0f));
+        g.setColour(text.withAlpha(0.85f));
+        g.drawText(section.title, headerRow, juce::Justification::centredLeft, false);
+
+        g.setColour(outlineSoft);
+        g.drawHorizontalLine(section.bounds.getY() + c_sectionHeaderHeight, r.getX() + 12.0f, r.getRight() - 12.0f);
     }
-    else
-    {
-        // 5 sliders layout - properly centered
-        auto startX = controlsArea.getX() + spacing;
-        
-        timeLabel.setBounds(startX - 10, sliderY - 20, sliderSize + 20, 20);
-        timeSlider.setBounds(startX, sliderY, sliderSize, sliderSize + 20);
-        startX += sliderSize + spacing;
-        
-        feedbackLabel.setBounds(startX - 10, sliderY - 20, sliderSize + 20, 20);
-        feedbackSlider.setBounds(startX, sliderY, sliderSize, sliderSize + 20);
-        startX += sliderSize + spacing;
-        
-        wetMixLabel.setBounds(startX - 10, sliderY - 20, sliderSize + 20, 20);
-        wetMixSlider.setBounds(startX, sliderY, sliderSize, sliderSize + 20);
-        startX += sliderSize + spacing;
-        
-        dryMixLabel.setBounds(startX - 10, sliderY - 20, sliderSize + 20, 20);
-        dryMixSlider.setBounds(startX, sliderY, sliderSize, sliderSize + 20);
-        startX += sliderSize + spacing;
-        
-        envelopeLabel.setBounds(startX - 10, sliderY - 20, sliderSize + 20, 20);
-        envelopeSlider.setBounds(startX, sliderY, sliderSize, sliderSize + 20);
-    }
-    
-    // About button at bottom - less bottom space
-    auto bottomArea = area.removeFromBottom(20);
-    aboutButton.setBounds(bottomArea.removeFromRight(60).withSizeKeepingCentre(50, 20));
+
+    // Captions under the controls
+    g.setFont(m_fonts.label(10.5f));
+    g.setColour(textDim);
+    for (const auto& caption : m_captions)
+        g.drawText(caption.text, caption.bounds, juce::Justification::centred, false);
+
+    // REVƎRSƎЯ: the label reverses itself, as on the original.
+    g.setColour(m_reverserButton.getToggleState() ? text : textDim);
+    Controls::drawMirroredText(g, "REVERSER", m_fonts.heading(12.0f), m_reverserLabelBounds.toFloat(), { 3, 6, 7 });
 }

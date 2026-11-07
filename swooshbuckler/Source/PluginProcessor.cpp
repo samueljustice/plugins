@@ -57,6 +57,7 @@ SwooshbucklerAudioProcessor::SwooshbucklerAudioProcessor()
         m_raw.modType[m] = raw(ParamIDs::modType[m]);
         m_raw.modShape[m] = raw(ParamIDs::modShape[m]);
         m_raw.modKnob[m] = raw(ParamIDs::modKnob[m]);
+        m_raw.modFollow[m] = raw(ParamIDs::modFollow[m]);
     }
     for (const auto& id : ModMatrix::targets())
         m_modTargets.push_back({ m_state.getParameter(id), m_state.getRawParameterValue(id) });
@@ -175,8 +176,9 @@ void SwooshbucklerAudioProcessor::runModulators(int numSamples)
         set.type = static_cast<ModMatrix::Type>(juce::jlimit(0, 3, juce::roundToInt(m_raw.modType[m]->load())));
         set.shape = static_cast<ModMatrix::Shape>(juce::jlimit(0, 4, juce::roundToInt(m_raw.modShape[m]->load())));
         set.knob = m_raw.modKnob[m]->load();
+        set.follow = juce::jlimit(0, ModMatrix::c_numFollowerInputs - 1, juce::roundToInt(m_raw.modFollow[m]->load()));
     }
-    m_mods.process(settings, numSamples, m_followerLevel);
+    m_mods.process(settings, numSamples, m_followerLevels);
 }
 
 void SwooshbucklerAudioProcessor::updateEngineParams()
@@ -250,7 +252,7 @@ void SwooshbucklerAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
     if (! playing && m_transportGain <= 0.0f)
     {
         // Keep the modulator scopes, knob dots and pulled-wire glides moving while stopped (the output is silent).
-        m_followerLevel = 0.0f;
+        m_followerLevels = {};
         runModulators(n);
         publishModViews();
         // Note-offs still count, so a key released while stopped can't leave Swell stuck on.
@@ -380,7 +382,11 @@ void SwooshbucklerAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
             peak = juce::jmax(peak, std::abs(outL[i]), std::abs(outR[i]));
         }
         m_scopeWrite.store(w, std::memory_order_release);
-        m_followerLevel = static_cast<float>(std::sqrt(sumSquares / juce::jmax(1, len)));
+        m_followerLevels[ModMatrix::FollowOutput] = static_cast<float>(std::sqrt(sumSquares / juce::jmax(1, len)));
+        const auto sections = m_engine.takeSectionLevels();
+        m_followerLevels[ModMatrix::FollowBusA] = sections[0];
+        m_followerLevels[ModMatrix::FollowBusB] = sections[1];
+        m_followerLevels[ModMatrix::FollowHits] = sections[2];
         m_outputPeak.store(juce::jmax(peak, m_outputPeak.load(std::memory_order_relaxed) * 0.9f), std::memory_order_relaxed);
     }
 }

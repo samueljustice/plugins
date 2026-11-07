@@ -62,6 +62,7 @@ namespace ParamIDs
     inline constexpr const char* modType[numMods]  = { "mod1Type", "mod2Type", "mod3Type", "mod4Type" };
     inline constexpr const char* modShape[numMods] = { "mod1Shape", "mod2Shape", "mod3Shape", "mod4Shape" };
     inline constexpr const char* modKnob[numMods]  = { "mod1Knob", "mod2Knob", "mod3Knob", "mod4Knob" };
+    inline constexpr const char* modFollow[numMods] = { "mod1Follow", "mod2Follow", "mod3Follow", "mod4Follow" }; // Follower input
 }
 
 namespace Params
@@ -133,7 +134,7 @@ namespace Params
         layout.add(std::make_unique<AudioParameterBool>(ParameterID { ParamIDs::morphWander, 2 }, "Morph wander", false));
         layout.add(pct(ParamIDs::morphSpeed, "Morph speed", 0.5f));
         layout.add(std::make_unique<AudioParameterChoice>(ParameterID { ParamIDs::morphShape, 2 }, "Morph shape",
-                                                          StringArray { "Butterfly", "Sweet Justice", "Figure eight", "Rose", "Circle" }, 0));
+                                                          StringArray { "Lorenz", "Sweet Justice", "Figure eight", "Rose", "Circle" }, 0));
 
         layout.add(pct(ParamIDs::space, "Space", 0.25f));
         layout.add(pct(ParamIDs::inflate, "Inflate", 0.3f));
@@ -156,6 +157,8 @@ namespace Params
             layout.add(std::make_unique<AudioParameterChoice>(ParameterID { ParamIDs::modShape[m], 2 }, name + " shape",
                                                               StringArray { "Sine", "Triangle", "Ramp", "Square", "Steps" }, defaultShapes[m]));
             layout.add(pct(ParamIDs::modKnob[m], name + " rate / amount", defaultKnobs[m]));
+            layout.add(std::make_unique<AudioParameterChoice>(ParameterID { ParamIDs::modFollow[m], 2 }, name + " follows",
+                                                              StringArray { "Bus A", "Bus B", "Hits", "Output" }, 0));
         }
         return layout;
     }

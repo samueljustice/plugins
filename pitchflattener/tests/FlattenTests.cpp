@@ -1,0 +1,532 @@
+/*
+    Offline test harness for the Pitch Flattener DSP core.
+
+    Renders synthetic test signals (sirens, a vibrato voice, a Doppler engine
+    pass-by, an instrument, a whistle) through pf::FlattenerCore exactly the way
+    the plugin does, block by block, then measures the pitch of the output with
+    an independent NSDF estimator and reports how flat it is.
+
+    Usage: PitchFlattenerTests [--wav <dir>] [--rate <hz>] [--block <n>] [--only <name>]
+    Exit code is non-zero if any case fails its thresholds.
+*/
+
+#include <juce_core/juce_core.h>
+#include <juce_audio_basics/juce_audio_basics.h>
+#include <juce_audio_formats/juce_audio_formats.h>
+#include "dsp/FlattenerCore.h"
+#include "dsp/SourcePresets.h"
+#include <random>
+#include <climits>
+#include <limits>
+
+using namespace pf;
+
+namespace
+{
+    constexpr double twoPi = 6.283185307179586;
+
+    struct Signal
+    {
+        std::vector<float> l, r;
+        std::vector<float> truthHz;   // instantaneous f0 of the input (0 = silent)
+    };
+
+    struct Case
+    {
+        std::string name;
+        SourceType source;
+        TargetMode mode;
+        float targetHz;              // for Fixed
+        std::function<Signal (double fs)> make;
+        float maxMedianCents;        // pass thresholds on the output
+        float maxP90Cents;
+        float minWithin25;           // fraction of pitched frames within 25 cents of target
+    };
+
+    // --- signal generators ----------------------------------------------------
+    Signal harmonicTone (double fs, double seconds, std::function<double (double)> f0,
+                         int harmonics, double rolloff, double noiseDb, bool missingFundamental = false,
+                         std::function<double (double)> amp = nullptr)
+    {
+        const int n = (int) (fs * seconds);
+        Signal s;
+        s.l.resize ((size_t) n);
+        s.truthHz.resize ((size_t) n);
+        std::vector<double> phase ((size_t) harmonics + 1, 0.0);
+        std::mt19937 rng (1234);
+        std::normal_distribution<float> noise (0.0f, 1.0f);
+        const float noiseAmp = (float) juce::Decibels::decibelsToGain (noiseDb);
+
+        double ph = 0.0;
+        for (int i = 0; i < n; ++i)
+        {
+            const double t = i / fs;
+            const double f = f0 (t);
+            ph += twoPi * f / fs;
+            double y = 0.0, norm = 0.0;
+            for (int h = missingFundamental ? 2 : 1; h <= harmonics; ++h)
+            {
+                if (f * h > 0.45 * fs) break;
+                const double a = std::pow ((double) h, -rolloff);
+                y += a * std::sin (ph * h);
+                norm += a;
+            }
+            const double g = amp ? amp (t) : 1.0;
+            s.l[(size_t) i] = (float) (0.5 * g * y / std::max (norm, 1e-9)) + noiseAmp * noise (rng);
+            s.truthHz[(size_t) i] = g > 0.01 ? (float) f : 0.0f;
+        }
+        s.r = s.l;
+        return s;
+    }
+
+    /** Glottal-ish pulse train through three vowel formants. */
+    Signal voice (double fs, double seconds, std::function<double (double)> f0)
+    {
+        auto s = harmonicTone (fs, seconds, f0, 60, 1.0, -70.0, false,
+                               [] (double t) { return (t > 0.3 && std::fmod (t, 2.5) < 2.2) ? 1.0 : 0.0; });
+        // formant filter bank (/a/: 700, 1220, 2600 Hz)
+        juce::IIRFilter f1, f2, f3;
+        f1.setCoefficients (juce::IIRCoefficients::makeBandPass (fs, 700.0, 6.0));
+        f2.setCoefficients (juce::IIRCoefficients::makeBandPass (fs, 1220.0, 8.0));
+        f3.setCoefficients (juce::IIRCoefficients::makeBandPass (fs, 2600.0, 10.0));
+        for (auto& x : s.l)
+        {
+            const float v = x;
+            x = 1.5f * (f1.processSingleSampleRaw (v) + 0.6f * f2.processSingleSampleRaw (v) + 0.3f * f3.processSingleSampleRaw (v)) + 0.2f * v;
+        }
+        s.r = s.l;
+        return s;
+    }
+
+    // --- reference pitch estimator (independent of the plugin's detectors) ------
+    /** NSDF + parabolic peak near expectedHz (searches +-7 semitones). Returns 0 if unclear. */
+    float measurePitch (const float* x, int len, double fs, float expectedHz)
+    {
+        const int tauLo = std::max (2, (int) (fs / (expectedHz * 1.5)));
+        const int tauHi = std::min (len / 2, (int) (fs / (expectedHz / 1.5)) + 2);
+        if (tauHi <= tauLo + 2) return 0.0f;
+
+        std::vector<float> nsdf ((size_t) tauHi + 2, 0.0f);
+        for (int t = tauLo - 1; t <= tauHi + 1; ++t)
+        {
+            double r = 0, m = 0;
+            for (int j = 0; j + t < len; ++j)
+            {
+                r += (double) x[j] * x[j + t];
+                m += (double) x[j] * x[j] + (double) x[j + t] * x[j + t];
+            }
+            nsdf[(size_t) t] = m > 0 ? (float) (2 * r / m) : 0.0f;
+        }
+        int best = -1;
+        for (int t = tauLo; t <= tauHi; ++t)
+            if (nsdf[(size_t) t] >= nsdf[(size_t) t - 1] && nsdf[(size_t) t] >= nsdf[(size_t) t + 1]
+                && (best < 0 || nsdf[(size_t) t] > nsdf[(size_t) best]))
+                best = t;
+        if (best < 0 || nsdf[(size_t) best] < 0.45f) return 0.0f;
+        const float a = nsdf[(size_t) best - 1], b = nsdf[(size_t) best], c = nsdf[(size_t) best + 1];
+        const float den = a - 2 * b + c;
+        const float off = std::abs (den) > 1e-9f ? 0.5f * (a - c) / den : 0.0f;
+        return (float) (fs / (best + off));
+    }
+
+    float percentile (std::vector<float> v, float p)
+    {
+        if (v.empty()) return 0.0f;
+        std::sort (v.begin(), v.end());
+        return v[(size_t) std::clamp ((int) (p * (float) (v.size() - 1)), 0, (int) v.size() - 1)];
+    }
+
+    void writeWav (const juce::File& f, const std::vector<float>& l, const std::vector<float>& r, double fs)
+    {
+        f.deleteFile();
+        juce::WavAudioFormat wav;
+        std::unique_ptr<juce::FileOutputStream> os (f.createOutputStream());
+        if (os == nullptr) return;
+        std::unique_ptr<juce::AudioFormatWriter> w (wav.createWriterFor (os.get(), fs, 2, 24, {}, 0));
+        if (w == nullptr) return;
+        os.release();
+        const float* chans[2] = { l.data(), r.data() };
+        w->writeFromFloatArrays (chans, 2, (int) l.size());
+    }
+
+    LiveSettings settingsFor (const Case& c)
+    {
+        const auto& p = getSourcePreset (c.source);
+        LiveSettings s;
+        s.sensitivity = p.sensitivity;
+        s.trackingSpeedOctPerSec = p.trackingSpeed;
+        s.smoothingMs = p.smoothingMs;
+        s.gapFillMs = p.gapFillMs;
+        s.targetMode = c.mode;
+        s.targetHz = c.targetHz;
+        s.autoWindowMs = 1000.0f;
+        s.amount = 1.0f;
+        s.maxShiftSemitones = 24.0f;
+        s.gateDb = -60.0f;
+        s.mix = 1.0f;
+        s.formantPreserve = p.formant;
+        return s;
+    }
+
+    struct Result { bool pass; float median, p90, within, inputSpread; int underruns; double rtFactor; };
+
+    int gAlign = INT32_MIN;
+    bool gDump = false;
+
+    Result runCase (const Case& c, double fs, int block, const juce::File& wavDir)
+    {
+        const auto sig = c.make (fs);
+        const auto& p = getSourcePreset (c.source);
+
+        FlattenerCore core;
+        DetectorConfig dc;
+        dc.type = p.detector; dc.minHz = p.minHz; dc.maxHz = p.maxHz;
+        core.prepare (fs, block > 0 ? block : 2048, 2, dc, p.quality);
+        core.setLiveSettings (settingsFor (c));
+        core.setFilters (p.highpassHz, p.lowpassHz);
+        if (gAlign != INT32_MIN) core.setAlignmentOffset (gAlign);
+
+        const int lat = core.getLatencySamples();
+        const int n = (int) sig.l.size();
+        std::vector<float> outL ((size_t) (n + lat), 0.0f), outR ((size_t) (n + lat), 0.0f);
+        std::copy (sig.l.begin(), sig.l.end(), outL.begin());
+        std::copy (sig.r.begin(), sig.r.end(), outR.begin());
+
+        const auto t0 = juce::Time::getMillisecondCounterHiRes();
+        std::mt19937 blockRng (99);
+        for (int pos = 0, len = 0; pos < (int) outL.size(); pos += len)
+        {
+            len = block > 0 ? block : std::uniform_int_distribution<int> (1, 2048) (blockRng);
+            len = std::min (len, (int) outL.size() - pos);
+            float* ch[2] = { outL.data() + pos, outR.data() + pos };
+            core.process (ch, 2, len);
+            if (gDump)
+            {
+                TelemetryFrame tf;
+                while (core.popTelemetry (tf))
+                    if (tf.frame % 20 == 0)
+                    {
+                        const double fa = core.getAnalysisRate();
+                        const double hopA = std::round (0.005 * fa);
+                        const double fw = std::pow (2.0, std::ceil (std::log2 (8192.0 * fa / 24000.0)));
+                        const double tsec = (tf.frame * hopA + fw / 2) / fa;
+                        const int si = (int) (tsec * fs);
+                        std::printf ("    t=%5.2f truth=%7.1f raw=%7.1f track=%7.1f target=%7.1f ratio=%7.1f vp=%.2f rms=%.0f\n",
+                                     tsec, si < (int) sig.truthHz.size() ? sig.truthHz[(size_t) si] : 0.0f,
+                                     tf.rawHz, tf.trackHz, tf.targetHz, tf.ratioCents, tf.voicedProb, tf.rmsDb);
+                    }
+            }
+        }
+        const double ms = juce::Time::getMillisecondCounterHiRes() - t0;
+
+        // align output with input
+        std::vector<float> aligned (outL.begin() + lat, outL.end());
+        std::vector<float> metered = aligned;
+        {
+            // the reference meter looks at a low-passed copy (cutoff ~8x the lowest pitch) to cope with broadband noise
+            float lowest = 1.0e9f;
+            for (auto h : sig.truthHz) if (h > 0.0f) lowest = std::min (lowest, h);
+            juce::IIRFilter lp1, lp2;
+            const double fc = std::min (0.4 * fs, 8.0 * std::max (60.0, (double) lowest));
+            lp1.setCoefficients (juce::IIRCoefficients::makeLowPass (fs, fc));
+            lp2.setCoefficients (juce::IIRCoefficients::makeLowPass (fs, fc));
+            for (auto& v : metered) v = lp2.processSingleSampleRaw (lp1.processSingleSampleRaw (v));
+        }
+
+        if (wavDir.isDirectory())
+        {
+            std::vector<float> alignedR (outR.begin() + lat, outR.end());
+            writeWav (wavDir.getChildFile (c.name + "_in.wav"), sig.l, sig.r, fs);
+            writeWav (wavDir.getChildFile (c.name + "_out.wav"), aligned, alignedR, fs);
+        }
+
+        // measure: 40 ms windows every 10 ms, skip the first second
+        // window: 40 ms, or 5 periods of the lowest pitch involved (low engines need longer)
+        float lowest = 1.0e9f;
+        for (auto h : sig.truthHz) if (h > 0.0f) lowest = std::min (lowest, h);
+        if (c.mode == TargetMode::Fixed) lowest = std::min (lowest, c.targetHz);
+        const int win = std::max ((int) (0.04 * fs), (int) (5.0 * fs / std::max (lowest, 20.0f))), step = (int) (0.01 * fs);
+        std::vector<float> outCents, inCents, outHz;
+        for (int pos = (int) fs; pos + win < n; pos += step)
+        {
+            const float truth = sig.truthHz[(size_t) (pos + win / 2)];
+            if (truth <= 0.0f) continue;
+            bool steady = true;   // skip windows that touch an on/off edge
+            for (int k = 0; k < win; k += win / 4)
+                if (sig.truthHz[(size_t) (pos + k)] <= 0.0f) steady = false;
+            if (! steady) continue;
+
+            inCents.push_back (hzToCents (truth));
+            const float expected = c.mode == TargetMode::Fixed ? c.targetHz : truth;   // rough search centre
+            float hz = measurePitch (metered.data() + pos, win, fs, c.mode == TargetMode::Fixed ? expected : 0.0f + expected);
+            outHz.push_back (hz);
+        }
+
+        // target reference: Fixed -> the target; otherwise the median output pitch (Latch) per sound,
+        // approximated by the median over the whole file.
+        std::vector<float> valid;
+        for (auto h : outHz) if (h > 0) valid.push_back (hzToCents (h));
+        float refCents = c.mode == TargetMode::Fixed ? hzToCents (c.targetHz) : percentile (valid, 0.5f);
+
+        std::vector<float> err;
+        int within = 0, pitched = 0;
+        for (auto h : outHz)
+        {
+            ++pitched;
+            if (h <= 0) { err.push_back (1200.0f); continue; }
+            const float e = std::abs (hzToCents (h) - refCents);
+            err.push_back (e);
+            if (e <= 25.0f) ++within;
+        }
+
+        Result res;
+        res.median = percentile (err, 0.5f);
+        res.p90 = percentile (err, 0.9f);
+        res.within = pitched > 0 ? (float) within / (float) pitched : 0.0f;
+        res.inputSpread = percentile (inCents, 0.95f) - percentile (inCents, 0.05f);
+        res.underruns = core.getUnderrunCount();
+        res.rtFactor = (outL.size() / fs * 1000.0) / std::max (ms, 1e-3);
+        res.pass = res.median <= c.maxMedianCents && res.p90 <= c.maxP90Cents && res.within >= c.minWithin25 && res.underruns == 0;
+        return res;
+    }
+
+    bool testLatencyAlignment (double fs, int block)
+    {
+        if (block <= 0) block = 333;
+        // mix = 0 must reproduce the input exactly, delayed by the reported latency
+        FlattenerCore core;
+        DetectorConfig dc;
+        core.prepare (fs, block, 2, dc, 0);
+        auto s = LiveSettings {};
+        s.mix = 0.0f;
+        core.setLiveSettings (s);
+        const int lat = core.getLatencySamples();
+        const int n = lat + (int) fs;
+        std::vector<float> l ((size_t) n, 0.0f), r ((size_t) n, 0.0f), ref ((size_t) n, 0.0f);
+        std::mt19937 rng (7);
+        std::uniform_real_distribution<float> u (-0.5f, 0.5f);
+        for (int i = 0; i < (int) fs; ++i) { l[(size_t) i] = r[(size_t) i] = ref[(size_t) i] = u (rng); }
+        for (int pos = 0; pos < n; pos += block)
+        {
+            float* ch[2] = { l.data() + pos, r.data() + pos };
+            core.process (ch, 2, std::min (block, n - pos));
+        }
+        double maxErr = 0;
+        for (int i = 0; i < (int) fs; ++i)
+            maxErr = std::max (maxErr, (double) std::abs (l[(size_t) (i + lat)] - ref[(size_t) i]));
+        std::printf ("  latency %d samples (%.3f s), dry alignment max error %.2g -> %s\n",
+                     lat, lat / fs, maxErr, maxErr < 1e-6 ? "OK" : "FAIL");
+        return maxErr < 1e-6;
+    }
+
+    bool testRebuildsMidStream (double fs)
+    {
+        // Swap detector and shifter quality while audio runs; must not crash and must keep running.
+        FlattenerCore core;
+        DetectorConfig dc;
+        core.prepare (fs, 512, 2, dc, 0);
+        core.setLiveSettings (LiveSettings {});
+        const int lat = core.getLatencySamples();
+        std::vector<float> l (512), r (512);
+        int64_t t = 0;
+        for (int b = 0; b < (int) (8 * fs / 512); ++b)
+        {
+            for (int i = 0; i < 512; ++i, ++t)
+                l[(size_t) i] = r[(size_t) i] = (float) (0.3 * std::sin (twoPi * 300.0 * (double) t / fs));
+            if (b % 50 == 10)
+                core.setDetectorConfig ((DetectorType) ((b / 50) % 4), 50.0f + (float) (b % 7) * 30.0f, 2000.0f);
+            if (b % 120 == 60)
+                core.setQuality ((b / 120) % 2);
+            core.housekeeping();
+            float* ch[2] = { l.data(), r.data() };
+            core.process (ch, 2, 512);
+        }
+        core.housekeeping();
+        const bool ok = core.getLatencySamples() == lat && std::isfinite (l[0]);
+        std::printf ("  detector/quality swaps mid-stream: latency constant, %d underrun samples -> %s\n",
+                     core.getUnderrunCount(), ok ? "OK" : "FAIL");
+        return ok;
+    }
+
+    bool testMono (double fs)
+    {
+        FlattenerCore core;
+        DetectorConfig dc;
+        core.prepare (fs, 256, 1, dc, 1);
+        auto s = LiveSettings {};
+        s.targetMode = TargetMode::Fixed; s.targetHz = 1000.0f;
+        core.setLiveSettings (s);
+        const int lat = core.getLatencySamples();
+        const int n = lat + (int) (3 * fs);
+        std::vector<float> x ((size_t) n, 0.0f);
+        for (int i = 0; i < (int) (3 * fs); ++i)
+            x[(size_t) i] = (float) (0.3 * std::sin (twoPi * 900.0 * i / fs));
+        for (int pos = 0; pos < n; pos += 256)
+        {
+            float* ch[1] = { x.data() + pos };
+            core.process (ch, 1, std::min (256, n - pos));
+        }
+        const float hz = measurePitch (x.data() + lat + (int) (1.5 * fs), (int) (0.05 * fs), fs, 1000.0f);
+        const bool ok = std::abs (hzToCents (hz) - hzToCents (1000.0f)) < 10.0f && core.getUnderrunCount() == 0;
+        std::printf ("  mono 900 Hz -> fixed 1000 Hz: measured %.1f Hz -> %s\n", hz, ok ? "OK" : "FAIL");
+        return ok;
+    }
+
+    /** Runs a 900 Hz tone flattened to 1000 Hz; optionally injects a NaN at t=1 s. */
+    bool testToneAndNaN (double fs, bool injectNaN, const char* label)
+    {
+        FlattenerCore core;
+        DetectorConfig dc;
+        core.prepare (fs, 512, 2, dc, 1);
+        auto s = LiveSettings {};
+        s.targetMode = TargetMode::Fixed; s.targetHz = 1000.0f;
+        core.setLiveSettings (s);
+        const int lat = core.getLatencySamples();
+        const int n = lat + (int) (4 * fs);
+        std::vector<float> l ((size_t) n, 0.0f), r;
+        for (int i = 0; i < (int) (4 * fs); ++i)
+            l[(size_t) i] = (float) (0.3 * std::sin (twoPi * 900.0 * i / fs));
+        if (injectNaN) l[(size_t) fs] = std::numeric_limits<float>::quiet_NaN();
+        r = l;
+        for (int pos = 0; pos < n; pos += 512)
+        {
+            float* ch[2] = { l.data() + pos, r.data() + pos };
+            core.process (ch, 2, std::min (512, n - pos));
+        }
+        int bad = 0;
+        for (auto v : l) if (! std::isfinite (v)) ++bad;
+        // pitch right at the start (first 60 ms after onset) and long after the NaN
+        const float early = measurePitch (l.data() + lat + (int) (0.02 * fs), (int) (0.04 * fs), fs, 1000.0f);
+        const float late  = measurePitch (l.data() + lat + (int) (3.0 * fs), (int) (0.04 * fs), fs, 1000.0f);
+        const bool ok = bad == 0 && std::abs (hzToCents (early) - hzToCents (1000.0f)) < 25.0f
+                     && std::abs (hzToCents (late) - hzToCents (1000.0f)) < 10.0f;
+        std::printf ("  %s @ %.0f Hz: non-finite out %d, onset %.1f Hz, later %.1f Hz -> %s\n",
+                     label, fs, bad, early, late, ok ? "OK" : "FAIL");
+        return ok;
+    }
+
+    bool testWetAlignment (double fs, int block)
+    {
+        // With no pitch to correct (amount 0), the wet path must line up with the dry path.
+        FlattenerCore core;
+        DetectorConfig dc;
+        core.prepare (fs, block, 1, dc, 0);
+        auto s = LiveSettings {};
+        s.amount = 0.0f;
+        core.setLiveSettings (s);
+        const int lat = core.getLatencySamples();
+        const int n = lat + (int) (2 * fs);
+        std::vector<float> x ((size_t) n, 0.0f), ref;
+        for (int i = 0; i < (int) (2 * fs); ++i)
+            x[(size_t) i] = (float) (0.3 * std::sin (twoPi * 440.0 * i / fs) * (1.0 + 0.5 * std::sin (twoPi * 3.0 * i / fs)));
+        ref = x;
+        for (int pos = 0; pos < n; pos += block)
+        {
+            float* ch[1] = { x.data() + pos };
+            core.process (ch, 1, std::min (block, n - pos));
+        }
+        // best lag by cross-correlation around 0
+        double bestC = -1; int bestLag = 0;
+        for (int lag = -400; lag <= 400; ++lag)
+        {
+            double c = 0, e1 = 0, e2 = 0;
+            for (int i = (int) (0.5 * fs); i < (int) (1.5 * fs); ++i)
+            {
+                const double a = ref[(size_t) i], b = x[(size_t) (i + lat + lag)];
+                c += a * b; e1 += a * a; e2 += b * b;
+            }
+            c /= std::sqrt (e1 * e2 + 1e-20);
+            if (c > bestC) { bestC = c; bestLag = lag; }
+        }
+        const bool ok = std::abs (bestLag) <= 2 && bestC > 0.98 && core.getUnderrunCount() == 0;
+        std::printf ("  wet path offset %d samples, correlation %.4f, underruns %d -> %s\n",
+                     bestLag, bestC, core.getUnderrunCount(), ok ? "OK" : "FAIL");
+        return ok;
+    }
+}
+
+int main (int argc, char** argv)
+{
+    double fs = 48000.0;
+    int block = 512;
+    juce::File wavDir;
+    juce::String only;
+
+    for (int i = 1; i < argc; ++i)
+    {
+        const juce::String a (argv[i]);
+        if (a == "--wav" && i + 1 < argc) { wavDir = juce::File (juce::String (argv[++i])); wavDir.createDirectory(); }
+        else if (a == "--rate" && i + 1 < argc) fs = juce::String (argv[++i]).getDoubleValue();
+        else if (a == "--block" && i + 1 < argc) block = juce::String (argv[++i]).getIntValue();
+        else if (a == "--only" && i + 1 < argc) only = argv[++i];
+        else if (a == "--align" && i + 1 < argc) gAlign = juce::String (argv[++i]).getIntValue();
+        else if (a == "--dump") gDump = true;
+    }
+
+    std::printf ("Pitch Flattener DSP tests @ %.0f Hz, block %d\n", fs, block);
+    bool ok = true;
+    ok &= testLatencyAlignment (fs, block);
+    ok &= testWetAlignment (fs, block > 0 ? block : 512);
+    ok &= testMono (fs);
+    ok &= testToneAndNaN (fs, false, "onset correction");
+    ok &= testToneAndNaN (fs, true, "NaN in input");
+    for (double odd : { 32000.0, 88200.0, 176400.0 })
+        ok &= testToneAndNaN (odd, false, "odd sample rate");
+    ok &= testRebuildsMidStream (fs);
+
+    const double c = 343.0;
+    std::vector<Case> cases = {
+        { "siren_wail", SourceType::Siren, TargetMode::Fixed, 1000.0f,
+          [] (double r) { return harmonicTone (r, 8.0, [] (double t) { return 950.0 + 400.0 * std::sin (twoPi * 0.2 * t); }, 4, 1.5, -40.0); },
+          10.0f, 30.0f, 0.85f },
+        { "siren_yelp", SourceType::Siren, TargetMode::Fixed, 1000.0f,
+          [] (double r) { return harmonicTone (r, 8.0, [] (double t) {
+                const double ph = std::fmod (t * 3.0, 1.0);
+                return 700.0 * std::pow (2.0, (ph < 0.5 ? ph * 2.0 : 2.0 - ph * 2.0) * 1.0); }, 4, 1.5, -40.0); },
+          25.0f, 60.0f, 0.50f },   // ~6 oct/s triangle: close to what a phase-vocoder shifter can follow
+        { "voice_vibrato", SourceType::Vocal, TargetMode::Latch, 0.0f,
+          [] (double r) { return voice (r, 10.0, [] (double t) {
+                return 180.0 * std::pow (2.0, (50.0 * std::sin (twoPi * 5.5 * t) + 150.0 * std::sin (twoPi * 0.15 * t)) / 1200.0); }); },
+          12.0f, 40.0f, 0.75f },
+        { "engine_doppler", SourceType::Engine, TargetMode::Latch, 0.0f,
+          [c] (double r) { return harmonicTone (r, 10.0, [c] (double t) {
+                const double v = 25.0, d = 8.0, x = v * (t - 5.0);
+                const double vr = -v * x / std::sqrt (x * x + d * d);   // radial velocity (negative = approaching)
+                return 95.0 * c / (c + vr); }, 24, 0.8, -45.0, false,
+                [] (double t) { return 0.3 + 0.7 * std::exp (-std::pow ((t - 5.0) / 3.0, 2.0)); }); },
+          12.0f, 40.0f, 0.75f },
+        { "engine_missing_f0", SourceType::Engine, TargetMode::Fixed, 120.0f,
+          [c] (double r) { return harmonicTone (r, 10.0, [c] (double t) {
+                const double v = 20.0, d = 10.0, x = v * (t - 5.0);
+                return 110.0 * c / (c - v * x / std::sqrt (x * x + d * d)); }, 20, 0.7, -45.0, true); },
+          15.0f, 50.0f, 0.70f },
+        { "field_engine_noisy", SourceType::NoisyField, TargetMode::Latch, 0.0f,
+          [c] (double r) { return harmonicTone (r, 10.0, [c] (double t) {
+                const double v = 30.0, d = 12.0, x = v * (t - 5.0);
+                return 70.0 * c / (c - v * x / std::sqrt (x * x + d * d)); }, 30, 0.6, -24.0, false,
+                [] (double t) { return 0.25 + 0.75 * std::exp (-std::pow ((t - 5.0) / 2.5, 2.0)); }); },
+          15.0f, 50.0f, 0.70f },
+        { "instrument_auto", SourceType::Instrument, TargetMode::Fixed, 440.0f,
+          [] (double r) { return harmonicTone (r, 8.0, [] (double t) {
+                return 440.0 * std::pow (2.0, 35.0 * std::sin (twoPi * 6.0 * t) / 1200.0); }, 12, 1.0, -55.0); },
+          10.0f, 25.0f, 0.85f },
+        { "whistle", SourceType::Whistle, TargetMode::Fixed, 1500.0f,
+          [] (double r) { return harmonicTone (r, 8.0, [] (double t) {
+                return 1500.0 * std::pow (2.0, 100.0 * std::sin (twoPi * 0.5 * t) / 1200.0); }, 1, 1.0, -50.0); },
+          8.0f, 25.0f, 0.85f },
+    };
+
+    std::printf ("\n%-18s %8s %8s %9s %10s %6s %8s  %s\n", "case", "med(c)", "p90(c)", "<=25c", "in-range(c)", "xruns", "speed", "result");
+    for (const auto& tc : cases)
+    {
+        if (only.isNotEmpty() && ! juce::String (tc.name).contains (only))
+            continue;
+        const auto r = runCase (tc, fs, block, wavDir);
+        std::printf ("%-18s %8.1f %8.1f %8.0f%% %10.0f %6d %7.1fx  %s\n", tc.name.c_str(), r.median, r.p90,
+                     100.0f * r.within, r.inputSpread, r.underruns, r.rtFactor, r.pass ? "PASS" : "FAIL");
+        ok &= r.pass;
+    }
+
+    std::printf ("\n%s\n", ok ? "ALL PASSED" : "SOME TESTS FAILED");
+    return ok ? 0 : 1;
+}
