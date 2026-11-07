@@ -1,6 +1,6 @@
 # Sound Advice
 
-A small, quiet page of advice from the great film, TV and game sound designers and mixers. Pick what you're working on (mixing, trailers, creatures, Foley, silence...) and it deals you something one of the greats said or did about it. Roll the die for another.
+A small, quiet page of advice from the great film, TV and game sound designers and mixers. Pick what you're working on (mixing, trailers, creatures, Foley, silence, running a creative team...) and it deals you something one of the greats said or did about it. Roll the die for another.
 
 It's a VST3 / AU plug-in (audio passes straight through, untouched) and a standalone app (no audio device at all), so it can sit on a mix bus or on a second screen. Paper by day, ink by night.
 
@@ -8,34 +8,35 @@ It's a VST3 / AU plug-in (audio passes straight through, untouched) and a standa
 
 ## What's in it
 
-897 entries from 77 people, every one of them with feature film, TV or AAA game sound credits on IMDb, and every entry taken from an interview, article or talk you can read. Two kinds:
+1028 entries from 78 people. The sound designers and mixers all have feature film, TV or AAA game credits on IMDb, and every entry comes from an interview, article or talk you can read. The Creativity & Teams category draws on a legendary Disney Imagineer's book about creative work: leading teams, finding a theme, critique, risk and knowing when to stop. Two kinds:
 
 - **Quotes**, in quotation marks and italics: their own words, kept short.
 - **Field notes**: a technique, decision or story from that source, retold in a sentence or two. "Field note" is printed above them.
 
-Click a person's name to open their IMDb page; click the source line at the foot of the page to read the original article. Right-click to copy.
+Click a person's name to open their IMDb (or other profile) page; click the source line at the foot of the page to read the original article. Right-click to copy.
 
 ### Categories
 
 | Category | Entries |
 |---|---|
-| Mixing | 228 |
+| Mixing | 230 |
 | Action & Impact | 98 |
 | Trailers | 74 |
 | Creatures & Voices | 80 |
-| Ambience & Worlds | 84 |
+| Ambience & Worlds | 102 |
 | Foley | 107 |
 | Dialogue | 114 |
-| Field Recording | 137 |
+| Field Recording | 139 |
 | Weapons & Vehicles | 75 |
 | Sci-Fi & Magic | 105 |
 | Horror & Tension | 55 |
-| Silence & Restraint | 86 |
-| Music & Sound | 130 |
+| Silence & Restraint | 87 |
+| Music & Sound | 132 |
 | Games | 35 |
-| Story & Emotion | 194 |
-| Craft & Technique | 260 |
-| Collaboration & Career | 125 |
+| Story & Emotion | 223 |
+| Craft & Technique | 283 |
+| Collaboration & Career | 181 |
+| Creativity & Teams | 131 |
 
 **Anything** deals from all of them. Each category is a shuffled deck: you see every entry in it once before any comes round again.
 

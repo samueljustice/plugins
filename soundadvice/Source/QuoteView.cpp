@@ -298,7 +298,8 @@ void QuoteView::mouseUp (const juce::MouseEvent& event)
         menu.addItem ("Copy", [this] { juce::SystemClipboard::copyTextToClipboard (getClipboardText()); });
         menu.addSeparator();
         menu.addItem ("Read the source", e.source.url.isNotEmpty(), false, [this] { openLink (Hover::source); });
-        menu.addItem (p.name + " on IMDb", p.imdb.isNotEmpty(), false, [this] { openLink (Hover::name); });
+        menu.addItem (p.name + (p.imdb.contains ("imdb.com") ? " on IMDb" : " (profile)"), p.imdb.isNotEmpty(), false,
+                      [this] { openLink (Hover::name); });
         menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this).withMousePosition());
         return;
     }
@@ -316,6 +317,9 @@ juce::String QuoteView::getTooltip()
     if (hover == Hover::source)
         return e.source.title.isNotEmpty() ? e.source.title : e.source.url;
     if (hover == Hover::name)
-        return library.getPerson (e).name + " on IMDb";
+    {
+        const auto& p = library.getPerson (e);
+        return p.name + (p.imdb.contains ("imdb.com") ? " on IMDb" : " (profile)");
+    }
     return {};
 }

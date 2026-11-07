@@ -39,6 +39,7 @@ CATEGORIES = [
     ("story", "Story & Emotion"),
     ("craft", "Craft & Technique"),
     ("collaboration", "Collaboration & Career"),
+    ("creativity", "Creativity & Teams"),
 ]
 CATEGORY_IDS = {c for c, _ in CATEGORIES}
 MAX_QUOTE_WORDS = 15
@@ -100,11 +101,14 @@ def main(check_only):
         for p in data.get("people", []):
             name = clean(p.get("name"))
             imdb = (p.get("imdb") or "").strip()
-            if imdb and not IMDB.match(imdb):
-                problems.append(f"{path.name}: {name}: odd IMDb url {imdb}")
-            if imdb and not imdb.endswith("/"):
-                imdb += "/"
-            imdb = imdb.replace("://m.imdb", "://www.imdb").replace("://imdb", "://www.imdb")
+            if "imdb.com" in imdb:
+                if not IMDB.match(imdb):
+                    problems.append(f"{path.name}: {name}: odd IMDb url {imdb}")
+                if not imdb.endswith("/"):
+                    imdb += "/"
+                imdb = imdb.replace("://m.imdb", "://www.imdb").replace("://imdb", "://www.imdb")
+            elif imdb and not imdb.startswith("https://"):
+                problems.append(f"{path.name}: {name}: profile link should be https: {imdb}")
             record = {"name": name, "role": clean(p.get("role")), "credits": short_credits(clean(p.get("credits"))), "imdb": imdb}
             if name in people:
                 # Same person researched twice: keep the fuller record.
