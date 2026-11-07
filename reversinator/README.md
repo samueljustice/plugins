@@ -1,193 +1,99 @@
 # SammyJs Reversinator
-A VST3/AU audio plugin that provides real-time audio reversal effects with grain-based overlap-add processing, inspired by the classic Backwards Machine plugin. Create smooth reverse effects, experimental soundscapes, and unique time-based audio manipulations without clicks or pops.
 
-### 🎉 Latest Release v1.0.0 - [Download Here](https://github.com/samueljustice/plugins/releases/tag/reversinator-v1.0.0)
+A VST3/AU real-time reverser for macOS and Windows. Reversinator is a faithful, modernised recreation of **Backwards Machine** (The Sound Guy, 2007), the classic plugin that "reverses continuous audio in real time". Its three effects, Reverse Playback, Forward Backwards and Reverse Repeat, were rebuilt from a study of the original's signal flow, so they behave and sound like it. They run inside a new interface that shows the reverser at work.
 
-<img width="747" height="377" alt="Screenshot 2025-07-18 at 17 31 14" src="https://github.com/user-attachments/assets/3f52904c-898b-4316-a99d-79d55e076ad6" />
+### 🎉 Latest Release v2.0.0 - [Download Here](https://github.com/samueljustice/plugins/releases/tag/reversinator-v2.0.0)
+
+![Reversinator](docs/screenshot.png)
 
 ## Features
 
-- **Grain-based overlap-add architecture** - Click-free reversal using phase-continuous windowing
-- **Three reverse modes**:
-  - **Reverse Playback** - Continuous reverse effect with smooth grain transitions
-  - **Forward Backwards** - Palindromic playback (forward then reverse from midpoint)
-  - **Reverse Repeat** - Plays snippets backwards twice, with vibrato on the second repeat
-- **Adjustable window time** (30ms - 5s) - Control the size of each reverse grain
-- **Envelope control** (10-100ms) - Fine-tune fade in/out for each grain
-- **Enhanced feedback system** - More extreme feedback effects with soft saturation
-- **Independent wet/dry mix** - Blend reversed and original signals precisely
-- **Crossfade control** - Smooth transitions in Forward Backwards mode
-- **Zero-latency processing** - Real-time performance with minimal CPU usage
-- **Full DAW automation** - All parameters can be automated
+- **The three Backwards Machine effects**, with the original's sweeps, windows, vibrato, feedback routing, gain staging, parameter ranges and control tapers.
+- **Click-free everywhere.** REVERSER switches with a 10 ms crossfade, as on the original. TIME changes crossfade between the old and new read positions. Switching effects crossfades straight into the new one, because every effect shares the same input history. Wet, dry and feedback changes are smoothed. All of this is independent of the host's buffer size.
+- **Live snippet display**: a scrolling view of the recent input with each read head drawn as it sweeps backwards through it, so you can see what each effect is doing.
+- **Modern interface** in the spirit of the original: mode lamps, the big REVERSER button, an hourglass TIME control and a feedback loop. The window is resizable from 75% to 200%.
+- Mono or stereo at any sample rate. The effect itself is a delay, so no latency is reported to the host.
+
+## The effects
+
+Every effect is built from the same voice. A delay line's delay time is swept by a sawtooth from 0 up to 2 × TIME over each TIME period, so the read head runs backwards through the input at normal speed: each period plays the previous TIME seconds of audio in reverse. A `0.5 + 0.5·sin` window fades each snippet in and out, and is silent at the exact moment the sweep jumps back. That is why there are no clicks at the snippet boundaries.
+
+| Effect | What you hear |
+|---|---|
+| **Reverse Playback** | Two voices half a period apart, so their windows always add up to one. You hear a continuous, overlapping backwards stream. |
+| **Forward Backwards** | One backwards voice crossfaded against the dry input on the opposite window. The sound smoothly alternates between playing forwards and backwards, once per TIME period. |
+| **Reverse Repeat** | One backwards voice, plus a copy of it played again half a period later with a slight 5 Hz vibrato. Each snippet is heard backwards twice. |
+
+**Feedback** sends each voice's output back into its own delay line, so repeats are re-reversed into cascades that alternate direction. As on the original, each delay line's input is halved and the output doubled, so FEEDBACK DEPTH is the true loop gain. At the 75% maximum, the feedback dies away rather than running away.
+
+## Controls
+
+| Control | Range | Default | Description |
+|---|---|---|---|
+| **Mode** | 3 effects | Reverse Playback | Reverse Playback, Forward Backwards or Reverse Repeat. |
+| **REVERSER** | Reverse / Forward | Reverse | Whether you hear the effect or the original forwards audio, at the wet level. The effect keeps running either way, so switching back lands in a live effect. |
+| **TIME** | 0.5 – 4 s | 2.00 s | The length of each snippet that is played backwards. 2 seconds tends to sound best. Same square-law taper as the original. |
+| **FEEDBACK DEPTH** | 0 – 75 % | 0 % | How much of the effect is fed back into itself. Usually not needed. |
+| **WET MIX** | 0 – 100 % | 100 % | Level of the effect. Squared law: 50% is -12 dB. |
+| **DRY MIX** | 0 – 100 % | 0 % | Mixes in the original input. Usually 0%, but useful for hearing forwards and backwards together. |
+
+## Tips
+
+- **Matching the tempo.** The effect often sounds just as interesting out of time, but to sync it use `TIME = N × 60 / BPM` with N = 1, 2, 4 and so on. For example, at 120 BPM, N = 4 gives 2 seconds, which is one bar of 4/4.
+- **Reverse reverb.** Put Reversinator before a reverb, then print and reverse the result, or simply use Reverse Playback on a reverb return.
+- **Transitions.** Automate REVERSER to flip a phrase backwards and return cleanly on the downbeat.
+- **Ambience.** Forward Backwards with a long TIME and some DRY MIX turns a loop into a slowly breathing palindrome.
+- **Cascades.** Reverse Playback with 40–75% feedback builds layered, alternating-direction echoes.
+
+## Upgrading from 1.x
+
+Version 2 rebuilds the effect to match Backwards Machine, so some settings changed:
+
+- **Envelope** and **Crossfade** are gone. The original's windows are fixed, and the new engine uses them.
+- **TIME** is now 0.5–4 s (was 30 ms–5 s), and **FEEDBACK DEPTH** is now 0–75% (was 0–100%), as on the original.
+- **REVERSER** now defaults to on.
+- Sessions saved with 1.x still open. Values outside the new ranges are clamped, and the removed controls are ignored.
+- macOS builds now run on macOS 11 and later. Previous builds required the macOS version they were built on.
 
 ## Building
 
 ### Prerequisites
-- macOS (tested on macOS 12+)
-- CMake 3.15 or higher
-- Xcode Command Line Tools
 
-### Build Instructions
+- CMake 3.22 or higher
+- macOS: Xcode or the Command Line Tools. Windows: Visual Studio 2022.
+- JUCE 8.0.8 in `../SDK/JUCE`, relative to this folder
 
-1. Clone or download this repository
-2. Navigate to the reversinator folder and run:
-   ```bash
-   mkdir build
-   cd build
-   cmake .. -DCMAKE_BUILD_TYPE=Release
-   cmake --build . --config Release
-   ```
+### Build
 
-The plugin will be built to:
-- VST3: `build/Reversinator_artefacts/Release/VST3/`
-- AU: `build/Reversinator_artefacts/Release/AU/`
+```bash
+cmake -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build --config Release
+```
 
-To install:
-- Copy the `.vst3` file to `~/Library/Audio/Plug-Ins/VST3/`
-- Copy the `.component` file to `~/Library/Audio/Plug-Ins/Components/`
+The plugins are written to `build/Reversinator_artefacts/Release/VST3/` and `.../AU/`. To install, copy them to `~/Library/Audio/Plug-Ins/VST3/` and `~/Library/Audio/Plug-Ins/Components/`.
 
-## Usage
+Options:
 
-1. Load the plugin in your DAW as a VST3 or AU effect
-2. Click the **Enable** button to activate the effect
-3. Select your desired **Effect Mode**:
-   - **Reverse Playback**: Classic continuous reverse effect
-   - **Forward Backwards**: Plays forward to midpoint, then reverses back
-   - **Reverse Repeat**: Plays backwards twice with vibrato on second repeat
-4. Adjust parameters to taste
-
-## Controls
-
-### Main Controls
-
-- **Reverser Enable**: Master on/off switch for the effect
-  - Click to toggle between enabled/disabled states
-  - When disabled, audio passes through unprocessed
-
-- **Effect Mode**: Choose between three reverse algorithms
-  - **Reverse Playback**: Continuously reverses audio in overlapping grains
-  - **Forward Backwards**: Creates a palindromic effect - forward then reverse
-  - **Reverse Repeat**: Plays audio backwards twice - second time with vibrato effect
-
-### Time & Window Controls
-
-- **Window Time** (30ms - 5s): Size of each reverse grain
-  - 30-100ms: Granular, metallic textures
-  - 100-500ms: Classic reverse effects
-  - 500ms-5s: Long, sweeping reverses
-  - Directly affects the character of the reversal
-
-- **Envelope** (10-100ms): Fade in/out time for each grain
-  - Lower values (10-30ms): Sharper transitions, more definition
-  - Higher values (50-100ms): Smoother blending between grains
-  - Automatically limited to 50% of window time to prevent overlap issues
-
-- **Crossfade** (0-100%): Blend amount between forward/reverse sections
-  - Only visible in Forward Backwards mode
-  - 0%: Hard switch between directions
-  - 100%: Maximum crossfade for seamless transitions
-
-### Feedback & Mix
-
-- **Feedback** (0-100%): Amount of reversed signal fed back into the input
-  - 0%: No feedback
-  - 50%: Moderate echo/delay effects
-  - 100%: Extreme feedback with soft saturation for wild effects
-  - Different scaling per mode for optimal results
-
-- **Wet Mix** (0-100%): Level of the reversed/processed signal
-  - 0%: No effect signal
-  - 100%: Only reversed signal
-  - Use with Dry Mix for parallel processing
-
-- **Dry Mix** (0-100%): Level of the original unprocessed signal
-  - 0%: No original signal (full effect)
-  - 100%: Full original signal
-  - Combine with Wet Mix for blended effects
-
-## Tips & Creative Uses
-
-### For Smooth Reverses
-- Use longer window times (500ms+) with moderate envelope (50ms)
-- Keep feedback below 50% for clarity
-- Balance wet/dry mix around 70/30 for natural effect
-
-### For Glitch Effects
-- Short window times (30-100ms) with minimal envelope (10-20ms)
-- High feedback (80-100%) for chaos
-- 100% wet mix for full transformation
-
-### For Rhythmic Patterns
-- Sync window time to your tempo (e.g., 250ms = 16th note at 120 BPM)
-- Use Reverse Repeat mode for triplet-like patterns
-- Moderate feedback (40-60%) maintains rhythm while adding texture
-
-### For Ambient Soundscapes
-- Maximum window time (5s) with high envelope (80-100ms)
-- Low feedback (20-40%) for subtle evolution
-- Equal wet/dry mix (50/50) for spacious effect
-
-### Production Techniques
-- **Reverse reverb**: Place before a reverb for classic effect
-- **Vocal effects**: Short windows on vocals for robotic textures
-- **Transition tool**: Automate the Enable button for dramatic sweeps
-- **Sidechain**: Use on a bus with rhythmic material for pumping effects
-
-## Technical Details
-
-### Grain-Based Overlap-Add System
-
-Reversinator uses an advanced grain-based architecture for click-free operation:
-
-1. **Grain Buffering**: Audio is captured into overlapping grains (4 concurrent grains per channel)
-2. **50% Overlap**: Grains overlap by 50% ensuring continuous coverage
-3. **Hann Windowing**: Each grain uses a Hann window for smooth fade in/out
-4. **Phase Continuity**: Grains maintain phase alignment preventing discontinuities
-5. **Output Accumulation**: Overlapping grains are summed in an accumulation buffer
-
-### Processing Modes
-
-**Reverse Playback**
-- Continuously captures and reverses audio grains
-- Each grain plays backwards while maintaining smooth transitions
-- Feedback is applied before grain capture for echo effects
-
-**Forward Backwards**
-- First half of grain plays forward (0% to 50%)
-- Second half plays reverse from midpoint back to start
-- Creates a palindromic "there and back again" effect
-- Includes grain spawn offset variation to prevent feedback loops
-
-**Reverse Repeat**
-- Plays each grain backwards twice
-- Second repeat includes subtle vibrato modulation (0.5% depth)
-- Creates unique doubled reverse effect
-
-### Feedback System
-
-The feedback path includes:
-- Mode-specific gain scaling (0.5x, 0.3x, 0.5x)
-- Soft saturation above 90% for harmonic richness
-- Tanh limiting to prevent hard clipping
-- Separate feedback sample per channel
-
-## Troubleshooting
-
-- **No sound**: Ensure Reverser is enabled and Wet Mix is above 0%
-- **Clicks or pops**: Should not occur with grain system - try increasing Envelope time
-- **Distortion**: Lower Feedback or reduce input level
-- **CPU spikes**: Increase buffer size in your DAW settings
+- `-DREVERSINATOR_FORMATS="AU;VST3;Standalone"` also builds a standalone app.
+- `-DREVERSINATOR_BUILD_TESTS=ON` builds `ReversinatorTests`, an offline test runner:
+  - `ReversinatorTests selftest` checks stability across sample rates, layouts and block sizes, block-size independence, click-free automation and mode switching, and state save/restore.
+  - `ReversinatorTests render in.wav out.wav --mode 1 --time 1.5` renders a file through the effect.
+  - `ReversinatorTests screenshot out.png` renders the editor to an image.
+  - `ReversinatorTests hostcheck "build/.../SammyJs Reversinator.vst3"` loads and exercises the built plugin.
 
 ## Developer
 
-Created by Samuel Justice  
-Website: [www.sweetjusticesound.com](https://www.sweetjusticesound.com)  
+Created by Samuel Justice
+Website: [www.sweetjusticesound.com](https://www.sweetjusticesound.com)
 Email: sam@sweetjusticesound.com
+
+Backwards Machine is a trademark of The Sound Guy, Inc. Reversinator is an independent recreation and is not affiliated with or endorsed by them.
 
 ## License
 
-This plugin uses the JUCE framework. Please refer to JUCE's license for terms of use.
+See [LICENSE](LICENSE). The plugin uses the JUCE framework; see JUCE's license for its terms.
 
 ## Version History
 
-- v1.0.0 - Initial release with grain-based overlap-add system, three reverse modes, and modern UI
+- **v2.0.0**: Rebuilt to match Backwards Machine: the original's three effects, ranges, tapers, defaults and gain staging. New interface with a live snippet display. Click-free TIME, mode and REVERSER changes. Fixes the macOS minimum-version problem, a crash risk in the update check, and the build break.
+- **v1.0.0**: Initial release with a grain-based overlap-add engine, three reverse modes and a resizable UI.

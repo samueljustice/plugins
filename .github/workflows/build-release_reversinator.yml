@@ -10,9 +10,38 @@ permissions:
   contents: write
 
 jobs:
+  # Single source of truth for the version: project(Reversinator VERSION x.y.z) in
+  # reversinator/CMakeLists.txt. A tag must match it, so a mis-tagged release fails early.
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.read.outputs.version }}
+
+    steps:
+    - uses: actions/checkout@v5
+
+    - name: Read and check version
+      id: read
+      run: |
+        VERSION=$(sed -n 's/^project(Reversinator VERSION \([0-9.]*\)).*/\1/p' reversinator/CMakeLists.txt)
+        if [ -z "$VERSION" ]; then
+          echo "Could not read the version from reversinator/CMakeLists.txt"
+          exit 1
+        fi
+        if [[ "$GITHUB_REF" == refs/tags/reversinator-v* ]]; then
+          TAG_VERSION="${GITHUB_REF#refs/tags/reversinator-v}"
+          if [ "$TAG_VERSION" != "$VERSION" ]; then
+            echo "Tag version $TAG_VERSION does not match CMakeLists.txt version $VERSION"
+            exit 1
+          fi
+        fi
+        echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+        echo "Building Reversinator $VERSION"
+
   build-windows:
+    needs: version
     runs-on: windows-latest
-    
+
     steps:
     - uses: actions/checkout@v5
       with:
@@ -71,12 +100,14 @@ jobs:
           echo "This software is provided as-is, without warranty of any kind." >> LICENSE
         }
         
-        # Download and install Inno Setup
-        curl -L https://files.jrsoftware.org/is/6/innosetup-6.2.2.exe -o innosetup.exe
-        .\innosetup.exe /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /SP-
-        
+        # Install Inno Setup via chocolatey (the old direct download link is gone)
+        choco install innosetup -y --no-progress
+
         # Add Inno Setup to PATH
         $env:Path += ";${env:ProgramFiles(x86)}\Inno Setup 6"
+
+        # Show installed version
+        & "${env:ProgramFiles(x86)}\Inno Setup 6\iscc.exe" /? 2>&1 | Select-String "Inno Setup"
         
         # Check if files exist
         echo "Listing VST3 directory:"
@@ -92,7 +123,7 @@ jobs:
         
         # Build installer with better error handling
         echo "Running Inno Setup compiler..."
-        & "${env:ProgramFiles(x86)}\Inno Setup 6\iscc.exe" installer.iss /O"." /F"SammyJs_Reversinator_Installer"
+        & "${env:ProgramFiles(x86)}\Inno Setup 6\iscc.exe" /DMyAppVersion=${{ needs.version.outputs.version }} installer.iss /O"." /F"SammyJs_Reversinator_Installer" 2>&1
         $exitCode = $LASTEXITCODE
         
         # Always show what files were created
@@ -127,6 +158,7 @@ jobs:
         path: reversinator/windows-vst3-package/
     
   build-macos:
+    needs: version
     runs-on: macos-15
     
     steps:
@@ -300,25 +332,31 @@ jobs:
           xcrun stapler validate "$plugin" || echo "No ticket found for $plugin"
         done
         
-        # Create component packages
-        # Extract version from tag or use default
-        VERSION="${GITHUB_REF#refs/tags/reversinator-v}"
-        if [ -z "$VERSION" ] || [ "$VERSION" = "$GITHUB_REF" ]; then
-          VERSION="1.0.0"
-        fi
-        
-        pkgbuild --identifier "com.sweetjusticesound.reversinator.vst3" \
-          --install-location "/Library/Audio/Plug-Ins/VST3" \
-          --root installer/vst3 \
-          --version "$VERSION" \
-          vst3.pkg
-          
-        pkgbuild --identifier "com.sweetjusticesound.reversinator.au" \
-          --install-location "/Library/Audio/Plug-Ins/Components" \
-          --root installer/au \
-          --version "$VERSION" \
-          au.pkg
-        
+        # Create component packages (version from the CMake project, checked against the tag)
+        VERSION="${{ needs.version.outputs.version }}"
+
+        # Bundles are marked non-relocatable: otherwise Installer "updates" any other copy
+        # with the same bundle ID it finds on disk (the AU and VST3 share one) instead of
+        # installing into /Library/Audio/Plug-Ins.
+        build_component_pkgs() {
+          for kind in vst3 au; do
+            if [ "$kind" = "vst3" ]; then location="/Library/Audio/Plug-Ins/VST3"; else location="/Library/Audio/Plug-Ins/Components"; fi
+            pkgbuild --analyze --root "installer/$kind" "$kind-components.plist"
+            count=$(plutil -extract "" raw -expect array "$kind-components.plist" 2>/dev/null || echo 1)
+            for ((i = 0; i < count; i++)); do
+              plutil -replace "$i.BundleIsRelocatable" -bool NO "$kind-components.plist"
+            done
+            pkgbuild --identifier "com.sweetjusticesound.reversinator.$kind" \
+              --install-location "$location" \
+              --root "installer/$kind" \
+              --component-plist "$kind-components.plist" \
+              --version "$VERSION" \
+              "$kind.pkg"
+          done
+        }
+
+        build_component_pkgs
+
         # Create distribution XML
         cat > distribution.xml << EOF
         <?xml version="1.0" encoding="utf-8"?>
@@ -348,8 +386,8 @@ jobs:
           --version "$VERSION" \
           "SammyJs_Reversinator_Installer.pkg"
         
-        # Sign the installer if certificates are available
-        if [[ -n "$APPLE_TEAM_ID" ]]; then
+        # Sign the installer if certificates were imported
+        if [[ "${{ steps.check_certs.outputs.has_certs }}" == "true" ]]; then
           # Re-sign the plugins in the installer with hardened runtime
           echo "Re-signing plugins in installer with hardened runtime..."
           IDENTITY=$(security find-identity -v -p codesigning | grep "Developer ID Application" | head -1 | awk -F'"' '{print $2}')
@@ -386,19 +424,8 @@ jobs:
           # Rebuild packages with signed plugins
           echo "Rebuilding packages with signed plugins..."
           rm -f vst3.pkg au.pkg
-          
-          pkgbuild --identifier "com.sweetjusticesound.reversinator.vst3" \
-            --install-location "/Library/Audio/Plug-Ins/VST3" \
-            --root installer/vst3 \
-            --version "$VERSION" \
-            vst3.pkg
-            
-          pkgbuild --identifier "com.sweetjusticesound.reversinator.au" \
-            --install-location "/Library/Audio/Plug-Ins/Components" \
-            --root installer/au \
-            --version "$VERSION" \
-            au.pkg
-          
+          build_component_pkgs
+
           # Rebuild the installer
           productbuild --distribution distribution.xml \
             --package-path . \
@@ -492,11 +519,18 @@ jobs:
         path: reversinator/build/Reversinator_artefacts/Release/AU/*.component
   
   create-release:
-    needs: [build-windows, build-macos]
+    needs: [version, build-windows, build-macos]
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/')
-    
+
     steps:
+    - name: Check out release notes
+      uses: actions/checkout@v5
+      with:
+        path: repo
+        sparse-checkout: reversinator/RELEASE_NOTES.md
+        sparse-checkout-cone-mode: false
+
     - name: Download all artifacts
       uses: actions/download-artifact@v7
     
@@ -520,6 +554,7 @@ jobs:
           Reversinator-macOS-AU.zip
           windows-installer/*.exe
           macos-installer/*.pkg
+        body_path: repo/reversinator/RELEASE_NOTES.md
         generate_release_notes: true
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

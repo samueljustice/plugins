@@ -12,11 +12,11 @@ A VST3/AU audio plugin that flattens pitch variations in real-time. Kinda decent
 - [Latest Release](https://github.com/samueljustice/plugins/releases/tag/pitchflattener-v1.2.5)
 
 ### Reversinator
-A VST3/AU audio plugin that provides real-time audio reversal effects with grain-based overlap-add processing. Create smooth reverse effects, experimental soundscapes, and unique time-based audio manipulations without clicks or pops.
+A VST3/AU real-time reverser: a faithful, modernised recreation of Backwards Machine's three effects (Reverse Playback, Forward Backwards and Reverse Repeat), with a live display of the read heads sweeping backwards through your audio.
 
 - Location: `/reversinator/`
 - [Project README](reversinator/README.md)
-- [Latest Release](https://github.com/samueljustice/plugins/releases/tag/reversinator-v1.0.0)
+- [Latest Release](https://github.com/samueljustice/plugins/releases/tag/reversinator-v2.0.0)
 
 ### Subbertone
 A VST3/AU subharmonic generator. Tracks the pitch of your bass and adds a clean sub one octave below, with six saturation types and a resonant, envelope-swept filter for anything from pure sub reinforcement to a growling octave-down bass.
