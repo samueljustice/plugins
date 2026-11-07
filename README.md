@@ -25,6 +25,13 @@ A VST3/AU subharmonic generator. Tracks the pitch of your bass and adds a clean 
 - [Project README](subbertone/README.md)
 - [Latest Release](https://github.com/samueljustice/plugins/releases/tag/subbertone-v1.1.0)
 
+### Swooshbuckler
+A whoosh-making rig, as a standalone app (macOS and Windows) and a VST3/AU plug-in. Drop in up to ten sounds and it rides the faders across them, making doppler passes, swells, hits and tails, and a tape records every one.
+
+- Location: `/swooshbuckler/`
+- [Project README](swooshbuckler/README.md)
+- [Releases](https://github.com/samueljustice/plugins/releases?q=swooshbuckler)
+
 ## Dependencies
 
 ### SDK

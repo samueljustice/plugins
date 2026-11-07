@@ -1,0 +1,412 @@
+name: Build and Release Swooshbuckler
+
+# Push a tag like swooshbuckler-v1.0.0 to build, sign, notarise and publish a release.
+# The tag's number becomes the version everywhere: About panel, bundles, installers.
+# Run it by hand (workflow_dispatch) to get the same artefacts without a release.
+#
+# Secrets (the same ones the other plug-ins use):
+#   APPLE_DEVELOPER_CERTIFICATE_P12_BASE64, APPLE_DEVELOPER_CERTIFICATE_PASSWORD
+#     a .p12 holding BOTH "Developer ID Application" and "Developer ID Installer"
+#   APPLE_ID, APPLE_APP_PASSWORD, APPLE_TEAM_ID   for notarisation
+# Optional, for Windows signing (skipped when missing):
+#   WINDOWS_CERTIFICATE_PFX_BASE64, WINDOWS_CERTIFICATE_PASSWORD
+#     a code-signing certificate exported as .pfx, base64 encoded
+
+on:
+  push:
+    tags:
+      - 'swooshbuckler-v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  JUCE_VERSION: 8.0.8
+
+jobs:
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+    steps:
+    - uses: actions/checkout@v5
+    - name: Work out the version
+      id: v
+      run: |
+        if [[ "$GITHUB_REF" == refs/tags/swooshbuckler-v* ]]; then
+          VERSION="${GITHUB_REF#refs/tags/swooshbuckler-v}"
+        else
+          # Not a release: the default in CMakeLists.txt
+          VERSION=$(sed -n 's/^set(SWOOSHBUCKLER_VERSION "\([0-9.]*\)".*/\1/p' swooshbuckler/CMakeLists.txt)
+        fi
+        if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+          echo "Version '$VERSION' must look like 1.2.3"
+          exit 1
+        fi
+        echo "Version: $VERSION"
+        echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+  build-windows:
+    needs: version
+    runs-on: windows-latest
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+
+    steps:
+    - uses: actions/checkout@v5
+
+    - name: Setup JUCE
+      run: |
+        mkdir SDK
+        git clone --depth 1 --branch $env:JUCE_VERSION https://github.com/juce-framework/JUCE.git SDK/JUCE
+
+    - name: Configure CMake
+      run: |
+        cd swooshbuckler
+        $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm UTC" -AsUTC
+        $commit = git rev-parse --short HEAD
+        cmake -B build -S . -DCMAKE_BUILD_TYPE=Release `
+          -DSWOOSHBUCKLER_VERSION="$env:VERSION" `
+          -DSWOOSHBUCKLER_FORMATS="Standalone;VST3" `
+          -DSWOOSHBUCKLER_TESTS=OFF `
+          -DBUILD_TIMESTAMP="$timestamp" -DBUILD_COMMIT="$commit"
+
+    - name: Build app and VST3
+      run: |
+        cd swooshbuckler
+        cmake --build build --config Release --parallel
+
+    - name: Gather files
+      run: |
+        cd swooshbuckler
+        $out = "build\Swooshbuckler_artefacts\Release"
+        New-Item -ItemType Directory -Force -Path windows-package\app, windows-package\vst3 | Out-Null
+        Copy-Item "$out\Standalone\Swooshbuckler.exe" windows-package\app\
+        Copy-Item "$out\VST3\Swooshbuckler.vst3" windows-package\vst3\ -Recurse
+        Get-ChildItem windows-package -Recurse | Select-Object FullName, Length
+
+    - name: Check for Windows certificate
+      id: wincert
+      shell: bash
+      run: |
+        if [[ -n "${{ secrets.WINDOWS_CERTIFICATE_PFX_BASE64 }}" ]]; then
+          echo "has_cert=true" >> "$GITHUB_OUTPUT"
+        else
+          echo "has_cert=false" >> "$GITHUB_OUTPUT"
+          echo "No Windows certificate in secrets: the Windows build will be unsigned"
+        fi
+
+    - name: Import Windows certificate
+      if: steps.wincert.outputs.has_cert == 'true'
+      run: |
+        $bytes = [Convert]::FromBase64String("${{ secrets.WINDOWS_CERTIFICATE_PFX_BASE64 }}")
+        $pfx = Join-Path $env:RUNNER_TEMP "codesign.pfx"
+        [IO.File]::WriteAllBytes($pfx, $bytes)
+        "PFX_PATH=$pfx" | Out-File -FilePath $env:GITHUB_ENV -Append
+        $signtool = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin\*\x64\signtool.exe" | Sort-Object FullName -Descending | Select-Object -First 1
+        "SIGNTOOL=$($signtool.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+    - name: Sign app and VST3
+      if: steps.wincert.outputs.has_cert == 'true'
+      env:
+        PFX_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+      run: |
+        cd swooshbuckler
+        $files = @("windows-package\app\Swooshbuckler.exe") + (Get-ChildItem windows-package\vst3 -Recurse -Filter *.vst3 -File | ForEach-Object { $_.FullName })
+        foreach ($f in $files) {
+          & $env:SIGNTOOL sign /f $env:PFX_PATH /p $env:PFX_PASSWORD /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 /d "Swooshbuckler" $f
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & $env:SIGNTOOL verify /pa $f
+        }
+
+    - name: Build installer
+      run: |
+        cd swooshbuckler
+        choco install innosetup -y --no-progress
+        & "${env:ProgramFiles(x86)}\Inno Setup 6\iscc.exe" /DMyAppVersion=$env:VERSION installer.iss
+        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+        Get-Item Swooshbuckler_Installer.exe
+
+    - name: Sign installer
+      if: steps.wincert.outputs.has_cert == 'true'
+      env:
+        PFX_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+      run: |
+        cd swooshbuckler
+        & $env:SIGNTOOL sign /f $env:PFX_PATH /p $env:PFX_PASSWORD /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 /d "Swooshbuckler installer" Swooshbuckler_Installer.exe
+        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+        & $env:SIGNTOOL verify /pa Swooshbuckler_Installer.exe
+
+    - name: Clean up certificate
+      if: always() && steps.wincert.outputs.has_cert == 'true'
+      run: Remove-Item -Force -ErrorAction SilentlyContinue $env:PFX_PATH
+
+    - name: Upload Windows installer
+      uses: actions/upload-artifact@v6
+      with:
+        name: windows-installer
+        path: swooshbuckler/Swooshbuckler_Installer.exe
+
+    - name: Upload Windows files
+      uses: actions/upload-artifact@v6
+      with:
+        name: windows-files
+        path: swooshbuckler/windows-package/
+
+  build-macos:
+    needs: version
+    runs-on: macos-15
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+
+    steps:
+    - uses: actions/checkout@v5
+
+    - name: Setup JUCE
+      run: |
+        mkdir SDK
+        git clone --depth 1 --branch "$JUCE_VERSION" https://github.com/juce-framework/JUCE.git SDK/JUCE
+
+    - name: Configure CMake
+      run: |
+        cd swooshbuckler
+        cmake -B build -S . -DCMAKE_BUILD_TYPE=Release \
+          -DCMAKE_OSX_ARCHITECTURES="x86_64;arm64" \
+          -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0 \
+          -DSWOOSHBUCKLER_VERSION="$VERSION" \
+          -DBUILD_TIMESTAMP="$(date -u "+%Y-%m-%d %H:%M UTC")" \
+          -DBUILD_COMMIT="$(git rev-parse --short HEAD)"
+
+    - name: Build app, AU, VST3 and tests
+      run: |
+        cd swooshbuckler
+        cmake --build build --config Release --parallel
+
+    - name: Run tests
+      run: |
+        cd swooshbuckler
+        for t in SwooshbucklerRig SwooshbucklerCargo SwooshbucklerClassify; do
+          exe=$(find build -name "$t" -type f -perm +111 | head -1)
+          echo "== $t"
+          "$exe"
+        done
+
+    - name: Check for certificates
+      id: check_certs
+      run: |
+        if [[ -n "${{ secrets.APPLE_DEVELOPER_CERTIFICATE_P12_BASE64 }}" ]]; then
+          echo "has_certs=true" >> "$GITHUB_OUTPUT"
+        else
+          echo "has_certs=false" >> "$GITHUB_OUTPUT"
+          echo "No certificates in secrets: the macOS build will be unsigned"
+        fi
+
+    - name: Import certificates
+      if: steps.check_certs.outputs.has_certs == 'true'
+      uses: apple-actions/import-codesign-certs@v6
+      with:
+        p12-file-base64: ${{ secrets.APPLE_DEVELOPER_CERTIFICATE_P12_BASE64 }}
+        p12-password: ${{ secrets.APPLE_DEVELOPER_CERTIFICATE_PASSWORD }}
+
+    - name: Verify certificates
+      if: steps.check_certs.outputs.has_certs == 'true'
+      run: |
+        security find-identity -v -p codesigning | grep -q "Developer ID Application" || { echo "Developer ID Application certificate not found"; exit 1; }
+        security find-identity -v -p basic | grep -q "Developer ID Installer" || { echo "Developer ID Installer certificate not found"; exit 1; }
+        echo "Both certificates imported"
+
+    - name: Gather bundles
+      run: |
+        cd swooshbuckler
+        OUT=build/Swooshbuckler_artefacts/Release
+        mkdir -p staging/app staging/vst3 staging/au
+        cp -R "$OUT/Standalone/Swooshbuckler.app" staging/app/
+        cp -R "$OUT/VST3/Swooshbuckler.vst3" staging/vst3/
+        cp -R "$OUT/AU/Swooshbuckler.component" staging/au/
+        /usr/libexec/PlistBuddy -c "Print CFBundleShortVersionString" staging/app/Swooshbuckler.app/Contents/Info.plist
+
+    - name: Sign bundles
+      if: steps.check_certs.outputs.has_certs == 'true'
+      run: |
+        cd swooshbuckler
+        IDENTITY=$(security find-identity -v -p codesigning | grep "Developer ID Application" | head -1 | awk -F'"' '{print $2}')
+        for b in staging/app/Swooshbuckler.app staging/vst3/Swooshbuckler.vst3 staging/au/Swooshbuckler.component; do
+          echo "Signing $b"
+          codesign --force --sign "$IDENTITY" --timestamp --options runtime --entitlements entitlements.plist "$b"
+          codesign --verify --deep --strict --verbose=2 "$b"
+        done
+
+    - name: Notarise bundles
+      if: steps.check_certs.outputs.has_certs == 'true'
+      env:
+        APPLE_ID: ${{ secrets.APPLE_ID }}
+        APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+        APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      run: |
+        cd swooshbuckler/staging
+        ditto -c -k --keepParent app/Swooshbuckler.app ../notarise-app.zip
+        zip -qry ../notarise-plugins.zip vst3 au
+        for z in ../notarise-app.zip ../notarise-plugins.zip; do
+          echo "Notarising $z"
+          ID=$(xcrun notarytool submit "$z" --apple-id "$APPLE_ID" --password "$APPLE_APP_PASSWORD" --team-id "$APPLE_TEAM_ID" --output-format json | jq -r '.id')
+          xcrun notarytool wait "$ID" --apple-id "$APPLE_ID" --password "$APPLE_APP_PASSWORD" --team-id "$APPLE_TEAM_ID"
+          STATUS=$(xcrun notarytool info "$ID" --apple-id "$APPLE_ID" --password "$APPLE_APP_PASSWORD" --team-id "$APPLE_TEAM_ID" --output-format json | jq -r '.status')
+          if [ "$STATUS" != "Accepted" ]; then
+            xcrun notarytool log "$ID" --apple-id "$APPLE_ID" --password "$APPLE_APP_PASSWORD" --team-id "$APPLE_TEAM_ID"
+            exit 1
+          fi
+        done
+        xcrun stapler staple app/Swooshbuckler.app
+        xcrun stapler staple vst3/Swooshbuckler.vst3
+        xcrun stapler staple au/Swooshbuckler.component
+
+    - name: Build installer package
+      run: |
+        cd swooshbuckler
+        # The app goes to /Applications (not relocatable, so an old copy elsewhere isn't updated instead).
+        pkgbuild --analyze --root staging/app app-components.plist
+        /usr/libexec/PlistBuddy -c "Delete :0:BundleIsRelocatable" app-components.plist 2>/dev/null || true
+        /usr/libexec/PlistBuddy -c "Add :0:BundleIsRelocatable bool false" app-components.plist
+        pkgbuild --identifier com.sweetjusticesound.swooshbuckler.app --version "$VERSION" \
+          --root staging/app --component-plist app-components.plist --install-location /Applications app.pkg
+        pkgbuild --identifier com.sweetjusticesound.swooshbuckler.vst3 --version "$VERSION" \
+          --root staging/vst3 --install-location /Library/Audio/Plug-Ins/VST3 vst3.pkg
+        pkgbuild --identifier com.sweetjusticesound.swooshbuckler.au --version "$VERSION" \
+          --root staging/au --install-location /Library/Audio/Plug-Ins/Components au.pkg
+
+        cat > distribution.xml << EOF
+        <?xml version="1.0" encoding="utf-8"?>
+        <installer-gui-script minSpecVersion="2.0">
+            <title>Swooshbuckler $VERSION</title>
+            <organization>com.sweetjusticesound</organization>
+            <domains enable_localSystem="true"/>
+            <options customize="always" require-scripts="false" hostArchitectures="x86_64,arm64"/>
+            <choices-outline>
+                <line choice="app"/>
+                <line choice="vst3"/>
+                <line choice="au"/>
+            </choices-outline>
+            <choice id="app" title="Swooshbuckler app" description="The standalone app, in Applications.">
+                <pkg-ref id="com.sweetjusticesound.swooshbuckler.app"/>
+            </choice>
+            <choice id="vst3" title="VST3 plug-in">
+                <pkg-ref id="com.sweetjusticesound.swooshbuckler.vst3"/>
+            </choice>
+            <choice id="au" title="Audio Unit plug-in">
+                <pkg-ref id="com.sweetjusticesound.swooshbuckler.au"/>
+            </choice>
+            <pkg-ref id="com.sweetjusticesound.swooshbuckler.app">app.pkg</pkg-ref>
+            <pkg-ref id="com.sweetjusticesound.swooshbuckler.vst3">vst3.pkg</pkg-ref>
+            <pkg-ref id="com.sweetjusticesound.swooshbuckler.au">au.pkg</pkg-ref>
+        </installer-gui-script>
+        EOF
+        productbuild --distribution distribution.xml --package-path . --version "$VERSION" Swooshbuckler_Installer.pkg
+
+    - name: Sign installer package
+      if: steps.check_certs.outputs.has_certs == 'true'
+      run: |
+        cd swooshbuckler
+        INSTALLER_IDENTITY=$(security find-identity -v -p basic | grep "Developer ID Installer" | head -1 | awk -F'"' '{print $2}')
+        productsign --sign "$INSTALLER_IDENTITY" --timestamp Swooshbuckler_Installer.pkg Swooshbuckler_Installer_Signed.pkg
+        mv Swooshbuckler_Installer_Signed.pkg Swooshbuckler_Installer.pkg
+        pkgutil --check-signature Swooshbuckler_Installer.pkg
+
+    - name: Build app disk image
+      run: |
+        cd swooshbuckler
+        mkdir -p dmg
+        cp -R staging/app/Swooshbuckler.app dmg/
+        ln -s /Applications dmg/Applications
+        hdiutil create -volname "Swooshbuckler $VERSION" -srcfolder dmg -ov -format UDZO Swooshbuckler.dmg
+
+    - name: Sign disk image
+      if: steps.check_certs.outputs.has_certs == 'true'
+      run: |
+        cd swooshbuckler
+        IDENTITY=$(security find-identity -v -p codesigning | grep "Developer ID Application" | head -1 | awk -F'"' '{print $2}')
+        codesign --force --sign "$IDENTITY" --timestamp Swooshbuckler.dmg
+
+    - name: Notarise installer and disk image
+      if: steps.check_certs.outputs.has_certs == 'true'
+      env:
+        APPLE_ID: ${{ secrets.APPLE_ID }}
+        APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+        APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      run: |
+        cd swooshbuckler
+        for f in Swooshbuckler_Installer.pkg Swooshbuckler.dmg; do
+          echo "Notarising $f"
+          ID=$(xcrun notarytool submit "$f" --apple-id "$APPLE_ID" --password "$APPLE_APP_PASSWORD" --team-id "$APPLE_TEAM_ID" --output-format json | jq -r '.id')
+          xcrun notarytool wait "$ID" --apple-id "$APPLE_ID" --password "$APPLE_APP_PASSWORD" --team-id "$APPLE_TEAM_ID"
+          STATUS=$(xcrun notarytool info "$ID" --apple-id "$APPLE_ID" --password "$APPLE_APP_PASSWORD" --team-id "$APPLE_TEAM_ID" --output-format json | jq -r '.status')
+          if [ "$STATUS" != "Accepted" ]; then
+            xcrun notarytool log "$ID" --apple-id "$APPLE_ID" --password "$APPLE_APP_PASSWORD" --team-id "$APPLE_TEAM_ID"
+            exit 1
+          fi
+          xcrun stapler staple "$f"
+        done
+        spctl --assess --type install -vv Swooshbuckler_Installer.pkg
+        spctl --assess --type execute -vv staging/app/Swooshbuckler.app
+
+    - name: Zip plug-ins
+      run: |
+        cd swooshbuckler/staging
+        ditto -c -k --keepParent vst3/Swooshbuckler.vst3 ../Swooshbuckler-macOS-VST3.zip
+        ditto -c -k --keepParent au/Swooshbuckler.component ../Swooshbuckler-macOS-AU.zip
+
+    - name: Upload macOS files
+      uses: actions/upload-artifact@v6
+      with:
+        name: macos
+        path: |
+          swooshbuckler/Swooshbuckler_Installer.pkg
+          swooshbuckler/Swooshbuckler.dmg
+          swooshbuckler/Swooshbuckler-macOS-VST3.zip
+          swooshbuckler/Swooshbuckler-macOS-AU.zip
+
+  create-release:
+    needs: [version, build-windows, build-macos]
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+
+    steps:
+    - name: Download all artifacts
+      uses: actions/download-artifact@v7
+
+    - name: Name the files with the version
+      run: |
+        mkdir release
+        cp macos/Swooshbuckler_Installer.pkg "release/Swooshbuckler-$VERSION-macOS-Installer.pkg"
+        cp macos/Swooshbuckler.dmg "release/Swooshbuckler-$VERSION-macOS-App.dmg"
+        cp macos/Swooshbuckler-macOS-VST3.zip "release/Swooshbuckler-$VERSION-macOS-VST3.zip"
+        cp macos/Swooshbuckler-macOS-AU.zip "release/Swooshbuckler-$VERSION-macOS-AU.zip"
+        cp windows-installer/Swooshbuckler_Installer.exe "release/Swooshbuckler-$VERSION-Windows-Installer.exe"
+        (cd windows-files/vst3 && zip -qr "../../release/Swooshbuckler-$VERSION-Windows-VST3.zip" Swooshbuckler.vst3)
+        (cd windows-files/app && zip -q "../../release/Swooshbuckler-$VERSION-Windows-App.zip" Swooshbuckler.exe)
+        ls -la release
+
+    - name: Create release
+      uses: softprops/action-gh-release@v3
+      with:
+        name: Swooshbuckler ${{ env.VERSION }}
+        files: release/*
+        body: |
+          ## Swooshbuckler ${{ env.VERSION }}
+
+          A whoosh-making rig: drop in up to ten sounds, let the faders ride, and record the whooshes it makes. Standalone app, plus VST3 and AU plug-ins.
+
+          ### Downloads
+          - **macOS installer** (`.pkg`): the app, VST3 and AU. Choose which with Customize.
+          - **macOS app** (`.dmg`): just the app. Drag it to Applications.
+          - **Windows installer** (`.exe`): the app and the VST3.
+          - Zips of each plug-in and the Windows app, for manual installs.
+
+          The macOS downloads are signed and notarised. Universal (Apple silicon and Intel), macOS 11 or later. Windows: 64-bit Windows 10 or later.
+
+          See the [Swooshbuckler README](https://github.com/${{ github.repository }}/tree/main/swooshbuckler) for how to use it.
+        generate_release_notes: true
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
