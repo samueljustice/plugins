@@ -7,7 +7,8 @@ merges them, checks every entry, gives each a stable id and writes one compact f
     python3 tools/build_quotes.py            # build
     python3 tools/build_quotes.py --check    # check only, write nothing
 
-People named in data/omit.txt are left out.
+People named in data/omit.txt are left out, and so are entries whose ids are in
+data/omit-entries.txt (one id per line; anything after # is a comment).
 """
 
 import hashlib
@@ -95,6 +96,14 @@ def main(check_only):
     if omit_file.exists():
         omit = {l.strip() for l in omit_file.read_text(encoding="utf-8").splitlines() if l.strip() and not l.startswith("#")}
     omitted = Counter()
+    omit_entries_file = DATA / "omit-entries.txt"
+    omit_ids = set()
+    if omit_entries_file.exists():
+        for line in omit_entries_file.read_text(encoding="utf-8").splitlines():
+            line = line.split("#", 1)[0].strip()
+            if line:
+                omit_ids.add(line)
+    cut_ids = set()
 
     for path in sorted(DATA.glob("*.json")):
         data = json.loads(path.read_text(encoding="utf-8"))
@@ -158,8 +167,12 @@ def main(check_only):
 
             surname = norm(who.split()[-1]) or "x"
             digest = hashlib.sha1(f"{who}|{text}".encode()).hexdigest()[:6]
+            entry_id = f"{surname}-{digest}"
+            if entry_id in omit_ids:
+                cut_ids.add(entry_id)
+                continue
             entries.append({
-                "id": f"{surname}-{digest}",
+                "id": entry_id,
                 "person": who,
                 "kind": kind,
                 "text": finish_quote(smarten(text[:1].upper() + text[1:])) if kind == "quote" else smarten(text),
@@ -186,6 +199,10 @@ def main(check_only):
         print(f"  {n:<24} {counts[c]}")
     for who in sorted(omit):
         print(f"omitted {who} ({omitted[who]} entries)" if omitted[who] else f"omit.txt names {who!r}, who has no entries")
+    if omit_ids:
+        print(f"omitted {len(cut_ids)} entries listed in omit-entries.txt")
+        for stale in sorted(omit_ids - cut_ids):
+            print(f"  omit-entries.txt lists {stale}, which no longer exists")
     if problems:
         print(f"\n{len(problems)} entries skipped:")
         for p in problems:
