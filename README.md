@@ -108,7 +108,7 @@ Pitch Flattener removes pitch movement: the Doppler sweep from a pass-by, the wa
 A real-time reverser: a faithful, modernised recreation of Backwards Machine's three effects, **Reverse Playback**, **Forward Backwards** and **Reverse Repeat**, with a live display of the read heads sweeping backwards through your audio.
 
 **VST3** · **AU** &nbsp;&nbsp;
-[![Download Reversinator](https://img.shields.io/badge/download-v2.0.1-d00a35?style=flat-square)](https://github.com/samueljustice/plugins/releases/tag/reversinator-v2.0.1) &nbsp;
+[![Download Reversinator](https://img.shields.io/badge/download-v2.0.2-d00a35?style=flat-square)](https://github.com/samueljustice/plugins/releases/tag/reversinator-v2.0.2) &nbsp;
 [Read the manual →](reversinator/README.md)
 
 ---

@@ -2,7 +2,7 @@
 
 A VST3/AU real-time reverser for macOS and Windows. Reversinator is a faithful, modernised recreation of **Backwards Machine** (The Sound Guy, 2007), the classic plugin that "reverses continuous audio in real time". Its three effects, Reverse Playback, Forward Backwards and Reverse Repeat, were rebuilt from a study of the original's signal flow, so they behave and sound like it. They run inside a new interface that shows the reverser at work.
 
-### 🎉 Latest Release v2.0.1 - [Download Here](https://github.com/samueljustice/plugins/releases/tag/reversinator-v2.0.1)
+### 🎉 Latest Release v2.0.2 - [Download Here](https://github.com/samueljustice/plugins/releases/tag/reversinator-v2.0.2)
 
 ![Reversinator](docs/screenshot.png)
 
@@ -249,6 +249,7 @@ See [LICENSE](LICENSE). The plugin uses the JUCE framework; see JUCE's license f
 
 ## Version History
 
+- **v2.0.2**: The About panel's licence text and the plugin's copyright string show the year the plugin was built. The README gains a tour of the window, with screenshots. The sound and parameters are unchanged.
 - **v2.0.1**: The interface takes on Subbertone's look: menus, value-box editing, links, keyboard focus rings, tooltips, the scrollbar and the resize grip, with nothing left in JUCE's default style. Fixes the licence text's "fi" ligature, the display's arrow sizes, and Tab reaching the controls behind the About panel. The sound and parameters are unchanged.
 - **v2.0.0**: Rebuilt to match Backwards Machine: the original's three effects, ranges, tapers, defaults and gain staging. New interface with a live snippet display. Click-free TIME, mode, REVERSER and host bypass changes. Fixes the macOS minimum-version problem, the Windows dependency on the Visual C++ runtime, a crash risk in the update check, and the build break.
 - **v1.0.0**: Initial release with a grain-based overlap-add engine, three reverse modes and a resizable UI.
