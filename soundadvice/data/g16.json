@@ -1,6 +1,12 @@
 {
  "people": [
   {
+   "name": "Ai-Ling Lee",
+   "role": "Sound designer, supervising sound editor, re-recording mixer",
+   "credits": "",
+   "imdb": "https://www.imdb.com/name/nm0496763/"
+  },
+  {
    "name": "Al Nelson",
    "role": "Sound designer & supervising sound editor",
    "credits": "How to Train Your Dragon (2010), Top Gun: Maverick (2022), F1 (2025)",
@@ -49,6 +55,12 @@
    "imdb": "https://www.imdb.com/name/nm2090980/"
   },
   {
+   "name": "Brandon Proctor",
+   "role": "Sound designer & re-recording mixer",
+   "credits": "All Is Lost; Sinners",
+   "imdb": "https://www.imdb.com/name/nm0698367/"
+  },
+  {
    "name": "Brittany Ellis",
    "role": "Re-recording mixer",
    "credits": "Monarch: Legacy of Monsters",
@@ -71,6 +83,12 @@
    "role": "Supervising sound editor & sound designer",
    "credits": "Terminator Salvation; Star Trek: First Contact",
    "imdb": "https://www.imdb.com/name/nm0291333/"
+  },
+  {
+   "name": "Chris Burdon",
+   "role": "Re-recording mixer",
+   "credits": "Empire of Light; Top Gun: Maverick",
+   "imdb": "https://www.imdb.com/name/nm0121006/"
   },
   {
    "name": "Christopher Boyes",
@@ -235,6 +253,12 @@
    "imdb": "https://www.imdb.com/name/nm4891404/"
   },
   {
+   "name": "Jeremy Peirson",
+   "role": "Supervising sound editor, sound designer & re-recording mixer",
+   "credits": "I Am Legend; The Hunger Games: Catching Fire; The Hunger Games: Mockingjay – Part 2",
+   "imdb": "https://www.imdb.com/name/nm0670586/"
+  },
+  {
    "name": "Jo Rossi",
    "role": "Sound supervisor, sound designer & re-recording mixer",
    "credits": "Demonic (2021), Elysium (2013), Chappie (2015)",
@@ -337,6 +361,12 @@
    "imdb": "https://www.imdb.com/name/nm2296910/"
   },
   {
+   "name": "Mark Weingarten",
+   "role": "Production sound mixer",
+   "credits": "Dunkirk",
+   "imdb": "https://www.imdb.com/name/nm0918319/"
+  },
+  {
    "name": "Marlowe Taylor",
    "role": "Production sound mixer",
    "credits": "Judas and the Black Messiah, Superman (2025)",
@@ -437,6 +467,12 @@
    "role": "Supervising sound editor",
    "credits": "Woman of the Hour",
    "imdb": "https://www.imdb.com/name/nm0822573/"
+  },
+  {
+   "name": "Pete Horner",
+   "role": "Re-recording mixer",
+   "credits": "Tetro; Jurassic World",
+   "imdb": "https://www.imdb.com/name/nm0395127/"
   },
   {
    "name": "Peter J. Devlin",
@@ -559,10 +595,22 @@
    "imdb": "https://www.imdb.com/name/nm3118627/"
   },
   {
+   "name": "Stuart Wilson",
+   "role": "Production sound mixer",
+   "credits": "1917; Empire of Light",
+   "imdb": "https://www.imdb.com/name/nm0934184/"
+  },
+  {
    "name": "Stéphane Bucher",
    "role": "Production sound mixer",
    "credits": "Napoleon; The Last Duel",
    "imdb": "https://www.imdb.com/name/nm1396448/"
+  },
+  {
+   "name": "Terry Porter",
+   "role": "Re-recording mixer",
+   "credits": "Transcendence; Snowpiercer",
+   "imdb": "https://www.imdb.com/name/nm0692310/"
   },
   {
    "name": "Tim Nielsen",
@@ -639,7 +687,7 @@
   {
    "name": "William Miller",
    "role": "Re-recording mixer",
-   "credits": "Napoleon",
+   "credits": "Empire of Light",
    "imdb": "https://www.imdb.com/name/nm7017920/"
   },
   {
@@ -1454,6 +1502,486 @@
     "publication": "SoundWorks Collection",
     "url": "https://www.youtube.com/watch?v=Wq65zeDwNig",
     "year": 2018
+   }
+  },
+  {
+   "person": "Ai-Ling Lee",
+   "kind": "insight",
+   "text": "For Ava Paige's vehicle in Maze Runner: The Scorch Trials, Lee slowed a distant jet recording right down for a haunting approach, then added a degausser and a Reaktor-built sound with a tearing, air-distorted quality; Atmos's full-range surrounds and bass management gave it looming size and rumble.",
+   "categories": [
+    "scifi",
+    "mixing"
+   ],
+   "source": {
+    "title": "SoundWorks Collection: The Sound of The Maze Runner: Scorch Trials",
+    "publication": "SoundWorks Collection",
+    "url": "https://www.youtube.com/watch?v=5g5-A8CS2zo",
+    "year": 2016
+   }
+  },
+  {
+   "person": "Ren Klyce",
+   "kind": "insight",
+   "text": "To make The Curious Case of Benjamin Button feel sparse and period, Klyce's team had recordist Aaron Zeller gather ambiences in New Orleans swamps and rural spots far from city noise, then built the backgrounds from those clean, unmodern recordings.",
+   "categories": [
+    "worlds",
+    "recording"
+   ],
+   "source": {
+    "title": "SoundWorks Collection: The Sound of The Curious Case of Benjamin Button",
+    "publication": "SoundWorks Collection",
+    "url": "https://www.youtube.com/watch?v=7oVhOCfD3Yk",
+    "year": 2016
+   }
+  },
+  {
+   "person": "Ren Klyce",
+   "kind": "insight",
+   "text": "Instead of a loop group for the elderly Southern voices in Benjamin Button's old folks' home, Klyce sent recordist Aaron Zeller into real care homes with tiny mics hidden in his sunglasses, pretending to read a magazine while he captured the real background chatter.",
+   "categories": [
+    "recording",
+    "dialogue"
+   ],
+   "source": {
+    "title": "SoundWorks Collection: The Sound of The Curious Case of Benjamin Button",
+    "publication": "SoundWorks Collection",
+    "url": "https://www.youtube.com/watch?v=7oVhOCfD3Yk",
+    "year": 2016
+   }
+  },
+  {
+   "person": "Jeremy Peirson",
+   "kind": "insight",
+   "text": "Recording jungle and baboons for The Hunger Games: Catching Fire while hiking in light, Peirson ran two stereo pairs pointed away from each other about 70 feet apart, using different microphone models so the same location yields two distinct-sounding, quad-style layers.",
+   "categories": [
+    "recording",
+    "worlds"
+   ],
+   "source": {
+    "title": "SoundWorks Collection: The Sound of The Hunger Games",
+    "publication": "SoundWorks Collection",
+    "url": "https://www.youtube.com/watch?v=JWWDZ_9TtXA",
+    "year": 2016
+   }
+  },
+  {
+   "person": "Jeremy Peirson",
+   "kind": "insight",
+   "text": "During Catching Fire, Peirson worked down the hall from the director and played works-in-progress several times a day with all music and dialogue muted, so the director heard only the effects and backgrounds being added.",
+   "categories": [
+    "collaboration",
+    "craft"
+   ],
+   "source": {
+    "title": "SoundWorks Collection: The Sound of The Hunger Games",
+    "publication": "SoundWorks Collection",
+    "url": "https://www.youtube.com/watch?v=JWWDZ_9TtXA",
+    "year": 2016
+   }
+  },
+  {
+   "person": "Jeremy Peirson",
+   "kind": "insight",
+   "text": "In Catching Fire's jungle, Peirson avoided hard ambience cuts: backgrounds sweep in up to six seconds before the next scene, and a constant canopy of leaf movement overhead runs throughout, unnoticed but adding an oppressive, claustrophobic presence.",
+   "categories": [
+    "worlds",
+    "mixing"
+   ],
+   "source": {
+    "title": "SoundWorks Collection: The Sound of The Hunger Games",
+    "publication": "SoundWorks Collection",
+    "url": "https://www.youtube.com/watch?v=JWWDZ_9TtXA",
+    "year": 2016
+   }
+  },
+  {
+   "person": "Mark Weingarten",
+   "kind": "insight",
+   "text": "On Dunkirk, production mixer Weingarten recorded every principal boat that had a working motor as sound effects, plus boots on sand and street and harbour rigging, and even handed a small Zoom recorder to the Spitfire pilots to ride inside the planes.",
+   "categories": [
+    "recording",
+    "action"
+   ],
+   "source": {
+    "title": "Oscar Podcast - Dunkirk - Location Recording",
+    "publication": "SoundWorks Collection",
+    "url": "https://www.youtube.com/watch?v=JokBQ9-fQHw",
+    "year": 2018
+   }
+  },
+  {
+   "person": "Christopher Scarabosio",
+   "kind": "insight",
+   "text": "For the schizophrenic episodes in The Soloist, Scarabosio's team recorded a cello making notes, squeals and squawks, then processed them to sound deconstructed, mirroring the character's mind sliding from normal to unravelling; city sounds were also shaped into rhythmic patterns.",
+   "categories": [
+    "story",
+    "recording"
+   ],
+   "source": {
+    "title": "SoundWorks Collection: The Sound of The Soloist",
+    "publication": "SoundWorks Collection",
+    "url": "https://www.youtube.com/watch?v=P0KCpgmAvWM",
+    "year": 2016
+   }
+  },
+  {
+   "person": "Christopher Scarabosio",
+   "kind": "insight",
+   "text": "In The Soloist's tunnel scene, as Nathaniel starts playing the cello, Scarabosio's team let the roar of passing traffic recede and turn into gentle waves, so the world sonically falls away around him.",
+   "categories": [
+    "story",
+    "mixing"
+   ],
+   "source": {
+    "title": "SoundWorks Collection: The Sound of The Soloist",
+    "publication": "SoundWorks Collection",
+    "url": "https://www.youtube.com/watch?v=P0KCpgmAvWM",
+    "year": 2016
+   }
+  },
+  {
+   "person": "Brandon Proctor",
+   "kind": "insight",
+   "text": "With a tiny team on All Is Lost, Proctor and Steve Boeddeker split the work by world rather than by reel: Proctor took everything Redford's character did (movement, breathing, handling the boat), avoiding overlap between editors.",
+   "categories": [
+    "collaboration",
+    "craft"
+   ],
+   "source": {
+    "title": "SoundWorks Collection: The Sound of All is Lost",
+    "publication": "SoundWorks Collection",
+    "url": "https://www.youtube.com/watch?v=Qp5y3kE3P9o",
+    "year": 2016
+   }
+  },
+  {
+   "person": "Julian Slater",
+   "kind": "insight",
+   "text": "Baby Driver's opening chains sounds in one key: the Sony logo ping is repitched and given an infinite reverb tail that becomes tinnitus, which hands to Steven Price's strings, and the Subaru's brake squeal, in reverse echo, sits in that key too.",
+   "categories": [
+    "story",
+    "music"
+   ],
+   "source": {
+    "title": "Oscar Podcast - Baby Driver - Opening Scene",
+    "publication": "SoundWorks Collection",
+    "url": "https://www.youtube.com/watch?v=TKf37cQvJXs",
+    "year": 2018
+   }
+  },
+  {
+   "person": "Mary H. Ellis",
+   "kind": "insight",
+   "text": "For Baby Driver's Tequila shootout, where gunshot muzzle flashes had to land on the music, production mixer Ellis fed timecode to the cameras, video assist, editorial and the lighting dimmer board, even as playback speeds changed on the fly.",
+   "categories": [
+    "recording",
+    "weapons"
+   ],
+   "source": {
+    "title": "Oscar Podcast - Baby Driver - Tequila Scene",
+    "publication": "SoundWorks Collection",
+    "url": "https://www.youtube.com/watch?v=bbgzI3TxEfg",
+    "year": 2018
+   }
+  },
+  {
+   "person": "Jeremy Peirson",
+   "kind": "insight",
+   "text": "For the street battles in The Hunger Games: Mockingjay – Part 2, Peirson's team recorded guns among urban buildings to capture slaps and echoes, and inside a warehouse at different spots for tighter versus more open interior perspectives.",
+   "categories": [
+    "weapons",
+    "recording"
+   ],
+   "source": {
+    "title": "SoundWorks Collection: The Sound of The Hunger Games: Mockingjay, Part 2",
+    "publication": "SoundWorks Collection",
+    "url": "https://www.youtube.com/watch?v=dRQ19y16Ios",
+    "year": 2016
+   }
+  },
+  {
+   "person": "Jeremy Peirson",
+   "kind": "insight",
+   "text": "The toxic oil trap in Mockingjay – Part 2 first sounded like waves and water, which felt soothing. Peirson added pitched fire elements and mud to give it weight, menace and danger.",
+   "categories": [
+    "scifi",
+    "craft"
+   ],
+   "source": {
+    "title": "SoundWorks Collection: The Sound of The Hunger Games: Mockingjay, Part 2",
+    "publication": "SoundWorks Collection",
+    "url": "https://www.youtube.com/watch?v=dRQ19y16Ios",
+    "year": 2016
+   }
+  },
+  {
+   "person": "Jeremy Peirson",
+   "kind": "insight",
+   "text": "In the quiet woods scenes before the music enters in the Hunger Games films, Peirson builds the space point by point: a tree creak placed here, a single bird there, another bird elsewhere.",
+   "categories": [
+    "worlds",
+    "mixing"
+   ],
+   "source": {
+    "title": "SoundWorks Collection: The Sound of The Hunger Games: Mockingjay, Part 2",
+    "publication": "SoundWorks Collection",
+    "url": "https://www.youtube.com/watch?v=dRQ19y16Ios",
+    "year": 2016
+   }
+  },
+  {
+   "person": "Pete Horner",
+   "kind": "insight",
+   "text": "On Tetro, Horner treated the opening minutes as a sound design overture: introducing the effects that will recur, like the light bulb inside the character's head, so the audience learns that those sounds mean they are in his mind.",
+   "categories": [
+    "story",
+    "craft"
+   ],
+   "source": {
+    "title": "SoundWorks Collection: The Sound of Tetro",
+    "publication": "SoundWorks Collection",
+    "url": "https://www.youtube.com/watch?v=hgw6Seh_NZ4",
+    "year": 2016
+   }
+  },
+  {
+   "person": "Pete Horner",
+   "kind": "insight",
+   "text": "As Benny walks through Buenos Aires's La Boca in Tetro, Horner placed a distant, ambiguous shout in the space (a fight or a street football game), giving the neighbourhood a faint edge of danger without spelling it out.",
+   "categories": [
+    "worlds",
+    "story"
+   ],
+   "source": {
+    "title": "SoundWorks Collection: The Sound of Tetro",
+    "publication": "SoundWorks Collection",
+    "url": "https://www.youtube.com/watch?v=hgw6Seh_NZ4",
+    "year": 2016
+   }
+  },
+  {
+   "person": "Pete Horner",
+   "kind": "insight",
+   "text": "Horner found Tetro's Buenos Aires scooter recordings cut through the mix like a knife, so he used them wherever he could to build tension around a dialogue moment, then release it.",
+   "categories": [
+    "mixing",
+    "worlds"
+   ],
+   "source": {
+    "title": "SoundWorks Collection: The Sound of Tetro",
+    "publication": "SoundWorks Collection",
+    "url": "https://www.youtube.com/watch?v=hgw6Seh_NZ4",
+    "year": 2016
+   }
+  },
+  {
+   "person": "Terry Porter",
+   "kind": "insight",
+   "text": "For Transcendence's Atmos mix, Porter asked the music editor for eight 7.1 stems (orchestra, percussion, harp/piano, high synth, low synth) and placed each in a different plane of the room, separating music from dialogue and effects.",
+   "categories": [
+    "mixing",
+    "music"
+   ],
+   "source": {
+    "title": "SoundWorks Collection - The Sound of Transcendence",
+    "publication": "SoundWorks Collection",
+    "url": "https://www.youtube.com/watch?v=iBKw2iu85zs",
+    "year": 2016
+   }
+  },
+  {
+   "person": "Terry Porter",
+   "kind": "insight",
+   "text": "When Johnny Depp's uploaded character speaks from within the walls in Transcendence, Porter used Atmos to spread the voice so it commands the whole room, a booming, godlike presence he found limited in 7.0.",
+   "categories": [
+    "dialogue",
+    "mixing"
+   ],
+   "source": {
+    "title": "SoundWorks Collection - The Sound of Transcendence",
+    "publication": "SoundWorks Collection",
+    "url": "https://www.youtube.com/watch?v=iBKw2iu85zs",
+    "year": 2016
+   }
+  },
+  {
+   "person": "Stuart Wilson",
+   "kind": "insight",
+   "text": "Empire of Light's cinema was a pop-up set in a seafront tent. Wilson had it built on its own steels, not touching the tent frame, and had the glass doors fitted with thick acoustic office glass in rubber gaskets so wind vibration couldn't travel through.",
+   "categories": [
+    "recording",
+    "dialogue"
+   ],
+   "source": {
+    "title": "The Sound of Empire of Light",
+    "publication": "SoundWorks Collection",
+    "url": "https://www.youtube.com/watch?v=_vlvlWn3eqA",
+    "year": 2022
+   }
+  },
+  {
+   "person": "Stuart Wilson",
+   "kind": "insight",
+   "text": "Protecting Empire of Light's quiet dialogue on location, Wilson lobbied catering to deal with food waste so seagulls wouldn't roost on the set roof, and had loud period cars choreographed to pass away from important lines.",
+   "categories": [
+    "recording",
+    "dialogue"
+   ],
+   "source": {
+    "title": "The Sound of Empire of Light",
+    "publication": "SoundWorks Collection",
+    "url": "https://www.youtube.com/watch?v=_vlvlWn3eqA",
+    "year": 2022
+   }
+  },
+  {
+   "person": "Stuart Wilson",
+   "kind": "insight",
+   "text": "Because the camera never leaves the cinema during Empire of Light's riot, Wilson miked both inside and outside the glass, giving post control over how intelligible the skinheads shouting through it would be.",
+   "categories": [
+    "recording",
+    "dialogue"
+   ],
+   "source": {
+    "title": "The Sound of Empire of Light",
+    "publication": "SoundWorks Collection",
+    "url": "https://www.youtube.com/watch?v=_vlvlWn3eqA",
+    "year": 2022
+   }
+  },
+  {
+   "person": "Chris Burdon",
+   "kind": "insight",
+   "text": "For the riot in Empire of Light, Burdon muffled the skinheads' voices through the glass with EQ and a touch of glass-like reverb, keeping them very muted even when they're right at the glass, which made the moment more disturbing.",
+   "categories": [
+    "dialogue",
+    "mixing"
+   ],
+   "source": {
+    "title": "The Sound of Empire of Light",
+    "publication": "SoundWorks Collection",
+    "url": "https://www.youtube.com/watch?v=_vlvlWn3eqA",
+    "year": 2022
+   }
+  },
+  {
+   "person": "Chris Burdon",
+   "kind": "insight",
+   "text": "In Empire of Light's lobby scene, with no music, Burdon kept clean production dialogue and stepped the crowd back, weaving a handful of elements down to a hush at the key line, then expanding again as the drama moves on.",
+   "categories": [
+    "dialogue",
+    "silence"
+   ],
+   "source": {
+    "title": "The Sound of Empire of Light",
+    "publication": "SoundWorks Collection",
+    "url": "https://www.youtube.com/watch?v=_vlvlWn3eqA",
+    "year": 2022
+   }
+  },
+  {
+   "person": "William Miller",
+   "kind": "insight",
+   "text": "For the police breaking Hillary's door in Empire of Light, Miller built each impact from five or six elements (wood bangs, low hits, chain, door cracks), starting loud, then thinning and rebuilding so later bangs feel bigger, adding sub generators and surrounds toward the final burst.",
+   "categories": [
+    "mixing",
+    "action"
+   ],
+   "source": {
+    "title": "The Sound of Empire of Light",
+    "publication": "SoundWorks Collection",
+    "url": "https://www.youtube.com/watch?v=_vlvlWn3eqA",
+    "year": 2022
+   }
+  },
+  {
+   "person": "William Miller",
+   "kind": "insight",
+   "text": "At the start of Empire of Light's riot, Miller disguised the passing scooters with delays, reverbs and filters so the characters (and audience) can't place them, narrow in the corridor and opening up as they step into the lobby.",
+   "categories": [
+    "mixing",
+    "story"
+   ],
+   "source": {
+    "title": "The Sound of Empire of Light",
+    "publication": "SoundWorks Collection",
+    "url": "https://www.youtube.com/watch?v=_vlvlWn3eqA",
+    "year": 2022
+   }
+  },
+  {
+   "person": "William Miller",
+   "kind": "insight",
+   "text": "During Empire of Light's riot, Miller rolled off the top of the mob outside while creeping up the low end; when the glass breaks there's a one-frame dip, then the filters snap out and full top end returns for the crack.",
+   "categories": [
+    "mixing",
+    "action"
+   ],
+   "source": {
+    "title": "The Sound of Empire of Light",
+    "publication": "SoundWorks Collection",
+    "url": "https://www.youtube.com/watch?v=_vlvlWn3eqA",
+    "year": 2022
+   }
+  },
+  {
+   "person": "William Miller",
+   "kind": "insight",
+   "text": "After the glass breaks in Empire of Light's riot, Miller tried playing it fully real, then filtered all effects down to nothing so the music carries the brutality; sirens return filtered and reverbed to pull the audience back to reality.",
+   "categories": [
+    "mixing",
+    "music"
+   ],
+   "source": {
+    "title": "The Sound of Empire of Light",
+    "publication": "SoundWorks Collection",
+    "url": "https://www.youtube.com/watch?v=_vlvlWn3eqA",
+    "year": 2022
+   }
+  },
+  {
+   "person": "William Miller",
+   "kind": "insight",
+   "text": "For Empire of Light's premiere crowds, Miller used surround recordings Stuart Wilson made on set, processed through the Ambeo plug-in and panned around the room, making maximum use of material from the shoot.",
+   "categories": [
+    "mixing",
+    "recording"
+   ],
+   "source": {
+    "title": "The Sound of Empire of Light",
+    "publication": "SoundWorks Collection",
+    "url": "https://www.youtube.com/watch?v=_vlvlWn3eqA",
+    "year": 2022
+   }
+  },
+  {
+   "person": "William Miller",
+   "kind": "insight",
+   "text": "On Empire of Light, Miller used lush, soft reverb on the Foley rather than the dialogue to sell the cinema's warm spaces, keeping dialogue intelligible without heavy verb.",
+   "categories": [
+    "mixing",
+    "dialogue"
+   ],
+   "source": {
+    "title": "The Sound of Empire of Light",
+    "publication": "SoundWorks Collection",
+    "url": "https://www.youtube.com/watch?v=_vlvlWn3eqA",
+    "year": 2022
+   }
+  },
+  {
+   "person": "William Miller",
+   "kind": "insight",
+   "text": "Mixing Empire of Light, the team ran the whole film in about four days, made a DCP and watched it in a cinema every week, tackling story-arc sound decisions early rather than three or four weeks into the final.",
+   "categories": [
+    "craft",
+    "collaboration"
+   ],
+   "source": {
+    "title": "The Sound of Empire of Light",
+    "publication": "SoundWorks Collection",
+    "url": "https://www.youtube.com/watch?v=_vlvlWn3eqA",
+    "year": 2022
    }
   },
   {

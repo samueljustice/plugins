@@ -10,7 +10,7 @@ It's a VST3 / AU plug-in (audio passes straight through, untouched) and a standa
 
 ## What's in it
 
-792 entries from 141 people, kept to concrete, technically creative advice: sources and processing, recording, design methods and specific mix decisions, each tied to the production it came from. The sound designers and mixers all have film, TV or game credits on IMDb, and every entry links to the interview, article or SoundWorks Collection video it came from. Nothing predates 2005, either in the source or in the work it describes. The Creativity & Teams category draws on a legendary Disney Imagineer's book about creative work: leading teams, finding a theme, critique, risk and knowing when to stop. Two kinds:
+798 entries from 146 people, kept to concrete, technically creative advice: sources and processing, recording, design methods and specific mix decisions, each tied to the production it came from. The sound designers and mixers all have film, TV or game credits on IMDb, and every entry links to the interview, article or SoundWorks Collection video it came from. Nothing predates 2005, either in the source or in the work it describes. The Creativity & Teams category draws on a legendary Disney Imagineer's book about creative work: leading teams, finding a theme, critique, risk and knowing when to stop. Two kinds:
 
 - **Quotes**, in quotation marks and italics: their own words, kept short.
 - **Field notes**: a technique, decision or story from that source, retold in a sentence or two. "Field note" is printed above them.
@@ -21,21 +21,21 @@ Click a person's name to open their IMDb (or other profile) page; click the sour
 
 | Category | Entries |
 |---|---|
-| Mixing | 244 |
-| Action & Impact | 95 |
+| Mixing | 245 |
+| Action & Impact | 89 |
 | Trailers | 33 |
-| Creatures & Voices | 66 |
-| Ambience & Worlds | 100 |
-| Dialogue | 148 |
-| Field Recording | 163 |
+| Creatures & Voices | 64 |
+| Ambience & Worlds | 106 |
+| Dialogue | 154 |
+| Field Recording | 170 |
 | Weapons & Vehicles | 50 |
-| Sci-Fi & Magic | 88 |
-| Horror & Tension | 56 |
-| Silence & Restraint | 73 |
+| Sci-Fi & Magic | 90 |
+| Horror & Tension | 49 |
+| Silence & Restraint | 72 |
 | Music & Sound | 72 |
 | Games | 34 |
 | Story & Emotion | 121 |
-| Craft & Technique | 180 |
+| Craft & Technique | 181 |
 | Collaboration & Career | 98 |
 | Creativity & Teams | 116 |
 
