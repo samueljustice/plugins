@@ -117,8 +117,8 @@ SubbertoneAudioProcessorEditor::SubbertoneAudioProcessorEditor(SubbertoneAudioPr
     m_phaseAlignButton.setButtonText("PHASE ALIGN");
     m_phaseAlignButton.setClickingTogglesState(true);
     m_phaseAlignButton.setTooltip("Aligns the generated harmonics with the bass's own harmonics, so they add up instead of "
-                                  "cancelling: notes don't thin out, and hits don't vary in level. Works best on bass lines "
-                                  "and hits; it helps less on engines, whose pitch is always moving.");
+                                  "cancelling: notes thin out far less, and repeats of the same hit come out at the same "
+                                  "level. Works best on bass lines and hits; it helps much less on engines.");
     m_phaseAlignButton.setColour(juce::TextButton::buttonOnColourId, Theme::Colours::overtones.withAlpha(0.28f));
     m_phaseAlignButton.setColour(juce::TextButton::textColourOnId, Theme::Colours::text);
     m_content.addAndMakeVisible(m_phaseAlignButton);
