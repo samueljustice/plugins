@@ -10,7 +10,7 @@ It's a VST3 / AU plug-in (audio passes straight through, untouched) and a standa
 
 ## What's in it
 
-847 entries from 78 people. The sound designers and mixers all have feature film, TV or AAA game credits on IMDb, and every entry comes from an interview, article or talk you can read. The Creativity & Teams category draws on a legendary Disney Imagineer's book about creative work: leading teams, finding a theme, critique, risk and knowing when to stop. Two kinds:
+832 entries from 78 people. The sound designers and mixers all have feature film, TV or AAA game credits on IMDb, and every entry comes from an interview, article or talk you can read. The Creativity & Teams category draws on a legendary Disney Imagineer's book about creative work: leading teams, finding a theme, critique, risk and knowing when to stop. Two kinds:
 
 - **Quotes**, in quotation marks and italics: their own words, kept short.
 - **Field notes**: a technique, decision or story from that source, retold in a sentence or two. "Field note" is printed above them.
@@ -21,11 +21,11 @@ Click a person's name to open their IMDb (or other profile) page; click the sour
 
 | Category | Entries |
 |---|---|
-| Mixing | 197 |
+| Mixing | 196 |
 | Action & Impact | 81 |
 | Trailers | 56 |
 | Creatures & Voices | 76 |
-| Ambience & Worlds | 93 |
+| Ambience & Worlds | 84 |
 | Foley | 94 |
 | Dialogue | 101 |
 | Field Recording | 126 |
@@ -33,12 +33,12 @@ Click a person's name to open their IMDb (or other profile) page; click the sour
 | Sci-Fi & Magic | 94 |
 | Horror & Tension | 52 |
 | Silence & Restraint | 70 |
-| Music & Sound | 101 |
+| Music & Sound | 100 |
 | Games | 32 |
-| Story & Emotion | 174 |
-| Craft & Technique | 216 |
-| Collaboration & Career | 153 |
-| Creativity & Teams | 131 |
+| Story & Emotion | 170 |
+| Craft & Technique | 215 |
+| Collaboration & Career | 150 |
+| Creativity & Teams | 116 |
 
 **Anything** deals from all of them. Each category is a shuffled deck: you see every entry in it once before any comes round again.
 

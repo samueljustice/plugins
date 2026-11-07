@@ -181,3 +181,20 @@ whittle-a401cd  # Gwendolyn Yates Whittle: If you don't notice it, then I've don
 whittle-c1c9b9  # Gwendolyn Yates Whittle: You have to learn how to listen to — generic
 wild-7a6dec  # Bonnie Wild: Wild treats an editing sequence like The Last — generic
 wild-8b54bf  # Bonnie Wild: There's a balance between the comfortable, familiar sounds — generic platitude
+
+# Creativity & Teams: park- and attraction-specific stories rather than creative concepts or management.
+rohde-ed1066  # Joe Rohde: An artist taught Rohde perspective when he was — park-specific
+rohde-d830d9  # Joe Rohde: On the Serengeti, Rohde’s team saw that its — park-specific
+rohde-7cfefd  # Joe Rohde: Rohde treats space like colour: it is perceived — park-specific
+rohde-3ca79e  # Joe Rohde: The safari’s ‘open’ savanna is really a series — park-specific
+rohde-136fe7  # Joe Rohde: Conservationists had no interest in theme parks but — park-specific
+rohde-d7bcd1  # Joe Rohde: A built place can’t state its ideas the — park-specific
+rohde-ed18ae  # Joe Rohde: Handed a roller coaster for a nature park, — park-specific
+rohde-290318  # Joe Rohde: A designer still shaken by street poverty seen — park-specific
+rohde-cc1f98  # Joe Rohde: On the Adventurers Club, Rohde’s naturalistic performers were — park-specific
+rohde-ec0783  # Joe Rohde: Immersive experiences only work if people can set — park-specific
+rohde-e951c8  # Joe Rohde: The club’s hidden puppeteer cavities came from two — park-specific
+rohde-56d33e  # Joe Rohde: Staring at the Tower of Terror, Rohde asked — park-specific
+rohde-07c060  # Joe Rohde: Aulani’s art carries almost no explanatory labels, so — park-specific
+rohde-777636  # Joe Rohde: Animal Kingdom’s winding, view-blocking paths overshot the adventure — park-specific
+rohde-92693f  # Joe Rohde: Rohde led Animal Kingdom’s design but wasn’t its — park-specific
