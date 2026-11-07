@@ -6,7 +6,7 @@ Audio plug-ins and tools by Samuel Justice / [Sweet Justice Sound](https://www.s
 
 | Project | What it is | Formats | Latest release |
 |---|---|---|---|
-| [Swooshbuckler](swooshbuckler/README.md) | Whoosh-making rig | App (macOS, Windows), VST3, AU | Not released yet |
+| [Swooshbuckler](swooshbuckler/README.md) | Whoosh-making rig | App (macOS, Windows), VST3, AU | [v1.0.0](https://github.com/samueljustice/plugins/releases/tag/swooshbuckler-v1.0.0) |
 | [Sound Advice](soundadvice/README.md) | Advice from the great sound designers and mixers | VST3, AU, App (macOS, Windows) | Not released yet |
 | [Subbertone](subbertone/README.md) | Subharmonic generator | VST3, AU | [v1.2.0](https://github.com/samueljustice/plugins/releases/tag/subbertone-v1.2.0) |
 | [Pitch Flattener](pitchflattener/README.md) | Lookahead pitch flattening (Doppler, sirens, vibrato) | VST3, AU | [v2.0.0](https://github.com/samueljustice/plugins/releases/tag/pitchflattener-v2.0.0) |
@@ -19,6 +19,7 @@ A whoosh-making rig. Drop in up to ten sounds and it rides the faders across the
 
 - Location: `/swooshbuckler/`
 - [Project README](swooshbuckler/README.md)
+- [Latest release](https://github.com/samueljustice/plugins/releases/tag/swooshbuckler-v1.0.0)
 
 ### Sound Advice
 A small, quiet page of advice from the great film, TV and game sound designers and mixers. Pick what you're working on (mixing, trailers, creatures, Foley, silence...) and roll the die: it deals a quote or a technique from one of them, with a link to where it came from. Audio passes straight through.

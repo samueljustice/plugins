@@ -77,6 +77,8 @@ The interface is laid out in processing order: DETECT → DRIVE → FILTER → O
 | **Amount** | 0 to 100% | Master level for the harmonic bars H2–H16. |
 | **Pattern** | menu | Sets the harmonic bars to a ready-made pattern, or switches the sub (H1) off or on. |
 
+<img src="docs/patterns.png" alt="The PATTERN menu: ready-made harmonic patterns, plus Sub off and Sub on" width="364">
+
 ### Output
 | Control | Range | Description |
 |---|---|---|
@@ -99,7 +101,11 @@ Double-click any knob to reset it to its default. Click a row in the visualiser 
 
 ## Presets
 
-Use the arrows either side of the preset name to step through presets, or click the name for the full list, grouped by category. SAVE stores the current settings as a user preset. User presets are kept in:
+Use the arrows either side of the preset name to step through presets, or click the name for the full list, grouped by category. SAVE stores the current settings as a user preset.
+
+<img src="docs/presets.png" alt="The preset menu with the Engines category open" width="421">
+
+User presets are kept in:
 
 - macOS: `~/Library/Audio/Presets/SammyJs/Subbertone`
 - Windows: `%APPDATA%\SammyJs\Subbertone\Presets`

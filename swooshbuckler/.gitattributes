@@ -1,0 +1,2 @@
+# codesign rejects entitlements with CRLF line endings ("AMFIUnserializeXML: syntax error near line 1").
+*.plist text eol=lf
