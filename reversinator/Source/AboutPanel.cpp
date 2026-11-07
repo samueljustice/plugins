@@ -92,11 +92,25 @@ AboutPanel::AboutPanel(const Theme::Fonts& fonts)
     m_licenseText.setFont(m_fonts.body(11.5f));
     m_licenseText.setLineSpacing(1.25f);
 
-    // The LICENSE file is hard-wrapped at ~80 columns; reflow its paragraphs to the box width.
+    auto licence = juce::String::fromUTF8(BinaryData::LICENSE, BinaryData::LICENSESize).replace("\r\n", "\n").trim();
+
+    // The LICENSE file keeps the year it was written; the panel shows the year this build was made
+    // (COPYRIGHT_YEAR, from CMakeLists.txt), as the other plugins' About windows do.
+    const juce::String copyright = "Copyright (c) ";
+    if (const int start = licence.indexOf(copyright); start >= 0)
+    {
+        const int yearStart = start + copyright.length();
+        int yearEnd = yearStart;
+        while (juce::CharacterFunctions::isDigit(licence[yearEnd]))
+            ++yearEnd;
+
+        if (yearEnd > yearStart)
+            licence = licence.replaceSection(yearStart, yearEnd - yearStart, COPYRIGHT_YEAR);
+    }
+
+    // The file is hard-wrapped at ~80 columns; reflow its paragraphs to the box width.
     juce::StringArray paragraphs;
-    paragraphs.addTokens(juce::String::fromUTF8(BinaryData::LICENSE, BinaryData::LICENSESize)
-                             .replace("\r\n", "\n").trim().replace("\n\n", "\x01"),
-                         "\x01", "");
+    paragraphs.addTokens(licence.replace("\n\n", "\x01"), "\x01", "");
     for (auto& paragraph : paragraphs)
         paragraph = paragraph.replace("\n", " ").trim();
 
