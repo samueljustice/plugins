@@ -108,6 +108,7 @@ void ReversinatorAudioProcessor::prepareToPlay(double sampleRate, int samplesPer
     m_dryGain.setCurrentAndTargetValue(squaredPercent(m_dryParam->load()));
     m_bypassMix.reset(sampleRate, c_reverserFadeSeconds);
     m_bypassMix.setCurrentAndTargetValue(m_bypassMix.getTargetValue());
+    m_flushRequested.store(false);   // the engine has just been cleared anyway
 
     m_peakAccumulator = 0.0f;
     m_peakCount = 0;
@@ -122,7 +123,14 @@ void ReversinatorAudioProcessor::releaseResources()
 
 void ReversinatorAudioProcessor::reset()
 {
-    // Host flush (transport jumps, offline render start): forget all buffered audio.
+    // Host flush (transport jumps, offline render start). AU hosts can call this from their
+    // UI thread while the audio thread is processing, so the flush itself happens there.
+    m_flushRequested.store(true, std::memory_order_release);
+}
+
+void ReversinatorAudioProcessor::flush()
+{
+    // Forget all buffered audio. Audio thread only; the engine's reset is O(1).
     m_engine.reset();
     m_reverserMix.setCurrentAndTargetValue(m_reverserMix.getTargetValue());
     m_wetGain.setCurrentAndTargetValue(m_wetGain.getTargetValue());
@@ -150,6 +158,13 @@ void ReversinatorAudioProcessor::processBlockBypassed(juce::AudioBuffer<float>& 
 void ReversinatorAudioProcessor::process(juce::AudioBuffer<float>& buffer, bool bypassed)
 {
     juce::ScopedNoDenormals noDenormals;
+
+    // A flush that arrives while host-bypassed is dropped. JUCE's AU wrapper requests one
+    // every time bypass engages; honouring it would cut the effect off mid-fade (a click) and
+    // leave un-bypass with an empty effect. The engine keeps running through bypass anyway.
+    if (m_flushRequested.exchange(false, std::memory_order_acq_rel) && ! bypassed)
+        flush();
+
     m_bypassMix.setTargetValue(bypassed ? 1.0f : 0.0f);
 
     for (int ch = getTotalNumInputChannels(); ch < getTotalNumOutputChannels(); ++ch)
@@ -220,7 +235,7 @@ void ReversinatorAudioProcessor::processChunk(float* const* channels, int numCha
         {
             const float x = in[ch][i];
             const float y = wetGain * (reverse * wet[ch][i] + (1.0f - reverse) * x) + dryGain * x;
-            channels[ch][i] = y + bypass * (x - y);
+            channels[ch][i] = (1.0f - bypass) * y + bypass * x;   // exactly x once fully bypassed
         }
     }
 }

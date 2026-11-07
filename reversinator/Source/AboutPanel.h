@@ -25,7 +25,7 @@ public:
     void mouseUp(const juce::MouseEvent&) override;
 
 private:
-    class UpdateChecker : public juce::Thread
+    class UpdateChecker : public juce::Thread, private juce::WebInputStream::Listener
     {
     public:
         explicit UpdateChecker(juce::Component::SafePointer<AboutPanel> owner);
@@ -35,6 +35,10 @@ private:
         void cancel();
 
     private:
+        // Polled while connect() waits (every 1 ms on macOS): catches a cancel that arrives
+        // before the request exists, which WebInputStream::cancel() alone can miss there.
+        bool postDataSendProgress(juce::WebInputStream&, int, int) override { return ! threadShouldExit(); }
+
         juce::Component::SafePointer<AboutPanel> m_owner;
         juce::CriticalSection m_lock;
         juce::WebInputStream* m_stream = nullptr;   // guarded by m_lock
@@ -60,4 +64,8 @@ namespace Version
 {
     /** "1.10.2" -> comparable integer; missing parts count as 0. */
     int toNumber(const juce::String& version);
+
+    /** The newest Reversinator version in a GitHub releases listing (parsed JSON),
+        ignoring prereleases and other plugins' tags; empty if there is none. */
+    juce::String latestRelease(const juce::var& releases);
 }

@@ -4,7 +4,8 @@ namespace
 {
     constexpr int c_cardWidth = 440;
     constexpr int c_cardHeight = 508;
-    const char* const c_releasesUrl = "https://api.github.com/repos/samueljustice/plugins/releases";
+    // The repository holds several plugins' releases, so ask for a long page.
+    const char* const c_releasesUrl = "https://api.github.com/repos/samueljustice/plugins/releases?per_page=100";
     const char* const c_tagPrefix = "reversinator-v";
 }
 
@@ -17,6 +18,27 @@ int Version::toNumber(const juce::String& version)
         number = number * 1000 + (i < parts.size() ? juce::jlimit(0, 999, parts[i].getIntValue()) : 0);
 
     return number;
+}
+
+juce::String Version::latestRelease(const juce::var& releases)
+{
+    juce::String latest;
+
+    if (const auto* list = releases.getArray())
+    {
+        for (const auto& release : *list)
+        {
+            const auto tag = release.getProperty("tag_name", {}).toString();
+            if (! tag.startsWith(c_tagPrefix) || static_cast<bool>(release.getProperty("prerelease", false)))
+                continue;
+
+            const auto version = tag.fromFirstOccurrenceOf(c_tagPrefix, false, false);
+            if (latest.isEmpty() || toNumber(version) > toNumber(latest))
+                latest = version;
+        }
+    }
+
+    return latest;
 }
 
 //==============================================================================
@@ -183,8 +205,14 @@ AboutPanel::UpdateChecker::UpdateChecker(juce::Component::SafePointer<AboutPanel
 
 AboutPanel::UpdateChecker::~UpdateChecker()
 {
-    cancel();
-    stopThread(3000);
+    // A cancel can land before the request exists and be lost, so keep cancelling until the
+    // thread has gone (normally at once). The force-kill in stopThread() is the last resort.
+    for (int i = 0; i < 200 && isThreadRunning(); ++i)
+    {
+        cancel();
+        waitForThreadToExit(10);
+    }
+    stopThread(1000);
 }
 
 void AboutPanel::UpdateChecker::cancel()
@@ -214,7 +242,7 @@ void AboutPanel::UpdateChecker::run()
             m_stream = &stream;
         }
 
-        if (stream.connect(nullptr))
+        if (stream.connect(this))
         {
             status = stream.getStatusCode();
             if (status == 200)
@@ -231,34 +259,30 @@ void AboutPanel::UpdateChecker::run()
     juce::String message;
     juce::Colour colour = Theme::Colours::feedback;
 
+    // Keep the parsed tree in a named local: it owns the array that latestRelease() walks.
+    const auto releases = status == 200 ? juce::JSON::parse(body) : juce::var();
+
     if (status != 200)
     {
         message = status == 0 ? juce::String("Could not reach GitHub") : "GitHub answered " + juce::String(status);
     }
-    else if (const auto* list = juce::JSON::parse(body).getArray())
+    else if (! releases.isArray())
     {
-        // Releases are listed newest first; take the first Reversinator tag.
-        juce::String latest;
-        for (const auto& release : *list)
-        {
-            const auto tag = release.getProperty("tag_name", {}).toString();
-            if (tag.startsWith(c_tagPrefix))
-            {
-                latest = tag.fromFirstOccurrenceOf(c_tagPrefix, false, false);
-                break;
-            }
-        }
-
-        if (latest.isEmpty())
-            message = "No releases found";
-        else if (Version::toNumber(latest) > Version::toNumber(JucePlugin_VersionString))
-            { message = "Version " + latest + " is available"; colour = Theme::Colours::mode; }
-        else
-            { message = "You have the latest version"; colour = Theme::Colours::textDim; }
+        message = "Invalid response from server";
+    }
+    else if (const auto latest = Version::latestRelease(releases); latest.isEmpty())
+    {
+        message = "No releases found";
+    }
+    else if (Version::toNumber(latest) > Version::toNumber(JucePlugin_VersionString))
+    {
+        message = "Version " + latest + " is available";
+        colour = Theme::Colours::mode;
     }
     else
     {
-        message = "Invalid response from server";
+        message = "You have the latest version";
+        colour = Theme::Colours::textDim;
     }
 
     juce::MessageManager::callAsync([owner = m_owner, message, colour]

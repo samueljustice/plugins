@@ -21,10 +21,22 @@ namespace
     constexpr double c_modeCrossfadeSeconds = 0.030;
     constexpr double c_minimumDelay = 2.0;           // samples; Lagrange needs one sample after the read point
 
+    // Above this rate the clock runs in double precision (see ReverseEngine.h).
+    constexpr double c_exactClockAboveHz = 50000.0;
+    constexpr double c_pi = juce::MathConstants<double>::pi;
+    constexpr double c_twoPi = juce::MathConstants<double>::twoPi;
+
     float wrapPhase(float phase)
     {
         while (phase < 0.0f)      phase += c_twoPiF;
         while (phase >= c_twoPiF) phase -= c_twoPiF;
+        return phase;
+    }
+
+    double wrapPhase(double phase)
+    {
+        while (phase < 0.0)     phase += c_twoPi;
+        while (phase >= c_twoPi) phase -= c_twoPi;
         return phase;
     }
 
@@ -34,9 +46,19 @@ namespace
         return phase < c_piF ? phase * c_invPiF : (c_twoPiF - phase) * (-c_invPiF);
     }
 
+    double sweep(double phase)
+    {
+        return phase < c_pi ? phase / c_pi : (phase - c_twoPi) / c_pi;
+    }
+
     float window(float phase)
     {
         return 0.5f + 0.5f * std::sin(phase);
+    }
+
+    float window(double phase)
+    {
+        return static_cast<float>(0.5 + 0.5 * std::sin(phase));
     }
 
     /** Equal-gain cosine fade, 0 -> 1. */
@@ -53,12 +75,15 @@ void ReverseEngine::DelayLine::allocate(int minimumLength)
     m_data.assign(static_cast<size_t>(length), 0.0f);
     m_mask = length - 1;
     m_write = 0;
+    m_filled = 0;
 }
 
 void ReverseEngine::DelayLine::clear()
 {
-    std::fill(m_data.begin(), m_data.end(), 0.0f);
+    // Zeroing tens of megabytes would be too slow on the audio thread, so leave the old
+    // samples in place: read() treats anything older than m_filled as silence.
     m_write = 0;
+    m_filled = 0;
 }
 
 float ReverseEngine::DelayLine::read(double delay) const
@@ -69,10 +94,21 @@ float ReverseEngine::DelayLine::read(double delay) const
     const float d = static_cast<float>(position - whole);
     const int i = static_cast<int>(whole);
 
-    const float x0 = m_data[static_cast<size_t>((i - 1) & m_mask)];
-    const float x1 = m_data[static_cast<size_t>(i & m_mask)];
-    const float x2 = m_data[static_cast<size_t>((i + 1) & m_mask)];
-    const float x3 = m_data[static_cast<size_t>((i + 2) & m_mask)];
+    float x0 = m_data[static_cast<size_t>((i - 1) & m_mask)];
+    float x1 = m_data[static_cast<size_t>(i & m_mask)];
+    float x2 = m_data[static_cast<size_t>((i + 1) & m_mask)];
+    float x3 = m_data[static_cast<size_t>((i + 2) & m_mask)];
+
+    // Samples written before the last clear() are silence. The newest sample has age 0;
+    // x0 is the oldest tap and x3 the newest.
+    const int oldestAge = m_write - i + 1;
+    if (oldestAge >= m_filled)
+    {
+        x0 = 0.0f;
+        if (oldestAge - 1 >= m_filled) x1 = 0.0f;
+        if (oldestAge - 2 >= m_filled) x2 = 0.0f;
+        if (oldestAge - 3 >= m_filled) x3 = 0.0f;
+    }
 
     const float dm1 = d - 1.0f, dm2 = d - 2.0f, dp1 = d + 1.0f;
     return -x0 * d * dm1 * dm2 * (1.0f / 6.0f)
@@ -82,17 +118,27 @@ float ReverseEngine::DelayLine::read(double delay) const
 }
 
 //==============================================================================
-void ReverseEngine::Clock::start(float timeSeconds, float radiansPerSampleHz)
+void ReverseEngine::Clock::start(float timeSeconds, float radiansPerSampleHz, bool exactClock, double sampleRate)
 {
     time = timeSeconds;
-    increment = radiansPerSampleHz * (1.0f / timeSeconds);
+    exact = exactClock;
+    increment = exact ? c_twoPi / (static_cast<double>(timeSeconds) * sampleRate)
+                      : static_cast<double>(radiansPerSampleHz * (1.0f / timeSeconds));
 }
 
 void ReverseEngine::Clock::advance()
 {
+    if (exact)
+    {
+        for (auto& p : phase)
+            p = wrapPhase(increment + p);
+        return;
+    }
+
     // Each oscillator accumulates its own float32 phase, as in the original.
+    const auto inc = static_cast<float>(increment);
     for (auto& p : phase)
-        p = wrapPhase(increment + p);
+        p = wrapPhase(inc + static_cast<float>(p));
 }
 
 void ReverseEngine::Clock::resync()
@@ -101,17 +147,45 @@ void ReverseEngine::Clock::resync()
     // error comes back every period, but each TIME change would freeze some of it in. So a new
     // clock re-derives the others from voice 0's sweep, keeping every window at zero on its
     // jump and the voices half a period apart.
-    phase[1] = wrapPhase(phase[0] + 0.5f * c_piF);
-    phase[2] = wrapPhase(phase[0] + c_piF);
-    phase[3] = wrapPhase(phase[0] - 0.5f * c_piF);
+    if (exact)
+    {
+        phase[1] = wrapPhase(phase[0] + 0.5 * c_pi);
+        phase[2] = wrapPhase(phase[0] + c_pi);
+        phase[3] = wrapPhase(phase[0] - 0.5 * c_pi);
+        return;
+    }
+
+    const auto p0 = static_cast<float>(phase[0]);
+    phase[1] = wrapPhase(p0 + 0.5f * c_piF);
+    phase[2] = wrapPhase(p0 + c_piF);
+    phase[3] = wrapPhase(p0 - 0.5f * c_piF);
+}
+
+std::array<float, 2> ReverseEngine::Clock::windows() const
+{
+    if (exact)
+        return { window(phase[1]), window(phase[3]) };
+
+    return { window(static_cast<float>(phase[1])), window(static_cast<float>(phase[3])) };
 }
 
 ReverseEngine::Taps ReverseEngine::tapsOf(const Clock& clock) const
 {
     Taps taps;
-    const float base = static_cast<float>(static_cast<double>(clock.time) * m_sampleRate);   // D0 = T * SR
-    taps.delay[0] = base + base * sweep(clock.phase[0]);
-    taps.delay[1] = base + base * sweep(clock.phase[2]);
+    if (clock.exact)
+    {
+        // In float32 a delay of a million samples or more would only resolve 1/8 sample.
+        const double base = static_cast<double>(clock.time) * m_sampleRate;
+        taps.delay[0] = base + base * sweep(clock.phase[0]);
+        taps.delay[1] = base + base * sweep(clock.phase[2]);
+    }
+    else
+    {
+        // The original's float32 arithmetic.
+        const float base = static_cast<float>(static_cast<double>(clock.time) * m_sampleRate);   // D0 = T * SR
+        taps.delay[0] = base + base * sweep(static_cast<float>(clock.phase[0]));
+        taps.delay[1] = base + base * sweep(static_cast<float>(clock.phase[2]));
+    }
     taps.window = clock.windowGain;
     return taps;
 }
@@ -121,6 +195,7 @@ void ReverseEngine::prepare(double sampleRate, int, int numChannels)
 {
     m_sampleRate = sampleRate;
     m_radiansPerSampleHz = (1.0f / static_cast<float>(sampleRate)) * c_twoPiF;
+    m_exactClock = sampleRate > c_exactClockAboveHz;
     m_numChannels = std::max(1, numChannels);
 
     // A voice reads up to 2T back; Reverse Repeat's second pass adds up to T/2 (+ vibrato).
@@ -155,9 +230,10 @@ void ReverseEngine::reset()
     }
 
     for (size_t k = 0; k < m_clock.phase.size(); ++k)
-        m_clock.phase[k] = c_startDegrees[k] * c_degreesToRadians;
+        m_clock.phase[k] = m_exactClock ? static_cast<double>(c_startDegrees[k]) * (c_pi / 180.0)
+                                        : static_cast<double>(c_startDegrees[k] * c_degreesToRadians);
     m_clock.windowGain = { 0.5f, 0.5f };   // no window value has arrived yet
-    m_clock.start(m_targetTime, m_radiansPerSampleHz);
+    m_clock.start(m_targetTime, m_radiansPerSampleHz, m_exactClock, m_sampleRate);
     m_crossfadePos = m_crossfadeLength;
 
     m_vibratoPhase = c_vibratoStartDegrees * c_degreesToRadians;
@@ -185,7 +261,7 @@ void ReverseEngine::setTime(float seconds, bool immediate)
     m_targetTime = juce::jlimit(minTimeSeconds, maxTimeSeconds, seconds);
     if (immediate)
     {
-        m_clock.start(m_targetTime, m_radiansPerSampleHz);
+        m_clock.start(m_targetTime, m_radiansPerSampleHz, m_exactClock, m_sampleRate);
         m_crossfadePos = m_crossfadeLength;
     }
 }
@@ -212,7 +288,7 @@ void ReverseEngine::process(const float* const* input, float* const* output, int
         if (m_crossfadePos >= m_crossfadeLength && ! juce::exactlyEqual(m_targetTime, m_clock.time))
         {
             m_oldClock = m_clock;
-            m_clock.start(m_targetTime, m_radiansPerSampleHz);
+            m_clock.start(m_targetTime, m_radiansPerSampleHz, m_exactClock, m_sampleRate);
             m_clock.resync();   // its heads start silent, so this is inaudible
             m_crossfadePos = 0;
         }
@@ -241,7 +317,8 @@ void ReverseEngine::process(const float* const* input, float* const* output, int
 
         m_vibratoPhase = wrapPhase(m_vibratoIncrement + m_vibratoPhase);
         const float repeatBase = static_cast<float>(0.5 * m_clock.time * m_sampleRate);
-        const double repeatDelay = repeatBase + repeatBase * (c_vibratoDepth * m_vibratoValue);
+        const double repeatDelay = m_exactClock ? 0.5 * m_clock.time * m_sampleRate * (1.0 + c_vibratoDepth * m_vibratoValue)
+                                                : repeatBase + repeatBase * (c_vibratoDepth * m_vibratoValue);
         const double oldRepeatDelay = timeFading ? 0.5 * m_oldClock.time * m_sampleRate * (1.0 + c_vibratoDepth * m_vibratoValue) : 0.0;
 
         const bool modeFading = m_modeFadePos < m_modeFadeLength;
@@ -310,9 +387,9 @@ void ReverseEngine::process(const float* const* input, float* const* output, int
         }
 
         // Window values for the next sample (one sample late, as in the original).
-        m_clock.windowGain = { window(m_clock.phase[1]), window(m_clock.phase[3]) };
+        m_clock.windowGain = m_clock.windows();
         if (timeFading)
-            m_oldClock.windowGain = { window(m_oldClock.phase[1]), window(m_oldClock.phase[3]) };
+            m_oldClock.windowGain = m_oldClock.windows();
         m_vibratoValue = std::sin(m_vibratoPhase);
 
         if (timeFading)
@@ -336,7 +413,7 @@ void ReverseEngine::process(const float* const* input, float* const* output, int
         case Mode::ReverseRepeat:
         {
             // Plays what voice 0 played half a period ago.
-            const float earlier = wrapPhase(m_clock.phase[0] - c_piF);
+            const float earlier = wrapPhase(static_cast<float>(m_clock.phase[0]) - c_piF);
             const double base = m_clock.time * m_sampleRate;
             const double earlierDelay = base * (1.0 + sweep(earlier));
             m_views[1] = { static_cast<float>((0.5 * base + earlierDelay) / m_sampleRate), taps.window[1] };

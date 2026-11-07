@@ -420,24 +420,36 @@ namespace
             check(s.finite, "non-finite input does not latch");
         }
 
-        // 8. A host reset clears everything that was buffered.
+        // 8. A host reset clears everything that was buffered (without one, the tail is heard).
         {
             const double sr = 44100.0;
-            auto audio = makeNoise(2, static_cast<int>(sr * 3), 0.5f, 17);
-            ReversinatorAudioProcessor p;
-            setParam(p, ParamIDs::feedback, 75.0f);
-            render(p, audio, sr, 512, false);
-            prepare(p, 2, sr, 512);
-            p.reset();
-            juce::AudioBuffer<float> silence(2, static_cast<int>(sr * 2));
-            silence.clear();
-            juce::MidiBuffer midi;
-            for (int pos = 0; pos < silence.getNumSamples(); pos += 512)
+            const auto tailAfter = [sr](bool withReset)
             {
-                juce::AudioBuffer<float> block(silence.getArrayOfWritePointers(), 2, pos, 512);
-                p.processBlock(block, midi);
-            }
-            check(silence.getMagnitude(0, silence.getNumSamples()) < 1.0e-6f, "reset() clears buffered audio");
+                ReversinatorAudioProcessor p;
+                setParam(p, ParamIDs::feedback, 75.0f);
+                prepare(p, 2, sr, 512);
+                juce::MidiBuffer midi;
+                auto noise = makeNoise(2, static_cast<int>(sr * 3), 0.5f, 17);
+                for (int pos = 0; pos + 512 <= noise.getNumSamples(); pos += 512)
+                {
+                    juce::AudioBuffer<float> block(noise.getArrayOfWritePointers(), 2, pos, 512);
+                    p.processBlock(block, midi);
+                }
+                if (withReset)
+                    p.reset();
+                juce::AudioBuffer<float> silence(2, static_cast<int>(sr * 2));
+                silence.clear();
+                for (int pos = 0; pos + 512 <= silence.getNumSamples(); pos += 512)
+                {
+                    juce::AudioBuffer<float> block(silence.getArrayOfWritePointers(), 2, pos, 512);
+                    p.processBlock(block, midi);
+                }
+                return silence.getMagnitude(0, silence.getNumSamples());
+            };
+            const float tail = tailAfter(false);
+            const float cleared = tailAfter(true);
+            check(cleared < 1.0e-6f && tail > 1.0e-3f,
+                  juce::String::formatted("reset() clears buffered audio  (tail %.3f without it, %.1e with it)", tail, cleared));
         }
 
         // 9. Host bypass keeps the engine fed (no stale replay) and crossfades both edges.
@@ -516,6 +528,126 @@ namespace
             };
             visit(*reopened);
             check(inside, "slider thumbs are drawn in full at both ends");
+        }
+
+        // 12. JUCE's AU wrapper calls reset() as host bypass engages. That must neither click nor
+        //     empty the effect; a fully bypassed block is the input bit for bit; and once
+        //     un-bypassed the output is identical to an instance that was never bypassed.
+        {
+            const double sr = 48000.0;
+            const int blockSize = 512;
+            const auto input = makeSine(2, static_cast<int>(sr * 6), sr, 220.0, 0.5f);
+            const int bypassFrom = 280 * blockSize;               // ~3 s
+            const int bypassTo = bypassFrom + 30 * blockSize;     // a short bypass: ~0.32 s
+            const int fade = static_cast<int>(sr * 0.010) + 2;
+
+            auto reference = input;   // never bypassed
+            auto output = input;      // bypassed in between
+            ReversinatorAudioProcessor a, b;
+            prepare(a, 2, sr, blockSize);
+            prepare(b, 2, sr, blockSize);
+            juce::MidiBuffer midi;
+
+            for (int pos = 0; pos < input.getNumSamples(); pos += blockSize)
+            {
+                const int n = std::min(blockSize, input.getNumSamples() - pos);
+                juce::AudioBuffer<float> ra(reference.getArrayOfWritePointers(), 2, pos, n);
+                a.processBlock(ra, midi);
+
+                juce::AudioBuffer<float> rb(output.getArrayOfWritePointers(), 2, pos, n);
+                if (pos == bypassFrom)
+                    b.reset();   // what the AU wrapper does when bypass is switched on
+                if (pos >= bypassFrom && pos < bypassTo) b.processBlockBypassed(rb, midi);
+                else                                     b.processBlock(rb, midi);
+            }
+
+            const auto s = analyse(output, static_cast<int>(sr * 0.05));
+            bool exactBypass = true, live = true;
+            for (int ch = 0; ch < 2; ++ch)
+            {
+                for (int i = bypassFrom + fade; i < bypassTo; ++i)
+                    exactBypass = exactBypass && juce::exactlyEqual(output.getSample(ch, i), input.getSample(ch, i));
+                for (int i = bypassTo + fade; i < input.getNumSamples(); ++i)
+                    live = live && juce::exactlyEqual(output.getSample(ch, i), reference.getSample(ch, i));
+            }
+            check(s.maxSecondDifference < 0.02f,
+                  juce::String::formatted("click-free AU-style bypass with reset()  (max 2nd diff %.4f)", s.maxSecondDifference));
+            check(exactBypass, "fully bypassed output is the input, bit for bit");
+            check(live, "un-bypass lands in the live effect (identical to never bypassed)");
+        }
+
+        // 13. Above 50 kHz the snippet clock is exact: each snippet lasts T * SR samples and the
+        //     read head runs at exactly -1, so nothing is out of tune. Up to 50 kHz it keeps the
+        //     original's float32 timing (88257.7 samples per snippet at 2 s and 44.1 kHz).
+        {
+            const auto measure = [](double sr, float t, double& period, double& worstCents)
+            {
+                ReverseEngine e;
+                e.prepare(sr, 1, 1);
+                e.setMode(ReverseEngine::Mode::ReversePlayback, true);
+                e.setTime(t, true);
+
+                const int total = static_cast<int>(2.5 * t * sr);
+                std::vector<double> delay(static_cast<size_t>(total));
+                float in = 0.0f, out = 0.0f;
+                const float* inputs[] = { &in };
+                float* outputs[] = { &out };
+                int count = 0;
+                for (int n = 0; n < total; ++n)
+                {
+                    e.process(inputs, outputs, 1, 1);
+                    delay[static_cast<size_t>(n)] = e.getVoiceViews(count)[0].delaySeconds * sr;   // samples
+                }
+
+                std::vector<int> jumps;
+                for (int n = 1; n < total; ++n)
+                    if (delay[static_cast<size_t>(n)] < delay[static_cast<size_t>(n - 1)] - 0.5 * t * sr)
+                        jumps.push_back(n);
+
+                period = jumps.size() >= 2 ? static_cast<double>(jumps[1] - jumps[0]) : 0.0;
+                worstCents = 0.0;
+                if (jumps.size() >= 2)
+                {
+                    // Read speed in stretches across the snippet, away from the jumps.
+                    const int span = static_cast<int>(period / 16);
+                    for (int start = jumps[0] + 64; start + span < jumps[1] - 64; start += span)
+                    {
+                        const double slope = (delay[static_cast<size_t>(start + span)] - delay[static_cast<size_t>(start)]) / span;
+                        worstCents = std::max(worstCents, std::abs(1200.0 * std::log2(slope - 1.0)));
+                    }
+                }
+            };
+
+            double period = 0.0, cents = 0.0;
+            bool exact = true;
+            juce::String detail;
+            for (const auto& [sr, t] : { std::pair { 96000.0, 2.0f }, std::pair { 192000.0, 3.925f }, std::pair { 384000.0, 4.0f } })
+            {
+                measure(sr, t, period, cents);
+                exact = exact && std::abs(period - static_cast<double>(t) * sr) <= 1.0 && cents < 0.1;
+                detail << juce::String::formatted(" %gk: %.0f/%.0f, %.2f c;", sr / 1000.0, period, static_cast<double>(t) * sr, cents);
+            }
+            check(exact, "exact snippet clock above 50 kHz (" + detail.trim() + ")");
+
+            measure(44100.0, 2.0f, period, cents);
+            check(period >= 88257.0 && period <= 88258.0,
+                  juce::String::formatted("44.1 kHz keeps the original's float32 clock  (%.0f samples per snippet)", period));
+        }
+
+        // 14. The update check finds the newest Reversinator release in GitHub's listing,
+        //     skipping other plugins' tags and prereleases.
+        {
+            const auto listing = juce::JSON::parse(R"([
+                { "tag_name": "subbertone-v1.1.0" },
+                { "tag_name": "reversinator-v2.1.0-beta", "prerelease": true },
+                { "tag_name": "reversinator-v2.0.9" },
+                { "tag_name": "reversinator-v2.0.10" },
+                { "tag_name": "reversinator-v1.0.0" } ])");
+            check(Version::latestRelease(listing) == "2.0.10"
+                      && Version::latestRelease(juce::JSON::parse("[]")).isEmpty()
+                      && Version::latestRelease(juce::JSON::parse(R"({ "message": "API rate limit exceeded" })")).isEmpty()
+                      && Version::toNumber("10.0.0") > Version::toNumber("9.9.9"),
+                  "update check picks the newest release (other plugins and prereleases skipped)");
         }
 
         std::cout << (failures == 0 ? "ALL PASSED" : juce::String(failures) + " FAILED") << std::endl;

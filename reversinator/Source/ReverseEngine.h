@@ -20,10 +20,16 @@
  * The input to every delay line is halved and the output doubled, as in the
  * original, so FEEDBACK DEPTH F is the true loop gain.
  *
- * The oscillators accumulate their phase in float32 exactly as the original
- * does, so the grain timing is sample-compatible with it (the period comes out
- * up to about 0.4 % longer or shorter than T, depending on T and the sample
- * rate); the window gain and the vibrato arrive one sample late, as there.
+ * Up to 50 kHz the oscillators accumulate their phase in float32 exactly as the
+ * original does, so the grain timing is sample-compatible with it: the period
+ * comes out up to about 0.25 % longer or shorter than T, and parts of each
+ * snippet play a few cents sharp or flat. Float32 steps get coarser relative to
+ * the phase increment as the sample rate rises (half a semitone out at 96 kHz,
+ * a semitone at 192 kHz), so above 50 kHz the clock and the delay arithmetic run
+ * in double precision instead, and pitch and period are exact. Either way the
+ * window gain and the vibrato arrive one sample late, as in the original.
+ *
+ * reset() is O(1) in the buffer sizes, so it is safe on the audio thread.
  *
  * Output is pre-wet: the caller applies the wet gain.
  */
@@ -63,14 +69,22 @@ private:
     {
     public:
         void allocate(int minimumLength);
+        /** O(1): rather than zeroing the buffer, reads simply treat anything older
+            than the last clear as silence. */
         void clear();
-        void push(float x)        { m_write = (m_write + 1) & m_mask; m_data[static_cast<size_t>(m_write)] = x; }
+        void push(float x)
+        {
+            m_write = (m_write + 1) & m_mask;
+            m_data[static_cast<size_t>(m_write)] = x;
+            m_filled = std::min(m_filled + 1, m_mask + 1);
+        }
         float read(double delay) const;   // delay in samples behind the newest sample
 
     private:
         std::vector<float> m_data;
         int m_mask = 0;
         int m_write = 0;
+        int m_filled = 0;                  // samples written since the last clear
     };
 
     struct Channel
@@ -85,15 +99,19 @@ private:
     struct Clock
     {
         // 0: voice 0 sweep, 1: voice 0 window, 2: voice 1 sweep, 3: voice 1 window
-        // (also the forward window in Forward Backwards). Radians, float32.
-        std::array<float, 4> phase {};
+        // (also the forward window in Forward Backwards). Radians. Unless `exact`,
+        // every value is a float32 (held exactly in the double) and the arithmetic
+        // is float32, as in the original.
+        std::array<double, 4> phase {};
         std::array<float, 2> windowGain { 0.5f, 0.5f };   // last sample's window values
-        float increment = 0.0f;
+        double increment = 0.0;
         float time = 2.0f;
+        bool exact = false;                                // double-precision clock
 
-        void start(float timeSeconds, float radiansPerSampleHz);
+        void start(float timeSeconds, float radiansPerSampleHz, bool exactClock, double sampleRate);
         void advance();
         void resync();
+        std::array<float, 2> windows() const;              // this sample's window values
     };
 
     struct Taps
@@ -106,6 +124,7 @@ private:
 
     double m_sampleRate = 44100.0;
     float m_radiansPerSampleHz = 0.0f;     // f32(f32(1/SR) * 2pi), as in the original
+    bool m_exactClock = false;             // above 50 kHz: double-precision clock and delays
     int m_numChannels = 0;
     std::vector<Channel> m_channels;
 

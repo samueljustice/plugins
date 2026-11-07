@@ -28,6 +28,8 @@ public:
 
     void prepareToPlay(double sampleRate, int samplesPerBlock) override;
     void releaseResources() override;
+    /** Host flush. Hosts may call this on any thread while audio runs, so it only
+        flags the flush; the audio thread does it at the start of its next block. */
     void reset() override;
     bool isBusesLayoutSupported(const BusesLayout& layouts) const override;
     void processBlock(juce::AudioBuffer<float>&, juce::MidiBuffer&) override;
@@ -81,6 +83,7 @@ public:
 private:
     static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
     void process(juce::AudioBuffer<float>& buffer, bool bypassed);
+    void flush();
     void processChunk(float* const* channels, int numChannels, int numSamples);
     void pushDisplayPeaks(const float* const* channels, int numChannels, int numSamples);
 
@@ -102,6 +105,7 @@ private:
     juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> m_wetGain;
     juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> m_dryGain;
     juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> m_bypassMix;   // 1 = host bypass
+    std::atomic<bool> m_flushRequested { false };                                  // set by reset()
 
     // Display feed: a ring of input peaks the editor can read at any time.
     std::array<std::atomic<float>, peakHistorySize> m_peakRing {};

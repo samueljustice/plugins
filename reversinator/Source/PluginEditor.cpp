@@ -107,7 +107,7 @@ ReversinatorAudioProcessorEditor::Content::Content(ReversinatorAudioProcessor& p
                 [](double v) { return juce::String(juce::roundToInt(v)) + "%"; });
 
     setupSlider(m_wetSlider, Controls::SliderStyle::Fader, ParamIDs::wetMix, mix,
-                "WET MIX: loudness of the backwards (effect) sound.",
+                "WET MIX: level of the effect, and of the forwards audio when REVERSER is set to forwards.",
                 [](double v) { return juce::String(juce::roundToInt(v)) + "%"; });
 
     setupSlider(m_drySlider, Controls::SliderStyle::Fader, ParamIDs::dryMix, mix,

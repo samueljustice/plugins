@@ -14,6 +14,10 @@ project(Reversinator VERSION 2.0.0)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED TRUE)
 
+# Windows: link the C++ runtime statically, so the plugin doesn't depend on the host
+# machine having a recent enough Visual C++ redistributable (the installer ships none).
+set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+
 # Plugin formats; pass -DREVERSINATOR_FORMATS="AU;VST3;Standalone" for a standalone app.
 set(REVERSINATOR_FORMATS "AU;VST3" CACHE STRING "Plugin formats to build")
 option(REVERSINATOR_BUILD_TESTS "Build the offline DSP test runner" OFF)

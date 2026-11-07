@@ -43,6 +43,7 @@ The sound is the original's. Reversinator deliberately differs only where Backwa
 - **Switching effects** crossfades over 30 ms into the new effect, which starts with the input history already in place. The original cut to silence and refilled its buffers.
 - **Long TIME settings** work across the whole range. In Reverse Playback and Reverse Repeat, the original's delay memory wrapped above about 3 s (at 44.1 kHz), so the end of each snippet read the wrong audio.
 - **REVERSER** always crossfades over a full 10 ms. The original's crossfade was shortened when the host buffer was smaller than 10 ms.
+- **Sample rates above 48 kHz** use a double-precision snippet clock, so the reversed audio is exactly in tune and each snippet lasts exactly TIME. The original's float32 clock loses precision as the sample rate rises. At 44.1 and 48 kHz it makes parts of each snippet play a few cents sharp or flat (up to about a quarter of a semitone at some TIME settings), and there Reversinator keeps it, sample for sample. At 96 kHz the error would reach half a semitone, and at 192 kHz a whole semitone.
 
 ## Controls
 
@@ -57,7 +58,7 @@ The sound is the original's. Reversinator deliberately differs only where Backwa
 
 ## Tips
 
-- **Matching the tempo.** The effect often sounds just as interesting out of time, but to get close use `TIME = N × 60 / BPM` with N = 1, 2, 4 and so on. For example, at 120 BPM, N = 4 gives 2 seconds, which is one bar of 4/4. This is approximate: like the original, the snippet clock runs up to about 0.4% fast or slow depending on TIME and the sample rate, so over a long passage it slowly drifts off the grid. At 120 BPM and 44.1 kHz that is about 40 ms per minute.
+- **Matching the tempo.** The effect often sounds just as interesting out of time, but to get close use `TIME = N × 60 / BPM` with N = 1, 2, 4 and so on. For example, at 120 BPM, N = 4 gives 2 seconds, which is one bar of 4/4. At 44.1 and 48 kHz this is approximate: as on the original, the snippet clock runs up to about 0.25% fast or slow depending on TIME, so over a long passage it slowly drifts off the grid. At 120 BPM and 44.1 kHz, with TIME at 2 s, that is about 40 ms per minute. Above 48 kHz the clock is exact.
 - **Reverse reverb.** Put Reversinator before a reverb, then print and reverse the result, or simply use Reverse Playback on a reverb return.
 - **Transitions.** Automate REVERSER to flip a phrase backwards and return cleanly on the downbeat.
 - **Ambience.** Forward Backwards with a long TIME and some DRY MIX turns a loop into a slowly breathing palindrome.
@@ -70,9 +71,10 @@ Version 2 rebuilds the effect to match Backwards Machine, so some settings chang
 - **Envelope** and **Crossfade** are gone. The original's windows are fixed, and the new engine uses them.
 - **TIME** is now 0.5–4 s (was 30 ms–5 s), and **FEEDBACK DEPTH** is now 0–75% (was 0–100%), as on the original.
 - **WET MIX** and **DRY MIX** now use the original's squared law, so settings below 100% are quieter than in 1.x. For example, 50% was -6 dB and is now -12 dB, so a 1.x mix may need rebalancing.
-- **REVERSER** now defaults to on.
+- **REVERSER** now defaults to on. Set to forwards, it now plays the input at the WET MIX level with DRY MIX added on top, as on the original, where 1.x passed the input through unchanged. So forward passages in 1.x sessions change level unless WET MIX is 100% and DRY MIX 0%. For example, WET 50% is now -12 dB, and WET 100% with DRY 100% is +6 dB.
 - **Saved settings:** sessions saved with 1.x still open. TIME and FEEDBACK values outside the new ranges are clamped, and the removed controls are ignored.
-- **Automation:** host automation is stored as positions along each control's range, so TIME and FEEDBACK DEPTH lanes recorded in 1.x replay rescaled onto the new ranges. For example, a 1.x TIME point at 2.00 s now plays at about 1.89 s, and FEEDBACK at 50% plays at 37.5%.
+- **Automation:** hosts that identify parameters by ID store automation as positions along each control's range, so TIME and FEEDBACK DEPTH lanes recorded in 1.x replay rescaled onto the new ranges. For example, a 1.x TIME point at 2.00 s now plays at about 1.89 s, and FEEDBACK at 50% plays at 37.5%.
+- **Automation in Logic Pro and GarageBand:** these identify Audio Unit parameters by their position in the list, and removing Envelope and Crossfade moved them. Only the Mode and TIME lanes carry over (TIME rescaled as above). The 1.x Envelope, Dry Mix, Wet Mix and Crossfade lanes now drive DRY MIX, WET MIX, REVERSER and FEEDBACK DEPTH, and the 1.x Reverser and Feedback lanes are lost. Delete those lanes and redraw them.
 - **macOS:** builds now run on macOS 11 and later. Previous builds required the macOS version they were built on.
 
 ## Building
@@ -115,5 +117,5 @@ See [LICENSE](LICENSE). The plugin uses the JUCE framework; see JUCE's license f
 
 ## Version History
 
-- **v2.0.0**: Rebuilt to match Backwards Machine: the original's three effects, ranges, tapers, defaults and gain staging. New interface with a live snippet display. Click-free TIME, mode and REVERSER changes. Fixes the macOS minimum-version problem, a crash risk in the update check, and the build break.
+- **v2.0.0**: Rebuilt to match Backwards Machine: the original's three effects, ranges, tapers, defaults and gain staging. New interface with a live snippet display. Click-free TIME, mode, REVERSER and host bypass changes. Fixes the macOS minimum-version problem, the Windows dependency on the Visual C++ runtime, a crash risk in the update check, and the build break.
 - **v1.0.0**: Initial release with a grain-based overlap-add engine, three reverse modes and a resizable UI.
