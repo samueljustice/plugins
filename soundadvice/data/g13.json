@@ -1,0 +1,933 @@
+{
+ "people": [
+  {
+   "name": "Mark Berger",
+   "role": "Re-recording mixer",
+   "credits": "Apocalypse Now (1979), Amadeus (1984), The English Patient (1996)",
+   "imdb": "https://www.imdb.com/name/nm0074281/"
+  },
+  {
+   "name": "Richard Beggs",
+   "role": "Sound designer and re-recording mixer",
+   "credits": "Apocalypse Now (1979), Lost in Translation (2003), Children of Men (2006)",
+   "imdb": "https://www.imdb.com/name/nm0066740/"
+  },
+  {
+   "name": "Leslie Shatz",
+   "role": "Sound designer and re-recording mixer",
+   "credits": "The Mummy (1999), Elephant (2003), Last Days (2005)",
+   "imdb": "https://www.imdb.com/name/nm0789458/"
+  },
+  {
+   "name": "Pat Jackson",
+   "role": "Sound designer and supervising sound editor",
+   "credits": "The English Patient (1996), The Talented Mr. Ripley (1999), Jarhead (2005)",
+   "imdb": "https://www.imdb.com/name/nm0413913/"
+  }
+ ],
+ "entries": [
+  {
+   "person": "Richard Beggs",
+   "kind": "quote",
+   "text": "Is the clock heard subjectively (in the character's mind) or in the room?",
+   "categories": [
+    "story",
+    "worlds"
+   ],
+   "source": {
+    "title": "Creating Film Sound: an interview with Richard Beggs, pt.2",
+    "publication": "U.S.O. Project (Unidentified Sound Object)",
+    "url": "https://usoproject.blogspot.com/2011/02/creating-film-sound-interview-with_27.html",
+    "year": 2011
+   }
+  },
+  {
+   "person": "Richard Beggs",
+   "kind": "quote",
+   "text": "I want the sound to capture the essence of that object.",
+   "categories": [
+    "craft",
+    "recording"
+   ],
+   "source": {
+    "title": "Creating Film Sound: an interview with Richard Beggs, pt.2",
+    "publication": "U.S.O. Project (Unidentified Sound Object)",
+    "url": "https://usoproject.blogspot.com/2011/02/creating-film-sound-interview-with_27.html",
+    "year": 2011
+   }
+  },
+  {
+   "person": "Richard Beggs",
+   "kind": "insight",
+   "text": "In Sleepers, a traumatic scene contains a light-bulb pull chain and a slammed steel cage door. Whenever the characters later talk or think about it, Beggs brings those two sounds back, distant, diffuse and almost musical.",
+   "categories": [
+    "story",
+    "music"
+   ],
+   "source": {
+    "title": "Creating Film Sound: an interview with Richard Beggs, pt.2",
+    "publication": "U.S.O. Project (Unidentified Sound Object)",
+    "url": "https://usoproject.blogspot.com/2011/02/creating-film-sound-interview-with_27.html",
+    "year": 2011
+   }
+  },
+  {
+   "person": "Richard Beggs",
+   "kind": "insight",
+   "text": "Air conditioning can be gentle fill or oppressive pressure: what matters is the sound itself, not its level. On Adaptation he buried one funky AC with a rhythmic, intermittent rattle in the background until the background worked as effects.",
+   "categories": [
+    "worlds",
+    "mixing"
+   ],
+   "source": {
+    "title": "Creating Film Sound: an interview with Richard Beggs, pt.2",
+    "publication": "U.S.O. Project (Unidentified Sound Object)",
+    "url": "https://usoproject.blogspot.com/2011/02/creating-film-sound-interview-with_27.html",
+    "year": 2011
+   }
+  },
+  {
+   "person": "Richard Beggs",
+   "kind": "insight",
+   "text": "Mid-battle in Children of Men, Beggs made the loud battle recede and pushed small pinpoint sounds forward, so the chickens are heard, inordinately loud, before they are seen. This subjective point of view is not realistic but works dramatically.",
+   "categories": [
+    "action",
+    "mixing",
+    "story"
+   ],
+   "source": {
+    "title": "Creating Film Sound: an interview with Richard Beggs, pt.2",
+    "publication": "U.S.O. Project (Unidentified Sound Object)",
+    "url": "https://usoproject.blogspot.com/2011/02/creating-film-sound-interview-with_27.html",
+    "year": 2011
+   }
+  },
+  {
+   "person": "Richard Beggs",
+   "kind": "insight",
+   "text": "Given, say, 12 prepared and cut elements in a scene, Beggs picks the two or three that best convey it, then drops the rest or pushes it so far back it is merely colour. Specific choices beat quantity.",
+   "categories": [
+    "mixing",
+    "craft"
+   ],
+   "source": {
+    "title": "Creating Film Sound: an interview with Richard Beggs, pt.2",
+    "publication": "U.S.O. Project (Unidentified Sound Object)",
+    "url": "https://usoproject.blogspot.com/2011/02/creating-film-sound-interview-with_27.html",
+    "year": 2011
+   }
+  },
+  {
+   "person": "Richard Beggs",
+   "kind": "insight",
+   "text": "For Lost in Translation, Beggs spent two weeks in Tokyo recording every practical location, night and day, both specifics and backgrounds. He says even a Tokyo effects library would lack the focus he got from reading the script and seeing dailies first.",
+   "categories": [
+    "recording",
+    "worlds"
+   ],
+   "source": {
+    "title": "Creating Film Sound: an interview with Richard Beggs, pt.2",
+    "publication": "U.S.O. Project (Unidentified Sound Object)",
+    "url": "https://usoproject.blogspot.com/2011/02/creating-film-sound-interview-with_27.html",
+    "year": 2011
+   }
+  },
+  {
+   "person": "Richard Beggs",
+   "kind": "insight",
+   "text": "For Marie Antoinette, Beggs recorded inside Versailles at 11 p.m., after closing, when it was quiet: the original creaking floors, the actual clock in Louis XVI's bedroom, doors, fountains and bells. French hunting dogs and horns were hired to order.",
+   "categories": [
+    "recording",
+    "worlds"
+   ],
+   "source": {
+    "title": "Creating Film Sound: an interview with Richard Beggs, pt.2",
+    "publication": "U.S.O. Project (Unidentified Sound Object)",
+    "url": "https://usoproject.blogspot.com/2011/02/creating-film-sound-interview-with_27.html",
+    "year": 2011
+   }
+  },
+  {
+   "person": "Richard Beggs",
+   "kind": "quote",
+   "text": "I could not make a useful distinction between cutting and mixing.",
+   "categories": [
+    "mixing",
+    "craft"
+   ],
+   "source": {
+    "title": "Creating Film Sound: an interview with Richard Beggs, pt.1",
+    "publication": "U.S.O. Project (Unidentified Sound Object)",
+    "url": "https://usoproject.blogspot.com/2011/02/creating-film-sound-interview-with.html",
+    "year": 2011
+   }
+  },
+  {
+   "person": "Richard Beggs",
+   "kind": "quote",
+   "text": "I often don't recognize what I need until I hear it.",
+   "categories": [
+    "recording",
+    "craft"
+   ],
+   "source": {
+    "title": "Creating Film Sound: an interview with Richard Beggs, pt.1",
+    "publication": "U.S.O. Project (Unidentified Sound Object)",
+    "url": "https://usoproject.blogspot.com/2011/02/creating-film-sound-interview-with.html",
+    "year": 2011
+   }
+  },
+  {
+   "person": "Richard Beggs",
+   "kind": "insight",
+   "text": "Apocalypse Now's synthesized helicopters were made on a Moog that could store nothing, so Beggs performed them live: white noise, envelope generators, filters, and a clock-driven sequencer creating the rotors' modulated, rhythmic patterns.",
+   "categories": [
+    "recording",
+    "action",
+    "scifi"
+   ],
+   "source": {
+    "title": "Creating Film Sound: an interview with Richard Beggs, pt.1",
+    "publication": "U.S.O. Project (Unidentified Sound Object)",
+    "url": "https://usoproject.blogspot.com/2011/02/creating-film-sound-interview-with.html",
+    "year": 2011
+   }
+  },
+  {
+   "person": "Richard Beggs",
+   "kind": "insight",
+   "text": "Beggs's synthetic helicopters either stood alone or sweetened real recordings, and often transitioned between the two. The synthesized ceiling fan in the title sequence that becomes the Huey landing in Saigon is a synth-to-real transition.",
+   "categories": [
+    "action",
+    "mixing"
+   ],
+   "source": {
+    "title": "Creating Film Sound: an interview with Richard Beggs, pt.1",
+    "publication": "U.S.O. Project (Unidentified Sound Object)",
+    "url": "https://usoproject.blogspot.com/2011/02/creating-film-sound-interview-with.html",
+    "year": 2011
+   }
+  },
+  {
+   "person": "Richard Beggs",
+   "kind": "insight",
+   "text": "The Ghostbusters Ectomobile siren started as a leopard snarl, then was edited, pitched and processed entirely in analog. The tools: an Ampex AG-440, quarter-inch tape, variable speed, a razor blade and an Editall splicing block.",
+   "categories": [
+    "creatures",
+    "scifi",
+    "craft"
+   ],
+   "source": {
+    "title": "Creating Film Sound: an interview with Richard Beggs, pt.1",
+    "publication": "U.S.O. Project (Unidentified Sound Object)",
+    "url": "https://usoproject.blogspot.com/2011/02/creating-film-sound-interview-with.html",
+    "year": 2011
+   }
+  },
+  {
+   "person": "Richard Beggs",
+   "kind": "insight",
+   "text": "A trained painter, Beggs works on the track the way he works on canvas. Light, dark, mass, line, contrast, color, texture, and objects advancing or receding all have sonic equivalents that can advance the story.",
+   "categories": [
+    "craft",
+    "mixing"
+   ],
+   "source": {
+    "title": "Creating Film Sound: an interview with Richard Beggs, pt.1",
+    "publication": "U.S.O. Project (Unidentified Sound Object)",
+    "url": "https://usoproject.blogspot.com/2011/02/creating-film-sound-interview-with.html",
+    "year": 2011
+   }
+  },
+  {
+   "person": "Richard Beggs",
+   "kind": "insight",
+   "text": "Beggs generally won't delegate mixing decisions to sound editorial, because he sees them as creative, interpretive calls. He worries modern tools can slide into a formulaic, pre-assembled mix that 'mixes itself.'",
+   "categories": [
+    "mixing",
+    "collaboration"
+   ],
+   "source": {
+    "title": "Creating Film Sound: an interview with Richard Beggs, pt.1",
+    "publication": "U.S.O. Project (Unidentified Sound Object)",
+    "url": "https://usoproject.blogspot.com/2011/02/creating-film-sound-interview-with.html",
+    "year": 2011
+   }
+  },
+  {
+   "person": "Richard Beggs",
+   "kind": "insight",
+   "text": "Cuarón wanted the Children of Men lead to hear tinnitus after an explosion in the title sequence. Beggs expanded the idea into a recurring motif across the film, which was not planned: it grew out of the project.",
+   "categories": [
+    "story",
+    "collaboration"
+   ],
+   "source": {
+    "title": "Creating Film Sound: an interview with Richard Beggs, pt.1",
+    "publication": "U.S.O. Project (Unidentified Sound Object)",
+    "url": "https://usoproject.blogspot.com/2011/02/creating-film-sound-interview-with.html",
+    "year": 2011
+   }
+  },
+  {
+   "person": "Richard Beggs",
+   "kind": "insight",
+   "text": "During a Marie Antoinette night shoot, Beggs wandered behind Le Petit Trianon and found a loud frog chorus he'd never have imagined for Louis XVI's court. He used it in the garden party, where it adds nervous, contemporary energy.",
+   "categories": [
+    "recording",
+    "worlds"
+   ],
+   "source": {
+    "title": "Creating Film Sound: an interview with Richard Beggs, pt.1",
+    "publication": "U.S.O. Project (Unidentified Sound Object)",
+    "url": "https://usoproject.blogspot.com/2011/02/creating-film-sound-interview-with.html",
+    "year": 2011
+   }
+  },
+  {
+   "person": "Richard Beggs",
+   "kind": "insight",
+   "text": "In Somewhere, the two portentous low-frequency pulses as the Ferrari passes under viaducts came from a manipulated bullwhip rush. The musical drone beneath the engine was built from multitrack elements of a song by Phoenix, the film's band.",
+   "categories": [
+    "craft",
+    "music"
+   ],
+   "source": {
+    "title": "Creating Film Sound: an interview with Richard Beggs, pt.1",
+    "publication": "U.S.O. Project (Unidentified Sound Object)",
+    "url": "https://usoproject.blogspot.com/2011/02/creating-film-sound-interview-with.html",
+    "year": 2011
+   }
+  },
+  {
+   "person": "Richard Beggs",
+   "kind": "insight",
+   "text": "After Coppola described Apocalypse Now's sound only in abstract generalities, Beggs made an unsolicited 20-minute 'tone impression' mood piece of what he thought the film might sound like.",
+   "categories": [
+    "collaboration",
+    "story"
+   ],
+   "source": {
+    "title": "Creating Film Sound: an interview with Richard Beggs, pt.1",
+    "publication": "U.S.O. Project (Unidentified Sound Object)",
+    "url": "https://usoproject.blogspot.com/2011/02/creating-film-sound-interview-with.html",
+    "year": 2011
+   }
+  },
+  {
+   "person": "Leslie Shatz",
+   "kind": "quote",
+   "text": "Sound design is just choosing the right sounds and silences from the places.",
+   "categories": [
+    "craft",
+    "worlds"
+   ],
+   "source": {
+    "title": "CREW: Steve McQueen, Kelly Reichardt and Gus Van Sant Share a Secret Weapon—Sound Design by Leslie Shatz",
+    "publication": "Keyframe (Fandor)",
+    "url": "https://keyframe.fandor.com/crew-leslie-shatz-sound-designer/",
+    "year": 2014
+   }
+  },
+  {
+   "person": "Leslie Shatz",
+   "kind": "quote",
+   "text": "Silence is the scariest of all. It really has to come from the director.",
+   "categories": [
+    "silence",
+    "collaboration"
+   ],
+   "source": {
+    "title": "CREW: Steve McQueen, Kelly Reichardt and Gus Van Sant Share a Secret Weapon—Sound Design by Leslie Shatz",
+    "publication": "Keyframe (Fandor)",
+    "url": "https://keyframe.fandor.com/crew-leslie-shatz-sound-designer/",
+    "year": 2014
+   }
+  },
+  {
+   "person": "Leslie Shatz",
+   "kind": "insight",
+   "text": "On Good Will Hunting's slow-motion fight, Van Sant said 'We have to go crazy.' Shatz and Van Sant put about fifty sounds up on the console, deliberately out of touch with the picture, to reflect the character's mental chaos.",
+   "categories": [
+    "action",
+    "story"
+   ],
+   "source": {
+    "title": "CREW: Steve McQueen, Kelly Reichardt and Gus Van Sant Share a Secret Weapon—Sound Design by Leslie Shatz",
+    "publication": "Keyframe (Fandor)",
+    "url": "https://keyframe.fandor.com/crew-leslie-shatz-sound-designer/",
+    "year": 2014
+   }
+  },
+  {
+   "person": "Leslie Shatz",
+   "kind": "insight",
+   "text": "On Gerry, looping and Foley stuck out: the film rejected anything that intruded on the purity of the production sound. Instead they mostly used contrapuntal elements, such as tones that didn't belong under the long walk.",
+   "categories": [
+    "dialogue",
+    "story"
+   ],
+   "source": {
+    "title": "CREW: Steve McQueen, Kelly Reichardt and Gus Van Sant Share a Secret Weapon—Sound Design by Leslie Shatz",
+    "publication": "Keyframe (Fandor)",
+    "url": "https://keyframe.fandor.com/crew-leslie-shatz-sound-designer/",
+    "year": 2014
+   }
+  },
+  {
+   "person": "Leslie Shatz",
+   "kind": "insight",
+   "text": "HBO called Elephant technically unacceptable: no backgrounds, no Foley, sound sometimes from the 'wrong' side. Shatz says people hide behind technical standards because they feel safe, but staying inside them only copies what came before.",
+   "categories": [
+    "craft",
+    "story"
+   ],
+   "source": {
+    "title": "CREW: Steve McQueen, Kelly Reichardt and Gus Van Sant Share a Secret Weapon—Sound Design by Leslie Shatz",
+    "publication": "Keyframe (Fandor)",
+    "url": "https://keyframe.fandor.com/crew-leslie-shatz-sound-designer/",
+    "year": 2014
+   }
+  },
+  {
+   "person": "Leslie Shatz",
+   "kind": "insight",
+   "text": "Shatz and the director sit together, put up a palette of sounds, play it back, break for lunch, and repeat the next day, using the sounds as building blocks. Once the choices are made they refine, and at some point they stop.",
+   "categories": [
+    "collaboration",
+    "craft"
+   ],
+   "source": {
+    "title": "CREW: Steve McQueen, Kelly Reichardt and Gus Van Sant Share a Secret Weapon—Sound Design by Leslie Shatz",
+    "publication": "Keyframe (Fandor)",
+    "url": "https://keyframe.fandor.com/crew-leslie-shatz-sound-designer/",
+    "year": 2014
+   }
+  },
+  {
+   "person": "Leslie Shatz",
+   "kind": "insight",
+   "text": "Shatz chased trains around Portland for Paranoid Park, recordings he later used on Wendy and Lucy. He would stack five or six train sounds at once, one with an insistent horn and one with the approaching engine, to make them sound great and scary.",
+   "categories": [
+    "recording",
+    "worlds"
+   ],
+   "source": {
+    "title": "CREW: Steve McQueen, Kelly Reichardt and Gus Van Sant Share a Secret Weapon—Sound Design by Leslie Shatz",
+    "publication": "Keyframe (Fandor)",
+    "url": "https://keyframe.fandor.com/crew-leslie-shatz-sound-designer/",
+    "year": 2014
+   }
+  },
+  {
+   "person": "Leslie Shatz",
+   "kind": "insight",
+   "text": "In Meek's Cutoff, Reichardt wanted the audience 'eavesdropping' on the men's distant planning, hearing only a little of it. Shatz first thought it technically unacceptable, but came to agree: you want people leaning in and straining, engaged with the film.",
+   "categories": [
+    "dialogue",
+    "mixing",
+    "story"
+   ],
+   "source": {
+    "title": "CREW: Steve McQueen, Kelly Reichardt and Gus Van Sant Share a Secret Weapon—Sound Design by Leslie Shatz",
+    "publication": "Keyframe (Fandor)",
+    "url": "https://keyframe.fandor.com/crew-leslie-shatz-sound-designer/",
+    "year": 2014
+   }
+  },
+  {
+   "person": "Leslie Shatz",
+   "kind": "insight",
+   "text": "M/S recording gave Meek's Cutoff a vivid sense of space on the salt flats, especially when the wagons crash and the reverb and echo come back off the hillside. Shatz first used M/S on Elephant.",
+   "categories": [
+    "recording",
+    "worlds"
+   ],
+   "source": {
+    "title": "CREW: Steve McQueen, Kelly Reichardt and Gus Van Sant Share a Secret Weapon—Sound Design by Leslie Shatz",
+    "publication": "Keyframe (Fandor)",
+    "url": "https://keyframe.fandor.com/crew-leslie-shatz-sound-designer/",
+    "year": 2014
+   }
+  },
+  {
+   "person": "Leslie Shatz",
+   "kind": "quote",
+   "text": "We're taught in the sound field that the dialogue is king.",
+   "categories": [
+    "dialogue",
+    "craft"
+   ],
+   "source": {
+    "title": "Sound Garden",
+    "publication": "The Village Voice",
+    "url": "https://www.villagevoice.com/?p=56730",
+    "year": 2005
+   }
+  },
+  {
+   "person": "Leslie Shatz",
+   "kind": "quote",
+   "text": "any sound that you add takes on a huge importance.",
+   "categories": [
+    "silence",
+    "story"
+   ],
+   "source": {
+    "title": "Sound Garden",
+    "publication": "The Village Voice",
+    "url": "https://www.villagevoice.com/?p=56730",
+    "year": 2005
+   }
+  },
+  {
+   "person": "Leslie Shatz",
+   "kind": "insight",
+   "text": "Last Days adds nothing to the production track except a few iconic sounds, which Shatz says makes it seem hyper-real. Breaking the center-channel rule, some dialogue plays left and right, often instead of center, for an interior-monologue effect.",
+   "categories": [
+    "dialogue",
+    "mixing",
+    "story"
+   ],
+   "source": {
+    "title": "Sound Garden",
+    "publication": "The Village Voice",
+    "url": "https://www.villagevoice.com/?p=56730",
+    "year": 2005
+   }
+  },
+  {
+   "person": "Leslie Shatz",
+   "kind": "quote",
+   "text": "Gus wants to do things in the most unconventional way possible.",
+   "categories": [
+    "collaboration"
+   ],
+   "source": {
+    "title": "SFP: Gus Van Sant's \"Milk\"",
+    "publication": "Mix",
+    "url": "https://www.mixonline.com/sfp/sfp-gus-van-sants-milk-369221",
+    "year": 2008
+   }
+  },
+  {
+   "person": "Leslie Shatz",
+   "kind": "insight",
+   "text": "On Milk, the primary boom was an M/S mic: lav in the center, M/S on the sides, with careful calibration of M/S-to-mono and spread. ADR in M/S scenes needed M/S too, so they faked room color with TL Space reverb.",
+   "categories": [
+    "dialogue",
+    "recording",
+    "mixing"
+   ],
+   "source": {
+    "title": "SFP: Gus Van Sant's \"Milk\"",
+    "publication": "Mix",
+    "url": "https://www.mixonline.com/sfp/sfp-gus-van-sants-milk-369221",
+    "year": 2008
+   }
+  },
+  {
+   "person": "Leslie Shatz",
+   "kind": "quote",
+   "text": "You can shut your eyes, but you cannot shut your ears.",
+   "categories": [
+    "craft"
+   ],
+   "source": {
+    "title": "Carol Sound Designer Leslie Shatz",
+    "publication": "Filmmaker Magazine",
+    "url": "https://filmmakermagazine.com/96157-carol-sound-designer-leslie-shatz/",
+    "year": 2015
+   }
+  },
+  {
+   "person": "Leslie Shatz",
+   "kind": "quote",
+   "text": "the emotional feeling of loud is a lot more powerful than the physical one",
+   "categories": [
+    "mixing",
+    "action"
+   ],
+   "source": {
+    "title": "Carol Sound Designer Leslie Shatz",
+    "publication": "Filmmaker Magazine",
+    "url": "https://filmmakermagazine.com/96157-carol-sound-designer-leslie-shatz/",
+    "year": 2015
+   }
+  },
+  {
+   "person": "Leslie Shatz",
+   "kind": "insight",
+   "text": "For a jail beating in 12 Years a Slave, Shatz couldn't rely on volume: past a certain point the audience thinks it's phony. Instead he built layers of leather and splintering wood, experimenting until the impact registered.",
+   "categories": [
+    "foley",
+    "action",
+    "mixing"
+   ],
+   "source": {
+    "title": "Carol Sound Designer Leslie Shatz",
+    "publication": "Filmmaker Magazine",
+    "url": "https://filmmakermagazine.com/96157-carol-sound-designer-leslie-shatz/",
+    "year": 2015
+   }
+  },
+  {
+   "person": "Leslie Shatz",
+   "kind": "insight",
+   "text": "For Immortals, Shatz plucked an upright bass, slowed it down and shifted its frequencies. In an arrow-shooting scene, that resonance builds until it reaches critical mass and you feel it in your body: loudness through resonance, not level.",
+   "categories": [
+    "action",
+    "craft"
+   ],
+   "source": {
+    "title": "Carol Sound Designer Leslie Shatz",
+    "publication": "Filmmaker Magazine",
+    "url": "https://filmmakermagazine.com/96157-carol-sound-designer-leslie-shatz/",
+    "year": 2015
+   }
+  },
+  {
+   "person": "Leslie Shatz",
+   "kind": "insight",
+   "text": "Shatz maps different sounds to the keys of a music keyboard and plays them at random while watching a scene; pressing harder plays louder. He feels a typewriter keyboard and mouse are on/off devices that strip out human expression.",
+   "categories": [
+    "craft",
+    "music"
+   ],
+   "source": {
+    "title": "Carol Sound Designer Leslie Shatz",
+    "publication": "Filmmaker Magazine",
+    "url": "https://filmmakermagazine.com/96157-carol-sound-designer-leslie-shatz/",
+    "year": 2015
+   }
+  },
+  {
+   "person": "Leslie Shatz",
+   "kind": "insight",
+   "text": "On Paranoid Park, another film's soundtrack got slightly merged in, backwards: Chinese speech and marching. Shatz was about to get upset; Van Sant loved it and kept it. Shatz's lesson is to stay open to accidents.",
+   "categories": [
+    "collaboration",
+    "craft"
+   ],
+   "source": {
+    "title": "Carol Sound Designer Leslie Shatz",
+    "publication": "Filmmaker Magazine",
+    "url": "https://filmmakermagazine.com/96157-carol-sound-designer-leslie-shatz/",
+    "year": 2015
+   }
+  },
+  {
+   "person": "Leslie Shatz",
+   "kind": "quote",
+   "text": "Well, no, there's steps that you follow, and you have a concept.",
+   "categories": [
+    "craft"
+   ],
+   "source": {
+    "title": "Sound designer Leslie Shatz on Kelly Reichardt, town sounds, and misbehaving dogs",
+    "publication": "The Seventh Row",
+    "url": "https://seventh-row.com/?p=40488",
+    "year": 2020
+   }
+  },
+  {
+   "person": "Leslie Shatz",
+   "kind": "insight",
+   "text": "Expecting changes after the mix, Shatz asked the First Cow producer to hold one mixing day for weeks after finishing. Mixing, waiting a month and coming back, he says, lets you see things in a whole different light.",
+   "categories": [
+    "mixing",
+    "collaboration"
+   ],
+   "source": {
+    "title": "Sound designer Leslie Shatz on Kelly Reichardt, town sounds, and misbehaving dogs",
+    "publication": "The Seventh Row",
+    "url": "https://seventh-row.com/?p=40488",
+    "year": 2020
+   }
+  },
+  {
+   "person": "Mark Berger",
+   "kind": "quote",
+   "text": "going back further isn't necessarily always better",
+   "categories": [
+    "mixing",
+    "craft"
+   ],
+   "source": {
+    "title": "Amadeus: The Director's Cut",
+    "publication": "Mix",
+    "url": "https://www.mixonline.com/sfp/amadeus-directors-cut-369043",
+    "year": 2002
+   }
+  },
+  {
+   "person": "Mark Berger",
+   "kind": "quote",
+   "text": "once the words leave the character's mouth they don't just die on the floor",
+   "categories": [
+    "dialogue",
+    "mixing"
+   ],
+   "source": {
+    "title": "Amadeus: The Director's Cut",
+    "publication": "Mix",
+    "url": "https://www.mixonline.com/sfp/amadeus-directors-cut-369043",
+    "year": 2002
+   }
+  },
+  {
+   "person": "Mark Berger",
+   "kind": "insight",
+   "text": "Remixing Amadeus from digitized, pitch-corrected originals, Berger found it often impossible to recreate the original's emotional impact, and kept the original about 85 percent of the time. He suspects the first mix exploited mag film's strengths and weaknesses.",
+   "categories": [
+    "mixing",
+    "music"
+   ],
+   "source": {
+    "title": "Amadeus: The Director's Cut",
+    "publication": "Mix",
+    "url": "https://www.mixonline.com/sfp/amadeus-directors-cut-369043",
+    "year": 2002
+   }
+  },
+  {
+   "person": "Mark Berger",
+   "kind": "insight",
+   "text": "For Amadeus's quiet, hissy Nagra dialogue in 1983, Berger built the 'Markomatic': a Dolby CAT 43 used as a phase-coherent four-band splitter, with compressors and gates on each band. That way each line's highs, mids and lows could be treated separately.",
+   "categories": [
+    "dialogue",
+    "craft"
+   ],
+   "source": {
+    "title": "Amadeus: The Director's Cut",
+    "publication": "Mix",
+    "url": "https://www.mixonline.com/sfp/amadeus-directors-cut-369043",
+    "year": 2002
+   }
+  },
+  {
+   "person": "Mark Berger",
+   "kind": "insight",
+   "text": "To tame a stadium-like palace room, Berger used a Dolby 430 to clamp the tails of words, then added a shorter echo to cover the loss. He balanced a room that showed the owner's wealth against intelligibility.",
+   "categories": [
+    "dialogue",
+    "mixing"
+   ],
+   "source": {
+    "title": "Amadeus: The Director's Cut",
+    "publication": "Mix",
+    "url": "https://www.mixonline.com/sfp/amadeus-directors-cut-369043",
+    "year": 2002
+   }
+  },
+  {
+   "person": "Mark Berger",
+   "kind": "insight",
+   "text": "For the Amadeus 5.1, Berger built about half a dozen reverb spaces matching the film's rooms (Salieri's cell, the emperor's hall). He added room to the dialogue spread roughly 30 degrees left and right, not hard-panned, which warmed it and smoothed old processing artifacts.",
+   "categories": [
+    "dialogue",
+    "mixing",
+    "worlds"
+   ],
+   "source": {
+    "title": "Amadeus: The Director's Cut",
+    "publication": "Mix",
+    "url": "https://www.mixonline.com/sfp/amadeus-directors-cut-369043",
+    "year": 2002
+   }
+  },
+  {
+   "person": "Mark Berger",
+   "kind": "quote",
+   "text": "Interesting things happen at the edges, when things change.",
+   "categories": [
+    "mixing",
+    "craft"
+   ],
+   "source": {
+    "title": "Mark Berger (faculty interview)",
+    "publication": "OLLI @Berkeley",
+    "url": "https://olli.berkeley.edu/faculty_bio/mark-berger",
+    "year": null
+   }
+  },
+  {
+   "person": "Mark Berger",
+   "kind": "quote",
+   "text": "If everything is always loud, you get bored because there's no change.",
+   "categories": [
+    "mixing",
+    "silence"
+   ],
+   "source": {
+    "title": "Mark Berger (faculty interview)",
+    "publication": "OLLI @Berkeley",
+    "url": "https://olli.berkeley.edu/faculty_bio/mark-berger",
+    "year": null
+   }
+  },
+  {
+   "person": "Mark Berger",
+   "kind": "insight",
+   "text": "Berger says directors, especially first-timers, lose their 'virgin ears and virgin eyes' after years with the material, stop trusting the images and performances, and reach for music. He teaches with one scene scored two ways, by the director and by the studio.",
+   "categories": [
+    "music",
+    "story",
+    "collaboration"
+   ],
+   "source": {
+    "title": "Mark Berger (faculty interview)",
+    "publication": "OLLI @Berkeley",
+    "url": "https://olli.berkeley.edu/faculty_bio/mark-berger",
+    "year": null
+   }
+  },
+  {
+   "person": "Mark Berger",
+   "kind": "insight",
+   "text": "In Amadeus, the loud Don Giovanni chords that mark Mozart's father were surrounded by very quiet sounds. Berger cites them as an example of using contrast, so the loud moments have intentional impact.",
+   "categories": [
+    "music",
+    "mixing"
+   ],
+   "source": {
+    "title": "Mark Berger (faculty interview)",
+    "publication": "OLLI @Berkeley",
+    "url": "https://olli.berkeley.edu/faculty_bio/mark-berger",
+    "year": null
+   }
+  },
+  {
+   "person": "Mark Berger",
+   "kind": "insight",
+   "text": "Berger contrasts feature films' 'perfect sound,' done over and over, with documentaries' 'interesting sound,' where you get one shot. You have to decide on the spot what is sonically interesting about a location: in Cuba, pigs, cane-cutters' machetes, bricklayers whistling.",
+   "categories": [
+    "recording",
+    "craft"
+   ],
+   "source": {
+    "title": "Mark Berger (faculty interview)",
+    "publication": "OLLI @Berkeley",
+    "url": "https://olli.berkeley.edu/faculty_bio/mark-berger",
+    "year": null
+   }
+  },
+  {
+   "person": "Mark Berger",
+   "kind": "quote",
+   "text": "Sound is meant to be subtle, subliminal and not noticed.",
+   "categories": [
+    "mixing",
+    "craft"
+   ],
+   "source": {
+    "title": "The Sound of Movies",
+    "publication": "Houston Press",
+    "url": "https://www.houstonpress.com/?p=236809",
+    "year": 2000
+   }
+  },
+  {
+   "person": "Mark Berger",
+   "kind": "quote",
+   "text": "We treat sound like an orchestra.",
+   "categories": [
+    "mixing",
+    "music"
+   ],
+   "source": {
+    "title": "The Sound of Movies",
+    "publication": "Houston Press",
+    "url": "https://www.houstonpress.com/?p=236809",
+    "year": 2000
+   }
+  },
+  {
+   "person": "Mark Berger",
+   "kind": "insight",
+   "text": "Amadeus shot in Prague castles with heavily creaking floors. For scenes whose dialogue was redone in the studio, Berger recreated those creaks in the Foley studio with a small, weather-beaten wooden rocking chair.",
+   "categories": [
+    "foley",
+    "dialogue"
+   ],
+   "source": {
+    "title": "The Sound of Movies",
+    "publication": "Houston Press",
+    "url": "https://www.houstonpress.com/?p=236809",
+    "year": 2000
+   }
+  },
+  {
+   "person": "Mark Berger",
+   "kind": "quote",
+   "text": "I always enjoyed more listening than seeing.",
+   "categories": [
+    "craft"
+   ],
+   "source": {
+    "title": "Mark Berger: A history in sound",
+    "publication": "Progreso Weekly",
+    "url": "https://progresoweekly.us/?p=12373",
+    "year": 2014
+   }
+  },
+  {
+   "person": "Mark Berger",
+   "kind": "insight",
+   "text": "Berger doesn't go to cinemas to hear his own work. He says sound is heard best in the mixing studio, because every other room has variations that affect the soundtrack.",
+   "categories": [
+    "mixing"
+   ],
+   "source": {
+    "title": "Mark Berger: A history in sound",
+    "publication": "Progreso Weekly",
+    "url": "https://progresoweekly.us/?p=12373",
+    "year": 2014
+   }
+  },
+  {
+   "person": "Mark Berger",
+   "kind": "insight",
+   "text": "Berger's first feature came from field recordings. Back from Cuba, Murch asked whether he had sound recorded there, then had him cut all of Godfather Part II's island sequences.",
+   "categories": [
+    "recording",
+    "collaboration"
+   ],
+   "source": {
+    "title": "Mark Berger: A history in sound",
+    "publication": "Progreso Weekly",
+    "url": "https://progresoweekly.us/?p=12373",
+    "year": 2014
+   }
+  },
+  {
+   "person": "Pat Jackson",
+   "kind": "quote",
+   "text": "It's painting on a canvas. I'm devoted to expanding the empire of sound.",
+   "categories": [
+    "craft"
+   ],
+   "source": {
+    "title": "SF State cinema professor Pat Jackson wins Emmy for sound editing",
+    "publication": "Golden Gate Xpress",
+    "url": "https://goldengatexpress.org/31404/life/pat-jackson/",
+    "year": 2012
+   }
+  },
+  {
+   "person": "Pat Jackson",
+   "kind": "insight",
+   "text": "On HBO's Hemingway & Gellhorn, which won the Emmy for sound editing, Jackson's team had to design and edit tracks for previously silent archival footage. She says sound design takes imagination to advance the story and bring the environment to life.",
+   "categories": [
+    "worlds",
+    "craft"
+   ],
+   "source": {
+    "title": "SF State cinema professor Pat Jackson wins Emmy for sound editing",
+    "publication": "Golden Gate Xpress",
+    "url": "https://goldengatexpress.org/31404/life/pat-jackson/",
+    "year": 2012
+   }
+  }
+ ]
+}

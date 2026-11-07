@@ -25,6 +25,9 @@ Whooshes on demand, subs from nowhere, sirens that hold still and audio that run
 | [<img src="pitchflattener/docs/screenshot.png" width="400" alt="Pitch Flattener">](#-pitch-flattener) | [<img src="reversinator/docs/screenshot.png" width="400" alt="Reversinator">](#-reversinator) |
 | **[Pitch Flattener](#-pitch-flattener)**<br>Doppler, sirens and vibrato, flattened | **[Reversinator](#-reversinator)**<br>Real-time reverser |
 
+[<img src="soundadvice/docs/screenshot.png" width="812" alt="Sound Advice">](#-sound-advice)<br>
+**[Sound Advice](#-sound-advice)**<br>Advice from the great sound designers and mixers
+
 </div>
 
 ---
@@ -113,6 +116,27 @@ A real-time reverser: a faithful, modernised recreation of Backwards Machine's t
 
 ---
 
+## 🎲 Sound Advice
+
+> *Stuck? Roll the die and ask one of the greats.*
+
+<p align="center">
+  <img src="soundadvice/docs/screenshot.png" alt="Sound Advice, in day and night themes" width="820">
+</p>
+
+A small, quiet page of advice from the great film, TV and game sound designers and mixers. Pick what you're working on (mixing, trailers, creatures, Foley, silence, running a creative team...) and roll the die: it deals you a quote or a technique from one of them, with a link to where it came from.
+
+- 📚 **847 entries from 78 people**, every one traced to an interview, article or talk
+- 🗂️ **18 categories**, from Mixing and Foley to Horror & Tension and Silence & Restraint
+- 🌗 **Paper by day, ink by night**
+- 🔇 **Audio passes straight through**, so it can sit on a mix bus or on a second screen as an app
+
+**App** (macOS, Windows) · **VST3** · **AU** &nbsp;&nbsp;
+![Coming soon](https://img.shields.io/badge/release-coming%20soon-555?style=flat-square) &nbsp;
+[Read the manual →](soundadvice/README.md)
+
+---
+
 ## 🛠️ For developers
 
 <details>
@@ -123,7 +147,7 @@ Every project builds with CMake and expects its dependencies in `SDK/` at the ro
 
 | Dependency | Used by |
 |---|---|
-| [JUCE](https://github.com/juce-framework/JUCE) 8.0.8, at `SDK/JUCE` | Swooshbuckler, Subbertone, Pitch Flattener, Reversinator, Stretch Armstrong |
+| [JUCE](https://github.com/juce-framework/JUCE) 8.0.8, at `SDK/JUCE` | Swooshbuckler, Sound Advice, Subbertone, Pitch Flattener, Reversinator, Stretch Armstrong |
 | [RubberBand](https://breakfastquay.com/rubberband/) 4.0.0, at `SDK/rubberband-4.0.0` | Pitch Flattener, Stretch Armstrong |
 | Beat-and-Tempo-Tracking, at `SDK/Beat-and-Tempo-Tracking`, and [py-ptsl](https://pypi.org/project/py-ptsl/) | PTSL Beat Tool |
 
@@ -149,7 +173,7 @@ git tag swooshbuckler-v1.0.0
 git push origin swooshbuckler-v1.0.0
 ```
 
-The tag prefixes are `swooshbuckler-v`, `subbertone-v`, `pitchflattener-v`, `reversinator-v`, `stretcharmstrong-v` and `ptsl-beattool-v`.
+The tag prefixes are `swooshbuckler-v`, `soundadvice-v`, `subbertone-v`, `pitchflattener-v`, `reversinator-v`, `stretcharmstrong-v` and `ptsl-beattool-v`.
 
 </details>
 

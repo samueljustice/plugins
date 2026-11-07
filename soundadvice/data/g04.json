@@ -1,0 +1,1185 @@
+{
+ "people": [
+  {
+   "name": "Charles Deenen",
+   "role": "Sound supervisor, trailer and game audio director",
+   "credits": "Need for Speed series, Gran Turismo (2023), Star Wars Battlefront trailers",
+   "imdb": "https://www.imdb.com/name/nm0007226/"
+  },
+  {
+   "name": "Ben Minto",
+   "role": "Audio director",
+   "credits": "Battlefield 3, Star Wars Battlefront, Mirror's Edge",
+   "imdb": "https://www.imdb.com/name/nm2150319/"
+  },
+  {
+   "name": "Martin Stig Andersen",
+   "role": "Composer and sound designer",
+   "credits": "Limbo, Inside, Control",
+   "imdb": "https://www.imdb.com/name/nm3160953/"
+  },
+  {
+   "name": "Rob Bridgett",
+   "role": "Audio director and author",
+   "credits": "Scarface: The World Is Yours, Prototype, Shadow of the Tomb Raider",
+   "imdb": "https://www.imdb.com/name/nm2792860/"
+  }
+ ],
+ "entries": [
+  {
+   "person": "Charles Deenen",
+   "kind": "quote",
+   "text": "The moment the consumer notices audio, it starts to work against the game experience.",
+   "categories": [
+    "games",
+    "mixing",
+    "story"
+   ],
+   "source": {
+    "title": "Charles Deenen Special: \"Need For Speed\" [Exclusive Interview]",
+    "publication": "Designing Sound",
+    "url": "https://designingsound.org/2010/02/23/charles-deenen-special-need-for-speed-exclusive-interview/",
+    "year": 2010
+   }
+  },
+  {
+   "person": "Charles Deenen",
+   "kind": "insight",
+   "text": "For Need for Speed cinematics, Deenen's team once sweetened engines with layered bears, pigs, tigers and leopards for emotion; by NFS Shift they had moved on to distortion and synth sweeteners riding on top of real car recordings.",
+   "categories": [
+    "weapons",
+    "creatures",
+    "craft"
+   ],
+   "source": {
+    "title": "Charles Deenen Special: \"Need For Speed\" [Exclusive Interview]",
+    "publication": "Designing Sound",
+    "url": "https://designingsound.org/2010/02/23/charles-deenen-special-need-for-speed-exclusive-interview/",
+    "year": 2010
+   }
+  },
+  {
+   "person": "Charles Deenen",
+   "kind": "insight",
+   "text": "To capture car crashes for Need for Speed, the team put an SM57 right at the point of impact, inside the collision itself, rather than relying only on safe distant perspectives.",
+   "categories": [
+    "recording",
+    "action",
+    "weapons"
+   ],
+   "source": {
+    "title": "Charles Deenen Special: \"Need For Speed\" [Exclusive Interview]",
+    "publication": "Designing Sound",
+    "url": "https://designingsound.org/2010/02/23/charles-deenen-special-need-for-speed-exclusive-interview/",
+    "year": 2010
+   }
+  },
+  {
+   "person": "Charles Deenen",
+   "kind": "quote",
+   "text": "For each project I always look for the single “it-factor”.",
+   "categories": [
+    "craft",
+    "story"
+   ],
+   "source": {
+    "title": "Charles Deenen Special: Exclusive Interview",
+    "publication": "Designing Sound",
+    "url": "https://designingsound.org/2010/02/05/charles-deenen-special-exclusive-interview/",
+    "year": 2010
+   }
+  },
+  {
+   "person": "Charles Deenen",
+   "kind": "quote",
+   "text": "What I'd recommend freelance sound designers to do is become good and fast.",
+   "categories": [
+    "collaboration",
+    "trailers"
+   ],
+   "source": {
+    "title": "Charles Deenen Special: Exclusive Interview",
+    "publication": "Designing Sound",
+    "url": "https://designingsound.org/2010/02/05/charles-deenen-special-exclusive-interview/",
+    "year": 2010
+   }
+  },
+  {
+   "person": "Charles Deenen",
+   "kind": "insight",
+   "text": "Deenen treated weekend film-trailer jobs, starting with Daredevil and running past sixty titles, as his training ground: brutal deadlines forced odd, inventive solutions he then carried back into his game sound work.",
+   "categories": [
+    "trailers",
+    "collaboration",
+    "craft"
+   ],
+   "source": {
+    "title": "Charles Deenen Special: Exclusive Interview",
+    "publication": "Designing Sound",
+    "url": "https://designingsound.org/2010/02/05/charles-deenen-special-exclusive-interview/",
+    "year": 2010
+   }
+  },
+  {
+   "person": "Charles Deenen",
+   "kind": "insight",
+   "text": "On NFS Shift he chased what a driver actually hears mid-race using deliberately atypical sounds; that driver's-eye bed ended up becoming the signature sonic identity of the game's FMVs and menus.",
+   "categories": [
+    "story",
+    "weapons",
+    "games"
+   ],
+   "source": {
+    "title": "Charles Deenen Special: Exclusive Interview",
+    "publication": "Designing Sound",
+    "url": "https://designingsound.org/2010/02/05/charles-deenen-special-exclusive-interview/",
+    "year": 2010
+   }
+  },
+  {
+   "person": "Charles Deenen",
+   "kind": "quote",
+   "text": "Processing is done to enhance what doesn't exist.",
+   "categories": [
+    "craft"
+   ],
+   "source": {
+    "title": "Charles Deenen on Sound Design for Games",
+    "publication": "Waves",
+    "url": "https://www.waves.com/charles-deenen-on-sound-design-for-games",
+    "year": 2010
+   }
+  },
+  {
+   "person": "Charles Deenen",
+   "kind": "quote",
+   "text": "I often start from the smallest: one-inch stereo Radio Shack speakers at very low volume.",
+   "categories": [
+    "mixing",
+    "trailers"
+   ],
+   "source": {
+    "title": "Charles Deenen on Sound Design for Games",
+    "publication": "Waves",
+    "url": "https://www.waves.com/charles-deenen-on-sound-design-for-games",
+    "year": 2010
+   }
+  },
+  {
+   "person": "Charles Deenen",
+   "kind": "insight",
+   "text": "To fatten a sound, Deenen stacks two Renaissance Bass instances tuned to different frequencies so both sub and low-mids grow; on L1, he shortens release for more grit and lengthens it for a smoother result.",
+   "categories": [
+    "craft",
+    "action",
+    "mixing"
+   ],
+   "source": {
+    "title": "Charles Deenen on Sound Design for Games",
+    "publication": "Waves",
+    "url": "https://www.waves.com/charles-deenen-on-sound-design-for-games",
+    "year": 2010
+   }
+  },
+  {
+   "person": "Charles Deenen",
+   "kind": "quote",
+   "text": "Never edit exactly “on the cut”.",
+   "categories": [
+    "trailers",
+    "craft"
+   ],
+   "source": {
+    "title": "Charles Deenen Special: Reader Questions",
+    "publication": "Designing Sound",
+    "url": "https://designingsound.org/2010/02/27/charles-deenen-special-reader-questions/",
+    "year": 2010
+   }
+  },
+  {
+   "person": "Charles Deenen",
+   "kind": "quote",
+   "text": "Move the sound out of the picture, don’t just stop it",
+   "categories": [
+    "trailers",
+    "craft"
+   ],
+   "source": {
+    "title": "Charles Deenen Special: Reader Questions",
+    "publication": "Designing Sound",
+    "url": "https://designingsound.org/2010/02/27/charles-deenen-special-reader-questions/",
+    "year": 2010
+   }
+  },
+  {
+   "person": "Charles Deenen",
+   "kind": "insight",
+   "text": "Trailer triage: on the first watch, note only what grabs you and sound just those moments. On later passes add what serves story, pace or music, then strip out anything that is merely noise.",
+   "categories": [
+    "trailers",
+    "silence",
+    "story"
+   ],
+   "source": {
+    "title": "Charles Deenen Special: Reader Questions",
+    "publication": "Designing Sound",
+    "url": "https://designingsound.org/2010/02/27/charles-deenen-special-reader-questions/",
+    "year": 2010
+   }
+  },
+  {
+   "person": "Charles Deenen",
+   "kind": "insight",
+   "text": "In trailers, Deenen retimes the edit to his sound's rhythm in Pro Tools and hands the picture editor an OMF or edit list to conform, because editors cut better when inspired by the pacing of sound and music.",
+   "categories": [
+    "trailers",
+    "music",
+    "collaboration"
+   ],
+   "source": {
+    "title": "Charles Deenen Special: Reader Questions",
+    "publication": "Designing Sound",
+    "url": "https://designingsound.org/2010/02/27/charles-deenen-special-reader-questions/",
+    "year": 2010
+   }
+  },
+  {
+   "person": "Charles Deenen",
+   "kind": "insight",
+   "text": "A practice drill he recommends: rebuild a favourite sound using only five random library sounds, one per category, for several days running. To reverse-engineer a reference, study each frequency band and play it at half or quarter speed.",
+   "categories": [
+    "craft"
+   ],
+   "source": {
+    "title": "Charles Deenen Special: Reader Questions",
+    "publication": "Designing Sound",
+    "url": "https://designingsound.org/2010/02/27/charles-deenen-special-reader-questions/",
+    "year": 2010
+   }
+  },
+  {
+   "person": "Charles Deenen",
+   "kind": "insight",
+   "text": "Stuck for an idea? Deenen suggests humming or singing the sound you imagine into a mic and processing that, browsing a library at random, or simply laying sounds against picture until something sparks.",
+   "categories": [
+    "craft",
+    "recording"
+   ],
+   "source": {
+    "title": "Charles Deenen Special: Reader Questions",
+    "publication": "Designing Sound",
+    "url": "https://designingsound.org/2010/02/27/charles-deenen-special-reader-questions/",
+    "year": 2010
+   }
+  },
+  {
+   "person": "Charles Deenen",
+   "kind": "insight",
+   "text": "To find the sweet spot on a car, sweep a small wind-protected lav around it in repeated identical moves while listening for more tone and less noise, and keep exhaust mics clear of the hottest, most turbulent air.",
+   "categories": [
+    "recording",
+    "weapons"
+   ],
+   "source": {
+    "title": "Charles Deenen Special: Reader Questions",
+    "publication": "Designing Sound",
+    "url": "https://designingsound.org/2010/02/27/charles-deenen-special-reader-questions/",
+    "year": 2010
+   }
+  },
+  {
+   "person": "Charles Deenen",
+   "kind": "insight",
+   "text": "His 100-whooshes method: fill 10–20 tracks with long continuous material, bus it to a few submixes loaded with Doppler, flangers and envelope filters, sidechain-duck the buses against each other, gate in hits at the peaks, then ride faders live and record take after take.",
+   "categories": [
+    "craft",
+    "trailers",
+    "action"
+   ],
+   "source": {
+    "title": "Charles Deenen Special: 100 Whooshes in 2 Minutes",
+    "publication": "Designing Sound",
+    "url": "https://designingsound.org/2010/02/26/charles-deenen-special-100-whooshes-in-2-minutes/",
+    "year": 2010
+   }
+  },
+  {
+   "person": "Charles Deenen",
+   "kind": "insight",
+   "text": "Before booking a car-recording location, have someone rev a car about 50 feet away as a noise test, favour closed forest or private roads, find out how long the surface takes to dry after rain, and avoid quiet passes at peak bird and cricket hours.",
+   "categories": [
+    "recording",
+    "weapons"
+   ],
+   "source": {
+    "title": "Charles Deenen Special: Car Recording Guide",
+    "publication": "Designing Sound",
+    "url": "https://designingsound.org/2010/02/25/charles-deenen-special-car-recording-guide/",
+    "year": 2010
+   }
+  },
+  {
+   "person": "Charles Deenen",
+   "kind": "insight",
+   "text": "For the Star Wars Battlefront trailers, Source Sound split Ben Burtt's original sounds into tonal and noise layers, kept the tonal core and rebuilt the noise in higher fidelity, giving them control in a dense mix.",
+   "categories": [
+    "trailers",
+    "scifi",
+    "mixing"
+   ],
+   "source": {
+    "title": "The Sound of the Star Wars Battlefront Trailers",
+    "publication": "A Sound Effect",
+    "url": "https://asoundeffect.com/star-wars-battlefront-trailer-sound/",
+    "year": 2015
+   }
+  },
+  {
+   "person": "Charles Deenen",
+   "kind": "quote",
+   "text": "We always tried to stay faithful, but enhanced it enough so that it punched more",
+   "categories": [
+    "trailers",
+    "scifi"
+   ],
+   "source": {
+    "title": "The Sound of the Star Wars Battlefront Trailers",
+    "publication": "A Sound Effect",
+    "url": "https://asoundeffect.com/star-wars-battlefront-trailer-sound/",
+    "year": 2015
+   }
+  },
+  {
+   "person": "Charles Deenen",
+   "kind": "insight",
+   "text": "Deenen's trailer mixes stay clean and punchy partly because every effect with hiss or noise runs through RX in real time; for mismatched dialogue he starts by using Ozone's Matching EQ to match one line to another.",
+   "categories": [
+    "mixing",
+    "dialogue",
+    "trailers"
+   ],
+   "source": {
+    "title": "iZotope Masters Q&A Series, Part 1",
+    "publication": "Mix",
+    "url": "https://www.mixonline.com/?p=34259",
+    "year": 2013
+   }
+  },
+  {
+   "person": "Charles Deenen",
+   "kind": "insight",
+   "text": "His 'bigganizing' trick for explosions and guns: gain-clip a sound by around 20 dB, then run it through a de-crackler. The result feels huge and loud without audible distortion, which is all about perceived loudness.",
+   "categories": [
+    "action",
+    "weapons",
+    "trailers"
+   ],
+   "source": {
+    "title": "Charles Deenen: Crafting Epic Sounds with Sonnox Plug-ins",
+    "publication": "Sonnox",
+    "url": "https://sonnox.com/articles/charles-deenen-crafting-epic-sounds-with-sonnox-plugins/",
+    "year": null
+   }
+  },
+  {
+   "person": "Charles Deenen",
+   "kind": "insight",
+   "text": "Need for Speed recorded every car with no turbo fitted so turbos could be layered back in as upgrades, and drove each one on real roads to capture authentic gear shifts with all their sputters and grunts.",
+   "categories": [
+    "recording",
+    "weapons",
+    "games"
+   ],
+   "source": {
+    "title": "Interview: Charles Deenen",
+    "publication": "NFSUnlimited",
+    "url": "https://www.nfsunlimited.net/article/interview_charles_deenen",
+    "year": 2006
+   }
+  },
+  {
+   "person": "Ben Minto",
+   "kind": "quote",
+   "text": "At the outset, disregard the potential constraints or you’ll hobble your creativity.",
+   "categories": [
+    "craft",
+    "games"
+   ],
+   "source": {
+    "title": "Ben Minto Unplugged",
+    "publication": "MCV/Develop",
+    "url": "https://www.mcvuk.com/development/ben-minto-unplugged",
+    "year": 2009
+   }
+  },
+  {
+   "person": "Ben Minto",
+   "kind": "quote",
+   "text": "Usually the ‘new’ idea is an amalgamation of two or more great ideas.",
+   "categories": [
+    "craft"
+   ],
+   "source": {
+    "title": "Ben Minto Unplugged",
+    "publication": "MCV/Develop",
+    "url": "https://www.mcvuk.com/development/ben-minto-unplugged",
+    "year": 2009
+   }
+  },
+  {
+   "person": "Ben Minto",
+   "kind": "insight",
+   "text": "Minto captures gameplay footage and tracklays it like a film first, ignoring engine limits entirely; only once the ideal is clear does he work out how to make the game deliver it.",
+   "categories": [
+    "games",
+    "craft"
+   ],
+   "source": {
+    "title": "Ben Minto Unplugged",
+    "publication": "MCV/Develop",
+    "url": "https://www.mcvuk.com/development/ben-minto-unplugged",
+    "year": 2009
+   }
+  },
+  {
+   "person": "Ben Minto",
+   "kind": "insight",
+   "text": "Standing next to a real weapon or explosion, you feel how loud it truly is. Minto sees the designer's job as figuring out how to transmit that physical sensation, not just the recorded waveform, to the player.",
+   "categories": [
+    "recording",
+    "weapons",
+    "action"
+   ],
+   "source": {
+    "title": "Ben Minto Unplugged",
+    "publication": "MCV/Develop",
+    "url": "https://www.mcvuk.com/development/ben-minto-unplugged",
+    "year": 2009
+   }
+  },
+  {
+   "person": "Ben Minto",
+   "kind": "quote",
+   "text": "Don't use your go-to plugin, try something new.",
+   "categories": [
+    "craft"
+   ],
+   "source": {
+    "title": "Ben Minto on Game Sound Design",
+    "publication": "Waves",
+    "url": "https://www.waves.com/ben-minto-on-game-sound-design",
+    "year": 2011
+   }
+  },
+  {
+   "person": "Ben Minto",
+   "kind": "insight",
+   "text": "To keep a gun feeling like it's in your own hands, Minto gives the weapon mechanism its own delicate, distinctive Foley layer, so the handling detail anchors the shot close to the player.",
+   "categories": [
+    "weapons",
+    "foley",
+    "games"
+   ],
+   "source": {
+    "title": "Ben Minto on Game Sound Design",
+    "publication": "Waves",
+    "url": "https://www.waves.com/ben-minto-on-game-sound-design",
+    "year": 2011
+   }
+  },
+  {
+   "person": "Ben Minto",
+   "kind": "quote",
+   "text": "You want your storm assets to punch through and ‘feel’ loud",
+   "categories": [
+    "mixing",
+    "worlds"
+   ],
+   "source": {
+    "title": "Heard About: Battlefield 4",
+    "publication": "MCV/Develop",
+    "url": "https://mcvuk.com/development-news/heard-about-battlefield-4/",
+    "year": 2014
+   }
+  },
+  {
+   "person": "Ben Minto",
+   "kind": "insight",
+   "text": "On Battlefield 4, DICE took player Foley out of the HDR mix system so huge explosions could no longer cull your own footsteps, keeping a constant link between your character and the world.",
+   "categories": [
+    "mixing",
+    "foley",
+    "games"
+   ],
+   "source": {
+    "title": "Heard About: Battlefield 4",
+    "publication": "MCV/Develop",
+    "url": "https://mcvuk.com/development-news/heard-about-battlefield-4/",
+    "year": 2014
+   }
+  },
+  {
+   "person": "Ben Minto",
+   "kind": "insight",
+   "text": "Small personal details sell immersion: in Battlefield 4 a water sprinkler changes character when you stand beneath it, adding the sound of water striking your helmet.",
+   "categories": [
+    "worlds",
+    "games",
+    "foley"
+   ],
+   "source": {
+    "title": "Heard About: Battlefield 4",
+    "publication": "MCV/Develop",
+    "url": "https://mcvuk.com/development-news/heard-about-battlefield-4/",
+    "year": 2014
+   }
+  },
+  {
+   "person": "Ben Minto",
+   "kind": "quote",
+   "text": "don’t create new, build on what exists.",
+   "categories": [
+    "scifi",
+    "craft"
+   ],
+   "source": {
+    "title": "Heard About: Star Wars Battlefront",
+    "publication": "MCV/Develop",
+    "url": "https://mcvuk.com/development-news/heard-about-star-wars-battlefront/",
+    "year": 2015
+   }
+  },
+  {
+   "person": "Ben Minto",
+   "kind": "insight",
+   "text": "Battlefront's sounds weren't bounced as final files; they were assembled at runtime from layers inside Frostbite, a workflow Minto likened to Max/MSP or Reaktor rather than a DAW, making them almost infinitely variable.",
+   "categories": [
+    "games",
+    "craft",
+    "scifi"
+   ],
+   "source": {
+    "title": "Game Audio: The sound of 'Star Wars: Battlefront'",
+    "publication": "Audio Media International",
+    "url": "https://audiomediainternational.com/game-audio-the-sound-of-star-wars-battlefront/",
+    "year": 2015
+   }
+  },
+  {
+   "person": "Ben Minto",
+   "kind": "quote",
+   "text": "What you have to try and do is make the game sound like the film.",
+   "categories": [
+    "scifi",
+    "games"
+   ],
+   "source": {
+    "title": "Ben Minto: Star Wars Battlefront sound design – 'We put a sound in with one in a million chance of it playing'",
+    "publication": "Headliner",
+    "url": "https://headlinerhub.com/ben-minto-star-wars-battlefront-sound-design-we-put-a-sound-in-with-one-in-a-million-chance-of-it-playing.html",
+    "year": null
+   }
+  },
+  {
+   "person": "Ben Minto",
+   "kind": "insight",
+   "text": "To recreate blasters, Minto went to a guy-wire and struck it for that classic twang. He also slipped in Chewbacca's Tarzan yell with a one-in-a-million chance of ever playing.",
+   "categories": [
+    "scifi",
+    "weapons",
+    "recording"
+   ],
+   "source": {
+    "title": "Ben Minto: Star Wars Battlefront sound design – 'We put a sound in with one in a million chance of it playing'",
+    "publication": "Headliner",
+    "url": "https://headlinerhub.com/ben-minto-star-wars-battlefront-sound-design-we-put-a-sound-in-with-one-in-a-million-chance-of-it-playing.html",
+    "year": null
+   }
+  },
+  {
+   "person": "Ben Minto",
+   "kind": "insight",
+   "text": "For Battlefront ambiences Minto recorded redwood forests for Endor, the far north of Sweden in midwinter for Hoth, desert for Tatooine and two weeks in Iceland, believing being there makes recreating the feel easier.",
+   "categories": [
+    "recording",
+    "worlds",
+    "scifi"
+   ],
+   "source": {
+    "title": "Ben Minto: Star Wars Battlefront sound design – 'We put a sound in with one in a million chance of it playing'",
+    "publication": "Headliner",
+    "url": "https://headlinerhub.com/ben-minto-star-wars-battlefront-sound-design-we-put-a-sound-in-with-one-in-a-million-chance-of-it-playing.html",
+    "year": null
+   }
+  },
+  {
+   "person": "Ben Minto",
+   "kind": "insight",
+   "text": "Wind alone didn't make Hoth feel right, so the team layered in howling wapiti elk, a door creaking in a storm and the interior of a cave behind a frozen waterfall.",
+   "categories": [
+    "worlds",
+    "creatures",
+    "scifi"
+   ],
+   "source": {
+    "title": "DICE Discusses Ambient Sounds In Upcoming Star Wars Battlefront",
+    "publication": "Game Informer",
+    "url": "https://gameinformer.com/games/star_wars_battlefront/b/xboxone/archive/2015/07/23/dice-discusses-ambient-sounds-in-upcoming-star-wars-battlefront",
+    "year": 2015
+   }
+  },
+  {
+   "person": "Ben Minto",
+   "kind": "quote",
+   "text": "Do we always want real world behavior? Does real always sound right?",
+   "categories": [
+    "craft",
+    "story"
+   ],
+   "source": {
+    "title": "The Future Of Game Audio – with Ben Minto",
+    "publication": "A Sound Effect",
+    "url": "https://www.asoundeffect.com/game-audio-future-ben-minto/",
+    "year": 2017
+   }
+  },
+  {
+   "person": "Ben Minto",
+   "kind": "insight",
+   "text": "DICE moved to object-based audio early, before most of the industry, specifically so the team would already be fluent in the format when it became standard.",
+   "categories": [
+    "games",
+    "mixing"
+   ],
+   "source": {
+    "title": "The Future Of Game Audio – with Ben Minto",
+    "publication": "A Sound Effect",
+    "url": "https://www.asoundeffect.com/game-audio-future-ben-minto/",
+    "year": 2017
+   }
+  },
+  {
+   "person": "Martin Stig Andersen",
+   "kind": "quote",
+   "text": "I could use the same sounds for a metal box or a wooden box.",
+   "categories": [
+    "craft",
+    "foley"
+   ],
+   "source": {
+    "title": "Heard About: Limbo",
+    "publication": "MCV/Develop",
+    "url": "https://mcvuk.com/development-news/heard-about-limbo/",
+    "year": 2011
+   }
+  },
+  {
+   "person": "Martin Stig Andersen",
+   "kind": "insight",
+   "text": "Andersen first tried putting Limbo entirely in mono to evoke old film, but found it unengaging and not immersive; instead he distorted sounds and then re-widened them into an almost anti-phase spatial spread.",
+   "categories": [
+    "mixing",
+    "craft",
+    "worlds"
+   ],
+   "source": {
+    "title": "Heard About: Limbo",
+    "publication": "MCV/Develop",
+    "url": "https://mcvuk.com/development-news/heard-about-limbo/",
+    "year": 2011
+   }
+  },
+  {
+   "person": "Martin Stig Andersen",
+   "kind": "insight",
+   "text": "Running everything in Limbo through an old tape machine glued the sounds into one family in the mix, and a spring reverb with its wet level at zero acted as a hardware filter, thinning sounds into something more generic.",
+   "categories": [
+    "craft",
+    "mixing"
+   ],
+   "source": {
+    "title": "Heard About: Limbo",
+    "publication": "MCV/Develop",
+    "url": "https://mcvuk.com/development-news/heard-about-limbo/",
+    "year": 2011
+   }
+  },
+  {
+   "person": "Martin Stig Andersen",
+   "kind": "insight",
+   "text": "Limbo's soundscape is structured as a journey: it starts as fairly naturalistic forest and grows steadily more abstract, almost transcendent, as the game progresses.",
+   "categories": [
+    "worlds",
+    "story",
+    "games"
+   ],
+   "source": {
+    "title": "Heard About: Limbo",
+    "publication": "MCV/Develop",
+    "url": "https://mcvuk.com/development-news/heard-about-limbo/",
+    "year": 2011
+   }
+  },
+  {
+   "person": "Martin Stig Andersen",
+   "kind": "quote",
+   "text": "it's more about what the listener imagines, rather than what I want to tell them.",
+   "categories": [
+    "story",
+    "horror"
+   ],
+   "source": {
+    "title": "Creating Audio That Matters",
+    "publication": "Game Developer (Gamasutra)",
+    "url": "https://www.gamedeveloper.com/audio/creating-audio-that-matters",
+    "year": 2012
+   }
+  },
+  {
+   "person": "Martin Stig Andersen",
+   "kind": "quote",
+   "text": "We had loud footsteps to tell the audience that the environment is really silent.",
+   "categories": [
+    "silence",
+    "foley"
+   ],
+   "source": {
+    "title": "Creating Audio That Matters",
+    "publication": "Game Developer (Gamasutra)",
+    "url": "https://www.gamedeveloper.com/audio/creating-audio-that-matters",
+    "year": 2012
+   }
+  },
+  {
+   "person": "Martin Stig Andersen",
+   "kind": "insight",
+   "text": "Andersen's rule for Limbo: the more recognisable a sound was, the more he distorted it. Voices or animals carried such strong associations they would wreck the atmosphere, so they stayed out.",
+   "categories": [
+    "horror",
+    "worlds",
+    "craft"
+   ],
+   "source": {
+    "title": "Creating Audio That Matters",
+    "publication": "Game Developer (Gamasutra)",
+    "url": "https://www.gamedeveloper.com/audio/creating-audio-that-matters",
+    "year": 2012
+   }
+  },
+  {
+   "person": "Martin Stig Andersen",
+   "kind": "quote",
+   "text": "there's no music to take them by the hand and tell them how to feel.",
+   "categories": [
+    "music",
+    "horror",
+    "silence"
+   ],
+   "source": {
+    "title": "Limbo sound design: Ambiguity is the key to atmosphere",
+    "publication": "Game Developer (Gamasutra)",
+    "url": "https://gamedeveloper.com/audio/-i-limbo-i-sound-design-ambiguity-is-the-key-to-atmosphere",
+    "year": 2012
+   }
+  },
+  {
+   "person": "Martin Stig Andersen",
+   "kind": "quote",
+   "text": "I'm much more interested in the articulation of space as a means for artistic expression",
+   "categories": [
+    "worlds",
+    "music"
+   ],
+   "source": {
+    "title": "Creating Sound 3x5: Interview with Martin Stig Andersen",
+    "publication": "Game Developer (Gamasutra)",
+    "url": "https://gamedeveloper.com/audio/creating-sound-3x5-interview-with-martin-stig-andersen",
+    "year": 2012
+   }
+  },
+  {
+   "person": "Martin Stig Andersen",
+   "kind": "quote",
+   "text": "purely non-diegetic music tends to take me out of the experience.",
+   "categories": [
+    "music",
+    "games"
+   ],
+   "source": {
+    "title": "Creating Sound 3x5: Interview with Martin Stig Andersen",
+    "publication": "Game Developer (Gamasutra)",
+    "url": "https://gamedeveloper.com/audio/creating-sound-3x5-interview-with-martin-stig-andersen",
+    "year": 2012
+   }
+  },
+  {
+   "person": "Martin Stig Andersen",
+   "kind": "insight",
+   "text": "For Inside, Andersen played mostly synthesized material through a human skull fitted with transducers and recorded it with contact mics. The result sounded bad at first, but restoring that damaged audio gave it a unique creepy, cold signature.",
+   "categories": [
+    "horror",
+    "craft",
+    "recording"
+   ],
+   "source": {
+    "title": "Audio Design Deep Dive: Using a human skull to create the sounds of Inside",
+    "publication": "Game Developer (Gamasutra)",
+    "url": "https://gamedeveloper.com/audio/audio-design-deep-dive-using-a-human-skull-to-create-the-sounds-of-i-inside-i-",
+    "year": 2016
+   }
+  },
+  {
+   "person": "Martin Stig Andersen",
+   "kind": "quote",
+   "text": "taking such a detour is often necessary in order to obtain something unique",
+   "categories": [
+    "craft"
+   ],
+   "source": {
+    "title": "Audio Design Deep Dive: Using a human skull to create the sounds of Inside",
+    "publication": "Game Developer (Gamasutra)",
+    "url": "https://gamedeveloper.com/audio/audio-design-deep-dive-using-a-human-skull-to-create-the-sounds-of-i-inside-i-",
+    "year": 2016
+   }
+  },
+  {
+   "person": "Martin Stig Andersen",
+   "kind": "quote",
+   "text": "Only in 1 out of 10 experiments does something interesting happen,",
+   "categories": [
+    "craft"
+   ],
+   "source": {
+    "title": "The mad science behind Inside's soundtrack",
+    "publication": "Kill Screen",
+    "url": "https://killscreen.com/previously/articles/mad-science-behind-insides-soundtrack/",
+    "year": 2016
+   }
+  },
+  {
+   "person": "Martin Stig Andersen",
+   "kind": "insight",
+   "text": "Inside's team put a wired contact mic into a professional sword swallower's stomach, recording internal body ambience and projecting sounds into it; a captured heartbeat became the metronome for the lineup puzzle.",
+   "categories": [
+    "recording",
+    "horror",
+    "games"
+   ],
+   "source": {
+    "title": "The mad science behind Inside's soundtrack",
+    "publication": "Kill Screen",
+    "url": "https://killscreen.com/previously/articles/mad-science-behind-insides-soundtrack/",
+    "year": 2016
+   }
+  },
+  {
+   "person": "Martin Stig Andersen",
+   "kind": "insight",
+   "text": "Following John Carpenter, Andersen leaves long stretches of Inside without music, then drops in distinct cues at chosen moments, and treats even footsteps as musical material.",
+   "categories": [
+    "music",
+    "silence",
+    "horror"
+   ],
+   "source": {
+    "title": "The mad science behind Inside's soundtrack",
+    "publication": "Kill Screen",
+    "url": "https://killscreen.com/previously/articles/mad-science-behind-insides-soundtrack/",
+    "year": 2016
+   }
+  },
+  {
+   "person": "Martin Stig Andersen",
+   "kind": "insight",
+   "text": "Andersen often imprints the spectral shape of traditional instruments onto non-instrumental sounds using convolution or match-EQ, letting the computer help orchestrate a soundscape.",
+   "categories": [
+    "music",
+    "craft"
+   ],
+   "source": {
+    "title": "Control & LIMBO composer Martin Stig Andersen finds beauty inside the darkness",
+    "publication": "Laced With Wax (Laced Records)",
+    "url": "https://www.lacedrecords.co/blogs/blog/interview-control-inside-composer-martin-stig-andersen",
+    "year": 2020
+   }
+  },
+  {
+   "person": "Martin Stig Andersen",
+   "kind": "insight",
+   "text": "For Control's supernatural Hiss, he rubbed a friction mallet against the enclosure of an EMT plate reverb, grounding something otherworldly in a real physical source.",
+   "categories": [
+    "scifi",
+    "horror",
+    "recording"
+   ],
+   "source": {
+    "title": "Control & LIMBO composer Martin Stig Andersen finds beauty inside the darkness",
+    "publication": "Laced With Wax (Laced Records)",
+    "url": "https://www.lacedrecords.co/blogs/blog/interview-control-inside-composer-martin-stig-andersen",
+    "year": 2020
+   }
+  },
+  {
+   "person": "Martin Stig Andersen",
+   "kind": "insight",
+   "text": "Inside's environmental reverb came from sampling a flagship 1980s Roland R-880 hardware reverb and running it as convolution, and Andersen conveys space more through apparent source size than reverb.",
+   "categories": [
+    "worlds",
+    "craft"
+   ],
+   "source": {
+    "title": "Control & LIMBO composer Martin Stig Andersen finds beauty inside the darkness",
+    "publication": "Laced With Wax (Laced Records)",
+    "url": "https://www.lacedrecords.co/blogs/blog/interview-control-inside-composer-martin-stig-andersen",
+    "year": 2020
+   }
+  },
+  {
+   "person": "Martin Stig Andersen",
+   "kind": "quote",
+   "text": "To me, interactive music isn’t linear music being post-edited and squeezed into the nonlinear domain.",
+   "categories": [
+    "music",
+    "games"
+   ],
+   "source": {
+    "title": "Control & LIMBO composer Martin Stig Andersen finds beauty inside the darkness",
+    "publication": "Laced With Wax (Laced Records)",
+    "url": "https://www.lacedrecords.co/blogs/blog/interview-control-inside-composer-martin-stig-andersen",
+    "year": 2020
+   }
+  },
+  {
+   "person": "Rob Bridgett",
+   "kind": "quote",
+   "text": "Sound design and mixing is really close to cinematography – like focusing on a lens.",
+   "categories": [
+    "mixing",
+    "story"
+   ],
+   "source": {
+    "title": "Spectrum Analysis: Interview with Rob Bridgett",
+    "publication": "Designing Sound",
+    "url": "https://designingsound.org/2012/11/27/spectrum-analysis-interview-with-rob-bridgett/",
+    "year": 2012
+   }
+  },
+  {
+   "person": "Rob Bridgett",
+   "kind": "quote",
+   "text": "Usually it doesn't mean louder, it means 'more impactful'",
+   "categories": [
+    "collaboration",
+    "mixing"
+   ],
+   "source": {
+    "title": "Spectrum Analysis: Interview with Rob Bridgett",
+    "publication": "Designing Sound",
+    "url": "https://designingsound.org/2012/11/27/spectrum-analysis-interview-with-rob-bridgett/",
+    "year": 2012
+   }
+  },
+  {
+   "person": "Rob Bridgett",
+   "kind": "insight",
+   "text": "Bridgett treats mix snapshots like camera lenses: a handheld-camera view, for example, can switch in its own chain of distortion, compression and high-pass filtering that exists only while that view is active.",
+   "categories": [
+    "mixing",
+    "games",
+    "craft"
+   ],
+   "source": {
+    "title": "Spectrum Analysis: Interview with Rob Bridgett",
+    "publication": "Designing Sound",
+    "url": "https://designingsound.org/2012/11/27/spectrum-analysis-interview-with-rob-bridgett/",
+    "year": 2012
+   }
+  },
+  {
+   "person": "Rob Bridgett",
+   "kind": "insight",
+   "text": "A subtle gameplay cue: when the player ducks into cover, gently low-pass some of the gunfire, then lift the filter the moment they break cover.",
+   "categories": [
+    "mixing",
+    "weapons",
+    "games"
+   ],
+   "source": {
+    "title": "Spectrum Analysis: Interview with Rob Bridgett",
+    "publication": "Designing Sound",
+    "url": "https://designingsound.org/2012/11/27/spectrum-analysis-interview-with-rob-bridgett/",
+    "year": 2012
+   }
+  },
+  {
+   "person": "Rob Bridgett",
+   "kind": "insight",
+   "text": "Automatic priority and attenuation keep a busy game from becoming a cacophony, but you also need a manual override so a story-critical sound, like a single twig snapping, can beat the system.",
+   "categories": [
+    "mixing",
+    "games",
+    "story"
+   ],
+   "source": {
+    "title": "Spectrum Analysis: Interview with Rob Bridgett",
+    "publication": "Designing Sound",
+    "url": "https://designingsound.org/2012/11/27/spectrum-analysis-interview-with-rob-bridgett/",
+    "year": 2012
+   }
+  },
+  {
+   "person": "Rob Bridgett",
+   "kind": "insight",
+   "text": "When talking to narrative designers, Bridgett suggests not talking about sound at all: discuss what the character is feeling, then design audio that amplifies that emotion.",
+   "categories": [
+    "collaboration",
+    "story"
+   ],
+   "source": {
+    "title": "Spectrum Analysis: Interview with Rob Bridgett",
+    "publication": "Designing Sound",
+    "url": "https://designingsound.org/2012/11/27/spectrum-analysis-interview-with-rob-bridgett/",
+    "year": 2012
+   }
+  },
+  {
+   "person": "Rob Bridgett",
+   "kind": "insight",
+   "text": "Try outdoor Foley: record footsteps outside during quiet hours with a variety of footwear, and back the mic off to capture natural reflections rather than a dead studio sound.",
+   "categories": [
+    "foley",
+    "recording"
+   ],
+   "source": {
+    "title": "Spectrum Analysis: Interview with Rob Bridgett",
+    "publication": "Designing Sound",
+    "url": "https://designingsound.org/2012/11/27/spectrum-analysis-interview-with-rob-bridgett/",
+    "year": 2012
+   }
+  },
+  {
+   "person": "Rob Bridgett",
+   "kind": "quote",
+   "text": "the loudest sound isn't necessarily always the most important.",
+   "categories": [
+    "mixing",
+    "story"
+   ],
+   "source": {
+    "title": "The Future Of Game Audio – Is Interactive Mixing The Key?",
+    "publication": "Game Developer (Gamasutra)",
+    "url": "https://www.gamedeveloper.com/audio/the-future-of-game-audio---is-interactive-mixing-the-key-",
+    "year": 2009
+   }
+  },
+  {
+   "person": "Rob Bridgett",
+   "kind": "insight",
+   "text": "Layer snapshots hierarchically: a default snapshot sets base group levels, ducking snapshots multiply on top, and event overrides take over for scripted moments. Cap each bus's maximum attenuation so stacked ducks can't bury it.",
+   "categories": [
+    "mixing",
+    "games",
+    "craft"
+   ],
+   "source": {
+    "title": "The Future Of Game Audio – Is Interactive Mixing The Key?",
+    "publication": "Game Developer (Gamasutra)",
+    "url": "https://www.gamedeveloper.com/audio/the-future-of-game-audio---is-interactive-mixing-the-key-",
+    "year": 2009
+   }
+  },
+  {
+   "person": "Rob Bridgett",
+   "kind": "insight",
+   "text": "Snapshots needn't only move faders: Bridgett points out they can shift pitch, LFE send, 3D fall-off, speaker assignment or even listener position, and that the graceful transitions between them are the real mix.",
+   "categories": [
+    "mixing",
+    "games"
+   ],
+   "source": {
+    "title": "The Future Of Game Audio – Is Interactive Mixing The Key?",
+    "publication": "Game Developer (Gamasutra)",
+    "url": "https://www.gamedeveloper.com/audio/the-future-of-game-audio---is-interactive-mixing-the-key-",
+    "year": 2009
+   }
+  },
+  {
+   "person": "Rob Bridgett",
+   "kind": "quote",
+   "text": "Ultimately, the mix of a game should be invisible to the consumer.",
+   "categories": [
+    "mixing",
+    "games"
+   ],
+   "source": {
+    "title": "The Game Audio Mixing Revolution",
+    "publication": "Game Developer (Gamasutra)",
+    "url": "https://gamedeveloper.com/audio/the-game-audio-mixing-revolution",
+    "year": 2009
+   }
+  },
+  {
+   "person": "Rob Bridgett",
+   "kind": "insight",
+   "text": "For Scarface, Bridgett and programmer Rob Sparks took the game to Skywalker Ranch and mixed it live on a control surface: around 150 snapshots, every cinematic with its own, plus global dialogue and interior-ambience ducks.",
+   "categories": [
+    "mixing",
+    "games",
+    "collaboration"
+   ],
+   "source": {
+    "title": "The Game Audio Mixing Revolution",
+    "publication": "Game Developer (Gamasutra)",
+    "url": "https://gamedeveloper.com/audio/the-game-audio-mixing-revolution",
+    "year": 2009
+   }
+  },
+  {
+   "person": "Rob Bridgett",
+   "kind": "quote",
+   "text": "The music in the stereo field just felt too safe",
+   "categories": [
+    "music",
+    "mixing"
+   ],
+   "source": {
+    "title": "Building an immersive soundscape in Shadow of the Tomb Raider – full Q&A",
+    "publication": "Game Developer (Gamasutra)",
+    "url": "https://gamedeveloper.com/audio/building-an-immersive-soundscape-in-shadow-of-the-tomb-raider---full-q-a",
+    "year": 2018
+   }
+  },
+  {
+   "person": "Rob Bridgett",
+   "kind": "insight",
+   "text": "In Shadow of the Tomb Raider, unseen creatures were placed off-screen in the middle distance rather than far away, because mid-distance makes players more uncomfortable; not knowing if a sound is real or imagined was the team's definition of fear.",
+   "categories": [
+    "horror",
+    "worlds",
+    "games"
+   ],
+   "source": {
+    "title": "Building an immersive soundscape in Shadow of the Tomb Raider – full Q&A",
+    "publication": "Game Developer (Gamasutra)",
+    "url": "https://gamedeveloper.com/audio/building-an-immersive-soundscape-in-shadow-of-the-tomb-raider---full-q-a",
+    "year": 2018
+   }
+  },
+  {
+   "person": "Rob Bridgett",
+   "kind": "insight",
+   "text": "The game's jungle ambience was authored as 3D objects by level editors and mixed in 7.1.4, essentially a VR approach to sound applied at vast scale to a non-VR game.",
+   "categories": [
+    "worlds",
+    "mixing",
+    "games"
+   ],
+   "source": {
+    "title": "Building an immersive soundscape in Shadow of the Tomb Raider – full Q&A",
+    "publication": "Game Developer (Gamasutra)",
+    "url": "https://gamedeveloper.com/audio/building-an-immersive-soundscape-in-shadow-of-the-tomb-raider---full-q-a",
+    "year": 2018
+   }
+  }
+ ]
+}

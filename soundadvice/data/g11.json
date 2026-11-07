@@ -1,0 +1,847 @@
+{
+ "people": [
+  {
+   "name": "Charles Deenen",
+   "role": "Sound designer / supervisor, Source Sound (trailers, games)",
+   "credits": "Need for Speed series; Fallout; Star Wars Battlefront trailers",
+   "imdb": "https://www.imdb.com/name/nm0007226/"
+  },
+  {
+   "name": "Csaba Wagner",
+   "role": "Supervising sound designer (trailers, cinematics), Sweet Justice Sound",
+   "credits": "Halo Infinite (cinematics); Returnal (cinematics); Star Wars Battlefront trailers",
+   "imdb": "https://www.imdb.com/name/nm2381210/"
+  },
+  {
+   "name": "Thomas Brewer",
+   "role": "Re-recording mixer, co-founder of Source Sound (trailers and marketing)",
+   "credits": "Blade (1998); 300 (2006); Star Wars: Squadrons (2020)",
+   "imdb": "https://www.imdb.com/name/nm1108221/"
+  },
+  {
+   "name": "Paul Menichini",
+   "role": "Supervising sound designer, Blizzard Entertainment cinematics",
+   "credits": "Overwatch cinematic trailers; World of Warcraft: Shadowlands Afterlives; Bee and PuppyCat",
+   "imdb": "https://www.imdb.com/name/nm0579623/"
+  },
+  {
+   "name": "Jacob Yoffee",
+   "role": "Composer (trailer music, film and TV)",
+   "credits": "Pawn; Andi Mack; trailer music for Star Wars: The Last Jedi",
+   "imdb": "https://www.imdb.com/name/nm3642781/"
+  },
+  {
+   "name": "Sreejesh Nair",
+   "role": "Re-recording mixer (feature films and trailers)",
+   "credits": "Gangs of Wasseypur; Jawan (2023); Udta Punjab",
+   "imdb": "https://www.imdb.com/name/nm2435939/"
+  },
+  {
+   "name": "Bobby Gumm",
+   "role": "Trailer music supervisor (VP of Music, Trailer Park)",
+   "credits": "Interstellar (trailer music supervisor); Damsel (2024, trailer); Suicide Squad and Mad Max: Fury Road trailers",
+   "imdb": "https://www.imdb.com/name/nm5825698/"
+  },
+  {
+   "name": "Holly Williamson",
+   "role": "Trailer music supervisor (Mojo, Mob Scene, Ignition Creative)",
+   "credits": "Watchmen trailer; Harry Potter and the Deathly Hallows: Part 2 campaign; The Curious Case of Benjamin Button campaign",
+   "imdb": "https://www.imdb.com/name/nm0932043/"
+  }
+ ],
+ "entries": [
+  {
+   "person": "Charles Deenen",
+   "kind": "insight",
+   "text": "On the Star Wars Battlefront trailers, Deenen often took the original sound material as a source, split its tonal content from its noise layers, kept the tonal layers and replaced the noise with higher-fidelity versions.",
+   "categories": [
+    "trailers",
+    "scifi",
+    "games"
+   ],
+   "source": {
+    "title": "Behind the excellent Star Wars Battlefront trailer sound design",
+    "publication": "A Sound Effect",
+    "url": "https://www.asoundeffect.com/star-wars-battlefront-trailer-sound/",
+    "year": 2015
+   }
+  },
+  {
+   "person": "Charles Deenen",
+   "kind": "quote",
+   "text": "We always tried to stay faithful, but enhanced it enough so that it punched more",
+   "categories": [
+    "trailers",
+    "scifi",
+    "games"
+   ],
+   "source": {
+    "title": "Behind the excellent Star Wars Battlefront trailer sound design",
+    "publication": "A Sound Effect",
+    "url": "https://www.asoundeffect.com/star-wars-battlefront-trailer-sound/",
+    "year": 2015
+   }
+  },
+  {
+   "person": "Charles Deenen",
+   "kind": "insight",
+   "text": "Rather than only reusing finished composite sounds, Deenen's team recreated the elements that made them up. Having the parts let them build new movements and new points of view, aided by flangers, phasers and detuned speed playback.",
+   "categories": [
+    "trailers",
+    "scifi",
+    "craft"
+   ],
+   "source": {
+    "title": "Behind the excellent Star Wars Battlefront trailer sound design",
+    "publication": "A Sound Effect",
+    "url": "https://www.asoundeffect.com/star-wars-battlefront-trailer-sound/",
+    "year": 2015
+   }
+  },
+  {
+   "person": "Charles Deenen",
+   "kind": "insight",
+   "text": "The music for the Star Wars Battlefront trailers was a blend: classic John Williams themes, Gordy Haab's game score, and additional trailer music added on top.",
+   "categories": [
+    "trailers",
+    "music",
+    "games"
+   ],
+   "source": {
+    "title": "Behind the excellent Star Wars Battlefront trailer sound design",
+    "publication": "A Sound Effect",
+    "url": "https://www.asoundeffect.com/star-wars-battlefront-trailer-sound/",
+    "year": 2015
+   }
+  },
+  {
+   "person": "Csaba Wagner",
+   "kind": "insight",
+   "text": "For the biggest moments of the Battlefront trailer, Wagner carved the sound back so only the elements crucial to telling the story were heard, keeping the edit clear and tactile.",
+   "categories": [
+    "trailers",
+    "story",
+    "mixing"
+   ],
+   "source": {
+    "title": "Behind the excellent Star Wars Battlefront trailer sound design",
+    "publication": "A Sound Effect",
+    "url": "https://www.asoundeffect.com/star-wars-battlefront-trailer-sound/",
+    "year": 2015
+   }
+  },
+  {
+   "person": "Csaba Wagner",
+   "kind": "insight",
+   "text": "Wagner's goal on the Battlefront trailer was to keep familiar Star Wars sounds recognizable while making them bigger, punchier and heavier.",
+   "categories": [
+    "trailers",
+    "scifi",
+    "craft"
+   ],
+   "source": {
+    "title": "Behind the excellent Star Wars Battlefront trailer sound design",
+    "publication": "A Sound Effect",
+    "url": "https://www.asoundeffect.com/star-wars-battlefront-trailer-sound/",
+    "year": 2015
+   }
+  },
+  {
+   "person": "Csaba Wagner",
+   "kind": "insight",
+   "text": "For the AT-AT falling in the Battlefront trailer, Wagner slowed down a metal creak recording that had someone talking in the background, so the walker's fall sounds like it is moaning in pain.",
+   "categories": [
+    "trailers",
+    "creatures",
+    "scifi"
+   ],
+   "source": {
+    "title": "Behind the excellent Star Wars Battlefront trailer sound design",
+    "publication": "A Sound Effect",
+    "url": "https://www.asoundeffect.com/star-wars-battlefront-trailer-sound/",
+    "year": 2015
+   }
+  },
+  {
+   "person": "Csaba Wagner",
+   "kind": "insight",
+   "text": "The tonal parts of the AT-AT foot creaks in the Battlefront trailer came from a recording Wagner had made of an old oven in his previous apartment.",
+   "categories": [
+    "trailers",
+    "recording",
+    "scifi"
+   ],
+   "source": {
+    "title": "Behind the excellent Star Wars Battlefront trailer sound design",
+    "publication": "A Sound Effect",
+    "url": "https://www.asoundeffect.com/star-wars-battlefront-trailer-sound/",
+    "year": 2015
+   }
+  },
+  {
+   "person": "Csaba Wagner",
+   "kind": "quote",
+   "text": "To me the sound of the lightsaber is like music.",
+   "categories": [
+    "trailers",
+    "scifi",
+    "music"
+   ],
+   "source": {
+    "title": "Behind the excellent Star Wars Battlefront trailer sound design",
+    "publication": "A Sound Effect",
+    "url": "https://www.asoundeffect.com/star-wars-battlefront-trailer-sound/",
+    "year": 2015
+   }
+  },
+  {
+   "person": "Thomas Brewer",
+   "kind": "insight",
+   "text": "Brewer first worked the Battlefront trailer's effects against temp music to lock the timing, before the final Williams and Haab score was edited in. Because the sound design was often musical and tonal, the hard part became the handoff between it and the music.",
+   "categories": [
+    "trailers",
+    "mixing",
+    "music"
+   ],
+   "source": {
+    "title": "Behind the excellent Star Wars Battlefront trailer sound design",
+    "publication": "A Sound Effect",
+    "url": "https://www.asoundeffect.com/star-wars-battlefront-trailer-sound/",
+    "year": 2015
+   }
+  },
+  {
+   "person": "Thomas Brewer",
+   "kind": "insight",
+   "text": "When adapting in-game sounds for the Battlefront trailer, Brewer and Deenen auditioned the different versions Wagner cut in directly in the mix, choosing whichever gave the best clarity and punch.",
+   "categories": [
+    "trailers",
+    "mixing",
+    "games"
+   ],
+   "source": {
+    "title": "Behind the excellent Star Wars Battlefront trailer sound design",
+    "publication": "A Sound Effect",
+    "url": "https://www.asoundeffect.com/star-wars-battlefront-trailer-sound/",
+    "year": 2015
+   }
+  },
+  {
+   "person": "Thomas Brewer",
+   "kind": "insight",
+   "text": "The Battlefront trailer session was built as a 5.1 mix, but the first delivery was stereo, so Brewer had to make the AT-AT stomps sound big without a subwoofer. Later, in the Atmos version, they shook the room.",
+   "categories": [
+    "trailers",
+    "mixing",
+    "scifi"
+   ],
+   "source": {
+    "title": "Behind the excellent Star Wars Battlefront trailer sound design",
+    "publication": "A Sound Effect",
+    "url": "https://www.asoundeffect.com/star-wars-battlefront-trailer-sound/",
+    "year": 2015
+   }
+  },
+  {
+   "person": "Paul Menichini",
+   "kind": "insight",
+   "text": "For the guns in Blizzard's Overwatch cinematic trailer, Menichini's team started from the in-game weapon sounds, then heavily sweetened them or replaced them outright.",
+   "categories": [
+    "trailers",
+    "weapons",
+    "games"
+   ],
+   "source": {
+    "title": "Behind the cinematic sound of Blizzard's spectacular Overwatch trailer",
+    "publication": "A Sound Effect",
+    "url": "https://www.asoundeffect.com/overwatch-trailer-sound/",
+    "year": 2014
+   }
+  },
+  {
+   "person": "Paul Menichini",
+   "kind": "quote",
+   "text": "The only custom recording we did was on the foley stage.",
+   "categories": [
+    "trailers",
+    "foley",
+    "recording"
+   ],
+   "source": {
+    "title": "Behind the cinematic sound of Blizzard's spectacular Overwatch trailer",
+    "publication": "A Sound Effect",
+    "url": "https://www.asoundeffect.com/overwatch-trailer-sound/",
+    "year": 2014
+   }
+  },
+  {
+   "person": "Paul Menichini",
+   "kind": "insight",
+   "text": "The Overwatch trailer foley got close attention to detail: suit movement, sneaker squeaks and leather stretch, plus wild tracks such as bullet debris and armor recorded on the foley stage.",
+   "categories": [
+    "trailers",
+    "foley",
+    "craft"
+   ],
+   "source": {
+    "title": "Behind the cinematic sound of Blizzard's spectacular Overwatch trailer",
+    "publication": "A Sound Effect",
+    "url": "https://www.asoundeffect.com/overwatch-trailer-sound/",
+    "year": 2014
+   }
+  },
+  {
+   "person": "Paul Menichini",
+   "kind": "insight",
+   "text": "The Overwatch trailer was mixed in Atmos around the camera's point of view, so a sniper firing from off-screen could be heard behind and above the audience rather than just in the surrounds.",
+   "categories": [
+    "trailers",
+    "mixing",
+    "games"
+   ],
+   "source": {
+    "title": "Behind the cinematic sound of Blizzard's spectacular Overwatch trailer",
+    "publication": "A Sound Effect",
+    "url": "https://www.asoundeffect.com/overwatch-trailer-sound/",
+    "year": 2014
+   }
+  },
+  {
+   "person": "Paul Menichini",
+   "kind": "insight",
+   "text": "For Reaper's Death Blossom attack in the Overwatch trailer, Menichini aimed for the speed of a machine gun combined with the irregular rhythm of manual gunfire.",
+   "categories": [
+    "trailers",
+    "weapons",
+    "games"
+   ],
+   "source": {
+    "title": "Behind the cinematic sound of Blizzard's spectacular Overwatch trailer",
+    "publication": "A Sound Effect",
+    "url": "https://www.asoundeffect.com/overwatch-trailer-sound/",
+    "year": 2014
+   }
+  },
+  {
+   "person": "Paul Menichini",
+   "kind": "insight",
+   "text": "One element of Reaper's bullet-bys in the Overwatch trailer was a series of processed pig dopplers that came from Charles Deenen.",
+   "categories": [
+    "trailers",
+    "weapons",
+    "creatures"
+   ],
+   "source": {
+    "title": "Behind the cinematic sound of Blizzard's spectacular Overwatch trailer",
+    "publication": "A Sound Effect",
+    "url": "https://www.asoundeffect.com/overwatch-trailer-sound/",
+    "year": 2014
+   }
+  },
+  {
+   "person": "Paul Menichini",
+   "kind": "insight",
+   "text": "Making the bullet impacts on Winston's armor sound convincing in the Overwatch trailer took Menichini's team a bit of trial and error, along with processing.",
+   "categories": [
+    "trailers",
+    "weapons",
+    "craft"
+   ],
+   "source": {
+    "title": "Behind the cinematic sound of Blizzard's spectacular Overwatch trailer",
+    "publication": "A Sound Effect",
+    "url": "https://www.asoundeffect.com/overwatch-trailer-sound/",
+    "year": 2014
+   }
+  },
+  {
+   "person": "Jacob Yoffee",
+   "kind": "quote",
+   "text": "Setting out to write a badass trailer track has never worked for me",
+   "categories": [
+    "trailers",
+    "music",
+    "craft"
+   ],
+   "source": {
+    "title": "Jacob Yoffee on Composing Blockbuster Trailer Music",
+    "publication": "Epicomposer",
+    "url": "https://epicomposer.com/jacob-yoffee-composing-trailer-music/",
+    "year": 2017
+   }
+  },
+  {
+   "person": "Jacob Yoffee",
+   "kind": "insight",
+   "text": "Yoffee starts trailer cues from a small, delicate musical idea rather than trying to write something bombastic outright, finding a generic big track harder to make musical later.",
+   "categories": [
+    "trailers",
+    "music",
+    "craft"
+   ],
+   "source": {
+    "title": "Jacob Yoffee on Composing Blockbuster Trailer Music",
+    "publication": "Epicomposer",
+    "url": "https://epicomposer.com/jacob-yoffee-composing-trailer-music/",
+    "year": 2017
+   }
+  },
+  {
+   "person": "Jacob Yoffee",
+   "kind": "insight",
+   "text": "Yoffee keeps three priorities for trailer music: simplicity, repetition and strength. Phrases must be clear with sensible repetition and build, and the mix needs strength.",
+   "categories": [
+    "trailers",
+    "music",
+    "mixing"
+   ],
+   "source": {
+    "title": "Jacob Yoffee on Composing Blockbuster Trailer Music",
+    "publication": "Epicomposer",
+    "url": "https://epicomposer.com/jacob-yoffee-composing-trailer-music/",
+    "year": 2017
+   }
+  },
+  {
+   "person": "Jacob Yoffee",
+   "kind": "insight",
+   "text": "Trailer music has to be easy to cut, because a picture editor must work with the material. On Star Wars campaigns, Yoffee worked with picture editors and music supervisors to generate as many ideas as possible.",
+   "categories": [
+    "trailers",
+    "music",
+    "collaboration"
+   ],
+   "source": {
+    "title": "Jacob Yoffee on Composing Blockbuster Trailer Music",
+    "publication": "Epicomposer",
+    "url": "https://epicomposer.com/jacob-yoffee-composing-trailer-music/",
+    "year": 2017
+   }
+  },
+  {
+   "person": "Jacob Yoffee",
+   "kind": "insight",
+   "text": "Yoffee says bottom end is crucial in trailer music, but the orchestration still needs real color and energy. Because trailers usually rely on samples rather than live orchestras, the samples have to sing.",
+   "categories": [
+    "trailers",
+    "music",
+    "mixing"
+   ],
+   "source": {
+    "title": "Jacob Yoffee on Composing Blockbuster Trailer Music",
+    "publication": "Epicomposer",
+    "url": "https://epicomposer.com/jacob-yoffee-composing-trailer-music/",
+    "year": 2017
+   }
+  },
+  {
+   "person": "Jacob Yoffee",
+   "kind": "quote",
+   "text": "It forces you to write and produce at the maximum level of your capabilities",
+   "categories": [
+    "trailers",
+    "music",
+    "craft"
+   ],
+   "source": {
+    "title": "Jacob Yoffee on Composing Blockbuster Trailer Music",
+    "publication": "Epicomposer",
+    "url": "https://epicomposer.com/jacob-yoffee-composing-trailer-music/",
+    "year": 2017
+   }
+  },
+  {
+   "person": "Sreejesh Nair",
+   "kind": "quote",
+   "text": "Every good trailer has a rhythm to it.",
+   "categories": [
+    "trailers",
+    "music",
+    "craft"
+   ],
+   "source": {
+    "title": "Mixing / Sound Editing a Trailer",
+    "publication": "Film Mixing and Sound Design (film-mixing.com)",
+    "url": "https://film-mixing.com/2015/07/11/mixing-sound-editing-a-trailer/",
+    "year": 2015
+   }
+  },
+  {
+   "person": "Sreejesh Nair",
+   "kind": "insight",
+   "text": "On the trailer for Dharma, Nair built the rain, thunder and reverb tails around the music's tempo, establishing the trailer's rhythm first and then fitting effects to the narrative.",
+   "categories": [
+    "trailers",
+    "music",
+    "story"
+   ],
+   "source": {
+    "title": "Mixing / Sound Editing a Trailer",
+    "publication": "Film Mixing and Sound Design (film-mixing.com)",
+    "url": "https://film-mixing.com/2015/07/11/mixing-sound-editing-a-trailer/",
+    "year": 2015
+   }
+  },
+  {
+   "person": "Sreejesh Nair",
+   "kind": "insight",
+   "text": "Nair advises always working from the reference score for a trailer when possible, and choosing sound effects that sit well with that music.",
+   "categories": [
+    "trailers",
+    "music",
+    "collaboration"
+   ],
+   "source": {
+    "title": "Mixing / Sound Editing a Trailer",
+    "publication": "Film Mixing and Sound Design (film-mixing.com)",
+    "url": "https://film-mixing.com/2015/07/11/mixing-sound-editing-a-trailer/",
+    "year": 2015
+   }
+  },
+  {
+   "person": "Sreejesh Nair",
+   "kind": "insight",
+   "text": "For trailer effects, Nair avoids sounds heavy in the 2k-8k range: the more peaks around there, the faster the LEQ meter rises toward the 85 limit for an approved trailer.",
+   "categories": [
+    "trailers",
+    "mixing"
+   ],
+   "source": {
+    "title": "Mixing / Sound Editing a Trailer",
+    "publication": "Film Mixing and Sound Design (film-mixing.com)",
+    "url": "https://film-mixing.com/2015/07/11/mixing-sound-editing-a-trailer/",
+    "year": 2015
+   }
+  },
+  {
+   "person": "Sreejesh Nair",
+   "kind": "quote",
+   "text": "The Trick with the LEQ is always averaging.",
+   "categories": [
+    "trailers",
+    "mixing"
+   ],
+   "source": {
+    "title": "Mixing / Sound Editing a Trailer",
+    "publication": "Film Mixing and Sound Design (film-mixing.com)",
+    "url": "https://film-mixing.com/2015/07/11/mixing-sound-editing-a-trailer/",
+    "year": 2015
+   }
+  },
+  {
+   "person": "Sreejesh Nair",
+   "kind": "insight",
+   "text": "Because trailer loudness is measured as an average, Nair says that if you need something loud, you need an equal amount of soft material before it.",
+   "categories": [
+    "trailers",
+    "mixing",
+    "silence"
+   ],
+   "source": {
+    "title": "Mixing / Sound Editing a Trailer",
+    "publication": "Film Mixing and Sound Design (film-mixing.com)",
+    "url": "https://film-mixing.com/2015/07/11/mixing-sound-editing-a-trailer/",
+    "year": 2015
+   }
+  },
+  {
+   "person": "Sreejesh Nair",
+   "kind": "insight",
+   "text": "Under trailer dialogue, Nair drops sound elements rather than pulling down the score; he says the audience's mind won't notice and fills the gaps.",
+   "categories": [
+    "trailers",
+    "dialogue",
+    "mixing"
+   ],
+   "source": {
+    "title": "Mixing / Sound Editing a Trailer",
+    "publication": "Film Mixing and Sound Design (film-mixing.com)",
+    "url": "https://film-mixing.com/2015/07/11/mixing-sound-editing-a-trailer/",
+    "year": 2015
+   }
+  },
+  {
+   "person": "Sreejesh Nair",
+   "kind": "insight",
+   "text": "Nair keeps trailer ambience minimal unless a scene is meant to feel real without score, since a trailer has neither the time nor the aural space to establish it. He also avoids layering too many sounds for one aspect.",
+   "categories": [
+    "trailers",
+    "craft",
+    "mixing"
+   ],
+   "source": {
+    "title": "Mixing / Sound Editing a Trailer",
+    "publication": "Film Mixing and Sound Design (film-mixing.com)",
+    "url": "https://film-mixing.com/2015/07/11/mixing-sound-editing-a-trailer/",
+    "year": 2015
+   }
+  },
+  {
+   "person": "Sreejesh Nair",
+   "kind": "insight",
+   "text": "When unsure about an effect while editing a trailer, Nair keeps an alternative option muted underneath for the mix.",
+   "categories": [
+    "trailers",
+    "collaboration",
+    "craft"
+   ],
+   "source": {
+    "title": "Mixing / Sound Editing a Trailer",
+    "publication": "Film Mixing and Sound Design (film-mixing.com)",
+    "url": "https://film-mixing.com/2015/07/11/mixing-sound-editing-a-trailer/",
+    "year": 2015
+   }
+  },
+  {
+   "person": "Sreejesh Nair",
+   "kind": "insight",
+   "text": "For a bigger trailer sound, Nair uses more low-frequency elements, fewer mids and more sounds in the surrounds, while making sure the mix stays balanced and not tilted toward the rear. He relied on multiband compression more than EQ.",
+   "categories": [
+    "trailers",
+    "mixing"
+   ],
+   "source": {
+    "title": "Mixing / Sound Editing a Trailer",
+    "publication": "Film Mixing and Sound Design (film-mixing.com)",
+    "url": "https://film-mixing.com/2015/07/11/mixing-sound-editing-a-trailer/",
+    "year": 2015
+   }
+  },
+  {
+   "person": "Sreejesh Nair",
+   "kind": "insight",
+   "text": "Nair has heard digital trailer versions simply boosted by 3-5 dB, which he calls unnecessary: it drops the dynamic range and increases the LEQ.",
+   "categories": [
+    "trailers",
+    "mixing"
+   ],
+   "source": {
+    "title": "Mixing / Sound Editing a Trailer",
+    "publication": "Film Mixing and Sound Design (film-mixing.com)",
+    "url": "https://film-mixing.com/2015/07/11/mixing-sound-editing-a-trailer/",
+    "year": 2015
+   }
+  },
+  {
+   "person": "Sreejesh Nair",
+   "kind": "insight",
+   "text": "Nair distinguishes the two forms: a teaser exists purely to tease, revealing nothing in detail while creating interest, whereas a trailer adds more exciting scenes and a bit of the movie's context.",
+   "categories": [
+    "trailers",
+    "story"
+   ],
+   "source": {
+    "title": "Mixing / Sound Editing a Trailer",
+    "publication": "Film Mixing and Sound Design (film-mixing.com)",
+    "url": "https://film-mixing.com/2015/07/11/mixing-sound-editing-a-trailer/",
+    "year": 2015
+   }
+  },
+  {
+   "person": "Bobby Gumm",
+   "kind": "quote",
+   "text": "I don't usually do a music search until I've seen some footage.",
+   "categories": [
+    "trailers",
+    "music",
+    "craft"
+   ],
+   "source": {
+    "title": "Bobby Gumm",
+    "publication": "Pop Disciple",
+    "url": "https://www.popdisciple.com/interviews/bobby-gumm",
+    "year": 2016
+   }
+  },
+  {
+   "person": "Bobby Gumm",
+   "kind": "quote",
+   "text": "Ideally, you get two weeks to work on a trailer, but that rarely happens anymore.",
+   "categories": [
+    "trailers",
+    "craft"
+   ],
+   "source": {
+    "title": "Bobby Gumm",
+    "publication": "Pop Disciple",
+    "url": "https://www.popdisciple.com/interviews/bobby-gumm",
+    "year": 2016
+   }
+  },
+  {
+   "person": "Bobby Gumm",
+   "kind": "insight",
+   "text": "For the Suicide Squad trailer, Gumm wanted the Bee Gees' I Started a Joke, but the studio found the original too light. A composer, John Hanson, recorded a darker, haunting cover, sung by Becky Hanson and co-produced by Gumm.",
+   "categories": [
+    "trailers",
+    "music",
+    "collaboration"
+   ],
+   "source": {
+    "title": "Bobby Gumm",
+    "publication": "Pop Disciple",
+    "url": "https://www.popdisciple.com/interviews/bobby-gumm",
+    "year": 2016
+   }
+  },
+  {
+   "person": "Bobby Gumm",
+   "kind": "insight",
+   "text": "Searching for the Mad Max trailer, Gumm hunted through the most insane, weird opera and classical pieces and landed on Verdi's Requiem. Editors resisted the strange direction until one cut it in; once they saw it work, it took off.",
+   "categories": [
+    "trailers",
+    "music",
+    "collaboration"
+   ],
+   "source": {
+    "title": "Bobby Gumm",
+    "publication": "Pop Disciple",
+    "url": "https://www.popdisciple.com/interviews/bobby-gumm",
+    "year": 2016
+   }
+  },
+  {
+   "person": "Holly Williamson",
+   "kind": "insight",
+   "text": "Finding the right song for the Watchmen trailer took Williamson weeks of searching; she likened it to finding a needle in a haystack, and counts the result among her proudest work.",
+   "categories": [
+    "trailers",
+    "music",
+    "craft"
+   ],
+   "source": {
+    "title": "Holly Williamson",
+    "publication": "Pop Disciple",
+    "url": "https://www.popdisciple.com/interviews/holly-williamson",
+    "year": 2017
+   }
+  },
+  {
+   "person": "Holly Williamson",
+   "kind": "insight",
+   "text": "On one trailer campaign, Williamson's team went around in circles for nine months of revisions, and the song finally used was the first one she had pitched.",
+   "categories": [
+    "trailers",
+    "music",
+    "collaboration"
+   ],
+   "source": {
+    "title": "Holly Williamson",
+    "publication": "Pop Disciple",
+    "url": "https://www.popdisciple.com/interviews/holly-williamson",
+    "year": 2017
+   }
+  },
+  {
+   "person": "Holly Williamson",
+   "kind": "insight",
+   "text": "Williamson puts dark horse picks into her music folders: tracks that may not be what the producer or client asked for, giving them the chance to try something different.",
+   "categories": [
+    "trailers",
+    "music",
+    "collaboration"
+   ],
+   "source": {
+    "title": "Holly Williamson",
+    "publication": "Pop Disciple",
+    "url": "https://www.popdisciple.com/interviews/holly-williamson",
+    "year": 2017
+   }
+  },
+  {
+   "person": "Holly Williamson",
+   "kind": "insight",
+   "text": "Williamson describes trailer music as layered: once the main track is chosen as the base, textural pads, sound design and hits on the title cards are added on top.",
+   "categories": [
+    "trailers",
+    "music",
+    "craft"
+   ],
+   "source": {
+    "title": "Holly Williamson",
+    "publication": "Pop Disciple",
+    "url": "https://www.popdisciple.com/interviews/holly-williamson",
+    "year": 2017
+   }
+  },
+  {
+   "person": "Holly Williamson",
+   "kind": "quote",
+   "text": "our goal is to get the editors and producers excited about music.",
+   "categories": [
+    "trailers",
+    "music",
+    "collaboration"
+   ],
+   "source": {
+    "title": "Holly Williamson",
+    "publication": "Pop Disciple",
+    "url": "https://www.popdisciple.com/interviews/holly-williamson",
+    "year": 2017
+   }
+  },
+  {
+   "person": "Holly Williamson",
+   "kind": "insight",
+   "text": "For the Watchmen trailer, Williamson tried hundreds of pieces of music over months before landing on the Smashing Pumpkins track that was used.",
+   "categories": [
+    "trailers",
+    "music",
+    "craft"
+   ],
+   "source": {
+    "title": "Head of Music at Big Picture Entertainment Holly Williamson Talks Life in a Trailer House Music Department",
+    "publication": "SourceAudio",
+    "url": "https://www.sourceaudio.com/?p=5490",
+    "year": 2022
+   }
+  },
+  {
+   "person": "Holly Williamson",
+   "kind": "quote",
+   "text": "cover songs will never die, so trailerized cover songs are always welcome",
+   "categories": [
+    "trailers",
+    "music"
+   ],
+   "source": {
+    "title": "Head of Music at Big Picture Entertainment Holly Williamson Talks Life in a Trailer House Music Department",
+    "publication": "SourceAudio",
+    "url": "https://www.sourceaudio.com/?p=5490",
+    "year": 2022
+   }
+  },
+  {
+   "person": "Holly Williamson",
+   "kind": "quote",
+   "text": "It's pretty rewarding when something like that locks and goes to finish!",
+   "categories": [
+    "trailers",
+    "music",
+    "craft"
+   ],
+   "source": {
+    "title": "Head of Music at Big Picture Entertainment Holly Williamson Talks Life in a Trailer House Music Department",
+    "publication": "SourceAudio",
+    "url": "https://www.sourceaudio.com/?p=5490",
+    "year": 2022
+   }
+  },
+  {
+   "person": "Holly Williamson",
+   "kind": "insight",
+   "text": "Having worked at three Los Angeles trailer houses, Williamson calls the trailer house the most challenging but most creative place to be as a music supervisor.",
+   "categories": [
+    "trailers",
+    "music",
+    "craft"
+   ],
+   "source": {
+    "title": "Head of Music at Big Picture Entertainment Holly Williamson Talks Life in a Trailer House Music Department",
+    "publication": "SourceAudio",
+    "url": "https://www.sourceaudio.com/?p=5490",
+    "year": 2022
+   }
+  }
+ ]
+}
