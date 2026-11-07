@@ -242,7 +242,10 @@ void AboutPanel::UpdateChecker::run()
             m_stream = &stream;
         }
 
-        if (stream.connect(this))
+        // No listener: a listener that aborts connect() makes JUCE (macOS) destroy the connection
+        // on this thread while cancel() may be using it. The destructor's repeated cancel()
+        // covers a cancel that lands before the request exists.
+        if (stream.connect(nullptr))
         {
             status = stream.getStatusCode();
             if (status == 200)

@@ -543,7 +543,10 @@ namespace
 
             auto reference = input;   // never bypassed
             auto output = input;      // bypassed in between
-            ReversinatorAudioProcessor a, b;
+            ReversinatorAudioProcessor a;
+            juce::AudioProcessor::setTypeOfNextNewPlugin(juce::AudioProcessor::wrapperType_AudioUnit);
+            ReversinatorAudioProcessor b;
+            juce::AudioProcessor::setTypeOfNextNewPlugin(juce::AudioProcessor::wrapperType_Undefined);
             prepare(a, 2, sr, blockSize);
             prepare(b, 2, sr, blockSize);
             juce::MidiBuffer midi;
@@ -634,7 +637,70 @@ namespace
                   juce::String::formatted("44.1 kHz keeps the original's float32 clock  (%.0f samples per snippet)", period));
         }
 
-        // 14. The update check finds the newest Reversinator release in GitHub's listing,
+        // 14. A host stop or locate while bypassed is still honoured (once the bypass fade is
+        //     done), so un-bypassing never replays audio from before it. Outside AU, a reset that
+        //     lands just before bypass engages is a real one too, and is honoured at once.
+        {
+            const double sr = 48000.0;
+            constexpr int blockSize = 512;
+            const auto heardAfterUnbypass = [sr](juce::AudioProcessor::WrapperType type, bool resetBeforeEngage)
+            {
+                juce::AudioProcessor::setTypeOfNextNewPlugin(type);
+                ReversinatorAudioProcessor p;
+                juce::AudioProcessor::setTypeOfNextNewPlugin(juce::AudioProcessor::wrapperType_Undefined);
+                prepare(p, 2, sr, blockSize);
+                juce::MidiBuffer midi;
+
+                auto tone = makeSine(2, 375 * blockSize, sr, 220.0, 0.5f);   // ~4 s, played normally
+                for (int pos = 0; pos < tone.getNumSamples(); pos += blockSize)
+                {
+                    juce::AudioBuffer<float> block(tone.getArrayOfWritePointers(), 2, pos, blockSize);
+                    p.processBlock(block, midi);
+                }
+
+                if (resetBeforeEngage)
+                {
+                    p.reset();                           // the host stops, then bypass is switched on
+                }
+                else
+                {
+                    if (type == juce::AudioProcessor::wrapperType_AudioUnit)
+                        p.reset();                       // the AU wrapper's reset as bypass engages
+                    auto more = makeSine(2, 2 * blockSize, sr, 220.0, 0.5f);
+                    for (int b = 0; b < 2; ++b)
+                    {
+                        juce::AudioBuffer<float> block(more.getArrayOfWritePointers(), 2, b * blockSize, blockSize);
+                        p.processBlockBypassed(block, midi);
+                    }
+                    p.reset();                           // the host locates while bypassed
+                }
+
+                juce::AudioBuffer<float> silence(2, blockSize);
+                for (int b = 0; b < 30; ++b)             // ~0.3 s of bypassed silence
+                {
+                    silence.clear();
+                    p.processBlockBypassed(silence, midi);
+                }
+
+                float heard = 0.0f;
+                for (int b = 0; b < 300; ++b)            // ~3 s after un-bypassing
+                {
+                    silence.clear();
+                    p.processBlock(silence, midi);
+                    heard = std::max(heard, silence.getMagnitude(0, blockSize));
+                }
+                return heard;
+            };
+
+            const float au = heardAfterUnbypass(juce::AudioProcessor::wrapperType_AudioUnit, false);
+            const float vst3 = heardAfterUnbypass(juce::AudioProcessor::wrapperType_VST3, false);
+            const float vst3Before = heardAfterUnbypass(juce::AudioProcessor::wrapperType_VST3, true);
+            check(au < 1.0e-6f && vst3 < 1.0e-6f && vst3Before < 1.0e-6f,
+                  juce::String::formatted("reset() while bypassed: no stale audio after un-bypass  (AU %.1e, VST3 %.1e, VST3 before engage %.1e)",
+                                          au, vst3, vst3Before));
+        }
+
+        // 15. The update check finds the newest Reversinator release in GitHub's listing,
         //     skipping other plugins' tags and prereleases.
         {
             const auto listing = juce::JSON::parse(R"([

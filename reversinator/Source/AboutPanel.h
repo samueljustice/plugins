@@ -25,7 +25,7 @@ public:
     void mouseUp(const juce::MouseEvent&) override;
 
 private:
-    class UpdateChecker : public juce::Thread, private juce::WebInputStream::Listener
+    class UpdateChecker : public juce::Thread
     {
     public:
         explicit UpdateChecker(juce::Component::SafePointer<AboutPanel> owner);
@@ -35,10 +35,6 @@ private:
         void cancel();
 
     private:
-        // Polled while connect() waits (every 1 ms on macOS): catches a cancel that arrives
-        // before the request exists, which WebInputStream::cancel() alone can miss there.
-        bool postDataSendProgress(juce::WebInputStream&, int, int) override { return ! threadShouldExit(); }
-
         juce::Component::SafePointer<AboutPanel> m_owner;
         juce::CriticalSection m_lock;
         juce::WebInputStream* m_stream = nullptr;   // guarded by m_lock

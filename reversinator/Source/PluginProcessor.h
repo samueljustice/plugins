@@ -29,7 +29,8 @@ public:
     void prepareToPlay(double sampleRate, int samplesPerBlock) override;
     void releaseResources() override;
     /** Host flush. Hosts may call this on any thread while audio runs, so it only
-        flags the flush; the audio thread does it at the start of its next block. */
+        flags the flush; the audio thread does it at the start of its next block, or,
+        while host-bypassed, once the bypass fade is done (see process()). */
     void reset() override;
     bool isBusesLayoutSupported(const BusesLayout& layouts) const override;
     void processBlock(juce::AudioBuffer<float>&, juce::MidiBuffer&) override;

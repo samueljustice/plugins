@@ -43,7 +43,7 @@ The sound is the original's. Reversinator deliberately differs only where Backwa
 - **Switching effects** crossfades over 30 ms into the new effect, which starts with the input history already in place. The original cut to silence and refilled its buffers.
 - **Long TIME settings** work across the whole range. In Reverse Playback and Reverse Repeat, the original's delay memory wrapped above about 3 s (at 44.1 kHz), so the end of each snippet read the wrong audio.
 - **REVERSER** always crossfades over a full 10 ms. The original's crossfade was shortened when the host buffer was smaller than 10 ms.
-- **Sample rates above 48 kHz** use a double-precision snippet clock, so the reversed audio is exactly in tune and each snippet lasts exactly TIME. The original's float32 clock loses precision as the sample rate rises. At 44.1 and 48 kHz it makes parts of each snippet play a few cents sharp or flat (up to about a quarter of a semitone at some TIME settings), and there Reversinator keeps it, sample for sample. At 96 kHz the error would reach half a semitone, and at 192 kHz a whole semitone.
+- **Sample rates above 50 kHz** (88.2 kHz and up) use a double-precision snippet clock, so the reversed audio is exactly in tune and each snippet lasts exactly TIME. The original's float32 clock loses precision as the sample rate rises. Up to 50 kHz, which includes 44.1 and 48 kHz, it makes parts of each snippet play a few cents sharp or flat (up to about a quarter of a semitone at some TIME settings), and there Reversinator keeps it, sample for sample. At 96 kHz the error would reach half a semitone, and at 192 kHz a whole semitone.
 
 ## Controls
 
@@ -58,7 +58,7 @@ The sound is the original's. Reversinator deliberately differs only where Backwa
 
 ## Tips
 
-- **Matching the tempo.** The effect often sounds just as interesting out of time, but to get close use `TIME = N × 60 / BPM` with N = 1, 2, 4 and so on. For example, at 120 BPM, N = 4 gives 2 seconds, which is one bar of 4/4. At 44.1 and 48 kHz this is approximate: as on the original, the snippet clock runs up to about 0.25% fast or slow depending on TIME, so over a long passage it slowly drifts off the grid. At 120 BPM and 44.1 kHz, with TIME at 2 s, that is about 40 ms per minute. Above 48 kHz the clock is exact.
+- **Matching the tempo.** The effect often sounds just as interesting out of time, but to get close use `TIME = N × 60 / BPM` with N = 1, 2, 4 and so on. For example, at 120 BPM, N = 4 gives 2 seconds, which is one bar of 4/4. At 44.1 and 48 kHz this is approximate: as on the original, the snippet clock runs up to about 0.25% fast or slow depending on TIME, so over a long passage it slowly drifts off the grid. At 120 BPM and 44.1 kHz, with TIME at 2 s, that is about 40 ms per minute. Above 50 kHz (88.2 kHz and up) the clock is exact.
 - **Reverse reverb.** Put Reversinator before a reverb, then print and reverse the result, or simply use Reverse Playback on a reverb return.
 - **Transitions.** Automate REVERSER to flip a phrase backwards and return cleanly on the downbeat.
 - **Ambience.** Forward Backwards with a long TIME and some DRY MIX turns a loop into a slowly breathing palindrome.

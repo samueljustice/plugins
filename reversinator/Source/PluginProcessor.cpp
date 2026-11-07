@@ -159,10 +159,16 @@ void ReversinatorAudioProcessor::process(juce::AudioBuffer<float>& buffer, bool 
 {
     juce::ScopedNoDenormals noDenormals;
 
-    // A flush that arrives while host-bypassed is dropped. JUCE's AU wrapper requests one
-    // every time bypass engages; honouring it would cut the effect off mid-fade (a click) and
-    // leave un-bypass with an empty effect. The engine keeps running through bypass anyway.
-    if (m_flushRequested.exchange(false, std::memory_order_acq_rel) && ! bypassed)
+    // Host flushes (see reset()). JUCE's AU wrapper requests one every time host bypass engages;
+    // honouring that one would cut the effect off mid-fade (a click) and leave un-bypass with an
+    // empty effect, so it is dropped: the engine keeps running through bypass anyway. Any other
+    // flush that arrives while bypassed (a stop or locate) waits for the bypass fade to finish,
+    // where the output is exactly the input, so it is inaudible and un-bypassing never replays
+    // audio from before it.
+    const bool bypassEngaging = bypassed && m_bypassMix.getTargetValue() < 0.5f;
+    if (bypassEngaging && wrapperType == wrapperType_AudioUnit)
+        m_flushRequested.store(false, std::memory_order_relaxed);
+    else if ((! bypassed || ! m_bypassMix.isSmoothing()) && m_flushRequested.exchange(false, std::memory_order_acq_rel))
         flush();
 
     m_bypassMix.setTargetValue(bypassed ? 1.0f : 0.0f);

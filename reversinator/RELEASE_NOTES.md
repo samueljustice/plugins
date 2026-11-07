@@ -8,7 +8,7 @@ Reversinator has been rebuilt to match **Backwards Machine** (The Sound Guy, 200
 
 - **The original's three effects, faithfully recreated.** Reverse Playback, Forward Backwards and Reverse Repeat now use Backwards Machine's own signal flow: swept delay lines, sine windows, the Reverse Repeat vibrato, and the feedback routing and gain staging.
 - **Checked against the real thing.** The vendor's dry demo clip, run through Reversinator, nulls against the vendor's own Backwards Machine renders. Correlation is 0.9994 for Reverse Playback, 0.9995 for Forward Backwards and 0.9990 for Reverse Repeat, with the residual 27–30 dB down. A single 192 kbps MP3 round trip, the format the demos were published in, leaves about 33 dB. The renders match how the vendor made the demos: processed at 44.1 kHz, with the snippet clock started 448 samples before the clip, and Reverse Repeat at its demo's TIME (2.0047 s).
-- **In tune at any sample rate.** At 44.1 and 48 kHz the snippet clock is the original's float32 clock, sample for sample. Above that, where the original's clock would drift up to a semitone out of tune within each snippet, it runs in double precision and is exact.
+- **Exactly in tune at high sample rates.** Up to 50 kHz, so at 44.1 and 48 kHz, the snippet clock is the original's float32 clock, sample for sample, including its slight detuning of a few cents in parts of each snippet. Above 50 kHz the original's clock would drift up to a semitone out of tune within each snippet, so there it runs in double precision and is exact.
 - **The original's controls.** REVERSER, TIME (0.5–4 s, same taper), FEEDBACK DEPTH (0–75%), WET MIX and DRY MIX (squared law), with the same defaults.
 - **Click-free everywhere.**
   - REVERSER switches with a 10 ms crossfade.
