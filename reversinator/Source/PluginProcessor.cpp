@@ -42,33 +42,40 @@ juce::AudioProcessorValueTreeState::ParameterLayout ReversinatorAudioProcessor::
         ParameterID { ParamIDs::mode, 1 }, "Effect Mode",
         StringArray { "Reverse Playback", "Forward Backwards", "Reverse Repeat" }, 0));
 
+    // The value text carries its own unit, so no separate label (hosts would show it twice).
     layout.add(std::make_unique<AudioParameterBool>(
         ParameterID { ParamIDs::reverser, 1 }, "Reverser", true,
-        AudioParameterBoolAttributes().withStringFromValueFunction([](bool on, int) { return on ? "Reverse" : "Forward"; })));
+        AudioParameterBoolAttributes()
+            .withStringFromValueFunction([](bool on, int) { return on ? "Reverse" : "Forward"; })
+            .withValueFromStringFunction([](const String& text)
+            {
+                const auto t = text.trim();
+                return t.equalsIgnoreCase("reverse") || t.equalsIgnoreCase("on") || t.equalsIgnoreCase("true")
+                    || t.equalsIgnoreCase("yes") || t.getIntValue() != 0;
+            })));
 
     // Same taper as the original: value = 0.5 + 3.5 * n^2.
     layout.add(std::make_unique<AudioParameterFloat>(
         ParameterID { ParamIDs::time, 1 }, "Time",
         NormalisableRange<float>(ReverseEngine::minTimeSeconds, ReverseEngine::maxTimeSeconds, 0.0f, 0.5f), 2.0f,
         AudioParameterFloatAttributes()
-            .withLabel("s")
             .withStringFromValueFunction([](float v, int) { return String(v, 2) + " s"; })
             .withValueFromStringFunction([](const String& t) { return t.retainCharacters("0123456789.").getFloatValue(); })));
 
     layout.add(std::make_unique<AudioParameterFloat>(
         ParameterID { ParamIDs::feedback, 1 }, "Feedback Depth",
         NormalisableRange<float>(0.0f, 75.0f, 0.0f), 0.0f,
-        AudioParameterFloatAttributes().withLabel("%").withStringFromValueFunction(percentText).withValueFromStringFunction(percentValue)));
+        AudioParameterFloatAttributes().withStringFromValueFunction(percentText).withValueFromStringFunction(percentValue)));
 
     layout.add(std::make_unique<AudioParameterFloat>(
         ParameterID { ParamIDs::wetMix, 1 }, "Wet Mix",
         NormalisableRange<float>(0.0f, 100.0f, 0.0f), 100.0f,
-        AudioParameterFloatAttributes().withLabel("%").withStringFromValueFunction(percentText).withValueFromStringFunction(percentValue)));
+        AudioParameterFloatAttributes().withStringFromValueFunction(percentText).withValueFromStringFunction(percentValue)));
 
     layout.add(std::make_unique<AudioParameterFloat>(
         ParameterID { ParamIDs::dryMix, 1 }, "Dry Mix",
         NormalisableRange<float>(0.0f, 100.0f, 0.0f), 0.0f,
-        AudioParameterFloatAttributes().withLabel("%").withStringFromValueFunction(percentText).withValueFromStringFunction(percentValue)));
+        AudioParameterFloatAttributes().withStringFromValueFunction(percentText).withValueFromStringFunction(percentValue)));
 
     return layout;
 }
@@ -99,6 +106,8 @@ void ReversinatorAudioProcessor::prepareToPlay(double sampleRate, int samplesPer
     m_wetGain.setCurrentAndTargetValue(squaredPercent(m_wetParam->load()));
     m_dryGain.reset(sampleRate, c_gainSmoothingSeconds);
     m_dryGain.setCurrentAndTargetValue(squaredPercent(m_dryParam->load()));
+    m_bypassMix.reset(sampleRate, c_reverserFadeSeconds);
+    m_bypassMix.setCurrentAndTargetValue(m_bypassMix.getTargetValue());
 
     m_peakAccumulator = 0.0f;
     m_peakCount = 0;
@@ -118,6 +127,7 @@ void ReversinatorAudioProcessor::reset()
     m_reverserMix.setCurrentAndTargetValue(m_reverserMix.getTargetValue());
     m_wetGain.setCurrentAndTargetValue(m_wetGain.getTargetValue());
     m_dryGain.setCurrentAndTargetValue(m_dryGain.getTargetValue());
+    m_bypassMix.setCurrentAndTargetValue(m_bypassMix.getTargetValue());
 }
 
 double ReversinatorAudioProcessor::getTailLengthSeconds() const
@@ -127,7 +137,20 @@ double ReversinatorAudioProcessor::getTailLengthSeconds() const
 
 void ReversinatorAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer&)
 {
+    process(buffer, false);
+}
+
+void ReversinatorAudioProcessor::processBlockBypassed(juce::AudioBuffer<float>& buffer, juce::MidiBuffer&)
+{
+    // JUCE's default would just pass audio through and starve the engine; instead keep it
+    // fed (so un-bypassing lands in a live effect) and crossfade the output to the input.
+    process(buffer, true);
+}
+
+void ReversinatorAudioProcessor::process(juce::AudioBuffer<float>& buffer, bool bypassed)
+{
     juce::ScopedNoDenormals noDenormals;
+    m_bypassMix.setTargetValue(bypassed ? 1.0f : 0.0f);
 
     for (int ch = getTotalNumInputChannels(); ch < getTotalNumOutputChannels(); ++ch)
         buffer.clear(ch, 0, buffer.getNumSamples());
@@ -191,11 +214,13 @@ void ReversinatorAudioProcessor::processChunk(float* const* channels, int numCha
         const float reverse = m_reverserMix.getNextValue();
         const float wetGain = m_wetGain.getNextValue();
         const float dryGain = m_dryGain.getNextValue();
+        const float bypass = m_bypassMix.getNextValue();
 
         for (int ch = 0; ch < numChannels; ++ch)
         {
             const float x = in[ch][i];
-            channels[ch][i] = wetGain * (reverse * wet[ch][i] + (1.0f - reverse) * x) + dryGain * x;
+            const float y = wetGain * (reverse * wet[ch][i] + (1.0f - reverse) * x) + dryGain * x;
+            channels[ch][i] = y + bypass * (x - y);
         }
     }
 }

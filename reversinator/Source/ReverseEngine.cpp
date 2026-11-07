@@ -13,21 +13,9 @@ namespace
     // exactly zero where its sweep jumps back, and the two voices are half a period apart.
     constexpr std::array<float, 4> c_startDegrees { 270.0f, 0.0f, 90.0f, 180.0f };
 
-    // In the original, delay-time modulation arrives 448.5 samples (at 44.1 kHz) after the
-    // window that goes with it. Measured against the vendor's own demo renders, where it is
-    // the only change needed for all three effects to null at lag 0.
-    //  - For a reversing voice (delay slope 2) it means reading 897 samples closer to "now".
-    //    It is applied as that delay offset, which keeps the read continuous: at the very start
-    //    of each snippet, where it would ask for a negative delay, the window is silent and
-    //    the read is simply clamped.
-    //  - For Reverse Repeat's 5 Hz vibrato it is a phase lag (below).
-    // Applied as a time, so it is the same at every sample rate.
-    constexpr double c_modulationLagSeconds = 448.5 / 44100.0;
-    constexpr double c_reverseLeadSeconds = 2.0 * c_modulationLagSeconds;
-
     constexpr float c_vibratoHz = 5.0f;              // Reverse Repeat's second pass
     constexpr float c_vibratoDepth = 0.001f;         // relative delay modulation
-    constexpr float c_vibratoStartDegrees = 270.0f - static_cast<float>(360.0 * 5.0 * c_modulationLagSeconds);
+    constexpr float c_vibratoStartDegrees = 270.0f;
 
     constexpr double c_timeCrossfadeSeconds = 0.020;
     constexpr double c_modeCrossfadeSeconds = 0.030;
@@ -107,13 +95,23 @@ void ReverseEngine::Clock::advance()
         p = wrapPhase(increment + p);
 }
 
+void ReverseEngine::Clock::resync()
+{
+    // Float32 accumulation makes the four phases wander apart slightly; with a fixed TIME the
+    // error comes back every period, but each TIME change would freeze some of it in. So a new
+    // clock re-derives the others from voice 0's sweep, keeping every window at zero on its
+    // jump and the voices half a period apart.
+    phase[1] = wrapPhase(phase[0] + 0.5f * c_piF);
+    phase[2] = wrapPhase(phase[0] + c_piF);
+    phase[3] = wrapPhase(phase[0] - 0.5f * c_piF);
+}
+
 ReverseEngine::Taps ReverseEngine::tapsOf(const Clock& clock) const
 {
     Taps taps;
     const float base = static_cast<float>(static_cast<double>(clock.time) * m_sampleRate);   // D0 = T * SR
-    const double lead = c_reverseLeadSeconds * m_sampleRate;
-    taps.delay[0] = static_cast<double>(base + base * sweep(clock.phase[0])) - lead;
-    taps.delay[1] = static_cast<double>(base + base * sweep(clock.phase[2])) - lead;
+    taps.delay[0] = base + base * sweep(clock.phase[0]);
+    taps.delay[1] = base + base * sweep(clock.phase[2]);
     taps.window = clock.windowGain;
     return taps;
 }
@@ -215,6 +213,7 @@ void ReverseEngine::process(const float* const* input, float* const* output, int
         {
             m_oldClock = m_clock;
             m_clock.start(m_targetTime, m_radiansPerSampleHz);
+            m_clock.resync();   // its heads start silent, so this is inaudible
             m_crossfadePos = 0;
         }
 
@@ -339,7 +338,7 @@ void ReverseEngine::process(const float* const* input, float* const* output, int
             // Plays what voice 0 played half a period ago.
             const float earlier = wrapPhase(m_clock.phase[0] - c_piF);
             const double base = m_clock.time * m_sampleRate;
-            const double earlierDelay = std::max(0.0, base * (1.0 + sweep(earlier)) - c_reverseLeadSeconds * m_sampleRate);
+            const double earlierDelay = base * (1.0 + sweep(earlier));
             m_views[1] = { static_cast<float>((0.5 * base + earlierDelay) / m_sampleRate), taps.window[1] };
             break;
         }
@@ -359,5 +358,5 @@ double ReverseEngine::tailSeconds(float timeSeconds, float feedback)
     const double t = juce::jlimit(static_cast<double>(minTimeSeconds), static_cast<double>(maxTimeSeconds), static_cast<double>(timeSeconds));
     const double f = juce::jlimit(0.0, static_cast<double>(maxFeedback), static_cast<double>(feedback));
     const double trips = f > 0.001 ? std::log(0.001) / std::log(f) : 0.0;
-    return std::min(60.0, 2.5 * t + trips * t);
+    return std::min(120.0, 2.5 * t + trips * t);   // at most ~106 s (T = 4 s, F = 75 %)
 }

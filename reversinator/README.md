@@ -9,8 +9,16 @@ A VST3/AU real-time reverser for macOS and Windows. Reversinator is a faithful, 
 ## Features
 
 - **The three Backwards Machine effects**, with the original's sweeps, windows, vibrato, feedback routing, gain staging, parameter ranges and control tapers.
-- **Checked against the real thing.** The vendor's demo clip, run through Reversinator, nulls against the vendor's own Backwards Machine renders of it. Correlation is 0.983 for Reverse Playback, 0.992 for Forward Backwards and 0.998 for Reverse Repeat; what remains is MP3 coding noise.
-- **Click-free everywhere.** REVERSER switches with a 10 ms crossfade, as on the original. TIME changes crossfade between the old and new read positions. Switching effects crossfades straight into the new one, because every effect shares the same input history. Wet, dry and feedback changes are smoothed. All of this is independent of the host's buffer size.
+- **Checked against the real thing.** The vendor's dry demo clip, run through Reversinator, nulls against the vendor's own Backwards Machine renders of it:
+
+  | Effect | Correlation | Residual |
+  |---|---|---|
+  | Reverse Playback | 0.9994 | 29 dB down |
+  | Forward Backwards | 0.9995 | 30 dB down |
+  | Reverse Repeat | 0.9990 | 27 dB down |
+
+  For comparison, a single 192 kbps MP3 round trip, the format the demos were published in, leaves about 33 dB. The renders match how the vendor made the demos: processed at 44.1 kHz with the snippet clock started 448 samples before the clip, and Reverse Repeat at the TIME its demo used (2.0047 s).
+- **Click-free everywhere.** REVERSER switches with a 10 ms crossfade, as on the original. TIME changes crossfade between the old and new read positions. Switching effects crossfades straight into the new one, because every effect shares the same input history. Host bypass crossfades too, and the effect keeps running underneath, so un-bypassing lands in a live effect. Wet, dry and feedback changes are smoothed. All of this is independent of the host's buffer size.
 - **Live snippet display**: a scrolling view of the recent input with each read head drawn as it sweeps backwards through it, so you can see what each effect is doing.
 - **Modern interface** in the spirit of the original: mode lamps, the big REVERSER button, an hourglass TIME control and a feedback loop. The window is resizable from 75% to 200%.
 - Mono or stereo at any sample rate. The effect itself is a delay, so no latency is reported to the host.
@@ -49,7 +57,7 @@ The sound is the original's. Reversinator deliberately differs only where Backwa
 
 ## Tips
 
-- **Matching the tempo.** The effect often sounds just as interesting out of time, but to sync it use `TIME = N × 60 / BPM` with N = 1, 2, 4 and so on. For example, at 120 BPM, N = 4 gives 2 seconds, which is one bar of 4/4.
+- **Matching the tempo.** The effect often sounds just as interesting out of time, but to get close use `TIME = N × 60 / BPM` with N = 1, 2, 4 and so on. For example, at 120 BPM, N = 4 gives 2 seconds, which is one bar of 4/4. This is approximate: like the original, the snippet clock runs up to about 0.4% fast or slow depending on TIME and the sample rate, so over a long passage it slowly drifts off the grid. At 120 BPM and 44.1 kHz that is about 40 ms per minute.
 - **Reverse reverb.** Put Reversinator before a reverb, then print and reverse the result, or simply use Reverse Playback on a reverb return.
 - **Transitions.** Automate REVERSER to flip a phrase backwards and return cleanly on the downbeat.
 - **Ambience.** Forward Backwards with a long TIME and some DRY MIX turns a loop into a slowly breathing palindrome.
@@ -61,9 +69,11 @@ Version 2 rebuilds the effect to match Backwards Machine, so some settings chang
 
 - **Envelope** and **Crossfade** are gone. The original's windows are fixed, and the new engine uses them.
 - **TIME** is now 0.5–4 s (was 30 ms–5 s), and **FEEDBACK DEPTH** is now 0–75% (was 0–100%), as on the original.
+- **WET MIX** and **DRY MIX** now use the original's squared law, so settings below 100% are quieter than in 1.x. For example, 50% was -6 dB and is now -12 dB, so a 1.x mix may need rebalancing.
 - **REVERSER** now defaults to on.
-- Sessions saved with 1.x still open. Values outside the new ranges are clamped, and the removed controls are ignored.
-- macOS builds now run on macOS 11 and later. Previous builds required the macOS version they were built on.
+- **Saved settings:** sessions saved with 1.x still open. TIME and FEEDBACK values outside the new ranges are clamped, and the removed controls are ignored.
+- **Automation:** host automation is stored as positions along each control's range, so TIME and FEEDBACK DEPTH lanes recorded in 1.x replay rescaled onto the new ranges. For example, a 1.x TIME point at 2.00 s now plays at about 1.89 s, and FEEDBACK at 50% plays at 37.5%.
+- **macOS:** builds now run on macOS 11 and later. Previous builds required the macOS version they were built on.
 
 ## Building
 

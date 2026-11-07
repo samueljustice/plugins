@@ -5,7 +5,7 @@
 #include "Theme.h"
 #include "Controls.h"
 #include "SnippetDisplay.h"
-#include "AboutWindow.h"
+#include "AboutPanel.h"
 
 /**
  * Laid out at a fixed base size and scaled uniformly, so the window can be
@@ -27,7 +27,7 @@ private:
     class Content : public juce::Component, private juce::Value::Listener
     {
     public:
-        Content(ReversinatorAudioProcessor&, const Theme::Fonts&, std::function<void()> showAbout);
+        Content(ReversinatorAudioProcessor&, const Theme::Fonts&);
         ~Content() override;
 
         void paint(juce::Graphics&) override;
@@ -68,6 +68,8 @@ private:
         juce::AudioProcessorValueTreeState::SliderAttachment m_wetAttachment;
         juce::AudioProcessorValueTreeState::SliderAttachment m_dryAttachment;
 
+        AboutPanel m_about;   // overlay, added last so it sits on top
+
         std::array<Section, 3> m_sections;
         std::array<Caption, 4> m_captions;
         juce::Rectangle<int> m_reverserLabelBounds;
@@ -78,7 +80,7 @@ private:
     Controls::LookAndFeel m_lookAndFeel;
     Content m_content;
     juce::TooltipWindow m_tooltipWindow;
-    std::unique_ptr<AboutWindow> m_aboutWindow;
+    bool m_constructed = false;   // don't record the window size until construction has finished
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(ReversinatorAudioProcessorEditor)
 };

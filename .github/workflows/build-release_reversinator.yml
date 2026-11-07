@@ -342,10 +342,15 @@ jobs:
           for kind in vst3 au; do
             if [ "$kind" = "vst3" ]; then location="/Library/Audio/Plug-Ins/VST3"; else location="/Library/Audio/Plug-Ins/Components"; fi
             pkgbuild --analyze --root "installer/$kind" "$kind-components.plist"
-            count=$(plutil -extract "" raw -expect array "$kind-components.plist" 2>/dev/null || echo 1)
-            for ((i = 0; i < count; i++)); do
+            i=0
+            while plutil -extract "$i" xml1 -o /dev/null "$kind-components.plist" 2>/dev/null; do
               plutil -replace "$i.BundleIsRelocatable" -bool NO "$kind-components.plist"
+              i=$((i + 1))
             done
+            if [ "$i" -eq 0 ]; then
+              echo "pkgbuild --analyze found no bundles in installer/$kind"
+              exit 1
+            fi
             pkgbuild --identifier "com.sweetjusticesound.reversinator.$kind" \
               --install-location "$location" \
               --root "installer/$kind" \

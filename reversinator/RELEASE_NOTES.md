@@ -7,12 +7,13 @@ Reversinator has been rebuilt to match **Backwards Machine** (The Sound Guy, 200
 ### What's new
 
 - **The original's three effects, faithfully recreated.** Reverse Playback, Forward Backwards and Reverse Repeat now use Backwards Machine's own signal flow: swept delay lines, sine windows, the Reverse Repeat vibrato, and the feedback routing and gain staging.
-- **Checked against the real thing.** The vendor's demo clip, run through Reversinator, nulls against the vendor's own Backwards Machine renders of it. Correlation is 0.983 for Reverse Playback, 0.992 for Forward Backwards and 0.998 for Reverse Repeat; what remains is MP3 coding noise.
+- **Checked against the real thing.** The vendor's dry demo clip, run through Reversinator, nulls against the vendor's own Backwards Machine renders. Correlation is 0.9994 for Reverse Playback, 0.9995 for Forward Backwards and 0.9990 for Reverse Repeat, with the residual 27–30 dB down. A single 192 kbps MP3 round trip, the format the demos were published in, leaves about 33 dB. The renders were processed at 44.1 kHz, as the vendor's were.
 - **The original's controls.** REVERSER, TIME (0.5–4 s, same taper), FEEDBACK DEPTH (0–75%), WET MIX and DRY MIX (squared law), with the same defaults.
 - **Click-free everywhere.**
   - REVERSER switches with a 10 ms crossfade.
   - TIME moves crossfade between the old and new read positions.
   - Switching effects crossfades straight into the new one.
+  - Host bypass crossfades too, and the effect keeps running underneath, so un-bypassing lands in a live effect.
   - Wet, dry and feedback changes are smoothed.
   - None of this depends on the host buffer size.
 - **New interface** in the spirit of the original: mode lamps, the big REVERSER button, an hourglass TIME control and a feedback loop. A live snippet display shows the read heads sweeping backwards through the audio. The window is resizable from 75% to 200%.
@@ -23,13 +24,21 @@ Reversinator has been rebuilt to match **Backwards Machine** (The Sound Guy, 200
 - The engine never allocates memory or does large copies on the audio thread, so there are no CPU spikes when TIME changes.
 - Feedback is now real feedback of the reversed signal. It was a one-sample filter on the output.
 - Turning REVERSER back on no longer replays stale audio. The effect keeps running, as on the original.
-- Fixed a possible crash when closing the About window during an update check. Update checks now recognise newer versions correctly.
+- The About box is now a panel inside the plugin window, so it no longer floats above other apps.
+- Closing the plugin during an update check no longer risks a crash or waits on the network.
+- Update checks now recognise newer versions correctly.
 - The macOS installer no longer redirects the install to a stray copy elsewhere on disk.
 - The Windows installer now also runs on Windows on Arm.
 
 ### Upgrading from 1.x
 
-Sessions saved with 1.x still open. **Envelope** and **Crossfade** have been removed, because the original's windows are fixed. TIME and FEEDBACK values outside the new ranges are clamped, and REVERSER now defaults to on.
+Sessions saved with 1.x still open, but some settings sound different:
+
+- **Envelope** and **Crossfade** have been removed, because the original's windows are fixed.
+- TIME and FEEDBACK values outside the new ranges are clamped.
+- **WET MIX** and **DRY MIX** now use the original's squared law, so settings below 100% are quieter than in 1.x (50% was -6 dB and is now -12 dB).
+- TIME and FEEDBACK DEPTH **automation** recorded in 1.x replays rescaled onto the new ranges. For example, a TIME point at 2.00 s now plays at about 1.89 s.
+- REVERSER now defaults to on.
 
 ### Downloads
 

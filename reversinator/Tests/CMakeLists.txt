@@ -11,7 +11,7 @@ target_sources(ReversinatorTests
         ../Source/PluginEditor.cpp
         ../Source/Controls.cpp
         ../Source/SnippetDisplay.cpp
-        ../Source/AboutWindow.cpp
+        ../Source/AboutPanel.cpp
         ../Source/ReverseEngine.cpp
 )
 

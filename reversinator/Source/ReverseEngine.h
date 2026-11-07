@@ -21,9 +21,9 @@
  * original, so FEEDBACK DEPTH F is the true loop gain.
  *
  * The oscillators accumulate their phase in float32 exactly as the original
- * does (it makes the period very slightly longer than T, and keeps the grain
- * timing sample-compatible with it); the window gain and the vibrato arrive one
- * sample late, as they do there.
+ * does, so the grain timing is sample-compatible with it (the period comes out
+ * up to about 0.4 % longer or shorter than T, depending on T and the sample
+ * rate); the window gain and the vibrato arrive one sample late, as there.
  *
  * Output is pre-wet: the caller applies the wet gain.
  */
@@ -93,6 +93,7 @@ private:
 
         void start(float timeSeconds, float radiansPerSampleHz);
         void advance();
+        void resync();
     };
 
     struct Taps

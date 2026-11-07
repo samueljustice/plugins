@@ -1,9 +1,13 @@
 cmake_minimum_required(VERSION 3.22)
 
 # Must be set before project(). Without an explicit deployment target the binary
-# would require the macOS version of whichever machine built it.
+# would require the macOS version of whichever machine built it. Forced only when empty:
+# build trees configured before this existed cache an empty value, which would otherwise
+# win; an explicit -DCMAKE_OSX_DEPLOYMENT_TARGET=... still does.
 set(CMAKE_OSX_ARCHITECTURES "x86_64;arm64" CACHE STRING "Build architectures for macOS")
-set(CMAKE_OSX_DEPLOYMENT_TARGET "11.0" CACHE STRING "Minimum macOS version")
+if(NOT CMAKE_OSX_DEPLOYMENT_TARGET)
+    set(CMAKE_OSX_DEPLOYMENT_TARGET "11.0" CACHE STRING "Minimum macOS version" FORCE)
+endif()
 
 project(Reversinator VERSION 2.0.0)
 
@@ -47,7 +51,7 @@ target_sources(Reversinator
         Source/PluginEditor.cpp
         Source/Controls.cpp
         Source/SnippetDisplay.cpp
-        Source/AboutWindow.cpp
+        Source/AboutPanel.cpp
         Source/ReverseEngine.cpp
 )
 

@@ -83,7 +83,10 @@ juce::Slider::SliderLayout Controls::LookAndFeel::getSliderLayout(juce::Slider& 
     const int boxHeight = static_cast<int>(c_valueBoxHeight);
     layout.textBoxBounds = bounds.removeFromTop(boxHeight).withSizeKeepingCentre(std::min(bounds.getWidth(), 84), boxHeight);
     bounds.removeFromTop(static_cast<int>(c_valueBoxGap));
-    layout.sliderBounds = bounds;
+
+    // Inset the track by the thumb radius (as JUCE's own layouts do), so the thumb, the
+    // hourglass caps and the loop's ends are drawn in full at both ends of the range.
+    layout.sliderBounds = bounds.reduced(0, getSliderThumbRadius(slider));
     return layout;
 }
 

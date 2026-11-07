@@ -2,7 +2,7 @@
 //
 //   ReversinatorTests render <in.wav> <out.wav> [--mode 0|1|2] [--time s] [--feedback %] [--wet %] [--dry %] [--sr hz]
 //                            [--reverser 0|1] [--block n] [--random-blocks]
-//   ReversinatorTests screenshot <out.png> [--input in.wav] [--seconds s] [--scale f] [--width px] [params...]
+//   ReversinatorTests screenshot <out.png> [--input in.wav] [--seconds s] [--scale f] [--width px] [--about] [params...]
 //   ReversinatorTests selftest
 //   ReversinatorTests hostcheck <plugin.vst3|plugin.component>
 
@@ -10,6 +10,7 @@
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
 #include "SnippetDisplay.h"
+#include "AboutPanel.h"
 
 namespace
 {
@@ -232,15 +233,18 @@ namespace
         return 0;
     }
 
-    SnippetDisplay* findDisplay(juce::Component& c)
+    template <typename ComponentType>
+    ComponentType* findComponent(juce::Component& c)
     {
-        if (auto* d = dynamic_cast<SnippetDisplay*>(&c))
-            return d;
+        if (auto* found = dynamic_cast<ComponentType*>(&c))
+            return found;
         for (auto* child : c.getChildren())
-            if (auto* d = findDisplay(*child))
-                return d;
+            if (auto* found = findComponent<ComponentType>(*child))
+                return found;
         return nullptr;
     }
+
+    SnippetDisplay* findDisplay(juce::Component& c) { return findComponent<SnippetDisplay>(c); }
 
     int runScreenshot(const Options& o)
     {
@@ -272,6 +276,10 @@ namespace
         if (auto* display = findDisplay(*editor))
             for (int i = 0; i < 60; ++i)
                 display->update();   // let the span settle
+
+        if (o.has("about"))
+            if (auto* about = findComponent<AboutPanel>(*editor))
+                about->show();
 
         const auto image = editor->createComponentSnapshot(editor->getLocalBounds(), true, static_cast<float>(o.number("scale", 2.0)));
         juce::File out = juce::File::getCurrentWorkingDirectory().getChildFile(o.positional[0]);
@@ -430,6 +438,84 @@ namespace
                 p.processBlock(block, midi);
             }
             check(silence.getMagnitude(0, silence.getNumSamples()) < 1.0e-6f, "reset() clears buffered audio");
+        }
+
+        // 9. Host bypass keeps the engine fed (no stale replay) and crossfades both edges.
+        {
+            const double sr = 48000.0;
+            const auto runBlocks = [](ReversinatorAudioProcessor& p, juce::AudioBuffer<float>& b, const std::function<bool(int)>& bypassedAt)
+            {
+                juce::MidiBuffer midi;
+                for (int pos = 0; pos < b.getNumSamples(); pos += 512)
+                {
+                    juce::AudioBuffer<float> block(b.getArrayOfWritePointers(), b.getNumChannels(), pos, std::min(512, b.getNumSamples() - pos));
+                    if (bypassedAt(pos)) p.processBlockBypassed(block, midi);
+                    else                 p.processBlock(block, midi);
+                }
+            };
+
+            ReversinatorAudioProcessor p;
+            prepare(p, 2, sr, 512);
+            auto tone = makeSine(2, static_cast<int>(sr * 4), sr, 440.0, 0.5f);
+            runBlocks(p, tone, [](int) { return false; });
+            juce::AudioBuffer<float> gap(2, static_cast<int>(sr * 6));
+            gap.clear();
+            runBlocks(p, gap, [](int) { return true; });
+            juce::AudioBuffer<float> after(2, static_cast<int>(sr * 3));
+            after.clear();
+            runBlocks(p, after, [](int) { return false; });
+            check(after.getMagnitude(0, after.getNumSamples()) < 1.0e-4f, "host bypass keeps the engine fed (no stale replay)");
+
+            ReversinatorAudioProcessor q;
+            prepare(q, 2, sr, 512);
+            auto steady = makeSine(2, static_cast<int>(sr * 9), sr, 220.0, 0.5f);
+            runBlocks(q, steady, [sr](int pos) { const double t = pos / sr; return t >= 3.0 && t < 6.0; });
+            const auto s = analyse(steady, static_cast<int>(sr * 0.05));
+            check(s.maxSecondDifference < 0.02f, juce::String::formatted("click-free host bypass  (max 2nd diff %.4f)", s.maxSecondDifference));
+        }
+
+        // 10. REVERSER's text round-trips (hosts' generic editors type it back in).
+        {
+            ReversinatorAudioProcessor p;
+            auto* reverser = p.getParameters().getParameter(ParamIDs::reverser);
+            check(reverser->getValueForText("Reverse") > 0.5f && reverser->getValueForText("Forward") < 0.5f
+                      && reverser->getValueForText(reverser->getText(1.0f, 64)) > 0.5f
+                      && reverser->getValueForText(reverser->getText(0.0f, 64)) < 0.5f,
+                  "REVERSER text round trip");
+        }
+
+        // 11. The editor opens at 100%, then restores the size it was left at.
+        {
+            ReversinatorAudioProcessor a;
+            std::unique_ptr<juce::AudioProcessorEditor> editor(a.createEditor());
+            const int firstWidth = editor->getWidth();
+            editor->setSize(ReversinatorAudioProcessorEditor::baseWidth * 3 / 2, ReversinatorAudioProcessorEditor::baseHeight * 3 / 2);
+            juce::MemoryBlock state;
+            a.getStateInformation(state);
+            editor.reset();
+
+            ReversinatorAudioProcessor b;
+            b.setStateInformation(state.getData(), static_cast<int>(state.getSize()));
+            std::unique_ptr<juce::AudioProcessorEditor> reopened(b.createEditor());
+            check(firstWidth == ReversinatorAudioProcessorEditor::baseWidth
+                      && reopened->getWidth() == ReversinatorAudioProcessorEditor::baseWidth * 3 / 2,
+                  juce::String::formatted("editor size: first open %d, restored %d", firstWidth, reopened->getWidth()));
+
+            // Every slider's thumb sits fully inside the slider at both ends of its range.
+            bool inside = true;
+            std::function<void(juce::Component&)> visit = [&](juce::Component& c)
+            {
+                if (auto* slider = dynamic_cast<juce::Slider*>(&c))
+                {
+                    const float atMin = slider->getPositionOfValue(slider->getMinimum());
+                    const float atMax = slider->getPositionOfValue(slider->getMaximum());
+                    inside = inside && atMin <= static_cast<float>(slider->getHeight()) - 6.0f && atMax >= 24.0f;
+                }
+                for (auto* child : c.getChildren())
+                    visit(*child);
+            };
+            visit(*reopened);
+            check(inside, "slider thumbs are drawn in full at both ends");
         }
 
         std::cout << (failures == 0 ? "ALL PASSED" : juce::String(failures) + " FAILED") << std::endl;

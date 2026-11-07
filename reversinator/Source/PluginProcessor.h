@@ -31,7 +31,10 @@ public:
     void reset() override;
     bool isBusesLayoutSupported(const BusesLayout& layouts) const override;
     void processBlock(juce::AudioBuffer<float>&, juce::MidiBuffer&) override;
+    /** Host bypass: the engine keeps running and the output crossfades to the input. */
+    void processBlockBypassed(juce::AudioBuffer<float>&, juce::MidiBuffer&) override;
     using AudioProcessor::processBlock;
+    using AudioProcessor::processBlockBypassed;
 
     juce::AudioProcessorEditor* createEditor() override;
     bool hasEditor() const override { return true; }
@@ -77,6 +80,7 @@ public:
 
 private:
     static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
+    void process(juce::AudioBuffer<float>& buffer, bool bypassed);
     void processChunk(float* const* channels, int numChannels, int numSamples);
     void pushDisplayPeaks(const float* const* channels, int numChannels, int numSamples);
 
@@ -97,6 +101,7 @@ private:
     juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> m_reverserMix;
     juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> m_wetGain;
     juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> m_dryGain;
+    juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> m_bypassMix;   // 1 = host bypass
 
     // Display feed: a ring of input peaks the editor can read at any time.
     std::array<std::atomic<float>, peakHistorySize> m_peakRing {};

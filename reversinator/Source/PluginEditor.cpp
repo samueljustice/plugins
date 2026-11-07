@@ -20,16 +20,12 @@ ReversinatorAudioProcessorEditor::ReversinatorAudioProcessorEditor(ReversinatorA
     : AudioProcessorEditor(&p)
     , m_processor(p)
     , m_lookAndFeel(*m_fonts)
-    , m_content(p, *m_fonts, [this]
-      {
-          if (m_aboutWindow == nullptr)
-              m_aboutWindow = std::make_unique<AboutWindow>();
-
-          m_aboutWindow->setVisible(true);
-          m_aboutWindow->toFront(true);
-      })
+    , m_content(p, *m_fonts)
     , m_tooltipWindow(this, 700)
 {
+    // Read the saved size first: setResizeLimits() below already resizes (and so calls resized()).
+    const int savedWidth = m_processor.getEditorWidth();
+
     addAndMakeVisible(m_content);
 
     // Set after the content is added so every child (including slider value boxes) picks it up.
@@ -37,17 +33,18 @@ ReversinatorAudioProcessorEditor::ReversinatorAudioProcessorEditor(ReversinatorA
     m_tooltipWindow.setLookAndFeel(&m_lookAndFeel);
 
     setResizable(true, true);
-    setResizeLimits(baseWidth * 3 / 4, baseHeight * 3 / 4, baseWidth * 2, baseHeight * 2);
     getConstrainer()->setFixedAspectRatio(static_cast<double>(baseWidth) / static_cast<double>(baseHeight));
+    setResizeLimits(baseWidth * 3 / 4, baseHeight * 3 / 4, baseWidth * 2, baseHeight * 2);
 
-    const int savedWidth = m_processor.getEditorWidth();
     const int width = savedWidth > 0 ? juce::jlimit(baseWidth * 3 / 4, baseWidth * 2, savedWidth) : baseWidth;
     setSize(width, juce::roundToInt(width * static_cast<double>(baseHeight) / baseWidth));
+
+    m_constructed = true;
+    m_processor.setEditorWidth(getWidth());
 }
 
 ReversinatorAudioProcessorEditor::~ReversinatorAudioProcessorEditor()
 {
-    m_aboutWindow.reset();
     m_tooltipWindow.setLookAndFeel(nullptr);
     setLookAndFeel(nullptr);
 }
@@ -65,12 +62,13 @@ void ReversinatorAudioProcessorEditor::resized()
 
     m_content.setBounds(0, 0, baseWidth, baseHeight);
     m_content.setTransform(juce::AffineTransform::scale(scale).translated(x, y));
-    m_processor.setEditorWidth(getWidth());
+
+    if (m_constructed)
+        m_processor.setEditorWidth(getWidth());
 }
 
 //==============================================================================
-ReversinatorAudioProcessorEditor::Content::Content(ReversinatorAudioProcessor& p, const Theme::Fonts& fonts,
-                                                   std::function<void()> showAbout)
+ReversinatorAudioProcessorEditor::Content::Content(ReversinatorAudioProcessor& p, const Theme::Fonts& fonts)
     : m_processor(p)
     , m_fonts(fonts)
     , m_display(p, fonts)
@@ -80,6 +78,7 @@ ReversinatorAudioProcessorEditor::Content::Content(ReversinatorAudioProcessor& p
     , m_feedbackAttachment(p.getParameters(), ParamIDs::feedback, m_feedbackSlider)
     , m_wetAttachment(p.getParameters(), ParamIDs::wetMix, m_wetSlider)
     , m_dryAttachment(p.getParameters(), ParamIDs::dryMix, m_drySlider)
+    , m_about(fonts)
 {
     using namespace Theme::Colours;
 
@@ -118,8 +117,10 @@ ReversinatorAudioProcessorEditor::Content::Content(ReversinatorAudioProcessor& p
 
     m_aboutButton.setButtonText("?");
     m_aboutButton.setTooltip("About SammyJs Reversinator");
-    m_aboutButton.onClick = std::move(showAbout);
+    m_aboutButton.onClick = [this] { m_about.show(); };
     addAndMakeVisible(m_aboutButton);
+
+    addChildComponent(m_about);   // hidden until "?" is clicked; added last so it sits on top
 
     // The attachment changes the toggle without notifications (e.g. host automation),
     // so watch the state value to keep the label in step.
@@ -159,6 +160,7 @@ void ReversinatorAudioProcessorEditor::Content::setupSlider(juce::Slider& slider
 void ReversinatorAudioProcessorEditor::Content::resized()
 {
     auto bounds = getLocalBounds();
+    m_about.setBounds(bounds);
 
     auto header = bounds.removeFromTop(c_headerHeight).reduced(c_margin, 0);
     m_aboutButton.setBounds(header.removeFromRight(26).withSizeKeepingCentre(26, 26));
