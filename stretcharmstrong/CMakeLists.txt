@@ -33,7 +33,7 @@ set(RUBBERBAND_LIB "${RUBBERBAND_ROOT}/lib/librubberband.a")
 # Main plugin target
 juce_add_plugin(StretchArmstrong
     VERSION 1.0.0
-    COMPANY_NAME "Samuel Justice"
+    COMPANY_NAME "Sammy J"
     BUNDLE_ID "com.samueljustice.stretcharmstrong"
     IS_SYNTH FALSE
     NEEDS_MIDI_INPUT FALSE

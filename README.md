@@ -1,12 +1,16 @@
 <div align="center">
 
-# Samuel Justice Audio Plugins
+# Sammy J's Plugins
 
 **Toys I've made for sound designers.**
 
-[![Latest releases](https://img.shields.io/badge/download-releases-d00a35?style=for-the-badge&logo=github&logoColor=white)](https://github.com/samueljustice/plugins/releases)
-[![macOS](https://img.shields.io/badge/macOS-000000?style=for-the-badge&logo=apple&logoColor=white)](https://github.com/samueljustice/plugins/releases)
-[![Windows](https://img.shields.io/badge/Windows-0078D6?style=for-the-badge&logo=windows&logoColor=white)](https://github.com/samueljustice/plugins/releases)
+### ⬇️ Get them all
+
+[![Download for macOS](https://img.shields.io/badge/Download_for_macOS-everything-000000?style=for-the-badge&logo=apple&logoColor=white)](https://github.com/samueljustice/plugins/releases/latest/download/SammyJ-Plugins-macOS-Installer.pkg)
+[![Download for Windows](https://img.shields.io/badge/Download_for_Windows-everything-0078D6?style=for-the-badge&logo=windows&logoColor=white)](https://github.com/samueljustice/plugins/releases/latest/download/SammyJ-Plugins-Windows-Installer.exe)
+
+<sub>One installer with the newest version of every plug-in: the apps, the VST3s and (on macOS) the AUs. It removes older copies first, so nothing shows up twice in your host.<br>
+Want just one? Each plug-in's own download is below, or browse all <a href="https://github.com/samueljustice/plugins/releases">releases</a>.</sub>
 
 ![VST3](https://img.shields.io/badge/VST3-222?style=flat-square)
 ![AU](https://img.shields.io/badge/AU-222?style=flat-square)
@@ -171,6 +175,8 @@ git push origin swooshbuckler-v1.0.0
 ```
 
 The tag prefixes are `swooshbuckler-v`, `soundadvice-v`, `subbertone-v`, `pitchflattener-v`, `reversinator-v`, `stretcharmstrong-v` and `ptsl-beattool-v`.
+
+When a plug-in's release finishes, `build-release_bundle.yml` rebuilds the combined **Sammy J's Plugins** installer for macOS and Windows from every plug-in's newest release, and publishes it as the repository's Latest release (tagged `bundle-v<date>.<run>`), which the download buttons at the top link to. It doesn't rebuild the plug-ins; it repackages what their releases published. The plug-ins it includes are listed in [`bundle/plugins.txt`](bundle/plugins.txt). Run it by hand from the Actions tab to rebuild it now.
 
 </details>
 

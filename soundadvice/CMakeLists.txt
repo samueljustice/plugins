@@ -26,7 +26,7 @@ set(SOUNDADVICE_FORMATS "AU;VST3;Standalone" CACHE STRING "Plugin formats to bui
 
 juce_add_plugin(SoundAdvice
     VERSION ${PROJECT_VERSION}
-    COMPANY_NAME "Sweet Justice"
+    COMPANY_NAME "Sammy J"
     COMPANY_WEBSITE "https://sweetjusticesound.com"
     BUNDLE_ID "com.samueljustice.soundadvice"
     IS_SYNTH FALSE

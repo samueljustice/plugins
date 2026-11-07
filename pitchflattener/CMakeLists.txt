@@ -41,7 +41,7 @@ juce_add_plugin(PitchFlattener
     PLUGIN_CODE Pftf
     FORMATS ${PITCHFLATTENER_FORMATS}
     PRODUCT_NAME "SammyJs Pitch Flattener"
-    COMPANY_NAME "Samuel Justice"
+    COMPANY_NAME "Sammy J"
     COMPANY_COPYRIGHT "Copyright 2025-2026 Samuel Justice"
     COMPANY_WEBSITE ""
     COMPANY_EMAIL ""

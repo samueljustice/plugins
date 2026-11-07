@@ -5,7 +5,7 @@
   #define MyAppVersion "1.0.0"
 #endif
 #define MyAppName "Sound Advice"
-#define MyAppPublisher "Sweet Justice Sound"
+#define MyAppPublisher "Sammy J"
 #define MyAppURL "https://www.sweetjusticesound.com"
 #define MyAppExe "Sound Advice.exe"
 
@@ -19,7 +19,7 @@ AppPublisher={#MyAppPublisher}
 AppPublisherURL={#MyAppURL}
 AppSupportURL={#MyAppURL}
 AppUpdatesURL={#MyAppURL}
-DefaultDirName={autopf}\Sweet Justice\{#MyAppName}
+DefaultDirName={autopf}\Sammy J\{#MyAppName}
 DefaultGroupName={#MyAppName}
 DisableProgramGroupPage=yes
 LicenseFile=LICENSE

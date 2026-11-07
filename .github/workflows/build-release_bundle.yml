@@ -1,0 +1,289 @@
+name: Build and Release Sammy J Installer
+
+# One installer for everything: every plug-in's VST3 and AU, and the apps, for macOS (.pkg) and Windows (.exe).
+#
+# It runs by itself whenever a plug-in's release workflow finishes a tagged release, and rebuilds from the
+# newest release of every plug-in in bundle/plugins.txt. It doesn't rebuild the plug-ins: it repackages the
+# files those releases already published (signed and notarised on macOS), then signs and notarises the new
+# installer. The result is published as the repository's "Latest" release with fixed file names, so these
+# links always get the newest one:
+#   https://github.com/samueljustice/plugins/releases/latest/download/SammyJ-Plugins-macOS-Installer.pkg
+#   https://github.com/samueljustice/plugins/releases/latest/download/SammyJ-Plugins-Windows-Installer.exe
+# (Each plug-in's own workflow publishes with make_latest: false, so it doesn't take "Latest" away.)
+#
+# Run it by hand (workflow_dispatch) to rebuild it now. Pull requests that touch bundle/ build it without
+# publishing.
+#
+# Secrets: the same ones the plug-in workflows use (see build-release_swooshbuckler.yml).
+
+on:
+  workflow_run:
+    # Must match the plug-in workflows' "name:" lines.
+    workflows:
+      - Build and Release Swooshbuckler
+      - Build and Release Sound Advice
+      - Build and Release Subbertone
+      - Build and Release Pitch Flattener
+      - Build and Release Reversinator
+    types: [completed]
+  pull_request:
+    paths:
+      - 'bundle/**'
+      - '.github/workflows/build-release_bundle.yml'
+  workflow_dispatch:
+
+# One at a time. A run waiting behind another is replaced by a newer one, which includes everything anyway.
+concurrency:
+  group: sammyj-bundle-${{ github.event_name == 'pull_request' && github.ref || 'release' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: write
+
+jobs:
+  resolve:
+    # After a plug-in workflow: only when it succeeded on a release tag (not a pull request or manual run).
+    if: >-
+      github.event_name != 'workflow_run' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.event == 'push' &&
+       contains(github.event.workflow_run.head_branch, '-v'))
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+      releases: ${{ steps.r.outputs.releases }}
+      publish: ${{ steps.v.outputs.publish }}
+    steps:
+    - uses: actions/checkout@v5
+
+    - name: Work out the installer's version
+      id: v
+      run: |
+        # Date plus run number: always increasing, and valid as a Windows file version (a.b.c.d).
+        VERSION="$(date -u +%Y.%-m.%-d).${{ github.run_number }}"
+        echo "Version: $VERSION"
+        echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+        if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+          echo "publish=false" >> "$GITHUB_OUTPUT"
+        else
+          echo "publish=true" >> "$GITHUB_OUTPUT"
+        fi
+
+    - name: Find each plug-in's newest release
+      id: r
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        bundle/resolve-releases.sh > releases.txt
+        cat releases.txt
+        {
+          echo "releases<<EOF"
+          cat releases.txt
+          echo "EOF"
+        } >> "$GITHUB_OUTPUT"
+
+  build-macos:
+    needs: resolve
+    runs-on: macos-15
+    timeout-minutes: 90
+    env:
+      VERSION: ${{ needs.resolve.outputs.version }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+    - uses: actions/checkout@v5
+
+    - name: Build installer package
+      env:
+        RELEASES: ${{ needs.resolve.outputs.releases }}
+      run: |
+        printf '%s\n' "$RELEASES" > "$RUNNER_TEMP/releases.txt"
+        bundle/build-macos.sh "$RUNNER_TEMP/releases.txt" "$VERSION" "$RUNNER_TEMP/bundle"
+        mv "$RUNNER_TEMP/bundle/SammyJ-Plugins-macOS-Installer.pkg" .
+
+    - name: Check for certificates
+      id: check_certs
+      run: |
+        if [[ -n "${{ secrets.APPLE_DEVELOPER_CERTIFICATE_P12_BASE64 }}" ]]; then
+          echo "has_certs=true" >> "$GITHUB_OUTPUT"
+        else
+          echo "has_certs=false" >> "$GITHUB_OUTPUT"
+          echo "No certificates in secrets: the installer will be unsigned"
+        fi
+
+    - name: Import certificates
+      if: steps.check_certs.outputs.has_certs == 'true'
+      uses: apple-actions/import-codesign-certs@v6
+      with:
+        p12-file-base64: ${{ secrets.APPLE_DEVELOPER_CERTIFICATE_P12_BASE64 }}
+        p12-password: ${{ secrets.APPLE_DEVELOPER_CERTIFICATE_PASSWORD }}
+
+    - name: Sign installer package
+      if: steps.check_certs.outputs.has_certs == 'true'
+      run: |
+        INSTALLER_IDENTITY=$(security find-identity -v -p basic | grep "Developer ID Installer" | head -1 | awk -F'"' '{print $2}')
+        [[ -n "$INSTALLER_IDENTITY" ]] || { echo "Developer ID Installer certificate not found"; exit 1; }
+        productsign --sign "$INSTALLER_IDENTITY" --timestamp SammyJ-Plugins-macOS-Installer.pkg signed.pkg
+        mv signed.pkg SammyJ-Plugins-macOS-Installer.pkg
+        pkgutil --check-signature SammyJ-Plugins-macOS-Installer.pkg
+
+    - name: Notarise installer package
+      if: steps.check_certs.outputs.has_certs == 'true'
+      env:
+        APPLE_ID: ${{ secrets.APPLE_ID }}
+        APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+        APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      run: |
+        f=SammyJ-Plugins-macOS-Installer.pkg
+        ID=$(xcrun notarytool submit "$f" --apple-id "$APPLE_ID" --password "$APPLE_APP_PASSWORD" --team-id "$APPLE_TEAM_ID" --output-format json | jq -r '.id')
+        xcrun notarytool wait "$ID" --apple-id "$APPLE_ID" --password "$APPLE_APP_PASSWORD" --team-id "$APPLE_TEAM_ID"
+        STATUS=$(xcrun notarytool info "$ID" --apple-id "$APPLE_ID" --password "$APPLE_APP_PASSWORD" --team-id "$APPLE_TEAM_ID" --output-format json | jq -r '.status')
+        if [ "$STATUS" != "Accepted" ]; then
+          xcrun notarytool log "$ID" --apple-id "$APPLE_ID" --password "$APPLE_APP_PASSWORD" --team-id "$APPLE_TEAM_ID"
+          exit 1
+        fi
+        xcrun stapler staple "$f"
+        spctl --assess --type install -vv "$f"
+
+    - name: Upload macOS installer
+      uses: actions/upload-artifact@v6
+      with:
+        name: macos-installer
+        path: SammyJ-Plugins-macOS-Installer.pkg
+
+  build-windows:
+    needs: resolve
+    runs-on: windows-latest
+    timeout-minutes: 45
+    env:
+      VERSION: ${{ needs.resolve.outputs.version }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+    - uses: actions/checkout@v5
+
+    - name: Download and unpack each plug-in's release
+      env:
+        RELEASES: ${{ needs.resolve.outputs.releases }}
+      run: |
+        $releases = @{}
+        foreach ($line in ($env:RELEASES -split "`n")) {
+          $p = $line.Trim().Split('|')
+          if ($p.Count -eq 3) { $releases[$p[0]] = @{ tag = $p[1]; version = $p[2] } }
+        }
+        $defines = @()
+        foreach ($line in Get-Content bundle\plugins.txt) {
+          if ($line -match '^\s*(#|$)') { continue }
+          $id, $prefix, $name, $bundle, $app = $line.Split('|')
+          $r = $releases[$id]
+          if (-not $r) { throw "No release resolved for $id" }
+          Write-Host "== $name $($r.version) ($($r.tag))"
+          $dl = "dl\$id"
+          $patterns = @('-p', '*Windows-VST3.zip')
+          if ($app) { $patterns += @('-p', '*Windows-App.zip') }
+          gh release download $r.tag @patterns -D $dl
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+          $dest = "bundle\windows-package\$id"
+          Expand-Archive (Get-ChildItem "$dl\*Windows-VST3.zip").FullName -DestinationPath "$dest\vst3" -Force
+          if (-not (Test-Path "$dest\vst3\$bundle.vst3")) { throw "$bundle.vst3 not in $($r.tag)'s Windows VST3 zip" }
+          if ($app) {
+            Expand-Archive (Get-ChildItem "$dl\*Windows-App.zip").FullName -DestinationPath "$dest\app" -Force
+            if (-not (Test-Path "$dest\app\$app.exe")) { throw "$app.exe not in $($r.tag)'s Windows app zip" }
+          }
+          # Inno Setup define names: "Sound Advice" -> SoundAdviceVersion
+          $defines += "/D$($name -replace '[^A-Za-z]', '')Version=$($r.version)"
+        }
+        "ISCC_DEFINES=$($defines -join ' ')" | Out-File -FilePath $env:GITHUB_ENV -Append
+        Get-ChildItem bundle\windows-package -Recurse -Depth 2 | Select-Object FullName
+
+    - name: Build installer
+      run: |
+        choco install innosetup -y --no-progress
+        cd bundle
+        $defines = $env:ISCC_DEFINES -split ' '
+        & "${env:ProgramFiles(x86)}\Inno Setup 6\iscc.exe" "/DBundleVersion=$env:VERSION" @defines installer.iss
+        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+        Get-Item SammyJ-Plugins-Windows-Installer.exe
+
+    - name: Check for Windows certificate
+      id: wincert
+      shell: bash
+      run: |
+        if [[ -n "${{ secrets.WINDOWS_CERTIFICATE_PFX_BASE64 }}" ]]; then
+          echo "has_cert=true" >> "$GITHUB_OUTPUT"
+        else
+          echo "has_cert=false" >> "$GITHUB_OUTPUT"
+          echo "No Windows certificate in secrets: the installer will be unsigned"
+        fi
+
+    - name: Sign installer
+      if: steps.wincert.outputs.has_cert == 'true'
+      env:
+        PFX_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+      run: |
+        $bytes = [Convert]::FromBase64String("${{ secrets.WINDOWS_CERTIFICATE_PFX_BASE64 }}")
+        $pfx = Join-Path $env:RUNNER_TEMP "codesign.pfx"
+        [IO.File]::WriteAllBytes($pfx, $bytes)
+        try {
+          $signtool = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin\*\x64\signtool.exe" | Sort-Object FullName -Descending | Select-Object -First 1
+          $f = "bundle\SammyJ-Plugins-Windows-Installer.exe"
+          & $signtool.FullName sign /f $pfx /p $env:PFX_PASSWORD /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 /d "Sammy J's Plugins installer" $f
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & $signtool.FullName verify /pa $f
+        } finally {
+          Remove-Item -Force -ErrorAction SilentlyContinue $pfx
+        }
+
+    - name: Upload Windows installer
+      uses: actions/upload-artifact@v6
+      with:
+        name: windows-installer
+        path: bundle/SammyJ-Plugins-Windows-Installer.exe
+
+  create-release:
+    needs: [resolve, build-macos, build-windows]
+    if: needs.resolve.outputs.publish == 'true'
+    runs-on: ubuntu-latest
+    env:
+      VERSION: ${{ needs.resolve.outputs.version }}
+    steps:
+    - uses: actions/checkout@v5
+
+    - name: Download installers
+      uses: actions/download-artifact@v7
+
+    - name: Write release notes
+      env:
+        RELEASES: ${{ needs.resolve.outputs.releases }}
+      run: |
+        {
+          echo "## Sammy J's Plugins"
+          echo
+          echo "Every plug-in in one installer. Installs the newest version of each, and removes older copies first so you won't see duplicates in your host."
+          echo
+          echo "| Plug-in | Version |"
+          echo "|---|---|"
+          printf '%s\n' "$RELEASES" | while IFS='|' read -r id tag ver; do
+            [[ -z "$id" ]] && continue
+            name=$(grep "^$id|" bundle/plugins.txt | cut -d'|' -f3)
+            echo "| [$name](https://github.com/${{ github.repository }}/releases/tag/$tag) | $ver |"
+          done
+          echo
+          echo "### Downloads"
+          echo "- **macOS** (\`.pkg\`): every app, VST3 and AU. Choose Customize to pick. Signed and notarised; Universal (Apple silicon and Intel), macOS 11 or later."
+          echo "- **Windows** (\`.exe\`): every VST3, plus the Swooshbuckler and Sound Advice apps. 64-bit Windows 10 or later."
+        } > notes.md
+        cat notes.md
+
+    - name: Create release
+      uses: softprops/action-gh-release@v3
+      with:
+        tag_name: bundle-v${{ env.VERSION }}
+        target_commitish: ${{ github.sha }}
+        name: Sammy J's Plugins ${{ env.VERSION }}
+        body_path: notes.md
+        make_latest: true
+        files: |
+          macos-installer/SammyJ-Plugins-macOS-Installer.pkg
+          windows-installer/SammyJ-Plugins-Windows-Installer.exe
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

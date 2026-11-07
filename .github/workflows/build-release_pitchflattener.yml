@@ -1,4 +1,4 @@
-name: Build and Release
+name: Build and Release Pitch Flattener
 
 on:
   push:
@@ -575,6 +575,8 @@ jobs:
     - name: Create Release
       uses: softprops/action-gh-release@v3
       with:
+        # The combined Sammy J installer is the "Latest" release, so the README's download links keep working.
+        make_latest: false
         files: |
           PitchFlattener-Windows-VST3.zip
           PitchFlattener-macOS-VST3.zip
