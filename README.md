@@ -129,7 +129,7 @@ A small, quiet page of advice from the great film, TV and game sound designers a
 - 🔇 **Audio passes straight through**, so it can sit on a mix bus or on a second screen as an app
 
 **App** (macOS, Windows) · **VST3** · **AU** &nbsp;&nbsp;
-![Coming soon](https://img.shields.io/badge/release-coming%20soon-555?style=flat-square) &nbsp;
+[![Download Sound Advice](https://img.shields.io/badge/download-v1.0.0-9a5a3a?style=flat-square)](https://github.com/samueljustice/plugins/releases/tag/soundadvice-v1.0.0) &nbsp;
 [Read the manual →](soundadvice/README.md)
 
 ---
