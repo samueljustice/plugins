@@ -6,7 +6,7 @@ Audio plug-ins and tools by Samuel Justice / [Sweet Justice Sound](https://www.s
 
 | Project | What it is | Formats | Latest release |
 |---|---|---|---|
-| [Swooshbuckler](swooshbuckler/README.md) | Whoosh-making rig | App (macOS, Windows), VST3, AU | Not released yet |
+| [Swooshbuckler](swooshbuckler/README.md) | Whoosh-making rig | App (macOS, Windows), VST3, AU | [v1.0.0](https://github.com/samueljustice/plugins/releases/tag/swooshbuckler-v1.0.0) |
 | [Subbertone](subbertone/README.md) | Subharmonic generator | VST3, AU | [v1.2.0](https://github.com/samueljustice/plugins/releases/tag/subbertone-v1.2.0) |
 | [Pitch Flattener](pitchflattener/README.md) | Lookahead pitch flattening (Doppler, sirens, vibrato) | VST3, AU | [v2.0.0](https://github.com/samueljustice/plugins/releases/tag/pitchflattener-v2.0.0) |
 | [Reversinator](reversinator/README.md) | Real-time reverser, recreating Backwards Machine | VST3, AU | [v2.0.0](https://github.com/samueljustice/plugins/releases/tag/reversinator-v2.0.0) |
@@ -18,6 +18,7 @@ A whoosh-making rig. Drop in up to ten sounds and it rides the faders across the
 
 - Location: `/swooshbuckler/`
 - [Project README](swooshbuckler/README.md)
+- [Latest release](https://github.com/samueljustice/plugins/releases/tag/swooshbuckler-v1.0.0)
 
 ### Subbertone
 A subharmonic generator. Tracks the pitch of your bass, engine or drone and adds a clean sub one octave below, with a 16-bar harmonic editor, six saturation types, a resonant, envelope-swept filter and a mastering stage (Inflate and a brickwall limiter), for anything from pure sub reinforcement or bass that survives a phone speaker to a growling octave-down bass. Comes with 32 factory presets, including engines.
