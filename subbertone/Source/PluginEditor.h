@@ -139,6 +139,7 @@ private:
     juce::TextButton m_patternButton;
     juce::TextButton m_limiterButton;
     juce::TextButton m_loCutButton;
+    juce::TextButton m_phaseAlignButton;     // in the HARMONICS header
     juce::Rectangle<int> m_outputHeader;
 
     // Attachments are declared after the controls they bind so they are destroyed first.
@@ -161,6 +162,7 @@ private:
     juce::AudioProcessorValueTreeState::ButtonAttachment   m_limiterAttachment;
     juce::AudioProcessorValueTreeState::SliderAttachment   m_loCutAttachment;
     juce::AudioProcessorValueTreeState::ButtonAttachment   m_loCutButtonAttachment;
+    juce::AudioProcessorValueTreeState::ButtonAttachment   m_phaseAlignAttachment;
     std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> m_distortionTypeAttachment;
     std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> m_filterModeAttachment;
 

@@ -90,7 +90,7 @@ jobs:
         
         # Check if LICENSE exists, if not create a simple one
         if (!(Test-Path "LICENSE")) {
-          echo "Copyright (c) 2025 Samuel Justice. All rights reserved." > LICENSE
+          echo "Copyright (c) $((Get-Date).Year) Samuel Justice. All rights reserved." > LICENSE
           echo "" >> LICENSE
           echo "This software is provided as-is, without warranty of any kind." >> LICENSE
         }

@@ -62,6 +62,7 @@ Drop in up to ten sounds and Swooshbuckler rides the faders across them for you,
 Subbertone tracks the pitch of your bass, engine or drone and adds a sub one octave below. Use it for pure sub reinforcement, for bass that still reads on a phone speaker, or for a growling octave-down monster.
 
 - 🎹 **16-bar harmonic editor** with pattern presets
+- 🧲 **Phase Align**: the harmonics add up with your bass lines and hits instead of cancelling them
 - 🔥 **Six saturation types** and a resonant, envelope-swept filter
 - 🧱 **Mastering stage**: Inflate and a brickwall limiter
 - 🚗 **32 factory presets**, engines included
@@ -70,8 +71,17 @@ Subbertone tracks the pitch of your bass, engine or drone and adds a sub one oct
 <summary>More screenshots</summary>
 <br>
 <p align="center">
+  <img src="subbertone/docs/harmonics.png" alt="Subbertone harmonic editor with Phase Align on" width="787">
+</p>
+<p align="center">
+  <img src="subbertone/docs/output-master.jpg" alt="Subbertone OUTPUT and MASTER sections" width="626">
+</p>
+<p align="center">
   <img src="subbertone/docs/presets.png" alt="Subbertone presets menu" width="400">
   <img src="subbertone/docs/patterns.png" alt="Subbertone patterns menu" width="400">
+</p>
+<p align="center">
+  <img src="subbertone/docs/idle-logo.jpg" alt="Subbertone visualiser with no signal" width="600">
 </p>
 </details>
 

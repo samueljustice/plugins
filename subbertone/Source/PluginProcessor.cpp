@@ -109,6 +109,7 @@ SubbertoneAudioProcessor::SubbertoneAudioProcessor()
     m_limiterReleaseParam   = m_parameters.getRawParameterValue("limiterRelease");
     m_loCutOnParam          = m_parameters.getRawParameterValue("loCutOn");
     m_loCutFreqParam        = m_parameters.getRawParameterValue("loCutFreq");
+    m_phaseAlignParam       = m_parameters.getRawParameterValue("phaseAlign");
 }
 
 juce::AudioProcessorValueTreeState::ParameterLayout SubbertoneAudioProcessor::createParameterLayout()
@@ -175,6 +176,11 @@ juce::AudioProcessorValueTreeState::ParameterLayout SubbertoneAudioProcessor::cr
     // Steep (48 dB/oct) low cut on the generated sub: subs below ~30 Hz mostly eat headroom.
     parameterLayout.add(std::make_unique<juce::AudioParameterBool>(juce::ParameterID("loCutOn", 2), "Lo Cut", false));
     parameterLayout.add(std::make_unique<Float>(juce::ParameterID("loCutFreq", 2), "Lo Cut Frequency", Range(10.0f, 80.0f, 0.1f, 0.6f), 30.0f, hertz()));
+
+    // Phase Align: the generated partials follow the phases of the input's own harmonics (see
+    // SubharmonicEngine.h). Appended after every 1.2.0 parameter. Off is Classic, the 1.2.0 sound, and
+    // a state or preset without this parameter loads with it off, so it recalls exactly as before.
+    parameterLayout.add(std::make_unique<juce::AudioParameterBool>(juce::ParameterID("phaseAlign", 3), "Phase Align", false));
 
     return parameterLayout;
 }
@@ -362,6 +368,7 @@ void SubbertoneAudioProcessor::setStateInformation(const void* data, int sizeInB
     // The parameter tree: PARAM children only. Non-finite values are dropped (that parameter
     // takes its default). Version 1 states (Subbertone 1.0/1.1) contain the same parameter
     // IDs, so they load as-is; parameters they lack get their defaults, which match 1.1.0.
+    // Likewise a 1.2.0 state has no phaseAlign and loads with Phase Align off (Classic).
     auto tree = juce::ValueTree::fromXml(*xmlState);
     tree.removeAllProperties(nullptr);
 
@@ -512,6 +519,7 @@ SubharmonicEngine::Parameters SubbertoneAudioProcessor::readEngineParameters() c
         p.harmonicLevels[static_cast<size_t>(k)] = m_harmonicParams[static_cast<size_t>(k)]->load() * 0.01f;
     p.loCutOn          = m_loCutOnParam->load() >= 0.5f;
     p.loCutHz          = m_loCutFreqParam->load();
+    p.phaseAlign       = m_phaseAlignParam->load() >= 0.5f;
     return p;
 }
 
