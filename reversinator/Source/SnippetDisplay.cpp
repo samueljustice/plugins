@@ -148,9 +148,20 @@ void SnippetDisplay::paint(juce::Graphics& g)
     g.setColour(text.withAlpha(0.85f));
     g.drawText(c_modeNames[juce::jlimit(0, 2, state.mode)], top, juce::Justification::centredLeft, false);
 
-    g.setColour(state.reversing ? reverser : textDim);
-    const juce::String status = state.reversing ? juce::String::fromUTF8("\xe2\x97\x80  REVERSING") : juce::String::fromUTF8("\xe2\x96\xb6  FORWARDS");
-    g.drawText(status + "   " + juce::String(state.timeSeconds, 2) + " s", top, juce::Justification::centredRight, false);
+    // Status, with its direction arrow drawn as a path: Azeret Mono has no triangle glyphs, and the
+    // system fallback fonts would draw the two arrows at different sizes.
+    const auto colour = state.reversing ? reverser : textDim;
+    const juce::String status = juce::String(state.reversing ? "REVERSING" : "FORWARDS") + "   " + juce::String(state.timeSeconds, 2) + " s";
+    g.setColour(colour);
+    g.drawText(status, top, juce::Justification::centredRight, false);
+
+    const float statusWidth = juce::GlyphArrangement::getStringWidth(g.getCurrentFont(), status);
+    const float arrowRight = top.getRight() - statusWidth - 9.0f;
+    const float cy = top.getCentreY();
+    juce::Path arrow;
+    if (state.reversing) arrow.addTriangle(arrowRight - 6.0f, cy, arrowRight, cy - 3.5f, arrowRight, cy + 3.5f);
+    else                 arrow.addTriangle(arrowRight, cy, arrowRight - 6.0f, cy - 3.5f, arrowRight - 6.0f, cy + 3.5f);
+    g.fillPath(arrow);
 
     g.setColour(outlineSoft);
     g.drawRoundedRectangle(bounds.reduced(0.5f), 8.0f, 1.0f);

@@ -2,7 +2,8 @@
 //
 //   ReversinatorTests render <in.wav> <out.wav> [--mode 0|1|2] [--time s] [--feedback %] [--wet %] [--dry %] [--sr hz]
 //                            [--reverser 0|1] [--block n] [--random-blocks]
-//   ReversinatorTests screenshot <out.png> [--input in.wav] [--seconds s] [--scale f] [--width px] [--about] [params...]
+//   ReversinatorTests screenshot <out.png> [--input in.wav] [--seconds s] [--scale f] [--width px] [--about [--select]]
+//                                [--edit] [--menu edit|demo] [params...]
 //   ReversinatorTests selftest
 //   ReversinatorTests hostcheck <plugin.vst3|plugin.component>
 
@@ -279,9 +280,60 @@ namespace
 
         if (o.has("about"))
             if (auto* about = findComponent<AboutPanel>(*editor))
+            {
                 about->show();
+                if (o.has("select"))   // part of the licence text selected
+                    if (auto* licence = findComponent<juce::TextEditor>(*about))
+                        licence->setHighlightedRegion({ 0, 120 });
+            }
+
+        // --edit: the first slider's value box while it is typed into, its text selected.
+        auto* slider = findComponent<juce::Slider>(*editor);
+        if (o.has("edit") && slider != nullptr)
+        {
+            slider->showTextBox();
+            if (auto* label = findComponent<juce::Label>(*slider))
+                if (auto* ed = label->getCurrentTextEditor())
+                    ed->selectAll();
+        }
+
+        // --menu edit|demo: a popup menu open over the editor. "edit" is the value box's own
+        // right-click menu; "demo" shows every menu element (header, tick, disabled, submenu).
+        if (o.has("menu"))
+        {
+            juce::PopupMenu menu;
+            int selected = 1;
+            if (o.named["menu"] == "demo")
+            {
+                menu.addSectionHeader("SECTION");
+                menu.addItem(1, "Highlighted item");
+                menu.addItem(2, "Ticked item", true, true);
+                menu.addItem(3, "Disabled item", false);
+                menu.addSeparator();
+                juce::PopupMenu sub;
+                sub.addItem(10, "Sub item");
+                menu.addSubMenu("Submenu", sub);
+            }
+            else
+            {
+                juce::TextEditor scratch;   // editable, like a value box being typed into
+                scratch.setText("2.00 s");
+                scratch.selectAll();
+                scratch.addPopupMenuItems(menu, nullptr);
+                selected = 2;
+            }
+
+            menu.setLookAndFeel(&editor->getLookAndFeel());
+            auto anchor = slider != nullptr ? editor->getLocalArea(slider, slider->getLocalBounds()).removeFromTop(24)
+                                            : editor->getLocalBounds().withSizeKeepingCentre(1, 1);
+            menu.showMenuAsync(juce::PopupMenu::Options().withParentComponent(editor.get())
+                                                       .withTargetScreenArea(anchor)
+                                                       .withInitiallySelectedItem(selected));
+        }
 
         const auto image = editor->createComponentSnapshot(editor->getLocalBounds(), true, static_cast<float>(o.number("scale", 2.0)));
+        juce::PopupMenu::dismissAllActiveMenus();
+
         juce::File out = juce::File::getCurrentWorkingDirectory().getChildFile(o.positional[0]);
         out.deleteFile();
         juce::FileOutputStream stream(out);
@@ -714,6 +766,98 @@ namespace
                       && Version::latestRelease(juce::JSON::parse(R"({ "message": "API rate limit exceeded" })")).isEmpty()
                       && Version::toNumber("10.0.0") > Version::toNumber("9.9.9"),
                   "update check picks the newest release (other plugins and prereleases skipped)");
+        }
+
+        // 16. Nothing falls back to JUCE's default look: every colour a Reversinator component
+        //     can show differs from LookAndFeel_V4's, menus use the plugin's font, and the resize
+        //     grip is the plugin's own drawing.
+        {
+            juce::SharedResourcePointer<Theme::Fonts> fonts;
+            Controls::LookAndFeel ours(*fonts);
+            juce::LookAndFeel_V4 stock;
+
+            const std::pair<int, const char*> colours[] = {
+                { juce::ResizableWindow::backgroundColourId,      "window background" },
+                { juce::Label::textColourId,                      "label text" },
+                { juce::Label::textWhenEditingColourId,           "label editing text" },
+                { juce::TextEditor::backgroundColourId,           "text editor background" },
+                { juce::TextEditor::textColourId,                 "text editor text" },
+                { juce::TextEditor::outlineColourId,              "text editor outline" },
+                { juce::TextEditor::focusedOutlineColourId,       "text editor focused outline" },
+                { juce::TextEditor::highlightColourId,            "text selection" },
+                { juce::TextEditor::highlightedTextColourId,      "selected text" },
+                { juce::CaretComponent::caretColourId,            "caret" },
+                { juce::PopupMenu::backgroundColourId,            "menu background" },
+                { juce::PopupMenu::textColourId,                  "menu text" },
+                { juce::PopupMenu::headerTextColourId,            "menu section header" },
+                { juce::PopupMenu::highlightedBackgroundColourId, "menu highlight" },
+                { juce::PopupMenu::highlightedTextColourId,       "menu highlighted text" },
+                { juce::ScrollBar::thumbColourId,                 "scrollbar thumb" },
+                { juce::TooltipWindow::backgroundColourId,        "tooltip background" },
+                { juce::TooltipWindow::textColourId,              "tooltip text" },
+                { juce::TooltipWindow::outlineColourId,           "tooltip outline" },
+                { juce::TextButton::buttonColourId,               "button" },
+                { juce::TextButton::textColourOffId,              "button text" },
+            };
+            juce::StringArray stockColours;
+            for (const auto& [id, name] : colours)
+                if (ours.findColour(id) == stock.findColour(id))
+                    stockColours.add(name);
+
+            const auto grip = [](juce::LookAndFeel& lf)
+            {
+                juce::Image image(juce::Image::ARGB, 18, 18, true);
+                juce::Graphics g(image);
+                lf.drawCornerResizer(g, 18, 18, false, false);
+                return image;
+            };
+            const auto ourGrip = grip(ours), stockGrip = grip(stock);
+            bool gripDiffers = false;
+            for (int y = 0; y < 18 && ! gripDiffers; ++y)
+                for (int x = 0; x < 18 && ! gripDiffers; ++x)
+                    gripDiffers = ourGrip.getPixelAt(x, y) != stockGrip.getPixelAt(x, y);
+
+            const auto menuFace = ours.getPopupMenuFont().getTypefaceName();
+
+            // Text boxes are rounded (JUCE fills and frames a square), and menus are framed in the
+            // panels' outline colour (JUCE uses a light grey on Windows).
+            juce::TextEditor box;
+            juce::Image boxImage(juce::Image::ARGB, 60, 20, true);
+            {
+                juce::Graphics g(boxImage);
+                ours.fillTextEditorBackground(g, 60, 20, box);
+                ours.drawTextEditorOutline(g, 60, 20, box);
+            }
+            juce::Image menuImage(juce::Image::ARGB, 40, 40, true);
+            {
+                juce::Graphics g(menuImage);
+                ours.drawPopupMenuBackgroundWithOptions(g, 40, 40, juce::PopupMenu::Options());
+            }
+            const auto close = [](juce::Colour a, juce::Colour b)
+            {
+                return std::abs(a.getRed() - b.getRed()) < 12 && std::abs(a.getGreen() - b.getGreen()) < 12
+                    && std::abs(a.getBlue() - b.getBlue()) < 12 && a.getAlpha() == 255;
+            };
+            const bool roundedBox = boxImage.getPixelAt(0, 0).getAlpha() == 0 && boxImage.getPixelAt(30, 10).getAlpha() == 255;
+            const bool menuFrame = menuImage.getPixelAt(0, 0).getAlpha() < 128 && close(menuImage.getPixelAt(0, 20), Theme::Colours::outline)
+                                && close(menuImage.getPixelAt(20, 20), Theme::Colours::panelRaised);
+
+            // A value box being typed into keeps its centred text (JUCE's editor starts at the left).
+            juce::Slider slider(juce::Slider::LinearVertical, juce::Slider::TextBoxAbove);
+            slider.setLookAndFeel(&ours);
+            slider.setBounds(0, 0, 80, 200);
+            slider.showTextBox();
+            const auto* valueBox = findComponent<juce::Label>(slider);
+            const auto* typing = valueBox != nullptr ? valueBox->getCurrentTextEditor() : nullptr;
+            const bool centredEditing = typing != nullptr && typing->getJustificationType() == juce::Justification::centred;
+            slider.hideTextBox(true);
+            slider.setLookAndFeel(nullptr);
+
+            check(stockColours.isEmpty() && gripDiffers && menuFace.containsIgnoreCase("Azeret") && roundedBox && menuFrame && centredEditing,
+                  "no JUCE default styling (colours, menu font " + menuFace + ", menu frame, rounded text boxes, centred editing, resize grip)"
+                      + (stockColours.isEmpty() ? juce::String() : "  stock: " + stockColours.joinIntoString(", "))
+                      + (roundedBox ? "" : "  square text box") + (menuFrame ? "" : "  menu frame")
+                      + (centredEditing ? "" : "  editing text not centred"));
         }
 
         std::cout << (failures == 0 ? "ALL PASSED" : juce::String(failures) + " FAILED") << std::endl;

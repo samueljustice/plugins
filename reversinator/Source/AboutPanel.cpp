@@ -1,4 +1,5 @@
 #include "AboutPanel.h"
+#include "Controls.h"
 
 namespace
 {
@@ -47,11 +48,14 @@ AboutPanel::AboutPanel(const Theme::Fonts& fonts)
 {
     using namespace Theme::Colours;
 
+    // Links: dim text, blue and underlined under the mouse (the LookAndFeel's link style for a text
+    // button with a transparent fill), as in Subbertone's About window.
     const auto linkButton = [this](juce::TextButton& button, const juce::String& caption, const juce::String& url)
     {
         button.setButtonText(caption);
         button.setColour(juce::TextButton::buttonColourId, juce::Colours::transparentBlack);
-        button.setColour(juce::TextButton::textColourOffId, reverser);
+        button.setColour(juce::TextButton::textColourOffId, textDim);
+        button.setMouseCursor(juce::MouseCursor::PointingHandCursor);
         button.onClick = [url] { juce::URL(url).launchInDefaultBrowser(); };
         addAndMakeVisible(button);
     };
@@ -64,23 +68,29 @@ AboutPanel::AboutPanel(const Theme::Fonts& fonts)
     m_closeButton.onClick = [this] { setVisible(false); };
     addAndMakeVisible(m_closeButton);
 
+    // Chrome in capitals, like the editor's other labels; the button keeps its text.
     m_checkUpdatesButton.setButtonText("Check for Updates");
+    Controls::LookAndFeel::setLabelDrawnInCapitals(m_checkUpdatesButton);
     m_checkUpdatesButton.onClick = [this] { checkForUpdates(); };
     addAndMakeVisible(m_checkUpdatesButton);
 
     m_updateStatusLabel.setJustificationType(juce::Justification::centred);
-    m_updateStatusLabel.setFont(m_fonts.body(12.0f));
+    m_updateStatusLabel.setFont(m_fonts.body(11.0f));   // a theme font, so the LookAndFeel keeps it
+    m_updateStatusLabel.setMinimumHorizontalScale(1.0f); // never squashed
     addAndMakeVisible(m_updateStatusLabel);
 
+    // The licence text in the dim text colour, with the theme's scrollbar; its focus ring (the
+    // LookAndFeel's) shows only after Tab.
     m_licenseText.setMultiLine(true);
     m_licenseText.setReadOnly(true);
     m_licenseText.setScrollbarsShown(true);
     m_licenseText.setCaretVisible(false);
+    m_licenseText.setIndents(6, 4);
     m_licenseText.setColour(juce::TextEditor::backgroundColourId, background);
     m_licenseText.setColour(juce::TextEditor::textColourId, textDim);
     m_licenseText.setColour(juce::TextEditor::outlineColourId, outlineSoft);
-    m_licenseText.setColour(juce::TextEditor::focusedOutlineColourId, outline);
-    m_licenseText.setFont(m_fonts.body(11.0f));
+    m_licenseText.setFont(m_fonts.body(11.5f));
+    m_licenseText.setLineSpacing(1.25f);
 
     // The LICENSE file is hard-wrapped at ~80 columns; reflow its paragraphs to the box width.
     juce::StringArray paragraphs;
@@ -97,6 +107,8 @@ AboutPanel::AboutPanel(const Theme::Fonts& fonts)
                             "Built with JUCE (juce.com), used under the JUCE licence.");
     addAndMakeVisible(m_licenseText);
 
+    // While the card is up, Tab cycles through its own controls only (not the ones behind the scrim).
+    setFocusContainerType(juce::Component::FocusContainerType::keyboardFocusContainer);
     setInterceptsMouseClicks(true, true);
     setVisible(false);
 }
@@ -110,6 +122,7 @@ void AboutPanel::show()
 {
     setVisible(true);
     toFront(false);
+    m_closeButton.grabKeyboardFocus();   // into the card; its ring shows only after Tab
 }
 
 juce::Rectangle<int> AboutPanel::cardBounds() const
@@ -172,9 +185,18 @@ void AboutPanel::resized()
     const auto card = cardBounds();
     const int x = card.getX() + (card.getWidth() - 240) / 2;
 
+    // Links are sized to their text (plus a little slack each side), so they read and respond as text.
+    const auto placeLink = [&](juce::TextButton& link, int y)
+    {
+        const auto font = m_fonts.body(12.0f);   // the LookAndFeel's link font
+        const auto label = link.getButtonText();
+        const float width = juce::GlyphArrangement::getStringWidth(font, label + " ") - juce::GlyphArrangement::getStringWidth(font, " ");
+        link.setBounds(juce::Rectangle<int>(static_cast<int>(std::ceil(width)) + 8, 24).withCentre({ card.getCentreX(), y + 12 }));
+    };
+
     m_closeButton.setBounds(card.getRight() - 38, card.getY() + 10, 28, 28);
-    m_websiteButton.setBounds(x, card.getY() + 152, 240, 24);
-    m_emailButton.setBounds(x, card.getY() + 180, 240, 24);
+    placeLink(m_websiteButton, card.getY() + 152);
+    placeLink(m_emailButton, card.getY() + 180);
     m_checkUpdatesButton.setBounds(x, card.getY() + 214, 240, 28);
     m_updateStatusLabel.setBounds(card.getX() + 20, card.getY() + 246, card.getWidth() - 40, 22);
     m_licenseText.setBounds(card.getX() + 20, card.getY() + 308, card.getWidth() - 40, card.getHeight() - 324);
@@ -194,6 +216,7 @@ void AboutPanel::checkForUpdates()
     showStatus("Checking for updates...", Theme::Colours::textDim);
     m_updateChecker = std::make_unique<UpdateChecker>(juce::Component::SafePointer<AboutPanel>(this));
     m_updateChecker->startThread();
+    m_checkUpdatesButton.setEnabled(false);   // until the result arrives
 }
 
 //==============================================================================
@@ -259,6 +282,8 @@ void AboutPanel::UpdateChecker::run()
     if (threadShouldExit())
         return;
 
+    // Colours as in Subbertone's About: a failure in the warning colour, up to date in green ("good"),
+    // something to act on in the accent, anything else dim.
     juce::String message;
     juce::Colour colour = Theme::Colours::feedback;
 
@@ -276,21 +301,25 @@ void AboutPanel::UpdateChecker::run()
     else if (const auto latest = Version::latestRelease(releases); latest.isEmpty())
     {
         message = "No releases found";
+        colour = Theme::Colours::textDim;
     }
     else if (Version::toNumber(latest) > Version::toNumber(JucePlugin_VersionString))
     {
         message = "Version " + latest + " is available";
-        colour = Theme::Colours::mode;
+        colour = Theme::Colours::reverser;
     }
     else
     {
         message = "You have the latest version";
-        colour = Theme::Colours::textDim;
+        colour = Theme::Colours::mode;
     }
 
     juce::MessageManager::callAsync([owner = m_owner, message, colour]
     {
         if (auto* panel = owner.getComponent())
+        {
             panel->showStatus(message, colour);
+            panel->m_checkUpdatesButton.setEnabled(true);
+        }
     });
 }
