@@ -1,0 +1,183 @@
+# Entries left out of the plug-in: too generic, too feely, fragments that need context, or near-duplicates.
+# One id per line; the rest of the line after # is a note. The entries stay in data/*.json.
+thom-9788be  # Randy Thom: We, the audience, interpret sound with our emotions, — generic, feely
+thom-4300b6  # Randy Thom: Film making and all of its crafts are — generic platitude
+thom-18a540  # Randy Thom: Nothing paralyzes an artist more than fear of — generic creativity platitude
+thom-cc7b01  # Randy Thom: The temptation is to cover it with music. — fragment, refers to "it"
+thom-99c22b  # Randy Thom: Making mistakes and attempting experiments that don’t succeed — generic, dup of fear-of-mistakes
+burtt-fd543c  # Ben Burtt: Silence can be your friend. — silence platitude
+burtt-212766  # Ben Burtt: You don’t just want a wall of noise. — generic truism
+rydstrom-3d29d5  # Gary Rydstrom: Sound is all about emotion, the way music — sound-is-emotion platitude
+rydstrom-5a50c0  # Gary Rydstrom: Everything had to be so much bigger than — fragment, no context
+rydstrom-1ea66c  # Gary Rydstrom: But there was no bigger candy store for — praise, no lesson
+rydstrom-5adfad  # Gary Rydstrom: Every sound is in context with sounds around — trivially obvious
+rydstrom-94b31d  # Gary Rydstrom: It’s good filmmaking to make use of something — generic setup/payoff truism
+rydstrom-c56341  # Gary Rydstrom: My favorite sounds were the bubble pops. — fragment, dup of Nemo entry
+rydstrom-551641  # Gary Rydstrom: We wanted to work with the music, not — generic, nothing actionable
+murch-a3c708  # Walter Murch: The better the sound, the better the image. — sound-is-half-picture truism
+murch-4c9fc6  # Walter Murch: Sound has a great power but it is — vague abstraction
+murch-f42a6a  # Walter Murch: Silence can be a useful tool; although it — silence platitude
+murch-8a5adc  # Walter Murch: I can’t use it more often or it — fragment, refers to "it"
+murch-fb783e  # Walter Murch: It’s like a marker, or perfume, that says: — fragment, unclear referent
+klyce-7278fc  # Ren Klyce: I think sound is a craft that’s not — truism, dup of invisible-sound
+klyce-400045  # Ren Klyce: I always think, ‘Oh, I’m finally figuring out — vague, no craft lesson
+klyce-de1f5f  # Ren Klyce: I like the idea that there’s still sort — vague attitude statement
+lievsay-c475a4  # Skip Lievsay: Movies I think are a direct lift from — vague, nothing to act on
+lievsay-3dd326  # Skip Lievsay: That’s what frees the sound from being sound — fragment, refers to "that"
+lievsay-f182e5  # Skip Lievsay: Marty’s really, really committed to that thing of — praise of director, fragment
+lievsay-78a52e  # Skip Lievsay: It’s like making a piece of furniture, or — vague metaphor
+kroeber-9deeab  # Ann Kroeber: Listening is just the first step. — vague platitude
+kroeber-1230eb  # Ann Kroeber: I talk to them as if I were — fragment, dup of horse entry
+splet-c0296c  # Alan Splet: I don’t know where a lot of these — vague, nothing to act on
+splet-45636a  # Alan Splet: Kroeber named Splet her biggest influence, crediting his — praise, no lesson
+splet-06f64b  # Alan Splet: Legally blind and rarely travelling, Splet worked mostly — biographical credit only
+gearty-e1a51f  # Eugene Gearty: Being a skilled musician or sound designer, it’s — generic creativity platitude
+aadahl-1f65b4  # Erik Aadahl: There should be no doubt that the sound — generic, obvious
+aadahl-481f54  # Erik Aadahl: The goal was to get goose bumps. — feely, generic
+aadahl-b21191  # Erik Aadahl: Sound can create a truly visceral reality. — generic platitude
+ryn-e4dba6  # Ethan Van der Ryn: It’s only in relation to the absence of — silence platitude
+ryn-d655c7  # Ethan Van der Ryn: Fusing those two together creates something new. — fragment, "those two"
+king-ef0dc5  # Richard King: We wanted to use the real event as — generic, vague
+king-ec00fa  # Richard King: The film tells us how subtle or how — generic truism
+king-74d56f  # Richard King: Find the sound which provides that feeling you’re — generic, feely
+king-81c7df  # Richard King: The idea was to feel it rather than — feely, dup of Thom emotion
+deenen-e70768  # Charles Deenen: For each project I always look for the — vague buzzword
+deenen-f51db9  # Charles Deenen: Processing is done to enhance what doesn’t exist. — cryptic, nothing to act on
+deenen-22f826  # Charles Deenen: We always tried to stay faithful, but enhanced — promo, vague
+andersen-6420b3  # Martin Stig Andersen: It’s more about what the listener imagines, rather — vague, feely
+andersen-1aaaa7  # Martin Stig Andersen: I’m much more interested in the articulation of — abstract, nothing to picture
+andersen-be727e  # Martin Stig Andersen: Taking such a detour is often necessary in — fragment, "such a detour"
+bridgett-1314f8  # Rob Bridgett: Ultimately, the mix of a game should be — truism, dup of Deenen invisible
+bridgett-ed7a6f  # Rob Bridgett: The music in the stereo field just felt — fragment, no context
+russell-559010  # Greg P. Russell: My primary concerns are always definition, detail and — generic mixing truism
+russell-13496d  # Greg P. Russell: Sound effects helped ground the film in reality. — generic, vague
+oconnell-76696c  # Kevin O'Connell: Knowing what to hear and when is really — generic mixing truism
+oconnell-0dd30d  # Kevin O'Connell: Don’t sweat the small stuff and do your — generic life advice
+nelson-4009f4  # Andy Nelson: Sometimes, adding too many things around the room — near-dup of Nelson surrounds
+nelson-bb2c0a  # Andy Nelson: What I tried to create was a sort — fragment, vague metaphor
+nelson-254b51  # Andy Nelson: I treated it like I would any dramatic — fragment, refers to "it"
+jenkins-257550  # Chris Jenkins: All the secondary characters we panned slightly to — near-dup of Jenkins panning
+massey-fe5989  # Paul Massey: We were always changing the balance of music — vague, obvious
+massey-040265  # Paul Massey: We needed to make this something other than — fragment, vague
+massey-efbe53  # Paul Massey: If you intentionally have a line of dialogue — incomplete sentence fragment
+hirschberg-629de8  # Lora Hirschberg: The job of mixing is to try to — generic mixing truism
+hirschberg-68d455  # Lora Hirschberg: It’s the magic of subtraction; some effect might — dup of subtraction entries
+hirschberg-385425  # Lora Hirschberg: She protects the quiet stretches deliberately, because calm — silence truism, dup of Thom
+behlmer-feafa6  # Anna Behlmer: The best way to balance loud sounds with — vague, dup of Behlmer insight
+behlmer-e0bf63  # Anna Behlmer: Usually the film will tell you what it — dup of Nelson screen quote
+behlmer-93da34  # Anna Behlmer: We didn’t want to lose intensity or momentum. — generic, nothing actionable
+behlmer-e3bb77  # Anna Behlmer: It is very difficult to mix a large — obvious statement
+minkler-550b5a  # Michael Minkler: You never feel manipulated by the movie. — vague, feely
+minkler-667df8  # Michael Minkler: Chicago fused a 1930s stage world with a — vague, nothing concrete
+minkler-ef8858  # Michael Minkler: On Mamma Mia! Here We Go Again the — credit/promo, no lesson
+landaker-483340  # Gregg Landaker: Think of it as painting with sound. — generic metaphor
+landaker-0f8035  # Gregg Landaker: Our job is to achieve the director’s vision — generic truism
+landaker-44244d  # Gregg Landaker: Landaker said Nolan always pushed him to reach — vague praise of director
+farmer-cf2ce9  # David Farmer: There’s nothing like a fresh piece of sound — vague exclamation
+whitehead-fe80e2  # Dave Whitehead: Its amazing what interesting textures you can get — vague, dup of micro-recording entries
+whitehead-b4880e  # Dave Whitehead: Great audio files are the building blocks for — generic truism
+burge-064078  # Brent Burge: Sound design innovations are always people driven. — generic platitude
+burge-2fb603  # Brent Burge: Returning to Middle-earth, Burge’s crew rebuilt Lord of — vague, nothing concrete
+henighan-89a003  # Craig Henighan: If you don’t experiment, you’re never going to — generic creativity platitude
+henighan-8e8827  # Craig Henighan: It was more important to lock sound in — near-dup of Deadpool insight
+prebble-ff2dd7  # Tim Prebble: A permanent student as to how sound affects — vague, feely
+ottosson-f94e8e  # Paul N.J. Ottosson: He would feel it and he would be — fragment, unclear referent
+jennings-00c5bf  # Jay Jennings: Fancy plugins and software are not the silver — generic, dup of Nielsen recordings
+jennings-162156  # Jay Jennings: Finding just the right singular sound is often — dup of one-perfect-sound quotes
+jennings-f68152  # Jay Jennings: Most importantly, they all needed a shared DNA — vague, nothing concrete
+jerden-d1cddf  # Bryan Jerden: Trailers are like a machine all with parts — generic platitude
+jerden-1a2430  # Bryan Jerden: A great soundscape is one that pushes what — vague abstract
+hernndez-392ca1  # Martín Hernández: Sound should be the story behind the story — generic platitude
+hernndez-f0224f  # Martín Hernández: You can't start on anything without having a — generic truism
+hernndez-afc13c  # Martín Hernández: Alejandro is always looking for the sound to — generic, nothing actionable
+hernndez-18c8af  # Martín Hernández: We have the natural environment which is the — trivially obvious
+hernndez-b36da9  # Martín Hernández: Hernández's working motto, as Screen Daily reports it — motivational, no craft
+hernndez-dc3d5b  # Martín Hernández: Hernández sees a director partnership as a relationship — feely collaboration truism
+davis-268aea  # Dane A. Davis: I penciled all those whooshes into existence — fragment, duplicates graph-paper entry
+davis-b962f3  # Dane A. Davis: We never wanted the soundtrack to call attention — invisible-sound platitude
+stoeckinger-b9048e  # Mark Stoeckinger: You can't just use a gunshot because it's — vague fragment
+stoeckinger-31de68  # Mark Stoeckinger: You've got to have them almost lined up — fragment, unclear referent
+stoeckinger-ba869d  # Mark Stoeckinger: The lore is open and you can manipulate — vague, no context
+lee-79a8ce  # Ai-Ling Lee: We placed mini microphones on the launch pad — near-duplicate of Falcon Heavy entry
+lee-b9a5d0  # Ai-Ling Lee: Your brain just connects to the rhythm rather — near-duplicate of Foley-rhythm entry
+morgan-b88601  # Mildred Iatrou Morgan: I tried really hard to use all the — near-duplicate of La La Land entry
+morgan-d86bcd  # Mildred Iatrou Morgan: My direction was to make it sound as — generic
+stateman-af719c  # Wylie Stateman: Sound editorial isn't just a proxy for the — near-duplicate of rapid prototyping
+stateman-226ba7  # Wylie Stateman: Sound design is an unlimited experimental art form — generic platitude
+stateman-22c5f4  # Wylie Stateman: Stateman has been making and archiving recordings since — generic career advice
+sullivan-cf0923  # Becky Sullivan: Our minds almost have us see things when — feely generic
+sullivan-5365eb  # Becky Sullivan: We laid them on the floor on the — fragment, duplicates raft entry
+warner-7915ca  # Frank Warner: I accomplished more with silence than with actual — silence-is-powerful platitude
+warner-94fbb5  # Frank Warner: Sound is like music that gives us the — sound-is-emotion platitude
+albrechtsen-f6005d  # Peter Albrechtsen: No film is objective. It's always a filmmaker's — generic truism
+albrechtsen-0000cf  # Peter Albrechtsen: It's not about the tools, it's about who — generic platitude
+albrechtsen-b6448c  # Peter Albrechtsen: The more the sound feels like music and — incomplete fragment
+albrechtsen-dd966b  # Peter Albrechtsen: It becomes almost like you're in the head — fragment, no context
+anderson-06aff2  # Coll Anderson: I would rather help the director keep focused — generic
+boeddeker-041e46  # Steve Boeddeker: Whenever I say, 'I,' I really mean — collaboration platitude
+boeddeker-4c8e53  # Steve Boeddeker: We played with all kinds of things in — vague, duplicates Reaktor entry
+becker-0a3c53  # Nicolas Becker: I'm recording everything I'm using as a foley — unclear fragment
+becker-757ba7  # Nicolas Becker: I can actually change the points of hearing — vague, covered by mic-perspective entry
+becker-895a1c  # Nicolas Becker: It's the same as repeatedly hitting your hand — fragment, duplicates concert-dynamics entry
+bellemare-b3ab49  # Sylvain Bellemare: You want to make it very expressive but — generic, vague
+myers-4d883d  # Tom Myers: We don't always start with the actual toys — near-duplicate of bath-mat entry
+myers-a5cf70  # Tom Myers: I don't need to have all the answers — generic
+roesch-547e39  # John Roesch: If we've done our job correctly, you don't — invisible-sound platitude
+roesch-ad1099  # John Roesch: Three minds are much better than two — collaboration platitude
+costanzo-eeb132  # Marko Costanzo: Be proud of what you do! Your name — generic motivational
+doyle-14290f  # Caoimhe Doyle: The more no one notices our work, the — invisible-sound platitude
+doyle-6cd09f  # Caoimhe Doyle: Animation and Foley is such a good partnership — generic
+roden-19b0cb  # Shelley Roden: Each Foley cue is a mystery to solve — generic
+roden-2e6f0a  # Shelley Roden: Working with limited resources made me even more — generic truism
+burgis-01ffbf  # Pete Burgis: I realised there is so much character in — generic, duplicates footsteps entries
+deenen-083fd1  # Charles Deenen: On the Star Wars Battlefront trailers, Deenen often — near-duplicate of tonal/noise split
+deenen-223dd2  # Charles Deenen: The music for the Star Wars Battlefront trailers — credit, no lesson
+wagner-176922  # Csaba Wagner: Wagner's goal on the Battlefront trailer was to — generic goal
+wagner-e9d91f  # Csaba Wagner: To me the sound of the lightsaber is — generic
+menichini-2f2df6  # Paul Menichini: The only custom recording we did was on — near-duplicate, no lesson
+menichini-1f9bf8  # Paul Menichini: Making the bullet impacts on Winston's armor sound — nothing actionable
+yoffee-e89667  # Jacob Yoffee: Setting out to write a badass trailer track — near-duplicate of delicate-idea entry
+yoffee-e64b35  # Jacob Yoffee: It forces you to write and produce at — fragment, unclear referent
+nair-e30adf  # Sreejesh Nair: Every good trailer has a rhythm to it — generic truism
+nair-e41987  # Sreejesh Nair: The Trick with the LEQ is always averaging — near-duplicate of LEQ entry
+nair-e97a74  # Sreejesh Nair: Nair distinguishes the two forms: a teaser exists — trivially obvious definition
+williamson-cf20a4  # Holly Williamson: Finding the right song for the Watchmen trailer — praise, duplicates Watchmen entry
+williamson-6e2706  # Holly Williamson: Our goal is to get the editors and — generic
+williamson-63bbf9  # Holly Williamson: It's pretty rewarding when something like that locks — no lesson
+williamson-aea31a  # Holly Williamson: Having worked at three Los Angeles trailer houses — career promo
+summers-df1790  # Gary Summers: That's my job, to fit it in so — fragment platitude
+summers-9bc9b1  # Gary Summers: The sound team needed to make the creative — generic
+johnson-8e0990  # Tom Johnson: We used the surround channels a lot to — near-duplicate of 3D panning entry
+johnson-8c418c  # Tom Johnson: It's more of a collaboration with no one — collaboration platitude
+hymns-762101  # Richard Hymns: Ultimately, all that counts is good taste — generic, covered by taste entry
+hymns-1fe450  # Richard Hymns: Across five Robert Redford films, Hymns noticed an — vague, feely
+boyes-5d5273  # Christopher Boyes: You don't want to exhaust the audience — truism, duplicates freight-train entry
+boyes-6f18eb  # Christopher Boyes: Any sound that went into the film really — generic truism
+boyes-31d17f  # Christopher Boyes: Close your eyes and you'd be able to — generic
+semanick-392355  # Michael Semanick: I can usually just look at a movie — no lesson
+semanick-efdc0e  # Michael Semanick: I'm still a student of film sound — generic
+semanick-e963b4  # Michael Semanick: It's all about vibe in the studio — vibe platitude
+beggs-d0ac90  # Richard Beggs: I want the sound to capture the essence — vague abstract
+shatz-206dce  # Leslie Shatz: Silence is the scariest of all. It really — silence platitude
+shatz-0031db  # Leslie Shatz: We're taught in the sound field that the — truism
+shatz-ff8f21  # Leslie Shatz: Gus wants to do things in the most — no craft lesson
+shatz-69fedc  # Leslie Shatz: You can shut your eyes, but you cannot — well-worn platitude
+shatz-571a0a  # Leslie Shatz: Well, no, there's steps that you follow, and — fragment
+berger-150212  # Mark Berger: Going back further isn't necessarily always better — fragment, duplicates Amadeus remix
+berger-5598b5  # Mark Berger: If everything is always loud, you get bored — truism, duplicates contrast entry
+berger-b87548  # Mark Berger: Sound is meant to be subtle, subliminal and — invisible-sound platitude
+berger-ef53d1  # Mark Berger: We treat sound like an orchestra — generic
+berger-b6710b  # Mark Berger: I always enjoyed more listening than seeing — no lesson
+jackson-c1c350  # Pat Jackson: It's painting on a canvas. I'm devoted to — vague abstract
+wood-d58dad  # Matthew Wood: What you're hearing is what's going on in — vague, no context
+wood-958caa  # Matthew Wood: That's when it really works: when it's helping — vague fragment
+wood-3d467d  # Matthew Wood: Sound is like a character–it's a subconscious sort — sound-is-character platitude
+acord-409b12  # David Acord: Acord argues that capturing the audience's attention with — quiet-before-loud truism
+scarabosio-fd31b9  # Christopher Scarabosio: It's not necessarily technically accurate but it's definitely — fragment, unclear referent
+scarabosio-6ae968  # Christopher Scarabosio: Finding those little moments that add to the — vague feely
+whittle-a48ecc  # Gwendolyn Yates Whittle: I've always considered it my job to help — vague, unclear referent
+whittle-eb6667  # Gwendolyn Yates Whittle: It's all about keeping the performance — generic platitude
+whittle-a401cd  # Gwendolyn Yates Whittle: If you don't notice it, then I've done — invisible-sound platitude
+whittle-c1c9b9  # Gwendolyn Yates Whittle: You have to learn how to listen to — generic
+wild-7a6dec  # Bonnie Wild: Wild treats an editing sequence like The Last — generic
+wild-8b54bf  # Bonnie Wild: There's a balance between the comfortable, familiar sounds — generic platitude

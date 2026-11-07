@@ -8,7 +8,7 @@ It's a VST3 / AU plug-in (audio passes straight through, untouched) and a standa
 
 ## What's in it
 
-1028 entries from 78 people. The sound designers and mixers all have feature film, TV or AAA game credits on IMDb, and every entry comes from an interview, article or talk you can read. The Creativity & Teams category draws on a legendary Disney Imagineer's book about creative work: leading teams, finding a theme, critique, risk and knowing when to stop. Two kinds:
+847 entries from 78 people. The sound designers and mixers all have feature film, TV or AAA game credits on IMDb, and every entry comes from an interview, article or talk you can read. The Creativity & Teams category draws on a legendary Disney Imagineer's book about creative work: leading teams, finding a theme, critique, risk and knowing when to stop. Two kinds:
 
 - **Quotes**, in quotation marks and italics: their own words, kept short.
 - **Field notes**: a technique, decision or story from that source, retold in a sentence or two. "Field note" is printed above them.
@@ -19,23 +19,23 @@ Click a person's name to open their IMDb (or other profile) page; click the sour
 
 | Category | Entries |
 |---|---|
-| Mixing | 230 |
-| Action & Impact | 98 |
-| Trailers | 74 |
-| Creatures & Voices | 80 |
-| Ambience & Worlds | 102 |
-| Foley | 107 |
-| Dialogue | 114 |
-| Field Recording | 139 |
-| Weapons & Vehicles | 75 |
-| Sci-Fi & Magic | 105 |
-| Horror & Tension | 55 |
-| Silence & Restraint | 87 |
-| Music & Sound | 132 |
-| Games | 35 |
-| Story & Emotion | 223 |
-| Craft & Technique | 283 |
-| Collaboration & Career | 181 |
+| Mixing | 197 |
+| Action & Impact | 81 |
+| Trailers | 56 |
+| Creatures & Voices | 76 |
+| Ambience & Worlds | 93 |
+| Foley | 94 |
+| Dialogue | 101 |
+| Field Recording | 126 |
+| Weapons & Vehicles | 69 |
+| Sci-Fi & Magic | 94 |
+| Horror & Tension | 52 |
+| Silence & Restraint | 70 |
+| Music & Sound | 101 |
+| Games | 32 |
+| Story & Emotion | 174 |
+| Craft & Technique | 216 |
+| Collaboration & Career | 153 |
 | Creativity & Teams | 131 |
 
 **Anything** deals from all of them. Each category is a shuffled deck: you see every entry in it once before any comes round again.
@@ -61,7 +61,7 @@ The entries live in `data/*.json`, one file per research group, each entry with 
 python3 tools/build_quotes.py
 ```
 
-To add an entry, add it to a data file (or a new one) with its source, run the script and rebuild. To leave someone out, put their name in `data/omit.txt`: their research stays in the data files, the build just skips them. The `SoundAdviceTests` program checks the built database: at least 500 entries, every category stocked, and the no-repeat dealing.
+To add an entry, add it to a data file (or a new one) with its source, run the script and rebuild. To leave someone out, put their name in `data/omit.txt`; to drop a single entry (too generic, a fragment, a near-duplicate), put its id in `data/omit-entries.txt`. Either way the research stays in the data files and the build just skips it. The `SoundAdviceTests` program checks the built database: at least 500 entries, every category stocked, and the no-repeat dealing.
 
 ## Building
 
