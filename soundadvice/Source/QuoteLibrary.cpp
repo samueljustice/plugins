@@ -3,6 +3,7 @@
 #include "BinaryData.h"
 
 #include <algorithm>
+#include <chrono>
 #include <map>
 
 const QuoteLibrary& QuoteLibrary::getEmbedded()
@@ -134,7 +135,20 @@ int QuoteLibrary::findCategory (const juce::String& id) const
 }
 
 //==============================================================================
-QuotePicker::QuotePicker (const QuoteLibrary& lib, juce::int64 seed)
+namespace
+{
+    std::uint64_t freshSeed()
+    {
+        // random_device alone can be weak on some platforms, so mix in the clock as well.
+        std::random_device device;
+        const auto clock = (std::uint64_t) std::chrono::high_resolution_clock::now().time_since_epoch().count();
+        return ((std::uint64_t) device() << 32 ^ device()) ^ clock;
+    }
+}
+
+QuotePicker::QuotePicker (const QuoteLibrary& lib) : QuotePicker (lib, freshSeed()) {}
+
+QuotePicker::QuotePicker (const QuoteLibrary& lib, std::uint64_t seed)
     : library (lib), random (seed), decks (lib.getCategories().size())
 {
 }
@@ -155,9 +169,7 @@ int QuotePicker::next (int categoryIndex, int avoid)
     if (deck.empty())
     {
         deck = pool;
-        // Fisher–Yates with our own seeded Random, so tests are repeatable.
-        for (size_t i = deck.size() - 1; i > 0; --i)
-            std::swap (deck[i], deck[(size_t) random.nextInt ((int) i + 1)]);
+        std::shuffle (deck.begin(), deck.end(), random);
     }
 
     // Deal from the back; if the top card is the one on screen, take the one beneath it instead.

@@ -52,7 +52,7 @@ Click a person's name to open their IMDb (or other profile) page; click the sour
 | Moon / sun | Night or paper |
 | ⌘C / Ctrl+C, or right-click | Copy |
 
-Drag the bottom-right corner to resize. The category, the entry on screen and the theme are saved with your session.
+Drag the bottom-right corner to resize. The category and theme are saved with your session; every time you open it (or reopen the window) it deals a fresh entry.
 
 ## The database
 
