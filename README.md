@@ -1,58 +1,123 @@
+<div align="center">
+
+<img src="PTSL_beattool/Resources/sj-icon-red-bg.jpg" alt="Sweet Justice logo" width="140">
+
 # Sweet Justice Audio Plugins
 
-Audio plug-ins and tools by Samuel Justice / [Sweet Justice Sound](https://www.sweetjusticesound.com), most of them built with [JUCE](https://juce.com). Each project lives in its own folder with its own README, and is released on its own from this repository's [releases page](https://github.com/samueljustice/plugins/releases).
+**Odd, useful tools for sound designers.**<br>
+Whooshes on demand, subs from nowhere, sirens that hold still and audio that runs backwards.
 
-## Projects
+[![Latest releases](https://img.shields.io/badge/download-releases-d00a35?style=for-the-badge&logo=github&logoColor=white)](https://github.com/samueljustice/plugins/releases)
+[![macOS](https://img.shields.io/badge/macOS-000000?style=for-the-badge&logo=apple&logoColor=white)](https://github.com/samueljustice/plugins/releases)
+[![Windows](https://img.shields.io/badge/Windows-0078D6?style=for-the-badge&logo=windows&logoColor=white)](https://github.com/samueljustice/plugins/releases)
 
-| Project | What it is | Formats | Latest release |
-|---|---|---|---|
-| [Swooshbuckler](swooshbuckler/README.md) | Whoosh-making rig | App (macOS, Windows), VST3, AU | [v1.0.0](https://github.com/samueljustice/plugins/releases/tag/swooshbuckler-v1.0.0) |
-| [Subbertone](subbertone/README.md) | Subharmonic generator | VST3, AU | [v1.2.0](https://github.com/samueljustice/plugins/releases/tag/subbertone-v1.2.0) |
-| [Pitch Flattener](pitchflattener/README.md) | Lookahead pitch flattening (Doppler, sirens, vibrato) | VST3, AU | [v2.0.0](https://github.com/samueljustice/plugins/releases/tag/pitchflattener-v2.0.0) |
-| [Reversinator](reversinator/README.md) | Real-time reverser, recreating Backwards Machine | VST3, AU | [v2.0.0](https://github.com/samueljustice/plugins/releases/tag/reversinator-v2.0.0) |
-| Stretch Armstrong | Real-time varispeed and time stretch | VST3, AU | Not released yet |
-| [PTSL Beat Tool](PTSL_beattool/README.md) | Beat markers for Pro Tools | App (macOS) | Not released yet |
+![VST3](https://img.shields.io/badge/VST3-222?style=flat-square)
+![AU](https://img.shields.io/badge/AU-222?style=flat-square)
+![Standalone](https://img.shields.io/badge/Standalone-222?style=flat-square)
+[![Built with JUCE](https://img.shields.io/badge/built%20with-JUCE-8DC63F?style=flat-square)](https://juce.com)
+![Downloads](https://img.shields.io/github/downloads/samueljustice/plugins/total?style=flat-square&color=d00a35)
 
-### Swooshbuckler
-A whoosh-making rig. Drop in up to ten sounds and it rides the faders across them, making doppler passes, swells, hits and tails, while a tape records every one and skips the silence. Two effect buses, a hit gate, a spectral morph between the buses, and modulators you can drag onto any knob. Runs as a standalone app on macOS and Windows, or as a plug-in.
+<br>
 
-- Location: `/swooshbuckler/`
-- [Project README](swooshbuckler/README.md)
-- [Latest release](https://github.com/samueljustice/plugins/releases/tag/swooshbuckler-v1.0.0)
+| [<img src="swooshbuckler/docs/screenshot.png" width="400" alt="Swooshbuckler">](#-swooshbuckler) | [<img src="subbertone/docs/screenshot.jpg" width="400" alt="Subbertone">](#-subbertone) |
+|:---:|:---:|
+| **[Swooshbuckler](#-swooshbuckler)**<br>The whoosh-making rig | **[Subbertone](#-subbertone)**<br>Subharmonic generator |
+| [<img src="pitchflattener/docs/screenshot.png" width="400" alt="Pitch Flattener">](#-pitch-flattener) | [<img src="reversinator/docs/screenshot.png" width="400" alt="Reversinator">](#-reversinator) |
+| **[Pitch Flattener](#-pitch-flattener)**<br>Doppler, sirens and vibrato, flattened | **[Reversinator](#-reversinator)**<br>Real-time reverser |
 
-### Subbertone
-A subharmonic generator. Tracks the pitch of your bass, engine or drone and adds a clean sub one octave below, with a 16-bar harmonic editor, six saturation types, a resonant, envelope-swept filter and a mastering stage (Inflate and a brickwall limiter), for anything from pure sub reinforcement or bass that survives a phone speaker to a growling octave-down bass. Comes with 32 factory presets, including engines.
+</div>
 
-- Location: `/subbertone/`
-- [Project README](subbertone/README.md)
-- [Latest release](https://github.com/samueljustice/plugins/releases/tag/subbertone-v1.2.0)
+---
 
-### Pitch Flattener
-Removes pitch movement: the Doppler sweep from a pass-by, the wail from a siren, the vibrato from a voice. Pick a Source Type and it uses a pitch detector built for that sound, looks ahead to track the pitch, and flattens it sample-accurately. Built for offline-rendering hosts such as the Soundminer DSP rack.
+## ⚔️ Swooshbuckler
 
-- Location: `/pitchflattener/`
-- [Project README](pitchflattener/README.md)
-- [Latest release](https://github.com/samueljustice/plugins/releases/tag/pitchflattener-v2.0.0)
+> *Ten sounds go in. A tape full of whooshes comes out.*
 
-### Reversinator
-A real-time reverser: a faithful, modernised recreation of Backwards Machine's three effects (Reverse Playback, Forward Backwards and Reverse Repeat), with a live display of the read heads sweeping backwards through your audio.
+<p align="center">
+  <img src="swooshbuckler/docs/screenshot.png" alt="Swooshbuckler" width="820">
+</p>
 
-- Location: `/reversinator/`
-- [Project README](reversinator/README.md)
-- [Latest release](https://github.com/samueljustice/plugins/releases/tag/reversinator-v2.0.0)
+Drop in up to ten sounds and Swooshbuckler rides the faders across them for you, making Doppler passes, swells, hits and tails, while a tape records every one and skips the silence. Hold **Swell** (or the space bar) to push it harder, then pull the best takes off the tape.
 
-### Stretch Armstrong
-Stretches audio in real time, either varispeed (the pitch follows the speed, like tape) or time stretch (the pitch stays put), using RubberBand. Work in progress.
+- 🎚️ **Auto ride** across up to ten tracks: energy, rate, fill, chaos, pitch
+- 🌀 **Two effect buses** with Doppler, swirl, bend and drive, and a spectral morph between them
+- 💥 **Hit gate** that punches in at the loudest moments
+- 🔌 **Modulators** you drag onto any knob by the jack
+- 📼 **Always recording**: grab the last 60 seconds whenever something good happens
 
-- Location: `/stretcharmstrong/`
+**App** (macOS, Windows) · **VST3** · **AU** &nbsp;&nbsp;
+[![Download Swooshbuckler](https://img.shields.io/badge/download-v1.0.0-d00a35?style=flat-square)](https://github.com/samueljustice/plugins/releases/tag/swooshbuckler-v1.0.0) &nbsp;
+[Read the manual →](swooshbuckler/README.md)
 
-### PTSL Beat Tool
-A macOS app that tracks the beats of an audio file and places Pro Tools markers on them, through the Pro Tools Scripting Library (PTSL). Work in progress.
+---
 
-- Location: `/PTSL_beattool/`
-- [Project README](PTSL_beattool/README.md)
+## 🔊 Subbertone
 
-## Building
+> *A clean octave down, or a growl. Your call.*
+
+<p align="center">
+  <img src="subbertone/docs/screenshot.jpg" alt="Subbertone" width="820">
+</p>
+
+Subbertone tracks the pitch of your bass, engine or drone and adds a sub one octave below. Use it for pure sub reinforcement, for bass that still reads on a phone speaker, or for a growling octave-down monster.
+
+- 🎹 **16-bar harmonic editor** with pattern presets
+- 🔥 **Six saturation types** and a resonant, envelope-swept filter
+- 🧱 **Mastering stage**: Inflate and a brickwall limiter
+- 🚗 **32 factory presets**, engines included
+
+<details>
+<summary>More screenshots</summary>
+<br>
+<p align="center">
+  <img src="subbertone/docs/presets.png" alt="Subbertone presets menu" width="400">
+  <img src="subbertone/docs/patterns.png" alt="Subbertone patterns menu" width="400">
+</p>
+</details>
+
+**VST3** · **AU** &nbsp;&nbsp;
+[![Download Subbertone](https://img.shields.io/badge/download-v1.2.0-d00a35?style=flat-square)](https://github.com/samueljustice/plugins/releases/tag/subbertone-v1.2.0) &nbsp;
+[Read the manual →](subbertone/README.md)
+
+---
+
+## 🚨 Pitch Flattener
+
+> *The siren keeps wailing. The pitch doesn't.*
+
+<p align="center">
+  <img src="pitchflattener/docs/screenshot.png" alt="Pitch Flattener" width="680">
+</p>
+
+Pitch Flattener removes pitch movement: the Doppler sweep from a pass-by, the wail from a siren, the vibrato from a voice. Pick a Source Type and it uses a pitch detector built for that sound, looks ahead to track the pitch, and flattens it sample-accurately. Made for offline-rendering hosts such as the Soundminer DSP rack.
+
+**VST3** · **AU** &nbsp;&nbsp;
+[![Download Pitch Flattener](https://img.shields.io/badge/download-v2.0.0-d00a35?style=flat-square)](https://github.com/samueljustice/plugins/releases/tag/pitchflattener-v2.0.0) &nbsp;
+[Read the manual →](pitchflattener/README.md)
+
+---
+
+## ⏪ Reversinator
+
+> *.sdrawkcab emit lear ni tI*
+
+<p align="center">
+  <img src="reversinator/docs/screenshot.png" alt="Reversinator" width="760">
+</p>
+
+A real-time reverser: a faithful, modernised recreation of Backwards Machine's three effects, **Reverse Playback**, **Forward Backwards** and **Reverse Repeat**, with a live display of the read heads sweeping backwards through your audio.
+
+**VST3** · **AU** &nbsp;&nbsp;
+[![Download Reversinator](https://img.shields.io/badge/download-v2.0.0-d00a35?style=flat-square)](https://github.com/samueljustice/plugins/releases/tag/reversinator-v2.0.0) &nbsp;
+[Read the manual →](reversinator/README.md)
+
+---
+
+## 🛠️ For developers
+
+<details>
+<summary><b>Building from source</b></summary>
+<br>
 
 Every project builds with CMake and expects its dependencies in `SDK/` at the root of this repository (not committed):
 
@@ -71,7 +136,11 @@ cmake --build build --config Release
 
 See each project's README for its own options.
 
-## Releases
+</details>
+
+<details>
+<summary><b>Making a release</b></summary>
+<br>
 
 Each project has a GitHub Actions workflow in `.github/workflows/` that builds, signs and notarises it for macOS (and builds it for Windows where supported), then publishes a release. Push a tag named after the project to start one, for example:
 
@@ -82,11 +151,18 @@ git push origin swooshbuckler-v1.0.0
 
 The tag prefixes are `swooshbuckler-v`, `subbertone-v`, `pitchflattener-v`, `reversinator-v`, `stretcharmstrong-v` and `ptsl-beattool-v`.
 
-## License
+</details>
 
-Each project and dependency has its own license. See the LICENSE file in each folder.
+**License:** each project and dependency has its own license; see the LICENSE file in each folder.
 
-## Developer
+---
 
-Created by Samuel Justice
-Website: [www.sweetjusticesound.com](https://www.sweetjusticesound.com)
+<div align="center">
+
+### 👋 Made by Samuel Justice
+
+Creative Sound Supervisor at **[Sweet Justice](https://www.sweetjusticesound.com)**
+
+<sub>Found a bug or have an idea? <a href="https://github.com/samueljustice/plugins/issues">Open an issue</a>.</sub>
+
+</div>
