@@ -3,66 +3,122 @@
 #include <JuceHeader.h>
 #include "ReverseEngine.h"
 
+namespace ParamIDs
+{
+    // These IDs are shared with v1.x sessions; do not rename them.
+    inline constexpr const char* mode     = "mode";
+    inline constexpr const char* reverser = "reverser";
+    inline constexpr const char* time     = "time";
+    inline constexpr const char* feedback = "feedback";
+    inline constexpr const char* wetMix   = "wetmix";
+    inline constexpr const char* dryMix   = "drymix";
+}
+
+/**
+ * Hosts the reverse engine and does what the original's host glue did:
+ * the engine always runs; REVERSER chooses between its output and the
+ * forwards input (both at the wet level) with a 10 ms crossfade; the dry
+ * input is mixed in on top. Wet and dry use a squared (x/100)^2 law.
+ */
 class ReversinatorAudioProcessor : public juce::AudioProcessor
 {
 public:
     ReversinatorAudioProcessor();
-    ~ReversinatorAudioProcessor() override;
+    ~ReversinatorAudioProcessor() override = default;
 
-    void prepareToPlay (double sampleRate, int samplesPerBlock) override;
+    void prepareToPlay(double sampleRate, int samplesPerBlock) override;
     void releaseResources() override;
-
-   #ifndef JucePlugin_PreferredChannelConfigurations
-    bool isBusesLayoutSupported (const BusesLayout& layouts) const override;
-   #endif
-
-    void processBlock (juce::AudioBuffer<float>&, juce::MidiBuffer&) override;
+    /** Host flush. Hosts may call this on any thread while audio runs, so it only
+        flags the flush; the audio thread does it at the start of its next block, or,
+        while host-bypassed, once the bypass fade is done (see process()). */
+    void reset() override;
+    bool isBusesLayoutSupported(const BusesLayout& layouts) const override;
+    void processBlock(juce::AudioBuffer<float>&, juce::MidiBuffer&) override;
+    /** Host bypass: the engine keeps running and the output crossfades to the input. */
+    void processBlockBypassed(juce::AudioBuffer<float>&, juce::MidiBuffer&) override;
+    using AudioProcessor::processBlock;
+    using AudioProcessor::processBlockBypassed;
 
     juce::AudioProcessorEditor* createEditor() override;
-    bool hasEditor() const override;
+    bool hasEditor() const override { return true; }
 
-    const juce::String getName() const override;
-
-    bool acceptsMidi() const override;
-    bool producesMidi() const override;
-    bool isMidiEffect() const override;
+    const juce::String getName() const override { return JucePlugin_Name; }
+    bool acceptsMidi() const override { return false; }
+    bool producesMidi() const override { return false; }
+    bool isMidiEffect() const override { return false; }
     double getTailLengthSeconds() const override;
 
-    int getNumPrograms() override;
-    int getCurrentProgram() override;
-    void setCurrentProgram (int index) override;
-    const juce::String getProgramName (int index) override;
-    void changeProgramName (int index, const juce::String& newName) override;
+    int getNumPrograms() override { return 1; }
+    int getCurrentProgram() override { return 0; }
+    void setCurrentProgram(int) override {}
+    const juce::String getProgramName(int) override { return {}; }
+    void changeProgramName(int, const juce::String&) override {}
 
-    void getStateInformation (juce::MemoryBlock& destData) override;
-    void setStateInformation (const void* data, int sizeInBytes) override;
+    void getStateInformation(juce::MemoryBlock& destData) override;
+    void setStateInformation(const void* data, int sizeInBytes) override;
 
-    juce::AudioProcessorValueTreeState& getValueTreeState() { return valueTreeState; }
-    
-    enum EffectMode
+    juce::AudioProcessorValueTreeState& getParameters() { return m_parameters; }
+
+    //==========================================================================
+    // Display feed (lock-free; written on the audio thread, read on the message thread)
+    struct DisplayState
     {
-        ReversePlayback = 0,
-        ForwardBackwards,
-        ReverseRepeat
+        std::array<ReverseEngine::VoiceView, ReverseEngine::maxVoices> voices {};
+        int numVoices = 0;
+        float timeSeconds = 2.0f;
+        int mode = 0;
+        bool reversing = true;
     };
 
-private:
-    juce::AudioProcessorValueTreeState valueTreeState;
-    juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
-    
-    std::unique_ptr<ReverseEngine> reverseEngine;
-    
-    std::atomic<float>* reverserEnabled = nullptr;
-    std::atomic<float>* windowTime = nullptr;
-    std::atomic<float>* feedbackDepth = nullptr;
-    std::atomic<float>* wetMix = nullptr;
-    std::atomic<float>* dryMix = nullptr;
-    std::atomic<float>* effectMode = nullptr;
-    std::atomic<float>* crossfadeTime = nullptr;
-    std::atomic<float>* envelopeTime = nullptr;
-    
-    bool previousReverserState = false;
-    juce::SmoothedValue<float> reverserCrossfade;
+    /** Copies the most recent `count` input peaks (one per display bin) into dest, oldest first. */
+    void copyPeakHistory(float* dest, int count) const;
+    double getDisplayBinSeconds() const { return m_displayBinSeconds.load(); }
+    DisplayState getDisplayState() const;
 
-    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (ReversinatorAudioProcessor)
+    int getEditorWidth() const { return m_editorWidth.load(); }
+    void setEditorWidth(int width) { m_editorWidth.store(width); }
+
+    static constexpr double displayBinSeconds = 0.0058;   // ~256 samples at 44.1 kHz
+    static constexpr int peakHistorySize = 4096;          // ~24 s of history at any rate
+
+private:
+    static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
+    void process(juce::AudioBuffer<float>& buffer, bool bypassed);
+    void flush();
+    void processChunk(float* const* channels, int numChannels, int numSamples);
+    void pushDisplayPeaks(const float* const* channels, int numChannels, int numSamples);
+
+    juce::AudioProcessorValueTreeState m_parameters;
+
+    std::atomic<float>* m_modeParam = nullptr;
+    std::atomic<float>* m_reverserParam = nullptr;
+    std::atomic<float>* m_timeParam = nullptr;
+    std::atomic<float>* m_feedbackParam = nullptr;
+    std::atomic<float>* m_wetParam = nullptr;
+    std::atomic<float>* m_dryParam = nullptr;
+
+    ReverseEngine m_engine;
+    juce::AudioBuffer<float> m_input;   // copy of the input (the engine's source and the dry path)
+    juce::AudioBuffer<float> m_wet;     // engine output
+    int m_maxBlock = 0;
+
+    juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> m_reverserMix;
+    juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> m_wetGain;
+    juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> m_dryGain;
+    juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> m_bypassMix;   // 1 = host bypass
+    std::atomic<bool> m_flushRequested { false };                                  // set by reset()
+
+    // Display feed: a ring of input peaks the editor can read at any time.
+    std::array<std::atomic<float>, peakHistorySize> m_peakRing {};
+    std::atomic<int> m_peakWrite { 0 };
+    float m_peakAccumulator = 0.0f;
+    int m_peakCount = 0;
+    int m_binSamples = 256;
+    std::atomic<double> m_displayBinSeconds { displayBinSeconds };
+    std::array<std::atomic<float>, ReverseEngine::maxVoices * 2> m_voiceState {};
+    std::atomic<int> m_numVoices { 0 };
+
+    std::atomic<int> m_editorWidth { 0 };
+
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(ReversinatorAudioProcessor)
 };

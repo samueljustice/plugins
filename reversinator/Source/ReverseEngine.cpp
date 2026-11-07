@@ -1,596 +1,439 @@
 #include "ReverseEngine.h"
 
-ReverseEngine::ReverseEngine()
+namespace
 {
-}
+    // The original's float32 constants.
+    constexpr float c_twoPiF = 6.2831855f;
+    constexpr float c_piF = 3.1415927f;
+    constexpr float c_invPiF = 0.31830987f;
+    constexpr float c_degreesToRadians = 0.017453292f;
 
-ReverseEngine::~ReverseEngine()
-{
-}
+    // Initial phases, in degrees as stored in the original's presets:
+    // voice 0 sweep / window, voice 1 sweep / window. With these, each window is
+    // exactly zero where its sweep jumps back, and the two voices are half a period apart.
+    constexpr std::array<float, 4> c_startDegrees { 270.0f, 0.0f, 90.0f, 180.0f };
 
-void ReverseEngine::prepare(double newSampleRate, int samplesPerBlock, int newNumChannels)
-{
-    sampleRate = newSampleRate;
-    numChannels = newNumChannels;
-    
-    channels.clear();
-    for (int i = 0; i < numChannels; ++i)
+    constexpr float c_vibratoHz = 5.0f;              // Reverse Repeat's second pass
+    constexpr float c_vibratoDepth = 0.001f;         // relative delay modulation
+    constexpr float c_vibratoStartDegrees = 270.0f;
+
+    constexpr double c_timeCrossfadeSeconds = 0.020;
+    constexpr double c_modeCrossfadeSeconds = 0.030;
+    constexpr double c_minimumDelay = 2.0;           // samples; Lagrange needs one sample after the read point
+
+    // Above this rate the clock runs in double precision (see ReverseEngine.h).
+    constexpr double c_exactClockAboveHz = 50000.0;
+    constexpr double c_pi = juce::MathConstants<double>::pi;
+    constexpr double c_twoPi = juce::MathConstants<double>::twoPi;
+
+    float wrapPhase(float phase)
     {
-        auto channel = std::make_unique<Channel>();
-        channel->windowSamples = static_cast<int>(windowTime * sampleRate);
-        channel->hopSize = channel->windowSamples / 2;  // 50% overlap
-        
-        // Initialize delay line (2x window size for safety)
-        channel->delayLine.resize(channel->windowSamples * 2);
-        channel->delayWritePos = 0;
-        
-        // Initialize grains
-        for (int g = 0; g < Channel::NUM_GRAINS; ++g)
-        {
-            channel->grains[g].buffer.resize(channel->windowSamples);
-            channel->grains[g].grainSize = channel->windowSamples;
-            channel->grains[g].active = false;
-            channel->grains[g].readPosition = 0;
-        }
-        
-        // Initialize output buffer (2x window size for overlap accumulation)
-        channel->outputBuffer.resize(channel->windowSamples * 2);
-        channel->outputReadPos = 0;
-        channel->outputWritePos = channel->windowSamples; // Start with latency
-        
-        // Initialize window function
-        channel->windowFunction.resize(channel->windowSamples);
-        channel->repeatBuffer.resize(channel->windowSamples);
-        
-        channel->vibratoPhase.reset(sampleRate, 0.001);
-        channel->feedbackGainSmoothed.reset(sampleRate, 0.001); // 1ms smoothing like original
-        
-        // Create window function
-        createWindowFunction(channel->windowFunction, channel->windowSamples);
-        
-        channels.push_back(std::move(channel));
+        while (phase < 0.0f)      phase += c_twoPiF;
+        while (phase >= c_twoPiF) phase -= c_twoPiF;
+        return phase;
     }
-    
+
+    double wrapPhase(double phase)
+    {
+        while (phase < 0.0)     phase += c_twoPi;
+        while (phase >= c_twoPi) phase -= c_twoPi;
+        return phase;
+    }
+
+    /** The original's slow sawtooth: rises from 0 to +1 over [0, pi), jumps to -1 at pi, back to 0 at 2pi. */
+    float sweep(float phase)
+    {
+        return phase < c_piF ? phase * c_invPiF : (c_twoPiF - phase) * (-c_invPiF);
+    }
+
+    double sweep(double phase)
+    {
+        return phase < c_pi ? phase / c_pi : (phase - c_twoPi) / c_pi;
+    }
+
+    float window(float phase)
+    {
+        return 0.5f + 0.5f * std::sin(phase);
+    }
+
+    float window(double phase)
+    {
+        return static_cast<float>(0.5 + 0.5 * std::sin(phase));
+    }
+
+    /** Equal-gain cosine fade, 0 -> 1. */
+    float fadeCurve(int position, int length)
+    {
+        return static_cast<float>(0.5 - 0.5 * std::cos(juce::MathConstants<double>::pi * (position + 0.5) / length));
+    }
+}
+
+//==============================================================================
+void ReverseEngine::DelayLine::allocate(int minimumLength)
+{
+    const int length = juce::nextPowerOfTwo(std::max(16, minimumLength));
+    m_data.assign(static_cast<size_t>(length), 0.0f);
+    m_mask = length - 1;
+    m_write = 0;
+    m_filled = 0;
+}
+
+void ReverseEngine::DelayLine::clear()
+{
+    // Zeroing tens of megabytes would be too slow on the audio thread, so leave the old
+    // samples in place: read() treats anything older than m_filled as silence.
+    m_write = 0;
+    m_filled = 0;
+}
+
+float ReverseEngine::DelayLine::read(double delay) const
+{
+    // 4-point Lagrange interpolation between the samples around (write - delay).
+    const double position = static_cast<double>(m_write) - std::max(delay, c_minimumDelay);
+    const double whole = std::floor(position);
+    const float d = static_cast<float>(position - whole);
+    const int i = static_cast<int>(whole);
+
+    float x0 = m_data[static_cast<size_t>((i - 1) & m_mask)];
+    float x1 = m_data[static_cast<size_t>(i & m_mask)];
+    float x2 = m_data[static_cast<size_t>((i + 1) & m_mask)];
+    float x3 = m_data[static_cast<size_t>((i + 2) & m_mask)];
+
+    // Samples written before the last clear() are silence. The newest sample has age 0;
+    // x0 is the oldest tap and x3 the newest.
+    const int oldestAge = m_write - i + 1;
+    if (oldestAge >= m_filled)
+    {
+        x0 = 0.0f;
+        if (oldestAge - 1 >= m_filled) x1 = 0.0f;
+        if (oldestAge - 2 >= m_filled) x2 = 0.0f;
+        if (oldestAge - 3 >= m_filled) x3 = 0.0f;
+    }
+
+    const float dm1 = d - 1.0f, dm2 = d - 2.0f, dp1 = d + 1.0f;
+    return -x0 * d * dm1 * dm2 * (1.0f / 6.0f)
+         +  x1 * dp1 * dm1 * dm2 * 0.5f
+         -  x2 * dp1 * d * dm2 * 0.5f
+         +  x3 * dp1 * d * dm1 * (1.0f / 6.0f);
+}
+
+//==============================================================================
+void ReverseEngine::Clock::start(float timeSeconds, float radiansPerSampleHz, bool exactClock, double sampleRate)
+{
+    time = timeSeconds;
+    exact = exactClock;
+    increment = exact ? c_twoPi / (static_cast<double>(timeSeconds) * sampleRate)
+                      : static_cast<double>(radiansPerSampleHz * (1.0f / timeSeconds));
+}
+
+void ReverseEngine::Clock::advance()
+{
+    if (exact)
+    {
+        for (auto& p : phase)
+            p = wrapPhase(increment + p);
+        return;
+    }
+
+    // Each oscillator accumulates its own float32 phase, as in the original.
+    const auto inc = static_cast<float>(increment);
+    for (auto& p : phase)
+        p = wrapPhase(inc + static_cast<float>(p));
+}
+
+void ReverseEngine::Clock::resync()
+{
+    // Float32 accumulation makes the four phases wander apart slightly; with a fixed TIME the
+    // error comes back every period, but each TIME change would freeze some of it in. So a new
+    // clock re-derives the others from voice 0's sweep, keeping every window at zero on its
+    // jump and the voices half a period apart.
+    if (exact)
+    {
+        phase[1] = wrapPhase(phase[0] + 0.5 * c_pi);
+        phase[2] = wrapPhase(phase[0] + c_pi);
+        phase[3] = wrapPhase(phase[0] - 0.5 * c_pi);
+        return;
+    }
+
+    const auto p0 = static_cast<float>(phase[0]);
+    phase[1] = wrapPhase(p0 + 0.5f * c_piF);
+    phase[2] = wrapPhase(p0 + c_piF);
+    phase[3] = wrapPhase(p0 - 0.5f * c_piF);
+}
+
+std::array<float, 2> ReverseEngine::Clock::windows() const
+{
+    if (exact)
+        return { window(phase[1]), window(phase[3]) };
+
+    return { window(static_cast<float>(phase[1])), window(static_cast<float>(phase[3])) };
+}
+
+ReverseEngine::Taps ReverseEngine::tapsOf(const Clock& clock) const
+{
+    Taps taps;
+    if (clock.exact)
+    {
+        // In float32 a delay of a million samples or more would only resolve 1/8 sample.
+        const double base = static_cast<double>(clock.time) * m_sampleRate;
+        taps.delay[0] = base + base * sweep(clock.phase[0]);
+        taps.delay[1] = base + base * sweep(clock.phase[2]);
+    }
+    else
+    {
+        // The original's float32 arithmetic.
+        const float base = static_cast<float>(static_cast<double>(clock.time) * m_sampleRate);   // D0 = T * SR
+        taps.delay[0] = base + base * sweep(static_cast<float>(clock.phase[0]));
+        taps.delay[1] = base + base * sweep(static_cast<float>(clock.phase[2]));
+    }
+    taps.window = clock.windowGain;
+    return taps;
+}
+
+//==============================================================================
+void ReverseEngine::prepare(double sampleRate, int, int numChannels)
+{
+    m_sampleRate = sampleRate;
+    m_radiansPerSampleHz = (1.0f / static_cast<float>(sampleRate)) * c_twoPiF;
+    m_exactClock = sampleRate > c_exactClockAboveHz;
+    m_numChannels = std::max(1, numChannels);
+
+    // A voice reads up to 2T back; Reverse Repeat's second pass adds up to T/2 (+ vibrato).
+    const int sweepLength = static_cast<int>(std::ceil(2.0 * maxTimeSeconds * sampleRate)) + 8;
+    const int repeatLength = static_cast<int>(std::ceil(0.5 * maxTimeSeconds * sampleRate * (1.0 + c_vibratoDepth))) + 8;
+
+    m_channels.resize(static_cast<size_t>(m_numChannels));
+    for (auto& c : m_channels)
+    {
+        c.history.allocate(sweepLength);
+        for (auto& f : c.feedback)
+            f.allocate(sweepLength);
+        c.repeat.allocate(repeatLength);
+    }
+
+    m_crossfadeLength = std::max(1, static_cast<int>(c_timeCrossfadeSeconds * sampleRate));
+    m_modeFadeLength = std::max(1, static_cast<int>(c_modeCrossfadeSeconds * sampleRate));
+    m_feedback.reset(sampleRate, 0.02);
+
     reset();
 }
 
 void ReverseEngine::reset()
 {
-    for (auto& channel : channels)
+    for (auto& c : m_channels)
     {
-        std::fill(channel->delayLine.begin(), channel->delayLine.end(), 0.0f);
-        std::fill(channel->outputBuffer.begin(), channel->outputBuffer.end(), 0.0f);
-        std::fill(channel->repeatBuffer.begin(), channel->repeatBuffer.end(), 0.0f);
-        
-        channel->delayWritePos = 0;
-        channel->outputReadPos = 0;
-        channel->outputWritePos = channel->windowSamples;
-        channel->currentGrain = 0;
-        channel->grainCounter = 0;
-        
-        // Reset all grains
-        for (int g = 0; g < Channel::NUM_GRAINS; ++g)
-        {
-            std::fill(channel->grains[g].buffer.begin(), channel->grains[g].buffer.end(), 0.0f);
-            channel->grains[g].active = false;
-            channel->grains[g].readPosition = 0;
-        }
-        
-        channel->feedbackSample = 0.0f;
-        channel->crossfadePosition = 0.0f;
-        channel->crossfadeDirection = true;
-        channel->repeatPosition = 0;
-        channel->isRepeating = false;
-        channel->vibratoPhase.setCurrentAndTargetValue(0.0f);
-        channel->grainSpawnOffset = 0;
-        channel->feedbackGainSmoothed.setCurrentAndTargetValue(0.0f);
+        c.history.clear();
+        for (auto& f : c.feedback)
+            f.clear();
+        c.repeat.clear();
+        c.lastVoice = {};
+    }
+
+    for (size_t k = 0; k < m_clock.phase.size(); ++k)
+        m_clock.phase[k] = m_exactClock ? static_cast<double>(c_startDegrees[k]) * (c_pi / 180.0)
+                                        : static_cast<double>(c_startDegrees[k] * c_degreesToRadians);
+    m_clock.windowGain = { 0.5f, 0.5f };   // no window value has arrived yet
+    m_clock.start(m_targetTime, m_radiansPerSampleHz, m_exactClock, m_sampleRate);
+    m_crossfadePos = m_crossfadeLength;
+
+    m_vibratoPhase = c_vibratoStartDegrees * c_degreesToRadians;
+    m_vibratoIncrement = m_radiansPerSampleHz * c_vibratoHz;
+    m_vibratoValue = 0.0f;
+
+    m_mode = m_targetMode;
+    m_previousMode = m_targetMode;
+    m_modeFadePos = m_modeFadeLength;
+    m_feedback.setCurrentAndTargetValue(m_feedback.getTargetValue());
+}
+
+void ReverseEngine::setMode(Mode mode, bool immediate)
+{
+    m_targetMode = mode;
+    if (immediate)
+    {
+        m_mode = m_previousMode = mode;
+        m_modeFadePos = m_modeFadeLength;
     }
 }
 
-void ReverseEngine::setParameters(float windowTimeSeconds, float feedbackAmount, float wetMixAmount, float dryMixAmount, int mode, float crossfadePercent, float envelopeSeconds)
+void ReverseEngine::setTime(float seconds, bool immediate)
 {
-    // Clamp minimum window time to 30ms to prevent excessive crackling
-    windowTime = std::max(0.03f, windowTimeSeconds);
-    feedback = feedbackAmount;
-    wetMix = wetMixAmount;
-    dryMix = dryMixAmount;
-    effectMode = mode;
-    crossfadeTime = crossfadePercent / 100.0f;
-    
-    // Limit envelope time to maximum 50% of window time to prevent overlap distortion
-    float maxEnvelopeTime = windowTime * 0.5f;
-    envelopeTime = std::min(envelopeSeconds, maxEnvelopeTime);
-    
-    int newWindowSamples = static_cast<int>(windowTime * sampleRate);
-    
-    for (auto& channel : channels)
+    m_targetTime = juce::jlimit(minTimeSeconds, maxTimeSeconds, seconds);
+    if (immediate)
     {
-        if (channel->windowSamples != newWindowSamples)
-        {
-            channel->windowSamples = newWindowSamples;
-            channel->hopSize = channel->windowSamples / 2;
-            
-            // Resize buffers
-            channel->delayLine.resize(channel->windowSamples * 2);
-            channel->outputBuffer.resize(channel->windowSamples * 2);
-            channel->windowFunction.resize(channel->windowSamples);
-            channel->repeatBuffer.resize(channel->windowSamples);
-            
-            // Reset positions
-            channel->delayWritePos = 0;
-            channel->outputReadPos = 0;
-            channel->outputWritePos = channel->windowSamples;
-            channel->currentGrain = 0;
-            channel->grainCounter = 0;
-            
-            // Resize grain buffers
-            for (int g = 0; g < Channel::NUM_GRAINS; ++g)
-            {
-                channel->grains[g].buffer.resize(channel->windowSamples);
-                channel->grains[g].grainSize = channel->windowSamples;
-                channel->grains[g].active = false;
-                channel->grains[g].readPosition = 0;
-            }
-            
-            // Recreate window function
-            createWindowFunction(channel->windowFunction, channel->windowSamples);
-        }
+        m_clock.start(m_targetTime, m_radiansPerSampleHz, m_exactClock, m_sampleRate);
+        m_crossfadePos = m_crossfadeLength;
     }
 }
 
-void ReverseEngine::process(juce::AudioBuffer<float>& buffer)
+void ReverseEngine::setFeedback(float amount, bool immediate)
 {
-    const int numSamples = buffer.getNumSamples();
-    
-    // Process each channel
-    for (int ch = 0; ch < numChannels && ch < buffer.getNumChannels(); ++ch)
-    {
-        float* channelData = buffer.getWritePointer(ch);
-        
-        switch (effectMode)
-        {
-            case ReversePlayback:
-                processReversePlayback(*channels[ch], channelData, numSamples);
-                break;
-            case ForwardBackwards:
-                processForwardBackwards(*channels[ch], channelData, numSamples);
-                break;
-            case ReverseRepeat:
-                processReverseRepeat(*channels[ch], channelData, numSamples);
-                break;
-        }
-    }
+    const float f = juce::jlimit(0.0f, maxFeedback, amount);
+    if (immediate) m_feedback.setCurrentAndTargetValue(f);
+    else           m_feedback.setTargetValue(f);
 }
 
-void ReverseEngine::processReversePlayback(Channel& ch, float* channelData, int numSamples)
+//==============================================================================
+void ReverseEngine::process(const float* const* input, float* const* output, int numChannels, int numSamples)
 {
-    // Match original: feedback * 0.5 safety factor
-    const float FEEDBACK_SAFETY_FACTOR = 0.5f;
-    const float FEEDBACK_HARD_LIMIT = 0.95f;
-    
-    // Update smoothed feedback gain
-    ch.feedbackGainSmoothed.setTargetValue(feedback * FEEDBACK_SAFETY_FACTOR);
-    
+    numChannels = std::min(numChannels, m_numChannels);
+
     for (int i = 0; i < numSamples; ++i)
     {
-        float inputSample = channelData[i];
-        
-        // Get smoothed feedback gain
-        float currentFeedbackGain = ch.feedbackGainSmoothed.getNextValue();
-        
-        // Write to delay line WITHOUT feedback (feedback comes from output)
-        ch.delayLine[ch.delayWritePos] = inputSample;
-        ch.delayWritePos = (ch.delayWritePos + 1) % ch.delayLine.size();
-        
-        // Clear output buffer position
-        ch.outputBuffer[ch.outputWritePos] = 0.0f;
-        
-        // Process active grains
-        for (int g = 0; g < Channel::NUM_GRAINS; ++g)
+        // TIME: when the requested time differs, keep the current read heads running on
+        // their old clock and cross-fade to heads on the new one. (The original froze the
+        // old heads for one host block, which flips their direction and leaves a kink, and
+        // depends on the block size.) Further moves wait for the fade to finish, so a
+        // dragged slider becomes a chain of short cross-fades.
+        if (m_crossfadePos >= m_crossfadeLength && ! juce::exactlyEqual(m_targetTime, m_clock.time))
         {
-            if (ch.grains[g].active)
-            {
-                int readPos = ch.grains[g].readPosition;
-                if (readPos < ch.grains[g].grainSize)
-                {
-                    // Read from grain buffer in reverse
-                    int reverseIndex = ch.grains[g].grainSize - 1 - readPos;
-                    float grainSample = ch.grains[g].buffer[reverseIndex];
-                    
-                    // Apply window
-                    float windowGain = ch.windowFunction[readPos];
-                    
-                    // Accumulate to output
-                    ch.outputBuffer[ch.outputWritePos] += grainSample * windowGain * ch.grains[g].amplitude;
-                    
-                    ch.grains[g].readPosition++;
-                }
-                else
-                {
-                    ch.grains[g].active = false;
-                }
-            }
+            m_oldClock = m_clock;
+            m_clock.start(m_targetTime, m_radiansPerSampleHz, m_exactClock, m_sampleRate);
+            m_clock.resync();   // its heads start silent, so this is inaudible
+            m_crossfadePos = 0;
         }
-        
-        // Spawn new grain at hop intervals
-        ch.grainCounter++;
-        if (ch.grainCounter >= ch.hopSize)
-        {
-            ch.grainCounter = 0;
-            
-            // Find inactive grain
-            for (int g = 0; g < Channel::NUM_GRAINS; ++g)
-            {
-                if (!ch.grains[g].active)
-                {
-                    // Copy from delay line to grain buffer
-                    int delayReadPos = (ch.delayWritePos - ch.windowSamples + ch.delayLine.size()) % ch.delayLine.size();
-                    
-                    for (int s = 0; s < ch.windowSamples; ++s)
-                    {
-                        ch.grains[g].buffer[s] = ch.delayLine[(delayReadPos + s) % ch.delayLine.size()];
-                    }
-                    
-                    ch.grains[g].active = true;
-                    ch.grains[g].readPosition = 0;
-                    ch.grains[g].amplitude = 1.0f;
-                    ch.grains[g].grainSize = ch.windowSamples;
-                    
-                    break;
-                }
-            }
-        }
-        
-        // Read from output buffer
-        float outputSample = ch.outputBuffer[ch.outputReadPos];
-        
-        // Add feedback from previous output (matching original)
-        float wetSignal = outputSample + (ch.feedbackSample * currentFeedbackGain);
-        
-        // Apply soft limiting like original
-        if (std::fabs(wetSignal) > FEEDBACK_HARD_LIMIT)
-        {
-            wetSignal = std::tanh(wetSignal * 0.7f) * 1.4286f;
-        }
-        
-        // Mix with dry signal
-        float processedSample = inputSample * dryMix + wetSignal * wetMix;
-        
-        // Store output for next sample's feedback (matching original)
-        ch.feedbackSample = processedSample;
-        
-        channelData[i] = processedSample;
-        
-        // Update output buffer positions
-        ch.outputReadPos = (ch.outputReadPos + 1) % ch.outputBuffer.size();
-        ch.outputWritePos = (ch.outputWritePos + 1) % ch.outputBuffer.size();
-    }
-}
 
-void ReverseEngine::processForwardBackwards(Channel& ch, float* channelData, int numSamples)
-{
-    // Match original with 0.5 safety factor
-    const float FEEDBACK_SAFETY_FACTOR = 0.5f;
-    const float FEEDBACK_HARD_LIMIT = 0.95f;
-    const int crossfadeSamples = static_cast<int>(ch.windowSamples * crossfadeTime);
-    
-    // Update smoothed feedback gain
-    ch.feedbackGainSmoothed.setTargetValue(feedback * FEEDBACK_SAFETY_FACTOR);
-    
-    for (int i = 0; i < numSamples; ++i)
+        // Mode: cross-fade between the outgoing and incoming effect.
+        if (m_modeFadePos >= m_modeFadeLength && m_targetMode != m_mode)
+        {
+            m_previousMode = m_mode;
+            m_mode = m_targetMode;
+            m_modeFadePos = 0;
+        }
+
+        const bool timeFading = m_crossfadePos < m_crossfadeLength;
+        const float g = timeFading ? fadeCurve(m_crossfadePos, m_crossfadeLength) : 1.0f;
+
+        // The sweeps advance before they are read; the windows applied this sample are
+        // the ones computed on the previous sample.
+        m_clock.advance();
+        const auto taps = tapsOf(m_clock);
+        Taps oldTaps;
+        if (timeFading)
+        {
+            m_oldClock.advance();
+            oldTaps = tapsOf(m_oldClock);
+        }
+
+        m_vibratoPhase = wrapPhase(m_vibratoIncrement + m_vibratoPhase);
+        const float repeatBase = static_cast<float>(0.5 * m_clock.time * m_sampleRate);
+        const double repeatDelay = m_exactClock ? 0.5 * m_clock.time * m_sampleRate * (1.0 + c_vibratoDepth * m_vibratoValue)
+                                                : repeatBase + repeatBase * (c_vibratoDepth * m_vibratoValue);
+        const double oldRepeatDelay = timeFading ? 0.5 * m_oldClock.time * m_sampleRate * (1.0 + c_vibratoDepth * m_vibratoValue) : 0.0;
+
+        const bool modeFading = m_modeFadePos < m_modeFadeLength;
+        const float modeWeight = modeFading ? fadeCurve(m_modeFadePos, m_modeFadeLength) : 1.0f;
+        const auto weightOf = [&](Mode m) { return (m == m_mode ? modeWeight : 0.0f) + (modeFading && m == m_previousMode ? 1.0f - modeWeight : 0.0f); };
+        const float rpWeight = weightOf(Mode::ReversePlayback);
+        const float fbWeight = weightOf(Mode::ForwardBackwards);
+        const float rrWeight = weightOf(Mode::ReverseRepeat);
+
+        const float forwardWindow = timeFading ? g * taps.window[1] + (1.0f - g) * oldTaps.window[1] : taps.window[1];
+        const float feedback = m_feedback.getNextValue();
+
+        for (int ch = 0; ch < numChannels; ++ch)
+        {
+            auto& c = m_channels[static_cast<size_t>(ch)];
+            float x = input[ch][i];
+            if (! std::isfinite(x))
+                x = 0.0f;   // one bad sample must not lodge in the delay and feedback lines
+
+            // Every delay line is written each sample, whichever effect is active, so a
+            // mode change lands on a full history. The input is halved here and the output
+            // doubled below (as in the original), which makes the feedback depth exact.
+            c.history.push(0.5f * x);
+            c.feedback[0].push(feedback * c.lastVoice[0]);
+            c.feedback[1].push(feedback * c.lastVoice[1]);
+
+            const auto voice = [&](size_t v)
+            {
+                const auto readAt = [&](double d) { return c.history.read(d) + c.feedback[v].read(d); };
+                float y = readAt(taps.delay[v]) * taps.window[v];
+                if (timeFading)
+                    y = g * y + (1.0f - g) * readAt(oldTaps.delay[v]) * oldTaps.window[v];
+                return y;
+            };
+
+            // Voice 0 is common to all three effects.
+            const float y0 = voice(0);
+            float out = 0.0f;
+            float y1 = 0.0f;
+
+            if (rpWeight > 0.0f)
+            {
+                y1 = voice(1);
+                out += rpWeight * 2.0f * (y0 + y1);
+            }
+
+            if (fbWeight > 0.0f)
+            {
+                // The forward path also receives the feedback send.
+                const float forward = (0.5f * x + feedback * y0) * forwardWindow;
+                out += fbWeight * 2.0f * (y0 + forward);
+            }
+
+            // Reverse Repeat's second pass: voice 0 again, T/2 later, with vibrato.
+            c.repeat.push(y0);
+            if (rrWeight > 0.0f)
+            {
+                float again = c.repeat.read(repeatDelay);
+                if (timeFading)
+                    again = g * again + (1.0f - g) * c.repeat.read(oldRepeatDelay);
+                out += rrWeight * 2.0f * (y0 + again);
+            }
+
+            c.lastVoice = { y0, rpWeight * y1 };
+            output[ch][i] = out;
+        }
+
+        // Window values for the next sample (one sample late, as in the original).
+        m_clock.windowGain = m_clock.windows();
+        if (timeFading)
+            m_oldClock.windowGain = m_oldClock.windows();
+        m_vibratoValue = std::sin(m_vibratoPhase);
+
+        if (timeFading)
+            ++m_crossfadePos;
+        if (modeFading)
+            ++m_modeFadePos;
+    }
+
+    // Read heads for the display (voice 0 and the mode's second voice).
+    const auto taps = tapsOf(m_clock);
+    m_views[0] = { static_cast<float>(taps.delay[0] / m_sampleRate), taps.window[0] };
+
+    switch (m_mode)
     {
-        float inputSample = channelData[i];
-        float currentFeedbackGain = ch.feedbackGainSmoothed.getNextValue();
-        
-        // Write to delay line without feedback
-        ch.delayLine[ch.delayWritePos] = inputSample;
-        
-        // Clear output buffer
-        ch.outputBuffer[ch.outputWritePos] = 0.0f;
-        
-        // Process active grains
-        for (int g = 0; g < Channel::NUM_GRAINS; ++g)
+        case Mode::ReversePlayback:
+            m_views[1] = { static_cast<float>(taps.delay[1] / m_sampleRate), taps.window[1] };
+            break;
+        case Mode::ForwardBackwards:
+            m_views[1] = { 0.0f, taps.window[1] };
+            break;
+        case Mode::ReverseRepeat:
         {
-            if (ch.grains[g].active)
-            {
-                int readPos = ch.grains[g].readPosition;
-                if (readPos < ch.grains[g].grainSize)
-                {
-                    float grainSample;
-                    
-                    // First half: forward playback
-                    if (readPos < ch.grains[g].grainSize / 2)
-                    {
-                        grainSample = ch.grains[g].buffer[readPos];
-                    }
-                    // Second half: backward playback
-                    else
-                    {
-                        int reversePos = ch.grains[g].grainSize - 1 - (readPos - ch.grains[g].grainSize / 2);
-                        grainSample = ch.grains[g].buffer[reversePos];
-                    }
-                    
-                    float windowGain = ch.windowFunction[readPos];
-                    
-                    // Apply crossfade at the transition point
-                    float grainFade = 1.0f;
-                    int halfGrain = ch.grains[g].grainSize / 2;
-                    
-                    if (readPos >= halfGrain - crossfadeSamples && readPos < halfGrain)
-                    {
-                        // Fade out forward
-                        float fadePos = (float)(readPos - (halfGrain - crossfadeSamples)) / crossfadeSamples;
-                        grainFade = 1.0f - fadePos;
-                    }
-                    else if (readPos >= halfGrain && readPos < halfGrain + crossfadeSamples)
-                    {
-                        // Fade in backward
-                        float fadePos = (float)(readPos - halfGrain) / crossfadeSamples;
-                        grainFade = fadePos;
-                    }
-                    
-                    ch.outputBuffer[ch.outputWritePos] += grainSample * windowGain * grainFade * ch.grains[g].amplitude;
-                    
-                    ch.grains[g].readPosition++;
-                }
-                else
-                {
-                    ch.grains[g].active = false;
-                }
-            }
+            // Plays what voice 0 played half a period ago.
+            const float earlier = wrapPhase(static_cast<float>(m_clock.phase[0]) - c_piF);
+            const double base = m_clock.time * m_sampleRate;
+            const double earlierDelay = base * (1.0 + sweep(earlier));
+            m_views[1] = { static_cast<float>((0.5 * base + earlierDelay) / m_sampleRate), taps.window[1] };
+            break;
         }
-        
-        // Spawn new grain pair at hop intervals
-        ch.grainCounter++;
-        if (ch.grainCounter >= ch.hopSize)
-        {
-            ch.grainCounter = 0;
-            
-            // Find two inactive grains for forward and backward
-            int forwardGrain = -1, reverseGrain = -1;
-            
-            for (int g = 0; g < Channel::NUM_GRAINS; ++g)
-            {
-                if (!ch.grains[g].active)
-                {
-                    if (forwardGrain == -1)
-                        forwardGrain = g;
-                    else if (reverseGrain == -1)
-                    {
-                        reverseGrain = g;
-                        break;
-                    }
-                }
-            }
-            
-            if (forwardGrain != -1)
-            {
-                // Vary the read position to prevent feedback loops
-                int baseReadPos = (ch.delayWritePos - ch.windowSamples + ch.delayLine.size()) % ch.delayLine.size();
-                int delayReadPos = (baseReadPos - ch.grainSpawnOffset + ch.delayLine.size()) % ch.delayLine.size();
-                
-                // Copy from delay line
-                for (int s = 0; s < ch.windowSamples; ++s)
-                {
-                    float sample = ch.delayLine[(delayReadPos + s) % ch.delayLine.size()];
-                    ch.grains[forwardGrain].buffer[s] = sample;
-                    if (reverseGrain != -1)
-                        ch.grains[reverseGrain].buffer[s] = sample;
-                }
-                
-                ch.grains[forwardGrain].active = true;
-                ch.grains[forwardGrain].readPosition = 0;
-                ch.grains[forwardGrain].amplitude = 0.7f;  // Reduce amplitude to prevent buildup
-                ch.grains[forwardGrain].grainSize = ch.windowSamples;
-                
-                // Update spawn offset for next grain pair (cycle through 25% of window)
-                ch.grainSpawnOffset = (ch.grainSpawnOffset + ch.windowSamples / 4) % (ch.windowSamples / 2);
-            }
-        }
-        
-        // Read from output buffer
-        float outputSample = ch.outputBuffer[ch.outputReadPos];
-        
-        // Add feedback from previous output
-        float wetSignal = outputSample + (ch.feedbackSample * currentFeedbackGain);
-        
-        // Apply soft limiting like original
-        if (std::fabs(wetSignal) > FEEDBACK_HARD_LIMIT)
-        {
-            wetSignal = std::tanh(wetSignal * 0.7f) * 1.4286f;
-        }
-        
-        // Mix with dry signal
-        float processedSample = inputSample * dryMix + wetSignal * wetMix;
-        
-        // Store output for next sample's feedback
-        ch.feedbackSample = processedSample;
-        
-        channelData[i] = processedSample;
-        
-        // Update positions
-        ch.delayWritePos = (ch.delayWritePos + 1) % ch.delayLine.size();
-        ch.outputReadPos = (ch.outputReadPos + 1) % ch.outputBuffer.size();
-        ch.outputWritePos = (ch.outputWritePos + 1) % ch.outputBuffer.size();
     }
 }
 
-void ReverseEngine::processReverseRepeat(Channel& ch, float* channelData, int numSamples)
+std::array<ReverseEngine::VoiceView, ReverseEngine::maxVoices> ReverseEngine::getVoiceViews(int& count) const
 {
-    // Match original with 0.5 safety factor
-    const float FEEDBACK_SAFETY_FACTOR = 0.5f;
-    const float FEEDBACK_HARD_LIMIT = 0.95f;
-    
-    // Update smoothed feedback gain
-    ch.feedbackGainSmoothed.setTargetValue(feedback * FEEDBACK_SAFETY_FACTOR);
-    
-    for (int i = 0; i < numSamples; ++i)
-    {
-        float inputSample = channelData[i];
-        float currentFeedbackGain = ch.feedbackGainSmoothed.getNextValue();
-        
-        // Write to delay line without feedback
-        ch.delayLine[ch.delayWritePos] = inputSample;
-        
-        // Clear output buffer
-        ch.outputBuffer[ch.outputWritePos] = 0.0f;
-        
-        // Process active grains
-        for (int g = 0; g < Channel::NUM_GRAINS; ++g)
-        {
-            if (ch.grains[g].active)
-            {
-                int readPos = ch.grains[g].readPosition;
-                if (readPos < ch.grains[g].grainSize)
-                {
-                    float grainSample;
-                    
-                    // Always read in reverse
-                    int reverseIndex = ch.grains[g].grainSize - 1 - readPos;
-                    
-                    // Apply vibrato only on second repeat
-                    if (ch.isRepeating && readPos >= ch.grains[g].grainSize / 2)
-                    {
-                        // Apply subtle vibrato modulation
-                        float vibratoMod = getVibratoModulation(ch);
-                        float vibratoDepth = 0.005f; // 0.5% pitch variation - much more subtle
-                        
-                        // Apply vibrato to forward position first, then reverse
-                        float modulatedPos = (float)readPos + vibratoMod * vibratoDepth * ch.grains[g].grainSize;
-                        int modulatedIndex = (int)modulatedPos;
-                        float frac = modulatedPos - modulatedIndex;
-                        
-                        // Clamp and reverse the modulated position
-                        modulatedIndex = std::clamp(modulatedIndex, 0, ch.grains[g].grainSize - 1);
-                        int modulatedReverseIndex = ch.grains[g].grainSize - 1 - modulatedIndex;
-                        int nextIndex = std::max(0, modulatedReverseIndex - 1);
-                        
-                        float sample1 = ch.grains[g].buffer[modulatedReverseIndex];
-                        float sample2 = ch.grains[g].buffer[nextIndex];
-                        grainSample = sample1 * (1.0f - frac) + sample2 * frac;
-                    }
-                    else
-                    {
-                        grainSample = ch.grains[g].buffer[reverseIndex];
-                    }
-                    
-                    float windowGain = ch.windowFunction[readPos];
-                    ch.outputBuffer[ch.outputWritePos] += grainSample * windowGain * ch.grains[g].amplitude;
-                    
-                    ch.grains[g].readPosition++;
-                }
-                else
-                {
-                    // Check if we should repeat
-                    if (!ch.isRepeating)
-                    {
-                        ch.isRepeating = true;
-                        ch.grains[g].readPosition = 0;  // Restart for second pass
-                    }
-                    else
-                    {
-                        ch.grains[g].active = false;
-                        ch.isRepeating = false;
-                    }
-                }
-            }
-        }
-        
-        // Spawn new grain at hop intervals
-        ch.grainCounter++;
-        if (ch.grainCounter >= ch.hopSize)
-        {
-            ch.grainCounter = 0;
-            
-            // Find inactive grain
-            int grainToUse = -1;
-            for (int g = 0; g < Channel::NUM_GRAINS; ++g)
-            {
-                if (!ch.grains[g].active)
-                {
-                    grainToUse = g;
-                    break;
-                }
-            }
-            
-            if (grainToUse != -1)
-            {
-                int delayReadPos = (ch.delayWritePos - ch.windowSamples + ch.delayLine.size()) % ch.delayLine.size();
-                
-                for (int s = 0; s < ch.windowSamples; ++s)
-                {
-                    ch.grains[grainToUse].buffer[s] = ch.delayLine[(delayReadPos + s) % ch.delayLine.size()];
-                }
-                
-                ch.grains[grainToUse].active = true;
-                ch.grains[grainToUse].readPosition = 0;
-                ch.grains[grainToUse].amplitude = 1.0f;
-                ch.grains[grainToUse].grainSize = ch.windowSamples;
-                ch.isRepeating = false;  // Reset repeat state for new grain
-            }
-        }
-        
-        // Read from output buffer
-        float outputSample = ch.outputBuffer[ch.outputReadPos];
-        
-        // Add feedback from previous output
-        float wetSignal = outputSample + (ch.feedbackSample * currentFeedbackGain);
-        
-        // Apply soft limiting like original
-        if (std::fabs(wetSignal) > FEEDBACK_HARD_LIMIT)
-        {
-            wetSignal = std::tanh(wetSignal * 0.7f) * 1.4286f;
-        }
-        
-        // Mix with dry signal
-        float processedSample = inputSample * dryMix + wetSignal * wetMix;
-        
-        // Store output for next sample's feedback
-        ch.feedbackSample = processedSample;
-        
-        channelData[i] = processedSample;
-        
-        // Update positions
-        ch.delayWritePos = (ch.delayWritePos + 1) % ch.delayLine.size();
-        ch.outputReadPos = (ch.outputReadPos + 1) % ch.outputBuffer.size();
-        ch.outputWritePos = (ch.outputWritePos + 1) % ch.outputBuffer.size();
-    }
+    count = maxVoices;
+    return m_views;
 }
 
-void ReverseEngine::createWindowFunction(std::vector<float>& window, int length)
+double ReverseEngine::tailSeconds(float timeSeconds, float feedback)
 {
-    // Create Hann window
-    for (int i = 0; i < length; ++i)
-    {
-        float value = 0.5f - 0.5f * std::cos(2.0f * juce::MathConstants<float>::pi * i / (length - 1));
-        
-        // Apply envelope at edges based on envelope time
-        if (envelopeTime > 0.0f)
-        {
-            int fadeLength = static_cast<int>(envelopeTime * sampleRate);
-            fadeLength = std::min(fadeLength, length / 2);  // Limit to half window
-            
-            if (i < fadeLength)
-            {
-                float fadeIn = static_cast<float>(i) / static_cast<float>(fadeLength);
-                value *= fadeIn * fadeIn;  // Square for smoother fade
-            }
-            else if (i >= length - fadeLength)
-            {
-                float fadeOut = static_cast<float>(length - 1 - i) / static_cast<float>(fadeLength);
-                value *= fadeOut * fadeOut;  // Square for smoother fade
-            }
-        }
-        
-        window[i] = value;
-    }
-}
-
-float ReverseEngine::getVibratoModulation(Channel& ch)
-{
-    ch.vibratoPhase.setTargetValue(ch.vibratoPhase.getTargetValue() + ch.vibratoRate / sampleRate);
-    if (ch.vibratoPhase.getTargetValue() >= 1.0f)
-        ch.vibratoPhase.setCurrentAndTargetValue(ch.vibratoPhase.getTargetValue() - 1.0f);
-    
-    return std::sin(2.0f * juce::MathConstants<float>::pi * ch.vibratoPhase.getNextValue());
+    // A snippet is heard for up to 2.5 T; each trip round the feedback loop
+    // takes about T and is scaled by the feedback depth. Stop at -60 dB.
+    const double t = juce::jlimit(static_cast<double>(minTimeSeconds), static_cast<double>(maxTimeSeconds), static_cast<double>(timeSeconds));
+    const double f = juce::jlimit(0.0, static_cast<double>(maxFeedback), static_cast<double>(feedback));
+    const double trips = f > 0.001 ? std::log(0.001) / std::log(f) : 0.0;
+    return std::min(120.0, 2.5 * t + trips * t);   // at most ~106 s (T = 4 s, F = 75 %)
 }

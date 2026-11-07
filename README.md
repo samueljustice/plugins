@@ -9,7 +9,7 @@ Audio plug-ins and tools by Samuel Justice / [Sweet Justice Sound](https://www.s
 | [Swooshbuckler](swooshbuckler/README.md) | Whoosh-making rig | App (macOS, Windows), VST3, AU | Not released yet |
 | [Subbertone](subbertone/README.md) | Subharmonic generator | VST3, AU | [v1.1.0](https://github.com/samueljustice/plugins/releases/tag/subbertone-v1.1.0) |
 | [Pitch Flattener](pitchflattener/README.md) | Real-time pitch flattening | VST3, AU | [v1.2.5](https://github.com/samueljustice/plugins/releases/tag/pitchflattener-v1.2.5) |
-| [Reversinator](reversinator/README.md) | Real-time reverse effects | VST3, AU | [v1.0.0](https://github.com/samueljustice/plugins/releases/tag/reversinator-v1.0.0) |
+| [Reversinator](reversinator/README.md) | Real-time reverser, recreating Backwards Machine | VST3, AU | [v2.0.0](https://github.com/samueljustice/plugins/releases/tag/reversinator-v2.0.0) |
 | Stretch Armstrong | Real-time varispeed and time stretch | VST3, AU | Not released yet |
 | [PTSL Beat Tool](PTSL_beattool/README.md) | Beat markers for Pro Tools | App (macOS) | Not released yet |
 
@@ -34,11 +34,11 @@ Flattens pitch variations in real time. Good for removing sweeping doppler, stea
 - [Latest release](https://github.com/samueljustice/plugins/releases/tag/pitchflattener-v1.2.5)
 
 ### Reversinator
-Real-time reverse effects using grain-based overlap-add, for smooth reverses, experimental textures and time-based effects without clicks or pops.
+A real-time reverser: a faithful, modernised recreation of Backwards Machine's three effects (Reverse Playback, Forward Backwards and Reverse Repeat), with a live display of the read heads sweeping backwards through your audio.
 
 - Location: `/reversinator/`
 - [Project README](reversinator/README.md)
-- [Latest release](https://github.com/samueljustice/plugins/releases/tag/reversinator-v1.0.0)
+- [Latest release](https://github.com/samueljustice/plugins/releases/tag/reversinator-v2.0.0)
 
 ### Stretch Armstrong
 Stretches audio in real time, either varispeed (the pitch follows the speed, like tape) or time stretch (the pitch stays put), using RubberBand. Work in progress.
