@@ -339,7 +339,7 @@ void ReverseEngine::process(const float* const* input, float* const* output, int
             // Plays what voice 0 played half a period ago.
             const float earlier = wrapPhase(m_clock.phase[0] - c_piF);
             const double base = m_clock.time * m_sampleRate;
-            const double earlierDelay = base * (1.0 + sweep(earlier));
+            const double earlierDelay = std::max(0.0, base * (1.0 + sweep(earlier)) - c_reverseLeadSeconds * m_sampleRate);
             m_views[1] = { static_cast<float>((0.5 * base + earlierDelay) / m_sampleRate), taps.window[1] };
             break;
         }
