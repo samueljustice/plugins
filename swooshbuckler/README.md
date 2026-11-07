@@ -41,6 +41,8 @@ Get the latest version from the [releases page](https://github.com/samueljustice
 
 macOS builds are universal (Apple silicon and Intel), signed and notarised, and need macOS 11 or later. Windows builds need 64-bit Windows 10 or later.
 
+What's changed in each version is in the [changelog](CHANGELOG.md).
+
 ## Quick start
 
 1. **Drop sounds into Tracks**, or click the drop zone to browse. Anything works: cloth, air, engines, animals, metal, voices. Each file gets its own looping track. Swooshbuckler finds the separate sounds in it, guesses what type of sound it is, and sends it to bus A, bus B or the hits.
