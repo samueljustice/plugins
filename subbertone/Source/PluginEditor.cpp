@@ -30,11 +30,14 @@ namespace
         return (rounded > 0.0 ? "+" : "") + juce::String(rounded, 1) + unit;
     }
 
-    double parseNumber(const juce::String& text)
-    {
-        const double value = text.retainCharacters("0123456789.-").getDoubleValue();
-        return text.containsIgnoreCase("k") ? value * 1000.0 : value;
-    }
+    // Preset menu item IDs: factory presets are 1..getNumFactory() (they lead the preset list in a
+    // fixed order, so their index is stable), user presets count up from c_firstUserItemId.
+    constexpr int c_saveAsItemId = 1001, c_deleteItemId = 1002, c_revealItemId = 1003;
+    constexpr int c_firstUserItemId = 100000;
+
+    // The limiter's gain-reduction meter in the MASTER header.
+    constexpr float c_grMeterRangeDb = 12.0f;   // a full bar
+    constexpr float c_grReadoutRangeDb = 24.0f; // the readout shows "<-24" beyond this
 
     // One-shot harmonic patterns for the PATTERN menu (percent per harmonic, index 1..16).
     struct HarmonicPattern
@@ -86,10 +89,10 @@ SubbertoneAudioProcessorEditor::SubbertoneAudioProcessorEditor(SubbertoneAudioPr
     , m_limiterAttachment(m_audioProcessor.m_parameters, "limiterOn", m_limiterButton)
     , m_loCutAttachment(m_audioProcessor.m_parameters, "loCutFreq", m_loCutSlider)
     , m_loCutButtonAttachment(m_audioProcessor.m_parameters, "loCutOn", m_loCutButton)
-    , m_tooltipWindow(this, 700)
 {
     setLookAndFeel(&m_lookAndFeel);
     m_tooltipWindow.setLookAndFeel(&m_lookAndFeel);
+    SubbertoneLookAndFeel::showFocusRingsAfterTab(*this); // keyboard focus rings after Tab, hidden by a click
 
     m_content.onPaint = [this](juce::Graphics& g) { paintContent(g); };
     m_content.onResized = [this] { layoutContent(); };
@@ -162,6 +165,7 @@ SubbertoneAudioProcessorEditor::SubbertoneAudioProcessorEditor(SubbertoneAudioPr
     setupCaption(m_patternLabel, "PATTERN");
     m_patternButton.setButtonText("CHOOSE");
     m_patternButton.setTooltip("Set the harmonic bars to a pattern: even (smooth), odd (burble), small speaker, ...");
+    m_patternButton.setColour(juce::PopupMenu::highlightedBackgroundColourId, Theme::Colours::overtones); // its menu's accent
     m_patternButton.onClick = [this] { showPatternMenu(); };
     m_content.addAndMakeVisible(m_patternButton);
 
@@ -205,7 +209,12 @@ SubbertoneAudioProcessorEditor::SubbertoneAudioProcessorEditor(SubbertoneAudioPr
     m_limiterButton.setTooltip("Look-ahead brickwall limiter on the final output");
     m_limiterButton.setColour(juce::TextButton::buttonOnColourId, Theme::Colours::master.withAlpha(0.28f));
     m_limiterButton.setColour(juce::TextButton::textColourOnId, Theme::Colours::text);
+    // Called for every toggle change (a click, automation, a preset load), so the readout follows LIMIT.
+    m_limiterButton.onStateChange = [this] { updateLimiterReadout(); };
     m_content.addAndMakeVisible(m_limiterButton);
+    m_limiterReadoutShown = m_limiterButton.getToggleState();
+    if (const float gr = m_audioProcessor.getGainReductionDb(); std::isfinite(gr))
+        m_lastGainReductionDb = gr;
 
     m_aboutButton.setButtonText("?");
     m_aboutButton.setTooltip("About SammyJs Subbertone");
@@ -215,25 +224,21 @@ SubbertoneAudioProcessorEditor::SubbertoneAudioProcessorEditor(SubbertoneAudioPr
     setupPresetBar();
 
     m_websiteLink.setFont(m_fonts->label(10.5f), false, juce::Justification::centredLeft);
-    m_websiteLink.setColour(juce::HyperlinkButton::textColourId, Theme::Colours::textDim);
+    m_websiteLink.setColour(juce::HyperlinkButton::textColourId, Theme::Colours::textDim); // amber on hover (ThemeLink)
     m_websiteLink.setTooltip("Open sweetjusticesound.com");
-    m_websiteLink.onStateChange = [this]
-    {
-        m_websiteLink.setColour(juce::HyperlinkButton::textColourId,
-                                m_websiteLink.isOver() ? Theme::Colours::output : Theme::Colours::textDim);
-    };
     m_content.addAndMakeVisible(m_websiteLink);
 
     // Resizable, uniformly scaled, fixed aspect ratio; the size is part of the saved state.
     // Read the saved scale first: setting the limits below resizes the editor, which
-    // would otherwise overwrite it.
-    const float scale = juce::jlimit(c_minScale, c_maxScale,
-                                     static_cast<float>(m_audioProcessor.getViewValue(c_viewEditorScale, c_defaultScale)));
+    // would otherwise overwrite it. A damaged value (NaN, inf) must not give a 0 x 0 editor.
+    const auto savedScale = static_cast<double>(m_audioProcessor.getViewValue(c_viewEditorScale, c_defaultScale));
+    const float scale = std::isfinite(savedScale) ? static_cast<float>(juce::jlimit<double>(c_minScale, c_maxScale, savedScale))
+                                                  : c_defaultScale;
     setResizable(true, true);
     setResizeLimits(juce::roundToInt(c_baseWidth * c_minScale), juce::roundToInt(c_baseHeight * c_minScale),
                     juce::roundToInt(c_baseWidth * c_maxScale), juce::roundToInt(c_baseHeight * c_maxScale));
-    if (auto* constrainer = getConstrainer())
-        constrainer->setFixedAspectRatio(static_cast<double>(c_baseWidth) / c_baseHeight);
+    if (auto* sizeConstrainer = getConstrainer())
+        sizeConstrainer->setFixedAspectRatio(static_cast<double>(c_baseWidth) / c_baseHeight);
 
     setSize(juce::roundToInt(c_baseWidth * scale), juce::roundToInt(c_baseHeight * scale));
     m_sizeRestored = true;
@@ -244,9 +249,34 @@ SubbertoneAudioProcessorEditor::SubbertoneAudioProcessorEditor(SubbertoneAudioPr
 SubbertoneAudioProcessorEditor::~SubbertoneAudioProcessorEditor()
 {
     stopTimer();
+    m_limiterButton.onStateChange = nullptr;
+
+    // Nothing the editor opened may outlive it: the About window (and its update check), any
+    // popup menu (it would keep using m_lookAndFeel), alerts and the tooltip window.
+    m_aboutWindow.reset();
+    juce::PopupMenu::dismissAllActiveMenus();
     m_alert.reset();
+    m_tooltipWindow.hideTip();
     m_tooltipWindow.setLookAndFeel(nullptr);
     setLookAndFeel(nullptr);
+}
+
+//==============================================================================
+SubbertoneAudioProcessorEditor::EditorTooltipWindow::EditorTooltipWindow(juce::Component& editor)
+    : juce::TooltipWindow(nullptr, 700) // no parent: a desktop window of its own, above the GL view
+    , m_editor(editor)
+{
+    setOpaque(false); // the LookAndFeel draws a rounded panel; the corners show what is behind the tip
+}
+
+juce::String SubbertoneAudioProcessorEditor::EditorTooltipWindow::getTipFor(juce::Component& component)
+{
+    return m_editor.isParentOf(&component) ? juce::TooltipWindow::getTipFor(component) : juce::String();
+}
+
+float SubbertoneAudioProcessorEditor::EditorTooltipWindow::getDesktopScaleFactor() const
+{
+    return juce::Component::getApproximateScaleFactorForComponent(&m_editor);
 }
 
 void SubbertoneAudioProcessorEditor::setupKnob(juce::Slider& slider, juce::Label& label, const juce::String& name,
@@ -282,11 +312,18 @@ void SubbertoneAudioProcessorEditor::setupKnob(juce::Slider& slider, juce::Label
             break;
     }
 
-    slider.valueFromTextFunction = [](const juce::String& text) { return parseNumber(text); };
-    slider.updateText();
-
     if (auto* param = m_audioProcessor.m_parameters.getParameter(paramId))
+    {
+        // Typed values go through the parameter's own parser, so the knob box reads text exactly
+        // as the host does (and as it is displayed): "1.2 s" is 1200 ms, "2.5 kHz" is 2500 Hz.
+        slider.valueFromTextFunction = [param](const juce::String& text)
+        {
+            return static_cast<double>(param->convertFrom0to1(param->getValueForText(text)));
+        };
         slider.setDoubleClickReturnValue(true, param->convertFrom0to1(param->getDefaultValue()));
+    }
+
+    slider.updateText();
 
     m_content.addAndMakeVisible(slider);
 
@@ -526,18 +563,39 @@ void SubbertoneAudioProcessorEditor::paintContent(juce::Graphics& g)
     {
         auto readout = m_masterHeader.reduced(8, 5).withTrimmedRight(64 + 8).toFloat();
         readout = readout.withTrimmedLeft(readout.getWidth() * 0.45f);
-        const float gr = juce::jlimit(-24.0f, 0.0f, m_lastGainReductionDb);
+        const float reading = std::isfinite(m_lastGainReductionDb) ? std::min(0.0f, m_lastGainReductionDb) : 0.0f;
+        const float gr = std::max(-c_grReadoutRangeDb, reading);
 
         auto meter = readout.removeFromRight(readout.getWidth() * 0.55f).withSizeKeepingCentre(readout.getWidth() * 1.2f, 4.0f);
         meter = meter.withX(readout.getRight() + 4.0f);
         g.setColour(outline);
         g.fillRoundedRectangle(meter, 2.0f);
-        g.setColour(master);
-        g.fillRoundedRectangle(meter.withLeft(meter.getRight() - meter.getWidth() * (-gr / 12.0f)).withRight(meter.getRight()), 2.0f);
 
-        g.setFont(m_fonts->body(10.0f));
+        // The bar is full at c_grMeterRangeDb and stays inside its track (and off the text) beyond that.
+        const float fill = juce::jlimit(0.0f, 1.0f, -gr / c_grMeterRangeDb);
+        if (fill > 0.0f)
+        {
+            g.setColour(master);
+            g.fillRoundedRectangle(meter.withLeft(meter.getRight() - meter.getWidth() * fill), 2.0f);
+        }
+
+        const auto font = m_fonts->body(10.0f);
+        g.setFont(font);
         g.setColour(textDim);
-        g.drawText("GR " + juce::String(gr, 1), readout, juce::Justification::centredRight, false);
+
+        if (reading < -c_grReadoutRangeDb)
+        {
+            // "GR <-24", in two pieces: drawn as one, the font would join "<-" into an arrow.
+            const auto limit = "-" + juce::String(juce::roundToInt(c_grReadoutRangeDb));
+            g.drawText(limit, readout, juce::Justification::centredRight, false);
+            g.drawText("GR <", readout.withTrimmedRight(juce::GlyphArrangement::getStringWidth(font, limit)),
+                       juce::Justification::centredRight, false);
+        }
+        else
+        {
+            g.drawText("GR " + (gr > -0.05f ? juce::String("0.0") : juce::String(gr, 1)), readout,
+                       juce::Justification::centredRight, false);
+        }
     }
 
     // Signal-flow chevrons in the gaps between sections.
@@ -567,10 +625,20 @@ void SubbertoneAudioProcessorEditor::timerCallback()
 
     m_waveformVisualizer.setSignalText(levelText, signalDb > threshold);
 
-    // Gain-reduction readout: repaint only the master header, only when it moves.
-    const float gr = m_audioProcessor.getGainReductionDb();
-    if (std::abs(gr - m_lastGainReductionDb) > 0.05f)
+    updateLimiterReadout();
+}
+
+void SubbertoneAudioProcessorEditor::updateLimiterReadout()
+{
+    // Repaint only the master header: when the readout appears or goes (LIMIT switched by a click,
+    // automation or a preset; the button follows the parameter) and, while it shows, when it moves.
+    const bool limiterOn = m_limiterButton.getToggleState();
+    const float reading = m_audioProcessor.getGainReductionDb();
+    const float gr = std::isfinite(reading) ? reading : 0.0f;
+
+    if (limiterOn != m_limiterReadoutShown || (limiterOn && std::abs(gr - m_lastGainReductionDb) > 0.05f))
     {
+        m_limiterReadoutShown = limiterOn;
         m_lastGainReductionDb = gr;
         m_content.repaint(m_masterHeader);
     }
@@ -582,6 +650,7 @@ void SubbertoneAudioProcessorEditor::timerCallback()
 void SubbertoneAudioProcessorEditor::showPatternMenu()
 {
     juce::PopupMenu menu;
+    menu.setLookAndFeel(&m_lookAndFeel); // a menu without a parent window would use JUCE's default look
     menu.addSectionHeader("HARMONIC PATTERN");
 
     const auto& patterns = harmonicPatterns();
@@ -593,7 +662,7 @@ void SubbertoneAudioProcessorEditor::showPatternMenu()
     menu.addItem(subOffId, "Sub off (overtones only, small-speaker trick)");
     menu.addItem(subOnId, "Sub on (H1 = 100%)");
 
-    menu.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(&m_patternButton),
+    menu.showMenuAsync(SubbertoneLookAndFeel::menuOptionsFor(m_patternButton, m_patternButton.getWidth()),
                        [safe = juce::Component::SafePointer<SubbertoneAudioProcessorEditor>(this)](int result)
     {
         if (safe == nullptr || result == 0)
@@ -651,11 +720,15 @@ void SubbertoneAudioProcessorEditor::setupPresetBar()
     m_presetSaveButton.onClick = [this]
     {
         auto& pm = m_audioProcessor.getPresetManager();
-        // Editing a user preset: Save updates it. Otherwise ask for a name.
-        if (pm.isCurrentUserPreset())
-            savePresetAs(pm.getCurrentName());
+        pm.refresh(); // a preset renamed or removed outside the plugin is not written back blindly
+        const auto current = pm.getSnapshot();
+
+        // Editing a user preset that is still in the folder: Save writes back to its file.
+        // Otherwise ask for a name (and before replacing anything).
+        if (current.currentIsUser && current.currentIndex >= 0)
+            savePresetAs(current.currentName);
         else
-            promptSavePreset(pm.getCurrentName() == "Init" ? juce::String() : pm.getCurrentName());
+            promptSavePreset(current.currentName == "Init" ? juce::String() : current.currentName);
     };
 
     for (auto* b : { &m_presetPrevButton, &m_presetNameButton, &m_presetNextButton, &m_presetSaveButton })
@@ -679,16 +752,19 @@ void SubbertoneAudioProcessorEditor::showPresetMenu()
     auto& pm = m_audioProcessor.getPresetManager();
     pm.refresh(); // pick up presets added or removed outside the plugin
 
-    const auto& presets = pm.getPresets();
-    const int current = pm.getCurrentIndex();
+    // One consistent view of the list and the current preset (a host may change either meanwhile).
+    const auto snapshot = pm.getSnapshot();
+    const auto& presets = snapshot.presets;
+    const auto isCurrentFactory = [&snapshot](int i) { return snapshot.currentIsFactory && i == snapshot.currentIndex; };
 
     juce::PopupMenu menu;
+    menu.setLookAndFeel(&m_lookAndFeel); // submenus take it from their parent menu
     menu.addSectionHeader("FACTORY");
 
     // Top-level factory presets (Init), then one submenu per category, in a fixed order.
     for (int i = 0; i < presets.size(); ++i)
         if (presets[i].isFactory && presets[i].category.isEmpty())
-            menu.addItem(i + 1, presets[i].name, true, i == current);
+            menu.addItem(i + 1, presets[i].name, true, isCurrentFactory(i));
 
     for (const char* category : { "Music", "Character", "Translation", "Engines", "Utility" })
     {
@@ -699,8 +775,8 @@ void SubbertoneAudioProcessorEditor::showPresetMenu()
         {
             if (presets[i].isFactory && presets[i].category == category)
             {
-                sub.addItem(i + 1, presets[i].name, true, i == current);
-                containsCurrent = containsCurrent || (i == current && !pm.isCurrentUserPreset());
+                sub.addItem(i + 1, presets[i].name, true, isCurrentFactory(i));
+                containsCurrent = containsCurrent || isCurrentFactory(i);
             }
         }
 
@@ -708,74 +784,109 @@ void SubbertoneAudioProcessorEditor::showPresetMenu()
             menu.addSubMenu(category, sub, true, nullptr, containsCurrent);
     }
 
+    // User presets are told apart by their file: two can carry the same name, in which case
+    // menuName adds the file name. Items load (and Delete removes) exactly that file.
+    juce::Array<juce::File> userFiles;
     juce::PopupMenu user;
-    bool anyUser = false;
-    for (int i = 0; i < presets.size(); ++i)
-        if (!presets[i].isFactory)
+    bool userContainsCurrent = false;
+    juce::String currentMenuName = snapshot.currentName;
+
+    for (const auto& preset : presets)
+    {
+        if (preset.isFactory)
+            continue;
+
+        const bool isCurrent = snapshot.currentIsUser && preset.file == snapshot.currentFile;
+        user.addItem(c_firstUserItemId + userFiles.size(), preset.menuName, true, isCurrent);
+        userFiles.add(preset.file);
+
+        if (isCurrent)
         {
-            user.addItem(i + 1, presets[i].name, true, i == current && pm.isCurrentUserPreset());
-            anyUser = true;
+            userContainsCurrent = true;
+            currentMenuName = preset.menuName;
         }
+    }
 
     menu.addSectionHeader("USER");
-    if (anyUser)
-        menu.addSubMenu("User Presets", user); // keeps long lists tidy
+    if (!userFiles.isEmpty())
+        menu.addSubMenu("User Presets", user, true, nullptr, userContainsCurrent); // keeps long lists tidy
     else
         menu.addItem(-1, "(none saved yet)", false);
 
-    constexpr int saveAsId = 10001, deleteId = 10002, revealId = 10003;
-    menu.addSeparator();
-    menu.addItem(saveAsId, "Save As...");
-    menu.addItem(deleteId, "Delete \"" + pm.getCurrentName() + "\"", pm.isCurrentUserPreset());
-    menu.addItem(revealId, "Show Presets Folder");
+    // Delete is bound to the preset named here, even if another one is current by the time it is confirmed.
+    const auto fileToDelete = snapshot.currentIsUser ? snapshot.currentFile : juce::File();
 
-    menu.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(&m_presetNameButton),
-                       [safe = juce::Component::SafePointer<SubbertoneAudioProcessorEditor>(this)](int result)
+    menu.addSeparator();
+    menu.addItem(c_saveAsItemId, "Save As...");
+    menu.addItem(c_deleteItemId, "Delete \"" + currentMenuName + "\"", fileToDelete != juce::File());
+    menu.addItem(c_revealItemId, "Show Presets Folder");
+
+    menu.showMenuAsync(SubbertoneLookAndFeel::menuOptionsFor(m_presetNameButton, m_presetNameButton.getWidth()),
+                       [safe = juce::Component::SafePointer<SubbertoneAudioProcessorEditor>(this), userFiles, fileToDelete,
+                        nameToDelete = currentMenuName](int result)
     {
         if (safe == nullptr || result == 0)
             return;
 
         auto& presetManager = safe->m_audioProcessor.getPresetManager();
 
-        if (result == saveAsId)
+        if (result == c_saveAsItemId)
         {
             safe->promptSavePreset(presetManager.isCurrentUserPreset() ? presetManager.getCurrentName() : juce::String());
         }
-        else if (result == deleteId)
+        else if (result == c_deleteItemId)
         {
-            auto alert = std::make_unique<juce::AlertWindow>("Delete Preset",
-                                                             "Delete \"" + presetManager.getCurrentName() + "\"? This removes the preset file.",
-                                                             juce::MessageBoxIconType::WarningIcon);
-            alert->addButton("Delete", 1, juce::KeyPress(juce::KeyPress::returnKey));
-            alert->addButton("Cancel", 0, juce::KeyPress(juce::KeyPress::escapeKey));
-            safe->showAlert(std::move(alert), [safe](int r, juce::AlertWindow&)
-            {
-                if (safe != nullptr && r == 1)
-                {
-                    auto& p = safe->m_audioProcessor.getPresetManager();
-                    p.deleteUserPreset(p.getCurrentIndex());
-                    safe->updatePresetDisplay();
-                }
-            });
+            safe->confirmDeletePreset(fileToDelete, nameToDelete);
         }
-        else if (result == revealId)
+        else if (result == c_revealItemId)
         {
             const auto dir = PresetManager::getUserPresetDirectory();
             dir.createDirectory();
             dir.startAsProcess(); // opens the folder in Finder / Explorer
         }
-        else if (result > 0)
+        else if (result >= c_firstUserItemId)
         {
-            presetManager.loadPreset(result - 1);
+            if (const int i = result - c_firstUserItemId; i < userFiles.size())
+                presetManager.loadUserPreset(userFiles[i]);
+
+            safe->updatePresetDisplay();
+        }
+        else if (result >= 1 && result <= PresetManager::getNumFactory())
+        {
+            presetManager.loadPreset(result - 1); // factory presets lead the list, in a fixed order
             safe->updatePresetDisplay();
         }
     });
 }
 
+void SubbertoneAudioProcessorEditor::confirmDeletePreset(const juce::File& file, const juce::String& displayName)
+{
+    auto alert = makeAlert("Delete Preset", "Delete \"" + displayName + "\"? This removes the preset file.",
+                           juce::MessageBoxIconType::WarningIcon);
+    alert->addButton("Delete", 1, juce::KeyPress(juce::KeyPress::returnKey));
+    alert->addButton("Cancel", 0, juce::KeyPress(juce::KeyPress::escapeKey));
+
+    showAlert(std::move(alert), [safe = juce::Component::SafePointer<SubbertoneAudioProcessorEditor>(this), file](int result, juce::AlertWindow&)
+    {
+        if (safe == nullptr || result != 1)
+            return;
+
+        // Exactly the file the dialog named, whatever the host has recalled since. Nothing
+        // happens if it has gone (deleteUserPreset() returns false).
+        safe->m_audioProcessor.getPresetManager().deleteUserPreset(file);
+        safe->updatePresetDisplay();
+    });
+}
+
 void SubbertoneAudioProcessorEditor::promptSavePreset(const juce::String& suggestedName)
 {
-    auto alert = std::make_unique<juce::AlertWindow>("Save Preset", "Name this preset:", juce::MessageBoxIconType::NoIcon);
+    auto alert = makeAlert("Save Preset", "Name this preset:", juce::MessageBoxIconType::NoIcon);
     alert->addTextEditor("name", suggestedName);
+    if (auto* field = alert->getTextEditor("name"))
+    {
+        field->setJustification(juce::Justification::centredLeft); // vertically centred in the field
+        field->setIndents(8, 0);
+    }
     alert->addButton("Save", 1, juce::KeyPress(juce::KeyPress::returnKey));
     alert->addButton("Cancel", 0, juce::KeyPress(juce::KeyPress::escapeKey));
 
@@ -784,28 +895,63 @@ void SubbertoneAudioProcessorEditor::promptSavePreset(const juce::String& sugges
         if (safe == nullptr || result != 1)
             return;
 
-        const auto name = window.getTextEditorContents("name").trim();
-        if (name.isEmpty())
-            return;
-
-        if (safe->m_audioProcessor.getPresetManager().userPresetExists(name))
-            safe->confirmOverwrite(name);
-        else
-            safe->savePresetAs(name);
+        const auto name = window.getTextEditorContents("name").trim(); // read before another alert replaces this one
+        if (name.isNotEmpty())
+            safe->checkNameAndSave(name);
     });
 }
 
-void SubbertoneAudioProcessorEditor::confirmOverwrite(const juce::String& name)
+void SubbertoneAudioProcessorEditor::checkNameAndSave(const juce::String& name)
 {
-    auto alert = std::make_unique<juce::AlertWindow>("Replace Preset",
-                                                     "A preset called \"" + name + "\" already exists. Replace it?",
-                                                     juce::MessageBoxIconType::QuestionIcon);
+    auto& pm = m_audioProcessor.getPresetManager();
+
+    if (!PresetManager::isValidPresetName(name))
+    {
+        // E.g. "???": nothing is left once the characters a file name can't hold are dropped.
+        auto alert = makeAlert("Can't Use This Name",
+                               "\"" + name + "\" can't be used as a preset name, as it has no characters "
+                               "a file name can hold. Please use letters or numbers.",
+                               juce::MessageBoxIconType::WarningIcon);
+        alert->addButton("OK", 1, juce::KeyPress(juce::KeyPress::returnKey));
+        alert->addButton("Cancel", 0, juce::KeyPress(juce::KeyPress::escapeKey));
+        showAlert(std::move(alert), [safe = juce::Component::SafePointer<SubbertoneAudioProcessorEditor>(this), name](int result, juce::AlertWindow&)
+        {
+            if (safe != nullptr && result == 1)
+                safe->promptSavePreset(name); // try again, with the name as typed
+        });
+        return;
+    }
+
+    // Ask before replacing ANY existing file: a preset with this name, or a file this name maps to
+    // (file names ignore case, and characters such as '/' are dropped, so "AB" replaces "A/B").
+    if (pm.userPresetExists(name))
+        confirmOverwrite(name, pm.getNameOfPresetSavedAs(name));
+    else
+        savePresetAs(name);
+}
+
+void SubbertoneAudioProcessorEditor::confirmOverwrite(const juce::String& name, const juce::String& replacedName)
+{
+    const auto message = replacedName.isEmpty() || replacedName == name
+                       ? "A preset called \"" + name + "\" already exists. Replace it?"
+                       : "Saving as \"" + name + "\" replaces the preset \"" + replacedName + "\" (the two names give the same "
+                         "file name). Replace \"" + replacedName + "\"?";
+
+    auto alert = makeAlert("Replace Preset", message, juce::MessageBoxIconType::QuestionIcon);
     alert->addButton("Replace", 1, juce::KeyPress(juce::KeyPress::returnKey));
     alert->addButton("Cancel", 0, juce::KeyPress(juce::KeyPress::escapeKey));
 
-    showAlert(std::move(alert), [safe = juce::Component::SafePointer<SubbertoneAudioProcessorEditor>(this), name](int result, juce::AlertWindow&)
+    showAlert(std::move(alert), [safe = juce::Component::SafePointer<SubbertoneAudioProcessorEditor>(this), name, replacedName](int result, juce::AlertWindow&)
     {
-        if (safe != nullptr && result == 1)
+        if (safe == nullptr || result != 1)
+            return;
+
+        // The folder may have changed while the question was up: ask again if the save would now
+        // replace a different preset.
+        const auto nowReplaced = safe->m_audioProcessor.getPresetManager().getNameOfPresetSavedAs(name);
+        if (nowReplaced.isNotEmpty() && nowReplaced != replacedName)
+            safe->confirmOverwrite(name, nowReplaced);
+        else
             safe->savePresetAs(name);
     });
 }
@@ -814,14 +960,28 @@ void SubbertoneAudioProcessorEditor::savePresetAs(const juce::String& name)
 {
     if (!m_audioProcessor.getPresetManager().saveUserPreset(name))
     {
-        auto alert = std::make_unique<juce::AlertWindow>("Couldn't Save Preset",
-                                                         "The preset could not be written to:\n" + PresetManager::getUserPresetDirectory().getFullPathName(),
-                                                         juce::MessageBoxIconType::WarningIcon);
+        auto alert = makeAlert("Couldn't Save Preset",
+                               "The preset could not be written to:\n" + PresetManager::getUserPresetDirectory().getFullPathName(),
+                               juce::MessageBoxIconType::WarningIcon);
         alert->addButton("OK", 0, juce::KeyPress(juce::KeyPress::returnKey));
         showAlert(std::move(alert), {});
     }
 
     updatePresetDisplay();
+}
+
+std::unique_ptr<juce::AlertWindow> SubbertoneAudioProcessorEditor::makeAlert(const juce::String& title, const juce::String& message,
+                                                                            juce::MessageBoxIconType icon)
+{
+    // Centred over the plugin window and drawn at the editor's own scale (not the design-size content's).
+    auto alert = std::make_unique<juce::AlertWindow>(title, message, icon, this);
+
+    // Before addButton() / addTextEditor(): they take button sizes and the field's font and outline from the
+    // alert's LookAndFeel as they are called.
+    alert->setLookAndFeel(&m_lookAndFeel);
+    alert->setOpaque(false); // a rounded panel: the corners show what is behind the dialog
+    SubbertoneLookAndFeel::showFocusRingsAfterTab(*alert);
+    return alert;
 }
 
 void SubbertoneAudioProcessorEditor::showAlert(std::unique_ptr<juce::AlertWindow> alert,
@@ -830,7 +990,7 @@ void SubbertoneAudioProcessorEditor::showAlert(std::unique_ptr<juce::AlertWindow
     // Plugins can't run modal loops, so alerts are async. The editor owns the
     // window so it is always destroyed before the LookAndFeel it uses.
     m_alert = std::move(alert);
-    m_alert->setLookAndFeel(&m_lookAndFeel);
+    m_alert->setLookAndFeel(&m_lookAndFeel); // already set by makeAlert(); kept for any alert made elsewhere
 
     m_alert->enterModalState(true, juce::ModalCallbackFunction::create(
         [safe = juce::Component::SafePointer<SubbertoneAudioProcessorEditor>(this), onResult](int result)
@@ -852,202 +1012,14 @@ void SubbertoneAudioProcessorEditor::showAlert(std::unique_ptr<juce::AlertWindow
 
 void SubbertoneAudioProcessorEditor::showAboutWindow()
 {
-    new AboutWindow(); // owns and deletes itself on close
-}
-
-//==============================================================================
-// LookAndFeel
-//==============================================================================
-SubbertoneAudioProcessorEditor::LookAndFeel::LookAndFeel(const Theme::Fonts& fonts)
-    : m_fonts(fonts)
-{
-    using namespace Theme::Colours;
-
-    if (fonts.medium != nullptr)
-        setDefaultSansSerifTypeface(fonts.medium);
-
-    setColour(juce::ResizableWindow::backgroundColourId, background);
-    setColour(juce::Label::textColourId, text);
-
-    setColour(juce::Slider::textBoxTextColourId, text);
-    setColour(juce::Slider::textBoxOutlineColourId, juce::Colours::transparentBlack);
-    setColour(juce::Slider::textBoxBackgroundColourId, juce::Colours::transparentBlack);
-    setColour(juce::Slider::textBoxHighlightColourId, harmonics.withAlpha(0.35f));
-    setColour(juce::TextEditor::focusedOutlineColourId, outline);
-
-    setColour(juce::ComboBox::backgroundColourId, panelRaised);
-    setColour(juce::ComboBox::outlineColourId, outline);
-    setColour(juce::ComboBox::textColourId, text);
-    setColour(juce::ComboBox::arrowColourId, harmonics);
-    setColour(juce::ComboBox::focusedOutlineColourId, harmonics.withAlpha(0.6f));
-
-    setColour(juce::PopupMenu::backgroundColourId, panelRaised);
-    setColour(juce::PopupMenu::textColourId, text);
-    setColour(juce::PopupMenu::highlightedBackgroundColourId, harmonics.withAlpha(0.18f));
-    setColour(juce::PopupMenu::highlightedTextColourId, text);
-
-    setColour(juce::TextButton::buttonColourId, panelRaised);
-    setColour(juce::TextButton::buttonOnColourId, panelRaised.brighter(0.1f));
-    setColour(juce::TextButton::textColourOffId, textDim);
-    setColour(juce::TextButton::textColourOnId, text);
-
-    setColour(juce::AlertWindow::backgroundColourId, panel);
-    setColour(juce::AlertWindow::textColourId, text);
-    setColour(juce::AlertWindow::outlineColourId, outline);
-    setColour(juce::TextEditor::backgroundColourId, panelRaised);
-    setColour(juce::TextEditor::textColourId, text);
-    setColour(juce::TextEditor::outlineColourId, outline);
-    setColour(juce::TextEditor::highlightColourId, output.withAlpha(0.3f));
-    setColour(juce::CaretComponent::caretColourId, output);
-    setColour(juce::PopupMenu::headerTextColourId, textFaint);
-
-    setColour(juce::TooltipWindow::backgroundColourId, panelRaised);
-    setColour(juce::TooltipWindow::textColourId, text);
-    setColour(juce::TooltipWindow::outlineColourId, outline);
-}
-
-void SubbertoneAudioProcessorEditor::LookAndFeel::drawRotarySlider(juce::Graphics& g, int x, int y, int width, int height,
-                                                                   float sliderPos, float rotaryStartAngle,
-                                                                   float rotaryEndAngle, juce::Slider& slider)
-{
-    using namespace Theme::Colours;
-
-    const auto accent = slider.findColour(juce::Slider::rotarySliderFillColourId);
-    const bool hot = slider.isMouseOverOrDragging();
-
-    const auto area = juce::Rectangle<int>(x, y, width, height).toFloat().reduced(4.0f);
-    const float diameter = std::min(area.getWidth(), area.getHeight());
-    const auto centre = area.getCentre();
-    const float radius = diameter * 0.5f;
-    const float trackWidth = std::max(2.5f, radius * 0.09f);
-    const float arcRadius = radius - trackWidth * 0.5f;
-    const float angle = rotaryStartAngle + sliderPos * (rotaryEndAngle - rotaryStartAngle);
-
-    // Track
-    juce::Path track;
-    track.addCentredArc(centre.x, centre.y, arcRadius, arcRadius, 0.0f, rotaryStartAngle, rotaryEndAngle, true);
-    g.setColour(outline);
-    g.strokePath(track, juce::PathStrokeType(trackWidth, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
-
-    // Value arc: bipolar parameters (dB gain) grow from the centre.
-    const bool bipolar = slider.getMinimum() < 0.0 && slider.getMaximum() > 0.0 && juce::approximatelyEqual(slider.getMinimum(), -slider.getMaximum());
-    const float fromAngle = bipolar ? (rotaryStartAngle + rotaryEndAngle) * 0.5f : rotaryStartAngle;
-
-    juce::Path value;
-    value.addCentredArc(centre.x, centre.y, arcRadius, arcRadius, 0.0f, std::min(fromAngle, angle), std::max(fromAngle, angle), true);
-    g.setColour(accent.withAlpha(hot ? 1.0f : 0.9f));
-    g.strokePath(value, juce::PathStrokeType(trackWidth, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
-
-    // Body
-    const float bodyRadius = arcRadius - trackWidth * 1.6f;
-    const auto body = juce::Rectangle<float>(bodyRadius * 2.0f, bodyRadius * 2.0f).withCentre(centre);
-
-    g.setColour(juce::Colours::black.withAlpha(0.35f));
-    g.fillEllipse(body.translated(0.0f, 2.0f));
-
-    g.setGradientFill(juce::ColourGradient(panelRaised.brighter(hot ? 0.18f : 0.1f), centre.x, body.getY(),
-                                           panelRaised.darker(0.25f), centre.x, body.getBottom(), false));
-    g.fillEllipse(body);
-    g.setColour(outline.brighter(0.15f));
-    g.drawEllipse(body.reduced(0.5f), 1.0f);
-
-    // Pointer
-    const auto direction = juce::Point<float>(std::sin(angle), -std::cos(angle));
-    const auto p1 = centre + direction * (bodyRadius * 0.35f);
-    const auto p2 = centre + direction * (bodyRadius * 0.82f);
-    g.setColour(text);
-    g.drawLine({ p1, p2 }, 2.0f);
-}
-
-juce::Slider::SliderLayout SubbertoneAudioProcessorEditor::LookAndFeel::getSliderLayout(juce::Slider& slider)
-{
-    juce::Slider::SliderLayout layout;
-
-    if (slider.getTextBoxPosition() == juce::Slider::NoTextBox)
+    // One About window per editor: another click brings it back to the front. The editor owns it,
+    // so it is closed (and its update check stopped) when the editor goes.
+    if (m_aboutWindow != nullptr)
     {
-        layout.sliderBounds = slider.getLocalBounds();
-        return layout;
+        m_aboutWindow->setMinimised(false);
+        m_aboutWindow->toFront(true);
+        return;
     }
 
-    auto bounds = slider.getLocalBounds();
-    layout.textBoxBounds = bounds.removeFromBottom(18).withSizeKeepingCentre(std::min(bounds.getWidth(), 84), 18);
-    bounds.removeFromBottom(2);
-    layout.sliderBounds = bounds;
-    return layout;
-}
-
-juce::Label* SubbertoneAudioProcessorEditor::LookAndFeel::createSliderTextBox(juce::Slider& slider)
-{
-    auto* label = juce::LookAndFeel_V4::createSliderTextBox(slider);
-    label->setFont(m_fonts.body(12.0f));
-    label->setJustificationType(juce::Justification::centred);
-    label->setColour(juce::Label::textColourId, Theme::Colours::text);
-    label->setColour(juce::Label::outlineColourId, juce::Colours::transparentBlack);
-    label->setColour(juce::Label::backgroundColourId, juce::Colours::transparentBlack);
-    label->setColour(juce::Label::outlineWhenEditingColourId, Theme::Colours::outline);
-    label->setColour(juce::Label::backgroundWhenEditingColourId, Theme::Colours::panelRaised);
-    return label;
-}
-
-juce::Font SubbertoneAudioProcessorEditor::LookAndFeel::getLabelFont(juce::Label& label)
-{
-    if (dynamic_cast<juce::Slider*>(label.getParentComponent()) != nullptr)
-        return m_fonts.body(12.0f);
-
-    return m_fonts.label(10.5f);
-}
-
-void SubbertoneAudioProcessorEditor::LookAndFeel::drawComboBox(juce::Graphics& g, int width, int height, bool,
-                                                               int, int, int, int, juce::ComboBox& box)
-{
-    const auto r = juce::Rectangle<float>(0.0f, 0.0f, static_cast<float>(width), static_cast<float>(height)).reduced(0.5f);
-    const bool hot = box.isMouseOver(true) || box.isPopupActive();
-
-    g.setColour(box.findColour(juce::ComboBox::backgroundColourId).brighter(hot ? 0.08f : 0.0f));
-    g.fillRoundedRectangle(r, 5.0f);
-    g.setColour(hot ? box.findColour(juce::ComboBox::focusedOutlineColourId) : box.findColour(juce::ComboBox::outlineColourId));
-    g.drawRoundedRectangle(r, 5.0f, 1.0f);
-
-    const float cx = r.getRight() - 13.0f;
-    const float cy = r.getCentreY();
-    juce::Path chevron;
-    chevron.startNewSubPath(cx - 4.0f, cy - 2.0f);
-    chevron.lineTo(cx, cy + 2.0f);
-    chevron.lineTo(cx + 4.0f, cy - 2.0f);
-    g.setColour(box.findColour(juce::ComboBox::arrowColourId));
-    g.strokePath(chevron, juce::PathStrokeType(1.5f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
-}
-
-juce::Font SubbertoneAudioProcessorEditor::LookAndFeel::getComboBoxFont(juce::ComboBox&)
-{
-    return m_fonts.body(12.0f);
-}
-
-void SubbertoneAudioProcessorEditor::LookAndFeel::positionComboBoxText(juce::ComboBox& box, juce::Label& label)
-{
-    label.setBounds(8, 0, box.getWidth() - 30, box.getHeight());
-    label.setFont(getComboBoxFont(box));
-}
-
-juce::Font SubbertoneAudioProcessorEditor::LookAndFeel::getPopupMenuFont()
-{
-    return m_fonts.body(13.0f);
-}
-
-void SubbertoneAudioProcessorEditor::LookAndFeel::drawButtonBackground(juce::Graphics& g, juce::Button& button,
-                                                                       const juce::Colour& backgroundColour,
-                                                                       bool isMouseOverButton, bool isButtonDown)
-{
-    const auto r = button.getLocalBounds().toFloat().reduced(0.5f);
-    const float corner = std::min(r.getWidth(), r.getHeight()) * 0.5f;
-
-    g.setColour(backgroundColour.brighter(isButtonDown ? 0.2f : isMouseOverButton ? 0.1f : 0.0f));
-    g.fillRoundedRectangle(r, corner);
-    g.setColour(isMouseOverButton ? Theme::Colours::textDim : Theme::Colours::outline);
-    g.drawRoundedRectangle(r, corner, 1.0f);
-}
-
-juce::Font SubbertoneAudioProcessorEditor::LookAndFeel::getTextButtonFont(juce::TextButton&, int buttonHeight)
-{
-    return m_fonts.label(std::min(13.0f, static_cast<float>(buttonHeight) * 0.5f));
+    m_aboutWindow = std::make_unique<AboutWindow>(m_lookAndFeel, [this] { m_aboutWindow.reset(); });
 }

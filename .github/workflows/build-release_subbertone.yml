@@ -258,7 +258,22 @@ jobs:
       run: |
         cd subbertone
         cmake --build build --config Release
-    
+
+    - name: Check minimum macOS
+      run: |
+        cd subbertone
+        for b in "build/Subbertone_artefacts/Release/VST3/SammyJs Subbertone.vst3/Contents/MacOS/SammyJs Subbertone" \
+                 "build/Subbertone_artefacts/Release/AU/SammyJs Subbertone.component/Contents/MacOS/SammyJs Subbertone"; do
+          for arch in x86_64 arm64; do
+            minos=$(otool -arch "$arch" -l "$b" | awk '/LC_BUILD_VERSION/ { found = 1 } found && /minos/ { print $2; exit }')
+            echo "$arch $(basename "$b"): minimum macOS $minos"
+            if [ "$minos" != "11.0" ]; then
+              echo "::error::Expected a minimum macOS of 11.0, got '$minos'"
+              exit 1
+            fi
+          done
+        done
+
     - name: Sign Plugins
       if: steps.check_certs.outputs.has_certs == 'true'
       env:

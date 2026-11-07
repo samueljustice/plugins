@@ -1,8 +1,20 @@
 cmake_minimum_required(VERSION 3.21)
+
+# Minimum macOS. Without this the binaries take the build machine's SDK version as their
+# minimum and JUCE's runtime OS checks (@available) are compiled out. Must come before project().
+# (FORCE only when empty, so an explicit -DCMAKE_OSX_DEPLOYMENT_TARGET=... still wins.)
+if(NOT CMAKE_OSX_DEPLOYMENT_TARGET)
+    set(CMAKE_OSX_DEPLOYMENT_TARGET "11.0" CACHE STRING "Minimum macOS version" FORCE)
+endif()
+
 project(Subbertone VERSION 1.2.0)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED TRUE)
+
+# Windows: link the C++ runtime statically, so the plug-in doesn't depend on the
+# VC++ redistributable being installed (or on an older msvcp140.dll a host ships).
+set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 
 # Universal Binary Support
 set(CMAKE_OSX_ARCHITECTURES "x86_64;arm64" CACHE STRING "Build architectures for macOS")
@@ -71,6 +83,7 @@ target_sources(Subbertone
     Source/SubharmonicEngine.cpp
     Source/WaveformVisualizer.cpp
     Source/AboutWindow.cpp
+    Source/SubbertoneLookAndFeel.cpp
 )
 
 # Plugin unique ID is set in juce_add_plugin above

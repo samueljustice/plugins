@@ -37,7 +37,7 @@ namespace
 
     // NaN/inf in the detector are treated as a huge peak so they cannot poison the gain state.
     constexpr float c_maxDetectPeak = 1.0e20f;
-    constexpr float c_noClamp = std::numeric_limits<float>::infinity();
+    constexpr float c_noClamp = std::numeric_limits<float>::max(); // "no clamp": only NaN and inf exceed it
 
     float sanitise(float value, float lo, float hi)
     {
@@ -118,8 +118,9 @@ namespace
 // output CAN go over full scale. Above ~fs/5 a sine's deviation keeps only its fundamental,
 // alpha/8 + 3 beta/64 at full scale (sin^3, sin^5, sin^7 hold 3/4, 5/8, 35/64 of it), i.e.
 // +0.77 dB at Curve 0; the 2nd harmonic and the 5th's alias add to that near 15-20 kHz.
-// Measured worst cases are in MasterProcessor.h. No clipping here on purpose: the limiter
-// after this stage is the peak control.
+// Measured worst cases are in MasterProcessor.h. The curve itself never clips: with the limiter
+// on, the limiter after this stage is the peak control; with it off, inflate() holds each output
+// sample to max(0 dBFS, the input's own peak around it), which only ever acts on what Inflate added.
 //
 // f is linear in (alpha, beta, mu), so f' is too: any blend of monotonic anchor curves is
 // itself monotonic. Curve morphs piecewise-linearly between three anchors whose minimum
@@ -362,6 +363,7 @@ void MasterProcessor::prepare(double sampleRate, int maxChannels)
         channel.input.assign(static_cast<size_t>(2 * taps), 0.0f);
         channel.shaped.assign(static_cast<size_t>(2 * taps), 0.0f);
         channel.shapedOdd.assign(static_cast<size_t>(m_halfbandHalf), 0.0f);
+        channel.pastPeak.assign(static_cast<size_t>(taps - 1), 0.0f);
         channel.delay.assign(static_cast<size_t>(m_lookahead), 0.0f);
     }
 
@@ -396,8 +398,9 @@ void MasterProcessor::reset()
         std::fill(channel.input.begin(), channel.input.end(), 0.0f);
         std::fill(channel.shaped.begin(), channel.shaped.end(), 0.0f);
         std::fill(channel.shapedOdd.begin(), channel.shapedOdd.end(), 0.0f);
+        std::fill(channel.pastPeak.begin(), channel.pastPeak.end(), 0.0f);
         std::fill(channel.delay.begin(), channel.delay.end(), 0.0f);
-        channel.inputPosition = channel.shapedPosition = channel.oddPosition = 0;
+        channel.inputPosition = channel.shapedPosition = channel.oddPosition = channel.pastPosition = 0;
         channel.dcIn = channel.dcOut = 0.0f;
     }
 
@@ -488,6 +491,7 @@ void MasterProcessor::process(float* const* channels, int numChannels, int numSa
             {
                 std::fill(channel.shaped.begin(), channel.shaped.end(), 0.0f);
                 std::fill(channel.shapedOdd.begin(), channel.shapedOdd.end(), 0.0f);
+                std::fill(channel.pastPeak.begin(), channel.pastPeak.end(), 0.0f);
                 channel.dcIn = channel.dcOut = 0.0f;
             }
 
@@ -582,11 +586,17 @@ void MasterProcessor::inflate(float* data, Channel& channel, int numFrames)
     int oddPosition = channel.oddPosition;
     float dcIn = channel.dcIn;
     float dcOut = channel.dcOut;
+    int pastPosition = channel.pastPosition;
 
     const int half = m_halfbandHalf;
     const float* const upTaps = m_upTaps.data();
     const float* const downTaps = m_downTaps.data();
     const float dcCoeff = m_dcCoeff;
+
+    // While the limiter is not fully on, what Inflate adds may not take a sample past full scale,
+    // nor past where the dry sample already was: overs that were in the input pass as they were.
+    const bool clipInflate = m_limiterFade < 1.0f;
+    std::uint64_t clips = 0;
 
     for (int i = 0; i < numFrames; ++i)
     {
@@ -628,10 +638,41 @@ void MasterProcessor::inflate(float* data, Channel& channel, int numFrames)
 
         const float deviation = dot(downTaps, recentShaped, taps) + 0.5f * centre;
 
-        const float y = dry + m_frameEffect[i] * deviation;
+        float y = dry + m_frameEffect[i] * deviation;
+
+        if (clipInflate)
+        {
+            // Held to the input's own peak around this sample, and to full scale: Inflate may reshape
+            // a waveform that was already over full scale, but never raises its peak, and never takes
+            // material that was within full scale over it. Nothing is clipped at Effect 0, so this is
+            // continuous in Effect; NaN and inf fail the comparisons and are left to the output stage.
+            float limit = std::max(1.0f, std::abs(dry));
+
+            if (std::abs(y) > limit)
+            {
+                for (int j = 1; j < taps; ++j)
+                    limit = std::max(limit, std::abs(recent[j]));     // the inputs after this one ...
+                for (const float v : channel.pastPeak)
+                    limit = std::max(limit, v);                       // ... and before it
+
+                if (std::abs(y) > limit)
+                {
+                    y = std::copysign(limit, y);
+                    ++clips;
+                }
+            }
+        }
+
+        channel.pastPeak[static_cast<size_t>(pastPosition)] = std::abs(dry);
+        if (++pastPosition == static_cast<int>(channel.pastPeak.size()))
+            pastPosition = 0;
+
         data[i] = y;
         m_framePeak[i] = std::max(m_framePeak[i], std::abs(y));
     }
+
+    if (clips > 0)
+        m_inflateClipCount.fetch_add(clips, std::memory_order_relaxed);
 
     // Keep the decaying coupling state out of the denormal range (hosts usually set FTZ as well).
     if (std::abs(dcOut) < 1.0e-20f)
@@ -642,6 +683,7 @@ void MasterProcessor::inflate(float* data, Channel& channel, int numFrames)
     channel.oddPosition = oddPosition;
     channel.dcIn = dcIn;
     channel.dcOut = dcOut;
+    channel.pastPosition = pastPosition;
 }
 
 float MasterProcessor::computeGain(int numFrames)
@@ -708,11 +750,9 @@ float MasterProcessor::computeGain(int numFrames)
         }
 
         m_frameGain[i] = applied;
-        // Limiter fully on: clamp to its ceiling (a safety net). Otherwise, while Inflate is
-        // active, clip at 0 dBFS like Inflator's "Clip 0 dB": the band-limited inflate curve can
-        // otherwise push dense full-scale material a little over (see MasterProcessor.h).
-        m_frameClamp[i] = m_limiterFade >= 1.0f ? outgoingCeiling : (m_inflateActive ? 1.0f : c_noClamp);
-        m_frameIsInflateClip[i] = m_limiterFade < 1.0f && m_inflateActive;
+        // Limiter fully on: clamp to its ceiling (a safety net). Otherwise nothing is clamped here:
+        // the overs Inflate itself would create are already held back in inflate().
+        m_frameClamp[i] = m_limiterFade >= 1.0f ? outgoingCeiling : c_noClamp;
         minGain = std::min(minGain, applied);
     }
 
@@ -758,12 +798,13 @@ void MasterProcessor::applyGain(float* data, Channel& channel, int numFrames, in
         float y = delayed * m_frameGain[i];
         const float limit = m_frameClamp[i];
 
-        // Limiter on: a safety net only (the gain computer already keeps y under the ceiling).
-        // Limiter off with Inflate active: the 0 dBFS clip. NaN becomes silence either way.
+        // Limiter on: a safety net only (the gain computer already keeps y under the ceiling), and
+        // NaN becomes silence. Limiter off: the limit is the largest float, so only NaN and +-inf get
+        // in here, and they become silence too: a non-finite sample never reaches the host.
         if (!(std::abs(y) <= limit))
         {
-            y = y > limit ? limit : (y < -limit ? -limit : 0.0f);
-            (m_frameIsInflateClip[i] ? m_inflateClipCount : m_safetyClampCount).fetch_add(1, std::memory_order_relaxed);
+            y = (limit < c_noClamp && std::abs(y) > limit) ? std::copysign(limit, y) : 0.0f;
+            m_safetyClampCount.fetch_add(1, std::memory_order_relaxed);
         }
 
         data[i] = y;

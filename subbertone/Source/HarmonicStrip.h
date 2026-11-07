@@ -15,9 +15,9 @@
  *
  * Mouse: click toggles a bar off and back on, dragging sets its level (top = 100 %),
  * dragging across bars draws a spectrum (one host gesture per bar), double-click or
- * alt-click resets to the default, the wheel nudges by 5 % and shift-drag is a fine
- * adjustment that stays on its bar. The click tolerance is in screen pixels, so it holds
- * when the editor is scaled.
+ * alt-click resets to the default, the wheel nudges by 5 % per notch (one host gesture per
+ * scroll) and shift-drag is a fine adjustment that stays on its bar. The click tolerance is
+ * in screen pixels, so it holds when the editor is scaled.
  *
  * Message thread only: meterSource is polled at 30 Hz and the strip repaints only
  * the bars whose meter glow moved visibly.
@@ -115,7 +115,11 @@ private:
     void setLevel(int harmonic, float level);
     void toggle(int harmonic);
     void resetToDefault(int harmonic);
+
+    // A scroll of the wheel keeps one gesture open on its bar until the wheel pauses.
     void nudge(int harmonic, int steps);
+    void beginWheelGesture(int harmonic);
+    void endWheelGesture();
 
     // Drags keep one gesture open on the bar under the mouse.
     void beginDragGesture(int harmonic, float y);
@@ -157,7 +161,10 @@ private:
     float m_anchorY = 0.0f;
     float m_dragScale = 1.0f;
 
-    float m_wheelAccumulator = 0.0f;
-    int m_wheelHarmonic = 0;
+    float m_wheelAccumulator = 0.0f; // the part of a notch not stepped yet, this scroll only
+    int m_wheelHarmonic = 0;         // bar under the last wheel event
+    bool m_wheelWasSmooth = false;
     juce::Time m_lastWheelTime;
+    int m_wheelGestureHarmonic = 0;  // bar with an open wheel gesture (0 = none)
+    juce::TimedCallback m_wheelGestureTimer { [this] { endWheelGesture(); } }; // ends it when the wheel pauses
 };

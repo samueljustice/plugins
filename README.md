@@ -8,7 +8,7 @@ Audio plug-ins and tools by Samuel Justice / [Sweet Justice Sound](https://www.s
 |---|---|---|---|
 | [Swooshbuckler](swooshbuckler/README.md) | Whoosh-making rig | App (macOS, Windows), VST3, AU | Not released yet |
 | [Sound Advice](soundadvice/README.md) | Advice from the great sound designers and mixers | VST3, AU, App (macOS, Windows) | Not released yet |
-| [Subbertone](subbertone/README.md) | Subharmonic generator | VST3, AU | [v1.1.0](https://github.com/samueljustice/plugins/releases/tag/subbertone-v1.1.0) |
+| [Subbertone](subbertone/README.md) | Subharmonic generator | VST3, AU | [v1.2.0](https://github.com/samueljustice/plugins/releases/tag/subbertone-v1.2.0) |
 | [Pitch Flattener](pitchflattener/README.md) | Lookahead pitch flattening (Doppler, sirens, vibrato) | VST3, AU | [v2.0.0](https://github.com/samueljustice/plugins/releases/tag/pitchflattener-v2.0.0) |
 | [Reversinator](reversinator/README.md) | Real-time reverser, recreating Backwards Machine | VST3, AU | [v2.0.0](https://github.com/samueljustice/plugins/releases/tag/reversinator-v2.0.0) |
 | Stretch Armstrong | Real-time varispeed and time stretch | VST3, AU | Not released yet |
@@ -27,11 +27,11 @@ A small, quiet page of advice from the great film, TV and game sound designers a
 - [Project README](soundadvice/README.md)
 
 ### Subbertone
-A subharmonic generator. Tracks the pitch of your bass and adds a clean sub one octave below, with six saturation types and a resonant, envelope-swept filter for anything from pure sub reinforcement to a growling octave-down bass.
+A subharmonic generator. Tracks the pitch of your bass, engine or drone and adds a clean sub one octave below, with a 16-bar harmonic editor, six saturation types, a resonant, envelope-swept filter and a mastering stage (Inflate and a brickwall limiter), for anything from pure sub reinforcement or bass that survives a phone speaker to a growling octave-down bass. Comes with 32 factory presets, including engines.
 
 - Location: `/subbertone/`
 - [Project README](subbertone/README.md)
-- [Latest release](https://github.com/samueljustice/plugins/releases/tag/subbertone-v1.1.0)
+- [Latest release](https://github.com/samueljustice/plugins/releases/tag/subbertone-v1.2.0)
 
 ### Pitch Flattener
 Removes pitch movement: the Doppler sweep from a pass-by, the wail from a siren, the vibrato from a voice. Pick a Source Type and it uses a pitch detector built for that sound, looks ahead to track the pitch, and flattens it sample-accurately. Built for offline-rendering hosts such as the Soundminer DSP rack.
