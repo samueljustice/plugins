@@ -169,7 +169,8 @@ private:
                           *takeTurns = nullptr;
         std::atomic<float>* space = nullptr, *inflate = nullptr, *push = nullptr, *ceiling = nullptr;
         std::atomic<float>* morphOn = nullptr, *morphMode = nullptr, *morphX = nullptr, *morphY = nullptr;
-        std::atomic<float>* modType[ParamIDs::numMods] {}, *modShape[ParamIDs::numMods] {}, *modKnob[ParamIDs::numMods] {};
+        std::atomic<float>* modType[ParamIDs::numMods] {}, *modShape[ParamIDs::numMods] {}, *modKnob[ParamIDs::numMods] {},
+                            *modFollow[ParamIDs::numMods] {};
     } m_raw;
 
     // Modulation: the wires add offsets to the knobs' values on the way to the engine (parameters stay untouched).
@@ -181,7 +182,7 @@ private:
         std::atomic<float>* raw = nullptr;
     };
     std::vector<ModTarget> m_modTargets;   // aligned with ModMatrix::targets()
-    float m_followerLevel = 0.0f;          // output RMS of the last block (the Follower's input)
+    ModMatrix::FollowerInputs m_followerLevels {}; // RMS of the output, bus A, bus B and the hits (the Followers' inputs)
     float m_pushDb = 0.0f;                 // Push after modulation
     /** A parameter's value with its wires applied (audio thread, no allocation). */
     float modValue(std::atomic<float>* raw);

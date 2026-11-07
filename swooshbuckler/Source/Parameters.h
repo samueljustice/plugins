@@ -62,6 +62,7 @@ namespace ParamIDs
     inline constexpr const char* modType[numMods]  = { "mod1Type", "mod2Type", "mod3Type", "mod4Type" };
     inline constexpr const char* modShape[numMods] = { "mod1Shape", "mod2Shape", "mod3Shape", "mod4Shape" };
     inline constexpr const char* modKnob[numMods]  = { "mod1Knob", "mod2Knob", "mod3Knob", "mod4Knob" };
+    inline constexpr const char* modFollow[numMods] = { "mod1Follow", "mod2Follow", "mod3Follow", "mod4Follow" }; // Follower input
 }
 
 namespace Params
@@ -156,6 +157,8 @@ namespace Params
             layout.add(std::make_unique<AudioParameterChoice>(ParameterID { ParamIDs::modShape[m], 2 }, name + " shape",
                                                               StringArray { "Sine", "Triangle", "Ramp", "Square", "Steps" }, defaultShapes[m]));
             layout.add(pct(ParamIDs::modKnob[m], name + " rate / amount", defaultKnobs[m]));
+            layout.add(std::make_unique<AudioParameterChoice>(ParameterID { ParamIDs::modFollow[m], 2 }, name + " follows",
+                                                              StringArray { "Output", "Bus A", "Bus B", "Hits" }, 0));
         }
         return layout;
     }

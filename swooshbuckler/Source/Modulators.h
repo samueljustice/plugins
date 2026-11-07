@@ -13,7 +13,7 @@
  *
  *   LFO      : sine, triangle, ramp, square or steps (sample and hold), bipolar
  *   Random   : a smooth random walk, bipolar
- *   Follower : follows the loudness of the output, unipolar
+ *   Follower : follows the loudness of the output, bus A, bus B or the hits, unipolar
  *   Macro    : a knob you turn (or automate), unipolar
  *
  * A wire adds depth x modulator to the knob's own (normalised) value. The parameter
@@ -72,12 +72,17 @@ public:
         Type type = Type::Lfo;
         Shape shape = Shape::Sine;
         float knob = 0.4f; // LFO / Random: rate; Follower: speed; Macro: the value
+        int follow = 0;    // Follower: which input (an index into FollowerInputs)
     };
+
+    /** What a Follower can listen to: RMS of the last block of each. */
+    enum FollowerInput { FollowOutput = 0, FollowBusA, FollowBusB, FollowHits, c_numFollowerInputs };
+    using FollowerInputs = std::array<float, c_numFollowerInputs>;
 
     void prepare(double sampleRate);
     void reset();
-    /** Advances the modulators by numSamples and sums the offsets. followerInput = output RMS of the last block. */
-    void process(const std::array<SourceSettings, c_numSources>& settings, int numSamples, float followerInput);
+    /** Advances the modulators by numSamples and sums the offsets. */
+    void process(const std::array<SourceSettings, c_numSources>& settings, int numSamples, const FollowerInputs& followerInputs);
     /** Normalised offset for a target (sum of its wires, smoothed). 0 when nothing is wired to it. */
     float offset(int target) const { return m_offsets[static_cast<size_t>(target)]; }
 
