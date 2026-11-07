@@ -36,13 +36,16 @@ set(PF_DSP_SOURCES
 option(PITCHFLATTENER_COPY_AFTER_BUILD "Copy plugins to the system folders after building" ON)
 
 # Define our plugin
+# The bundle metadata's copyright runs to the year the plugin is built.
+string(TIMESTAMP PITCHFLATTENER_COPYRIGHT_YEAR "%Y")
+
 juce_add_plugin(PitchFlattener
     PLUGIN_MANUFACTURER_CODE Sjus
     PLUGIN_CODE Pftf
     FORMATS ${PITCHFLATTENER_FORMATS}
     PRODUCT_NAME "SammyJs Pitch Flattener"
     COMPANY_NAME "Samuel Justice"
-    COMPANY_COPYRIGHT "Copyright 2025-2026 Samuel Justice"
+    COMPANY_COPYRIGHT "Copyright 2025-${PITCHFLATTENER_COPYRIGHT_YEAR} Samuel Justice"
     COMPANY_WEBSITE ""
     COMPANY_EMAIL ""
     BUNDLE_ID com.samueljustice.pitchflattener

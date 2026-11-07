@@ -45,8 +45,16 @@ namespace
         return n;
     }
 
+    /** "Copyright (c) 2025-<build year> Samuel Justice", so the notice never needs updating. */
+    juce::String copyrightLine()
+    {
+        constexpr int firstYear = 2025;
+        const int year = juce::String (__DATE__).getLastCharacters (4).getIntValue(); // __DATE__ is "Mmm dd yyyy"
+        const auto years = year > firstYear ? juce::String (firstYear) + "-" + juce::String (year) : juce::String (firstYear);
+        return "Copyright (c) " + years + " Samuel Justice";
+    }
+
     const char* const c_credits =
-        "Copyright (c) 2025-2026 Samuel Justice\n\n"
         "BUILT WITH\n"
         "- JUCE (juce.com), Raw Material Software Limited.\n"
         "- Rubber Band Library (breakfastquay.com/rubberband), Particular Programs Ltd. "
@@ -312,7 +320,7 @@ AboutWindow::AboutContent::AboutContent (PitchFlattenerLookAndFeel& editorLookAn
     m_licenceText.setColour (juce::TextEditor::outlineColourId, juce::Colours::transparentBlack); // amber ring after Tab only
     m_licenceText.setFont (m_fonts->body (11.5f));
     m_licenceText.setLineSpacing (1.25f);
-    m_licenceText.setText (c_credits, false);
+    m_licenceText.setText (copyrightLine() + "\n\n" + c_credits, false);
     addAndMakeVisible (m_licenceText);
 }
 
