@@ -13,7 +13,7 @@
  *
  *   LFO      : sine, triangle, ramp, square or steps (sample and hold), bipolar
  *   Random   : a smooth random walk, bipolar
- *   Follower : follows the loudness of the output, bus A, bus B or the hits, unipolar
+ *   Follower : follows the loudness of bus A, bus B, the hits or the output, unipolar
  *   Macro    : a knob you turn (or automate), unipolar
  *
  * A wire adds depth x modulator to the knob's own (normalised) value. The parameter
@@ -76,7 +76,7 @@ public:
     };
 
     /** What a Follower can listen to: RMS of the last block of each. */
-    enum FollowerInput { FollowOutput = 0, FollowBusA, FollowBusB, FollowHits, c_numFollowerInputs };
+    enum FollowerInput { FollowBusA = 0, FollowBusB, FollowHits, FollowOutput, c_numFollowerInputs };
     using FollowerInputs = std::array<float, c_numFollowerInputs>;
 
     void prepare(double sampleRate);

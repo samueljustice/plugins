@@ -26,7 +26,7 @@ namespace
         {
             case ModMatrix::Type::Lfo:      return "Modulator type: LFO\nA steady repeating wave that moves each wired knob up and down around where you set it. Pick its shape below.";
             case ModMatrix::Type::Random:   return "Modulator type: Random\nA smooth random wander up and down around each wired knob, never the same twice.";
-            case ModMatrix::Type::Follower: return "Modulator type: Follower\nFollows the loudness of the output, bus A, bus B or the hits (choose which underneath): the louder it gets, the further it turns each wired knob (one way only).";
+            case ModMatrix::Type::Follower: return "Modulator type: Follower\nFollows the loudness of bus A, bus B, the hits or the output (choose which underneath): the louder it gets, the further it turns each wired knob (one way only).";
             case ModMatrix::Type::Macro:    return "Modulator type: Macro\nOne knob that turns every knob it is wired to at once, each by its own depth. Great to automate from your DAW.";
         }
         return {};
@@ -57,7 +57,7 @@ public:
     {
         m_type.addItemList({ "LFO", "Random", "Follower", "Macro" }, 1);
         m_shape.addItemList({ "Sine", "Triangle", "Ramp", "Square", "Steps" }, 1);
-        m_follow.addItemList({ "Output", "Bus A", "Bus B", "Hits" }, 1);
+        m_follow.addItemList({ "Bus A", "Bus B", "Hits", "Output" }, 1);
         // Attachments set the selection before the items existed: sync once more.
         m_type.setSelectedItemIndex(juce::roundToInt(owner.m_processor.getState().getRawParameterValue(ParamIDs::modType[source])->load()),
                                     juce::dontSendNotification);
@@ -65,7 +65,7 @@ public:
                                      juce::dontSendNotification);
         m_follow.setSelectedItemIndex(juce::roundToInt(owner.m_processor.getState().getRawParameterValue(ParamIDs::modFollow[source])->load()),
                                       juce::dontSendNotification);
-        m_follow.setTooltip("Follows\nWhat the follower listens to: the whole output, bus A, bus B or the hits on their own. "
+        m_follow.setTooltip("Follows\nWhat the follower listens to: bus A, bus B or the hits on their own, or the whole output. "
                             "Follow one bus to make the other react to it, or follow the hits to make every impact kick a knob.");
         m_type.onChange = [this] { updateType(); };
         m_shape.setTooltip("LFO shape\nSine and Triangle are smooth, Ramp rises then drops, Square jumps between two values, Steps jumps to a new random value every cycle.");

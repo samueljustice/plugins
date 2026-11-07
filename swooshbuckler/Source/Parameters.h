@@ -158,7 +158,7 @@ namespace Params
                                                               StringArray { "Sine", "Triangle", "Ramp", "Square", "Steps" }, defaultShapes[m]));
             layout.add(pct(ParamIDs::modKnob[m], name + " rate / amount", defaultKnobs[m]));
             layout.add(std::make_unique<AudioParameterChoice>(ParameterID { ParamIDs::modFollow[m], 2 }, name + " follows",
-                                                              StringArray { "Output", "Bus A", "Bus B", "Hits" }, 0));
+                                                              StringArray { "Bus A", "Bus B", "Hits", "Output" }, 3));
         }
         return layout;
     }

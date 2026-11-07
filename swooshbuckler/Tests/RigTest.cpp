@@ -445,7 +445,7 @@ int main(int argc, char* argv[])
         set[1] = { ModMatrix::Type::Follower, ModMatrix::Shape::Sine, 0.8f, ModMatrix::FollowBusB };
         set[2] = { ModMatrix::Type::Follower, ModMatrix::Shape::Sine, 0.8f, ModMatrix::FollowOutput };
         for (int k = 0; k < 400; ++k)
-            mods.process(set, 256, ModMatrix::FollowerInputs { 0.0f, 0.0f, 0.5f, 0.0f });
+            mods.process(set, 256, ModMatrix::FollowerInputs { 0.0f, 0.5f, 0.0f, 0.0f } /* bus A, bus B, hits, output */);
         std::cout << "  follower on bus B " << mods.getSourceValue(1) << ", on the output " << mods.getSourceValue(2) << std::endl;
         check(mods.getSourceValue(1) > 0.8f && mods.getSourceValue(2) < 0.05f, "mods: a follower follows the input it's set to");
     }
