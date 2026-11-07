@@ -5,11 +5,11 @@ This repository contains audio plugin projects and their dependencies.
 ## Projects
 
 ### Pitch Flattener
-A VST3/AU audio plugin that flattens pitch variations in real-time. Kinda decent for removing sweeping Doppler effects, stabilizing warbling tones, or creating unique pitch-locked effects.
+A VST3/AU plugin that removes pitch movement: the Doppler sweep from a pass-by, the wail from a siren, the vibrato from a voice. Pick a Source Type and it uses a detector built for that sound, looks ahead to track the pitch, and flattens it sample-accurately. Built for offline rendering hosts such as the Soundminer DSP rack.
 
 - Location: `/pitchflattener/`
 - [Project README](pitchflattener/README.md)
-- [Latest Release](https://github.com/samueljustice/plugins/releases/tag/pitchflattener-v1.2.5)
+- [Latest Release](https://github.com/samueljustice/plugins/releases/tag/pitchflattener-v2.0.0)
 
 ### Reversinator
 A VST3/AU audio plugin that provides real-time audio reversal effects with grain-based overlap-add processing. Create smooth reverse effects, experimental soundscapes, and unique time-based audio manipulations without clicks or pops.
@@ -29,7 +29,6 @@ A VST3/AU subharmonic generator. Tracks the pitch of your bass and adds a clean 
 
 ### SDK
 - **JUCE**: Cross-platform C++ application framework for audio applications
-- **World**: High-quality speech analysis/synthesis vocoder system
 - **RubberBand**: High-quality audio time-stretching and pitch-shifting library
 
 ## Building

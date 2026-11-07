@@ -61,35 +61,11 @@ jobs:
         copy build\rubberband-static.lib lib\librubberband.a
         cd ..\..
     
-    - name: Download and Build WORLD
-      shell: cmd
-      run: |
-        cd SDK
-        REM Remove World directory if it exists from previous runs
-        if exist World rmdir /s /q World
-        git clone https://github.com/mmorise/World.git World
-        cd World
-        
-        REM Create build directory
-        mkdir build
-        cd build
-        
-        REM Setup Visual Studio environment
-        call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvars64.bat"
-        
-        REM Configure with CMake
-        cmake .. -G "Visual Studio 17 2022" -A x64 -DCMAKE_BUILD_TYPE=Release
-        
-        REM Build
-        cmake --build . --config Release
-        
-        cd ..\..
-    
     - name: Configure CMake
       run: |
         cd pitchflattener
         $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm UTC"
-        cmake -B build -S . -DCMAKE_BUILD_TYPE=Release -DBUILD_TIMESTAMP="$timestamp"
+        cmake -B build -S . -DCMAKE_BUILD_TYPE=Release -DPITCHFLATTENER_COPY_AFTER_BUILD=OFF -DBUILD_TIMESTAMP="$timestamp"
 
     - name: Build VST3
       run: |
@@ -222,29 +198,6 @@ jobs:
         mkdir lib
         cp build/librubberband.a lib/
     
-    - name: Download and Build WORLD
-      run: |
-        cd SDK
-        # Remove World directory if it exists from previous runs
-        rm -rf World
-        git clone https://github.com/mmorise/World.git World
-        cd World
-        
-        # Remove build directory if it exists (might be in the repo) and create fresh
-        rm -rf build
-        mkdir build
-        cd build
-        
-        # Configure with CMake for universal binary
-        cmake .. -G "Xcode" \
-          -DCMAKE_BUILD_TYPE=Release \
-          -DCMAKE_OSX_ARCHITECTURES="x86_64;arm64"
-        
-        # Build
-        cmake --build . --config Release
-        
-        cd ../..
-    
     - name: Check for Certificates
       id: check_certs
       run: |
@@ -297,12 +250,18 @@ jobs:
       run: |
         cd pitchflattener
         TIMESTAMP=$(date -u "+%Y-%m-%d %H:%M UTC")
-        cmake -B build -S . -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_ARCHITECTURES="x86_64;arm64" -DBUILD_TIMESTAMP="$TIMESTAMP"
+        cmake -B build -S . -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_ARCHITECTURES="x86_64;arm64" -DPITCHFLATTENER_COPY_AFTER_BUILD=OFF -DPITCHFLATTENER_BUILD_TESTS=ON -DBUILD_TIMESTAMP="$TIMESTAMP"
     
     - name: Build VST3 and AU
       run: |
         cd pitchflattener
-        cmake --build build --config Release
+        cmake --build build --config Release --target PitchFlattener_VST3 PitchFlattener_AU
+
+    - name: Run DSP tests
+      run: |
+        cd pitchflattener
+        cmake --build build --config Release --target PitchFlattenerTests
+        ./build/PitchFlattenerTests_artefacts/Release/PitchFlattenerTests --block 0
     
     - name: Sign Plugins
       if: steps.check_certs.outputs.has_certs == 'true'
@@ -404,7 +363,7 @@ jobs:
         # Extract version from tag or use default
         VERSION="${GITHUB_REF#refs/tags/pitchflattener-v}"
         if [ -z "$VERSION" ] || [ "$VERSION" = "$GITHUB_REF" ]; then
-          VERSION="1.2.0"
+          VERSION=$(grep -E "^project\(PitchFlattener VERSION" CMakeLists.txt | sed -E 's/.*VERSION ([0-9.]+).*/\1/')
         fi
         
         pkgbuild --identifier "com.sweetjusticesound.pitchflattener.vst3" \
