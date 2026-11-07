@@ -384,7 +384,7 @@ void AboutWindow::AboutContent::resized()
     // Links, sized to their text (plus a little slack each side) so they read and respond as text, and the
     // first lines up with the name above it.
     const auto linkFont = m_lookAndFeel.getTextButtonFont (m_websiteButton, c_linkHeight);
-    constexpr int linkSlack = 4;
+    static constexpr int linkSlack = 4; // static: MSVC will not use an uncaptured local constexpr in the lambda
     const auto linkWidth = [&linkFont] (const juce::Button& b)
     {
         const auto t = b.getButtonText();
