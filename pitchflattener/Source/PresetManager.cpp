@@ -275,14 +275,15 @@ juce::String PresetManager::getCurrentPresetName() const
 //==============================================================================
 // PresetBar
 //==============================================================================
-PresetBar::PresetBar (juce::AudioProcessorValueTreeState& state)
+PresetBar::PresetBar (juce::AudioProcessorValueTreeState& state, PitchFlattenerLookAndFeel& lookAndFeel)
     : m_manager (state)
+    , m_lookAndFeel (lookAndFeel)
 {
     m_menu.setTextWhenNothingSelected ("No preset");
     m_menu.onChange = [this] { menuChanged(); };
     addAndMakeVisible (m_menu);
 
-    m_saveButton.onClick = [this] { showSaveDialog(); };
+    m_saveButton.onClick = [this] { showSaveDialog (m_manager.getCurrentPresetName()); };
     m_deleteButton.onClick = [this] { confirmDelete(); };
     m_resetButton.onClick = [this] { confirmReset(); };
 
@@ -294,10 +295,9 @@ PresetBar::PresetBar (juce::AudioProcessorValueTreeState& state)
 
 PresetBar::~PresetBar()
 {
-    // Close any open dialog before the callbacks' target goes away (the
-    // callbacks also hold SafePointers).
-    m_saveDialog.reset();
-    m_messageBox.close();
+    // Close any open dialog before the callbacks' target goes away (the callbacks also hold
+    // SafePointers), and before the editor's LookAndFeel it is drawn with.
+    m_alert.reset();
 }
 
 void PresetBar::resized()
@@ -371,51 +371,51 @@ void PresetBar::menuChanged()
         ok = m_manager.loadFactoryPreset (id - 1);
 
     if (id > 0 && ! ok)
-        showError ("The preset could not be loaded.");
+        showError ("Couldn't Load Preset", "The preset could not be loaded.");
 
     refresh();
 }
 
-void PresetBar::showSaveDialog()
+void PresetBar::showSaveDialog (const juce::String& suggestedName)
 {
-    m_saveDialog = std::make_unique<juce::AlertWindow> ("Save Preset", "Enter a name for the preset:",
-                                                        juce::MessageBoxIconType::NoIcon, this);
-    m_saveDialog->setLookAndFeel (&getLookAndFeel());
-
-    auto suggested = m_manager.getCurrentPresetName();
-    m_saveDialog->addTextEditor ("name", suggested, {});
-    m_saveDialog->addButton ("Save", 1, juce::KeyPress (juce::KeyPress::returnKey));
-    m_saveDialog->addButton ("Cancel", 0, juce::KeyPress (juce::KeyPress::escapeKey));
-
-    juce::Component::SafePointer<PresetBar> safeThis (this);
-    m_saveDialog->enterModalState (true, juce::ModalCallbackFunction::create ([safeThis] (int result)
+    auto alert = makeAlert ("Save Preset", "Enter a name for the preset:", juce::MessageBoxIconType::NoIcon);
+    alert->addTextEditor ("name", suggestedName, {});
+    if (auto* field = alert->getTextEditor ("name"))
     {
-        if (safeThis == nullptr || safeThis->m_saveDialog == nullptr)
+        field->setJustification (juce::Justification::centredLeft); // vertically centred in the field
+        field->setIndents (8, 0);
+    }
+    alert->addButton ("Save", 1, juce::KeyPress (juce::KeyPress::returnKey));
+    alert->addButton ("Cancel", 0, juce::KeyPress (juce::KeyPress::escapeKey));
+
+    showAlert (std::move (alert), [safeThis = juce::Component::SafePointer<PresetBar> (this)] (int result, juce::AlertWindow& window)
+    {
+        if (safeThis == nullptr || result != 1)
             return;
 
-        const auto name = PresetManager::sanitiseName (safeThis->m_saveDialog->getTextEditorContents ("name"));
-        safeThis->m_saveDialog->setVisible (false);
-
-        if (result != 1)
-            return;
+        // Read before another alert replaces this one.
+        const auto typed = window.getTextEditorContents ("name");
+        const auto name = PresetManager::sanitiseName (typed);
 
         if (name.isEmpty())
-            safeThis->showError ("Please enter a preset name.");
+            safeThis->showError ("Can't Use This Name", typed.trim().isEmpty() ? juce::String ("Please enter a preset name.")
+                                                                               : "\"" + typed.trim() + "\" has no characters a file name can hold. "
+                                                                                 "Please use letters or numbers.");
         else if (safeThis->m_manager.userPresetExists (name))
             safeThis->confirmOverwrite (name);
         else
             safeThis->save (name);
-    }), false);
+    });
 }
 
 void PresetBar::confirmOverwrite (const juce::String& name)
 {
-    juce::Component::SafePointer<PresetBar> safeThis (this);
-    const auto options = juce::MessageBoxOptions::makeOptionsOkCancel (juce::MessageBoxIconType::QuestionIcon, "Overwrite Preset",
-                                                                       "A preset called \"" + name + "\" already exists. Replace it?",
-                                                                       "Replace", "Cancel", this);
+    auto alert = makeAlert ("Overwrite Preset", "A preset called \"" + name + "\" already exists. Replace it?",
+                            juce::MessageBoxIconType::QuestionIcon);
+    alert->addButton ("Replace", 1, juce::KeyPress (juce::KeyPress::returnKey));
+    alert->addButton ("Cancel", 0, juce::KeyPress (juce::KeyPress::escapeKey));
 
-    m_messageBox = juce::AlertWindow::showScopedAsync (options, [safeThis, name] (int result)
+    showAlert (std::move (alert), [safeThis = juce::Component::SafePointer<PresetBar> (this), name] (int result, juce::AlertWindow&)
     {
         if (safeThis != nullptr && result == 1)
             safeThis->save (name);
@@ -428,19 +428,20 @@ void PresetBar::confirmDelete()
     if (id < c_userIdBase)
         return;
 
+    // Bound to the preset named in the dialog, even if another one is loaded by the time it is confirmed.
     const auto name = m_userNames[id - c_userIdBase];
-    juce::Component::SafePointer<PresetBar> safeThis (this);
-    const auto options = juce::MessageBoxOptions::makeOptionsOkCancel (juce::MessageBoxIconType::QuestionIcon, "Delete Preset",
-                                                                       "Move the preset \"" + name + "\" to the trash?",
-                                                                       "Delete", "Cancel", this);
+    auto alert = makeAlert ("Delete Preset", "Move the preset \"" + name + "\" to the trash?",
+                            juce::MessageBoxIconType::WarningIcon);
+    alert->addButton ("Delete", 1, juce::KeyPress (juce::KeyPress::returnKey));
+    alert->addButton ("Cancel", 0, juce::KeyPress (juce::KeyPress::escapeKey));
 
-    m_messageBox = juce::AlertWindow::showScopedAsync (options, [safeThis, name] (int result)
+    showAlert (std::move (alert), [safeThis = juce::Component::SafePointer<PresetBar> (this), name] (int result, juce::AlertWindow&)
     {
         if (safeThis == nullptr || result != 1)
             return;
 
         if (! safeThis->m_manager.deleteUserPreset (name))
-            safeThis->showError ("The preset could not be deleted.");
+            safeThis->showError ("Couldn't Delete Preset", "The preset could not be deleted.");
 
         safeThis->refresh();
     });
@@ -448,12 +449,11 @@ void PresetBar::confirmDelete()
 
 void PresetBar::confirmReset()
 {
-    juce::Component::SafePointer<PresetBar> safeThis (this);
-    const auto options = juce::MessageBoxOptions::makeOptionsOkCancel (juce::MessageBoxIconType::QuestionIcon, "Reset All",
-                                                                       "Set every parameter back to its default?",
-                                                                       "Reset", "Cancel", this);
+    auto alert = makeAlert ("Reset All", "Set every parameter back to its default?", juce::MessageBoxIconType::QuestionIcon);
+    alert->addButton ("Reset", 1, juce::KeyPress (juce::KeyPress::returnKey));
+    alert->addButton ("Cancel", 0, juce::KeyPress (juce::KeyPress::escapeKey));
 
-    m_messageBox = juce::AlertWindow::showScopedAsync (options, [safeThis] (int result)
+    showAlert (std::move (alert), [safeThis = juce::Component::SafePointer<PresetBar> (this)] (int result, juce::AlertWindow&)
     {
         if (safeThis == nullptr || result != 1)
             return;
@@ -466,14 +466,58 @@ void PresetBar::confirmReset()
 void PresetBar::save (const juce::String& name)
 {
     if (! m_manager.saveUserPreset (name))
-        showError ("The preset could not be saved to\n" + PresetManager::getUserDirectory().getFullPathName());
+        showError ("Couldn't Save Preset", "The preset could not be saved to\n" + PresetManager::getUserDirectory().getFullPathName());
 
     refresh();
 }
 
-void PresetBar::showError (const juce::String& message)
+void PresetBar::showError (const juce::String& title, const juce::String& message)
 {
-    m_messageBox = juce::AlertWindow::showScopedAsync (juce::MessageBoxOptions::makeOptionsOk (juce::MessageBoxIconType::WarningIcon,
-                                                                                             "Presets", message, {}, this),
-                                                       nullptr);
+    auto alert = makeAlert (title, message, juce::MessageBoxIconType::WarningIcon);
+    alert->addButton ("OK", 0, juce::KeyPress (juce::KeyPress::returnKey), juce::KeyPress (juce::KeyPress::escapeKey));
+    showAlert (std::move (alert), {});
+}
+
+std::unique_ptr<juce::AlertWindow> PresetBar::makeAlert (const juce::String& title, const juce::String& message,
+                                                         juce::MessageBoxIconType icon)
+{
+    // Centred over the plugin window and drawn at the editor's own scale (not the design-size content's).
+    juce::Component* associated = findParentComponentOfClass<juce::AudioProcessorEditor>();
+    if (associated == nullptr)
+        associated = this;
+
+    auto alert = std::make_unique<juce::AlertWindow> (title, message, icon, associated);
+
+    // Before addButton() / addTextEditor(): they take button sizes and the field's font and outline from the
+    // alert's LookAndFeel as they are called.
+    alert->setLookAndFeel (&m_lookAndFeel);
+    alert->setOpaque (false); // a rounded panel: the corners show what is behind the dialog
+    PitchFlattenerLookAndFeel::showFocusRingsAfterTab (*alert);
+    return alert;
+}
+
+void PresetBar::showAlert (std::unique_ptr<juce::AlertWindow> alert, std::function<void (int, juce::AlertWindow&)> onResult)
+{
+    // Plugins can't run modal loops, so alerts are async. The bar owns the window so it is always
+    // destroyed before the LookAndFeel it uses.
+    m_alert = std::move (alert);
+    m_alert->setLookAndFeel (&m_lookAndFeel);
+
+    m_alert->enterModalState (true, juce::ModalCallbackFunction::create (
+        [safeThis = juce::Component::SafePointer<PresetBar> (this), onResult] (int result)
+        {
+            if (safeThis == nullptr || safeThis->m_alert == nullptr)
+                return;
+
+            if (onResult)
+                onResult (result, *safeThis->m_alert);
+
+            // Defer the delete: we're inside the window's own callback. A dialog that onResult opened
+            // in its place is modal, so it stays.
+            juce::MessageManager::callAsync ([safeThis]
+            {
+                if (safeThis != nullptr && safeThis->m_alert != nullptr && ! safeThis->m_alert->isCurrentlyModal())
+                    safeThis->m_alert.reset();
+            });
+        }), false);
 }

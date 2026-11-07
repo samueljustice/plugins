@@ -1,6 +1,7 @@
 #pragma once
 
 #include <JuceHeader.h>
+#include "PitchFlattenerLookAndFeel.h"
 
 /**
  * Factory and user presets for the APVTS.
@@ -55,11 +56,17 @@ private:
 };
 
 //==============================================================================
-/** Header preset bar: preset menu plus Save / Delete / Reset. All dialogs are async. */
+/**
+ * Header preset bar: preset menu plus Save / Delete / Reset.
+ *
+ * Its dialogs are async (plugins can't run modal loops) and drawn with the editor's LookAndFeel. The bar
+ * owns the one dialog showing, so no dialog outlives the bar or that LookAndFeel.
+ */
 class PresetBar : public juce::Component
 {
 public:
-    explicit PresetBar (juce::AudioProcessorValueTreeState& state);
+    /** lookAndFeel (the editor's) must outlive the bar. */
+    PresetBar (juce::AudioProcessorValueTreeState& state, PitchFlattenerLookAndFeel& lookAndFeel);
     ~PresetBar() override;
 
     void resized() override;
@@ -78,14 +85,21 @@ private:
     static constexpr int c_userIdBase = 1000;
 
     void menuChanged();
-    void showSaveDialog();
+    void showSaveDialog (const juce::String& suggestedName);
     void confirmOverwrite (const juce::String& name);
     void confirmDelete();
     void confirmReset();
     void save (const juce::String& name);
-    void showError (const juce::String& message);
+    void showError (const juce::String& title, const juce::String& message);
+
+    /** A dialog in the theme, centred over the editor and drawn at its own scale (not the scaled content's). */
+    std::unique_ptr<juce::AlertWindow> makeAlert (const juce::String& title, const juce::String& message,
+                                                  juce::MessageBoxIconType icon);
+    /** Shows the alert (owned by the bar, replacing any other) and calls onResult with the button's result. */
+    void showAlert (std::unique_ptr<juce::AlertWindow> alert, std::function<void (int, juce::AlertWindow&)> onResult);
 
     PresetManager m_manager;
+    PitchFlattenerLookAndFeel& m_lookAndFeel;
 
     juce::ComboBox m_menu;
     juce::TextButton m_saveButton { "SAVE" }, m_deleteButton { "DELETE" }, m_resetButton { "RESET" };
@@ -93,8 +107,7 @@ private:
     juce::StringArray m_userNames;
     juce::String m_shownName;
 
-    std::unique_ptr<juce::AlertWindow> m_saveDialog;
-    juce::ScopedMessageBox m_messageBox;
+    std::unique_ptr<juce::AlertWindow> m_alert; // owned so it never outlives the LookAndFeel
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (PresetBar)
 };

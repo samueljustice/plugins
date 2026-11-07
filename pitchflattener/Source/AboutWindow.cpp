@@ -8,7 +8,30 @@ namespace
     const char* const c_version = JucePlugin_VersionString;
 #endif
 
+    const char* const c_releasesUrl = "https://api.github.com/repos/samueljustice/plugins/releases?per_page=100";
     constexpr const char* c_tagPrefix = "pitchflattener-v";
+    constexpr int c_connectionTimeoutMs = 5000;
+    constexpr int c_stopTimeoutMs = 2000; // a cancelled request unwinds in milliseconds; this is a backstop
+
+    // Layout of the About window's content (500 x 650), in the editor's design units.
+    constexpr int c_margin = 16;
+    constexpr int c_headerBlockHeight = 66;  // mark + name, tagline, version
+    constexpr int c_panelGap = 12;
+    constexpr int c_panelHeaderHeight = 32;  // as the editor's sections
+    constexpr int c_creditsHeight = 98;
+    constexpr int c_textInset = 26;          // body text lines up with the panel title, after its dot
+    constexpr int c_linkHeight = 22;
+
+    const char* const c_tagline = "SAMMYJS  /  PITCH FLATTENING FOR SOUND DESIGN";
+
+    juce::String buildText()
+    {
+#ifdef BUILD_TIMESTAMP
+        return juce::String (BUILD_TIMESTAMP);
+#else
+        return (juce::String (__DATE__) + " " + __TIME__).replace ("  ", " ");
+#endif
+    }
 
     /** "1.10.2" -> comparable integer (major, minor, patch up to 999 each). */
     int64_t versionNumber (const juce::String& version)
@@ -23,7 +46,6 @@ namespace
     }
 
     const char* const c_credits =
-        "SammyJs Pitch Flattener\n"
         "Copyright (c) 2025-2026 Samuel Justice\n\n"
         "BUILT WITH\n"
         "- JUCE (juce.com), Raw Material Software Limited.\n"
@@ -56,108 +78,150 @@ namespace
 //==============================================================================
 // AboutWindow
 //==============================================================================
-AboutWindow::AboutWindow (juce::LookAndFeel& lookAndFeel)
+AboutWindow::AboutWindow (PitchFlattenerLookAndFeel& editorLookAndFeel, std::function<void()> onClose)
     : DocumentWindow ("About SammyJs Pitch Flattener", Theme::Colours::background, DocumentWindow::closeButton)
+    , m_onClose (std::move (onClose))
+    , m_content (editorLookAndFeel)
 {
-    setLookAndFeel (&lookAndFeel);
+    setLookAndFeel (&editorLookAndFeel); // the editor's: it outlives this window (the editor deletes it first)
+    PitchFlattenerLookAndFeel::showFocusRingsAfterTab (*this);
+
     setUsingNativeTitleBar (true);
     setContentNonOwned (&m_content, false);
-    centreWithSize (500, 640);
+
+    centreWithSize (500, 650);
+    setVisible (true);
     setResizable (false, false);
     setAlwaysOnTop (true);
+    toFront (true);
 }
 
 AboutWindow::~AboutWindow()
 {
+    m_content.stopUpdateCheck(); // aborts a request in flight and joins its thread
     clearContentComponent();
     setLookAndFeel (nullptr);
 }
 
 void AboutWindow::closeButtonPressed()
 {
-    setVisible (false);
+    // The owner deletes the window, and with it m_onClose: call a copy.
+    if (auto onClose = m_onClose)
+        onClose();
+    else
+        setVisible (false);
 }
 
 //==============================================================================
-// UpdateChecker
+// UpdateCheck
 //==============================================================================
-AboutWindow::UpdateChecker::UpdateChecker()
+AboutWindow::UpdateCheck::UpdateCheck (juce::URL releasesUrl, juce::String currentVersion,
+                                       std::function<void (const Result&)> onResult)
     : juce::Thread ("PitchFlattener update check")
+    , m_url (std::move (releasesUrl))
+    , m_currentVersion (std::move (currentVersion))
+    , m_onResult (std::move (onResult))
 {
 }
 
-AboutWindow::UpdateChecker::~UpdateChecker()
+AboutWindow::UpdateCheck::~UpdateCheck()
 {
-    stopThread (7000);
-    cancelPendingUpdate();
+    cancel();
 }
 
-void AboutWindow::UpdateChecker::start()
+bool AboutWindow::UpdateCheck::start()
 {
-    if (! isThreadRunning())
-        startThread (juce::Thread::Priority::low);
+    if (isThreadRunning())
+        return false;
+
+    cancelPendingUpdate(); // an earlier result not shown yet is out of date
+    return startThread (juce::Thread::Priority::low);
 }
 
-void AboutWindow::UpdateChecker::post (const juce::String& message, juce::Colour colour)
+void AboutWindow::UpdateCheck::abortRequest()
 {
+    const juce::ScopedLock sl (m_lock);
+    if (m_request != nullptr)
+        m_request->cancel(); // wakes a connect() or read() blocked in the network
+}
+
+void AboutWindow::UpdateCheck::cancel()
+{
+    signalThreadShouldExit();
+
+    // A cancel can land before the request has a connection and be lost, so keep cancelling until
+    // the thread has gone (normally at once). The force-kill in stopThread() is the last resort.
+    for (int i = 0; i < 200 && isThreadRunning(); ++i)
     {
-        const juce::ScopedLock sl (m_lock);
-        m_message = message;
-        m_colour = colour;
+        abortRequest();
+        waitForThreadToExit (10);
     }
 
-    triggerAsyncUpdate();
+    stopThread (c_stopTimeoutMs);
+    cancelPendingUpdate(); // a result posted just before the thread stopped is dropped
 }
 
-void AboutWindow::UpdateChecker::handleAsyncUpdate()
+void AboutWindow::UpdateCheck::run()
 {
-    juce::String message;
-    juce::Colour colour;
+    juce::WebInputStream request (m_url, false);
+    request.withConnectionTimeout (c_connectionTimeoutMs)
+           .withExtraHeaders ("Accept: application/vnd.github+json\r\nUser-Agent: SammyJs-PitchFlattener");
+
+    {
+        // Checked under the lock, so cancel() either sees the request or stops it from starting.
+        const juce::ScopedLock sl (m_lock);
+        if (threadShouldExit())
+            return;
+        m_request = &request;
+    }
+
+    // No listener: a listener that aborts connect() makes JUCE (macOS) destroy the connection on this
+    // thread while cancel() may be using it.
+    const bool connected = request.connect (nullptr) && ! request.isError() && request.getStatusCode() == 200;
+    const auto response = connected && ! threadShouldExit() ? request.readEntireStreamAsString() : juce::String();
 
     {
         const juce::ScopedLock sl (m_lock);
-        message = m_message;
-        colour = m_colour;
+        m_request = nullptr;
     }
 
-    if (onResult != nullptr)
-        onResult (message, colour);
+    if (threadShouldExit())
+        return;
+
+    auto result = connected ? interpret (response, m_currentVersion)
+                            : Result { "Could not reach GitHub", Theme::Colours::bad };
+    {
+        const juce::ScopedLock sl (m_lock);
+        m_result = std::move (result);
+    }
+
+    triggerAsyncUpdate(); // the window is only ever touched on the message thread
 }
 
-void AboutWindow::UpdateChecker::run()
+void AboutWindow::UpdateCheck::handleAsyncUpdate()
+{
+    Result result;
+    {
+        const juce::ScopedLock sl (m_lock);
+        result = m_result;
+    }
+
+    if (m_onResult)
+        m_onResult (result);
+}
+
+AboutWindow::UpdateCheck::Result AboutWindow::UpdateCheck::interpret (const juce::String& response, const juce::String& currentVersion)
 {
     using namespace Theme::Colours;
 
-    const juce::URL url ("https://api.github.com/repos/samueljustice/plugins/releases?per_page=100");
-    const auto options = juce::URL::InputStreamOptions (juce::URL::ParameterHandling::inAddress)
-                             .withConnectionTimeoutMs (5000)
-                             .withExtraHeaders ("Accept: application/vnd.github+json\r\nUser-Agent: SammyJs-PitchFlattener");
-
-    const auto stream = url.createInputStream (options);
-
-    if (threadShouldExit())
-        return;
-
-    if (stream == nullptr)
-    {
-        post ("Could not reach GitHub", bad);
-        return;
-    }
-
-    const auto response = stream->readEntireStreamAsString();
-
-    if (threadShouldExit())
-        return;
-
+    // Keep the parsed tree in a named local: it owns the array walked below.
     const auto releases = juce::JSON::parse (response);
     const auto* list = releases.getArray();
 
     if (list == nullptr)
-    {
-        post ("Unexpected response from GitHub", bad);
-        return;
-    }
+        return { "Unexpected response from GitHub", bad };
 
+    // The newest published (not draft, not pre-release) release tagged for Pitch Flattener.
     juce::String latest;
     int64_t latestNumber = -1;
 
@@ -181,25 +245,39 @@ void AboutWindow::UpdateChecker::run()
     }
 
     if (latest.isEmpty())
-        post ("No releases found", textDim);
-    else if (latestNumber > versionNumber (c_version))
-        post ("Version " + latest + " is available", target);
-    else
-        post ("You have the latest version", good);
+        return { "No releases found", textDim };
+
+    if (latestNumber > versionNumber (currentVersion))
+        return { "Version " + latest + " is available", target };
+
+    return { "You have the latest version", good };
 }
 
 //==============================================================================
 // AboutContent
 //==============================================================================
-AboutWindow::AboutContent::AboutContent()
+AboutWindow::AboutContent::AboutContent (PitchFlattenerLookAndFeel& editorLookAndFeel)
+    : m_lookAndFeel (editorLookAndFeel)
+    , m_updateCheck (juce::URL (c_releasesUrl), c_version, [this] (const UpdateCheck::Result& result)
+      {
+          m_updateStatusLabel.setText (result.text, juce::dontSendNotification);
+          m_updateStatusLabel.setColour (juce::Label::textColourId, result.colour);
+          m_checkUpdatesButton.setEnabled (true);
+      })
 {
     using namespace Theme::Colours;
 
+    // Set here as well as on the window, so the children are drawn with it from the start.
+    setLookAndFeel (&m_lookAndFeel);
+
+    // Links: dim text, amber and underlined under the mouse (the LookAndFeel's link style for a text
+    // button with a transparent fill).
     const auto setupLink = [this] (juce::TextButton& b, const juce::String& caption, const juce::String& link)
     {
         b.setButtonText (caption);
         b.setColour (juce::TextButton::buttonColourId, juce::Colours::transparentBlack);
-        b.setColour (juce::TextButton::textColourOffId, target);
+        b.setColour (juce::TextButton::textColourOffId, textDim);
+        b.setMouseCursor (juce::MouseCursor::PointingHandCursor);
         b.onClick = [link] { juce::URL (link).launchInDefaultBrowser(); };
         addAndMakeVisible (b);
     };
@@ -207,40 +285,40 @@ AboutWindow::AboutContent::AboutContent()
     setupLink (m_websiteButton, "sweetjusticesound.com", "https://sweetjusticesound.com");
     setupLink (m_emailButton, "sam@sweetjusticesound.com", "mailto:sam@sweetjusticesound.com");
 
-    m_checkUpdatesButton.setButtonText ("CHECK FOR UPDATES");
-    m_checkUpdatesButton.onClick = [this]
-    {
-        if (m_updateChecker.isChecking())
-            return;
-
-        m_updateStatusLabel.setText ("Checking...", juce::dontSendNotification);
-        m_updateStatusLabel.setColour (juce::Label::textColourId, Theme::Colours::textDim);
-        m_updateChecker.start();
-    };
+    // A header-row button, as RE-LATCH in the editor; the label is drawn in capitals, its text is kept.
+    m_checkUpdatesButton.setButtonText ("Check for Updates");
+    PitchFlattenerLookAndFeel::setLabelDrawnInCapitals (m_checkUpdatesButton);
+    m_checkUpdatesButton.onClick = [this] { checkForUpdates(); };
     addAndMakeVisible (m_checkUpdatesButton);
 
-    m_updateChecker.onResult = [this] (const juce::String& message, juce::Colour colour)
-    {
-        m_updateStatusLabel.setText (message, juce::dontSendNotification);
-        m_updateStatusLabel.setColour (juce::Label::textColourId, colour);
-    };
-
-    m_updateStatusLabel.setJustificationType (juce::Justification::centred);
+    // The result, in the header row next to the button.
+    m_updateStatusLabel.setJustificationType (juce::Justification::centredRight);
     m_updateStatusLabel.setColour (juce::Label::textColourId, textDim);
-    m_updateStatusLabel.setFont (m_fonts->body (12.0f));
+    m_updateStatusLabel.setFont (m_fonts->body (11.0f));
+    m_updateStatusLabel.setBorderSize (juce::BorderSize<int> (0));
+    m_updateStatusLabel.setMinimumHorizontalScale (1.0f); // never squashed
+    m_updateStatusLabel.setInterceptsMouseClicks (false, false);
     addAndMakeVisible (m_updateStatusLabel);
 
-    m_creditsText.setMultiLine (true);
-    m_creditsText.setReadOnly (true);
-    m_creditsText.setScrollbarsShown (true);
-    m_creditsText.setCaretVisible (false);
-    m_creditsText.setColour (juce::TextEditor::backgroundColourId, panel);
-    m_creditsText.setColour (juce::TextEditor::textColourId, textDim);
-    m_creditsText.setColour (juce::TextEditor::outlineColourId, outlineSoft);
-    m_creditsText.setColour (juce::TextEditor::focusedOutlineColourId, outlineSoft);
-    m_creditsText.setFont (m_fonts->body (11.0f));
-    m_creditsText.setText (c_credits, false);
-    addAndMakeVisible (m_creditsText);
+    // The credits and licence sit on their panel, in the dim text colour, with the theme's scrollbar.
+    m_licenceText.setMultiLine (true);
+    m_licenceText.setReadOnly (true);
+    m_licenceText.setScrollbarsShown (true);
+    m_licenceText.setCaretVisible (false);
+    m_licenceText.setBorder (juce::BorderSize<int> (0));
+    m_licenceText.setIndents (6, 4);
+    m_licenceText.setColour (juce::TextEditor::backgroundColourId, juce::Colours::transparentBlack);
+    m_licenceText.setColour (juce::TextEditor::textColourId, textDim);
+    m_licenceText.setColour (juce::TextEditor::outlineColourId, juce::Colours::transparentBlack); // amber ring after Tab only
+    m_licenceText.setFont (m_fonts->body (11.5f));
+    m_licenceText.setLineSpacing (1.25f);
+    m_licenceText.setText (c_credits, false);
+    addAndMakeVisible (m_licenceText);
+}
+
+AboutWindow::AboutContent::~AboutContent()
+{
+    setLookAndFeel (nullptr);
 }
 
 void AboutWindow::AboutContent::paint (juce::Graphics& g)
@@ -248,43 +326,97 @@ void AboutWindow::AboutContent::paint (juce::Graphics& g)
     using namespace Theme::Colours;
 
     g.fillAll (background);
-    const int w = getWidth();
 
-    g.setColour (text);
+    // Header, as the editor's: the mark and the name, then the tagline and the version (amber).
+    const float x = (float) c_margin;
+    const float width = (float) getWidth() - 2.0f * x;
+    const auto titleRow = juce::Rectangle<float> (x, (float) c_margin, width, 30.0f);
+    PitchFlattenerLookAndFeel::drawMark (g, juce::Rectangle<float> (34.0f, 22.0f).withPosition (x, titleRow.getCentreY() - 11.0f));
+
+    const float textX = x + 34.0f + 12.0f;
     g.setFont (m_fonts->heading (22.0f));
-    g.drawText ("PITCH FLATTENER", 0, 22, w, 30, juce::Justification::centred);
+    g.setColour (text);
+    g.drawText ("PITCH FLATTENER", titleRow.withLeft (textX), juce::Justification::centredLeft, false);
 
-    g.setColour (target);
-    g.setFont (m_fonts->body (13.0f));
-    g.drawText (juce::String ("Version ") + c_version, 0, 60, w, 20, juce::Justification::centred);
-
+    const auto small = m_fonts->label (10.5f);
+    g.setFont (small);
     g.setColour (textFaint);
-    g.setFont (m_fonts->body (11.0f));
-#ifdef BUILD_TIMESTAMP
-    g.drawText (juce::String ("Built ") + BUILD_TIMESTAMP, 0, 80, w, 16, juce::Justification::centred);
-#else
-    g.drawText (juce::String ("Built ") + __DATE__ + " " + __TIME__, 0, 80, w, 16, juce::Justification::centred);
-#endif
+    g.drawText (c_tagline, juce::Rectangle<float> (textX, titleRow.getBottom() + 2.0f, width, 16.0f),
+                juce::Justification::centredLeft, false);
 
-    g.setColour (textDim);
-    g.setFont (m_fonts->label (11.5f));
-    g.drawText ("SAMMYJS  /  PITCH FLATTENING FOR SOUND DESIGN", 0, 104, w, 20, juce::Justification::centred);
-    g.drawText ("CREATED BY SAMUEL JUSTICE", 0, 126, w, 20, juce::Justification::centred);
+    juce::AttributedString version;
+    version.setJustification (juce::Justification::centredLeft);
+    version.append (juce::String ("VERSION ") + c_version, small, target);
+    version.append ("  /  BUILT " + buildText().toUpperCase(), small, textFaint);
+    juce::TextLayout versionLayout;
+    versionLayout.createLayout (version, width);
+    versionLayout.draw (g, juce::Rectangle<float> (textX, titleRow.getBottom() + 18.0f, width, 16.0f));
 
-    g.setColour (outlineSoft);
-    g.fillRect (20, 292, w - 40, 1);
+    // Panels like the editor's sections.
+    m_lookAndFeel.drawPanel (g, m_creditsPanel.toFloat(), "CREATED BY", target);
+    m_lookAndFeel.drawPanel (g, m_updatesPanel.toFloat(), "UPDATES", detect, (float) m_updatesPanel.getHeight());
+    m_lookAndFeel.drawPanel (g, m_licencePanel.toFloat(), "CREDITS & LICENSE", textDim);
 
-    g.setColour (textDim);
-    g.setFont (m_fonts->label (10.5f));
-    g.drawText ("CREDITS", 20, 300, w - 40, 20, juce::Justification::centredLeft);
+    // Credits: the name, then the links.
+    const auto body = m_creditsPanel.withTrimmedTop (c_panelHeaderHeight).withTrimmedLeft (c_textInset);
+    g.setFont (m_fonts->body (13.0f));
+    g.setColour (text);
+    g.drawText ("Samuel Justice", body.withTrimmedTop (10).withHeight (18).toFloat(), juce::Justification::centredLeft, false);
+
+    g.setFont (small);
+    g.setColour (textFaint);
+    g.drawText ("/", juce::Rectangle<int> (m_websiteButton.getRight(), m_websiteButton.getY(),
+                                           m_emailButton.getX() - m_websiteButton.getRight(), m_websiteButton.getHeight()).toFloat(),
+                juce::Justification::centred, false);
 }
 
 void AboutWindow::AboutContent::resized()
 {
-    const int cx = getWidth() / 2;
-    m_websiteButton.setBounds (cx - 120, 160, 240, 24);
-    m_emailButton.setBounds (cx - 120, 188, 240, 24);
-    m_checkUpdatesButton.setBounds (cx - 100, 224, 200, 28);
-    m_updateStatusLabel.setBounds (40, 258, getWidth() - 80, 24);
-    m_creditsText.setBounds (20, 324, getWidth() - 40, getHeight() - 344);
+    auto area = getLocalBounds().reduced (c_margin);
+    area.removeFromTop (c_headerBlockHeight + 14);
+
+    m_creditsPanel = area.removeFromTop (c_creditsHeight);
+    area.removeFromTop (c_panelGap);
+    m_updatesPanel = area.removeFromTop (c_panelHeaderHeight);
+    area.removeFromTop (c_panelGap);
+    m_licencePanel = area;
+
+    // Links, sized to their text (plus a little slack each side) so they read and respond as text, and the
+    // first lines up with the name above it.
+    const auto linkFont = m_lookAndFeel.getTextButtonFont (m_websiteButton, c_linkHeight);
+    constexpr int linkSlack = 4;
+    const auto linkWidth = [&linkFont] (const juce::Button& b)
+    {
+        const auto t = b.getButtonText();
+        const float w = juce::GlyphArrangement::getStringWidth (linkFont, t + " ") - juce::GlyphArrangement::getStringWidth (linkFont, " ");
+        return (int) std::ceil (w) + 2 * linkSlack;
+    };
+    auto linkRow = m_creditsPanel.withTrimmedTop (c_panelHeaderHeight + 34).withHeight (c_linkHeight)
+                                 .withTrimmedLeft (c_textInset - linkSlack);
+    m_websiteButton.setBounds (linkRow.removeFromLeft (linkWidth (m_websiteButton)));
+    linkRow.removeFromLeft (20);
+    m_emailButton.setBounds (linkRow.removeFromLeft (linkWidth (m_emailButton)));
+
+    // UPDATES header row: the title, the status, the button.
+    auto header = m_updatesPanel.reduced (8, 5);
+    const int buttonWidth = juce::roundToInt (juce::GlyphArrangement::getStringWidth (m_fonts->label (11.0f), "CHECK FOR UPDATES")) + 30;
+    m_checkUpdatesButton.setBounds (header.removeFromRight (buttonWidth));
+    header.removeFromRight (10);
+    const int titleRight = m_updatesPanel.getX() + c_textInset
+                         + juce::roundToInt (juce::GlyphArrangement::getStringWidth (m_fonts->heading (11.0f), "UPDATES")) + 12;
+    m_updateStatusLabel.setBounds (header.withLeft (titleRight));
+
+    // The credits and licence text inside its panel, text aligned with the title.
+    m_licenceText.setBounds (m_licencePanel.withTrimmedTop (c_panelHeaderHeight + 6)
+                                           .withTrimmedLeft (c_textInset - 6).withTrimmedRight (8).withTrimmedBottom (8));
+}
+
+void AboutWindow::AboutContent::checkForUpdates()
+{
+    if (! m_updateCheck.start())
+        return; // one check at a time
+
+    m_checkUpdatesButton.setEnabled (false);
+    m_updateStatusLabel.setText ("Checking for updates...", juce::dontSendNotification);
+    m_updateStatusLabel.setColour (juce::Label::textColourId, Theme::Colours::textDim);
 }

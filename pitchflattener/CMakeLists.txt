@@ -67,6 +67,7 @@ target_sources(PitchFlattener
     PRIVATE
         Source/PluginProcessor.cpp
         Source/PluginEditor.cpp
+        Source/PitchFlattenerLookAndFeel.cpp
         Source/PresetManager.cpp
         Source/SpectrogramVisualizer.cpp
         Source/AboutWindow.cpp
