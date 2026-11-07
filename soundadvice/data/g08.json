@@ -1,0 +1,1191 @@
+{
+ "people": [
+  {
+   "name": "Dane A. Davis",
+   "role": "Sound designer, supervising sound editor",
+   "credits": "The Matrix, The Matrix Resurrections, Speed Racer, Sense8",
+   "imdb": "https://www.imdb.com/name/nm0204424/"
+  },
+  {
+   "name": "Mark Stoeckinger",
+   "role": "Supervising sound editor",
+   "credits": "John Wick, Face/Off, Star Trek (2009), Unstoppable",
+   "imdb": "https://www.imdb.com/name/nm0831057/"
+  },
+  {
+   "name": "Ai-Ling Lee",
+   "role": "Sound designer, supervising sound editor, re-recording mixer",
+   "credits": "La La Land, First Man, Barbie, Jojo Rabbit",
+   "imdb": "https://www.imdb.com/name/nm0496763/"
+  },
+  {
+   "name": "Mildred Iatrou Morgan",
+   "role": "Supervising sound editor (dialogue & ADR)",
+   "credits": "La La Land, First Man, Catch Me If You Can, Wild",
+   "imdb": "https://www.imdb.com/name/nm0406375/"
+  },
+  {
+   "name": "Wylie Stateman",
+   "role": "Supervising sound editor",
+   "credits": "Once Upon a Time in Hollywood, The Hateful Eight, JFK, Home Alone",
+   "imdb": "https://www.imdb.com/name/nm0823758/"
+  },
+  {
+   "name": "Scott Gershin",
+   "role": "Sound designer, supervising sound editor",
+   "credits": "American Beauty, Pacific Rim, Nightcrawler, Gears of War 2",
+   "imdb": "https://www.imdb.com/name/nm0314832/"
+  },
+  {
+   "name": "Becky Sullivan",
+   "role": "Supervising sound editor",
+   "credits": "Unbroken, The Woman King, The Big Short",
+   "imdb": "https://www.imdb.com/name/nm0167915/"
+  },
+  {
+   "name": "Frank Warner",
+   "role": "Supervising sound effects editor",
+   "credits": "Raging Bull, Close Encounters of the Third Kind, Taxi Driver",
+   "imdb": "https://www.imdb.com/name/nm0912466/"
+  }
+ ],
+ "entries": [
+  {
+   "person": "Dane A. Davis",
+   "kind": "quote",
+   "text": "We used only recordings of real acoustic events as sources",
+   "categories": [
+    "recording",
+    "scifi"
+   ],
+   "source": {
+    "title": "Dane A. Davis on ‘The Matrix’",
+    "publication": "CineMontage",
+    "url": "https://cinemontage.org/dane-davis-matrix/",
+    "year": 2014
+   }
+  },
+  {
+   "person": "Dane A. Davis",
+   "kind": "insight",
+   "text": "For Neo's red-pill transition, Davis 'micro-looped' many tiny, almost identical fragments and nudged their start points to scan through a sound, so it decays from full resolution into quantized grains and then resolves back.",
+   "categories": [
+    "scifi",
+    "craft"
+   ],
+   "source": {
+    "title": "Dane A. Davis on ‘The Matrix’",
+    "publication": "CineMontage",
+    "url": "https://cinemontage.org/dane-davis-matrix/",
+    "year": 2014
+   }
+  },
+  {
+   "person": "Dane A. Davis",
+   "kind": "insight",
+   "text": "To make time seem to slow, Davis dropped actors' yells roughly six octaves in SoundHack with a pitch ramp down and back up, refining the curve over many renders and charting each attempt on graph paper.",
+   "categories": [
+    "dialogue",
+    "craft",
+    "action"
+   ],
+   "source": {
+    "title": "Dane A. Davis on ‘The Matrix’",
+    "publication": "CineMontage",
+    "url": "https://cinemontage.org/dane-davis-matrix/",
+    "year": 2014
+   }
+  },
+  {
+   "person": "Dane A. Davis",
+   "kind": "insight",
+   "text": "The Sentinels' propulsion layers came partly from broken children's toys, including a fast-food giveaway blow toy and a six-axle toy space-shuttle truck.",
+   "categories": [
+    "creatures",
+    "recording",
+    "scifi"
+   ],
+   "source": {
+    "title": "Dane A. Davis on ‘The Matrix’",
+    "publication": "CineMontage",
+    "url": "https://cinemontage.org/dane-davis-matrix/",
+    "year": 2014
+   }
+  },
+  {
+   "person": "Dane A. Davis",
+   "kind": "quote",
+   "text": "It couldn't work too abstractly, nor too literally. It was sound effects impressionism.",
+   "categories": [
+    "action",
+    "story"
+   ],
+   "source": {
+    "title": "Making Matrix Resurrections' Evolved Sound",
+    "publication": "A Sound Effect",
+    "url": "https://www.asoundeffect.com/matrix-resurrections-sound/",
+    "year": 2022
+   }
+  },
+  {
+   "person": "Dane A. Davis",
+   "kind": "quote",
+   "text": "I penciled all those whooshes into existence.",
+   "categories": [
+    "craft",
+    "action"
+   ],
+   "source": {
+    "title": "Making Matrix Resurrections' Evolved Sound",
+    "publication": "A Sound Effect",
+    "url": "https://www.asoundeffect.com/matrix-resurrections-sound/",
+    "year": 2022
+   }
+  },
+  {
+   "person": "Dane A. Davis",
+   "kind": "insight",
+   "text": "When time-stretching, Davis warns that simply pitching an effect down or expanding it collapses its shape into a flat, ugly texture. In the dialogue-heavy 'super bullet time', anything sustained past about a second also became intrusive.",
+   "categories": [
+    "craft",
+    "dialogue"
+   ],
+   "source": {
+    "title": "Making Matrix Resurrections' Evolved Sound",
+    "publication": "A Sound Effect",
+    "url": "https://www.asoundeffect.com/matrix-resurrections-sound/",
+    "year": 2022
+   }
+  },
+  {
+   "person": "Dane A. Davis",
+   "kind": "insight",
+   "text": "The Synthients' speech was built entirely from metallic sources chosen for their expressiveness, with deep purring propulsion growls played in by MIDI from a sample loop so the machines could still emote.",
+   "categories": [
+    "creatures",
+    "scifi"
+   ],
+   "source": {
+    "title": "Making Matrix Resurrections' Evolved Sound",
+    "publication": "A Sound Effect",
+    "url": "https://www.asoundeffect.com/matrix-resurrections-sound/",
+    "year": 2022
+   }
+  },
+  {
+   "person": "Dane A. Davis",
+   "kind": "quote",
+   "text": "we never wanted the soundtrack to call attention to itself",
+   "categories": [
+    "silence",
+    "story"
+   ],
+   "source": {
+    "title": "Dane A. Davis Special: The Matrix – Part 1",
+    "publication": "Designing Sound",
+    "url": "https://designingsound.org/2009/08/06/dane-a-davis-special-the-matrix-part-1/",
+    "year": 2009
+   }
+  },
+  {
+   "person": "Dane A. Davis",
+   "kind": "insight",
+   "text": "Because the Matrix world is driven by electricity, Davis rented a six-foot Jacob's Ladder and pushed 60,000 volts through it to get the raw material for the Nebuchadnezzar's engines.",
+   "categories": [
+    "recording",
+    "scifi",
+    "weapons"
+   ],
+   "source": {
+    "title": "Dane A. Davis Special: The Matrix – Part 1",
+    "publication": "Designing Sound",
+    "url": "https://designingsound.org/2009/08/06/dane-a-davis-special-the-matrix-part-1/",
+    "year": 2009
+   }
+  },
+  {
+   "person": "Dane A. Davis",
+   "kind": "insight",
+   "text": "Under the rooftop kiss, Davis turned the full assault into deep, surreal metallic booms like faraway cannons, letting mid-range battle detail return only when Trinity pauses — intimacy builds while the war continues.",
+   "categories": [
+    "mixing",
+    "story",
+    "silence"
+   ],
+   "source": {
+    "title": "Dane A. Davis Special: The Matrix – Part 1",
+    "publication": "Designing Sound",
+    "url": "https://designingsound.org/2009/08/06/dane-a-davis-special-the-matrix-part-1/",
+    "year": 2009
+   }
+  },
+  {
+   "person": "Dane A. Davis",
+   "kind": "insight",
+   "text": "Davis's rule of thumb: if a sound makes the audience picture someone creating it, it's the wrong sound. He even avoided giving the robots noises that seemed designed for human ears.",
+   "categories": [
+    "story",
+    "creatures"
+   ],
+   "source": {
+    "title": "Dane A. Davis Special: The Matrix – Part 1",
+    "publication": "Designing Sound",
+    "url": "https://designingsound.org/2009/08/06/dane-a-davis-special-the-matrix-part-1/",
+    "year": 2009
+   }
+  },
+  {
+   "person": "Mark Stoeckinger",
+   "kind": "quote",
+   "text": "the horse is the tempo of the scene.",
+   "categories": [
+    "action",
+    "music"
+   ],
+   "source": {
+    "title": "John Wick: Chapter 3 – Parabellum sound interview",
+    "publication": "A Sound Effect",
+    "url": "https://www.asoundeffect.com/john-wick-chapter-3-sound/",
+    "year": 2019
+   }
+  },
+  {
+   "person": "Mark Stoeckinger",
+   "kind": "quote",
+   "text": "You want to move the sounds around the space because the ear responds to movement.",
+   "categories": [
+    "mixing",
+    "action"
+   ],
+   "source": {
+    "title": "John Wick: Chapter 3 – Parabellum sound interview",
+    "publication": "A Sound Effect",
+    "url": "https://www.asoundeffect.com/john-wick-chapter-3-sound/",
+    "year": 2019
+   }
+  },
+  {
+   "person": "Mark Stoeckinger",
+   "kind": "insight",
+   "text": "Stoeckinger builds gunshots from a high-frequency layer and a low-frequency layer while deliberately leaving the mids out, and lets the forceful ping of ejected shells ring through on assault rifles.",
+   "categories": [
+    "weapons",
+    "craft"
+   ],
+   "source": {
+    "title": "John Wick: Chapter 3 – Parabellum sound interview",
+    "publication": "A Sound Effect",
+    "url": "https://www.asoundeffect.com/john-wick-chapter-3-sound/",
+    "year": 2019
+   }
+  },
+  {
+   "person": "Mark Stoeckinger",
+   "kind": "insight",
+   "text": "In the glass-room fight each weapon set gets its own voice: bludgeons first, then small blades with higher swishes and shings, then samurai swords with heavier, lower swipes — the pitch drops as the stakes rise.",
+   "categories": [
+    "weapons",
+    "action",
+    "story"
+   ],
+   "source": {
+    "title": "John Wick: Chapter 3 – Parabellum sound interview",
+    "publication": "A Sound Effect",
+    "url": "https://www.asoundeffect.com/john-wick-chapter-3-sound/",
+    "year": 2019
+   }
+  },
+  {
+   "person": "Mark Stoeckinger",
+   "kind": "insight",
+   "text": "To tame brittle glass, Stoeckinger records breaks at a higher sample rate, then shapes them with multiband EQ and compression. A sickening jaw break in the same film was simply a Granny Smith apple being crunched.",
+   "categories": [
+    "recording",
+    "foley",
+    "action"
+   ],
+   "source": {
+    "title": "John Wick: Chapter 3 – Parabellum sound interview",
+    "publication": "A Sound Effect",
+    "url": "https://www.asoundeffect.com/john-wick-chapter-3-sound/",
+    "year": 2019
+   }
+  },
+  {
+   "person": "Mark Stoeckinger",
+   "kind": "quote",
+   "text": "you can't just use a gunshot because it's so simple.",
+   "categories": [
+    "weapons",
+    "craft"
+   ],
+   "source": {
+    "title": "The John Wick 4 Sound Team On Crafting The Soundtrack Of Headshots And Crunching Bones",
+    "publication": "/Film",
+    "url": "https://slashfilm.com/1240004/the-john-wick-4-sound-team-on-crafting-the-soundtrack-of-headshots-and-crunching-bones-exclusive-interview",
+    "year": 2023
+   }
+  },
+  {
+   "person": "Mark Stoeckinger",
+   "kind": "quote",
+   "text": "you've got to have them almost lined up to the sample",
+   "categories": [
+    "craft",
+    "weapons"
+   ],
+   "source": {
+    "title": "The John Wick 4 Sound Team On Crafting The Soundtrack Of Headshots And Crunching Bones",
+    "publication": "/Film",
+    "url": "https://slashfilm.com/1240004/the-john-wick-4-sound-team-on-crafting-the-soundtrack-of-headshots-and-crunching-bones-exclusive-interview",
+    "year": 2023
+   }
+  },
+  {
+   "person": "Mark Stoeckinger",
+   "kind": "insight",
+   "text": "A single John Wick headshot can stack 12 to 15 sounds, and every gunshot carries a faint layer of mechanism — detail audiences never consciously notice but would miss immediately if it were stripped out.",
+   "categories": [
+    "weapons",
+    "action"
+   ],
+   "source": {
+    "title": "The John Wick 4 Sound Team On Crafting The Soundtrack Of Headshots And Crunching Bones",
+    "publication": "/Film",
+    "url": "https://slashfilm.com/1240004/the-john-wick-4-sound-team-on-crafting-the-soundtrack-of-headshots-and-crunching-bones-exclusive-interview",
+    "year": 2023
+   }
+  },
+  {
+   "person": "Mark Stoeckinger",
+   "kind": "insight",
+   "text": "Old-school trick for rapid fire: leave a blank frame between consecutive gunshots so each one starts with a clean attack instead of smearing into the tail of the last.",
+   "categories": [
+    "weapons",
+    "craft"
+   ],
+   "source": {
+    "title": "The John Wick 4 Sound Team On Crafting The Soundtrack Of Headshots And Crunching Bones",
+    "publication": "/Film",
+    "url": "https://slashfilm.com/1240004/the-john-wick-4-sound-team-on-crafting-the-soundtrack-of-headshots-and-crunching-bones-exclusive-interview",
+    "year": 2023
+   }
+  },
+  {
+   "person": "Mark Stoeckinger",
+   "kind": "insight",
+   "text": "Wick is always grabbing someone else's gun, so when a villain's weapon lands in his hands the team can add extra low end and size to it — the sound follows the character, not just the prop.",
+   "categories": [
+    "weapons",
+    "story"
+   ],
+   "source": {
+    "title": "The John Wick 4 Sound Team On Crafting The Soundtrack Of Headshots And Crunching Bones",
+    "publication": "/Film",
+    "url": "https://slashfilm.com/1240004/the-john-wick-4-sound-team-on-crafting-the-soundtrack-of-headshots-and-crunching-bones-exclusive-interview",
+    "year": 2023
+   }
+  },
+  {
+   "person": "Mark Stoeckinger",
+   "kind": "quote",
+   "text": "the lore is open and you can manipulate it any way you choose",
+   "categories": [
+    "worlds",
+    "story"
+   ],
+   "source": {
+    "title": "Mark Stoeckinger goes sonic on John Wick: Chapter 2 – Exclusive Interview",
+    "publication": "Behind The Lens Online",
+    "url": "https://behindthelensonline.net/site/interviews/mark-stoeckinger-goes-sonic-on-john-wick-chapter-2-exclusive-interview/",
+    "year": 2017
+   }
+  },
+  {
+   "person": "Ai-Ling Lee",
+   "kind": "quote",
+   "text": "We placed mini microphones on the launch pad, maybe about 200 to 400 yards away",
+   "categories": [
+    "recording",
+    "scifi"
+   ],
+   "source": {
+    "title": "‘First Man’ Sound Editors Reveal How They Created Diverse & Authentic Sounds For Each Spacecraft",
+    "publication": "HollywoodLife",
+    "url": "https://hollywoodlife.com/2019/01/21/first-man-sound-editors-ai-ling-lee-milly-iatrou-interview",
+    "year": 2019
+   }
+  },
+  {
+   "person": "Ai-Ling Lee",
+   "kind": "insight",
+   "text": "With no clean, high-quality Apollo-era launch recordings available, Lee's team recorded a live SpaceX Falcon Heavy launch, rigging mics at several distances to capture the violence of ignition.",
+   "categories": [
+    "recording",
+    "scifi"
+   ],
+   "source": {
+    "title": "‘First Man’ Sound Editors Reveal How They Created Diverse & Authentic Sounds For Each Spacecraft",
+    "publication": "HollywoodLife",
+    "url": "https://hollywoodlife.com/2019/01/21/first-man-sound-editors-ai-ling-lee-milly-iatrou-interview",
+    "year": 2019
+   }
+  },
+  {
+   "person": "Ai-Ling Lee",
+   "kind": "insight",
+   "text": "Early on, Lee sent picture editor Tom Cross a kit of turbulence, shake, and helmet and glove clicks, so the First Man cut was shaped around those textures long before the final mix.",
+   "categories": [
+    "collaboration",
+    "craft"
+   ],
+   "source": {
+    "title": "Behind the scenes: First Man (IBC, reposted)",
+    "publication": "The Write Stuff / IBC",
+    "url": "https://adrianpenningtonthewritestuff.blogspot.com/2019/01/behind-scenes-first-man.html",
+    "year": 2019
+   }
+  },
+  {
+   "person": "Ai-Ling Lee",
+   "kind": "insight",
+   "text": "First Man's 'tin can' cockpit turbulence came from recordings of motion-simulator rides combined with Foley-performed metal stress and strain; the build-up to the moon landing then cuts to sudden silence as the hatch opens.",
+   "categories": [
+    "silence",
+    "foley",
+    "scifi"
+   ],
+   "source": {
+    "title": "Behind the scenes: First Man (IBC, reposted)",
+    "publication": "The Write Stuff / IBC",
+    "url": "https://adrianpenningtonthewritestuff.blogspot.com/2019/01/behind-scenes-first-man.html",
+    "year": 2019
+   }
+  },
+  {
+   "person": "Ai-Ling Lee",
+   "kind": "quote",
+   "text": "we imagined it as though the background atmos are being piped in through speakers.",
+   "categories": [
+    "worlds",
+    "story"
+   ],
+   "source": {
+    "title": "Building the Fantastic-Plastic Sound of 'Barbie'",
+    "publication": "A Sound Effect",
+    "url": "https://www.asoundeffect.com/barbie-film-sound/",
+    "year": 2023
+   }
+  },
+  {
+   "person": "Ai-Ling Lee",
+   "kind": "insight",
+   "text": "Barbieland has no living things, so Lee's birds came from bird-shaped water whistles and her husband's pitched whistling; real water sounded wrong there, so rainsticks stood in as a pleasant, artificial substitute.",
+   "categories": [
+    "worlds",
+    "recording"
+   ],
+   "source": {
+    "title": "Building the Fantastic-Plastic Sound of 'Barbie'",
+    "publication": "A Sound Effect",
+    "url": "https://www.asoundeffect.com/barbie-film-sound/",
+    "year": 2023
+   }
+  },
+  {
+   "person": "Ai-Ling Lee",
+   "kind": "insight",
+   "text": "In Barbie, vocal performance often replaced effects: a refreshing female 'ahh' when the fridge opens, beatbox layers in the fights, airy vocal swishes for flight. The Kens' plane was spinner fireworks pitched down.",
+   "categories": [
+    "craft",
+    "dialogue"
+   ],
+   "source": {
+    "title": "Building the Fantastic-Plastic Sound of 'Barbie'",
+    "publication": "A Sound Effect",
+    "url": "https://www.asoundeffect.com/barbie-film-sound/",
+    "year": 2023
+   }
+  },
+  {
+   "person": "Ai-Ling Lee",
+   "kind": "quote",
+   "text": "your brain just connects to the rhythm rather than what you see.",
+   "categories": [
+    "music",
+    "foley"
+   ],
+   "source": {
+    "title": "La La Land sound designers interview",
+    "publication": "YourClassical (MPR)",
+    "url": "https://www.yourclassical.org/story/2017/02/21/la-la-land-sound-designers-interview",
+    "year": 2017
+   }
+  },
+  {
+   "person": "Ai-Ling Lee",
+   "kind": "insight",
+   "text": "In musical numbers Lee cuts Foley to the music's rhythm rather than strict sync, chooses its pitch and tone so it won't clash with the score, and drops footsteps entirely where they'd fight the song.",
+   "categories": [
+    "music",
+    "foley",
+    "silence"
+   ],
+   "source": {
+    "title": "La La Land sound designers interview",
+    "publication": "YourClassical (MPR)",
+    "url": "https://www.yourclassical.org/story/2017/02/21/la-la-land-sound-designers-interview",
+    "year": 2017
+   }
+  },
+  {
+   "person": "Ai-Ling Lee",
+   "kind": "quote",
+   "text": "gradually the soundscape just melts away as the musical numbers come in.",
+   "categories": [
+    "music",
+    "mixing"
+   ],
+   "source": {
+    "title": "La La Land – 28 Weeks of Post Audio Redux",
+    "publication": "ProVideo Coalition",
+    "url": "https://www.provideocoalition.com/la_la_land/",
+    "year": 2018
+   }
+  },
+  {
+   "person": "Ai-Ling Lee",
+   "kind": "insight",
+   "text": "La La Land's freeway jam is built in stages: scattered horns that multiply, then idling engines, then a variety of car radios — establishing gridlock through sound, with no passing traffic, before the picture reveals it.",
+   "categories": [
+    "worlds",
+    "story"
+   ],
+   "source": {
+    "title": "La La Land – 28 Weeks of Post Audio Redux",
+    "publication": "ProVideo Coalition",
+    "url": "https://www.provideocoalition.com/la_la_land/",
+    "year": 2018
+   }
+  },
+  {
+   "person": "Mildred Iatrou Morgan",
+   "kind": "quote",
+   "text": "As the astronauts get further away from earth the crackle and delay is greater",
+   "categories": [
+    "dialogue",
+    "story",
+    "scifi"
+   ],
+   "source": {
+    "title": "Behind the scenes: First Man (IBC, reposted)",
+    "publication": "The Write Stuff / IBC",
+    "url": "https://adrianpenningtonthewritestuff.blogspot.com/2019/01/behind-scenes-first-man.html",
+    "year": 2019
+   }
+  },
+  {
+   "person": "Mildred Iatrou Morgan",
+   "kind": "insight",
+   "text": "Iatrou Morgan studied NASA mission audio for its jargon and cadence, used Revoice Pro to fit Ryan Gosling's lines to Armstrong's real rhythm, and lifted static from the original transmissions to make it near identical.",
+   "categories": [
+    "dialogue",
+    "craft"
+   ],
+   "source": {
+    "title": "Behind the scenes: First Man (IBC, reposted)",
+    "publication": "The Write Stuff / IBC",
+    "url": "https://adrianpenningtonthewritestuff.blogspot.com/2019/01/behind-scenes-first-man.html",
+    "year": 2019
+   }
+  },
+  {
+   "person": "Mildred Iatrou Morgan",
+   "kind": "insight",
+   "text": "For Mission Control, the balance was intelligibility versus authenticity: keep every line understandable but leave plenty of texture and fuzz in the comms, rather than cleaning it into something that sounds modern.",
+   "categories": [
+    "dialogue",
+    "mixing"
+   ],
+   "source": {
+    "title": "Behind the scenes: First Man (IBC, reposted)",
+    "publication": "The Write Stuff / IBC",
+    "url": "https://adrianpenningtonthewritestuff.blogspot.com/2019/01/behind-scenes-first-man.html",
+    "year": 2019
+   }
+  },
+  {
+   "person": "Mildred Iatrou Morgan",
+   "kind": "quote",
+   "text": "I tried really hard to use all the production sound",
+   "categories": [
+    "dialogue"
+   ],
+   "source": {
+    "title": "La La Land sound designers interview",
+    "publication": "YourClassical (MPR)",
+    "url": "https://www.yourclassical.org/story/2017/02/21/la-la-land-sound-designers-interview",
+    "year": 2017
+   }
+  },
+  {
+   "person": "Mildred Iatrou Morgan",
+   "kind": "insight",
+   "text": "On La La Land she and mixer Andy Nelson chose to keep noisy production tracks for their performance, patching only a word or a single syllable with ADR, and built a matching background fill to carry the noise into the music.",
+   "categories": [
+    "dialogue",
+    "music",
+    "mixing"
+   ],
+   "source": {
+    "title": "La La Land sound designers interview",
+    "publication": "YourClassical (MPR)",
+    "url": "https://www.yourclassical.org/story/2017/02/21/la-la-land-sound-designers-interview",
+    "year": 2017
+   }
+  },
+  {
+   "person": "Mildred Iatrou Morgan",
+   "kind": "quote",
+   "text": "my direction was to make it sound as natural and real as possible.",
+   "categories": [
+    "dialogue",
+    "story"
+   ],
+   "source": {
+    "title": "La La Land – 28 Weeks of Post Audio Redux",
+    "publication": "ProVideo Coalition",
+    "url": "https://www.provideocoalition.com/la_la_land/",
+    "year": 2018
+   }
+  },
+  {
+   "person": "Mildred Iatrou Morgan",
+   "kind": "insight",
+   "text": "Because the production mixer kept the actors miked even during playback takes, there was always usable live material — the roommates' on-set gasps and little shrieks ended up in their musical number.",
+   "categories": [
+    "dialogue",
+    "recording",
+    "collaboration"
+   ],
+   "source": {
+    "title": "La La Land – 28 Weeks of Post Audio Redux",
+    "publication": "ProVideo Coalition",
+    "url": "https://www.provideocoalition.com/la_la_land/",
+    "year": 2018
+   }
+  },
+  {
+   "person": "Wylie Stateman",
+   "kind": "quote",
+   "text": "sound editorial isn't just a proxy for the final soundtrack anymore",
+   "categories": [
+    "craft",
+    "collaboration"
+   ],
+   "source": {
+    "title": "How the outstanding sound of 'Once Upon a Time… in Hollywood' was made",
+    "publication": "A Sound Effect",
+    "url": "https://asoundeffect.com/once-upon-a-time-in-hollywood-sound",
+    "year": 2019
+   }
+  },
+  {
+   "person": "Wylie Stateman",
+   "kind": "quote",
+   "text": "The flamethrower is an exercise in both high-end and low-end management, clarity too.",
+   "categories": [
+    "weapons",
+    "mixing"
+   ],
+   "source": {
+    "title": "How the outstanding sound of 'Once Upon a Time… in Hollywood' was made",
+    "publication": "A Sound Effect",
+    "url": "https://asoundeffect.com/once-upon-a-time-in-hollywood-sound",
+    "year": 2019
+   }
+  },
+  {
+   "person": "Wylie Stateman",
+   "kind": "insight",
+   "text": "Stateman calls it rapid prototyping: an editor embedded in the cutting room gets near-final sound and dramatic intent working in the Avid mix during the editor's cut, instead of temp placeholders.",
+   "categories": [
+    "collaboration",
+    "craft"
+   ],
+   "source": {
+    "title": "How the outstanding sound of 'Once Upon a Time… in Hollywood' was made",
+    "publication": "A Sound Effect",
+    "url": "https://asoundeffect.com/once-upon-a-time-in-hollywood-sound",
+    "year": 2019
+   }
+  },
+  {
+   "person": "Wylie Stateman",
+   "kind": "insight",
+   "text": "His team recorded eight period cars in one day on a back road, with each recorder locked to one position and point of view — multichannel interiors, aggressive exteriors, onboard maneuvers — then spent six weeks mastering.",
+   "categories": [
+    "recording",
+    "weapons"
+   ],
+   "source": {
+    "title": "How the outstanding sound of 'Once Upon a Time… in Hollywood' was made",
+    "publication": "A Sound Effect",
+    "url": "https://asoundeffect.com/once-upon-a-time-in-hollywood-sound",
+    "year": 2019
+   }
+  },
+  {
+   "person": "Wylie Stateman",
+   "kind": "insight",
+   "text": "With most of the music in hand early, Stateman could hear where the gaps were, carving acoustic space so dialogue sits front and centre and effects work around it — on Rick's hero walk, fence rails and a distant whinny land on the beat.",
+   "categories": [
+    "music",
+    "mixing",
+    "dialogue"
+   ],
+   "source": {
+    "title": "How the outstanding sound of 'Once Upon a Time… in Hollywood' was made",
+    "publication": "A Sound Effect",
+    "url": "https://asoundeffect.com/once-upon-a-time-in-hollywood-sound",
+    "year": 2019
+   }
+  },
+  {
+   "person": "Wylie Stateman",
+   "kind": "quote",
+   "text": "A successful sound designer mines the gap between hearing and listening.",
+   "categories": [
+    "craft",
+    "story"
+   ],
+   "source": {
+    "title": "Interview with Supervising Sound Editor Wylie Stateman",
+    "publication": "Matthew Toffolo",
+    "url": "https://matthewtoffolo.com/2016/11/05/interview-with-supervising-sound-editor-wylie-stateman-the-hateful-eight-home-alone-jfk",
+    "year": 2016
+   }
+  },
+  {
+   "person": "Wylie Stateman",
+   "kind": "quote",
+   "text": "Sound design is an unlimited experimental art form",
+   "categories": [
+    "craft"
+   ],
+   "source": {
+    "title": "Interview with Supervising Sound Editor Wylie Stateman",
+    "publication": "Matthew Toffolo",
+    "url": "https://matthewtoffolo.com/2016/11/05/interview-with-supervising-sound-editor-wylie-stateman-the-hateful-eight-home-alone-jfk",
+    "year": 2016
+   }
+  },
+  {
+   "person": "Wylie Stateman",
+   "kind": "insight",
+   "text": "Stateman has been making and archiving recordings since he was five, and argues that growth comes from practicing on genuinely compelling material and partnering with diverse, interesting talent.",
+   "categories": [
+    "collaboration",
+    "recording"
+   ],
+   "source": {
+    "title": "Interview with Supervising Sound Editor Wylie Stateman",
+    "publication": "Matthew Toffolo",
+    "url": "https://matthewtoffolo.com/2016/11/05/interview-with-supervising-sound-editor-wylie-stateman-the-hateful-eight-home-alone-jfk",
+    "year": 2016
+   }
+  },
+  {
+   "person": "Scott Gershin",
+   "kind": "quote",
+   "text": "the moment we draw attention to ourselves, we're breaking the illusion.",
+   "categories": [
+    "story",
+    "silence"
+   ],
+   "source": {
+    "title": "Scott Martin Gershin on Sound Design for Movies",
+    "publication": "Waves",
+    "url": "https://www.waves.com/scott-martin-gershin-on-sound-design-for-movies",
+    "year": 2010
+   }
+  },
+  {
+   "person": "Scott Gershin",
+   "kind": "quote",
+   "text": "My job is to make inanimate objects have a personality, bring it to life.",
+   "categories": [
+    "creatures",
+    "story"
+   ],
+   "source": {
+    "title": "Scott Martin Gershin on Sound Design for Movies",
+    "publication": "Waves",
+    "url": "https://www.waves.com/scott-martin-gershin-on-sound-design-for-movies",
+    "year": 2010
+   }
+  },
+  {
+   "person": "Scott Gershin",
+   "kind": "insight",
+   "text": "Many of the spaceships in Chronicles of Riddick were Gershin playing guitar, run through an Eventide and Doppler-style processing to turn strings into engines.",
+   "categories": [
+    "scifi",
+    "weapons",
+    "music"
+   ],
+   "source": {
+    "title": "Scott Martin Gershin on Sound Design for Movies",
+    "publication": "Waves",
+    "url": "https://www.waves.com/scott-martin-gershin-on-sound-design-for-movies",
+    "year": 2010
+   }
+  },
+  {
+   "person": "Scott Gershin",
+   "kind": "insight",
+   "text": "Gershin recorded an electric golf cart passing by at a high sample rate, then layered it at several pitches with bends and Doppler to become a flying aircraft; a ferocious airplane toilet flush became a sinkhole or a wave.",
+   "categories": [
+    "recording",
+    "craft",
+    "weapons"
+   ],
+   "source": {
+    "title": "Scott Martin Gershin on Sound Design for Movies",
+    "publication": "Waves",
+    "url": "https://www.waves.com/scott-martin-gershin-on-sound-design-for-movies",
+    "year": 2010
+   }
+  },
+  {
+   "person": "Scott Gershin",
+   "kind": "insight",
+   "text": "For Herbie Fully Loaded, Gershin blended his own voice into real engine recordings so the car could emote — with a strict test: if anyone could pick out a human voice, he had failed.",
+   "categories": [
+    "creatures",
+    "weapons"
+   ],
+   "source": {
+    "title": "Scott Martin Gershin on Sound Design for Movies",
+    "publication": "Waves",
+    "url": "https://www.waves.com/scott-martin-gershin-on-sound-design-for-movies",
+    "year": 2010
+   }
+  },
+  {
+   "person": "Scott Gershin",
+   "kind": "insight",
+   "text": "For The Doors' crowd sing-along, Gershin brought college students onto a scoring stage and captured them with a Decca Tree, getting real depth of field that artificial reverb alone could not fake.",
+   "categories": [
+    "recording",
+    "music"
+   ],
+   "source": {
+    "title": "Scott Martin Gershin on Sound Design for Movies",
+    "publication": "Waves",
+    "url": "https://www.waves.com/scott-martin-gershin-on-sound-design-for-movies",
+    "year": 2010
+   }
+  },
+  {
+   "person": "Scott Gershin",
+   "kind": "quote",
+   "text": "Silence is the loudest sound I can use.",
+   "categories": [
+    "silence"
+   ],
+   "source": {
+    "title": "Scott Gershin and the Meaning of Sound",
+    "publication": "Mix",
+    "url": "https://www.mixonline.com/events/scott-gershin-and-the-meaning-of-sound",
+    "year": 2018
+   }
+  },
+  {
+   "person": "Scott Gershin",
+   "kind": "quote",
+   "text": "Sound really is all about emotion, about how you feel.",
+   "categories": [
+    "story"
+   ],
+   "source": {
+    "title": "Scott Gershin and the Meaning of Sound",
+    "publication": "Mix",
+    "url": "https://www.mixonline.com/events/scott-gershin-and-the-meaning-of-sound",
+    "year": 2018
+   }
+  },
+  {
+   "person": "Scott Gershin",
+   "kind": "insight",
+   "text": "For game weapons Gershin records with many mics at many distances, then tells the engine which layer sets to trigger at which range — distant reports far off, mechanisms and shell ejects up close — because there's no static mix.",
+   "categories": [
+    "games",
+    "weapons",
+    "recording"
+   ],
+   "source": {
+    "title": "Scott Gershin and the Meaning of Sound",
+    "publication": "Mix",
+    "url": "https://www.mixonline.com/events/scott-gershin-and-the-meaning-of-sound",
+    "year": 2018
+   }
+  },
+  {
+   "person": "Scott Gershin",
+   "kind": "insight",
+   "text": "Gershin builds an 'audio establishing shot' for every location, interrogating each object in the room — is it scratchy, is it new? — and matches reverb so dialogue lives in a real space instead of floating over the score.",
+   "categories": [
+    "worlds",
+    "dialogue"
+   ],
+   "source": {
+    "title": "Scott Gershin and the Meaning of Sound",
+    "publication": "Mix",
+    "url": "https://www.mixonline.com/events/scott-gershin-and-the-meaning-of-sound",
+    "year": 2018
+   }
+  },
+  {
+   "person": "Becky Sullivan",
+   "kind": "quote",
+   "text": "Our minds almost have us see things when we listen to them",
+   "categories": [
+    "story",
+    "horror"
+   ],
+   "source": {
+    "title": "Interview: Supervising Sound Editor Becky Sullivan – The Woman King",
+    "publication": "Awards Radar",
+    "url": "https://awardsradar.com/2022/12/18/interview-supervising-sound-editor-becky-sullivan-the-woman-king/",
+    "year": 2022
+   }
+  },
+  {
+   "person": "Becky Sullivan",
+   "kind": "quote",
+   "text": "Each warrior’s machete sounds different.",
+   "categories": [
+    "weapons",
+    "story"
+   ],
+   "source": {
+    "title": "Interview: Supervising Sound Editor Becky Sullivan – The Woman King",
+    "publication": "Awards Radar",
+    "url": "https://awardsradar.com/2022/12/18/interview-supervising-sound-editor-becky-sullivan-the-woman-king/",
+    "year": 2022
+   }
+  },
+  {
+   "person": "Becky Sullivan",
+   "kind": "insight",
+   "text": "With a PG-13 rating limiting on-screen blood in The Woman King, Sullivan let the soundtrack carry the brutality — deep, dark, iron-heavy machete hits so the audience feels violence it may not actually see.",
+   "categories": [
+    "action",
+    "weapons",
+    "story"
+   ],
+   "source": {
+    "title": "Interview: Supervising Sound Editor Becky Sullivan – The Woman King",
+    "publication": "Awards Radar",
+    "url": "https://awardsradar.com/2022/12/18/interview-supervising-sound-editor-becky-sullivan-the-woman-king/",
+    "year": 2022
+   }
+  },
+  {
+   "person": "Becky Sullivan",
+   "kind": "insight",
+   "text": "Instead of shoes on hard floors, The Woman King's Foley is bare feet on dirt with precise grit; during the dances, flung earth is placed so tiny particles seem to pass the listener's ears.",
+   "categories": [
+    "foley",
+    "worlds"
+   ],
+   "source": {
+    "title": "Interview: Supervising Sound Editor Becky Sullivan – The Woman King",
+    "publication": "Awards Radar",
+    "url": "https://awardsradar.com/2022/12/18/interview-supervising-sound-editor-becky-sullivan-the-woman-king/",
+    "year": 2022
+   }
+  },
+  {
+   "person": "Becky Sullivan",
+   "kind": "insight",
+   "text": "In the dance-battle sequence, Sullivan's team went track by track removing on-set machete hits from the dialogue and singing without damaging the performances, so designed weapons could replace them.",
+   "categories": [
+    "dialogue",
+    "craft"
+   ],
+   "source": {
+    "title": "Interview: Supervising Sound Editor Becky Sullivan – The Woman King",
+    "publication": "Awards Radar",
+    "url": "https://awardsradar.com/2022/12/18/interview-supervising-sound-editor-becky-sullivan-the-woman-king/",
+    "year": 2022
+   }
+  },
+  {
+   "person": "Becky Sullivan",
+   "kind": "quote",
+   "text": "We laid them on the floor on the ADR stage.",
+   "categories": [
+    "dialogue",
+    "foley"
+   ],
+   "source": {
+    "title": "The woman behind the sound of Oscar-nominated 'Unbroken'",
+    "publication": "NPR / MPR News",
+    "url": "https://www.mprnews.org/story/2015/02/22/npr-unbroken-sound-oscars",
+    "year": 2015
+   }
+  },
+  {
+   "person": "Becky Sullivan",
+   "kind": "insight",
+   "text": "For Unbroken's raft ADR, Sullivan built a makeshift raft from couch pieces and chairs on the stage floor and banned drinking water, so the actors' throats grew drier as the characters' ordeal went on.",
+   "categories": [
+    "dialogue",
+    "collaboration"
+   ],
+   "source": {
+    "title": "The woman behind the sound of Oscar-nominated 'Unbroken'",
+    "publication": "NPR / MPR News",
+    "url": "https://www.mprnews.org/story/2015/02/22/npr-unbroken-sound-oscars",
+    "year": 2015
+   }
+  },
+  {
+   "person": "Becky Sullivan",
+   "kind": "insight",
+   "text": "Her crew spent a day recording the only surviving unmodified B-24 — cockpit clangs, flybys, engine starts and stalls, bomb-bay doors — then built the dogfights from those, gunfire, wind and ADR.",
+   "categories": [
+    "recording",
+    "weapons",
+    "action"
+   ],
+   "source": {
+    "title": "The woman behind the sound of Oscar-nominated 'Unbroken'",
+    "publication": "NPR / MPR News",
+    "url": "https://www.mprnews.org/story/2015/02/22/npr-unbroken-sound-oscars",
+    "year": 2015
+   }
+  },
+  {
+   "person": "Frank Warner",
+   "kind": "quote",
+   "text": "I accomplished more with silence than with actual sound.",
+   "categories": [
+    "silence"
+   ],
+   "source": {
+    "title": "Frank Warner",
+    "publication": "CineMontage",
+    "url": "https://cinemontage.org/frank-warner/",
+    "year": 2011
+   }
+  },
+  {
+   "person": "Frank Warner",
+   "kind": "quote",
+   "text": "Sound is like music that gives us the emotion that the writer intended.",
+   "categories": [
+    "story",
+    "music"
+   ],
+   "source": {
+    "title": "Frank Warner",
+    "publication": "CineMontage",
+    "url": "https://cinemontage.org/frank-warner/",
+    "year": 2011
+   }
+  },
+  {
+   "person": "Frank Warner",
+   "kind": "insight",
+   "text": "Close Encounters' mother ship was built from 31 everyday sources — hay balers among them — slowed, reversed and treated until none was recognisable, so it felt colossal and alive yet harmless.",
+   "categories": [
+    "scifi",
+    "craft"
+   ],
+   "source": {
+    "title": "Frank Warner",
+    "publication": "CineMontage",
+    "url": "https://cinemontage.org/frank-warner/",
+    "year": 2011
+   }
+  },
+  {
+   "person": "Frank Warner",
+   "kind": "insight",
+   "text": "With the Close Encounters aliens not yet designed, Warner chose their sounds for the emotions the characters needed to convey rather than for how they would look.",
+   "categories": [
+    "creatures",
+    "story"
+   ],
+   "source": {
+    "title": "Frank Warner",
+    "publication": "CineMontage",
+    "url": "https://cinemontage.org/frank-warner/",
+    "year": 2011
+   }
+  },
+  {
+   "person": "Frank Warner",
+   "kind": "insight",
+   "text": "Warner preferred hands-on manipulation to purely electronic creation, physically working his 'dirty sounds' — grabbing and squeezing the material — until the harmonics he wanted emerged.",
+   "categories": [
+    "craft"
+   ],
+   "source": {
+    "title": "Frank Warner",
+    "publication": "CineMontage",
+    "url": "https://cinemontage.org/frank-warner/",
+    "year": 2011
+   }
+  },
+  {
+   "person": "Frank Warner",
+   "kind": "insight",
+   "text": "Raging Bull's fights each had their own sonic aura: light, stabbing punches and sharp press-camera snaps in the first Robinson bout; dull timpani-like thuds and metallic flashbulbs in the rematch.",
+   "categories": [
+    "action",
+    "story"
+   ],
+   "source": {
+    "title": "How the sound design of Raging Bull pushed things to the limits",
+    "publication": "RedShark News",
+    "url": "https://www.redsharknews.com/audio/item/5487-how-the-sound-design-of-raging-bull-pushed-things-to-the-limits",
+    "year": 2018
+   }
+  },
+  {
+   "person": "Frank Warner",
+   "kind": "insight",
+   "text": "In Raging Bull's Dauthuille fight the track falls to near silence just before the blow that sends the gum shield flying; in the last Robinson fight the crowd gives way to a low, ominous rumble.",
+   "categories": [
+    "silence",
+    "action"
+   ],
+   "source": {
+    "title": "How the sound design of Raging Bull pushed things to the limits",
+    "publication": "RedShark News",
+    "url": "https://www.redsharknews.com/audio/item/5487-how-the-sound-design-of-raging-bull-pushed-things-to-the-limits",
+    "year": 2018
+   }
+  },
+  {
+   "person": "Frank Warner",
+   "kind": "insight",
+   "text": "Rather than library punches, Warner made a unique sound for every blow, camera click and flashbulb in Raging Bull — Scorsese recalled rifle shots and smashed melons among the sources.",
+   "categories": [
+    "action",
+    "foley",
+    "recording"
+   ],
+   "source": {
+    "title": "How the sound design of Raging Bull pushed things to the limits",
+    "publication": "RedShark News",
+    "url": "https://www.redsharknews.com/audio/item/5487-how-the-sound-design-of-raging-bull-pushed-things-to-the-limits",
+    "year": 2018
+   }
+  }
+ ]
+}

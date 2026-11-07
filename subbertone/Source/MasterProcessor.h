@@ -10,7 +10,7 @@
  * look-ahead brickwall limiter.
  *
  *   in --+--> 2x up --> curve deviation f(x) - x --> 2x down --> x Effect --+
- *        +--> delay (matches the filters) ------------------------------------+--> inflated
+ *        +--> delay (matches the filters) ------------------------------------+--> inflate clip --> inflated
  *
  *   inflated --+--> sample-peak detector --> hold / release / smoothing --> gain --+
  *              +--> look-ahead delay ----------------------------------------> x gain --> safety clamp --> out
@@ -20,10 +20,20 @@
  * NOT stop overs on its own: the curve's harmonics are band-limited to 20 kHz, and a
  * fattened, band-limited waveform peaks higher than the curve suggests. With the
  * limiter off and Effect at 100 %, a mix already limited to 0 dBFS would come out at
- * about +0.2 / +0.3 / +0.5 dBFS (Curve -1 / 0 / +1), and full-scale sines above ~8 kHz
- * at up to +0.7 / +1.1 / +1.4 dBFS. So while the limiter is not fully on and Inflate is
- * active, the output is clipped at 0 dBFS (like Inflator's "Clip 0 dB"); the limiter,
- * when on, handles all of this cleanly instead.
+ * about +0.2 / +0.3 / +0.5 dBFS (Curve -1 / 0 / +1; denser, clipped mixes up to about
+ * +1.2 dBFS), and full-scale sines above ~8 kHz at up to +0.7 / +1.1 / +1.4 dBFS. So
+ * while the limiter is not fully on, the inflate clip holds every inflated sample to the
+ * larger of 0 dBFS and the input's own peak around it (the 2K - 1 samples either side;
+ * K below):
+ *   - material within 0 dBFS stays within 0 dBFS (like Inflator's "Clip 0 dB"),
+ *   - overs that were already in the input pass as they were: the clip never holds a
+ *     sample below its own input level, and Inflate cannot raise their peak,
+ *   - it only acts on what Inflate adds, so nothing changes at Effect 0 (still bit-exact)
+ *     and the clipping grows continuously from zero with Effect: there is no step when
+ *     Effect leaves or returns to 0.
+ * The limiter, when on, handles all of this cleanly instead. NaN and +-inf never reach
+ * the output, limiter on or off (they become silence; with the limiter on, +-inf becomes
+ * the ceiling).
  *
  * Only the curve's deviation from the input is oversampled: it holds all the
  * harmonics (and so all the aliasing), while the dry path is an exact delay, which is
@@ -66,10 +76,12 @@ public:
     /** Limiter look-ahead (and attack) length in samples; part of getLatencySamples(). */
     int getLookaheadSamples() const { return m_lookahead; }
 
-    /** How often the limiter's final safety clamp has acted since reset() (diagnostics; expected to stay 0). */
+    /** How often the final safety clamp has acted since reset(): the limiter's ceiling clamp, and any NaN or
+        +-inf sample turned into silence (diagnostics; expected to stay 0 for finite input). */
     std::uint64_t getSafetyClampCount() const { return m_safetyClampCount.load(std::memory_order_relaxed); }
 
-    /** How often Inflate's 0 dBFS clip (limiter off) has acted since reset() (diagnostics). */
+    /** How often the inflate clip (limiter not fully on: inflated samples held to max(0 dBFS, the input's
+        own nearby peak)) has acted since reset() (diagnostics). */
     std::uint64_t getInflateClipCount() const { return m_inflateClipCount.load(std::memory_order_relaxed); }
 
     /** The static inflate transfer curve f(x) at full effect (for tests and for drawing the curve in a UI). */
@@ -156,6 +168,8 @@ private:
         int oddPosition = 0;
         float dcIn = 0.0f;            // AC coupling of the even (asymmetric) part, at 2x
         float dcOut = 0.0f;
+        std::vector<float> pastPeak;  // |input| of the 2K - 1 samples before the dry one (inflate clip window)
+        int pastPosition = 0;
 
         std::vector<float> delay;     // limiter look-ahead
     };
@@ -220,5 +234,4 @@ private:
     float m_framePeak[c_blockSize] {};
     float m_frameGain[c_blockSize] {};
     float m_frameClamp[c_blockSize] {};
-    bool m_frameIsInflateClip[c_blockSize] {};
 };

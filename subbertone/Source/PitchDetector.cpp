@@ -40,7 +40,10 @@ void PitchDetector::reset()
 
 void PitchDetector::setMaxFrequency(float hz)
 {
-    m_maxFrequency = std::clamp(hz, c_minFrequency * 1.5f, c_maxFrequency);
+    // Written so that NaN lands on the lower bound (std::clamp would pass it through, and the
+    // float-to-int conversion below would then be undefined).
+    const float lowest = c_minFrequency * 1.5f;
+    m_maxFrequency = hz >= lowest ? std::min(hz, c_maxFrequency) : lowest;
     // Allow a little above the limit so notes right at the limit still track.
     m_tauMin = std::max(2, static_cast<int>(std::floor(m_decimatedRate / (m_maxFrequency * 1.1))));
     m_tauMin = std::min(m_tauMin, m_tauMax - 2);

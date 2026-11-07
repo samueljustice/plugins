@@ -1,232 +1,179 @@
 # SammyJs Pitch Flattener
-A VST3/AU audio plugin that flattens pitch variations in real-time, perfect for removing sweeping Doppler effects, stabilizing warbling tones, or creating unique pitch-locked effects. When you want the energy of a recording but the pitch to be mallaeable again. Works a bit like z-noise, give it a little bit to warm up. TLDR a crazy toy that sometimes flattens pitch and mostly makes weird cool sounds
 
-### 🎉 Latest Release v1.2.5 - [Download Here](https://github.com/samueljustice/plugins/releases/tag/pitchflattener-v1.2.5)
+A VST3/AU plugin that removes pitch movement from a sound while keeping its energy and character. Use it to take the Doppler sweep out of a pass-by, iron the wail out of a siren, take the vibrato out of a voice or instrument, or lock a warbling tone to one note so the pitch is malleable again.
 
-<img width="1986" height="1784" alt="Screenshot 2025-07-17 at 19 27 57" src="https://github.com/user-attachments/assets/01d17365-6eeb-4a02-be70-2ce37aa67c3f" />
+### 🎉 Latest Release v2.0.1 - [Download Here](https://github.com/samueljustice/plugins/releases/tag/pitchflattener-v2.0.1)
 
-## Features
+![Pitch Flattener 2.0](docs/screenshot.png)
 
-- **Pitch flattening** - Tracks and neutralizes pitch movement to maintain a constant frequency, not just transposing
-- **Base pitch latching** - Automatically locks onto stable pitches and flattens variations around them
-- **Dual pitch detection algorithms**:
-  - **WORLD DIO** (default) - FFT-based algorithm optimized for noisy field recordings and complex audio
-  - **YIN** - Fast autocorrelation-based algorithm for clean, simple sources
-- **High-quality pitch shifting** using the RubberBand library for artifact-free processing
-- **FFT Visualiser** for the DIO algorithm
-- **Visual pitch meter** for the YIN algorithm, showing detected pitch, target pitch, and pitch deviation
-- **Manual override mode** for locking to specific frequencies
-- **Volume gating** to prevent false pitch detection from noise
-- **Comprehensive controls** for fine-tuning detection behavior
+> **2.0 is a rewrite of the detection and correction engine.** 1.x reacted late and fought itself, so it mostly made "weird cool sounds". 2.0 looks ahead, picks a pitch detector built for your kind of source, and lines the correction up with the audio sample-accurately. See [What changed in 2.0](#what-changed-in-20).
 
-## Building
+## Designed for offline rendering
 
-### Prerequisites
-- macOS (tested on macOS 12+)
-- CMake 3.15 or higher
-- Xcode Command Line Tools
+Pitch Flattener runs as a normal realtime plugin, so it loads in any VST3/AU host or rack. It is built for hosts that render offline, such as the **Soundminer DSP rack**, a DAW bounce, or AudioSuite-style processing:
 
-### Build Instructions
+- It looks **about 2.6 s ahead**, so it knows where the pitch is going before it shifts anything.
+- It reports that delay to the host. With delay compensation, which Soundminer and every major DAW have, the output lines up with the input exactly.
+- The latency is the same whatever the settings, so changing Source Type never shifts your audio in time.
+- It is not meant for live monitoring.
 
-1. Clone or download this repository
-2. Run the build script:
-   ```bash
-   ./build.sh
-   ```
+## Source Type: pick what you're flattening
 
-The plugin will be automatically built and installed to:
-- VST3: `/Library/Audio/Plug-Ins/VST3/`
-- AU: `/Library/Audio/Plug-Ins/Components/`
+Each Source Type chooses a pitch detector and tuned defaults. Every setting can still be changed afterwards.
 
-## Usage
+| Source Type | Detector | Use it for |
+|---|---|---|
+| **Vocal / Speech** | pYIN (probabilistic YIN) | Voices, singing, vocal-like animal calls. Ignores breaths and consonants and follows the voice smoothly. Formant preservation is on by default. |
+| **Instrument** | MPM (McLeod Pitch Method) | Solo melodic instruments: vibrato, warble, tape wow. |
+| **Siren** | Spectral Peak (reassigned STFT) | Wail, yelp, hi-lo and electronic sweeps, even in traffic noise. Uses the Tight window to follow fast sweeps. |
+| **Whistle / Tone** | Spectral Peak, long windows | Whistles, feedback, test tones, theremin. Very stable on near-pure tones. |
+| **Engine / Doppler** | Harmonic Sum (subharmonic summation) | Engines, pass-bys, props, motors and trains. Follows the whole harmonic series, so it does not jump octaves and copes with a weak or missing fundamental. |
+| **Drone / Hum** | Harmonic Sum, slow tracking | Hums, generators and drones down to 25 Hz. |
+| **Noisy Field** | Harmonic Sum, strict voicing | Rough field recordings with lots of broadband noise. |
+| **Custom** | Any | Your own settings. Choosing Custom doesn't change anything. |
 
-1. Load the plugin in your DAW as a VST3 or AU effect
-2. Play audio through the plugin - the pitch meter will show the detected pitch
-3. Choose your flattening mode:
-   - **Normal Mode**: Set the **Flatten To** target frequency - all detected pitches will be shifted to this frequency
-   - **Base Pitch Latch Mode**: Enable **Base Pitch Latch** - the plugin will automatically lock onto the first stable pitch and flatten all variations back to that base frequency
-   - **Manual Override Mode**: Enable **Manual Override** to force flattening to a specific frequency
-4. Adjust parameters as needed for your source material
+### How the detectors work
+
+- **pYIN** (Mauch & Dixon 2014) runs YIN's cumulative-mean-normalised difference function, computed with FFTs. It weighs every dip in that function against a Beta-distributed prior over YIN thresholds, so each frame produces several pitch candidates with probabilities instead of one guess.
+- **MPM** (McLeod & Wyvill 2005) uses the normalised squared difference function. It picks the first "key maximum" within a fraction of the highest one, which avoids octave errors on bright instruments.
+- **Spectral Peak** uses Gaussian-windowed FFTs at several lengths: short windows for fast sweeps, long ones for steady tones. Each peak is refined with quadratic interpolation and time-frequency reassignment, which gives the instantaneous frequency even mid-sweep. Its salience is measured against the local noise floor. A harmonic-support check makes the fundamental win over its overtones.
+- **Harmonic Sum** (subharmonic summation, Hermes 1988) works on a whitened, log-frequency spectrum and adds up the energy at every candidate's harmonics. An odd/even-harmonic test settles octave ambiguities, for example when the fundamental is missing.
+
+### Tracking, using lookahead
+
+Every detector feeds the same tracker, which can see well into the future of the signal:
+
+1. **Fixed-lag Viterbi** over the candidates, plus an "unpitched" state. Jumps faster than the Tracking Speed and octave jumps are expensive, so the best continuous path wins. This removes octave errors and glitches.
+2. **Octave repair and median filter** against the local median pitch.
+3. **Gap fill:** short dropouts are bridged. Before a sound starts, the correction is set up in advance, so the first syllable or rev is already flattened.
+4. **Centred Gaussian smoothing** in cents. It is zero-phase, so the curve doesn't lag.
+5. **Target and correction:** the shift needed to move the track to the target, limited by Max Shift.
+
+The shifter is **Rubber Band Library R3** (the "finer" engine) in high-consistency mode. Each ~3 ms chunk is shifted by the correction measured at the same moment in the audio.
 
 ## Controls
 
-### Main Controls
+### Target
 
-- **Flatten To** (50-2000 Hz): The target frequency that all pitches will be flattened to. For example, set to 1000 Hz to make all sounds maintain a constant 1000 Hz pitch regardless of their original frequency.
+- **Target Mode**
+  - **Latch** (default) locks to the opening pitch of each sound: the median of its first ~300 ms, read with lookahead. It re-latches after a second of silence. **Re-latch** forces a new latch.
+  - **Fixed** flattens everything to **Target Pitch**.
+  - **Auto** removes movement faster than **Auto Window** and keeps the slower overall contour. Use it to take out vibrato or warble without changing the melody.
+- **Flatten Amount** (0–100 %): how much of the pitch deviation is removed. 50 % halves a Doppler sweep.
+- **Manual Override**: ignores detection and treats the input as if it were at **Override Frequency**, which applies a constant shift.
 
-- **Smoothing Time** (5-200 ms): Controls how quickly the plugin responds to pitch changes
-  - 10-50 ms: Fast response for quick pitch changes (good for vibrato removal)
-  - 50-100 ms: Balanced response for Doppler effects
-  - 100-200 ms: Slow, smooth response for gradual pitch drifts
+### Tracking
 
-- **Mix** (0-100%): Blend between dry (original) and wet (pitch-flattened) signal
-  - 0%: Original signal only
-  - 100%: Fully processed signal
-  - 50-70%: Retains some original character while flattening pitch
+- **Sensitivity**: how readily a sound counts as pitched. Raise it for quiet or breathy sources; lower it for noisy recordings.
+- **Tracking Speed** (oct/s): the fastest pitch movement the tracker will believe. Lower it to reject glitches on slow sources such as engines and drones. Raise it for yelps.
+- **Smoothing** (ms): smooths the detected pitch curve before correcting it.
+- **Gap Fill** (ms): the longest dropout that is bridged before the correction relaxes.
+- **Min / Max Frequency**: the pitch search range. Bracket your source; a tighter range is more robust.
 
-### Manual Override
+### Input
 
-- **Manual Override**: When enabled, ignores pitch detection and flattens everything to the Override Frequency
-- **Override Freq** (50-2000 Hz): The frequency to use when Manual Override is enabled
+- **Gate** (dB): frames quieter than this count as unpitched.
+- **Detection High-pass / Low-pass**: filters that apply to the analysis only, to keep rumble or hiss out of detection. They do not change the sound.
 
-### Base Pitch Latch
+### Output
 
-- **Base Pitch Latch**: When enabled, the plugin uses delta inversion to flatten pitch variations
-  - Automatically detects and locks onto the first stable pitch it hears
-  - Inverts any pitch variations to maintain the locked base frequency
-  - Example: If base is 1000 Hz and pitch rises to 1100 Hz (10% up), the plugin shifts down by 10% to maintain 1000 Hz
+- **Quality**
+  - **Smooth** uses R3's standard window and gives the best sound.
+  - **Tight** uses the short window and follows very fast sweeps more closely.
+- **Formant Preserve**: keeps a voice's character natural when it is shifted. Leave it off for machines and sirens.
+- **Max Shift**: a safety limit on how far the audio may be shifted.
+- **Mix**: blends in the time-aligned dry signal. Keep it at 100 % for flattening; partial mixes can sound phasey.
 
-- **Reset Base**: Click to clear the locked base pitch and wait for a new stable pitch
+### Presets
 
-- **Latch Status**: Shows whether a base pitch is locked and at what frequency
+The preset bar in the header works like Subbertone's. Click the preset name to open the preset menu:
 
-- **Flatten Sensitivity** (0-50%): Sets the minimum pitch variation required before flattening occurs
-  - 0%: Flattens even tiny pitch variations
-  - 1-5%: Normal operation - ignores minor pitch fluctuations
-  - 10-50%: Only flattens large pitch variations
+- **FACTORY**: one preset per Source Type, with its tuned detector, range, tracking and target settings.
+- **USER**: your own presets, in the **User Presets** submenu.
+- **Save As...**, **Delete** (the current user preset, moved to the trash), **Reset to Defaults** (every parameter back to its default) and **Show Presets Folder**.
 
-- **Hard Flatten Mode**: When enabled, forces output to exactly match the latched pitch for complete pitch neutralization
+The **<** and **>** arrows step through the factory presets and then your own, in menu order. **SAVE** stores the current settings as a user preset, and asks before replacing one with the same name. A tick marks the current preset. The name reads "No preset" after Reset to Defaults, or when the preset it came from has been deleted.
 
-### Pitch Detection
+User presets are plain `.xml` files, named after the preset, so they are easy to back up, share or rename:
 
-- **Algorithm** (WORLD DIO/YIN): Choose pitch detection method
-  - **WORLD DIO** (default): FFT-based, handles noise well, requires buffer time
-  - **YIN**: Autocorrelation-based, fast and responsive for clean signals
+- macOS: `~/Library/SammyJs/PitchFlattener/Presets/User`
+- Windows: `%APPDATA%\SammyJs\PitchFlattener\Presets\User`
 
-- **Detection Rate** (64-1024 samples): How often pitch detection runs (YIN only)
-  - Lower values = more responsive but higher CPU usage
-  - 64-128 samples recommended for fast tracking
+The current preset is saved with your session. Presets from 1.x still load.
 
-- **Threshold** (0.05-0.5): Pitch detection sensitivity (YIN only)
-  - Lower values detect weaker pitches but may get false readings
-  - 0.10-0.15 works well for most sources
+## Measured performance
 
-- **Min/Max Freq** (20-4000 Hz): Frequency range for pitch detection
-  - Set these to bracket your expected pitch range
-  - For high pitches: 600-2000 Hz
-  - For vocals: 80-1000 Hz
+`tests/FlattenTests.cpp` renders synthetic sources through the exact plugin DSP, at random host block sizes, and measures how flat the output is with an independent pitch meter:
 
-- **Volume Gate** (-60 to 0 dB): Minimum volume level for pitch detection
-  - Signal must be louder than this to trigger pitch detection
-  - Prevents false detection from background noise
-  - Current volume level shown below the slider
+| Test signal | Input pitch range | Output error (median / 90th pct) |
+|---|---|---|
+| Siren wail, 550–1350 Hz sweep | 1520 cents | 2 / 4 cents |
+| Siren yelp, 1 octave triangle at 3 Hz (6 oct/s) | 1060 cents | 18 / 40 cents |
+| Voice, 50-cent vibrato + 3-semitone drift, formants, gaps | 350 cents | 7 / 11 cents |
+| Engine pass-by, 25 m/s Doppler | 250 cents | 1 / 5 cents |
+| Engine with missing fundamental, Doppler | 200 cents | 5 / 11 cents |
+| Engine pass-by in heavy noise (Noisy Field) | 300 cents | 2 / 5 cents |
+| Instrument, 35-cent vibrato at 6 Hz | 70 cents | 8 / 11 cents |
+| Whistle, ±100-cent drift | 200 cents | 0.7 / 1.3 cents |
 
-### Advanced Detection
+The suite runs in CI on every release build. To run it locally:
 
-#### YIN Algorithm Controls
-- **Hold Time** (0-2000 ms): Minimum time before accepting a new pitch
-  - Prevents rapid jumping between pitches
-  - 200-500 ms recommended for stable tracking
+```bash
+cmake -B build-tests -S . -DPITCHFLATTENER_BUILD_TESTS=ON -DPITCHFLATTENER_COPY_AFTER_BUILD=OFF
+cmake --build build-tests --target PitchFlattenerTests
+./build-tests/PitchFlattenerTests_artefacts/Release/PitchFlattenerTests --block 0 --wav /tmp/pf
+```
 
-- **Jump Limit** (10-500 Hz): Maximum allowed pitch change between detections
-  - Prevents octave errors and false jumps
-  - 50-200 Hz recommended
-
-- **Confidence** (0-1): Minimum confidence level to accept a pitch
-  - Higher values = more stable but may miss quick changes
-  - 0.35-0.5 recommended for most sources
-
-- **Smoothing** (0-0.99): Additional smoothing for detected pitch values
-  - 0 = no smoothing
-  - 0.8-0.9 = reduces pitch jitter
-
-#### WORLD DIO Algorithm Controls
-- **DIO Speed** (1-12): Processing speed vs accuracy tradeoff
-  - 1 = Fastest (best for real-time)
-  - 12 = Most accurate (higher latency)
-
-- **Frame Period** (1-15 ms): How often DIO analyzes pitch
-  - Lower = more responsive tracking
-  - 5 ms default for good balance
-
-- **Allowed Range** (0.1-0.5): F0 contour smoothing threshold
-  - Lower = stricter pitch tracking
-  - Higher = allows more variation
-
-- **Channels** (1-8): Frequency analysis resolution
-  - More channels = better accuracy, more CPU
-  - 2-4 recommended
-
-- **Buffer Time** (0.05-1.5 s): Analysis buffer duration
-  - Larger = better accuracy but more latency
-  - You'll hear silence for this duration when switching to DIO
-
-#### Detection Filters (Both Algorithms)
-- **Detection HP** (20-2000 Hz): High-pass filter for pitch detection signal
-  - Filters out low frequencies before pitch detection
-  - Does NOT affect the audio output
-  - 600 Hz default cuts out rumble
-
-- **Detection LP** (1000-20000 Hz): Low-pass filter for pitch detection signal
-  - Filters out high frequencies before pitch detection
-  - Does NOT affect the audio output
-  - 6000 Hz default reduces noise and harmonics
-
-## Visual Feedback
-
-- **Pitch Meter**: Shows the currently detected frequency and note
-- **Target Indicator**: Green line shows the target frequency
-- **Deviation Meter**: Shows how far the detected pitch is from the target
-- **Flattening To**: Displays the current target frequency the plugin is flattening to
-- **Status**: Shows processing state and detected frequency
+`--wav` writes each test's input and output so you can listen to them.
 
 ## Tips
 
-### For Experimental Effects
-- Try Manual Override with automated frequency changes
-- Use very slow smoothing (150-200 ms) for gliding effects
-- Mix at 50% to create harmonies with the original pitch
-- Use Base Pitch Latch with high sensitivity (20-50%) for selective flattening
+- **Doppler pass-by:** choose Engine / Doppler and Latch. If the approach is quieter than the pass, use **Re-latch** or Fixed with the engine's idle pitch.
+- **Siren:** choose Siren and Fixed at the pitch you want. For a wail, Smooth quality sounds cleaner; for a yelp, keep Tight.
+- **Vibrato only:** use Auto mode with an Auto Window of 300–600 ms.
+- **Half-flattened, more natural result:** set Flatten Amount to 50–70 %.
+- **The output jumps or warbles:** narrow Min/Max Frequency around the source, lower Tracking Speed, or try another Source Type.
 
-## Troubleshooting
+## What changed in 2.0
 
-- **No pitch detection**: Check that input volume is above the Volume Gate threshold
-- **Erratic pitch jumping**: Increase Hold Time and Jump Limit, decrease Threshold
-- **Slow response**: Decrease Detection Rate and Smoothing Time
-- **CPU usage high**: Increase Detection Rate value (processes less frequently)
+- **New detectors:** pYIN, MPM, Spectral Peak and Harmonic Sum, chosen by Source Type. The O(N²) YIN and WORLD DIO are gone. DIO re-analysed a 0.5 s buffer on every audio block and read its answer from the least reliable end of it.
+- **Lookahead tracking:** a Viterbi tracker with octave repair, gap fill and zero-phase smoothing, replacing the block-rate exponential smoothing and the 5 %-change threshold.
+- **Sample-accurate correction:** the shifter is fed audio whose pitch has already been decided, and each chunk gets the correction measured at that point. In 1.x the correction was applied to audio from a different moment.
+- **Fixed in the shifter:** the 1.x RubberBand feeder pushed overlapping, duplicated audio into the stretcher whenever Lookahead was above 1x, which is where most of the old artefacts came from. It also padded underruns by repeating samples. Both are fixed. The engine is now R3 with proper start padding and delay compensation.
+- **Reported latency and tail:** the dry/wet mix is time-aligned, and bypass stays time-aligned too.
+- **New UI** in the SammyJs design language, with a scrolling pitch display showing raw detection, the final track, the target and the corrected output.
+- **Removed parameters:** Detection Rate, Threshold, Hold Time, Jump Limit, Confidence, the DIO settings, Lookahead, Hard Flatten, and RubberBand's R2-only Transients, Phase and Window options. Their jobs are now done by the tracker. 1.x sessions still load: matching settings are kept and the algorithm choice is mapped to a Custom detector.
 
-## Developer
+## Building
 
-Created by Samuel Justice  
-Website: [www.sweetjusticesound.com](https://www.sweetjusticesound.com)
+Prerequisites: CMake 3.15+, a C++17 compiler (Xcode on macOS, Visual Studio 2022 on Windows), and the SDK folder next to this one containing JUCE 8.0.8 and Rubber Band 4.0.0 built as a static library (see `.github/workflows/build-release_pitchflattener.yml`).
 
-## License
+```bash
+./build.sh
+```
 
-This plugin uses the JUCE framework, RubberBand library, and WORLD vocoder system. Please refer to their respective licenses for terms of use.
+This builds and installs:
+- VST3: `/Library/Audio/Plug-Ins/VST3/`
+- AU: `/Library/Audio/Plug-Ins/Components/`
 
-## Technical Details
+## Credits and licences
 
-### How Pitch Flattening Works
+Created by Samuel Justice, [www.sweetjusticesound.com](https://www.sweetjusticesound.com).
 
-This plugin uses advanced pitch tracking and neutralization to flatten pitch variations:
+- [JUCE](https://juce.com) framework.
+- [Rubber Band Library](https://breakfastquay.com/rubberband/) for pitch shifting (GPL / commercial).
+- UI font: [Azeret Mono](https://github.com/displaay/Azeret), SIL Open Font License 1.1.
+- Algorithms:
+  - YIN, de Cheveigné & Kawahara (2002)
+  - pYIN, Mauch & Dixon (2014)
+  - MPM, McLeod & Wyvill (2005)
+  - Subharmonic summation, Hermes (1988)
+  - Time-frequency reassignment, Auger & Flandrin (1995)
 
-1. **Pitch Detection**: 
-   - **WORLD DIO** (default): Uses FFT-based analysis with multiple frequency channels to accurately track pitch even in noisy recordings
-   - **YIN**: Uses autocorrelation to quickly identify the fundamental frequency in cleaner signals
+## Version history
 
-2. **Movement Tracking**: The plugin tracks pitch movement (delta) between audio blocks to identify sweeps and variations
-
-3. **Slope Detection**: Calculates the rate of pitch change (Hz/ms) to differentiate between:
-   - Static tones that need no correction
-   - Moving pitches that need flattening
-   - Rapid sweeps that need aggressive correction
-
-4. **Dynamic Correction**: Instead of simply transposing to a fixed pitch, the plugin:
-   - Detects when pitch is rising or falling
-   - Applies inverse correction to neutralize the movement
-   - Maintains the original tonal character while removing pitch variation
-
-5. **Result**: The output maintains a constant frequency regardless of input pitch variations, effectively removing Doppler effects and pitch sweeps
-
-### WORLD DIO Algorithm
-
-The WORLD DIO (Distributed Inline-filter Operation) algorithm is a sophisticated FFT-based pitch detection method that:
-- Analyzes multiple frequency channels simultaneously
-- Uses distributed processing to handle noise and interference
-- Provides stable pitch tracking even with complex harmonic content
-- Requires a buffer period for initial analysis but then provides continuous real-time tracking
-
-## Version History
-
-- v1.1.0 - Added FFT pitch tracking
-- v1.0.0 - Initial release
+- **v2.0.1**: Subbertone 1.2.0 styling for every menu, submenu, dialog, tooltip and text field; preset bar and menu on Subbertone's layout; user presets tracked by file; CI stapling retries.
+- v2.0.0: new detection and correction engine, Source Types, lookahead tracking, sample-accurate latency, new UI, test suite.
+- v1.2.5: help text and About button scaling fixes, FFT visualiser.
+- v1.1.0: added FFT pitch tracking.
+- v1.0.0: initial release.

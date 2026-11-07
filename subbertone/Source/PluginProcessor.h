@@ -31,6 +31,10 @@ public:
 
     double getTailLengthSeconds() const override;
 
+    /** The factory presets, plus one last program, "User Preset", that stands for any sound
+        that is not a factory preset (a user preset, an unsaved sound, a 1.1.0 session).
+        Selecting it does nothing; it only exists so the host's program display is right and
+        so that every factory program, "Init" included, can always be selected. */
     int getNumPrograms() override;
     int getCurrentProgram() override;
     void setCurrentProgram(int index) override;
@@ -46,7 +50,14 @@ public:
     void releaseResources() override;
 
     void prepareToPlay(double sampleRate, int samplesPerBlock) override;
+    void reset() override;
+
+    using juce::AudioProcessor::processBlock;
+    using juce::AudioProcessor::processBlockBypassed;
     void processBlock(juce::AudioBuffer<float>&, juce::MidiBuffer&) override;
+    /** Host bypass: the input delayed by exactly getLatencySamples(), crossfaded in and out.
+        The engine and MASTER keep running underneath, so leaving bypass is seamless. */
+    void processBlockBypassed(juce::AudioBuffer<float>&, juce::MidiBuffer&) override;
 
     // Get current waveform data for visualization
     void getInputWaveform(std::vector<float>& dest) const;
@@ -56,7 +67,9 @@ public:
     float getCurrentSignalLevel() const { return m_currentSignalLevelDb.load(); }
     float getCurrentFundamental() const { return m_currentFundamental.load(); }
 
-    /** Editor view options (e.g. visualiser trace toggles), saved with the plugin state. */
+    /** Editor view options (e.g. visualiser trace toggles, editor scale), saved with the plugin
+        state. Safe to call on the message thread while the host saves or restores the state on
+        another thread. */
     bool getViewOption(const juce::Identifier& option, bool defaultValue) const;
     void setViewOption(const juce::Identifier& option, bool value);
     juce::var getViewValue(const juce::Identifier& option, const juce::var& defaultValue) const;
@@ -77,13 +90,36 @@ public:
     juce::AudioProcessorValueTreeState m_parameters;
 
 private:
-    PresetManager m_presetManager; // after m_parameters: it listens to them
+    // Reports preset / state changes to the host from the message thread, coalesced.
+    class HostDisplayUpdater final : private juce::AsyncUpdater
+    {
+    public:
+        explicit HostDisplayUpdater(juce::AudioProcessor& p) : m_processor(p) {}
+        ~HostDisplayUpdater() override { cancelPendingUpdate(); }
+
+        void post(const juce::AudioProcessorListener::ChangeDetails& details);
+
+    private:
+        void handleAsyncUpdate() override;
+
+        static constexpr int c_programChanged = 1, c_stateChanged = 2;
+        juce::AudioProcessor& m_processor;
+        std::atomic<int> m_flags { 0 };
+    };
+
+    HostDisplayUpdater m_hostDisplay { *this };   // before m_presetManager: it reports through this
+    PresetManager m_presetManager;                // after m_parameters: it listens to them
 
     juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
 
     SubharmonicEngine::Parameters readEngineParameters() const;
     void pushVisualSamples(const float* input, const float* output, const float* residual, int numSamples);
     void copyVisualRing(const std::vector<float>& ring, std::vector<float>& dest) const;
+
+    void render(juce::AudioBuffer<float>& buffer, bool bypassed);
+    void handlePendingReset(bool bypassed);
+    void delayDry(const juce::AudioBuffer<float>& buffer, int start, int numSamples, int numInputs, int numChannels);
+    void applyBypassFade(juce::AudioBuffer<float>& buffer, int start, int numSamples, int numChannels, float target);
 
     SubharmonicEngine m_subharmonicEngine;
     MasterProcessor m_master; // final stage: inflate + look-ahead limiter (constant latency)
@@ -94,6 +130,26 @@ private:
     std::vector<float> m_monoBuffer;
     std::vector<float> m_wetBuffer;
     std::vector<float> m_residualBuffer;
+
+    // Bypass: the input through a delay of exactly the reported latency (always fed, so it is
+    // warm when bypass engages), crossfaded against the processed output.
+    static constexpr double c_bypassFadeSeconds = 0.015;
+    std::vector<std::vector<float>> m_dryDelay;   // per channel, getLatencySamples() long
+    std::vector<std::vector<float>> m_dryChunk;   // per channel, c_chunkSize: delayed input for this chunk
+    std::vector<float*> m_channelPointers;        // MASTER channel pointers for the current chunk
+    std::array<float, c_chunkSize> m_fadeWeights {};
+    int m_dryDelayLength = 0;
+    int m_dryDelayPosition = 0;
+    float m_bypassFade = 0.0f;                    // 0 = processed, 1 = bypassed (delayed input)
+    float m_bypassFadeStep = 1.0f;
+    bool m_wasBypassed = false;
+    bool m_snapBypassFade = true;                 // first block after prepareToPlay: no fade
+
+    // AudioProcessor::reset() may come from any thread (AU Reset on the main thread while
+    // rendering, VST3 setProcessing(false)); it only counts the request, and the audio thread
+    // acts on new requests at the start of the next block.
+    std::atomic<juce::uint32> m_resetRequests { 0 };
+    juce::uint32 m_resetRequestsHandled = 0;     // audio thread
 
     // Raw parameter pointers (looked up once)
     std::atomic<float>* m_mixParam = nullptr;
@@ -125,6 +181,11 @@ private:
 
     juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> m_mixSmoothed;
     juce::SmoothedValue<float, juce::ValueSmoothingTypes::Multiplicative> m_outputGainSmoothed;
+
+    // Editor view options. Kept out of the APVTS tree (which the host may replace on another
+    // thread at any time) and written into / read from the state XML.
+    mutable juce::CriticalSection m_viewLock;
+    juce::NamedValueSet m_viewOptions;
 
     // Visualisation: single-writer ring buffers. The reader may see a torn frame,
     // which is harmless for a display and keeps the audio thread lock-free.

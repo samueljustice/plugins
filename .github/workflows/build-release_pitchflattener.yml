@@ -41,55 +41,34 @@ jobs:
       uses: microsoft/setup-msbuild@v3
     
     - name: Download and Build Rubberband
-      shell: cmd
+      shell: pwsh
       run: |
         cd SDK
         git clone https://github.com/breakfastquay/rubberband.git rubberband-4.0.0
         cd rubberband-4.0.0
         git checkout v4.0.0
-        
-        REM Setup Visual Studio environment
-        call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvars64.bat"
-        
-        REM Build with Meson/Ninja
-        meson setup build --buildtype=release --default-library=static
+
+        # --vsenv makes Meson locate and activate MSVC itself (no hard-coded vcvars path,
+        # which breaks whenever the runner image's Visual Studio edition/version changes)
+        # Force MSVC even though the runner has MinGW gcc (Strawberry) on PATH
+        $env:CC = "cl"; $env:CXX = "cl"
+        meson setup build --vsenv --buildtype=release --default-library=static -Db_vscrt=md
+        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
         meson compile -C build
-        
-        REM Create lib directory and copy the static library
-        mkdir lib
-        dir build /s /b | findstr "rubberband.*\.lib$"
-        copy build\rubberband-static.lib lib\librubberband.a
-        cd ..\..
-    
-    - name: Download and Build WORLD
-      shell: cmd
-      run: |
-        cd SDK
-        REM Remove World directory if it exists from previous runs
-        if exist World rmdir /s /q World
-        git clone https://github.com/mmorise/World.git World
-        cd World
-        
-        REM Create build directory
-        mkdir build
-        cd build
-        
-        REM Setup Visual Studio environment
-        call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvars64.bat"
-        
-        REM Configure with CMake
-        cmake .. -G "Visual Studio 17 2022" -A x64 -DCMAKE_BUILD_TYPE=Release
-        
-        REM Build
-        cmake --build . --config Release
-        
-        cd ..\..
-    
+        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+        # The static library name differs between Meson versions; find it instead of guessing
+        $lib = Get-ChildItem build -Recurse -File | Where-Object { $_.Name -match '^(lib)?rubberband(-static)?\.(lib|a)$' } | Select-Object -First 1
+        if (-not $lib) { Write-Error "Rubber Band static library not found"; Get-ChildItem build -Recurse -File | Select-Object FullName; exit 1 }
+        Write-Host "Using $($lib.FullName)"
+        New-Item -ItemType Directory -Force -Path lib | Out-Null
+        Copy-Item $lib.FullName lib\librubberband.a
+
     - name: Configure CMake
       run: |
         cd pitchflattener
         $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm UTC"
-        cmake -B build -S . -DCMAKE_BUILD_TYPE=Release -DBUILD_TIMESTAMP="$timestamp"
+        cmake -B build -S . -DCMAKE_BUILD_TYPE=Release -DPITCHFLATTENER_COPY_AFTER_BUILD=OFF -DBUILD_TIMESTAMP="$timestamp"
 
     - name: Build VST3
       run: |
@@ -127,9 +106,8 @@ jobs:
           echo "This software is provided as-is, without warranty of any kind." >> LICENSE
         }
         
-        # Download and install Inno Setup
-        curl -L https://files.jrsoftware.org/is/6/innosetup-6.2.2.exe -o innosetup.exe
-        .\innosetup.exe /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /SP-
+        # Install Inno Setup via chocolatey (the pinned 6.2.2 download no longer runs on current images)
+        choco install innosetup -y --no-progress
         
         # Add Inno Setup to PATH
         $env:Path += ";${env:ProgramFiles(x86)}\Inno Setup 6"
@@ -222,29 +200,6 @@ jobs:
         mkdir lib
         cp build/librubberband.a lib/
     
-    - name: Download and Build WORLD
-      run: |
-        cd SDK
-        # Remove World directory if it exists from previous runs
-        rm -rf World
-        git clone https://github.com/mmorise/World.git World
-        cd World
-        
-        # Remove build directory if it exists (might be in the repo) and create fresh
-        rm -rf build
-        mkdir build
-        cd build
-        
-        # Configure with CMake for universal binary
-        cmake .. -G "Xcode" \
-          -DCMAKE_BUILD_TYPE=Release \
-          -DCMAKE_OSX_ARCHITECTURES="x86_64;arm64"
-        
-        # Build
-        cmake --build . --config Release
-        
-        cd ../..
-    
     - name: Check for Certificates
       id: check_certs
       run: |
@@ -297,12 +252,18 @@ jobs:
       run: |
         cd pitchflattener
         TIMESTAMP=$(date -u "+%Y-%m-%d %H:%M UTC")
-        cmake -B build -S . -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_ARCHITECTURES="x86_64;arm64" -DBUILD_TIMESTAMP="$TIMESTAMP"
+        cmake -B build -S . -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_ARCHITECTURES="x86_64;arm64" -DPITCHFLATTENER_COPY_AFTER_BUILD=OFF -DPITCHFLATTENER_BUILD_TESTS=ON -DBUILD_TIMESTAMP="$TIMESTAMP"
     
     - name: Build VST3 and AU
       run: |
         cd pitchflattener
-        cmake --build build --config Release
+        cmake --build build --config Release --target PitchFlattener_VST3 PitchFlattener_AU
+
+    - name: Run DSP tests
+      run: |
+        cd pitchflattener
+        cmake --build build --config Release --target PitchFlattenerTests
+        ./build/PitchFlattenerTests_artefacts/Release/PitchFlattenerTests --block 0
     
     - name: Sign Plugins
       if: steps.check_certs.outputs.has_certs == 'true'
@@ -358,14 +319,23 @@ jobs:
           --team-id "$APPLE_TEAM_ID" \
           --wait
         
-        # Staple notarization
+        # Staple notarization. Fetching the ticket from Apple occasionally drops the
+        # connection (stapler error 68), so retry before failing the build.
+        staple() {
+          for attempt in 1 2 3 4; do
+            if xcrun stapler staple "$1"; then return 0; fi
+            echo "Stapling $1 failed (attempt $attempt of 4)"
+            if [ "$attempt" -lt 4 ]; then sleep 30; fi
+          done
+          return 1
+        }
         cd build/PitchFlattener_artefacts/Release/VST3
         for plugin in *.vst3; do
-          xcrun stapler staple "$plugin"
+          staple "$plugin"
         done
         cd ../AU
         for plugin in *.component; do
-          xcrun stapler staple "$plugin"
+          staple "$plugin"
         done
         cd ../../../..
     
@@ -404,7 +374,7 @@ jobs:
         # Extract version from tag or use default
         VERSION="${GITHUB_REF#refs/tags/pitchflattener-v}"
         if [ -z "$VERSION" ] || [ "$VERSION" = "$GITHUB_REF" ]; then
-          VERSION="1.2.0"
+          VERSION=$(grep -E "^project\(PitchFlattener VERSION" CMakeLists.txt | sed -E 's/.*VERSION ([0-9.]+).*/\1/')
         fi
         
         pkgbuild --identifier "com.sweetjusticesound.pitchflattener.vst3" \
@@ -570,8 +540,13 @@ jobs:
           exit 1
         fi
         
-        # Staple notarization
-        xcrun stapler staple "SammyJs_Pitch_Flattener_Installer.pkg"
+        # Staple notarization (retried: the ticket fetch occasionally drops the connection)
+        for attempt in 1 2 3 4; do
+          if xcrun stapler staple "SammyJs_Pitch_Flattener_Installer.pkg"; then break; fi
+          if [ "$attempt" -eq 4 ]; then exit 1; fi
+          echo "Stapling the installer failed (attempt $attempt of 4), retrying in 30 s"
+          sleep 30
+        done
     
     - name: Upload macOS Installer
       uses: actions/upload-artifact@v6

@@ -6,7 +6,7 @@
 set -e  # Exit on error
 
 # Configuration
-VERSION="1.2.5"
+VERSION="2.0.1"
 PLUGIN_NAME="PitchFlattener"
 TAG_NAME="pitchflattener-v${VERSION}"
 
@@ -110,9 +110,8 @@ cat > release_artifacts/RELEASE_NOTES.md << EOF
 
 ## Technologies Used
 - JUCE Framework
-- Rubber Band Library (pitch shifting)
-- WORLD Vocoder DIO (pitch detection)
-- YIN Algorithm (pitch detection)
+- Rubber Band Library R3 (pitch shifting)
+- pYIN, MPM, reassigned spectral peaks and subharmonic summation (pitch detection)
 
 ## Support
 - Email: sam@sweetjusticesound.com

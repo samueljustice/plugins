@@ -1,0 +1,1137 @@
+{
+ "people": [
+  {
+   "name": "Ben Burtt",
+   "role": "Sound designer",
+   "credits": "Star Wars, Raiders of the Lost Ark, E.T. the Extra-Terrestrial, WALL·E",
+   "imdb": "https://www.imdb.com/name/nm0123785/"
+  },
+  {
+   "name": "Gary Rydstrom",
+   "role": "Sound designer & re-recording mixer",
+   "credits": "Terminator 2: Judgment Day, Jurassic Park, Saving Private Ryan, West Side Story",
+   "imdb": "https://www.imdb.com/name/nm0003977/"
+  },
+  {
+   "name": "Randy Thom",
+   "role": "Sound designer & re-recording mixer",
+   "credits": "The Right Stuff, Forrest Gump, The Incredibles, How to Train Your Dragon",
+   "imdb": "https://www.imdb.com/name/nm0858378/"
+  }
+ ],
+ "entries": [
+  {
+   "person": "Randy Thom",
+   "kind": "quote",
+   "text": "We, the audience, interpret sound with our emotions, not our intellect.",
+   "categories": [
+    "story"
+   ],
+   "source": {
+    "title": "Designing a Movie for Sound",
+    "publication": "FilmSound.org",
+    "url": "http://filmsound.org/articles/designing_for_sound.htm",
+    "year": null
+   }
+  },
+  {
+   "person": "Randy Thom",
+   "kind": "quote",
+   "text": "Characters need to have the opportunity to listen.",
+   "categories": [
+    "story",
+    "silence"
+   ],
+   "source": {
+    "title": "Designing a Movie for Sound",
+    "publication": "FilmSound.org",
+    "url": "http://filmsound.org/articles/designing_for_sound.htm",
+    "year": null
+   }
+  },
+  {
+   "person": "Randy Thom",
+   "kind": "insight",
+   "text": "Thom observes that most of cinema's great sound sequences are point-of-view sequences. Decide early — ideally in the script — whose ears the audience is inside, because that choice dictates what gets heard and what gets filtered away.",
+   "categories": [
+    "story",
+    "collaboration"
+   ],
+   "source": {
+    "title": "Designing a Movie for Sound",
+    "publication": "FilmSound.org",
+    "url": "http://filmsound.org/articles/designing_for_sound.htm",
+    "year": null
+   }
+  },
+  {
+   "person": "Randy Thom",
+   "kind": "insight",
+   "text": "A memory transition can ride on sound: Thom describes the rhythmic clank of a mill morphing into the cadence of a train as the story slips back in time.",
+   "categories": [
+    "story",
+    "craft"
+   ],
+   "source": {
+    "title": "Designing a Movie for Sound",
+    "publication": "FilmSound.org",
+    "url": "http://filmsound.org/articles/designing_for_sound.htm",
+    "year": null
+   }
+  },
+  {
+   "person": "Randy Thom",
+   "kind": "insight",
+   "text": "When the picture is ambiguous — extreme lenses, tilted or moving frames, darkness at the edges — the audience leans on its ears. Thom calls it starving the eye, and urges sound people to lobby for such shots.",
+   "categories": [
+    "collaboration",
+    "horror"
+   ],
+   "source": {
+    "title": "Designing a Movie for Sound",
+    "publication": "FilmSound.org",
+    "url": "http://filmsound.org/articles/designing_for_sound.htm",
+    "year": null
+   }
+  },
+  {
+   "person": "Randy Thom",
+   "kind": "quote",
+   "text": "When people are talking, they are not listening.",
+   "categories": [
+    "dialogue",
+    "silence"
+   ],
+   "source": {
+    "title": "More Confessions of a Sound Designer",
+    "publication": "FilmSound.org",
+    "url": "http://www.filmsound.org/randythom/confess2.html",
+    "year": null
+   }
+  },
+  {
+   "person": "Randy Thom",
+   "kind": "insight",
+   "text": "In Contact's tunnel ride, giving a panned sound to each of 10–20 similar flying objects would have smeared into pink noise. Thom asked the visual effects team to frame shots so viewers track only one or two objects at a time.",
+   "categories": [
+    "scifi",
+    "mixing",
+    "collaboration"
+   ],
+   "source": {
+    "title": "More Confessions of a Sound Designer",
+    "publication": "FilmSound.org",
+    "url": "http://www.filmsound.org/randythom/confess2.html",
+    "year": null
+   }
+  },
+  {
+   "person": "Randy Thom",
+   "kind": "insight",
+   "text": "A sound only becomes compelling when someone on screen perceives it. If no character reacts, it stays background noise — unless it comes back later in a scene where somebody truly listens.",
+   "categories": [
+    "story",
+    "craft"
+   ],
+   "source": {
+    "title": "More Confessions of a Sound Designer",
+    "publication": "FilmSound.org",
+    "url": "http://www.filmsound.org/randythom/confess2.html",
+    "year": null
+   }
+  },
+  {
+   "person": "Randy Thom",
+   "kind": "quote",
+   "text": "Film making and all of its crafts are really all one thing.",
+   "categories": [
+    "collaboration"
+   ],
+   "source": {
+    "title": "Confessions of an Occasional Sound Designer",
+    "publication": "FilmSound.org",
+    "url": "http://www.filmsound.org/randythom/confess.html",
+    "year": null
+   }
+  },
+  {
+   "person": "Randy Thom",
+   "kind": "quote",
+   "text": "Digital Doesn't Make Movies Too Loud, People Do!",
+   "categories": [
+    "mixing"
+   ],
+   "source": {
+    "title": "Are Movies Getting Too Loud?",
+    "publication": "FilmSound.org",
+    "url": "http://www.filmsound.org/randythom/loud-movies.htm",
+    "year": null
+   }
+  },
+  {
+   "person": "Randy Thom",
+   "kind": "insight",
+   "text": "Audience fatigue comes from sustained average level, not peaks. Like a roller coaster that lasts minutes rather than half an hour, an action sequence needs slow stretches between the fast ones so intensity can feel new again.",
+   "categories": [
+    "action",
+    "mixing",
+    "silence"
+   ],
+   "source": {
+    "title": "Are Movies Getting Too Loud?",
+    "publication": "FilmSound.org",
+    "url": "http://www.filmsound.org/randythom/loud-movies.htm",
+    "year": null
+   }
+  },
+  {
+   "person": "Randy Thom",
+   "kind": "insight",
+   "text": "On Contact, the mixers agreed ahead of time which passages music would lead and which effects would carry. An action scene doesn't need every element peaking at once to land.",
+   "categories": [
+    "mixing",
+    "music"
+   ],
+   "source": {
+    "title": "A Few Notes on Music in the Final Mix",
+    "publication": "FilmSound.org",
+    "url": "http://www.filmsound.org/randythom/finalmix.htm",
+    "year": null
+   }
+  },
+  {
+   "person": "Randy Thom",
+   "kind": "quote",
+   "text": "Nothing paralyzes an artist more than fear of screwing up.",
+   "categories": [
+    "craft"
+   ],
+   "source": {
+    "title": "On Being Creative",
+    "publication": "FilmSound.org",
+    "url": "http://www.filmsound.org/randythom/creative.htm",
+    "year": null
+   }
+  },
+  {
+   "person": "Randy Thom",
+   "kind": "quote",
+   "text": "Experiment as early and as often and as inexpensively as possible.",
+   "categories": [
+    "craft"
+   ],
+   "source": {
+    "title": "On Being Creative",
+    "publication": "FilmSound.org",
+    "url": "http://www.filmsound.org/randythom/creative.htm",
+    "year": null
+   }
+  },
+  {
+   "person": "Randy Thom",
+   "kind": "insight",
+   "text": "Before shooting, handle every object and surface on the set and listen for dramatic potential. A table shoved across the floor might carry more menace than the click of a cocked gun.",
+   "categories": [
+    "foley",
+    "recording",
+    "horror"
+   ],
+   "source": {
+    "title": "On Being Creative",
+    "publication": "FilmSound.org",
+    "url": "http://www.filmsound.org/randythom/creative.htm",
+    "year": null
+   }
+  },
+  {
+   "person": "Randy Thom",
+   "kind": "insight",
+   "text": "In Forrest Gump's Vietnam battle, mortars begin far off and creep closer and harder, conveying distance without reverse shots; the low, ground-level camera justified bullets whipping right past the audience's ears.",
+   "categories": [
+    "weapons",
+    "action",
+    "story"
+   ],
+   "source": {
+    "title": "A Few Notes on Forrest Gump",
+    "publication": "FilmSound.org",
+    "url": "http://www.filmsound.org/randythom/forrest.htm",
+    "year": null
+   }
+  },
+  {
+   "person": "Randy Thom",
+   "kind": "insight",
+   "text": "Contact opens by pulling back through space past ever-older broadcasts; after the earliest one there's static, then roughly 45 seconds of true silence that the team refused to paper over with music.",
+   "categories": [
+    "silence",
+    "scifi"
+   ],
+   "source": {
+    "title": "Making Contact",
+    "publication": "Studio Sound (via FilmSound.org)",
+    "url": "http://www.filmsound.org/randythom/contact.htm",
+    "year": 1997
+   }
+  },
+  {
+   "person": "Randy Thom",
+   "kind": "quote",
+   "text": "The temptation is to cover it with music",
+   "categories": [
+    "silence",
+    "music"
+   ],
+   "source": {
+    "title": "Making Contact",
+    "publication": "Studio Sound (via FilmSound.org)",
+    "url": "http://www.filmsound.org/randythom/contact.htm",
+    "year": 1997
+   }
+  },
+  {
+   "person": "Randy Thom",
+   "kind": "insight",
+   "text": "For Contact's dreamlike beach scene, only one sound plays at a time — lapping waves, wind in palms, her father scooping sand — with no music or dialogue, keeping the moment deliberately artificial.",
+   "categories": [
+    "silence",
+    "story",
+    "worlds"
+   ],
+   "source": {
+    "title": "Making Contact",
+    "publication": "Studio Sound (via FilmSound.org)",
+    "url": "http://www.filmsound.org/randythom/contact.htm",
+    "year": 1997
+   }
+  },
+  {
+   "person": "Randy Thom",
+   "kind": "insight",
+   "text": "In What Lies Beneath's near-drowning, once Claire's ears go under everything is muffled, then bubbles and nearly musical tones are layered on with no conventional score, as if you are inside her head underwater.",
+   "categories": [
+    "horror",
+    "story"
+   ],
+   "source": {
+    "title": "Randy Thom, Sound Designer, 'What Lies Beneath'",
+    "publication": "Editors Net (via FilmSound.org)",
+    "url": "http://www.filmsound.org/randythom/whatliesbeneath.htm",
+    "year": 2000
+   }
+  },
+  {
+   "person": "Randy Thom",
+   "kind": "insight",
+   "text": "The ghostly whispers in What Lies Beneath mix the actresses with recordings of older women praying, chopped up and reversed so no word is intelligible — leaving it unclear whether Claire hears something real.",
+   "categories": [
+    "horror",
+    "dialogue"
+   ],
+   "source": {
+    "title": "Randy Thom, Sound Designer, 'What Lies Beneath'",
+    "publication": "Editors Net (via FilmSound.org)",
+    "url": "http://www.filmsound.org/randythom/whatliesbeneath.htm",
+    "year": 2000
+   }
+  },
+  {
+   "person": "Randy Thom",
+   "kind": "quote",
+   "text": "Making mistakes and attempting experiments that don’t succeed are necessary to the work",
+   "categories": [
+    "craft"
+   ],
+   "source": {
+    "title": "Randy Thom Looks Back on 40 Years with Skywalker Sound",
+    "publication": "Lucasfilm",
+    "url": "https://www.lucasfilm.com/news/randy-thom-looks-back-on-40-years-with-skywalker-sound/",
+    "year": 2019
+   }
+  },
+  {
+   "person": "Randy Thom",
+   "kind": "insight",
+   "text": "Thom and Burtt recorded gunshots, explosions and nature at Skywalker Ranch before its buildings existed. In the field you stumble on unexpected sounds, and those surprises often connect to a story's themes.",
+   "categories": [
+    "recording"
+   ],
+   "source": {
+    "title": "Randy Thom Looks Back on 40 Years with Skywalker Sound",
+    "publication": "Lucasfilm",
+    "url": "https://www.lucasfilm.com/news/randy-thom-looks-back-on-40-years-with-skywalker-sound/",
+    "year": 2019
+   }
+  },
+  {
+   "person": "Ben Burtt",
+   "kind": "quote",
+   "text": "Sometimes, most often, good sounds are just discovered",
+   "categories": [
+    "craft",
+    "recording"
+   ],
+   "source": {
+    "title": "Ben Burtt Special: WALL-E, The Definitive Interview",
+    "publication": "Designing Sound",
+    "url": "https://designingsound.org/2009/09/15/ben-burtt-special-wall-e-the-definitive-interview/",
+    "year": 2009
+   }
+  },
+  {
+   "person": "Ben Burtt",
+   "kind": "insight",
+   "text": "Hearing a hand-cranked generator in an old John Wayne movie, Burtt bought a WWII generator on eBay and performed it in the studio, shaping its soft whir to WALL·E's slow movements.",
+   "categories": [
+    "foley",
+    "scifi",
+    "recording"
+   ],
+   "source": {
+    "title": "Ben Burtt Special: WALL-E, The Definitive Interview",
+    "publication": "Designing Sound",
+    "url": "https://designingsound.org/2009/09/15/ben-burtt-special-wall-e-the-definitive-interview/",
+    "year": 2009
+   }
+  },
+  {
+   "person": "Ben Burtt",
+   "kind": "insight",
+   "text": "For WALL·E, Burtt cut sound-and-picture 'character studies' like audition tapes; animators then animated to them and sound and animation were refined back and forth, which made the robot feel more authentic.",
+   "categories": [
+    "collaboration",
+    "scifi"
+   ],
+   "source": {
+    "title": "Ben Burtt Special: WALL-E, The Definitive Interview",
+    "publication": "Designing Sound",
+    "url": "https://designingsound.org/2009/09/15/ben-burtt-special-wall-e-the-definitive-interview/",
+    "year": 2009
+   }
+  },
+  {
+   "person": "Ben Burtt",
+   "kind": "quote",
+   "text": "Silence can be your friend.",
+   "categories": [
+    "silence"
+   ],
+   "source": {
+    "title": "Ben Burtt on How Modern Hollywood Has Lost a Sensitivity for Sound, Lightsabers, and the Wilhelm Scream",
+    "publication": "The Film Stage",
+    "url": "https://thefilmstage.com/ben-burtt-on-how-modern-hollywood-has-lost-a-sensitivity-for-sound-lightsabers-and-the-wilhelm-scream",
+    "year": null
+   }
+  },
+  {
+   "person": "Ben Burtt",
+   "kind": "quote",
+   "text": "Better films have areas of no music.",
+   "categories": [
+    "music",
+    "silence"
+   ],
+   "source": {
+    "title": "Ben Burtt on How Modern Hollywood Has Lost a Sensitivity for Sound, Lightsabers, and the Wilhelm Scream",
+    "publication": "The Film Stage",
+    "url": "https://thefilmstage.com/ben-burtt-on-how-modern-hollywood-has-lost-a-sensitivity-for-sound-lightsabers-and-the-wilhelm-scream",
+    "year": null
+   }
+  },
+  {
+   "person": "Ben Burtt",
+   "kind": "insight",
+   "text": "Both lightsabers in the Vader–Obi-Wan duel share the same two ingredients — projector-motor hum and TV-set buzz — but Burtt varied the ratio between them to give each blade its own identity.",
+   "categories": [
+    "scifi",
+    "weapons"
+   ],
+   "source": {
+    "title": "Ben Burtt on How Modern Hollywood Has Lost a Sensitivity for Sound, Lightsabers, and the Wilhelm Scream",
+    "publication": "The Film Stage",
+    "url": "https://thefilmstage.com/ben-burtt-on-how-modern-hollywood-has-lost-a-sensitivity-for-sound-lightsabers-and-the-wilhelm-scream",
+    "year": null
+   }
+  },
+  {
+   "person": "Ben Burtt",
+   "kind": "quote",
+   "text": "We knew that the hardest things were always the voices.",
+   "categories": [
+    "creatures",
+    "dialogue"
+   ],
+   "source": {
+    "title": "Locarno 2024 Interview: Hollywood Legend Ben Burtt on Inventing Ewok Language, Finding E.T., NASA Documentaries",
+    "publication": "ScreenAnarchy",
+    "url": "https://screenanarchy.com/2024/08/locarno-2024-interview-hollywood-legend-ben-burtt-on-inventing-ewok-language-finding-et-nasa-documen.html",
+    "year": 2024
+   }
+  },
+  {
+   "person": "Ben Burtt",
+   "kind": "insight",
+   "text": "Rather than garbling English, the Ewok language grew from recordings of an elderly woman telling stories in a rarely heard language; actors then imitated her. The same approach later fed Jawas, Hutts and Gungans.",
+   "categories": [
+    "creatures",
+    "dialogue"
+   ],
+   "source": {
+    "title": "Locarno 2024 Interview: Hollywood Legend Ben Burtt on Inventing Ewok Language, Finding E.T., NASA Documentaries",
+    "publication": "ScreenAnarchy",
+    "url": "https://screenanarchy.com/2024/08/locarno-2024-interview-hollywood-legend-ben-burtt-on-inventing-ewok-language-finding-et-nasa-documen.html",
+    "year": 2024
+   }
+  },
+  {
+   "person": "Ben Burtt",
+   "kind": "insight",
+   "text": "E.T.'s voice came from a retired, heavy-smoking woman Burtt met by chance outside a camera store. Spielberg judged her through blind temp-cut tests, and 'E.T. phone home' took around 200 takes to yield two or three keepers.",
+   "categories": [
+    "creatures",
+    "dialogue",
+    "collaboration"
+   ],
+   "source": {
+    "title": "Locarno 2024 Interview: Hollywood Legend Ben Burtt on Inventing Ewok Language, Finding E.T., NASA Documentaries",
+    "publication": "ScreenAnarchy",
+    "url": "https://screenanarchy.com/2024/08/locarno-2024-interview-hollywood-legend-ben-burtt-on-inventing-ewok-language-finding-et-nasa-documen.html",
+    "year": 2024
+   }
+  },
+  {
+   "person": "Ben Burtt",
+   "kind": "quote",
+   "text": "we wanted to draw upon raw material from the real world",
+   "categories": [
+    "recording",
+    "scifi"
+   ],
+   "source": {
+    "title": "Star Wars sound (Burtt quotes from Film Sound Today)",
+    "publication": "FilmSound.org",
+    "url": "https://www.filmsound.org/starwars/",
+    "year": null
+   }
+  },
+  {
+   "person": "Ben Burtt",
+   "kind": "insight",
+   "text": "The Imperial Walkers' stomp is a machinist's punch press, modified and layered with bicycle chains dropped onto concrete — mechanical heft plus rattling detail.",
+   "categories": [
+    "weapons",
+    "scifi"
+   ],
+   "source": {
+    "title": "Star Wars sound (Burtt quotes from Film Sound Today)",
+    "publication": "FilmSound.org",
+    "url": "https://www.filmsound.org/starwars/",
+    "year": null
+   }
+  },
+  {
+   "person": "Ben Burtt",
+   "kind": "insight",
+   "text": "Luke's landspeeder whoosh is Los Angeles Harbor Freeway traffic recorded through a vacuum-cleaner pipe — the tube acting as a resonant filter that turns ordinary road roar into something futuristic.",
+   "categories": [
+    "weapons",
+    "recording",
+    "scifi"
+   ],
+   "source": {
+    "title": "Star Wars sound (Burtt quotes from Film Sound Today)",
+    "publication": "FilmSound.org",
+    "url": "https://www.filmsound.org/starwars/",
+    "year": null
+   }
+  },
+  {
+   "person": "Ben Burtt",
+   "kind": "quote",
+   "text": "I have to constantly re-learn the lesson of subtractive rather than additive sound orchestration.",
+   "categories": [
+    "mixing",
+    "silence"
+   ],
+   "source": {
+    "title": "Sound Trek: The Audio Explorations of Ben Burtt",
+    "publication": "CineMontage",
+    "url": "https://cinemontage.org/?p=21028",
+    "year": 2009
+   }
+  },
+  {
+   "person": "Ben Burtt",
+   "kind": "quote",
+   "text": "You don't just want a wall of noise.",
+   "categories": [
+    "mixing",
+    "action"
+   ],
+   "source": {
+    "title": "Sound Trek: The Audio Explorations of Ben Burtt",
+    "publication": "CineMontage",
+    "url": "https://cinemontage.org/?p=21028",
+    "year": 2009
+   }
+  },
+  {
+   "person": "Ben Burtt",
+   "kind": "insight",
+   "text": "For Crystal Skull's magnetic and telekinetic effects, Burtt recorded a buzzing mercury-vapor lamp in the Skywalker parking lot, then slowed, reversed and layered it.",
+   "categories": [
+    "scifi",
+    "recording"
+   ],
+   "source": {
+    "title": "Sound Trek: The Audio Explorations of Ben Burtt",
+    "publication": "CineMontage",
+    "url": "https://cinemontage.org/?p=21028",
+    "year": 2009
+   }
+  },
+  {
+   "person": "Ben Burtt",
+   "kind": "insight",
+   "text": "The Jawas' chatter is Zulu speech sped up, and many Mos Eisley cantina aliens are human voices raised with a canister of helium — real language as raw material, transformed past recognition.",
+   "categories": [
+    "creatures",
+    "dialogue"
+   ],
+   "source": {
+    "title": "Sound Trek: The Audio Explorations of Ben Burtt",
+    "publication": "CineMontage",
+    "url": "https://cinemontage.org/?p=21028",
+    "year": 2009
+   }
+  },
+  {
+   "person": "Ben Burtt",
+   "kind": "quote",
+   "text": "Much of the work is editorial.",
+   "categories": [
+    "craft"
+   ],
+   "source": {
+    "title": "Do you know what Wookiees sound like?",
+    "publication": "The Christian Science Monitor",
+    "url": "https://csmonitor.com/1980/0612/061257.html",
+    "year": 1980
+   }
+  },
+  {
+   "person": "Ben Burtt",
+   "kind": "insight",
+   "text": "For The Empire Strikes Back, Burtt recorded howitzer rounds at a New Mexico artillery base — their shrieking shells became Star Destroyer launches — and paired P-38 fighters passing at 400 mph with Hoover Dam's spillway for a giant blast.",
+   "categories": [
+    "recording",
+    "weapons",
+    "action"
+   ],
+   "source": {
+    "title": "Do you know what Wookiees sound like?",
+    "publication": "The Christian Science Monitor",
+    "url": "https://csmonitor.com/1980/0612/061257.html",
+    "year": 1980
+   }
+  },
+  {
+   "person": "Ben Burtt",
+   "kind": "insight",
+   "text": "To make a lightsaber move, Burtt played its hum loop through a speaker and swung a microphone past it, capturing a natural Doppler pitch shift for every sweep and swing.",
+   "categories": [
+    "scifi",
+    "weapons",
+    "craft"
+   ],
+   "source": {
+    "title": "Star Wars: Pew Pew!",
+    "publication": "Twenty Thousand Hertz",
+    "url": "https://www.20k.org/episodes/starwarspewpew",
+    "year": 2020
+   }
+  },
+  {
+   "person": "Ben Burtt",
+   "kind": "quote",
+   "text": "The breathing is me breathing through a particular scuba tank regulator.",
+   "categories": [
+    "creatures",
+    "scifi"
+   ],
+   "source": {
+    "title": "Star Wars: Pew Pew!",
+    "publication": "Twenty Thousand Hertz",
+    "url": "https://www.20k.org/episodes/starwarspewpew",
+    "year": 2020
+   }
+  },
+  {
+   "person": "Ben Burtt",
+   "kind": "insight",
+   "text": "The TIE fighter howl starts with a car passing a mic on wet pavement, layered with elephant calls pulled from an old Fox library — a mundane pass-by made terrifying by an animal scream.",
+   "categories": [
+    "weapons",
+    "scifi",
+    "creatures"
+   ],
+   "source": {
+    "title": "Star Wars: Pew Pew!",
+    "publication": "Twenty Thousand Hertz",
+    "url": "https://www.20k.org/episodes/starwarspewpew",
+    "year": 2020
+   }
+  },
+  {
+   "person": "Ben Burtt",
+   "kind": "insight",
+   "text": "Chewbacca began as hours of recordings of a pet bear. Burtt sorted the clips by emotion — angry, cute, questioning — then slowed and manipulated them into a 'word list' he could edit into performances.",
+   "categories": [
+    "creatures",
+    "dialogue",
+    "craft"
+   ],
+   "source": {
+    "title": "Star Wars: Pew Pew!",
+    "publication": "Twenty Thousand Hertz",
+    "url": "https://www.20k.org/episodes/starwarspewpew",
+    "year": 2020
+   }
+  },
+  {
+   "person": "Ben Burtt",
+   "kind": "insight",
+   "text": "R2-D2 blends human and machine: Burtt whistled and vocalized while playing an ARP synthesizer, so the electronic beeps carry the inflection of a real performance.",
+   "categories": [
+    "creatures",
+    "scifi"
+   ],
+   "source": {
+    "title": "Star Wars: Pew Pew!",
+    "publication": "Twenty Thousand Hertz",
+    "url": "https://www.20k.org/episodes/starwarspewpew",
+    "year": 2020
+   }
+  },
+  {
+   "person": "Ben Burtt",
+   "kind": "insight",
+   "text": "Burtt plans like a scientist: he breaks a script into tasks, estimates how many effects it needs — say 800 — and divides by the days available to set himself a daily quota.",
+   "categories": [
+    "craft"
+   ],
+   "source": {
+    "title": "Definition, October 2024 (Ben Burtt interview by Trevor Hogg)",
+    "publication": "Definition",
+    "url": "https://online.bright-publishing.com/view/578732227/22",
+    "year": 2024
+   }
+  },
+  {
+   "person": "Gary Rydstrom",
+   "kind": "quote",
+   "text": "sound is all about emotion, the way music is emotion.",
+   "categories": [
+    "story",
+    "music"
+   ],
+   "source": {
+    "title": "Gary Rydstrom Special: The Haunting",
+    "publication": "Designing Sound",
+    "url": "https://designingsound.org/2009/07/21/gary-rydstrom-special-the-haunting/",
+    "year": 2009
+   }
+  },
+  {
+   "person": "Gary Rydstrom",
+   "kind": "insight",
+   "text": "The haunted house's 'breath' as the front door opens was captured driving about 80 mph on a freeway late at night with the sunroof open and a digital recorder rolling.",
+   "categories": [
+    "horror",
+    "recording"
+   ],
+   "source": {
+    "title": "Gary Rydstrom Special: The Haunting",
+    "publication": "Designing Sound",
+    "url": "https://designingsound.org/2009/07/21/gary-rydstrom-special-the-haunting/",
+    "year": 2009
+   }
+  },
+  {
+   "person": "Gary Rydstrom",
+   "kind": "insight",
+   "text": "The Haunting's giant footsteps overhead came from a 19th-century iron lung, slowed down until its mechanism became a rhythmic sweep-clunk.",
+   "categories": [
+    "horror",
+    "craft"
+   ],
+   "source": {
+    "title": "Gary Rydstrom Special: The Haunting",
+    "publication": "Designing Sound",
+    "url": "https://designingsound.org/2009/07/21/gary-rydstrom-special-the-haunting/",
+    "year": 2009
+   }
+  },
+  {
+   "person": "Gary Rydstrom",
+   "kind": "quote",
+   "text": "Everything had to be so much bigger than life.",
+   "categories": [
+    "action"
+   ],
+   "source": {
+    "title": "Terminator 2: Judgment Day sound",
+    "publication": "FilmSound.org",
+    "url": "https://www.filmsound.org/t2/",
+    "year": null
+   }
+  },
+  {
+   "person": "Gary Rydstrom",
+   "kind": "insight",
+   "text": "The T-1000's liquid-metal morph: Dust-Off sprayed into a flour-and-water mix, recorded with a condom-sheathed mic, gave metallic, evolving bubbles. A violin bow on metal had been tried first and rejected as too ethereal.",
+   "categories": [
+    "scifi",
+    "creatures",
+    "recording"
+   ],
+   "source": {
+    "title": "Terminator 2: Judgment Day sound",
+    "publication": "FilmSound.org",
+    "url": "https://www.filmsound.org/t2/",
+    "year": null
+   }
+  },
+  {
+   "person": "Gary Rydstrom",
+   "kind": "insight",
+   "text": "The T-1000 oozing through steel bars is dog food slowly sucked out of a can; bullets splatting into it are an upturned glass slammed into a bucket of yogurt for a hard edge on the goop.",
+   "categories": [
+    "scifi",
+    "foley"
+   ],
+   "source": {
+    "title": "Terminator 2: Judgment Day sound",
+    "publication": "FilmSound.org",
+    "url": "https://www.filmsound.org/t2/",
+    "year": null
+   }
+  },
+  {
+   "person": "Gary Rydstrom",
+   "kind": "quote",
+   "text": "You would get the deep thud with a high ring-out.",
+   "categories": [
+    "action",
+    "craft"
+   ],
+   "source": {
+    "title": "Terminator 2: Judgment Day sound",
+    "publication": "FilmSound.org",
+    "url": "https://www.filmsound.org/t2/",
+    "year": null
+   }
+  },
+  {
+   "person": "Gary Rydstrom",
+   "kind": "insight",
+   "text": "T2 sets up its biggest hits with removal: silence and a detonator click before the Cyberdyne blast, ambience dropping out before the steel-mill gunshot, engine and music cutting during the Harley's flight until it lands.",
+   "categories": [
+    "silence",
+    "action",
+    "mixing"
+   ],
+   "source": {
+    "title": "Terminator 2: Judgment Day sound",
+    "publication": "FilmSound.org",
+    "url": "https://www.filmsound.org/t2/",
+    "year": null
+   }
+  },
+  {
+   "person": "Gary Rydstrom",
+   "kind": "quote",
+   "text": "But there was no bigger candy store for sound design than Jurassic Park.",
+   "categories": [
+    "creatures"
+   ],
+   "source": {
+    "title": "Jurassic Bark: How Sound Design Changed Our Imaginations",
+    "publication": "NPR (via KUNC)",
+    "url": "https://www.kunc.org/2013-04-13/jurassic-bark-how-sound-design-changed-our-imaginations",
+    "year": 2013
+   }
+  },
+  {
+   "person": "Gary Rydstrom",
+   "kind": "insight",
+   "text": "The T. rex roar rests on a low, tiger-like base topped by a baby elephant's scream. The elephant made that sound only once, so the single recording was reused for every roar in the film.",
+   "categories": [
+    "creatures",
+    "recording"
+   ],
+   "source": {
+    "title": "Jurassic Bark: How Sound Design Changed Our Imaginations",
+    "publication": "NPR (via KUNC)",
+    "url": "https://www.kunc.org/2013-04-13/jurassic-bark-how-sound-design-changed-our-imaginations",
+    "year": 2013
+   }
+  },
+  {
+   "person": "Gary Rydstrom",
+   "kind": "insight",
+   "text": "Some of Jurassic Park's most menacing calls had unglamorous origins: raptor barks from mating tortoises plus hissing geese, the Gallimimus herd from horses in estrus, and Rydstrom's own Jack Russell terrier in the T. rex.",
+   "categories": [
+    "creatures",
+    "recording"
+   ],
+   "source": {
+    "title": "The Raptor Noises in Jurassic Park Are Mating Tortoises",
+    "publication": "ScienceAlert",
+    "url": "https://www.sciencealert.com/the-raptor-noises-in-jurassic-park-are-mating-tortoises",
+    "year": 2015
+   }
+  },
+  {
+   "person": "Gary Rydstrom",
+   "kind": "quote",
+   "text": "every sound is in context with sounds around it.",
+   "categories": [
+    "mixing",
+    "craft"
+   ],
+   "source": {
+    "title": "189: Gary Rydstrom",
+    "publication": "Tonebenders Podcast",
+    "url": "https://tonebenderspodcast.com/189-gary-rydstrom/2/",
+    "year": 2022
+   }
+  },
+  {
+   "person": "Gary Rydstrom",
+   "kind": "quote",
+   "text": "It's good filmmaking to make use of something you've set up in the beginning.",
+   "categories": [
+    "story"
+   ],
+   "source": {
+    "title": "189: Gary Rydstrom",
+    "publication": "Tonebenders Podcast",
+    "url": "https://tonebenderspodcast.com/189-gary-rydstrom/2/",
+    "year": 2022
+   }
+  },
+  {
+   "person": "Gary Rydstrom",
+   "kind": "insight",
+   "text": "West Side Story opens on demolition, and the sound keeps it going off screen: the neighborhood is audibly being torn down in later scenes, so the film never has to show it again.",
+   "categories": [
+    "worlds",
+    "story"
+   ],
+   "source": {
+    "title": "189: Gary Rydstrom",
+    "publication": "Tonebenders Podcast",
+    "url": "https://tonebenderspodcast.com/189-gary-rydstrom/2/",
+    "year": 2022
+   }
+  },
+  {
+   "person": "Gary Rydstrom",
+   "kind": "insight",
+   "text": "In West Side Story's knife fight, the blade swishes were kept high and sharp while the ambience stayed low beneath them — like a band arranger clearing space for a featured instrument.",
+   "categories": [
+    "mixing",
+    "action",
+    "music"
+   ],
+   "source": {
+    "title": "189: Gary Rydstrom",
+    "publication": "Tonebenders Podcast",
+    "url": "https://tonebenderspodcast.com/189-gary-rydstrom/2/",
+    "year": 2022
+   }
+  },
+  {
+   "person": "Gary Rydstrom",
+   "kind": "insight",
+   "text": "To get from the rumble's deaths to the upbeat 'I Feel Pretty', the team stripped away natural sound and left only church bells, giving the audience a moment to absorb the loss.",
+   "categories": [
+    "silence",
+    "story",
+    "music"
+   ],
+   "source": {
+    "title": "189: Gary Rydstrom",
+    "publication": "Tonebenders Podcast",
+    "url": "https://tonebenderspodcast.com/189-gary-rydstrom/2/",
+    "year": 2022
+   }
+  },
+  {
+   "person": "Gary Rydstrom",
+   "kind": "quote",
+   "text": "You have to choose and control your sound moments.",
+   "categories": [
+    "mixing",
+    "story"
+   ],
+   "source": {
+    "title": "Gary Rydstrom's Work on West Side Story Earns a 20th Academy Award Nomination",
+    "publication": "Northwestern University Sound Department",
+    "url": "https://sound.northwestern.edu/gary-rydstroms-work-on-west-side-story-earns-a-20th-academy-award-nomination/",
+    "year": 2022
+   }
+  },
+  {
+   "person": "Gary Rydstrom",
+   "kind": "insight",
+   "text": "Rydstrom treated West Side Story's city backgrounds — horns, sirens, pedestrians, crying babies — as music in their own right, placing each with deliberate timing and pitch around the score.",
+   "categories": [
+    "worlds",
+    "music"
+   ],
+   "source": {
+    "title": "Gary Rydstrom's Work on West Side Story Earns a 20th Academy Award Nomination",
+    "publication": "Northwestern University Sound Department",
+    "url": "https://sound.northwestern.edu/gary-rydstroms-work-on-west-side-story-earns-a-20th-academy-award-nomination/",
+    "year": 2022
+   }
+  },
+  {
+   "person": "Gary Rydstrom",
+   "kind": "quote",
+   "text": "I always think of sound design being like prospecting for gold.",
+   "categories": [
+    "craft"
+   ],
+   "source": {
+    "title": "Gary Rydstrom interview (Mix, February 2004)",
+    "publication": "Mix Magazine (via Phantom Fundamental)",
+    "url": "https://phantomfundamental.blogspot.com/2014/07/tidbits-gary-dystroms-interview-with.html",
+    "year": 2004
+   }
+  },
+  {
+   "person": "Gary Rydstrom",
+   "kind": "insight",
+   "text": "For Saving Private Ryan's tanks, Spielberg wanted odd sounds bouncing between buildings. Rydstrom put scraping metal and engines on quarter-inch tape and rocked the reels by hand, scratch-style, for strange rhythmic squeals.",
+   "categories": [
+    "weapons",
+    "craft"
+   ],
+   "source": {
+    "title": "Gary Rydstrom interview (Mix, February 2004)",
+    "publication": "Mix Magazine (via Phantom Fundamental)",
+    "url": "https://phantomfundamental.blogspot.com/2014/07/tidbits-gary-dystroms-interview-with.html",
+    "year": 2004
+   }
+  },
+  {
+   "person": "Gary Rydstrom",
+   "kind": "insight",
+   "text": "To give Luxo Jr.'s lamps character, Rydstrom recorded everyday objects — unscrewing a bulb, scraping metal — and kept only the sounds that happened to feel sad or gleeful.",
+   "categories": [
+    "creatures",
+    "story"
+   ],
+   "source": {
+    "title": "Gary Rydstrom interview (Mix, February 2004)",
+    "publication": "Mix Magazine (via Phantom Fundamental)",
+    "url": "https://phantomfundamental.blogspot.com/2014/07/tidbits-gary-dystroms-interview-with.html",
+    "year": 2004
+   }
+  },
+  {
+   "person": "Gary Rydstrom",
+   "kind": "quote",
+   "text": "My favorite sounds were the bubble pops.",
+   "categories": [
+    "foley"
+   ],
+   "source": {
+    "title": "Sound Man Gary Rydstrom",
+    "publication": "M&E",
+    "url": "https://mande.net/btl/crafts/sound-man-gary-rydstrom?amp=1",
+    "year": 2004
+   }
+  },
+  {
+   "person": "Gary Rydstrom",
+   "kind": "insight",
+   "text": "Finding Nemo's underwater world: bubble pops from a finger pressed inside the cheek, a flapping paper towel for Nemo's weak fin, and a condom-wrapped mic dipped in an aquarium alongside bubble machines.",
+   "categories": [
+    "foley",
+    "worlds",
+    "recording"
+   ],
+   "source": {
+    "title": "Sound Man Gary Rydstrom",
+    "publication": "M&E",
+    "url": "https://mande.net/btl/crafts/sound-man-gary-rydstrom?amp=1",
+    "year": 2004
+   }
+  },
+  {
+   "person": "Gary Rydstrom",
+   "kind": "quote",
+   "text": "We wanted to work with the music, not interfere or clash with it.",
+   "categories": [
+    "music",
+    "mixing"
+   ],
+   "source": {
+    "title": "Gary Rydstrom Offers an Inside Look at the Sound Design for Oscar-Nominated Ad Astra",
+    "publication": "Northwestern University Sound Department",
+    "url": "https://sound.northwestern.edu/gary-rydstrom-offers-an-inside-look-at-the-sound-design-for-oscar-nominated-ad-astra/",
+    "year": 2020
+   }
+  },
+  {
+   "person": "Gary Rydstrom",
+   "kind": "insight",
+   "text": "Ad Astra's opening sound was built from dialogue spoken later by Tommy Lee Jones and Liv Tyler, looped and morphed into music and soundscape — so you subliminally hear Jones long before you see him.",
+   "categories": [
+    "story",
+    "dialogue",
+    "music"
+   ],
+   "source": {
+    "title": "Gary Rydstrom Offers an Inside Look at the Sound Design for Oscar-Nominated Ad Astra",
+    "publication": "Northwestern University Sound Department",
+    "url": "https://sound.northwestern.edu/gary-rydstrom-offers-an-inside-look-at-the-sound-design-for-oscar-nominated-ad-astra/",
+    "year": 2020
+   }
+  },
+  {
+   "person": "Gary Rydstrom",
+   "kind": "quote",
+   "text": "There are no sweeping vistas, only the chaos of fighting as it is experienced.",
+   "categories": [
+    "action",
+    "story"
+   ],
+   "source": {
+    "title": "The Sound of Saving Private Ryan",
+    "publication": "Designing Sound (excerpt from Surround Sound)",
+    "url": "https://designingsound.org/2009/11/05/the-sound-of-saving-private-ryan/",
+    "year": 2009
+   }
+  },
+  {
+   "person": "Gary Rydstrom",
+   "kind": "insight",
+   "text": "Saving Private Ryan's battle sounds came from real WWII weapons, with impacts edited by hand. Veterans Rydstrom consulted could identify guns by ear, like the M1 rifle's telltale cartridge ping.",
+   "categories": [
+    "weapons",
+    "recording"
+   ],
+   "source": {
+    "title": "When We Heard Real WWII Bullets: The Sound Story of 'Saving Private Ryan'",
+    "publication": "No Film School",
+    "url": "https://nofilmschool.com/saving-private-ryan-sound-design",
+    "year": 2025
+   }
+  }
+ ]
+}

@@ -176,10 +176,32 @@ public:
         g.fillRoundedRectangle(bounds.getX() + 6.0f, bounds.getY() + 8.0f, 3.0f, bounds.getHeight() - 16.0f, 1.5f);
 
         auto header = headerArea(getLocalBounds());
+        auto nameRow = header.removeFromTop(18).withTrimmedLeft(10).withTrimmedRight(86);
+        if (hasData())
+        {
+            // Where the track plays: a tag in that section's colour, right of the name. Follows the type.
+            const int bus = m_owner.m_hold.getBus(m_track);
+            const auto tagColour = busColour(bus);
+            const auto tagText = busTag(bus);
+            g.setFont(fonts.label(10.0f));
+            const int tagW = juce::roundToInt(juce::GlyphArrangement::getStringWidth(g.getCurrentFont(), tagText)) + 10;
+            const auto tag = nameRow.removeFromRight(tagW).reduced(0, 2).toFloat();
+            nameRow.removeFromRight(6);
+            m_busTagArea = tag.toNearestInt();
+            g.setColour(tagColour.withAlpha(0.16f));
+            g.fillRoundedRectangle(tag, 3.0f);
+            g.setColour(tagColour.withAlpha(0.8f));
+            g.drawRoundedRectangle(tag.reduced(0.5f), 3.0f, 1.0f);
+            g.setColour(tagColour);
+            g.drawText(tagText, tag, juce::Justification::centred, false);
+        }
+        else
+        {
+            m_busTagArea = {};
+        }
         g.setFont(fonts.heading(12.0f));
         g.setColour(TC::text);
-        g.drawText(m_owner.m_hold.getDisplayName(m_track), header.removeFromTop(18).withTrimmedLeft(10).withTrimmedRight(80),
-                   juce::Justification::centredLeft, true);
+        g.drawText(m_owner.m_hold.getDisplayName(m_track), nameRow, juce::Justification::centredLeft, true);
 
         const auto wave = waveArea();
         const auto wf = wave.toFloat();
@@ -369,8 +391,16 @@ public:
     {
         const auto pos = getMouseXYRelative();
         auto header = headerArea(getLocalBounds());
+        if (hasData() && m_busTagArea.contains(pos))
+        {
+            const int bus = m_owner.m_hold.getBus(m_track);
+            return busTag(bus) + "\nWhere this track plays: "
+                   + (bus == CargoHold::c_hitsBus ? juce::String("the hits, which only open at the biggest moments of buses A and B.")
+                                                   : busLabel(bus) + (bus == 0 ? ", the bus that leads and ducks bus B." : ", the bus that sits under bus A."))
+                   + " It follows the sound type.\nClick the type badge underneath to change the type, and so the bus.";
+        }
         if (header.removeFromTop(18).contains(pos))
-            return "Track name\nNamed from the file and its sound type.\nDouble-click to rename it.";
+            return "Track name\nNamed after its sound type, until you rename it.\nDouble-click to rename it.";
         if (hasData() && waveArea().contains(pos))
             return "Waveform\nThe flag marks where this track starts playing; it loops from there and the part before it is dimmed. "
                    "With skip silence on, the bright parts are the sounds it plays and the faint parts are the gaps it skips.\n"
@@ -486,6 +516,19 @@ private:
         m_owner.m_hold.rename(m_track, name);
     }
 
+    static juce::String busTag(int bus)
+    {
+        if (bus == CargoHold::c_hitsBus) return "HITS";
+        return juce::String("BUS ") + ParamIDs::busNames[juce::jlimit(0, CargoHold::c_maxBuses - 1, bus)];
+    }
+
+    static juce::Colour busColour(int bus)
+    {
+        // The colours of the sections' knobs: bus A coral, bus B turquoise, hits red.
+        if (bus == CargoHold::c_hitsBus) return TC::record;
+        return bus == 0 ? TC::movement : TC::sources;
+    }
+
     static juce::String busLabel(int bus)
     {
         if (bus == CargoHold::c_hitsBus) return "the hits";
@@ -555,6 +598,7 @@ private:
     juce::Slider m_level;
     juce::TextButton m_type, m_mute { "M" }, m_solo { "S" }, m_remove { "x" }, m_skip { "SKIP SILENCE" };
     juce::TextEditor m_nameEditor;
+    juce::Rectangle<int> m_busTagArea; // set in paint(), for the tooltip
     juce::AudioProcessorValueTreeState::SliderAttachment m_levelAttachment;
 };
 

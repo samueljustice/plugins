@@ -295,7 +295,7 @@ juce::String CargoHold::typeName(CargoRole role)
 juce::String CargoHold::getDisplayName(int track) const
 {
     // A user rename wins. Otherwise the track is named after what the scan found it to be
-    // ("Tonal content", "Energy bed", ...), numbered when the same type appears more than once.
+    // ("Tonal content", "Energy bed", ...). Not numbered: the lane colour tells two of a kind apart.
     if (track < 0 || track >= c_numTracks)
         return {};
     const auto& t = m_tracks[static_cast<size_t>(track)];
@@ -303,22 +303,7 @@ juce::String CargoHold::getDisplayName(int track) const
         return t.userName;
     if (t.current == nullptr)
         return "Track " + juce::String(track + 1);
-
-    const auto role = getRole(track);
-    int same = 0, index = 0;
-    for (int i = 0; i < c_numTracks; ++i)
-    {
-        if (m_tracks[static_cast<size_t>(i)].current == nullptr || getRole(i) != role)
-            continue;
-        ++same;
-        if (i == track)
-            index = same;
-    }
-    int total = 0;
-    for (int i = 0; i < c_numTracks; ++i)
-        if (m_tracks[static_cast<size_t>(i)].current != nullptr && getRole(i) == role)
-            ++total;
-    return typeName(role) + (total > 1 ? " " + juce::String(index) : juce::String());
+    return typeName(getRole(track));
 }
 
 void CargoHold::rename(int track, const juce::String& name)

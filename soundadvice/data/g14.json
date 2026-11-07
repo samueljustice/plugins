@@ -1,0 +1,887 @@
+{
+ "people": [
+  {
+   "name": "Matthew Wood",
+   "role": "Supervising sound editor & sound designer (Skywalker Sound); voice of General Grievous",
+   "credits": "Star Wars: The Force Awakens; Star Wars: The Rise of Skywalker; Star Wars: Revenge of the Sith",
+   "imdb": "https://www.imdb.com/name/nm0003214/"
+  },
+  {
+   "name": "David Acord",
+   "role": "Supervising sound editor, sound designer & re-recording mixer (Skywalker Sound)",
+   "credits": "Star Wars: The Force Awakens; The Mandalorian; Andor",
+   "imdb": "https://www.imdb.com/name/nm0004198/"
+  },
+  {
+   "name": "Christopher Scarabosio",
+   "role": "Re-recording mixer, supervising sound editor & sound designer",
+   "credits": "Rogue One: A Star Wars Story; Star Wars: The Force Awakens; Don't Look Up",
+   "imdb": "https://www.imdb.com/name/nm0769042/"
+  },
+  {
+   "name": "Gwendolyn Yates Whittle",
+   "role": "Supervising sound editor (dialogue & ADR), Skywalker Sound",
+   "credits": "Avatar; Tron: Legacy; Avatar: The Way of Water",
+   "imdb": "https://www.imdb.com/name/nm0946705/"
+  },
+  {
+   "name": "Bonnie Wild",
+   "role": "Supervising sound editor, sound effects editor & re-recording mixer",
+   "credits": "The Mandalorian; Ahsoka; Star Wars: The Last Jedi",
+   "imdb": "https://www.imdb.com/name/nm2194392/"
+  }
+ ],
+ "entries": [
+  {
+   "person": "Matthew Wood",
+   "kind": "quote",
+   "text": "What you're hearing is what's going on in the characters' minds.",
+   "categories": [
+    "story",
+    "scifi"
+   ],
+   "source": {
+    "title": "'Star Wars: The Force Awakens' sound designer explains how he helped rework a major scene",
+    "publication": "The Daily Dot",
+    "url": "https://www.dailydot.com/star-wars-force-awakens-sound-design-matthew-wood-interview",
+    "year": 2016
+   }
+  },
+  {
+   "person": "Matthew Wood",
+   "kind": "quote",
+   "text": "that's when it really works: when it's helping you do something in the film.",
+   "categories": [
+    "dialogue",
+    "story"
+   ],
+   "source": {
+    "title": "'Star Wars: The Force Awakens' sound designer explains how he helped rework a major scene",
+    "publication": "The Daily Dot",
+    "url": "https://www.dailydot.com/star-wars-force-awakens-sound-design-matthew-wood-interview",
+    "year": 2016
+   }
+  },
+  {
+   "person": "Matthew Wood",
+   "kind": "insight",
+   "text": "Wood spent months recording vehicles for The Phantom Menace's podrace; some of those library recordings resurfaced years later as speeder sounds on Jakku in The Force Awakens.",
+   "categories": [
+    "recording",
+    "scifi"
+   ],
+   "source": {
+    "title": "'Star Wars: The Force Awakens' sound designer explains how he helped rework a major scene",
+    "publication": "The Daily Dot",
+    "url": "https://www.dailydot.com/star-wars-force-awakens-sound-design-matthew-wood-interview",
+    "year": 2016
+   }
+  },
+  {
+   "person": "Matthew Wood",
+   "kind": "insight",
+   "text": "Kylo Ren's mask voice was built in sound design first, then handed to Adam Driver to perform through. Because the processing responded to his delivery in real time, he could get up on the mic and play it like an instrument.",
+   "categories": [
+    "dialogue",
+    "scifi",
+    "collaboration"
+   ],
+   "source": {
+    "title": "Kylo Ren's Signature Force Sound Was a Purring Kitty, Say Sound Designers",
+    "publication": "Nerdist",
+    "url": "https://archive.nerdist.com/kylo-rens-signature-force-sound-was-a-purring-kitty-say-sound-designers",
+    "year": 2016
+   }
+  },
+  {
+   "person": "Matthew Wood",
+   "kind": "insight",
+   "text": "BB-8 was voiced through a tactile interface that let the performer change timbre and pitch by hand. Ben Schwartz's recordings acted as an English placeholder telling the team what BB-8 was feeling and saying.",
+   "categories": [
+    "scifi",
+    "creatures",
+    "dialogue"
+   ],
+   "source": {
+    "title": "Kylo Ren's Signature Force Sound Was a Purring Kitty, Say Sound Designers",
+    "publication": "Nerdist",
+    "url": "https://archive.nerdist.com/kylo-rens-signature-force-sound-was-a-purring-kitty-say-sound-designers",
+    "year": 2016
+   }
+  },
+  {
+   "person": "Matthew Wood",
+   "kind": "insight",
+   "text": "For Rey and Kylo's tug-of-war over the Skywalker saber in The Last Jedi, Wood used the singing tone of the holocron from Star Wars Rebels, choosing an existing franchise sound that would hearken back, whether or not anyone noticed.",
+   "categories": [
+    "scifi",
+    "story"
+   ],
+   "source": {
+    "title": "7 Things We Learned About THE LAST JEDI's Sound Design",
+    "publication": "Nerdist",
+    "url": "https://archive.nerdist.com/the-last-jedi-sound-design-star-wars-rebels-race-car",
+    "year": 2018
+   }
+  },
+  {
+   "person": "Matthew Wood",
+   "kind": "insight",
+   "text": "Wood recorded new Kylo Ren lines in Adam Driver's New York apartment closet among hanging clothes, and once recorded Ewan McGregor under a blanket and a couple of chairs. Hanging clothes or blankets can serve as a makeshift booth.",
+   "categories": [
+    "recording",
+    "dialogue"
+   ],
+   "source": {
+    "title": "Secrets behind the Oscar-nominated sounds of 'Star Wars: The Rise of Skywalker'",
+    "publication": "Good Morning America (ABC News)",
+    "url": "https://www.goodmorningamerica.com/culture/story/secrets-oscar-nominated-sounds-star-wars-rise-skywalker-68681190",
+    "year": 2020
+   }
+  },
+  {
+   "person": "Matthew Wood",
+   "kind": "insight",
+   "text": "Ben Burtt told Wood that podrace audio leans on gear-shift transitions: a gear shift is a high-energy sound that happens in a very short amount of time.",
+   "categories": [
+    "action",
+    "scifi"
+   ],
+   "source": {
+    "title": "Phantom at 25: Skywalker Sound's Matthew Wood Explains Why The Phantom Menace Was His Favorite Movie to Work On",
+    "publication": "StarWars.com",
+    "url": "https://www.starwars.com/news/matthew-wood-the-phantom-menace",
+    "year": 2024
+   }
+  },
+  {
+   "person": "Matthew Wood",
+   "kind": "insight",
+   "text": "On Skeleton Crew, the loop group bantered together while each actor was captured on a separate track. Wood then mined that material to create the show's creatures, droids and languages.",
+   "categories": [
+    "dialogue",
+    "creatures",
+    "recording"
+   ],
+   "source": {
+    "title": "The Strange and Familiar Sounds of Star Wars: Skeleton Crew",
+    "publication": "StarWars.com",
+    "url": "https://www.starwars.com/news/skeleton-crew-skywalker-sound-interview",
+    "year": 2024
+   }
+  },
+  {
+   "person": "Matthew Wood",
+   "kind": "quote",
+   "text": "You don't want to overdo the processing to the point of sacrificing performance and intelligibility.",
+   "categories": [
+    "dialogue",
+    "scifi"
+   ],
+   "source": {
+    "title": "Achieving Awesome Sound for 'Ahsoka' – with Matt Wood and Bonnie Wild",
+    "publication": "A Sound Effect",
+    "url": "https://www.asoundeffect.com/ahsokas-awesome-sound/",
+    "year": 2024
+   }
+  },
+  {
+   "person": "Matthew Wood",
+   "kind": "insight",
+   "text": "Shin's Force choke in Ahsoka opens with a sound Wood made for Ventress in The Clone Wars, then layers a new Force rumble with some of his Kylo Ren Force sounds from The Rise of Skywalker.",
+   "categories": [
+    "scifi",
+    "craft"
+   ],
+   "source": {
+    "title": "Achieving Awesome Sound for 'Ahsoka' – with Matt Wood and Bonnie Wild",
+    "publication": "A Sound Effect",
+    "url": "https://www.asoundeffect.com/ahsokas-awesome-sound/",
+    "year": 2024
+   }
+  },
+  {
+   "person": "Matthew Wood",
+   "kind": "quote",
+   "text": "Sound is like a character–it's a subconscious sort of portal into the viewer's mind",
+   "categories": [
+    "story",
+    "craft"
+   ],
+   "source": {
+    "title": "ComiCONN 2018: General Grievous actor Matthew Wood would revisit the character",
+    "publication": "AIPT",
+    "url": "https://aiptcomics.com/2018/07/01/comiconn-2018-general-grievous-actor-matthew-wood-would-revisit-the-character-for-a-star-wars-story/",
+    "year": 2018
+   }
+  },
+  {
+   "person": "Matthew Wood",
+   "kind": "insight",
+   "text": "Wood often drops his own voice into a creature voice as a test while designing. General Grievous began that way: Lucas struggled to find the voice, so Wood submitted his own under an assumed name.",
+   "categories": [
+    "creatures",
+    "dialogue"
+   ],
+   "source": {
+    "title": "ComiCONN 2018: General Grievous actor Matthew Wood would revisit the character",
+    "publication": "AIPT",
+    "url": "https://aiptcomics.com/2018/07/01/comiconn-2018-general-grievous-actor-matthew-wood-would-revisit-the-character-for-a-star-wars-story/",
+    "year": 2018
+   }
+  },
+  {
+   "person": "David Acord",
+   "kind": "quote",
+   "text": "I don't want to create a ship pass-by that has too tonal of a quality",
+   "categories": [
+    "music",
+    "mixing",
+    "scifi"
+   ],
+   "source": {
+    "title": "'The Force Awakens' sound designer reveals the secrets behind the sound of 'Star Wars'",
+    "publication": "The Daily Dot",
+    "url": "https://www.dailydot.com/star-wars-force-awakens-sound-designer-david-acord-interview",
+    "year": 2016
+   }
+  },
+  {
+   "person": "David Acord",
+   "kind": "insight",
+   "text": "Kylo Ren's Force rumble is Acord's cat's purr, pitched, slowed down and given a ton of added low end.",
+   "categories": [
+    "scifi",
+    "creatures"
+   ],
+   "source": {
+    "title": "'The Force Awakens' sound designer reveals the secrets behind the sound of 'Star Wars'",
+    "publication": "The Daily Dot",
+    "url": "https://www.dailydot.com/star-wars-force-awakens-sound-designer-david-acord-interview",
+    "year": 2016
+   }
+  },
+  {
+   "person": "David Acord",
+   "kind": "insight",
+   "text": "The Rise of Skywalker's Orbak grunts are about 90% pitched, slowed-down crow, with a little donkey mixed in.",
+   "categories": [
+    "creatures",
+    "scifi"
+   ],
+   "source": {
+    "title": "Secrets behind the Oscar-nominated sounds of 'Star Wars: The Rise of Skywalker'",
+    "publication": "Good Morning America (ABC News)",
+    "url": "https://www.goodmorningamerica.com/culture/story/secrets-oscar-nominated-sounds-star-wars-rise-skywalker-68681190",
+    "year": 2020
+   }
+  },
+  {
+   "person": "David Acord",
+   "kind": "insight",
+   "text": "When Jon Favreau wanted Grogu more human and relatable, Acord dialed the animal layer back to grunts, coos and purring, and added his own vocals pitched way up for the more articulated vocalizations.",
+   "categories": [
+    "creatures",
+    "dialogue",
+    "collaboration"
+   ],
+   "source": {
+    "title": "The Mandalorian Sound Editor Dishes on Baby Yoda's Voice",
+    "publication": "Den of Geek",
+    "url": "https://www.denofgeek.com/tv/the-mandalorian-baby-yoda-voice/",
+    "year": 2020
+   }
+  },
+  {
+   "person": "David Acord",
+   "kind": "quote",
+   "text": "Everything is, as we say in the sound effects world, sweetened, everything's a little heightened",
+   "categories": [
+    "craft",
+    "weapons"
+   ],
+   "source": {
+    "title": "'Andor:' Sound Editors David Acord and Margit Pfeiffer on Using Legacy 'Star Wars' Sounds in New Ways",
+    "publication": "Awards Daily",
+    "url": "https://www.awardsdaily.com/2023/06/12/andor-sound-editors-david-acord-and-margit-pfeiffer-on-using-legacy-star-wars-sounds-in-new-ways-for-the-disney-series",
+    "year": 2023
+   }
+  },
+  {
+   "person": "David Acord",
+   "kind": "insight",
+   "text": "Acord on Andor's Senate chamber: the more naked reverb you can feel in that room helps make Mon Mothma seem isolated.",
+   "categories": [
+    "mixing",
+    "story"
+   ],
+   "source": {
+    "title": "'Andor:' Sound Editors David Acord and Margit Pfeiffer on Using Legacy 'Star Wars' Sounds in New Ways",
+    "publication": "Awards Daily",
+    "url": "https://www.awardsdaily.com/2023/06/12/andor-sound-editors-david-acord-and-margit-pfeiffer-on-using-legacy-star-wars-sounds-in-new-ways-for-the-disney-series",
+    "year": 2023
+   }
+  },
+  {
+   "person": "David Acord",
+   "kind": "quote",
+   "text": "the sound of moving water is mostly noise.",
+   "categories": [
+    "mixing",
+    "worlds"
+   ],
+   "source": {
+    "title": "How VFX Wizard John Knoll & Sound Master David Acord Made 'The Mandalorian and Grogu' Bigger Than Ever",
+    "publication": "The Credits (Motion Picture Association)",
+    "url": "https://www.motionpictures.org/2026/09/how-vfx-wizard-john-knoll-sound-master-david-acord-made-the-mandalorian-and-grogu-bigger-than-ever/",
+    "year": 2026
+   }
+  },
+  {
+   "person": "David Acord",
+   "kind": "insight",
+   "text": "For The Mandalorian and Grogu, the team did a whole separate mix for home viewing, a near-field pass, taking care not to overcrowd the soundscape.",
+   "categories": [
+    "mixing"
+   ],
+   "source": {
+    "title": "How VFX Wizard John Knoll & Sound Master David Acord Made 'The Mandalorian and Grogu' Bigger Than Ever",
+    "publication": "The Credits (Motion Picture Association)",
+    "url": "https://www.motionpictures.org/2026/09/how-vfx-wizard-john-knoll-sound-master-david-acord-made-the-mandalorian-and-grogu-bigger-than-ever/",
+    "year": 2026
+   }
+  },
+  {
+   "person": "David Acord",
+   "kind": "insight",
+   "text": "Acord's Foley direction for Rotta was almost toad-like, not frog, not too leathery. Under Jeremy Allen White's dialogue sits Acord's own pitched-down performance as a base coat.",
+   "categories": [
+    "foley",
+    "creatures",
+    "dialogue"
+   ],
+   "source": {
+    "title": "How VFX Wizard John Knoll & Sound Master David Acord Made 'The Mandalorian and Grogu' Bigger Than Ever",
+    "publication": "The Credits (Motion Picture Association)",
+    "url": "https://www.motionpictures.org/2026/09/how-vfx-wizard-john-knoll-sound-master-david-acord-made-the-mandalorian-and-grogu-bigger-than-ever/",
+    "year": 2026
+   }
+  },
+  {
+   "person": "David Acord",
+   "kind": "quote",
+   "text": "the one thing that always sells danger in a gunfight (to me) is 'whiz-bys.'",
+   "categories": [
+    "weapons",
+    "action"
+   ],
+   "source": {
+    "title": "Behind the Gritty Sound of 'Andor' – with David Acord",
+    "publication": "A Sound Effect",
+    "url": "https://asoundeffect.com/andor-sound",
+    "year": 2022
+   }
+  },
+  {
+   "person": "David Acord",
+   "kind": "insight",
+   "text": "Acord argues that capturing the audience's attention with quiet, tense moments heightens the experience of a sudden surge of action.",
+   "categories": [
+    "silence",
+    "action"
+   ],
+   "source": {
+    "title": "Behind the Gritty Sound of 'Andor' – with David Acord",
+    "publication": "A Sound Effect",
+    "url": "https://asoundeffect.com/andor-sound",
+    "year": 2022
+   }
+  },
+  {
+   "person": "David Acord",
+   "kind": "insight",
+   "text": "In Andor, rebel comms were treated as traditional, even futzy, radio, while the Imperial comm room used real and synthesized shortwave-like sounds for a WW2-era feel.",
+   "categories": [
+    "dialogue",
+    "worlds"
+   ],
+   "source": {
+    "title": "Behind the Gritty Sound of 'Andor' – with David Acord",
+    "publication": "A Sound Effect",
+    "url": "https://asoundeffect.com/andor-sound",
+    "year": 2022
+   }
+  },
+  {
+   "person": "David Acord",
+   "kind": "quote",
+   "text": "Even if there is no clear language, the emotional intent needs to be clear.",
+   "categories": [
+    "creatures",
+    "dialogue"
+   ],
+   "source": {
+    "title": "Short Interview with David Acord",
+    "publication": "Sound Particles Blog",
+    "url": "https://blog.soundparticles.com/short-interview-with-david-acord",
+    "year": 2020
+   }
+  },
+  {
+   "person": "Christopher Scarabosio",
+   "kind": "quote",
+   "text": "Hums and fans, which we normally try to get rid of, became very helpful.",
+   "categories": [
+    "worlds",
+    "craft"
+   ],
+   "source": {
+    "title": "Designing and Mixing the Sound of 'Don't Look Up' – with Christopher Scarabosio",
+    "publication": "A Sound Effect",
+    "url": "https://www.asoundeffect.com/dont-look-up-film-sound/",
+    "year": 2022
+   }
+  },
+  {
+   "person": "Christopher Scarabosio",
+   "kind": "quote",
+   "text": "Design is nothing if it doesn't end up in the film.",
+   "categories": [
+    "mixing",
+    "craft"
+   ],
+   "source": {
+    "title": "Designing and Mixing the Sound of 'Don't Look Up' – with Christopher Scarabosio",
+    "publication": "A Sound Effect",
+    "url": "https://www.asoundeffect.com/dont-look-up-film-sound/",
+    "year": 2022
+   }
+  },
+  {
+   "person": "Christopher Scarabosio",
+   "kind": "insight",
+   "text": "For Don't Look Up's quick-cut global montage, Scarabosio used hums: a hum has tonality without being musical, so it can signal a change of location without feeling choppy.",
+   "categories": [
+    "worlds",
+    "mixing"
+   ],
+   "source": {
+    "title": "Designing and Mixing the Sound of 'Don't Look Up' – with Christopher Scarabosio",
+    "publication": "A Sound Effect",
+    "url": "https://www.asoundeffect.com/dont-look-up-film-sound/",
+    "year": 2022
+   }
+  },
+  {
+   "person": "Christopher Scarabosio",
+   "kind": "insight",
+   "text": "With access to NASA experts, Scarabosio mixed the comet landing so you'd feel it more than hear it; the editor, Hank Corwin, still found it too flashy, so he pushed it further.",
+   "categories": [
+    "scifi",
+    "silence",
+    "collaboration"
+   ],
+   "source": {
+    "title": "Designing and Mixing the Sound of 'Don't Look Up' – with Christopher Scarabosio",
+    "publication": "A Sound Effect",
+    "url": "https://www.asoundeffect.com/dont-look-up-film-sound/",
+    "year": 2022
+   }
+  },
+  {
+   "person": "Christopher Scarabosio",
+   "kind": "insight",
+   "text": "For the pods detaching in space, Scarabosio had to find sounds in the low-mids without the high-end aspect; the comet-landing explosions got more tonality and low end than loud Earth explosions.",
+   "categories": [
+    "scifi",
+    "action"
+   ],
+   "source": {
+    "title": "Designing and Mixing the Sound of 'Don't Look Up' – with Christopher Scarabosio",
+    "publication": "A Sound Effect",
+    "url": "https://www.asoundeffect.com/dont-look-up-film-sound/",
+    "year": 2022
+   }
+  },
+  {
+   "person": "Christopher Scarabosio",
+   "kind": "insight",
+   "text": "For the President's speech, the team recorded the lines played through different TVs and speakers in different environments to build location-specific treatments.",
+   "categories": [
+    "dialogue",
+    "recording"
+   ],
+   "source": {
+    "title": "Designing and Mixing the Sound of 'Don't Look Up' – with Christopher Scarabosio",
+    "publication": "A Sound Effect",
+    "url": "https://www.asoundeffect.com/dont-look-up-film-sound/",
+    "year": 2022
+   }
+  },
+  {
+   "person": "Christopher Scarabosio",
+   "kind": "insight",
+   "text": "Speakers at Don't Look Up's naval event got boosted low end and subtle distortion, as if the PA were overloading, so they sounded like they were overselling it.",
+   "categories": [
+    "dialogue",
+    "mixing"
+   ],
+   "source": {
+    "title": "Designing and Mixing the Sound of 'Don't Look Up' – with Christopher Scarabosio",
+    "publication": "A Sound Effect",
+    "url": "https://www.asoundeffect.com/dont-look-up-film-sound/",
+    "year": 2022
+   }
+  },
+  {
+   "person": "Christopher Scarabosio",
+   "kind": "quote",
+   "text": "It's a three or four-piece band as opposed to a 90-piece orchestra.",
+   "categories": [
+    "mixing",
+    "craft"
+   ],
+   "source": {
+    "title": "Exploring the Out-of-this-World Sound for 'Asteroid City' – with Christopher Scarabosio and Wayne Lemmer",
+    "publication": "A Sound Effect",
+    "url": "https://www.asoundeffect.com/exploring-the-out-of-this-world-sound-for-asteroid-city-with-christopher-scarabosio-and-wayne-lemmer/",
+    "year": 2023
+   }
+  },
+  {
+   "person": "Christopher Scarabosio",
+   "kind": "quote",
+   "text": "It's not necessarily technically accurate but it's definitely something you remember and leaves an imprint.",
+   "categories": [
+    "mixing",
+    "story"
+   ],
+   "source": {
+    "title": "Exploring the Out-of-this-World Sound for 'Asteroid City' – with Christopher Scarabosio and Wayne Lemmer",
+    "publication": "A Sound Effect",
+    "url": "https://www.asoundeffect.com/exploring-the-out-of-this-world-sound-for-asteroid-city-with-christopher-scarabosio-and-wayne-lemmer/",
+    "year": 2023
+   }
+  },
+  {
+   "person": "Christopher Scarabosio",
+   "kind": "insight",
+   "text": "On Asteroid City's split-screen call, Scarabosio first wanted to pan toward center, but Wes Anderson went bold: everything for Augie in the left channel, everything for Stanley in the right.",
+   "categories": [
+    "mixing",
+    "dialogue",
+    "collaboration"
+   ],
+   "source": {
+    "title": "Exploring the Out-of-this-World Sound for 'Asteroid City' – with Christopher Scarabosio and Wayne Lemmer",
+    "publication": "A Sound Effect",
+    "url": "https://www.asoundeffect.com/exploring-the-out-of-this-world-sound-for-asteroid-city-with-christopher-scarabosio-and-wayne-lemmer/",
+    "year": 2023
+   }
+  },
+  {
+   "person": "Christopher Scarabosio",
+   "kind": "insight",
+   "text": "Panning dialogue to follow the camera between stories can feel gimmicky, Scarabosio says, but there are ways of cheating it so it feels natural, like you're there with them.",
+   "categories": [
+    "mixing",
+    "dialogue"
+   ],
+   "source": {
+    "title": "Exploring the Out-of-this-World Sound for 'Asteroid City' – with Christopher Scarabosio and Wayne Lemmer",
+    "publication": "A Sound Effect",
+    "url": "https://www.asoundeffect.com/exploring-the-out-of-this-world-sound-for-asteroid-city-with-christopher-scarabosio-and-wayne-lemmer/",
+    "year": 2023
+   }
+  },
+  {
+   "person": "Christopher Scarabosio",
+   "kind": "quote",
+   "text": "finding those little moments that add to the joyousness of it all.",
+   "categories": [
+    "story",
+    "craft"
+   ],
+   "source": {
+    "title": "How 'The French Dispatch' Sound Team Immerses You in Wes Anderson's World",
+    "publication": "The Credits (Motion Picture Association)",
+    "url": "https://www.motionpictures.org/?p=52818",
+    "year": 2021
+   }
+  },
+  {
+   "person": "Christopher Scarabosio",
+   "kind": "insight",
+   "text": "David Acord credits Scarabosio's mix of The Force Awakens' Falcon chase: the way things are reverbed and panned inside the derelict Star Destroyer makes the effects change and then come back again.",
+   "categories": [
+    "mixing",
+    "action",
+    "scifi"
+   ],
+   "source": {
+    "title": "'The Force Awakens' sound designer reveals the secrets behind the sound of 'Star Wars'",
+    "publication": "The Daily Dot",
+    "url": "https://www.dailydot.com/star-wars-force-awakens-sound-designer-david-acord-interview",
+    "year": 2016
+   }
+  },
+  {
+   "person": "Gwendolyn Yates Whittle",
+   "kind": "insight",
+   "text": "A line Yates Whittle heard often from James Cameron: to make a place feel quiet, you have to make something small sound loud.",
+   "categories": [
+    "silence",
+    "worlds"
+   ],
+   "source": {
+    "title": "'Avatar: Fire and Ash': Breathing New Life Into The Sound of Pandora – with Gwendolyn Yates Whittle & Brent Burge",
+    "publication": "A Sound Effect",
+    "url": "https://www.asoundeffect.com/avatar-fire-and-ash-film-sound/",
+    "year": 2026
+   }
+  },
+  {
+   "person": "Gwendolyn Yates Whittle",
+   "kind": "quote",
+   "text": "The guide track is a bit of a bible",
+   "categories": [
+    "collaboration",
+    "craft"
+   ],
+   "source": {
+    "title": "'Avatar: Fire and Ash': Breathing New Life Into The Sound of Pandora – with Gwendolyn Yates Whittle & Brent Burge",
+    "publication": "A Sound Effect",
+    "url": "https://www.asoundeffect.com/avatar-fire-and-ash-film-sound/",
+    "year": 2026
+   }
+  },
+  {
+   "person": "Gwendolyn Yates Whittle",
+   "kind": "insight",
+   "text": "Cameron places sounds in the spaces between dialogue, not over it. In Fire and Ash's forest scene each brush hit was timed to both the action and the lines: nothing haphazard.",
+   "categories": [
+    "dialogue",
+    "mixing",
+    "foley"
+   ],
+   "source": {
+    "title": "'Avatar: Fire and Ash': Breathing New Life Into The Sound of Pandora – with Gwendolyn Yates Whittle & Brent Burge",
+    "publication": "A Sound Effect",
+    "url": "https://www.asoundeffect.com/avatar-fire-and-ash-film-sound/",
+    "year": 2026
+   }
+  },
+  {
+   "person": "Gwendolyn Yates Whittle",
+   "kind": "insight",
+   "text": "For each shot Whittle asks: What is this shot telling me? Why is it here? Why am I looking at it? Then she makes the sound tell that story too.",
+   "categories": [
+    "story",
+    "craft"
+   ],
+   "source": {
+    "title": "'Avatar: Fire and Ash': Breathing New Life Into The Sound of Pandora – with Gwendolyn Yates Whittle & Brent Burge",
+    "publication": "A Sound Effect",
+    "url": "https://www.asoundeffect.com/avatar-fire-and-ash-film-sound/",
+    "year": 2026
+   }
+  },
+  {
+   "person": "Gwendolyn Yates Whittle",
+   "kind": "insight",
+   "text": "To check Kiri's voice, Whittle compared Sigourney Weaver's recordings with clips of deep-voiced 14- and 15-year-old girls. Pitch changes were minimal, a quarter to half semitone on a few syllables, and some lines were untouched.",
+   "categories": [
+    "dialogue"
+   ],
+   "source": {
+    "title": "'Avatar: Fire and Ash': Breathing New Life Into The Sound of Pandora – with Gwendolyn Yates Whittle & Brent Burge",
+    "publication": "A Sound Effect",
+    "url": "https://www.asoundeffect.com/avatar-fire-and-ash-film-sound/",
+    "year": 2026
+   }
+  },
+  {
+   "person": "Gwendolyn Yates Whittle",
+   "kind": "insight",
+   "text": "In Fire and Ash's 'Miracle' scene, the score arrived early so effects could carve out frequency space for it, and Spider's breathing was shaped to grow shallower and less frequent, building anticipation with the music.",
+   "categories": [
+    "music",
+    "mixing",
+    "story"
+   ],
+   "source": {
+    "title": "'Avatar: Fire and Ash': Breathing New Life Into The Sound of Pandora – with Gwendolyn Yates Whittle & Brent Burge",
+    "publication": "A Sound Effect",
+    "url": "https://www.asoundeffect.com/avatar-fire-and-ash-film-sound/",
+    "year": 2026
+   }
+  },
+  {
+   "person": "Gwendolyn Yates Whittle",
+   "kind": "insight",
+   "text": "Kevin Dorman's voice is inside the Tulkun vocals but processed to remove its human quality, because, Whittle notes, the human voice is something you can always pick out.",
+   "categories": [
+    "creatures",
+    "dialogue"
+   ],
+   "source": {
+    "title": "'Avatar: Fire and Ash': Breathing New Life Into The Sound of Pandora – with Gwendolyn Yates Whittle & Brent Burge",
+    "publication": "A Sound Effect",
+    "url": "https://www.asoundeffect.com/avatar-fire-and-ash-film-sound/",
+    "year": 2026
+   }
+  },
+  {
+   "person": "Gwendolyn Yates Whittle",
+   "kind": "insight",
+   "text": "In Ash Village, the first key sound is Quaritch's footsteps on an unfamiliar surface, signalling the village's barren, burned way of life before anything is shown.",
+   "categories": [
+    "foley",
+    "worlds",
+    "story"
+   ],
+   "source": {
+    "title": "'Avatar: Fire and Ash': Breathing New Life Into The Sound of Pandora – with Gwendolyn Yates Whittle & Brent Burge",
+    "publication": "A Sound Effect",
+    "url": "https://www.asoundeffect.com/avatar-fire-and-ash-film-sound/",
+    "year": 2026
+   }
+  },
+  {
+   "person": "Gwendolyn Yates Whittle",
+   "kind": "insight",
+   "text": "On Titanic, Cameron's sound followed class: with first class the engine is barely audible, and the lower you go in the ship, the louder and more present the engine becomes.",
+   "categories": [
+    "worlds",
+    "story",
+    "mixing"
+   ],
+   "source": {
+    "title": "Dr. Joplin's film class interview with Gwendolyn Whittle '79",
+    "publication": "Buffalo Seminary",
+    "url": "https://www.buffaloseminary.org/uploaded/News_Images/Whittle_interview_tahoma.pdf",
+    "year": 2010
+   }
+  },
+  {
+   "person": "Gwendolyn Yates Whittle",
+   "kind": "quote",
+   "text": "I've always considered it my job to help them get there",
+   "categories": [
+    "dialogue",
+    "collaboration"
+   ],
+   "source": {
+    "title": "Dr. Joplin's film class interview with Gwendolyn Whittle '79",
+    "publication": "Buffalo Seminary",
+    "url": "https://www.buffaloseminary.org/uploaded/News_Images/Whittle_interview_tahoma.pdf",
+    "year": 2010
+   }
+  },
+  {
+   "person": "Gwendolyn Yates Whittle",
+   "kind": "quote",
+   "text": "It's all about keeping the performance.",
+   "categories": [
+    "dialogue"
+   ],
+   "source": {
+    "title": "Beyond NYU: 4 decades of sound design for the world's biggest movies",
+    "publication": "Washington Square News",
+    "url": "https://nyunews.com/news/2026/02/26/beyond-nyu-gwen-whittle/",
+    "year": 2026
+   }
+  },
+  {
+   "person": "Gwendolyn Yates Whittle",
+   "kind": "quote",
+   "text": "If you don't notice it, then I've done my job perfectly.",
+   "categories": [
+    "dialogue",
+    "craft"
+   ],
+   "source": {
+    "title": "Finding Belonging and Discovering the Power of Listening: Gwen Whittle, Postproduction Sound Supervisor",
+    "publication": "Art Heals All Wounds (podcast transcript)",
+    "url": "https://arthealsallwounds.buzzsprout.com/2053590/14178138-finding-belonging-and-discovering-the-power-of-listening-gwen-whittle-postproduction-sound-supervisor",
+    "year": 2023
+   }
+  },
+  {
+   "person": "Gwendolyn Yates Whittle",
+   "kind": "quote",
+   "text": "You have to learn how to listen to the nuances of the world around you.",
+   "categories": [
+    "craft",
+    "recording"
+   ],
+   "source": {
+    "title": "Finding Belonging and Discovering the Power of Listening: Gwen Whittle, Postproduction Sound Supervisor",
+    "publication": "Art Heals All Wounds (podcast transcript)",
+    "url": "https://arthealsallwounds.buzzsprout.com/2053590/14178138-finding-belonging-and-discovering-the-power-of-listening-gwen-whittle-postproduction-sound-supervisor",
+    "year": 2023
+   }
+  },
+  {
+   "person": "Bonnie Wild",
+   "kind": "insight",
+   "text": "On Ahsoka, Bonnie Wild filled the Seatos forest with wildlife to place the characters far from civilization; when the wildlife stops, it signals the enemy's arrival.",
+   "categories": [
+    "worlds",
+    "silence",
+    "story"
+   ],
+   "source": {
+    "title": "Achieving Awesome Sound for 'Ahsoka' – with Matt Wood and Bonnie Wild",
+    "publication": "A Sound Effect",
+    "url": "https://www.asoundeffect.com/ahsokas-awesome-sound/",
+    "year": 2024
+   }
+  },
+  {
+   "person": "Bonnie Wild",
+   "kind": "insight",
+   "text": "Huyang's voice stays very close to its Clone Wars treatment to let David Tennant's performance shine; after a blow to the head, Wild warped and stuttered it as he gathered himself.",
+   "categories": [
+    "dialogue",
+    "scifi"
+   ],
+   "source": {
+    "title": "Achieving Awesome Sound for 'Ahsoka' – with Matt Wood and Bonnie Wild",
+    "publication": "A Sound Effect",
+    "url": "https://www.asoundeffect.com/ahsokas-awesome-sound/",
+    "year": 2024
+   }
+  },
+  {
+   "person": "Bonnie Wild",
+   "kind": "insight",
+   "text": "Wild treats an editing sequence like The Last Jedi's Crait battle as a puzzle: deciding what the audience should hear at each moment and which story beat matters most.",
+   "categories": [
+    "story",
+    "action"
+   ],
+   "source": {
+    "title": "Employee Spotlight: Bonnie Wild",
+    "publication": "Lucasfilm.com",
+    "url": "https://www.lucasfilm.com/news/employee-spotlight-bonnie-wild",
+    "year": 2020
+   }
+  },
+  {
+   "person": "Bonnie Wild",
+   "kind": "quote",
+   "text": "There's a balance between the comfortable, familiar sounds and taking risks with new things.",
+   "categories": [
+    "craft",
+    "scifi"
+   ],
+   "source": {
+    "title": "Employee Spotlight: Bonnie Wild",
+    "publication": "Lucasfilm.com",
+    "url": "https://www.lucasfilm.com/news/employee-spotlight-bonnie-wild",
+    "year": 2020
+   }
+  }
+ ]
+}
