@@ -110,7 +110,7 @@ def main(check_only):
             line = line.split("#", 1)[0].strip()
             if line:
                 omit_ids.add(line)
-    cut_ids = set()
+    cut_ids, all_ids = set(), set()
 
     for path in sorted(DATA.glob("*.json")):
         data = json.loads(path.read_text(encoding="utf-8"))
@@ -146,6 +146,7 @@ def main(check_only):
             who = clean(e.get("person"))
             who = alias.get(who, who)
             text = clean(e.get("text"))
+            all_ids.add(f"{norm(who.split()[-1]) or 'x'}-{hashlib.sha1(f'{who}|{text}'.encode()).hexdigest()[:6]}")
             kind = e.get("kind")
             raw_cats = list(dict.fromkeys(e.get("categories") or []))
             if raw_cats and raw_cats[0] in DROPPED_CATEGORIES:
@@ -238,7 +239,7 @@ def main(check_only):
         print(f"omitted {who} ({omitted[who]} entries)" if omitted[who] else f"omit.txt names {who!r}, who has no entries")
     if omit_ids:
         print(f"omitted {len(cut_ids)} entries listed in omit-entries.txt")
-        for stale in sorted(omit_ids - cut_ids):
+        for stale in sorted(omit_ids - all_ids):
             print(f"  omit-entries.txt lists {stale}, which no longer exists")
     if problems:
         print(f"\n{len(problems)} entries skipped:")

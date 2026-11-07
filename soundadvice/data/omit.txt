@@ -17,3 +17,6 @@ Marko Costanzo
 Alan Splet
 Frank Warner
 Theo Green
+Craig Henighan
+# IMDb page not confirmed for this person.
+William Miller
