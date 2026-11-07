@@ -2,7 +2,7 @@
 ; Built by .github/workflows/build-release_soundadvice.yml, which passes the version:
 ;   iscc /DMyAppVersion=1.2.3 installer.iss
 #ifndef MyAppVersion
-  #define MyAppVersion "1.0.0"
+  #define MyAppVersion "1.0.1"
 #endif
 #define MyAppName "Sound Advice"
 #define MyAppPublisher "Sweet Justice Sound"
@@ -25,6 +25,7 @@ DisableProgramGroupPage=yes
 LicenseFile=LICENSE
 OutputDir=.
 OutputBaseFilename=SoundAdvice_Installer
+SetupIconFile=Resources\icon.ico
 UninstallDisplayIcon={app}\{#MyAppExe}
 SetupLogging=yes
 Compression=lzma2

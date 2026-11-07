@@ -82,7 +82,7 @@ cmake --build build --config Release
 ./build/SoundAdvicePreview_artefacts/Release/SoundAdvicePreview --hero docs/screenshot.png <paper-entry-id> <night-entry-id>
 ```
 
-The second form makes the image at the top of this page; entry ids are in `Resources/quotes.json`.
+`--icon Resources/icon.png` redraws the app icon (and `icon.ico` beside it). The `--hero` form makes the image at the top of this page; entry ids are in `Resources/quotes.json`.
 
 ## Releases
 
