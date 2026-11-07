@@ -55,7 +55,9 @@ namespace Theme
             return juce::Font(juce::FontOptions(face).withHeight(height)).withExtraKerningFactor(kerning);
         }
 
-        juce::Font body(float height) const    { return make(regular, height); }
+        // A tiny tracking (0.02 px at 12 px) makes JUCE switch the font's ligatures off: Azeret Mono's
+        // "fi" would otherwise draw as "fı" and "<-" as an arrow.
+        juce::Font body(float height) const    { return make(regular, height, 0.002f); }
         juce::Font label(float height) const   { return make(medium, height, 0.08f); }
         juce::Font heading(float height) const { return make(bold, height, 0.12f); }
 

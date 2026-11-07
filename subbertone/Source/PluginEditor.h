@@ -2,20 +2,31 @@
 
 #include <JuceHeader.h>
 #include "PluginProcessor.h"
+#include "SubbertoneLookAndFeel.h"
 #include "Theme.h"
 #include "WaveformVisualizer.h"
 
 #include "HarmonicStrip.h"
+
+#include <memory>
+
+class AboutWindow;
 
 /**
  * The editor is laid out once at a fixed design size (c_baseWidth x c_baseHeight)
  * inside a single content component, which is then scaled uniformly with an
  * AffineTransform. Resizing therefore scales text, knobs and the OpenGL view
  * together and nothing reflows; the chosen size is saved with the plugin state.
+ *
+ * Everything the editor opens (menus, alerts, tooltips, the About window) is drawn with its
+ * SubbertoneLookAndFeel, and is owned by it or dismissed when it is deleted, so nothing outlives
+ * it or its LookAndFeel.
  */
 class SubbertoneAudioProcessorEditor : public juce::AudioProcessorEditor, private juce::Timer
 {
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(SubbertoneAudioProcessorEditor)
+
+    friend struct SubbertoneEditorInspector; // lets a test harness reach the tooltip window; not defined in the plugin
 
 public:
     explicit SubbertoneAudioProcessorEditor(SubbertoneAudioProcessor& audioProcessor);
@@ -59,35 +70,32 @@ private:
     void setupPresetBar();
     void showPresetMenu();
     void promptSavePreset(const juce::String& suggestedName);
-    void confirmOverwrite(const juce::String& name);
+    void checkNameAndSave(const juce::String& name);
+    void confirmOverwrite(const juce::String& name, const juce::String& replacedName);
+    void confirmDeletePreset(const juce::File& file, const juce::String& displayName);
     void savePresetAs(const juce::String& name);
+    std::unique_ptr<juce::AlertWindow> makeAlert(const juce::String& title, const juce::String& message,
+                                                 juce::MessageBoxIconType icon);
     void showAlert(std::unique_ptr<juce::AlertWindow> alert, std::function<void(int, juce::AlertWindow&)> onResult);
     void updatePresetDisplay();
 
-    class LookAndFeel : public juce::LookAndFeel_V4
+    // MASTER header: repaints the gain-reduction readout when it appears, goes or moves.
+    void updateLimiterReadout();
+
+    /** Tooltips in a desktop window of their own: the scope's OpenGL view is a native view on
+        top of the editor's window, so it would cover any part of a tip the editor paints itself. */
+    class EditorTooltipWindow final : public juce::TooltipWindow
     {
     public:
-        explicit LookAndFeel(const Theme::Fonts& fonts);
+        explicit EditorTooltipWindow(juce::Component& editor);
 
-        void drawRotarySlider(juce::Graphics&, int x, int y, int width, int height, float sliderPos,
-                              float rotaryStartAngle, float rotaryEndAngle, juce::Slider&) override;
-        juce::Slider::SliderLayout getSliderLayout(juce::Slider&) override;
-        juce::Label* createSliderTextBox(juce::Slider&) override;
-
-        juce::Font getLabelFont(juce::Label&) override;
-
-        void drawComboBox(juce::Graphics&, int width, int height, bool isButtonDown, int buttonX, int buttonY,
-                          int buttonW, int buttonH, juce::ComboBox&) override;
-        juce::Font getComboBoxFont(juce::ComboBox&) override;
-        void positionComboBoxText(juce::ComboBox&, juce::Label&) override;
-        juce::Font getPopupMenuFont() override;
-
-        void drawButtonBackground(juce::Graphics&, juce::Button&, const juce::Colour& backgroundColour,
-                                  bool isMouseOverButton, bool isButtonDown) override;
-        juce::Font getTextButtonFont(juce::TextButton&, int buttonHeight) override;
+        // Only this editor's controls: another instance's editor has its own tooltip window.
+        juce::String getTipFor(juce::Component&) override;
+        // The editor's scale, not that of its design-size content, so tips keep their size.
+        float getDesktopScaleFactor() const override;
 
     private:
-        const Theme::Fonts& m_fonts;
+        juce::Component& m_editor;
     };
 
     struct Section
@@ -100,7 +108,7 @@ private:
     SubbertoneAudioProcessor& m_audioProcessor;
 
     juce::SharedResourcePointer<Theme::Fonts> m_fonts;
-    LookAndFeel m_lookAndFeel;
+    SubbertoneLookAndFeel m_lookAndFeel; // before every component, menu, alert and window that uses it
 
     Content m_content;
     WaveformVisualizer m_waveformVisualizer;
@@ -108,7 +116,8 @@ private:
     std::unique_ptr<HarmonicStrip> m_harmonicStrip;
     juce::Rectangle<int> m_stripPanel;       // panel around the harmonic strip
     juce::Rectangle<int> m_masterHeader;     // repainted for the gain-reduction readout
-    float m_lastGainReductionDb = 0.0f;
+    float m_lastGainReductionDb = 0.0f;      // the reading the readout shows
+    bool m_limiterReadoutShown = false;      // whether the last repaint asked for showed the readout
     bool m_sizeRestored = false;  // don't save the size until the saved one has been applied
 
     juce::Slider m_mixSlider, m_distortionSlider, m_toneSlider, m_postDriveLowpassSlider,
@@ -156,11 +165,12 @@ private:
     std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> m_filterModeAttachment;
 
     juce::TextButton m_aboutButton;
-    juce::HyperlinkButton m_websiteLink { "SWEETJUSTICESOUND.COM", juce::URL("https://sweetjusticesound.com") };
+    ThemeLink m_websiteLink { "SWEETJUSTICESOUND.COM", juce::URL("https://sweetjusticesound.com") };
 
     juce::TextButton m_presetPrevButton, m_presetNameButton, m_presetNextButton, m_presetSaveButton;
     std::unique_ptr<juce::AlertWindow> m_alert; // owned so it never outlives the LookAndFeel
-    juce::TooltipWindow m_tooltipWindow;
+    EditorTooltipWindow m_tooltipWindow { *this }; // after m_lookAndFeel, so it is deleted first
+    std::unique_ptr<AboutWindow> m_aboutWindow;     // at most one per editor, closed with it
 
     std::array<Section, 6> m_sections;
 };

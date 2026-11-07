@@ -9,6 +9,21 @@ namespace
     constexpr float c_wheelStep = 0.05f;        // 5 % of the range per wheel notch
     constexpr float c_trackpadNotch = 0.05f;    // smooth-scroll delta treated as one notch (~25 px on macOS)
     constexpr juce::int64 c_trackpadPauseMs = 250; // a longer gap between smooth-scroll events starts a new scroll
+    constexpr juce::int64 c_wheelBurstMs = 500; // wheel events closer than this are one scroll: one host gesture
+
+    // JUCE's delta for one notch of a wheel that does not scroll smoothly. On Windows a notch is
+    // WHEEL_DELTA (120) and reaches JUCE as 0.5 * 120 / 256; high-resolution wheels and precision
+    // touchpads send a fraction of that per (non-smooth) event, so those deltas are summed and
+    // every whole notch is one step, as Windows itself does. On Linux every wheel event is one
+    // notch (50 / 256). macOS sends one event per notch, but with an accelerated line delta that
+    // can be a fraction of a line for a slow notch, so there every such event is one step (0 here).
+   #if JUCE_WINDOWS
+    constexpr float c_wheelNotch = 0.5f * 120.0f / 256.0f;
+   #elif JUCE_LINUX || JUCE_BSD
+    constexpr float c_wheelNotch = 50.0f / 256.0f;
+   #else
+    constexpr float c_wheelNotch = 0.0f;
+   #endif
     constexpr float c_readoutClearance = 0.7f;  // gap kept between the readout and a ratio caption, in readout heights (~1.5 characters)
     constexpr float c_offLevel = 1.0e-4f;       // normalised level treated as off (the engine uses the same)
     constexpr float c_meterRelease = 0.78f;     // per 30 Hz tick: ~130 ms fall, so the glow doesn't flicker
@@ -88,6 +103,7 @@ HarmonicStrip::~HarmonicStrip()
 {
     stopTimer();
     endDragGesture(); // never leave a host gesture open
+    endWheelGesture();
 }
 
 HarmonicStrip::Bar& HarmonicStrip::barFor(int harmonic)
@@ -477,7 +493,44 @@ void HarmonicStrip::resetToDefault(int harmonic)
 
 void HarmonicStrip::nudge(int harmonic, int steps)
 {
-    setLevel(harmonic, barFor(harmonic).level + static_cast<float>(steps) * c_wheelStep);
+    auto& bar = barFor(harmonic);
+    if (bar.attachment == nullptr)
+        return;
+
+    // Part of the scroll's gesture, which stays open until the wheel pauses.
+    beginWheelGesture(harmonic);
+    const float level = bar.level + static_cast<float>(steps) * c_wheelStep;
+    bar.attachment->setValueAsPartOfGesture(bar.parameter->convertFrom0to1(juce::jlimit(0.0f, 1.0f, level)));
+}
+
+void HarmonicStrip::beginWheelGesture(int harmonic)
+{
+    if (m_wheelGestureHarmonic != harmonic)
+    {
+        endWheelGesture();
+
+        if (auto* attachment = barFor(harmonic).attachment.get())
+        {
+            attachment->beginGesture();
+            m_wheelGestureHarmonic = harmonic;
+        }
+    }
+
+    if (m_wheelGestureHarmonic != 0)
+        m_wheelGestureTimer.startTimer(static_cast<int>(c_wheelBurstMs));
+}
+
+void HarmonicStrip::endWheelGesture()
+{
+    m_wheelGestureTimer.stopTimer();
+
+    if (m_wheelGestureHarmonic == 0)
+        return;
+
+    if (auto* attachment = barFor(m_wheelGestureHarmonic).attachment.get())
+        attachment->endGesture();
+
+    m_wheelGestureHarmonic = 0;
 }
 
 void HarmonicStrip::beginDragGesture(int harmonic, float y)
@@ -566,11 +619,13 @@ void HarmonicStrip::mouseMove(const juce::MouseEvent& e)
 void HarmonicStrip::mouseExit(const juce::MouseEvent&)
 {
     setHovered(0);
+    endWheelGesture(); // a scroll ends when the mouse leaves
 }
 
 void HarmonicStrip::mouseDown(const juce::MouseEvent& e)
 {
     endDragGesture(); // in case an earlier drag never saw its mouse-up
+    endWheelGesture(); // a click or drag is an edit of its own
 
     // Right-clicks are left alone so a host or editor menu doesn't also toggle a bar.
     m_pressedHarmonic = e.mods.isPopupMenu() ? 0 : getHarmonicAt(e.position.x);
@@ -692,30 +747,45 @@ void HarmonicStrip::mouseWheelMove(const juce::MouseEvent& e, const juce::MouseW
     const auto msSinceLastEvent = (e.eventTime - m_lastWheelTime).inMilliseconds();
     m_lastWheelTime = e.eventTime;
 
+    // One scroll (events on the same bar without a pause) is one host gesture, however many
+    // steps it makes. While it lasts, every event keeps the gesture open.
+    const bool sameScroll = harmonic == m_wheelHarmonic && msSinceLastEvent >= 0 && msSinceLastEvent <= c_wheelBurstMs;
+    if (!sameScroll)
+        endWheelGesture();
+    else if (m_wheelGestureHarmonic != 0)
+        m_wheelGestureTimer.startTimer(static_cast<int>(c_wheelBurstMs));
+
     int steps = 0;
-    if (wheel.isSmooth)
+    const float notch = wheel.isSmooth ? c_trackpadNotch : c_wheelNotch;
+
+    if (notch > 0.0f)
     {
-        // Trackpads send many small deltas: step once per notch-sized amount. What is left over
-        // belongs to that scroll only: a pause or a change of direction drops it, so a light
-        // touch later on can't complete a step by itself.
-        const bool newScroll = harmonic != m_wheelHarmonic || msSinceLastEvent < 0 || msSinceLastEvent > c_trackpadPauseMs
-                            || m_wheelAccumulator * delta < 0.0f;
+        // Trackpads (and, on Windows, high-resolution wheels and precision touchpads) send many
+        // small deltas: step once per notch-sized amount. What is left over belongs to that scroll
+        // only: a pause, a change of direction or of event kind drops it, so a light touch later
+        // on can't complete a step by itself.
+        const auto pauseMs = wheel.isSmooth ? c_trackpadPauseMs : c_wheelBurstMs;
+        const bool newScroll = harmonic != m_wheelHarmonic || msSinceLastEvent < 0 || msSinceLastEvent > pauseMs
+                            || m_wheelAccumulator * delta < 0.0f || wheel.isSmooth != m_wheelWasSmooth;
         if (newScroll)
             m_wheelAccumulator = 0.0f;
 
-        m_wheelHarmonic = harmonic;
         m_wheelAccumulator += delta;
 
         // The small margin stops float drift (5 x 0.02 = 0.0499999) from swallowing a step.
-        const float notches = m_wheelAccumulator / c_trackpadNotch;
+        const float notches = m_wheelAccumulator / notch;
         steps = static_cast<int>(notches + (notches > 0.0f ? 1.0e-3f : -1.0e-3f));
-        m_wheelAccumulator -= static_cast<float>(steps) * c_trackpadNotch;
+        m_wheelAccumulator -= static_cast<float>(steps) * notch;
     }
     else
     {
-        // Wheel notch sizes differ per platform, so each event is one step.
+        // A notched wheel that reports one event per notch (see c_wheelNotch).
+        m_wheelAccumulator = 0.0f;
         steps = delta > 0.0f ? 1 : -1;
     }
+
+    m_wheelHarmonic = harmonic;
+    m_wheelWasSmooth = wheel.isSmooth;
 
     if (steps != 0)
         nudge(harmonic, steps);
