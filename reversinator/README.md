@@ -2,7 +2,7 @@
 
 A VST3/AU real-time reverser for macOS and Windows. Reversinator is a faithful, modernised recreation of **Backwards Machine** (The Sound Guy, 2007), the classic plugin that "reverses continuous audio in real time". Its three effects, Reverse Playback, Forward Backwards and Reverse Repeat, were rebuilt from a study of the original's signal flow, so they behave and sound like it. They run inside a new interface that shows the reverser at work.
 
-### 🎉 Latest Release v2.0.0 - [Download Here](https://github.com/samueljustice/plugins/releases/tag/reversinator-v2.0.0)
+### 🎉 Latest Release v2.0.1 - [Download Here](https://github.com/samueljustice/plugins/releases/tag/reversinator-v2.0.1)
 
 ![Reversinator](docs/screenshot.png)
 
@@ -20,7 +20,7 @@ A VST3/AU real-time reverser for macOS and Windows. Reversinator is a faithful, 
   For comparison, a single 192 kbps MP3 round trip, the format the demos were published in, leaves about 33 dB. The renders match how the vendor made the demos: processed at 44.1 kHz with the snippet clock started 448 samples before the clip, and Reverse Repeat at the TIME its demo used (2.0047 s).
 - **Click-free everywhere.** REVERSER switches with a 10 ms crossfade, as on the original. TIME changes crossfade between the old and new read positions. Switching effects crossfades straight into the new one, because every effect shares the same input history. Host bypass crossfades too, and the effect keeps running underneath, so un-bypassing lands in a live effect. Wet, dry and feedback changes are smoothed. All of this is independent of the host's buffer size.
 - **Live snippet display**: a scrolling view of the recent input with each read head drawn as it sweeps backwards through it, so you can see what each effect is doing.
-- **Modern interface** in the spirit of the original: mode lamps, the big REVERSER button, an hourglass TIME control and a feedback loop. The window is resizable from 75% to 200%.
+- **Modern interface** in the spirit of the original: mode lamps, the big REVERSER button, an hourglass TIME control and a feedback loop. The window is resizable from 75% to 200%. Menus, fields, links, tooltips and keyboard focus rings share Subbertone's look.
 - Mono or stereo at any sample rate. The effect itself is a delay, so no latency is reported to the host.
 
 ## The effects
@@ -117,5 +117,6 @@ See [LICENSE](LICENSE). The plugin uses the JUCE framework; see JUCE's license f
 
 ## Version History
 
+- **v2.0.1**: The interface takes on Subbertone's look: menus, value-box editing, links, keyboard focus rings, tooltips, the scrollbar and the resize grip, with nothing left in JUCE's default style. Fixes the licence text's "fi" ligature, the display's arrow sizes, and Tab reaching the controls behind the About panel. The sound and parameters are unchanged.
 - **v2.0.0**: Rebuilt to match Backwards Machine: the original's three effects, ranges, tapers, defaults and gain staging. New interface with a live snippet display. Click-free TIME, mode, REVERSER and host bypass changes. Fixes the macOS minimum-version problem, the Windows dependency on the Visual C++ runtime, a crash risk in the update check, and the build break.
 - **v1.0.0**: Initial release with a grain-based overlap-add engine, three reverse modes and a resizable UI.

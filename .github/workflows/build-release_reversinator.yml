@@ -8,6 +8,7 @@ on:
 
 permissions:
   contents: write
+  pull-requests: read   # the release changelog reads Reversinator's pull request titles
 
 jobs:
   # Single source of truth for the version: project(Reversinator VERSION x.y.z) in
@@ -547,8 +548,39 @@ jobs:
       uses: actions/checkout@v5
       with:
         path: repo
+        fetch-depth: 0   # history and tags, for the changelog
         sparse-checkout: reversinator/RELEASE_NOTES.md
         sparse-checkout-cone-mode: false
+
+    - name: Changelog
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        # This repository releases several plugins, so compare with Reversinator's own previous release
+        # and list only the pull requests that changed Reversinator. (GitHub's generated notes would use
+        # the newest tag of any plugin and list every plugin's pull requests.)
+        cd repo
+        current="$GITHUB_REF_NAME"
+        previous=$(git tag --list 'reversinator-v*' | sort -V | awk -v cur="$current" '$0 == cur { print prev; exit } { prev = $0 }')
+        cp reversinator/RELEASE_NOTES.md ../release_body.md
+        if [ -z "$previous" ]; then
+          echo "No earlier Reversinator release, so no changelog section"
+          exit 0
+        fi
+        prs=$(git log --first-parent --format='%s' "$previous..$current" -- reversinator .github/workflows/build-release_reversinator.yml \
+              | { grep -oE '#[0-9]+' || true; } | tr -d '#' | sort -un)
+        {
+          echo
+          if [ -n "$prs" ]; then
+            echo "## What's Changed"
+            for n in $prs; do
+              gh pr view "$n" --repo "$GITHUB_REPOSITORY" --json title,url --jq '"* \(.title) in \(.url)"' || echo "* #$n"
+            done
+            echo
+          fi
+          echo "**Full Changelog**: https://github.com/$GITHUB_REPOSITORY/compare/$previous...$current"
+        } >> ../release_body.md
+        tail -n 8 ../release_body.md
 
     - name: Download all artifacts
       uses: actions/download-artifact@v7
@@ -573,7 +605,6 @@ jobs:
           Reversinator-macOS-AU.zip
           windows-installer/*.exe
           macos-installer/*.pkg
-        body_path: repo/reversinator/RELEASE_NOTES.md
-        generate_release_notes: true
+        body_path: release_body.md
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
