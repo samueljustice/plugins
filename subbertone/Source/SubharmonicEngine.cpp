@@ -13,11 +13,17 @@ namespace
     constexpr double c_bandEnvelopeHz      = 12.0;  // 2-pole smoothing of the band RMS
     constexpr double c_gateAttackSeconds   = 0.010;
     constexpr double c_gateReleaseSeconds  = 0.080;
-    constexpr double c_glideSeconds        = 0.012;
+    // Pitch tracker
+    constexpr double c_trackHoldSeconds    = 0.25;  // keep the last pitch through dropouts this long
+    constexpr double c_jumpConfirmSeconds  = 0.04;  // a big jump must persist this long
+    constexpr double c_octaveConfirmSeconds = 0.12; // an octave flip must persist this long
+    constexpr float  c_followSemitones     = 3.0f;  // moves within this are followed directly
+    constexpr float  c_weakFollowSemitones = 1.5f;  // ... or within this for low-confidence guesses
+    constexpr float  c_candidateTolerance  = 1.0f;  // semitones: "the same" candidate
+    constexpr float  c_strongConfidence    = 0.8f;  // strict YIN hits; fallback guesses are weaker
     constexpr double c_paramSeconds        = 0.030;
     constexpr double c_typeFadeSeconds     = 0.030;
     constexpr float  c_gateHysteresisDb    = 3.0f;
-    constexpr int    c_unvoicedHopsToClose = 3;
     constexpr float  c_maxDrive            = 10.0f;
     constexpr int    c_filterUpdateInterval = 8;
     constexpr double c_maxResidualPeak     = 1.5;  // relative to a unit sine
@@ -71,7 +77,12 @@ void SubharmonicEngine::prepare(double sampleRate)
     m_bandEnvCoeff = static_cast<float>(1.0 - std::exp(-c_twoPi * c_bandEnvelopeHz / m_sampleRate));
     m_gateAttack   = onePoleCoeff(c_gateAttackSeconds, m_sampleRate);
     m_gateRelease  = onePoleCoeff(c_gateReleaseSeconds, m_sampleRate);
-    m_glideCoeff   = onePoleCoeff(c_glideSeconds, m_sampleRate);
+    m_lastGlideMs  = -1.0f; // glide coefficient is set from the parameter in process()
+
+    const double hopSeconds = m_detector.getHopSize() / m_sampleRate;
+    m_jumpConfirmHops   = std::max(2, static_cast<int>(std::lround(c_jumpConfirmSeconds / hopSeconds)));
+    m_octaveConfirmHops = std::max(3, static_cast<int>(std::lround(c_octaveConfirmSeconds / hopSeconds)));
+    m_holdLimitHops     = std::max(3, static_cast<int>(std::lround(c_trackHoldSeconds / hopSeconds)));
     m_paramCoeff   = onePoleCoeff(c_paramSeconds, m_sampleRate);
     m_typeFadeStep = static_cast<float>(1.0 / (c_typeFadeSeconds * m_sampleRate));
     m_filterEnvAttack = onePoleCoeff(c_filterEnvAttackSecs, m_sampleRate);
@@ -98,7 +109,7 @@ void SubharmonicEngine::reset()
     m_fundamental = 0.0f;
     m_gate = 0.0f;
     m_gateTarget = 0.0f;
-    m_unvoicedHops = 0;
+    resetTracker();
 
     m_phase = 0.0;
     m_logFreq = m_logFreqTarget = std::log(50.0f);
@@ -113,6 +124,17 @@ void SubharmonicEngine::reset()
     m_shaperCounter = 0;
 
     m_harmonicFilter.reset();
+    for (auto& stage : m_loCut)
+        stage.reset();
+    m_loCutHz = m_target.loCutHz;
+    m_loCutMix = m_target.loCutOn ? 1.0f : 0.0f;
+
+    m_overtoneAmount = m_target.overtoneAmount;
+    m_subLevel = m_target.harmonicLevels[1];
+    m_activity = 0.0f;
+    updateOvertoneTargets(50.0);
+    for (int k = 0; k <= c_maxOvertone; ++k)
+        m_overtoneGain[k] = m_overtoneTarget[k];
     m_postFilter.reset();
     m_postFilter.setCutoff(m_postLowpassHz, m_fs);
 
@@ -132,6 +154,11 @@ void SubharmonicEngine::setParameters(const Parameters& p)
     m_target.filterMode = std::clamp(p.filterMode, 0, 2);
     m_target.envAmountOctaves = std::clamp(p.envAmountOctaves, -6.0f, 6.0f);
     m_target.envReleaseMs = std::clamp(p.envReleaseMs, 1.0f, 5000.0f);
+    m_target.glideMs = std::clamp(p.glideMs, 1.0f, 2000.0f);
+    m_target.loCutHz = std::clamp(p.loCutHz, 10.0f, 200.0f);
+    m_target.overtoneAmount = std::clamp(p.overtoneAmount, 0.0f, 1.0f);
+    for (auto& level : m_target.harmonicLevels)
+        level = std::clamp(level, 0.0f, 1.0f);
 
     if (m_target.saturationType != m_type)
     {
@@ -290,18 +317,146 @@ float SubharmonicEngine::harmonicResidual(float s, const ShaperCoefficients& c, 
 }
 
 //==============================================================================
+void SubharmonicEngine::updateOvertoneTargets(double subFrequency)
+{
+    // Each bar is an amplitude relative to the sub (1.0 = as loud as the sub).
+    // Partials that would land above ~0.45 fs are left out (no aliasing). If the
+    // bars add up to more than 1.5x the sub's RMS, all of them are scaled down
+    // together, so 16 bars at 100% can't explode the level.
+    constexpr double maxEnergy = 1.5 * 1.5;
+    double sumSquares = 0.0;
+
+    m_overtoneTarget[0] = m_overtoneTarget[1] = 0.0f;
+    for (int k = 2; k <= c_maxOvertone; ++k)
+    {
+        const bool belowNyquist = subFrequency * k < m_sampleRate * 0.45;
+        m_overtoneTarget[k] = belowNyquist ? m_target.harmonicLevels[static_cast<size_t>(k)] : 0.0f;
+        sumSquares += static_cast<double>(m_overtoneTarget[k]) * m_overtoneTarget[k];
+    }
+
+    m_overtoneCapScale = sumSquares > maxEnergy ? static_cast<float>(std::sqrt(maxEnergy / sumSquares)) : 1.0f;
+    for (int k = 2; k <= c_maxOvertone; ++k)
+        m_overtoneTarget[k] *= m_overtoneCapScale;
+}
+
+float SubharmonicEngine::getHarmonicActivity(int k) const
+{
+    if (k < 1 || k > c_maxOvertone)
+        return 0.0f;
+
+    if (k == 1)
+        return m_activity;
+
+    const float set = m_target.harmonicLevels[static_cast<size_t>(k)];
+    if (set <= 1.0e-4f)
+        return 0.0f;
+
+    // Includes the master amount, the energy cap and Nyquist muting.
+    return std::clamp(m_activity * m_overtoneAmount * m_overtoneGain[k] / set, 0.0f, 1.0f);
+}
+
+void SubharmonicEngine::resetTracker()
+{
+    m_hasTrack = false;
+    m_candidateHops = 0;
+    m_startHops = 0;
+    m_holdHops = 0;
+}
+
+void SubharmonicEngine::acceptPitch(float semitones)
+{
+    m_trackSt = semitones;
+    m_hasTrack = true;
+    m_candidateHops = 0;
+    m_holdHops = 0;
+}
+
 void SubharmonicEngine::onPitchEstimate()
 {
-    const float f0 = m_detector.getFrequency();
-    const bool voiced = m_levelOpen
-                     && f0 >= PitchDetector::c_minFrequency
-                     && f0 <= m_target.maxFundamentalHz * 1.1f;
-
-    if (voiced)
+    if (!m_levelOpen)
     {
-        m_unvoicedHops = 0;
-        m_fundamental = f0;
-        m_logFreqTarget = std::log(f0 * 0.5f);
+        // Below the threshold: stop immediately, forget the track.
+        resetTracker();
+        m_gateTarget = 0.0f;
+        m_fundamental = 0.0f;
+        return;
+    }
+
+    const float f0 = m_detector.getFrequency();
+    const bool inRange = f0 >= PitchDetector::c_minFrequency && f0 <= m_target.maxFundamentalHz * 1.1f;
+    const bool strong = m_detector.getConfidence() >= c_strongConfidence;
+    bool used = false;
+
+    if (inRange)
+    {
+        const float st = 12.0f * std::log2(f0);
+
+        if (!m_hasTrack)
+        {
+            // Start a track from two consistent strong estimates in a row.
+            if (strong)
+            {
+                if (m_startHops > 0 && std::abs(st - m_candidateSt) < c_candidateTolerance)
+                    ++m_startHops;
+                else
+                {
+                    m_candidateSt = st;
+                    m_startHops = 1;
+                }
+
+                if (m_startHops >= 2)
+                {
+                    acceptPitch(st);
+                    m_startHops = 0;
+                    used = true;
+                }
+            }
+        }
+        else
+        {
+            const float distance = st - m_trackSt;
+
+            // Weak (fallback) guesses may only make small corrections, so they
+            // can't walk the track away from the real pitch.
+            const float followLimit = strong ? c_followSemitones : c_weakFollowSemitones;
+
+            if (std::abs(distance) <= followLimit)
+            {
+                acceptPitch(st);
+                used = true;
+            }
+            else if (strong)
+            {
+                // A big jump only wins if it keeps coming back. Octave flips are
+                // the classic detector error, so they need to persist longer.
+                const bool octave = std::abs(std::abs(distance) - 12.0f) < c_candidateTolerance;
+                const int needed = octave ? m_octaveConfirmHops : m_jumpConfirmHops;
+
+                if (m_candidateHops > 0 && std::abs(st - m_candidateSt) < c_candidateTolerance * 1.5f)
+                    ++m_candidateHops;
+                else
+                {
+                    m_candidateSt = st;
+                    m_candidateHops = 1;
+                }
+
+                if (m_candidateHops >= needed)
+                {
+                    acceptPitch(m_candidateSt);
+                    used = true;
+                }
+            }
+        }
+    }
+
+    // Nothing usable this hop: hold the last pitch for a while before letting go.
+    if (!used && m_hasTrack && ++m_holdHops > m_holdLimitHops)
+        resetTracker();
+
+    if (m_hasTrack)
+    {
+        m_fundamental = std::exp2(m_trackSt / 12.0f);
+        m_logFreqTarget = std::log(m_fundamental * 0.5f);
 
         // At note onset (gate closed) jump straight to the new pitch instead of
         // gliding from wherever the last note was.
@@ -310,7 +465,7 @@ void SubharmonicEngine::onPitchEstimate()
 
         m_gateTarget = 1.0f;
     }
-    else if (!m_levelOpen || ++m_unvoicedHops >= c_unvoicedHopsToClose)
+    else
     {
         m_gateTarget = 0.0f;
         m_fundamental = 0.0f;
@@ -336,6 +491,12 @@ void SubharmonicEngine::process(const float* in, float* out, float* residual, in
     }
 
     float filterK = resonanceK(m_resonance);
+
+    if (std::abs(m_target.glideMs - m_lastGlideMs) > 1.0e-3f)
+    {
+        m_lastGlideMs = m_target.glideMs;
+        m_glideCoeff = onePoleCoeff(m_lastGlideMs * 0.001, m_sampleRate);
+    }
 
     for (int i = 0; i < numSamples; ++i)
     {
@@ -376,6 +537,8 @@ void SubharmonicEngine::process(const float* in, float* out, float* residual, in
 
         if ((m_shaperCounter % c_shaperUpdateInterval) == 0)
         {
+            updateOvertoneTargets(std::exp(static_cast<double>(m_logFreq)));
+
             const float drive = 1.0f + m_distortion * (c_maxDrive - 1.0f);
             m_shaper = computeShaper(drive, m_type);
 
@@ -430,20 +593,66 @@ void SubharmonicEngine::process(const float* in, float* out, float* residual, in
         const float driven = std::tanh(harmFiltered * resDrive) / std::tanh(resDrive);
         harmFiltered += std::min(1.0f, m_resonance * 3.0f) * (driven - harmFiltered);
 
+        // --- Overtones: sin(k*phase) by the Chebyshev recurrence -------------------
+        m_overtoneAmount += m_paramCoeff * (m_target.overtoneAmount - m_overtoneAmount);
+        float overtones = 0.0f;
+
+        m_subLevel += m_paramCoeff * (m_target.harmonicLevels[1] - m_subLevel);
+
+        if (m_overtoneAmount > 1.0e-4f || m_target.overtoneAmount > 1.0e-4f)
+        {
+            const float c2 = 2.0f * static_cast<float>(std::cos(c_twoPi * m_phase));
+            float prev = 0.0f, curr = s; // sin(0*phase), sin(1*phase)
+
+            for (int k = 2; k <= c_maxOvertone; ++k)
+            {
+                const float next = c2 * curr - prev;
+                prev = curr;
+                curr = next;
+
+                m_overtoneGain[k] += m_paramCoeff * (m_overtoneTarget[k] - m_overtoneGain[k]);
+                overtones += m_overtoneGain[k] * curr;
+            }
+
+            overtones *= m_overtoneAmount;
+        }
+
         // --- Output ----------------------------------------------------------------
 
         // Equal-power crossfade: sine and harmonics are uncorrelated.
         const float cleanWeight = std::cos(m_distortion * c_pi * 0.5f);
         const float harmWeight  = std::sin(m_distortion * c_pi * 0.5f);
-        const float wet = level * (cleanWeight * s + harmWeight * harmFiltered);
+        // H1 sets how much of the clean sub itself is heard (0 = overtones only, the
+        // MaxxBass "replace" trick for small speakers).
+        const float wet = level * (cleanWeight * m_subLevel * s + harmWeight * harmFiltered + overtones);
 
-        out[i] = m_postFilter.process(wet);
+        float sub = m_postFilter.process(wet);
+
+        // --- Lo cut (48 dB/oct Butterworth: stage Qs 0.510, 0.601, 0.900, 2.563) ---
+        {
+            static constexpr float stageK[4] { 1.0f / 0.50980f, 1.0f / 0.60135f, 1.0f / 0.89998f, 1.0f / 2.56292f };
+            m_loCutHz  += m_paramCoeff * (m_target.loCutHz - m_loCutHz);
+            m_loCutMix += m_paramCoeff * ((m_target.loCutOn ? 1.0f : 0.0f) - m_loCutMix);
+
+            const float g = std::tan(c_pi * std::clamp(m_loCutHz, 5.0f, m_fs * 0.25f) / m_fs);
+            float hp = sub;
+            for (size_t stage = 0; stage < m_loCut.size(); ++stage)
+                hp = m_loCut[stage].process(hp, g, stageK[stage]).hp;
+
+            sub += m_loCutMix * (hp - sub);
+        }
+
+        out[i] = sub;
 
         if (residual != nullptr)
-            residual[i] = level * harmFiltered;
+            residual[i] = level * (harmFiltered + overtones);
     }
 
     m_inputRms = std::sqrt(std::max(0.0f, m_inputMeanSquare));
+
+    // Meter activity: the gate times how strong the sub is (full scale from about -12 dBFS).
+    const float subAmplitude = std::min(4.0f, std::sqrt(2.0f * std::max(0.0f, m_bandEnv2)));
+    m_activity = std::clamp(m_gate * subAmplitude * 4.0f, 0.0f, 1.0f);
 
     // Flush tiny filter states (belt and braces; the host also sets FTZ).
     if (std::abs(m_bandEnv2) < 1.0e-20f) m_bandEnv1 = m_bandEnv2 = 0.0f;

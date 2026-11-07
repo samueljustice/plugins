@@ -6,7 +6,7 @@
 /**
  * Shared look for Subbertone: one palette and one font family (Azeret Mono,
  * embedded). Colours are tied to meaning: teal = input/detection,
- * rose = harmonics/drive, violet = filter, amber = sub/output. Knobs, traces
+ * rose = harmonics/drive, violet = filter, mint = overtones, amber = sub/output, silver = master. Knobs, traces
  * and labels share these so the UI reads at a glance.
  */
 namespace Theme
@@ -26,6 +26,8 @@ namespace Theme
         inline const juce::Colour input       { 0xff5ec8d8 }; // teal
         inline const juce::Colour harmonics   { 0xffef6f8e }; // rose
         inline const juce::Colour filter      { 0xffa992ff }; // violet
+        inline const juce::Colour overtones   { 0xff6fd6b4 }; // mint
+        inline const juce::Colour master      { 0xffc9cdd8 }; // silver
         inline const juce::Colour output      { 0xffffb54d }; // amber
 
         inline const juce::Colour good        { 0xff7fd49b };

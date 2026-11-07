@@ -2,6 +2,9 @@
 
 #include "PitchDetector.h"
 
+#include <array>
+#include <cmath>
+
 /**
  * Subharmonic generator.
  *
@@ -57,6 +60,13 @@ public:
         float postLowpassHz = 20000.0f;   // lowpass on the whole wet signal
         float thresholdDb = -40.0f;       // input level gate
         float maxFundamentalHz = 250.0f;  // ignore pitches above this
+        float glideMs = 40.0f;            // how smoothly the sub follows pitch changes
+        float overtoneAmount = 0.0f;      // 0..1 master for H2..H16 (MaxxBass-style overtones of the sub)
+        // Harmonic editor levels, 0..1, index 1..16 (index 0 unused). H1 is the sub itself;
+        // Hk is the k-th harmonic of the sub, relative to the sub's amplitude.
+        std::array<float, 17> harmonicLevels { 0.0f, 1.0f, 0.6f, 0.4f, 0.3f, 0.24f, 0.2f };
+        bool loCutOn = false;             // steep high-pass on the generated sub
+        float loCutHz = 30.0f;            // 10..80 Hz
     };
 
     void prepare(double sampleRate);
@@ -71,6 +81,11 @@ public:
 
     /** Linear RMS of the full-band input (smoothed). */
     float getInputRms() const { return m_inputRms; }
+
+    /** Diagnostics: frequency the sub oscillator is currently playing, and the voicing gate (0..1). */
+    float getSubFrequency() const { return std::exp(m_logFreq); }
+    float getGate() const { return m_gate; }
+    const PitchDetector& getDetector() const { return m_detector; }
 
 private:
     struct Biquad
@@ -158,7 +173,21 @@ private:
     float m_gateTarget = 0.0f;
     float m_gateAttack = 0.0f;
     float m_gateRelease = 0.0f;
-    int m_unvoicedHops = 0;
+    // Pitch tracker: follows small moves, needs big jumps (and octave flips) to
+    // persist before accepting them, and holds through short detection dropouts.
+    void resetTracker();
+    void acceptPitch(float semitones);
+
+    bool m_hasTrack = false;
+    float m_trackSt = 0.0f;       // tracked fundamental, in semitones (12 * log2 Hz)
+    float m_candidateSt = 0.0f;
+    int m_candidateHops = 0;
+    int m_startHops = 0;
+    int m_holdHops = 0;
+    int m_jumpConfirmHops = 8;
+    int m_octaveConfirmHops = 24;
+    int m_holdLimitHops = 50;
+    float m_lastGlideMs = -1.0f;
 
     // Oscillator
     double m_phase = 0.0;
@@ -206,6 +235,12 @@ private:
     };
 
     SvfMultimode m_harmonicFilter;
+
+    // Lo cut: 8th-order Butterworth high-pass (48 dB/oct) as four TPT SVF stages,
+    // stable under modulation. Always running; enabling crossfades to it.
+    std::array<SvfMultimode, 4> m_loCut;
+    float m_loCutHz = 30.0f;
+    float m_loCutMix = 0.0f;
     float m_resonance = 0.0f;
     float m_envAmount = 0.0f;
     float m_filterEnv = 0.0f;
@@ -213,6 +248,25 @@ private:
     float m_filterEnvRelease = 0.0f;
     float m_lastReleaseMs = -1.0f;
     float m_modeWeights[3] { 1.0f, 0.0f, 0.0f };
+
+    // Overtones: an exact harmonic series of the sub (sin(k*phase)), the
+    // psychoacoustic "missing fundamental" trick used by MaxxBass/RBass so the
+    // sub is heard on small speakers. Per-harmonic gains are smoothed so changing
+    // the range never clicks.
+    static constexpr int c_maxOvertone = 16;
+    void updateOvertoneTargets(double subFrequency);
+    float m_overtoneGain[c_maxOvertone + 1] {};
+    float m_overtoneTarget[c_maxOvertone + 1] {};
+    float m_overtoneAmount = 0.0f;
+    float m_subLevel = 1.0f;     // smoothed H1 level
+    float m_overtoneCapScale = 1.0f;
+    float m_activity = 0.0f;     // 0..1 how much sub is sounding now (for meters)
+
+public:
+    /** 0..1: how much of harmonic k's set level is sounding right now (for the editor's meters). */
+    float getHarmonicActivity(int k) const;
+
+private:
 
     static constexpr int c_shaperUpdateInterval = 32;
 };

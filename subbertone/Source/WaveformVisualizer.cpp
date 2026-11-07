@@ -4,6 +4,13 @@
 WaveformVisualizer::WaveformVisualizer(SubbertoneAudioProcessor& audioProcessor)
     : m_audioProcessor(audioProcessor)
 {
+    m_logo = std::make_unique<LogoOutline>(BinaryData::sjlogo_svg, static_cast<size_t>(BinaryData::sjlogo_svgSize));
+
+    // Restore the trace toggles saved with the session.
+    m_showInput = m_audioProcessor.getViewOption("viewShowInput", true);
+    m_showHarmonicResidual = m_audioProcessor.getViewOption("viewShowHarmonics", true);
+    m_showOutput = m_audioProcessor.getViewOption("viewShowOutput", true);
+
     // Don't make component opaque so paint() is called for text overlay
     setOpaque(false);
     
@@ -111,8 +118,45 @@ void WaveformVisualizer::paint(juce::Graphics& g)
     g.drawRect(bounds, 1);
 }
 
+void WaveformVisualizer::updateIdleState()
+{
+    // "Quiet" = nothing tracked and the input below about -50 dBFS. After 1.5 s of
+    // quiet, fade the logo in slowly; fade it out quickly the moment sound returns.
+    const double now = juce::Time::getMillisecondCounterHiRes() * 0.001;
+    const bool quiet = m_audioProcessor.getCurrentFundamental() <= 0.0f
+                    && m_audioProcessor.getCurrentSignalLevel() < 0.003f;
+
+    if (!quiet)
+        m_quietSinceSeconds = -1.0;
+    else if (m_quietSinceSeconds < 0.0)
+        m_quietSinceSeconds = now;
+
+    const bool idle = quiet && (now - m_quietSinceSeconds) > 1.5;
+    float opacity = m_logoOpacity.load();
+
+    if (idle)
+    {
+        if (opacity <= 0.0f)
+            m_logoStartSeconds = now; // restart the sketch each time we go idle
+        opacity = std::min(1.0f, opacity + 1.0f / (60.0f * 0.9f));
+    }
+    else
+    {
+        opacity = std::max(0.0f, opacity - 1.0f / (60.0f * 0.15f));
+    }
+
+    m_logoOpacity = opacity;
+}
+
 void WaveformVisualizer::timerCallback()
 {
+    updateIdleState();
+
+    // Follow the saved view options, so a host state recall updates an open editor.
+    m_showInput = m_audioProcessor.getViewOption("viewShowInput", true);
+    m_showHarmonicResidual = m_audioProcessor.getViewOption("viewShowHarmonics", true);
+    m_showOutput = m_audioProcessor.getViewOption("viewShowOutput", true);
+
     // Update waveform history
     m_audioProcessor.getInputWaveform(m_inputBuffer);
     m_audioProcessor.getOutputWaveform(m_outputBuffer);
@@ -233,23 +277,23 @@ void WaveformVisualizer::mouseDown(const juce::MouseEvent& event)
     const int clickY = event.y;
     const int height = getHeight();
     
-    // Divide into three zones: top third (input), middle third (harmonic residual), bottom third (output)
+    // Three zones: top third input, middle harmonics, bottom sub output.
     if (clickY < height / 3)
     {
-        // Clicked on input area (top third)
         m_showInput = !m_showInput;
+        m_audioProcessor.setViewOption("viewShowInput", m_showInput);
     }
     else if (clickY < 2 * height / 3)
     {
-        // Clicked on harmonic residual area (middle third)
         m_showHarmonicResidual = !m_showHarmonicResidual;
+        m_audioProcessor.setViewOption("viewShowHarmonics", m_showHarmonicResidual);
     }
     else
     {
-        // Clicked on output area (bottom third)
         m_showOutput = !m_showOutput;
+        m_audioProcessor.setViewOption("viewShowOutput", m_showOutput);
     }
-    
+
     repaint();
 }
 
@@ -285,6 +329,9 @@ void WaveformVisualizer::renderOpenGL()
     glEnable(GL_LINE_SMOOTH);
     glHint(GL_LINE_SMOOTH_HINT, GL_NICEST);
     
+    const float logoOpacity = m_logoOpacity.load();
+    m_traceAlpha = 1.0f - logoOpacity;
+
     // Draw perspective grid
     drawPerspectiveGrid();
     
@@ -297,6 +344,13 @@ void WaveformVisualizer::renderOpenGL()
 
     if (m_showOutput)
         drawWaveform3D(m_outputHistory, m_outputColor, -0.5f, false);
+
+    if (m_logo != nullptr && m_logo->isLoaded() && logoOpacity > 0.001f)
+    {
+        const double now = juce::Time::getMillisecondCounterHiRes() * 0.001;
+        m_logo->render(static_cast<float>(now - m_logoStartSeconds.load()), logoOpacity,
+                       static_cast<float>(getWidth()) / static_cast<float>(std::max(1, getHeight())));
+    }
 }
 
 void WaveformVisualizer::openGLContextClosing()
@@ -390,15 +444,15 @@ void WaveformVisualizer::drawWaveform3D(const std::vector<std::vector<float>>& h
         if (h == 0)
         {
             // Wide, faint halo under the newest trace.
-            glColor4f(color.getFloatRed(), color.getFloatGreen(), color.getFloatBlue(), 0.12f);
+            glColor4f(color.getFloatRed(), color.getFloatGreen(), color.getFloatBlue(), 0.12f * m_traceAlpha);
             glLineWidth(9.0f);
             strip();
-            glColor4f(color.getFloatRed(), color.getFloatGreen(), color.getFloatBlue(), 0.25f);
+            glColor4f(color.getFloatRed(), color.getFloatGreen(), color.getFloatBlue(), 0.25f * m_traceAlpha);
             glLineWidth(4.5f);
             strip();
         }
 
-        glColor4f(color.getFloatRed(), color.getFloatGreen(), color.getFloatBlue(), (h == 0 ? 1.0f : 0.45f) * intensity);
+        glColor4f(color.getFloatRed(), color.getFloatGreen(), color.getFloatBlue(), (h == 0 ? 1.0f : 0.45f) * intensity * m_traceAlpha);
         glLineWidth(h == 0 ? 2.0f : std::max(1.0f, 1.8f - h * 0.05f));
         strip();
     }

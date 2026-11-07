@@ -3,6 +3,10 @@
 #include <JuceHeader.h>
 #include "Theme.h"
 
+#include "LogoOutline.h"
+
+#include <atomic>
+
 class SubbertoneAudioProcessor;
 
 class WaveformVisualizer : public juce::Component, public juce::Timer, public juce::OpenGLRenderer
@@ -26,14 +30,25 @@ public:
     void setSignalText(const juce::String& text, bool aboveThreshold);
 
     // Visibility toggles
-    bool m_showInput = true;
-    bool m_showOutput = true;
-    bool m_showHarmonicResidual = true;
+    // Read by the OpenGL thread, written on the message thread; persisted in the plugin state.
+    std::atomic<bool> m_showInput { true };
+    std::atomic<bool> m_showOutput { true };
+    std::atomic<bool> m_showHarmonicResidual { true };
     
 private:
     void drawWaveform3D(const std::vector<std::vector<float>>& history, const juce::Colour& color, float yOffset, bool isInput);
     void drawPerspectiveGrid();
     void drawLegendRow(juce::Graphics& g, int centreY, const juce::String& name, juce::Colour colour, bool on);
+    void updateIdleState();
+
+    // Idle screen: after a moment of silence the traces fade out and the Sweet
+    // Justice logo is sketched in. Opacity is written on the message thread and
+    // read by the GL thread.
+    std::unique_ptr<LogoOutline> m_logo;
+    std::atomic<float> m_logoOpacity { 0.0f };
+    std::atomic<double> m_logoStartSeconds { 0.0 };
+    double m_quietSinceSeconds = -1.0;
+    float m_traceAlpha = 1.0f; // GL thread only
 
     SubbertoneAudioProcessor& m_audioProcessor;
     juce::OpenGLContext m_openGLContext;

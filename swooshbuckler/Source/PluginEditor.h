@@ -1,0 +1,232 @@
+#pragma once
+
+#include <JuceHeader.h>
+#include "CargoHoldView.h"
+#include "LookAndFeel.h"
+#include "ModPanel.h"
+#include "MorphPad.h"
+#include "PluginProcessor.h"
+#include "Presets.h"
+#include "SeaVisualiser.h"
+#include "SectionScope.h"
+#include "Theme.h"
+#include "LogoOutline.h"
+
+/**
+ * The ship. Laid out once at a fixed design size inside a content component
+ * that is scaled uniformly, so the window can be resized without reflowing.
+ *
+ * One screen, in signal order (the whoosh rig):
+ *
+ *   header : title | presets | randomise | record | save last 60 s | settings
+ *   row 1  : TRACKS (each loops; start markers; the ride drawn live)   | OUTPUT view (the sea) / RIDE
+ *   row 2  : BUS A (aggressive)                                 ->     BUS B (smooth, ducked and filtered by A)
+ *   row 3  : HITS (gated at the loudest moments)                ->     OUTPUT
+ *   row 4  : MODULATION: four modulators; drag a jack onto any knob to wire it (MegaMod style)
+ */
+class SwooshbucklerAudioProcessorEditor : public juce::AudioProcessorEditor,
+                                          public juce::FileDragAndDropTarget,
+                                          private juce::Timer
+{
+public:
+    explicit SwooshbucklerAudioProcessorEditor(SwooshbucklerAudioProcessor&);
+    ~SwooshbucklerAudioProcessorEditor() override;
+
+    void paint(juce::Graphics&) override;
+    void resized() override;
+    bool keyPressed(const juce::KeyPress&) override;
+    bool keyStateChanged(bool isKeyDown) override;
+
+    bool isInterestedInFileDrag(const juce::StringArray& files) override;
+    void filesDropped(const juce::StringArray& files, int x, int y) override;
+
+    static constexpr int c_width = 1280;
+    static constexpr int c_height = 1024;
+
+private:
+    struct Content : public juce::Component
+    {
+        std::function<void(juce::Graphics&)> onPaint;
+        std::function<void(const juce::MouseEvent&)> onMouseDown;
+        void paint(juce::Graphics& g) override { if (onPaint) onPaint(g); }
+        void mouseDown(const juce::MouseEvent& e) override { if (onMouseDown) onMouseDown(e); }
+    };
+
+    /** Swell: hold it and every track's fader rides up; let go and the ride takes over again. */
+    class SwellButton : public juce::Component, public juce::SettableTooltipClient, private juce::Timer
+    {
+    public:
+        SwellButton(SwooshbucklerAudioProcessor& p, const Theme::Fonts& f) : m_processor(p), m_fonts(f)
+        {
+            setMouseCursor(juce::MouseCursor::PointingHandCursor);
+            startTimerHz(60);
+        }
+        void paint(juce::Graphics&) override;
+        void mouseDown(const juce::MouseEvent&) override { m_processor.setSwell(true); m_target = 0.9f; }
+        void mouseUp(const juce::MouseEvent&) override { m_processor.setSwell(false); m_target = 1.0f; }
+        void press(bool down) { m_target = down ? 0.9f : 1.0f; }
+    private:
+        void timerCallback() override;
+        SwooshbucklerAudioProcessor& m_processor;
+        const Theme::Fonts& m_fonts;
+        float m_scale = 1.0f, m_velocity = 0.0f, m_target = 1.0f, m_glow = 0.0f;
+    };
+
+    /** The tape machine: two reels that spin while audio is being captured. Click to arm / disarm. */
+    class TapeButton : public juce::Component, public juce::SettableTooltipClient, private juce::Timer
+    {
+    public:
+        TapeButton(SwooshbucklerAudioProcessor& p, const Theme::Fonts& f) : m_processor(p), m_fonts(f)
+        {
+            setMouseCursor(juce::MouseCursor::PointingHandCursor);
+            startTimerHz(30);
+        }
+        void paint(juce::Graphics&) override;
+        void mouseUp(const juce::MouseEvent& e) override { if (onClick && contains(e.getPosition())) onClick(); }
+        std::function<void()> onClick;
+    private:
+        void timerCallback() override;
+        SwooshbucklerAudioProcessor& m_processor;
+        const Theme::Fonts& m_fonts;
+        float m_angle = 0.0f, m_blink = 0.0f;
+        bool m_wasArmed = false;
+    };
+
+    /** Settings: where the tape goes and how it's written (type, bit depth, sample rate, channels), audio device. */
+    class SettingsPanel : public juce::Component
+    {
+    public:
+        explicit SettingsPanel(SwooshbucklerAudioProcessorEditor& owner);
+        void paint(juce::Graphics&) override;
+        void resized() override;
+        void mouseDown(const juce::MouseEvent&) override;
+        void refresh();
+    private:
+        SwooshbucklerAudioProcessorEditor& m_owner;
+        juce::TextButton m_choose { "CHOOSE..." }, m_reveal { "SHOW" }, m_close { "CLOSE" }, m_desktop { "DESKTOP" }, m_audio { "AUDIO DEVICE..." };
+        std::array<juce::TextButton, 3> m_types, m_bits;
+        std::array<juce::TextButton, 6> m_rates;
+        std::array<juce::TextButton, 2> m_channels;
+        juce::ToggleButton m_auto { "Arm the tape as soon as Swooshbuckler opens" };
+        std::unique_ptr<juce::FileChooser> m_chooser;
+        juce::Rectangle<int> m_panel;
+        std::array<juce::Rectangle<int>, 6> m_captions;
+    };
+
+    /** About: the version and build, what Swooshbuckler is, and the credits. Opened from the title or the version link. */
+    class AboutPanel : public juce::Component, private juce::Timer
+    {
+    public:
+        explicit AboutPanel(SwooshbucklerAudioProcessorEditor& owner);
+        void paint(juce::Graphics&) override;
+        void resized() override;
+        void mouseDown(const juce::MouseEvent&) override;
+        void visibilityChanged() override;
+    private:
+        void timerCallback() override { repaint(m_logoArea); }
+        SwooshbucklerAudioProcessorEditor& m_owner;
+        juce::TextButton m_close { "CLOSE" }, m_website { "WEBSITE" }, m_copy { "COPY VERSION" };
+        std::unique_ptr<LogoOutline> m_logo;
+        double m_shownAt = 0.0;
+        juce::Rectangle<int> m_panel, m_logoArea, m_textArea;
+    };
+
+    /** Glides parameters to new targets on springs (presets, Roll the Bones). */
+    struct Morph
+    {
+        struct Item
+        {
+            juce::RangedAudioParameter* param = nullptr;
+            float pos = 0.0f, vel = 0.0f, target = 0.0f;
+        };
+        std::vector<Item> items;
+        bool step();
+        void cancel(const juce::String& id);
+        void finish();
+    };
+
+    struct Section
+    {
+        int number = 0;
+        juce::String title, subtitle;
+        juce::Colour accent;
+        juce::Rectangle<int> bounds;
+    };
+
+    void paintContent(juce::Graphics&);
+    void layoutContent();
+    void timerCallback() override;
+
+    WheelKnob& addKnob(const char* paramId, const juce::String& caption, juce::Colour accent, const juce::String& tip);
+    void toggleLog();
+    void saveRetro();
+    void showPresetMenu();
+    void applyPreset(const Presets::Preset& preset, bool includeMode);
+    void stepPreset(int delta);
+    void toast(const juce::String& text, juce::File file = {});
+
+    SwooshbucklerAudioProcessor& m_processor;
+    juce::SharedResourcePointer<Theme::Fonts> m_fonts;
+    SwooshLookAndFeel m_lnf;
+    juce::TooltipWindow m_tooltips { nullptr, 600 };
+
+    Content m_content;
+
+    // Header
+    juce::TextButton m_presetPrev { "<" }, m_presetName, m_presetNext { ">" }, m_dice { "RANDOMISE" };
+    juce::TextButton m_retroButton { "LAST 60s" }, m_settingsButton { "SETTINGS" };
+    juce::TextButton m_playButton { "PLAY" }, m_newButton { "NEW" };
+    TapeButton m_tape;
+    juce::HyperlinkButton m_websiteLink { "www.sweetjusticesound.com", juce::URL("https://www.sweetjusticesound.com") };
+
+    SeaVisualiser m_sea;
+    MorphPad m_morphPad;
+    juce::TextButton m_morphButton { "MORPH" }, m_syncHits { "SYNC HITS" };
+    std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> m_syncAttachment;
+    // Gate and ducking options (defaults = the original rig)
+    juce::ComboBox m_gateMode, m_duckMode;
+    juce::TextButton m_takeTurns { "TAKE TURNS" };
+    std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> m_gateModeAttachment, m_duckModeAttachment;
+    std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> m_takeTurnsAttachment;
+    juce::Rectangle<int> m_gateModeLabel, m_duckModeLabel;
+    // A little waveform in each section's title bar: bus A, bus B, hits, output.
+    std::array<std::unique_ptr<SectionScope>, 4> m_sectionScopes;
+    void syncMorphPad();
+    int m_morphSyncTick = 0;
+    SwellButton m_swell;
+    juce::TextButton m_rideButton { "AUTO RIDE" };
+
+    std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> m_rideAttachment;
+    bool m_spaceHeld = false;
+
+    std::vector<std::unique_ptr<WheelKnob>> m_knobs;
+    std::vector<std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment>> m_attachments;
+    std::map<juce::String, juce::Slider*> m_controls;
+
+    CargoHoldView m_hold;
+    ModWires m_wires;    // the cables, over everything
+    ModPanel m_modPanel; // the modulators at the bottom
+    juce::TextButton m_cablesButton { "CABLES" };
+    juce::Rectangle<int> m_modSection;
+    SettingsPanel m_settings;
+    AboutPanel m_about;
+    juce::HyperlinkButton m_versionLink;
+    juce::Rectangle<int> m_titleArea;
+    juce::String versionLine() const;
+
+    Morph m_morph;
+    int m_presetIndex = -1;
+    juce::Random m_random;
+
+    juce::String m_toast;
+    juce::File m_toastFile;
+    double m_toastTime = 0.0;
+    float m_grDb = 0.0f, m_outLevel = 0.0f;
+
+    juce::Rectangle<int> m_performPanel, m_meterArea, m_gateLamp, m_footer, m_toastArea, m_busKnobArea;
+    std::array<Section, 4> m_sections; // ride, buses, hits, output
+    float m_gate = 0.0f;
+    bool m_sizeRestored = false;
+
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(SwooshbucklerAudioProcessorEditor)
+};

@@ -104,7 +104,7 @@ void PitchDetector::analyse()
             }
 
             runningSum += sum;
-            d[tau] = runningSum > 0.0 ? static_cast<float>(sum * tau / runningSum) : 1.0f;
+            d[tau] = runningSum > 0.0 ? static_cast<float>(static_cast<double>(sum) * tau / runningSum) : 1.0f;
         }
 
         // YIN step 3: first dip under threshold, then walk to its local minimum.
@@ -118,6 +118,21 @@ void PitchDetector::analyse()
                 tau = t;
                 break;
             }
+        }
+
+        // No dip under the strict threshold (common on noisy sources such as
+        // engines): fall back to the deepest dip if it is still plausibly periodic.
+        // It is reported with its (lower) confidence; the caller's tracker decides
+        // whether to trust it.
+        if (tau < 0)
+        {
+            int best = -1;
+            for (int t = m_tauMin; t < m_tauMax; ++t)
+                if (best < 0 || d[t] < d[best])
+                    best = t;
+
+            if (best > 0 && d[best] < c_yinFallbackThreshold)
+                tau = best;
         }
 
         if (tau > 0)

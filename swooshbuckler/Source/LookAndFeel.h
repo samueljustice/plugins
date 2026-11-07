@@ -1,0 +1,108 @@
+#pragma once
+
+#include <JuceHeader.h>
+#include "Theme.h"
+
+/**
+ * Sweet Justice house style with a bit of salt: brass ship's-wheel knobs,
+ * rope dividers, riveted panels, on a deep Caribbean sea palette.
+ */
+class SwooshLookAndFeel : public juce::LookAndFeel_V4
+{
+public:
+    explicit SwooshLookAndFeel(const Theme::Fonts& fonts);
+
+    void drawLinearSlider(juce::Graphics&, int x, int y, int width, int height, float sliderPos, float minSliderPos,
+                          float maxSliderPos, juce::Slider::SliderStyle, juce::Slider&) override;
+    juce::Slider::SliderLayout getSliderLayout(juce::Slider&) override;
+    juce::Label* createSliderTextBox(juce::Slider&) override;
+
+    void drawButtonBackground(juce::Graphics&, juce::Button&, const juce::Colour& backgroundColour,
+                              bool isMouseOverButton, bool isButtonDown) override;
+    void drawButtonText(juce::Graphics&, juce::TextButton&, bool isMouseOverButton, bool isButtonDown) override;
+    juce::Font getTextButtonFont(juce::TextButton&, int buttonHeight) override;
+    void drawToggleButton(juce::Graphics&, juce::ToggleButton&, bool isMouseOverButton, bool isButtonDown) override;
+
+    void drawComboBox(juce::Graphics&, int width, int height, bool isButtonDown, int buttonX, int buttonY,
+                      int buttonW, int buttonH, juce::ComboBox&) override;
+    juce::Font getComboBoxFont(juce::ComboBox&) override;
+    void positionComboBoxText(juce::ComboBox&, juce::Label&) override;
+    juce::Font getPopupMenuFont() override;
+    juce::Font getLabelFont(juce::Label&) override;
+    void drawPopupMenuBackground(juce::Graphics&, int width, int height) override;
+    void drawPopupMenuSectionHeader(juce::Graphics&, const juce::Rectangle<int>& area, const juce::String& sectionName) override;
+    void drawPopupMenuItem(juce::Graphics&, const juce::Rectangle<int>& area, bool isSeparator, bool isActive, bool isHighlighted,
+                           bool isTicked, bool hasSubMenu, const juce::String& text, const juce::String& shortcutKeyText,
+                           const juce::Drawable* icon, const juce::Colour* textColour) override;
+    void getIdealPopupMenuItemSize(const juce::String& text, bool isSeparator, int standardMenuItemHeight, int& idealWidth, int& idealHeight) override;
+
+    void drawTooltip(juce::Graphics&, const juce::String& text, int width, int height) override;
+    juce::Rectangle<int> getTooltipBounds(const juce::String& tipText, juce::Point<int> screenPos, juce::Rectangle<int> parentArea) override;
+
+    /** A panel with a title plate, rivets and a rope rule under the title. */
+    static void drawPanel(juce::Graphics&, juce::Rectangle<float> area, const juce::String& title,
+                          const juce::String& subtitle, juce::Colour accent, const Theme::Fonts& fonts);
+    /** A twisted-rope line between two points. */
+    static void drawRope(juce::Graphics&, juce::Point<float> a, juce::Point<float> b, juce::Colour colour);
+    /** Two crossed cutlasses (the Swooshbuckler mark). */
+    static void drawCutlasses(juce::Graphics&, juce::Rectangle<float> area, juce::Colour blade, juce::Colour hilt);
+
+private:
+    const Theme::Fonts& m_fonts;
+};
+
+//==============================================================================
+/**
+ * Rotary knob drawn as a brass ship's wheel. The wheel chases the real value
+ * on a damped spring, so every move (and every preset morph) swings in with a
+ * little rubber-band overshoot.
+ */
+class WheelKnob : public juce::Slider, private juce::Timer
+{
+public:
+    WheelKnob(const Theme::Fonts& fonts, juce::Colour accent);
+
+    void setAccent(juce::Colour c) { m_accent = c; repaint(); }
+    void paint(juce::Graphics&) override;
+    void valueChanged() override;
+    void mouseEnter(const juce::MouseEvent&) override;
+    void mouseExit(const juce::MouseEvent&) override;
+
+    juce::String caption;
+
+    /** Modulation shown on the ring: one arc per wire (its depth around the knob's value), and a dot where the
+        modulation has the knob right now (< 0 = not modulated). */
+    struct ModArc
+    {
+        juce::Colour colour;
+        float depth = 0.0f;   // -1..1 (normalised)
+        bool bipolar = true;  // swings either side of the value (LFO / Random) or one way (Follower / Macro)
+    };
+    void setModArcs(std::vector<ModArc> arcs)
+    {
+        auto same = [](const ModArc& a, const ModArc& b) { return a.colour == b.colour && std::abs(a.depth - b.depth) < 1.0e-4f && a.bipolar == b.bipolar; };
+        if (arcs.size() == m_modArcs.size() && std::equal(arcs.begin(), arcs.end(), m_modArcs.begin(), same))
+            return;
+        m_modArcs = std::move(arcs);
+        if (m_modArcs.empty()) m_modLive = -1.0f;
+        repaint();
+    }
+    void setModLive(float normalised);
+    bool isModulated() const { return ! m_modArcs.empty(); }
+    /** The dial (without the caption), in this knob's coordinates. */
+    juce::Point<float> getDialCentre() const;
+    float getDialRadius() const;
+    /** A wire is being dragged over this knob. */
+    void setWireHover(juce::Colour c) { m_wireHover = c; repaint(); }
+
+private:
+    void timerCallback() override;
+    std::vector<ModArc> m_modArcs;
+    float m_modLive = -1.0f;
+    juce::Colour m_wireHover = juce::Colours::transparentBlack;
+
+    const Theme::Fonts& m_fonts;
+    juce::Colour m_accent;
+    float m_shown = 0.0f, m_velocity = 0.0f;
+    bool m_hover = false;
+};

@@ -359,7 +359,7 @@ jobs:
         # Extract version from tag or use default
         VERSION="${GITHUB_REF#refs/tags/subbertone-v}"
         if [ -z "$VERSION" ] || [ "$VERSION" = "$GITHUB_REF" ]; then
-          VERSION="1.1.0"
+          VERSION="1.2.0"
         fi
         
         pkgbuild --identifier "com.sweetjusticesound.subbertone.vst3" \
