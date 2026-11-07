@@ -106,9 +106,8 @@ jobs:
           echo "This software is provided as-is, without warranty of any kind." >> LICENSE
         }
         
-        # Download and install Inno Setup
-        curl -L https://files.jrsoftware.org/is/6/innosetup-6.2.2.exe -o innosetup.exe
-        .\innosetup.exe /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /SP-
+        # Install Inno Setup via chocolatey (the pinned 6.2.2 download no longer runs on current images)
+        choco install innosetup -y --no-progress
         
         # Add Inno Setup to PATH
         $env:Path += ";${env:ProgramFiles(x86)}\Inno Setup 6"
