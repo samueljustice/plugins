@@ -24,11 +24,13 @@
  *    rope across the editor, drop it on a lane to make that lane the source. The rope is drawn on a
  *    transparent, click-through overlay added to the component given to setRopeOverlayParent()
  *    (falls back to the top-level component).
- *  - Wander (butterfly button): the dot flies along Temple Fay's butterfly curve
- *      r(t) = e^sin t - 2 cos 4t + sin^5((2t - pi) / 24),  x = r sin t,  y = r cos t,  t in 0..12 pi
- *    normalised into the pad, at a constant visual speed set by the Speed slider, slowly precessing
- *    (1 degree per lap) so it never repeats exactly. The full butterfly is drawn faintly while
- *    wandering, with a short bright trail behind the dot. Dragging the pad stops wandering.
+ *  - Wander (play button): the dot flies along the chosen shape, normalised into the pad, at a
+ *    constant visual speed set by the Speed slider. The default, Lorenz, is the Lorenz attractor
+ *      dx/dt = 10 (y - x),  dy/dt = x (28 - z) - y,  dz/dt = x y - 8/3 z
+ *    seen side on (x across, z up): integrated live, so the dot loops round one wing or the other
+ *    chaotically and never repeats. The closed shapes precess slowly (1 degree per lap) so they
+ *    never repeat exactly either. The whole shape is drawn faintly while wandering, with a short
+ *    bright trail behind the dot. Dragging the pad stops wandering.
  *
  * Independent of the processor: wire it through the callbacks / setters below (message thread only).
  */
@@ -55,8 +57,8 @@ public:
     void setWander(bool on, float speed);
 
     /** The path the dot wanders along. */
-    enum Shape { Butterfly = 0, SweetJustice, FigureEight, Rose, Circle, NumShapes };
-    static juce::StringArray shapeNames() { return { "Butterfly", "Sweet Justice", "Figure eight", "Rose", "Circle" }; }
+    enum Shape { Lorenz = 0, SweetJustice, FigureEight, Rose, Circle, NumShapes };
+    static juce::StringArray shapeNames() { return { "Lorenz", "Sweet Justice", "Figure eight", "Rose", "Circle" }; }
     void setShape(int shape);
     /** lane -1 = unassigned. */
     void setSources(int laneA, int laneB, juce::String nameA, juce::String nameB);
@@ -84,7 +86,7 @@ public:
 
 private:
     class RopeOverlay;
-    class ButterflyButton;
+    class WanderButton;
 
     void timerCallback() override;
     void updateTimer();
@@ -93,12 +95,13 @@ private:
     juce::Point<float> padToLocal(float x, float y) const;
     juce::Colour laneColour(int slot) const;
 
-    // Wander curve (the shape's points, precomputed; butterflyRaw is Temple Fay's analytic curve)
-    static juce::Point<float> butterflyRaw(double t);
+    // Wander curve (the shape's points, precomputed; for Lorenz, a long stretch of the attractor)
     juce::Point<float> shapeRaw(double t) const;
-    void updateButterflyTransform();
-    juce::Point<float> butterflyNorm(double t) const; // 0..1 in pad space (y up)
+    void updateShapeTransform();
+    juce::Point<float> shapeNorm(double t) const; // 0..1 in pad space (y up)
     void stepWander(float dt);
+    void stepLorenz(float distance);
+    juce::Point<float> lorenzNorm(const juce::Vector3D<double>& v) const;
     float wanderUnitsPerSecond() const;
 
     // Rope
@@ -109,13 +112,13 @@ private:
     const Theme::Fonts& m_fonts;
 
     std::array<juce::TextButton, c_numModes> m_modeButtons;
-    std::unique_ptr<ButterflyButton> m_wanderButton;
+    std::unique_ptr<WanderButton> m_wanderButton;
     juce::Slider m_speed;
     juce::ComboBox m_shapeBox;
     juce::TextButton m_enable { "OFF" };
     bool m_enabled = false;
     void applyEnabledLook(bool on);
-    int m_shape = Butterfly;
+    int m_shape = Lorenz;
     void buildCurve();
 
     juce::Rectangle<float> m_pad;
@@ -137,8 +140,10 @@ private:
     double m_laps = 0.0;
     float m_rotation = 0.0f;                 // radians
     juce::Rectangle<float> m_bbox;           // rotated raw-curve bounds
-    static constexpr int c_curvePoints = 1200;
+    static constexpr int c_curvePoints = 2400;
     std::array<juce::Point<float>, c_curvePoints> m_curve; // raw curve, precomputed
+    std::vector<juce::Vector3D<double>> m_lorenzStates;    // Lorenz only: the 3-D states behind m_curve
+    juce::Vector3D<double> m_lorenz { 1.0, 1.0, 20.0 };    // Lorenz only: the live state
     static constexpr int c_trail = 40;
     std::array<juce::Point<float>, c_trail> m_trail {};
     int m_trailCount = 0, m_trailHead = 0;

@@ -64,7 +64,7 @@ void SwooshbucklerAudioProcessorEditor::TapeButton::timerCallback()
     m_blink += 1.0f / 30.0f;
     const bool capturing = m_processor.isCapturing(), armed = m_processor.isRecording();
     if (capturing)
-        m_angle += 0.18f;
+        m_angle -= 0.18f; // anticlockwise: the reels' bottoms, and the tape between them, run left to right
     if (capturing || armed || m_wasArmed)
         repaint();
     m_wasArmed = armed;

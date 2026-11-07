@@ -26,7 +26,7 @@ namespace
         {
             case ModMatrix::Type::Lfo:      return "Modulator type: LFO\nA steady repeating wave that moves each wired knob up and down around where you set it. Pick its shape below.";
             case ModMatrix::Type::Random:   return "Modulator type: Random\nA smooth random wander up and down around each wired knob, never the same twice.";
-            case ModMatrix::Type::Follower: return "Modulator type: Follower\nFollows the loudness of the output: the louder the rig gets, the further it turns each wired knob (one way only).";
+            case ModMatrix::Type::Follower: return "Modulator type: Follower\nFollows the loudness of bus A, bus B, the hits or the output (choose which underneath): the louder it gets, the further it turns each wired knob (one way only).";
             case ModMatrix::Type::Macro:    return "Modulator type: Macro\nOne knob that turns every knob it is wired to at once, each by its own depth. Great to automate from your DAW.";
         }
         return {};
@@ -52,15 +52,21 @@ public:
         : m_owner(owner), m_source(source), m_knob(owner.m_fonts, sourceColour(source)),
           m_typeAttachment(owner.m_processor.getState(), ParamIDs::modType[source], m_type),
           m_shapeAttachment(owner.m_processor.getState(), ParamIDs::modShape[source], m_shape),
+          m_followAttachment(owner.m_processor.getState(), ParamIDs::modFollow[source], m_follow),
           m_knobAttachment(owner.m_processor.getState(), ParamIDs::modKnob[source], m_knob)
     {
         m_type.addItemList({ "LFO", "Random", "Follower", "Macro" }, 1);
         m_shape.addItemList({ "Sine", "Triangle", "Ramp", "Square", "Steps" }, 1);
+        m_follow.addItemList({ "Bus A", "Bus B", "Hits", "Output" }, 1);
         // Attachments set the selection before the items existed: sync once more.
         m_type.setSelectedItemIndex(juce::roundToInt(owner.m_processor.getState().getRawParameterValue(ParamIDs::modType[source])->load()),
                                     juce::dontSendNotification);
         m_shape.setSelectedItemIndex(juce::roundToInt(owner.m_processor.getState().getRawParameterValue(ParamIDs::modShape[source])->load()),
                                      juce::dontSendNotification);
+        m_follow.setSelectedItemIndex(juce::roundToInt(owner.m_processor.getState().getRawParameterValue(ParamIDs::modFollow[source])->load()),
+                                      juce::dontSendNotification);
+        m_follow.setTooltip("Follows\nWhat the follower listens to: bus A, bus B or the hits on their own, or the whole output. "
+                            "Follow one bus to make the other react to it, or follow the hits to make every impact kick a knob.");
         m_type.onChange = [this] { updateType(); };
         m_shape.setTooltip("LFO shape\nSine and Triangle are smooth, Ramp rises then drops, Square jumps between two values, Steps jumps to a new random value every cycle.");
         m_clear.setTooltip("Clear\nPulls out every wire of this modulator. The knobs go back to just where you set them.");
@@ -70,7 +76,7 @@ public:
             m_owner.m_processor.getMods().clearSource(m_source);
         };
         m_knob.setDoubleClickReturnValue(true, 0.4);
-        for (auto* c : std::initializer_list<juce::Component*> { &m_type, &m_shape, &m_knob, &m_clear })
+        for (auto* c : std::initializer_list<juce::Component*> { &m_type, &m_shape, &m_follow, &m_knob, &m_clear })
             addAndMakeVisible(c);
         updateType();
     }
@@ -80,10 +86,11 @@ public:
         const auto t = type();
         m_knob.caption = knobCaption(t);
         m_knob.setTooltip(t == ModMatrix::Type::Macro ? "Amount\nThe macro's value: turn it and every wired knob follows, each by its own depth.\nDouble-click to reset it."
-                          : t == ModMatrix::Type::Follower ? "Speed\nHow quickly it follows the output: slow is smooth and gentle, fast is jumpy and follows every hit.\nDouble-click to reset it."
+                          : t == ModMatrix::Type::Follower ? "Speed\nHow quickly it follows its input: slow is smooth and gentle, fast is jumpy and follows every hit.\nDouble-click to reset it."
                                                            : "Rate\nHow fast it moves, from one cycle every 50 seconds (0.02 Hz) to 12 times a second.\nDouble-click to reset it.");
         m_type.setTooltip(typeTip(t));
         m_shape.setVisible(t == ModMatrix::Type::Lfo);
+        m_follow.setVisible(t == ModMatrix::Type::Follower);
         m_knob.repaint();
         repaint();
         // Bipolar (LFO / Random) or one-way (Follower / Macro) changes the arcs on the wired knobs.
@@ -118,6 +125,7 @@ public:
         auto bottom = r.removeFromBottom(22);
         m_clear.setBounds(bottom.removeFromRight(54));
         m_shape.setBounds(bottom.removeFromLeft(juce::jmin(104, bottom.getWidth())));
+        m_follow.setBounds(m_shape.getBounds());
         r.removeFromBottom(6);
         m_knob.setBounds(r.removeFromRight(juce::jmin(78, r.getWidth())));
         r.removeFromRight(8);
@@ -178,8 +186,8 @@ public:
         const int wires = m_owner.m_processor.getMods().numRoutes(m_source);
         g.setFont(fonts.label(10.5f));
         g.setColour(wires > 0 ? TC::text : TC::textFaint);
-        const auto infoArea = juce::Rectangle<int>(m_shape.isVisible() ? m_shape.getRight() + 8 : 10, m_clear.getY(),
-                                                   m_clear.getX() - (m_shape.isVisible() ? m_shape.getRight() + 8 : 10) - 4, m_clear.getHeight());
+        const int infoX = m_shape.isVisible() || m_follow.isVisible() ? m_shape.getRight() + 8 : 10;
+        const auto infoArea = juce::Rectangle<int>(infoX, m_clear.getY(), m_clear.getX() - infoX - 4, m_clear.getHeight());
         g.drawText(wires == 0 ? juce::String("drag the jack to a knob") : juce::String(wires) + (wires == 1 ? " wire" : " wires"),
                    infoArea, juce::Justification::centredLeft, true);
     }
@@ -231,10 +239,10 @@ public:
 private:
     ModPanel& m_owner;
     int m_source;
-    juce::ComboBox m_type, m_shape;
+    juce::ComboBox m_type, m_shape, m_follow;
     WheelKnob m_knob;
     juce::TextButton m_clear { "CLEAR" };
-    juce::AudioProcessorValueTreeState::ComboBoxAttachment m_typeAttachment, m_shapeAttachment;
+    juce::AudioProcessorValueTreeState::ComboBoxAttachment m_typeAttachment, m_shapeAttachment, m_followAttachment;
     juce::AudioProcessorValueTreeState::SliderAttachment m_knobAttachment;
     juce::Rectangle<int> m_scopeArea;
     std::array<float, c_history> m_history {};

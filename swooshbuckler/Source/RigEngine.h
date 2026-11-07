@@ -120,6 +120,10 @@ public:
     const ScopeRing& getScope(int which) const { return m_scopes[static_cast<size_t>(std::clamp(which, 0, 2))]; }
     float getBusLevel(int bus) const { return m_busView[static_cast<size_t>(bus)].load(std::memory_order_relaxed); }
 
+    /** Audio thread: RMS of bus A, bus B and the hits (what each adds to the mix) since the last call, for the
+        Follower modulators. */
+    std::array<float, 3> takeSectionLevels();
+
 private:
     static constexpr int c_chunk = 32;
 
@@ -225,6 +229,9 @@ private:
     std::atomic<int> m_hitBeatView { 0 };
     std::atomic<double> m_hitPreView { 0.0 }, m_hitPostView { 0.0 };
     std::array<ScopeRing, 3> m_scopes;
+    std::array<double, 3> m_sectionSquares {}; // sums for takeSectionLevels()
+    int m_sectionSamples = 0;
+    std::array<float, 3> m_sectionLevels {};
     // The cued beat, shown once its transients play.
     double m_beatViewWait = -1.0;   // samples until the cued beat is heard (< 0 = nothing pending)
     std::array<int, c_tracks> m_pendingHitRegion {};

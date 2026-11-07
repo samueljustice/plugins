@@ -13,6 +13,17 @@ namespace
 }
 
 //==============================================================================
+std::array<float, 3> RigEngine::takeSectionLevels()
+{
+    // Nothing rendered since the last call (the resampler can skip a block): keep the last levels.
+    if (m_sectionSamples > 0)
+        for (size_t k = 0; k < m_sectionLevels.size(); ++k)
+            m_sectionLevels[k] = static_cast<float>(std::sqrt(m_sectionSquares[k] / m_sectionSamples));
+    m_sectionSquares = {};
+    m_sectionSamples = 0;
+    return m_sectionLevels;
+}
+
 void RigEngine::prepare(double sampleRate, int maxBlockSize)
 {
     juce::ignoreUnused(maxBlockSize);
@@ -80,6 +91,9 @@ void RigEngine::reset()
     for (auto& p : m_players) p.reset();
     m_pendingHitRegion.fill(-1);
     m_beatViewWait = -1.0;
+    m_sectionSquares = {};
+    m_sectionSamples = 0;
+    m_sectionLevels = {};
     for (auto& l : m_fillLines) l.reset();
     m_gain.fill(0.0f);
     m_coverageFor.fill(nullptr);
@@ -813,14 +827,20 @@ void RigEngine::process(const float* inL, const float* inR, float* outL, float* 
             const auto ii = static_cast<size_t>(i);
             float l = m_hitsL[ii], r = m_hitsR[ii];
             m_scopes[2].push(0.5f * (l + r));
+            m_sectionSquares[2] += 0.5 * (static_cast<double>(l) * l + static_cast<double>(r) * r);
             for (int b = 0; b < numBuses; ++b)
             {
                 const auto& bus = m_buses[static_cast<size_t>(b)];
                 l += bus.l[ii];
                 r += bus.r[ii];
                 if (b < 2)
+                {
                     m_scopes[static_cast<size_t>(b)].push(0.5f * (bus.l[ii] + bus.r[ii]));
+                    m_sectionSquares[static_cast<size_t>(b)] += 0.5 * (static_cast<double>(bus.l[ii]) * bus.l[ii]
+                                                                       + static_cast<double>(bus.r[ii]) * bus.r[ii]);
+                }
             }
+            ++m_sectionSamples;
             m_mixL[ii] = l;
             m_mixR[ii] = r;
         }

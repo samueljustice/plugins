@@ -424,7 +424,7 @@ int main(int argc, char* argv[])
         float lo = 1.0f, hi = -1.0f;
         for (int k = 0; k < 2000; ++k)
         {
-            mods.process(set, 256, 0.1f);
+            mods.process(set, 256, ModMatrix::FollowerInputs { 0.1f, 0.1f, 0.1f, 0.1f });
             lo = std::min(lo, mods.offset(tDop));
             hi = std::max(hi, mods.offset(tDop));
         }
@@ -438,8 +438,16 @@ int main(int argc, char* argv[])
         check(restored.getRoutes().size() == 2, "mods: wires survive save / restore");
         mods.disconnect(macroWire);
         for (int k = 0; k < 200; ++k)
-            mods.process(set, 256, 0.1f);
+            mods.process(set, 256, ModMatrix::FollowerInputs { 0.1f, 0.1f, 0.1f, 0.1f });
         check(std::abs(mods.offset(tFill)) < 1.0e-4f, "mods: a pulled wire glides back to zero");
+
+        // Followers listen to the input they're set to: bus B loud, the output silent.
+        set[1] = { ModMatrix::Type::Follower, ModMatrix::Shape::Sine, 0.8f, ModMatrix::FollowBusB };
+        set[2] = { ModMatrix::Type::Follower, ModMatrix::Shape::Sine, 0.8f, ModMatrix::FollowOutput };
+        for (int k = 0; k < 400; ++k)
+            mods.process(set, 256, ModMatrix::FollowerInputs { 0.0f, 0.5f, 0.0f, 0.0f } /* bus A, bus B, hits, output */);
+        std::cout << "  follower on bus B " << mods.getSourceValue(1) << ", on the output " << mods.getSourceValue(2) << std::endl;
+        check(mods.getSourceValue(1) > 0.8f && mods.getSourceValue(2) < 0.05f, "mods: a follower follows the input it's set to");
     }
 
     std::cout << (g_failures == 0 ? "ALL PASSED" : juce::String(g_failures) + " FAILED") << std::endl;

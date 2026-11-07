@@ -120,7 +120,7 @@ Four modulators sit along the bottom. Drag a modulator's **jack** onto any knob 
 Each modulator can be one of four types:
 - **LFO**: a repeating wave: Sine, Triangle, Ramp, Square or Steps.
 - **Random**: a smooth random wander.
-- **Follower**: follows the loudness of the output.
+- **Follower**: follows the loudness of bus A, bus B, the hits or the output. Pick which in the box under the scope.
 - **Macro**: one knob that turns every knob it's wired to.
 
 To work with a wire's plug on a knob:

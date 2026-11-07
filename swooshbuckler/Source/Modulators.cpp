@@ -230,7 +230,7 @@ void ModMatrix::reset()
         v.store(-1.0f, std::memory_order_relaxed);
 }
 
-void ModMatrix::process(const std::array<SourceSettings, c_numSources>& settings, int numSamples, float followerInput)
+void ModMatrix::process(const std::array<SourceSettings, c_numSources>& settings, int numSamples, const FollowerInputs& followerInputs)
 {
     const double dt = static_cast<double>(numSamples) / m_sampleRate;
     std::array<float, c_numSources> values {};
@@ -280,8 +280,9 @@ void ModMatrix::process(const std::array<SourceSettings, c_numSources>& settings
             }
             case Type::Follower:
             {
-                // Output loudness, -48..0 dBFS -> 0..1. Speed: slow (1 s) .. fast (10 ms).
-                const float db = juce::Decibels::gainToDecibels(juce::jmax(1.0e-6f, followerInput), -100.0f);
+                // Loudness of the chosen input, -48..0 dBFS -> 0..1. Speed: slow (1 s) .. fast (10 ms).
+                const float in = followerInputs[static_cast<size_t>(juce::jlimit(0, c_numFollowerInputs - 1, set.follow))];
+                const float db = juce::Decibels::gainToDecibels(juce::jmax(1.0e-6f, in), -100.0f);
                 const float target = juce::jlimit(0.0f, 1.0f, (db + 48.0f) / 48.0f);
                 const float tau = 1.0f * std::pow(0.01f, juce::jlimit(0.0f, 1.0f, set.knob));
                 const float tauNow = target > st.env ? tau * 0.3f : tau;
