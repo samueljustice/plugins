@@ -1,10 +1,8 @@
 <div align="center">
 
-<img src="PTSL_beattool/Resources/sj-icon-red-bg.jpg" alt="Sweet Justice logo" width="140">
+# Samuel Justice Audio Plugins
 
-# Sweet Justice Audio Plugins
-
-**Odd, useful tools for sound designers.**<br>
+**Odd, useful tools for sound designers, by Samuel Justice.**<br>
 Whooshes on demand, subs from nowhere, sirens that hold still and audio that runs backwards.
 
 [![Latest releases](https://img.shields.io/badge/download-releases-d00a35?style=for-the-badge&logo=github&logoColor=white)](https://github.com/samueljustice/plugins/releases)
