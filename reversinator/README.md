@@ -23,6 +23,134 @@ A VST3/AU real-time reverser for macOS and Windows. Reversinator is a faithful, 
 - **Modern interface** in the spirit of the original: mode lamps, the big REVERSER button, an hourglass TIME control and a feedback loop. The window is resizable from 75% to 200%. Menus, fields, links, tooltips and keyboard focus rings share Subbertone's look.
 - Mono or stereo at any sample rate. The effect itself is a delay, so no latency is reported to the host.
 
+## A tour of the window
+
+<img src="docs/guide/overview.png" width="820" alt="The Reversinator window with its parts numbered: 1 snippet display, 2 MODE, 3 REVERSER, 4 TIME, 5 FEEDBACK DEPTH, 6 VOLUME, 7 the About button, 8 the resize grip">
+
+1. [Snippet display](#1-snippet-display)
+2. [MODE](#2-mode)
+3. [REVERSER](#3-reverser)
+4. [TIME](#4-time)
+5. [FEEDBACK DEPTH](#5-feedback-depth)
+6. [VOLUME](#6-volume)
+7. [About](#7-about)
+8. [Resizing](#8-resizing)
+
+### 1. Snippet display
+
+The display shows the last few seconds of input and where the effect is reading from it. Time runs from right to left: **NOW** is the right-hand edge, with a grid line for every second before it.
+
+- The grey shape is the input's level, newest at the right.
+- The amber line at NOW is where new audio comes in.
+- Each blue line with a dot is a **read head**: the point in the input being played back. A head starts at NOW and sweeps back to 2 × TIME ago, playing what it passes backwards at normal speed. It brightens as its snippet fades in and dims as it fades out.
+- Top left is the effect's name. Top right is **REVERSING** or **FORWARDS** (see [REVERSER](#3-reverser)) and the TIME setting.
+
+The display always shows enough history for every head, a little over twice TIME (two and a half times in Reverse Repeat). Each effect at TIME 2.00 s:
+
+<img src="docs/guide/display-reverse-playback.png" width="804" alt="The snippet display in Reverse Playback: two read heads two seconds apart, both half bright">
+
+**Reverse Playback**: two heads, TIME apart. As one fades out the other fades in, so the backwards stream never stops.
+
+<img src="docs/guide/display-forward-backwards.png" width="804" alt="The snippet display in Forward Backwards: one read head one second back, and a dot at NOW">
+
+**Forward Backwards**: one backwards head, plus a dot at NOW for the forwards sound. As one brightens the other fades, so the sound turns smoothly from forwards to backwards and back, once per TIME period.
+
+<img src="docs/guide/display-reverse-repeat.png" width="804" alt="The snippet display in Reverse Repeat: the read head one second back and its repeat four seconds back">
+
+**Reverse Repeat**: the backwards head and its repeat. The repeat plays again, TIME/2 later and with a slight vibrato, what the first head played.
+
+<img src="docs/guide/display-forwards.png" width="804" alt="The snippet display with REVERSER set to forwards: grey read heads and FORWARDS at the top right">
+
+**REVERSER set to forwards**: the heads turn grey but keep moving. The effect keeps running, so switching back to reverse lands in it at once.
+
+### 2. MODE
+
+<img src="docs/guide/mode.png" width="248" alt="The MODE panel with Reverse Playback lit">
+
+Click a lamp to choose one of the three effects. The lit lamp is the one playing, and each lamp sums up its effect in a line:
+
+- **Reverse Playback**: overlapping backward snippets, for a continuous backwards stream.
+- **Forward Backwards**: fades between the forwards sound and the backwards one.
+- **Reverse Repeat**: each snippet backwards twice, the second time with a slight vibrato.
+
+Switching crossfades into the new effect over 30 ms. Every effect reads the same input history, so the new one is in full flow straight away. [The effects](#the-effects) explains how each one works.
+
+### 3. REVERSER
+
+<img src="docs/guide/reverser-on.png" width="160" alt="The REVERSER button reversing: a left arrow with a blue glow"> <img src="docs/guide/reverser-off.png" width="160" alt="The REVERSER button set to forwards: a grey right arrow">
+
+The big round button chooses between the effect and the forwards input:
+
+- **Arrow left, blue glow** (the default): you hear the effect, and the display reads REVERSING.
+- **Arrow right, grey**: you hear the input forwards at the WET MIX level, with DRY MIX added, and the display reads FORWARDS.
+
+The switch crossfades over 10 ms, so it never clicks, and the effect keeps running underneath. Automate it to flip a phrase backwards and back on the beat. The label under the button reads REVƎRSƎЯ, partly backwards, as on Backwards Machine.
+
+### 4. TIME
+
+<img src="docs/guide/time-feedback-min.png" width="344" alt="The hourglass empty at 0.50 s, and the feedback loop dark at 0%"> <img src="docs/guide/time-feedback-max.png" width="344" alt="The hourglass full at 4.00 s, and the feedback loop lit at 75%">
+
+*TIME and FEEDBACK DEPTH at their minimum (left) and maximum (right).*
+
+The hourglass sets the length of each snippet that is played backwards, from 0.5 to 4 seconds. Sand fills it from the bottom as TIME gets longer. The default of 2 seconds tends to sound best. Short times get more of the control's travel: halfway up is about 1.4 s.
+
+TIME changes crossfade over 20 ms from the old timing to the new, so you can sweep it while audio plays. The snippet display widens or narrows to match.
+
+### 5. FEEDBACK DEPTH
+
+The loop, beside the hourglass, feeds the effect back into itself, from 0 to 75%. It lights up from the bottom as you raise it, and its arrowhead lights fully at the maximum. Each pass through the loop is reversed again, so feedback builds cascades of echoes that alternate direction. It is usually not needed, so the default is 0%. Even at 75% the feedback dies away rather than building up.
+
+### 6. VOLUME
+
+<img src="docs/guide/volume.png" width="200" alt="The VOLUME panel: WET MIX at 100% and DRY MIX at 10%">
+
+- **WET MIX**: the level of the effect, and of the forwards input when REVERSER is set to forwards. The default is 100%.
+- **DRY MIX**: mixes in the original input. Usually 0% (the default), but useful for hearing forwards and backwards together.
+
+Both use the original's squared law, so 50% is -12 dB. The ticks mark every 25%.
+
+### 7. About
+
+<img src="docs/guide/about.png" width="464" alt="The About panel: version, build date, links, CHECK FOR UPDATES and the licence">
+
+**?** at the top right opens the About panel: the version and build date, links to the website and email, and the licence. Close it with **×** or by clicking outside it. While it is open, Tab moves only between its own controls.
+
+**CHECK FOR UPDATES** asks GitHub for the latest Reversinator release and tells you whether you have it ("You have the latest version" or "Version x.y.z is available"), or why it could not check. The plugin contacts GitHub only when you click this button. New versions are on the [releases page](https://github.com/samueljustice/plugins/releases).
+
+### 8. Resizing
+
+Drag the grip in the bottom-right corner to resize the window, from 75% to 200% of its normal size (615 × 420 to 1640 × 1120). The proportions stay the same, and the size is saved with your session.
+
+## Mouse and keyboard
+
+| To | Do this |
+|---|---|
+| Set TIME, FEEDBACK DEPTH, WET MIX or DRY MIX | Drag the control up or down. A click on it jumps straight to that point. |
+| Nudge one of them | Scroll the mouse wheel over it. |
+| Reset one of them to its default | Double-click it, or Alt-click it (Option-click on a Mac). |
+| Type a value | Click the value above the control (see below). |
+| Choose an effect | Click its lamp. |
+| Switch REVERSER | Click the round button. |
+| See what a control does | Rest the mouse on it. |
+
+### Typing a value
+
+<img src="docs/guide/typing.png" width="344" alt="TIME's value box open for typing, its text selected"> <img src="docs/guide/edit-menu.png" width="344" alt="The right-click menu of a value box: Cut, Copy, Paste, Delete, Select All, Undo, Redo">
+
+Clicking a value opens it for typing with the text selected, so you can type straight over it. The unit is optional: `1.5` and `1.5 s` both work. A value outside the range is set to the nearest end of it. Press Return to set the value, Tab to set it and move on to the next one, or Escape to leave it unchanged. Right-click while typing for Cut, Copy, Paste, Delete, Select All, Undo and Redo.
+
+### Tooltips
+
+<img src="docs/guide/tooltip.png" width="560" alt="The tooltip for TIME, shown with the mouse resting on the hourglass">
+
+Rest the mouse on any control for a moment and a tooltip says what it does.
+
+### Keyboard
+
+<img src="docs/guide/focus.png" width="248" alt="The MODE panel with Reverse Playback lit and the blue keyboard focus ring on Forward Backwards">
+
+When the host passes keystrokes to the plugin window, Tab and Shift-Tab move the keyboard focus through the mode lamps, REVERSER, the four value boxes and **?**. A blue ring shows which lamp or button has it, and Return presses that one. A value box opens for typing as soon as Tab reaches it. The ring appears only once you press Tab, and a click hides it again. Above, Reverse Playback is playing and the ring is on Forward Backwards.
+
 ## The effects
 
 Every effect is built from the same voice. A delay line's delay time is swept by a sawtooth from 0 up to 2 × TIME over each TIME period, so the read head runs backwards through the input at normal speed: each period plays the previous TIME seconds of audio in reverse. A `0.5 + 0.5·sin` window fades each snippet in and out, and is silent at the exact moment the sweep jumps back. That is why there are no clicks at the snippet boundaries.
@@ -32,6 +160,8 @@ Every effect is built from the same voice. A delay line's delay time is swept by
 | **Reverse Playback** | Two voices half a period apart, so their windows always add up to one. You hear a continuous, overlapping backwards stream. |
 | **Forward Backwards** | One backwards voice crossfaded against the dry input on the opposite window. The sound smoothly alternates between playing forwards and backwards, once per TIME period. |
 | **Reverse Repeat** | One backwards voice, plus a copy of it played again half a period later with a slight 5 Hz vibrato. Each snippet is heard backwards twice. |
+
+The [snippet display](#1-snippet-display) draws each voice as a read head.
 
 **Feedback** sends each voice's output back into its own delay line, so repeats are re-reversed into cascades that alternate direction. As on the original, each delay line's input is halved and the output doubled, so FEEDBACK DEPTH is the true loop gain. At the 75% maximum, the feedback dies away rather than running away.
 
@@ -55,6 +185,8 @@ The sound is the original's. Reversinator deliberately differs only where Backwa
 | **FEEDBACK DEPTH** | 0 – 75 % | 0 % | How much of the effect is fed back into itself. Usually not needed. |
 | **WET MIX** | 0 – 100 % | 100 % | Level of the effect. Squared law: 50% is -12 dB. |
 | **DRY MIX** | 0 – 100 % | 0 % | Mixes in the original input. Usually 0%, but useful for hearing forwards and backwards together. |
+
+Hosts list these for automation as Effect Mode, Reverser, Time, Feedback Depth, Wet Mix and Dry Mix.
 
 ## Tips
 
