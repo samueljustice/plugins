@@ -281,21 +281,21 @@ juce::String CargoHold::typeName(CargoRole role)
 {
     switch (role)
     {
-        case CargoRole::Bed:     return "Energy bed";
-        case CargoRole::Tonal:   return "Tonal content";
+        case CargoRole::Bed:     return "Energy Bed";
+        case CargoRole::Tonal:   return "Tonal Content";
         case CargoRole::Impact:  return "Impact";
-        case CargoRole::Air:     return "Air / swish";
+        case CargoRole::Air:     return "Air / Swish";
         case CargoRole::Crackle: return "Crackle";
         case CargoRole::Rumble:  return "Rumble";
         case CargoRole::Generic:
-        default:                 return "Mixed content";
+        default:                 return "Mixed Content";
     }
 }
 
 juce::String CargoHold::getDisplayName(int track) const
 {
     // A user rename wins. Otherwise the track is named after what the scan found it to be
-    // ("Tonal content", "Energy bed", ...). Not numbered: the lane colour tells two of a kind apart.
+    // ("Tonal Content", "Energy Bed", ...). Not numbered: the lane colour tells two of a kind apart.
     if (track < 0 || track >= c_numTracks)
         return {};
     const auto& t = m_tracks[static_cast<size_t>(track)];

@@ -234,25 +234,25 @@ SwooshbucklerAudioProcessorEditor::SettingsPanel::SettingsPanel(SwooshbucklerAud
         const char* typeTips[] = { "WAV\nThe most widely read format. The only one that can hold 32-bit float.",
                                    "AIFF\nUncompressed, like WAV; the usual choice on a Mac and in Pro Tools.",
                                    "FLAC\nLossless compression: about half the size of WAV, exactly the same sound." };
-        const char* bitTips[] = { "16-bit\nCD quality: the smallest files, fine for finished sounds.",
-                                  "24-bit\nThe studio standard: plenty of headroom for editing afterwards.",
-                                  "32-bit float\nCan't clip in the file, so you can fix the level later. WAV only." };
+        const char* bitTips[] = { "16-Bit\nCD quality: the smallest files, fine for finished sounds.",
+                                  "24-Bit\nThe studio standard: plenty of headroom for editing afterwards.",
+                                  "32-Bit Float\nCan't clip in the file, so you can fix the level later. WAV only." };
         for (size_t i = 0; i < 3; ++i)
         {
             m_types[i].setTooltip(typeTips[i]);
             m_bits[i].setTooltip(bitTips[i]);
         }
-        m_rates[0].setTooltip("Session rate\nRecords at the audio device's (or the host's) sample rate.");
+        m_rates[0].setTooltip("Session Rate\nRecords at the audio device's (or the host's) sample rate.");
         for (size_t i = 1; i < m_rates.size(); ++i)
             m_rates[i].setTooltip(juce::String(c_rateNames[i]) + "\nRecords at this rate. Above the device rate the rig itself runs faster, "
                                   "so the recording keeps the extra high end (good for pitching it down later).");
         m_channels[0].setTooltip("Stereo\nRecords both channels, with all the movement across the field.");
         m_channels[1].setTooltip("Mono\nFolds the output to one channel: half the size, for sounds you'll pan yourself.");
-        m_auto.setTooltip("Auto-arm\nArms the tape every time Swooshbuckler opens, so you never miss the first good take.");
+        m_auto.setTooltip("Auto-Arm\nArms the tape every time Swooshbuckler opens, so you never miss the first good take.");
         m_choose.setTooltip("Choose the folder recordings are saved to");
         m_desktop.setTooltip("Save recordings to the default folder again");
         m_reveal.setTooltip("Show the recordings folder in the Finder / Explorer");
-        m_audio.setTooltip("Audio device\nPick the audio output, its sample rate and buffer size.");
+        m_audio.setTooltip("Audio Device\nPick the audio output, its sample rate and buffer size.");
     }
 
     m_auto.setColour(juce::ToggleButton::tickColourId, TC::flight);
@@ -477,16 +477,18 @@ void SwooshbucklerAudioProcessorEditor::AboutPanel::paint(juce::Graphics& g)
     line("Built " + Version::builtOn() + (Version::commit().isNotEmpty() ? "   commit " + Version::commit() : juce::String()),
          f.body(12.0f), TC::textDim, 22);
     r.removeFromTop(8);
-    line("A whoosh-making rig built on the classic sound designer's trick of layered, looping tracks. Drop in up to ten sounds, "
-         "let the faders ride across them, and the rig makes whooshes for you: doppler passes, swells, hits "
-         "and tails. Arm the tape and it keeps every one.", f.body(13.0f), TC::text, 58);
+    line("A whoosh-making rig. Drop in up to ten sounds and it rides the faders across them, making doppler passes, "
+         "swells, hits and tails. Shape them with two effect buses, a hit gate, a spectral morph and four modulators, "
+         "and arm the tape to keep every one.", f.body(13.0f), TC::text, 58);
     r.removeFromTop(8);
     line("Made by Samuel Justice at Sweet Justice Sound.", f.heading(13.0f), TC::text, 22);
     r.removeFromTop(6);
     line("Fonts: Pirata One by Rodrigo Fuenzalida and Nicolas Massi; IBM Plex Sans Condensed by IBM. "
          "Both under the SIL Open Font License 1.1.  Built with JUCE " + Version::juce() + ".  "
          "VST is a registered trademark of Steinberg Media Technologies GmbH.", f.body(11.5f), TC::textFaint, 50);
-    line(juce::String(juce::CharPointer_UTF8("\xc2\xa9 2025 Samuel Justice. MIT License.")), f.body(11.5f), TC::textFaint, 18);
+    // The build year, so the notice never needs editing.
+    line(juce::String(juce::CharPointer_UTF8("\xc2\xa9 ")) + Version::year() + " Samuel Justice. MIT License.",
+         f.body(11.5f), TC::textFaint, 18);
 }
 
 //==============================================================================
@@ -533,8 +535,8 @@ SwooshbucklerAudioProcessorEditor::SwooshbucklerAudioProcessorEditor(Swooshbuckl
     m_presetName.setButtonText(p.currentPresetName);
     m_presetName.setTooltip("Presets\nClick for the list of factory presets. Picking one glides every control to its new setting over a moment, so you can switch while it plays. Your tracks, their levels and the output section are left alone. Use < and > to step through them.");
     m_presetName.onClick = [this] { showPresetMenu(); };
-    m_presetPrev.setTooltip("Previous preset");
-    m_presetNext.setTooltip("Next preset");
+    m_presetPrev.setTooltip("Previous Preset");
+    m_presetNext.setTooltip("Next Preset");
     m_presetPrev.onClick = [this] { stepPreset(-1); };
     m_presetNext.onClick = [this] { stepPreset(1); };
     m_dice.setColour(juce::TextButton::buttonOnColourId, TC::movement);
@@ -547,16 +549,16 @@ SwooshbucklerAudioProcessorEditor::SwooshbucklerAudioProcessorEditor(Swooshbuckl
     m_content.addAndMakeVisible(m_tape);
     m_tape.setTooltip("Tape\nArm it and it records whenever there is sound, skipping the silence, into one long file of usable whooshes. Click again to stop and close the file. Where it saves and in which format is in SETTINGS.");
     m_tape.onClick = [this] { toggleLog(); };
-    m_retroButton.setTooltip("Last 60 seconds\nThe rig always remembers the last minute. Click to save it to a file, even if the tape wasn't armed: for the happy accident you didn't record.");
+    m_retroButton.setTooltip("Last 60 Seconds\nThe rig always remembers the last minute. Click to save it to a file, even if the tape wasn't armed: for the happy accident you didn't record.");
     m_playButton.setColour(juce::TextButton::buttonOnColourId, TC::good);
-    m_playButton.setTooltip("Play / stop\nStarts and stops the whole rig. It always opens stopped, so nothing blasts out when you load a session.");
+    m_playButton.setTooltip("Play / Stop\nStarts and stops the whole rig. It always opens stopped, so nothing blasts out when you load a session.");
     m_playButton.onClick = [this] { m_processor.setPlaying(! m_processor.isPlaying()); };
-    m_newButton.setTooltip("New session\nStops, empties every track and puts every control back to its default. Cmd+Z can bring removed tracks back.");
+    m_newButton.setTooltip("New Session\nStops, empties every track and puts every control back to its default. Cmd+Z can bring removed tracks back.");
     m_newButton.onClick = [this]
     {
         m_morph.finish();
         m_processor.newSession();
-        toast("New session");
+        toast("New Session");
     };
     m_retroButton.onClick = [this] { saveRetro(); };
     m_settingsButton.setTooltip("Settings\nWhere recordings go, their file type, bit depth, sample rate and channels, auto-arming the tape, and (in the app) the audio device.");
@@ -568,7 +570,7 @@ SwooshbucklerAudioProcessorEditor::SwooshbucklerAudioProcessorEditor(Swooshbuckl
     m_hold.onStatus = [this](const juce::String& s) { toast(s); };
     m_content.addAndMakeVisible(m_sea);
     m_sea.onClick = [this] { m_processor.setSwell(true); juce::Timer::callAfterDelay(400, [this] { if (! m_spaceHeld) m_processor.setSwell(false); }); };
-    m_sea.setTooltip("The sea\nWhat the rig sends out: the sound rolls away as waves, and each doppler pass is a comet across the sky. Click it (or press space) to swell every track up.");
+    m_sea.setTooltip("The Sea\nWhat the rig sends out: the sound rolls away as waves, and each doppler pass is a comet across the sky. Click it (or press space) to swell every track up.");
 
     // Morph: the pad sits over the output view (the waves show through) while it's switched on.
     m_content.addChildComponent(m_morphPad);
@@ -597,7 +599,7 @@ SwooshbucklerAudioProcessorEditor::SwooshbucklerAudioProcessorEditor(Swooshbuckl
     m_syncHits.setClickingTogglesState(true);
     m_syncHits.setColour(juce::TextButton::buttonOnColourId, TC::record);
     m_syncHits.setWantsKeyboardFocus(false);
-    m_syncHits.setTooltip("Sync hits\nOn: every Impact track fires its next hit on one shared beat, so all their transients land together as one big hit (the waveforms slide into line to show it). Off: each hit track loops on its own timing.");
+    m_syncHits.setTooltip("Sync Hits\nOn: every Impact track fires its next hit on one shared beat, so all their transients land together as one big hit (the waveforms slide into line to show it). Off: each hit track loops on its own timing.");
     m_content.addAndMakeVisible(m_syncHits);
     m_syncAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment>(p.getState(), ParamIDs::hitSync, m_syncHits);
 
@@ -605,7 +607,7 @@ SwooshbucklerAudioProcessorEditor::SwooshbucklerAudioProcessorEditor(Swooshbuckl
     m_swell.setTooltip("Swell\nHold it to push every fader up at once, for a big whoosh on demand. The space bar or any MIDI note does the same.");
     m_rideButton.setClickingTogglesState(true);
     m_rideButton.setColour(juce::TextButton::buttonOnColourId, TC::flight);
-    m_rideButton.setTooltip("Auto ride\nThe heart of the rig: every track's fader moves by itself, each at its own speed, so overlapping swells make whooshes for you. Energy, Rate, Fill, Chaos and Pitch shape how it moves. Off: the faders stay where you set them.");
+    m_rideButton.setTooltip("Auto Ride\nThe heart of the rig: every track's fader moves by itself, each at its own speed, so overlapping swells make whooshes for you. Energy, Rate, Fill, Chaos and Pitch shape how it moves. Off: the faders stay where you set them.");
     m_rideButton.setWantsKeyboardFocus(false);
     m_content.addAndMakeVisible(m_rideButton);
     m_rideAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment>(p.getState(), ParamIDs::rideOn, m_rideButton);
@@ -619,7 +621,7 @@ SwooshbucklerAudioProcessorEditor::SwooshbucklerAudioProcessorEditor(Swooshbuckl
     // Buses: one set of controls per bus, shown one bus at a time (tabs) --------
     {
         const juce::Colour busColours[ParamIDs::numBuses] = { TC::movement, TC::sources };
-        const char* names[] = { "Doppler", "Width", "Bend", "Low end", "Swirl", "Filter", "Drive", "Ducked", "Filtered" };
+        const char* names[] = { "Doppler", "Width", "Bend", "Low End", "Swirl", "Filter", "Drive", "Ducked", "Filtered" };
         const char* tips[] = {
             "How dramatic each pass of the moving source is: how close it comes, how much it swells and brightens on the way by. Speed, distance and direction change by themselves with every pass.",
             "How far each pass travels across the stereo field. Low: it stays near the middle. High: a full left-to-right fly-by.",
@@ -652,9 +654,9 @@ SwooshbucklerAudioProcessorEditor::SwooshbucklerAudioProcessorEditor(Swooshbuckl
 
     // Gate and duck modes: the first entry of each is the original rig.
     m_gateMode.addItemList({ "Peaks", "Level", "Jumps", "Open" }, 1);
-    m_gateMode.setTooltip("Gate mode\nWhat opens the hit gate. Peaks: only at the loudest moments of buses A and B together (the original rig). Level: whenever the mix is louder than a level, set by Sensitivity. Jumps: on sudden rises, however loud or quiet. Open: no gate, the hits always play.");
+    m_gateMode.setTooltip("Gate Mode\nWhat opens the hit gate. Peaks: only at the loudest moments of buses A and B together (the original rig). Level: whenever the mix is louder than a level, set by Sensitivity. Jumps: on sudden rises, however loud or quiet. Open: no gate, the hits always play.");
     m_duckMode.addItemList({ "Volume", "Darken", "Mids" }, 1);
-    m_duckMode.setTooltip("Duck mode\nHow a ducked bus gets out of the way, both when the hits duck A and B and when A ducks B. Volume: it is turned down (the original rig). Darken: it is low-passed instead, so it stays but gets out of the way. Mids: only the crowded middle (250 Hz to 4 kHz) goes down, so the sub and air stay.");
+    m_duckMode.setTooltip("Duck Mode\nHow a ducked bus gets out of the way, both when the hits duck A and B and when A ducks B. Volume: it is turned down (the original rig). Darken: it is low-passed instead, so it stays but gets out of the way. Mids: only the crowded middle (250 Hz to 4 kHz) goes down, so the sub and air stay.");
     for (auto* c : { &m_gateMode, &m_duckMode })
     {
         c->setWantsKeyboardFocus(false);
@@ -665,7 +667,7 @@ SwooshbucklerAudioProcessorEditor::SwooshbucklerAudioProcessorEditor(Swooshbuckl
     m_takeTurns.setClickingTogglesState(true);
     m_takeTurns.setColour(juce::TextButton::buttonOnColourId, TC::sources);
     m_takeTurns.setWantsKeyboardFocus(false);
-    m_takeTurns.setTooltip("Take turns\nOn: only the louder of bus A and bus B speaks at a time and the other ducks under it (by as much as Ducked), so they trade places instead of piling up. Off: A always ducks B (the original rig). Good for taming the everything-at-once wall of sound.");
+    m_takeTurns.setTooltip("Take Turns\nOn: only the louder of bus A and bus B speaks at a time and the other ducks under it (by as much as Ducked), so they trade places instead of piling up. Off: A always ducks B (the original rig). Good for taming the everything-at-once wall of sound.");
     m_content.addAndMakeVisible(m_takeTurns);
 
     {
@@ -673,10 +675,10 @@ SwooshbucklerAudioProcessorEditor::SwooshbucklerAudioProcessorEditor(Swooshbuckl
         const std::array<const ScopeRing*, 4> rings { &engine.getScope(0), &engine.getScope(1), &engine.getScope(2), &p.getOutputScope() };
         const std::array<juce::Colour, 4> colours { TC::movement, TC::sources, TC::record, TC::master };
         const char* tips[] = {
-            "Bus A, the last 3 seconds\nWhat bus A sends on, after its effects. The newest sound is at the right.",
-            "Bus B, the last 3 seconds\nWhat bus B sends on, after being ducked and filtered by bus A: a thin line under a busy A is the ducking working.",
-            "Hits, the last 3 seconds\nWhat gets through the hit gate. Each spike is a hit; the gaps are the gate closed.",
-            "Output, the last 3 seconds\nWhat you hear and what the tape records, after the space and the limiter.",
+            "Bus A, the Last 3 Seconds\nWhat bus A sends on, after its effects. The newest sound is at the right.",
+            "Bus B, the Last 3 Seconds\nWhat bus B sends on, after being ducked and filtered by bus A: a thin line under a busy A is the ducking working.",
+            "Hits, the Last 3 Seconds\nWhat gets through the hit gate. Each spike is a hit; the gaps are the gate closed.",
+            "Output, the Last 3 Seconds\nWhat you hear and what the tape records, after the space and the limiter.",
         };
         for (size_t i = 0; i < m_sectionScopes.size(); ++i)
         {
@@ -741,7 +743,7 @@ SwooshbucklerAudioProcessorEditor::SwooshbucklerAudioProcessorEditor(Swooshbuckl
     m_sizeRestored = true;
 
     for (size_t i = 0; i < Presets::factory().size(); ++i)
-        if (Presets::factory()[i].name == p.currentPresetName)
+        if (Presets::factory()[i].name.equalsIgnoreCase(p.currentPresetName)) // sessions saved before the names were Title Case
             m_presetIndex = static_cast<int>(i);
 
     startTimerHz(60);
@@ -1083,7 +1085,7 @@ void SwooshbucklerAudioProcessorEditor::showPresetMenu()
     for (size_t i = 0; i < presets.size(); ++i)
         menu.addItem(static_cast<int>(i) + 1, presets[i].name, true, static_cast<int>(i) == m_presetIndex);
     menu.addSeparator();
-    menu.addItem(1000, "Back to defaults");
+    menu.addItem(1000, "Back to Defaults");
     menu.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(m_presetName), [this](int result)
     {
         if (result == 1000)

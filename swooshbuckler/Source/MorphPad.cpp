@@ -172,7 +172,7 @@ MorphPad::MorphPad(const Theme::Fonts& fonts) : m_fonts(fonts)
 
     m_enable.setClickingTogglesState(true);
     m_enable.setColour(juce::TextButton::buttonOnColourId, Theme::Colours::go); // green when on, greyed when off
-    m_enable.setTooltip("Morph on / off\nOn (green): buses A and B are morphed together, as the dot says. Off: they play side by side as usual and the morph rests.");
+    m_enable.setTooltip("Morph On / Off\nOn (green): buses A and B are morphed together, as the dot says. Off: they play side by side as usual and the morph rests.");
     m_enable.onClick = [this]
     {
         applyEnabledLook(m_enable.getToggleState());
@@ -194,7 +194,7 @@ MorphPad::MorphPad(const Theme::Fonts& fonts) : m_fonts(fonts)
     m_speed.setRange(0.0, 1.0);
     m_speed.setValue(0.5, juce::dontSendNotification);
     m_speed.setDoubleClickReturnValue(true, 0.5);
-    m_speed.setTooltip("Wander speed\nHow fast the dot travels along its shape.\nDouble-click to reset it.");
+    m_speed.setTooltip("Wander Speed\nHow fast the dot travels along its shape.\nDouble-click to reset it.");
     m_speed.onValueChange = [this]
     {
         if (onWanderChanged) onWanderChanged(m_wander, static_cast<float>(m_speed.getValue()));
@@ -203,7 +203,7 @@ MorphPad::MorphPad(const Theme::Fonts& fonts) : m_fonts(fonts)
 
     m_shapeBox.addItemList(shapeNames(), 1);
     m_shapeBox.setSelectedItemIndex(0, juce::dontSendNotification);
-    m_shapeBox.setTooltip("Wander shape\nThe path the dot follows when it wanders.");
+    m_shapeBox.setTooltip("Wander Shape\nThe path the dot follows when it wanders.");
     m_shapeBox.onChange = [this]
     {
         setShape(m_shapeBox.getSelectedItemIndex());

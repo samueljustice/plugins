@@ -58,7 +58,7 @@ public:
 
     /** The path the dot wanders along. */
     enum Shape { Lorenz = 0, SweetJustice, FigureEight, Rose, Circle, NumShapes };
-    static juce::StringArray shapeNames() { return { "Lorenz", "Sweet Justice", "Figure eight", "Rose", "Circle" }; }
+    static juce::StringArray shapeNames() { return { "Lorenz", "Sweet Justice", "Figure Eight", "Rose", "Circle" }; }
     void setShape(int shape);
     /** lane -1 = unassigned. */
     void setSources(int laneA, int laneB, juce::String nameA, juce::String nameB);

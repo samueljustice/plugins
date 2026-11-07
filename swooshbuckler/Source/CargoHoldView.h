@@ -10,8 +10,8 @@
  *  - Starts empty. Drop audio anywhere on it (or use LOAD): each sound gets its
  *    own track, which appears as it arrives. Several files make several tracks.
  *  - Every track is scanned on arrival and named after what it is ("Tonal
- *    content", "Energy bed", "Impact", "Air / swish", "Crackle", "Rumble"),
- *    which also decides how it rides the whoosh. Click the type to change it,
+ *    Content", "Energy Bed", "Impact", "Air / Swish", "Crackle", "Rumble",
+ *    "Mixed Content"), which also decides its bus. Click the type to change it,
  *    double-click the name to rename.
  *  - The waveform shows the sound regions that will be played and dims the
  *    silence that will be skipped. Drag the clip's edge handles to trim; drag

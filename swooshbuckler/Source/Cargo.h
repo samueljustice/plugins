@@ -120,7 +120,7 @@ public:
 
     // Display name: user rename if set, else autoLabel, else file name, else "Track N".
     juce::String getDisplayName(int track) const;
-    /** "Tonal content", "Energy bed", "Impact", "Air / swish", "Crackle", "Rumble", "Mixed content". */
+    /** "Tonal Content", "Energy Bed", "Impact", "Air / Swish", "Crackle", "Rumble", "Mixed Content". */
     static juce::String typeName(CargoRole role);
     void rename(int track, const juce::String& name);       // empty = back to automatic
 
