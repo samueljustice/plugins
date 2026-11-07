@@ -7,7 +7,7 @@ merges them, checks every entry, gives each a stable id and writes one compact f
     python3 tools/build_quotes.py            # build
     python3 tools/build_quotes.py --check    # check only, write nothing
 
-People named in data/omit.txt are left out, and so are entries whose ids are in
+data/credits.json overrides people's credit lines. People named in data/omit.txt are left out, and so are entries whose ids are in
 data/omit-entries.txt (one id per line; anything after # is a comment).
 """
 
@@ -28,7 +28,6 @@ CATEGORIES = [
     ("trailers", "Trailers"),
     ("creatures", "Creatures & Voices"),
     ("worlds", "Ambience & Worlds"),
-    ("foley", "Foley"),
     ("dialogue", "Dialogue"),
     ("recording", "Field Recording"),
     ("weapons", "Weapons & Vehicles"),
@@ -43,6 +42,13 @@ CATEGORIES = [
     ("creativity", "Creativity & Teams"),
 ]
 CATEGORY_IDS = {c for c, _ in CATEGORIES}
+# Categories taken out of the plug-in: entries whose primary category is one of these are left out,
+# and the tag is dropped from the rest.
+DROPPED_CATEGORIES = {"foley"}
+# Only advice from 2005 on: older interviews and essays are left out. Undated pages from these sites
+# are known to be older material (1990s filmsound.org essays, a retirement-era bio).
+MIN_YEAR = 2005
+OLD_UNDATED_SITES = ("filmsound.org", "olli.berkeley.edu")
 MAX_QUOTE_WORDS = 15
 IMDB = re.compile(r"^https://(www\.|m\.)?imdb\.com/name/nm\d+/?$")
 
@@ -90,6 +96,7 @@ def norm(text):
 
 def main(check_only):
     people, entries, problems = {}, [], []
+    by_imdb, alias = {}, {}
     seen_text = set()
     omit_file = DATA / "omit.txt"
     omit = set()
@@ -118,6 +125,13 @@ def main(check_only):
                 imdb = imdb.replace("://m.imdb", "://www.imdb").replace("://imdb", "://www.imdb")
             elif imdb and not imdb.startswith("https://"):
                 problems.append(f"{path.name}: {name}: profile link should be https: {imdb}")
+            # The same IMDb page under two spellings ("Gary A. Rizzo" / "Gary Rizzo") is one person:
+            # keep the name seen first and map the other onto it.
+            if "imdb.com" in imdb and imdb in by_imdb and by_imdb[imdb] != name:
+                alias[name] = by_imdb[imdb]
+                continue
+            if "imdb.com" in imdb:
+                by_imdb.setdefault(imdb, name)
             record = {"name": name, "role": clean(p.get("role")), "credits": short_credits(clean(p.get("credits"))), "imdb": imdb}
             if name in people:
                 # Same person researched twice: keep the fuller record.
@@ -130,14 +144,26 @@ def main(check_only):
 
         for e in data.get("entries", []):
             who = clean(e.get("person"))
+            who = alias.get(who, who)
             text = clean(e.get("text"))
             kind = e.get("kind")
-            cats = [c for c in dict.fromkeys(e.get("categories") or []) if c in CATEGORY_IDS]
+            raw_cats = list(dict.fromkeys(e.get("categories") or []))
+            if raw_cats and raw_cats[0] in DROPPED_CATEGORIES:
+                omitted["category " + raw_cats[0]] += 1
+                continue
+            cats = [c for c in raw_cats if c in CATEGORY_IDS]
             src = e.get("source") or {}
             where = f"{path.name}: {who}: {text[:50]!r}"
 
             if who in omit:
                 omitted[who] += 1
+                continue
+
+            surname = norm(who.split()[-1]) or "x"
+            digest = hashlib.sha1(f"{who}|{text}".encode()).hexdigest()[:6]
+            entry_id = f"{surname}-{digest}"
+            if entry_id in omit_ids:
+                cut_ids.add(entry_id)
                 continue
 
             if who not in people:
@@ -164,13 +190,10 @@ def main(check_only):
                 year = int(year) if year not in (None, "") else None
             except (TypeError, ValueError):
                 year = None
-
-            surname = norm(who.split()[-1]) or "x"
-            digest = hashlib.sha1(f"{who}|{text}".encode()).hexdigest()[:6]
-            entry_id = f"{surname}-{digest}"
-            if entry_id in omit_ids:
-                cut_ids.add(entry_id)
+            if (year is not None and year < MIN_YEAR) or (year is None and any(site in src["url"] for site in OLD_UNDATED_SITES)):
+                omitted["before " + str(MIN_YEAR)] += 1
                 continue
+
             entries.append({
                 "id": entry_id,
                 "person": who,
@@ -185,6 +208,16 @@ def main(check_only):
                 },
             })
 
+    # data/credits.json overrides a person's on-screen credits ({"name": "credits"}), e.g. to show
+    # only work from 2005 on. An empty string shows the role alone.
+    credits_file = DATA / "credits.json"
+    if credits_file.exists():
+        for name, credits in json.loads(credits_file.read_text(encoding="utf-8")).items():
+            if name in people:
+                people[name]["credits"] = clean(credits)
+            else:
+                problems.append(f"credits.json: unknown person {name}")
+
     used = {e["person"] for e in entries}
     db = {
         "categories": [{"id": c, "name": n} for c, n in CATEGORIES],
@@ -197,6 +230,10 @@ def main(check_only):
     print(f"{len(entries)} entries ({kinds['quote']} quotes, {kinds['insight']} field notes) from {len(db['people'])} people")
     for c, n in CATEGORIES:
         print(f"  {n:<24} {counts[c]}")
+    if omitted["before " + str(MIN_YEAR)]:
+        print(f"omitted {omitted['before ' + str(MIN_YEAR)]} entries from sources before {MIN_YEAR}")
+    for key in sorted(k for k in omitted if k.startswith("category ")):
+        print(f"omitted {omitted[key]} entries whose main category is {key[9:]}")
     for who in sorted(omit):
         print(f"omitted {who} ({omitted[who]} entries)" if omitted[who] else f"omit.txt names {who!r}, who has no entries")
     if omit_ids:

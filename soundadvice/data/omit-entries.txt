@@ -181,3 +181,328 @@ whittle-a401cd  # Gwendolyn Yates Whittle: If you don't notice it, then I've don
 whittle-c1c9b9  # Gwendolyn Yates Whittle: You have to learn how to listen to — generic
 wild-7a6dec  # Bonnie Wild: Wild treats an editing sequence like The Last — generic
 wild-8b54bf  # Bonnie Wild: There's a balance between the comfortable, familiar sounds — generic platitude
+
+# Creativity & Teams: park- and attraction-specific stories rather than creative concepts or management.
+rohde-ed1066  # Joe Rohde: An artist taught Rohde perspective when he was — park-specific
+rohde-d830d9  # Joe Rohde: On the Serengeti, Rohde’s team saw that its — park-specific
+rohde-7cfefd  # Joe Rohde: Rohde treats space like colour: it is perceived — park-specific
+rohde-3ca79e  # Joe Rohde: The safari’s ‘open’ savanna is really a series — park-specific
+rohde-136fe7  # Joe Rohde: Conservationists had no interest in theme parks but — park-specific
+rohde-d7bcd1  # Joe Rohde: A built place can’t state its ideas the — park-specific
+rohde-ed18ae  # Joe Rohde: Handed a roller coaster for a nature park, — park-specific
+rohde-290318  # Joe Rohde: A designer still shaken by street poverty seen — park-specific
+rohde-cc1f98  # Joe Rohde: On the Adventurers Club, Rohde’s naturalistic performers were — park-specific
+rohde-ec0783  # Joe Rohde: Immersive experiences only work if people can set — park-specific
+rohde-e951c8  # Joe Rohde: The club’s hidden puppeteer cavities came from two — park-specific
+rohde-56d33e  # Joe Rohde: Staring at the Tower of Terror, Rohde asked — park-specific
+rohde-07c060  # Joe Rohde: Aulani’s art carries almost no explanatory labels, so — park-specific
+rohde-777636  # Joe Rohde: Animal Kingdom’s winding, view-blocking paths overshot the adventure — park-specific
+rohde-92693f  # Joe Rohde: Rohde led Animal Kingdom’s design but wasn’t its — park-specific
+
+# Technique audit: descriptions of the film, fluffy concepts, history and dated workflow, fragments, near-duplicates.
+thom-3308a1  # Randy Thom: Characters need to have the opportunity to listen — vague, nothing to try
+thom-a10f58  # Randy Thom: When people are talking, they are not — fragment out of context
+thom-09e024  # Randy Thom: Digital Doesn't Make Movies Too Loud, People Do — slogan, no technique
+thom-8ab721  # Randy Thom: Experiment as early and as often as — platitude
+thom-203e5d  # Randy Thom: Contact opens by pulling back through space — film description
+thom-62429c  # Randy Thom: Thom and Burtt recorded gunshots, explosions and nature — history anecdote
+burtt-a57914  # Ben Burtt: Sometimes, most often, good sounds are just discovered — vague
+burtt-b4cf53  # Ben Burtt: We knew that the hardest things were always — no technique
+burtt-7305e7  # Ben Burtt: E.T.'s voice came from a retired, heavy-smoking — casting anecdote
+burtt-7bd853  # Ben Burtt: We wanted to draw upon raw material from — vague
+burtt-2ae552  # Ben Burtt: Much of the work is editorial — vague
+rydstrom-de7a30  # Gary Rydstrom: You would get the deep thud with — fragment out of context
+rydstrom-0d5b4d  # Gary Rydstrom: You have to choose and control your — vague
+rydstrom-a8e309  # Gary Rydstrom: I always think of sound design being — fluffy metaphor
+rydstrom-2e5de9  # Gary Rydstrom: There are no sweeping vistas, only the — describes the film
+rydstrom-693571  # Gary Rydstrom: Saving Private Ryan's battle sounds came from real — anecdote, obvious
+murch-012074  # Walter Murch: Murch argues music should channel emotion the — music commentary, conceptual
+murch-aceafe  # Walter Murch: We do not see and hear a — conceptual
+murch-174319  # Walter Murch: Vision is exclusionary, both in space and — conceptual fragment
+murch-08a38e  # Walter Murch: It's always nice to pose a question — vague out of context
+klyce-0708f7  # Ren Klyce: Fight Club's punches started with real hits — mainly Foley performance
+klyce-930ae6  # Ren Klyce: The artistic constraint is what makes you — platitude
+klyce-798f95  # Ren Klyce: There's nothing worse than missing a word — obvious
+klyce-a889d2  # Ren Klyce: Klyce doubted that adding reverb to a — career lesson, trust director
+lievsay-e38154  # Skip Lievsay: Given the note that Gravity's score couldn't — vague processing
+lievsay-752b5d  # Skip Lievsay: I don't mind being yelled at if — career attitude
+lievsay-4ed070  # Skip Lievsay: It's tough because most people aren't articulate — complaint, no technique
+lievsay-6e391c  # Skip Lievsay: Lievsay once recorded a Manhattan car that — easter-egg anecdote
+kroeber-681ee6  # Ann Kroeber: The rhythms of a dishwasher are amazing — fragment
+kroeber-43387b  # Ann Kroeber: After seeing a BBC piece on contact — history; better entry exists
+kroeber-5f088b  # Ann Kroeber: To find The Elephant Man's voice, Kroeber — vague, no method
+kroeber-7427f2  # Ann Kroeber: We were unwittingly making outer space in — fragment out of context
+kroeber-858729  # Ann Kroeber: Kroeber's collaboration advice: talk sound with the — career advice
+kroeber-3d59b4  # Ann Kroeber: Hired to record horses for The Horse — anecdote
+splet-e5f21d  # Alan Splet: Splet's method, as Randy Thom describes it — generic, praise
+gearty-3cf503  # Eugene Gearty: One Florida car-by took 30–40 attempts before — director anecdote
+gearty-28b448  # Eugene Gearty: Scorsese favours production sound over Foley and — describes director
+aadahl-bd9a26  # Erik Aadahl: The bottom-line is to never be afraid — platitude
+aadahl-565db0  # Erik Aadahl: On Malick's The New World the team — near-dup of Lievsay river
+aadahl-1983ae  # Erik Aadahl: We did not use any sound libraries — no technique
+aadahl-073d2c  # Erik Aadahl: Gareth Edwards described NOMAD's beams by how — fluffy, director intent
+aadahl-99f9de  # Erik Aadahl: We had to be really ruthless with — dup of Burtt subtractive
+aadahl-c5cb31  # Erik Aadahl: The ten-minute prologue of A Quiet Place — film description
+ryn-506cb8  # Ethan Van der Ryn: Make the scene work with as few — near-dup of Aadahl layers
+ryn-442be3  # Ethan Van der Ryn: The classic 1980s transform sound appears just — film trivia
+ryn-fa66a7  # Ethan Van der Ryn: His favourite Transformers session was recording Osprey — anecdote
+ryn-829def  # Ethan Van der Ryn: We take the sound out to low — fragment, obvious
+ryn-c5e092  # Ethan Van der Ryn: In A Quiet Place Part II's train-depot — film/edit description
+king-f76dff  # Richard King: We avoided any electronic or synth sounds — fragment
+king-13487a  # Richard King: King primes big bangs with a sliver — near-dup of Rydstrom removal
+king-a3de07  # Richard King: The Bat in The Dark Knight Rises — vague, no method
+king-0bfeb1  # Richard King: Ideally it's best to use one sound — near-dup of Aadahl
+king-3e3792  # Richard King: Chris loves the production track and we — about director
+deenen-7e1859  # Charles Deenen: The moment the consumer notices audio, it — conceptual
+deenen-0fbabb  # Charles Deenen: What I'd recommend freelance sound designers to — career advice
+deenen-5b0800  # Charles Deenen: Deenen treated weekend film-trailer jobs, starting with — biography
+deenen-5bc75d  # Charles Deenen: On NFS Shift he chased what a — vague
+minto-4497b5  # Ben Minto: At the outset, disregard the potential constraints — dup of tracklay entry
+minto-c4b1d7  # Ben Minto: Usually the 'new' idea is an amalgamation — dup of Van der Ryn
+minto-2d4ad1  # Ben Minto: Standing next to a real weapon or — conceptual
+minto-bfb74e  # Ben Minto: Don't use your go-to plugin, try — platitude
+minto-532a2d  # Ben Minto: You want your storm assets to punch — fragment
+minto-af84ac  # Ben Minto: Don't create new, build on what exists — vague
+minto-2c7d72  # Ben Minto: What you have to try and do — vague
+minto-ad307c  # Ben Minto: For Battlefront ambiences Minto recorded redwood forests — travel anecdote
+minto-6bf480  # Ben Minto: Do we always want real world behavior — vague question
+minto-b51d4c  # Ben Minto: DICE moved to object-based audio early, before — history
+andersen-5da2c1  # Martin Stig Andersen: I could use the same sounds for — fragment out of context
+andersen-07c82e  # Martin Stig Andersen: There's no music to take them by — conceptual
+andersen-8ee5cc  # Martin Stig Andersen: Purely non-diegetic music tends to take me — opinion, no technique
+andersen-6bbe6b  # Martin Stig Andersen: Only in 1 out of 10 experiments — platitude
+andersen-f63350  # Martin Stig Andersen: To me, interactive music isn't linear music — conceptual
+bridgett-233560  # Rob Bridgett: Sound design and mixing is really close — dup of lens snapshots
+bridgett-9c5ad5  # Rob Bridgett: Usually it doesn't mean louder, it means — fragment out of context
+bridgett-403dc0  # Rob Bridgett: The loudest sound isn’t necessarily always the most — obvious platitude
+bridgett-17fed2  # Rob Bridgett: For Scarface, Bridgett and programmer Rob Sparks took — anecdote, little technique
+bridgett-99204a  # Rob Bridgett: The game’s jungle ambience was authored as 3D — describes game, not method
+russell-a6d7a0  # Greg P. Russell: Russell lets the picture decide where each sound — generic, nothing concrete
+russell-8123fa  # Greg P. Russell: In a dense effects movie Russell will pull — obvious to any pro
+russell-f44d24  # Greg P. Russell: He divides labour by job, not ego: music — conceptual, nothing to try
+russell-b62f45  # Greg P. Russell: For 13 Hours, Michael Bay wanted three mixers — crew anecdote
+oconnell-49d922  # Kevin O'Connell: The more the tracks are separated, the better. — vague fragment
+oconnell-b8f81b  # Kevin O'Connell: Transformers was largely mixed against temp score; when — schedule anecdote
+oconnell-80f3b6  # Kevin O'Connell: With Tony Scott the team would strip the — weak, no concrete move
+nelson-ac4f1e  # Andy Nelson: All the answers to the sound-mixing choices are — platitude
+nelson-e91836  # Andy Nelson: On Les Misérables Nelson found that whenever the — near-dup of Nelson build order
+nelson-f8f913  # Andy Nelson: For La La Land, with many vocals sung — vague film description
+jenkins-ade0b9  # Chris Jenkins: You actually don’t hear the engine at all — fragment out of context
+jenkins-f11a8d  # Chris Jenkins: Jenkins frames the job as choosing between a — fluffy metaphor
+jenkins-954132  # Chris Jenkins: Composer Tom Holkenborg sat in the next room — collaboration anecdote
+massey-04e6c1  # Paul Massey: In Ford v Ferrari’s Daytona race the score — scene description; dup of handoff
+massey-9ac86f  # Paul Massey: In No Time to Die’s Norway chase, Mark — scene description; near-dup
+hirschberg-367291  # Lora Hirschberg: Hirschberg likens mixing to sculpture: start with the — conceptual; dup of subtraction
+hirschberg-3f85bd  # Lora Hirschberg: Asked about notes, Hirschberg says she wants to — notes etiquette, fluffy
+hirschberg-cf2021  # Lora Hirschberg: Mixing is really an apprentice job. — career platitude
+hirschberg-b27d12  # Lora Hirschberg: Listen to films you like and find out — career advice
+hirschberg-ee6607  # Lora Hirschberg: Hirschberg tries to learn a director’s influences — — career/collaboration fluff
+behlmer-688293  # Anna Behlmer: Behlmer reused the low-end enhancement treatment she had — vague, no technique
+minkler-a754d2  # Michael Minkler: The entire picture was taken from the perspective — film description
+landaker-d4a2de  # Gregg Landaker: Before automation, the Empire Strikes Back team rehearsed — dated pre-automation workflow
+farmer-26492c  # David Farmer: Sometimes spending too much time on something just — platitude
+farmer-374d0a  # David Farmer: I’m not really about the size as much — vague slogan
+nielsen-907908  # Tim Nielsen: Nielsen’s hardest-won lesson is knowing when to stop. — platitude
+nielsen-0137df  # Tim Nielsen: Nielsen admires films that leave room for sound, — film commentary
+nielsen-062511  # Tim Nielsen: The easiest way to get variation is to — near-dup of door takes
+nielsen-cb5b96  # Tim Nielsen: My job doesn’t end with the mix, my — career platitude
+nielsen-07dc94  # Tim Nielsen: Nielsen gives each editor whole reels, believing one — staffing, not technique
+whitehead-2736f2  # Dave Whitehead: Early on Whitehead leaned on libraries, but he — career lesson, vague
+whitehead-e10fcc  # Dave Whitehead: Record anytime I hear something good come out — vague, obvious
+burge-c71b8e  # Brent Burge: Three-stripe mono still is the purest form of — dated, cryptic
+burge-528338  # Brent Burge: For The Hobbit’s creatures, the team went back — near-dup of high-res animal recording
+burge-7cddb8  # Brent Burge: High frame rate picture revealed so much detail — fluffy story-first
+burge-2e1930  # Brent Burge: Temp mixes earn their keep: by testing ideas — near-dup of temp-mix entry
+henighan-c5ac10  # Craig Henighan: If you’re working on a monster sequence, you — near-dup of vocalize entry
+henighan-997835  # Craig Henighan: How do we make it quiet before all — rhetorical question fragment
+prebble-7fb223  # Tim Prebble: The most valuable work that I do for — platitude
+prebble-b2f973  # Tim Prebble: Prebble’s focus shifted from how to why: before — conceptual, nothing to try
+prebble-bd0a66  # Tim Prebble: Reductive approaches in minimalist architecture, music, photography and — biography/inspiration anecdote
+prebble-395576  # Tim Prebble: Our industry runs on goodwill, make sure you — career advice
+ottosson-646e16  # Paul N.J. Ottosson: Every cut was played and mixed of the — film description
+ottosson-c1007b  # Paul N.J. Ottosson: To sell the slow-motion bomb blast he leaned — vague, no method
+ottosson-9ad64a  # Paul N.J. Ottosson: I had to drive the picture cuts with — vague, unclear
+jennings-1bc11d  # Jay Jennings: For the wolf Dennis in A Minecraft Movie, — anecdote, thin technique
+jennings-c640f2  # Jay Jennings: I think the most valuable and productive processes — vague opinion
+hernndez-8eb105  # Martín Hernández: On Bardo, Hernández developed concept sounds before seeing — anecdote, no technique
+hernndez-3d051e  # Martín Hernández: For The Revenant he began without images, auditioning — anecdote, vague
+deenen-21b627  # Charles Deenen: Deenen has cut film trailers on weekends since — biography
+deenen-968a61  # Charles Deenen: For a ship fly-by in the game Descent, — dated, vague
+davis-a11a74  # Dane A. Davis: It couldn’t work too abstractly, nor too literally. — fluffy concept
+stoeckinger-e25bae  # Mark Stoeckinger: The horse is the tempo of the scene. — fragment out of context
+stoeckinger-1f0ebb  # Mark Stoeckinger: You want to move the sounds around the — obvious; contradicts nothing usable
+lee-8a2bca  # Ai-Ling Lee: Gradually the soundscape just melts away as the — near-dup of Nelson song fades
+stateman-9ba4cb  # Wylie Stateman: The flamethrower is an exercise in both high-end — vague fragment
+stateman-c86997  # Wylie Stateman: A successful sound designer mines the gap between — fluffy aphorism
+sullivan-f54775  # Becky Sullivan: Each warrior’s machete sounds different. — fragment out of context
+sullivan-8c57ea  # Becky Sullivan: Her crew spent a day recording the only — recording anecdote
+warner-5467e4  # Frank Warner: Warner preferred hands-on manipulation to purely electronic creation, — vague method
+albrechtsen-e6cb95  # Peter Albrechtsen: You become a better sound editor if you — career advice
+albrechtsen-02171b  # Peter Albrechtsen: Share a lot of examples. Watch other movies — generic collaboration advice
+albrechtsen-ab2aba  # Peter Albrechtsen: When Richard King needed a particular vintage boat — logistics anecdote
+anderson-7570b2  # Coll Anderson: Don’t put it up till you can stand — vague slogan
+anderson-753083  # Coll Anderson: An early documentary shoot taught Anderson to let — career advice, no technique
+anderson-a95521  # Coll Anderson: In the end, in real life, guns just — no technique
+anderson-bab1f2  # Coll Anderson: On Catfish the team kept phone calls gritty — describes film intent
+anderson-b4ed3a  # Coll Anderson: When you insert a camera into a situation, — documentary philosophy, no technique
+becker-3092d1  # Nicolas Becker: When somebody is losing their hearing, it’s a — fluffy analogy
+becker-122dc5  # Nicolas Becker: Once Ruben learns sign language, Becker deliberately strips — describes story arc
+becker-6d4713  # Nicolas Becker: Riz Ahmed wore custom earplugs fed with pink — actor process, not sound
+becker-d96a75  # Nicolas Becker: I’ve never worked with sound libraries, so I — biography
+myers-4fb656  # Tom Myers: We always embellished sound when a threat was — vague, nothing to try
+myers-189a1e  # Tom Myers: Myers chooses sounds for what is dramatically right — obvious to pros
+ribicoff-21366f  # Jacob Ribicoff: I could make a room tone out of — near-dup of better entry
+ribicoff-46a605  # Jacob Ribicoff: You need a really strong sound so that — fragment, makes no sense
+hayes-ec996b  # Simon Hayes: Hayes argued that singing live on Les Misérables — production argument, no technique
+hayes-af7632  # Simon Hayes: Les Misérables actors heard a live pianist through — set logistics
+hayes-4dc9e1  # Simon Hayes: To keep the Les Misérables vocals clean, wind — set logistics
+hayes-32487f  # Simon Hayes: Hayes plans mic placement with costume and makeup — obvious to pros
+hayes-b52dd7  # Simon Hayes: Hayes pushes producers to fund production sound properly, — budget/career advice
+hayes-d42af5  # Simon Hayes: Hayes records multitrack mono rather than surround and — obvious to pros
+wagner-21a83b  # Csaba Wagner: For the biggest moments of the Battlefront trailer, — generic; Beggs entry better
+brewer-81f5ac  # Thomas Brewer: Brewer first worked the Battlefront trailer’s effects against — workflow anecdote, obvious
+brewer-5cf06a  # Thomas Brewer: When adapting in-game sounds for the Battlefront trailer, — obvious to pros
+brewer-fdc962  # Thomas Brewer: The Battlefront trailer session was built as a — anecdote without method
+menichini-6b48e6  # Paul Menichini: For the guns in Blizzard’s Overwatch cinematic trailer, — obvious to pros
+menichini-598f87  # Paul Menichini: The Overwatch trailer foley got close attention to — Foley detail
+yoffee-8a7a68  # Jacob Yoffee: Yoffee starts trailer cues from a small, delicate — music composing, not sound
+yoffee-0a0973  # Jacob Yoffee: Yoffee keeps three priorities for trailer music: simplicity, — fluffy music priorities
+yoffee-aa0aa4  # Jacob Yoffee: Trailer music has to be easy to cut, — music editing logistics
+yoffee-6ddb76  # Jacob Yoffee: Yoffee says bottom end is crucial in trailer — fluffy, nothing concrete
+nair-c3cdc7  # Sreejesh Nair: Nair advises always working from the reference score — obvious to pros
+nair-0f75d9  # Sreejesh Nair: Nair has heard digital trailer versions simply boosted — obvious to pros
+gumm-60ad44  # Bobby Gumm: I don’t usually do a music search until — music search habit
+gumm-187194  # Bobby Gumm: Ideally, you get two weeks to work on — schedule complaint
+gumm-bd1f3e  # Bobby Gumm: For the Suicide Squad trailer, Gumm wanted the — music licensing anecdote
+gumm-e5bf75  # Bobby Gumm: Searching for the Mad Max trailer, Gumm hunted — music search anecdote
+williamson-bdb79a  # Holly Williamson: On one trailer campaign, Williamson’s team went around — revision anecdote
+williamson-bedf63  # Holly Williamson: Williamson describes trailer music as layered: once the — obvious to pros
+williamson-513ad2  # Holly Williamson: For the Watchmen trailer, Williamson tried hundreds of — music search anecdote
+williamson-efa12e  # Holly Williamson: Cover songs will never die, so trailerized cover — music licensing opinion
+summers-ae0d80  # Gary Summers: Then, when the music does come in, it — fragment out of context
+summers-6e468a  # Gary Summers: Some cues were written for scenes where the — vague anecdote
+johnson-90cc82  # Tom Johnson: For Tim, all of the elements have to — about director, vague
+johnson-73f705  # Tom Johnson: Johnson felt Alice’s size-change visuals were so strong — describes film visuals
+johnson-d7117e  # Tom Johnson: On The Hot Spot, an early mix Johnson — anecdote, no technique
+johnson-989a27  # Tom Johnson: All we did with Jar Jar Binks is — nothing concrete
+hymns-580411  # Richard Hymns: I want the right door sound, edited correctly. — platitude
+hymns-d7725d  # Richard Hymns: Hymns treats Pro Tools as just another tool, — fluffy philosophy
+hymns-4e8ab0  # Richard Hymns: Hymns says that if audiences leave raving about — philosophy, no technique
+hymns-f95d13  # Richard Hymns: For a period Volvo in Bridge of Spies, — library anecdote
+hymns-5cce87  # Richard Hymns: Winds and fires are hard sounds, Hymns says: — praise, no technique
+boyes-120ad2  # Christopher Boyes: Tame animals are worse than wild ones. — out of context
+boyes-cfc845  # Christopher Boyes: A clean ambience takes three things, Boyes says: — obvious to pros
+boyes-c0b930  # Christopher Boyes: Jim’s edict to me was: Clarity is king. — platitude
+semanick-fb5a9c  # Michael Semanick: The director is just telling a campfire story. — fluffy
+semanick-c92733  # Michael Semanick: With a console laid out, I can just — gear preference fragment
+semanick-bf3f01  # Michael Semanick: Semanick still prefers hardware Lexicon 960 and TC6000 — gear preference
+semanick-0ba3a7  # Michael Semanick: Directors like David Fincher leave some picture transitions — vague, no method
+semanick-bdf7f2  # Michael Semanick: New Woody and Buzz voice-box lines for Toy — archival anecdote
+semanick-b8f653  # Michael Semanick: Semanick keeps asking why a director made a — fluffy questioning
+beggs-2b0032  # Richard Beggs: For Lost in Translation, Beggs spent two weeks — location logistics anecdote
+beggs-4d9b8a  # Richard Beggs: For Marie Antoinette, Beggs recorded inside Versailles at — location anecdote
+beggs-1728f9  # Richard Beggs: I could not make a useful distinction between — philosophy, no technique
+beggs-e13695  # Richard Beggs: I often don’t recognize what I need until — fluffy
+beggs-cc02d6  # Richard Beggs: Beggs generally won’t delegate mixing decisions to sound — career/workflow opinion
+beggs-445dad  # Richard Beggs: Cuarón wanted the Children of Men lead to — film anecdote
+beggs-e3a971  # Richard Beggs: During a Marie Antoinette night shoot, Beggs wandered — location anecdote
+shatz-b8c4f9  # Leslie Shatz: Sound design is just choosing the right sounds — platitude
+shatz-59a8a2  # Leslie Shatz: On Gerry, looping and Foley stuck out: the — describes film aesthetic
+shatz-ea70de  # Leslie Shatz: HBO called Elephant technically unacceptable: no backgrounds, no — anecdote, career attitude
+shatz-fa6644  # Leslie Shatz: On Paranoid Park, another film’s soundtrack got slightly — accident anecdote
+berger-530a29  # Mark Berger: Once the words leave the character’s mouth they — fragment, unclear
+berger-65c841  # Mark Berger: Remixing Amadeus from digitized, pitch-corrected originals, Berger found — Amadeus remaster history
+berger-5d19c6  # Mark Berger: For Amadeus’s quiet, hissy Nagra dialogue in 1983, — dated Amadeus gear
+berger-9e4ae0  # Mark Berger: For the Amadeus 5.1, Berger built about half — Amadeus remaster history
+berger-5b23f4  # Mark Berger: Interesting things happen at the edges, when things — vague aphorism
+berger-48869c  # Mark Berger: Berger says directors, especially first-timers, lose their ‘virgin — director commentary
+berger-f96fdb  # Mark Berger: In Amadeus, the loud Don Giovanni chords that — dup of better contrast entries
+berger-efc53f  # Mark Berger: Berger contrasts feature films’ ‘perfect sound,’ done over — vague doc philosophy
+berger-7857ef  # Mark Berger: Berger doesn’t go to cinemas to hear his — anecdote, no technique
+berger-16e34c  # Mark Berger: Berger’s first feature came from field recordings. Back — biography
+jackson-a09ed8  # Pat Jackson: On HBO’s Hemingway & Gellhorn, which won the — praise, fluffy
+wood-daf0bd  # Matthew Wood: Wood spent months recording vehicles for The Phantom — library anecdote
+wood-12d9e7  # Matthew Wood: For Rey and Kylo’s tug-of-war over the Skywalker — franchise callback anecdote
+wood-0e50a6  # Matthew Wood: You don’t want to overdo the processing to — obvious to pros
+wood-1c10fe  # Matthew Wood: Shin’s Force choke in Ahsoka opens with a — franchise reuse anecdote
+acord-a50aa4  # David Acord: I don’t want to create a ship pass-by — unclear without context
+acord-010583  # David Acord: Everything is, as we say in the sound — platitude
+acord-b43f12  # David Acord: Even if there is no clear language, the — obvious to pros
+scarabosio-d966d8  # Christopher Scarabosio: Hums and fans, which we normally try to — near-dup of hum entry
+scarabosio-cdc2be  # Christopher Scarabosio: Design is nothing if it doesn’t end up — platitude
+scarabosio-cb5a31  # Christopher Scarabosio: With access to NASA experts, Scarabosio mixed the — anecdote about editor
+scarabosio-7334b0  # Christopher Scarabosio: It’s a three or four-piece band as opposed — fragment out of context
+scarabosio-117534  # Christopher Scarabosio: Panning dialogue to follow the camera between stories — vague, no method
+scarabosio-8d30c7  # Christopher Scarabosio: David Acord credits Scarabosio’s mix of The Force — praise, vague
+whittle-f31ef9  # Gwendolyn Yates Whittle: The guide track is a bit of a — platitude
+whittle-b32da8  # Gwendolyn Yates Whittle: For each shot Whittle asks: What is this — fluffy questioning
+wild-28e5b8  # Bonnie Wild: Huyang’s voice stays very close to its Clone — weak, no method
+
+# References a film, show or game released before 2005.
+burtt-78ecee  # Ben Burtt: Star Wars (1977)
+burtt-cc5819  # Ben Burtt: Return of the Jedi Ewoks / Star Wars Jawas, Gungans (1977-1999)
+burtt-c231b7  # Ben Burtt: Star Wars Jawas, Mos Eisley cantina (1977)
+burtt-caff7d  # Ben Burtt: Star Wars lightsabers (1977)
+burtt-981341  # Ben Burtt: Star Wars Vader breathing (1977)
+burtt-4bec97  # Ben Burtt: Star Wars TIE fighter (1977)
+burtt-27d60e  # Ben Burtt: Star Wars Chewbacca (1977)
+burtt-f71bec  # Ben Burtt: Star Wars R2-D2 (1977)
+rydstrom-8ce63f  # Gary Rydstrom: The Haunting (1999)
+rydstrom-8348f8  # Gary Rydstrom: The Haunting (1999)
+rydstrom-fad20d  # Gary Rydstrom: Jurassic Park (1993)
+rydstrom-9525cd  # Gary Rydstrom: Jurassic Park (1993)
+murch-347f8d  # Walter Murch: Apocalypse Now (1979)
+murch-040892  # Walter Murch: Apocalypse Now (1979)
+murch-a8509e  # Walter Murch: Apocalypse Now (1979)
+murch-b9a33a  # Walter Murch: Apocalypse Now (1979)
+murch-cd1536  # Walter Murch: The Conversation (1974)
+murch-cf1564  # Walter Murch: Apocalypse Now (1979)
+klyce-dacfcc  # Ren Klyce: Citizen Kane reference (1941)
+klyce-4df461  # Ren Klyce: Fight Club (1999)
+lievsay-2dec4b  # Skip Lievsay: The Silence of the Lambs (1991)
+kroeber-6ab9a8  # Ann Kroeber: Splet/Kroeber outer-space textures, unnamed (pre-1994)
+kroeber-8a653b  # Ann Kroeber: Blue Velvet (1986)
+kroeber-eca7c0  # Ann Kroeber: Dune (1984)
+splet-ad16c6  # Alan Splet: Dune (1984)
+gearty-7a0ca0  # Eugene Gearty: Casino reference (1995)
+aadahl-224453  # Erik Aadahl: Jaws reference (1975)
+ryn-42e2bd  # Ethan Van der Ryn: Godzilla original (1954)
+ryn-56fbe0  # Ethan Van der Ryn: Apocalypse Now nod (1979)
+farmer-5de73f  # David Farmer: The Lord of the Rings (2001-03)
+farmer-b17c78  # David Farmer: The Lord of the Rings, Witch-King (2001-03)
+farmer-e57d1e  # David Farmer: The Lord of the Rings, Ringwraiths (2001-03)
+farmer-8435eb  # David Farmer: The Fellowship of the Ring, Moria (2001)
+farmer-03a05e  # David Farmer: The Lord of the Rings, Uruk-hai (2001-03)
+farmer-6df054  # David Farmer: The Lord of the Rings, wraiths (2001-03)
+nielsen-5b1f67  # Tim Nielsen: The Fellowship of the Ring, Bree (2001)
+davis-a9272d  # Dane A. Davis: The Matrix (1999)
+davis-c9b4ae  # Dane A. Davis: The Matrix bullet time (1999)
+davis-9258bd  # Dane A. Davis: The Matrix Sentinels (1999)
+davis-268472  # Dane A. Davis: The Matrix Reloaded super bullet time (2003)
+davis-93a097  # Dane A. Davis: The Matrix Revolutions / Animatrix Synthients (2003)
+davis-c20e0f  # Dane A. Davis: The Matrix Nebuchadnezzar (1999)
+davis-945b3f  # Dane A. Davis: The Matrix Revolutions (2003)
+warner-22a564  # Frank Warner: Close Encounters of the Third Kind (1977)
+warner-93bf15  # Frank Warner: Close Encounters of the Third Kind (1977)
+warner-f9d599  # Frank Warner: Raging Bull (1980)
+warner-22ad53  # Frank Warner: Raging Bull (1980)
+warner-26ae94  # Frank Warner: Raging Bull (1980)
+anderson-5a2249  # Coll Anderson: The Fog of War (2003)
+summers-18377d  # Gary Summers: Toy Story 1 and 2 (1995, 1999)
+hymns-97b2b1  # Richard Hymns: The Mosquito Coast (1986)
+hymns-3c64ee  # Richard Hymns: Warning Sign (1985)
+beggs-2a445c  # Richard Beggs: Sleepers (1996)
+beggs-e4109e  # Richard Beggs: Adaptation (2002)
+beggs-e5edf4  # Richard Beggs: Apocalypse Now (1979)
+beggs-987dfb  # Richard Beggs: Apocalypse Now (1979)
+beggs-ee0b29  # Richard Beggs: Ghostbusters (1984)
+beggs-54f26e  # Richard Beggs: Apocalypse Now (1979)
+shatz-a5b94e  # Leslie Shatz: Good Will Hunting (1997)
+shatz-5f8ef3  # Leslie Shatz: Elephant mention (2003)
+wood-c66b7e  # Matthew Wood: Star Wars Episode I podrace (1999)
+whittle-57efc8  # Gwendolyn Yates Whittle: Titanic (1997)
+splet-c7a77a  # Alan Splet: Lynch-era casting of sounds (pre-2005)
+landaker-22519f  # Gregg Landaker: blaster-era mix moves (pre-2005)
+davis-e8ca4f  # Dane A. Davis: Matrix-era sources (pre-2005)
+davis-872503  # Dane A. Davis: Matrix robots (pre-2005)
+deenen-2f92e4  # Charles Deenen: near-duplicate of the Battlefront tonal/noise split
