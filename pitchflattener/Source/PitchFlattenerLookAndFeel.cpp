@@ -621,7 +621,7 @@ juce::Font PitchFlattenerLookAndFeel::getTextButtonFont (juce::TextButton& butto
         return m_fonts.label (12.0f);
     if (isLinkStyle (button))
         return m_fonts.body (12.0f);
-    return m_fonts.label (std::min (12.0f, (float) buttonHeight * 0.5f));
+    return m_fonts.label (std::min (13.0f, (float) buttonHeight * 0.5f));
 }
 
 void PitchFlattenerLookAndFeel::drawToggleButton (juce::Graphics& g, juce::ToggleButton& button,

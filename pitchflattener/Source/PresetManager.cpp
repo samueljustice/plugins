@@ -82,18 +82,9 @@ juce::File PresetManager::userFileFor (const juce::String& name) const
     return getUserDirectory().getChildFile (sanitiseName (name) + ".xml");
 }
 
-juce::File PresetManager::existingUserFileFor (const juce::String& listedName) const
+bool PresetManager::isInUserFolder (const juce::File& file)
 {
-    // Names in the menu are file names from the directory listing; use them
-    // as-is (re-sanitising would miss files whose names contain characters
-    // createLegalFileName strips), but never step outside the User folder.
-    const auto dir = getUserDirectory();
-    const auto file = dir.getChildFile (listedName + ".xml");
-
-    if (listedName.isNotEmpty() && file.getParentDirectory() == dir && file.existsAsFile())
-        return file;
-
-    return userFileFor (listedName);
+    return file != juce::File() && file.hasFileExtension ("xml") && file.getParentDirectory() == getUserDirectory();
 }
 
 juce::ValueTree PresetManager::makeDefaultState() const
@@ -109,6 +100,7 @@ juce::ValueTree PresetManager::makeDefaultState() const
     }
 
     state.removeProperty (presetNameProperty, nullptr);
+    state.removeProperty (presetFileProperty, nullptr);
     return state;
 }
 
@@ -160,23 +152,25 @@ juce::String PresetManager::getFactoryPresetName (int index) const
     return juce::isPositiveAndBelow (index, (int) m_factory.size()) ? m_factory[(size_t) index].first : juce::String();
 }
 
-juce::StringArray PresetManager::getUserPresetNames() const
+std::vector<PresetManager::UserPreset> PresetManager::getUserPresets() const
 {
-    juce::StringArray names;
+    std::vector<UserPreset> presets;
     const auto dir = getUserDirectory();
 
     if (dir.isDirectory())
-        for (const auto& file : dir.findChildFiles (juce::File::findFiles, false, "*.xml"))
-            names.add (file.getFileNameWithoutExtension());
+        for (const auto& file : dir.findChildFiles (juce::File::findFiles | juce::File::ignoreHiddenFiles, false, "*.xml"))
+            presets.push_back ({ file, file.getFileNameWithoutExtension() });
 
-    names.sortNatural();
-    return names;
+    std::sort (presets.begin(), presets.end(), [] (const UserPreset& a, const UserPreset& b)
+               { return a.name.compareNatural (b.name) < 0; });
+    return presets;
 }
 
-void PresetManager::applyState (const juce::ValueTree& newState, const juce::String& name)
+void PresetManager::applyState (const juce::ValueTree& newState, const juce::String& name, const juce::String& fileName)
 {
     auto state = newState.createCopy();
     state.setProperty (presetNameProperty, name, nullptr);
+    state.setProperty (presetFileProperty, fileName, nullptr); // empty for a factory preset
 
     // Drop parameters that no longer exist (old presets), so they don't ride
     // along in the session state forever.
@@ -200,22 +194,52 @@ bool PresetManager::loadFactoryPreset (int index)
     if (! juce::isPositiveAndBelow (index, (int) m_factory.size()))
         return false;
 
-    applyState (m_factory[(size_t) index].second, m_factory[(size_t) index].first);
+    applyState (m_factory[(size_t) index].second, m_factory[(size_t) index].first, {});
     return true;
 }
 
-bool PresetManager::loadUserPreset (const juce::String& name)
+bool PresetManager::loadUserPreset (const juce::File& file)
 {
-    const auto file = existingUserFileFor (name);
-    auto xml = juce::XmlDocument::parse (file);
+    if (! isInUserFolder (file))
+        return false;
 
+    auto xml = juce::XmlDocument::parse (file);
     if (xml == nullptr || ! xml->hasTagName (m_state.state.getType().toString()))
         return false;
 
     auto state = juce::ValueTree::fromXml (*xml);
     migrateLegacyPreset (state);
-    applyState (state, file.getFileNameWithoutExtension());
+    applyState (state, file.getFileNameWithoutExtension(), file.getFileName());
     return true;
+}
+
+bool PresetManager::step (int direction)
+{
+    // The menu's order: factory presets, then user presets by name.
+    const auto users = getUserPresets();
+    const int numFactory = getNumFactoryPresets();
+    const int size = numFactory + (int) users.size();
+    if (size == 0)
+        return false;
+
+    int current = getCurrentFactoryIndex();
+    if (current < 0)
+        if (const auto file = getCurrentUserFile(); file != juce::File())
+            for (size_t i = 0; i < users.size(); ++i)
+                if (users[i].file == file)
+                    current = numFactory + (int) i;
+
+    // From a sound that is not a listed preset, Next starts at the first preset and Previous at the last.
+    const int origin = current >= 0 ? current : (direction > 0 ? -1 : size);
+
+    for (int n = 1; n <= size; ++n)
+    {
+        const int index = ((origin + direction * n) % size + size) % size;
+        if (index < numFactory ? loadFactoryPreset (index) : loadUserPreset (users[(size_t) (index - numFactory)].file))
+            return true;
+    }
+
+    return false;
 }
 
 bool PresetManager::saveUserPreset (const juce::String& name)
@@ -230,27 +254,40 @@ bool PresetManager::saveUserPreset (const juce::String& name)
 
     auto state = m_state.copyState();
     state.setProperty (presetNameProperty, clean, nullptr);
+    state.removeProperty (presetFileProperty, nullptr); // the file is the preset's identity, not its content
 
     auto xml = state.createXml();
     if (xml == nullptr || ! xml->writeTo (userFileFor (clean)))
         return false;
 
-    m_state.state.setProperty (presetNameProperty, clean, nullptr);
+    // File names ignore case on macOS and Windows: "siren" may have been written over "Siren.xml". The
+    // current preset is the file as it is now listed.
+    auto file = userFileFor (clean);
+    for (const auto& preset : getUserPresets())
+        if (preset.file.getFileName().equalsIgnoreCase (file.getFileName()))
+            file = preset.file;
+
+    m_state.state.setProperty (presetNameProperty, file.getFileNameWithoutExtension(), nullptr);
+    m_state.state.setProperty (presetFileProperty, file.getFileName(), nullptr);
     return true;
 }
 
-bool PresetManager::deleteUserPreset (const juce::String& name)
+bool PresetManager::deleteUserPreset (const juce::File& file)
 {
-    const auto file = existingUserFileFor (name);
-    if (! file.existsAsFile())
+    if (! isInUserFolder (file) || ! file.existsAsFile())
         return false;
+
+    const bool wasCurrent = getCurrentUserFile() == file;
 
     // Move to the trash where possible (recoverable), else delete.
     if (! file.moveToTrash() && ! file.deleteFile())
         return false;
 
-    if (getCurrentPresetName() == name)
+    if (wasCurrent)
+    {
         m_state.state.removeProperty (presetNameProperty, nullptr);
+        m_state.state.removeProperty (presetFileProperty, nullptr);
+    }
 
     return true;
 }
@@ -263,13 +300,48 @@ bool PresetManager::userPresetExists (const juce::String& name) const
 
 void PresetManager::resetToDefaults()
 {
-    applyState (makeDefaultState(), {});
+    applyState (makeDefaultState(), {}, {});
     m_state.state.removeProperty (presetNameProperty, nullptr);
+    m_state.state.removeProperty (presetFileProperty, nullptr);
 }
 
 juce::String PresetManager::getCurrentPresetName() const
 {
     return m_state.state.getProperty (presetNameProperty).toString();
+}
+
+juce::File PresetManager::getCurrentUserFile() const
+{
+    const auto& state = m_state.state;
+    juce::String fileName;
+
+    if (state.hasProperty (presetFileProperty))
+        fileName = state.getProperty (presetFileProperty).toString();
+    else if (const auto name = getCurrentPresetName(); name.isNotEmpty())
+        fileName = name + ".xml"; // a session saved before the file was recorded: the name was the file's, and won
+
+    if (fileName.isEmpty())
+        return {};
+
+    const auto file = getUserDirectory().getChildFile (fileName);
+    return isInUserFolder (file) && file.existsAsFile() ? file : juce::File();
+}
+
+int PresetManager::getCurrentFactoryIndex() const
+{
+    // A user preset (even one whose file has gone since) is never a factory preset of the same name.
+    if (m_state.state.getProperty (presetFileProperty).toString().isNotEmpty() || getCurrentUserFile() != juce::File())
+        return -1;
+
+    const auto name = getCurrentPresetName();
+    if (name.isEmpty())
+        return -1;
+
+    for (size_t i = 0; i < m_factory.size(); ++i)
+        if (m_factory[i].first == name)
+            return (int) i;
+
+    return -1;
 }
 
 //==============================================================================
@@ -279,15 +351,20 @@ PresetBar::PresetBar (juce::AudioProcessorValueTreeState& state, PitchFlattenerL
     : m_manager (state)
     , m_lookAndFeel (lookAndFeel)
 {
-    m_menu.setTextWhenNothingSelected ("No preset");
-    m_menu.onChange = [this] { menuChanged(); };
-    addAndMakeVisible (m_menu);
+    // As Subbertone's preset bar:  <  [name]  >  SAVE
+    m_previousButton.setTooltip ("Previous preset");
+    m_previousButton.onClick = [this] { step (-1); };
 
+    m_nextButton.setTooltip ("Next preset");
+    m_nextButton.onClick = [this] { step (1); };
+
+    m_nameButton.setTooltip ("Choose a preset, or save, delete, reset and find your presets");
+    m_nameButton.onClick = [this] { showMenu(); };
+
+    m_saveButton.setTooltip ("Save the current settings as a preset");
     m_saveButton.onClick = [this] { showSaveDialog (m_manager.getCurrentPresetName()); };
-    m_deleteButton.onClick = [this] { confirmDelete(); };
-    m_resetButton.onClick = [this] { confirmReset(); };
 
-    for (auto* b : { &m_saveButton, &m_deleteButton, &m_resetButton })
+    for (auto* b : { &m_previousButton, &m_nameButton, &m_nextButton, &m_saveButton })
         addAndMakeVisible (b);
 
     refresh();
@@ -302,78 +379,131 @@ PresetBar::~PresetBar()
 
 void PresetBar::resized()
 {
+    // Subbertone's geometry: SAVE 64 on the right, then 26-wide arrows either side of the name.
     auto r = getLocalBounds();
-    m_resetButton.setBounds (r.removeFromRight (62));
-    r.removeFromRight (6);
-    m_deleteButton.setBounds (r.removeFromRight (70));
-    r.removeFromRight (6);
-    m_saveButton.setBounds (r.removeFromRight (58));
-    r.removeFromRight (10);
-    m_menu.setBounds (r);
+    m_saveButton.setBounds (r.removeFromRight (64));
+    r.removeFromRight (8);
+    m_nextButton.setBounds (r.removeFromRight (26));
+    r.removeFromRight (4);
+    m_previousButton.setBounds (r.removeFromLeft (26));
+    r.removeFromLeft (4);
+    m_nameButton.setBounds (r);
 }
 
 void PresetBar::refresh()
 {
-    m_menu.clear (juce::dontSendNotification);
-    m_userNames = m_manager.getUserPresetNames();
+    m_shownName = m_manager.getCurrentPresetName();
 
-    const auto current = m_manager.getCurrentPresetName();
-    m_shownName = current;
-    int selectedId = 0;
-
-    m_menu.addSectionHeading ("FACTORY");
-    for (int i = 0; i < m_manager.getNumFactoryPresets(); ++i)
-    {
-        const auto name = m_manager.getFactoryPresetName (i);
-        m_menu.addItem (name, i + 1);
-        if (selectedId == 0 && name == current)
-            selectedId = i + 1;
-    }
-
-    m_menu.addSeparator();
-    m_menu.addSectionHeading ("USER");
-
-    if (m_userNames.isEmpty())
-    {
-        m_menu.addItem ("(none saved yet)", c_userIdBase - 1);
-        m_menu.setItemEnabled (c_userIdBase - 1, false);
-    }
-
-    for (int i = 0; i < m_userNames.size(); ++i)
-    {
-        m_menu.addItem (m_userNames[i], c_userIdBase + i);
-        if (m_userNames[i] == current)
-            selectedId = c_userIdBase + i; // user presets take precedence over a same-named factory one
-    }
-
-    if (selectedId != 0)
-        m_menu.setSelectedId (selectedId, juce::dontSendNotification);
-    else
-        m_menu.setText (current, juce::dontSendNotification);
-
-    m_deleteButton.setEnabled (m_menu.getSelectedId() >= c_userIdBase);
+    // A sound that is no saved preset (after Reset to Defaults, or once its preset is deleted) says so.
+    m_nameButton.setButtonText (m_shownName.isEmpty() ? juce::String ("No preset") : m_shownName);
 }
 
 void PresetBar::refreshIfNameChanged()
 {
-    if (m_manager.getCurrentPresetName() != m_shownName && ! m_menu.isPopupActive())
+    if (m_manager.getCurrentPresetName() != m_shownName)
         refresh();
 }
 
-void PresetBar::menuChanged()
+void PresetBar::step (int direction)
 {
-    const int id = m_menu.getSelectedId();
-    bool ok = false;
-
-    if (id >= c_userIdBase)
-        ok = m_manager.loadUserPreset (m_userNames[id - c_userIdBase]);
-    else if (id > 0)
-        ok = m_manager.loadFactoryPreset (id - 1);
-
-    if (id > 0 && ! ok)
-        showError ("Couldn't Load Preset", "The preset could not be loaded.");
+    if (! (direction > 0 ? m_manager.loadNext() : m_manager.loadPrevious()))
+        showError ("Couldn't Load Preset", "No preset could be loaded.");
 
     refresh();
+}
+
+PresetBar::Menu PresetBar::buildMenu()
+{
+    // Subbertone's preset menu: FACTORY presets, USER presets in a submenu (keeps long lists tidy), then
+    // the actions. Ticks mark the current preset, and the submenu that holds it.
+    Menu m;
+    auto& menu = m.menu;
+    menu.setLookAndFeel (&m_lookAndFeel); // a menu without a parent window would use JUCE's default look; submenus take it from here
+    menu.addSectionHeader ("FACTORY");
+
+    const int currentFactory = m_manager.getCurrentFactoryIndex();
+    for (int i = 0; i < m_manager.getNumFactoryPresets() && i + 1 < c_saveAsItemId; ++i)
+        menu.addItem (i + 1, m_manager.getFactoryPresetName (i), true, i == currentFactory);
+
+    // User presets are told apart by their file: items load (and Delete removes) exactly that file.
+    const auto currentFile = m_manager.getCurrentUserFile();
+    juce::PopupMenu user;
+    bool userContainsCurrent = false;
+
+    for (const auto& preset : m_manager.getUserPresets())
+    {
+        const bool isCurrent = currentFile != juce::File() && preset.file == currentFile;
+        user.addItem (c_firstUserItemId + m.userFiles.size(), preset.name, true, isCurrent);
+        m.userFiles.add (preset.file);
+        userContainsCurrent = userContainsCurrent || isCurrent;
+    }
+
+    menu.addSectionHeader ("USER");
+    if (! m.userFiles.isEmpty())
+        menu.addSubMenu ("User Presets", user, true, nullptr, userContainsCurrent);
+    else
+        menu.addItem (-1, "(none saved yet)", false);
+
+    // Delete is bound to the preset named here, even if another one is current by the time it is confirmed.
+    m.fileToDelete = currentFile;
+    m.nameToDelete = currentFile != juce::File() ? currentFile.getFileNameWithoutExtension() : m_manager.getCurrentPresetName();
+
+    menu.addSeparator();
+    menu.addItem (c_saveAsItemId, "Save As...");
+    menu.addItem (c_deleteItemId, m.nameToDelete.isNotEmpty() ? "Delete \"" + m.nameToDelete + "\"" : juce::String ("Delete Preset"),
+                  m.fileToDelete != juce::File());
+    menu.addItem (c_resetItemId, "Reset to Defaults");
+    menu.addItem (c_revealItemId, "Show Presets Folder");
+    return m;
+}
+
+void PresetBar::showMenu()
+{
+    auto built = buildMenu();
+    auto menu = std::move (built.menu);
+    built.menu = {};
+
+    // At least as wide as the name button, wider only for an item that needs it.
+    menu.showMenuAsync (PitchFlattenerLookAndFeel::menuOptionsFor (m_nameButton, m_nameButton.getWidth()),
+                        [safeThis = juce::Component::SafePointer<PresetBar> (this), m = std::move (built)] (int result)
+    {
+        if (safeThis != nullptr && result != 0)
+            safeThis->menuItemChosen (result, m);
+    });
+}
+
+void PresetBar::menuItemChosen (int result, const Menu& m)
+{
+    if (result == c_saveAsItemId)
+    {
+        showSaveDialog (m_manager.getCurrentUserFile() != juce::File() ? m_manager.getCurrentPresetName() : juce::String());
+    }
+    else if (result == c_deleteItemId)
+    {
+        confirmDelete (m.fileToDelete, m.nameToDelete);
+    }
+    else if (result == c_resetItemId)
+    {
+        confirmReset();
+    }
+    else if (result == c_revealItemId)
+    {
+        const auto dir = PresetManager::getUserDirectory();
+        dir.createDirectory();
+        dir.startAsProcess(); // opens the folder in Finder / Explorer
+    }
+    else if (result >= c_firstUserItemId)
+    {
+        if (const int i = result - c_firstUserItemId; i < m.userFiles.size() && ! m_manager.loadUserPreset (m.userFiles[i]))
+            showError ("Couldn't Load Preset", "The preset could not be loaded.");
+
+        refresh();
+    }
+    else if (result >= 1 && result <= m_manager.getNumFactoryPresets())
+    {
+        m_manager.loadFactoryPreset (result - 1); // factory presets lead the list, in a fixed order
+        refresh();
+    }
 }
 
 void PresetBar::showSaveDialog (const juce::String& suggestedName)
@@ -422,25 +552,24 @@ void PresetBar::confirmOverwrite (const juce::String& name)
     });
 }
 
-void PresetBar::confirmDelete()
+void PresetBar::confirmDelete (const juce::File& file, const juce::String& name)
 {
-    const int id = m_menu.getSelectedId();
-    if (id < c_userIdBase)
+    if (file == juce::File())
         return;
 
-    // Bound to the preset named in the dialog, even if another one is loaded by the time it is confirmed.
-    const auto name = m_userNames[id - c_userIdBase];
+    // Bound to the file named in the dialog, even if another preset is loaded by the time it is confirmed.
     auto alert = makeAlert ("Delete Preset", "Move the preset \"" + name + "\" to the trash?",
                             juce::MessageBoxIconType::WarningIcon);
     alert->addButton ("Delete", 1, juce::KeyPress (juce::KeyPress::returnKey));
     alert->addButton ("Cancel", 0, juce::KeyPress (juce::KeyPress::escapeKey));
 
-    showAlert (std::move (alert), [safeThis = juce::Component::SafePointer<PresetBar> (this), name] (int result, juce::AlertWindow&)
+    showAlert (std::move (alert), [safeThis = juce::Component::SafePointer<PresetBar> (this), file] (int result, juce::AlertWindow&)
     {
         if (safeThis == nullptr || result != 1)
             return;
 
-        if (! safeThis->m_manager.deleteUserPreset (name))
+        // Nothing to report if the file has gone meanwhile.
+        if (! safeThis->m_manager.deleteUserPreset (file) && file.existsAsFile())
             safeThis->showError ("Couldn't Delete Preset", "The preset could not be deleted.");
 
         safeThis->refresh();

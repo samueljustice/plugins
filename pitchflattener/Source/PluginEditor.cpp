@@ -408,17 +408,12 @@ PitchFlattenerAudioProcessorEditor::Content::Content (PitchFlattenerAudioProcess
                  "Formant: preserve the spectral envelope while shifting (keeps voices natural). Off is usually better for sirens and machines.",
                  m_formantAttachment);
 
-    setHelp (m_presetBar.getMenu(), "Presets: one factory preset per Source Type, plus your own saved presets.");
+    setHelp (m_presetBar.getNameButton(), "Presets: one factory preset per Source Type, plus your own saved presets. "
+                                          "Click for the menu: load, save, delete, reset to defaults, show the presets folder.");
+    setHelp (m_presetBar.getPreviousButton(), "Previous preset: steps back through the factory presets, then your own, in menu order.");
+    setHelp (m_presetBar.getNextButton(), "Next preset: steps through the factory presets, then your own, in menu order.");
     setHelp (m_presetBar.getSaveButton(), "Save the current settings as a user preset.");
-    setHelp (m_presetBar.getDeleteButton(), "Move the selected user preset to the trash.");
-    setHelp (m_presetBar.getResetButton(), "Reset every parameter to its default.");
     setHelp (m_aboutButton, "About Pitch Flattener: version, credits and update check.");
-
-    // The header is far from the help bar, so its controls also get a short tooltip.
-    m_presetBar.getMenu().setTooltip ("Choose a factory or user preset");
-    m_presetBar.getSaveButton().setTooltip ("Save the current settings as a preset");
-    m_presetBar.getDeleteButton().setTooltip ("Move the selected user preset to the trash");
-    m_presetBar.getResetButton().setTooltip ("Reset every parameter to its default");
 
     // Help text for every child (and grandchild) under the mouse.
     addMouseListener (this, true);
@@ -665,11 +660,11 @@ void PitchFlattenerAudioProcessorEditor::Content::resized()
 {
     auto bounds = getLocalBounds();
 
-    // Header: title (painted), preset bar, about
+    // Header: title (painted), preset bar (<  name  >  SAVE), about
     auto header = bounds.removeFromTop (c_headerHeight).reduced (c_margin, 0);
     m_aboutButton.setBounds (header.removeFromRight (26).withSizeKeepingCentre (26, 26));
-    header.removeFromRight (12);
-    m_presetBar.setBounds (header.removeFromRight (430).withSizeKeepingCentre (430, 26));
+    header.removeFromRight (14);
+    m_presetBar.setBounds (header.removeFromRight (400).withSizeKeepingCentre (400, 26)); // as Subbertone's
 
     bounds.reduce (c_margin, 0);
 
