@@ -92,7 +92,7 @@ Subbertone tracks the pitch of your bass, engine or drone and adds a sub one oct
 Pitch Flattener removes pitch movement: the Doppler sweep from a pass-by, the wail from a siren, the vibrato from a voice. Pick a Source Type and it uses a pitch detector built for that sound, looks ahead to track the pitch, and flattens it sample-accurately. Made for offline-rendering hosts such as the Soundminer DSP rack.
 
 **VST3** · **AU** &nbsp;&nbsp;
-[![Download Pitch Flattener](https://img.shields.io/badge/download-v2.0.1-d00a35?style=flat-square)](https://github.com/samueljustice/plugins/releases/tag/pitchflattener-v2.0.1) &nbsp;
+[![Download Pitch Flattener](https://img.shields.io/badge/download-v2.0.2-d00a35?style=flat-square)](https://github.com/samueljustice/plugins/releases/tag/pitchflattener-v2.0.2) &nbsp;
 [Read the manual →](pitchflattener/README.md)
 
 ---
@@ -129,7 +129,7 @@ A small, quiet page of advice from the great film, TV and game sound designers a
 - 🔇 **Audio passes straight through**, so it can sit on a mix bus or on a second screen as an app
 
 **App** (macOS, Windows) · **VST3** · **AU** &nbsp;&nbsp;
-[![Download Sound Advice](https://img.shields.io/badge/download-v1.0.5-9a5a3a?style=flat-square)](https://github.com/samueljustice/plugins/releases/tag/soundadvice-v1.0.5) &nbsp;
+[![Download Sound Advice](https://img.shields.io/badge/download-v1.0.6-9a5a3a?style=flat-square)](https://github.com/samueljustice/plugins/releases/tag/soundadvice-v1.0.6) &nbsp;
 [Read the manual →](soundadvice/README.md)
 
 ---
