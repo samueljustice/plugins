@@ -319,14 +319,23 @@ jobs:
           --team-id "$APPLE_TEAM_ID" \
           --wait
         
-        # Staple notarization
+        # Staple notarization. Fetching the ticket from Apple occasionally drops the
+        # connection (stapler error 68), so retry before failing the build.
+        staple() {
+          for attempt in 1 2 3 4; do
+            if xcrun stapler staple "$1"; then return 0; fi
+            echo "Stapling $1 failed (attempt $attempt of 4)"
+            if [ "$attempt" -lt 4 ]; then sleep 30; fi
+          done
+          return 1
+        }
         cd build/PitchFlattener_artefacts/Release/VST3
         for plugin in *.vst3; do
-          xcrun stapler staple "$plugin"
+          staple "$plugin"
         done
         cd ../AU
         for plugin in *.component; do
-          xcrun stapler staple "$plugin"
+          staple "$plugin"
         done
         cd ../../../..
     
@@ -531,8 +540,13 @@ jobs:
           exit 1
         fi
         
-        # Staple notarization
-        xcrun stapler staple "SammyJs_Pitch_Flattener_Installer.pkg"
+        # Staple notarization (retried: the ticket fetch occasionally drops the connection)
+        for attempt in 1 2 3 4; do
+          if xcrun stapler staple "SammyJs_Pitch_Flattener_Installer.pkg"; then break; fi
+          if [ "$attempt" -eq 4 ]; then exit 1; fi
+          echo "Stapling the installer failed (attempt $attempt of 4), retrying in 30 s"
+          sleep 30
+        done
     
     - name: Upload macOS Installer
       uses: actions/upload-artifact@v6
