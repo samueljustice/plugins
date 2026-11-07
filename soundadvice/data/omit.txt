@@ -1,0 +1,8 @@
+# People to leave out of the plug-in, one name per line, exactly as in the data files.
+# Their research stays in data/*.json; tools/build_quotes.py just skips them.
+Glenn Freemantle
+Gary Hecker
+Mark Mangini
+Scott Gershin
+Oliver Tarney
+Johnnie Burn

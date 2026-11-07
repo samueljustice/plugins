@@ -7,6 +7,7 @@ Audio plug-ins and tools by Samuel Justice / [Sweet Justice Sound](https://www.s
 | Project | What it is | Formats | Latest release |
 |---|---|---|---|
 | [Swooshbuckler](swooshbuckler/README.md) | Whoosh-making rig | App (macOS, Windows), VST3, AU | Not released yet |
+| [Sound Advice](soundadvice/README.md) | Advice from the great sound designers and mixers | VST3, AU, App (macOS, Windows) | Not released yet |
 | [Subbertone](subbertone/README.md) | Subharmonic generator | VST3, AU | [v1.1.0](https://github.com/samueljustice/plugins/releases/tag/subbertone-v1.1.0) |
 | [Pitch Flattener](pitchflattener/README.md) | Real-time pitch flattening | VST3, AU | [v1.2.5](https://github.com/samueljustice/plugins/releases/tag/pitchflattener-v1.2.5) |
 | [Reversinator](reversinator/README.md) | Real-time reverse effects | VST3, AU | [v1.0.0](https://github.com/samueljustice/plugins/releases/tag/reversinator-v1.0.0) |
@@ -18,6 +19,12 @@ A whoosh-making rig. Drop in up to ten sounds and it rides the faders across the
 
 - Location: `/swooshbuckler/`
 - [Project README](swooshbuckler/README.md)
+
+### Sound Advice
+A small, quiet page of advice from the great film, TV and game sound designers and mixers. Pick what you're working on (mixing, trailers, creatures, Foley, silence...) and roll the die: it deals a quote or a technique from one of them, with a link to where it came from. Audio passes straight through.
+
+- Location: `/soundadvice/`
+- [Project README](soundadvice/README.md)
 
 ### Subbertone
 A subharmonic generator. Tracks the pitch of your bass and adds a clean sub one octave below, with six saturation types and a resonant, envelope-swept filter for anything from pure sub reinforcement to a growling octave-down bass.
@@ -57,7 +64,7 @@ Every project builds with CMake and expects its dependencies in `SDK/` at the ro
 
 | Dependency | Used by |
 |---|---|
-| [JUCE](https://github.com/juce-framework/JUCE) 8.0.8, at `SDK/JUCE` | Swooshbuckler, Subbertone, Pitch Flattener, Reversinator, Stretch Armstrong |
+| [JUCE](https://github.com/juce-framework/JUCE) 8.0.8, at `SDK/JUCE` | Swooshbuckler, Sound Advice, Subbertone, Pitch Flattener, Reversinator, Stretch Armstrong |
 | [WORLD](https://github.com/mmorise/World), at `SDK/World` | Pitch Flattener |
 | [RubberBand](https://breakfastquay.com/rubberband/) 4.0.0, at `SDK/rubberband-4.0.0` | Pitch Flattener, Stretch Armstrong |
 | Beat-and-Tempo-Tracking, at `SDK/Beat-and-Tempo-Tracking`, and [py-ptsl](https://pypi.org/project/py-ptsl/) | PTSL Beat Tool |

@@ -1,0 +1,1214 @@
+{
+ "people": [
+  {
+   "name": "Paul N.J. Ottosson",
+   "role": "Supervising sound editor & re-recording mixer",
+   "credits": "The Hurt Locker, Zero Dark Thirty, Spider-Man 2, 2012",
+   "imdb": "https://www.imdb.com/name/nm0653338/"
+  },
+  {
+   "name": "Jay Jennings",
+   "role": "Sound designer",
+   "credits": "A Minecraft Movie, The Meg, Godzilla: King of the Monsters, Letters from Iwo Jima",
+   "imdb": "https://www.imdb.com/name/nm0421174/"
+  },
+  {
+   "name": "Bryan Jerden",
+   "role": "Trailer sound designer",
+   "credits": "Prometheus (trailers), The Dark Knight Rises (trailers), Rebel Moon - Part One",
+   "imdb": "https://www.imdb.com/name/nm2282195/"
+  },
+  {
+   "name": "Johnnie Burn",
+   "role": "Sound designer & supervising sound editor",
+   "credits": "The Zone of Interest, Under the Skin, Nope, The Favourite",
+   "imdb": "https://www.imdb.com/name/nm1908855/"
+  },
+  {
+   "name": "Martín Hernández",
+   "role": "Supervising sound editor & sound designer",
+   "credits": "Birdman, The Revenant, Amores Perros, Bardo",
+   "imdb": "https://www.imdb.com/name/nm0380057/"
+  },
+  {
+   "name": "Oliver Tarney",
+   "role": "Supervising sound editor",
+   "credits": "1917, The Martian, Captain Phillips, No Time to Die",
+   "imdb": "https://www.imdb.com/name/nm0850549/"
+  },
+  {
+   "name": "Glenn Freemantle",
+   "role": "Supervising sound editor & sound designer",
+   "credits": "Gravity, Slumdog Millionaire, 127 Hours, Ex Machina",
+   "imdb": "https://www.imdb.com/name/nm0293634/"
+  },
+  {
+   "name": "Charles Deenen",
+   "role": "Sound designer, game audio director & trailer sound designer",
+   "credits": "The Fast and the Furious, The Incredible Hulk, Gran Turismo",
+   "imdb": "https://www.imdb.com/name/nm0007226/"
+  }
+ ],
+ "entries": [
+  {
+   "person": "Paul N.J. Ottosson",
+   "kind": "quote",
+   "text": "He would feel it and he would be dead before sound would get there.",
+   "categories": [
+    "story",
+    "action",
+    "silence"
+   ],
+   "source": {
+    "title": "The Hurt Locker: Exclusive Interview with Supervising Sound Editor/Re-Recording Mixer Paul Ottosson",
+    "publication": "Designing Sound",
+    "url": "https://designingsound.org/2010/03/31/the-hurt-locker-exclusive-interview-with-supervising-sound-editorre-recording-mixer-paul-ottosson/",
+    "year": 2010
+   }
+  },
+  {
+   "person": "Paul N.J. Ottosson",
+   "kind": "quote",
+   "text": "Every cut was played and mixed of the perspective of the person we were with.",
+   "categories": [
+    "mixing",
+    "story"
+   ],
+   "source": {
+    "title": "The Hurt Locker: Exclusive Interview with Supervising Sound Editor/Re-Recording Mixer Paul Ottosson",
+    "publication": "Designing Sound",
+    "url": "https://designingsound.org/2010/03/31/the-hurt-locker-exclusive-interview-with-supervising-sound-editorre-recording-mixer-paul-ottosson/",
+    "year": 2010
+   }
+  },
+  {
+   "person": "Paul N.J. Ottosson",
+   "kind": "insight",
+   "text": "On The Hurt Locker he rode compressors by hand on gunshot attacks to dial in each weapon's kick, then gave the tails their own EQ and compression so the decay read separately from the crack.",
+   "categories": [
+    "weapons",
+    "mixing",
+    "craft"
+   ],
+   "source": {
+    "title": "The Hurt Locker: Exclusive Interview with Supervising Sound Editor/Re-Recording Mixer Paul Ottosson",
+    "publication": "Designing Sound",
+    "url": "https://designingsound.org/2010/03/31/the-hurt-locker-exclusive-interview-with-supervising-sound-editorre-recording-mixer-paul-ottosson/",
+    "year": 2010
+   }
+  },
+  {
+   "person": "Paul N.J. Ottosson",
+   "kind": "insight",
+   "text": "To sell the slow-motion bomb blast he leaned on an enormous amount of low end, trying to recreate the physical sensation he had felt when detonating a real explosive himself.",
+   "categories": [
+    "action",
+    "mixing"
+   ],
+   "source": {
+    "title": "The Hurt Locker: Exclusive Interview with Supervising Sound Editor/Re-Recording Mixer Paul Ottosson",
+    "publication": "Designing Sound",
+    "url": "https://designingsound.org/2010/03/31/the-hurt-locker-exclusive-interview-with-supervising-sound-editorre-recording-mixer-paul-ottosson/",
+    "year": 2010
+   }
+  },
+  {
+   "person": "Paul N.J. Ottosson",
+   "kind": "insight",
+   "text": "Inside the bomb suit he let the technician's breathing carry the scene, treating him like a lone astronaut so the audience hears his state of mind rather than the world outside.",
+   "categories": [
+    "story",
+    "dialogue",
+    "silence"
+   ],
+   "source": {
+    "title": "The Hurt Locker: Exclusive Interview with Supervising Sound Editor/Re-Recording Mixer Paul Ottosson",
+    "publication": "Designing Sound",
+    "url": "https://designingsound.org/2010/03/31/the-hurt-locker-exclusive-interview-with-supervising-sound-editorre-recording-mixer-paul-ottosson/",
+    "year": 2010
+   }
+  },
+  {
+   "person": "Paul N.J. Ottosson",
+   "kind": "insight",
+   "text": "For tension he would begin with a genuine location ambience and slowly morph it into something stranger, keeping it believable while letting unease creep in.",
+   "categories": [
+    "horror",
+    "worlds",
+    "craft"
+   ],
+   "source": {
+    "title": "The Hurt Locker: Exclusive Interview with Supervising Sound Editor/Re-Recording Mixer Paul Ottosson",
+    "publication": "Designing Sound",
+    "url": "https://designingsound.org/2010/03/31/the-hurt-locker-exclusive-interview-with-supervising-sound-editorre-recording-mixer-paul-ottosson/",
+    "year": 2010
+   }
+  },
+  {
+   "person": "Paul N.J. Ottosson",
+   "kind": "insight",
+   "text": "He broke the centre-channel convention, panning dialogue and Foley with the action in chaotic scenes, then filled every side with backgrounds so no speaker felt empty. Even simple backgrounds got fader rides and EQ sweeps.",
+   "categories": [
+    "mixing",
+    "dialogue",
+    "worlds"
+   ],
+   "source": {
+    "title": "The Hurt Locker: Exclusive Interview with Supervising Sound Editor/Re-Recording Mixer Paul Ottosson",
+    "publication": "Designing Sound",
+    "url": "https://designingsound.org/2010/03/31/the-hurt-locker-exclusive-interview-with-supervising-sound-editorre-recording-mixer-paul-ottosson/",
+    "year": 2010
+   }
+  },
+  {
+   "person": "Paul N.J. Ottosson",
+   "kind": "quote",
+   "text": "I like how the spikey stuff gets flattened and warmed up with the analog tape.",
+   "categories": [
+    "craft",
+    "recording"
+   ],
+   "source": {
+    "title": "Exclusive Interview with Paul Ottosson, Sound Designer of 2012",
+    "publication": "Designing Sound",
+    "url": "https://designingsound.org/2009/12/exclusive-interview-with-paul-ottosson-sound-designer-of-2012/",
+    "year": 2009
+   }
+  },
+  {
+   "person": "Paul N.J. Ottosson",
+   "kind": "quote",
+   "text": "I had to drive the picture cuts with chaos like music would usually do.",
+   "categories": [
+    "action",
+    "music",
+    "story"
+   ],
+   "source": {
+    "title": "Exclusive Interview with Paul Ottosson, Sound Designer of 2012",
+    "publication": "Designing Sound",
+    "url": "https://designingsound.org/2009/12/exclusive-interview-with-paul-ottosson-sound-designer-of-2012/",
+    "year": 2009
+   }
+  },
+  {
+   "person": "Paul N.J. Ottosson",
+   "kind": "insight",
+   "text": "For 2012's destruction library he spent days recording rocks and ruptures on a Foley stage, printed them to analog tape, then varispeeded and re-recorded into the DAW at 192 kHz for further mangling.",
+   "categories": [
+    "recording",
+    "action",
+    "craft"
+   ],
+   "source": {
+    "title": "Exclusive Interview with Paul Ottosson, Sound Designer of 2012",
+    "publication": "Designing Sound",
+    "url": "https://designingsound.org/2009/12/exclusive-interview-with-paul-ottosson-sound-designer-of-2012/",
+    "year": 2009
+   }
+  },
+  {
+   "person": "Paul N.J. Ottosson",
+   "kind": "insight",
+   "text": "Rather than turning destruction up, he ran nearly every sound through multiband compression so it bites where needed and feels huge without sucking out the life or blowing out the level.",
+   "categories": [
+    "mixing",
+    "action",
+    "craft"
+   ],
+   "source": {
+    "title": "Exclusive Interview with Paul Ottosson, Sound Designer of 2012",
+    "publication": "Designing Sound",
+    "url": "https://designingsound.org/2009/12/exclusive-interview-with-paul-ottosson-sound-designer-of-2012/",
+    "year": 2009
+   }
+  },
+  {
+   "person": "Paul N.J. Ottosson",
+   "kind": "insight",
+   "text": "In 2012's action, something nearly always pre-laps the picture cut by five to seven frames; in slower scenes the pre-lap might run for seconds, but he tries to justify each one with something on screen.",
+   "categories": [
+    "action",
+    "craft",
+    "mixing"
+   ],
+   "source": {
+    "title": "Exclusive Interview with Paul Ottosson, Sound Designer of 2012",
+    "publication": "Designing Sound",
+    "url": "https://designingsound.org/2009/12/exclusive-interview-with-paul-ottosson-sound-designer-of-2012/",
+    "year": 2009
+   }
+  },
+  {
+   "person": "Paul N.J. Ottosson",
+   "kind": "insight",
+   "text": "A continuous built rumble underpinned the earthquake chase so sudden impacts had something to punch out of. He built almost all the sub content himself, using a sub harmonizer only for water.",
+   "categories": [
+    "action",
+    "mixing",
+    "silence"
+   ],
+   "source": {
+    "title": "Exclusive Interview with Paul Ottosson, Sound Designer of 2012",
+    "publication": "Designing Sound",
+    "url": "https://designingsound.org/2009/12/exclusive-interview-with-paul-ottosson-sound-designer-of-2012/",
+    "year": 2009
+   }
+  },
+  {
+   "person": "Jay Jennings",
+   "kind": "quote",
+   "text": "Fancy plugins and software are not the silver bullet to great sound design!",
+   "categories": [
+    "craft"
+   ],
+   "source": {
+    "title": "Jay Jennings Builds Worlds Through Sound",
+    "publication": "Berklee Now",
+    "url": "https://www.berklee.edu/berklee-now/news/jay-jennings-sound-design-film-sound",
+    "year": null
+   }
+  },
+  {
+   "person": "Jay Jennings",
+   "kind": "quote",
+   "text": "Finding just the right singular sound is often the best approach.",
+   "categories": [
+    "craft",
+    "recording"
+   ],
+   "source": {
+    "title": "Jay Jennings Builds Worlds Through Sound",
+    "publication": "Berklee Now",
+    "url": "https://www.berklee.edu/berklee-now/news/jay-jennings-sound-design-film-sound",
+    "year": null
+   }
+  },
+  {
+   "person": "Jay Jennings",
+   "kind": "insight",
+   "text": "For the wolf Dennis in A Minecraft Movie, Jennings recorded his own dog, Winnie, who produced a whole vocabulary of whines that gave the non-speaking character its voice.",
+   "categories": [
+    "creatures",
+    "recording"
+   ],
+   "source": {
+    "title": "Jay Jennings Builds Worlds Through Sound",
+    "publication": "Berklee Now",
+    "url": "https://www.berklee.edu/berklee-now/news/jay-jennings-sound-design-film-sound",
+    "year": null
+   }
+  },
+  {
+   "person": "Jay Jennings",
+   "kind": "insight",
+   "text": "Iron Golem's vocal phrases took on a metallic character by playing sounds through transducers clamped to metal such as I-beams and diamond plate, worldizing them through the structure itself.",
+   "categories": [
+    "creatures",
+    "craft",
+    "recording"
+   ],
+   "source": {
+    "title": "Behind the Bonkers Sound of 'A Minecraft Movie' – with Jay Jennings and Polly McKinnon",
+    "publication": "A Sound Effect",
+    "url": "https://www.asoundeffect.com/a-minecraft-movie-sound/",
+    "year": 2025
+   }
+  },
+  {
+   "person": "Jay Jennings",
+   "kind": "quote",
+   "text": "Most importantly, they all needed a shared DNA in their sound.",
+   "categories": [
+    "creatures",
+    "worlds"
+   ],
+   "source": {
+    "title": "Behind the Bonkers Sound of 'A Minecraft Movie' – with Jay Jennings and Polly McKinnon",
+    "publication": "A Sound Effect",
+    "url": "https://www.asoundeffect.com/a-minecraft-movie-sound/",
+    "year": 2025
+   }
+  },
+  {
+   "person": "Jay Jennings",
+   "kind": "quote",
+   "text": "I think the most valuable and productive processes were experimental recording and worldizing.",
+   "categories": [
+    "recording",
+    "craft"
+   ],
+   "source": {
+    "title": "Behind the Bonkers Sound of 'A Minecraft Movie' – with Jay Jennings and Polly McKinnon",
+    "publication": "A Sound Effect",
+    "url": "https://www.asoundeffect.com/a-minecraft-movie-sound/",
+    "year": 2025
+   }
+  },
+  {
+   "person": "Jay Jennings",
+   "kind": "insight",
+   "text": "For the 'First Night' sequence he pitched a version with no temp music: familiar game sounds over an accelerating heartbeat as the pulse, plus a tiny pause right before the flaming arrows hit.",
+   "categories": [
+    "silence",
+    "music",
+    "games"
+   ],
+   "source": {
+    "title": "Behind the Bonkers Sound of 'A Minecraft Movie' – with Jay Jennings and Polly McKinnon",
+    "publication": "A Sound Effect",
+    "url": "https://www.asoundeffect.com/a-minecraft-movie-sound/",
+    "year": 2025
+   }
+  },
+  {
+   "person": "Jay Jennings",
+   "kind": "insight",
+   "text": "The Orb of Dominance's glassy palette came from household objects: a wedding ring spun inside a vase, a spoon rubbed in a glass candle holder, and bubbling water played via transducer against an empty glass.",
+   "categories": [
+    "scifi",
+    "recording",
+    "craft"
+   ],
+   "source": {
+    "title": "Behind the Bonkers Sound of 'A Minecraft Movie' – with Jay Jennings and Polly McKinnon",
+    "publication": "A Sound Effect",
+    "url": "https://www.asoundeffect.com/a-minecraft-movie-sound/",
+    "year": 2025
+   }
+  },
+  {
+   "person": "Jay Jennings",
+   "kind": "insight",
+   "text": "During Jack Black's songs the effects deliberately stepped back. Where music and design had to share a scene, he worked from tempo maps and sync points with the music editor, even as cues changed five times.",
+   "categories": [
+    "music",
+    "mixing",
+    "collaboration"
+   ],
+   "source": {
+    "title": "Behind the Bonkers Sound of 'A Minecraft Movie' – with Jay Jennings and Polly McKinnon",
+    "publication": "A Sound Effect",
+    "url": "https://www.asoundeffect.com/a-minecraft-movie-sound/",
+    "year": 2025
+   }
+  },
+  {
+   "person": "Bryan Jerden",
+   "kind": "quote",
+   "text": "Trailers are like a machine all with parts that have to work together.",
+   "categories": [
+    "trailers",
+    "craft"
+   ],
+   "source": {
+    "title": "Exclusive Interview: Bryan Jerden on Trailer Sound Design",
+    "publication": "Designing Sound",
+    "url": "https://designingsound.org/2012/07/19/exclusive-interview-bryan-jerden-on-trailer-sound-design/",
+    "year": 2012
+   }
+  },
+  {
+   "person": "Bryan Jerden",
+   "kind": "quote",
+   "text": "Also watch out for tonal sound effects that are out of key with the music.",
+   "categories": [
+    "trailers",
+    "music"
+   ],
+   "source": {
+    "title": "Exclusive Interview: Bryan Jerden on Trailer Sound Design",
+    "publication": "Designing Sound",
+    "url": "https://designingsound.org/2012/07/19/exclusive-interview-bryan-jerden-on-trailer-sound-design/",
+    "year": 2012
+   }
+  },
+  {
+   "person": "Bryan Jerden",
+   "kind": "insight",
+   "text": "Trailer silence rarely means nothing: Jerden keeps an effect playing in the 'silent' moment but tucks it very low, running it through filters and delay so the next hit stands out against it.",
+   "categories": [
+    "trailers",
+    "silence",
+    "mixing"
+   ],
+   "source": {
+    "title": "Exclusive Interview: Bryan Jerden on Trailer Sound Design",
+    "publication": "Designing Sound",
+    "url": "https://designingsound.org/2012/07/19/exclusive-interview-bryan-jerden-on-trailer-sound-design/",
+    "year": 2012
+   }
+  },
+  {
+   "person": "Bryan Jerden",
+   "kind": "insight",
+   "text": "Silence in a trailer has to be planned at the picture-edit stage with the editor; dropped in as an afterthought it becomes a cliché instead of a moment.",
+   "categories": [
+    "trailers",
+    "silence",
+    "collaboration"
+   ],
+   "source": {
+    "title": "Exclusive Interview: Bryan Jerden on Trailer Sound Design",
+    "publication": "Designing Sound",
+    "url": "https://designingsound.org/2012/07/19/exclusive-interview-bryan-jerden-on-trailer-sound-design/",
+    "year": 2012
+   }
+  },
+  {
+   "person": "Bryan Jerden",
+   "kind": "insight",
+   "text": "Under the TASA loudness standard, sub content doesn't register on the meters, so Jerden uses the LFE for weight, body and suspense, and urges newcomers to learn it.",
+   "categories": [
+    "trailers",
+    "mixing"
+   ],
+   "source": {
+    "title": "Exclusive Interview: Bryan Jerden on Trailer Sound Design",
+    "publication": "Designing Sound",
+    "url": "https://designingsound.org/2012/07/19/exclusive-interview-bryan-jerden-on-trailer-sound-design/",
+    "year": 2012
+   }
+  },
+  {
+   "person": "Bryan Jerden",
+   "kind": "insight",
+   "text": "Land effects on the beat. Because trailer cuts follow the music and run under two and a half minutes, feature-film effects rarely drop in, so much of the design gets built fresh to the cut.",
+   "categories": [
+    "trailers",
+    "music",
+    "craft"
+   ],
+   "source": {
+    "title": "Exclusive Interview: Bryan Jerden on Trailer Sound Design",
+    "publication": "Designing Sound",
+    "url": "https://designingsound.org/2012/07/19/exclusive-interview-bryan-jerden-on-trailer-sound-design/",
+    "year": 2012
+   }
+  },
+  {
+   "person": "Bryan Jerden",
+   "kind": "quote",
+   "text": "A great soundscape is one that pushes what is familiar into a new experience",
+   "categories": [
+    "trailers",
+    "worlds"
+   ],
+   "source": {
+    "title": "Exclusive Insights from a Trailer Sound Design Expert",
+    "publication": "A Sound Effect",
+    "url": "https://asoundeffect.com/exclusive-insights-from-a-trailer-sound-design-expert/",
+    "year": 2014
+   }
+  },
+  {
+   "person": "Bryan Jerden",
+   "kind": "insight",
+   "text": "Jerden lays out his tracks so they work on their own at the stage, aiming to leave the trailer mixer as few decisions as possible, because what gets played or muted shapes the final piece.",
+   "categories": [
+    "trailers",
+    "mixing",
+    "collaboration"
+   ],
+   "source": {
+    "title": "Exclusive Insights from a Trailer Sound Design Expert",
+    "publication": "A Sound Effect",
+    "url": "https://asoundeffect.com/exclusive-insights-from-a-trailer-sound-design-expert/",
+    "year": 2014
+   }
+  },
+  {
+   "person": "Bryan Jerden",
+   "kind": "insight",
+   "text": "His trailer hierarchy: lock the music first, then fight for clean, intelligible dialogue (one of the hardest jobs in trailer audio), then shape the sound design around both.",
+   "categories": [
+    "trailers",
+    "dialogue",
+    "mixing"
+   ],
+   "source": {
+    "title": "Exclusive Insights from a Trailer Sound Design Expert",
+    "publication": "A Sound Effect",
+    "url": "https://asoundeffect.com/exclusive-insights-from-a-trailer-sound-design-expert/",
+    "year": 2014
+   }
+  },
+  {
+   "person": "Bryan Jerden",
+   "kind": "insight",
+   "text": "A trailer campaign can mean around fifteen spots, so he builds a sound palette for the whole campaign and saves processing chains as presets and racks for reuse.",
+   "categories": [
+    "trailers",
+    "craft"
+   ],
+   "source": {
+    "title": "Exclusive Insights from a Trailer Sound Design Expert",
+    "publication": "A Sound Effect",
+    "url": "https://asoundeffect.com/exclusive-insights-from-a-trailer-sound-design-expert/",
+    "year": 2014
+   }
+  },
+  {
+   "person": "Johnnie Burn",
+   "kind": "quote",
+   "text": "be a filmmaker before you are a sound person",
+   "categories": [
+    "collaboration",
+    "story"
+   ],
+   "source": {
+    "title": "We Speak to the Oscar-Nominated Sound Designer of 'The Zone of Interest'",
+    "publication": "No Film School",
+    "url": "https://nofilmschool.com/the-zone-of-interest-sound",
+    "year": 2024
+   }
+  },
+  {
+   "person": "Johnnie Burn",
+   "kind": "quote",
+   "text": "we shouldn't start putting gunshots on until we finished making their world.",
+   "categories": [
+    "story",
+    "horror",
+    "craft"
+   ],
+   "source": {
+    "title": "We Speak to the Oscar-Nominated Sound Designer of 'The Zone of Interest'",
+    "publication": "No Film School",
+    "url": "https://nofilmschool.com/the-zone-of-interest-sound",
+    "year": 2024
+   }
+  },
+  {
+   "person": "Johnnie Burn",
+   "kind": "insight",
+   "text": "For The Zone of Interest, Burn treated each piece of witness testimony as a mini script for an off-screen radio-play scene, cataloguing every sound it described, down to the electric fence.",
+   "categories": [
+    "story",
+    "horror",
+    "craft"
+   ],
+   "source": {
+    "title": "We Speak to the Oscar-Nominated Sound Designer of 'The Zone of Interest'",
+    "publication": "No Film School",
+    "url": "https://nofilmschool.com/the-zone-of-interest-sound",
+    "year": 2024
+   }
+  },
+  {
+   "person": "Johnnie Burn",
+   "kind": "insight",
+   "text": "He mapped the camp's real distances and studied how sound loses bass and top end over range, choosing 'science over art' so he could defend each placement to the director.",
+   "categories": [
+    "worlds",
+    "craft",
+    "mixing"
+   ],
+   "source": {
+    "title": "We Speak to the Oscar-Nominated Sound Designer of 'The Zone of Interest'",
+    "publication": "No Film School",
+    "url": "https://nofilmschool.com/the-zone-of-interest-sound",
+    "year": 2024
+   }
+  },
+  {
+   "person": "Johnnie Burn",
+   "kind": "insight",
+   "text": "To place distant gunshots believably he modeled reverb from the actual reflective surfaces between the execution yard and the house, so each echo arrived as it would have physically.",
+   "categories": [
+    "mixing",
+    "weapons",
+    "worlds"
+   ],
+   "source": {
+    "title": "We Speak to the Oscar-Nominated Sound Designer of 'The Zone of Interest'",
+    "publication": "No Film School",
+    "url": "https://nofilmschool.com/the-zone-of-interest-sound",
+    "year": 2024
+   }
+  },
+  {
+   "person": "Johnnie Burn",
+   "kind": "quote",
+   "text": "I'm always trying to find a protagonist and have it from their point of view.",
+   "categories": [
+    "story",
+    "mixing"
+   ],
+   "source": {
+    "title": "The Sound of Evil (The Crucial Lesson 'The Zone of Interest' Took From 'Nope')",
+    "publication": "Inverse",
+    "url": "https://inverse.com/entertainment/the-zone-of-interest-sound-designer-interview-johnnie-burn-oscars-nope",
+    "year": 2024
+   }
+  },
+  {
+   "person": "Johnnie Burn",
+   "kind": "insight",
+   "text": "Under the Skin taught Burn and Glazer that immersion comes from the credibility of what plays, not from sounds flying around the room, a lesson he carried into The Zone of Interest.",
+   "categories": [
+    "mixing",
+    "story"
+   ],
+   "source": {
+    "title": "The Sound of Evil (The Crucial Lesson 'The Zone of Interest' Took From 'Nope')",
+    "publication": "Inverse",
+    "url": "https://inverse.com/entertainment/the-zone-of-interest-sound-designer-interview-johnnie-burn-oscars-nope",
+    "year": 2024
+   }
+  },
+  {
+   "person": "Johnnie Burn",
+   "kind": "insight",
+   "text": "A 30-minute Mica Levi opening was swapped for a sound overture because score made the film feel like dramatization. A crematorium rumble was then run through the whole film, and pulled back when too much.",
+   "categories": [
+    "music",
+    "silence",
+    "horror"
+   ],
+   "source": {
+    "title": "The Sound of Evil (The Crucial Lesson 'The Zone of Interest' Took From 'Nope')",
+    "publication": "Inverse",
+    "url": "https://inverse.com/entertainment/the-zone-of-interest-sound-designer-interview-johnnie-burn-oscars-nope",
+    "year": 2024
+   }
+  },
+  {
+   "person": "Johnnie Burn",
+   "kind": "insight",
+   "text": "For the inside of the creature's gullet in Nope, the team rubbed a microphone directly to get a claustrophobic, internal texture under the screaming actors.",
+   "categories": [
+    "creatures",
+    "horror",
+    "recording"
+   ],
+   "source": {
+    "title": "The Sound of Evil (The Crucial Lesson 'The Zone of Interest' Took From 'Nope')",
+    "publication": "Inverse",
+    "url": "https://inverse.com/entertainment/the-zone-of-interest-sound-designer-interview-johnnie-burn-oscars-nope",
+    "year": 2024
+   }
+  },
+  {
+   "person": "Johnnie Burn",
+   "kind": "quote",
+   "text": "You can close your eyes, but you can't close your ears.",
+   "categories": [
+    "horror",
+    "story"
+   ],
+   "source": {
+    "title": "Johnnie Burn: You Can Close Your Eyes but You Can't Close Your Ears",
+    "publication": "Sleek",
+    "url": "https://www.sleek-mag.com/article/johnnie-burn-you-can-close-your-eyes-but-you-cant-close-your-ears/",
+    "year": 2024
+   }
+  },
+  {
+   "person": "Johnnie Burn",
+   "kind": "quote",
+   "text": "You can overdo a soundscape when you make a point too obvious.",
+   "categories": [
+    "silence",
+    "worlds"
+   ],
+   "source": {
+    "title": "Johnnie Burn: You Can Close Your Eyes but You Can't Close Your Ears",
+    "publication": "Sleek",
+    "url": "https://www.sleek-mag.com/article/johnnie-burn-you-can-close-your-eyes-but-you-cant-close-your-ears/",
+    "year": 2024
+   }
+  },
+  {
+   "person": "Johnnie Burn",
+   "kind": "insight",
+   "text": "Burn sourced The Zone of Interest's guard shouting from drunk young men on German streets at night, and real screams from Paris riots, so nothing sounded performed.",
+   "categories": [
+    "recording",
+    "dialogue",
+    "horror"
+   ],
+   "source": {
+    "title": "Johnnie Burn: You Can Close Your Eyes but You Can't Close Your Ears",
+    "publication": "Sleek",
+    "url": "https://www.sleek-mag.com/article/johnnie-burn-you-can-close-your-eyes-but-you-cant-close-your-ears/",
+    "year": 2024
+   }
+  },
+  {
+   "person": "Johnnie Burn",
+   "kind": "insight",
+   "text": "Period WWI-era weapons were recorded inside concrete rooms to match the execution block's acoustic, roughly a hundred metres from the family's garden.",
+   "categories": [
+    "weapons",
+    "recording",
+    "worlds"
+   ],
+   "source": {
+    "title": "Johnnie Burn: You Can Close Your Eyes but You Can't Close Your Ears",
+    "publication": "Sleek",
+    "url": "https://www.sleek-mag.com/article/johnnie-burn-you-can-close-your-eyes-but-you-cant-close-your-ears/",
+    "year": 2024
+   }
+  },
+  {
+   "person": "Johnnie Burn",
+   "kind": "insight",
+   "text": "He keeps a dedicated archive of winds and near-silent 'nothingness' recordings, because the right wind quietly sets a film's mood. Each film is roughly half archive, half new recordings.",
+   "categories": [
+    "worlds",
+    "silence",
+    "recording"
+   ],
+   "source": {
+    "title": "Johnnie Burn: You Can Close Your Eyes but You Can't Close Your Ears",
+    "publication": "Sleek",
+    "url": "https://www.sleek-mag.com/article/johnnie-burn-you-can-close-your-eyes-but-you-cant-close-your-ears/",
+    "year": 2024
+   }
+  },
+  {
+   "person": "Martín Hernández",
+   "kind": "quote",
+   "text": "Sound should be the story behind the story",
+   "categories": [
+    "story"
+   ],
+   "source": {
+    "title": "“Sound is the Story Behind the Story”: An Interview with 'Bardo' Sound Designer Martín Hernández",
+    "publication": "PremiumBeat",
+    "url": "https://www.premiumbeat.com/blog/sound-is-the-story-bardo-interview/",
+    "year": 2022
+   }
+  },
+  {
+   "person": "Martín Hernández",
+   "kind": "quote",
+   "text": "You can't start on anything without having a reason.",
+   "categories": [
+    "story",
+    "craft"
+   ],
+   "source": {
+    "title": "“Sound is the Story Behind the Story”: An Interview with 'Bardo' Sound Designer Martín Hernández",
+    "publication": "PremiumBeat",
+    "url": "https://www.premiumbeat.com/blog/sound-is-the-story-bardo-interview/",
+    "year": 2022
+   }
+  },
+  {
+   "person": "Martín Hernández",
+   "kind": "insight",
+   "text": "On Bardo, Hernández developed concept sounds before seeing images, chasing what home and shared Mexican childhood memories sounded like, and prototyped ideas on a laptop in Iñárritu's apartment.",
+   "categories": [
+    "story",
+    "collaboration",
+    "craft"
+   ],
+   "source": {
+    "title": "“Sound is the Story Behind the Story”: An Interview with 'Bardo' Sound Designer Martín Hernández",
+    "publication": "PremiumBeat",
+    "url": "https://www.premiumbeat.com/blog/sound-is-the-story-bardo-interview/",
+    "year": 2022
+   }
+  },
+  {
+   "person": "Martín Hernández",
+   "kind": "quote",
+   "text": "Alejandro is always looking for the sound to reflect the characters and their environment.",
+   "categories": [
+    "collaboration",
+    "worlds"
+   ],
+   "source": {
+    "title": "Exploring Sounds of The Heart and Soul In 'The Revenant'",
+    "publication": "SHOOTonline",
+    "url": "https://shootonline.com/article/exploring-sounds-heart-and-soul-revenant",
+    "year": 2016
+   }
+  },
+  {
+   "person": "Martín Hernández",
+   "kind": "quote",
+   "text": "We have the natural environment which is the first obvious place to search.",
+   "categories": [
+    "worlds",
+    "recording"
+   ],
+   "source": {
+    "title": "Exploring Sounds of The Heart and Soul In 'The Revenant'",
+    "publication": "SHOOTonline",
+    "url": "https://shootonline.com/article/exploring-sounds-heart-and-soul-revenant",
+    "year": 2016
+   }
+  },
+  {
+   "person": "Martín Hernández",
+   "kind": "insight",
+   "text": "For The Revenant he began without images, auditioning sounds and existing music for emotional meaning and talking them through with Iñárritu, so sound and music fused around the character's emotional path.",
+   "categories": [
+    "music",
+    "story",
+    "collaboration"
+   ],
+   "source": {
+    "title": "Exploring Sounds of The Heart and Soul In 'The Revenant'",
+    "publication": "SHOOTonline",
+    "url": "https://shootonline.com/article/exploring-sounds-heart-and-soul-revenant",
+    "year": 2016
+   }
+  },
+  {
+   "person": "Martín Hernández",
+   "kind": "insight",
+   "text": "On Birdman he shaped the drum score editorially, cutting and adapting takes of Antonio Sánchez's drumming so the music fit each scene like a sound element.",
+   "categories": [
+    "music",
+    "craft"
+   ],
+   "source": {
+    "title": "Exploring Sounds of The Heart and Soul In 'The Revenant'",
+    "publication": "SHOOTonline",
+    "url": "https://shootonline.com/article/exploring-sounds-heart-and-soul-revenant",
+    "year": 2016
+   }
+  },
+  {
+   "person": "Martín Hernández",
+   "kind": "insight",
+   "text": "Hernández's working motto, as Screen Daily reports it: he can, because he thinks he can.",
+   "categories": [
+    "collaboration"
+   ],
+   "source": {
+    "title": "'Birdman' sound designer Martin Hernandez details upcoming Netflix project 'The Master Of Monarchs'",
+    "publication": "Screen Daily",
+    "url": "https://www.screendaily.com/news/birdman-sound-designer-martin-hernandez-details-upcoming-netflix-project-the-master-of-monarchs/5191279.article",
+    "year": 2024
+   }
+  },
+  {
+   "person": "Martín Hernández",
+   "kind": "insight",
+   "text": "Hernández sees a director partnership as a relationship: when communication is good the work gets better, and when it breaks down the sound suffers. After decades with Iñárritu he compares them to an old couple.",
+   "categories": [
+    "collaboration"
+   ],
+   "source": {
+    "title": "'Birdman' sound designer Martin Hernandez details upcoming Netflix project 'The Master Of Monarchs'",
+    "publication": "Screen Daily",
+    "url": "https://www.screendaily.com/news/birdman-sound-designer-martin-hernandez-details-upcoming-netflix-project-the-master-of-monarchs/5191279.article",
+    "year": 2024
+   }
+  },
+  {
+   "person": "Oliver Tarney",
+   "kind": "quote",
+   "text": "I really like blending wild-tracks shot on location with Foley shot in a studio.",
+   "categories": [
+    "foley",
+    "recording"
+   ],
+   "source": {
+    "title": "Creating 1917's Intense, Immersive Sound of War – with Sound Supervisor Oliver Tarney",
+    "publication": "A Sound Effect",
+    "url": "https://asoundeffect.com/1917-film-sound/",
+    "year": 2019
+   }
+  },
+  {
+   "person": "Oliver Tarney",
+   "kind": "insight",
+   "text": "In 1917's apparent single shot there are no cuts to set pace, so sound and music became the only rhythm tools. The connective scenes were kept deliberately subtle so audiences could recover between big set pieces.",
+   "categories": [
+    "silence",
+    "story",
+    "mixing"
+   ],
+   "source": {
+    "title": "Creating 1917's Intense, Immersive Sound of War – with Sound Supervisor Oliver Tarney",
+    "publication": "A Sound Effect",
+    "url": "https://asoundeffect.com/1917-film-sound/",
+    "year": 2019
+   }
+  },
+  {
+   "person": "Oliver Tarney",
+   "kind": "insight",
+   "text": "Tarney recorded original WWI guns and aircraft but processed them very little, keeping a raw, unsophisticated honesty rather than a polished modern weapon sound.",
+   "categories": [
+    "weapons",
+    "recording"
+   ],
+   "source": {
+    "title": "Creating 1917's Intense, Immersive Sound of War – with Sound Supervisor Oliver Tarney",
+    "publication": "A Sound Effect",
+    "url": "https://asoundeffect.com/1917-film-sound/",
+    "year": 2019
+   }
+  },
+  {
+   "person": "Oliver Tarney",
+   "kind": "insight",
+   "text": "For the song Schofield hears in the woods, they worldized it by playing it through a speaker in the forest and recording with microphones at several distances.",
+   "categories": [
+    "music",
+    "recording",
+    "worlds"
+   ],
+   "source": {
+    "title": "Creating 1917's Intense, Immersive Sound of War – with Sound Supervisor Oliver Tarney",
+    "publication": "A Sound Effect",
+    "url": "https://asoundeffect.com/1917-film-sound/",
+    "year": 2019
+   }
+  },
+  {
+   "person": "Oliver Tarney",
+   "kind": "insight",
+   "text": "For authenticity the loop group mixed actors with real soldiers, and medics performed the triage scene outdoors to a 5.0 microphone array for a natural acoustic.",
+   "categories": [
+    "dialogue",
+    "recording"
+   ],
+   "source": {
+    "title": "Creating 1917's Intense, Immersive Sound of War – with Sound Supervisor Oliver Tarney",
+    "publication": "A Sound Effect",
+    "url": "https://asoundeffect.com/1917-film-sound/",
+    "year": 2019
+   }
+  },
+  {
+   "person": "Oliver Tarney",
+   "kind": "insight",
+   "text": "1917's Atmos mix stayed mostly front-focused to keep the audience locked to the two leads, saving overhead moments for the biplanes and the flares over the town.",
+   "categories": [
+    "mixing",
+    "story"
+   ],
+   "source": {
+    "title": "Creating 1917's Intense, Immersive Sound of War – with Sound Supervisor Oliver Tarney",
+    "publication": "A Sound Effect",
+    "url": "https://asoundeffect.com/1917-film-sound/",
+    "year": 2019
+   }
+  },
+  {
+   "person": "Oliver Tarney",
+   "kind": "insight",
+   "text": "Rather than replacing production, the team kept the boom to tie characters to the terrain, cleaning out crew footsteps so very little ADR was needed.",
+   "categories": [
+    "dialogue",
+    "mixing"
+   ],
+   "source": {
+    "title": "Creating 1917's Intense, Immersive Sound of War – with Sound Supervisor Oliver Tarney",
+    "publication": "A Sound Effect",
+    "url": "https://asoundeffect.com/1917-film-sound/",
+    "year": 2019
+   }
+  },
+  {
+   "person": "Glenn Freemantle",
+   "kind": "quote",
+   "text": "If you use it all the time, you leave no room for that dynamic moment.",
+   "categories": [
+    "silence",
+    "mixing"
+   ],
+   "source": {
+    "title": "Making Tarzan sound like a jungle",
+    "publication": "RedShark News",
+    "url": "https://redsharknews.com/audio/item/4100-making-tarzan-sound-like-a-jungle",
+    "year": 2016
+   }
+  },
+  {
+   "person": "Glenn Freemantle",
+   "kind": "quote",
+   "text": "You go to a jungle and record a noise, you can't separate the noise.",
+   "categories": [
+    "recording",
+    "worlds"
+   ],
+   "source": {
+    "title": "Making Tarzan sound like a jungle",
+    "publication": "RedShark News",
+    "url": "https://redsharknews.com/audio/item/4100-making-tarzan-sound-like-a-jungle",
+    "year": 2016
+   }
+  },
+  {
+   "person": "Glenn Freemantle",
+   "kind": "insight",
+   "text": "For The Legend of Tarzan's jungle he built ambience in vertical zones, from canopy down through to the forest floor, assembling separate elements because a single field recording can't be pulled apart later.",
+   "categories": [
+    "worlds",
+    "craft",
+    "recording"
+   ],
+   "source": {
+    "title": "Making Tarzan sound like a jungle",
+    "publication": "RedShark News",
+    "url": "https://redsharknews.com/audio/item/4100-making-tarzan-sound-like-a-jungle",
+    "year": 2016
+   }
+  },
+  {
+   "person": "Glenn Freemantle",
+   "kind": "insight",
+   "text": "In early cuts he fills scenes with sound to give the edit rhythm, since bare footage plays slow, then strips back as finished CGI faces carry more expression and need less noise.",
+   "categories": [
+    "craft",
+    "story",
+    "collaboration"
+   ],
+   "source": {
+    "title": "Making Tarzan sound like a jungle",
+    "publication": "RedShark News",
+    "url": "https://redsharknews.com/audio/item/4100-making-tarzan-sound-like-a-jungle",
+    "year": 2016
+   }
+  },
+  {
+   "person": "Glenn Freemantle",
+   "kind": "insight",
+   "text": "The two lead apes got distinct vocal personalities, but stayed grounded as animals that could plausibly live in a jungle, never drifting into alien creature territory.",
+   "categories": [
+    "creatures",
+    "story"
+   ],
+   "source": {
+    "title": "Making Tarzan sound like a jungle",
+    "publication": "RedShark News",
+    "url": "https://redsharknews.com/audio/item/4100-making-tarzan-sound-like-a-jungle",
+    "year": 2016
+   }
+  },
+  {
+   "person": "Glenn Freemantle",
+   "kind": "quote",
+   "text": "you only know how to fix it when you run it",
+   "categories": [
+    "mixing",
+    "craft"
+   ],
+   "source": {
+    "title": "Danny Boyle & Glenn Freemantle: The Sound Of Yesterday",
+    "publication": "Headliner",
+    "url": "https://headlinerhub.com/danny-boyle-and-glenn-freemantle-the-sound-of-yesterday.html",
+    "year": null
+   }
+  },
+  {
+   "person": "Glenn Freemantle",
+   "kind": "quote",
+   "text": "It’s a sum of all the little parts you do.",
+   "categories": [
+    "mixing",
+    "craft"
+   ],
+   "source": {
+    "title": "Danny Boyle & Glenn Freemantle: The Sound Of Yesterday",
+    "publication": "Headliner",
+    "url": "https://headlinerhub.com/danny-boyle-and-glenn-freemantle-the-sound-of-yesterday.html",
+    "year": null
+   }
+  },
+  {
+   "person": "Glenn Freemantle",
+   "kind": "insight",
+   "text": "Freemantle's dub routine: get a rough pass of the whole film fast so it can be screened, mix in roughly 20-minute reels at a day or so each, and protect time to watch it all through.",
+   "categories": [
+    "mixing",
+    "craft",
+    "collaboration"
+   ],
+   "source": {
+    "title": "Danny Boyle & Glenn Freemantle: The Sound Of Yesterday",
+    "publication": "Headliner",
+    "url": "https://headlinerhub.com/danny-boyle-and-glenn-freemantle-the-sound-of-yesterday.html",
+    "year": null
+   }
+  },
+  {
+   "person": "Charles Deenen",
+   "kind": "quote",
+   "text": "We always tried to stay faithful, but enhanced it enough so that it punched more",
+   "categories": [
+    "trailers",
+    "scifi",
+    "games"
+   ],
+   "source": {
+    "title": "Behind the excellent Star Wars Battlefront trailer sound design",
+    "publication": "A Sound Effect",
+    "url": "https://asoundeffect.com/star-wars-battlefront-trailer-sound/",
+    "year": 2015
+   }
+  },
+  {
+   "person": "Charles Deenen",
+   "kind": "insight",
+   "text": "For the Star Wars Battlefront trailer, classic Star Wars effects were split into tonal and noise components; the tonal parts were kept and fresh, higher-fidelity noise layers rebuilt on top for punch and mix control.",
+   "categories": [
+    "trailers",
+    "scifi",
+    "craft"
+   ],
+   "source": {
+    "title": "Behind the excellent Star Wars Battlefront trailer sound design",
+    "publication": "A Sound Effect",
+    "url": "https://asoundeffect.com/star-wars-battlefront-trailer-sound/",
+    "year": 2015
+   }
+  },
+  {
+   "person": "Charles Deenen",
+   "kind": "insight",
+   "text": "In-game effects were auditioned against the trailer music; anything that couldn't survive the pacing was redesigned, while the iconic franchise sounds stayed untouched.",
+   "categories": [
+    "trailers",
+    "music",
+    "games"
+   ],
+   "source": {
+    "title": "Behind the excellent Star Wars Battlefront trailer sound design",
+    "publication": "A Sound Effect",
+    "url": "https://asoundeffect.com/star-wars-battlefront-trailer-sound/",
+    "year": 2015
+   }
+  },
+  {
+   "person": "Charles Deenen",
+   "kind": "insight",
+   "text": "Deenen has cut film trailers on weekends since 2001, including Clash of the Titans and Salt, and treats them as training: brutal deadlines force you toward unusual solutions.",
+   "categories": [
+    "trailers",
+    "collaboration"
+   ],
+   "source": {
+    "title": "Charles Deenen Special: Exclusive Interview",
+    "publication": "Designing Sound",
+    "url": "https://designingsound.org/2010/02/05/charles-deenen-special-exclusive-interview/",
+    "year": 2010
+   }
+  },
+  {
+   "person": "Charles Deenen",
+   "kind": "insight",
+   "text": "For a ship fly-by in the game Descent, he studied movie fly-bys, then built each element from scratch with a tiny library by mastering his hardware processors.",
+   "categories": [
+    "games",
+    "scifi",
+    "craft"
+   ],
+   "source": {
+    "title": "Charles Deenen Special: Exclusive Interview",
+    "publication": "Designing Sound",
+    "url": "https://designingsound.org/2010/02/05/charles-deenen-special-exclusive-interview/",
+    "year": 2010
+   }
+  }
+ ]
+}

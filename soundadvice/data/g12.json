@@ -1,0 +1,925 @@
+{
+ "people": [
+  {
+   "name": "Gary Summers",
+   "role": "Re-recording mixer",
+   "credits": "Terminator 2: Judgment Day, Titanic, Saving Private Ryan",
+   "imdb": "https://www.imdb.com/name/nm0838707/"
+  },
+  {
+   "name": "Tom Johnson",
+   "role": "Re-recording mixer",
+   "credits": "Terminator 2: Judgment Day, Titanic, The Polar Express",
+   "imdb": "https://www.imdb.com/name/nm0426348/"
+  },
+  {
+   "name": "Richard Hymns",
+   "role": "Supervising sound editor",
+   "credits": "Jurassic Park, Saving Private Ryan, Fight Club",
+   "imdb": "https://www.imdb.com/name/nm0405232/"
+  },
+  {
+   "name": "Christopher Boyes",
+   "role": "Sound designer / re-recording mixer",
+   "credits": "Titanic, The Lord of the Rings: The Return of the King, Avatar",
+   "imdb": "https://www.imdb.com/name/nm0102110/"
+  },
+  {
+   "name": "Michael Semanick",
+   "role": "Re-recording mixer",
+   "credits": "The Lord of the Rings: The Return of the King, King Kong, Ratatouille",
+   "imdb": "https://www.imdb.com/name/nm0783713/"
+  }
+ ],
+ "entries": [
+  {
+   "person": "Gary Summers",
+   "kind": "quote",
+   "text": "That's my job, to fit it in so you won't know.",
+   "categories": [
+    "dialogue",
+    "mixing"
+   ],
+   "source": {
+    "title": "Transformers: Revenge of the Fallen's Audio Action: Part 3",
+    "publication": "Mix",
+    "url": "https://www.mixonline.com/blog/1647",
+    "year": 2009
+   }
+  },
+  {
+   "person": "Gary Summers",
+   "kind": "quote",
+   "text": "Then, when the music does come in, it makes a much bigger statement.",
+   "categories": [
+    "music",
+    "mixing",
+    "action"
+   ],
+   "source": {
+    "title": "Transformers: Revenge of the Fallen's Audio Action: Part 3",
+    "publication": "Mix",
+    "url": "https://www.mixonline.com/blog/1647",
+    "year": 2009
+   }
+  },
+  {
+   "person": "Gary Summers",
+   "kind": "insight",
+   "text": "On Transformers: Revenge of the Fallen the score arrived fully separated, out to 60 channels, with orchestral elements split and percussion divided into high, mid and low, so Summers could remove elements where clarity demanded.",
+   "categories": [
+    "music",
+    "mixing"
+   ],
+   "source": {
+    "title": "Transformers: Revenge of the Fallen's Audio Action: Part 3",
+    "publication": "Mix",
+    "url": "https://www.mixonline.com/blog/1647",
+    "year": 2009
+   }
+  },
+  {
+   "person": "Gary Summers",
+   "kind": "insight",
+   "text": "Summers found that heavy percussion under robot running-and-shooting sequences tends to become a cacophony. In other scenes the director chose to let the music drive, and the effects came down instead.",
+   "categories": [
+    "mixing",
+    "action",
+    "music"
+   ],
+   "source": {
+    "title": "Transformers: Revenge of the Fallen's Audio Action: Part 3",
+    "publication": "Mix",
+    "url": "https://www.mixonline.com/blog/1647",
+    "year": 2009
+   }
+  },
+  {
+   "person": "Gary Summers",
+   "kind": "insight",
+   "text": "Summers mixed against the composer team's high-quality orchestral mock-ups early, learning where the score was thick and where effects could embellish it. When the real cue arrived, it only brought more clarity and transparency.",
+   "categories": [
+    "music",
+    "mixing",
+    "collaboration"
+   ],
+   "source": {
+    "title": "Transformers: Revenge of the Fallen's Audio Action: Part 3",
+    "publication": "Mix",
+    "url": "https://www.mixonline.com/blog/1647",
+    "year": 2009
+   }
+  },
+  {
+   "person": "Gary Summers",
+   "kind": "insight",
+   "text": "Some cues were written for scenes where the director wasn't sure he needed music. Once they sat with the dialogue, Summers found some scenes carried themselves without the cue, while others fell flat without music.",
+   "categories": [
+    "music",
+    "story",
+    "mixing"
+   ],
+   "source": {
+    "title": "Transformers: Revenge of the Fallen's Audio Action: Part 3",
+    "publication": "Mix",
+    "url": "https://www.mixonline.com/blog/1647",
+    "year": 2009
+   }
+  },
+  {
+   "person": "Gary Summers",
+   "kind": "quote",
+   "text": "The sound team needed to make the creative process as fluid and smooth as possible.",
+   "categories": [
+    "collaboration"
+   ],
+   "source": {
+    "title": "OSCARS 2023: Academy Award Nominees for Best Sound Speak Out on 'Avatar,' 'Elvis,' and 'The Batman'",
+    "publication": "CineMontage",
+    "url": "https://cinemontage.org/oscars-2023-academy-award-nominees-for-best-sound-speak-out-on-avatar-elvis-and-the-batman/",
+    "year": 2023
+   }
+  },
+  {
+   "person": "Gary Summers",
+   "kind": "insight",
+   "text": "Summers created the original voice-box futzes for Woody and Buzz in Toy Story 1 and 2 with an analog futz box: dialogue played through a chosen speaker (old AM radio, telephone or toy speaker) and re-miked back to the console.",
+   "categories": [
+    "dialogue",
+    "craft"
+   ],
+   "source": {
+    "title": "\"Toy Story 3\" - Exclusive Interview with Tom Myers, Michael Semanick, and Al Nelson",
+    "publication": "Designing Sound",
+    "url": "https://designingsound.org/2010/06/30/toy-story-3-exclusive-interview-with-tom-myers-michael-semanick-and-al-nelson/",
+    "year": 2010
+   }
+  },
+  {
+   "person": "Gary Summers",
+   "kind": "insight",
+   "text": "Mixing Avatar's dialogue, Summers was sometimes asked by Cameron to raise lines more than the team's instincts suggested, and to pan them a little more to center, so dialogue stayed audible even in a bad theater with a failed speaker.",
+   "categories": [
+    "dialogue",
+    "mixing"
+   ],
+   "source": {
+    "title": "Avatar",
+    "publication": "Mix",
+    "url": "https://www.mixonline.com/the-wire/avatar-369250",
+    "year": 2010
+   }
+  },
+  {
+   "person": "Tom Johnson",
+   "kind": "quote",
+   "text": "For Tim, all of the elements have to work in terms of timing or beat.",
+   "categories": [
+    "mixing",
+    "collaboration"
+   ],
+   "source": {
+    "title": "\"Alice in Wonderland\" - Exclusive Interview with Re-recording Mixer Tom Johnson",
+    "publication": "Designing Sound",
+    "url": "https://designingsound.org/2010/03/18/alice-in-wonderland-exclusive-interview-with-re-recording-mixer-tom-johnson/",
+    "year": 2010
+   }
+  },
+  {
+   "person": "Tom Johnson",
+   "kind": "quote",
+   "text": "We used the surround channels a lot to enhance the three dimensional world of Underland.",
+   "categories": [
+    "mixing",
+    "worlds"
+   ],
+   "source": {
+    "title": "\"Alice in Wonderland\" - Exclusive Interview with Re-recording Mixer Tom Johnson",
+    "publication": "Designing Sound",
+    "url": "https://designingsound.org/2010/03/18/alice-in-wonderland-exclusive-interview-with-re-recording-mixer-tom-johnson/",
+    "year": 2010
+   }
+  },
+  {
+   "person": "Tom Johnson",
+   "kind": "insight",
+   "text": "In Alice in Wonderland, London was kept deliberately bland and 'normal', while Underland got exotic birds, insects and frogs layered for depth. Each location had its own sound: a lush castle by waterfalls versus a battlefield with only stark, lonely wind.",
+   "categories": [
+    "worlds",
+    "story"
+   ],
+   "source": {
+    "title": "\"Alice in Wonderland\" - Exclusive Interview with Re-recording Mixer Tom Johnson",
+    "publication": "Designing Sound",
+    "url": "https://designingsound.org/2010/03/18/alice-in-wonderland-exclusive-interview-with-re-recording-mixer-tom-johnson/",
+    "year": 2010
+   }
+  },
+  {
+   "person": "Tom Johnson",
+   "kind": "insight",
+   "text": "For Alice's 3D version Johnson pushed elements, even dialogue, into the surrounds and panned dialogue to the speaker's position in frame. The same moves proved distracting in 2D, which got much less dialogue panning.",
+   "categories": [
+    "mixing",
+    "dialogue"
+   ],
+   "source": {
+    "title": "\"Alice in Wonderland\" - Exclusive Interview with Re-recording Mixer Tom Johnson",
+    "publication": "Designing Sound",
+    "url": "https://designingsound.org/2010/03/18/alice-in-wonderland-exclusive-interview-with-re-recording-mixer-tom-johnson/",
+    "year": 2010
+   }
+  },
+  {
+   "person": "Tom Johnson",
+   "kind": "insight",
+   "text": "When Alice changes size, her voice quality was left untouched so it wouldn't distract from the performance. Instead the room reverb tightened when she was big and grew larger and more alive when she was small, and her big footsteps got deeper.",
+   "categories": [
+    "dialogue",
+    "mixing"
+   ],
+   "source": {
+    "title": "\"Alice in Wonderland\" - Exclusive Interview with Re-recording Mixer Tom Johnson",
+    "publication": "Designing Sound",
+    "url": "https://designingsound.org/2010/03/18/alice-in-wonderland-exclusive-interview-with-re-recording-mixer-tom-johnson/",
+    "year": 2010
+   }
+  },
+  {
+   "person": "Tom Johnson",
+   "kind": "insight",
+   "text": "Johnson felt Alice's size-change visuals were so strong that equally bold sound would diminish their impact, so the visuals told most of it. Backgrounds still helped: when she was small, grass became important because the blades were as big as her.",
+   "categories": [
+    "story",
+    "worlds"
+   ],
+   "source": {
+    "title": "\"Alice in Wonderland\" - Exclusive Interview with Re-recording Mixer Tom Johnson",
+    "publication": "Designing Sound",
+    "url": "https://designingsound.org/2010/03/18/alice-in-wonderland-exclusive-interview-with-re-recording-mixer-tom-johnson/",
+    "year": 2010
+   }
+  },
+  {
+   "person": "Tom Johnson",
+   "kind": "insight",
+   "text": "On The Hot Spot, an early mix Johnson did with Gary Rydstrom, Dennis Hopper's first note was that the dialogue 'sounds kinda weird.' After replaying the scene, Hopper decided it simply sounded much cleaner than he was used to.",
+   "categories": [
+    "dialogue",
+    "collaboration"
+   ],
+   "source": {
+    "title": "\"Alice in Wonderland\" - Exclusive Interview with Re-recording Mixer Tom Johnson",
+    "publication": "Designing Sound",
+    "url": "https://designingsound.org/2010/03/18/alice-in-wonderland-exclusive-interview-with-re-recording-mixer-tom-johnson/",
+    "year": 2010
+   }
+  },
+  {
+   "person": "Tom Johnson",
+   "kind": "quote",
+   "text": "It's more of a collaboration with no one person in overall command.",
+   "categories": [
+    "collaboration"
+   ],
+   "source": {
+    "title": "Interview with Tom Johnson, Re-Recording Engineer, \"Star Wars: Episode I -- The Phantom Menace\"",
+    "publication": "EditorsNet (via FilmSound.org)",
+    "url": "https://filmsound.org/starwars/edit.htm",
+    "year": 1999
+   }
+  },
+  {
+   "person": "Tom Johnson",
+   "kind": "quote",
+   "text": "All we did with Jar Jar Binks is EQ his tracks as clearly as possible",
+   "categories": [
+    "dialogue",
+    "scifi"
+   ],
+   "source": {
+    "title": "Interview with Tom Johnson, Re-Recording Engineer, \"Star Wars: Episode I -- The Phantom Menace\"",
+    "publication": "EditorsNet (via FilmSound.org)",
+    "url": "https://filmsound.org/starwars/edit.htm",
+    "year": 1999
+   }
+  },
+  {
+   "person": "Tom Johnson",
+   "kind": "insight",
+   "text": "The pod race had no music or dialogue to pace it, so the mixers varied effects intensity and volume. The announcer justified pulling the race back; returning to the pods at lower intensity than before left room to build as the race progressed.",
+   "categories": [
+    "action",
+    "mixing",
+    "scifi"
+   ],
+   "source": {
+    "title": "Interview with Tom Johnson, Re-Recording Engineer, \"Star Wars: Episode I -- The Phantom Menace\"",
+    "publication": "EditorsNet (via FilmSound.org)",
+    "url": "https://filmsound.org/starwars/edit.htm",
+    "year": 1999
+   }
+  },
+  {
+   "person": "Tom Johnson",
+   "kind": "insight",
+   "text": "Instead of filling the track with distant footsteps and background chatter for thick ambiences, as many sci-fi films did, The Phantom Menace's mixers aimed for a more discreet sound so audiences felt an intimate part of the experience.",
+   "categories": [
+    "worlds",
+    "scifi",
+    "mixing"
+   ],
+   "source": {
+    "title": "Interview with Tom Johnson, Re-Recording Engineer, \"Star Wars: Episode I -- The Phantom Menace\"",
+    "publication": "EditorsNet (via FilmSound.org)",
+    "url": "https://filmsound.org/starwars/edit.htm",
+    "year": 1999
+   }
+  },
+  {
+   "person": "Richard Hymns",
+   "kind": "quote",
+   "text": "I want the right door sound, edited correctly.",
+   "categories": [
+    "craft"
+   ],
+   "source": {
+    "title": "Robert Redford's Golden Ears: The Sound Editors of 'Lions for Lambs'",
+    "publication": "CineMontage",
+    "url": "https://cinemontage.org/robert-redford-sound-editors/",
+    "year": 2007
+   }
+  },
+  {
+   "person": "Richard Hymns",
+   "kind": "quote",
+   "text": "Ultimately, all that counts is good taste.",
+   "categories": [
+    "craft"
+   ],
+   "source": {
+    "title": "Robert Redford's Golden Ears: The Sound Editors of 'Lions for Lambs'",
+    "publication": "CineMontage",
+    "url": "https://cinemontage.org/robert-redford-sound-editors/",
+    "year": 2007
+   }
+  },
+  {
+   "person": "Richard Hymns",
+   "kind": "insight",
+   "text": "Hymns treats Pro Tools as just another tool, like Moviola or Steenbeck. For him good taste means three things: selecting sounds, synchronizing them to picture, and knowing when to pay extreme attention to detail versus being lighter and broader.",
+   "categories": [
+    "craft"
+   ],
+   "source": {
+    "title": "Robert Redford's Golden Ears: The Sound Editors of 'Lions for Lambs'",
+    "publication": "CineMontage",
+    "url": "https://cinemontage.org/robert-redford-sound-editors/",
+    "year": 2007
+   }
+  },
+  {
+   "person": "Richard Hymns",
+   "kind": "insight",
+   "text": "Across five Robert Redford films, Hymns noticed an evocative, sad sense of loss that isn't there on first viewing but arrives during post. On each film he tries to pinpoint where and why it comes in.",
+   "categories": [
+    "story",
+    "collaboration"
+   ],
+   "source": {
+    "title": "Robert Redford's Golden Ears: The Sound Editors of 'Lions for Lambs'",
+    "publication": "CineMontage",
+    "url": "https://cinemontage.org/robert-redford-sound-editors/",
+    "year": 2007
+   }
+  },
+  {
+   "person": "Richard Hymns",
+   "kind": "insight",
+   "text": "For Blue Velvet's slap, Hymns cut slaps, a ruler on a desk, a huge pumpkin struck by hands and a steel rule, and a dozen slaps on an assistant's bare shoulder. Alan Splet picked takes and mixed every layer together.",
+   "categories": [
+    "foley",
+    "craft"
+   ],
+   "source": {
+    "title": "Efeitos industriais, detalhes artesanais: entrevista com o editor de som Richard Hymns",
+    "publication": "Imagofagia (Portuguese)",
+    "url": "https://dialnet.unirioja.es/descarga/articulo/7284943.pdf",
+    "year": 2018
+   }
+  },
+  {
+   "person": "Richard Hymns",
+   "kind": "insight",
+   "text": "For The Mosquito Coast, Splet gave Hymns 250 explosions to audition, choosing the best short, medium and long-range one for each blast. He also had Hymns cut the last two and a half frames before each explosion to zero, intensifying the impact.",
+   "categories": [
+    "action",
+    "silence",
+    "craft"
+   ],
+   "source": {
+    "title": "Efeitos industriais, detalhes artesanais: entrevista com o editor de som Richard Hymns",
+    "publication": "Imagofagia (Portuguese)",
+    "url": "https://dialnet.unirioja.es/descarga/articulo/7284943.pdf",
+    "year": 2018
+   }
+  },
+  {
+   "person": "Richard Hymns",
+   "kind": "insight",
+   "text": "Hymns says that if audiences leave raving about how impressive the sound was, he has somewhat failed. He wants them to believe that's how war sounded in Saving Private Ryan, or how the dinosaurs sounded on set.",
+   "categories": [
+    "story",
+    "craft"
+   ],
+   "source": {
+    "title": "Efeitos industriais, detalhes artesanais: entrevista com o editor de som Richard Hymns",
+    "publication": "Imagofagia (Portuguese)",
+    "url": "https://dialnet.unirioja.es/descarga/articulo/7284943.pdf",
+    "year": 2018
+   }
+  },
+  {
+   "person": "Richard Hymns",
+   "kind": "insight",
+   "text": "For a period Volvo in Bridge of Spies, Hymns found 1964 Nagra recordings of the same car, then brand-new, in the British Cinesound library Peter Jackson had bought. Every time the Volvo is heard, it's that vintage recording.",
+   "categories": [
+    "recording",
+    "craft"
+   ],
+   "source": {
+    "title": "Efeitos industriais, detalhes artesanais: entrevista com o editor de som Richard Hymns",
+    "publication": "Imagofagia (Portuguese)",
+    "url": "https://dialnet.unirioja.es/descarga/articulo/7284943.pdf",
+    "year": 2018
+   }
+  },
+  {
+   "person": "Richard Hymns",
+   "kind": "insight",
+   "text": "For an axe attack in Warning Sign, Splet replaced the office door with a bolted two-panel wooden door, put contact mics inside and outside, and had Hymns and a colleague chop it apart, rather than using a library axe.",
+   "categories": [
+    "recording",
+    "foley",
+    "horror"
+   ],
+   "source": {
+    "title": "Efeitos industriais, detalhes artesanais: entrevista com o editor de som Richard Hymns",
+    "publication": "Imagofagia (Portuguese)",
+    "url": "https://dialnet.unirioja.es/descarga/articulo/7284943.pdf",
+    "year": 2018
+   }
+  },
+  {
+   "person": "Richard Hymns",
+   "kind": "insight",
+   "text": "Winds and fires are hard sounds, Hymns says: they can turn into white noise, into nothing, and end up all sounding alike. He credits Alan Splet with making them sound genuinely sophisticated.",
+   "categories": [
+    "worlds",
+    "craft"
+   ],
+   "source": {
+    "title": "Efeitos industriais, detalhes artesanais: entrevista com o editor de som Richard Hymns",
+    "publication": "Imagofagia (Portuguese)",
+    "url": "https://dialnet.unirioja.es/descarga/articulo/7284943.pdf",
+    "year": 2018
+   }
+  },
+  {
+   "person": "Christopher Boyes",
+   "kind": "quote",
+   "text": "I think of an atomic bomb as pulling sound out of the world",
+   "categories": [
+    "action",
+    "silence"
+   ],
+   "source": {
+    "title": "Sound Design: Christopher Boyes (excerpt from Dolby.com interview)",
+    "publication": "Interviews with Christopher Boyes (blog)",
+    "url": "https://christopherboyes.blogspot.com/2008/11/sound-design-christopher-boyes.html",
+    "year": 2008
+   }
+  },
+  {
+   "person": "Christopher Boyes",
+   "kind": "quote",
+   "text": "Foley really grounds everything in reality, almost giving an honest base to everything else.",
+   "categories": [
+    "foley"
+   ],
+   "source": {
+    "title": "Sound Design: Christopher Boyes (excerpt from Dolby.com interview)",
+    "publication": "Interviews with Christopher Boyes (blog)",
+    "url": "https://christopherboyes.blogspot.com/2008/11/sound-design-christopher-boyes.html",
+    "year": 2008
+   }
+  },
+  {
+   "person": "Christopher Boyes",
+   "kind": "insight",
+   "text": "Productions often reach the climactic moment having already brought 'a freight train of sound.' Boyes works against that: you can't add a cannon to an already loud battle and simply make it louder.",
+   "categories": [
+    "action",
+    "mixing"
+   ],
+   "source": {
+    "title": "Interview with Chris Boyes",
+    "publication": "Designing Sound",
+    "url": "https://designingsound.org/2007/07/10/interview-with-chris-boyes/",
+    "year": 2007
+   }
+  },
+  {
+   "person": "Christopher Boyes",
+   "kind": "quote",
+   "text": "Tame animals are worse than wild ones.",
+   "categories": [
+    "recording",
+    "creatures"
+   ],
+   "source": {
+    "title": "Sound Effects Recording, April 1997",
+    "publication": "Mix",
+    "url": "https://www.mixonline.com/recording/sound-effects-recording-april-1997-377056",
+    "year": 1997
+   }
+  },
+  {
+   "person": "Christopher Boyes",
+   "kind": "insight",
+   "text": "A clean ambience takes three things, Boyes says: a location with a beautiful natural ambience, a time free of motors on the ground and planes overhead, and superb equipment. In Costa Rica he recorded every time of day and night.",
+   "categories": [
+    "recording",
+    "worlds"
+   ],
+   "source": {
+    "title": "Sound Effects Recording, April 1997",
+    "publication": "Mix",
+    "url": "https://www.mixonline.com/recording/sound-effects-recording-april-1997-377056",
+    "year": 1997
+   }
+  },
+  {
+   "person": "Christopher Boyes",
+   "kind": "insight",
+   "text": "In dense jungle, Boyes prefers recording one location from two or three perspectives over a single 360-degree capture, since turning a slightly directional mic 180 degrees changes the sound entirely. He then mixes the perspectives as he likes.",
+   "categories": [
+    "recording",
+    "worlds"
+   ],
+   "source": {
+    "title": "Sound Effects Recording, April 1997",
+    "publication": "Mix",
+    "url": "https://www.mixonline.com/recording/sound-effects-recording-april-1997-377056",
+    "year": 1997
+   }
+  },
+  {
+   "person": "Christopher Boyes",
+   "kind": "quote",
+   "text": "You don't want to exhaust the audience.",
+   "categories": [
+    "mixing",
+    "action"
+   ],
+   "source": {
+    "title": "The Two Towers",
+    "publication": "Mix",
+    "url": "https://www.mixonline.com/sfp/two-towers-369046",
+    "year": 2003
+   }
+  },
+  {
+   "person": "Christopher Boyes",
+   "kind": "insight",
+   "text": "In The Lord of the Rings, some scenes let music carry events at a detached distance, with effects turned ghostly and echoey, weaving through the score. It lifted audiences out of battle intensity and gave them a sonic rest.",
+   "categories": [
+    "music",
+    "mixing",
+    "story"
+   ],
+   "source": {
+    "title": "The Two Towers",
+    "publication": "Mix",
+    "url": "https://www.mixonline.com/sfp/two-towers-369046",
+    "year": 2003
+   }
+  },
+  {
+   "person": "Christopher Boyes",
+   "kind": "insight",
+   "text": "Editorial wanted the Uruk-hai march on Helm's Deep huge; Peter Jackson asked for subtle: feel the pulse but hear the waiting warriors breathe. Since the scene descends into chaos, starting quiet gave the mix something to build with.",
+   "categories": [
+    "mixing",
+    "action",
+    "story"
+   ],
+   "source": {
+    "title": "The Two Towers",
+    "publication": "Mix",
+    "url": "https://www.mixonline.com/sfp/two-towers-369046",
+    "year": 2003
+   }
+  },
+  {
+   "person": "Christopher Boyes",
+   "kind": "quote",
+   "text": "Jim's edict to me was: Clarity is king.",
+   "categories": [
+    "mixing",
+    "collaboration"
+   ],
+   "source": {
+    "title": "Avatar",
+    "publication": "Mix",
+    "url": "https://www.mixonline.com/the-wire/avatar-369250",
+    "year": 2010
+   }
+  },
+  {
+   "person": "Christopher Boyes",
+   "kind": "quote",
+   "text": "any sound that went into the film really had to have a reason behind it",
+   "categories": [
+    "story",
+    "mixing"
+   ],
+   "source": {
+    "title": "Avatar",
+    "publication": "Mix",
+    "url": "https://www.mixonline.com/the-wire/avatar-369250",
+    "year": 2010
+   }
+  },
+  {
+   "person": "Christopher Boyes",
+   "kind": "insight",
+   "text": "For Avatar's big explosions, Boyes built the percussive attack by truncating the transient elements of favorite explosions on the Synclavier keyboard, playing them as a sharp attack with a quick decay, followed by a sonic wash.",
+   "categories": [
+    "action",
+    "weapons",
+    "scifi"
+   ],
+   "source": {
+    "title": "Avatar",
+    "publication": "Mix",
+    "url": "https://www.mixonline.com/the-wire/avatar-369250",
+    "year": 2010
+   }
+  },
+  {
+   "person": "Christopher Boyes",
+   "kind": "insight",
+   "text": "For Avatar's 3D mix, the team chose only specific elements, like a passing bullet or an arrow, to move back to front, logging frame counts and performing pans frame by frame. Too much sonic information at once would detract.",
+   "categories": [
+    "mixing",
+    "scifi"
+   ],
+   "source": {
+    "title": "Avatar",
+    "publication": "Mix",
+    "url": "https://www.mixonline.com/the-wire/avatar-369250",
+    "year": 2010
+   }
+  },
+  {
+   "person": "Christopher Boyes",
+   "kind": "quote",
+   "text": "close your eyes and you'd be able to follow the story completely just by listening",
+   "categories": [
+    "story"
+   ],
+   "source": {
+    "title": "Bay Area sound engineer nominated for Oscar in Hobbit film",
+    "publication": "ABC7 News",
+    "url": "https://abc7news.com/archive/9446747",
+    "year": 2014
+   }
+  },
+  {
+   "person": "Christopher Boyes",
+   "kind": "insight",
+   "text": "For Avatar: The Way of Water's creatures, Boyes started from marine animals including whales, added library tracks, and built a language that followed human rhythms to carry emotions from hope to anger.",
+   "categories": [
+    "creatures",
+    "scifi"
+   ],
+   "source": {
+    "title": "OSCARS 2023: Academy Award Nominees for Best Sound Speak Out on 'Avatar,' 'Elvis,' and 'The Batman'",
+    "publication": "CineMontage",
+    "url": "https://cinemontage.org/oscars-2023-academy-award-nominees-for-best-sound-speak-out-on-avatar-elvis-and-the-batman/",
+    "year": 2023
+   }
+  },
+  {
+   "person": "Michael Semanick",
+   "kind": "quote",
+   "text": "If you're listening to the foley and not the story, then I screwed up.",
+   "categories": [
+    "foley",
+    "story",
+    "mixing"
+   ],
+   "source": {
+    "title": "\"There Will be Blood\" - Exclusive Interview with Re-recording Mixer Michael Semanick and Sound Designer Chris Scarabosio",
+    "publication": "Designing Sound",
+    "url": "https://designingsound.org/2008/01/13/there-will-be-blood-exclusive-interview-with-re-recording-mixer-michael-semanick-and-sound-designer-chris-scarabosio/",
+    "year": 2008
+   }
+  },
+  {
+   "person": "Michael Semanick",
+   "kind": "quote",
+   "text": "I can usually just look at a movie and know what they're going for.",
+   "categories": [
+    "collaboration",
+    "story"
+   ],
+   "source": {
+    "title": "\"There Will be Blood\" - Exclusive Interview with Re-recording Mixer Michael Semanick and Sound Designer Chris Scarabosio",
+    "publication": "Designing Sound",
+    "url": "https://designingsound.org/2008/01/13/there-will-be-blood-exclusive-interview-with-re-recording-mixer-michael-semanick-and-sound-designer-chris-scarabosio/",
+    "year": 2008
+   }
+  },
+  {
+   "person": "Michael Semanick",
+   "kind": "quote",
+   "text": "The director is just telling a campfire story.",
+   "categories": [
+    "story"
+   ],
+   "source": {
+    "title": "Michael Semanick - Storytelling with Sound",
+    "publication": "ProVideo Coalition",
+    "url": "https://www.provideocoalition.com/83489-2/",
+    "year": 2019
+   }
+  },
+  {
+   "person": "Michael Semanick",
+   "kind": "quote",
+   "text": "With a console laid out, I can just grab it, and find the frequency",
+   "categories": [
+    "mixing",
+    "dialogue"
+   ],
+   "source": {
+    "title": "Michael Semanick - Storytelling with Sound",
+    "publication": "ProVideo Coalition",
+    "url": "https://www.provideocoalition.com/83489-2/",
+    "year": 2019
+   }
+  },
+  {
+   "person": "Michael Semanick",
+   "kind": "insight",
+   "text": "Semanick listens for a voice's characteristics and features them. Pushing dialogue above normal conversational level exposes frequencies that don't sound like the person in the room, so he EQs to warm them, and watches shouted lines, which go higher and harder.",
+   "categories": [
+    "dialogue",
+    "mixing"
+   ],
+   "source": {
+    "title": "Michael Semanick - Storytelling with Sound",
+    "publication": "ProVideo Coalition",
+    "url": "https://www.provideocoalition.com/83489-2/",
+    "year": 2019
+   }
+  },
+  {
+   "person": "Michael Semanick",
+   "kind": "insight",
+   "text": "Semanick establishes a room's reverb, then pulls it off as the camera tracks in or characters speak intimately. Pulling reverb and backgrounds down and out, rather than keeping everything up, draws the audience into the characters.",
+   "categories": [
+    "mixing",
+    "dialogue",
+    "story"
+   ],
+   "source": {
+    "title": "Michael Semanick - Storytelling with Sound",
+    "publication": "ProVideo Coalition",
+    "url": "https://www.provideocoalition.com/83489-2/",
+    "year": 2019
+   }
+  },
+  {
+   "person": "Michael Semanick",
+   "kind": "insight",
+   "text": "In Incredibles 2's newscast that follows the signal down the wire, the voice passed through different futzes for the broadcast booth, added static over radio waves, and room reverb that filled then narrowed as the camera moved, with splits on everything.",
+   "categories": [
+    "dialogue",
+    "mixing"
+   ],
+   "source": {
+    "title": "Michael Semanick - Storytelling with Sound",
+    "publication": "ProVideo Coalition",
+    "url": "https://www.provideocoalition.com/83489-2/",
+    "year": 2019
+   }
+  },
+  {
+   "person": "Michael Semanick",
+   "kind": "insight",
+   "text": "Semanick still prefers hardware Lexicon 960 and TC6000 reverbs over their plug-ins, and often futzes through an analog Lafont box. When he A/Bs futz settings, he says directors almost always pick the analog one.",
+   "categories": [
+    "mixing",
+    "dialogue"
+   ],
+   "source": {
+    "title": "Michael Semanick - Storytelling with Sound",
+    "publication": "ProVideo Coalition",
+    "url": "https://www.provideocoalition.com/83489-2/",
+    "year": 2019
+   }
+  },
+  {
+   "person": "Michael Semanick",
+   "kind": "insight",
+   "text": "Directors like David Fincher leave some picture transitions to the mix, expecting sound to fix a clunky cut. Semanick's crossfades and sonic smoothing can help the picture edit tremendously.",
+   "categories": [
+    "mixing",
+    "story",
+    "collaboration"
+   ],
+   "source": {
+    "title": "Michael Semanick - Storytelling with Sound",
+    "publication": "ProVideo Coalition",
+    "url": "https://www.provideocoalition.com/83489-2/",
+    "year": 2019
+   }
+  },
+  {
+   "person": "Michael Semanick",
+   "kind": "insight",
+   "text": "For Mrs. Potato Head's ghostly far-eye voice, Semanick copied her line, advanced it several frames, sent it to reverb, printed only the reverb return and reversed it so it preceded the dialogue. He then added delays and reverb to the original.",
+   "categories": [
+    "dialogue",
+    "craft"
+   ],
+   "source": {
+    "title": "\"Toy Story 3\" - Exclusive Interview with Tom Myers, Michael Semanick, and Al Nelson",
+    "publication": "Designing Sound",
+    "url": "https://designingsound.org/2010/06/30/toy-story-3-exclusive-interview-with-tom-myers-michael-semanick-and-al-nelson/",
+    "year": 2010
+   }
+  },
+  {
+   "person": "Michael Semanick",
+   "kind": "insight",
+   "text": "New Woody and Buzz voice-box lines for Toy Story 3 had to match the old analog futz, which had been thrown away. No Pro Tools plug-in matched it, so Semanick had the Skywalker engineer who built the box rebuild it.",
+   "categories": [
+    "dialogue",
+    "craft"
+   ],
+   "source": {
+    "title": "\"Toy Story 3\" - Exclusive Interview with Tom Myers, Michael Semanick, and Al Nelson",
+    "publication": "Designing Sound",
+    "url": "https://designingsound.org/2010/06/30/toy-story-3-exclusive-interview-with-tom-myers-michael-semanick-and-al-nelson/",
+    "year": 2010
+   }
+  },
+  {
+   "person": "Michael Semanick",
+   "kind": "quote",
+   "text": "I'm still a student of film sound",
+   "categories": [
+    "craft"
+   ],
+   "source": {
+    "title": "Michael Semanick talks The Afterparty, Rescue Rangers, and More",
+    "publication": "Solzy at the Movies",
+    "url": "https://solzyatthemovies.com/2022/06/27/michael-semanick-talks-the-afterparty-rescue-rangers-and-more/",
+    "year": 2022
+   }
+  },
+  {
+   "person": "Michael Semanick",
+   "kind": "insight",
+   "text": "Semanick keeps asking why a director made a choice: why the camera tracks, why a high shot. Then he asks what sound or music can do to pull the audience in, or simply let them breathe.",
+   "categories": [
+    "story",
+    "mixing"
+   ],
+   "source": {
+    "title": "Michael Semanick talks The Afterparty, Rescue Rangers, and More",
+    "publication": "Solzy at the Movies",
+    "url": "https://solzyatthemovies.com/2022/06/27/michael-semanick-talks-the-afterparty-rescue-rangers-and-more/",
+    "year": 2022
+   }
+  },
+  {
+   "person": "Michael Semanick",
+   "kind": "quote",
+   "text": "It's all about vibe in the studio.",
+   "categories": [
+    "collaboration"
+   ],
+   "source": {
+    "title": "Oscar-Winning Ears",
+    "publication": "Berklee Today",
+    "url": "https://www.berklee.edu/berklee-today/fall-2008/cover-story/oscar-wining-ears",
+    "year": 2008
+   }
+  }
+ ]
+}

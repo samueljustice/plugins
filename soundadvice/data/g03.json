@@ -1,0 +1,1163 @@
+{
+ "people": [
+  {
+   "name": "Erik Aadahl",
+   "role": "Supervising sound editor & sound designer",
+   "credits": "A Quiet Place, Transformers, Argo, The Creator",
+   "imdb": "https://www.imdb.com/name/nm0007321/"
+  },
+  {
+   "name": "Ethan Van der Ryn",
+   "role": "Supervising sound editor & sound designer",
+   "credits": "The Lord of the Rings: The Two Towers, King Kong, A Quiet Place, Transformers",
+   "imdb": "https://www.imdb.com/name/nm0886399/"
+  },
+  {
+   "name": "Mark Mangini",
+   "role": "Supervising sound editor & sound designer",
+   "credits": "Mad Max: Fury Road, Dune, Blade Runner 2049, Aladdin",
+   "imdb": "https://www.imdb.com/name/nm0005625/"
+  },
+  {
+   "name": "Richard King",
+   "role": "Supervising sound editor & sound designer",
+   "credits": "The Dark Knight, Inception, Dunkirk, Oppenheimer",
+   "imdb": "https://www.imdb.com/name/nm0455185/"
+  }
+ ],
+ "entries": [
+  {
+   "person": "Erik Aadahl",
+   "kind": "quote",
+   "text": "The most potent sound is the single perfect sound played against silence.",
+   "categories": [
+    "silence",
+    "craft"
+   ],
+   "source": {
+    "title": "Erik Aadahl Special: Exclusive Interview",
+    "publication": "Designing Sound",
+    "url": "https://designingsound.org/2010/03/04/erik-aadahl-special-exclusive-interview/",
+    "year": 2010
+   }
+  },
+  {
+   "person": "Erik Aadahl",
+   "kind": "quote",
+   "text": "The bottom-line is to never be afraid of destroying your work and starting over.",
+   "categories": [
+    "craft"
+   ],
+   "source": {
+    "title": "Erik Aadahl Special: Exclusive Interview",
+    "publication": "Designing Sound",
+    "url": "https://designingsound.org/2010/03/04/erik-aadahl-special-exclusive-interview/",
+    "year": 2010
+   }
+  },
+  {
+   "person": "Erik Aadahl",
+   "kind": "insight",
+   "text": "Aadahl keeps layer counts low: every extra layer tends to dilute the core sound’s punch and clarity, the way blending too many paint colours ends in muddy brown.",
+   "categories": [
+    "craft",
+    "mixing"
+   ],
+   "source": {
+    "title": "Erik Aadahl Special: Exclusive Interview",
+    "publication": "Designing Sound",
+    "url": "https://designingsound.org/2010/03/04/erik-aadahl-special-exclusive-interview/",
+    "year": 2010
+   }
+  },
+  {
+   "person": "Erik Aadahl",
+   "kind": "insight",
+   "text": "Before reaching for a source, Aadahl ‘pre-auralizes’: he performs the rhythm and timing of the sound with his mouth, then builds or edits the real material to match that vocal sketch.",
+   "categories": [
+    "craft"
+   ],
+   "source": {
+    "title": "Erik Aadahl Special: Exclusive Interview",
+    "publication": "Designing Sound",
+    "url": "https://designingsound.org/2010/03/04/erik-aadahl-special-exclusive-interview/",
+    "year": 2010
+   }
+  },
+  {
+   "person": "Erik Aadahl",
+   "kind": "insight",
+   "text": "When jet recordings made a broom flight sound fake, Aadahl concluded he had the wrong source and went skiing in Wrightwood to record it, getting the speed and natural Doppler he was after.",
+   "categories": [
+    "recording",
+    "scifi"
+   ],
+   "source": {
+    "title": "Erik Aadahl Special: Exclusive Interview",
+    "publication": "Designing Sound",
+    "url": "https://designingsound.org/2010/03/04/erik-aadahl-special-exclusive-interview/",
+    "year": 2010
+   }
+  },
+  {
+   "person": "Erik Aadahl",
+   "kind": "insight",
+   "text": "To fight ‘Too Much Sound’ in action, Aadahl trims a whoosh short so a beat of silence lands before the impact, and pulls background washes out entirely so the hits read with precision.",
+   "categories": [
+    "mixing",
+    "action",
+    "silence"
+   ],
+   "source": {
+    "title": "Erik Aadahl Special: Exclusive Interview",
+    "publication": "Designing Sound",
+    "url": "https://designingsound.org/2010/03/04/erik-aadahl-special-exclusive-interview/",
+    "year": 2010
+   }
+  },
+  {
+   "person": "Erik Aadahl",
+   "kind": "insight",
+   "text": "On Malick’s The New World the team let atmospheres crossfade slowly instead of hard-cutting them; after hearing the mix, Malick re-edited his picture to match the new sonic pacing.",
+   "categories": [
+    "worlds",
+    "collaboration"
+   ],
+   "source": {
+    "title": "Erik Aadahl Special: Exclusive Interview",
+    "publication": "Designing Sound",
+    "url": "https://designingsound.org/2010/03/04/erik-aadahl-special-exclusive-interview/",
+    "year": 2010
+   }
+  },
+  {
+   "person": "Erik Aadahl",
+   "kind": "quote",
+   "text": "we did not use any sound libraries, only our own recordings.",
+   "categories": [
+    "recording",
+    "worlds"
+   ],
+   "source": {
+    "title": "Creating the ‘Vintage-Futuristic’ Sound of The Creator",
+    "publication": "A Sound Effect",
+    "url": "https://asoundeffect.com/the-creator-film-sound/",
+    "year": 2023
+   }
+  },
+  {
+   "person": "Erik Aadahl",
+   "kind": "quote",
+   "text": "there should be no doubt that the sound conveys danger and volatility.",
+   "categories": [
+    "scifi",
+    "story"
+   ],
+   "source": {
+    "title": "Creating the ‘Vintage-Futuristic’ Sound of The Creator",
+    "publication": "A Sound Effect",
+    "url": "https://asoundeffect.com/the-creator-film-sound/",
+    "year": 2023
+   }
+  },
+  {
+   "person": "Erik Aadahl",
+   "kind": "insight",
+   "text": "The Creator’s tank began as a car’s tyres singing across a serrated highway median, recorded at every speed; tremolo was added, then rhythmic deep metal clunks were layered in for close-ups.",
+   "categories": [
+    "weapons",
+    "recording"
+   ],
+   "source": {
+    "title": "Creating the ‘Vintage-Futuristic’ Sound of The Creator",
+    "publication": "A Sound Effect",
+    "url": "https://asoundeffect.com/the-creator-film-sound/",
+    "year": 2023
+   }
+  },
+  {
+   "person": "Erik Aadahl",
+   "kind": "insight",
+   "text": "Robot voices in The Creator ran through digital vocoders controlled over MIDI, kept as live processing all the way through the final mix so treatments could still be adjusted on the stage.",
+   "categories": [
+    "scifi",
+    "dialogue",
+    "mixing"
+   ],
+   "source": {
+    "title": "Creating the ‘Vintage-Futuristic’ Sound of The Creator",
+    "publication": "A Sound Effect",
+    "url": "https://asoundeffect.com/the-creator-film-sound/",
+    "year": 2023
+   }
+  },
+  {
+   "person": "Erik Aadahl",
+   "kind": "insight",
+   "text": "For Alphie’s powers the team refused a computer-made tone; the build resolves into a recorded didgeridoo so the child’s magic feels spiritual and organic rather than synthetic.",
+   "categories": [
+    "scifi",
+    "story"
+   ],
+   "source": {
+    "title": "“The Creator” Oscar-Nominated Sound Team on Blending Retro-Futurism, Robot Monks, & the Didgeridoo",
+    "publication": "Motion Picture Association (The Credits)",
+    "url": "https://www.motionpictures.org/2024/02/the-oscar-nominated-sound-of-the-creator-on-blending-retro-futurism-robot-monks-the-didgeridoo/",
+    "year": 2024
+   }
+  },
+  {
+   "person": "Erik Aadahl",
+   "kind": "insight",
+   "text": "Gareth Edwards described NOMAD’s beams by how they should make you feel—dangerous enough to hurt if you lingered in one—so the team reverse-engineered the sound from that feeling, not a reference.",
+   "categories": [
+    "collaboration",
+    "scifi"
+   ],
+   "source": {
+    "title": "“The Creator” Oscar-Nominated Sound Team on Blending Retro-Futurism, Robot Monks, & the Didgeridoo",
+    "publication": "Motion Picture Association (The Credits)",
+    "url": "https://www.motionpictures.org/2024/02/the-oscar-nominated-sound-of-the-creator-on-blending-retro-futurism-robot-monks-the-didgeridoo/",
+    "year": 2024
+   }
+  },
+  {
+   "person": "Erik Aadahl",
+   "kind": "quote",
+   "text": "The goal was to get goose bumps.",
+   "categories": [
+    "creatures",
+    "story"
+   ],
+   "source": {
+    "title": "Godzilla Sound Designers Erik Aadahl & Ethan Van der Ryn on Creature Language",
+    "publication": "Motion Picture Association (The Credits)",
+    "url": "https://www.motionpictures.org/2014/05/godzilla-sound-designers-erik-aadahl-ethan-van-der-ryn-on-creature-language/",
+    "year": 2014
+   }
+  },
+  {
+   "person": "Erik Aadahl",
+   "kind": "insight",
+   "text": "For Godzilla they recorded with a Sanken CO-100K, which captures up to 100 kHz, then slowed the ultrasonic content down into hearing range—mining an ‘invisible universe’ for new textures.",
+   "categories": [
+    "recording",
+    "creatures"
+   ],
+   "source": {
+    "title": "Godzilla Sound Designers Erik Aadahl & Ethan Van der Ryn on Creature Language",
+    "publication": "Motion Picture Association (The Credits)",
+    "url": "https://www.motionpictures.org/2014/05/godzilla-sound-designers-erik-aadahl-ethan-van-der-ryn-on-creature-language/",
+    "year": 2014
+   }
+  },
+  {
+   "person": "Erik Aadahl",
+   "kind": "quote",
+   "text": "we had to be really ruthless with what we chose to play.",
+   "categories": [
+    "silence",
+    "mixing"
+   ],
+   "source": {
+    "title": "A Quiet Place sound designers interview",
+    "publication": "Inverse",
+    "url": "https://inverse.com/article/53494-a-quiet-place-2-sound-designers-interview-oscars-2019",
+    "year": 2019
+   }
+  },
+  {
+   "person": "Erik Aadahl",
+   "kind": "quote",
+   "text": "Sound can create a truly visceral reality.",
+   "categories": [
+    "story"
+   ],
+   "source": {
+    "title": "A Quiet Place: Part II had one sequence that totally blew away the sound editors",
+    "publication": "SYFY Wire",
+    "url": "https://www.syfy.com/syfy-wire/a-quiet-place-part-ii-sounds-designers-favorite-sequence-interview",
+    "year": 2021
+   }
+  },
+  {
+   "person": "Erik Aadahl",
+   "kind": "insight",
+   "text": "The ten-minute prologue of A Quiet Place Part II plays with no score at all; Aadahl felt that leaving music out made the attack feel more real and left the sound to carry the dread.",
+   "categories": [
+    "music",
+    "horror",
+    "silence"
+   ],
+   "source": {
+    "title": "A Quiet Place: Part II had one sequence that totally blew away the sound editors",
+    "publication": "SYFY Wire",
+    "url": "https://www.syfy.com/syfy-wire/a-quiet-place-part-ii-sounds-designers-favorite-sequence-interview",
+    "year": 2021
+   }
+  },
+  {
+   "person": "Erik Aadahl",
+   "kind": "insight",
+   "text": "A visit to an anechoic chamber shaped A Quiet Place: with the world gone, you start hearing your own pulse and breath, so the film magnifies tiny bodily sounds until they feel huge.",
+   "categories": [
+    "horror",
+    "silence",
+    "story"
+   ],
+   "source": {
+    "title": "The Sound Designers of ‘A Quiet Place’ Discuss the Power of Silence",
+    "publication": "No Film School",
+    "url": "https://nofilmschool.com/sound-designers-quiet-place-silence",
+    "year": 2019
+   }
+  },
+  {
+   "person": "Erik Aadahl",
+   "kind": "insight",
+   "text": "Aadahl and Van der Ryn found that every creature vocal or sound they stripped out of A Quiet Place made what remained more frightening—a lesson they trace back to the withholding of Jaws.",
+   "categories": [
+    "horror",
+    "silence",
+    "creatures"
+   ],
+   "source": {
+    "title": "A Quiet Place‘s Oscar-Nominated Sound Designers on Triggering our Brain’s Reptilian Fear Response",
+    "publication": "Motion Picture Association (The Credits)",
+    "url": "https://www.motionpictures.org/2019/02/oscar-watch-a-quiet-places-sound-designers-on-2/",
+    "year": 2019
+   }
+  },
+  {
+   "person": "Ethan Van der Ryn",
+   "kind": "quote",
+   "text": "make the scene work with as few elements as possible",
+   "categories": [
+    "craft",
+    "mixing"
+   ],
+   "source": {
+    "title": "Transformers Pt. 1: Exclusive Interview with Supervising Sound Editor Ethan Van der Ryn",
+    "publication": "Designing Sound",
+    "url": "https://designingsound.org/2007/07/02/transformers-pt-1-exclusive-interview-with-supervising-sound-editor-ethan-van-der-ryn/",
+    "year": 2007
+   }
+  },
+  {
+   "person": "Ethan Van der Ryn",
+   "kind": "insight",
+   "text": "Each Transformer got its own palette of movement and presence sounds, derived both from the physical character of its vehicle form and from the personality of its robot form.",
+   "categories": [
+    "scifi",
+    "creatures",
+    "foley"
+   ],
+   "source": {
+    "title": "Transformers Pt. 1: Exclusive Interview with Supervising Sound Editor Ethan Van der Ryn",
+    "publication": "Designing Sound",
+    "url": "https://designingsound.org/2007/07/02/transformers-pt-1-exclusive-interview-with-supervising-sound-editor-ethan-van-der-ryn/",
+    "year": 2007
+   }
+  },
+  {
+   "person": "Ethan Van der Ryn",
+   "kind": "insight",
+   "text": "The classic 1980s transform sound appears just twice in the 2007 Transformers—once on a giant robot, once on a tiny one—while its character seeded new sounds like the studio-logo opening.",
+   "categories": [
+    "scifi",
+    "story"
+   ],
+   "source": {
+    "title": "Transformers Pt. 1: Exclusive Interview with Supervising Sound Editor Ethan Van der Ryn",
+    "publication": "Designing Sound",
+    "url": "https://designingsound.org/2007/07/02/transformers-pt-1-exclusive-interview-with-supervising-sound-editor-ethan-van-der-ryn/",
+    "year": 2007
+   }
+  },
+  {
+   "person": "Ethan Van der Ryn",
+   "kind": "insight",
+   "text": "His favourite Transformers session was recording Osprey tiltrotors at Kirtland Air Force Base, where the rotor wash was so violent the crew had to lie flat on the tarmac.",
+   "categories": [
+    "recording",
+    "weapons"
+   ],
+   "source": {
+    "title": "Transformers Pt. 1: Exclusive Interview with Supervising Sound Editor Ethan Van der Ryn",
+    "publication": "Designing Sound",
+    "url": "https://designingsound.org/2007/07/02/transformers-pt-1-exclusive-interview-with-supervising-sound-editor-ethan-van-der-ryn/",
+    "year": 2007
+   }
+  },
+  {
+   "person": "Ethan Van der Ryn",
+   "kind": "quote",
+   "text": "it’s only in relation to the absence of sound that sound has meaning.",
+   "categories": [
+    "silence"
+   ],
+   "source": {
+    "title": "Godzilla Sound Designers Erik Aadahl & Ethan Van der Ryn on Creature Language",
+    "publication": "Motion Picture Association (The Credits)",
+    "url": "https://www.motionpictures.org/2014/05/godzilla-sound-designers-erik-aadahl-ethan-van-der-ryn-on-creature-language/",
+    "year": 2014
+   }
+  },
+  {
+   "person": "Ethan Van der Ryn",
+   "kind": "insight",
+   "text": "To ‘world-ize’ Godzilla, the team blasted processed roars through a big speaker array on the Warner Bros. backlot and re-recorded them from rooftops and inside cars, capturing real urban echo.",
+   "categories": [
+    "creatures",
+    "worlds",
+    "recording"
+   ],
+   "source": {
+    "title": "Godzilla Sound Designers Erik Aadahl & Ethan Van der Ryn on Creature Language",
+    "publication": "Motion Picture Association (The Credits)",
+    "url": "https://www.motionpictures.org/2014/05/godzilla-sound-designers-erik-aadahl-ethan-van-der-ryn-on-creature-language/",
+    "year": 2014
+   }
+  },
+  {
+   "person": "Ethan Van der Ryn",
+   "kind": "insight",
+   "text": "The new Godzilla roar started by recreating Ifukube’s 1954 original as a baseline; months of experiments followed, and a separate bellow layer was kept to carry the original’s melancholy.",
+   "categories": [
+    "creatures",
+    "craft"
+   ],
+   "source": {
+    "title": "Godzilla Sound Designers Erik Aadahl & Ethan Van der Ryn on Creature Language",
+    "publication": "Motion Picture Association (The Credits)",
+    "url": "https://www.motionpictures.org/2014/05/godzilla-sound-designers-erik-aadahl-ethan-van-der-ryn-on-creature-language/",
+    "year": 2014
+   }
+  },
+  {
+   "person": "Ethan Van der Ryn",
+   "kind": "quote",
+   "text": "we take the sound out to low, muffled levels or completely remove it.",
+   "categories": [
+    "story",
+    "silence"
+   ],
+   "source": {
+    "title": "How the “A Quiet Place Part II” Sound Team Turns the Viewer Into Prey",
+    "publication": "Motion Picture Association (The Credits)",
+    "url": "https://www.motionpictures.org/2021/08/how-a-quiet-place-part-ii-sound-team-turns-the-viewer-into-prey-2/",
+    "year": 2021
+   }
+  },
+  {
+   "person": "Ethan Van der Ryn",
+   "kind": "insight",
+   "text": "In A Quiet Place Part II’s train-depot scene, sound shaped the picture edit: trimming to a few cuts let the film sit in total silence without losing the audience.",
+   "categories": [
+    "collaboration",
+    "silence"
+   ],
+   "source": {
+    "title": "How the “A Quiet Place Part II” Sound Team Turns the Viewer Into Prey",
+    "publication": "Motion Picture Association (The Credits)",
+    "url": "https://www.motionpictures.org/2021/08/how-a-quiet-place-part-ii-sound-team-turns-the-viewer-into-prey-2/",
+    "year": 2021
+   }
+  },
+  {
+   "person": "Ethan Van der Ryn",
+   "kind": "quote",
+   "text": "Fusing those two together creates something new.",
+   "categories": [
+    "scifi",
+    "weapons"
+   ],
+   "source": {
+    "title": "“The Creator” Oscar-Nominated Sound Team on Blending Retro-Futurism, Robot Monks, & the Didgeridoo",
+    "publication": "Motion Picture Association (The Credits)",
+    "url": "https://www.motionpictures.org/2024/02/the-oscar-nominated-sound-of-the-creator-on-blending-retro-futurism-robot-monks-the-didgeridoo/",
+    "year": 2024
+   }
+  },
+  {
+   "person": "Ethan Van der Ryn",
+   "kind": "insight",
+   "text": "The Creator’s jetcopters married a classic helicopter rotor chop to futuristic jet tech, nodding to Apocalypse Now; pairing unlike ideas, like robot Tibetan monks, is a reliable route to new sounds.",
+   "categories": [
+    "scifi",
+    "weapons",
+    "craft"
+   ],
+   "source": {
+    "title": "“The Creator” Oscar-Nominated Sound Team on Blending Retro-Futurism, Robot Monks, & the Didgeridoo",
+    "publication": "Motion Picture Association (The Credits)",
+    "url": "https://www.motionpictures.org/2024/02/the-oscar-nominated-sound-of-the-creator-on-blending-retro-futurism-robot-monks-the-didgeridoo/",
+    "year": 2024
+   }
+  },
+  {
+   "person": "Ethan Van der Ryn",
+   "kind": "insight",
+   "text": "Regan’s cochlear implant is heard as ‘hearing as touch’: a low rumble. When she removes it, the track drops to true digital zero—used in only three scenes to bond the audience to her.",
+   "categories": [
+    "story",
+    "silence",
+    "horror"
+   ],
+   "source": {
+    "title": "The Sound Designers of ‘A Quiet Place’ Discuss the Power of Silence",
+    "publication": "No Film School",
+    "url": "https://nofilmschool.com/sound-designers-quiet-place-silence",
+    "year": 2019
+   }
+  },
+  {
+   "person": "Ethan Van der Ryn",
+   "kind": "insight",
+   "text": "Rather than spot the sequel with Krasinski first, Van der Ryn and Aadahl worked alone with the cut, then sent him finished scenes—hearing real sound beats imagining how it should play.",
+   "categories": [
+    "collaboration"
+   ],
+   "source": {
+    "title": "A Quiet Place: Part II had one sequence that totally blew away the sound editors",
+    "publication": "SYFY Wire",
+    "url": "https://www.syfy.com/syfy-wire/a-quiet-place-part-ii-sounds-designers-favorite-sequence-interview",
+    "year": 2021
+   }
+  },
+  {
+   "person": "Ethan Van der Ryn",
+   "kind": "insight",
+   "text": "A Quiet Place’s creature clicks avoided real echolocating animals, which sounded too familiar; instead the team zapped grapes with a stun gun, standing in for flesh, and slowed the zaps down.",
+   "categories": [
+    "creatures",
+    "horror",
+    "recording"
+   ],
+   "source": {
+    "title": "A Quiet Place‘s Oscar-Nominated Sound Designers on Triggering our Brain’s Reptilian Fear Response",
+    "publication": "Motion Picture Association (The Credits)",
+    "url": "https://www.motionpictures.org/2019/02/oscar-watch-a-quiet-places-sound-designers-on-2/",
+    "year": 2019
+   }
+  },
+  {
+   "person": "Mark Mangini",
+   "kind": "quote",
+   "text": "Sometimes we can create a story that hadn’t heretofore existed.",
+   "categories": [
+    "story"
+   ],
+   "source": {
+    "title": "Mark Mangini: The Sound Design Behind Dune and Blade Runner 2049 (Q&A)",
+    "publication": "Zebra Home Cinema",
+    "url": "https://zebrahomecinema.com/blog/mark-mangini-sound-design-behind-dune-and-blade-runner-2049-qanda",
+    "year": 2022
+   }
+  },
+  {
+   "person": "Mark Mangini",
+   "kind": "quote",
+   "text": "Nothing is sacred when it comes to sound.",
+   "categories": [
+    "recording",
+    "craft"
+   ],
+   "source": {
+    "title": "Mark Mangini: The Sound Design Behind Dune and Blade Runner 2049 (Q&A)",
+    "publication": "Zebra Home Cinema",
+    "url": "https://zebrahomecinema.com/blog/mark-mangini-sound-design-behind-dune-and-blade-runner-2049-qanda",
+    "year": 2022
+   }
+  },
+  {
+   "person": "Mark Mangini",
+   "kind": "insight",
+   "text": "Mangini sorts sound into three jobs: telling you what’s there, reinforcing an emotion already on screen, and inventing story that wasn’t there before. He deliberately aims for the third.",
+   "categories": [
+    "story"
+   ],
+   "source": {
+    "title": "Mark Mangini: The Sound Design Behind Dune and Blade Runner 2049 (Q&A)",
+    "publication": "Zebra Home Cinema",
+    "url": "https://zebrahomecinema.com/blog/mark-mangini-sound-design-behind-dune-and-blade-runner-2049-qanda",
+    "year": 2022
+   }
+  },
+  {
+   "person": "Mark Mangini",
+   "kind": "insight",
+   "text": "To record Qatar’s singing dunes for Dune, the crew drove a Land Cruiser onto a dune crest, killed the engine and crept forward on the brakes, triggering sand avalanches that moan at low frequencies.",
+   "categories": [
+    "recording",
+    "worlds"
+   ],
+   "source": {
+    "title": "Mark Mangini: The Sound Design Behind Dune and Blade Runner 2049 (Q&A)",
+    "publication": "Zebra Home Cinema",
+    "url": "https://zebrahomecinema.com/blog/mark-mangini-sound-design-behind-dune-and-blade-runner-2049-qanda",
+    "year": 2022
+   }
+  },
+  {
+   "person": "Mark Mangini",
+   "kind": "insight",
+   "text": "Dune’s Bene Gesserit Voice wasn’t treated as a dialogue effect: Mangini and Theo Green researched the order’s lore and invented a backstory so the processing itself would tell you something.",
+   "categories": [
+    "dialogue",
+    "scifi"
+   ],
+   "source": {
+    "title": "Mark Mangini: The Sound Design Behind Dune and Blade Runner 2049 (Q&A)",
+    "publication": "Zebra Home Cinema",
+    "url": "https://zebrahomecinema.com/blog/mark-mangini-sound-design-behind-dune-and-blade-runner-2049-qanda",
+    "year": 2022
+   }
+  },
+  {
+   "person": "Mark Mangini",
+   "kind": "insight",
+   "text": "Blade Runner 2049’s spinner began as a bullroarer, chosen for its envelope rather than any engine character, reshaped with synths and samplers: sped up for take-off, slowed for landing, Doppler for pass-bys.",
+   "categories": [
+    "scifi",
+    "weapons",
+    "craft"
+   ],
+   "source": {
+    "title": "How to Turn an Old Honda Element Into a Hovercraft, and Other Secrets From an Oscar-Winning Sound Editor",
+    "publication": "ScreenCrush",
+    "url": "https://screencrush.com/sound-editor-secrets/",
+    "year": 2017
+   }
+  },
+  {
+   "person": "Mark Mangini",
+   "kind": "insight",
+   "text": "Villeneuve wanted the spinner to feel like it might shake apart, so Mangini put a huge subwoofer in his wife’s old Honda Element and played deep bass, recording every loose panel rattling.",
+   "categories": [
+    "scifi",
+    "recording"
+   ],
+   "source": {
+    "title": "How to Turn an Old Honda Element Into a Hovercraft, and Other Secrets From an Oscar-Winning Sound Editor",
+    "publication": "ScreenCrush",
+    "url": "https://screencrush.com/sound-editor-secrets/",
+    "year": 2017
+   }
+  },
+  {
+   "person": "Mark Mangini",
+   "kind": "quote",
+   "text": "We tried to stay away from artifice",
+   "categories": [
+    "craft",
+    "action"
+   ],
+   "source": {
+    "title": "Contenders – Sound Editors Mark Mangini and Scott Hecker, Mad Max: Fury Road",
+    "publication": "Below the Line",
+    "url": "https://mande.net/awards/contenders-sound-editors-mark-mangini-and-scott-hecker-mad-max-fury-road/",
+    "year": 2015
+   }
+  },
+  {
+   "person": "Mark Mangini",
+   "kind": "insight",
+   "text": "When Max creeps toward the women at the water in Fury Road, the track thins out until the water dominates—the mix narrows to exactly what Max is fixated on.",
+   "categories": [
+    "story",
+    "silence",
+    "mixing"
+   ],
+   "source": {
+    "title": "Contenders – Sound Editors Mark Mangini and Scott Hecker, Mad Max: Fury Road",
+    "publication": "Below the Line",
+    "url": "https://mande.net/awards/contenders-sound-editors-mark-mangini-and-scott-hecker-mad-max-fury-road/",
+    "year": 2015
+   }
+  },
+  {
+   "person": "Mark Mangini",
+   "kind": "insight",
+   "text": "On Fury Road the sound team and composer Tom Holkenborg met every morning to swap material, each side trimming back where score fought the machine guns or engines.",
+   "categories": [
+    "music",
+    "collaboration",
+    "mixing"
+   ],
+   "source": {
+    "title": "Contenders – Sound Editors Mark Mangini and Scott Hecker, Mad Max: Fury Road",
+    "publication": "Below the Line",
+    "url": "https://mande.net/awards/contenders-sound-editors-mark-mangini-and-scott-hecker-mad-max-fury-road/",
+    "year": 2015
+   }
+  },
+  {
+   "person": "Mark Mangini",
+   "kind": "quote",
+   "text": "We wanted to personify it as this giant, growling, breathing, roaring beast",
+   "categories": [
+    "weapons",
+    "creatures"
+   ],
+   "source": {
+    "title": "How Moby Dick Inspired the Sound Design of Mad Max: Fury Road",
+    "publication": "Inverse",
+    "url": "https://inverse.com/article/11054-how-moby-dick-inspired-the-sound-design-of-mad-max-fury-road",
+    "year": 2016
+   }
+  },
+  {
+   "person": "Mark Mangini",
+   "kind": "insight",
+   "text": "Casting the War Rig as Moby Dick’s whale, Mangini hid whale moans under the truck, sweetened harpoon hits with humpback growls, and scored its slow-motion crash with whale and slowed bear cries, not metal.",
+   "categories": [
+    "weapons",
+    "story",
+    "creatures"
+   ],
+   "source": {
+    "title": "How Moby Dick Inspired the Sound Design of Mad Max: Fury Road",
+    "publication": "Inverse",
+    "url": "https://inverse.com/article/11054-how-moby-dick-inspired-the-sound-design-of-mad-max-fury-road",
+    "year": 2016
+   }
+  },
+  {
+   "person": "Mark Mangini",
+   "kind": "quote",
+   "text": "Every phase of producing a motion picture must have sound design engaged",
+   "categories": [
+    "collaboration"
+   ],
+   "source": {
+    "title": "Innovate to break sound tropes and make it real, advises Qumra master Mark Mangini",
+    "publication": "Gulf Times",
+    "url": "https://www.gulf-times.com/story/686740/innovate-to-break-sound-tropes-and-make-it-real-advises-qumra-master-mark-mangini",
+    "year": 2021
+   }
+  },
+  {
+   "person": "Mark Mangini",
+   "kind": "insight",
+   "text": "Mangini’s advice to newcomers: build your own library of real recordings rather than leaning on synthesis, revisit sounds you’ve already made, and consciously break the tropes everyone else reaches for.",
+   "categories": [
+    "recording",
+    "craft"
+   ],
+   "source": {
+    "title": "Innovate to break sound tropes and make it real, advises Qumra master Mark Mangini",
+    "publication": "Gulf Times",
+    "url": "https://www.gulf-times.com/story/686740/innovate-to-break-sound-tropes-and-make-it-real-advises-qumra-master-mark-mangini",
+    "year": 2021
+   }
+  },
+  {
+   "person": "Mark Mangini",
+   "kind": "quote",
+   "text": "your focus should be on one thing visually and one thing sonically.",
+   "categories": [
+    "mixing",
+    "story"
+   ],
+   "source": {
+    "title": "Qumra 2021: sound designer Mark Mangini describes his work on Dune, new Kobe Bryant doc",
+    "publication": "Screen Daily",
+    "url": "https://screendaily.com/news/qumra-2021-sound-designer-mark-mangini-describes-his-work-on-dune-new-kobe-bryant-doc/5158087.article",
+    "year": 2021
+   }
+  },
+  {
+   "person": "Mark Mangini",
+   "kind": "quote",
+   "text": "There’s only one soundtrack and we have to share it.",
+   "categories": [
+    "music",
+    "collaboration"
+   ],
+   "source": {
+    "title": "Qumra 2021: sound designer Mark Mangini describes his work on Dune, new Kobe Bryant doc",
+    "publication": "Screen Daily",
+    "url": "https://screendaily.com/news/qumra-2021-sound-designer-mark-mangini-describes-his-work-on-dune-new-kobe-bryant-doc/5158087.article",
+    "year": 2021
+   }
+  },
+  {
+   "person": "Mark Mangini",
+   "kind": "insight",
+   "text": "Mangini pushed for linguist David Peterson to build Dune’s Fremen language before the shoot, so actors could speak it on camera instead of sound fitting it into their mouths in post.",
+   "categories": [
+    "dialogue",
+    "collaboration"
+   ],
+   "source": {
+    "title": "Qumra 2021: sound designer Mark Mangini describes his work on Dune, new Kobe Bryant doc",
+    "publication": "Screen Daily",
+    "url": "https://screendaily.com/news/qumra-2021-sound-designer-mark-mangini-describes-his-work-on-dune-new-kobe-bryant-doc/5158087.article",
+    "year": 2021
+   }
+  },
+  {
+   "person": "Mark Mangini",
+   "kind": "insight",
+   "text": "In Blade Runner 2049, Sapper Morton’s bulk is sold without a word: groaning floorboards and rattling crockery under his weight tell you how big he is.",
+   "categories": [
+    "foley",
+    "story"
+   ],
+   "source": {
+    "title": "Qumra 2021: sound designer Mark Mangini describes his work on Dune, new Kobe Bryant doc",
+    "publication": "Screen Daily",
+    "url": "https://screendaily.com/news/qumra-2021-sound-designer-mark-mangini-describes-his-work-on-dune-new-kobe-bryant-doc/5158087.article",
+    "year": 2021
+   }
+  },
+  {
+   "person": "Mark Mangini",
+   "kind": "quote",
+   "text": "If you can’t find it, you do it with your voice.",
+   "categories": [
+    "creatures",
+    "craft"
+   ],
+   "source": {
+    "title": "Classic Cartoon Sound Effects (transcript)",
+    "publication": "99% Invisible",
+    "url": "https://99percentinvisible.org/episode/classic-cartoon-sound-effects/transcript/",
+    "year": 2019
+   }
+  },
+  {
+   "person": "Mark Mangini",
+   "kind": "insight",
+   "text": "On some Disney animated features, sound is designed before the animation to inspire the artists—Beauty and the Beast’s wood-chopping invention began as sound. Mangini calls that ‘pure design’.",
+   "categories": [
+    "collaboration",
+    "craft"
+   ],
+   "source": {
+    "title": "Classic Cartoon Sound Effects (transcript)",
+    "publication": "99% Invisible",
+    "url": "https://99percentinvisible.org/episode/classic-cartoon-sound-effects/transcript/",
+    "year": 2019
+   }
+  },
+  {
+   "person": "Richard King",
+   "kind": "quote",
+   "text": "We avoided any electronic or synth sounds.",
+   "categories": [
+    "craft",
+    "recording"
+   ],
+   "source": {
+    "title": "Oppenheimer film sound interview",
+    "publication": "A Sound Effect",
+    "url": "https://www.asoundeffect.com/oppenheimer-film-sound/",
+    "year": 2023
+   }
+  },
+  {
+   "person": "Richard King",
+   "kind": "quote",
+   "text": "Much of what makes a good explosion recording is the location it was recorded in",
+   "categories": [
+    "recording",
+    "weapons"
+   ],
+   "source": {
+    "title": "Oppenheimer film sound interview",
+    "publication": "A Sound Effect",
+    "url": "https://www.asoundeffect.com/oppenheimer-film-sound/",
+    "year": 2023
+   }
+  },
+  {
+   "person": "Richard King",
+   "kind": "insight",
+   "text": "Trinity’s blast was built from eyewitness accounts that differed, merged into one composite: a hard, sharp crack with a long thundering tail rolling round the hills, plus the bunker and its contents shaking.",
+   "categories": [
+    "action",
+    "story"
+   ],
+   "source": {
+    "title": "Oppenheimer film sound interview",
+    "publication": "A Sound Effect",
+    "url": "https://www.asoundeffect.com/oppenheimer-film-sound/",
+    "year": 2023
+   }
+  },
+  {
+   "person": "Richard King",
+   "kind": "insight",
+   "text": "Oppenheimer’s Trinity shockwave arrives well after the flash, the delay set by distance and the speed of sound—and so obviously deliberate that the audience knows the film is doing it on purpose.",
+   "categories": [
+    "silence",
+    "action"
+   ],
+   "source": {
+    "title": "Sound for Oppenheimer",
+    "publication": "ProVideo Coalition",
+    "url": "https://www.provideocoalition.com/sound-for-oppenheimer/",
+    "year": 2024
+   }
+  },
+  {
+   "person": "Richard King",
+   "kind": "quote",
+   "text": "We wanted to use the real event as much as possible for inspiration.",
+   "categories": [
+    "story",
+    "craft"
+   ],
+   "source": {
+    "title": "Sound for Dunkirk",
+    "publication": "A Sound Effect",
+    "url": "https://www.asoundeffect.com/dunkirk-sound/",
+    "year": 2017
+   }
+  },
+  {
+   "person": "Richard King",
+   "kind": "insight",
+   "text": "Dunkirk’s Stuka siren was a real electric siren mounted inside a 30-gallon steel drum with clamped resonators, recorded in the desert off reflecting hills, then pushed with natural-sounding overload distortion.",
+   "categories": [
+    "weapons",
+    "recording"
+   ],
+   "source": {
+    "title": "Sound for Dunkirk",
+    "publication": "A Sound Effect",
+    "url": "https://www.asoundeffect.com/dunkirk-sound/",
+    "year": 2017
+   }
+  },
+  {
+   "person": "Richard King",
+   "kind": "insight",
+   "text": "For the trawler target-practice scene, the team shot metal plates with suppressed guns so only the impacts were heard, then placed each hit in a quiet gap to jolt the audience like the trapped soldiers.",
+   "categories": [
+    "weapons",
+    "silence",
+    "horror"
+   ],
+   "source": {
+    "title": "Sound for Dunkirk",
+    "publication": "A Sound Effect",
+    "url": "https://www.asoundeffect.com/dunkirk-sound/",
+    "year": 2017
+   }
+  },
+  {
+   "person": "Richard King",
+   "kind": "quote",
+   "text": "The film tells us how subtle or how bold to be.",
+   "categories": [
+    "story",
+    "craft"
+   ],
+   "source": {
+    "title": "Inception: Exclusive Interview with Richard King",
+    "publication": "Designing Sound",
+    "url": "https://designingsound.org/2010/08/18/inception-exclusive-interview-with-richard-king/",
+    "year": 2010
+   }
+  },
+  {
+   "person": "Richard King",
+   "kind": "quote",
+   "text": "find the sound which provides that feeling you’re looking for.",
+   "categories": [
+    "craft",
+    "story"
+   ],
+   "source": {
+    "title": "Inception: Exclusive Interview with Richard King",
+    "publication": "Designing Sound",
+    "url": "https://designingsound.org/2010/08/18/inception-exclusive-interview-with-richard-king/",
+    "year": 2010
+   }
+  },
+  {
+   "person": "Richard King",
+   "kind": "insight",
+   "text": "Inception’s slow-motion shots weren’t matched with slowed sound: the team either ignored the speed change entirely or played sounds unrelated to the action.",
+   "categories": [
+    "action",
+    "scifi"
+   ],
+   "source": {
+    "title": "Inception: Exclusive Interview with Richard King",
+    "publication": "Designing Sound",
+    "url": "https://designingsound.org/2010/08/18/inception-exclusive-interview-with-richard-king/",
+    "year": 2010
+   }
+  },
+  {
+   "person": "Richard King",
+   "kind": "insight",
+   "text": "At Nolan’s suggestion, Inception shifts the pitch of real-world sounds as the dreamers drop a level, so the roar inside a jet morphs into city traffic on entering the first dream.",
+   "categories": [
+    "scifi",
+    "story"
+   ],
+   "source": {
+    "title": "Inception: Exclusive Interview with Richard King",
+    "publication": "Designing Sound",
+    "url": "https://designingsound.org/2010/08/18/inception-exclusive-interview-with-richard-king/",
+    "year": 2010
+   }
+  },
+  {
+   "person": "Richard King",
+   "kind": "quote",
+   "text": "I put a billiard ball in my dryer at home to get random banging.",
+   "categories": [
+    "foley",
+    "recording"
+   ],
+   "source": {
+    "title": "Christopher Nolan’s Sound Designer Spills Behind-the-Scenes Secrets From ‘Dunkirk’ and ‘The Dark Knight’",
+    "publication": "IndieWire",
+    "url": "https://www.yahoo.com/entertainment/christopher-nolan-sound-designer-spills-190237647.html",
+    "year": 2019
+   }
+  },
+  {
+   "person": "Richard King",
+   "kind": "insight",
+   "text": "King primes big bangs with a sliver of silence first—explosions and gunfire startle far more when a moment of quiet comes right before them.",
+   "categories": [
+    "silence",
+    "action"
+   ],
+   "source": {
+    "title": "Christopher Nolan’s Sound Designer Spills Behind-the-Scenes Secrets From ‘Dunkirk’ and ‘The Dark Knight’",
+    "publication": "IndieWire",
+    "url": "https://www.yahoo.com/entertainment/christopher-nolan-sound-designer-spills-190237647.html",
+    "year": 2019
+   }
+  },
+  {
+   "person": "Richard King",
+   "kind": "insight",
+   "text": "The Bat in The Dark Knight Rises was King’s toughest job: it couldn’t read as a helicopter or just a giant fan, so he chased a flanged, whirring character instead.",
+   "categories": [
+    "scifi",
+    "weapons"
+   ],
+   "source": {
+    "title": "Christopher Nolan’s Sound Designer Spills Behind-the-Scenes Secrets From ‘Dunkirk’ and ‘The Dark Knight’",
+    "publication": "IndieWire",
+    "url": "https://www.yahoo.com/entertainment/christopher-nolan-sound-designer-spills-190237647.html",
+    "year": 2019
+   }
+  },
+  {
+   "person": "Richard King",
+   "kind": "quote",
+   "text": "Ideally it’s best to use one sound, if you can find that sound that’s perfect",
+   "categories": [
+    "craft",
+    "mixing"
+   ],
+   "source": {
+    "title": "The Boldest Sound in ‘Oppenheimer’ Was the Silence",
+    "publication": "IndieWire",
+    "url": "https://ca.news.yahoo.com/boldest-sound-oppenheimer-silence-210000937.html",
+    "year": 2024
+   }
+  },
+  {
+   "person": "Richard King",
+   "kind": "quote",
+   "text": "Chris loves the production track and we use every inch of it that we can",
+   "categories": [
+    "dialogue",
+    "collaboration"
+   ],
+   "source": {
+    "title": "The Boldest Sound in ‘Oppenheimer’ Was the Silence",
+    "publication": "IndieWire",
+    "url": "https://ca.news.yahoo.com/boldest-sound-oppenheimer-silence-210000937.html",
+    "year": 2024
+   }
+  },
+  {
+   "person": "Richard King",
+   "kind": "quote",
+   "text": "the idea was to feel it rather than necessarily understand it intellectually.",
+   "categories": [
+    "story",
+    "scifi"
+   ],
+   "source": {
+    "title": "2 Twentieth-Century Giants, 1 Sound Designer: Inside the Explosive ‘Oppenheimer’ and Musical ‘Maestro’",
+    "publication": "IndieWire",
+    "url": "https://ca.news.yahoo.com/2-twentieth-century-giants-1-210000463.html",
+    "year": 2023
+   }
+  },
+  {
+   "person": "Richard King",
+   "kind": "insight",
+   "text": "Oppenheimer’s black-hole collapse was a reversed explosion swept hard with EQ and layered with crushing rock, giving the sense of an implosion that never ends.",
+   "categories": [
+    "scifi",
+    "craft"
+   ],
+   "source": {
+    "title": "2 Twentieth-Century Giants, 1 Sound Designer: Inside the Explosive ‘Oppenheimer’ and Musical ‘Maestro’",
+    "publication": "IndieWire",
+    "url": "https://ca.news.yahoo.com/2-twentieth-century-giants-1-210000463.html",
+    "year": 2023
+   }
+  },
+  {
+   "person": "Richard King",
+   "kind": "insight",
+   "text": "In Maestro’s Ely Cathedral Mahler performance, the mix dropped all background while the music played, then let the world return only after it ended—a pause, then applause.",
+   "categories": [
+    "music",
+    "mixing",
+    "silence"
+   ],
+   "source": {
+    "title": "2 Twentieth-Century Giants, 1 Sound Designer: Inside the Explosive ‘Oppenheimer’ and Musical ‘Maestro’",
+    "publication": "IndieWire",
+    "url": "https://ca.news.yahoo.com/2-twentieth-century-giants-1-210000463.html",
+    "year": 2023
+   }
+  },
+  {
+   "person": "Richard King",
+   "kind": "insight",
+   "text": "Oppenheimer’s spaces are drawn with contrast: Los Alamos gets wind, thunder and heavily reverbed distant birds and coyotes for openness, while the hearing room sits on a low, airless rumble.",
+   "categories": [
+    "worlds",
+    "story"
+   ],
+   "source": {
+    "title": "Double Oscar Nominee Richard King Unveils the Aural Secrets of “Oppenheimer” and “Maestro”",
+    "publication": "Motion Picture Association (The Credits)",
+    "url": "https://www.motionpictures.org/2024/03/double-oscar-nominee-richard-king-unveils-the-aural-secrets-of-oppenheimer-and-maestro/",
+    "year": 2024
+   }
+  },
+  {
+   "person": "Richard King",
+   "kind": "insight",
+   "text": "Oppenheimer’s recurring stamping-feet motif grows more oppressive as the bomb nears, voicing his rising panic; during the security hearing the room tone itself vibrates as the lawyer shouts at him.",
+   "categories": [
+    "story",
+    "horror"
+   ],
+   "source": {
+    "title": "Double Oscar Nominee Richard King Unveils the Aural Secrets of “Oppenheimer” and “Maestro”",
+    "publication": "Motion Picture Association (The Credits)",
+    "url": "https://www.motionpictures.org/2024/03/double-oscar-nominee-richard-king-unveils-the-aural-secrets-of-oppenheimer-and-maestro/",
+    "year": 2024
+   }
+  }
+ ]
+}
