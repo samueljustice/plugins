@@ -75,6 +75,15 @@ int main()
         }
     }
 
+    // Unseeded pickers (one per launch) must not deal the same sequence: compare the first 8 picks.
+    {
+        QuotePicker a (lib), b (lib);
+        int same = 0;
+        for (int i = 0; i < 8; ++i)
+            same += a.next (0) == b.next (0) ? 1 : 0;
+        expect (same < 8, "two launches deal different sequences");
+    }
+
     expect (lib.findEntry (entries.front().id) == 0, "find an entry by id");
     expect (lib.findCategory ("mixing") > 0, "find a category by id");
     expect (picker.next (-1) == -1 && picker.next ((int) cats.size()) == -1, "unknown category picks nothing");

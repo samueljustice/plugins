@@ -87,8 +87,11 @@ void SoundAdviceLookAndFeel::getIdealPopupMenuItemSize (const juce::String& text
 juce::Rectangle<int> SoundAdviceLookAndFeel::getTooltipBounds (const juce::String& tipText, juce::Point<int> screenPos,
                                                                juce::Rectangle<int> parentArea)
 {
-    const auto w = (int) juce::GlyphArrangement::getStringWidth (Theme::italic (15.0f), tipText) + 20;
-    const auto h = 24;
+    // Measure the way drawTooltip draws (a TextLayout), with room to spare, so it never ellipsises.
+    juce::AttributedString as;
+    as.append (tipText, Theme::italic (15.0f));
+    const auto w = juce::roundToInt (std::ceil (juce::TextLayout::getStringWidth (as))) + 32;
+    const auto h = 26;
     return juce::Rectangle<int> (screenPos.x > parentArea.getCentreX() ? screenPos.x - (w + 12) : screenPos.x + 16,
                                  screenPos.y > parentArea.getCentreY() ? screenPos.y - (h + 8) : screenPos.y + 14, w, h)
         .constrainedWithin (parentArea);
@@ -103,7 +106,7 @@ void SoundAdviceLookAndFeel::drawTooltip (juce::Graphics& g, const juce::String&
     g.drawRect (r, 1.0f);
     g.setColour (palette.ink);
     g.setFont (Theme::italic (15.0f));
-    g.drawText (text, r.reduced (10.0f, 0.0f), juce::Justification::centred, true);
+    g.drawText (text, r.reduced (8.0f, 0.0f), juce::Justification::centred, false);
 }
 
 void SoundAdviceLookAndFeel::drawCornerResizer (juce::Graphics& g, int w, int h, bool isMouseOver, bool isMouseDragging)
@@ -361,7 +364,7 @@ SoundAdviceEditor::SoundAdviceEditor (SoundAdviceProcessor& p)
     };
 
     categories.setCategory (owner.getCategory());
-    quote.showEntry (owner.getCurrentEntry(), false);
+    quote.showEntry (owner.dealForNewWindow(), false);
 
     setWantsKeyboardFocus (true);
     setResizable (true, true);

@@ -136,10 +136,35 @@ void SoundAdviceProcessor::setStateInformation (const void* data, int sizeInByte
     const juce::ScopedLock sl (lock);
     if (const auto c = library.findCategory (state["category"].toString()); c >= 0)
         category = c;
-    if (const auto e = library.findEntry (state["entry"].toString()); e >= 0)
-        current = e;
     night = (bool) state.getProperty ("night", false);
     history.clear();
+
+    // Always open on something new: deal a fresh entry, steering clear of the one on screen last time.
+    const auto last = library.findEntry (state["entry"].toString());
+    const auto pick = picker.next (category, last);
+    if (pick >= 0)
+        current = pick;
+}
+
+void SoundAdviceProcessor::showEntryById (const juce::String& id)
+{
+    const juce::ScopedLock sl (lock);
+    if (const auto e = library.findEntry (id); e >= 0)
+    {
+        show (e);
+        history.clear();
+    }
+}
+
+int SoundAdviceProcessor::dealForNewWindow()
+{
+    const juce::ScopedLock sl (lock);
+    if (! dealOnOpen)
+        return current;
+    if (editorOpened)
+        show (picker.next (category, current));
+    editorOpened = true;   // the first window shows what the load just dealt
+    return current;
 }
 
 //==============================================================================

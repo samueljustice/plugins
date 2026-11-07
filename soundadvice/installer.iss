@@ -2,7 +2,7 @@
 ; Built by .github/workflows/build-release_soundadvice.yml, which passes the version:
 ;   iscc /DMyAppVersion=1.2.3 installer.iss
 #ifndef MyAppVersion
-  #define MyAppVersion "1.0.5"
+  #define MyAppVersion "1.0.6"
 #endif
 #define MyAppName "Sound Advice"
 #define MyAppPublisher "Sweet Justice Sound"
