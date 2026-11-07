@@ -6,3 +6,14 @@ Mark Mangini
 Scott Gershin
 Oliver Tarney
 Johnnie Burn
+# Foley artists: the Foley category was taken out of the plug-in.
+John Roesch
+Shelley Roden
+Pete Burgis
+Sanaa Kelley
+Caoimhe Doyle
+Marko Costanzo
+# No work from 2005 on: their advice is from the pre-2005 era.
+Alan Splet
+Frank Warner
+Theo Green

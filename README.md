@@ -121,10 +121,10 @@ A real-time reverser: a faithful, modernised recreation of Backwards Machine's t
   <img src="soundadvice/docs/screenshot.png" alt="Sound Advice, in day and night themes" width="820">
 </p>
 
-A small, quiet page of advice from the great film, TV and game sound designers and mixers. Pick what you're working on (mixing, trailers, creatures, Foley, silence, running a creative team...) and roll the die: it deals you a quote or a technique from one of them, with a link to where it came from.
+A small, quiet page of advice from the great film, TV and game sound designers and mixers. Pick what you're working on (mixing, trailers, creatures, dialogue, silence, running a creative team...) and roll the die: it deals you a quote or a technique from one of them, with a link to where it came from.
 
-- 📚 **832 entries from 78 people**, every one traced to an interview, article or talk
-- 🗂️ **18 categories**, from Mixing and Foley to Horror & Tension and Silence & Restraint
+- 📚 **792 entries from 141 people**, every one traced to an interview, article or SoundWorks Collection video
+- 🗂️ **17 categories**, from Mixing and Dialogue to Horror & Tension and Creativity & Teams
 - 🌗 **Paper by day, ink by night**
 - 🔇 **Audio passes straight through**, so it can sit on a mix bus or on a second screen as an app
 
