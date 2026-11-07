@@ -3,7 +3,7 @@ cmake_minimum_required(VERSION 3.15)
 # Set universal binary architectures BEFORE project()
 set(CMAKE_OSX_ARCHITECTURES "x86_64;arm64" CACHE STRING "Build architectures for macOS")
 
-project(PitchFlattener VERSION 2.0.0)
+project(PitchFlattener VERSION 2.0.1)
 
 # Add JUCE subdirectory
 add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/../SDK/JUCE JUCE)
@@ -67,6 +67,7 @@ target_sources(PitchFlattener
     PRIVATE
         Source/PluginProcessor.cpp
         Source/PluginEditor.cpp
+        Source/PitchFlattenerLookAndFeel.cpp
         Source/PresetManager.cpp
         Source/SpectrogramVisualizer.cpp
         Source/AboutWindow.cpp

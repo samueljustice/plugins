@@ -92,7 +92,7 @@ Subbertone tracks the pitch of your bass, engine or drone and adds a sub one oct
 Pitch Flattener removes pitch movement: the Doppler sweep from a pass-by, the wail from a siren, the vibrato from a voice. Pick a Source Type and it uses a pitch detector built for that sound, looks ahead to track the pitch, and flattens it sample-accurately. Made for offline-rendering hosts such as the Soundminer DSP rack.
 
 **VST3** · **AU** &nbsp;&nbsp;
-[![Download Pitch Flattener](https://img.shields.io/badge/download-v2.0.0-d00a35?style=flat-square)](https://github.com/samueljustice/plugins/releases/tag/pitchflattener-v2.0.0) &nbsp;
+[![Download Pitch Flattener](https://img.shields.io/badge/download-v2.0.1-d00a35?style=flat-square)](https://github.com/samueljustice/plugins/releases/tag/pitchflattener-v2.0.1) &nbsp;
 [Read the manual →](pitchflattener/README.md)
 
 ---

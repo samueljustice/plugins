@@ -1,48 +1,19 @@
 #pragma once
 
 #include <JuceHeader.h>
+#include "PitchFlattenerLookAndFeel.h"
 #include "PluginProcessor.h"
 #include "Theme.h"
-
-//==============================================================================
-/** Subbertone's LookAndFeel, plus a pill switch for toggles and dimmed disabled states. */
-class PitchFlattenerLookAndFeel : public juce::LookAndFeel_V4
-{
-public:
-    explicit PitchFlattenerLookAndFeel (const Theme::Fonts& fonts);
-
-    void drawRotarySlider (juce::Graphics&, int x, int y, int width, int height, float sliderPos,
-                           float rotaryStartAngle, float rotaryEndAngle, juce::Slider&) override;
-    juce::Slider::SliderLayout getSliderLayout (juce::Slider&) override;
-    juce::Label* createSliderTextBox (juce::Slider&) override;
-
-    juce::Font getLabelFont (juce::Label&) override;
-
-    void drawComboBox (juce::Graphics&, int width, int height, bool isButtonDown, int buttonX, int buttonY,
-                       int buttonW, int buttonH, juce::ComboBox&) override;
-    juce::Font getComboBoxFont (juce::ComboBox&) override;
-    void positionComboBoxText (juce::ComboBox&, juce::Label&) override;
-    juce::Font getPopupMenuFont() override;
-
-    void drawButtonBackground (juce::Graphics&, juce::Button&, const juce::Colour& backgroundColour,
-                               bool isMouseOverButton, bool isButtonDown) override;
-    juce::Font getTextButtonFont (juce::TextButton&, int buttonHeight) override;
-
-    void drawToggleButton (juce::Graphics&, juce::ToggleButton&, bool isMouseOverButton, bool isButtonDown) override;
-
-    juce::Font getAlertWindowTitleFont() override;
-    juce::Font getAlertWindowMessageFont() override;
-    juce::Font getAlertWindowFont() override;
-
-private:
-    const Theme::Fonts& m_fonts;
-};
 
 //==============================================================================
 /**
  * The editor scales one fixed-size content component (designed at
  * baseWidth x baseHeight) with an AffineTransform, so every size the host or
  * the corner resizer picks renders the same layout. The aspect ratio is fixed.
+ *
+ * Everything the editor opens (ComboBox popups, the preset dialogs, tooltips,
+ * the About window) is drawn with its PitchFlattenerLookAndFeel, and is owned
+ * by it or closed when it is deleted, so nothing outlives it or its LookAndFeel.
  */
 class PitchFlattenerAudioProcessorEditor : public juce::AudioProcessorEditor
 {
@@ -59,9 +30,18 @@ public:
 private:
     class Content;
 
+    /** Tooltips for the editor's chrome, drawn inside the editor (it has no native child views that could
+        cover them) at the editor's own scale, not that of the scaled content, like Subbertone's. */
+    class EditorTooltipWindow final : public juce::TooltipWindow
+    {
+    public:
+        explicit EditorTooltipWindow (juce::Component& editor);
+    };
+
     juce::SharedResourcePointer<Theme::Fonts> m_fonts;
-    PitchFlattenerLookAndFeel m_lookAndFeel;
+    PitchFlattenerLookAndFeel m_lookAndFeel; // before every component, menu, alert and window that uses it
     std::unique_ptr<Content> m_content;
+    EditorTooltipWindow m_tooltipWindow { *this }; // after m_lookAndFeel, so it is deleted first
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (PitchFlattenerAudioProcessorEditor)
 };

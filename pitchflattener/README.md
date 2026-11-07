@@ -2,7 +2,7 @@
 
 A VST3/AU plugin that removes pitch movement from a sound while keeping its energy and character. Use it to take the Doppler sweep out of a pass-by, iron the wail out of a siren, take the vibrato out of a voice or instrument, or lock a warbling tone to one note so the pitch is malleable again.
 
-### 🎉 Latest Release v2.0.0 - [Download Here](https://github.com/samueljustice/plugins/releases/tag/pitchflattener-v2.0.0)
+### 🎉 Latest Release v2.0.1 - [Download Here](https://github.com/samueljustice/plugins/releases/tag/pitchflattener-v2.0.1)
 
 ![Pitch Flattener 2.0](docs/screenshot.png)
 
@@ -84,6 +84,23 @@ The shifter is **Rubber Band Library R3** (the "finer" engine) in high-consisten
 - **Max Shift**: a safety limit on how far the audio may be shifted.
 - **Mix**: blends in the time-aligned dry signal. Keep it at 100 % for flattening; partial mixes can sound phasey.
 
+### Presets
+
+The preset bar in the header works like Subbertone's. Click the preset name to open the preset menu:
+
+- **FACTORY**: one preset per Source Type, with its tuned detector, range, tracking and target settings.
+- **USER**: your own presets, in the **User Presets** submenu.
+- **Save As...**, **Delete** (the current user preset, moved to the trash), **Reset to Defaults** (every parameter back to its default) and **Show Presets Folder**.
+
+The **<** and **>** arrows step through the factory presets and then your own, in menu order. **SAVE** stores the current settings as a user preset, and asks before replacing one with the same name. A tick marks the current preset. The name reads "No preset" after Reset to Defaults, or when the preset it came from has been deleted.
+
+User presets are plain `.xml` files, named after the preset, so they are easy to back up, share or rename:
+
+- macOS: `~/Library/SammyJs/PitchFlattener/Presets/User`
+- Windows: `%APPDATA%\SammyJs\PitchFlattener\Presets\User`
+
+The current preset is saved with your session. Presets from 1.x still load.
+
 ## Measured performance
 
 `tests/FlattenTests.cpp` renders synthetic sources through the exact plugin DSP, at random host block sizes, and measures how flat the output is with an independent pitch meter:
@@ -155,7 +172,8 @@ Created by Samuel Justice, [www.sweetjusticesound.com](https://www.sweetjustices
 
 ## Version history
 
-- **v2.0.0**: new detection and correction engine, Source Types, lookahead tracking, sample-accurate latency, new UI, test suite.
+- **v2.0.1**: Subbertone 1.2.0 styling for every menu, submenu, dialog, tooltip and text field; preset bar and menu on Subbertone's layout; user presets tracked by file; CI stapling retries.
+- v2.0.0: new detection and correction engine, Source Types, lookahead tracking, sample-accurate latency, new UI, test suite.
 - v1.2.5: help text and About button scaling fixes, FFT visualiser.
 - v1.1.0: added FFT pitch tracking.
 - v1.0.0: initial release.
