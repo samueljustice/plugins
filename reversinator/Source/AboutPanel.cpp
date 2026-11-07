@@ -122,7 +122,8 @@ void AboutPanel::show()
 {
     setVisible(true);
     toFront(false);
-    m_closeButton.grabKeyboardFocus();   // into the card; its ring shows only after Tab
+    if (isShowing())
+        m_closeButton.grabKeyboardFocus();   // into the card; its ring shows only after Tab
 }
 
 juce::Rectangle<int> AboutPanel::cardBounds() const
@@ -216,7 +217,25 @@ void AboutPanel::checkForUpdates()
     showStatus("Checking for updates...", Theme::Colours::textDim);
     m_updateChecker = std::make_unique<UpdateChecker>(juce::Component::SafePointer<AboutPanel>(this));
     m_updateChecker->startThread();
-    m_checkUpdatesButton.setEnabled(false);   // until the result arrives
+
+    // Disabled until the result arrives. A disabled button can't keep the keyboard focus (JUCE would
+    // drop it altogether and Tab would stop working), so it waits on the close button meanwhile and
+    // comes back when the button is enabled again.
+    m_returnFocusAfterCheck = m_checkUpdatesButton.hasKeyboardFocus(false);
+    if (m_returnFocusAfterCheck && isShowing())
+        m_closeButton.grabKeyboardFocus();
+    m_checkUpdatesButton.setEnabled(false);
+}
+
+void AboutPanel::finishUpdateCheck(const juce::String& message, juce::Colour colour)
+{
+    showStatus(message, colour);
+    m_checkUpdatesButton.setEnabled(true);
+
+    const auto* focused = juce::Component::getCurrentlyFocusedComponent();
+    if (m_returnFocusAfterCheck && isShowing() && (focused == nullptr || focused == &m_closeButton))
+        m_checkUpdatesButton.grabKeyboardFocus();
+    m_returnFocusAfterCheck = false;
 }
 
 //==============================================================================
@@ -317,9 +336,6 @@ void AboutPanel::UpdateChecker::run()
     juce::MessageManager::callAsync([owner = m_owner, message, colour]
     {
         if (auto* panel = owner.getComponent())
-        {
-            panel->showStatus(message, colour);
-            panel->m_checkUpdatesButton.setEnabled(true);
-        }
+            panel->finishUpdateCheck(message, colour);
     });
 }

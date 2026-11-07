@@ -558,10 +558,15 @@ jobs:
       run: |
         # This repository releases several plugins, so compare with Reversinator's own previous release
         # and list only the pull requests that changed Reversinator. (GitHub's generated notes would use
-        # the newest tag of any plugin and list every plugin's pull requests.)
+        # the newest release of any plugin and list every plugin's pull requests.) The base is the newest
+        # earlier tag that has a published release: a tag whose release run failed is skipped.
         cd repo
         current="$GITHUB_REF_NAME"
-        previous=$(git tag --list 'reversinator-v*' | sort -V | awk -v cur="$current" '$0 == cur { print prev; exit } { prev = $0 }')
+        previous=
+        for t in $(git tag --list 'reversinator-v*' | sort -V); do
+          [ "$t" = "$current" ] && break
+          gh release view "$t" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1 && previous=$t
+        done
         cp reversinator/RELEASE_NOTES.md ../release_body.md
         if [ -z "$previous" ]; then
           echo "No earlier Reversinator release, so no changelog section"

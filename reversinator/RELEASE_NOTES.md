@@ -6,7 +6,7 @@ Reversinator's interface now has the same look as Subbertone's. Every menu, fiel
 
 ### What's new
 
-- **Menus.** The right-click menus of the value boxes and the licence text, and any submenus, are rounded, framed panels, with section headers, a rounded highlight, and drawn ticks and arrows.
+- **Menus.** The right-click menu of a value box you are typing in, and of the licence text, is a rounded, framed panel in Reversinator's colours and font, with a rounded highlight.
 - **Typing a value.** While you type into a value box, it becomes a rounded field in that control's colour, and the text stays centred.
 - **Keyboard focus.** After you press Tab, a ring shows which control has the keyboard focus. This includes the mode lamps and the REVERSER button. A click hides the rings again.
 - **About panel.**

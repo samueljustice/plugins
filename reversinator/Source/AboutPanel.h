@@ -42,9 +42,11 @@ private:
 
     juce::Rectangle<int> cardBounds() const;
     void checkForUpdates();
+    void finishUpdateCheck(const juce::String& message, juce::Colour colour);
     void showStatus(const juce::String& text, juce::Colour colour);
 
     const Theme::Fonts& m_fonts;
+    bool m_returnFocusAfterCheck = false;   // CHECK FOR UPDATES had the keyboard focus when pressed
     juce::TextButton m_closeButton;
     juce::TextButton m_websiteButton;
     juce::TextButton m_emailButton;
