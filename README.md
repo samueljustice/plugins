@@ -1,45 +1,91 @@
-# Audio Plugins Repository
+# Sweet Justice Audio Plugins
 
-This repository contains audio plugin projects and their dependencies.
+Audio plug-ins and tools by Samuel Justice / [Sweet Justice Sound](https://www.sweetjusticesound.com), most of them built with [JUCE](https://juce.com). Each project lives in its own folder with its own README, and is released on its own from this repository's [releases page](https://github.com/samueljustice/plugins/releases).
 
 ## Projects
 
-### Pitch Flattener
-A VST3/AU plugin that removes pitch movement: the Doppler sweep from a pass-by, the wail from a siren, the vibrato from a voice. Pick a Source Type and it uses a detector built for that sound, looks ahead to track the pitch, and flattens it sample-accurately. Built for offline rendering hosts such as the Soundminer DSP rack.
+| Project | What it is | Formats | Latest release |
+|---|---|---|---|
+| [Swooshbuckler](swooshbuckler/README.md) | Whoosh-making rig | App (macOS, Windows), VST3, AU | Not released yet |
+| [Subbertone](subbertone/README.md) | Subharmonic generator | VST3, AU | [v1.1.0](https://github.com/samueljustice/plugins/releases/tag/subbertone-v1.1.0) |
+| [Pitch Flattener](pitchflattener/README.md) | Lookahead pitch flattening (Doppler, sirens, vibrato) | VST3, AU | [v2.0.0](https://github.com/samueljustice/plugins/releases/tag/pitchflattener-v2.0.0) |
+| [Reversinator](reversinator/README.md) | Real-time reverse effects | VST3, AU | [v1.0.0](https://github.com/samueljustice/plugins/releases/tag/reversinator-v1.0.0) |
+| Stretch Armstrong | Real-time varispeed and time stretch | VST3, AU | Not released yet |
+| [PTSL Beat Tool](PTSL_beattool/README.md) | Beat markers for Pro Tools | App (macOS) | Not released yet |
 
-- Location: `/pitchflattener/`
-- [Project README](pitchflattener/README.md)
-- [Latest Release](https://github.com/samueljustice/plugins/releases/tag/pitchflattener-v2.0.0)
+### Swooshbuckler
+A whoosh-making rig. Drop in up to ten sounds and it rides the faders across them, making doppler passes, swells, hits and tails, while a tape records every one and skips the silence. Two effect buses, a hit gate, a spectral morph between the buses, and modulators you can drag onto any knob. Runs as a standalone app on macOS and Windows, or as a plug-in.
 
-### Reversinator
-A VST3/AU audio plugin that provides real-time audio reversal effects with grain-based overlap-add processing. Create smooth reverse effects, experimental soundscapes, and unique time-based audio manipulations without clicks or pops.
-
-- Location: `/reversinator/`
-- [Project README](reversinator/README.md)
-- [Latest Release](https://github.com/samueljustice/plugins/releases/tag/reversinator-v1.0.0)
+- Location: `/swooshbuckler/`
+- [Project README](swooshbuckler/README.md)
 
 ### Subbertone
-A VST3/AU subharmonic generator. Tracks the pitch of your bass and adds a clean sub one octave below, with six saturation types and a resonant, envelope-swept filter for anything from pure sub reinforcement to a growling octave-down bass.
+A subharmonic generator. Tracks the pitch of your bass and adds a clean sub one octave below, with six saturation types and a resonant, envelope-swept filter for anything from pure sub reinforcement to a growling octave-down bass.
 
 - Location: `/subbertone/`
 - [Project README](subbertone/README.md)
-- [Latest Release](https://github.com/samueljustice/plugins/releases/tag/subbertone-v1.1.0)
+- [Latest release](https://github.com/samueljustice/plugins/releases/tag/subbertone-v1.1.0)
 
-## Dependencies
+### Pitch Flattener
+Removes pitch movement: the Doppler sweep from a pass-by, the wail from a siren, the vibrato from a voice. Pick a Source Type and it uses a pitch detector built for that sound, looks ahead to track the pitch, and flattens it sample-accurately. Built for offline-rendering hosts such as the Soundminer DSP rack.
 
-### SDK
-- **JUCE**: Cross-platform C++ application framework for audio applications
-- **RubberBand**: High-quality audio time-stretching and pitch-shifting library
+- Location: `/pitchflattener/`
+- [Project README](pitchflattener/README.md)
+- [Latest release](https://github.com/samueljustice/plugins/releases/tag/pitchflattener-v2.0.0)
+
+### Reversinator
+Real-time reverse effects using grain-based overlap-add, for smooth reverses, experimental textures and time-based effects without clicks or pops.
+
+- Location: `/reversinator/`
+- [Project README](reversinator/README.md)
+- [Latest release](https://github.com/samueljustice/plugins/releases/tag/reversinator-v1.0.0)
+
+### Stretch Armstrong
+Stretches audio in real time, either varispeed (the pitch follows the speed, like tape) or time stretch (the pitch stays put), using RubberBand. Work in progress.
+
+- Location: `/stretcharmstrong/`
+
+### PTSL Beat Tool
+A macOS app that tracks the beats of an audio file and places Pro Tools markers on them, through the Pro Tools Scripting Library (PTSL). Work in progress.
+
+- Location: `/PTSL_beattool/`
+- [Project README](PTSL_beattool/README.md)
 
 ## Building
 
-Each project has its own build instructions. Please refer to the individual project README files for specific build requirements and instructions.
+Every project builds with CMake and expects its dependencies in `SDK/` at the root of this repository (not committed):
+
+| Dependency | Used by |
+|---|---|
+| [JUCE](https://github.com/juce-framework/JUCE) 8.0.8, at `SDK/JUCE` | Swooshbuckler, Subbertone, Pitch Flattener, Reversinator, Stretch Armstrong |
+| [RubberBand](https://breakfastquay.com/rubberband/) 4.0.0, at `SDK/rubberband-4.0.0` | Pitch Flattener, Stretch Armstrong |
+| Beat-and-Tempo-Tracking, at `SDK/Beat-and-Tempo-Tracking`, and [py-ptsl](https://pypi.org/project/py-ptsl/) | PTSL Beat Tool |
+
+Then, from a project's folder:
+
+```bash
+cmake -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build --config Release
+```
+
+See each project's README for its own options.
+
+## Releases
+
+Each project has a GitHub Actions workflow in `.github/workflows/` that builds, signs and notarises it for macOS (and builds it for Windows where supported), then publishes a release. Push a tag named after the project to start one, for example:
+
+```bash
+git tag swooshbuckler-v1.0.0
+git push origin swooshbuckler-v1.0.0
+```
+
+The tag prefixes are `swooshbuckler-v`, `subbertone-v`, `pitchflattener-v`, `reversinator-v`, `stretcharmstrong-v` and `ptsl-beattool-v`.
 
 ## License
 
-Each project and dependency has its own license. Please refer to the respective LICENSE files in each directory.
+Each project and dependency has its own license. See the LICENSE file in each folder.
 
 ## Developer
 
-Created by Samuel Justice  
+Created by Samuel Justice
 Website: [www.sweetjusticesound.com](https://www.sweetjusticesound.com)

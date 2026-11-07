@@ -1,0 +1,11 @@
+# Local build folders
+build*/
+
+# Internal design notes that name third parties: kept on disk, never committed.
+docs/README.md
+docs/*-rig.md
+docs/v3-concept.md
+docs/research/v3-simple-interfaces.md
+docs/experiments/01-simplicity-ux.md
+docs/experiments/04-experiment-B.md
+.cache/

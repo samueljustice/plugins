@@ -4,6 +4,8 @@
 
 #include "SubharmonicEngine.h"
 #include "PitchDetector.h"
+#include "PresetManager.h"
+#include "MasterProcessor.h"
 
 #include <array>
 #include <atomic>
@@ -12,6 +14,7 @@
 class SubbertoneAudioProcessor : public juce::AudioProcessor
 {
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(SubbertoneAudioProcessor)
+    JUCE_DECLARE_WEAK_REFERENCEABLE(SubbertoneAudioProcessor)
 
 public:
     SubbertoneAudioProcessor();
@@ -53,10 +56,29 @@ public:
     float getCurrentSignalLevel() const { return m_currentSignalLevelDb.load(); }
     float getCurrentFundamental() const { return m_currentFundamental.load(); }
 
+    /** Editor view options (e.g. visualiser trace toggles), saved with the plugin state. */
+    bool getViewOption(const juce::Identifier& option, bool defaultValue) const;
+    void setViewOption(const juce::Identifier& option, bool value);
+    juce::var getViewValue(const juce::Identifier& option, const juce::var& defaultValue) const;
+    void setViewValue(const juce::Identifier& option, const juce::var& value);
+
+    /** Master limiter gain reduction in dB (<= 0), for the editor's meter. */
+    float getGainReductionDb() const { return m_gainReductionDb.load(std::memory_order_relaxed); }
+
+    PresetManager& getPresetManager() { return m_presetManager; }
+
+    /** 0..1: how much of harmonic k's level is sounding right now (message thread, for meters). */
+    float getHarmonicActivity(int k) const
+    {
+        return (k >= 1 && k <= 16) ? m_harmonicActivity[static_cast<size_t>(k)].load(std::memory_order_relaxed) : 0.0f;
+    }
+
     // Parameters
     juce::AudioProcessorValueTreeState m_parameters;
 
 private:
+    PresetManager m_presetManager; // after m_parameters: it listens to them
+
     juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
 
     SubharmonicEngine::Parameters readEngineParameters() const;
@@ -64,6 +86,8 @@ private:
     void copyVisualRing(const std::vector<float>& ring, std::vector<float>& dest) const;
 
     SubharmonicEngine m_subharmonicEngine;
+    MasterProcessor m_master; // final stage: inflate + look-ahead limiter (constant latency)
+    MasterProcessor::Parameters readMasterParameters() const;
 
     // Scratch buffers, sized in prepareToPlay. Blocks larger than this are processed in chunks.
     static constexpr int c_chunkSize = 512;
@@ -84,6 +108,20 @@ private:
     std::atomic<float>* m_filterModeParam = nullptr;
     std::atomic<float>* m_filterEnvAmountParam = nullptr;
     std::atomic<float>* m_filterEnvReleaseParam = nullptr;
+    std::atomic<float>* m_pitchGlideParam = nullptr;
+    std::atomic<float>* m_overtoneAmountParam = nullptr;
+    std::array<std::atomic<float>*, 17> m_harmonicParams {};
+    std::atomic<float>* m_inflateEffectParam = nullptr;
+    std::atomic<float>* m_inflateCurveParam = nullptr;
+    std::atomic<float>* m_limiterOnParam = nullptr;
+    std::atomic<float>* m_limiterCeilingParam = nullptr;
+    std::atomic<float>* m_limiterReleaseParam = nullptr;
+    std::atomic<float>* m_loCutOnParam = nullptr;
+    std::atomic<float>* m_loCutFreqParam = nullptr;
+
+    // Live per-harmonic activity (0..1) for the harmonic strip, written once per block.
+    std::array<std::atomic<float>, 17> m_harmonicActivity {};
+    std::atomic<float> m_gainReductionDb { 0.0f };
 
     juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> m_mixSmoothed;
     juce::SmoothedValue<float, juce::ValueSmoothingTypes::Multiplicative> m_outputGainSmoothed;
