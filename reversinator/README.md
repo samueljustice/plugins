@@ -27,6 +27,15 @@ Every effect is built from the same voice. A delay line's delay time is swept by
 
 **Feedback** sends each voice's output back into its own delay line, so repeats are re-reversed into cascades that alternate direction. As on the original, each delay line's input is halved and the output doubled, so FEEDBACK DEPTH is the true loop gain. At the 75% maximum, the feedback dies away rather than running away.
 
+### Differences from the original
+
+The sound is the original's. Reversinator deliberately differs only where Backwards Machine glitched:
+
+- **Moving TIME** crossfades over 20 ms from read heads still running on the old timing to heads on the new timing. The original crossfaded over one host buffer from a frozen read head, so how much it glitched depended on the buffer size.
+- **Switching effects** crossfades over 30 ms into the new effect, which starts with the input history already in place. The original cut to silence and refilled its buffers.
+- **Long TIME settings** work across the whole range. In Reverse Playback and Reverse Repeat, the original's delay memory wrapped above about 3 s (at 44.1 kHz), so the end of each snippet read the wrong audio.
+- **REVERSER** always crossfades over a full 10 ms. The original's crossfade was shortened when the host buffer was smaller than 10 ms.
+
 ## Controls
 
 | Control | Range | Default | Description |
