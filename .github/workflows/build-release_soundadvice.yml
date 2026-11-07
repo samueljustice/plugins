@@ -1,0 +1,442 @@
+name: Build and Release Sound Advice
+
+# Push a tag like soundadvice-v1.0.0 to build, sign, notarise and publish a release.
+# The tag's number becomes the version everywhere: About panel, bundles, installers.
+# Run it by hand (workflow_dispatch) to get the same artefacts without a release.
+# Pull requests that touch Sound Advice build, test, sign and package too (no release),
+# so problems show up before a tag is pushed.
+#
+# Secrets (the same ones the other plug-ins use):
+#   APPLE_DEVELOPER_CERTIFICATE_P12_BASE64, APPLE_DEVELOPER_CERTIFICATE_PASSWORD
+#     a .p12 holding BOTH "Developer ID Application" and "Developer ID Installer"
+#   APPLE_ID, APPLE_APP_PASSWORD, APPLE_TEAM_ID   for notarisation
+# Optional, for Windows signing (skipped when missing):
+#   WINDOWS_CERTIFICATE_PFX_BASE64, WINDOWS_CERTIFICATE_PASSWORD
+#     a code-signing certificate exported as .pfx, base64 encoded
+
+on:
+  push:
+    tags:
+      - 'soundadvice-v*'
+  pull_request:
+    paths:
+      - 'soundadvice/**'
+      - '.github/workflows/build-release_soundadvice.yml'
+  workflow_dispatch:
+
+# A newer push to the same PR replaces the run in progress.
+concurrency:
+  group: soundadvice-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: write
+
+env:
+  JUCE_VERSION: 8.0.8
+
+jobs:
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+    steps:
+    - uses: actions/checkout@v5
+    - name: Work out the version
+      id: v
+      run: |
+        if [[ "$GITHUB_REF" == refs/tags/soundadvice-v* ]]; then
+          VERSION="${GITHUB_REF#refs/tags/soundadvice-v}"
+        else
+          # Not a release: the default in CMakeLists.txt
+          VERSION=$(sed -n 's/^set(SOUNDADVICE_VERSION "\([0-9.]*\)".*/\1/p' soundadvice/CMakeLists.txt)
+        fi
+        if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+          echo "Version '$VERSION' must look like 1.2.3"
+          exit 1
+        fi
+        echo "Version: $VERSION"
+        echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+  build-windows:
+    needs: version
+    runs-on: windows-latest
+    timeout-minutes: 90
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+
+    steps:
+    - uses: actions/checkout@v5
+
+    - name: Setup JUCE
+      run: |
+        mkdir SDK
+        git clone --depth 1 --branch $env:JUCE_VERSION https://github.com/juce-framework/JUCE.git SDK/JUCE
+
+    - name: Configure CMake
+      run: |
+        cd soundadvice
+        $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm UTC" -AsUTC
+        $commit = git rev-parse --short HEAD
+        cmake -B build -S . -DCMAKE_BUILD_TYPE=Release `
+          -DSOUNDADVICE_VERSION="$env:VERSION" `
+          -DSOUNDADVICE_FORMATS="Standalone;VST3" `
+          -DSOUNDADVICE_TESTS=OFF `
+          -DBUILD_TIMESTAMP="$timestamp" -DBUILD_COMMIT="$commit"
+
+    - name: Build app and VST3
+      run: |
+        cd soundadvice
+        cmake --build build --config Release --parallel
+
+    - name: Gather files
+      run: |
+        cd soundadvice
+        $out = "build\SoundAdvice_artefacts\Release"
+        New-Item -ItemType Directory -Force -Path windows-package\app, windows-package\vst3 | Out-Null
+        Copy-Item "$out\Standalone\Sound Advice.exe" windows-package\app\
+        Copy-Item "$out\VST3\Sound Advice.vst3" windows-package\vst3\ -Recurse
+        Get-ChildItem windows-package -Recurse | Select-Object FullName, Length
+
+    - name: Check for Windows certificate
+      id: wincert
+      shell: bash
+      run: |
+        if [[ -n "${{ secrets.WINDOWS_CERTIFICATE_PFX_BASE64 }}" ]]; then
+          echo "has_cert=true" >> "$GITHUB_OUTPUT"
+        else
+          echo "has_cert=false" >> "$GITHUB_OUTPUT"
+          echo "No Windows certificate in secrets: the Windows build will be unsigned"
+        fi
+
+    - name: Import Windows certificate
+      if: steps.wincert.outputs.has_cert == 'true'
+      run: |
+        $bytes = [Convert]::FromBase64String("${{ secrets.WINDOWS_CERTIFICATE_PFX_BASE64 }}")
+        $pfx = Join-Path $env:RUNNER_TEMP "codesign.pfx"
+        [IO.File]::WriteAllBytes($pfx, $bytes)
+        "PFX_PATH=$pfx" | Out-File -FilePath $env:GITHUB_ENV -Append
+        $signtool = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin\*\x64\signtool.exe" | Sort-Object FullName -Descending | Select-Object -First 1
+        "SIGNTOOL=$($signtool.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+    - name: Sign app and VST3
+      if: steps.wincert.outputs.has_cert == 'true'
+      env:
+        PFX_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+      run: |
+        cd soundadvice
+        $files = @("windows-package\app\Sound Advice.exe") + (Get-ChildItem windows-package\vst3 -Recurse -Filter *.vst3 -File | ForEach-Object { $_.FullName })
+        foreach ($f in $files) {
+          & $env:SIGNTOOL sign /f $env:PFX_PATH /p $env:PFX_PASSWORD /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 /d "Sound Advice" $f
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & $env:SIGNTOOL verify /pa $f
+        }
+
+    - name: Build installer
+      run: |
+        cd soundadvice
+        choco install innosetup -y --no-progress
+        & "${env:ProgramFiles(x86)}\Inno Setup 6\iscc.exe" /DMyAppVersion=$env:VERSION installer.iss
+        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+        Get-Item SoundAdvice_Installer.exe
+
+    - name: Sign installer
+      if: steps.wincert.outputs.has_cert == 'true'
+      env:
+        PFX_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+      run: |
+        cd soundadvice
+        & $env:SIGNTOOL sign /f $env:PFX_PATH /p $env:PFX_PASSWORD /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 /d "Sound Advice installer" SoundAdvice_Installer.exe
+        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+        & $env:SIGNTOOL verify /pa SoundAdvice_Installer.exe
+
+    - name: Clean up certificate
+      if: always() && steps.wincert.outputs.has_cert == 'true'
+      run: Remove-Item -Force -ErrorAction SilentlyContinue $env:PFX_PATH
+
+    - name: Upload Windows installer
+      uses: actions/upload-artifact@v6
+      with:
+        name: windows-installer
+        path: soundadvice/SoundAdvice_Installer.exe
+
+    - name: Upload Windows files
+      uses: actions/upload-artifact@v6
+      with:
+        name: windows-files
+        path: soundadvice/windows-package/
+
+  build-macos:
+    needs: version
+    runs-on: macos-15
+    timeout-minutes: 150 # notarisation can queue; fail fast instead of GitHub's 6 hours
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+
+    steps:
+    - uses: actions/checkout@v5
+
+    - name: Setup JUCE
+      run: |
+        mkdir SDK
+        git clone --depth 1 --branch "$JUCE_VERSION" https://github.com/juce-framework/JUCE.git SDK/JUCE
+
+    - name: Configure CMake
+      run: |
+        cd soundadvice
+        cmake -B build -S . -DCMAKE_BUILD_TYPE=Release \
+          -DCMAKE_OSX_ARCHITECTURES="x86_64;arm64" \
+          -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0 \
+          -DSOUNDADVICE_VERSION="$VERSION" \
+          -DBUILD_TIMESTAMP="$(date -u "+%Y-%m-%d %H:%M UTC")" \
+          -DBUILD_COMMIT="$(git rev-parse --short HEAD)"
+
+    - name: Build app, AU, VST3 and test
+      run: |
+        cd soundadvice
+        # Bounded: a bare --parallel is "make -j" with no limit, which starts every JUCE module at once
+        # and can run the 3-core runner out of memory. One job per core.
+        cmake --build build --config Release --parallel "$(sysctl -n hw.ncpu)"
+
+    - name: Check the quote database
+      run: |
+        cd soundadvice
+        exe=$(find build -name SoundAdviceTests -type f -perm +111 | head -1)
+        "$exe"
+
+    - name: Check for certificates
+      id: check_certs
+      run: |
+        if [[ -n "${{ secrets.APPLE_DEVELOPER_CERTIFICATE_P12_BASE64 }}" ]]; then
+          echo "has_certs=true" >> "$GITHUB_OUTPUT"
+        else
+          echo "has_certs=false" >> "$GITHUB_OUTPUT"
+          echo "No certificates in secrets: the macOS build will be unsigned"
+        fi
+
+    - name: Import certificates
+      if: steps.check_certs.outputs.has_certs == 'true'
+      uses: apple-actions/import-codesign-certs@v6
+      with:
+        p12-file-base64: ${{ secrets.APPLE_DEVELOPER_CERTIFICATE_P12_BASE64 }}
+        p12-password: ${{ secrets.APPLE_DEVELOPER_CERTIFICATE_PASSWORD }}
+
+    - name: Verify certificates
+      if: steps.check_certs.outputs.has_certs == 'true'
+      run: |
+        security find-identity -v -p codesigning | grep -q "Developer ID Application" || { echo "Developer ID Application certificate not found"; exit 1; }
+        security find-identity -v -p basic | grep -q "Developer ID Installer" || { echo "Developer ID Installer certificate not found"; exit 1; }
+        echo "Both certificates imported"
+
+    - name: Gather bundles
+      run: |
+        cd soundadvice
+        OUT=build/SoundAdvice_artefacts/Release
+        mkdir -p staging/app staging/vst3 staging/au
+        cp -R "$OUT/Standalone/Sound Advice.app" staging/app/
+        cp -R "$OUT/VST3/Sound Advice.vst3" staging/vst3/
+        cp -R "$OUT/AU/Sound Advice.component" staging/au/
+        /usr/libexec/PlistBuddy -c "Print CFBundleShortVersionString" "staging/app/Sound Advice.app/Contents/Info.plist"
+
+    - name: Sign bundles
+      if: steps.check_certs.outputs.has_certs == 'true'
+      run: |
+        cd soundadvice
+        IDENTITY=$(security find-identity -v -p codesigning | grep "Developer ID Application" | head -1 | awk -F'"' '{print $2}')
+        for b in "staging/app/Sound Advice.app" "staging/vst3/Sound Advice.vst3" "staging/au/Sound Advice.component"; do
+          echo "Signing $b"
+          codesign --force --sign "$IDENTITY" --timestamp --options runtime --entitlements entitlements.plist "$b"
+          codesign --verify --deep --strict --verbose=2 "$b"
+        done
+
+    - name: Notarise bundles
+      if: steps.check_certs.outputs.has_certs == 'true'
+      env:
+        APPLE_ID: ${{ secrets.APPLE_ID }}
+        APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+        APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      run: |
+        cd soundadvice/staging
+        ditto -c -k --keepParent "app/Sound Advice.app" ../notarise-app.zip
+        zip -qry ../notarise-plugins.zip vst3 au
+        for z in ../notarise-app.zip ../notarise-plugins.zip; do
+          echo "Notarising $z"
+          ID=$(xcrun notarytool submit "$z" --apple-id "$APPLE_ID" --password "$APPLE_APP_PASSWORD" --team-id "$APPLE_TEAM_ID" --output-format json | jq -r '.id')
+          xcrun notarytool wait "$ID" --apple-id "$APPLE_ID" --password "$APPLE_APP_PASSWORD" --team-id "$APPLE_TEAM_ID"
+          STATUS=$(xcrun notarytool info "$ID" --apple-id "$APPLE_ID" --password "$APPLE_APP_PASSWORD" --team-id "$APPLE_TEAM_ID" --output-format json | jq -r '.status')
+          if [ "$STATUS" != "Accepted" ]; then
+            xcrun notarytool log "$ID" --apple-id "$APPLE_ID" --password "$APPLE_APP_PASSWORD" --team-id "$APPLE_TEAM_ID"
+            exit 1
+          fi
+        done
+        # Apple's ticket fetch occasionally drops the connection (stapler error 68): retry before failing.
+        staple() {
+          for attempt in 1 2 3 4; do
+            if xcrun stapler staple "$1"; then return 0; fi
+            echo "Stapling $1 failed (attempt $attempt of 4)"
+            if [ "$attempt" -lt 4 ]; then sleep 30; fi
+          done
+          return 1
+        }
+        staple "app/Sound Advice.app"
+        staple "vst3/Sound Advice.vst3"
+        staple "au/Sound Advice.component"
+
+    - name: Build installer package
+      run: |
+        cd soundadvice
+        # The app goes to /Applications (not relocatable, so an old copy elsewhere isn't updated instead).
+        pkgbuild --analyze --root staging/app app-components.plist
+        /usr/libexec/PlistBuddy -c "Delete :0:BundleIsRelocatable" app-components.plist 2>/dev/null || true
+        /usr/libexec/PlistBuddy -c "Add :0:BundleIsRelocatable bool false" app-components.plist
+        pkgbuild --identifier com.sweetjusticesound.soundadvice.app --version "$VERSION" \
+          --root staging/app --component-plist app-components.plist --install-location /Applications app.pkg
+        pkgbuild --identifier com.sweetjusticesound.soundadvice.vst3 --version "$VERSION" \
+          --root staging/vst3 --install-location /Library/Audio/Plug-Ins/VST3 vst3.pkg
+        pkgbuild --identifier com.sweetjusticesound.soundadvice.au --version "$VERSION" \
+          --root staging/au --install-location /Library/Audio/Plug-Ins/Components au.pkg
+
+        cat > distribution.xml << EOF
+        <?xml version="1.0" encoding="utf-8"?>
+        <installer-gui-script minSpecVersion="2.0">
+            <title>Sound Advice $VERSION</title>
+            <organization>com.sweetjusticesound</organization>
+            <domains enable_localSystem="true"/>
+            <options customize="always" require-scripts="false" hostArchitectures="x86_64,arm64"/>
+            <choices-outline>
+                <line choice="app"/>
+                <line choice="vst3"/>
+                <line choice="au"/>
+            </choices-outline>
+            <choice id="app" title="Sound Advice app" description="The standalone app, in Applications.">
+                <pkg-ref id="com.sweetjusticesound.soundadvice.app"/>
+            </choice>
+            <choice id="vst3" title="VST3 plug-in">
+                <pkg-ref id="com.sweetjusticesound.soundadvice.vst3"/>
+            </choice>
+            <choice id="au" title="Audio Unit plug-in">
+                <pkg-ref id="com.sweetjusticesound.soundadvice.au"/>
+            </choice>
+            <pkg-ref id="com.sweetjusticesound.soundadvice.app">app.pkg</pkg-ref>
+            <pkg-ref id="com.sweetjusticesound.soundadvice.vst3">vst3.pkg</pkg-ref>
+            <pkg-ref id="com.sweetjusticesound.soundadvice.au">au.pkg</pkg-ref>
+        </installer-gui-script>
+        EOF
+        productbuild --distribution distribution.xml --package-path . --version "$VERSION" SoundAdvice_Installer.pkg
+
+    - name: Sign installer package
+      if: steps.check_certs.outputs.has_certs == 'true'
+      run: |
+        cd soundadvice
+        INSTALLER_IDENTITY=$(security find-identity -v -p basic | grep "Developer ID Installer" | head -1 | awk -F'"' '{print $2}')
+        productsign --sign "$INSTALLER_IDENTITY" --timestamp SoundAdvice_Installer.pkg SoundAdvice_Installer_Signed.pkg
+        mv SoundAdvice_Installer_Signed.pkg SoundAdvice_Installer.pkg
+        pkgutil --check-signature SoundAdvice_Installer.pkg
+
+    - name: Build app disk image
+      run: |
+        cd soundadvice
+        mkdir -p dmg
+        cp -R "staging/app/Sound Advice.app" dmg/
+        ln -s /Applications dmg/Applications
+        hdiutil create -volname "Sound Advice $VERSION" -srcfolder dmg -ov -format UDZO SoundAdvice.dmg
+
+    - name: Sign disk image
+      if: steps.check_certs.outputs.has_certs == 'true'
+      run: |
+        cd soundadvice
+        IDENTITY=$(security find-identity -v -p codesigning | grep "Developer ID Application" | head -1 | awk -F'"' '{print $2}')
+        codesign --force --sign "$IDENTITY" --timestamp SoundAdvice.dmg
+
+    - name: Notarise installer and disk image
+      if: steps.check_certs.outputs.has_certs == 'true'
+      env:
+        APPLE_ID: ${{ secrets.APPLE_ID }}
+        APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+        APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      run: |
+        # Apple's ticket fetch occasionally drops the connection (stapler error 68): retry before failing.
+        staple() {
+          for attempt in 1 2 3 4; do
+            if xcrun stapler staple "$1"; then return 0; fi
+            echo "Stapling $1 failed (attempt $attempt of 4)"
+            if [ "$attempt" -lt 4 ]; then sleep 30; fi
+          done
+          return 1
+        }
+        cd soundadvice
+        for f in SoundAdvice_Installer.pkg SoundAdvice.dmg; do
+          echo "Notarising $f"
+          ID=$(xcrun notarytool submit "$f" --apple-id "$APPLE_ID" --password "$APPLE_APP_PASSWORD" --team-id "$APPLE_TEAM_ID" --output-format json | jq -r '.id')
+          xcrun notarytool wait "$ID" --apple-id "$APPLE_ID" --password "$APPLE_APP_PASSWORD" --team-id "$APPLE_TEAM_ID"
+          STATUS=$(xcrun notarytool info "$ID" --apple-id "$APPLE_ID" --password "$APPLE_APP_PASSWORD" --team-id "$APPLE_TEAM_ID" --output-format json | jq -r '.status')
+          if [ "$STATUS" != "Accepted" ]; then
+            xcrun notarytool log "$ID" --apple-id "$APPLE_ID" --password "$APPLE_APP_PASSWORD" --team-id "$APPLE_TEAM_ID"
+            exit 1
+          fi
+          staple "$f"
+        done
+        spctl --assess --type install -vv SoundAdvice_Installer.pkg
+        spctl --assess --type execute -vv "staging/app/Sound Advice.app"
+
+    - name: Zip plug-ins
+      run: |
+        cd soundadvice/staging
+        ditto -c -k --keepParent "vst3/Sound Advice.vst3" ../SoundAdvice-macOS-VST3.zip
+        ditto -c -k --keepParent "au/Sound Advice.component" ../SoundAdvice-macOS-AU.zip
+
+    - name: Upload macOS files
+      uses: actions/upload-artifact@v6
+      with:
+        name: macos
+        path: |
+          soundadvice/SoundAdvice_Installer.pkg
+          soundadvice/SoundAdvice.dmg
+          soundadvice/SoundAdvice-macOS-VST3.zip
+          soundadvice/SoundAdvice-macOS-AU.zip
+
+  create-release:
+    needs: [version, build-windows, build-macos]
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+
+    steps:
+    - name: Download all artifacts
+      uses: actions/download-artifact@v7
+
+    - name: Name the files with the version
+      run: |
+        mkdir release
+        cp macos/SoundAdvice_Installer.pkg "release/SoundAdvice-$VERSION-macOS-Installer.pkg"
+        cp macos/SoundAdvice.dmg "release/SoundAdvice-$VERSION-macOS-App.dmg"
+        cp macos/SoundAdvice-macOS-VST3.zip "release/SoundAdvice-$VERSION-macOS-VST3.zip"
+        cp macos/SoundAdvice-macOS-AU.zip "release/SoundAdvice-$VERSION-macOS-AU.zip"
+        cp windows-installer/SoundAdvice_Installer.exe "release/SoundAdvice-$VERSION-Windows-Installer.exe"
+        (cd windows-files/vst3 && zip -qr "../../release/SoundAdvice-$VERSION-Windows-VST3.zip" "Sound Advice.vst3")
+        (cd windows-files/app && zip -q "../../release/SoundAdvice-$VERSION-Windows-App.zip" "Sound Advice.exe")
+        ls -la release
+
+    - name: Create release
+      uses: softprops/action-gh-release@v3
+      with:
+        name: Sound Advice ${{ env.VERSION }}
+        files: release/*
+        body: |
+          ## Sound Advice ${{ env.VERSION }}
+
+          A quiet page of advice from the great film, TV and game sound designers and mixers. Pick a category, roll the die. VST3 and AU plug-ins, plus a standalone app.
+
+          ### Downloads
+          - **macOS installer** (`.pkg`): the app, VST3 and AU. Choose which with Customize.
+          - **macOS app** (`.dmg`): just the app. Drag it to Applications.
+          - **Windows installer** (`.exe`): the app and the VST3.
+          - Zips of each plug-in and the Windows app, for manual installs.
+
+          The macOS downloads are signed and notarised. Universal (Apple silicon and Intel), macOS 11 or later. Windows: 64-bit Windows 10 or later.
+
+          See the [Sound Advice README](https://github.com/${{ github.repository }}/tree/main/soundadvice) for how to use it.
+        generate_release_notes: true
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

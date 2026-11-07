@@ -61,6 +61,7 @@ jobs:
   build-windows:
     needs: version
     runs-on: windows-latest
+    timeout-minutes: 90
     env:
       VERSION: ${{ needs.version.outputs.version }}
 
@@ -168,6 +169,7 @@ jobs:
   build-macos:
     needs: version
     runs-on: macos-15
+    timeout-minutes: 150 # build ~30 min, notarisation can queue; fail fast instead of GitHub's 6 hours
     env:
       VERSION: ${{ needs.version.outputs.version }}
 
@@ -192,7 +194,9 @@ jobs:
     - name: Build app, AU, VST3 and tests
       run: |
         cd swooshbuckler
-        cmake --build build --config Release --parallel
+        # Bounded: a bare --parallel is "make -j" with no limit, which starts every JUCE module and test at once
+        # and runs the 3-core runner out of memory (it stalled for hours). One job per core.
+        cmake --build build --config Release --parallel "$(sysctl -n hw.ncpu)"
 
     - name: Run tests
       run: |

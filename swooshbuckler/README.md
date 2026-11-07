@@ -134,7 +134,8 @@ To work with a wire's plug on a knob:
 | Control | What it does |
 |---|---|
 | **Fader** | The track's level. With auto ride on, it's how high the ride can take it. |
-| **Type badge** | The sound type it was sorted into. Click it to change it. |
+| **Bus tag** | Where the track plays: BUS A, BUS B or HITS. It follows the sound type. |
+| **Type badge** | The sound type it was sorted into, which also picks its bus. Click it to change it. |
 | **SKIP SILENCE** | On: only the sounds play. Off: the whole file loops, silence and all. |
 | **M / S / x** | Mute, solo, remove (undo with Cmd+Z, or Ctrl+Z on Windows). |
 | Double-click the name | Rename the track. |

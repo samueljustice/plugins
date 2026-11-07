@@ -1,0 +1,1160 @@
+{
+ "people": [
+  {
+   "name": "Walter Murch",
+   "role": "Film editor & sound designer",
+   "credits": "Apocalypse Now, The Conversation, The English Patient",
+   "imdb": "https://www.imdb.com/name/nm0004555/"
+  },
+  {
+   "name": "Ren Klyce",
+   "role": "Sound designer & re-recording mixer",
+   "credits": "Fight Club, The Social Network, Mank, The Killer",
+   "imdb": "https://www.imdb.com/name/nm0460274/"
+  },
+  {
+   "name": "Skip Lievsay",
+   "role": "Supervising sound editor & re-recording mixer",
+   "credits": "No Country for Old Men, Gravity, Roma",
+   "imdb": "https://www.imdb.com/name/nm0509792/"
+  },
+  {
+   "name": "Ann Kroeber",
+   "role": "Sound effects recordist & sound designer",
+   "credits": "The Black Stallion, Dune, Blue Velvet",
+   "imdb": "https://www.imdb.com/name/nm0471848/"
+  },
+  {
+   "name": "Alan Splet",
+   "role": "Sound designer",
+   "credits": "Eraserhead, The Black Stallion, The Elephant Man, Blue Velvet",
+   "imdb": "https://www.imdb.com/name/nm0819263/"
+  },
+  {
+   "name": "Eugene Gearty",
+   "role": "Sound designer & supervising sound editor",
+   "credits": "Hugo, Life of Pi, The Irishman",
+   "imdb": "https://www.imdb.com/name/nm0311267/"
+  }
+ ],
+ "entries": [
+  {
+   "person": "Walter Murch",
+   "kind": "quote",
+   "text": "Three is the borderline where you cross over from ‘individual things’ to ‘group.’",
+   "categories": [
+    "mixing",
+    "craft"
+   ],
+   "source": {
+    "title": "Dense Clarity – Clear Density",
+    "publication": "Transom",
+    "url": "https://transom.org/2005/walter-murch/",
+    "year": 2005
+   }
+  },
+  {
+   "person": "Walter Murch",
+   "kind": "quote",
+   "text": "Conceptual density is something that should obey the same rules as loudness dynamics.",
+   "categories": [
+    "mixing"
+   ],
+   "source": {
+    "title": "Dense Clarity – Clear Density",
+    "publication": "Transom",
+    "url": "https://transom.org/2005/walter-murch/",
+    "year": 2005
+   }
+  },
+  {
+   "person": "Walter Murch",
+   "kind": "insight",
+   "text": "Murch maps sounds on a spectrum: speech is ‘encoded’ (violet), music is ‘embodied’ (red), and effects, footsteps and atmospheres fall between. A clear mix spreads its simultaneous layers across that spectrum instead of stacking several from one band.",
+   "categories": [
+    "mixing",
+    "dialogue",
+    "music"
+   ],
+   "source": {
+    "title": "Dense Clarity – Clear Density",
+    "publication": "Transom",
+    "url": "https://transom.org/2005/walter-murch/",
+    "year": 2005
+   }
+  },
+  {
+   "person": "Walter Murch",
+   "kind": "insight",
+   "text": "Apocalypse Now’s helicopter landing had 175+ tracks premixed into six groups; played together they became a ball of noise. Murch kept roughly five going at once and ran a ‘shell game’, dropping the Valkyries when a line of dialogue had to read.",
+   "categories": [
+    "mixing",
+    "action"
+   ],
+   "source": {
+    "title": "Dense Clarity – Clear Density",
+    "publication": "Transom",
+    "url": "https://transom.org/2005/walter-murch/",
+    "year": 2005
+   }
+  },
+  {
+   "person": "Walter Murch",
+   "kind": "insight",
+   "text": "Syncing robot footsteps on THX 1138, Murch found that one or two walkers need frame-accurate sync, but with three or more the ear hears a group, so the steps can land almost anywhere.",
+   "categories": [
+    "foley",
+    "craft"
+   ],
+   "source": {
+    "title": "Dense Clarity – Clear Density",
+    "publication": "Transom",
+    "url": "https://transom.org/2005/walter-murch/",
+    "year": 2005
+   }
+  },
+  {
+   "person": "Walter Murch",
+   "kind": "insight",
+   "text": "For Willard’s Saigon hotel room, field recordings of crickets weren’t precise enough. Murch’s team recorded a few crickets individually in the studio and stacked the tracks until they had thousands, giving the drone an eerie, hallucinatory clarity.",
+   "categories": [
+    "worlds",
+    "recording"
+   ],
+   "source": {
+    "title": "Dense Clarity – Clear Density",
+    "publication": "Transom",
+    "url": "https://transom.org/2005/walter-murch/",
+    "year": 2005
+   }
+  },
+  {
+   "person": "Walter Murch",
+   "kind": "insight",
+   "text": "In Apocalypse Now’s tiger scene the jungle is thinned until one glassy insect remains. Murch says the descent into silence has to be a gradual slope; drop it too abruptly and the audience falls out of the moment.",
+   "categories": [
+    "silence",
+    "horror"
+   ],
+   "source": {
+    "title": "Dense Clarity – Clear Density",
+    "publication": "Transom",
+    "url": "https://transom.org/2005/walter-murch/",
+    "year": 2005
+   }
+  },
+  {
+   "person": "Walter Murch",
+   "kind": "insight",
+   "text": "Worldizing: play the clean track through a speaker in a real space, record it from a distance on a second machine, then tuck that under the original. Murch likens it to shallow depth of field—sharp source, softened surroundings.",
+   "categories": [
+    "craft",
+    "music",
+    "worlds"
+   ],
+   "source": {
+    "title": "Dense Clarity – Clear Density",
+    "publication": "Transom",
+    "url": "https://transom.org/2005/walter-murch/",
+    "year": 2005
+   }
+  },
+  {
+   "person": "Walter Murch",
+   "kind": "insight",
+   "text": "Murch argues music should channel emotion the drama has already earned rather than manufacture it—he compares the latter to athletes on steroids—and notes that once you start leaning on score, it is hard to get off.",
+   "categories": [
+    "music",
+    "story"
+   ],
+   "source": {
+    "title": "Dense Clarity – Clear Density (Q&A)",
+    "publication": "Transom",
+    "url": "https://transom.org/2005/walter-murch/",
+    "year": 2005
+   }
+  },
+  {
+   "person": "Walter Murch",
+   "kind": "quote",
+   "text": "We do not see and hear a film, we hear/see it.",
+   "categories": [
+    "story"
+   ],
+   "source": {
+    "title": "Stretching Sound to Help the Mind See",
+    "publication": "The New York Times (via filmsound.org)",
+    "url": "http://www.filmsound.org/murch/stretching.htm",
+    "year": 2000
+   }
+  },
+  {
+   "person": "Walter Murch",
+   "kind": "quote",
+   "text": "The better the sound, the better the image.",
+   "categories": [
+    "story",
+    "craft"
+   ],
+   "source": {
+    "title": "Stretching Sound to Help the Mind See",
+    "publication": "The New York Times (via filmsound.org)",
+    "url": "http://www.filmsound.org/murch/stretching.htm",
+    "year": 2000
+   }
+  },
+  {
+   "person": "Walter Murch",
+   "kind": "insight",
+   "text": "Before Michael kills Sollozzo in The Godfather, an off-screen elevated-train screech plays over his calm face. Because nothing on screen explains it, the audience reads it as his inner state—until the gunshots reunite sound and image.",
+   "categories": [
+    "story",
+    "horror"
+   ],
+   "source": {
+    "title": "Stretching Sound to Help the Mind See",
+    "publication": "The New York Times (via filmsound.org)",
+    "url": "http://www.filmsound.org/murch/stretching.htm",
+    "year": 2000
+   }
+  },
+  {
+   "person": "Walter Murch",
+   "kind": "quote",
+   "text": "Sound has a great power but it is a conditional power",
+   "categories": [
+    "story"
+   ],
+   "source": {
+    "title": "Walter Murch – The Sound Film Man",
+    "publication": "Studio Sound (via filmsound.org)",
+    "url": "http://www.filmsound.org/murch/soundfilmman.htm",
+    "year": 1998
+   }
+  },
+  {
+   "person": "Walter Murch",
+   "kind": "quote",
+   "text": "Silence can be a useful tool; although it isn't used that often.",
+   "categories": [
+    "silence"
+   ],
+   "source": {
+    "title": "Walter Murch – The Sound Film Man",
+    "publication": "Studio Sound (via filmsound.org)",
+    "url": "http://www.filmsound.org/murch/soundfilmman.htm",
+    "year": 1998
+   }
+  },
+  {
+   "person": "Walter Murch",
+   "kind": "quote",
+   "text": "I can't use it more often or it would become predictable.",
+   "categories": [
+    "silence",
+    "craft"
+   ],
+   "source": {
+    "title": "In Conversation with Walter Murch (Kiran Ganti)",
+    "publication": "filmsound.org",
+    "url": "http://filmsound.org/murch/interview-with-walter-murch.htm",
+    "year": 2004
+   }
+  },
+  {
+   "person": "Walter Murch",
+   "kind": "quote",
+   "text": "Vision is exclusionary, both in space and time",
+   "categories": [
+    "story",
+    "worlds"
+   ],
+   "source": {
+    "title": "In Conversation with Walter Murch (Kiran Ganti)",
+    "publication": "filmsound.org",
+    "url": "http://filmsound.org/murch/interview-with-walter-murch.htm",
+    "year": 2004
+   }
+  },
+  {
+   "person": "Walter Murch",
+   "kind": "quote",
+   "text": "It's like a marker, or perfume, that says: ‘This is the car.’",
+   "categories": [
+    "music",
+    "story"
+   ],
+   "source": {
+    "title": "The Sounds of Evil (Tim Tully)",
+    "publication": "Videography (via filmsound.org)",
+    "url": "http://www.filmsound.org/murch/evil/",
+    "year": 1999
+   }
+  },
+  {
+   "person": "Walter Murch",
+   "kind": "quote",
+   "text": "It's always nice to pose a question for the audience,",
+   "categories": [
+    "story"
+   ],
+   "source": {
+    "title": "Unsung Heroes and Silent Pioneers: An Interview with Walter Murch",
+    "publication": "16:9",
+    "url": "https://16-9.dk/2018/09/interview-with-walter-murch/",
+    "year": 2018
+   }
+  },
+  {
+   "person": "Walter Murch",
+   "kind": "quote",
+   "text": "As horrible as screams are, they are a release of tension",
+   "categories": [
+    "horror",
+    "silence"
+   ],
+   "source": {
+    "title": "Unsung Heroes and Silent Pioneers: An Interview with Walter Murch",
+    "publication": "16:9",
+    "url": "https://16-9.dk/2018/09/interview-with-walter-murch/",
+    "year": 2018
+   }
+  },
+  {
+   "person": "Walter Murch",
+   "kind": "insight",
+   "text": "The ‘ghost helicopter’ that opens Apocalypse Now was rebuilt on an analog ARP from its parts—blade slap, turbine whine, air rush, exhaust pulse—so Murch could dissolve or reassemble the aircraft against real recordings as the scene needed.",
+   "categories": [
+    "scifi",
+    "craft",
+    "weapons"
+   ],
+   "source": {
+    "title": "Unsung Heroes and Silent Pioneers: An Interview with Walter Murch",
+    "publication": "16:9",
+    "url": "https://16-9.dk/2018/09/interview-with-walter-murch/",
+    "year": 2018
+   }
+  },
+  {
+   "person": "Walter Murch",
+   "kind": "insight",
+   "text": "With no digital audio to borrow from in 1974, Murch invented The Conversation’s surveillance garble himself, filtering voices through a synth and making the damage depend on whether a speaker was on- or off-axis to the mic—a rule he kept all film.",
+   "categories": [
+    "dialogue",
+    "craft"
+   ],
+   "source": {
+    "title": "Unsung Heroes and Silent Pioneers: An Interview with Walter Murch",
+    "publication": "16:9",
+    "url": "https://16-9.dk/2018/09/interview-with-walter-murch/",
+    "year": 2018
+   }
+  },
+  {
+   "person": "Walter Murch",
+   "kind": "quote",
+   "text": "In musical terms, we thought of the helicopters as our string section.",
+   "categories": [
+    "mixing",
+    "music"
+   ],
+   "source": {
+    "title": "Walter Murch Special: Apocalypse Now",
+    "publication": "Designing Sound",
+    "url": "https://designingsound.org/2009/10/09/walter-murch-special-apocalypse-now/",
+    "year": 2009
+   }
+  },
+  {
+   "person": "Ren Klyce",
+   "kind": "insight",
+   "text": "On Mank, Klyce’s team mixed the film clean first, then split it into nine stems—two music, dialogue, loop group, ambience, hard effects, footsteps, props and optical noise—so each could get its own tailored ‘patina’ of age.",
+   "categories": [
+    "mixing",
+    "craft"
+   ],
+   "source": {
+    "title": "Mank sound interview",
+    "publication": "A Sound Effect",
+    "url": "https://www.asoundeffect.com/mank-sound/",
+    "year": 2020
+   }
+  },
+  {
+   "person": "Ren Klyce",
+   "kind": "insight",
+   "text": "To sound like 1941, they ran Citizen Kane through a spectrum analyzer—almost nothing below ~110 Hz, bumps near 2 and 4 kHz, a dip around 5 kHz—and built that curve into an EQ, adjusted separately for each stem.",
+   "categories": [
+    "craft",
+    "mixing"
+   ],
+   "source": {
+    "title": "Mank sound interview",
+    "publication": "A Sound Effect",
+    "url": "https://www.asoundeffect.com/mank-sound/",
+    "year": 2020
+   }
+  },
+  {
+   "person": "Ren Klyce",
+   "kind": "insight",
+   "text": "Digital reverbs didn’t sell Mank’s old-theater sound, so the mix was played back on Skywalker’s hard-walled scoring stage and captured by about a dozen mics from screen to back wall, then blended into the rear surrounds.",
+   "categories": [
+    "worlds",
+    "mixing"
+   ],
+   "source": {
+    "title": "Mank sound interview",
+    "publication": "A Sound Effect",
+    "url": "https://www.asoundeffect.com/mank-sound/",
+    "year": 2020
+   }
+  },
+  {
+   "person": "Ren Klyce",
+   "kind": "quote",
+   "text": "I think sound is a craft that’s not supposed to be noticed.",
+   "categories": [
+    "craft"
+   ],
+   "source": {
+    "title": "Fight Club Sound Designer Reflects on Film’s 10th Anniversary",
+    "publication": "Rotten Tomatoes",
+    "url": "https://editorial.rottentomatoes.com/article/fight-club-sound-designer-reflects-on-films-10th-anniversary",
+    "year": 2009
+   }
+  },
+  {
+   "person": "Ren Klyce",
+   "kind": "insight",
+   "text": "Fight Club’s punches started with real hits to the chest for a drum-like thwack; Foley artists stuffed chickens with walnuts or wrapped them in wet chamois for bone crunch, and butcher-shop meat slabs were pummelled, then everything layered.",
+   "categories": [
+    "action",
+    "foley"
+   ],
+   "source": {
+    "title": "Fight Club Sound Designer Reflects on Film’s 10th Anniversary",
+    "publication": "Rotten Tomatoes",
+    "url": "https://editorial.rottentomatoes.com/article/fight-club-sound-designer-reflects-on-films-10th-anniversary",
+    "year": 2009
+   }
+  },
+  {
+   "person": "Ren Klyce",
+   "kind": "insight",
+   "text": "Fight Club’s fights evolve sonically with the characters: the first sounds naive because they can’t fight yet. Angel Face’s beating was recorded in a basement for its ugly echo, each hit spaced so reflections never overlapped.",
+   "categories": [
+    "action",
+    "story"
+   ],
+   "source": {
+    "title": "How Sound Artists Created the Most Epic Punches in Cinematic History",
+    "publication": "MEL Magazine",
+    "url": "https://melmagazine.com/en-us/story/how-sound-artists-created-the-most-epic-punches-in-cinematic-history",
+    "year": 2018
+   }
+  },
+  {
+   "person": "Ren Klyce",
+   "kind": "quote",
+   "text": "The artistic constraint is what makes you excited.",
+   "categories": [
+    "craft",
+    "collaboration"
+   ],
+   "source": {
+    "title": "Killer sound designer Ren Klyce thrives under the challenge of artistic constraints",
+    "publication": "Awards Daily",
+    "url": "https://www.awardsdaily.com/2023/12/14/killer-sound-designer-ren-klyce-thrives-under-the-challenge-of-artistic-constraints",
+    "year": 2023
+   }
+  },
+  {
+   "person": "Ren Klyce",
+   "kind": "insight",
+   "text": "In The Killer, metal is the character’s sonic theme: guns, lockers, license plates, even the metal cup he drinks from to avoid prints, clinking against an airplane tray. A material palette can define a person.",
+   "categories": [
+    "story",
+    "weapons"
+   ],
+   "source": {
+    "title": "Killer sound designer Ren Klyce thrives under the challenge of artistic constraints",
+    "publication": "Awards Daily",
+    "url": "https://www.awardsdaily.com/2023/12/14/killer-sound-designer-ren-klyce-thrives-under-the-challenge-of-artistic-constraints",
+    "year": 2023
+   }
+  },
+  {
+   "person": "Ren Klyce",
+   "kind": "insight",
+   "text": "The Killer cuts between perspectives sonically: objective shots carry the voiceover, while his POV shots drop it and slam between loud (often The Smiths) and quiet—Fincher’s ‘crazy loud/quiet thing’.",
+   "categories": [
+    "story",
+    "music",
+    "mixing"
+   ],
+   "source": {
+    "title": "Killer sound designer Ren Klyce thrives under the challenge of artistic constraints",
+    "publication": "Awards Daily",
+    "url": "https://www.awardsdaily.com/2023/12/14/killer-sound-designer-ren-klyce-thrives-under-the-challenge-of-artistic-constraints",
+    "year": 2023
+   }
+  },
+  {
+   "person": "Ren Klyce",
+   "kind": "insight",
+   "text": "In The Killer’s closing-kitchen scene, the room grows steadily quieter to build dread, and each time the kitchen door swings open it releases a burst of cooks’ chatter and music—what Klyce calls the escape hatch of her fear.",
+   "categories": [
+    "horror",
+    "worlds"
+   ],
+   "source": {
+    "title": "Killer sound designer Ren Klyce thrives under the challenge of artistic constraints",
+    "publication": "Awards Daily",
+    "url": "https://www.awardsdaily.com/2023/12/14/killer-sound-designer-ren-klyce-thrives-under-the-challenge-of-artistic-constraints",
+    "year": 2023
+   }
+  },
+  {
+   "person": "Ren Klyce",
+   "kind": "quote",
+   "text": "I always think, ‘Oh, I’m finally figuring out how to do my job.’",
+   "categories": [
+    "collaboration"
+   ],
+   "source": {
+    "title": "‘The Killer’ sound designer, editor, mixer Ren Klyce: ‘I’m finally figuring out how to do my job’",
+    "publication": "Gold Derby (via The Fincher Analyst)",
+    "url": "https://thefincheranalyst.com/2023/12/12/the-killer-sound-designer-editor-mixer-ren-klyce-im-finally-figuring-out-how-to-do-my-job/",
+    "year": 2023
+   }
+  },
+  {
+   "person": "Ren Klyce",
+   "kind": "quote",
+   "text": "I like the idea that there’s still sort of a beginner mentality",
+   "categories": [
+    "collaboration",
+    "craft"
+   ],
+   "source": {
+    "title": "‘The Killer’ sound designer, editor, mixer Ren Klyce: ‘I’m finally figuring out how to do my job’",
+    "publication": "Gold Derby (via The Fincher Analyst)",
+    "url": "https://thefincheranalyst.com/2023/12/12/the-killer-sound-designer-editor-mixer-ren-klyce-im-finally-figuring-out-how-to-do-my-job/",
+    "year": 2023
+   }
+  },
+  {
+   "person": "Ren Klyce",
+   "kind": "insight",
+   "text": "The Social Network’s first mixes were conservative. Fincher had the bar walla and the club music pushed over the dialogue so lines sit on the edge of intelligibility—the audience leans in, and the room feels real rather than ‘movie’.",
+   "categories": [
+    "mixing",
+    "dialogue"
+   ],
+   "source": {
+    "title": "Q&A With Ren Klyce, Sound Editor for The Social Network",
+    "publication": "OurStage",
+    "url": "https://blog.ourstage.com/?p=51845",
+    "year": 2010
+   }
+  },
+  {
+   "person": "Ren Klyce",
+   "kind": "quote",
+   "text": "There’s nothing worse than missing a word in a film",
+   "categories": [
+    "dialogue",
+    "mixing"
+   ],
+   "source": {
+    "title": "Ren Klyce Talks The Social Network Mix",
+    "publication": "Designing Sound (from The New York Times)",
+    "url": "https://designingsound.org/2011/02/22/ren-klyce-talks-the-social-network-mix/",
+    "year": 2011
+   }
+  },
+  {
+   "person": "Ren Klyce",
+   "kind": "insight",
+   "text": "Klyce doubted that adding reverb to a deliberately ‘old’ sound would work on Mank, but Fincher pushed for it. His takeaway: sometimes you set your instincts aside and trust the director’s vision.",
+   "categories": [
+    "collaboration"
+   ],
+   "source": {
+    "title": "Sounding Out Ren Klyce, David Fincher’s Mank",
+    "publication": "SHOOT",
+    "url": "https://www.shootonline.com/article/sounding-out-ren-klyce-david-finchers-mank/",
+    "year": 2021
+   }
+  },
+  {
+   "person": "Skip Lievsay",
+   "kind": "quote",
+   "text": "Movies I think are a direct lift from the operatic experience.",
+   "categories": [
+    "music",
+    "story"
+   ],
+   "source": {
+    "title": "Music, Sound and the Worlds in Between – A Skip Lievsay Interview (Part 1)",
+    "publication": "Designing Sound",
+    "url": "https://designingsound.org/2013/03/music-sound-and-the-worlds-in-between-a-skip-lievsay-interview-part-1/",
+    "year": 2013
+   }
+  },
+  {
+   "person": "Skip Lievsay",
+   "kind": "quote",
+   "text": "That's what frees the sound from being sound and turns it more into music",
+   "categories": [
+    "music",
+    "craft"
+   ],
+   "source": {
+    "title": "Music, Sound and the Worlds in Between – A Skip Lievsay Interview (Part 1)",
+    "publication": "Designing Sound",
+    "url": "https://designingsound.org/2013/03/music-sound-and-the-worlds-in-between-a-skip-lievsay-interview-part-1/",
+    "year": 2013
+   }
+  },
+  {
+   "person": "Skip Lievsay",
+   "kind": "insight",
+   "text": "For The New World’s Jamestown arrival, Malick had Lievsay stop cutting sound to the picture edits. Wind, grass, footsteps and Wagner flowed as one ‘river of sound’, elements rising and sinking independently of the cuts.",
+   "categories": [
+    "worlds",
+    "music"
+   ],
+   "source": {
+    "title": "Music, Sound and the Worlds in Between – A Skip Lievsay Interview (Part 1)",
+    "publication": "Designing Sound",
+    "url": "https://designingsound.org/2013/03/music-sound-and-the-worlds-in-between-a-skip-lievsay-interview-part-1/",
+    "year": 2013
+   }
+  },
+  {
+   "person": "Skip Lievsay",
+   "kind": "insight",
+   "text": "Given the note that Gravity’s score couldn’t sound like a symphony, Lievsay’s team took orchestral recordings and processed them into something more aggressive while keeping the lush orchestral body underneath.",
+   "categories": [
+    "music",
+    "scifi"
+   ],
+   "source": {
+    "title": "Music, Sound and the Worlds in Between – A Skip Lievsay Interview (Part 1)",
+    "publication": "Designing Sound",
+    "url": "https://designingsound.org/2013/03/music-sound-and-the-worlds-in-between-a-skip-lievsay-interview-part-1/",
+    "year": 2013
+   }
+  },
+  {
+   "person": "Skip Lievsay",
+   "kind": "insight",
+   "text": "On The Silence of the Lambs, one crew handled doors and backgrounds while Lievsay and a partner made the weird experimental effects; Demme sometimes muted the score in reviews so the effects could be judged on their own.",
+   "categories": [
+    "horror",
+    "collaboration"
+   ],
+   "source": {
+    "title": "Music, Sound and the Worlds in Between – A Skip Lievsay Interview (Part 1)",
+    "publication": "Designing Sound",
+    "url": "https://designingsound.org/2013/03/music-sound-and-the-worlds-in-between-a-skip-lievsay-interview-part-1/",
+    "year": 2013
+   }
+  },
+  {
+   "person": "Skip Lievsay",
+   "kind": "quote",
+   "text": "Marty's really, really committed to that thing of drama and music.",
+   "categories": [
+    "music",
+    "collaboration"
+   ],
+   "source": {
+    "title": "Music, Sound and the Worlds in Between – A Skip Lievsay Interview (Part 2)",
+    "publication": "Designing Sound",
+    "url": "https://designingsound.org/2013/04/music-sound-and-the-worlds-in-between-a-skip-lievsay-interview-part-2/",
+    "year": 2013
+   }
+  },
+  {
+   "person": "Skip Lievsay",
+   "kind": "quote",
+   "text": "I don't mind being yelled at if it has a purpose.",
+   "categories": [
+    "collaboration"
+   ],
+   "source": {
+    "title": "Music, Sound and the Worlds in Between – A Skip Lievsay Interview (Part 2)",
+    "publication": "Designing Sound",
+    "url": "https://designingsound.org/2013/04/music-sound-and-the-worlds-in-between-a-skip-lievsay-interview-part-2/",
+    "year": 2013
+   }
+  },
+  {
+   "person": "Skip Lievsay",
+   "kind": "quote",
+   "text": "It’s like making a piece of furniture, or building a house.",
+   "categories": [
+    "craft"
+   ],
+   "source": {
+    "title": "Rain is sizzling bacon, cars are lions roaring: the art of sound in movies (Jordan Kisner, The Guardian)",
+    "publication": "Institute of Professional Sound",
+    "url": "https://ips.org.uk/?p=734",
+    "year": 2015
+   }
+  },
+  {
+   "person": "Skip Lievsay",
+   "kind": "quote",
+   "text": "It’s tough because most people aren’t articulate about sound,",
+   "categories": [
+    "collaboration"
+   ],
+   "source": {
+    "title": "Rain is sizzling bacon, cars are lions roaring: the art of sound in movies (Jordan Kisner, The Guardian)",
+    "publication": "Institute of Professional Sound",
+    "url": "https://ips.org.uk/?p=734",
+    "year": 2015
+   }
+  },
+  {
+   "person": "Skip Lievsay",
+   "kind": "insight",
+   "text": "The 20-second stillness after No Country’s car crash is fully built: far-off traffic, a distant dog, glass tinkling down at three separate moments. None of it came from a mic on set—each sound was chosen and placed.",
+   "categories": [
+    "worlds",
+    "silence"
+   ],
+   "source": {
+    "title": "Rain is sizzling bacon, cars are lions roaring: the art of sound in movies (Jordan Kisner, The Guardian)",
+    "publication": "Institute of Professional Sound",
+    "url": "https://ips.org.uk/?p=734",
+    "year": 2015
+   }
+  },
+  {
+   "person": "Skip Lievsay",
+   "kind": "insight",
+   "text": "Audiences hear what they’re conditioned to hear: movie rain is often frying bacon, and layering lion roars into an engine gives a car menace. Choose sounds for what they evoke, not what made them.",
+   "categories": [
+    "craft",
+    "recording"
+   ],
+   "source": {
+    "title": "Rain is sizzling bacon, cars are lions roaring: the art of sound in movies (Jordan Kisner, The Guardian)",
+    "publication": "Institute of Professional Sound",
+    "url": "https://ips.org.uk/?p=734",
+    "year": 2015
+   }
+  },
+  {
+   "person": "Skip Lievsay",
+   "kind": "insight",
+   "text": "Lievsay once recorded a Manhattan car that sounded like a cow mooing, and he has slipped that ‘moo’ into every Coen brothers film since—even True Grit, set before cars existed.",
+   "categories": [
+    "collaboration",
+    "craft"
+   ],
+   "source": {
+    "title": "Rain is sizzling bacon, cars are lions roaring: the art of sound in movies (Jordan Kisner, The Guardian)",
+    "publication": "Institute of Professional Sound",
+    "url": "https://ips.org.uk/?p=734",
+    "year": 2015
+   }
+  },
+  {
+   "person": "Skip Lievsay",
+   "kind": "insight",
+   "text": "For I Am Legend’s deserted New York, Lievsay’s team scrubbed traffic and crowds from production (re-voicing scenes via ADR where they couldn’t) and rebuilt the city around nature reclaiming it—water from underground springs, crumbling buildings, wildlife.",
+   "categories": [
+    "worlds",
+    "dialogue"
+   ],
+   "source": {
+    "title": "Exclusive Interview with Skip Lievsay on I Am Legend",
+    "publication": "Designing Sound",
+    "url": "https://designingsound.org/2007/12/14/exclusive-interview-with-skip-lievsay-supervising-sound-editorre-recording-mixer-on-i-am-legend/",
+    "year": 2007
+   }
+  },
+  {
+   "person": "Skip Lievsay",
+   "kind": "insight",
+   "text": "The I Am Legend creatures came from recorded actors and animals, edited for hours into vocal types; temp mixes of each type for the director shaped how the creatures behaved and fed back into the CG design.",
+   "categories": [
+    "creatures",
+    "collaboration"
+   ],
+   "source": {
+    "title": "Exclusive Interview with Skip Lievsay on I Am Legend",
+    "publication": "Designing Sound",
+    "url": "https://designingsound.org/2007/12/14/exclusive-interview-with-skip-lievsay-supervising-sound-editorre-recording-mixer-on-i-am-legend/",
+    "year": 2007
+   }
+  },
+  {
+   "person": "Ann Kroeber",
+   "kind": "quote",
+   "text": "Listening is just the first step.",
+   "categories": [
+    "recording"
+   ],
+   "source": {
+    "title": "Ann Kroeber Special: A Pioneering Sound Woman",
+    "publication": "Designing Sound",
+    "url": "https://designingsound.org/2011/10/07/ann-kroeber-special-a-pioneering-sound-woman/",
+    "year": 2011
+   }
+  },
+  {
+   "person": "Ann Kroeber",
+   "kind": "quote",
+   "text": "The rhythms of a dishwasher are amazing.",
+   "categories": [
+    "recording",
+    "music"
+   ],
+   "source": {
+    "title": "Ann Kroeber Special: A Pioneering Sound Woman",
+    "publication": "Designing Sound",
+    "url": "https://designingsound.org/2011/10/07/ann-kroeber-special-a-pioneering-sound-woman/",
+    "year": 2011
+   }
+  },
+  {
+   "person": "Ann Kroeber",
+   "kind": "insight",
+   "text": "After seeing a BBC piece on contact mics during The Elephant Man, Kroeber spent months with inventor Arnie Lazarus building a FRAP pickup for effects. Her first test, on a ventilator, revealed layered sound travelling through the whole building.",
+   "categories": [
+    "recording",
+    "craft"
+   ],
+   "source": {
+    "title": "Ann Kroeber Special: A Pioneering Sound Woman",
+    "publication": "Designing Sound",
+    "url": "https://designingsound.org/2011/10/07/ann-kroeber-special-a-pioneering-sound-woman/",
+    "year": 2011
+   }
+  },
+  {
+   "person": "Ann Kroeber",
+   "kind": "insight",
+   "text": "Kroeber would record a Schoeps on one channel and a contact mic on the other at once—air and structure from the same event—a hybrid that helped shape the outer-space textures she and Splet created.",
+   "categories": [
+    "recording",
+    "scifi"
+   ],
+   "source": {
+    "title": "Ann Kroeber Special: A Pioneering Sound Woman",
+    "publication": "Designing Sound",
+    "url": "https://designingsound.org/2011/10/07/ann-kroeber-special-a-pioneering-sound-woman/",
+    "year": 2011
+   }
+  },
+  {
+   "person": "Ann Kroeber",
+   "kind": "insight",
+   "text": "A teaching exercise Kroeber used: record one scene, then design it twice—once romantic, once ominous—using only sound effects. It proves how much mood lives in effects choices alone.",
+   "categories": [
+    "story",
+    "worlds"
+   ],
+   "source": {
+    "title": "Ann Kroeber Special: A Pioneering Sound Woman",
+    "publication": "Designing Sound",
+    "url": "https://designingsound.org/2011/10/07/ann-kroeber-special-a-pioneering-sound-woman/",
+    "year": 2011
+   }
+  },
+  {
+   "person": "Ann Kroeber",
+   "kind": "insight",
+   "text": "For Blue Velvet’s insects, Kroeber worked with Berkeley entomologists and taped a contact mic to the outside of a beaker full of mosquitoes, capturing a swarm no air mic could hear.",
+   "categories": [
+    "creatures",
+    "recording",
+    "horror"
+   ],
+   "source": {
+    "title": "Ann Kroeber Special: BBC Interview",
+    "publication": "Designing Sound",
+    "url": "https://designingsound.org/2011/10/25/ann-kroeber-special-bbc-interview/",
+    "year": 2011
+   }
+  },
+  {
+   "person": "Ann Kroeber",
+   "kind": "insight",
+   "text": "Dune’s sandworm movement: Kroeber laid plexiglass over sand, dragged a finger across it, and slowed the recording down until a tiny scrape became something vast.",
+   "categories": [
+    "creatures",
+    "scifi",
+    "foley"
+   ],
+   "source": {
+    "title": "Ann Kroeber Special: BBC Interview",
+    "publication": "Designing Sound",
+    "url": "https://designingsound.org/2011/10/25/ann-kroeber-special-bbc-interview/",
+    "year": 2011
+   }
+  },
+  {
+   "person": "Ann Kroeber",
+   "kind": "insight",
+   "text": "To find The Elephant Man’s voice, Kroeber spent time at a zoo hunting for a sonic bridge between elephant and man, and the team built the film’s soundscape from John Merrick’s own perspective.",
+   "categories": [
+    "creatures",
+    "story"
+   ],
+   "source": {
+    "title": "Ann Kroeber Special: BBC Interview",
+    "publication": "Designing Sound",
+    "url": "https://designingsound.org/2011/10/25/ann-kroeber-special-bbc-interview/",
+    "year": 2011
+   }
+  },
+  {
+   "person": "Ann Kroeber",
+   "kind": "quote",
+   "text": "We were unwittingly making outer space in Dune sound like it actually DOES sound.",
+   "categories": [
+    "scifi"
+   ],
+   "source": {
+    "title": "Ann Kroeber Special: Exclusive Interview",
+    "publication": "Designing Sound",
+    "url": "https://designingsound.org/2011/10/03/ann-kroeber-special-exclusive-interview/",
+    "year": 2011
+   }
+  },
+  {
+   "person": "Ann Kroeber",
+   "kind": "insight",
+   "text": "Kroeber’s collaboration advice: talk sound with the director before the shoot, coordinate with the composer early, and lobby the producer to allow effects recording on set—lessons from a film where her mood backgrounds were cut as ‘unnatural’.",
+   "categories": [
+    "collaboration"
+   ],
+   "source": {
+    "title": "Ann Kroeber Special: Exclusive Interview",
+    "publication": "Designing Sound",
+    "url": "https://designingsound.org/2011/10/03/ann-kroeber-special-exclusive-interview/",
+    "year": 2011
+   }
+  },
+  {
+   "person": "Ann Kroeber",
+   "kind": "quote",
+   "text": "I talk to them as if I were talking to a young bright child.",
+   "categories": [
+    "creatures",
+    "recording"
+   ],
+   "source": {
+    "title": "The Sound Whisperer",
+    "publication": "Weekend America (American Public Media)",
+    "url": "https://weekendamerica.publicradio.org/display/web/2008/03/14/sound_whisperer.html",
+    "year": 2008
+   }
+  },
+  {
+   "person": "Ann Kroeber",
+   "kind": "insight",
+   "text": "Hired to record horses for The Horse Whisperer, Kroeber found the stallion wary of her and the mic. She held the mic herself and talked to him, and he gave a long whinny for the better part of an hour.",
+   "categories": [
+    "creatures",
+    "recording"
+   ],
+   "source": {
+    "title": "The Sound Whisperer",
+    "publication": "Weekend America (American Public Media)",
+    "url": "https://weekendamerica.publicradio.org/display/web/2008/03/14/sound_whisperer.html",
+    "year": 2008
+   }
+  },
+  {
+   "person": "Alan Splet",
+   "kind": "quote",
+   "text": "I don't know where a lot of these ideas come from. They just do.",
+   "categories": [
+    "craft"
+   ],
+   "source": {
+    "title": "Remembering Alan Splet",
+    "publication": "Designing Sound",
+    "url": "https://designingsound.org/2014/05/15/remembering-alan-splet/",
+    "year": 2014
+   }
+  },
+  {
+   "person": "Alan Splet",
+   "kind": "insight",
+   "text": "For Dune, Splet found a roar in an unlikely place: guy wires steadying TV antennas, squeaking as nearby machinery vibrated them. Slowed down, the squeak became a massive roar.",
+   "categories": [
+    "creatures",
+    "recording",
+    "scifi"
+   ],
+   "source": {
+    "title": "Remembering Alan Splet",
+    "publication": "Designing Sound",
+    "url": "https://designingsound.org/2014/05/15/remembering-alan-splet/",
+    "year": 2014
+   }
+  },
+  {
+   "person": "Alan Splet",
+   "kind": "insight",
+   "text": "Randy Thom recalls Lynch’s belief that a sound should already carry the emotion before processing, which made Splet above all a ‘caster’ of sounds—choosing the right raw recording rather than fixing a wrong one.",
+   "categories": [
+    "craft",
+    "story"
+   ],
+   "source": {
+    "title": "Remembering Alan Splet (with comments by Randy Thom)",
+    "publication": "Designing Sound",
+    "url": "https://designingsound.org/2014/05/15/remembering-alan-splet/",
+    "year": 2014
+   }
+  },
+  {
+   "person": "Alan Splet",
+   "kind": "insight",
+   "text": "Splet’s method, as Randy Thom describes it: follow a hunch, run lots of experiments, throw most away, and keep only what forges a strong bond between image and sound—work that thrived with directors like Lynch, Ballard and Weir.",
+   "categories": [
+    "craft",
+    "collaboration"
+   ],
+   "source": {
+    "title": "Remembering Alan Splet (with comments by Randy Thom)",
+    "publication": "Designing Sound",
+    "url": "https://designingsound.org/2014/05/15/remembering-alan-splet/",
+    "year": 2014
+   }
+  },
+  {
+   "person": "Alan Splet",
+   "kind": "insight",
+   "text": "Kroeber named Splet her biggest influence, crediting his obsessive detail and his ability to turn a scene’s mood purely through which sounds he chose and exactly where he placed them.",
+   "categories": [
+    "story",
+    "craft"
+   ],
+   "source": {
+    "title": "Ann Kroeber Special: Exclusive Interview",
+    "publication": "Designing Sound",
+    "url": "https://designingsound.org/2011/10/03/ann-kroeber-special-exclusive-interview/",
+    "year": 2011
+   }
+  },
+  {
+   "person": "Alan Splet",
+   "kind": "insight",
+   "text": "Legally blind and rarely travelling, Splet worked mostly from Berkeley—yet won a Special Achievement Oscar for The Black Stallion’s sound and shaped Lynch’s films from The Grandmother through Blue Velvet.",
+   "categories": [
+    "collaboration",
+    "worlds"
+   ],
+   "source": {
+    "title": "Alan Splet",
+    "publication": "Wikipedia",
+    "url": "https://en.wikipedia.org/wiki/Alan_Splet",
+    "year": null
+   }
+  },
+  {
+   "person": "Eugene Gearty",
+   "kind": "quote",
+   "text": "Being a skilled musician or sound designer, it's all about creativity and being expressive",
+   "categories": [
+    "craft",
+    "music"
+   ],
+   "source": {
+    "title": "For Sound Designer/Editor Eugene Gearty ’82, Creativity Is Essential to Any Industry Career",
+    "publication": "Berklee College of Music",
+    "url": "https://college.berklee.edu/node/2320781",
+    "year": null
+   }
+  },
+  {
+   "person": "Eugene Gearty",
+   "kind": "insight",
+   "text": "The Irishman’s guns are snub-nose .38s, not Casino’s big cannons. For the Hoffa killing Gearty used no production sound—just an interior .38 recording with natural slap, plus a touch of room slap for an empty house.",
+   "categories": [
+    "weapons",
+    "story"
+   ],
+   "source": {
+    "title": "Behind The Irishman’s Superbly Subtle Sound",
+    "publication": "A Sound Effect",
+    "url": "https://www.asoundeffect.com/the-irishman-sound",
+    "year": 2019
+   }
+  },
+  {
+   "person": "Eugene Gearty",
+   "kind": "insight",
+   "text": "Late in The Irishman mix, Gearty added a squib hit to the opening head-shot so the moment reads as a two-beat ‘da-dump’—gunshot, then impact—selling blood spatter that lands just after the shot.",
+   "categories": [
+    "weapons",
+    "action"
+   ],
+   "source": {
+    "title": "Behind The Irishman’s Superbly Subtle Sound",
+    "publication": "A Sound Effect",
+    "url": "https://www.asoundeffect.com/the-irishman-sound",
+    "year": 2019
+   }
+  },
+  {
+   "person": "Eugene Gearty",
+   "kind": "insight",
+   "text": "Recording nine period cars at Floyd Bennett Field, Gearty chased long idles and material an editor can cut, and checked backgrounds for anachronism—a 1950s muffler sounds nothing like a 1980s one.",
+   "categories": [
+    "recording",
+    "weapons",
+    "worlds"
+   ],
+   "source": {
+    "title": "Behind The Irishman’s Superbly Subtle Sound",
+    "publication": "A Sound Effect",
+    "url": "https://www.asoundeffect.com/the-irishman-sound",
+    "year": 2019
+   }
+  },
+  {
+   "person": "Eugene Gearty",
+   "kind": "insight",
+   "text": "One Florida car-by took 30–40 attempts before Scorsese was happy. The target wasn’t an accurate engine but the feeling of a lonely highway.",
+   "categories": [
+    "story",
+    "weapons"
+   ],
+   "source": {
+    "title": "Behind The Irishman’s Superbly Subtle Sound",
+    "publication": "A Sound Effect",
+    "url": "https://www.asoundeffect.com/the-irishman-sound",
+    "year": 2019
+   }
+  },
+  {
+   "person": "Eugene Gearty",
+   "kind": "insight",
+   "text": "Scorsese favours production sound over Foley and cuts with a temp mix, so the design grows during the edit. Gearty describes the goal as ‘resolution to quietness’—busy scenes dissolving into stillness.",
+   "categories": [
+    "silence",
+    "collaboration"
+   ],
+   "source": {
+    "title": "Behind The Irishman’s Superbly Subtle Sound",
+    "publication": "A Sound Effect",
+    "url": "https://www.asoundeffect.com/the-irishman-sound",
+    "year": 2019
+   }
+  }
+ ]
+}
