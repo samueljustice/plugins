@@ -611,7 +611,7 @@ CargoHoldView::~CargoHoldView()
 
 void CargoHoldView::status(const juce::String& text)
 {
-    m_status = text;
+    m_status = Theme::localiseShortcuts(text);
     repaint(m_statusArea);
     if (onStatus)
         onStatus(text.startsWith("!") ? text.substring(1) : text);
