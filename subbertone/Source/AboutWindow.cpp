@@ -268,7 +268,7 @@ AboutWindow::AboutContent::AboutContent(SubbertoneLookAndFeel& editorLookAndFeel
     m_licenseText.setLineSpacing(1.25f);
     m_licenseText.setText(
         "MIT License\n\n"
-        "Copyright (c) 2025 Samuel Justice\n\n"
+        "Copyright (c) " COPYRIGHT_YEAR " Samuel Justice\n\n"
         "Permission is hereby granted, free of charge, to any person obtaining a copy "
         "of this software and associated documentation files (the \"Software\"), to deal "
         "in the Software without restriction, including without limitation the rights "
