@@ -8,7 +8,7 @@ Audio plug-ins and tools by Samuel Justice / [Sweet Justice Sound](https://www.s
 |---|---|---|---|
 | [Swooshbuckler](swooshbuckler/README.md) | Whoosh-making rig | App (macOS, Windows), VST3, AU | Not released yet |
 | [Subbertone](subbertone/README.md) | Subharmonic generator | VST3, AU | [v1.2.0](https://github.com/samueljustice/plugins/releases/tag/subbertone-v1.2.0) |
-| [Pitch Flattener](pitchflattener/README.md) | Lookahead pitch flattening (Doppler, sirens, vibrato) | VST3, AU | [v2.0.0](https://github.com/samueljustice/plugins/releases/tag/pitchflattener-v2.0.0) |
+| [Pitch Flattener](pitchflattener/README.md) | Lookahead pitch flattening (Doppler, sirens, vibrato) | VST3, AU | [v2.0.1](https://github.com/samueljustice/plugins/releases/tag/pitchflattener-v2.0.1) |
 | [Reversinator](reversinator/README.md) | Real-time reverser, recreating Backwards Machine | VST3, AU | [v2.0.0](https://github.com/samueljustice/plugins/releases/tag/reversinator-v2.0.0) |
 | Stretch Armstrong | Real-time varispeed and time stretch | VST3, AU | Not released yet |
 | [PTSL Beat Tool](PTSL_beattool/README.md) | Beat markers for Pro Tools | App (macOS) | Not released yet |
@@ -31,7 +31,7 @@ Removes pitch movement: the Doppler sweep from a pass-by, the wail from a siren,
 
 - Location: `/pitchflattener/`
 - [Project README](pitchflattener/README.md)
-- [Latest release](https://github.com/samueljustice/plugins/releases/tag/pitchflattener-v2.0.0)
+- [Latest release](https://github.com/samueljustice/plugins/releases/tag/pitchflattener-v2.0.1)
 
 ### Reversinator
 A real-time reverser: a faithful, modernised recreation of Backwards Machine's three effects (Reverse Playback, Forward Backwards and Reverse Repeat), with a live display of the read heads sweeping backwards through your audio.

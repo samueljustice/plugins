@@ -2,7 +2,7 @@
 
 A VST3/AU plugin that removes pitch movement from a sound while keeping its energy and character. Use it to take the Doppler sweep out of a pass-by, iron the wail out of a siren, take the vibrato out of a voice or instrument, or lock a warbling tone to one note so the pitch is malleable again.
 
-### 🎉 Latest Release v2.0.0 - [Download Here](https://github.com/samueljustice/plugins/releases/tag/pitchflattener-v2.0.0)
+### 🎉 Latest Release v2.0.1 - [Download Here](https://github.com/samueljustice/plugins/releases/tag/pitchflattener-v2.0.1)
 
 ![Pitch Flattener 2.0](docs/screenshot.png)
 
@@ -172,7 +172,8 @@ Created by Samuel Justice, [www.sweetjusticesound.com](https://www.sweetjustices
 
 ## Version history
 
-- **v2.0.0**: new detection and correction engine, Source Types, lookahead tracking, sample-accurate latency, new UI, test suite.
+- **v2.0.1**: Subbertone 1.2.0 styling for every menu, submenu, dialog, tooltip and text field; preset bar and menu on Subbertone's layout; user presets tracked by file; CI stapling retries.
+- v2.0.0: new detection and correction engine, Source Types, lookahead tracking, sample-accurate latency, new UI, test suite.
 - v1.2.5: help text and About button scaling fixes, FFT visualiser.
 - v1.1.0: added FFT pitch tracking.
 - v1.0.0: initial release.
