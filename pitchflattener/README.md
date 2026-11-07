@@ -202,7 +202,7 @@ The amber section sets the pitch the sound is flattened to and how much is remov
 - **AUTO WIN** (Auto): movement faster than this is removed, slower movement is kept. Longer is flatter.
 - **AMOUNT** (0–100 %): how much of the pitch deviation is removed. 100 % is completely flat; 50 % halves a Doppler sweep.
 - **RE-LATCH** (Latch): forgets the latched pitch so the next stable pitch is latched again.
-- **OVERRIDE** and **OVERRIDE HZ**: ignore detection and treat the sound as if it were always at Override Hz. With Fixed, that applies a constant shift from Override Hz to Target Hz.
+- **OVERRIDE** and **OVERRIDE HZ**: flatten to Override Hz instead of the target mode's target. Detection still runs, so the sound is followed as usual; only the pitch it is flattened to changes.
 
 <br clear="right">
 
