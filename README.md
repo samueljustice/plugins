@@ -86,7 +86,7 @@ Subbertone tracks the pitch of your bass, engine or drone and adds a sub one oct
 </details>
 
 **VST3** · **AU** &nbsp;&nbsp;
-[![Download Subbertone](https://img.shields.io/badge/download-v1.2.0-d00a35?style=flat-square)](https://github.com/samueljustice/plugins/releases/tag/subbertone-v1.2.0) &nbsp;
+[![Download Subbertone](https://img.shields.io/badge/download-v1.3.0-d00a35?style=flat-square)](https://github.com/samueljustice/plugins/releases/tag/subbertone-v1.3.0) &nbsp;
 [Read the manual →](subbertone/README.md)
 
 ---

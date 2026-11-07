@@ -328,14 +328,25 @@ jobs:
           --team-id "$APPLE_TEAM_ID" \
           --wait
         
-        # Staple notarization
+        # Staple notarization. Fetching the ticket from Apple sometimes drops the connection
+        # (stapler error 68), at times for minutes, so retry with a growing pause (30 s, 60 s, ...,
+        # about 10 minutes in all) before failing the build.
+        staple() {
+          local delay=30
+          for attempt in 1 2 3 4 5 6 7; do
+            if xcrun stapler staple "$1"; then return 0; fi
+            echo "Stapling $1 failed (attempt $attempt of 7)"
+            if [ "$attempt" -lt 7 ]; then sleep "$delay"; delay=$((delay + 30)); fi
+          done
+          return 1
+        }
         cd build/Subbertone_artefacts/Release/VST3
         for plugin in *.vst3; do
-          xcrun stapler staple "$plugin"
+          staple "$plugin"
         done
         cd ../AU
         for plugin in *.component; do
-          xcrun stapler staple "$plugin"
+          staple "$plugin"
         done
         cd ../../../..
     
@@ -374,7 +385,7 @@ jobs:
         # Extract version from tag or use default
         VERSION="${GITHUB_REF#refs/tags/subbertone-v}"
         if [ -z "$VERSION" ] || [ "$VERSION" = "$GITHUB_REF" ]; then
-          VERSION="1.2.0"
+          VERSION="1.3.0"
         fi
         
         pkgbuild --identifier "com.sweetjusticesound.subbertone.vst3" \
@@ -540,8 +551,16 @@ jobs:
           exit 1
         fi
         
-        # Staple notarization
-        xcrun stapler staple "SammyJs_Subbertone_Installer.pkg"
+        # Staple notarization, retried with a growing pause as for the plugins (the ticket fetch
+        # sometimes drops the connection for minutes)
+        delay=30
+        for attempt in 1 2 3 4 5 6 7; do
+          if xcrun stapler staple "SammyJs_Subbertone_Installer.pkg"; then break; fi
+          if [ "$attempt" -eq 7 ]; then exit 1; fi
+          echo "Stapling the installer failed (attempt $attempt of 7), retrying in $delay s"
+          sleep "$delay"
+          delay=$((delay + 30))
+        done
     
     - name: Upload macOS Installer
       uses: actions/upload-artifact@v6
