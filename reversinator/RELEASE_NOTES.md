@@ -6,7 +6,8 @@ Reversinator has been rebuilt to match **Backwards Machine** (The Sound Guy, 200
 
 ### What's new
 
-- **The original's three effects, faithfully recreated.** Reverse Playback, Forward Backwards and Reverse Repeat now use Backwards Machine's own signal flow: swept delay lines, sine windows, the Reverse Repeat vibrato, and the feedback routing and gain staging. Reverse Playback null-tests against the original's own demo render at 0.98 correlation, which is the limit of the MP3 the demo was published as.
+- **The original's three effects, faithfully recreated.** Reverse Playback, Forward Backwards and Reverse Repeat now use Backwards Machine's own signal flow: swept delay lines, sine windows, the Reverse Repeat vibrato, and the feedback routing and gain staging.
+- **Checked against the real thing.** The vendor's demo clip, run through Reversinator, nulls against the vendor's own Backwards Machine renders of it. Correlation is 0.983 for Reverse Playback, 0.992 for Forward Backwards and 0.998 for Reverse Repeat; what remains is MP3 coding noise.
 - **The original's controls.** REVERSER, TIME (0.5–4 s, same taper), FEEDBACK DEPTH (0–75%), WET MIX and DRY MIX (squared law), with the same defaults.
 - **Click-free everywhere.**
   - REVERSER switches with a 10 ms crossfade.

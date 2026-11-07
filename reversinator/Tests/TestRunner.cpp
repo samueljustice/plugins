@@ -201,11 +201,30 @@ namespace
 
         // --sr processes the samples as if they were at another rate (the vendor's demo
         // renders were made at 44.1 kHz on 48 kHz files); the output keeps the file's rate.
+        // --preroll n runs n samples of silence first (shifts the snippet clock against the
+        // audio) and trims them from the output.
         const double processRate = o.number("sr", sampleRate);
+        const int preroll = std::max(0, static_cast<int>(o.number("preroll", 0)));
+        if (preroll > 0)
+        {
+            juce::AudioBuffer<float> padded(audio.getNumChannels(), audio.getNumSamples() + preroll);
+            padded.clear();
+            for (int ch = 0; ch < audio.getNumChannels(); ++ch)
+                padded.copyFrom(ch, preroll, audio, ch, 0, audio.getNumSamples());
+            audio = std::move(padded);
+        }
 
         ReversinatorAudioProcessor p;
         applyOptions(p, o);
         render(p, audio, processRate, static_cast<int>(o.number("block", 512)), o.has("random-blocks"));
+
+        if (preroll > 0)
+        {
+            juce::AudioBuffer<float> trimmed(audio.getNumChannels(), audio.getNumSamples() - preroll);
+            for (int ch = 0; ch < audio.getNumChannels(); ++ch)
+                trimmed.copyFrom(ch, 0, audio, ch, preroll, trimmed.getNumSamples());
+            audio = std::move(trimmed);
+        }
 
         if (! writeWav(juce::File::getCurrentWorkingDirectory().getChildFile(o.positional[1]), audio, sampleRate))
         { std::cerr << "cannot write " << o.positional[1] << "\n"; return 1; }

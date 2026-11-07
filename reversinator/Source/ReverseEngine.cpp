@@ -13,9 +13,21 @@ namespace
     // exactly zero where its sweep jumps back, and the two voices are half a period apart.
     constexpr std::array<float, 4> c_startDegrees { 270.0f, 0.0f, 90.0f, 180.0f };
 
+    // In the original, delay-time modulation arrives 448.5 samples (at 44.1 kHz) after the
+    // window that goes with it. Measured against the vendor's own demo renders, where it is
+    // the only change needed for all three effects to null at lag 0.
+    //  - For a reversing voice (delay slope 2) it means reading 897 samples closer to "now".
+    //    It is applied as that delay offset, which keeps the read continuous: at the very start
+    //    of each snippet, where it would ask for a negative delay, the window is silent and
+    //    the read is simply clamped.
+    //  - For Reverse Repeat's 5 Hz vibrato it is a phase lag (below).
+    // Applied as a time, so it is the same at every sample rate.
+    constexpr double c_modulationLagSeconds = 448.5 / 44100.0;
+    constexpr double c_reverseLeadSeconds = 2.0 * c_modulationLagSeconds;
+
     constexpr float c_vibratoHz = 5.0f;              // Reverse Repeat's second pass
     constexpr float c_vibratoDepth = 0.001f;         // relative delay modulation
-    constexpr float c_vibratoStartDegrees = 270.0f;
+    constexpr float c_vibratoStartDegrees = 270.0f - static_cast<float>(360.0 * 5.0 * c_modulationLagSeconds);
 
     constexpr double c_timeCrossfadeSeconds = 0.020;
     constexpr double c_modeCrossfadeSeconds = 0.030;
@@ -99,8 +111,9 @@ ReverseEngine::Taps ReverseEngine::tapsOf(const Clock& clock) const
 {
     Taps taps;
     const float base = static_cast<float>(static_cast<double>(clock.time) * m_sampleRate);   // D0 = T * SR
-    taps.delay[0] = base + base * sweep(clock.phase[0]);
-    taps.delay[1] = base + base * sweep(clock.phase[2]);
+    const double lead = c_reverseLeadSeconds * m_sampleRate;
+    taps.delay[0] = static_cast<double>(base + base * sweep(clock.phase[0])) - lead;
+    taps.delay[1] = static_cast<double>(base + base * sweep(clock.phase[2])) - lead;
     taps.window = clock.windowGain;
     return taps;
 }

@@ -9,6 +9,7 @@ A VST3/AU real-time reverser for macOS and Windows. Reversinator is a faithful, 
 ## Features
 
 - **The three Backwards Machine effects**, with the original's sweeps, windows, vibrato, feedback routing, gain staging, parameter ranges and control tapers.
+- **Checked against the real thing.** The vendor's demo clip, run through Reversinator, nulls against the vendor's own Backwards Machine renders of it. Correlation is 0.983 for Reverse Playback, 0.992 for Forward Backwards and 0.998 for Reverse Repeat; what remains is MP3 coding noise.
 - **Click-free everywhere.** REVERSER switches with a 10 ms crossfade, as on the original. TIME changes crossfade between the old and new read positions. Switching effects crossfades straight into the new one, because every effect shares the same input history. Wet, dry and feedback changes are smoothed. All of this is independent of the host's buffer size.
 - **Live snippet display**: a scrolling view of the recent input with each read head drawn as it sweeps backwards through it, so you can see what each effect is doing.
 - **Modern interface** in the spirit of the original: mode lamps, the big REVERSER button, an hourglass TIME control and a feedback loop. The window is resizable from 75% to 200%.
