@@ -6,6 +6,8 @@ It's a VST3 / AU plug-in (audio passes straight through, untouched) and a standa
 
 ![Sound Advice](docs/screenshot.png)
 
+**[Download the latest release](https://github.com/samueljustice/plugins/releases/tag/soundadvice-v1.0.0)**: macOS installer (app, VST3, AU; signed and notarised, universal, macOS 11+), the app on its own as a `.dmg`, or the Windows installer (VST3 and app).
+
 ## What's in it
 
 847 entries from 78 people. The sound designers and mixers all have feature film, TV or AAA game credits on IMDb, and every entry comes from an interview, article or talk you can read. The Creativity & Teams category draws on a legendary Disney Imagineer's book about creative work: leading teams, finding a theme, critique, risk and knowing when to stop. Two kinds:
