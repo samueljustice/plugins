@@ -17,6 +17,17 @@ namespace Version
        #endif
     }
 
+    /** The year it was built, for the copyright line: from the release build's timestamp ("2026-..."),
+        otherwise the compile date ("Nov  7 2026"). */
+    inline juce::String year()
+    {
+       #ifdef BUILD_TIMESTAMP
+        return juce::String(BUILD_TIMESTAMP).substring(0, 4);
+       #else
+        return juce::String(__DATE__).getLastCharacters(4);
+       #endif
+    }
+
     inline juce::String commit()
     {
        #ifdef BUILD_COMMIT

@@ -24,18 +24,18 @@ namespace Presets
     {
         using namespace ParamIDs;
         static const std::vector<Preset> presets {
-            { "Steady energy",   { { energy, 0.45f }, { rate, 0.3f }, { chaos, 0.3f }, { fill, 0.4f } } },
-            { "Jet passes",      { { energy, 0.6f }, { rate, 0.55f }, { "aDoppler", 0.9f }, { "bDoppler", 0.75f }, { "aSwirl", 0.6f },
+            { "Steady Energy",   { { energy, 0.45f }, { rate, 0.3f }, { chaos, 0.3f }, { fill, 0.4f } } },
+            { "Jet Passes",      { { energy, 0.6f }, { rate, 0.55f }, { "aDoppler", 0.9f }, { "bDoppler", 0.75f }, { "aSwirl", 0.6f },
                                    { "bSwirl", 0.5f }, { "aLow", 0.5f }, { hitSense, 0.4f } } },
-            { "Monster swells",  { { energy, 0.85f }, { rate, 0.25f }, { pitch, -7.0f }, { "aLow", 0.8f }, { "bLow", 0.5f },
+            { "Monster Swells",  { { energy, 0.85f }, { rate, 0.25f }, { pitch, -7.0f }, { "aLow", 0.8f }, { "bLow", 0.5f },
                                    { "aDrive", 0.45f }, { hitBoost, 15.0f }, { hitDuck, 0.7f } } },
-            { "Gentle breeze",   { { energy, 0.35f }, { rate, 0.2f }, { "aDoppler", 0.3f }, { "bDoppler", 0.3f }, { "aDrive", 0.0f },
+            { "Gentle Breeze",   { { energy, 0.35f }, { rate, 0.2f }, { "aDoppler", 0.3f }, { "bDoppler", 0.3f }, { "aDrive", 0.0f },
                                    { "aLow", 0.15f }, { "bFilter", 0.5f }, { space, 0.45f }, { hitBoost, 6.0f } } },
-            { "Fast and furious",{ { energy, 0.8f }, { rate, 0.85f }, { chaos, 0.7f }, { "aDoppler", 0.75f }, { "bDoppler", 0.7f },
+            { "Fast and Furious",{ { energy, 0.8f }, { rate, 0.85f }, { chaos, 0.7f }, { "aDoppler", 0.75f }, { "bDoppler", 0.7f },
                                    { "aFilter", 0.6f }, { "bDuck", 0.6f }, { hitSense, 0.65f } } },
-            { "Magic dust",      { { energy, 0.5f }, { rate, 0.45f }, { pitch, 7.0f }, { "aSwirl", 0.75f }, { "bSwirl", 0.8f },
+            { "Magic Dust",      { { energy, 0.5f }, { rate, 0.45f }, { pitch, 7.0f }, { "aSwirl", 0.75f }, { "bSwirl", 0.8f },
                                    { space, 0.7f }, { "aLow", 0.1f }, { "bLow", 0.05f } } },
-            { "Heavy hits",      { { energy, 0.7f }, { rate, 0.4f }, { hitSense, 0.7f }, { hitBoost, 16.0f }, { hitRelease, 0.55f },
+            { "Heavy Hits",      { { energy, 0.7f }, { rate, 0.4f }, { hitSense, 0.7f }, { hitBoost, 16.0f }, { hitRelease, 0.55f },
                                    { hitDuck, 0.8f }, { "aLow", 0.6f } } },
         };
         return presets;

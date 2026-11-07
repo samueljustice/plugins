@@ -281,21 +281,21 @@ juce::String CargoHold::typeName(CargoRole role)
 {
     switch (role)
     {
-        case CargoRole::Bed:     return "Energy bed";
-        case CargoRole::Tonal:   return "Tonal content";
+        case CargoRole::Bed:     return "Energy Bed";
+        case CargoRole::Tonal:   return "Tonal Content";
         case CargoRole::Impact:  return "Impact";
-        case CargoRole::Air:     return "Air / swish";
+        case CargoRole::Air:     return "Air / Swish";
         case CargoRole::Crackle: return "Crackle";
         case CargoRole::Rumble:  return "Rumble";
         case CargoRole::Generic:
-        default:                 return "Mixed content";
+        default:                 return "Mixed Content";
     }
 }
 
 juce::String CargoHold::getDisplayName(int track) const
 {
     // A user rename wins. Otherwise the track is named after what the scan found it to be
-    // ("Tonal content", "Energy bed", ...). Not numbered: the lane colour tells two of a kind apart.
+    // ("Tonal Content", "Energy Bed", ...). Not numbered: the lane colour tells two of a kind apart.
     if (track < 0 || track >= c_numTracks)
         return {};
     const auto& t = m_tracks[static_cast<size_t>(track)];
@@ -373,6 +373,10 @@ void CargoHold::publish(int track, std::shared_ptr<CargoData> data, bool recordU
                 retire(r);
             t.redo.clear();
             t.redoMeta.clear();
+            m_undoOrder.push_back(track);
+            if (m_undoOrder.size() > static_cast<size_t>(c_maxUndo * c_numTracks))
+                m_undoOrder.erase(m_undoOrder.begin());
+            m_redoOrder.clear(); // a new edit ends the redo chain, as in any editor
         }
 
         // Keep the old data alive a while even if no undo entry holds it (and while a player still reads it).
@@ -668,6 +672,54 @@ void CargoHold::fade(int track, int start, int end, bool fadeIn)
     publish(track, makeEdited(track, out), true);
 }
 
+int CargoHold::undoLatest()
+{
+    while (! m_undoOrder.empty())
+    {
+        const int track = m_undoOrder.back();
+        m_undoOrder.pop_back();
+        if (canUndo(track))
+        {
+            undo(track);
+            m_redoOrder.push_back(track);
+            return track;
+        }
+    }
+    return -1;
+}
+
+int CargoHold::redoLatest()
+{
+    while (! m_redoOrder.empty())
+    {
+        const int track = m_redoOrder.back();
+        m_redoOrder.pop_back();
+        if (canRedo(track))
+        {
+            redo(track);
+            m_undoOrder.push_back(track);
+            return track;
+        }
+    }
+    return -1;
+}
+
+bool CargoHold::canUndoLatest() const
+{
+    for (const int track : m_undoOrder)
+        if (canUndo(track))
+            return true;
+    return false;
+}
+
+bool CargoHold::canRedoLatest() const
+{
+    for (const int track : m_redoOrder)
+        if (canRedo(track))
+            return true;
+    return false;
+}
+
 void CargoHold::undo(int track)
 {
     auto& t = m_tracks[static_cast<size_t>(track)];
@@ -882,6 +934,8 @@ void CargoHold::fromValueTree(const juce::ValueTree& tree)
         t.redo.clear();
         t.undoMeta.clear();
         t.redoMeta.clear();
+        m_undoOrder.clear();
+        m_redoOrder.clear();
         t.skipSilence = true;
         t.roleOverride = -1;
         t.userName = {};

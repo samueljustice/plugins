@@ -9,6 +9,10 @@ endif()
 
 project(Subbertone VERSION 1.2.0)
 
+# The copyright year is the year it was built, so it never goes stale.
+string(TIMESTAMP COPYRIGHT_YEAR "%Y")
+add_compile_definitions(COPYRIGHT_YEAR="${COPYRIGHT_YEAR}")
+
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED TRUE)
 

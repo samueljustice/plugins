@@ -3,7 +3,11 @@ cmake_minimum_required(VERSION 3.15)
 # Set universal binary architectures BEFORE project()
 set(CMAKE_OSX_ARCHITECTURES "x86_64;arm64" CACHE STRING "Build architectures for macOS")
 
-project(PitchFlattener VERSION 2.0.1)
+project(PitchFlattener VERSION 2.0.2)
+
+# The copyright year is the year it was built, so it never goes stale.
+string(TIMESTAMP COPYRIGHT_YEAR "%Y")
+add_compile_definitions(COPYRIGHT_YEAR="${COPYRIGHT_YEAR}")
 
 # Add JUCE subdirectory
 add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/../SDK/JUCE JUCE)
@@ -36,16 +40,13 @@ set(PF_DSP_SOURCES
 option(PITCHFLATTENER_COPY_AFTER_BUILD "Copy plugins to the system folders after building" ON)
 
 # Define our plugin
-# The bundle metadata's copyright runs to the year the plugin is built.
-string(TIMESTAMP PITCHFLATTENER_COPYRIGHT_YEAR "%Y")
-
 juce_add_plugin(PitchFlattener
     PLUGIN_MANUFACTURER_CODE Sjus
     PLUGIN_CODE Pftf
     FORMATS ${PITCHFLATTENER_FORMATS}
     PRODUCT_NAME "SammyJs Pitch Flattener"
     COMPANY_NAME "Samuel Justice"
-    COMPANY_COPYRIGHT "Copyright 2025-${PITCHFLATTENER_COPYRIGHT_YEAR} Samuel Justice"
+    COMPANY_COPYRIGHT "Copyright ${COPYRIGHT_YEAR} Samuel Justice"
     COMPANY_WEBSITE ""
     COMPANY_EMAIL ""
     BUNDLE_ID com.samueljustice.pitchflattener

@@ -9,27 +9,34 @@ namespace
     constexpr int c_peakBlock = 256;
     constexpr int c_headerWidth = 250;
     constexpr int c_skipWidth = 96;
-    const juce::String c_audioWildcard = "*.wav;*.wave;*.aif;*.aiff;*.flac;*.ogg;*.mp3;*.caf;*.m4a";
+    // CAF and M4A are read through Core Audio, so only on macOS.
+   #if JUCE_MAC
+    const juce::String c_audioExtensions = "wav;wave;aif;aiff;flac;ogg;mp3;caf;m4a";
+   #else
+    const juce::String c_audioExtensions = "wav;wave;aif;aiff;flac;ogg;mp3";
+   #endif
+    const juce::String c_audioWildcard = "*." + c_audioExtensions.replace(";", ";*.");
 
     juce::String roleTip(CargoRole role)
     {
         switch (role)
         {
-            case CargoRole::Bed:     return "Energy bed: keeps rolling under every whoosh and swells with it.";
-            case CargoRole::Tonal:   return "Tonal content: one sound per whoosh, its loudest moment lands on the pass-by, then it tails out.";
-            case CargoRole::Impact:  return "Impact: one hit per whoosh, right on the pass-by.";
-            case CargoRole::Air:     return "Air / swish: one swell per whoosh, stretched to the whoosh length.";
-            case CargoRole::Crackle: return "Crackle: a texture that keeps rolling, jumping around with Chaos.";
-            case CargoRole::Rumble:  return "Rumble: low end that keeps rolling, half as much pitch bend.";
+            // What each type is for. The type picks the bus; every track loops the same way.
+            case CargoRole::Bed:     return "Steady sound with body, such as wind, drones, engines or rain, that rolls under the whoosh.";
+            case CargoRole::Tonal:   return "Sounds with a pitch or a voice, such as growls, squeals, creatures or tones.";
+            case CargoRole::Impact:  return "Hits and transients. They only play when the hit gate opens.";
+            case CargoRole::Air:     return "Air movement, such as swishes, cloth, flaps or sword swings.";
+            case CargoRole::Crackle: return "Busy, broken-up texture, such as fire, debris or sparks.";
+            case CargoRole::Rumble:  return "Low end, such as sub, thunder or rumble.";
             case CargoRole::Generic:
-            default:                 return "Mixed content: loops, and moves on to its next sound with every whoosh.";
+            default:                 return "A bit of everything, or no single clear type.";
         }
     }
 }
 
 bool CargoHoldView::isAudioFile(const juce::String& path)
 {
-    return juce::File(path).hasFileExtension("wav;wave;aif;aiff;flac;ogg;mp3;caf;m4a");
+    return juce::File(path).hasFileExtension(c_audioExtensions);
 }
 
 //==============================================================================
@@ -45,7 +52,7 @@ public:
         m_level.setSliderStyle(juce::Slider::LinearHorizontal);
         m_level.setTextBoxStyle(juce::Slider::NoTextBox, false, 0, 0);
         m_level.setColour(juce::Slider::trackColourId, colour);
-        m_level.setTooltip("Track level\nThis track's fader. With auto ride on it moves by itself and this sets how high it can go; "
+        m_level.setTooltip("Track Level\nThis track's fader. With Auto Ride on it moves by itself and this sets how high it can go; "
                            "the strip next to the waveform shows where it is right now.\nDouble-click to reset it.");
         addAndMakeVisible(m_level);
 
@@ -73,7 +80,7 @@ public:
         m_skip.setClickingTogglesState(true);
         m_skip.setColour(juce::TextButton::buttonOnColourId, colour);
         m_skip.setWantsKeyboardFocus(false);
-        m_skip.setTooltip("Skip silence\nOn: only the sounds play and the gaps between them are skipped, so a recording full of pauses "
+        m_skip.setTooltip("Skip Silence\nOn: only the sounds play and the gaps between them are skipped, so a recording full of pauses "
                           "becomes a steady source. Off: the whole file loops as it is, silence and all. "
                           "With SYNC HITS on, off fires the whole file as one hit, lined up on its first transient.");
         m_skip.onClick = [this] { m_owner.m_hold.setSkipSilence(m_track, m_skip.getToggleState()); };
@@ -113,7 +120,7 @@ public:
         m_solo.setToggleState(hold.getSolo(lane), juce::dontSendNotification);
         m_skip.setToggleState(hold.getSkipSilence(m_track), juce::dontSendNotification);
         m_type.setButtonText(CargoHold::typeName(hold.getRole(m_track)).toUpperCase() + (hold.getRoleOverride(m_track) < 0 ? "" : " *"));
-        m_type.setTooltip("Sound type: " + CargoHold::typeName(hold.getRole(m_track)) + "\n" + roleTip(hold.getRole(m_track))
+        m_type.setTooltip("Sound Type: " + CargoHold::typeName(hold.getRole(m_track)) + "\n" + roleTip(hold.getRole(m_track))
                           + " Plays on " + busLabel(hold.getBus(m_track)) + "."
                           + (hold.getRoleOverride(m_track) < 0 ? " Guessed from the sound." : " Set by you (marked *).")
                           + "\nWrong guess? Click to tell it what the sound is.");
@@ -301,7 +308,7 @@ public:
         if (m_align > 0.5f)
         {
             g.setColour(TC::record.brighter(0.3f).withAlpha(m_align));
-            g.drawText(m_syncCount == 0 ? juce::String("SYNCED   no hits found (try skip silence off)")
+            g.drawText(m_syncCount == 0 ? juce::String("SYNCED   no hits found (try Skip Silence off)")
                                         : "SYNCED   hit " + juce::String(m_syncIndex + 1) + " of " + juce::String(m_syncCount)
                                               + (m_owner.m_hold.getSkipSilence(m_track) ? "" : "  (whole file)"),
                        wave.reduced(16, 4), juce::Justification::topLeft);
@@ -400,10 +407,10 @@ public:
                    + " It follows the sound type.\nClick the type badge underneath to change the type, and so the bus.";
         }
         if (header.removeFromTop(18).contains(pos))
-            return "Track name\nNamed after its sound type, until you rename it.\nDouble-click to rename it.";
+            return "Track Name\nNamed after its sound type, until you rename it.\nDouble-click to rename it.";
         if (hasData() && waveArea().contains(pos))
             return "Waveform\nThe flag marks where this track starts playing; it loops from there and the part before it is dimmed. "
-                   "With skip silence on, the bright parts are the sounds it plays and the faint parts are the gaps it skips.\n"
+                   "With Skip Silence on, the bright parts are the sounds it plays and the faint parts are the gaps it skips.\n"
                    "Click or drag to move the start. Double-click to put it back at the top.";
         return {};
     }
@@ -542,7 +549,7 @@ private:
         const auto detected = data != nullptr ? data->detectedRole : CargoRole::Generic;
         juce::PopupMenu menu;
         menu.addSectionHeader("WHAT IS IT?  (this also decides where it plays)");
-        menu.addItem(1, "Auto (heard as " + CargoHold::typeName(detected) + ")", true, hold.getRoleOverride(m_track) < 0);
+        menu.addItem(1, "Auto (Heard as " + CargoHold::typeName(detected) + ")", true, hold.getRoleOverride(m_track) < 0);
         menu.addSeparator();
         for (int r = 1; r < c_numCargoRoles; ++r)
             menu.addItem(10 + r, CargoHold::typeName(static_cast<CargoRole>(r)) + "   -> " + busLabel(CargoHold::busForRole(static_cast<CargoRole>(r))),
@@ -691,7 +698,8 @@ void CargoHoldView::paint(juce::Graphics& g)
         g.setFont(m_fonts.body(11.0f));
         g.setColour(TC::textFaint);
         g.drawText(loaded == 0 ? "growls, tones, wind, engines, cloth, hits... or click to browse. Each sound is named by type and routed"
-                               : juce::String(CargoHold::c_numTracks - loaded) + " more tracks fit (or click to browse)",
+                               : juce::String(CargoHold::c_numTracks - loaded) + (CargoHold::c_numTracks - loaded == 1 ? " more track fits" : " more tracks fit")
+                                     + " (or click to browse)",
                    m_dropZone.withTrimmedTop(m_dropZone.getHeight() / 2 + 4), juce::Justification::centredTop);
     }
 }
@@ -815,8 +823,8 @@ void CargoHoldView::updateButtons()
             case Action::FadeIn: case Action::FadeOut: enabled = sel; break;
             case Action::Reverse: case Action::Normalise: enabled = hasData; break;
             case Action::Paste: enabled = m_hold.hasClipboard(); break;
-            case Action::Undo: enabled = m_hold.canUndo(m_active); break;
-            case Action::Redo: enabled = m_hold.canRedo(m_active); break;
+            case Action::Undo: enabled = m_hold.canUndoLatest(); break;
+            case Action::Redo: enabled = m_hold.canRedoLatest(); break;
             case Action::Load: break;
         }
         b->setEnabled(enabled);
@@ -852,8 +860,19 @@ void CargoHoldView::perform(Action action)
         case Action::Normalise: if (lane.hasData()) m_hold.normalise(t, s, e); break;
         case Action::FadeIn:    if (sel) m_hold.fade(t, s, e, true); break;
         case Action::FadeOut:   if (sel) m_hold.fade(t, s, e, false); break;
-        case Action::Undo:      m_hold.undo(t); break;
-        case Action::Redo:      m_hold.redo(t); break;
+        // Undo / redo follow the order of the edits across every track (so x then Cmd+Z brings that track back,
+        // wherever the selection went), and select the track they acted on.
+        case Action::Undo:
+        case Action::Redo:
+        {
+            const int acted = action == Action::Undo ? m_hold.undoLatest() : m_hold.redoLatest();
+            if (acted >= 0 && m_lanes[static_cast<size_t>(acted)]->hasData())
+                setActiveTrack(acted);
+            for (auto& l : m_lanes)
+                l->refresh();
+            updateButtons();
+            return;
+        }
     }
     lane.refresh();
     updateButtons();
@@ -861,7 +880,7 @@ void CargoHoldView::perform(Action action)
 
 void CargoHoldView::chooseFiles()
 {
-    m_chooser = std::make_unique<juce::FileChooser>("Add sounds", juce::File::getSpecialLocation(juce::File::userDesktopDirectory),
+    m_chooser = std::make_unique<juce::FileChooser>("Add Sounds", juce::File::getSpecialLocation(juce::File::userDesktopDirectory),
                                                     c_audioWildcard);
     m_chooser->launchAsync(juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles
                                | juce::FileBrowserComponent::canSelectMultipleItems,

@@ -111,6 +111,11 @@ def main(check_only):
             if line:
                 omit_ids.add(line)
     cut_ids, all_ids = set(), set()
+    # data/rewrites.json: {"<entry id>": "new text"}. Edits wording (e.g. to name who did it) while the
+    # id stays tied to the original research text, so omit lists and saved sessions keep working.
+    rewrites_file = DATA / "rewrites.json"
+    rewrites = json.loads(rewrites_file.read_text(encoding="utf-8")) if rewrites_file.exists() else {}
+    rewritten = set()
 
     for path in sorted(DATA.glob("*.json")):
         data = json.loads(path.read_text(encoding="utf-8"))
@@ -166,6 +171,9 @@ def main(check_only):
             if entry_id in omit_ids:
                 cut_ids.add(entry_id)
                 continue
+            if entry_id in rewrites:
+                text = clean(rewrites[entry_id])
+                rewritten.add(entry_id)
 
             if who not in people:
                 problems.append(f"{where}: person not in people list")
@@ -237,6 +245,10 @@ def main(check_only):
         print(f"omitted {omitted[key]} entries whose main category is {key[9:]}")
     for who in sorted(omit):
         print(f"omitted {who} ({omitted[who]} entries)" if omitted[who] else f"omit.txt names {who!r}, who has no entries")
+    if rewrites:
+        print(f"rewrote {len(rewritten)} entries from rewrites.json")
+        for stale in sorted(set(rewrites) - all_ids):
+            print(f"  rewrites.json lists {stale}, which no longer exists")
     if omit_ids:
         print(f"omitted {len(cut_ids)} entries listed in omit-entries.txt")
         for stale in sorted(omit_ids - all_ids):

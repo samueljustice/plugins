@@ -6,7 +6,7 @@ It's a VST3 / AU plug-in (audio passes straight through, untouched) and a standa
 
 ![Sound Advice](docs/screenshot.png)
 
-**[Download the latest release](https://github.com/samueljustice/plugins/releases/tag/soundadvice-v1.0.4)**: macOS installer (app, VST3, AU; signed and notarised, universal, macOS 11+), the app on its own as a `.dmg`, or the Windows installer (VST3 and app).
+**[Download the latest release](https://github.com/samueljustice/plugins/releases/tag/soundadvice-v1.0.5)**: macOS installer (app, VST3, AU; signed and notarised, universal, macOS 11+), the app on its own as a `.dmg`, or the Windows installer (VST3 and app).
 
 ## What's in it
 
@@ -62,7 +62,7 @@ The entries live in `data/*.json`, one file per research group, each entry with 
 python3 tools/build_quotes.py
 ```
 
-To add an entry, add it to a data file (or a new one) with its source, run the script and rebuild. `data/credits.json` sets the credits line shown under each name. To leave someone out, put their name in `data/omit.txt`; to drop a single entry (too generic, a fragment, a near-duplicate), put its id in `data/omit-entries.txt`. Either way the research stays in the data files and the build just skips it. The `SoundAdviceTests` program checks the built database: a sanity floor of 300 entries, every category stocked, and the no-repeat dealing.
+To add an entry, add it to a data file (or a new one) with its source, run the script and rebuild. `data/credits.json` sets the credits line shown under each name. To leave someone out, put their name in `data/omit.txt`; to drop a single entry (too generic, a fragment, a near-duplicate), put its id in `data/omit-entries.txt`. Either way the research stays in the data files and the build just skips it. `data/rewrites.json` changes an entry's wording (for example to name who did the work) without changing its id. The `SoundAdviceTests` program checks the built database: a sanity floor of 300 entries, every category stocked, and the no-repeat dealing.
 
 ## Building
 

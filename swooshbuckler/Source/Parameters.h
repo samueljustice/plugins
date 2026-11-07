@@ -87,7 +87,7 @@ namespace Params
                                            [](float v, int) { return (v > 0.05f ? "+" : "") + String(v, 1) + " st"; })));
         layout.add(pct(ParamIDs::input, "Input", 0.0f));
 
-        layout.add(std::make_unique<AudioParameterBool>(ParameterID { ParamIDs::rideOn, 2 }, "Auto ride", true));
+        layout.add(std::make_unique<AudioParameterBool>(ParameterID { ParamIDs::rideOn, 2 }, "Auto Ride", true));
         layout.add(pct(ParamIDs::energy, "Energy", 0.6f));
         layout.add(pct(ParamIDs::rate, "Rate", 0.4f));
         layout.add(pct(ParamIDs::fill, "Fill", 0.3f));
@@ -97,44 +97,52 @@ namespace Params
             { 0.55f, 0.8f, 0.7f, 0.35f, 0.2f, 0.3f, 0.15f, 0.0f, 0.0f },
             { 0.4f, 0.8f, 0.6f, 0.2f, 0.3f, 0.4f, 0.0f, 0.4f, 0.3f },
         };
-        const char* controlNames[] = { "Doppler", "Width", "Bend", "Low end", "Swirl", "Filter", "Drive", "Ducked by A", "Filtered by A" };
+        const char* controlNames[] = { "Doppler", "Width", "Bend", "Low End", "Swirl", "Filter", "Drive", "Ducked by A", "Filtered by A" };
         for (int b = 0; b < ParamIDs::numBuses; ++b)
             for (int k = 0; k < ParamIDs::numBusControls; ++k)
                 if (ParamIDs::bus[b][k] != nullptr)
                     layout.add(pct(ParamIDs::bus[b][k], String("Bus ") + ParamIDs::busNames[b] + " " + controlNames[k], defaults[b][k]));
 
-        layout.add(pct(ParamIDs::hitSense, "Hit sensitivity", 0.5f));
-        layout.add(std::make_unique<P>(ParameterID { ParamIDs::hitBoost, 2 }, "Hit boost", NormalisableRange<float>(0.0f, 18.0f), 12.0f,
-                                       AudioParameterFloatAttributes().withLabel("dB").withStringFromValueFunction(
-                                           [](float v, int) { return "+" + String(v, 1) + " dB"; })));
-        layout.add(std::make_unique<P>(ParameterID { ParamIDs::hitRelease, 2 }, "Hit release", NormalisableRange<float>(0.0f, 1.0f), 0.35f,
+        layout.add(pct(ParamIDs::hitSense, "Hit Sensitivity", 0.5f));
+        layout.add(std::make_unique<P>(ParameterID { ParamIDs::hitBoost, 2 }, "Hit Boost", NormalisableRange<float>(0.0f, 18.0f), 12.0f,
+                                       // The stored value is 0..18 (sessions and presets keep it); the engine plays it 6 dB lower,
+                                       // so the readout shows the gain the hits really get: -6 .. +12 dB.
+                                       AudioParameterFloatAttributes().withLabel("dB")
+                                           .withStringFromValueFunction([](float v, int)
+                                           {
+                                               // Round first so values just under 0 read "+0.0", not "-0.0".
+                                               const float db = std::round((v - 6.0f) * 10.0f) / 10.0f;
+                                               return (db >= 0.0f ? "+" : "") + String(db == 0.0f ? 0.0f : db, 1) + " dB";
+                                           })
+                                           .withValueFromStringFunction([](const String& t) { return t.retainCharacters("-+.0123456789").getFloatValue() + 6.0f; })));
+        layout.add(std::make_unique<P>(ParameterID { ParamIDs::hitRelease, 2 }, "Hit Release", NormalisableRange<float>(0.0f, 1.0f), 0.35f,
                                        AudioParameterFloatAttributes().withStringFromValueFunction(
                                            [](float v, int) { return String(roundToInt(60.0f + v * 1140.0f)) + " ms"; })));
-        layout.add(pct(ParamIDs::hitDuck, "Hit duck", 0.5f));
-        layout.add(std::make_unique<AudioParameterBool>(ParameterID { ParamIDs::hitSync, 2 }, "Sync hits", false));
-        layout.add(std::make_unique<AudioParameterChoice>(ParameterID { ParamIDs::gateMode, 2 }, "Gate mode",
+        layout.add(pct(ParamIDs::hitDuck, "Hit Duck", 0.5f));
+        layout.add(std::make_unique<AudioParameterBool>(ParameterID { ParamIDs::hitSync, 2 }, "Sync Hits", false));
+        layout.add(std::make_unique<AudioParameterChoice>(ParameterID { ParamIDs::gateMode, 2 }, "Gate Mode",
                                                           StringArray { "Peaks", "Level", "Jumps", "Open" }, 0));
-        layout.add(std::make_unique<P>(ParameterID { ParamIDs::hitHold, 2 }, "Gate hold", NormalisableRange<float>(0.0f, 1.0f), 0.12f,
+        layout.add(std::make_unique<P>(ParameterID { ParamIDs::hitHold, 2 }, "Gate Hold", NormalisableRange<float>(0.0f, 1.0f), 0.12f,
                                        AudioParameterFloatAttributes().withStringFromValueFunction(
                                            [](float v, int) { return String(roundToInt(v * 500.0f)) + " ms"; })));
-        layout.add(std::make_unique<P>(ParameterID { ParamIDs::hitFloor, 2 }, "Gate floor", NormalisableRange<float>(0.0f, 1.0f), 0.0f,
+        layout.add(std::make_unique<P>(ParameterID { ParamIDs::hitFloor, 2 }, "Gate Floor", NormalisableRange<float>(0.0f, 1.0f), 0.0f,
                                        AudioParameterFloatAttributes().withStringFromValueFunction(
                                            [](float v, int) { return v <= 0.001f ? String("Closed") : String(-40.0f + 37.0f * v, 1) + " dB"; })));
-        layout.add(std::make_unique<AudioParameterChoice>(ParameterID { ParamIDs::duckMode, 2 }, "Duck mode",
+        layout.add(std::make_unique<AudioParameterChoice>(ParameterID { ParamIDs::duckMode, 2 }, "Duck Mode",
                                                           StringArray { "Volume", "Darken", "Mids" }, 0));
-        layout.add(std::make_unique<P>(ParameterID { ParamIDs::duckReturn, 2 }, "Duck return", NormalisableRange<float>(0.0f, 1.0f), 0.0f,
+        layout.add(std::make_unique<P>(ParameterID { ParamIDs::duckReturn, 2 }, "Duck Return", NormalisableRange<float>(0.0f, 1.0f), 0.0f,
                                        AudioParameterFloatAttributes().withStringFromValueFunction(
                                            [](float v, int) { return v <= 0.001f ? String("Fast") : String(roundToInt(20.0f + 980.0f * v)) + " ms"; })));
-        layout.add(std::make_unique<AudioParameterBool>(ParameterID { ParamIDs::takeTurns, 2 }, "Take turns", false));
+        layout.add(std::make_unique<AudioParameterBool>(ParameterID { ParamIDs::takeTurns, 2 }, "Take Turns", false));
 
         layout.add(std::make_unique<AudioParameterBool>(ParameterID { ParamIDs::morphOn, 2 }, "Morph", false));
-        layout.add(std::make_unique<AudioParameterChoice>(ParameterID { ParamIDs::morphMode, 2 }, "Morph mode", StringArray { "Blend", "Glide", "Cross" }, 0));
+        layout.add(std::make_unique<AudioParameterChoice>(ParameterID { ParamIDs::morphMode, 2 }, "Morph Mode", StringArray { "Blend", "Glide", "Cross" }, 0));
         layout.add(pct(ParamIDs::morphX, "Morph X", 0.5f));
         layout.add(pct(ParamIDs::morphY, "Morph Y", 0.5f));
-        layout.add(std::make_unique<AudioParameterBool>(ParameterID { ParamIDs::morphWander, 2 }, "Morph wander", false));
-        layout.add(pct(ParamIDs::morphSpeed, "Morph speed", 0.5f));
-        layout.add(std::make_unique<AudioParameterChoice>(ParameterID { ParamIDs::morphShape, 2 }, "Morph shape",
-                                                          StringArray { "Lorenz", "Sweet Justice", "Figure eight", "Rose", "Circle" }, 0));
+        layout.add(std::make_unique<AudioParameterBool>(ParameterID { ParamIDs::morphWander, 2 }, "Morph Wander", false));
+        layout.add(pct(ParamIDs::morphSpeed, "Morph Speed", 0.5f));
+        layout.add(std::make_unique<AudioParameterChoice>(ParameterID { ParamIDs::morphShape, 2 }, "Morph Shape",
+                                                          StringArray { "Lorenz", "Sweet Justice", "Figure Eight", "Rose", "Circle" }, 0));
 
         layout.add(pct(ParamIDs::space, "Space", 0.25f));
         layout.add(pct(ParamIDs::inflate, "Inflate", 0.3f));
@@ -152,12 +160,12 @@ namespace Params
         for (int m = 0; m < ParamIDs::numMods; ++m)
         {
             const String name = "Mod " + String(m + 1);
-            layout.add(std::make_unique<AudioParameterChoice>(ParameterID { ParamIDs::modType[m], 2 }, name + " type",
+            layout.add(std::make_unique<AudioParameterChoice>(ParameterID { ParamIDs::modType[m], 2 }, name + " Type",
                                                               StringArray { "LFO", "Random", "Follower", "Macro" }, defaultTypes[m]));
-            layout.add(std::make_unique<AudioParameterChoice>(ParameterID { ParamIDs::modShape[m], 2 }, name + " shape",
+            layout.add(std::make_unique<AudioParameterChoice>(ParameterID { ParamIDs::modShape[m], 2 }, name + " Shape",
                                                               StringArray { "Sine", "Triangle", "Ramp", "Square", "Steps" }, defaultShapes[m]));
-            layout.add(pct(ParamIDs::modKnob[m], name + " rate / amount", defaultKnobs[m]));
-            layout.add(std::make_unique<AudioParameterChoice>(ParameterID { ParamIDs::modFollow[m], 2 }, name + " follows",
+            layout.add(pct(ParamIDs::modKnob[m], name + " Rate / Amount", defaultKnobs[m]));
+            layout.add(std::make_unique<AudioParameterChoice>(ParameterID { ParamIDs::modFollow[m], 2 }, name + " Follows",
                                                               StringArray { "Bus A", "Bus B", "Hits", "Output" }, 0));
         }
         return layout;
