@@ -1,27 +1,19 @@
-## SammyJs Reversinator 2.0.1
+## SammyJs Reversinator 2.0.2
 
-Reversinator's interface now has the same look as Subbertone's. Every menu, field, link, tooltip and focus state is drawn in Reversinator's own colours, and nothing is left in JUCE's default style. The sound, the parameters and saved sessions are unchanged from 2.0.0.
+The copyright year is now the year the plugin was built, so it no longer goes out of date, and the README has a new guide to the window. The sound, the parameters and saved sessions are unchanged from 2.0.1.
 
-![Reversinator](https://raw.githubusercontent.com/samueljustice/plugins/reversinator-v2.0.1/reversinator/docs/screenshot.png)
+![Reversinator](https://raw.githubusercontent.com/samueljustice/plugins/reversinator-v2.0.2/reversinator/docs/screenshot.png)
 
 ### What's new
 
-- **Menus.** The right-click menu of a value box you are typing in, and of the licence text, is a rounded, framed panel in Reversinator's colours and font, with a rounded highlight.
-- **Typing a value.** While you type into a value box, it becomes a rounded field in that control's colour, and the text stays centred.
-- **Keyboard focus.** After you press Tab, a ring shows which control has the keyboard focus. This includes the mode lamps and the REVERSER button. A click hides the rings again.
-- **About panel.**
-  - The website and e-mail links are plain text that turns blue and underlines under the mouse.
-  - CHECK FOR UPDATES is greyed out while a check runs.
-  - The result is green when you are up to date and blue when an update is available.
-- **Tooltips, scrollbar and resize grip** are drawn in the same style as Subbertone's.
-
-### Fixes
-
-- The licence text no longer shows "fi" as "fı" (a font ligature).
-- The arrows beside REVERSING and FORWARDS in the display are now the same size.
-- Tooltips no longer have unpainted corners at the default window size.
-- While the About panel is open, Tab and Return no longer reach the controls behind it.
-- On Windows, menus no longer have JUCE's bright grey frame.
+- **Copyright year.** The year is the one the plugin was built in, in two places:
+  - the licence text in the About panel;
+  - the copyright in the plugin files' details (the bundle information on macOS, the file properties on Windows).
+- **A guide to the window.** The README [walks through every part of the window](https://github.com/samueljustice/plugins/blob/reversinator-v2.0.2/reversinator/README.md#a-tour-of-the-window), with screenshots. It covers:
+  - the snippet display in each effect;
+  - MODE, REVERSER, TIME, FEEDBACK DEPTH and VOLUME;
+  - typing values, tooltips and keyboard use;
+  - the About panel.
 
 ### Downloads
 
