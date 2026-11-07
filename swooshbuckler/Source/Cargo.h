@@ -151,6 +151,12 @@ public:
     void redo(int track);
     bool canUndo(int track) const { return ! m_tracks[static_cast<size_t>(track)].undo.empty(); }
     bool canRedo(int track) const { return ! m_tracks[static_cast<size_t>(track)].redo.empty(); }
+    /** Undo / redo across every track, in the order the edits were made (what Cmd+Z and Shift+Cmd+Z do).
+        Return the track they acted on, or -1 when there is nothing to undo / redo. */
+    int undoLatest();
+    int redoLatest();
+    bool canUndoLatest() const;
+    bool canRedoLatest() const;
     bool hasClipboard() const { return m_clipboard.getNumSamples() > 0; }
 
     juce::AudioFormatManager& getFormatManager() { return m_formats; }
@@ -194,6 +200,10 @@ private:
     bool validRange(int track, int& start, int& end) const;
 
     std::array<Track, c_numTracks> m_tracks;
+    // Which track each undoable edit touched, oldest first (message thread). An edit pushes its track to
+    // m_undoOrder and empties m_redoOrder; undoLatest / redoLatest move tracks between the two. Entries whose
+    // track has nothing left to undo (history trimmed at c_maxUndo) are skipped.
+    std::vector<int> m_undoOrder, m_redoOrder;
     std::array<std::atomic<bool>, c_numLanes> m_mute {}, m_solo {};   //
     std::atomic<int> m_soloCount { 0 };
     std::array<std::atomic<float>, c_numTracks> m_start {};

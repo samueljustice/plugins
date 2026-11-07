@@ -105,8 +105,16 @@ namespace Params
 
         layout.add(pct(ParamIDs::hitSense, "Hit Sensitivity", 0.5f));
         layout.add(std::make_unique<P>(ParameterID { ParamIDs::hitBoost, 2 }, "Hit Boost", NormalisableRange<float>(0.0f, 18.0f), 12.0f,
-                                       AudioParameterFloatAttributes().withLabel("dB").withStringFromValueFunction(
-                                           [](float v, int) { return "+" + String(v, 1) + " dB"; })));
+                                       // The stored value is 0..18 (sessions and presets keep it); the engine plays it 6 dB lower,
+                                       // so the readout shows the gain the hits really get: -6 .. +12 dB.
+                                       AudioParameterFloatAttributes().withLabel("dB")
+                                           .withStringFromValueFunction([](float v, int)
+                                           {
+                                               // Round first so values just under 0 read "+0.0", not "-0.0".
+                                               const float db = std::round((v - 6.0f) * 10.0f) / 10.0f;
+                                               return (db >= 0.0f ? "+" : "") + String(db == 0.0f ? 0.0f : db, 1) + " dB";
+                                           })
+                                           .withValueFromStringFunction([](const String& t) { return t.retainCharacters("-+.0123456789").getFloatValue() + 6.0f; })));
         layout.add(std::make_unique<P>(ParameterID { ParamIDs::hitRelease, 2 }, "Hit Release", NormalisableRange<float>(0.0f, 1.0f), 0.35f,
                                        AudioParameterFloatAttributes().withStringFromValueFunction(
                                            [](float v, int) { return String(roundToInt(60.0f + v * 1140.0f)) + " ms"; })));

@@ -645,7 +645,7 @@ SwooshbucklerAudioProcessorEditor::SwooshbucklerAudioProcessorEditor(Swooshbuckl
 
     // Hits + output --------------------------------------------------------------
     addKnob(ParamIDs::hitSense, "Sensitivity", TC::record, "How easily the hit gate opens. It listens to buses A and B together; what counts as a trigger depends on the GATE mode. Low: only the biggest moments fire the hits. High: they fire often.");
-    addKnob(ParamIDs::hitBoost, "Boost", TC::record, "How much the hit tracks jump up when the gate opens (up to +18 dB). More makes the hits punch out of the whoosh.");
+    addKnob(ParamIDs::hitBoost, "Boost", TC::record, "How much the hit tracks jump up when the gate opens, from 6 dB under their own level to 12 dB over it. More makes the hits punch out of the whoosh.");
     addKnob(ParamIDs::hitRelease, "Release", TC::record, "How long the hits tail out after the gate opens. Short: tight, dry impacts. Long: the hits ring on into the next swell.");
     addKnob(ParamIDs::hitHold, "Hold", TC::record, "How long the gate stays open once it opens. Longer stops it chattering open and shut, so each hit reads as one event.");
     addKnob(ParamIDs::hitFloor, "Floor", TC::record, "How far the gate closes between hits. Closed (fully left): the hits vanish completely between peaks, like the original rig. Turn it up and they stay quietly under the mix instead.");

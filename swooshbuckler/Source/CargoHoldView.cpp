@@ -823,8 +823,8 @@ void CargoHoldView::updateButtons()
             case Action::FadeIn: case Action::FadeOut: enabled = sel; break;
             case Action::Reverse: case Action::Normalise: enabled = hasData; break;
             case Action::Paste: enabled = m_hold.hasClipboard(); break;
-            case Action::Undo: enabled = m_hold.canUndo(m_active); break;
-            case Action::Redo: enabled = m_hold.canRedo(m_active); break;
+            case Action::Undo: enabled = m_hold.canUndoLatest(); break;
+            case Action::Redo: enabled = m_hold.canRedoLatest(); break;
             case Action::Load: break;
         }
         b->setEnabled(enabled);
@@ -860,8 +860,19 @@ void CargoHoldView::perform(Action action)
         case Action::Normalise: if (lane.hasData()) m_hold.normalise(t, s, e); break;
         case Action::FadeIn:    if (sel) m_hold.fade(t, s, e, true); break;
         case Action::FadeOut:   if (sel) m_hold.fade(t, s, e, false); break;
-        case Action::Undo:      m_hold.undo(t); break;
-        case Action::Redo:      m_hold.redo(t); break;
+        // Undo / redo follow the order of the edits across every track (so x then Cmd+Z brings that track back,
+        // wherever the selection went), and select the track they acted on.
+        case Action::Undo:
+        case Action::Redo:
+        {
+            const int acted = action == Action::Undo ? m_hold.undoLatest() : m_hold.redoLatest();
+            if (acted >= 0 && m_lanes[static_cast<size_t>(acted)]->hasData())
+                setActiveTrack(acted);
+            for (auto& l : m_lanes)
+                l->refresh();
+            updateButtons();
+            return;
+        }
     }
     lane.refresh();
     updateButtons();

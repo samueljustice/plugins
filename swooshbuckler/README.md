@@ -142,7 +142,7 @@ Changing a track's type is how you move it to the other bus.
 
 **Undo**
 
-Click a lane first, then press Cmd+Z (Ctrl+Z on Windows) to undo loading a sound or removing a track on that lane, and Shift+Cmd+Z (Ctrl+Shift+Z) to redo. Each track keeps up to 40 steps.
+With the Tracks panel focused (click it first), Cmd+Z (Ctrl+Z on Windows) undoes the last sound you loaded or the last track you removed, on whichever track it was, and selects that track. Shift+Cmd+Z (Ctrl+Shift+Z) redoes it. Remove three tracks and three presses bring them all back. Each track keeps up to 40 steps.
 
 **Hit sync view**
 
@@ -204,7 +204,7 @@ Every Impact track plays here, and only when the hit gate opens. The gate listen
 | **GATE** box | Peaks / Level / Jumps / Open (Peaks) | What opens the gate. **Peaks**: the loudest moments of the two buses. **Level**: any time they're louder than a level set by Sensitivity. **Jumps**: sudden rises, however loud or quiet. **Open**: no gate, the hits always play. |
 | **DUCK** box | Volume / Darken / Mids (Volume) | How a ducked bus gets out of the way: turned down, low-passed, or only its crowded middle (250 Hz to 4 kHz) turned down. This also applies to bus A ducking bus B. |
 | **Sensitivity** | 0–100% (50%) | How easily the gate opens. Low: only the biggest moments fire the hits. High: they fire often. |
-| **Boost** | 0 to +18 dB (+12 dB) | How much the hits jump up when the gate opens. |
+| **Boost** | −6 to +12 dB (+6 dB) | How much the hits jump up when the gate opens. |
 | **Release** | 60 ms to 1.2 s (459 ms) | How long the hits tail out after the gate shuts. |
 | **Hold** | 0–500 ms (60 ms) | How long the gate stays open after the last trigger. Longer stops it chattering, so each hit reads as one event. |
 | **Floor** | Closed, or −40 to −3 dB (Closed) | How far the gate closes between hits. Closed: the hits vanish between peaks. Turn it up and they stay quietly under the mix. |
@@ -263,8 +263,8 @@ The morph blends bus A into bus B spectrally, so the two sounds trade tone and p
 
 - **Click or drag** on the pad to move the dot. **Double-click** to put it back in the middle.
 - **Wander** (the play button at the top right) makes the dot move along a shape by itself, so the morph keeps moving. The whole shape is drawn faintly, with a bright trail behind the dot. Click it again, or click the pad, to stop.
-  - The **slider** beside it sets the speed, from a slow drift to busy.
-  - The **shape menu** picks the path:
+  - The **speed slider**, along the bottom between the Bus A and Bus B labels, sets how fast it goes, from a slow drift to busy.
+  - The **shape menu**, beside it, picks the path:
     - **Lorenz** (the default): a chaotic loop that swaps between two wings and never repeats.
     - **Sweet Justice**: the outline of the Sweet Justice Sound logo.
     - **Figure Eight**, **Rose** and **Circle**: these turn slowly, one degree per lap, so they never repeat exactly.
@@ -359,7 +359,7 @@ Anything else a preset doesn't set goes back to its default. **Back to Defaults*
 | Space bar (hold) | Swell. With a track lane selected, it gives a short swell instead: click outside Tracks for a held one. |
 | Any MIDI note (hold) | Swell, for as long as any note is held. Notes only work while the rig is playing. |
 | Click the sea | A short swell. |
-| Cmd+Z / Shift+Cmd+Z (Ctrl+Z / Ctrl+Shift+Z on Windows) | Undo and redo loading or removing on the selected track. Click a lane first. |
+| Cmd+Z / Shift+Cmd+Z (Ctrl+Z / Ctrl+Shift+Z on Windows) | Undo and redo the last load or removal in Tracks, newest first. Click the Tracks panel first. |
 | Esc | Closes Settings or About. |
 | Double-click a knob | Resets it. |
 | Double-click a track name | Renames it. |
