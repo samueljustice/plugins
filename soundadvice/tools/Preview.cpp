@@ -34,6 +34,8 @@ namespace
         if (auto xml = tree.createXml())
             juce::AudioProcessor::copyXmlToBinary (*xml, state);
         proc.setStateInformation (state.getData(), (int) state.getSize());
+        proc.showEntryById (entry);
+        proc.setDealOnOpen (false);
     }
 
     juce::Image snapshot (SoundAdviceProcessor& proc, int width, int height, float scale)
@@ -235,6 +237,8 @@ int main (int argc, char** argv)
     if (auto xml = tree.createXml())
         juce::AudioProcessor::copyXmlToBinary (*xml, state);
     proc.setStateInformation (state.getData(), (int) state.getSize());
+    proc.showEntryById (entries[longest].id);
+    proc.setDealOnOpen (false);
     render (proc, width, height, outDir.getChildFile ("preview-longest.png"));
     std::cout << "longest: " << entries[longest].text.length() << " chars\n";
     return 0;

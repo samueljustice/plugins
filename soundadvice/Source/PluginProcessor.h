@@ -31,6 +31,13 @@ public:
     int back();
     bool canGoBack() const;
 
+    /** Called when the window opens: every new window after the first deals a fresh entry
+        (the first shows the one just dealt on load). Returns the entry to show. */
+    int dealForNewWindow();
+    /** For tools: show this entry and stop windows from dealing new ones. */
+    void showEntryById (const juce::String& id);
+    void setDealOnOpen (bool shouldDeal) { const juce::ScopedLock sl (lock); dealOnOpen = shouldDeal; }
+
     //==============================================================================
     void prepareToPlay (double, int) override {}
     void releaseResources() override {}
@@ -65,6 +72,7 @@ private:
     int category = 0;
     int current = -1;
     bool night = false;
+    bool dealOnOpen = true, editorOpened = false;
     std::vector<int> history;   // earlier entries, most recent last
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (SoundAdviceProcessor)

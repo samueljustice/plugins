@@ -8,7 +8,7 @@
 
 void printUsage(const char* programName) {
     std::cout << "PTSL Beat Tool CLI - Variable Tempo Detection for Pro Tools\n";
-    std::cout << "Copyright © 2025 Samuel Justice\n\n";
+    std::cout << "Copyright © " COPYRIGHT_YEAR " Samuel Justice\n\n";
     std::cout << "Usage: " << programName << " [options] <audio_file>\n\n";
     std::cout << "Options:\n";
     std::cout << "  -h, --help              Show this help message\n";

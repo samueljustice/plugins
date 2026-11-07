@@ -2,6 +2,7 @@
 
 #include <juce_core/juce_core.h>
 
+#include <random>
 #include <vector>
 
 /** The quote database: people, entries and categories, parsed from the embedded quotes.json.
@@ -66,7 +67,10 @@ private:
 class QuotePicker
 {
 public:
-    explicit QuotePicker (const QuoteLibrary& library, juce::int64 seed = juce::Time::currentTimeMillis());
+    /** Seeded from std::random_device, so every launch deals in a different order. */
+    explicit QuotePicker (const QuoteLibrary& library);
+    /** A fixed seed, for repeatable tests. */
+    QuotePicker (const QuoteLibrary& library, std::uint64_t seed);
 
     /** The next entry index for a category, never `avoid` unless the category has only one entry.
         Returns -1 for an unknown or empty category. */
@@ -74,6 +78,6 @@ public:
 
 private:
     const QuoteLibrary& library;
-    juce::Random random;
+    std::mt19937_64 random;
     std::vector<std::vector<int>> decks;
 };

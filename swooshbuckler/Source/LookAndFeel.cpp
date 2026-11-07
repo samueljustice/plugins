@@ -102,6 +102,9 @@ void SwooshLookAndFeel::drawButtonBackground(juce::Graphics& g, juce::Button& bu
     const auto accent = button.findColour(juce::TextButton::buttonOnColourId);
     const bool on = button.getToggleState();
 
+    // A solid base first, so nothing behind shows through a lit button (e.g. the moon behind MORPH ON).
+    g.setColour(TC::panelRaised);
+    g.fillRoundedRectangle(r, 4.0f);
     g.setColour(on ? accent.withAlpha(down ? 0.38f : 0.22f) : TC::panelRaised.brighter(over ? 0.12f : 0.0f).darker(down ? 0.2f : 0.0f));
     g.fillRoundedRectangle(r, 4.0f);
     g.setColour(on ? accent.withAlpha(0.9f) : (over ? TC::outline.brighter(0.5f) : TC::outline));

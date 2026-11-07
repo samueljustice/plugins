@@ -669,7 +669,11 @@ void SwooshbucklerAudioProcessor::applyRestoredState(const juce::ValueTree& carg
     jassert(juce::MessageManager::existsAndIsCurrentThread());
     m_mods.notifyChanged(); // the wires were restored (possibly off the message thread): redraw them
     savedEditorWidth = editorWidth;
+    // Sessions saved before the preset names were Title Case ("Steady energy"): show today's spelling.
     currentPresetName = presetName;
+    for (const auto& preset : Presets::factory())
+        if (preset.name.equalsIgnoreCase(presetName))
+            currentPresetName = preset.name;
     {
         const juce::ScopedLock sl(m_stateLock);
         m_mirrorWidth = editorWidth;

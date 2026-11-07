@@ -46,7 +46,7 @@ namespace
     }
 
     const char* const c_credits =
-        "Copyright (c) 2025-2026 Samuel Justice\n\n"
+        "Copyright (c) " COPYRIGHT_YEAR " Samuel Justice\n\n"
         "BUILT WITH\n"
         "- JUCE (juce.com), Raw Material Software Limited.\n"
         "- Rubber Band Library (breakfastquay.com/rubberband), Particular Programs Ltd. "

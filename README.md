@@ -46,7 +46,7 @@ Drop in up to ten sounds and Swooshbuckler rides the faders across them for you,
 - 📼 **Always recording**: grab the last 60 seconds whenever something good happens
 
 **App** (macOS, Windows) · **VST3** · **AU** &nbsp;&nbsp;
-[![Download Swooshbuckler](https://img.shields.io/badge/download-v1.0.0-d00a35?style=flat-square)](https://github.com/samueljustice/plugins/releases/tag/swooshbuckler-v1.0.0) &nbsp;
+[![Download Swooshbuckler](https://img.shields.io/badge/download-v1.0.1-d00a35?style=flat-square)](https://github.com/samueljustice/plugins/releases/tag/swooshbuckler-v1.0.1) &nbsp;
 [Read the manual →](swooshbuckler/README.md)
 
 ---
@@ -129,7 +129,7 @@ A small, quiet page of advice from the great film, TV and game sound designers a
 - 🔇 **Audio passes straight through**, so it can sit on a mix bus or on a second screen as an app
 
 **App** (macOS, Windows) · **VST3** · **AU** &nbsp;&nbsp;
-[![Download Sound Advice](https://img.shields.io/badge/download-v1.0.4-9a5a3a?style=flat-square)](https://github.com/samueljustice/plugins/releases/tag/soundadvice-v1.0.4) &nbsp;
+[![Download Sound Advice](https://img.shields.io/badge/download-v1.0.5-9a5a3a?style=flat-square)](https://github.com/samueljustice/plugins/releases/tag/soundadvice-v1.0.5) &nbsp;
 [Read the manual →](soundadvice/README.md)
 
 ---
