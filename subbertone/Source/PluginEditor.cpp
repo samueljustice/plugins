@@ -89,6 +89,7 @@ SubbertoneAudioProcessorEditor::SubbertoneAudioProcessorEditor(SubbertoneAudioPr
     , m_limiterAttachment(m_audioProcessor.m_parameters, "limiterOn", m_limiterButton)
     , m_loCutAttachment(m_audioProcessor.m_parameters, "loCutFreq", m_loCutSlider)
     , m_loCutButtonAttachment(m_audioProcessor.m_parameters, "loCutOn", m_loCutButton)
+    , m_phaseAlignAttachment(m_audioProcessor.m_parameters, "phaseAlign", m_phaseAlignButton)
 {
     setLookAndFeel(&m_lookAndFeel);
     m_tooltipWindow.setLookAndFeel(&m_lookAndFeel);
@@ -111,6 +112,16 @@ SubbertoneAudioProcessorEditor::SubbertoneAudioProcessorEditor(SubbertoneAudioPr
     m_harmonicStrip = std::make_unique<HarmonicStrip>(m_audioProcessor.m_parameters, *m_fonts,
                                                       [this](int k) { return m_audioProcessor.getHarmonicActivity(k); });
     m_content.addAndMakeVisible(*m_harmonicStrip);
+
+    // HARMONICS header: the Phase Align switch, mint like the strip.
+    m_phaseAlignButton.setButtonText("PHASE ALIGN");
+    m_phaseAlignButton.setClickingTogglesState(true);
+    m_phaseAlignButton.setTooltip("Aligns the generated harmonics with the bass's own harmonics, so they add up instead of "
+                                  "cancelling: notes thin out far less, and repeats of the same hit come out at the same "
+                                  "level. Works best on bass lines and hits; it helps much less on engines.");
+    m_phaseAlignButton.setColour(juce::TextButton::buttonOnColourId, Theme::Colours::overtones.withAlpha(0.28f));
+    m_phaseAlignButton.setColour(juce::TextButton::textColourOnId, Theme::Colours::text);
+    m_content.addAndMakeVisible(m_phaseAlignButton);
 
     // DETECT
     setupKnob(m_pitchThresholdSlider, m_pitchThresholdLabel, "Threshold", "pitchThreshold",
@@ -413,6 +424,15 @@ void SubbertoneAudioProcessorEditor::layoutContent()
     m_waveformVisualizer.setBounds(bounds);
 
     m_harmonicStrip->setBounds(m_stripPanel.withTrimmedTop(26).reduced(12, 6).withTrimmedBottom(2));
+
+    // PHASE ALIGN: a pill in the HARMONICS header, after the title (dot at +12, title at +26 in
+    // heading(11), as paintContent() draws them); the usage hint stays right-aligned.
+    {
+        const float titleWidth = juce::GlyphArrangement::getStringWidth(m_fonts->heading(11.0f), "HARMONICS");
+        const float labelWidth = juce::GlyphArrangement::getStringWidth(m_fonts->label(10.0f), "PHASE ALIGN");
+        m_phaseAlignButton.setBounds(m_stripPanel.getX() + 26 + juce::roundToInt(titleWidth) + 14, m_stripPanel.getY() + 3,
+                                     juce::roundToInt(labelWidth) + 20, 20);
+    }
 
     // Units per section: Detect 3, Drive 3, Filter 4, Overtones 2, Output 4, Master 4.
     constexpr std::array<int, 6> units { 3, 3, 4, 2, 4, 4 };

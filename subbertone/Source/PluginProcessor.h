@@ -174,6 +174,7 @@ private:
     std::atomic<float>* m_limiterReleaseParam = nullptr;
     std::atomic<float>* m_loCutOnParam = nullptr;
     std::atomic<float>* m_loCutFreqParam = nullptr;
+    std::atomic<float>* m_phaseAlignParam = nullptr;
 
     // Live per-harmonic activity (0..1) for the harmonic strip, written once per block.
     std::array<std::atomic<float>, 17> m_harmonicActivity {};

@@ -1,8 +1,8 @@
 # SammyJs Subbertone
 
-A VST3/AU subharmonic generator. Subbertone tracks the pitch of your bass, engine or drone, synthesises a clean sub one octave below it, and lets you build its harmonics bar by bar: from a pure sub reinforcement, to the small-speaker "hear the bass on a phone" trick, to a growling, talking octave-down bass. A mastering stage (Inflate and a brickwall limiter) finishes the output.
+A VST3/AU subharmonic generator by **Samuel Justice**. Subbertone tracks the pitch of your bass, engine or drone, synthesises a clean sub one octave below it, and lets you build its harmonics bar by bar: from a pure sub reinforcement, to the small-speaker "hear the bass on a phone" trick, to a growling, talking octave-down bass. A mastering stage (Inflate and a brickwall limiter) finishes the output.
 
-### 🎉 Latest Release v1.2.0 - [Download Here](https://github.com/samueljustice/plugins/releases/tag/subbertone-v1.2.0)
+### 🎉 Latest Release v1.3.0 - [Download Here](https://github.com/samueljustice/plugins/releases/tag/subbertone-v1.3.0)
 
 ![Subbertone](docs/screenshot.jpg)
 
@@ -11,6 +11,7 @@ A VST3/AU subharmonic generator. Subbertone tracks the pitch of your bass, engin
 - **Pitch-tracked sub, one octave down**: a phase-continuous sine that follows your playing, glides between notes and fades with the input. All processing is per sample, so it is click-free at any buffer size.
 - **Steady tracking on difficult material**: octave jumps must be confirmed before the sub follows them, and short dropouts are held. A Glide control smooths noisy or wandering sources such as engines.
 - **Harmonic editor**: 16 bars, H1 is the sub itself and H2–H16 are its harmonics, each with a live activity meter. Click to toggle, drag to set, drag across to draw, double-click to reset. The PATTERN menu has ready-made sets (even only, odd only, full series, small speaker, upper partials, sparkle), and "Sub off" leaves only the harmonics: the MaxxBass/RBass trick that makes a sub audible on speakers that cannot play it.
+- **Phase Align**: lines the generated harmonics up with the bass's own harmonics, so they add up instead of cancelling. Notes thin out far less, and repeats of the same hit come out at the same level. It works best on bass lines and hits, such as 808s, and helps much less on engines. It turns the phases of the generated harmonics, not the levels you set, and adds no latency. Switching it while a note holds is click-free. Its sound engine uses about 30% more CPU while it's on.
 - **Six saturation types**, each with a distinct harmonic recipe:
   - **Tape**: smooth, odd harmonics
   - **Valve**: warm, strong 2nd harmonic at every drive level
@@ -34,10 +35,11 @@ A VST3/AU subharmonic generator. Subbertone tracks the pitch of your bass, engin
 3. The sine is shaped by the chosen saturation curve. The DC and fundamental components are then subtracted exactly, leaving only the harmonics. Because the input to the shaper is always a pure sine, each curve acts as a fixed harmonic recipe.
 4. The saturated harmonics go through the resonant multimode filter. Its resonant peak is pushed into a soft clipper, and the envelope follower sweeps its cutoff.
 5. In parallel, the harmonic bars add exact harmonics of the sub (H2–H16), phase-locked to it. If the bars add up to more than 1.5 times the sub's level, they are all scaled down together, so even 16 bars at 100% can't blow up the level. Harmonics that would land near or above the Nyquist frequency are left out, so nothing aliases.
-6. The clean sub (scaled by H1) and the filtered harmonics are blended by Drive, the overtones are added, and the result goes through the Lo Cut and Hi Cut. It is then mixed with the dry signal.
-7. The MASTER stage inflates and limits the final output.
+6. With PHASE ALIGN on, the phase of the bass's own harmonics is measured continuously over the last cycle of the sub, and each generated harmonic that lands on one of them is turned onto the same phase, so the two reinforce instead of cancelling. The Drive harmonics are lined up too. (The sub itself, H1, sits an octave below the bass, so it normally has nothing to line up with.) Each harmonic keeps the level you set; only its phase turns, and the audio is not delayed. At a new note, a tail that is still sounding is faded out over 8 ms first, and the sub starts at the phase that lines up best, so repeats of the same hit sound the same. Switched on during playback, it listens for 0.1–0.3 s, then turns the harmonics into line over 50 ms. From 2% Reso up, the Drive harmonics keep their own phase and only the bars are lined up, so Phase Align does little on sounds whose harmonics come from resonant Drive.
+7. The clean sub (scaled by H1) and the filtered harmonics are blended by Drive, the overtones are added, and the result goes through the Lo Cut and Hi Cut. It is then mixed with the dry signal.
+8. The MASTER stage inflates and limits the final output.
 
-A note on harmonics: odd harmonics of the sub land a fifth and a third above the input note, while even harmonics land exactly on the input's own harmonic series. Use even harmonics, Rectifier or Valve when you want the sub to stay consonant with the bass; use odd harmonics, Tape, Console or Wavefolder for more edge. For engines, odd harmonics give the uneven "burble" of a cross-plane V8 or a boxer.
+A note on harmonics: odd harmonics of the sub land a fifth and a third above the input note, while even harmonics land exactly on the input's own harmonic series (these are the ones Phase Align lines up). Use even harmonics, Rectifier or Valve when you want the sub to stay consonant with the bass; use odd harmonics, Tape, Console or Wavefolder for more edge. For engines, odd harmonics give the uneven "burble" of a cross-plane V8 or a boxer.
 
 The interface is laid out in processing order: DETECT → DRIVE → FILTER → OVERTONES → OUTPUT → MASTER.
 
@@ -48,6 +50,9 @@ The interface is laid out in processing order: DETECT → DRIVE → FILTER → O
 |---|---|---|
 | **H1** | 0 to 100% | Level of the clean sub itself. 0 leaves only the harmonics. |
 | **H2–H16** | 0 to 100% | Level of each harmonic of the sub, scaled by the overtone Amount. |
+| **PHASE ALIGN** | on / off | Lines the generated harmonics up with the bass's own harmonics, so they add up instead of cancelling: notes thin out far less, and repeats of the same hit come out at the same level. Works best on bass lines and hits; it helps much less on engines. |
+
+<img src="docs/harmonics.png" alt="The HARMONICS strip with PHASE ALIGN on: H1 is the sub, H2 to H6 are set and H7 and H8 are off" width="787">
 
 ### Detect
 | Control | Range | Description |
@@ -82,7 +87,7 @@ The interface is laid out in processing order: DETECT → DRIVE → FILTER → O
 ### Output
 | Control | Range | Description |
 |---|---|---|
-| **LO CUT** | on / off | Switches the low cut on the generated sub. |
+| **LO CUT** | on / off | Switches the low cut on the generated sub (off by default). It doesn't touch the dry signal. |
 | **Lo Cut** | 10 to 80 Hz | 48 dB/oct low cut frequency. |
 | **Hi Cut** | 20 Hz to 20 kHz | Low-pass on the whole sub signal, after drive, filter and overtones. |
 | **Mix** | 0 to 100% | Blend between the dry input and the generated sub. |
@@ -97,7 +102,15 @@ The interface is laid out in processing order: DETECT → DRIVE → FILTER → O
 | **Ceiling** | -12 to 0 dB | The output never goes above this while LIMIT is on. |
 | **Release** | 1 ms to 1 s | How quickly the limiter lets go after a peak. |
 
-Double-click any knob to reset it to its default. Click a row in the visualiser to show or hide that trace.
+<img src="docs/output-master.jpg" alt="The OUTPUT and MASTER sections, with LO CUT on and the limiter taking off 4.2 dB" width="626">
+
+Double-click any knob to reset it to its default.
+
+## Visualiser
+
+The visualiser draws the input, the harmonics and the sub output in 3D. The top right shows the input's pitch and the sub's (NO PITCH while nothing is tracked), and the bottom right shows the input level. Click a row in the visualiser to show or hide that trace. When there's no signal, it draws the Sweet Justice logo:
+
+<img src="docs/idle-logo.jpg" alt="The visualiser with no signal, drawing the Sweet Justice logo in lines over the 3D grid" width="771">
 
 ## Presets
 
@@ -111,6 +124,12 @@ User presets are kept in:
 - Windows: `%APPDATA%\SammyJs\Subbertone\Presets`
 
 Each preset is a small `.subbertonepreset` XML file. Presets from older versions keep loading as new controls are added: any control a preset doesn't contain is set to its default.
+
+## About and updates
+
+Click **?** at the top right to open the About window, with the credits, the version and the license. CHECK FOR UPDATES asks GitHub for the latest Subbertone release and tells you if a newer one is out. Subbertone only checks when you click it.
+
+<img src="docs/about.png" alt="The About window: created by Samuel Justice, with the CHECK FOR UPDATES button" width="474">
 
 ## Quick start
 
@@ -155,6 +174,8 @@ cmake -B build-standalone -DCMAKE_BUILD_TYPE=Release -DSUBBERTONE_FORMATS=Standa
 - Copy the `.component` bundle to `~/Library/Audio/Plug-Ins/Components/`
 
 ## Credits
+
+Created by Samuel Justice, Creative Sound Supervisor at [Sweet Justice](https://www.sweetjusticesound.com).
 
 - UI font: [Azeret Mono](https://github.com/displaay/Azeret), SIL Open Font License 1.1.
 - The filter section is inspired by the distortion-filter concept of effects such as Native Instruments Driver. No code from it is used.
