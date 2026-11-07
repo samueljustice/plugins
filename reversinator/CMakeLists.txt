@@ -11,6 +11,10 @@ endif()
 
 project(Reversinator VERSION 2.0.1)
 
+# The copyright year is the year it was built, so it never goes stale.
+string(TIMESTAMP COPYRIGHT_YEAR "%Y")
+add_compile_definitions(COPYRIGHT_YEAR="${COPYRIGHT_YEAR}")
+
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED TRUE)
 
@@ -33,7 +37,7 @@ juce_add_plugin(Reversinator
     FORMATS ${REVERSINATOR_FORMATS}
     PRODUCT_NAME "SammyJs Reversinator"
     COMPANY_NAME "Samuel Justice"
-    COMPANY_COPYRIGHT "Copyright 2026 Samuel Justice"
+    COMPANY_COPYRIGHT "Copyright ${COPYRIGHT_YEAR} Samuel Justice"
     COMPANY_WEBSITE "https://www.sweetjusticesound.com"
     COMPANY_EMAIL "sam@sweetjusticesound.com"
     BUNDLE_ID com.samueljustice.reversinator
