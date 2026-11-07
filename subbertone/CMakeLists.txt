@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.21)
-project(Subbertone VERSION 1.1.0)
+project(Subbertone VERSION 1.2.0)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED TRUE)
@@ -64,6 +64,10 @@ target_sources(Subbertone
     Source/PluginProcessor.cpp
     Source/PluginEditor.cpp
     Source/PitchDetector.cpp
+    Source/PresetManager.cpp
+    Source/HarmonicStrip.cpp
+    Source/LogoOutline.cpp
+    Source/MasterProcessor.cpp
     Source/SubharmonicEngine.cpp
     Source/WaveformVisualizer.cpp
     Source/AboutWindow.cpp
@@ -94,4 +98,5 @@ juce_add_binary_data(SubbertoneBinaryData
     Resources/Fonts/AzeretMono-Regular.ttf
     Resources/Fonts/AzeretMono-Medium.ttf
     Resources/Fonts/AzeretMono-Bold.ttf
+    Resources/sj-logo.svg
 )

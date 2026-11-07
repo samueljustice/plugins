@@ -65,4 +65,5 @@ private:
     int m_historyCount = 0;
 
     static constexpr float c_yinThreshold = 0.2f;
+    static constexpr float c_yinFallbackThreshold = 0.4f;
 };
