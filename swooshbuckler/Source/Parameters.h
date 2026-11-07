@@ -133,7 +133,7 @@ namespace Params
         layout.add(std::make_unique<AudioParameterBool>(ParameterID { ParamIDs::morphWander, 2 }, "Morph wander", false));
         layout.add(pct(ParamIDs::morphSpeed, "Morph speed", 0.5f));
         layout.add(std::make_unique<AudioParameterChoice>(ParameterID { ParamIDs::morphShape, 2 }, "Morph shape",
-                                                          StringArray { "Butterfly", "Sweet Justice", "Figure eight", "Rose", "Circle" }, 0));
+                                                          StringArray { "Lorenz", "Sweet Justice", "Figure eight", "Rose", "Circle" }, 0));
 
         layout.add(pct(ParamIDs::space, "Space", 0.25f));
         layout.add(pct(ParamIDs::inflate, "Inflate", 0.3f));
