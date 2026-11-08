@@ -1,0 +1,2868 @@
+{
+ "people": [
+  {
+   "name": "Ben Burtt",
+   "role": "Sound designer",
+   "credits": "Star Wars: Episode II – Attack of the Clones",
+   "imdb": "https://www.imdb.com/name/nm0123785/"
+  },
+  {
+   "name": "Christopher Scarabosio",
+   "role": "Re-recording mixer, supervising sound editor & sound designer",
+   "credits": "Rogue One, Star Wars: The Force Awakens",
+   "imdb": "https://www.imdb.com/name/nm0769042/"
+  },
+  {
+   "name": "Danielle Dupre",
+   "role": "Re-recording mixer",
+   "credits": "Obi-Wan Kenobi, Wendell & Wild",
+   "imdb": "https://www.imdb.com/name/nm4550776/"
+  },
+  {
+   "name": "David Acord",
+   "role": "Supervising sound editor, sound designer & re-recording mixer (Skywalker Sound)",
+   "credits": "The Rise of Skywalker, Andor, The Clone Wars",
+   "imdb": "https://www.imdb.com/name/nm0004198/"
+  },
+  {
+   "name": "David Farmer",
+   "role": "Sound designer",
+   "credits": "The Hobbit: The Desolation of Smaug (2013), Ant-Man and the Wasp (2018), The Gorge (2025)",
+   "imdb": "https://www.imdb.com/name/nm0267736/"
+  },
+  {
+   "name": "David W. Collins",
+   "role": "Sound designer & supervising sound editor (Skywalker Sound)",
+   "credits": "The Mandalorian Season 3, The Bad Batch, Star Wars Resistance",
+   "imdb": "https://www.imdb.com/name/nm1637637/"
+  },
+  {
+   "name": "Marc Fishman",
+   "role": "Re-recording mixer",
+   "credits": "Crash, Superbad, John Adams",
+   "imdb": "https://www.imdb.com/name/nm0279892/"
+  },
+  {
+   "name": "Margit Pfeiffer",
+   "role": "Supervising sound editor (dialogue, ADR & loop group)",
+   "credits": "Andor, Inglourious Basterds",
+   "imdb": "https://www.imdb.com/name/nm0679428/"
+  },
+  {
+   "name": "Matthew Wood",
+   "role": "Supervising sound editor, Skywalker Sound",
+   "credits": "Star Wars: Episode III - Revenge of the Sith (2005), Star Wars: The Last Jedi (2017), The Mandalorian (2019-)",
+   "imdb": "https://www.imdb.com/name/nm0003214/"
+  },
+  {
+   "name": "Ren Klyce",
+   "role": "Sound designer & re-recording mixer",
+   "credits": "Star Wars: The Last Jedi",
+   "imdb": "https://www.imdb.com/name/nm0460274/"
+  },
+  {
+   "name": "Scott R. Lewis",
+   "role": "Re-recording mixer",
+   "credits": "The Mandalorian, Obi-Wan Kenobi, House of Cards",
+   "imdb": "https://www.imdb.com/name/nm3175372/"
+  },
+  {
+   "name": "Tim Walston",
+   "role": "Sound designer",
+   "credits": "Stealth (2005), Astro Boy (2009), Star Trek (2009)",
+   "imdb": "https://www.imdb.com/name/nm0909949/"
+  }
+ ],
+ "entries": [
+  {
+   "person": "Tim Walston",
+   "kind": "insight",
+   "text": "For the pulse-detonation superjets in Stealth, Walston found condensed machine-gun and minigun sounds too even and lifeless. He instead layered several pitches of an old overdriven feedback sound, added very light flanging for movement, then used doppler plug-ins to turn those steadies into maneuvers and pass-bys.",
+   "categories": [
+    "scifi",
+    "craft"
+   ],
+   "source": {
+    "title": "Tim Walston Special: Let's JET: Sound Design for \"Stealth\" (2005) and \"Astro Boy\" (2009)",
+    "publication": "Designing Sound",
+    "url": "https://designingsound.org/2011/01/31/tim-walston-special-lets-jet-sound-design-for-stealth-2005-and-astro-boy-2009/",
+    "year": 2011
+   }
+  },
+  {
+   "person": "Tim Walston",
+   "kind": "insight",
+   "text": "To make real jet recordings fit Stealth's pulse engines, Walston ran nearly every one through EQ and modulation, using Waves Mondo Mod or the GRM Doppler plug-in to impose a pulsing feel. Carefully shaped automation of pulse speed and depth kept it from going static; he applied the same trick to explosion and thunder sweeteners.",
+   "categories": [
+    "scifi",
+    "craft"
+   ],
+   "source": {
+    "title": "Tim Walston Special: Let's JET: Sound Design for \"Stealth\" (2005) and \"Astro Boy\" (2009)",
+    "publication": "Designing Sound",
+    "url": "https://designingsound.org/2011/01/31/tim-walston-special-lets-jet-sound-design-for-stealth-2005-and-astro-boy-2009/",
+    "year": 2011
+   }
+  },
+  {
+   "person": "Tim Walston",
+   "kind": "insight",
+   "text": "Astro Boy's rockets needed to be smaller and more refined than the ratty jets in his library, so Walston built them from flamethrowers, small rockets, ricochets and whoosh sweeteners. Because Astro's moves were so quick, he assembled maneuvers in a sampler from little pieces, moment to moment.",
+   "categories": [
+    "scifi",
+    "craft"
+   ],
+   "source": {
+    "title": "Tim Walston Special: Let's JET: Sound Design for \"Stealth\" (2005) and \"Astro Boy\" (2009)",
+    "publication": "Designing Sound",
+    "url": "https://designingsound.org/2011/01/31/tim-walston-special-lets-jet-sound-design-for-stealth-2005-and-astro-boy-2009/",
+    "year": 2011
+   }
+  },
+  {
+   "person": "Tim Walston",
+   "kind": "insight",
+   "text": "For the police-pod \"stingers\" chasing Astro in Astro Boy, Walston made the engines tonal and pitch-based, because Astro's own sound was mostly rockets and noise. The contrast let the stingers carry lots of energy and still cut through the mix.",
+   "categories": [
+    "mixing",
+    "scifi"
+   ],
+   "source": {
+    "title": "Tim Walston Special: Let's JET: Sound Design for \"Stealth\" (2005) and \"Astro Boy\" (2009)",
+    "publication": "Designing Sound",
+    "url": "https://designingsound.org/2011/01/31/tim-walston-special-lets-jet-sound-design-for-stealth-2005-and-astro-boy-2009/",
+    "year": 2011
+   }
+  },
+  {
+   "person": "Tim Walston",
+   "kind": "insight",
+   "text": "The Astro Boy stinger engines began as an electric drill barely turning. Walston amped and looped the rough whine, loaded it into a sampler and pitched it far down toward a small Formula 1 car. He played gear shifts on the keyboard and dopplers with the mouse, taping a key down to record long takes.",
+   "categories": [
+    "recording",
+    "craft"
+   ],
+   "source": {
+    "title": "Tim Walston Special: Let's JET: Sound Design for \"Stealth\" (2005) and \"Astro Boy\" (2009)",
+    "publication": "Designing Sound",
+    "url": "https://designingsound.org/2011/01/31/tim-walston-special-lets-jet-sound-design-for-stealth-2005-and-astro-boy-2009/",
+    "year": 2011
+   }
+  },
+  {
+   "person": "Tim Walston",
+   "kind": "insight",
+   "text": "For the ship's thruster engine room in Poseidon, Walston used a recording of his in-laws' trash compactor that he had captured years earlier on a family visit, an example of banking household machinery until the right scene comes along.",
+   "categories": [
+    "recording",
+    "worlds"
+   ],
+   "source": {
+    "title": "Tim Walston Special: The Accidental Recordist",
+    "publication": "Designing Sound",
+    "url": "https://designingsound.org/2011/01/28/tim-walston-special-the-accidental-recordist/",
+    "year": 2011
+   }
+  },
+  {
+   "person": "Tim Walston",
+   "kind": "insight",
+   "text": "Walston treats household objects as source: he recorded a rubber bathmat for the movement of large creatures in Slither, and a broken music box and toy cymbals for the 2010 A Nightmare on Elm Street.",
+   "categories": [
+    "creatures",
+    "recording",
+    "horror"
+   ],
+   "source": {
+    "title": "Tim Walston Special: Exclusive Interview",
+    "publication": "Designing Sound",
+    "url": "https://designingsound.org/2011/01/06/tim-walston-special-exclusive-interview/",
+    "year": 2011
+   }
+  },
+  {
+   "person": "Tim Walston",
+   "kind": "insight",
+   "text": "For P.S. I Love You, Walston built the believable offscreen New York City backgrounds one car-by at a time rather than relying on a single traffic bed, giving a quiet romantic film the same care as a showcase moment like Star Trek's warp jump.",
+   "categories": [
+    "worlds",
+    "craft"
+   ],
+   "source": {
+    "title": "Tim Walston Special: Exclusive Interview",
+    "publication": "Designing Sound",
+    "url": "https://designingsound.org/2011/01/06/tim-walston-special-exclusive-interview/",
+    "year": 2011
+   }
+  },
+  {
+   "person": "Tim Walston",
+   "kind": "insight",
+   "text": "On Semi-Pro, Walston cut all the basketball action from wild effects the Foley team recorded in an empty basketball arena: throws, catches, ball slaps, bounces, baskets, scuffs, squeaks and player run-bys, each synced to production. Much of it was buried in the final mix.",
+   "categories": [
+    "craft",
+    "recording"
+   ],
+   "source": {
+    "title": "Tim Walston Special: Exclusive Interview",
+    "publication": "Designing Sound",
+    "url": "https://designingsound.org/2011/01/06/tim-walston-special-exclusive-interview/",
+    "year": 2011
+   }
+  },
+  {
+   "person": "Tim Walston",
+   "kind": "insight",
+   "text": "For Stealth, supervising sound editor Bruce Stambler had Walston spend most of the show building a large source library for others to cut: wingtip air whistles, turbine whines, afterburner blasts, malfunctions, shockwaves, high-speed winds, tracer fire and mid-air fireballs, while Stambler and Kim Secrist cut the jets.",
+   "categories": [
+    "collaboration",
+    "action"
+   ],
+   "source": {
+    "title": "Tim Walston Special: Let's JET: Sound Design for \"Stealth\" (2005) and \"Astro Boy\" (2009)",
+    "publication": "Designing Sound",
+    "url": "https://designingsound.org/2011/01/31/tim-walston-special-lets-jet-sound-design-for-stealth-2005-and-astro-boy-2009/",
+    "year": 2011
+   }
+  },
+  {
+   "person": "David Farmer",
+   "kind": "insight",
+   "text": "For Smaug's dialogue scenes with Bilbo in The Desolation of Smaug, Farmer first processed every line of Benedict Cumberbatch's voice until it sounded believable. Then he added elements between the lines, alligator growls plus breaths and hisses from Cumberbatch and himself vocoded with alligators, so Smaug stayed alive on and off screen.",
+   "categories": [
+    "creatures",
+    "dialogue"
+   ],
+   "source": {
+    "title": "Creature Sound Design Insights from David Farmer, sound designer on The Hobbit & LOTR",
+    "publication": "A Sound Effect",
+    "url": "https://asoundeffect.com/creature-sound-design/",
+    "year": 2015
+   }
+  },
+  {
+   "person": "David Farmer",
+   "kind": "insight",
+   "text": "For the T. rex-sized pigeon peering into the shrunken car in Ant-Man and the Wasp, Farmer recorded real pigeons with a Sanken CO-100K and slowed them way down, where they began to sound like lions. He then added actual lions for ferocity, balancing between dinosaur and pigeon.",
+   "categories": [
+    "creatures",
+    "recording"
+   ],
+   "source": {
+    "title": "Ant-Man and the Wasp – Creating Big Sound for Tiny Superheroes",
+    "publication": "A Sound Effect",
+    "url": "https://asoundeffect.com/ant-man-wasp-sound/",
+    "year": 2018
+   }
+  },
+  {
+   "person": "David Farmer",
+   "kind": "insight",
+   "text": "Told Pym-Tech shouldn't feel too high-tech, Farmer built Ant-Man's shrinking effect on the first Ant-Man from a scuba buoyancy compensator's valves, dials and air releases, run through iZotope Stutter Edit. The combination gave a modern glitchy feel with just enough retro.",
+   "categories": [
+    "scifi",
+    "recording"
+   ],
+   "source": {
+    "title": "Ant-Man and the Wasp – Creating Big Sound for Tiny Superheroes",
+    "publication": "A Sound Effect",
+    "url": "https://asoundeffect.com/ant-man-wasp-sound/",
+    "year": 2018
+   }
+  },
+  {
+   "person": "David Farmer",
+   "kind": "insight",
+   "text": "Farmer made new, bigger shrink and grow sounds for Wasp in Ant-Man and the Wasp, but director Peyton Reed preferred the original Ant-Man sound for both heroes. Rather than discard the work, Farmer beefed up the new set and gave it to the shrinking vehicles and lab objects.",
+   "categories": [
+    "collaboration",
+    "scifi"
+   ],
+   "source": {
+    "title": "Ant-Man and the Wasp – Creating Big Sound for Tiny Superheroes",
+    "publication": "A Sound Effect",
+    "url": "https://asoundeffect.com/ant-man-wasp-sound/",
+    "year": 2018
+   }
+  },
+  {
+   "person": "David Farmer",
+   "kind": "insight",
+   "text": "Farmer built Wasp's blasters in Ant-Man and the Wasp from sparks and synth-generated laser elements, using Reaper's session playrate automation to slow many sounds at once without rendering. He uses the same technique for power-ups and power-downs.",
+   "categories": [
+    "weapons",
+    "craft"
+   ],
+   "source": {
+    "title": "Ant-Man and the Wasp – Creating Big Sound for Tiny Superheroes",
+    "publication": "A Sound Effect",
+    "url": "https://asoundeffect.com/ant-man-wasp-sound/",
+    "year": 2018
+   }
+  },
+  {
+   "person": "David Farmer",
+   "kind": "insight",
+   "text": "In the Ant-Man and the Wasp fights, mixer Juan Peralta noticed Wasp's blasters read like spark punches. Farmer reversed some of the blaster's own elements into a short lead-in sweetener, so the shot builds rather than starts on a peak, setting it apart from the punches and kicks.",
+   "categories": [
+    "mixing",
+    "weapons"
+   ],
+   "source": {
+    "title": "Ant-Man and the Wasp – Creating Big Sound for Tiny Superheroes",
+    "publication": "A Sound Effect",
+    "url": "https://asoundeffect.com/ant-man-wasp-sound/",
+    "year": 2018
+   }
+  },
+  {
+   "person": "David Farmer",
+   "kind": "insight",
+   "text": "For Ghost's wispy phasing in Ant-Man and the Wasp, Farmer combined wind and breath, then used MeldaProduction MSpectralDynamics keyed from Hannah John-Kamen's ADR lines to carve her voice's frequencies out of it. With the lines muted, a natural-sounding, phasey hole shaped like her voice remained.",
+   "categories": [
+    "scifi",
+    "craft"
+   ],
+   "source": {
+    "title": "Ant-Man and the Wasp – Creating Big Sound for Tiny Superheroes",
+    "publication": "A Sound Effect",
+    "url": "https://asoundeffect.com/ant-man-wasp-sound/",
+    "year": 2018
+   }
+  },
+  {
+   "person": "David Farmer",
+   "kind": "insight",
+   "text": "Ghost's early sounds in Ant-Man and the Wasp, aggressive synths, sparks and ripped packing tape, were kept for her fighting mode, where they make her scarier. When she simply walks and talks, the softer wind-and-breath phasing plays instead, because constant aggression would be too much.",
+   "categories": [
+    "story",
+    "scifi"
+   ],
+   "source": {
+    "title": "Ant-Man and the Wasp – Creating Big Sound for Tiny Superheroes",
+    "publication": "A Sound Effect",
+    "url": "https://asoundeffect.com/ant-man-wasp-sound/",
+    "year": 2018
+   }
+  },
+  {
+   "person": "David Farmer",
+   "kind": "insight",
+   "text": "The Quantum Realm planet in Ant-Man and the Wasp was so visually busy that Farmer knew it would have to play quiet. Since the look kept changing until the end, he gave mixer Juan Peralta many tracks at different frequency ranges to dive in and out of.",
+   "categories": [
+    "mixing",
+    "worlds"
+   ],
+   "source": {
+    "title": "Ant-Man and the Wasp – Creating Big Sound for Tiny Superheroes",
+    "publication": "A Sound Effect",
+    "url": "https://asoundeffect.com/ant-man-wasp-sound/",
+    "year": 2018
+   }
+  },
+  {
+   "person": "David Farmer",
+   "kind": "insight",
+   "text": "Farmer has Reaper save a session copy named after each file he renders. For Ant-Man and the Wasp's Quantum Realm travel, he reopened first-film sessions with plug-ins intact, swapped or shifted the source audio so it hit the chain differently, and generated new material in the same glitchy style.",
+   "categories": [
+    "craft",
+    "scifi"
+   ],
+   "source": {
+    "title": "Ant-Man and the Wasp – Creating Big Sound for Tiny Superheroes",
+    "publication": "A Sound Effect",
+    "url": "https://asoundeffect.com/ant-man-wasp-sound/",
+    "year": 2018
+   }
+  },
+  {
+   "person": "David Farmer",
+   "kind": "insight",
+   "text": "Because Ant-Man and the Wasp was a comedy first, Farmer's team used laughter as the test at playback: if a sound such as the tiny cars didn't make them laugh, they pushed it further, until it was hyped enough to cross that threshold.",
+   "categories": [
+    "story",
+    "collaboration"
+   ],
+   "source": {
+    "title": "Ant-Man and the Wasp – Creating Big Sound for Tiny Superheroes",
+    "publication": "A Sound Effect",
+    "url": "https://asoundeffect.com/ant-man-wasp-sound/",
+    "year": 2018
+   }
+  },
+  {
+   "person": "David Farmer",
+   "kind": "insight",
+   "text": "On the 2010 A Nightmare on Elm Street, the first and second passes on Kris's death sequence used big jet whooshes and similar effects. Farmer found that over-the-top design didn't work for the film, so the team reined it back to a track that is hyper-real but closer to reality.",
+   "categories": [
+    "horror",
+    "story"
+   ],
+   "source": {
+    "title": "\"A Nightmare on Elm Street\" – Exclusive Interview with Andrew DeCristofaro, Michael Payne, and David Farmer",
+    "publication": "Designing Sound",
+    "url": "https://designingsound.org/2010/05/a-nightmare-on-elm-street-exclusive-interview-with-andrew-decristo",
+    "year": 2010
+   }
+  },
+  {
+   "person": "David Farmer",
+   "kind": "insight",
+   "text": "Farmer treats horror stings in A Nightmare on Elm Street as a scarce resource: the film could only support a handful before returns diminished. The team worked to make each one different, matching its content to the emotion on screen, sometimes a sharp crack, sometimes lots of movement.",
+   "categories": [
+    "horror",
+    "story"
+   ],
+   "source": {
+    "title": "\"A Nightmare on Elm Street\" – Exclusive Interview with Andrew DeCristofaro, Michael Payne, and David Farmer",
+    "publication": "Designing Sound",
+    "url": "https://designingsound.org/2010/05/a-nightmare-on-elm-street-exclusive-interview-with-andrew-decristo",
+    "year": 2010
+   }
+  },
+  {
+   "person": "David Farmer",
+   "kind": "insight",
+   "text": "Freddy's voice in the 2010 A Nightmare on Elm Street was fully looped, with Jackie Earle Haley delivering at an intimate level. Farmer designed the processing chain to bring out those deep, dark tones while stopping short of a voice that sounds processed and unnatural.",
+   "categories": [
+    "dialogue",
+    "horror"
+   ],
+   "source": {
+    "title": "\"A Nightmare on Elm Street\" – Exclusive Interview with Andrew DeCristofaro, Michael Payne, and David Farmer",
+    "publication": "Designing Sound",
+    "url": "https://designingsound.org/2010/05/a-nightmare-on-elm-street-exclusive-interview-with-andrew-decristo",
+    "year": 2010
+   }
+  },
+  {
+   "person": "David Farmer",
+   "kind": "insight",
+   "text": "For the A Nightmare on Elm Street main titles, Farmer worked to the final music, starting with as few sounds as possible and adding only where the combined FX-and-music composition felt lacking. Expecting the FX to be pulled down, he added extra smooth low end so they still registered quietly.",
+   "categories": [
+    "music",
+    "mixing"
+   ],
+   "source": {
+    "title": "\"A Nightmare on Elm Street\" – Exclusive Interview with Andrew DeCristofaro, Michael Payne, and David Farmer",
+    "publication": "Designing Sound",
+    "url": "https://designingsound.org/2010/05/a-nightmare-on-elm-street-exclusive-interview-with-andrew-decristo",
+    "year": 2010
+   }
+  },
+  {
+   "person": "Matthew Wood",
+   "kind": "insight",
+   "text": "For the podrace in The Phantom Menace, Wood got full access at a Northern California track where anyone could race, recording many cars, mufflers and engines. Ben Burtt turned those recordings into parts of Anakin's and Sebulba's pods.",
+   "categories": [
+    "recording",
+    "action"
+   ],
+   "source": {
+    "title": "Phantom at 25 | Skywalker Sound's Matthew Wood Explains Why The Phantom Menace Was His Favorite Movie to Work On",
+    "publication": "StarWars.com",
+    "url": "https://www.starwars.com/news/matthew-wood-the-phantom-menace",
+    "year": 2024
+   }
+  },
+  {
+   "person": "Matthew Wood",
+   "kind": "insight",
+   "text": "Wood on Ben Burtt's advice for The Phantom Menace podrace: fast cutting leaves time only for a change point, so record vehicles at gear shifts, slowing and speeding back up. Much of the podrace is those short, high-energy transitions; steady tones are saved for moments like Sebulba looming behind Anakin.",
+   "categories": [
+    "recording",
+    "action"
+   ],
+   "source": {
+    "title": "Phantom at 25 | Skywalker Sound's Matthew Wood Explains Why The Phantom Menace Was His Favorite Movie to Work On",
+    "publication": "StarWars.com",
+    "url": "https://www.starwars.com/news/matthew-wood-the-phantom-menace",
+    "year": 2024
+   }
+  },
+  {
+   "person": "Matthew Wood",
+   "kind": "insight",
+   "text": "For The Phantom Menace ADR, Wood worked with Gallery Software on a portable digital system running Pro Tools on a prototype Apple G3 notebook. It fit in a few suitcases and recorded the cast in a London home's bedroom and at Compass Point studio in the Bahamas.",
+   "categories": [
+    "dialogue",
+    "craft"
+   ],
+   "source": {
+    "title": "Phantom at 25 | Skywalker Sound's Matthew Wood Explains Why The Phantom Menace Was His Favorite Movie to Work On",
+    "publication": "StarWars.com",
+    "url": "https://www.starwars.com/news/matthew-wood-the-phantom-menace",
+    "year": 2024
+   }
+  },
+  {
+   "person": "Matthew Wood",
+   "kind": "insight",
+   "text": "During The Phantom Menace ADR, Wood fed Pro Tools video into prototype VR goggles so actors could be immersed in the scene while looping instead of watching a TV. Jake Lloyd used them constantly; Liam Neeson tried them a couple of times.",
+   "categories": [
+    "dialogue",
+    "craft"
+   ],
+   "source": {
+    "title": "Phantom at 25 | Skywalker Sound's Matthew Wood Explains Why The Phantom Menace Was His Favorite Movie to Work On",
+    "publication": "StarWars.com",
+    "url": "https://www.starwars.com/news/matthew-wood-the-phantom-menace",
+    "year": 2024
+   }
+  },
+  {
+   "person": "Matthew Wood",
+   "kind": "insight",
+   "text": "For The Phantom Menace's battle droids, Wood sometimes kept the on-set stand-ins' lines and processed them into a digital, robotic monotone. Lines written in post were voiced by Wood and Ben Burtt; by Revenge of the Sith Wood voiced every battle droid in a nasal, happy register.",
+   "categories": [
+    "dialogue",
+    "scifi"
+   ],
+   "source": {
+    "title": "Phantom at 25 | Skywalker Sound's Matthew Wood Explains Why The Phantom Menace Was His Favorite Movie to Work On",
+    "publication": "StarWars.com",
+    "url": "https://www.starwars.com/news/matthew-wood-the-phantom-menace",
+    "year": 2024
+   }
+  },
+  {
+   "person": "Matthew Wood",
+   "kind": "insight",
+   "text": "For Leia’s final “hope” in Rogue One, Wood found the original 1977 quarter-inch rolls of the hologram scene in the Lucasfilm archives and, using special heads for the obsolete playback machine, transferred every take into Pro Tools.",
+   "categories": [
+    "dialogue",
+    "craft"
+   ],
+   "source": {
+    "title": "'Rogue One' Sound Editors Reveal How They Found Princess Leia's 'Hope' and More Production Secrets",
+    "publication": "Yahoo Movies",
+    "url": "https://www.yahoo.com/movies/rogue-one-sound-editors-reveal-how-they-found-princess-leias-hope-and-more-production-secrets-132116513.html",
+    "year": 2017
+   }
+  },
+  {
+   "person": "Matthew Wood",
+   "kind": "insight",
+   "text": "At the end of Rogue One, as the story cuts to the Tantive IV about to launch with Leia, Wood made sure the ship's alarms matched those in A New Hope, offering a subconscious link to the original film.",
+   "categories": [
+    "story",
+    "scifi"
+   ],
+   "source": {
+    "title": "How The Lucasfilm Sound Group Ensured 'Rogue One' Was Authentic To The 'Star Wars' Galaxy",
+    "publication": "/Film",
+    "url": "https://www.slashfilm.com/548738/lucasfilm-sound-group-interview",
+    "year": 2017
+   }
+  },
+  {
+   "person": "Matthew Wood",
+   "kind": "insight",
+   "text": "James Earl Jones and Angus MacInnes had to match their own performances from 40 years earlier in Rogue One. Wood found Vader's voice processing acted as an equalizer, making the new reads sound like the originals.",
+   "categories": [
+    "dialogue",
+    "craft"
+   ],
+   "source": {
+    "title": "How The Lucasfilm Sound Group Ensured 'Rogue One' Was Authentic To The 'Star Wars' Galaxy",
+    "publication": "/Film",
+    "url": "https://www.slashfilm.com/548738/lucasfilm-sound-group-interview",
+    "year": 2017
+   }
+  },
+  {
+   "person": "Matthew Wood",
+   "kind": "insight",
+   "text": "When a mouse droid rolls past as K-2SO pulls the station map from an Imperial droid in Rogue One, Wood insisted on the original sound from A New Hope rather than making something new, using small legacy details to anchor all the new material.",
+   "categories": [
+    "story",
+    "scifi"
+   ],
+   "source": {
+    "title": "'Rogue One' Sound Editors Reveal How They Found Princess Leia's 'Hope' and More Production Secrets",
+    "publication": "Yahoo Movies",
+    "url": "https://www.yahoo.com/movies/rogue-one-sound-editors-reveal-how-they-found-princess-leias-hope-and-more-production-secrets-132116513.html",
+    "year": 2017
+   }
+  },
+  {
+   "person": "Matthew Wood",
+   "kind": "insight",
+   "text": "On Rogue One, Wood and Christopher Scarabosio split supervision cleanly: Scarabosio took sound effects and Wood took dialogue. With deep library knowledge, they communicated by making mouth sounds of what a scene needed, then pulled or built it.",
+   "categories": [
+    "collaboration",
+    "dialogue"
+   ],
+   "source": {
+    "title": "'Rogue One' Sound Editors Reveal How They Found Princess Leia's 'Hope' and More Production Secrets",
+    "publication": "Yahoo Movies",
+    "url": "https://www.yahoo.com/movies/rogue-one-sound-editors-reveal-how-they-found-princess-leias-hope-and-more-production-secrets-132116513.html",
+    "year": 2017
+   }
+  },
+  {
+   "person": "Matthew Wood",
+   "kind": "insight",
+   "text": "Wood's team keeps the Star Wars library, over 8,000 original-trilogy sounds plus everything made since, restricted to Star Wars productions, so a TIE fighter never sounds like another film. New Rogue One material such as Krennic's shuttle, U-wings and TIE Strikers was cataloged into it.",
+   "categories": [
+    "craft",
+    "scifi"
+   ],
+   "source": {
+    "title": "How The Lucasfilm Sound Group Ensured 'Rogue One' Was Authentic To The 'Star Wars' Galaxy",
+    "publication": "/Film",
+    "url": "https://www.slashfilm.com/548738/lucasfilm-sound-group-interview",
+    "year": 2017
+   }
+  },
+  {
+   "person": "Matthew Wood",
+   "kind": "insight",
+   "text": "In the Crait duel of The Last Jedi, Wood's team planted clues that Luke isn't really there: debris audibly sizzles on Kylo's saber, while Luke gets nothing, not even footfalls.",
+   "categories": [
+    "story",
+    "silence"
+   ],
+   "source": {
+    "title": "5 Things We Learned from \"The Force of Sound\"",
+    "publication": "StarWars.com",
+    "url": "https://www.starwars.com/news/5-things-we-learned-from-the-force-of-sound",
+    "year": 2018
+   }
+  },
+  {
+   "person": "Matthew Wood",
+   "kind": "quote",
+   "text": "…make you feel small and intimate if you've pared everything away…",
+   "categories": [
+    "silence",
+    "story"
+   ],
+   "source": {
+    "title": "5 Things We Learned from \"The Force of Sound\"",
+    "publication": "StarWars.com",
+    "url": "https://www.starwars.com/news/5-things-we-learned-from-the-force-of-sound",
+    "year": 2018
+   }
+  },
+  {
+   "person": "Matthew Wood",
+   "kind": "insight",
+   "text": "For the Rey and Kylo Ren tug-of-war over the Skywalker lightsaber in Snoke's throne room in The Last Jedi, Wood reused a sound from Star Wars Rebels, made for Maul and Ezra Bridger struggling over a holocron.",
+   "categories": [
+    "scifi",
+    "craft"
+   ],
+   "source": {
+    "title": "7 Things We Learned About THE LAST JEDI's Sound Design",
+    "publication": "Nerdist",
+    "url": "https://nerdist.com/article/the-last-jedi-sound-design-star-wars-rebels-race-car/",
+    "year": 2018
+   }
+  },
+  {
+   "person": "Matthew Wood",
+   "kind": "insight",
+   "text": "A laugh cut in for BB-8 in The Last Jedi was one Wood recognized as a prequel-era vulture droid sound from before BB-8 existed. He objected and it was pulled; director Rian Johnson ended up performing the replacement himself.",
+   "categories": [
+    "collaboration",
+    "scifi"
+   ],
+   "source": {
+    "title": "7 Things We Learned About THE LAST JEDI's Sound Design",
+    "publication": "Nerdist",
+    "url": "https://nerdist.com/article/the-last-jedi-sound-design-star-wars-rebels-race-car/",
+    "year": 2018
+   }
+  },
+  {
+   "person": "Matthew Wood",
+   "kind": "insight",
+   "text": "For The Last Jedi, Wood's team retired the Wilhelm scream and replaced it with a Skywalker-made scream, already used in Rogue One and some non-Star Wars films, as their own calling card.",
+   "categories": [
+    "craft",
+    "story"
+   ],
+   "source": {
+    "title": "Star Wars: The Last Jedi's Sound Designer Explains Moving On From The Wilhelm Scream",
+    "publication": "CinemaBlend",
+    "url": "https://amp.cinemablend.com/news/2314702/star-wars-the-last-jedis-sound-designer-explains-moving-on-from-the-wilhelm-scream",
+    "year": 2018
+   }
+  },
+  {
+   "person": "Matthew Wood",
+   "kind": "insight",
+   "text": "Wood on David Acord's voice for the Child in The Mandalorian: to avoid it sounding like just a baby, Acord fused the trill of a kinkajou he recorded, baby samples from a member of the picture-editorial team, and his own performed vocals into a non-verbal personality.",
+   "categories": [
+    "creatures",
+    "dialogue"
+   ],
+   "source": {
+    "title": "The Sound of The Mandalorian: Rising to the Star Wars Standard",
+    "publication": "Sonos Blog",
+    "url": "https://www.sonos.com/en-us/blog/sound-of-the-mandalorian",
+    "year": 2020
+   }
+  },
+  {
+   "person": "Matthew Wood",
+   "kind": "insight",
+   "text": "The Mandalorian was mixed natively in Atmos from the start. While Jon Favreau worked on The Lion King in Playa Vista, Wood's team built him an Atmos room duplicating their Skywalker mix room, so he could hear the Skywalker mix in real time.",
+   "categories": [
+    "mixing",
+    "collaboration"
+   ],
+   "source": {
+    "title": "The Sound of The Mandalorian: Rising to the Star Wars Standard",
+    "publication": "Sonos Blog",
+    "url": "https://www.sonos.com/en-us/blog/sound-of-the-mandalorian",
+    "year": 2020
+   }
+  },
+  {
+   "person": "Matthew Wood",
+   "kind": "insight",
+   "text": "Because Jon Favreau wanted an almost documentary-like realism on The Mandalorian, Wood leaned heavily on Shawn Holden's production tracks and built the soundscape around them, layering new worlds, ships and alien dialects on top.",
+   "categories": [
+    "dialogue",
+    "worlds"
+   ],
+   "source": {
+    "title": "The Sound of The Mandalorian: Rising to the Star Wars Standard",
+    "publication": "Sonos Blog",
+    "url": "https://www.sonos.com/en-us/blog/sound-of-the-mandalorian",
+    "year": 2020
+   }
+  },
+  {
+   "person": "Matthew Wood",
+   "kind": "insight",
+   "text": "For Shin Hati's Force choke in Ahsoka's \"Fallen Jedi,\" Wood opened with a sound he had made for Ventress in The Clone Wars. As Shin tightens her grip on Sabine, he brings in a new Force rumble mixed with Kylo Ren Force sounds he made for The Rise of Skywalker.",
+   "categories": [
+    "scifi",
+    "story"
+   ],
+   "source": {
+    "title": "Achieving Awesome Sound for 'Ahsoka' – with Matt Wood and Bonnie Wild",
+    "publication": "A Sound Effect",
+    "url": "https://www.asoundeffect.com/ahsokas-awesome-sound/",
+    "year": 2024
+   }
+  },
+  {
+   "person": "Matthew Wood",
+   "kind": "insight",
+   "text": "Morgan Elsbeth's star-map dome in Ahsoka blends synth tones, musical and non-musical, with mechanical elements. Wood kept it grounded at Dave Filoni's request, so the holographic machines read as distinct from the witches' powers.",
+   "categories": [
+    "scifi",
+    "worlds"
+   ],
+   "source": {
+    "title": "Achieving Awesome Sound for 'Ahsoka' – with Matt Wood and Bonnie Wild",
+    "publication": "A Sound Effect",
+    "url": "https://www.asoundeffect.com/ahsokas-awesome-sound/",
+    "year": 2024
+   }
+  },
+  {
+   "person": "Matthew Wood",
+   "kind": "insight",
+   "text": "Inventing new droid voice treatments for Ahsoka, in a franchise already full of them, Wood's rule is to protect the actor: never push processing so far that performance and intelligibility are sacrificed for a cool-sounding voice.",
+   "categories": [
+    "dialogue",
+    "scifi"
+   ],
+   "source": {
+    "title": "Achieving Awesome Sound for 'Ahsoka' – with Matt Wood and Bonnie Wild",
+    "publication": "A Sound Effect",
+    "url": "https://www.asoundeffect.com/ahsokas-awesome-sound/",
+    "year": 2024
+   }
+  },
+  {
+   "person": "Matthew Wood",
+   "kind": "insight",
+   "text": "For The Phantom Menace, Burtt sent Wood to record engines at an open track day where anyone could drive. A Porsche with an unusually high-pitched engine Wood captured there became, in Ben Burtt's hands, the sound of Anakin's podracer.",
+   "categories": [
+    "recording",
+    "scifi"
+   ],
+   "source": {
+    "title": "Matthew Wood Is A Legend! | Spacecon 2025 Interview",
+    "publication": "Virtual Cantina Network (Spacecon 2025)",
+    "url": "https://www.youtube.com/watch?v=6_qUI3924bQ",
+    "year": 2025
+   }
+  },
+  {
+   "person": "Matthew Wood",
+   "kind": "insight",
+   "text": "While in North Queensland for the shoots of Episodes II and III, Wood recorded two rehabilitating fruit bats fighting over a banana at a sanctuary's feeding time. Those squabbles became much of the Geonosian crowd in Attack of the Clones' arena battle.",
+   "categories": [
+    "creatures",
+    "recording"
+   ],
+   "source": {
+    "title": "Matthew Wood Is A Legend! | Spacecon 2025 Interview",
+    "publication": "Virtual Cantina Network (Spacecon 2025)",
+    "url": "https://www.youtube.com/watch?v=6_qUI3924bQ",
+    "year": 2025
+   }
+  },
+  {
+   "person": "Matthew Wood",
+   "kind": "insight",
+   "text": "For Vader's breathing apparatus being crushed in Obi-Wan Kenobi's finale, Wood's team took Vader's wheezing from Return of the Jedi's Palpatine confrontation, twisted it, and added weird new breathing performed through a Vader voice-changer mask borrowed from the picture department.",
+   "categories": [
+    "scifi",
+    "creatures"
+   ],
+   "source": {
+    "title": "Matthew Wood, Scott R. Lewis ('The Mandalorian,' 'Obi-Wan Kenobi' sound editor, mixer) interview",
+    "publication": "Gold Derby",
+    "url": "https://www.youtube.com/watch?v=zRFjGJDZ2UI",
+    "year": 2023
+   }
+  },
+  {
+   "person": "Matthew Wood",
+   "kind": "insight",
+   "text": "Reading the script for Obi-Wan Kenobi's final Vader scene, Wood knew Hayden Christensen had to be melded with Vader's voice while fragile performances were preserved. He told director Deborah Chow they needed extra time, and the mix team came in on a weekend for that scene alone.",
+   "categories": [
+    "mixing",
+    "dialogue"
+   ],
+   "source": {
+    "title": "Matthew Wood, Scott R. Lewis ('The Mandalorian,' 'Obi-Wan Kenobi' sound editor, mixer) interview",
+    "publication": "Gold Derby",
+    "url": "https://www.youtube.com/watch?v=zRFjGJDZ2UI",
+    "year": 2023
+   }
+  },
+  {
+   "person": "Scott R. Lewis",
+   "kind": "insight",
+   "text": "Mixing chaotic set pieces like The Mandalorian Season 3 finale, Lewis starts with 'the kitchen sink', hundreds of layers, then trims toward the emotional thread. In Star Wars he usually leads with the music and picks specific moments where the sound design takes the foreground.",
+   "categories": [
+    "mixing",
+    "music"
+   ],
+   "source": {
+    "title": "Matthew Wood, Scott R. Lewis ('The Mandalorian,' 'Obi-Wan Kenobi' sound editor, mixer) interview",
+    "publication": "Gold Derby",
+    "url": "https://www.youtube.com/watch?v=zRFjGJDZ2UI",
+    "year": 2023
+   }
+  },
+  {
+   "person": "Matthew Wood",
+   "kind": "insight",
+   "text": "When Grogu shields the heroes as a starship crashes in The Mandalorian's Season 3 finale, Wood says sound focus works like visual focus: the mix could play the enormity of the fire all around, or pull in intimately on Grogu so you feel the fragility of the protected space.",
+   "categories": [
+    "mixing",
+    "story"
+   ],
+   "source": {
+    "title": "Matthew Wood, Scott R. Lewis ('The Mandalorian,' 'Obi-Wan Kenobi' sound editor, mixer) interview",
+    "publication": "Gold Derby",
+    "url": "https://www.youtube.com/watch?v=zRFjGJDZ2UI",
+    "year": 2023
+   }
+  },
+  {
+   "person": "Matthew Wood",
+   "kind": "insight",
+   "text": "Wood on the darksaber in The Mandalorian: the original was created by David Acord for The Clone Wars animation, and Dave Collins elaborated on that library for live action, crafting the searing blade so it occupies frequencies that can still sit with the music and dialogue.",
+   "categories": [
+    "weapons",
+    "scifi"
+   ],
+   "source": {
+    "title": "Matthew Wood, Scott R. Lewis ('The Mandalorian,' 'Obi-Wan Kenobi' sound editor, mixer) interview",
+    "publication": "Gold Derby",
+    "url": "https://www.youtube.com/watch?v=zRFjGJDZ2UI",
+    "year": 2023
+   }
+  },
+  {
+   "person": "Margit Pfeiffer",
+   "kind": "insight",
+   "text": "For Andor's Ghorman massacre, Pfeiffer cut the loop-group chanting differently for each part of the plaza so the audience always knows where they are. She avoided a ten-minute wall of screaming: start low to leave room to grow, then trade focus between crowds, gunfire and alarms.",
+   "categories": [
+    "dialogue",
+    "mixing"
+   ],
+   "source": {
+    "title": "Interview with Margit Pfeiffer on ANDOR's Sound Design",
+    "publication": "Friends of the Force podcast",
+    "url": "https://www.youtube.com/watch?v=WcOu830Usrk",
+    "year": 2025
+   }
+  },
+  {
+   "person": "Margit Pfeiffer",
+   "kind": "insight",
+   "text": "Andor's Ghorman crowds speak a constructed language built on French phonetics, so it sounds like French but isn't. Pfeiffer got 100-plus translated group call-outs from Tony Gilroy, written for specific story beats such as discovering the plaza is a trap, and placed them deliberately rather than randomly.",
+   "categories": [
+    "dialogue",
+    "worlds"
+   ],
+   "source": {
+    "title": "Interview with Margit Pfeiffer on ANDOR's Sound Design",
+    "publication": "Friends of the Force podcast",
+    "url": "https://www.youtube.com/watch?v=WcOu830Usrk",
+    "year": 2025
+   }
+  },
+  {
+   "person": "Margit Pfeiffer",
+   "kind": "insight",
+   "text": "Pfeiffer's Andor loop group of 16 recorded remotely from home studios, linked by Zoom with Matthew Wood running the session. Separate mics gave clean individual tracks but made chanting and singing hard to cut; she let actors hear each other when riffing conversations, and isolated them otherwise.",
+   "categories": [
+    "dialogue",
+    "recording"
+   ],
+   "source": {
+    "title": "Interview with Margit Pfeiffer on ANDOR's Sound Design",
+    "publication": "Friends of the Force podcast",
+    "url": "https://www.youtube.com/watch?v=WcOu830Usrk",
+    "year": 2025
+   }
+  },
+  {
+   "person": "Margit Pfeiffer",
+   "kind": "insight",
+   "text": "For Mon Mothma's Senate speech in Andor, Pfeiffer kept the speech continuous across cutaways to a hallway, a cafe and a car, giving each location its own room treatment, reverb and futz. Plugins made 16 loop-group voices sound like 3,000, and booing carries into the corridor as she leaves.",
+   "categories": [
+    "dialogue",
+    "mixing"
+   ],
+   "source": {
+    "title": "Interview with Margit Pfeiffer on ANDOR's Sound Design",
+    "publication": "Friends of the Force podcast",
+    "url": "https://www.youtube.com/watch?v=WcOu830Usrk",
+    "year": 2025
+   }
+  },
+  {
+   "person": "Margit Pfeiffer",
+   "kind": "insight",
+   "text": "For Andor's brutal Cassian and Syril fight, Pfeiffer salvaged the best production efforts, then found holes in the temp track, such as a head smashed into glass, and recorded a take or two of grunts from each actor to fill them alongside the effects team's punches.",
+   "categories": [
+    "dialogue",
+    "action"
+   ],
+   "source": {
+    "title": "Interview with Margit Pfeiffer on ANDOR's Sound Design",
+    "publication": "Friends of the Force podcast",
+    "url": "https://www.youtube.com/watch?v=WcOu830Usrk",
+    "year": 2025
+   }
+  },
+  {
+   "person": "Margit Pfeiffer",
+   "kind": "insight",
+   "text": "In Andor's quiet scenes, Pfeiffer keeps small production movements so the track never feels sterile. Tony Gilroy often asked to play those scenes softer, nudging the audience to lean in, while only a few chosen details, like turning gears, were brought forward.",
+   "categories": [
+    "silence",
+    "dialogue"
+   ],
+   "source": {
+    "title": "Interview with Margit Pfeiffer on ANDOR's Sound Design",
+    "publication": "Friends of the Force podcast",
+    "url": "https://www.youtube.com/watch?v=WcOu830Usrk",
+    "year": 2025
+   }
+  },
+  {
+   "person": "Margit Pfeiffer",
+   "kind": "insight",
+   "text": "Pfeiffer used accent to define Andor's worlds: posher English for wealthy Coruscant, rougher voices on Yavin, and a distinct language for Ghorman. Where canon existed she honored it, for example keeping Yavin's rebel air traffic controllers American-accented.",
+   "categories": [
+    "worlds",
+    "dialogue"
+   ],
+   "source": {
+    "title": "Interview with Margit Pfeiffer on ANDOR's Sound Design",
+    "publication": "Friends of the Force podcast",
+    "url": "https://www.youtube.com/watch?v=WcOu830Usrk",
+    "year": 2025
+   }
+  },
+  {
+   "person": "Margit Pfeiffer",
+   "kind": "insight",
+   "text": "Pfeiffer's team handled Andor in blocks of three episodes, and started Season 2's post and mix with the Ghorman block, tackling the hardest material for her department first, after a year of feeding tracks to the Avid for the picture editor to approve.",
+   "categories": [
+    "collaboration",
+    "craft"
+   ],
+   "source": {
+    "title": "Interview with Margit Pfeiffer on ANDOR's Sound Design",
+    "publication": "Friends of the Force podcast",
+    "url": "https://www.youtube.com/watch?v=WcOu830Usrk",
+    "year": 2025
+   }
+  },
+  {
+   "person": "Matthew Wood",
+   "kind": "insight",
+   "text": "For the Star Wars prequels, when ADR had to happen outside the US, Wood four-walled a small Bahamas music studio once owned by Chris Blackwell and ran ADR from a laptop rig, keeping actors comfortable enough to recreate performances and sending files straight back to Skywalker editors.",
+   "categories": [
+    "dialogue",
+    "recording"
+   ],
+   "source": {
+    "title": "Conversations With Sound Artists: Star Wars | Podcast | Dolby",
+    "publication": "Dolby Institute Podcast",
+    "url": "https://www.youtube.com/watch?v=jkh2K6Y3_M4",
+    "year": 2019
+   }
+  },
+  {
+   "person": "David Acord",
+   "kind": "insight",
+   "text": "For the Millennium Falcon in the sequel trilogy, Acord kept classic sounds except the turret gun, whose original was an ancient library .50-cal recording. He recorded a new .50-cal: same recipe, different ingredients. He makes new TIE fighters the same way, from elephant scream and race car on wet cement.",
+   "categories": [
+    "weapons",
+    "scifi"
+   ],
+   "source": {
+    "title": "Conversations With Sound Artists: Star Wars | Podcast | Dolby",
+    "publication": "Dolby Institute Podcast",
+    "url": "https://www.youtube.com/watch?v=jkh2K6Y3_M4",
+    "year": 2019
+   }
+  },
+  {
+   "person": "David Acord",
+   "kind": "insight",
+   "text": "In The Rise of Skywalker's desert speeder chase, Acord had treadspeeders, jetpack troopers and two hero speeders cutting together and sharing frames. Each needed a distinct frequency range and timbre, neither too similar nor too dissimilar to its neighbor, while leaving spectrum for the score.",
+   "categories": [
+    "action",
+    "mixing"
+   ],
+   "source": {
+    "title": "Conversations With Sound Artists: Star Wars | Podcast | Dolby",
+    "publication": "Dolby Institute Podcast",
+    "url": "https://www.youtube.com/watch?v=jkh2K6Y3_M4",
+    "year": 2019
+   }
+  },
+  {
+   "person": "Matthew Wood",
+   "kind": "insight",
+   "text": "Burtt's advice to Wood when recording vehicles for The Phantom Menace's podrace: find the spot on the track where racers slow, shift gear and accelerate out of a turn, the engine's most dynamic moment. You can hear that stepped gear-change shape in many of the pod pass-bys.",
+   "categories": [
+    "recording",
+    "scifi"
+   ],
+   "source": {
+    "title": "Skywalker Sound with Matthew Wood & David W Collins - Hosted by Carly King | @RebelScumCon 2025",
+    "publication": "Rebel Scum Con 2025 panel",
+    "url": "https://www.youtube.com/watch?v=dyNvjvP30nA",
+    "year": 2026
+   }
+  },
+  {
+   "person": "Matthew Wood",
+   "kind": "insight",
+   "text": "Wood on Attack of the Clones' seismic charge: the team auditioned many sounds for the initial blast over ILM's reversed visual, until Ben Burtt suggested on the mix stage using nothing at all. The first sound was dropped, so only the big explosion lands, and Lucas loved it.",
+   "categories": [
+    "mixing",
+    "scifi"
+   ],
+   "source": {
+    "title": "Skywalker Sound with Matthew Wood & David W Collins - Hosted by Carly King | @RebelScumCon 2025",
+    "publication": "Rebel Scum Con 2025 panel",
+    "url": "https://www.youtube.com/watch?v=dyNvjvP30nA",
+    "year": 2026
+   }
+  },
+  {
+   "person": "Matthew Wood",
+   "kind": "insight",
+   "text": "Skywalker keeps Star Wars sounds in a restricted subset of its library. Wood says that discipline is why, in The Force Awakens, Finn and Rey can hear a TIE fighter on Jakku before seeing it: the sound is so unique to the franchise that it tells the story alone.",
+   "categories": [
+    "craft",
+    "scifi"
+   ],
+   "source": {
+    "title": "Skywalker Sound with Matthew Wood & David W Collins - Hosted by Carly King | @RebelScumCon 2025",
+    "publication": "Rebel Scum Con 2025 panel",
+    "url": "https://www.youtube.com/watch?v=dyNvjvP30nA",
+    "year": 2026
+   }
+  },
+  {
+   "person": "David W. Collins",
+   "kind": "insight",
+   "text": "When cutting the Star Wars Resistance pilot, Collins ran out of TIE fighter material, so he went back to Ben Burtt's recipe, found elephant recordings and pitched them way up until they screeched overhead.",
+   "categories": [
+    "creatures",
+    "scifi"
+   ],
+   "source": {
+    "title": "Skywalker Sound with Matthew Wood & David W Collins - Hosted by Carly King | @RebelScumCon 2025",
+    "publication": "Rebel Scum Con 2025 panel",
+    "url": "https://www.youtube.com/watch?v=dyNvjvP30nA",
+    "year": 2026
+   }
+  },
+  {
+   "person": "David W. Collins",
+   "kind": "insight",
+   "text": "For Jawas in The Mandalorian and The Book of Boba Fett, Collins performs with the pitch-up in mind, knowing how his voice will sound raised. The group used Burtt's Huttese phrasebook and, for one scene, all voiced the same stun phrase from A New Hope's R2 capture at once.",
+   "categories": [
+    "dialogue",
+    "creatures"
+   ],
+   "source": {
+    "title": "Skywalker Sound with Matthew Wood & David W Collins - Hosted by Carly King | @RebelScumCon 2025",
+    "publication": "Rebel Scum Con 2025 panel",
+    "url": "https://www.youtube.com/watch?v=dyNvjvP30nA",
+    "year": 2026
+   }
+  },
+  {
+   "person": "David W. Collins",
+   "kind": "insight",
+   "text": "For The Bad Batch episode 'Faster', the director banned Ben Burtt's iconic podrace sounds, so Collins studied them closely to build new ones in Burtt's style, rejecting library finds that came too close and keeping ones that were pleasingly similar.",
+   "categories": [
+    "scifi",
+    "craft"
+   ],
+   "source": {
+    "title": "Skywalker Sound with Matthew Wood & David W Collins - Hosted by Carly King | @RebelScumCon 2025",
+    "publication": "Rebel Scum Con 2025 panel",
+    "url": "https://www.youtube.com/watch?v=dyNvjvP30nA",
+    "year": 2026
+   }
+  },
+  {
+   "person": "David W. Collins",
+   "kind": "insight",
+   "text": "For the pterodactyl-like creatures in The Mandalorian Season 3, Collins built voices from screeching metal. Jon Favreau wanted 'a T-Rex with wings', heavier, so he redid them, and the metal-screech material was later repurposed for the escaping zoo animals in The Bad Batch Season 3.",
+   "categories": [
+    "creatures",
+    "collaboration"
+   ],
+   "source": {
+    "title": "Skywalker Sound with Matthew Wood & David W Collins - Hosted by Carly King | @RebelScumCon 2025",
+    "publication": "Rebel Scum Con 2025 panel",
+    "url": "https://www.youtube.com/watch?v=dyNvjvP30nA",
+    "year": 2026
+   }
+  },
+  {
+   "person": "Matthew Wood",
+   "kind": "insight",
+   "text": "Wood's Star Wars loop group are improvisers who know every film reference and speak Huttese and Jawa, because the whole movie gets covered in a couple of days. Their lines must sound authentic without pulling focus, like the recurring 'new T-15s' stormtrooper chatter in The Force Awakens.",
+   "categories": [
+    "dialogue",
+    "collaboration"
+   ],
+   "source": {
+    "title": "Skywalker Sound with Matthew Wood & David W Collins - Hosted by Carly King | @RebelScumCon 2025",
+    "publication": "Rebel Scum Con 2025 panel",
+    "url": "https://www.youtube.com/watch?v=dyNvjvP30nA",
+    "year": 2026
+   }
+  },
+  {
+   "person": "David W. Collins",
+   "kind": "insight",
+   "text": "One of Collins's first sounds for The Mandalorian Season 3 was the dark troopers' dual hand cannons, inspired by Ben Burtt's Indy pistol, but pushed so big that the limiters seem unable to cope: near-clipping, heavy-metal distortion on every shot.",
+   "categories": [
+    "weapons",
+    "scifi"
+   ],
+   "source": {
+    "title": "84 - Mandalorian / Obi Wan Kenobi Emmy Sound Special - Matthew Wood, David W Collins and Danielle Dupre",
+    "publication": "Filmumentaries Podcast",
+    "url": "https://www.youtube.com/watch?v=X7J2aHxv6dA",
+    "year": 2024
+   }
+  },
+  {
+   "person": "David W. Collins",
+   "kind": "insight",
+   "text": "Collins on legacy sounds in The Mandalorian: each carries strong emotional memory, so he uses them intentionally or not at all. Incoming ILM shots guide the call; if a hangar looks classically Imperial, it gets the classic Imperial claxon alarm.",
+   "categories": [
+    "worlds",
+    "craft"
+   ],
+   "source": {
+    "title": "84 - Mandalorian / Obi Wan Kenobi Emmy Sound Special - Matthew Wood, David W Collins and Danielle Dupre",
+    "publication": "Filmumentaries Podcast",
+    "url": "https://www.youtube.com/watch?v=X7J2aHxv6dA",
+    "year": 2024
+   }
+  },
+  {
+   "person": "David W. Collins",
+   "kind": "insight",
+   "text": "R5-D4 does very little in A New Hope, so for its expanded role in The Mandalorian Season 3, Collins had to extrapolate a much bigger vocabulary from a tiny reference set, new material that still sits naturally alongside what fans remember.",
+   "categories": [
+    "creatures",
+    "scifi"
+   ],
+   "source": {
+    "title": "84 - Mandalorian / Obi Wan Kenobi Emmy Sound Special - Matthew Wood, David W Collins and Danielle Dupre",
+    "publication": "Filmumentaries Podcast",
+    "url": "https://www.youtube.com/watch?v=X7J2aHxv6dA",
+    "year": 2024
+   }
+  },
+  {
+   "person": "David W. Collins",
+   "kind": "insight",
+   "text": "Collins says every effect sounds huge when first cut in. Once dialogue, Foley, ADR and music join on The Mandalorian, he asks whether each needs to hit as hard; maybe a ship taking off behind an intimate conversation shouldn't be big, since backing off makes the strong moments stronger.",
+   "categories": [
+    "mixing",
+    "silence"
+   ],
+   "source": {
+    "title": "84 - Mandalorian / Obi Wan Kenobi Emmy Sound Special - Matthew Wood, David W Collins and Danielle Dupre",
+    "publication": "Filmumentaries Podcast",
+    "url": "https://www.youtube.com/watch?v=X7J2aHxv6dA",
+    "year": 2024
+   }
+  },
+  {
+   "person": "Matthew Wood",
+   "kind": "insight",
+   "text": "Wood's test for a signature sound comes from J.J. Abrams on BB-8 in The Force Awakens: if the droid rolled up in the hallway outside, you'd know it was him before seeing him. Head motors, servos, chirps and vocalizations all had to be specific, never generic.",
+   "categories": [
+    "creatures",
+    "scifi"
+   ],
+   "source": {
+    "title": "84 - Mandalorian / Obi Wan Kenobi Emmy Sound Special - Matthew Wood, David W Collins and Danielle Dupre",
+    "publication": "Filmumentaries Podcast",
+    "url": "https://www.youtube.com/watch?v=X7J2aHxv6dA",
+    "year": 2024
+   }
+  },
+  {
+   "person": "Matthew Wood",
+   "kind": "insight",
+   "text": "Wood notes the prequels were Skywalker's first all-Pro Tools mixes; Lucas wanted access to any single Foley footstep. Wood still keeps every unit reachable after predubs, so a director can reclaim, say, the production door clunk from the picture edit at the final playback.",
+   "categories": [
+    "mixing",
+    "craft"
+   ],
+   "source": {
+    "title": "84 - Mandalorian / Obi Wan Kenobi Emmy Sound Special - Matthew Wood, David W Collins and Danielle Dupre",
+    "publication": "Filmumentaries Podcast",
+    "url": "https://www.youtube.com/watch?v=X7J2aHxv6dA",
+    "year": 2024
+   }
+  },
+  {
+   "person": "Matthew Wood",
+   "kind": "insight",
+   "text": "For Disney+ delivery of shows like The Mandalorian, Wood says Skywalker uses proprietary tools built with its mixers that nudge the finished mix to hit Disney's exact mastering spec while keeping the balance the mixers and director approved, so viewers don't ride the volume.",
+   "categories": [
+    "mixing"
+   ],
+   "source": {
+    "title": "84 - Mandalorian / Obi Wan Kenobi Emmy Sound Special - Matthew Wood, David W Collins and Danielle Dupre",
+    "publication": "Filmumentaries Podcast",
+    "url": "https://www.youtube.com/watch?v=X7J2aHxv6dA",
+    "year": 2024
+   }
+  },
+  {
+   "person": "Danielle Dupre",
+   "kind": "insight",
+   "text": "To refresh her ears on Obi-Wan Kenobi, Dupre moves to another scene or episode, sits outside the usual sweet spot, or streams the mix to a small screen and headphones, much like musicians checking a mix in the car.",
+   "categories": [
+    "mixing",
+    "craft"
+   ],
+   "source": {
+    "title": "84 - Mandalorian / Obi Wan Kenobi Emmy Sound Special - Matthew Wood, David W Collins and Danielle Dupre",
+    "publication": "Filmumentaries Podcast",
+    "url": "https://www.youtube.com/watch?v=X7J2aHxv6dA",
+    "year": 2024
+   }
+  },
+  {
+   "person": "Danielle Dupre",
+   "kind": "insight",
+   "text": "Dupre mirrored Obi-Wan's arc in the Obi-Wan Kenobi mix: early on, wounded and apart, scenes were made to feel alone, quiet and sad; later, as he seems to lose his power, the mix moves into chaos, making everything feel bigger than it is, from his perspective.",
+   "categories": [
+    "mixing",
+    "story"
+   ],
+   "source": {
+    "title": "84 - Mandalorian / Obi Wan Kenobi Emmy Sound Special - Matthew Wood, David W Collins and Danielle Dupre",
+    "publication": "Filmumentaries Podcast",
+    "url": "https://www.youtube.com/watch?v=X7J2aHxv6dA",
+    "year": 2024
+   }
+  },
+  {
+   "person": "Danielle Dupre",
+   "kind": "insight",
+   "text": "For new locations in Obi-Wan Kenobi, like a fish market, Dupre imagines who works there and what their day involves to build the unseen background. She gives a location a beat to establish the first time, then mixes it the way the character experiences it.",
+   "categories": [
+    "worlds",
+    "mixing"
+   ],
+   "source": {
+    "title": "84 - Mandalorian / Obi Wan Kenobi Emmy Sound Special - Matthew Wood, David W Collins and Danielle Dupre",
+    "publication": "Filmumentaries Podcast",
+    "url": "https://www.youtube.com/watch?v=X7J2aHxv6dA",
+    "year": 2024
+   }
+  },
+  {
+   "person": "Danielle Dupre",
+   "kind": "insight",
+   "text": "Dupre finds that remote ADR, recording actors wherever they are in the world, has made directors on shows like Obi-Wan Kenobi ask for more ADR, not less, and for performance, take choices and rewrites rather than purely technical fixes.",
+   "categories": [
+    "dialogue"
+   ],
+   "source": {
+    "title": "84 - Mandalorian / Obi Wan Kenobi Emmy Sound Special - Matthew Wood, David W Collins and Danielle Dupre",
+    "publication": "Filmumentaries Podcast",
+    "url": "https://www.youtube.com/watch?v=X7J2aHxv6dA",
+    "year": 2024
+   }
+  },
+  {
+   "person": "David Farmer",
+   "kind": "insight",
+   "text": "Farmer on ultrasonic recording: earlier 40 kHz mics didn't help much when slowed down, but a Sanken CO-100 reaching 100 kHz let him slow jingled keys to 20% speed with high end intact. That frees him to growl into the mic himself, or bow a cardboard box, and pitch it far below human.",
+   "categories": [
+    "recording",
+    "creatures"
+   ],
+   "source": {
+    "title": "How the Monsters of Middle-earth Got Their Sound | David Farmer - The 4/4 Podcast",
+    "publication": "The 4/4 Podcast",
+    "url": "https://www.youtube.com/watch?v=JUAizcwz9OM",
+    "year": 2026
+   }
+  },
+  {
+   "person": "David Farmer",
+   "kind": "insight",
+   "text": "Recording lions, bears, tigers and leopards for The Hobbit with John Fasal, Farmer ran a Sony M10 pocket recorder beside his best rig. Auditioning blind, with the recorder field hidden, he picked the M10 take four times out of five for its roundness and fullness.",
+   "categories": [
+    "recording",
+    "creatures"
+   ],
+   "source": {
+    "title": "How the Monsters of Middle-earth Got Their Sound | David Farmer - The 4/4 Podcast",
+    "publication": "The 4/4 Podcast",
+    "url": "https://www.youtube.com/watch?v=JUAizcwz9OM",
+    "year": 2026
+   }
+  },
+  {
+   "person": "David Farmer",
+   "kind": "insight",
+   "text": "Farmer rarely uses ambisonic or surround ambience recordings for film. He finds that two or three separate stereo pairs, placed and moved around the room independently, play wider in the mix than one naturally captured surround environment.",
+   "categories": [
+    "recording",
+    "worlds",
+    "mixing"
+   ],
+   "source": {
+    "title": "How the Monsters of Middle-earth Got Their Sound | David Farmer - The 4/4 Podcast",
+    "publication": "The 4/4 Podcast",
+    "url": "https://www.youtube.com/watch?v=JUAizcwz9OM",
+    "year": 2026
+   }
+  },
+  {
+   "person": "David Farmer",
+   "kind": "insight",
+   "text": "Farmer on monster roars: few animals sustain a vocal, tonal bellow; most give short barks or growls. Pigs at feeding time 'talk' in long, voiced phrases, which is why so many movie monster roars end up built on pig vocals.",
+   "categories": [
+    "creatures",
+    "recording"
+   ],
+   "source": {
+    "title": "How the Monsters of Middle-earth Got Their Sound | David Farmer - The 4/4 Podcast",
+    "publication": "The 4/4 Podcast",
+    "url": "https://www.youtube.com/watch?v=JUAizcwz9OM",
+    "year": 2026
+   }
+  },
+  {
+   "person": "David Farmer",
+   "kind": "insight",
+   "text": "Farmer builds impact sequences for rhythm over strict sync: a cadence of hits, skids, glass and debris not tied to anything on screen, resolved by one event that is in sync. Played fast and natural enough, nobody notices, but it becomes more interesting.",
+   "categories": [
+    "action",
+    "craft"
+   ],
+   "source": {
+    "title": "How the Monsters of Middle-earth Got Their Sound | David Farmer - The 4/4 Podcast",
+    "publication": "The 4/4 Podcast",
+    "url": "https://www.youtube.com/watch?v=JUAizcwz9OM",
+    "year": 2026
+   }
+  },
+  {
+   "person": "David Farmer",
+   "kind": "insight",
+   "text": "When an event's layers turn to mush from adding sweetener after sweetener, Farmer goes back and starts muting elements one by one, asking 'Do I miss this?' Anything he doesn't miss gets deleted from the tracks.",
+   "categories": [
+    "craft"
+   ],
+   "source": {
+    "title": "How the Monsters of Middle-earth Got Their Sound | David Farmer - The 4/4 Podcast",
+    "publication": "The 4/4 Podcast",
+    "url": "https://www.youtube.com/watch?v=JUAizcwz9OM",
+    "year": 2026
+   }
+  },
+  {
+   "person": "David Farmer",
+   "kind": "quote",
+   "text": "If you don't miss it, you don't need it.",
+   "categories": [
+    "craft"
+   ],
+   "source": {
+    "title": "How the Monsters of Middle-earth Got Their Sound | David Farmer - The 4/4 Podcast",
+    "publication": "The 4/4 Podcast",
+    "url": "https://www.youtube.com/watch?v=JUAizcwz9OM",
+    "year": 2026
+   }
+  },
+  {
+   "person": "David Farmer",
+   "kind": "insight",
+   "text": "For Smaug in The Hobbit, Farmer gave the dragon's footsteps two parts: a very heavy smack followed by a separate claw-down element, so each step reads as both weight and talons.",
+   "categories": [
+    "creatures"
+   ],
+   "source": {
+    "title": "How the Monsters of Middle-earth Got Their Sound | David Farmer - The 4/4 Podcast",
+    "publication": "The 4/4 Podcast",
+    "url": "https://www.youtube.com/watch?v=JUAizcwz9OM",
+    "year": 2026
+   }
+  },
+  {
+   "person": "David Farmer",
+   "kind": "insight",
+   "text": "Farmer's training method: load a film you like into a DAW, mute the sound, and rebuild one effect (a single explosion or creature) until yours could replace the original. The layering tricks learned carry over to designing new sounds.",
+   "categories": [
+    "craft"
+   ],
+   "source": {
+    "title": "How the Monsters of Middle-earth Got Their Sound | David Farmer - The 4/4 Podcast",
+    "publication": "The 4/4 Podcast",
+    "url": "https://www.youtube.com/watch?v=JUAizcwz9OM",
+    "year": 2026
+   }
+  },
+  {
+   "person": "David Farmer",
+   "kind": "insight",
+   "text": "Farmer skips picture versions by asking for an EDL with every cut instead of change notes. Conformalizer compares any two EDLs (version 10 straight to 17), and its picture overlay lets assistants see exactly which frames moved and flag only the changes that affect sound.",
+   "categories": [
+    "craft",
+    "collaboration"
+   ],
+   "source": {
+    "title": "The David Farmer Interview",
+    "publication": "YouTube interview",
+    "url": "https://www.youtube.com/watch?v=sr1uDzjNB4M",
+    "year": 2015
+   }
+  },
+  {
+   "person": "David Farmer",
+   "kind": "insight",
+   "text": "Farmer switched from the Pro Tools panner to Spanner on every track, driving it with its iPad app like a joystick. Its overlay sits on the picture, showing left-right and front-back position, so he can land an accurate surround pan in a single pass.",
+   "categories": [
+    "mixing",
+    "craft"
+   ],
+   "source": {
+    "title": "The David Farmer Interview",
+    "publication": "YouTube interview",
+    "url": "https://www.youtube.com/watch?v=sr1uDzjNB4M",
+    "year": 2015
+   }
+  },
+  {
+   "person": "David Farmer",
+   "kind": "insight",
+   "text": "Farmer sometimes pulls a batch of unrelated elements onto tracks, hits play and listens to the accidents. When he uses synths he records everything as he goes, because he knows he will never get back to that exact patch.",
+   "categories": [
+    "craft"
+   ],
+   "source": {
+    "title": "The David Farmer Interview",
+    "publication": "YouTube interview",
+    "url": "https://www.youtube.com/watch?v=sr1uDzjNB4M",
+    "year": 2015
+   }
+  },
+  {
+   "person": "Matthew Wood",
+   "kind": "insight",
+   "text": "For the Emperor on Exegol in The Rise of Skywalker, Wood placed Ian McDiarmid's voice across the front LCR and the Atmos top speakers for a 'voice of God' feel, with an enormous reverb whose decay he recalls at around 20 seconds.",
+   "categories": [
+    "dialogue",
+    "mixing",
+    "scifi"
+   ],
+   "source": {
+    "title": "The Sound of Star Wars: The Rise of Skywalker | 2020 Oscars® | Dolby Institute Podcast",
+    "publication": "Dolby Institute Podcast",
+    "url": "https://www.youtube.com/watch?v=_ENrGVzr0bs",
+    "year": 2020
+   }
+  },
+  {
+   "person": "Matthew Wood",
+   "kind": "insight",
+   "text": "For Palpatine's line 'I have been every voice you have ever heard inside your head' in The Rise of Skywalker, Wood had James Earl Jones and Andy Serkis each read it about 50 ways, plus Ian McDiarmid, and bridged the takes into one designed dialogue moment.",
+   "categories": [
+    "dialogue",
+    "story"
+   ],
+   "source": {
+    "title": "The Sound of Star Wars: The Rise of Skywalker | 2020 Oscars® | Dolby Institute Podcast",
+    "publication": "Dolby Institute Podcast",
+    "url": "https://www.youtube.com/watch?v=_ENrGVzr0bs",
+    "year": 2020
+   }
+  },
+  {
+   "person": "David Acord",
+   "kind": "insight",
+   "text": "Acord's first Exegol lightning in The Rise of Skywalker sounded too close to Force lightning for J.J. Abrams. The redo went animalistic: guttural, screechy metallic shrieks, sometimes preceded by a crackling rumble. Acord's tip: when a director imitates the sound they want, make exactly that.",
+   "categories": [
+    "scifi",
+    "collaboration"
+   ],
+   "source": {
+    "title": "The Sound of Star Wars: The Rise of Skywalker | 2020 Oscars® | Dolby Institute Podcast",
+    "publication": "Dolby Institute Podcast",
+    "url": "https://www.youtube.com/watch?v=_ENrGVzr0bs",
+    "year": 2020
+   }
+  },
+  {
+   "person": "David Acord",
+   "kind": "insight",
+   "text": "Exegol has constant lightning flashes, but Acord didn't hit every one, which would exhaust the audience. He placed the scary lightning hits at peak-tension moments, sometimes waiting a couple of extra beats past the peak to catch viewers off guard.",
+   "categories": [
+    "scifi",
+    "horror"
+   ],
+   "source": {
+    "title": "The Sound of Star Wars: The Rise of Skywalker | 2020 Oscars® | Dolby Institute Podcast",
+    "publication": "Dolby Institute Podcast",
+    "url": "https://www.youtube.com/watch?v=_ENrGVzr0bs",
+    "year": 2020
+   }
+  },
+  {
+   "person": "David Acord",
+   "kind": "insight",
+   "text": "Acord on Ben Burtt's TIE fighter recipe: an elephant scream on top with a race car on wet pavement underneath. For The Rise of Skywalker's new TIEs, Acord kept the recipe but swapped ingredients: different elephant screams, other animal yells, different vehicle passbys.",
+   "categories": [
+    "scifi",
+    "creatures"
+   ],
+   "source": {
+    "title": "The Sound of Star Wars: The Rise of Skywalker | 2020 Oscars® | Dolby Institute Podcast",
+    "publication": "Dolby Institute Podcast",
+    "url": "https://www.youtube.com/watch?v=_ENrGVzr0bs",
+    "year": 2020
+   }
+  },
+  {
+   "person": "David Acord",
+   "kind": "insight",
+   "text": "For Rey's slow-motion flip over Kylo's TIE in The Rise of Skywalker, Acord's team first went silent except for cape flap and saber slice, then settled on adding rocks and a sustained TIE scream drowned in heavy reverb for a dreamy, suspended moment.",
+   "categories": [
+    "silence",
+    "scifi"
+   ],
+   "source": {
+    "title": "The Sound of Star Wars: The Rise of Skywalker | 2020 Oscars® | Dolby Institute Podcast",
+    "publication": "Dolby Institute Podcast",
+    "url": "https://www.youtube.com/watch?v=_ENrGVzr0bs",
+    "year": 2020
+   }
+  },
+  {
+   "person": "David Acord",
+   "kind": "insight",
+   "text": "For Palpatine's Force lightning blast at the fleet, Abrams asked what it would sound like if it blew out the microphone. Acord's root sound was an electric toothbrush on sheet metal, overdriven again and again with added low end, played as a big overhead Atmos moment.",
+   "categories": [
+    "scifi",
+    "weapons"
+   ],
+   "source": {
+    "title": "The Sound of Star Wars: The Rise of Skywalker | 2020 Oscars® | Dolby Institute Podcast",
+    "publication": "Dolby Institute Podcast",
+    "url": "https://www.youtube.com/watch?v=_ENrGVzr0bs",
+    "year": 2020
+   }
+  },
+  {
+   "person": "Matthew Wood",
+   "kind": "insight",
+   "text": "For a late change to masked Kylo lines in The Rise of Skywalker, Wood recorded Adam Driver at home in an echoey, unfurnished room, putting him and the mic inside a closet of hanging suits, while Abrams watched in sync from LA via Source-Connect.",
+   "categories": [
+    "dialogue",
+    "recording"
+   ],
+   "source": {
+    "title": "The Sound of Star Wars: The Rise of Skywalker | 2020 Oscars® | Dolby Institute Podcast",
+    "publication": "Dolby Institute Podcast",
+    "url": "https://www.youtube.com/watch?v=_ENrGVzr0bs",
+    "year": 2020
+   }
+  },
+  {
+   "person": "Matthew Wood",
+   "kind": "insight",
+   "text": "Wood got last-minute Emperor pickups from Ian McDiarmid in remote Scotland by sending him a small Apogee mic for his iPhone and coaching him by phone. McDiarmid waited for the coastal wind to die down before recording.",
+   "categories": [
+    "dialogue",
+    "recording"
+   ],
+   "source": {
+    "title": "The Sound of Star Wars: The Rise of Skywalker | 2020 Oscars® | Dolby Institute Podcast",
+    "publication": "Dolby Institute Podcast",
+    "url": "https://www.youtube.com/watch?v=_ENrGVzr0bs",
+    "year": 2020
+   }
+  },
+  {
+   "person": "Matthew Wood",
+   "kind": "insight",
+   "text": "Babu Frick's performer, Shirley Henderson, improvised her lines and learned the puppetry to do the mouth herself, so Wood kept the production audio. She then performed the character's lines phonetically in every foreign-language version, with a language specialist on the phone checking each one.",
+   "categories": [
+    "dialogue",
+    "collaboration"
+   ],
+   "source": {
+    "title": "The Sound of Star Wars: The Rise of Skywalker | 2020 Oscars® | Dolby Institute Podcast",
+    "publication": "Dolby Institute Podcast",
+    "url": "https://www.youtube.com/watch?v=_ENrGVzr0bs",
+    "year": 2020
+   }
+  },
+  {
+   "person": "Matthew Wood",
+   "kind": "insight",
+   "text": "On The Rise of Skywalker the cut changed too fast to AAF, so Wood and Acord mixed temp passes in 5.1 right out of the Avid in Bad Robot's theater over hard weekends. That kept Abrams' frequent screenings sounding good before the real premix began.",
+   "categories": [
+    "craft",
+    "collaboration"
+   ],
+   "source": {
+    "title": "The Sound of Star Wars: The Rise of Skywalker | 2020 Oscars® | Dolby Institute Podcast",
+    "publication": "Dolby Institute Podcast",
+    "url": "https://www.youtube.com/watch?v=_ENrGVzr0bs",
+    "year": 2020
+   }
+  },
+  {
+   "person": "David Acord",
+   "kind": "insight",
+   "text": "As sole mixer on Andor, Acord keeps music, dialogue, effects, Foley, backgrounds and ADR in one giant Pro Tools super-session. He premixes each episode at Skywalker, then does the final at De Lane Lea against the real 5.1 music stems, which arrive on day one.",
+   "categories": [
+    "mixing",
+    "craft"
+   ],
+   "source": {
+    "title": "The Sound of Andor Season 2 | #DolbyCreatorTalks",
+    "publication": "Dolby Creator Talks",
+    "url": "https://www.youtube.com/watch?v=PrAWHkGLn7g",
+    "year": 2025
+   }
+  },
+  {
+   "person": "David Acord",
+   "kind": "insight",
+   "text": "For Andor's grounded violence, Acord reuses legacy sounds such as the 1977 Stormtrooper blaster but punctuates each shot with an extra element, so the lasers hit like real 21st-century guns while staying in the New Hope-era palette.",
+   "categories": [
+    "weapons",
+    "scifi"
+   ],
+   "source": {
+    "title": "The Sound of Andor Season 2 | #DolbyCreatorTalks",
+    "publication": "Dolby Creator Talks",
+    "url": "https://www.youtube.com/watch?v=PrAWHkGLn7g",
+    "year": 2025
+   }
+  },
+  {
+   "person": "David Acord",
+   "kind": "insight",
+   "text": "For Andor's Coruscant tenement, Acord gave passing traffic extra throat, added occasional police sirens as a signal of a bad neighbourhood, and filled Cassian's hallway walk with a room blasting music, a crying baby and an arguing couple.",
+   "categories": [
+    "worlds",
+    "scifi"
+   ],
+   "source": {
+    "title": "The Sound of Andor Season 2 | #DolbyCreatorTalks",
+    "publication": "Dolby Creator Talks",
+    "url": "https://www.youtube.com/watch?v=PrAWHkGLn7g",
+    "year": 2025
+   }
+  },
+  {
+   "person": "David Acord",
+   "kind": "insight",
+   "text": "In Andor, Clea's covert 'fractal radio' and Cassian's radio share a similar sonic treatment, so audiences connect them as being on the same bandwidth. Acord ties it to the show's World War II spy-drama brief of listening, codes and bugs.",
+   "categories": [
+    "story",
+    "scifi"
+   ],
+   "source": {
+    "title": "The Sound of Andor Season 2 | #DolbyCreatorTalks",
+    "publication": "Dolby Creator Talks",
+    "url": "https://www.youtube.com/watch?v=PrAWHkGLn7g",
+    "year": 2025
+   }
+  },
+  {
+   "person": "David Acord",
+   "kind": "insight",
+   "text": "For Syril's slow-motion point of view during Andor's Ghorman massacre, Acord used slow-motion laser bys and muted explosions, then snapped back to reality. The sequence was stripped down over time, in line with the show's habit of pulling back after bursts of violence.",
+   "categories": [
+    "silence",
+    "action"
+   ],
+   "source": {
+    "title": "The Sound of Andor Season 2 | #DolbyCreatorTalks",
+    "publication": "Dolby Creator Talks",
+    "url": "https://www.youtube.com/watch?v=PrAWHkGLn7g",
+    "year": 2025
+   }
+  },
+  {
+   "person": "David Acord",
+   "kind": "insight",
+   "text": "Andor episode 8 is one long build to the Ghorman massacre. Acord worked out handoff moments so music and effects take turns telling the story instead of competing, and made each cut between plaza crowd areas feel like a different space.",
+   "categories": [
+    "mixing",
+    "music"
+   ],
+   "source": {
+    "title": "The Sound of Andor Season 2 | #DolbyCreatorTalks",
+    "publication": "Dolby Creator Talks",
+    "url": "https://www.youtube.com/watch?v=PrAWHkGLn7g",
+    "year": 2025
+   }
+  },
+  {
+   "person": "David Acord",
+   "kind": "insight",
+   "text": "Andor's stolen TIE Avenger was briefed as a bucking bronco. Acord took the elephant-scream root of the original TIE and made it wail and shriek as the ship bucks and spins, while working in classic TIE sounds to remind the audience what it is.",
+   "categories": [
+    "scifi",
+    "creatures"
+   ],
+   "source": {
+    "title": "The Sound of Andor Season 2 | #DolbyCreatorTalks",
+    "publication": "Dolby Creator Talks",
+    "url": "https://www.youtube.com/watch?v=PrAWHkGLn7g",
+    "year": 2025
+   }
+  },
+  {
+   "person": "David Acord",
+   "kind": "insight",
+   "text": "Acord mixed Andor for streaming as a bed-based 7.1.2 Atmos mix with no objects. For him the big win is full-range surrounds treated equally, used in episode 8 to put weapons fire, screams and crowd singing all around the viewer.",
+   "categories": [
+    "mixing"
+   ],
+   "source": {
+    "title": "The Sound of Andor Season 2 | #DolbyCreatorTalks",
+    "publication": "Dolby Creator Talks",
+    "url": "https://www.youtube.com/watch?v=PrAWHkGLn7g",
+    "year": 2025
+   }
+  },
+  {
+   "person": "David Acord",
+   "kind": "insight",
+   "text": "For Mon Mothma's Senate speech in Andor, Acord used Cinematic Rooms for the hall and a lo-fi crowd-multiplier plugin to turn about 12 voices into 100. Cutaways put the speech on hallway monitors, off screen or on multiple monitors, so it moves acoustically.",
+   "categories": [
+    "dialogue",
+    "worlds",
+    "mixing"
+   ],
+   "source": {
+    "title": "The Sound of Andor Season 2 | #DolbyCreatorTalks",
+    "publication": "Dolby Creator Talks",
+    "url": "https://www.youtube.com/watch?v=PrAWHkGLn7g",
+    "year": 2025
+   }
+  },
+  {
+   "person": "Margit Pfeiffer",
+   "kind": "insight",
+   "text": "For the brutal Syril-Cassian bar fight in Andor, Pfeiffer had the actors record death grunts and fight efforts in ADR. She kept whatever production audio was really punchy and filled the rest from ADR, under Acord's design.",
+   "categories": [
+    "dialogue",
+    "action"
+   ],
+   "source": {
+    "title": "The Sound of Andor Season 2 | #DolbyCreatorTalks",
+    "publication": "Dolby Creator Talks",
+    "url": "https://www.youtube.com/watch?v=PrAWHkGLn7g",
+    "year": 2025
+   }
+  },
+  {
+   "person": "Margit Pfeiffer",
+   "kind": "insight",
+   "text": "Pfeiffer's loop group for Andor's Ghorman worked in a constructed, French-phonetic language, with every line translated for cast and loop group. They covered protests, the town hall, chants, singing and panic cries, plus voices for the fractal radio.",
+   "categories": [
+    "dialogue",
+    "worlds"
+   ],
+   "source": {
+    "title": "The Sound of Andor Season 2 | #DolbyCreatorTalks",
+    "publication": "Dolby Creator Talks",
+    "url": "https://www.youtube.com/watch?v=PrAWHkGLn7g",
+    "year": 2025
+   }
+  },
+  {
+   "person": "Margit Pfeiffer",
+   "kind": "insight",
+   "text": "For the Ghorman crowd song in Andor, Pfeiffer kept the cast lead's production vocal, then used loop group to fill wide shots and background lips with no audio. Between cuts and plaza positions she alternated featuring production and loop recordings to keep a long scene varied.",
+   "categories": [
+    "dialogue",
+    "mixing"
+   ],
+   "source": {
+    "title": "The Sound of Andor Season 2 | #DolbyCreatorTalks",
+    "publication": "Dolby Creator Talks",
+    "url": "https://www.youtube.com/watch?v=PrAWHkGLn7g",
+    "year": 2025
+   }
+  },
+  {
+   "person": "Margit Pfeiffer",
+   "kind": "insight",
+   "text": "Pfeiffer kept B2EMO's puppeteer as the droid's voice in Andor rather than recasting, because his stutters and intonation were the performance. She gave it only a slight treatment, since heavier processing would lose the emotion.",
+   "categories": [
+    "dialogue",
+    "scifi"
+   ],
+   "source": {
+    "title": "The Sound of Andor Season 2 | #DolbyCreatorTalks",
+    "publication": "Dolby Creator Talks",
+    "url": "https://www.youtube.com/watch?v=PrAWHkGLn7g",
+    "year": 2025
+   }
+  },
+  {
+   "person": "Tim Walston",
+   "kind": "insight",
+   "text": "Walston turns one clean thunder recording into a 'Hollywood' lightning strike in Soundminer's Radium sampler: play it across the keyboard at several pitches at once, highs and lows together, then add a little limiting to pump it up. No other processing.",
+   "categories": [
+    "craft",
+    "worlds"
+   ],
+   "source": {
+    "title": "Hangout with Tim Walston",
+    "publication": "Soundminer Radium demo hangout (YouTube)",
+    "url": "https://www.youtube.com/watch?v=qi5DsIcohJg",
+    "year": 2020
+   }
+  },
+  {
+   "person": "Tim Walston",
+   "kind": "insight",
+   "text": "Walston notes that elemental sounds (wind, water, fire, earth, metal) still read as the same material when pitched down. So a 5- or 10-second wind can be looped and played at several pitches in a sampler to build a longer, more varied bed.",
+   "categories": [
+    "worlds",
+    "craft"
+   ],
+   "source": {
+    "title": "Hangout with Tim Walston",
+    "publication": "Soundminer Radium demo hangout (YouTube)",
+    "url": "https://www.youtube.com/watch?v=qi5DsIcohJg",
+    "year": 2020
+   }
+  },
+  {
+   "person": "Tim Walston",
+   "kind": "insight",
+   "text": "Walston's swarm recordings were thick but lacked foreground movement and left-right space. He layered many single-fly recordings in a sampler with heavy randomization and wide random panning to get detailed passes over a swarm bed.",
+   "categories": [
+    "creatures",
+    "craft"
+   ],
+   "source": {
+    "title": "Hangout with Tim Walston",
+    "publication": "Soundminer Radium demo hangout (YouTube)",
+    "url": "https://www.youtube.com/watch?v=qi5DsIcohJg",
+    "year": 2020
+   }
+  },
+  {
+   "person": "Tim Walston",
+   "kind": "insight",
+   "text": "Walston controls randomness by loading sampler slots only with material of the flavor he wants (lava splats, say), unlike tools that pull at random from the whole library. Variation stays 'genetically related' while every keypress plays something different.",
+   "categories": [
+    "craft"
+   ],
+   "source": {
+    "title": "Hangout with Tim Walston",
+    "publication": "Soundminer Radium demo hangout (YouTube)",
+    "url": "https://www.youtube.com/watch?v=qi5DsIcohJg",
+    "year": 2020
+   }
+  },
+  {
+   "person": "Tim Walston",
+   "kind": "insight",
+   "text": "Walston adds a 'thumper': one slot holds a big lumpy impact, and the whole sampler feeds a rack with saturation, limiting and random delay. When the impact lands it slams the meters and drives everything else. He limits its keyboard range so it fires only when wanted.",
+   "categories": [
+    "craft",
+    "action"
+   ],
+   "source": {
+    "title": "Hangout with Tim Walston",
+    "publication": "Soundminer Radium demo hangout (YouTube)",
+    "url": "https://www.youtube.com/watch?v=qi5DsIcohJg",
+    "year": 2020
+   }
+  },
+  {
+   "person": "Tim Walston",
+   "kind": "insight",
+   "text": "For flying drones, Walston performs pitch with the pitch wheel, a lag control smoothing it into glides, while his other hand rides a Doppler plugin with the mouse. That way he can shape a passby, an approach, or a pass then accelerate away.",
+   "categories": [
+    "craft",
+    "scifi"
+   ],
+   "source": {
+    "title": "Hangout with Tim Walston",
+    "publication": "Soundminer Radium demo hangout (YouTube)",
+    "url": "https://www.youtube.com/watch?v=qi5DsIcohJg",
+    "year": 2020
+   }
+  },
+  {
+   "person": "Tim Walston",
+   "kind": "insight",
+   "text": "Walston builds and delivers in layers rather than full composites. Highs, lows, and ringing or flanged elements stay separate so the mixer can work around music not yet heard. For a vortex, creepy vocals might go to the surrounds and whipping sand to the front.",
+   "categories": [
+    "mixing",
+    "collaboration"
+   ],
+   "source": {
+    "title": "Hangout with Tim Walston",
+    "publication": "Soundminer Radium demo hangout (YouTube)",
+    "url": "https://www.youtube.com/watch?v=qi5DsIcohJg",
+    "year": 2020
+   }
+  },
+  {
+   "person": "Tim Walston",
+   "kind": "insight",
+   "text": "Inspired by Jay Jennings, Walston added a pitched-down, randomized vocal breath layer to a creature movement build. Movement sounds gain life when a hint of vocal sits inside them.",
+   "categories": [
+    "creatures"
+   ],
+   "source": {
+    "title": "Hangout with Tim Walston",
+    "publication": "Soundminer Radium demo hangout (YouTube)",
+    "url": "https://www.youtube.com/watch?v=qi5DsIcohJg",
+    "year": 2020
+   }
+  },
+  {
+   "person": "Tim Walston",
+   "kind": "insight",
+   "text": "Walston stacks long source takes far down at the bottom of his Pro Tools session with quick locate markers, clips out the usable bits, and colour-codes related families (sandy, gritty-crunchy) so he can assemble composites like a cookbook.",
+   "categories": [
+    "craft"
+   ],
+   "source": {
+    "title": "Hangout with Tim Walston",
+    "publication": "Soundminer Radium demo hangout (YouTube)",
+    "url": "https://www.youtube.com/watch?v=qi5DsIcohJg",
+    "year": 2020
+   }
+  },
+  {
+   "person": "Tim Walston",
+   "kind": "insight",
+   "text": "From Harry Cohen, Walston learned that when an experiment produces something cool you record it right then, even if it doesn't fit the current project. You will never recreate that headspace or setup.",
+   "categories": [
+    "craft"
+   ],
+   "source": {
+    "title": "Hangout with Tim Walston",
+    "publication": "Soundminer Radium demo hangout (YouTube)",
+    "url": "https://www.youtube.com/watch?v=qi5DsIcohJg",
+    "year": 2020
+   }
+  },
+  {
+   "person": "Matthew Wood",
+   "kind": "insight",
+   "text": "Wood on Grievous's coughs in Revenge of the Sith: Lucas kept Wood's breathless, coughing takes to show the cyborg had a biological weakness, and when Lucas himself coughed near the mic during the session, Wood kept recording and cut those coughs into the character.",
+   "categories": [
+    "dialogue",
+    "creatures",
+    "story"
+   ],
+   "source": {
+    "title": "MATTHEW WOOD PANEL - SpaceCon San Antonio 2026",
+    "publication": "SpaceCon San Antonio",
+    "url": "https://www.youtube.com/watch?v=Zs9E8BSifsg",
+    "year": 2026
+   }
+  },
+  {
+   "person": "Ben Burtt",
+   "kind": "insight",
+   "text": "For the MagnaGuards' electrostaffs in Revenge of the Sith, Burtt used recordings of Kenneth Strickfaden's working Frankenstein spark coils, related to the lightsaber hum, then played them through a speaker and whipped a microphone past it to get real Doppler swings, cutting the passes into loops.",
+   "categories": [
+    "weapons",
+    "recording",
+    "scifi"
+   ],
+   "source": {
+    "title": "Inside the Sound of Star Wars: A Conversation with Ben Burtt & Matthew Wood",
+    "publication": "Mastering Post-Production Sound (MPSE Revenge of the Sith 20th anniversary screening)",
+    "url": "https://www.youtube.com/watch?v=a83P1XtXrlM",
+    "year": 2025
+   }
+  },
+  {
+   "person": "Ben Burtt",
+   "kind": "insight",
+   "text": "Burtt built Boga, Obi-Wan's lizard mount in Revenge of the Sith, almost entirely from coyote yelps recorded in Marin County, where packs echo in the distance; he reworked them, sometimes reversed and slowed, and sent the sad cry after Order 66 into reverb.",
+   "categories": [
+    "creatures",
+    "recording"
+   ],
+   "source": {
+    "title": "Inside the Sound of Star Wars: A Conversation with Ben Burtt & Matthew Wood",
+    "publication": "Mastering Post-Production Sound (MPSE Revenge of the Sith 20th anniversary screening)",
+    "url": "https://www.youtube.com/watch?v=a83P1XtXrlM",
+    "year": 2025
+   }
+  },
+  {
+   "person": "Ben Burtt",
+   "kind": "insight",
+   "text": "For the Wookiee flyers' wings in Revenge of the Sith, Burtt used a vocal insect imitation, a buzzy wing flutter, from Tad Staples, a blind thunder recordist who mimics insects; it synced to the blades almost magically.",
+   "categories": [
+    "scifi",
+    "creatures",
+    "recording"
+   ],
+   "source": {
+    "title": "Inside the Sound of Star Wars: A Conversation with Ben Burtt & Matthew Wood",
+    "publication": "Mastering Post-Production Sound (MPSE Revenge of the Sith 20th anniversary screening)",
+    "url": "https://www.youtube.com/watch?v=a83P1XtXrlM",
+    "year": 2025
+   }
+  },
+  {
+   "person": "Ben Burtt",
+   "kind": "insight",
+   "text": "Burtt made Grievous's wheel bike in Revenge of the Sith almost entirely from chainsaw accelerations, made into loops, speed-varied and shaped to sync with the wheel, keeping the chainsaw's built-in sense of cutting through things.",
+   "categories": [
+    "action",
+    "scifi"
+   ],
+   "source": {
+    "title": "Inside the Sound of Star Wars: A Conversation with Ben Burtt & Matthew Wood",
+    "publication": "Mastering Post-Production Sound (MPSE Revenge of the Sith 20th anniversary screening)",
+    "url": "https://www.youtube.com/watch?v=a83P1XtXrlM",
+    "year": 2025
+   }
+  },
+  {
+   "person": "Ben Burtt",
+   "kind": "insight",
+   "text": "On Revenge of the Sith Burtt broke the whole film into tracked recording projects (every vehicle, ambience and weapon), built sounds like a mosaic from new recordings and library pieces, and kept each reel's premix groupings identical so fader counts and mixer assignments were known before the final.",
+   "categories": [
+    "craft",
+    "collaboration"
+   ],
+   "source": {
+    "title": "Inside the Sound of Star Wars: A Conversation with Ben Burtt & Matthew Wood",
+    "publication": "Mastering Post-Production Sound (MPSE Revenge of the Sith 20th anniversary screening)",
+    "url": "https://www.youtube.com/watch?v=a83P1XtXrlM",
+    "year": 2025
+   }
+  },
+  {
+   "person": "Ben Burtt",
+   "kind": "insight",
+   "text": "Cutting picture and sound on the Star Wars prequels, Burtt kept a small sound-design rig and library beside the Avid to sketch effects and temp voices from day one, but first watched cuts with no sound or music to judge where the visuals were strong or weak.",
+   "categories": [
+    "story",
+    "craft"
+   ],
+   "source": {
+    "title": "Inside the Sound of Star Wars: A Conversation with Ben Burtt & Matthew Wood",
+    "publication": "Mastering Post-Production Sound (MPSE Revenge of the Sith 20th anniversary screening)",
+    "url": "https://www.youtube.com/watch?v=a83P1XtXrlM",
+    "year": 2025
+   }
+  },
+  {
+   "person": "Ben Burtt",
+   "kind": "insight",
+   "text": "Burtt on working under John Williams's scores for the Star Wars prequels: anticipate the music, so if Williams is going high with strings, sit the effects down in the rumble; and fight for at least one effects-led sequence, like the pod race, where sound carries the action like music.",
+   "categories": [
+    "music",
+    "mixing"
+   ],
+   "source": {
+    "title": "Inside the Sound of Star Wars: A Conversation with Ben Burtt & Matthew Wood",
+    "publication": "Mastering Post-Production Sound (MPSE Revenge of the Sith 20th anniversary screening)",
+    "url": "https://www.youtube.com/watch?v=a83P1XtXrlM",
+    "year": 2025
+   }
+  },
+  {
+   "person": "Matthew Wood",
+   "kind": "insight",
+   "text": "Wood recalls Burtt sending him out in Sydney during the prequels to record anything; a wildly out-of-tune steam calliope Wood captured at a museum ended up faintly in Revenge of the Sith as Anakin runs up the stairs to the opera scene.",
+   "categories": [
+    "recording",
+    "worlds"
+   ],
+   "source": {
+    "title": "Inside the Sound of Star Wars: A Conversation with Ben Burtt & Matthew Wood",
+    "publication": "Mastering Post-Production Sound (MPSE Revenge of the Sith 20th anniversary screening)",
+    "url": "https://www.youtube.com/watch?v=a83P1XtXrlM",
+    "year": 2025
+   }
+  },
+  {
+   "person": "Ben Burtt",
+   "kind": "insight",
+   "text": "Burtt's advice: carry a recorder and capture anything that catches your ear. He once put his recorder inside a convenience-store refrigerator, closed the door and pretended to shop; that motor became a force field in Star Trek.",
+   "categories": [
+    "recording",
+    "craft"
+   ],
+   "source": {
+    "title": "Inside the Sound of Star Wars: A Conversation with Ben Burtt & Matthew Wood",
+    "publication": "Mastering Post-Production Sound (MPSE Revenge of the Sith 20th anniversary screening)",
+    "url": "https://www.youtube.com/watch?v=a83P1XtXrlM",
+    "year": 2025
+   }
+  },
+  {
+   "person": "Matthew Wood",
+   "kind": "insight",
+   "text": "For Attack of the Clones ADR, Wood ran sessions over ISDN via Ednet: Dolby AC-2 at 128 kbps on two bonded 64k channels plus a timecode control channel, so Lucas could direct actors in Sydney from his theater at Skywalker Ranch.",
+   "categories": [
+    "dialogue",
+    "recording"
+   ],
+   "source": {
+    "title": "Inside the Sound of Star Wars: A Conversation with Ben Burtt & Matthew Wood",
+    "publication": "Mastering Post-Production Sound (MPSE Revenge of the Sith 20th anniversary screening)",
+    "url": "https://www.youtube.com/watch?v=a83P1XtXrlM",
+    "year": 2025
+   }
+  },
+  {
+   "person": "Matthew Wood",
+   "kind": "insight",
+   "text": "Wood now runs remote loop group for Star Wars and Marvel projects with up to 12 vetted actors on good home rigs, each connected individually and recorded to a separate track, so he gets group energy but can layer or remove any voice.",
+   "categories": [
+    "dialogue",
+    "collaboration"
+   ],
+   "source": {
+    "title": "Inside the Sound of Star Wars: A Conversation with Ben Burtt & Matthew Wood",
+    "publication": "Mastering Post-Production Sound (MPSE Revenge of the Sith 20th anniversary screening)",
+    "url": "https://www.youtube.com/watch?v=a83P1XtXrlM",
+    "year": 2025
+   }
+  },
+  {
+   "person": "Matthew Wood",
+   "kind": "insight",
+   "text": "For Star Wars loop group alien chatter, Wood uses Ben Burtt's Huttese travel guide as the base language and checks fan wikis during sessions so new lines stay consistent with what fans have already transcribed from the films.",
+   "categories": [
+    "dialogue",
+    "worlds"
+   ],
+   "source": {
+    "title": "Inside the Sound of Star Wars: A Conversation with Ben Burtt & Matthew Wood",
+    "publication": "Mastering Post-Production Sound (MPSE Revenge of the Sith 20th anniversary screening)",
+    "url": "https://www.youtube.com/watch?v=a83P1XtXrlM",
+    "year": 2025
+   }
+  },
+  {
+   "person": "Matthew Wood",
+   "kind": "insight",
+   "text": "Wood on Lucas's ADR rule in the prequels: when a line had to change on a back-of-head or wide shot, any new line with the same number of syllables would do, so 'we need to get there' could become a completely different five-syllable line.",
+   "categories": [
+    "dialogue",
+    "craft"
+   ],
+   "source": {
+    "title": "Inside the Sound of Star Wars: A Conversation with Ben Burtt & Matthew Wood",
+    "publication": "Mastering Post-Production Sound (MPSE Revenge of the Sith 20th anniversary screening)",
+    "url": "https://www.youtube.com/watch?v=a83P1XtXrlM",
+    "year": 2025
+   }
+  },
+  {
+   "person": "Matthew Wood",
+   "kind": "insight",
+   "text": "Recording vehicles for Phantom Menace's pod race, Wood followed Ben Burtt's advice: stand where racers slow for a turn, shift gear and accelerate again, because that's the most dynamic part of the engine; many pod passes carry that stepped gear-change moment.",
+   "categories": [
+    "recording",
+    "action",
+    "scifi"
+   ],
+   "source": {
+    "title": "Matthew Wood & David W. Collins Talk Skywalker Sound, Voice Acting, Film Soundtracks, and more!",
+    "publication": "We're Going to Have Company (Rebel Scum Con panel)",
+    "url": "https://www.youtube.com/watch?v=JW8r-VQ6UCY",
+    "year": 2025
+   }
+  },
+  {
+   "person": "Matthew Wood",
+   "kind": "insight",
+   "text": "For H.E.R.B.I.E. in Fantastic Four: First Steps, told it couldn't sound like Pixar or Star Wars, Wood delivered eight versions, some from his voice and some pure synthesis. The chosen one he pictured as a battle droid impersonating WALL-E, plus some Chopper techniques.",
+   "categories": [
+    "creatures",
+    "scifi"
+   ],
+   "source": {
+    "title": "Matthew Wood & David W. Collins Talk Skywalker Sound, Voice Acting, Film Soundtracks, and more!",
+    "publication": "We're Going to Have Company (Rebel Scum Con panel)",
+    "url": "https://www.youtube.com/watch?v=JW8r-VQ6UCY",
+    "year": 2025
+   }
+  },
+  {
+   "person": "Matthew Wood",
+   "kind": "insight",
+   "text": "For Jawas in The Mandalorian and Book of Boba Fett, Wood and fellow editors performed the voices themselves, judging each take by how it would sound pitched up; for the sandcrawler they all spoke the Jawa phrase from A New Hope's R2 stun in unison.",
+   "categories": [
+    "creatures",
+    "dialogue",
+    "worlds"
+   ],
+   "source": {
+    "title": "Matthew Wood & David W. Collins Talk Skywalker Sound, Voice Acting, Film Soundtracks, and more!",
+    "publication": "We're Going to Have Company (Rebel Scum Con panel)",
+    "url": "https://www.youtube.com/watch?v=JW8r-VQ6UCY",
+    "year": 2025
+   }
+  },
+  {
+   "person": "Matthew Wood",
+   "kind": "insight",
+   "text": "Wood on why Skywalker keeps Star Wars sounds in a restricted library: because the TIE fighter (wet-tire shimmer plus a baby elephant scream) is used nowhere else, Finn and Rey hearing it on Jakku in The Force Awakens reads instantly, with no picture needed.",
+   "categories": [
+    "scifi",
+    "story"
+   ],
+   "source": {
+    "title": "Matthew Wood & David W. Collins Talk Skywalker Sound, Voice Acting, Film Soundtracks, and more!",
+    "publication": "We're Going to Have Company (Rebel Scum Con panel)",
+    "url": "https://www.youtube.com/watch?v=JW8r-VQ6UCY",
+    "year": 2025
+   }
+  },
+  {
+   "person": "David W. Collins",
+   "kind": "insight",
+   "text": "Cutting the first episode of Star Wars Resistance, Collins ran out of X-wing and TIE fighter material, so he took elephant recordings and pitched them way up so they screeched overhead, following Ben Burtt's baby-elephant TIE recipe.",
+   "categories": [
+    "scifi",
+    "creatures"
+   ],
+   "source": {
+    "title": "Matthew Wood & David W. Collins Talk Skywalker Sound, Voice Acting, Film Soundtracks, and more!",
+    "publication": "We're Going to Have Company (Rebel Scum Con panel)",
+    "url": "https://www.youtube.com/watch?v=JW8r-VQ6UCY",
+    "year": 2025
+   }
+  },
+  {
+   "person": "David W. Collins",
+   "kind": "insight",
+   "text": "For the Bad Batch episode 'Faster', the director banned Burtt's pod-race sounds, so Collins studied Burtt's signature style and searched the library, rejecting anything too close and keeping material that was 'pleasingly similar', to make new racers that still felt Burtt-like.",
+   "categories": [
+    "craft",
+    "scifi"
+   ],
+   "source": {
+    "title": "Matthew Wood & David W. Collins Talk Skywalker Sound, Voice Acting, Film Soundtracks, and more!",
+    "publication": "We're Going to Have Company (Rebel Scum Con panel)",
+    "url": "https://www.youtube.com/watch?v=JW8r-VQ6UCY",
+    "year": 2025
+   }
+  },
+  {
+   "person": "David W. Collins",
+   "kind": "insight",
+   "text": "For the flying creatures in The Mandalorian season 3, Collins built pterodactyl-like voices from screeching metal; Favreau wanted a T-Rex with wings, heavier, so Collins redid them and later reused the metal screeches for the escaped zoo animals in The Bad Batch season 3.",
+   "categories": [
+    "creatures",
+    "collaboration"
+   ],
+   "source": {
+    "title": "Matthew Wood & David W. Collins Talk Skywalker Sound, Voice Acting, Film Soundtracks, and more!",
+    "publication": "We're Going to Have Company (Rebel Scum Con panel)",
+    "url": "https://www.youtube.com/watch?v=JW8r-VQ6UCY",
+    "year": 2025
+   }
+  },
+  {
+   "person": "David W. Collins",
+   "kind": "insight",
+   "text": "Collins on finding raw material in any room: an interesting feedback tone pitched up or down becomes a weird whoosh, and if you cut off its top and replace that with an explosion, it becomes an interesting blaster.",
+   "categories": [
+    "weapons",
+    "craft"
+   ],
+   "source": {
+    "title": "Matthew Wood & David W. Collins Talk Skywalker Sound, Voice Acting, Film Soundtracks, and more!",
+    "publication": "We're Going to Have Company (Rebel Scum Con panel)",
+    "url": "https://www.youtube.com/watch?v=JW8r-VQ6UCY",
+    "year": 2025
+   }
+  },
+  {
+   "person": "Matthew Wood",
+   "kind": "insight",
+   "text": "For Ahsoka's three Nightsister witches, Wood recorded all three actors at once in isolated booths, each performing every witch's lines; the featured speaker sits up front while the others' takes carry reverb, pre-delay and pre-verb, so the voices feel inside your head.",
+   "categories": [
+    "dialogue",
+    "horror",
+    "worlds"
+   ],
+   "source": {
+    "title": "104 - Ahsoka VFX and Sound - With Richard Bluff and Matthew Wood",
+    "publication": "Filmumentaries Podcast",
+    "url": "https://www.youtube.com/watch?v=-esm4PseM-I",
+    "year": 2024
+   }
+  },
+  {
+   "person": "Matthew Wood",
+   "kind": "insight",
+   "text": "For Thrawn's entrance in Ahsoka, Wood layered six to eight loop-group actors over and over into a chant: drill-sergeant lines, invented Sanskrit-like lines and Thrawn's full name, cut to Kevin Kiner's click track and peaking as Thrawn speaks. ILM then added troopers to match the sound.",
+   "categories": [
+    "dialogue",
+    "music",
+    "story"
+   ],
+   "source": {
+    "title": "104 - Ahsoka VFX and Sound - With Richard Bluff and Matthew Wood",
+    "publication": "Filmumentaries Podcast",
+    "url": "https://www.youtube.com/watch?v=-esm4PseM-I",
+    "year": 2024
+   }
+  },
+  {
+   "person": "Matthew Wood",
+   "kind": "insight",
+   "text": "Wood on Ahsoka's howlers: the team recorded Dave Filoni's own dog Wolfie for the expressive moments and sent temp vocals to ILM early, so animators could match breaths, snorts and the creature calming down, balancing menace against something viewers would love.",
+   "categories": [
+    "creatures",
+    "collaboration"
+   ],
+   "source": {
+    "title": "104 - Ahsoka VFX and Sound - With Richard Bluff and Matthew Wood",
+    "publication": "Filmumentaries Podcast",
+    "url": "https://www.youtube.com/watch?v=-esm4PseM-I",
+    "year": 2024
+   }
+  },
+  {
+   "person": "Matthew Wood",
+   "kind": "insight",
+   "text": "For the risen stormtroopers in Ahsoka, Wood's team ran horrific screams from the additional-voices cast through a very piercing speaker futz, so they sound like they're coming through the troopers' helmets.",
+   "categories": [
+    "horror",
+    "dialogue"
+   ],
+   "source": {
+    "title": "104 - Ahsoka VFX and Sound - With Richard Bluff and Matthew Wood",
+    "publication": "Filmumentaries Podcast",
+    "url": "https://www.youtube.com/watch?v=-esm4PseM-I",
+    "year": 2024
+   }
+  },
+  {
+   "person": "Matthew Wood",
+   "kind": "insight",
+   "text": "For the Eye of Sion's launch in Ahsoka, Wood's team built alarms and a rising hyperspace-engine tone with some combustion into the take-off, and Kevin Kiner left a gap in the score for sound effects alone.",
+   "categories": [
+    "music",
+    "scifi",
+    "mixing"
+   ],
+   "source": {
+    "title": "104 - Ahsoka VFX and Sound - With Richard Bluff and Matthew Wood",
+    "publication": "Filmumentaries Podcast",
+    "url": "https://www.youtube.com/watch?v=-esm4PseM-I",
+    "year": 2024
+   }
+  },
+  {
+   "person": "Matthew Wood",
+   "kind": "insight",
+   "text": "Wood on Ahsoka's Noti creatures: David Acord invented their language early, the voice team performed it, and it went to ILM before animation. Wood always tries to get early dialogue at the highest quality possible, so anything people like can survive to the final.",
+   "categories": [
+    "collaboration",
+    "creatures"
+   ],
+   "source": {
+    "title": "104 - Ahsoka VFX and Sound - With Richard Bluff and Matthew Wood",
+    "publication": "Filmumentaries Podcast",
+    "url": "https://www.youtube.com/watch?v=-esm4PseM-I",
+    "year": 2024
+   }
+  },
+  {
+   "person": "Ren Klyce",
+   "kind": "insight",
+   "text": "For The Last Jedi's gorilla walkers, Klyce wanted a living cry like a baboon's and found it in a distorted lion recording a friend called terrible: one small section, slowed down and crushed, became the core of the walker's voice.",
+   "categories": [
+    "creatures",
+    "scifi"
+   ],
+   "source": {
+    "title": "Matthew Wood and Ren Klyce ('Star Wars: The Last Jedi' sound supervisors)",
+    "publication": "Gold Derby",
+    "url": "https://www.youtube.com/watch?v=RMNdGCKQfSk",
+    "year": 2017
+   }
+  },
+  {
+   "person": "Ren Klyce",
+   "kind": "insight",
+   "text": "For The Last Jedi's opening battle, Rian Johnson wanted the new bombers guttural like WWII prop planes, so real bomber recordings gave that phasing. Because the smaller ships' legacy sounds sat in the same frequency range, Klyce re-pitched them higher to stay distinct.",
+   "categories": [
+    "scifi",
+    "mixing",
+    "action"
+   ],
+   "source": {
+    "title": "Matthew Wood and Ren Klyce ('Star Wars: The Last Jedi' sound supervisors)",
+    "publication": "Gold Derby",
+    "url": "https://www.youtube.com/watch?v=RMNdGCKQfSk",
+    "year": 2017
+   }
+  },
+  {
+   "person": "Matthew Wood",
+   "kind": "insight",
+   "text": "On The Clone Wars, Wood watched near-final animation and re-recorded battle droid lines to fit the action, adding improvised jokes such as a droid's 'But I just got promoted!' as Yoda pulls it out of a tank; with no moving mouths, nothing needed reanimating.",
+   "categories": [
+    "dialogue",
+    "craft"
+   ],
+   "source": {
+    "title": "MATTHEW WOOD PANEL - SpaceCon San Antonio 2026",
+    "publication": "SpaceCon San Antonio",
+    "url": "https://www.youtube.com/watch?v=Zs9E8BSifsg",
+    "year": 2026
+   }
+  },
+  {
+   "person": "David Farmer",
+   "kind": "insight",
+   "text": "Farmer on building explosions: before sculpting, picture every element (the fireball's direction, the light, metal, glass). What makes an explosion interesting isn't the boom or crack but what happens afterwards: the debris falling and landing.",
+   "categories": [
+    "craft",
+    "action"
+   ],
+   "source": {
+    "title": "Sound Design and Re-Recording Mixing with David Farmer and Marc Fishman",
+    "publication": "Full Sail University",
+    "url": "https://www.youtube.com/watch?v=2fSW4uEOYt4",
+    "year": 2013
+   }
+  },
+  {
+   "person": "David Farmer",
+   "kind": "insight",
+   "text": "Farmer cuts temp-mix effects through a 5.1 aux per premix, pre-panning elements so the mixer doesn't have to move them, and keeps the tracks live rather than printed, so any element can be muted on the stage if it isn't working.",
+   "categories": [
+    "mixing",
+    "craft"
+   ],
+   "source": {
+    "title": "Sound Design and Re-Recording Mixing with David Farmer and Marc Fishman",
+    "publication": "Full Sail University",
+    "url": "https://www.youtube.com/watch?v=2fSW4uEOYt4",
+    "year": 2013
+   }
+  },
+  {
+   "person": "David Farmer",
+   "kind": "insight",
+   "text": "Farmer's way to learn a new room: play a scene he knows well, like the Jurassic Park T-rex attack, four or five times, plus his own familiar effects, until his ear adjusts to the room's curve; that let him build The Incredible Hulk's vocals in a bright concrete room.",
+   "categories": [
+    "craft",
+    "mixing"
+   ],
+   "source": {
+    "title": "Sound Design and Re-Recording Mixing with David Farmer and Marc Fishman",
+    "publication": "Full Sail University",
+    "url": "https://www.youtube.com/watch?v=2fSW4uEOYt4",
+    "year": 2013
+   }
+  },
+  {
+   "person": "Marc Fishman",
+   "kind": "insight",
+   "text": "Fishman's home remaster of Superbad needed only three or four changes: since people listen 5 to 10 dB below the 85 reference, he raised quiet elements like whispers, dialogue and backgrounds by a dB or two, compressed range slightly and let the big moments stay big.",
+   "categories": [
+    "mixing",
+    "dialogue"
+   ],
+   "source": {
+    "title": "Sound Design and Re-Recording Mixing with David Farmer and Marc Fishman",
+    "publication": "Full Sail University",
+    "url": "https://www.youtube.com/watch?v=2fSW4uEOYt4",
+    "year": 2013
+   }
+  },
+  {
+   "person": "Marc Fishman",
+   "kind": "insight",
+   "text": "Fishman increasingly skips printing new predubs, running his console automation live through the final so nothing is married together and reverbs stay automated; his rule for deliverables: 'we don't mix for the codec,' make a master you know works.",
+   "categories": [
+    "mixing",
+    "craft"
+   ],
+   "source": {
+    "title": "Sound Design and Re-Recording Mixing with David Farmer and Marc Fishman",
+    "publication": "Full Sail University",
+    "url": "https://www.youtube.com/watch?v=2fSW4uEOYt4",
+    "year": 2013
+   }
+  },
+  {
+   "person": "Ben Burtt",
+   "kind": "insight",
+   "text": "For the battle droid army marching over the hill in The Phantom Menace, Burtt ran an electric razor around the inside of a salad bowl. The bowl's resonance turned a household buzz into the sound of a whole mechanical army.",
+   "categories": [
+    "scifi",
+    "recording"
+   ],
+   "source": {
+    "title": "STAR WARS: Dueling With Fate - The Making of The Phantom Menace - Part 11 - Sound and Score",
+    "publication": "Star Wars Episode I documentary (Dueling With Fate)",
+    "url": "https://www.youtube.com/watch?v=4FkJLKZwNrU",
+    "year": 2021
+   }
+  },
+  {
+   "person": "Ben Burtt",
+   "kind": "insight",
+   "text": "Looking for a distinctive engine for the Queen's starship in The Phantom Menace, Burtt recorded an Alaskan glacier breaking apart and ice crashing into the sea, then used it for the ship's backfire as it lands on Tatooine.",
+   "categories": [
+    "scifi",
+    "recording",
+    "worlds"
+   ],
+   "source": {
+    "title": "STAR WARS: Dueling With Fate - The Making of The Phantom Menace - Part 11 - Sound and Score",
+    "publication": "Star Wars Episode I documentary (Dueling With Fate)",
+    "url": "https://www.youtube.com/watch?v=4FkJLKZwNrU",
+    "year": 2021
+   }
+  },
+  {
+   "person": "Ben Burtt",
+   "kind": "insight",
+   "text": "The force fields in The Phantom Menace's laser-gate corridor are a neighbour's broken ceiling fan. Burtt rushed over to record its oscillating motor because it had an odd beating quality, which became the pulsing energy-wall sound.",
+   "categories": [
+    "scifi",
+    "recording"
+   ],
+   "source": {
+    "title": "STAR WARS: Dueling With Fate - The Making of The Phantom Menace - Part 11 - Sound and Score",
+    "publication": "Star Wars Episode I documentary (Dueling With Fate)",
+    "url": "https://www.youtube.com/watch?v=4FkJLKZwNrU",
+    "year": 2021
+   }
+  },
+  {
+   "person": "Ben Burtt",
+   "kind": "insight",
+   "text": "For a speeder's dive in Attack of the Clones' Coruscant chase, Burtt used a 1942 mechanical gas air-raid siren, the standout of a batch of sirens he collected, re-recorded in a parking garage so it would echo.",
+   "categories": [
+    "action",
+    "recording",
+    "scifi"
+   ],
+   "source": {
+    "title": "Sound Design - Star Wars Episode II (FULL)",
+    "publication": "Star Wars Episode II DVD featurette",
+    "url": "https://www.youtube.com/watch?v=5ogCVi0WqrQ",
+    "year": 2012
+   }
+  },
+  {
+   "person": "Ben Burtt",
+   "kind": "insight",
+   "text": "In Attack of the Clones, Matthew Wood recorded a Vickers Vimy biplane. Burtt used it for the Republic gunships in the closing Clone War battle, then pitched parts of the same recording up to make the Geonosian fighters, so two craft came from one source.",
+   "categories": [
+    "scifi",
+    "recording",
+    "action"
+   ],
+   "source": {
+    "title": "Sound Design - Star Wars Episode II (FULL)",
+    "publication": "Star Wars Episode II DVD featurette",
+    "url": "https://www.youtube.com/watch?v=5ogCVi0WqrQ",
+    "year": 2012
+   }
+  },
+  {
+   "person": "Ben Burtt",
+   "kind": "insight",
+   "text": "Attack of the Clones' droid factory drew on nearly every machine recording in the library, including metal-stamping machines from Empire Strikes Back. Burtt reworked them and mixed in percussive, musical sounds so an alien factory wouldn't sound like a Ford plant.",
+   "categories": [
+    "worlds",
+    "scifi",
+    "craft"
+   ],
+   "source": {
+    "title": "Sound Design - Star Wars Episode II (FULL)",
+    "publication": "Star Wars Episode II DVD featurette",
+    "url": "https://www.youtube.com/watch?v=5ogCVi0WqrQ",
+    "year": 2012
+   }
+  },
+  {
+   "person": "Ben Burtt",
+   "kind": "insight",
+   "text": "When Burtt's percussion for the droid factory was cut from Attack of the Clones, he moved the idea to the Geonosis arena monster fight: rhythmic hits answering events on the arena floor, plus crowd horns and chanting like a wild sports stadium.",
+   "categories": [
+    "worlds",
+    "action",
+    "mixing"
+   ],
+   "source": {
+    "title": "Sound Design - Star Wars Episode II (FULL)",
+    "publication": "Star Wars Episode II DVD featurette",
+    "url": "https://www.youtube.com/watch?v=5ogCVi0WqrQ",
+    "year": 2012
+   }
+  },
+  {
+   "person": "Ben Burtt",
+   "kind": "insight",
+   "text": "For the insect-like voice of Poggle the Lesser in Attack of the Clones, Burtt started speaking English and changed it one word at a time, buzzed through the edge of paper, then chopped and sped up the pieces. There's no pitch shifting, so it stays organic.",
+   "categories": [
+    "creatures",
+    "dialogue",
+    "recording"
+   ],
+   "source": {
+    "title": "Sound Design - Star Wars Episode II (FULL)",
+    "publication": "Star Wars Episode II DVD featurette",
+    "url": "https://www.youtube.com/watch?v=5ogCVi0WqrQ",
+    "year": 2012
+   }
+  },
+  {
+   "person": "Ben Burtt",
+   "kind": "insight",
+   "text": "For the seismic charge in Attack of the Clones' asteroid chase, a sequence with only effects, Burtt realised in the final mix that silence was the answer. The charge pulls in all energy so no sound escapes, then the blast arrives only after detonation: an audio blackout.",
+   "categories": [
+    "silence",
+    "mixing",
+    "action"
+   ],
+   "source": {
+    "title": "Sound Design - Star Wars Episode II (FULL)",
+    "publication": "Star Wars Episode II DVD featurette",
+    "url": "https://www.youtube.com/watch?v=5ogCVi0WqrQ",
+    "year": 2012
+   }
+  },
+  {
+   "person": "Ben Burtt",
+   "kind": "quote",
+   "text": "I created what I call an audio blackout.",
+   "categories": [
+    "silence",
+    "mixing"
+   ],
+   "source": {
+    "title": "Sound Design - Star Wars Episode II (FULL)",
+    "publication": "Star Wars Episode II DVD featurette",
+    "url": "https://www.youtube.com/watch?v=5ogCVi0WqrQ",
+    "year": 2012
+   }
+  },
+  {
+   "person": "Christopher Scarabosio",
+   "kind": "insight",
+   "text": "For K-2SO in Rogue One, Scarabosio first recorded the small servo motors in his sit-stand desk in a quiet room. Matthew Wood said it sounded like Iron Man, so he switched to Skywalker's motorised accessibility doors, which processed became K-2SO's movement.",
+   "categories": [
+    "scifi",
+    "recording",
+    "creatures"
+   ],
+   "source": {
+    "title": "Sound Design for Rogue One: A Star Wars Story",
+    "publication": "Sound On Sound",
+    "url": "https://www.youtube.com/watch?v=mPrjMtC7-I4",
+    "year": 2017
+   }
+  },
+  {
+   "person": "Christopher Scarabosio",
+   "kind": "insight",
+   "text": "Scarabosio gave Rogue One's seven-foot K-2SO a double-hit footstep instead of a single impact, so each foot has motion through the step like a proper walk. This was built in sound effects alongside the Foley footfalls.",
+   "categories": [
+    "creatures",
+    "scifi",
+    "craft"
+   ],
+   "source": {
+    "title": "Sound Design for Rogue One: A Star Wars Story",
+    "publication": "Sound On Sound",
+    "url": "https://www.youtube.com/watch?v=mPrjMtC7-I4",
+    "year": 2017
+   }
+  },
+  {
+   "person": "Matthew Wood",
+   "kind": "insight",
+   "text": "Wood and Scarabosio recorded Alan Tudyk during his Rogue One screen tests at ILM, before a script existed, and each built separate K-2SO processing chains from heavy to light. They settled on fairly light processing to keep Tudyk's performance; almost every line ended up as ADR.",
+   "categories": [
+    "dialogue",
+    "creatures",
+    "scifi"
+   ],
+   "source": {
+    "title": "Sound Design for Rogue One: A Star Wars Story",
+    "publication": "Sound On Sound",
+    "url": "https://www.youtube.com/watch?v=mPrjMtC7-I4",
+    "year": 2017
+   }
+  },
+  {
+   "person": "Matthew Wood",
+   "kind": "insight",
+   "text": "For Rogue One's Jedha market, Wood ran about three days of loop group with some 25 veteran Star Wars actors at Disney with Doc Kane, recording specific layers like vendors calling out sales, arguments and someone cooking in the foreground to build the background creatures and crowd.",
+   "categories": [
+    "dialogue",
+    "worlds"
+   ],
+   "source": {
+    "title": "Sound Design for Rogue One: A Star Wars Story",
+    "publication": "Sound On Sound",
+    "url": "https://www.youtube.com/watch?v=mPrjMtC7-I4",
+    "year": 2017
+   }
+  },
+  {
+   "person": "Christopher Scarabosio",
+   "kind": "insight",
+   "text": "Scarabosio's Jedha market in Rogue One starts with around 20 layers: world market walla, Imperial announcements, gongs, hand bells, creatures and a hovering Star Destroyer. As Jyn nears Chirrut he strips layers out, dropping creatures once they talk, to build a focused bubble around them.",
+   "categories": [
+    "mixing",
+    "worlds",
+    "story"
+   ],
+   "source": {
+    "title": "Sound Design for Rogue One: A Star Wars Story",
+    "publication": "Sound On Sound",
+    "url": "https://www.youtube.com/watch?v=mPrjMtC7-I4",
+    "year": 2017
+   }
+  },
+  {
+   "person": "Christopher Scarabosio",
+   "kind": "insight",
+   "text": "Scarabosio temped Rogue One's Jedha market with a call to prayer of unclear source, so to avoid clearance problems David Acord recorded a replacement. Acord sang it in an invented language over the melody of the Philadelphia Eagles fight song.",
+   "categories": [
+    "worlds",
+    "recording",
+    "craft"
+   ],
+   "source": {
+    "title": "Sound Design for Rogue One: A Star Wars Story",
+    "publication": "Sound On Sound",
+    "url": "https://www.youtube.com/watch?v=mPrjMtC7-I4",
+    "year": 2017
+   }
+  },
+  {
+   "person": "Christopher Scarabosio",
+   "kind": "insight",
+   "text": "For Krennic's shuttle in Rogue One, Scarabosio avoided jet or rocket propulsion. He ran a propeller engine through Native Instruments Absynth in Soundminer's VST rack, rolling the dice on settings and recording everything, then layered in a processed eagle shriek.",
+   "categories": [
+    "scifi",
+    "craft"
+   ],
+   "source": {
+    "title": "Sound Design for Rogue One: A Star Wars Story",
+    "publication": "Sound On Sound",
+    "url": "https://www.youtube.com/watch?v=mPrjMtC7-I4",
+    "year": 2017
+   }
+  },
+  {
+   "person": "Christopher Scarabosio",
+   "kind": "insight",
+   "text": "Scarabosio recorded an old diesel engine starting up after years idle for Krennic's ship in Rogue One. The recording was noisy, so he used iZotope RX to remove everything except the pure tone he liked, then layered it with synth-processed propeller and eagle elements.",
+   "categories": [
+    "scifi",
+    "recording",
+    "craft"
+   ],
+   "source": {
+    "title": "Sound Design for Rogue One: A Star Wars Story",
+    "publication": "Sound On Sound",
+    "url": "https://www.youtube.com/watch?v=mPrjMtC7-I4",
+    "year": 2017
+   }
+  },
+  {
+   "person": "Christopher Scarabosio",
+   "kind": "insight",
+   "text": "When the two Star Destroyers collide near the end of Rogue One, Scarabosio pulled the effects back and filtered them, putting them in a soft place against violent visuals so the emotional music cue carries the moment into the Vader scene.",
+   "categories": [
+    "mixing",
+    "music",
+    "action"
+   ],
+   "source": {
+    "title": "Sound Design for Rogue One: A Star Wars Story",
+    "publication": "Sound On Sound",
+    "url": "https://www.youtube.com/watch?v=mPrjMtC7-I4",
+    "year": 2017
+   }
+  }
+ ]
+}

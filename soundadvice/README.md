@@ -10,7 +10,7 @@ It's a VST3 / AU plug-in (audio passes straight through, untouched) and a standa
 
 ## What's in it
 
-712 entries from 145 people, kept to concrete, technically creative advice: sources and processing, recording, design methods and specific mix decisions, each tied to the production it came from. The sound designers and mixers all have film, TV or game credits on IMDb, and every entry links to the interview, article or SoundWorks Collection video it came from. Nothing predates 2005, either in the source or in the work it describes. The Creativity & Teams category draws on a legendary Disney Imagineer's book about creative work: leading teams, finding a theme, critique, risk and knowing when to stop. Two kinds:
+833 entries from 148 people, kept to concrete, technically creative advice: sources and processing, recording, design methods and specific mix decisions, each tied to the production it came from. The sound designers and mixers all have film, TV or game credits on IMDb, and every entry links to the interview, article or SoundWorks Collection video it came from. Nothing predates 2005, either in the source or in the work it describes, apart from the Star Wars prequels. The Creativity & Teams category draws on a legendary Disney Imagineer's book about creative work: leading teams, finding a theme, critique, risk and knowing when to stop. Two kinds:
 
 - **Quotes**, in quotation marks and italics: their own words, kept short.
 - **Field notes**: a technique, decision or story from that source, retold in a sentence or two. "Field note" is printed above them.
@@ -21,23 +21,23 @@ Click a person's name to open their IMDb (or other profile) page; click the sour
 
 | Category | Entries |
 |---|---|
-| Mixing | 226 |
-| Action & Impact | 78 |
+| Mixing | 255 |
+| Action & Impact | 92 |
 | Trailers | 31 |
-| Creatures & Voices | 57 |
-| Ambience & Worlds | 97 |
-| Dialogue | 143 |
-| Field Recording | 155 |
-| Weapons & Vehicles | 44 |
-| Sci-Fi & Magic | 84 |
-| Horror & Tension | 47 |
-| Silence & Restraint | 63 |
-| Music & Sound | 60 |
+| Creatures & Voices | 83 |
+| Ambience & Worlds | 115 |
+| Dialogue | 175 |
+| Field Recording | 181 |
+| Weapons & Vehicles | 50 |
+| Sci-Fi & Magic | 133 |
+| Horror & Tension | 53 |
+| Silence & Restraint | 69 |
+| Music & Sound | 66 |
 | Games | 33 |
-| Story & Emotion | 106 |
-| Craft & Technique | 167 |
-| Collaboration & Career | 80 |
-| Creativity & Teams | 93 |
+| Story & Emotion | 118 |
+| Craft & Technique | 207 |
+| Collaboration & Career | 82 |
+| Creativity & Teams | 76 |
 
 **Anything** deals from all of them. Each category is a shuffled deck: you see every entry in it once before any comes round again.
 
