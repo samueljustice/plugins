@@ -1,0 +1,304 @@
+{
+ "people": [
+  {
+   "name": "Paul Stoughton",
+   "role": "Sound designer",
+   "credits": "God of War Ragnarök, Vader Immortal, Tales from the Galaxy's Edge",
+   "imdb": "https://www.imdb.com/name/nm3801036/"
+  }
+ ],
+ "entries": [
+  {
+   "person": "Paul Stoughton",
+   "kind": "insight",
+   "text": "For his Explosive Energy sci-fi explosion library, Stoughton limited himself to sources recorded inside his apartment: slapping cushions, stomping on the floor, swinging pillowcases and blowing on microphones, then relied on heavy processing to get them where they needed to be.",
+   "categories": [
+    "weapons",
+    "scifi",
+    "recording"
+   ],
+   "source": {
+    "title": "Interview with Paul Stoughton",
+    "publication": "Krotos",
+    "url": "https://www.krotosaudio.com/interview-with-paul-stoughton/",
+    "year": 2021
+   }
+  },
+  {
+   "person": "Paul Stoughton",
+   "kind": "insight",
+   "text": "For the more synthetic layers of the Explosive Energy library, Stoughton built wavetables from his own recorded source material and played them in Serum, rather than starting from stock synth waveforms.",
+   "categories": [
+    "scifi",
+    "weapons",
+    "craft"
+   ],
+   "source": {
+    "title": "Interview with Paul Stoughton",
+    "publication": "Krotos",
+    "url": "https://www.krotosaudio.com/interview-with-paul-stoughton/",
+    "year": 2021
+   }
+  },
+  {
+   "person": "Paul Stoughton",
+   "kind": "insight",
+   "text": "Stoughton built Penguin Grenade's first library, Pulse Energy Weapons, as a modular kit of interchangeable parts, mirroring how he designs layered weapon systems in game audio middleware; he says such kits also speed up generating unique content in linear work.",
+   "categories": [
+    "weapons",
+    "games",
+    "scifi"
+   ],
+   "source": {
+    "title": "Interview with Paul Stoughton",
+    "publication": "Krotos",
+    "url": "https://www.krotosaudio.com/interview-with-paul-stoughton/",
+    "year": 2021
+   }
+  },
+  {
+   "person": "Paul Stoughton",
+   "kind": "insight",
+   "text": "For interactive weapon design, Stoughton drops weapon layers into Krotos Weaponiser to hear how automatic-fire layers stack at the real fire rate, tweaking them as he would in Wwise instead of laboriously editing repeats in a DAW.",
+   "categories": [
+    "weapons",
+    "games"
+   ],
+   "source": {
+    "title": "Interview with Paul Stoughton",
+    "publication": "Krotos",
+    "url": "https://www.krotosaudio.com/interview-with-paul-stoughton/",
+    "year": 2021
+   }
+  },
+  {
+   "person": "Paul Stoughton",
+   "kind": "insight",
+   "text": "On Skywalker Sound's Star Wars VR titles, Stoughton says the lightsaber meant designing content for, and tuning, a dynamic system that responds to the player's slightest inputs, very different from cutting saber swings to picture, while still feeling like the legacy sound.",
+   "categories": [
+    "games",
+    "weapons",
+    "scifi"
+   ],
+   "source": {
+    "title": "Interview with Paul Stoughton",
+    "publication": "Krotos",
+    "url": "https://www.krotosaudio.com/interview-with-paul-stoughton/",
+    "year": 2021
+   }
+  },
+  {
+   "person": "Paul Stoughton",
+   "kind": "insight",
+   "text": "For his Advanced Propulsion sci-fi engine library, Stoughton ran a remote session with a double bass player who recorded on his own rig over video chat; bowing downtuned strings gave a purring, engine-like source that he then processed.",
+   "categories": [
+    "recording",
+    "scifi",
+    "craft"
+   ],
+   "source": {
+    "title": "5 surprising sound sources for interesting sci-fi engine sound design – by Paul Stoughton",
+    "publication": "A Sound Effect",
+    "url": "https://www.asoundeffect.com/sci-fi-engine-sound-design/",
+    "year": 2020
+   }
+  },
+  {
+   "person": "Paul Stoughton",
+   "kind": "insight",
+   "text": "For Advanced Propulsion, Stoughton worldized several synth engine loops through a long corrugated drainage tube, with a speaker at one end and mics at the other. He also recorded his neighbour's Harley-Davidson through the tube, its growl exciting the tube's resonance.",
+   "categories": [
+    "recording",
+    "scifi",
+    "worlds"
+   ],
+   "source": {
+    "title": "5 surprising sound sources for interesting sci-fi engine sound design – by Paul Stoughton",
+    "publication": "A Sound Effect",
+    "url": "https://www.asoundeffect.com/sci-fi-engine-sound-design/",
+    "year": 2020
+   }
+  },
+  {
+   "person": "Paul Stoughton",
+   "kind": "insight",
+   "text": "To get weight into Euler's Disk recordings for Advanced Propulsion engines, Stoughton swapped regular mics for a stereo pair of contact mics fixed to the mirror plate; the disk's full sweep of speeds gave source for engine loops across various RPMs.",
+   "categories": [
+    "recording",
+    "scifi"
+   ],
+   "source": {
+    "title": "5 surprising sound sources for interesting sci-fi engine sound design – by Paul Stoughton",
+    "publication": "A Sound Effect",
+    "url": "https://www.asoundeffect.com/sci-fi-engine-sound-design/",
+    "year": 2020
+   }
+  },
+  {
+   "person": "Paul Stoughton",
+   "kind": "insight",
+   "text": "For Advanced Propulsion, Stoughton held paper against a pocket fan, using paper size and thickness, the fan's angle of attack, blade pressure and contact point as modulators. He also tapes things to fans for insect wings and uses them to blow on a gas burner flame for rocket thrust.",
+   "categories": [
+    "recording",
+    "scifi",
+    "creatures"
+   ],
+   "source": {
+    "title": "5 surprising sound sources for interesting sci-fi engine sound design – by Paul Stoughton",
+    "publication": "A Sound Effect",
+    "url": "https://www.asoundeffect.com/sci-fi-engine-sound-design/",
+    "year": 2020
+   }
+  },
+  {
+   "person": "Paul Stoughton",
+   "kind": "insight",
+   "text": "Stoughton recorded a fountain he heard in his new town square when the wind picked up; its rhythmic pulsing became the core of evolving engine layers in his Advanced Propulsion sci-fi vehicle library.",
+   "categories": [
+    "recording",
+    "scifi"
+   ],
+   "source": {
+    "title": "5 surprising sound sources for interesting sci-fi engine sound design – by Paul Stoughton",
+    "publication": "A Sound Effect",
+    "url": "https://www.asoundeffect.com/sci-fi-engine-sound-design/",
+    "year": 2020
+   }
+  },
+  {
+   "person": "Paul Stoughton",
+   "kind": "insight",
+   "text": "In a Penguin Grenade field-recording experiment, Stoughton hung a stereo hydrophone in jacuzzi jets; the liquid movement it captured sounded almost like distant jet engines.",
+   "categories": [
+    "recording",
+    "scifi"
+   ],
+   "source": {
+    "title": "Field Recording",
+    "publication": "Penguin Grenade (paulstoughton.com)",
+    "url": "https://www.paulstoughton.com/field-recording",
+    "year": 2021
+   }
+  },
+  {
+   "person": "Paul Stoughton",
+   "kind": "insight",
+   "text": "Stoughton recommends Alka-Seltzer fizzing between two contact mics as a starting point for air-distortion sounds, one of his Penguin Grenade field-recording experiments.",
+   "categories": [
+    "recording",
+    "scifi"
+   ],
+   "source": {
+    "title": "Field Recording",
+    "publication": "Penguin Grenade (paulstoughton.com)",
+    "url": "https://www.paulstoughton.com/field-recording",
+    "year": 2021
+   }
+  },
+  {
+   "person": "Paul Stoughton",
+   "kind": "insight",
+   "text": "For a Penguin Grenade field-recording experiment, Stoughton used a light2sound synth to capture a plasma arc as it modulated while interacting with a piece of wood.",
+   "categories": [
+    "recording",
+    "scifi"
+   ],
+   "source": {
+    "title": "Field Recording",
+    "publication": "Penguin Grenade (paulstoughton.com)",
+    "url": "https://www.paulstoughton.com/field-recording",
+    "year": 2021
+   }
+  },
+  {
+   "person": "Paul Stoughton",
+   "kind": "insight",
+   "text": "Stoughton recorded the old trick of hanging and burning twisted plastic bags so they drip fiery melted fragments; he named the resulting Penguin Grenade experiment 'Zilch' after the sound the drips make.",
+   "categories": [
+    "recording",
+    "craft"
+   ],
+   "source": {
+    "title": "Field Recording",
+    "publication": "Penguin Grenade (paulstoughton.com)",
+    "url": "https://www.paulstoughton.com/field-recording",
+    "year": 2021
+   }
+  },
+  {
+   "person": "Paul Stoughton",
+   "kind": "insight",
+   "text": "To get cat meows on demand for Penguin Grenade recordings, Stoughton uses a technique built on an iOS app called BeBot, which he says works for most cats.",
+   "categories": [
+    "recording",
+    "creatures"
+   ],
+   "source": {
+    "title": "Field Recording",
+    "publication": "Penguin Grenade (paulstoughton.com)",
+    "url": "https://www.paulstoughton.com/field-recording",
+    "year": 2021
+   }
+  },
+  {
+   "person": "Paul Stoughton",
+   "kind": "insight",
+   "categories": [
+    "creatures",
+    "recording"
+   ],
+   "text": "For the Creature Vox Large library, Stoughton recorded most sources on a Sanken CO-100K, whose extended ultrasonic response holds up when sounds are pitched far down. A sandal rubbed on a marble floor gave a friction chitter meant to become a huge creature.",
+   "source": {
+    "title": "Creature Vox Large Behind the Scenes",
+    "publication": "Penguin Grenade (YouTube)",
+    "url": "https://www.youtube.com/watch?v=zgRv1BxSBl8",
+    "year": 2025
+   }
+  },
+  {
+   "person": "Paul Stoughton",
+   "kind": "insight",
+   "categories": [
+    "craft",
+    "creatures"
+   ],
+   "text": "Stoughton builds libraries in two stages. Raw takes get no processing beyond picking takes, level matching and tops and tails. Then, for Creature Vox Large, he time-stretched them way down and sized them up into dry building blocks, deliberately not finished creature sounds.",
+   "source": {
+    "title": "Creature Vox Large Behind the Scenes",
+    "publication": "Penguin Grenade (YouTube)",
+    "url": "https://www.youtube.com/watch?v=zgRv1BxSBl8",
+    "year": 2025
+   }
+  },
+  {
+   "person": "Paul Stoughton",
+   "kind": "insight",
+   "categories": [
+    "craft",
+    "creatures"
+   ],
+   "text": "To test Creature Vox Large like a customer would, Stoughton redesigned creature vocals to video references using only its building blocks. That showed how balanced and versatile they were, and what he needed to go back and record more of.",
+   "source": {
+    "title": "Creature Vox Large Behind the Scenes",
+    "publication": "Penguin Grenade (YouTube)",
+    "url": "https://www.youtube.com/watch?v=zgRv1BxSBl8",
+    "year": 2025
+   }
+  },
+  {
+   "person": "Paul Stoughton",
+   "kind": "insight",
+   "categories": [
+    "recording",
+    "scifi"
+   ],
+   "text": "Stoughton experimented with the OCM-2 Stereo Photophone, a microphone that hears light, keeping the recordings raw apart from EQ, limiting and slight pitch shifts. Those experiments inspired his Aggressive Energy library.",
+   "source": {
+    "title": "Photophone Light Microphone Field Recording",
+    "publication": "Penguin Grenade (YouTube)",
+    "url": "https://www.youtube.com/watch?v=x0Ftdoqc_oo",
+    "year": 2026
+   }
+  }
+ ]
+}
