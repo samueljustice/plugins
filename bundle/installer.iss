@@ -38,6 +38,7 @@ AppId={{E6B1C7D4-2A9F-4F3E-8B5C-7D0A1E9F4C62}
 AppName={#MyAppName}
 AppVersion={#BundleVersion}
 AppVerName={#MyAppName} {#BundleVersion}
+UninstallDisplayName={#MyAppName}
 VersionInfoVersion={#BundleVersion}
 AppPublisher={#MyAppPublisher}
 AppPublisherURL={#MyAppURL}
@@ -91,6 +92,18 @@ Type: filesandordirs; Name: "{#UserVST3Dir}\SammyJs Pitch Flattener.vst3"; Compo
 Type: filesandordirs; Name: "{#VST3Dir}\SammyJs Reversinator.vst3"; Components: reversinator
 Type: filesandordirs; Name: "{#UserVST3Dir}\SammyJs Reversinator.vst3"; Components: reversinator
 
+[UninstallDelete]
+; Per-user copies of the plug-ins (the installer removes these too, so hosts don't list them twice), and
+; the Sammy J folder once the apps are gone.
+Type: filesandordirs; Name: "{#UserVST3Dir}\Swooshbuckler.vst3"
+Type: filesandordirs; Name: "{#UserVST3Dir}\Sound Advice.vst3"
+Type: filesandordirs; Name: "{#UserVST3Dir}\SammyJs Subbertone.vst3"
+Type: filesandordirs; Name: "{#UserVST3Dir}\SammyJs Pitch Flattener.vst3"
+Type: filesandordirs; Name: "{#UserVST3Dir}\SammyJs Reversinator.vst3"
+Type: dirifempty; Name: "{app}\Swooshbuckler"
+Type: dirifempty; Name: "{app}\Sound Advice"
+Type: dirifempty; Name: "{app}"
+
 [Files]
 Source: "windows-package\swooshbuckler\app\Swooshbuckler.exe"; DestDir: "{app}\Swooshbuckler"; Components: swooshbuckler\app; Flags: ignoreversion
 Source: "windows-package\swooshbuckler\vst3\Swooshbuckler.vst3\*"; DestDir: "{#VST3Dir}\Swooshbuckler.vst3"; Components: swooshbuckler\vst3; Flags: ignoreversion recursesubdirs createallsubdirs
@@ -126,6 +139,51 @@ begin
       if not Exec(Cmd, '/VERYSILENT /SUPPRESSMSGBOXES /NORESTART', '', SW_HIDE, ewWaitUntilTerminated, Code) then
         Log('Could not run it: ' + SysErrorMessage(Code));
     end;
+  end;
+end;
+
+{ Uninstalling: settings and presets go only if the user says so. Recordings and anything else saved
+  where the user chose are never touched. The macOS list is bundle/userdata.txt. }
+var
+  RemoveUserData: Boolean;
+
+procedure DeleteIfEmpty(const Dir: String);
+begin
+  if DirExists(Dir) then
+    if RemoveDir(Dir) then Log('Removed empty folder ' + Dir);
+end;
+
+procedure RemoveUserFile(const Path: String);
+begin
+  if FileExists(Path) then
+    if DeleteFile(Path) then Log('Removed ' + Path);
+end;
+
+procedure RemoveUserFolder(const Path: String);
+begin
+  if DirExists(Path) then
+    if DelTree(Path, True, True, True) then Log('Removed ' + Path);
+end;
+
+procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
+var
+  Data: String;
+begin
+  if CurUninstallStep = usUninstall then
+    RemoveUserData := (not UninstallSilent) and
+      (MsgBox('Also remove your settings and saved presets?' + #13#10#13#10 +
+              'Keep them if you might reinstall later.', mbConfirmation, MB_YESNO or MB_DEFBUTTON2) = IDYES);
+
+  if (CurUninstallStep = usPostUninstall) and RemoveUserData then
+  begin
+    Data := ExpandConstant('{userappdata}');
+    RemoveUserFile(Data + '\Sweet Justice\Swooshbuckler.settings');
+    RemoveUserFile(Data + '\Sweet Justice\Sound Advice.settings');
+    RemoveUserFolder(Data + '\SammyJs\Subbertone');
+    RemoveUserFolder(Data + '\SammyJs\PitchFlattener');
+    { The vendor folders are shared with other plug-ins, so they go only when nothing is left in them. }
+    DeleteIfEmpty(Data + '\Sweet Justice');
+    DeleteIfEmpty(Data + '\SammyJs');
   end;
 end;
 
