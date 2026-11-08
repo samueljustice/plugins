@@ -295,3 +295,17 @@ jobs:
           windows-installer/SammyJ-Plugins-Windows-Installer.exe
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    # Only the newest installer is worth keeping: it always holds every plug-in's newest release, and
+    # each plug-in's own releases stay. Runs are one at a time (see concurrency), so this never
+    # deletes a newer installer than the one just published.
+    - name: Remove superseded installer releases
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        gh release list -R "$GITHUB_REPOSITORY" --limit 200 --json tagName --jq '.[].tagName' \
+          | grep -E '^bundle-v' | grep -vxF "bundle-v$VERSION" \
+          | while read -r t; do
+              echo "Deleting $t"
+              gh release delete "$t" -R "$GITHUB_REPOSITORY" --yes --cleanup-tag
+            done
