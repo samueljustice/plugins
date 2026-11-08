@@ -1,6 +1,6 @@
 # Swooshbuckler changelog
 
-## Unreleased
+## 1.1.0
 
 - **Per-track pitch.** Every track has its own Semitones (±24) and Cents (±100), on top of the Ride's Pitch knob, and a **VARI** switch:
   - VARI on (the default): varispeed, like tape. The pitch and the speed change together.

@@ -64,7 +64,7 @@ Drop in up to ten sounds (cloth, air, engines, creatures, metal) and Swooshbuckl
 </details>
 
 **App** (macOS, Windows) · **VST3** · **AU** &nbsp;&nbsp;
-[![Download Swooshbuckler](https://img.shields.io/badge/download-v1.0.2-d00a35?style=flat-square)](https://github.com/samueljustice/plugins/releases/tag/swooshbuckler-v1.0.2) &nbsp;
+[![Download Swooshbuckler](https://img.shields.io/badge/download-v1.1.0-d00a35?style=flat-square)](https://github.com/samueljustice/plugins/releases/tag/swooshbuckler-v1.1.0) &nbsp;
 [Read the manual →](swooshbuckler/README.md)
 
 ---
