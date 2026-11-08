@@ -124,7 +124,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout PitchFlattenerAudioProcessor
                                                         AudioParameterFloatAttributes().withLabel ("ms").withStringFromValueFunction (ms)));
     p.push_back (std::make_unique<AudioParameterFloat> (pid (ParamIDs::flattenAmount), "Flatten Amount", NormalisableRange<float> (0.0f, 100.0f, 1.0f), 100.0f,
                                                         AudioParameterFloatAttributes().withLabel ("%").withStringFromValueFunction (pct)));
-    p.push_back (std::make_unique<AudioParameterFloat> (pid (ParamIDs::maxShift), "Max Shift", NormalisableRange<float> (1.0f, 24.0f, 0.5f), 12.0f,
+    p.push_back (std::make_unique<AudioParameterFloat> (pid (ParamIDs::maxShift), "Max Shift", NormalisableRange<float> (1.0f, 24.0f, 0.5f), d.maxShiftSemitones,
                                                         AudioParameterFloatAttributes().withLabel ("st")
                                                             .withStringFromValueFunction ([] (float v, int) { return String (v, 1) + " st"; })));
     p.push_back (std::make_unique<AudioParameterBool> (pid (ParamIDs::manualOverride), "Manual Override", false));
@@ -286,6 +286,7 @@ void PitchFlattenerAudioProcessor::applySourceTypeDefaults (pf::SourceType type)
     set (ParamIDs::detectionLowpass, p.lowpassHz);
     set (ParamIDs::rbFormantPreserve, p.formant ? 1.0f : 0.0f);
     set (ParamIDs::quality, (float) p.quality);
+    set (ParamIDs::maxShift, p.maxShiftSemitones);
 }
 
 //==============================================================================

@@ -161,7 +161,7 @@ namespace
         s.targetHz = c.targetHz;
         s.autoWindowMs = 1000.0f;
         s.amount = 1.0f;
-        s.maxShiftSemitones = 24.0f;
+        s.maxShiftSemitones = p.maxShiftSemitones;   // as a newly chosen Source Type sets it
         s.gateDb = -60.0f;
         s.mix = 1.0f;
         s.formantPreserve = p.formant;
@@ -418,6 +418,101 @@ namespace
         return ok;
     }
 
+    /**
+     * Diagnostic for a real recording (--file): plays it through a Source Type's settings in Latch mode and prints,
+     * every 100 ms, the tracked pitch, the target, the correction and the output pitch measured near the target,
+     * then the median and 90th percentile of how far the output is from the target.
+     */
+    int analyseFile (const juce::File& file, SourceType source, int detectorOverride)
+    {
+        juce::AudioFormatManager formats;
+        formats.registerBasicFormats();
+        std::unique_ptr<juce::AudioFormatReader> reader (formats.createReaderFor (file));
+        if (reader == nullptr)
+        {
+            std::printf ("can't read %s\n", file.getFullPathName().toRawUTF8());
+            return 1;
+        }
+        const double fs = reader->sampleRate;
+        const int len = (int) reader->lengthInSamples;
+        juce::AudioBuffer<float> in (1, len);
+        reader->read (&in, 0, len, 0, true, false);   // left (or mono) channel
+
+        const auto& p = getSourcePreset (source);
+        FlattenerCore core;
+        DetectorConfig dc;
+        dc.type = detectorOverride >= 0 ? (DetectorType) detectorOverride : p.detector;
+        dc.minHz = p.minHz; dc.maxHz = p.maxHz;
+        core.prepare (fs, 512, 2, dc, p.quality);
+        Case c { file.getFileName().toStdString(), source, TargetMode::Latch, 0.0f, nullptr, 0, 0, 0 };
+        auto ls = settingsFor (c);
+        ls.gateDb = -60.0f;   // the plugin's default
+        core.setLiveSettings (ls);
+        core.setFilters (p.highpassHz, p.lowpassHz);
+
+        const int lat = core.getLatencySamples(), n = lat + len;
+        std::vector<float> l ((size_t) n, 0.0f);
+        std::copy (in.getReadPointer (0), in.getReadPointer (0) + len, l.begin());
+        auto r = l;
+        std::vector<TelemetryFrame> frames;
+        for (int pos = 0; pos < n; pos += 512)
+        {
+            float* ch[2] = { l.data() + pos, r.data() + pos };
+            core.process (ch, 2, std::min (512, n - pos));
+            TelemetryFrame tf;
+            while (core.popTelemetry (tf))
+                frames.push_back (tf);
+        }
+
+        std::printf ("%s: %s, detector %s, Max Shift %.0f st, latency %.2f s\n", file.getFileName().toRawUTF8(), p.name,
+                     getDetectorName (dc.type), ls.maxShiftSemitones, lat / fs);
+        std::printf ("   t(s)   track  target  corr(ct)  out(Hz)  off(ct)\n");
+
+        // Telemetry frame -> time (approximately: the detector's own time bias is not included).
+        const double fa = core.getAnalysisRate();
+        const double hopA = std::round (0.005 * fa);
+        const double fw = std::pow (2.0, std::ceil (std::log2 (8192.0 * fa / 24000.0)));
+        const int win = (int) (0.04 * fs);
+
+        // Meter a low-passed copy of the output, as runCase does, so broadband noise doesn't hide the pitch.
+        float highestTarget = 0.0f;
+        for (const auto& tf : frames) highestTarget = std::max (highestTarget, tf.targetHz);
+        std::vector<float> metered (l.begin() + lat, l.end());
+        {
+            juce::IIRFilter lp1, lp2;
+            const double fc = std::min (0.4 * fs, 8.0 * std::max (60.0, (double) highestTarget));
+            lp1.setCoefficients (juce::IIRCoefficients::makeLowPass (fs, fc));
+            lp2.setCoefficients (juce::IIRCoefficients::makeLowPass (fs, fc));
+            for (auto& v : metered) v = lp2.processSingleSampleRaw (lp1.processSingleSampleRaw (v));
+        }
+
+        std::vector<float> off;
+        int rows = 0, unpitched = 0;
+        double next = 0.0;
+        for (const auto& tf : frames)
+        {
+            const double t = (tf.frame * hopA + fw / 2) / fa;
+            const int at = (int) (t * fs);
+            if (t < next || at + win >= len)
+                continue;
+            next = std::floor (t * 10.0 + 1.0e-6) / 10.0 + 0.1;   // one row per 100 ms step
+            ++rows;
+            if (tf.targetHz <= 0) ++unpitched;
+            const float out = tf.targetHz > 0 ? measurePitch (metered.data() + at, win, fs, tf.targetHz) : 0.0f;
+            const float cents = out > 0 ? 1200.0f * std::log2 (out / tf.targetHz) : 0.0f;
+            if (tf.targetHz > 0)
+                off.push_back (out > 0 ? std::abs (cents) : 1200.0f);
+            std::printf ("  %5.2f %7.1f %7.1f %8.1f %8.1f %8.1f\n", t, tf.trackHz, tf.targetHz, tf.ratioCents, out, cents);
+        }
+        std::printf ("rows with no pitch tracked: %d of %d\n", unpitched, rows);
+        if (off.empty())
+            std::printf ("output off target: no pitch was tracked, so there is nothing to measure\n");
+        else
+            std::printf ("output off target (rows with a pitch), median / 90th pct: %.0f / %.0f cents (1200 = no pitch measured in the output)\n",
+                         percentile (off, 0.5f), percentile (off, 0.9f));
+        return 0;
+    }
+
     bool testToneAndNaN (double fs, bool injectNaN, const char* label)
     {
         FlattenerCore core;
@@ -496,6 +591,8 @@ int main (int argc, char** argv)
     int block = 512;
     juce::File wavDir;
     juce::String only;
+    juce::File analyse;
+    int analyseSource = (int) SourceType::Siren, analyseDetector = -1;
 
     for (int i = 1; i < argc; ++i)
     {
@@ -506,7 +603,13 @@ int main (int argc, char** argv)
         else if (a == "--only" && i + 1 < argc) only = argv[++i];
         else if (a == "--align" && i + 1 < argc) gAlign = juce::String (argv[++i]).getIntValue();
         else if (a == "--dump") gDump = true;
+        else if (a == "--file" && i + 1 < argc) analyse = juce::File (juce::String (argv[++i]));
+        else if (a == "--source" && i + 1 < argc) analyseSource = juce::String (argv[++i]).getIntValue();
+        else if (a == "--detector" && i + 1 < argc) analyseDetector = juce::String (argv[++i]).getIntValue();
     }
+
+    if (analyse != juce::File())
+        return analyseFile (analyse, (SourceType) juce::jlimit (0, (int) SourceType::NumSourceTypes - 1, analyseSource), analyseDetector);
 
     std::printf ("Pitch Flattener DSP tests @ %.0f Hz, block %d\n", fs, block);
     bool ok = true;
@@ -530,6 +633,25 @@ int main (int argc, char** argv)
                 const double ph = std::fmod (t * 3.0, 1.0);
                 return 700.0 * std::pow (2.0, (ph < 0.5 ? ph * 2.0 : 2.0 - ph * 2.0) * 1.0); }, 4, 1.5, -40.0); },
           25.0f, 60.0f, 0.50f },   // ~6 oct/s triangle: close to what a phase-vocoder shifter can follow
+        // A British-style siren cycle: fast yelp (1 octave at 4.5 Hz, ~9 oct/s), then a two-tone horn well below it,
+        // then a slow wail. Needs MPM's sharpness on the yelp and the full 24-semitone Max Shift for the two-tone.
+        { "siren_multi", SourceType::Siren, TargetMode::Fixed, 1450.0f,
+          [] (double r) { return harmonicTone (r, 12.0, [] (double t) {
+                if (t < 4.5)
+                {
+                    const double ph = std::fmod (t * 4.5, 1.0);
+                    return 870.0 * std::pow (2.0, ph < 0.8 ? ph / 0.8 : (1.0 - ph) / 0.2);   // saw-like: slow up, fast down
+                }
+                if (t < 7.0)
+                    return std::fmod (t, 0.7) < 0.35 ? 575.0 : 645.0;
+                return 1300.0 + 450.0 * std::sin (twoPi * 0.18 * (t - 7.0)); }, 4, 1.5, -40.0); },
+          40.0f, 120.0f, 0.40f },
+        // A yelp in heavy broadband noise (about 0 dB SNR): where MPM alone loses the pitch.
+        { "siren_yelp_noisy", SourceType::Siren, TargetMode::Fixed, 1000.0f,
+          [] (double r) { return harmonicTone (r, 8.0, [] (double t) {
+                const double ph = std::fmod (t * 3.0, 1.0);
+                return 700.0 * std::pow (2.0, (ph < 0.5 ? ph * 2.0 : 2.0 - ph * 2.0) * 1.0); }, 4, 1.5, -12.0); },
+          30.0f, 70.0f, 0.45f },
         { "voice_vibrato", SourceType::Vocal, TargetMode::Latch, 0.0f,
           [] (double r) { return voice (r, 10.0, [] (double t) {
                 return 180.0 * std::pow (2.0, (50.0 * std::sin (twoPi * 5.5 * t) + 150.0 * std::sin (twoPi * 0.15 * t)) / 1200.0); }); },

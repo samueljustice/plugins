@@ -341,7 +341,7 @@ PitchFlattenerAudioProcessorEditor::Content::Content (PitchFlattenerAudioProcess
     setupSourceType();
     setupChoice (m_detectorCombo, ParamIDs::detector, detect,
                  "Detector: the pitch detection algorithm. Each Source Type picks one; change it here to override. "
-                 "pYIN suits voices, MPM solo instruments, Spectral Peak sirens and tones, Harmonic Sum engines and drones.",
+                 "pYIN suits voices, MPM solo instruments, Spectral Peak tones, Spectral + MPM sirens, Harmonic Sum engines and drones.",
                  m_detectorAttachment);
 
     // --- Target ------------------------------------------------------------

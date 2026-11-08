@@ -730,6 +730,37 @@ namespace pf
     }
 
     //==========================================================================
+    // Spectral Peak + MPM
+    //==========================================================================
+    SpectralMpmDetector::SpectralMpmDetector (const DetectorConfig& cfg)
+        : spectral (cfg), mpm (cfg)
+    {
+        config = cfg;
+        frameLen = std::max (spectral.frameLength(), mpm.frameLength());
+    }
+
+    void SpectralMpmDetector::analyse (const float* frame, float sensitivity, FrameObservation& out)
+    {
+        // Both see the same moment: each gets the centre of the (longer) frame.
+        FrameObservation s, m;
+        s.clear();
+        m.clear();
+        spectral.analyse (frame + (frameLen - spectral.frameLength()) / 2, sensitivity, s);
+        mpm.analyse (frame + (frameLen - mpm.frameLength()) / 2, sensitivity, m);
+
+        for (int i = 0; i < s.numCands; ++i)
+            out.add (s.cands[(size_t) i].hz, s.cands[(size_t) i].salience * s.voicedProb);
+        // MPM's pitch is the sharper one on fast sweeps, so where both are confident it should win. Weighted by
+        // its own confidence, it fades out in noise, where Spectral Peak's candidates carry the track.
+        constexpr float mpmWeight = 4.0f;
+        for (int i = 0; i < m.numCands; ++i)
+            out.add (m.cands[(size_t) i].hz, m.cands[(size_t) i].salience * m.voicedProb * mpmWeight);
+
+        out.voicedProb = std::max (s.voicedProb, m.voicedProb);
+        out.sortBySalience();
+    }
+
+    //==========================================================================
     std::unique_ptr<IPitchDetector> createDetector (const DetectorConfig& cfgIn)
     {
         DetectorConfig cfg = cfgIn;
@@ -741,6 +772,7 @@ namespace pf
             case DetectorType::PYin:         return std::make_unique<PYinDetector> (cfg);
             case DetectorType::Mpm:          return std::make_unique<MpmDetector> (cfg);
             case DetectorType::HarmonicSum:  return std::make_unique<HarmonicSumDetector> (cfg);
+            case DetectorType::SpectralMpm:  return std::make_unique<SpectralMpmDetector> (cfg);
             case DetectorType::SpectralPeak:
             case DetectorType::NumDetectors:
             default:                         return std::make_unique<SpectralPeakDetector> (cfg);
