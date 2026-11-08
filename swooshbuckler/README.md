@@ -30,7 +30,14 @@ Swooshbuckler is a standalone app for macOS and Windows, and also a VST3 plug-in
 
 ## Download
 
-Get the latest version from the [releases page](https://github.com/samueljustice/plugins/releases?q=swooshbuckler):
+[![Download Swooshbuckler v1.1.0](https://img.shields.io/badge/download-v1.1.0-d00a35?style=for-the-badge)](https://github.com/samueljustice/plugins/releases/tag/swooshbuckler-v1.1.0)
+
+Or get every Sammy J plug-in at once, Swooshbuckler included, with one installer that always has the newest version of each:
+
+[![Everything for macOS](https://img.shields.io/badge/Everything_for_macOS-000000?style=flat-square&logo=apple&logoColor=white)](https://github.com/samueljustice/plugins/releases/latest/download/SammyJ-Plugins-macOS-Installer.pkg)
+[![Everything for Windows](https://img.shields.io/badge/Everything_for_Windows-0078D6?style=flat-square&logo=windows&logoColor=white)](https://github.com/samueljustice/plugins/releases/latest/download/SammyJ-Plugins-Windows-Installer.exe)
+
+Swooshbuckler's own release (above, or every version on the [releases page](https://github.com/samueljustice/plugins/releases?q=swooshbuckler)) has these files:
 
 | File | What's in it |
 |---|---|
@@ -423,6 +430,8 @@ git push origin swooshbuckler-v1.0.0
 ```
 
 The number in the tag becomes the version everywhere: the About panel, the bundles and both installers.
+
+When the release finishes, the combined Sammy J installer ([build-release_bundle.yml](../.github/workflows/build-release_bundle.yml)) rebuilds itself with the new version, so the "Everything" downloads pick it up. Bump the download button at the top of this README and the root README to the new version.
 
 - **macOS**: uses the same signing secrets as the other plug-ins. The p12 must hold both the Developer ID Application and the Developer ID Installer certificates. `APPLE_ID`, `APPLE_APP_PASSWORD` and `APPLE_TEAM_ID` are for notarisation.
 - **Windows**: add `WINDOWS_CERTIFICATE_PFX_BASE64` and `WINDOWS_CERTIFICATE_PASSWORD` (a code-signing certificate as base64 .pfx) to sign the app, the VST3 and the installer. Without them the Windows build is unsigned.
