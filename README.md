@@ -5,12 +5,12 @@
 **Toys I've made for sound designers.**
 
 <!-- get-them-all:start (written by .github/workflows/build-release_bundle.yml; edits here are replaced) -->
-### ⬇️ Get them all
+### ⬇️ Get them all (last built 8 Nov 2026, 13:30 UTC)
 
-[![Download for macOS](https://img.shields.io/badge/Download_for_macOS-everything-000000?style=for-the-badge&logo=apple&logoColor=white)](https://github.com/samueljustice/plugins/releases/download/bundle-v2026.11.8.24/SammyJ-Plugins-macOS-Installer.pkg)
-[![Download for Windows](https://img.shields.io/badge/Download_for_Windows-everything-0078D6?style=for-the-badge&logo=windows&logoColor=white)](https://github.com/samueljustice/plugins/releases/download/bundle-v2026.11.8.24/SammyJ-Plugins-Windows-Installer.exe)
+[![Get them all for macOS](https://img.shields.io/badge/Get_them_all-macOS-000000?style=for-the-badge&logo=apple&logoColor=white)](https://github.com/samueljustice/plugins/releases/download/bundle-v2026.11.8.25/SammyJ-Plugins-2026-11-08-1330-macOS-Installer.pkg)
+[![Get them all for Windows](https://img.shields.io/badge/Get_them_all-Windows-0078D6?style=for-the-badge&logo=windows&logoColor=white)](https://github.com/samueljustice/plugins/releases/download/bundle-v2026.11.8.25/SammyJ-Plugins-2026-11-08-1330-Windows-Installer.exe)
 
-<sub>One installer with the newest version of every plug-in: the apps, the VST3s and (on macOS) the AUs. It removes older copies first, so nothing shows up twice in your host.<br>
+<sub>One installer with the newest version of every plug-in: Swooshbuckler 1.1.0 · Sound Advice 1.0.7 · Subbertone 1.3.1 · Pitch Flattener 2.0.3 · Reversinator 2.0.3. The apps, the VST3s and (on macOS) the AUs. It removes older copies first, so nothing shows up twice in your host.<br>
 Want just one? Each plug-in's own download is below, or browse all <a href="https://github.com/samueljustice/plugins/releases">releases</a>.</sub>
 <!-- get-them-all:end -->
 
