@@ -115,6 +115,7 @@ int main(int argc, char* argv[])
     RigEngine rig;
     rig.setCargoHold(&hold);
     RigEngine::Params p;
+    p.hitAim = false; // the gate and sync tests below describe the classic hit gate; AIM has its own test
     rig.setParams(p);
     rig.prepare(c_rate, c_block);
     rig.setParams(p);
@@ -341,6 +342,93 @@ int main(int argc, char* argv[])
         for (int i = 0; i < o.getNumSamples(); ++i)
             finite = finite && std::isfinite(o.getSample(0, i));
         check(finite, "hit sync through the rig: finite output");
+    }
+
+    // AIM: the hits land on pass peaks. Every time a cued hit is heard, some bus pass should be at its middle (its
+    // loudest, closest moment), and Sensitivity should set how many peaks get a hit.
+    {
+        auto aimRun = [&](float sense, int& beats, int& onPeak)
+        {
+            RigEngine e;
+            e.setCargoHold(&hold);
+            auto q = p;
+            q.hitAim = true;
+            q.hitSense = sense;
+            e.setParams(q);
+            e.prepare(c_rate, c_block);
+            e.setParams(q);
+            juce::AudioBuffer<float> o(2, c_block);
+            beats = onPeak = 0;
+            int last = e.getHitBeats();
+            for (int blk = 0; blk < static_cast<int>(40.0 * c_rate) / c_block; ++blk)
+            {
+                e.process(nullptr, nullptr, o.getWritePointer(0), o.getWritePointer(1), c_block);
+                if (e.getHitBeats() == last)
+                    continue;
+                last = e.getHitBeats();
+                ++beats;
+                for (int f = 0; f < RigEngine::c_maxFlights; ++f)
+                    if (std::abs(e.getFlightView(f).age - 0.5f) < 0.02f)
+                    {
+                        ++onPeak;
+                        break;
+                    }
+            }
+        };
+        int beatsHi = 0, peakHi = 0, beatsLo = 0, peakLo = 0;
+        aimRun(1.0f, beatsHi, peakHi);
+        aimRun(0.2f, beatsLo, peakLo);
+        std::cout << "  aim: " << beatsHi << " hits at sensitivity 100% (" << peakHi << " on a pass peak), "
+                  << beatsLo << " at 20% (" << peakLo << " on a peak)" << std::endl;
+        check(beatsHi >= 8 && peakHi >= beatsHi * 9 / 10, "aim: hits land on pass peaks");
+        check(beatsLo < beatsHi, "aim: lower Sensitivity keeps only the bigger peaks");
+    }
+
+    // Peak tremolo: with Depth up the level flutters at the peaks; at 0 it's off.
+    {
+        auto flutter = [&](float depth, int target)
+        {
+            RigEngine e;
+            e.setCargoHold(&hold);
+            auto q = p;
+            q.tremOn = depth > 0.0f;
+            q.tremDepth = depth;
+            q.tremThreshold = 0.0f;
+            q.tremShape = 1; // square: easy to see
+            q.tremRate = 0.4f;
+            q.tremTarget = target;
+            q.space = 0.0f;
+            e.setParams(q);
+            e.prepare(c_rate, c_block);
+            e.setParams(q);
+            juce::AudioBuffer<float> o(2, static_cast<int>(10.0 * c_rate));
+            for (int pos = 0; pos < o.getNumSamples(); pos += c_block)
+                e.process(nullptr, nullptr, o.getWritePointer(0, pos), o.getWritePointer(1, pos), juce::jmin(c_block, o.getNumSamples() - pos));
+            // Within each tremolo cycle: the range (dB) between the loudest and quietest 5 ms window. The median over
+            // all cycles: steady material changes a little, a deep tremolo dips hard every cycle.
+            const double hz = 1.5 * std::pow(20.0, 0.4);
+            const int cycle = static_cast<int>(c_rate / hz), w = static_cast<int>(0.005 * c_rate);
+            std::vector<float> ranges;
+            for (int c0 = static_cast<int>(2.0 * c_rate); c0 + cycle < o.getNumSamples(); c0 += cycle)
+            {
+                float lo = 1000.0f, hi = -1000.0f;
+                for (int i = c0; i + w <= c0 + cycle; i += w)
+                {
+                    const float db = juce::Decibels::gainToDecibels(o.getRMSLevel(0, i, w), -80.0f);
+                    lo = std::min(lo, db);
+                    hi = std::max(hi, db);
+                }
+                if (hi > -70.0f)
+                    ranges.push_back(hi - lo);
+            }
+            std::sort(ranges.begin(), ranges.end());
+            return ranges.empty() ? 0.0 : static_cast<double>(ranges[ranges.size() / 2]);
+        };
+        const double off = flutter(0.0f, 0), everything = flutter(1.0f, 0), buses = flutter(1.0f, 1);
+        std::cout << "  tremolo: level range within a cycle " << off << " dB off, " << everything << " dB on everything, "
+                  << buses << " dB on the buses" << std::endl;
+        check(everything > off + 10.0 && buses > off + 4.0, // the hits stay steady with only the buses shaking
+               "peak tremolo shakes the level, on everything or the buses");
     }
 
     // Linked buses: bus B flies bus A's passes (same moment, position, closeness, direction); unlinked they differ.

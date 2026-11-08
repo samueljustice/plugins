@@ -82,6 +82,14 @@ public:
         float duckReturn = 0.0f; // 0 = fast (original) .. 1 = ducked buses take 1 s to come back
         bool takeTurns = false;  // A and B: only the louder one speaks, the other ducks under it
         bool linkBuses = false;  // B flies A's doppler passes, with A's Doppler and Width (its own Bend)
+        bool hitAim = true;      // fire the hits so their transients land on the pass peaks (gate open)
+        // Peak tremolo: deepens as the level nears its recent peak.
+        bool tremOn = false;         // off: the tremolo fades out
+        float tremDepth = 0.5f;      // 0..1
+        float tremRate = 0.5f;       // 0..1 -> 1.5..30 Hz
+        float tremThreshold = 0.6f;  // 0..1: how close to the peak it starts
+        int tremShape = 0;           // 0 Sine, 1 Square, 2 Flutter
+        int tremTarget = 0;          // 0 everything, 1 buses A + B, 2 hits
 
         float space = 0.25f;
         bool swell = false;    // held: every fader rides up
@@ -138,6 +146,7 @@ private:
         double time = 0.0;
         float length = 3.0f, mach = 0.2f, closest = 0.02f, dir = 1.0f, closeness = 0.5f;
         float machBase = 0.2f; // the pass's speed before Bend (a linked bus applies its own Bend to the shared pass)
+        bool aimed = false;    // AIM has decided about this pass's peak
         sj::OnePole airL, airR;
         float view = 0.0f, x = 0.0f;
     };
@@ -222,7 +231,23 @@ private:
     void duckSample(BusState::Duck& d, float target, float returnCoef, float& l, float& r);
     float m_peakRef = 1.0e-3f, m_average = 0.0f, m_gate = 0.0f, m_hold = 0.0f;
     double m_hitClock = 0.0;     // samples to the next synced hit
-    bool m_lastHitSync = false;
+    // Peak tremolo, one per thing it can shake: 0 the whole mix, 1 bus A, 2 bus B, 3 the hits.
+    struct PeakTremolo
+    {
+        double phase = 0.0;
+        float env = 0.0f, peak = 1.0e-4f, depth = 0.0f;
+        float from = 0.5f, to = 0.5f;  // Flutter: the random levels it glides between each cycle
+        sj::Random rng;                // its own, so a copy of this state draws the same Flutter
+    };
+    std::array<PeakTremolo, 4> m_trem;
+    float m_tremAttack = 0.0f, m_tremRelease = 0.0f, m_tremPeakDecay = 0.0f, m_tremDepthUp = 0.0f, m_tremDepthDown = 0.0f;
+    /** selected: this is what the tremolo shakes now. The others keep following their level and their LFO so a switch
+        (or turning it on) starts from the present, and they fade out instead of stopping dead. */
+    void applyTremolo(PeakTremolo& t, float* l, float* r, int frames, bool selected);
+
+    int m_lastHitTiming = -1;            // 0 gate, 1 sync beat, 2 aimed at pass peaks
+    double m_aimClock = 0.0;             // samples rendered (for telling aimed peaks apart)
+    double m_lastAimTarget = -1.0e12;    // when the last aimed peak lands (m_aimClock samples)
     sj::Svf m_hitsTone;
 
     // Mix + space

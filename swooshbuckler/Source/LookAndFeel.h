@@ -53,25 +53,15 @@ private:
 
 //==============================================================================
 /**
- * Rotary knob drawn as a brass ship's wheel. The wheel chases the real value
- * on a damped spring, so every move (and every preset morph) swings in with a
- * little rubber-band overshoot.
+ * A control a modulator wire can land on: the knobs, and each track's Semitones box. The wire overlay (ModWires)
+ * draws the cables and the plugs; the control shows each wire's reach (an arc, dashed when the depth is negative)
+ * and where the modulation has it now, and a Cmd-drag on it (Ctrl on Windows) sets its newest wire's depth, up or
+ * down through zero, without hunting for the plug.
  */
-class WheelKnob : public juce::Slider, private juce::Timer
+class ModTarget : public juce::Slider
 {
 public:
-    WheelKnob(const Theme::Fonts& fonts, juce::Colour accent);
-
-    void setAccent(juce::Colour c) { m_accent = c; repaint(); }
-    void paint(juce::Graphics&) override;
-    void valueChanged() override;
-    void mouseEnter(const juce::MouseEvent&) override;
-    void mouseExit(const juce::MouseEvent&) override;
-
-    juce::String caption;
-
-    /** Modulation shown on the ring: one arc per wire (its depth around the knob's value), and a dot where the
-        modulation has the knob right now (< 0 = not modulated). */
+    /** One wire: its colour, its depth (-1..1, normalised) and whether it swings both ways. */
     struct ModArc
     {
         juce::Colour colour;
@@ -89,17 +79,62 @@ public:
     }
     void setModLive(float normalised);
     bool isModulated() const { return ! m_modArcs.empty(); }
-    /** The dial (without the caption), in this knob's coordinates. */
-    juce::Point<float> getDialCentre() const;
-    float getDialRadius() const;
-    /** A wire is being dragged over this knob. */
+    /** Where a wire's plug sits around (and how big the target is), in this control's coordinates. */
+    virtual juce::Point<float> getDialCentre() const = 0;
+    virtual float getDialRadius() const = 0;
+    /** Where the index-th wire's plug sits, in this control's coordinates: around a knob's rim by default. */
+    virtual juce::Point<float> getPlugPosition(int index) const
+    {
+        const float a = juce::degreesToRadians(38.0f + 24.0f * static_cast<float>(index));
+        return getDialCentre() + juce::Point<float>(std::sin(a), -std::cos(a)) * (getDialRadius() + 5.0f);
+    }
+    /** A wire is being dragged over this control. */
     void setWireHover(juce::Colour c) { m_wireHover = c; repaint(); }
+    /** Can a wire land on (and a plug be shown at) this control now: showing, enabled, not scrolled out of view. */
+    virtual bool isReachable() const { return isShowing() && isEnabled(); }
 
-private:
-    void timerCallback() override;
+    /** Its name, as wires describe it ("MOD 1 -> Doppler"); a knob also draws it under the dial. */
+    juce::String caption;
+
+    /** Cmd-drag (Ctrl on Windows) on a modulated control: phase 0 = start, 1 = drag, 2 = end, 3 = Cmd-double-click
+        (+50%). Set by ModWires. */
+    std::function<void(const juce::MouseEvent&, int phase)> onModDepthGesture;
+    void mouseDown(const juce::MouseEvent&) override;
+    void mouseDrag(const juce::MouseEvent&) override;
+    void mouseUp(const juce::MouseEvent&) override;
+    void mouseDoubleClick(const juce::MouseEvent&) override; // Cmd-double-click: the newest wire back to +50%
+
+protected:
     std::vector<ModArc> m_modArcs;
     float m_modLive = -1.0f;
     juce::Colour m_wireHover = juce::Colours::transparentBlack;
+    bool m_modGesture = false;
+    /** Strokes p in colour, dashed when the wire's depth is negative (so the sign shows at a glance). */
+    static void strokeModPath(juce::Graphics&, const juce::Path& p, juce::Colour colour, float depth, float thickness);
+};
+
+/**
+ * Rotary knob drawn as a brass ship's wheel. The wheel chases the real value
+ * on a damped spring, so every move (and every preset morph) swings in with a
+ * little rubber-band overshoot.
+ */
+class WheelKnob : public ModTarget, private juce::Timer
+{
+public:
+    WheelKnob(const Theme::Fonts& fonts, juce::Colour accent);
+
+    void setAccent(juce::Colour c) { m_accent = c; repaint(); }
+    void paint(juce::Graphics&) override;
+    void valueChanged() override;
+    void mouseEnter(const juce::MouseEvent&) override;
+    void mouseExit(const juce::MouseEvent&) override;
+
+    /** The dial (without the caption), in this knob's coordinates. */
+    juce::Point<float> getDialCentre() const override;
+    float getDialRadius() const override;
+
+private:
+    void timerCallback() override;
 
     const Theme::Fonts& m_fonts;
     juce::Colour m_accent;

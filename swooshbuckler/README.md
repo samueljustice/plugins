@@ -129,7 +129,7 @@ This is where your sounds live: up to ten files, each on its own looping lane.
 | **Type badge** | The sound type. Click it to change it, or choose **Auto** to go back to the guess. A ` *` means you set it yourself. The type decides the bus: see the table below. |
 | **SKIP SILENCE** | On (the default): only the sounds play and the gaps between them are skipped, so a recording full of pauses becomes a steady source. The sounds are drawn bright and the gaps faint. Off: the whole file loops, silence and all, and the lane reads "silence kept". |
 | **Fader** | The track's level, 0–100%, default 80%. With AUTO RIDE on, it sets how high the ride can take the track. Double-click to reset. Each one is also a host parameter, "Track 1" to "Track 10". |
-| **Semitones / Cents** | The track's own pitch: up to 24 semitones either way, plus up to 100 cents for fine tuning. It adds to the Ride's Pitch knob and glides to a new setting. **Drag up or down** on a box to change it, and **double-click** to reset. Each one is also a host parameter ("Track 1 Semitones", "Track 1 Cents" and so on). |
+| **Semitones / Cents** | The track's own pitch: up to 24 semitones either way, plus up to 100 cents for fine tuning. It adds to the Ride's Pitch knob and glides to a new setting. **Drag up or down** on a box to change it, and **double-click** to reset. Each one is also a host parameter ("Track 1 Semitones", "Track 1 Cents" and so on). Drag a MOD jack onto the Semitones box to modulate the track's pitch; its plugs sit in a row under the box. |
 | **VARI** | On (the default): varispeed, like tape. The pitch and the speed change together, so up an octave also plays twice as fast. Off: the pitch changes and the speed stays the same, through a pitch shifter, which delays that track by about 43 ms. Synced hits allow for both. |
 | **M / S / x** | Mute, solo and remove. A muted track keeps its place in the ride, so it comes straight back in when you unmute it. |
 | **Waveform** | The yellow **flag** marks where the track starts playing. It loops from there, and the part before the flag is dimmed. **Click or drag** on the waveform to move it, and **double-click** to put it back at the top. |
@@ -211,21 +211,27 @@ The waveform in each title bar shows the last 3 seconds of what that bus sends o
 
 ![Hits](docs/images/hits.png)
 
-Every Impact track plays here, and only when the hit gate opens. The gate listens to buses A and B together. When it opens, the hits jump up and push both buses down out of the way, so each impact punches through the whoosh.
+Every Impact track plays here. The hits jump up and push both buses down out of the way, so each impact punches through the whoosh. There are two ways of timing them:
+
+- **AIM** (on by default): the hits are **aimed at the peaks of the doppler passes** on buses A and B. Each pass is loudest at its middle, when it's closest to you, and that moment is known as soon as the pass starts. So Swooshbuckler looks ahead: when a peak is coming, it decides whether it earns a hit (closer passes on a louder bus score higher, against **Sensitivity**), picks every hit track's next sound, and starts each one early by that sound's own lead-in, so all the transients land right on the peak. It allows for each track's pitch and VARI, and peaks that land together (with LINK, say) fire once. The gate isn't needed, so GATE, Release, Hold, Floor and SYNC HITS rest, and the lamp reads AIMED HITS and flashes on each hit.
+- **The hit gate** (AIM off): the hits play only when the gate opens. The gate listens to buses A and B together.
+
+Sessions saved before AIM existed open with it off, so they keep the gate they were made with.
 
 | Control | Range (default) | What it does |
 |---|---|---|
 | **GATE** box | Peaks / Level / Jumps / Open (Peaks) | What opens the gate. **Peaks**: the loudest moments of the two buses. **Level**: any time they're louder than a level set by Sensitivity. **Jumps**: sudden rises, however loud or quiet. **Open**: no gate, the hits always play. |
 | **DUCK** box | Volume / Darken / Mids (Volume) | How a ducked bus gets out of the way: turned down, low-passed, or only its crowded middle (250 Hz to 4 kHz) turned down. This also applies to bus A ducking bus B. |
-| **Sensitivity** | 0–100% (50%) | How easily the gate opens. Low: only the biggest moments fire the hits. High: they fire often. |
+| **Sensitivity** | 0–100% (50%) | How easily the hits fire. With AIM: which pass peaks get a hit. With the gate: how easily it opens. Low: only the biggest moments. High: often. |
 | **Boost** | −6 to +12 dB (+6 dB) | How much the hits jump up when the gate opens. |
 | **Release** | 60 ms to 1.2 s (459 ms) | How long the hits tail out after the gate shuts. |
 | **Hold** | 0–500 ms (60 ms) | How long the gate stays open after the last trigger. Longer stops it chattering, so each hit reads as one event. |
 | **Floor** | Closed, or −40 to −3 dB (Closed) | How far the gate closes between hits. Closed: the hits vanish between peaks. Turn it up and they stay quietly under the mix. |
 | **Duck** | 0–100% (50%) | How far the hits push buses A and B down when they fire. |
 | **Return** | Fast, or 20 ms to 1 s (Fast) | How fast ducked buses come back up. This also applies to bus A ducking bus B. Slower is smoother, with less pumping. |
-| **HIT GATE** | light | Glows as the gate opens and fades as it closes. |
-| **SYNC HITS** | on / off (off) | Every Impact track fires its next hit on one shared beat, so their transients line up into one big hit. Switching it restarts the hit tracks. See the [hit sync view](#tracks). |
+| **HIT GATE / AIMED HITS** | light | Glows as the gate opens and fades as it closes; with AIM, flashes on each aimed hit. |
+| **AIM** | on / off (on) | Aims the hits at the pass peaks (see above). |
+| **SYNC HITS** | on / off (off), with AIM off | Every Impact track fires its next hit on one shared beat, so their transients line up into one big hit. Switching it restarts the hit tracks. See the [hit sync view](#tracks). |
 
 The waveform in the title bar shows the last 3 seconds of what got through the gate: each spike is a hit, and the gaps are the gate closed.
 
@@ -233,16 +239,23 @@ The waveform in the title bar shows the last 3 seconds of what got through the g
 
 ![Output](docs/images/output.png)
 
-The last stage before your speakers and the tape.
+The last stage before your speakers and the tape. At its left is the **Peak Tremolo**, a tremolo that shakes only the loudest moments: as the level climbs towards its recent peak, past **Threshold**, the tremolo deepens (up to **Depth**), and it lets go as the level falls, so the dynamics flutter where the whoosh is biggest. It comes before Space, so the echoes and reverb carry it.
 
 | Control | Range (default) | What it does |
 |---|---|---|
+| Tremolo **On / Off** | menu (Off) | Switches the peak tremolo. It fades in and out. |
+| Tremolo wave | Sine / Square / Flutter (Sine) | **Sine**: a smooth throb. **Square**: hard chops, like a helicopter. **Flutter**: a random wobble, like wings or a loose flap. |
+| Tremolo shakes | Everything / Buses A + B / Hits (Everything) | What it shakes, and whose level drives it. **Everything**: the whole mix. **Buses A + B**: each bus by its own level, dipping together, while the hits stay solid. **Hits**: only the hits. |
+| **Depth** | 0–100% (50%) | How deep it goes at the very peak. |
+| **Rate** | 1.5–30 Hz | From a slow throb to a buzzing flutter. |
+| **Threshold** | 0–100% (60%) | How near its peak the level has to be before it starts. Low: it shakes most of the time. High: only right at the top. |
 | **Space** | 0–100% (25%) | Echoes, reverb and width around the whole mix: a ping-pong echo, a reverb whose room grows as you turn it up, and stereo widening. At 0% it's off. |
 | **Inflate** | 0–100% (30%) | Louder and denser without new peaks, so quieter detail comes forward. At 0% the sound passes through untouched. |
 | **Push** | 0 to +18 dB (+3 dB) | How hard the mix drives into the limiter. The ceiling stays put, so it can't clip. |
 | **Ceiling** | −12 to 0 dB (−0.3 dB) | The limiter's ceiling: nothing gets out louder than this. The limiter is always on. |
-| **GR** | meter | How much the limiter is turning the sound down right now (a full bar is 12 dB). The number beside the meters is the same thing in dB, and turns coral while the limiter is working. |
-| **OUT** | meter | The output peak level, after the limiter. |
+| **GR** | meter | How much the limiter is turning the sound down right now (a full bar is 12 dB). The number above the meters is the same thing in dB, and turns coral while the limiter is working. |
+| **OUT** | meter | The output peak level, after the limiter and the trim. |
+| **TRIM** | silence to +6 dB (0 dB) | How loud you hear it (and what your DAW gets from the plug-in), after the limiter. The tape and LAST 60s record before it, at full level, so turning it down never makes a quieter take. Double-click to reset. |
 
 If the gain reduction number is coral all the time, back off Push or raise Ceiling.
 
@@ -306,9 +319,11 @@ The defaults are MOD 1: LFO (Sine), MOD 2: LFO (Triangle), MOD 3: Random, MOD 4:
 ![Cables](docs/images/cables.png)
 
 - **Drag from a modulator's jack** (the round socket at its top left) onto a knob. A cable follows the mouse, and the knob under it lights up; drop it there to wire it. Drop it anywhere else to cancel. Drag from the same jack again to wire more knobs.
-- You can wire every knob in Ride, Bus A, Bus B, Hits and Output. You can't wire the morph pad, the track faders, or the modulators' own knobs.
+- You can wire every knob in Ride, Bus A, Bus B, Hits and Output (the Peak Tremolo's included), and each track's **Semitones** box, which modulates that track's pitch smoothly (a 100% wire swings two octaves). You can't wire the morph pad, the track faders, or the modulators' own knobs.
 - Each wire leaves a **plug**, a small coloured dot on the knob's rim, and draws an arc showing how far it moves the knob:
-  - **Drag the plug up or down** to set the depth, from −100% to +100%. New wires start at +50%. Hold Shift for fine control.
+  - **Cmd-drag the control itself** (Ctrl-drag on Windows) to set the depth of its newest wire: up for more, down through zero for negative (the wire then moves the control the other way). A bubble shows the amount. Hold Shift for fine control. **Cmd-double-click** (Ctrl on Windows) sets it back to +50%.
+  - Or **drag the plug up or down**, from −100% to +100%. New wires start at +50%. Hold Shift for fine control.
+  - A negative depth draws its arc **dashed**, so you can see at a glance which way a wire pushes.
   - **Double-click** a plug to set it to +50%.
   - **Right-click** a plug for a menu: Invert, Depth 25%, 50% or 100%, or Pull Out the Wire.
   - **Alt-click** a plug to pull the wire out straight away.
@@ -359,8 +374,8 @@ The factory presets are **Steady Energy**, **Jet Passes**, **Monster Swells**, *
 Presets and RANDOMISE set the sound, not your session. They leave these alone:
 
 - your tracks, their levels and each track's pitch and VARI
-- Inflate, Push and Ceiling
-- AUTO RIDE, SYNC HITS, the GATE and DUCK modes, TAKE TURNS and LINK
+- Inflate, Push, Ceiling, TRIM and the Peak Tremolo
+- AUTO RIDE, AIM, SYNC HITS, the GATE and DUCK modes, TAKE TURNS and LINK
 - the morph's ON switch, wander, shape and speed
 - the modulators and their wires
 

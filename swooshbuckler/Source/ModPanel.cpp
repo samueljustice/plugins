@@ -298,19 +298,26 @@ ModWires::ModWires(ModMatrix& matrix, const Theme::Fonts& fonts) : m_matrix(matr
     setInterceptsMouseClicks(true, false); // only the plugs (see hitTest)
 }
 
-juce::Rectangle<float> ModWires::knobArea(WheelKnob* knob) const
+bool ModWires::isTargetInView(const ModTarget* t)
+{
+    if (const auto* vp = t->findParentComponentOfClass<juce::Viewport>())
+        return vp->getLocalBounds().contains(vp->getLocalArea(t, t->getLocalBounds()));
+    return true;
+}
+
+juce::Rectangle<float> ModWires::knobArea(ModTarget* knob) const
 {
     return getLocalArea(knob, knob->getLocalBounds()).toFloat();
 }
 
-WheelKnob* ModWires::knobAt(juce::Point<float> p, juce::String* id) const
+ModTarget* ModWires::knobAt(juce::Point<float> p, juce::String* id) const
 {
     // The nearest dial wins (neighbouring capture zones overlap a little in the bus rows).
-    WheelKnob* best = nullptr;
+    ModTarget* best = nullptr;
     float bestDistance = 0.0f;
     for (const auto& [paramId, knob] : m_knobs)
     {
-        if (knob == nullptr || ! knob->isShowing() || ! knob->isEnabled()) // dimmed (e.g. bus B's linked Doppler): no new wires
+        if (knob == nullptr || ! knob->isReachable()) // dimmed (e.g. bus B's linked Doppler) or scrolled away: no new wires
             continue;
         const float d = getLocalPoint(knob, knob->getDialCentre()).getDistanceFrom(p);
         if (d <= knob->getDialRadius() + 10.0f && (best == nullptr || d < bestDistance))
@@ -352,11 +359,12 @@ void ModWires::rebuild()
     {
         m_generation = m_matrix.generation();
         m_depthSlot = -1; // the slots were renumbered: a drag in progress must not move another wire
+        m_newestSlot.clear();
     }
     m_plugs.clear();
     // Arcs on every knob, plugs beside the ones with wires.
-    std::map<WheelKnob*, std::vector<WheelKnob::ModArc>> arcs;
-    std::map<WheelKnob*, int> plugCount;
+    std::map<ModTarget*, std::vector<ModTarget::ModArc>> arcs;
+    std::map<ModTarget*, int> plugCount;
     for (const auto& r : m_matrix.getRoutes())
     {
         const auto it = m_knobs.find(r.param);
@@ -365,18 +373,17 @@ void ModWires::rebuild()
         auto* knob = it->second;
         const bool bipolar = isSourceBipolar ? isSourceBipolar(r.source) : m_matrix.isBipolar(r.source);
         arcs[knob].push_back({ ModPanel::sourceColour(r.source), r.depth, bipolar });
+        if (! knob->isShowing() || ! isTargetInView(knob))
+            continue; // scrolled out of view (a track lane): no plug or cable until it scrolls back
         // Plugs sit on the dial's upper right, one per wire, around the rim.
         const int k = plugCount[knob]++;
-        const float a = juce::degreesToRadians(38.0f + 24.0f * static_cast<float>(k));
-        const auto centre = getLocalPoint(knob, knob->getDialCentre());
-        const float rad = knob->getDialRadius() + 5.0f;
-        m_plugs.push_back({ r, centre + juce::Point<float>(std::sin(a), -std::cos(a)) * rad, knob });
+        m_plugs.push_back({ r, getLocalPoint(knob, knob->getPlugPosition(k)), knob });
     }
     for (const auto& [id, knob] : m_knobs)
         if (knob != nullptr)
         {
             const auto it = arcs.find(knob);
-            knob->setModArcs(it != arcs.end() ? it->second : std::vector<WheelKnob::ModArc> {});
+            knob->setModArcs(it != arcs.end() ? it->second : std::vector<ModTarget::ModArc> {});
         }
 
     // The cables, drawn once into an image at the screen's resolution.
@@ -401,9 +408,63 @@ void ModWires::rebuild()
     repaint();
 }
 
-void ModWires::updateArcs(WheelKnob* knob)
+void ModWires::setTargets(std::map<juce::String, ModTarget*> knobs)
 {
-    std::vector<WheelKnob::ModArc> arcs;
+    m_knobs = std::move(knobs);
+    for (const auto& [id, target] : m_knobs)
+        if (target != nullptr)
+            target->onModDepthGesture = [this, t = target](const juce::MouseEvent& e, int phase) { modDepthGesture(t, e, phase); };
+    rebuild();
+}
+
+const ModWires::Plug* ModWires::newestPlug(ModTarget* target) const
+{
+    const Plug* last = nullptr;
+    const auto known = m_newestSlot.find(target);
+    for (const auto& plug : m_plugs)
+        if (plug.knob == target)
+        {
+            if (known != m_newestSlot.end() && plug.route.slot == known->second)
+                return &plug;
+            last = &plug;
+        }
+    return last;
+}
+
+void ModWires::modDepthGesture(ModTarget* target, const juce::MouseEvent& e, int phase)
+{
+    if (phase == 0)
+    {
+        const Plug* newest = newestPlug(target);
+        if (newest == nullptr)
+            return;
+        m_depthSlot = newest->route.slot;
+        m_depthStart = newest->route.depth;
+        m_depthPos = newest->pos;
+        repaint(juce::Rectangle<float>(60.0f, 50.0f).withCentre(m_depthPos.translated(0.0f, -10.0f)).getSmallestIntegerContainer());
+        if (onStatus)
+            onStatus("Drag up or down to set " + describe(newest->route) + " (down through 0 for negative)");
+        return;
+    }
+    if (phase == 1)
+    {
+        mouseDrag(e);
+        return;
+    }
+    if (phase == 3)
+    {
+        // Cmd-double-click: the newest wire back to +50%, like double-clicking its plug.
+        const Plug* newest = newestPlug(target);
+        if (newest != nullptr && m_matrix.setDepth(newest->route.slot, 0.5f, m_generation))
+            depthChanged(newest->route.slot, 0.5f);
+        return;
+    }
+    mouseUp(e);
+}
+
+void ModWires::updateArcs(ModTarget* knob)
+{
+    std::vector<ModTarget::ModArc> arcs;
     for (const auto& plug : m_plugs)
         if (plug.knob == knob)
             arcs.push_back({ ModPanel::sourceColour(plug.route.source), plug.route.depth,
@@ -529,6 +590,8 @@ void ModWires::endWire(juce::Point<float> at)
     if (knobAt(at, &id) != nullptr)
     {
         const int slot = m_matrix.connect(m_dragSource, id, 0.5f);
+        if (slot >= 0)
+            m_newestSlot[m_knobs[id]] = slot;
         if (onStatus)
             onStatus(slot >= 0 ? ModPanel::sourceName(m_dragSource) + " wired. Drag its plug up or down for depth, right-click to pull it out."
                                : juce::String("No more room for wires (") + juce::String(ModMatrix::c_maxRoutes) + " max).");

@@ -602,6 +602,17 @@ SwooshbucklerAudioProcessorEditor::SwooshbucklerAudioProcessorEditor(Swooshbuckl
     m_syncHits.setTooltip("Sync Hits\nOn: every Impact track fires its next hit on one shared beat, so all their transients land together as one big hit (the waveforms slide into line to show it). Off: each hit track loops on its own timing.");
     m_content.addAndMakeVisible(m_syncHits);
     m_syncAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment>(p.getState(), ParamIDs::hitSync, m_syncHits);
+    m_aimHits.setClickingTogglesState(true);
+    m_aimHits.setColour(juce::TextButton::buttonOnColourId, TC::record);
+    m_aimHits.setWantsKeyboardFocus(false);
+    m_aimHits.setTooltip("Aim\nOn (the default): the hits are aimed at the peaks of the doppler passes on buses A and B. Each pass is loudest "
+                         "at its middle, which is known as soon as it starts, so Swooshbuckler looks ahead: when a peak is coming, it "
+                         "picks every hit track's next sound and starts it early by that sound's own lead-in, so all the transients land "
+                         "right on the peak. Sensitivity sets which peaks get a hit (closer passes on a louder bus win). "
+                         "The gate isn't needed, so GATE, Release, Hold, Floor and SYNC HITS rest.\n"
+                         "Off: the classic hit gate (and SYNC HITS if it's on).");
+    m_content.addAndMakeVisible(m_aimHits);
+    m_aimAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment>(p.getState(), ParamIDs::hitAim, m_aimHits);
 
     m_content.addAndMakeVisible(m_swell);
     m_swell.setTooltip("Swell\nHold it to push every fader up at once, for a big whoosh on demand. The space bar or any MIDI note does the same.");
@@ -644,7 +655,7 @@ SwooshbucklerAudioProcessorEditor::SwooshbucklerAudioProcessorEditor(Swooshbuckl
     }
 
     // Hits + output --------------------------------------------------------------
-    addKnob(ParamIDs::hitSense, "Sensitivity", TC::record, "How easily the hit gate opens. It listens to buses A and B together; what counts as a trigger depends on the GATE mode. Low: only the biggest moments fire the hits. High: they fire often.");
+    addKnob(ParamIDs::hitSense, "Sensitivity", TC::record, "How easily the hits fire. With AIM on: which pass peaks get a hit (closer passes on a louder bus score higher). With AIM off: how easily the hit gate opens, by the GATE mode. Low: only the biggest moments fire the hits. High: they fire often.");
     addKnob(ParamIDs::hitBoost, "Boost", TC::record, "How much the hit tracks jump up when the gate opens, from 6 dB under their own level to 12 dB over it. More makes the hits punch out of the whoosh.");
     addKnob(ParamIDs::hitRelease, "Release", TC::record, "How long the hits tail out after the gate opens. Short: tight, dry impacts. Long: the hits ring on into the next swell.");
     addKnob(ParamIDs::hitHold, "Hold", TC::record, "How long the gate stays open once it opens. Longer stops it chattering open and shut, so each hit reads as one event.");
@@ -704,6 +715,45 @@ SwooshbucklerAudioProcessorEditor::SwooshbucklerAudioProcessorEditor(Swooshbuckl
     addKnob(ParamIDs::push, "Push", TC::master, "How hard the mix drives into the limiter (up to +18 dB). More is louder and denser; the ceiling stays where it is, so it can't clip.");
     addKnob(ParamIDs::ceiling, "Ceiling", TC::master, "The limiter's ceiling: nothing gets out louder than this (0 to -12 dBFS). The default, -0.3 dB, leaves a little headroom for file conversion.");
 
+    // Peak tremolo: a framed group at the left of Output (before Space in the signal): On/Off, wave and Shakes menus
+    // over its Depth, Rate and Threshold knobs.
+    addKnob(ParamIDs::tremDepth, "Depth", TC::movement, "Tremolo Depth\nHow deep the tremolo goes at the very peak. It only shakes the loudest moments: past Threshold it eases in, "
+            "deepest at the peak, and lets go as the level falls, so the dynamics flutter where the whoosh is biggest.");
+    m_tremOn.addItemList({ "Off", "On" }, 1);
+    m_tremOn.setWantsKeyboardFocus(false);
+    m_tremOn.setTooltip("Peak Tremolo\nOn: a tremolo that shakes only the loudest moments. As the level climbs past Threshold towards its recent "
+                        "peak, the tremolo deepens (up to Depth, at Rate, in the chosen wave) and it lets go as the level falls, so the "
+                        "dynamics flutter where the whoosh is biggest. Off (the default): no tremolo. Switching fades it in or out.");
+    m_content.addAndMakeVisible(m_tremOn);
+    m_tremOnAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment>(p.getState(), ParamIDs::tremOn, m_tremOn);
+    addKnob(ParamIDs::tremRate, "Rate", TC::movement, "Tremolo Rate\nHow fast it shakes, from 1.5 Hz (a slow throb) to 30 Hz (a buzzing flutter).");
+    addKnob(ParamIDs::tremThreshold, "Threshold", TC::movement, "Tremolo Threshold\nHow near its peak the level has to be before the tremolo starts, measured against the recent peak. "
+            "Low: it shakes most of the time. High: only right at the top of each swell.");
+    m_tremShape.addItemList({ "Sine", "Square", "Flutter" }, 1);
+    m_tremShape.setTooltip("Tremolo Shape\nSine: a smooth throb. Square: hard chops, like a helicopter. Flutter: a random wobble, like wings or a loose flap.");
+    m_tremTarget.addItemList({ "Everything", "Buses A + B", "Hits" }, 1);
+    m_tremTarget.setTooltip("Tremolo Shakes\nWhat the tremolo shakes, and whose level drives it. Everything (the default): the whole mix, by its level. "
+                            "Buses A + B: each bus by its own level, dipping together; the hits stay solid. Hits: only the hits.");
+    for (auto* box : { &m_tremShape, &m_tremTarget })
+    {
+        box->setWantsKeyboardFocus(false);
+        m_content.addAndMakeVisible(*box);
+    }
+    m_tremShapeAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment>(p.getState(), ParamIDs::tremShape, m_tremShape);
+    m_tremTargetAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment>(p.getState(), ParamIDs::tremTarget, m_tremTarget);
+
+    // Master Trim: how loud you hear it. After the limiter; the tape records before it, at full level.
+    m_trim.setSliderStyle(juce::Slider::LinearVertical);
+    m_trim.setTextBoxStyle(juce::Slider::NoTextBox, false, 0, 0);
+    m_trim.setColour(juce::Slider::trackColourId, TC::master);
+    m_trim.setDoubleClickReturnValue(true, 0.0);
+    m_trim.setWantsKeyboardFocus(false);
+    m_trim.setTooltip("Master Trim\nHow loud you hear it (and what your DAW gets from the plug-in), from silence to +6 dB, after the limiter. "
+                      "The tape and LAST 60s record before it, at full level, so turning it down never makes a quieter take.\n"
+                      "Drag it. Double-click to reset it to 0 dB.");
+    m_content.addAndMakeVisible(m_trim);
+    m_trimAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(p.getState(), ParamIDs::masterTrim, m_trim);
+
     // Modulation: the panel at the bottom, and the wires over everything (only their plugs take clicks).
     m_content.addAndMakeVisible(m_modPanel);
     m_cablesButton.setClickingTogglesState(true);
@@ -715,6 +765,7 @@ SwooshbucklerAudioProcessorEditor::SwooshbucklerAudioProcessorEditor(Swooshbuckl
     m_content.addAndMakeVisible(m_cablesButton);
     m_content.addAndMakeVisible(m_wires);
     m_wires.setPanel(&m_modPanel);
+    m_hold.onLanesMoved = [this] { m_wires.rebuildSoon(); }; // scrolling the tracks moves the plugs on their pitch boxes
     m_wires.onStatus = [this](const juce::String& text) { toast(text); };
     m_wires.isSourceBipolar = [&p](int source)
     {
@@ -885,12 +936,36 @@ void SwooshbucklerAudioProcessorEditor::layoutContent()
         m_sectionScopes[0]->setBounds(busA.getRight() - 14 - 180, busA.getY() + 9, 180, 22);
         m_sectionScopes[1]->setBounds(m_linkBuses.getX() - 8 - 120, busB.getY() + 9, 120, 22);
         m_sectionScopes[2]->setBounds(m_gateModeLabel.getX() - 6 - 120, hits.getY() + 9, 120, 22);
-        m_sectionScopes[3]->setBounds(out.getRight() - 14 - 180, out.getY() + 9, 180, 22);
+        m_sectionScopes[3]->setBounds(out.getRight() - 14 - 120, out.getY() + 9, 120, 22);
     }
-    m_gateLamp = { m_sections[2].bounds.getRight() - 120, m_sections[2].bounds.getY() + 40, 100, 72 };
-    m_syncHits.setBounds(m_gateLamp.getX() + 4, m_gateLamp.getBottom() + 4, 92, 26);
-    row(m_sections[3].bounds, { ParamIDs::space, ParamIDs::inflate, ParamIDs::push, ParamIDs::ceiling }, 130);
-    m_meterArea = { m_sections[3].bounds.getRight() - 140, m_sections[3].bounds.getY() + 44, 126, 100 };
+    m_gateLamp = { m_sections[2].bounds.getRight() - 120, m_sections[2].bounds.getY() + 38, 100, 52 };
+    m_aimHits.setBounds(m_gateLamp.getX() + 4, m_gateLamp.getBottom() + 2, 92, 24);
+    m_syncHits.setBounds(m_gateLamp.getX() + 4, m_aimHits.getBottom() + 4, 92, 24);
+    // Output, left to right: the framed PEAK TREMOLO group (it comes before Space in the signal) with its three menus
+    // over its three knobs; then Space, Inflate, Push and Ceiling; then the meters and the trim fader.
+    {
+        const auto& out = m_sections[3].bounds;
+        m_tremGroup = { out.getX() + 12, out.getY() + 38, 240, out.getHeight() - 44 };
+        auto menus = m_tremGroup.reduced(6, 0).withTrimmedTop(12).withHeight(20);
+        m_tremOn.setBounds(menus.removeFromLeft(58));
+        menus.removeFromLeft(4);
+        m_tremShape.setBounds(menus.removeFromLeft(72));
+        menus.removeFromLeft(4);
+        m_tremTarget.setBounds(menus);
+        auto knobs = m_tremGroup.reduced(4, 0).withTrimmedTop(36).withTrimmedBottom(2);
+        const int tw = knobs.getWidth() / 3;
+        for (const auto* id : { ParamIDs::tremDepth, ParamIDs::tremRate, ParamIDs::tremThreshold })
+            m_controls[id]->setBounds(knobs.removeFromLeft(tw).reduced(2, 0));
+
+        m_meterArea = { out.getRight() - 150, out.getY() + 44, 100, 100 };
+        m_trim.setBounds(m_meterArea.getRight() + 6, m_meterArea.getY() - 2, 30, m_meterArea.getHeight() - 16);
+        m_trimLabel = { m_trim.getX() - 6, m_trim.getBottom() + 1, 42, 14 };
+        auto rest = juce::Rectangle<int>(m_tremGroup.getRight() + 8, out.getY() + 40,
+                                         m_meterArea.getX() - 8 - (m_tremGroup.getRight() + 8), out.getHeight() - 48);
+        const int ow = rest.getWidth() / 4;
+        for (const auto* id : { ParamIDs::space, ParamIDs::inflate, ParamIDs::push, ParamIDs::ceiling })
+            m_controls[id]->setBounds(rest.removeFromLeft(ow).reduced(2, 0));
+    }
 
     // Row 4: modulation (MegaMod style), across the full width
     m_modSection = { 16, 808, 1248, 190 };
@@ -898,11 +973,14 @@ void SwooshbucklerAudioProcessorEditor::layoutContent()
     m_cablesButton.setBounds(m_modSection.getRight() - 96, m_modSection.getY() + 10, 82, 22);
     m_wires.setBounds(0, 0, c_width, c_height);
     {
-        std::map<juce::String, WheelKnob*> targets;
+        // Every knob a wire can reach, and each track's Semitones box.
+        std::map<juce::String, ModTarget*> targets;
         for (const auto& [id, control] : m_controls)
             if (ModMatrix::targetIndex(id) >= 0)
-                if (auto* knob = dynamic_cast<WheelKnob*>(control))
-                    targets[id] = knob;
+                if (auto* target = dynamic_cast<ModTarget*>(control))
+                    targets[id] = target;
+        for (const auto& [id, target] : m_hold.getModTargets())
+            targets[id] = target;
         m_wires.setTargets(std::move(targets));
     }
 
@@ -951,7 +1029,7 @@ void SwooshbucklerAudioProcessorEditor::paintContent(juce::Graphics& g)
 
     // Hit gate lamp
     {
-        const auto lamp = juce::Rectangle<float>(30.0f, 30.0f).withCentre(m_gateLamp.toFloat().getCentre().translated(0.0f, -10.0f));
+        const auto lamp = juce::Rectangle<float>(26.0f, 26.0f).withCentre(m_gateLamp.toFloat().getCentre().translated(0.0f, -8.0f));
         g.setColour(TC::record.withAlpha(0.15f + 0.85f * m_gate));
         g.fillEllipse(lamp);
         g.setColour(TC::record.withAlpha(0.15f + 0.35f * m_gate));
@@ -960,14 +1038,15 @@ void SwooshbucklerAudioProcessorEditor::paintContent(juce::Graphics& g)
         g.drawEllipse(lamp, 1.0f);
         g.setFont(f.label(10.0f));
         g.setColour(TC::textDim);
-        g.drawText("HIT GATE", m_gateLamp.withTop(m_gateLamp.getBottom() - 22), juce::Justification::centred);
+        g.drawText(m_aimHits.getToggleState() ? "AIMED HITS" : "HIT GATE", m_gateLamp.withTop(m_gateLamp.getBottom() - 16), juce::Justification::centred);
     }
 
     // Output meters
     {
         auto m = m_meterArea.toFloat();
-        auto grBar = m.removeFromLeft(42.0f).reduced(10.0f, 2.0f).withTrimmedBottom(20.0f);
-        auto outBar = m.removeFromLeft(42.0f).reduced(10.0f, 2.0f).withTrimmedBottom(20.0f);
+        const auto readout = m.removeFromTop(16.0f); // the gain reduction in dB, across the top
+        auto grBar = m.removeFromLeft(36.0f).reduced(7.0f, 2.0f).withTrimmedBottom(20.0f);
+        auto outBar = m.removeFromLeft(36.0f).reduced(7.0f, 2.0f).withTrimmedBottom(20.0f);
         for (auto bar : { grBar, outBar })
         {
             g.setColour(TC::scope);
@@ -986,8 +1065,24 @@ void SwooshbucklerAudioProcessorEditor::paintContent(juce::Graphics& g)
         g.setColour(TC::textDim);
         g.drawText("GR", grBar.withY(grBar.getBottom() + 3.0f).withHeight(14.0f).expanded(10.0f, 0.0f), juce::Justification::centred);
         g.drawText("OUT", outBar.withY(outBar.getBottom() + 3.0f).withHeight(14.0f).expanded(10.0f, 0.0f), juce::Justification::centred);
+        g.drawText("TRIM", m_trimLabel, juce::Justification::centred);
+
+        // The PEAK TREMOLO group: a thin frame with its name in the top edge.
+        const auto frame = m_tremGroup.toFloat().reduced(0.5f);
+        g.setColour(TC::movement.withAlpha(0.45f));
+        g.drawRoundedRectangle(frame, 5.0f, 1.0f);
+        g.setFont(f.label(9.5f));
+        const juce::String name = "PEAK TREMOLO";
+        const float nw = juce::GlyphArrangement::getStringWidth(g.getCurrentFont(), name) + 10.0f;
+        const auto tag = juce::Rectangle<float>(frame.getX() + 10.0f, frame.getY() - 6.0f, nw, 12.0f);
+        g.setColour(TC::panel);
+        g.fillRect(tag);
+        g.setColour(TC::movement);
+        g.drawText(name, tag, juce::Justification::centred);
+
+        g.setFont(f.label(10.0f));
         g.setColour(m_grDb < -0.05f ? TC::movement : TC::textFaint);
-        g.drawText(juce::String(m_grDb, 1) + " dB", juce::Rectangle<float>(m.getX(), grBar.getY(), m.getWidth(), 16.0f), juce::Justification::centredLeft);
+        g.drawText("GR " + juce::String(m_grDb, 1) + " dB", readout, juce::Justification::centred);
     }
 
     g.setFont(f.body(11.0f));
@@ -1172,6 +1267,25 @@ void SwooshbucklerAudioProcessorEditor::syncMorphPad()
     m_morphPad.setXY(value(ParamIDs::morphX), value(ParamIDs::morphY));
 }
 
+void SwooshbucklerAudioProcessorEditor::showAimControls()
+{
+    // AIM times the hits itself and holds the gate open: dim what only the gate (or the sync beat) uses.
+    const bool aim = m_processor.getState().getRawParameterValue(ParamIDs::hitAim)->load() > 0.5f;
+    if (m_aimShown == (aim ? 1 : 0))
+        return;
+    m_aimShown = aim ? 1 : 0;
+    std::vector<juce::Component*> resting { &m_gateMode, &m_syncHits };
+    for (const auto* id : { ParamIDs::hitRelease, ParamIDs::hitHold, ParamIDs::hitFloor })
+        if (const auto it = m_controls.find(juce::String(id)); it != m_controls.end() && it->second != nullptr)
+            resting.push_back(it->second);
+    for (auto* c : resting)
+    {
+        c->setEnabled(! aim);
+        c->setAlpha(aim ? 0.35f : 1.0f);
+    }
+    m_content.repaint(m_gateLamp.expanded(10));
+}
+
 void SwooshbucklerAudioProcessorEditor::showLinkedKnobs()
 {
     // Linked, bus B's Doppler and Width follow bus A: dim them (they keep their own values for when it's unlinked).
@@ -1192,6 +1306,20 @@ void SwooshbucklerAudioProcessorEditor::showLinkedKnobs()
 void SwooshbucklerAudioProcessorEditor::timerCallback()
 {
     showLinkedKnobs();
+    showAimControls();
+    {
+        // Peak tremolo off: its knobs and menus dim, but stay usable so it can be set up before switching it on.
+        const bool on = m_processor.getState().getRawParameterValue(ParamIDs::tremOn)->load() > 0.5f;
+        if (m_tremShown != (on ? 1 : 0))
+        {
+            m_tremShown = on ? 1 : 0;
+            std::vector<juce::Component*> parts { &m_tremShape, &m_tremTarget };
+            for (const auto* id : { ParamIDs::tremDepth, ParamIDs::tremRate, ParamIDs::tremThreshold })
+                parts.push_back(m_controls[id]);
+            for (auto* c : parts)
+                c->setAlpha(on ? 1.0f : 0.45f);
+        }
+    }
     if ((++m_morphSyncTick % 6) == 0)
         syncMorphPad();
 

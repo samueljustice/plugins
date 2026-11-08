@@ -146,6 +146,7 @@ private:
     std::atomic<bool> m_uiSwell { false };
     std::atomic<bool> m_playing { false }, m_restartPending { false };
     float m_transportGain = 0.0f;
+    juce::SmoothedValue<float, juce::ValueSmoothingTypes::Multiplicative> m_trimGain { 1.0f }; // Master Trim, device rate
     int m_midiNotesHeld = 0;
     MasterProcessor m_master;
     TapeRecorder m_recorder;
@@ -169,7 +170,9 @@ private:
                           *takeTurns = nullptr;
         std::atomic<float>* space = nullptr, *inflate = nullptr, *push = nullptr, *ceiling = nullptr;
         std::atomic<float>* morphOn = nullptr, *morphMode = nullptr, *morphX = nullptr, *morphY = nullptr;
-        std::atomic<float>* linkBuses = nullptr;
+        std::atomic<float>* linkBuses = nullptr, *hitAim = nullptr;
+        std::atomic<float>* tremOn = nullptr, *tremDepth = nullptr, *tremRate = nullptr, *tremThreshold = nullptr, *tremShape = nullptr, *tremTarget = nullptr;
+        std::atomic<float>* masterTrim = nullptr;
         std::atomic<float>* modType[ParamIDs::numMods] {}, *modShape[ParamIDs::numMods] {}, *modKnob[ParamIDs::numMods] {},
                             *modFollow[ParamIDs::numMods] {};
     } m_raw;
@@ -185,6 +188,7 @@ private:
     std::vector<ModTarget> m_modTargets;   // aligned with ModMatrix::targets()
     ModMatrix::FollowerInputs m_followerLevels {}; // RMS of the output, bus A, bus B and the hits (the Followers' inputs)
     float m_pushDb = 0.0f;                 // Push after modulation
+    std::array<int, ParamIDs::numCargoTracks> m_trackPitchTarget {}; // each track's pitch as a modulation target index
     /** A parameter's value with its wires applied (audio thread, no allocation). */
     float modValue(std::atomic<float>* raw);
     void runModulators(int numSamples);

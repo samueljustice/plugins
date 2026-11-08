@@ -181,7 +181,20 @@ private:
 
     SeaVisualiser m_sea;
     MorphPad m_morphPad;
-    juce::TextButton m_morphButton { "MORPH" }, m_syncHits { "SYNC HITS" };
+    juce::TextButton m_morphButton { "MORPH" }, m_syncHits { "SYNC HITS" }, m_aimHits { "AIM" };
+    std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> m_aimAttachment;
+    int m_aimShown = -1;   // the AIM state the gate controls were last dimmed for
+    int m_tremShown = -1;  // the tremolo on / off state its controls were last dimmed for
+    void showAimControls();
+    // The PEAK TREMOLO group's menus (in its frame at the left of Output) and the Master Trim fader (by the OUT meter).
+    juce::ComboBox m_tremShape, m_tremTarget;
+    juce::ComboBox m_tremOn;    // Off / On
+    std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> m_tremOnAttachment;
+    juce::Rectangle<int> m_tremGroup; // the framed PEAK TREMOLO group at the left of the Output panel
+    std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> m_tremShapeAttachment, m_tremTargetAttachment;
+    juce::Slider m_trim;
+    std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> m_trimAttachment;
+    juce::Rectangle<int> m_trimLabel;
     std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> m_syncAttachment;
     // Gate and ducking options (defaults = the original rig)
     juce::ComboBox m_gateMode, m_duckMode;
