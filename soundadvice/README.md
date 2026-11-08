@@ -10,7 +10,7 @@ It's a VST3 / AU plug-in (audio passes straight through, untouched) and a standa
 
 ## What's in it
 
-833 entries from 148 people, kept to concrete, technically creative advice: sources and processing, recording, design methods and specific mix decisions, each tied to the production it came from. The sound designers and mixers all have film, TV or game credits on IMDb, and every entry links to the interview, article or SoundWorks Collection video it came from. Nothing predates 2005, either in the source or in the work it describes, apart from the Star Wars prequels. The Creativity & Teams category draws on a legendary Disney Imagineer's book about creative work: leading teams, finding a theme, critique, risk and knowing when to stop. Two kinds:
+829 entries from 147 people, kept to concrete, technically creative advice: sources and processing, recording, design methods and specific mix decisions, each tied to the production it came from. The sound designers and mixers all have film, TV or game credits on IMDb, and every entry links to the interview, article or SoundWorks Collection video it came from. Nothing predates 2005, either in the source or in the work it describes, apart from the Star Wars prequels. The Creativity & Teams category draws on a legendary Disney Imagineer's book about creative work: leading teams, finding a theme, critique, risk and knowing when to stop. Two kinds:
 
 - **Quotes**, in quotation marks and italics: their own words, kept short.
 - **Field notes**: a technique, decision or story from that source, retold in a sentence or two. "Field note" is printed above them.
@@ -21,13 +21,13 @@ Click a person's name to open their IMDb (or other profile) page; click the sour
 
 | Category | Entries |
 |---|---|
-| Mixing | 255 |
+| Mixing | 252 |
 | Action & Impact | 92 |
-| Trailers | 31 |
+| Trailers | 30 |
 | Creatures & Voices | 83 |
 | Ambience & Worlds | 115 |
-| Dialogue | 175 |
-| Field Recording | 181 |
+| Dialogue | 174 |
+| Field Recording | 180 |
 | Weapons & Vehicles | 50 |
 | Sci-Fi & Magic | 133 |
 | Horror & Tension | 53 |
@@ -35,7 +35,7 @@ Click a person's name to open their IMDb (or other profile) page; click the sour
 | Music & Sound | 66 |
 | Games | 33 |
 | Story & Emotion | 118 |
-| Craft & Technique | 207 |
+| Craft & Technique | 205 |
 | Collaboration & Career | 82 |
 | Creativity & Teams | 76 |
 
