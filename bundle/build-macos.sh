@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Builds the combined Sammy J macOS installer (unsigned) from each plug-in's newest release.
 #   bundle/build-macos.sh <releases file from resolve-releases.sh> <bundle version> <work dir>
-# Leaves <work dir>/SammyJ-Plugins-macOS-Installer.pkg. The workflow signs and notarises it.
+# Leaves <work dir>/SammyJ-Plugins-macOS-Installer.pkg and <work dir>/Uninstall Sammy J's Plugins.app.
+# The workflow signs and notarises them, then puts both in a disk image with bundle/make-dmg.sh.
 #
 # The bundles inside come straight from the plug-ins' own releases, which are already signed, notarised
 # and stapled, so nothing here re-signs them. Every component package removes the old copy first
@@ -170,3 +171,6 @@ EOF
 productbuild --distribution "$work/distribution.xml" --resources "$work/resources" \
   --package-path "$work/pkgs" --version "$version" "$work/SammyJ-Plugins-macOS-Installer.pkg"
 ls -la "$work/SammyJ-Plugins-macOS-Installer.pkg"
+
+# The uninstaller, for the disk image (bundle/make-dmg.sh). The workflow signs and notarises it.
+"$here/make-uninstaller.sh" "$version" "$work/Uninstall Sammy J's Plugins.app"

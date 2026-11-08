@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Rewrites the "Get them all" block at the top of the root README to point at a just-published installer.
 
-Usage: update-readme.py <README.md> <repository> <release tag> <macOS file> <Windows file> <built> <releases.txt>
+Usage: update-readme.py <README.md> <repository> <release tag> <macOS .dmg> <Windows .exe> <built> <releases.txt>
 
   repository   owner/name, e.g. samueljustice/plugins
   built        when the installer was built, as shown in the heading, e.g. "8 Nov 2026, 12:53 UTC"
@@ -50,7 +50,8 @@ def main() -> int:
         f"[![Get them all for Windows](https://img.shields.io/badge/Get_them_all-Windows-0078D6?style=for-the-badge&logo=windows&logoColor=white)]({base}/{win})",
         "",
         f"<sub>One installer with the newest version of every plug-in: {inside}. The apps, the VST3s and (on macOS) the AUs. "
-        "It removes older copies first, so nothing shows up twice in your host.<br>",
+        "It removes older copies first, so nothing shows up twice in your host. "
+        "To remove them again: on macOS, run Uninstall Sammy J's Plugins from the same disk image; on Windows, use Settings &gt; Apps.<br>",
         f"Want just one? Each plug-in's own download is below, or browse all <a href=\"https://github.com/{repo}/releases\">releases</a>.</sub>",
         END,
     ])

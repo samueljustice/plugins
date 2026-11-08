@@ -162,30 +162,48 @@ jobs:
         APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
         APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
       run: |
-        f=SammyJ-Plugins-macOS-Installer.pkg
-        ID=$(xcrun notarytool submit "$f" --apple-id "$APPLE_ID" --password "$APPLE_APP_PASSWORD" --team-id "$APPLE_TEAM_ID" --output-format json | jq -r '.id')
-        xcrun notarytool wait "$ID" --apple-id "$APPLE_ID" --password "$APPLE_APP_PASSWORD" --team-id "$APPLE_TEAM_ID"
-        STATUS=$(xcrun notarytool info "$ID" --apple-id "$APPLE_ID" --password "$APPLE_APP_PASSWORD" --team-id "$APPLE_TEAM_ID" --output-format json | jq -r '.status')
-        if [ "$STATUS" != "Accepted" ]; then
-          xcrun notarytool log "$ID" --apple-id "$APPLE_ID" --password "$APPLE_APP_PASSWORD" --team-id "$APPLE_TEAM_ID"
-          exit 1
-        fi
-        # Fetching the ticket from Apple sometimes drops the connection (stapler error 68), at times
-        # for minutes, so retry with a growing pause (30 s, 60 s, ..., about 10 minutes in all).
-        delay=30
-        for attempt in 1 2 3 4 5 6 7; do
-          if xcrun stapler staple "$f"; then break; fi
-          echo "Stapling $f failed (attempt $attempt of 7)"
-          if [ "$attempt" -eq 7 ]; then exit 1; fi
-          sleep "$delay"; delay=$((delay + 30))
-        done
-        spctl --assess --type install -vv "$f"
+        bundle/notarise.sh SammyJ-Plugins-macOS-Installer.pkg
+        spctl --assess --type install -vv SammyJ-Plugins-macOS-Installer.pkg
+
+    - name: Sign and notarise the uninstaller
+      if: steps.check_certs.outputs.has_certs == 'true'
+      env:
+        APPLE_ID: ${{ secrets.APPLE_ID }}
+        APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+        APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      run: |
+        APP="$RUNNER_TEMP/bundle/Uninstall Sammy J's Plugins.app"
+        IDENTITY=$(security find-identity -v -p codesigning | grep "Developer ID Application" | head -1 | awk -F'"' '{print $2}')
+        [[ -n "$IDENTITY" ]] || { echo "Developer ID Application certificate not found"; exit 1; }
+        codesign --force --options runtime --timestamp --sign "$IDENTITY" "$APP"
+        codesign --verify --strict --verbose=2 "$APP"
+        bundle/notarise.sh "$APP"
+        spctl --assess --type execute -vv "$APP"
+
+    # The macOS download: the installer and the uninstaller together.
+    - name: Build disk image
+      run: |
+        bundle/make-dmg.sh SammyJ-Plugins-macOS-Installer.pkg "$RUNNER_TEMP/bundle/Uninstall Sammy J's Plugins.app" SammyJ-Plugins-macOS.dmg
+
+    - name: Sign and notarise disk image
+      if: steps.check_certs.outputs.has_certs == 'true'
+      env:
+        APPLE_ID: ${{ secrets.APPLE_ID }}
+        APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+        APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      run: |
+        IDENTITY=$(security find-identity -v -p codesigning | grep "Developer ID Application" | head -1 | awk -F'"' '{print $2}')
+        codesign --force --timestamp --sign "$IDENTITY" SammyJ-Plugins-macOS.dmg
+        bundle/notarise.sh SammyJ-Plugins-macOS.dmg
+        spctl --assess --type open --context context:primary-signature -vv SammyJ-Plugins-macOS.dmg
 
     - name: Upload macOS installer
       uses: actions/upload-artifact@v6
       with:
         name: macos-installer
-        path: SammyJ-Plugins-macOS-Installer.pkg
+        path: |
+          SammyJ-Plugins-macOS.dmg
+          SammyJ-Plugins-macOS-Installer.pkg
 
   build-windows:
     needs: resolve
@@ -285,6 +303,7 @@ jobs:
       STAMP: ${{ needs.resolve.outputs.stamp }}
       BUILT: ${{ needs.resolve.outputs.built }}
       MAC_FILE: SammyJ-Plugins-${{ needs.resolve.outputs.stamp }}-macOS-Installer.pkg
+      DMG_FILE: SammyJ-Plugins-${{ needs.resolve.outputs.stamp }}-macOS.dmg
       WIN_FILE: SammyJ-Plugins-${{ needs.resolve.outputs.stamp }}-Windows-Installer.exe
     steps:
     # main itself (not the commit that started the run), so the README update below lands on the newest main.
@@ -300,6 +319,7 @@ jobs:
     - name: Stamp the file names with the build date and time
       run: |
         mv macos-installer/SammyJ-Plugins-macOS-Installer.pkg "macos-installer/$MAC_FILE"
+        mv macos-installer/SammyJ-Plugins-macOS.dmg "macos-installer/$DMG_FILE"
         mv windows-installer/SammyJ-Plugins-Windows-Installer.exe "windows-installer/$WIN_FILE"
         ls -la macos-installer windows-installer
 
@@ -323,8 +343,8 @@ jobs:
           echo "Built $BUILT."
           echo
           echo "### Downloads"
-          echo "- **macOS** (\`.pkg\`): every app, VST3 and AU. Choose Customize to pick. Signed and notarised; Universal (Apple silicon and Intel), macOS 11 or later."
-          echo "- **Windows** (\`.exe\`): every VST3, plus the Swooshbuckler and Sound Advice apps. 64-bit Windows 10 or later."
+          echo "- **macOS** (\`.dmg\`): the installer, with every app, VST3 and AU (choose Customize to pick), and **Uninstall Sammy J's Plugins**, which removes them again. Signed and notarised; Universal (Apple silicon and Intel), macOS 11 or later. The \`.pkg\` is the same installer on its own."
+          echo "- **Windows** (\`.exe\`): every VST3, plus the Swooshbuckler and Sound Advice apps. 64-bit Windows 10 or later. Uninstall from Settings > Apps (or the Start menu), which can also remove your settings and presets."
         } > notes.md
         cat notes.md
 
@@ -337,6 +357,7 @@ jobs:
         body_path: notes.md
         make_latest: true
         files: |
+          macos-installer/${{ env.DMG_FILE }}
           macos-installer/${{ env.MAC_FILE }}
           windows-installer/${{ env.WIN_FILE }}
       env:
@@ -349,7 +370,7 @@ jobs:
         RELEASES: ${{ needs.resolve.outputs.releases }}
       run: |
         printf '%s\n' "$RELEASES" > "$RUNNER_TEMP/releases.txt"
-        python3 bundle/update-readme.py README.md "$GITHUB_REPOSITORY" "bundle-v$VERSION" "$MAC_FILE" "$WIN_FILE" "$BUILT" "$RUNNER_TEMP/releases.txt"
+        python3 bundle/update-readme.py README.md "$GITHUB_REPOSITORY" "bundle-v$VERSION" "$DMG_FILE" "$WIN_FILE" "$BUILT" "$RUNNER_TEMP/releases.txt"
         if git diff --quiet -- README.md; then
           echo "README already points at this installer"
           exit 0
