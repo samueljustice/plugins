@@ -1,6 +1,6 @@
 # Swooshbuckler changelog
 
-## Unreleased
+## 1.3.0
 
 - **AIM: hits on the peaks.** On by default for new sessions: Swooshbuckler looks ahead to each doppler pass's peak on buses A and B and fires every hit track early by its own lead-in, so the transients land right on the peak. Sensitivity sets which peaks earn a hit. Sessions saved before keep the hit gate they were made with.
 - **Peak Tremolo.** A tremolo that shakes only the loudest moments, deepening as the level nears its peak: On/Off, Sine, Square or Flutter, and whether it shakes everything, the buses or the hits, with Depth, Rate and Threshold. It sits at the left of Output.

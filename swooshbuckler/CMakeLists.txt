@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.21)
 
 # The one place the version lives. Release builds pass -DSWOOSHBUCKLER_VERSION=x.y.z (from the
 # swooshbuckler-vx.y.z tag); it ends up in the About panel, the bundles, the installers and the app.
-set(SWOOSHBUCKLER_VERSION "1.2.0" CACHE STRING "Swooshbuckler version (major.minor.patch)")
+set(SWOOSHBUCKLER_VERSION "1.3.0" CACHE STRING "Swooshbuckler version (major.minor.patch)")
 project(Swooshbuckler VERSION ${SWOOSHBUCKLER_VERSION})
 
 set(CMAKE_CXX_STANDARD 20)
