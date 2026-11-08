@@ -463,10 +463,10 @@ namespace
 
     /**
      * Diagnostic for a real recording (--file): plays it through a Source Type's settings in Latch mode and prints,
-     * every 100 ms, the tracked pitch, the target, the correction and the output pitch measured near the target,
+     * every 100 ms (--step), the tracked pitch, the target, the correction and the output pitch measured near the target,
      * then the median and 90th percentile of how far the output is from the target.
      */
-    int analyseFile (const juce::File& file, SourceType source, int detectorOverride, float maxShiftOverride)
+    int analyseFile (const juce::File& file, SourceType source, int detectorOverride, float maxShiftOverride, double step, float maxFreqOverride, float minFreqOverride, const juce::File& outFile)
     {
         juce::AudioFormatManager formats;
         formats.registerBasicFormats();
@@ -485,7 +485,8 @@ namespace
         FlattenerCore core;
         DetectorConfig dc;
         dc.type = detectorOverride >= 0 ? (DetectorType) detectorOverride : p.detector;
-        dc.minHz = p.minHz; dc.maxHz = p.maxHz;
+        dc.minHz = minFreqOverride > 0.0f ? minFreqOverride : p.minHz;
+        dc.maxHz = maxFreqOverride > 0.0f ? maxFreqOverride : p.maxHz;
         core.prepare (fs, 512, 2, dc, p.quality);
         Case c { file.getFileName().toStdString(), source, TargetMode::Latch, 0.0f, nullptr, 0, 0, 0 };
         auto ls = settingsFor (c);
@@ -509,14 +510,13 @@ namespace
                 frames.push_back (tf);
         }
 
-        std::printf ("%s: %s, detector %s, Max Shift %.0f st, latency %.2f s\n", file.getFileName().toRawUTF8(), p.name,
-                     getDetectorName (dc.type), ls.maxShiftSemitones, lat / fs);
+        std::printf ("%s: %s, detector %s, %.0f-%.0f Hz, Max Shift %.0f st, latency %.2f s\n", file.getFileName().toRawUTF8(), p.name,
+                     getDetectorName (dc.type), dc.minHz, dc.maxHz, ls.maxShiftSemitones, lat / fs);
         std::printf ("   t(s)   track  target  corr(ct)  out(Hz)  off(ct)\n");
 
-        // Telemetry frame -> time (approximately: the detector's own time bias is not included).
+        // Telemetry frame -> time of the audio it describes (frame k is centred on input sample k * hop).
         const double fa = core.getAnalysisRate();
         const double hopA = std::round (0.005 * fa);
-        const double fw = std::pow (2.0, std::ceil (std::log2 (8192.0 * fa / 24000.0)));
         const int win = (int) (0.04 * fs);
 
         // Meter a low-passed copy of the output, as runCase does, so broadband noise doesn't hide the pitch.
@@ -536,11 +536,11 @@ namespace
         double next = 0.0;
         for (const auto& tf : frames)
         {
-            const double t = (tf.frame * hopA + fw / 2) / fa;
+            const double t = tf.frame * hopA / fa;
             const int at = (int) (t * fs);
             if (t < next || at + win >= len)
                 continue;
-            next = std::floor (t * 10.0 + 1.0e-6) / 10.0 + 0.1;   // one row per 100 ms step
+            next = std::floor (t / step + 1.0e-6) * step + step;   // one row per step
             ++rows;
             if (tf.targetHz <= 0) ++unpitched;
             const float out = tf.targetHz > 0 ? measurePitch (metered.data() + at, win, fs, tf.targetHz) : 0.0f;
@@ -549,6 +549,13 @@ namespace
                 off.push_back (out > 0 ? std::abs (cents) : 1200.0f);
             std::printf ("  %5.2f %7.1f %7.1f %8.1f %8.1f %8.1f\n", t, tf.trackHz, tf.targetHz, tf.ratioCents, out, cents);
         }
+        if (outFile != juce::File())
+        {
+            // The processed sound, latency removed, so it lines up with the input.
+            std::vector<float> outL (l.begin() + lat, l.end()), outR (r.begin() + lat, r.end());
+            writeWav (outFile, outL, outR, fs);
+        }
+
         std::printf ("rows with no pitch tracked: %d of %d\n", unpitched, rows);
         if (off.empty())
             std::printf ("output off target: no pitch was tracked, so there is nothing to measure\n");
@@ -640,6 +647,9 @@ int main (int argc, char** argv)
     juce::File analyse;
     int analyseSource = (int) SourceType::Siren, analyseDetector = -1;
     float analyseMaxShift = 0.0f;
+    double analyseStep = 0.1;
+    float analyseMaxFreq = 0.0f, analyseMinFreq = 0.0f;
+    juce::File analyseOut;
 
     for (int i = 1; i < argc; ++i)
     {
@@ -654,10 +664,14 @@ int main (int argc, char** argv)
         else if (a == "--source" && i + 1 < argc) analyseSource = juce::String (argv[++i]).getIntValue();
         else if (a == "--detector" && i + 1 < argc) analyseDetector = juce::String (argv[++i]).getIntValue();
         else if (a == "--maxshift" && i + 1 < argc) analyseMaxShift = juce::String (argv[++i]).getFloatValue();
+        else if (a == "--out" && i + 1 < argc) analyseOut = juce::File (juce::String (argv[++i]));
+        else if (a == "--minfreq" && i + 1 < argc) analyseMinFreq = juce::String (argv[++i]).getFloatValue();
+        else if (a == "--maxfreq" && i + 1 < argc) analyseMaxFreq = juce::String (argv[++i]).getFloatValue();
+        else if (a == "--step" && i + 1 < argc) analyseStep = juce::jmax (0.005, juce::String (argv[++i]).getDoubleValue());
     }
 
     if (analyse != juce::File())
-        return analyseFile (analyse, (SourceType) juce::jlimit (0, (int) SourceType::NumSourceTypes - 1, analyseSource), analyseDetector, analyseMaxShift);
+        return analyseFile (analyse, (SourceType) juce::jlimit (0, (int) SourceType::NumSourceTypes - 1, analyseSource), analyseDetector, analyseMaxShift, analyseStep, analyseMaxFreq, analyseMinFreq, analyseOut);
 
     std::printf ("Pitch Flattener DSP tests @ %.0f Hz, block %d\n", fs, block);
     bool ok = true;

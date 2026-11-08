@@ -344,7 +344,7 @@ cmake --build build-tests --target PitchFlattenerTests
 
 `--wav` writes each test's input and output so you can listen to them.
 
-To see how a real recording fares, `--file sound.wav` plays it through a Source Type's settings (`--source 2`, Siren, by default; `--detector n` and `--maxshift n` override the detector and Max Shift) and prints the track, target, correction and output pitch every 100 ms, with how far the output lands from the target.
+To see how a real recording fares, `--file sound.wav` plays it through a Source Type's settings (`--source 2`, Siren, by default) and prints the track, target, correction and output pitch every 100 ms, with how far the output lands from the target. `--detector n`, `--minfreq`, `--maxfreq` and `--maxshift` override those settings, `--step` changes the reporting interval (use 0.01 for short sounds) and `--out processed.wav` writes the result, lined up with the input.
 
 ## Tips
 
