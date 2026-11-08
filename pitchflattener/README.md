@@ -159,6 +159,19 @@ The legend chips along the bottom each switch one layer on or off:
 
 ![The same siren with ZOOM: RANGE, showing the whole 300 Hz to 3 kHz detection range, with the siren's harmonics visible in the spectrogram above the track](docs/display-siren-range.png)
 
+#### Wobble warning
+
+![A red warning across the top of the graph: WOBBLING: OUTPUT 45 CT OFF TARGET. Siren comes out about 1.9x flatter here. With TRY SIREN and close buttons](docs/display-wobble.png)
+
+While sound plays, the plugin measures the pitch of its own flattened output against the target. If the output stays well off the target (more than about 35 cents, for more than a second), a red warning appears across the graph with how far off it is.
+
+It then replays the last few seconds through every Source Type in the background, keeping your target settings, and measures each one's output the same way:
+
+- If one comes out clearly flatter, the warning names it, with a **TRY** button that switches to it, just as picking it from the Source menu would.
+- If none does clearly better, it says so and suggests narrowing Min / Max Freq around the sound or lowering Speed.
+
+The warning goes once the output has been flat for about two seconds; **X** hides it until then, or until a setting changes. It only judges what it can measure: a sound too short or too noisy for the meter to read, such as a ricochet's crack, never raises it. With Amount or Mix turned below 95 % the result isn't meant to be flat, so it stays quiet.
+
 What it looks like on other sources:
 
 **Voice with vibrato and a slow drift** (Vocal / Speech, Latch). The track wobbles with vibrato, drifts down and back, and is bridged across the breath gaps; the output stays on the latched pitch:
@@ -195,7 +208,7 @@ The column to the right of the display gives numbers for the newest analysed mom
 The amber section sets the pitch the sound is flattened to and how much is removed.
 
 - **Target mode** (the menu in the section's title bar):
-  - **Latch** (default) locks to the opening pitch of each sound: the median of its first ~300 ms, read with lookahead. It re-latches when a new sound starts after more than a second without pitch.
+  - **Latch** (default) locks to the opening pitch of each sound: the median of its first ~300 ms, read with lookahead. The latch is decided before the sound plays, so it is flattened from its first sample, soft or breathy attacks included. It re-latches when a new sound starts after more than a second without pitch.
   - **Fixed** flattens everything to **Target Hz**.
   - **Auto** removes movement faster than **Auto Win** and keeps the slower overall contour. Use it to take out vibrato or warble without changing the melody.
 - **TARGET HZ** (Fixed): the pitch everything is flattened to. You can type a note name such as `A4` into its value.
@@ -344,7 +357,7 @@ cmake --build build-tests --target PitchFlattenerTests
 
 `--wav` writes each test's input and output so you can listen to them.
 
-To see how a real recording fares, `--file sound.wav` plays it through a Source Type's settings (`--source 2`, Siren, by default) and prints the track, target, correction and output pitch every 100 ms, with how far the output lands from the target. `--detector n`, `--minfreq`, `--maxfreq` and `--maxshift` override those settings, `--step` changes the reporting interval (use 0.01 for short sounds) and `--out processed.wav` writes the result, lined up with the input.
+To see how a real recording fares, `--file sound.wav` plays it through a Source Type's settings (`--source 2`, Siren, by default) and prints the track, target, correction and output pitch every 100 ms, with how far the output lands from the target. `--detector n`, `--minfreq`, `--maxfreq` and `--maxshift` override those settings, `--step` changes the reporting interval (use 0.01 for short sounds) and `--out processed.wav` writes the result, lined up with the input. `--advise sound.wav` runs the wobble warning's Source Type check on a whole recording (starting from `--source n`) and prints how flat each Source Type comes out.
 
 ## Tips
 

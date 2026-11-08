@@ -14,6 +14,8 @@
 #include <juce_audio_basics/juce_audio_basics.h>
 #include <juce_audio_formats/juce_audio_formats.h>
 #include "dsp/FlattenerCore.h"
+#include "dsp/SourceAdvisor.h"
+#include "dsp/PitchMeter.h"
 #include "dsp/SourcePresets.h"
 #include <random>
 #include <climits>
@@ -416,6 +418,64 @@ namespace
         return ok;
     }
 
+    /** Latch locks before a sound plays: two calls with soft, breathy attacks (Latch, Vocal / Speech), and every
+        tracked frame of each call must already carry that call's latched target, including its first ones. */
+    bool testLatchFromFirstFrame (double fs)
+    {
+        const auto& p = getSourcePreset (SourceType::Vocal);
+        FlattenerCore core;
+        DetectorConfig dc;
+        dc.type = p.detector; dc.minHz = p.minHz; dc.maxHz = p.maxHz;
+        core.prepare (fs, 512, 2, dc, p.quality);
+        Case c { "latch_first_frame", SourceType::Vocal, TargetMode::Latch, 0.0f, nullptr, 0, 0, 0 };
+        auto ls = settingsFor (c);
+        ls.gateDb = -60.0f;
+        core.setLiveSettings (ls);
+        core.setFilters (p.highpassHz, p.lowpassHz);
+
+        // Two calls 3 s apart, each a 250 ms breathy swell into a falling 600 -> 450 Hz call.
+        const auto inCall = [] (double t) { return std::fmod (t, 3.0) - 0.5; };   // time since the call began
+        auto sig = harmonicTone (fs, 6.0, [&inCall] (double t) { return 600.0 * std::pow (0.75, std::clamp (inCall (t), 0.0, 1.2) / 1.2); },
+                                 12, 1.0, -55.0, false,
+                                 [&inCall] (double t) { const double u = inCall (t);
+                                                        return u < 0.0 || u > 1.2 ? 0.0 : std::min (1.0, std::pow (u / 0.25, 2.0)); });
+        const int lat = core.getLatencySamples(), n = lat + (int) sig.l.size();
+        std::vector<float> l ((size_t) n, 0.0f);
+        std::copy (sig.l.begin(), sig.l.end(), l.begin());
+        auto r = l;
+        std::vector<TelemetryFrame> frames;
+        for (int pos = 0; pos < n; pos += 512)
+        {
+            float* ch[2] = { l.data() + pos, r.data() + pos };
+            core.process (ch, 2, std::min (512, n - pos));
+            TelemetryFrame tf;
+            while (core.popTelemetry (tf))
+                frames.push_back (tf);
+        }
+
+        // Split into calls (runs of tracked frames) and compare every frame's target with the call's middle.
+        int calls = 0, offFrames = 0, tracked = 0;
+        for (size_t i = 0; i < frames.size();)
+        {
+            if (frames[i].targetHz <= 0.0f) { ++i; continue; }
+            size_t j = i;
+            while (j < frames.size() && frames[j].targetHz > 0.0f) ++j;
+            if (j - i > 40)
+            {
+                ++calls;
+                const float latchedHz = frames[(i + j) / 2].targetHz;
+                for (size_t k = i; k < j; ++k, ++tracked)
+                    if (frames[k].rmsDb > -50.0f && std::abs (1200.0f * std::log2 (frames[k].targetHz / latchedHz)) > 1.0f)
+                        ++offFrames;
+            }
+            i = j;
+        }
+        const bool ok = calls == 2 && offFrames == 0;
+        std::printf ("  latch from a sound's first frame: %d calls, %d of %d audible tracked frames off the call's latch -> %s\n",
+                     calls, offFrames, tracked, ok ? "OK" : "FAIL");
+        return ok;
+    }
+
     /** Manual Override flattens the detected pitch to Override Hz in every target mode. */
     bool testOverride (double fs)
     {
@@ -512,7 +572,7 @@ namespace
 
         std::printf ("%s: %s, detector %s, %.0f-%.0f Hz, Max Shift %.0f st, latency %.2f s\n", file.getFileName().toRawUTF8(), p.name,
                      getDetectorName (dc.type), dc.minHz, dc.maxHz, ls.maxShiftSemitones, lat / fs);
-        std::printf ("   t(s)   track  target  corr(ct)  out(Hz)  off(ct)\n");
+        std::printf ("   t(s)   track  target  corr(ct)  out(Hz)  off(ct)  conf  level(dB)\n");
 
         // Telemetry frame -> time of the audio it describes (frame k is centred on input sample k * hop).
         const double fa = core.getAnalysisRate();
@@ -547,7 +607,8 @@ namespace
             const float cents = out > 0 ? 1200.0f * std::log2 (out / tf.targetHz) : 0.0f;
             if (tf.targetHz > 0)
                 off.push_back (out > 0 ? std::abs (cents) : 1200.0f);
-            std::printf ("  %5.2f %7.1f %7.1f %8.1f %8.1f %8.1f\n", t, tf.trackHz, tf.targetHz, tf.ratioCents, out, cents);
+            std::printf ("  %5.2f %7.1f %7.1f %8.1f %8.1f %8.1f  %4.2f  %6.1f\n", t, tf.trackHz, tf.targetHz, tf.ratioCents, out, cents,
+                         tf.voicedProb, tf.rmsDb);
         }
         if (outFile != juce::File())
         {
@@ -563,6 +624,89 @@ namespace
             std::printf ("output off target (rows with a pitch), median / 90th pct: %.0f / %.0f cents (1200 = no pitch measured in the output)\n",
                          percentile (off, 0.5f), percentile (off, 0.9f));
         return 0;
+    }
+
+    /** --advise: what the plugin's Source Type advisor makes of a recording, starting from the given Source Type. */
+    int adviseFile (const juce::File& file, int fromSource)
+    {
+        juce::AudioFormatManager formats;
+        formats.registerBasicFormats();
+        std::unique_ptr<juce::AudioFormatReader> reader (formats.createReaderFor (file));
+        if (reader == nullptr) { std::printf ("can't read %s\n", file.getFullPathName().toRawUTF8()); return 1; }
+        const double fs = reader->sampleRate;
+        const int len = (int) reader->lengthInSamples;
+        juce::AudioBuffer<float> in (1, len);
+        reader->read (&in, 0, len, 0, true, false);
+
+        ProcessingSettings now;
+        now.live.targetMode = TargetMode::Latch;
+        now.live.gateDb = -60.0f;
+        now = withSourceType (now, (SourceType) fromSource);
+        const auto advice = adviseSourceType (in.getReadPointer (0), len, fs, now, fromSource);
+
+        std::printf ("%s (from %s)\n", file.getFileName().toRawUTF8(), getSourcePreset ((SourceType) fromSource).name);
+        const auto row = [] (const char* name, const TrialResult& r)
+        {
+            std::printf ("  %-17s coverage %3.0f%%  metered %3.0f%%  off %4.0f ct  flatness %.3f\n", name, 100.0f * r.coverage,
+                         100.0f * r.metered, r.medianOffCents, r.flatness);
+        };
+        row ("(current)", advice.current);
+        for (int i = 0; i < (int) SourceType::Custom; ++i)
+            row (getSourcePreset ((SourceType) i).name, advice.bySource[(size_t) i]);
+        std::printf ("  recommend: %s\n", advice.recommended >= 0 ? getSourcePreset ((SourceType) advice.recommended).name : "nothing");
+        return 0;
+    }
+
+    /** The advisor suggests the right Source Type when the current one is wrong, and nothing when it is right. */
+    bool testSourceAdvisor (double fs)
+    {
+        const auto siren = harmonicTone (fs, 6.0, [] (double t) { return 950.0 + 400.0 * std::sin (twoPi * 0.3 * t); }, 4, 1.5, -40.0);
+        ProcessingSettings base;
+        base.live.targetMode = TargetMode::Latch;
+        base.live.gateDb = -60.0f;
+
+        const auto wrong = adviseSourceType (siren.l.data(), (int) siren.l.size(), fs,
+                                             withSourceType (base, SourceType::Drone), (int) SourceType::Drone);
+        const auto right = adviseSourceType (siren.l.data(), (int) siren.l.size(), fs,
+                                             withSourceType (base, SourceType::Siren), (int) SourceType::Siren);
+        const bool ok = wrong.valid && wrong.recommended == (int) SourceType::Siren && right.valid && right.recommended < 0;
+        std::printf ("  advisor on a siren: from Drone / Hum (flatness %.2f) suggests %s; from Siren (%.2f) suggests %s -> %s\n",
+                     wrong.current.flatness, wrong.recommended >= 0 ? getSourcePreset ((SourceType) wrong.recommended).name : "nothing",
+                     right.current.flatness, right.recommended >= 0 ? getSourcePreset ((SourceType) right.recommended).name : "nothing",
+                     ok ? "OK" : "FAIL");
+        return ok;
+    }
+
+    /** The output monitor ring is lined up with the input: monitored output around input sample k is k, flattened. */
+    bool testMonitorAlignment (double fs)
+    {
+        FlattenerCore core;
+        DetectorConfig dc;
+        core.prepare (fs, 512, 1, dc, 1);
+        auto s = LiveSettings {};
+        s.targetMode = TargetMode::Fixed; s.targetHz = 1000.0f;
+        core.setLiveSettings (s);
+        const int lat = core.getLatencySamples();
+        const int n = lat + (int) (4 * fs);
+        std::vector<float> x ((size_t) n, 0.0f);
+        for (int i = 0; i < n; ++i)
+            x[(size_t) i] = i < (int) (3 * fs) && i > (int) fs ? (float) (0.3 * std::sin (twoPi * 900.0 * i / fs)) : 0.0f;
+        for (int pos = 0; pos < n; pos += 512)
+        {
+            float* ch[1] = { x.data() + pos };
+            core.process (ch, 1, std::min (512, n - pos));
+        }
+        // the tone runs from 1 s to 3 s of input: the monitored output there is at 1000 Hz, before 1 s it is silent
+        std::vector<float> win ((size_t) (0.04 * fs)), scratch;
+        const bool gotTone = core.copyMonitor (true, (int64_t) (2.0 * fs), (int) win.size(), win.data());
+        const float hz = gotTone ? measurePitchNear (win.data(), (int) win.size(), fs, 1000.0f, scratch) : 0.0f;
+        std::vector<float> quiet ((size_t) (0.04 * fs));
+        const bool gotQuiet = core.copyMonitor (true, (int64_t) (0.5 * fs), (int) quiet.size(), quiet.data());
+        float peak = 0.0f;
+        for (auto v : quiet) peak = std::max (peak, std::abs (v));
+        const bool ok = gotTone && gotQuiet && std::abs (1200.0f * std::log2 (std::max (hz, 1.0f) / 1000.0f)) < 10.0f && peak < 1.0e-3f;
+        std::printf ("  output monitor lined up with the input: tone section at %.1f Hz, silent section peak %.4f -> %s\n", hz, peak, ok ? "OK" : "FAIL");
+        return ok;
     }
 
     /** Runs a 900 Hz tone flattened to 1000 Hz; optionally injects a NaN at t=1 s. */
@@ -649,7 +793,7 @@ int main (int argc, char** argv)
     float analyseMaxShift = 0.0f;
     double analyseStep = 0.1;
     float analyseMaxFreq = 0.0f, analyseMinFreq = 0.0f;
-    juce::File analyseOut;
+    juce::File analyseOut, advise;
 
     for (int i = 1; i < argc; ++i)
     {
@@ -664,11 +808,15 @@ int main (int argc, char** argv)
         else if (a == "--source" && i + 1 < argc) analyseSource = juce::String (argv[++i]).getIntValue();
         else if (a == "--detector" && i + 1 < argc) analyseDetector = juce::String (argv[++i]).getIntValue();
         else if (a == "--maxshift" && i + 1 < argc) analyseMaxShift = juce::String (argv[++i]).getFloatValue();
+        else if (a == "--advise" && i + 1 < argc) advise = juce::File (juce::String (argv[++i]));
         else if (a == "--out" && i + 1 < argc) analyseOut = juce::File (juce::String (argv[++i]));
         else if (a == "--minfreq" && i + 1 < argc) analyseMinFreq = juce::String (argv[++i]).getFloatValue();
         else if (a == "--maxfreq" && i + 1 < argc) analyseMaxFreq = juce::String (argv[++i]).getFloatValue();
         else if (a == "--step" && i + 1 < argc) analyseStep = juce::jmax (0.005, juce::String (argv[++i]).getDoubleValue());
     }
+
+    if (advise != juce::File())
+        return adviseFile (advise, juce::jlimit (0, (int) SourceType::NumSourceTypes - 1, analyseSource));
 
     if (analyse != juce::File())
         return analyseFile (analyse, (SourceType) juce::jlimit (0, (int) SourceType::NumSourceTypes - 1, analyseSource), analyseDetector, analyseMaxShift, analyseStep, analyseMaxFreq, analyseMinFreq, analyseOut);
@@ -685,6 +833,9 @@ int main (int argc, char** argv)
     ok &= testRebuildsMidStream (fs);
     ok &= testOverride (fs);
     ok &= testNoiseTail (fs);
+    ok &= testLatchFromFirstFrame (fs);
+    ok &= testMonitorAlignment (fs);
+    ok &= testSourceAdvisor (fs);
 
     const double c = 343.0;
     std::vector<Case> cases = {

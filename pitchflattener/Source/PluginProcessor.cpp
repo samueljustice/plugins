@@ -170,6 +170,25 @@ pf::LiveSettings PitchFlattenerAudioProcessor::readLiveSettings() const
     return s;
 }
 
+pf::ProcessingSettings PitchFlattenerAudioProcessor::getProcessingSettings() const
+{
+    pf::ProcessingSettings s;
+    s.live = readLiveSettings();
+    const auto c = wantedDetectorConfig();
+    s.detector = c.type;
+    s.minHz = c.minHz;
+    s.maxHz = c.maxHz;
+    s.quality = (int) raw.quality->load();
+    s.highpassHz = raw.detectionHighpass->load();
+    s.lowpassHz = raw.detectionLowpass->load();
+    return s;
+}
+
+int PitchFlattenerAudioProcessor::getSourceType() const
+{
+    return juce::jlimit (0, (int) pf::SourceType::NumSourceTypes - 1, juce::roundToInt (raw.sourceType->load()));
+}
+
 void PitchFlattenerAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
 {
     currentSampleRate = sampleRate;

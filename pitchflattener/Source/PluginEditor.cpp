@@ -333,6 +333,9 @@ PitchFlattenerAudioProcessorEditor::Content::Content (PitchFlattenerAudioProcess
     addAndMakeVisible (m_display);
     addAndMakeVisible (m_presetBar);
 
+    // The wobble warning's "Try ..." button picks a Source Type exactly as the Source menu does.
+    m_display.onTrySourceType = [this] (int type) { userPickedSourceType (type); };
+
     m_aboutButton.onClick = [this] { showAbout(); };
     m_aboutButton.setTooltip ("About SammyJs Pitch Flattener");
     addAndMakeVisible (m_aboutButton);

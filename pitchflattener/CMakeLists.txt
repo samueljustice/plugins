@@ -35,6 +35,7 @@ set(PF_DSP_SOURCES
     Source/dsp/PitchTracker.cpp
     Source/dsp/RubberBandDriver.cpp
     Source/dsp/FlattenerCore.cpp
+    Source/dsp/SourceAdvisor.cpp
 )
 
 option(PITCHFLATTENER_COPY_AFTER_BUILD "Copy plugins to the system folders after building" ON)

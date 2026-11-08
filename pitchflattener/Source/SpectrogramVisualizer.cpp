@@ -1,5 +1,7 @@
 #include "SpectrogramVisualizer.h"
 #include "PluginProcessor.h"
+#include "dsp/PitchMeter.h"
+#include "dsp/SourcePresets.h"
 
 namespace
 {
@@ -170,6 +172,8 @@ PitchDisplay::PitchDisplay (PitchFlattenerAudioProcessor& processor)
     m_targetMode = params.getRawParameterValue (ParamIDs::targetMode);
     m_manualOverride = params.getRawParameterValue (ParamIDs::manualOverride);
     m_maxShift = params.getRawParameterValue (ParamIDs::maxShift);
+    m_mix = params.getRawParameterValue (ParamIDs::mix);
+    m_amount = params.getRawParameterValue (ParamIDs::flattenAmount);
 
     m_chips = { Chip { "SPECTRUM", textDim,                      "Spectrogram of the analysis signal (after the detection filters), drawn behind the traces. Click to toggle.", {} },
                 Chip { "RAW",      detect.withAlpha (0.55f),     "Raw detector best guess for every analysis frame, before tracking. Click to toggle.", {} },
@@ -177,13 +181,78 @@ PitchDisplay::PitchDisplay (PitchFlattenerAudioProcessor& processor)
                 Chip { "TARGET",   target,                       "Target: the pitch the sound is flattened to. Click to toggle.", {} },
                 Chip { "OUTPUT",   correction,                   "Output: the detected pitch after the correction is applied. Click to toggle.", {} } };
 
+    // Wobble warning buttons (shown with the warning)
+    for (auto* b : { &m_tryButton, &m_dismissButton })
+    {
+        b->setColour (juce::TextButton::buttonColourId, juce::Colours::white.withAlpha (0.16f));
+        b->setColour (juce::TextButton::buttonOnColourId, juce::Colours::white.withAlpha (0.28f));
+        b->setColour (juce::TextButton::textColourOffId, juce::Colours::white);
+        b->setColour (juce::TextButton::textColourOnId, juce::Colours::white);
+        b->setColour (juce::ComboBox::outlineColourId, juce::Colours::white.withAlpha (0.5f));
+        addChildComponent (*b);
+    }
+    m_tryButton.onClick = [this]
+    {
+        if (m_wobble.recommended >= 0 && onTrySourceType)
+        {
+            const int type = m_wobble.recommended;
+            resetWobble();
+            onTrySourceType (type);
+        }
+    };
+    m_dismissButton.setTooltip ("Hide this warning until the output settles or a setting changes");
+    m_dismissButton.onClick = [this]
+    {
+        m_wobble.dismissed = true;
+        m_tryButton.setVisible (false);
+        m_dismissButton.setVisible (false);
+        repaint();
+    };
+
     setOpaque (false);
     startTimerHz (60);
 }
 
+//==============================================================================
+/** Replays a copy of the last few seconds through every Source Type, off the message thread. */
+class PitchDisplay::AdvisorThread final : public juce::Thread
+{
+public:
+    AdvisorThread (std::vector<float> audio, double sampleRate, pf::ProcessingSettings settings, int sourceType)
+        : juce::Thread ("Pitch Flattener advisor"),
+          m_audio (std::move (audio)), m_rate (sampleRate), m_settings (settings), m_source (sourceType)
+    {
+        startThread (juce::Thread::Priority::low);
+    }
+
+    ~AdvisorThread() override
+    {
+        m_cancel.store (true);
+        stopThread (10000);
+    }
+
+    void run() override
+    {
+        m_advice = pf::adviseSourceType (m_audio.data(), (int) m_audio.size(), m_rate, m_settings, m_source, &m_cancel);
+        m_done.store (true);
+    }
+
+    bool isDone() const { return m_done.load(); }
+    const pf::SourceAdvice& getAdvice() const { return m_advice; }   // only once isDone()
+
+private:
+    std::vector<float> m_audio;
+    double m_rate;
+    pf::ProcessingSettings m_settings;
+    int m_source;
+    std::atomic<bool> m_cancel { false }, m_done { false };
+    pf::SourceAdvice m_advice;
+};
+
 PitchDisplay::~PitchDisplay()
 {
     stopTimer();
+    m_advisor.reset();   // cancels and waits for a trial in progress
 }
 
 double PitchDisplay::analysisRate() const noexcept
@@ -242,8 +311,309 @@ void PitchDisplay::timerCallback()
 
     updateViewRange();
 
+    if (--m_wobbleCheckCountdown <= 0)
+    {
+        m_wobbleCheckCountdown = 15;   // 4 times a second
+        checkForWobble();
+    }
+    pollAdvisor();
+
     if (isShowing())
         repaint();
+}
+
+//==============================================================================
+// Wobble warning
+//==============================================================================
+namespace
+{
+    constexpr double c_checkSeconds = 3.0;      // output metered over this much of the newest decided sound
+    constexpr float c_wobbleCents = 35.0f;      // median distance from the target that counts as wobbling...
+    constexpr float c_settledCents = 25.0f;     // ...and below which it counts as settled (in between: no change)
+    constexpr int c_minWindows = 15;            // meter readings needed before judging
+    constexpr int c_showAfterChecks = 4;        // ~1 s of wobbling before the warning shows
+    constexpr int c_hideAfterChecks = 8;        // ~2 s of flat output before it goes
+    constexpr double c_advisorSeconds = 6.0;    // audio the advisor replays
+    constexpr double c_advisorCooldownMs = 10000.0;
+}
+
+void PitchDisplay::resetWobble()
+{
+    m_advisor.reset();
+    m_wobble = WobbleState {};
+    std::fill (m_readingFrame.begin(), m_readingFrame.end(), (int64_t) -1);
+
+    // Judge only sound that entered after this point: older history was processed the old way (or, after a reset,
+    // belongs to another stretch of audio altogether).
+    m_firstHistoryToJudge = m_historyCount;
+    const double perFrame = m_processor.getFrameInputSamples();
+    m_firstFrameToJudge = perFrame > 0.0 ? (int64_t) std::ceil ((double) m_processor.getMonitorWritten (false) / perFrame) : 0;
+
+    m_tryButton.setVisible (false);
+    m_dismissButton.setVisible (false);
+    repaint();
+}
+
+namespace
+{
+    bool sameProcessing (const pf::ProcessingSettings& a, const pf::ProcessingSettings& b)
+    {
+        const auto& x = a.live;
+        const auto& y = b.live;
+        return a.detector == b.detector && a.minHz == b.minHz && a.maxHz == b.maxHz && a.quality == b.quality
+            && a.highpassHz == b.highpassHz && a.lowpassHz == b.lowpassHz
+            && x.sensitivity == y.sensitivity && x.trackingSpeedOctPerSec == y.trackingSpeedOctPerSec
+            && x.smoothingMs == y.smoothingMs && x.gapFillMs == y.gapFillMs && x.targetMode == y.targetMode
+            && x.targetHz == y.targetHz && x.autoWindowMs == y.autoWindowMs && x.amount == y.amount
+            && x.maxShiftSemitones == y.maxShiftSemitones && x.gateDb == y.gateDb && x.manualOverride == y.manualOverride
+            && x.overrideHz == y.overrideHz && x.formantPreserve == y.formantPreserve;
+    }
+}
+
+void PitchDisplay::checkForWobble()
+{
+    // A reset (transport jump, new session) or any change to the processing makes what came before stale, including a
+    // suggestion the advisor made for the old settings.
+    const int resets = m_processor.getResetCount();
+    const auto settings = m_processor.getProcessingSettings();
+    if (resets != m_lastResetCount || ! m_haveLastSettings || ! sameProcessing (settings, m_lastSettings))
+    {
+        m_lastResetCount = resets;
+        m_lastSettings = settings;
+        m_haveLastSettings = true;
+        resetWobble();
+        return;
+    }
+
+    // A deliberately partial result (Amount or Mix turned down) isn't meant to be flat: no warning then.
+    if ((m_amount != nullptr && m_amount->load() < 95.0f) || (m_mix != nullptr && m_mix->load() < 0.95f))
+    {
+        if (m_wobble.showing)
+            resetWobble();
+        return;
+    }
+
+    const double fs = m_processor.getSampleRate();
+    const double perFrame = m_processor.getFrameInputSamples();
+    if (m_historyCount <= m_firstHistoryToJudge || fs <= 0.0 || perFrame <= 0.0)
+        return;
+
+    // Meter at ~24 kHz whatever the host rate: plenty for pitch, and cheap enough for the message thread.
+    const int down = std::max (1, (int) std::lround (fs / 24000.0));
+    const double meterRate = fs / down;
+    const int win = (int) std::lround (0.04 * meterRate);   // 40 ms per reading
+    const int settle = (int) std::lround (0.03 * meterRate); // low-pass settling before it
+    const int span = (win + settle) * down;
+
+    const int64_t newest = m_latest.frame;
+    const int64_t oldestFrame = std::max (m_firstFrameToJudge, newest - (int64_t) (c_checkSeconds * fs / perFrame));
+    const int64_t oldestIndex = std::max<int64_t> ({ (int64_t) 0, m_historyCount - c_historyCapacity, m_firstHistoryToJudge });
+
+    float loudest = -120.0f;
+    for (int64_t i = m_historyCount - 1; i >= oldestIndex; --i)
+    {
+        const auto& f = m_history[(size_t) (i % c_historyCapacity)];
+        if (f.frame < oldestFrame) break;
+        loudest = std::max (loudest, f.rmsDb);
+    }
+    const float audibleDb = std::max (m_gate != nullptr ? m_gate->load() : -60.0f, loudest - 35.0f);
+
+    m_meterBuf.resize ((size_t) span);
+    m_meterDecimated.resize ((size_t) (win + settle));
+    std::vector<float> offs;
+    int eligible = 0;
+
+    for (int64_t i = m_historyCount - 1; i >= oldestIndex; --i)
+    {
+        const auto& f = m_history[(size_t) (i % c_historyCapacity)];
+        if (f.frame < oldestFrame || f.frame > newest)
+            break;
+        if (f.frame % 4 != 0 || f.targetHz <= 0.0f || f.rmsDb <= audibleDb)
+            continue;   // a reading every 20 ms of audible, tracked sound
+
+        const size_t slot = (size_t) ((f.frame / 4) % c_readingSlots);
+        float off = -1.0f;
+        if (m_readingFrame[slot] == f.frame)
+        {
+            off = m_readingOff[slot];   // measured on an earlier check
+        }
+        else
+        {
+            const int64_t centre = (int64_t) std::llround ((double) f.frame * perFrame);
+            const int64_t from = centre - (int64_t) (win / 2 + settle) * down;
+            if (! m_processor.copyMonitor (true, from, span, m_meterBuf.data()))
+                continue;   // not output yet (or gone): no evidence either way
+
+            pf::MeterLowPass lp;
+            lp.set (fs, std::min (8.0 * f.targetHz, 0.4 * meterRate));
+            for (int k = 0, d = 0; k < span; ++k)
+            {
+                const float y = lp.process (m_meterBuf[(size_t) k]);
+                if (k % down == 0 && d < win + settle)
+                    m_meterDecimated[(size_t) d++] = y;
+            }
+
+            const float hz = pf::measurePitchNear (m_meterDecimated.data() + settle, win, meterRate, f.targetHz, m_meterScratch);
+            off = hz > 0.0f ? std::abs (1200.0f * std::log2 (hz / f.targetHz)) : -1.0f;
+            m_readingFrame[slot] = f.frame;
+            m_readingOff[slot] = off;
+        }
+
+        ++eligible;
+        if (off >= 0.0f)
+            offs.push_back (off);
+    }
+
+    // Judge only on clear evidence: enough readings, most of them measurable. Short or noisy sounds the meter can't
+    // read (ricochets, cracks) never raise the warning.
+    const bool haveEvidence = (int) offs.size() >= c_minWindows && offs.size() * 2 >= (size_t) eligible;
+    float median = 0.0f;
+    if (haveEvidence)
+    {
+        std::nth_element (offs.begin(), offs.begin() + (long) offs.size() / 2, offs.end());
+        median = offs[offs.size() / 2];
+    }
+    if (haveEvidence && median >= c_settledCents && median <= c_wobbleCents)
+        return;   // in between: hold whatever the warning is doing
+    updateWobbleState (haveEvidence, haveEvidence && median > c_wobbleCents, median);
+}
+
+void PitchDisplay::updateWobbleState (bool haveEvidence, bool wobbling, float offCents)
+{
+    auto& w = m_wobble;
+    if (! haveEvidence)
+        return;
+
+    if (wobbling)
+    {
+        w.goodChecks = 0;
+        ++w.badChecks;
+        w.offCents = w.showing ? 0.7f * w.offCents + 0.3f * offCents : offCents;
+        if (! w.showing && w.badChecks >= c_showAfterChecks)
+            w.showing = true;
+        if (w.showing && w.advice == Advice::none && ! w.dismissed)
+            startAdvisor();
+    }
+    else
+    {
+        w.badChecks = std::max (0, w.badChecks - 1);   // one good reading doesn't undo a run of bad ones
+        if (w.showing && ++w.goodChecks >= c_hideAfterChecks)
+        {
+            m_advisor.reset();
+            w = WobbleState {};
+        }
+    }
+
+    layoutWarning();
+    repaint();
+}
+
+void PitchDisplay::startAdvisor()
+{
+    const double now = juce::Time::getMillisecondCounterHiRes();
+    if (m_advisor != nullptr || now - m_lastAdvisorMs < c_advisorCooldownMs)
+        return;
+
+    const double fs = m_processor.getSampleRate();
+    const int64_t written = m_processor.getMonitorWritten (false);
+    const int64_t clear = (int64_t) std::lround (0.05 * fs);   // stay clear of the newest samples
+    const int n = (int) std::min<int64_t> ((int64_t) (c_advisorSeconds * fs), written - clear);
+    if (fs <= 0.0 || n < (int) (1.5 * fs))
+        return;
+
+    std::vector<float> audio ((size_t) n);
+    if (! m_processor.copyMonitor (false, written - clear - n, n, audio.data()))
+        return;
+
+    m_lastAdvisorMs = now;
+    m_wobble.advice = Advice::checking;
+    m_advisor = std::make_unique<AdvisorThread> (std::move (audio), fs, m_processor.getProcessingSettings(), m_processor.getSourceType());
+}
+
+void PitchDisplay::pollAdvisor()
+{
+    if (m_advisor == nullptr || ! m_advisor->isDone())
+        return;
+
+    const auto advice = m_advisor->getAdvice();
+    m_advisor.reset();
+
+    auto& w = m_wobble;
+    if (! w.showing)
+        return;
+
+    if (advice.valid && advice.recommended >= 0)
+    {
+        w.advice = Advice::recommend;
+        w.recommended = advice.recommended;
+        w.recommendedGain = advice.bySource[(size_t) advice.recommended].flatness / std::max (0.02f, advice.current.flatness);
+    }
+    else
+    {
+        w.advice = advice.valid ? Advice::noneBetter : Advice::none;
+    }
+    layoutWarning();
+    repaint();
+}
+
+void PitchDisplay::layoutWarning()
+{
+    const bool show = m_wobble.showing && ! m_wobble.dismissed;
+    m_warningArea = m_graphArea.reduced (12.0f, 0.0f).withTrimmedTop (34.0f).withHeight (52.0f);
+
+    auto row = m_warningArea.reduced (10.0f, 0.0f);
+    m_dismissButton.setBounds (row.removeFromRight (22.0f).withSizeKeepingCentre (22.0f, 22.0f).toNearestInt());
+    row.removeFromRight (8.0f);
+
+    const bool recommend = show && m_wobble.advice == Advice::recommend && m_wobble.recommended >= 0;
+    if (recommend)
+    {
+        const auto name = "TRY " + juce::String (pf::getSourcePreset ((pf::SourceType) m_wobble.recommended).name).toUpperCase();
+        m_tryButton.setButtonText (name);
+        const float w = juce::GlyphArrangement::getStringWidth (m_fonts->label (11.0f), name) + 34.0f;
+        m_tryButton.setBounds (row.removeFromRight (w).withSizeKeepingCentre (w, 26.0f).toNearestInt());
+    }
+
+    m_tryButton.setVisible (recommend);
+    m_dismissButton.setVisible (show);
+}
+
+void PitchDisplay::paintWobbleWarning (juce::Graphics& g)
+{
+    const auto& w = m_wobble;
+    if (! w.showing || w.dismissed)
+        return;
+
+    using namespace Theme::Colours;
+    const auto area = m_warningArea;
+    g.setColour (juce::Colours::black.withAlpha (0.35f));
+    g.fillRoundedRectangle (area.translated (0.0f, 2.0f), 7.0f);
+    g.setColour (bad);
+    g.fillRoundedRectangle (area, 7.0f);
+
+    auto text = area.reduced (14.0f, 8.0f);
+    text.setRight (std::min (text.getRight(), (float) (m_tryButton.isVisible() ? m_tryButton.getX() : m_dismissButton.getX()) - 10.0f));
+
+    g.setColour (juce::Colours::white);
+    g.setFont (m_fonts->heading (13.0f));
+    g.drawText ("WOBBLING: OUTPUT " + juce::String (juce::roundToInt (w.offCents)) + " CT OFF TARGET",
+                text.removeFromTop (18.0f), juce::Justification::centredLeft, false);
+
+    juce::String detail;
+    switch (w.advice)
+    {
+        case Advice::checking:   detail = "Trying the other Source Types on the last few seconds..."; break;
+        case Advice::recommend:
+            detail = juce::String (pf::getSourcePreset ((pf::SourceType) w.recommended).name)
+                   + " comes out about " + juce::String (std::min (9.9f, w.recommendedGain), 1) + "x flatter here.";
+            break;
+        case Advice::noneBetter: detail = "No Source Type does clearly better. Narrow Min / Max Freq around the sound, or lower Speed."; break;
+        case Advice::none:
+        default:                 detail = "The detector is losing the pitch. Try another Source Type, or narrow Min / Max Freq."; break;
+    }
+    g.setFont (m_fonts->label (10.5f));
+    g.setColour (juce::Colours::white.withAlpha (0.92f));
+    g.drawFittedText (detail, text.toNearestInt(), juce::Justification::centredLeft, 2, 0.9f);
 }
 
 void PitchDisplay::drainTelemetry()
@@ -366,6 +736,7 @@ void PitchDisplay::resized()
     }
 
     m_zoomChip = { m_graphArea.getRight() - 112.0f, m_graphArea.getY() + 10.0f, 100.0f, 18.0f };
+    layoutWarning();
 }
 
 float PitchDisplay::yForLog2 (float log2Value, juce::Rectangle<float> area) const noexcept
@@ -392,6 +763,7 @@ void PitchDisplay::paint (juce::Graphics& g)
     }
 
     paintChips (g);
+    paintWobbleWarning (g);
     paintReadouts (g, m_readoutArea);
 
     g.setColour (outlineSoft);
@@ -905,6 +1277,10 @@ void PitchDisplay::mouseExit (const juce::MouseEvent&)
 juce::String PitchDisplay::getHelpTextAt (juce::Point<int> localPoint) const
 {
     const auto p = localPoint.toFloat();
+
+    if (m_wobble.showing && ! m_wobble.dismissed && m_warningArea.contains (p))
+        return "Wobbling: the output pitch is measured against the target, and it is staying well off it. The plugin replays the last "
+               "few seconds through every Source Type and suggests one only if it comes out clearly flatter.";
 
     for (const auto& chip : m_chips)
         if (chip.bounds.contains (p))

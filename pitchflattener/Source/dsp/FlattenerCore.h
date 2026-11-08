@@ -87,6 +87,20 @@ namespace pf
         int getUnderrunCount() const { return underruns.load(); }
         DetectorType getActiveDetector() const { return (DetectorType) activeDetectorType.load(); }
 
+        // Monitoring for the editor's checks (any thread but the audio thread) -----------------------------------
+        /** Input samples per analysis frame: telemetry frame k describes the input around sample k * this. */
+        double getFrameInputSamples() const { return (double) hop * (double) decimation; }
+        /** How many input samples (or, for output, input-aligned output samples) the monitor rings hold so far. */
+        int64_t getMonitorWritten (bool output) const { return (output ? monitorOutWritten : monitorInWritten).load (std::memory_order_acquire); }
+        /** Changes whenever the audio state is reset, which restarts the sample and frame counts. */
+        int getResetCount() const { return resetCount.load (std::memory_order_acquire); }
+        /**
+         * Copies mono samples [from, from + numSamples) of the last ~7 s of input, or of the flattened (wet) signal
+         * lined up with the input it came from (sample k is input sample k, flattened; Mix and bypass don't apply). False when that range is not (or no
+         * longer) held. Not for the audio thread.
+         */
+        bool copyMonitor (bool output, int64_t from, int numSamples, float* dest);
+
         /** For tests: the shifter's own alignment offset (input samples). */
         void setAlignmentOffset (int samples) { alignOffset = samples; }
         int getAlignmentOffset() const { return alignOffset; }
@@ -186,6 +200,12 @@ namespace pf
         std::vector<TelemetryFrame> telemetryBuf;
         juce::AbstractFifo uiAudioFifo { 1 << 15 };
         std::vector<float> uiAudioBuf;
+
+        // Monitor rings (mono, input-aligned) for the editor's checks
+        std::vector<float> monitorIn, monitorOut;
+        int64_t monitorMask = 0;
+        std::atomic<int64_t> monitorInWritten { 0 }, monitorOutWritten { 0 };
+        std::atomic<int> resetCount { 0 };
 
         std::atomic<bool> relatchRequested { false };
         std::atomic<float> latchedHz { 0.0f };
