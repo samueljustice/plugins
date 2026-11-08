@@ -181,7 +181,7 @@ A real-time reverser that faithfully recreates Backwards Machine's three effects
 
 A small, quiet page of hard-won advice from the creative people behind great film, TV, game and trailer sound: re-recording mixers, sound designers, supervising editors, game audio directors and more, plus a legendary Disney Imagineer on leading creative work. Pick what you're working on (mixing, creatures, dialogue, silence, running a creative team...) and roll the die. It deals you a field note on a real technique or decision, or a quote in their own words, tied to the production it came from.
 
-- 📚 **712 entries from 145 people**, each name linked to their credits
+- 📚 **833 entries from 148 people**, each name linked to their credits
 - 🔗 **Every entry traced to its source**: click through to the original interview, article or SoundWorks Collection video
 - 🛠️ **Concrete, not fortune-cookie**: mostly field notes on real sources, recording methods and mix decisions
 - 🗂️ **17 categories**, from Mixing and Field Recording to Horror & Tension, Silence & Restraint and Creativity & Teams. Each is a shuffled deck, so nothing repeats until you've seen the lot
