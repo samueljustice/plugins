@@ -106,6 +106,9 @@ namespace pf
         int frameLength() const override { return frameLen; }
         void analyse (const float* frame, float sensitivity, FrameObservation& out) override;
 
+        /** Raises (or lowers) how far, in dB, the strongest peak must stand above the local floor to count as pitched. */
+        void setVoicingOffsetDb (float db) { voicingOffsetDb = db; }
+
     private:
         struct Resolution
         {
@@ -125,6 +128,27 @@ namespace pf
         int frameLen = 0;
         std::vector<Peak> peaks;
         std::vector<double> prefix;
+        float voicingOffsetDb = 0.0f;
+    };
+
+    /**
+     * Spectral Peak and MPM on the same frame, their candidates pooled for the tracker.
+     *
+     * MPM follows very fast sweeps (yelps) closely but gives up in heavy noise; Spectral Peak survives the noise
+     * but smears fast sweeps. Each detector's candidates are weighted by its own voicing confidence, near-equal
+     * pitches are merged, and the tracker's Viterbi picks the continuous path through the pool.
+     */
+    class SpectralMpmDetector final : public IPitchDetector
+    {
+    public:
+        explicit SpectralMpmDetector (const DetectorConfig& cfg);
+        int frameLength() const override { return frameLen; }
+        void analyse (const float* frame, float sensitivity, FrameObservation& out) override;
+
+    private:
+        SpectralPeakDetector spectral;
+        MpmDetector mpm;
+        int frameLen = 0;
     };
 
     /**

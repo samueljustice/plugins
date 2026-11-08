@@ -62,7 +62,7 @@ namespace pf
         // Allowed movement per hop: tracking speed (oct/s) -> cents per hop. Floor keeps jitter cheap.
         sigmaCents = std::max (6.0f, 1200.0f * s.trackingSpeedOctPerSec / hopsPerSec);
         harmonicDetector = detector == DetectorType::HarmonicSum;
-        octaveCost = harmonicDetector ? 4.0f : (detector == DetectorType::SpectralPeak ? 3.0f : 2.5f);
+        octaveCost = harmonicDetector ? 4.0f : (detector == DetectorType::SpectralPeak || detector == DetectorType::SpectralMpm ? 3.0f : 2.5f);
         voicedOn = 0.5f;
 
         gapFrames = std::clamp ((int) std::lround (s.gapFillMs * 0.001f * hopsPerSec), 0, gapLag);

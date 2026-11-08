@@ -25,6 +25,7 @@ namespace pf
         Mpm,             // McLeod pitch method (NSDF): solo instruments
         SpectralPeak,    // multi-resolution reassigned STFT peaks: sirens, whistles, tones
         HarmonicSum,     // subharmonic summation on a whitened log spectrum: engines, drones, field
+        SpectralMpm,     // Spectral Peak and MPM together: fast sweeps (MPM) that stay robust in noise (Spectral Peak)
         NumDetectors
     };
 
