@@ -2,7 +2,7 @@
 
 A VST3/AU plugin that removes pitch movement from a sound while keeping its energy and character. Use it to take the Doppler sweep out of a pass-by, iron the wail out of a siren, take the vibrato out of a voice or instrument, or lock a warbling tone to one note so the pitch is malleable again.
 
-### 🎉 Latest Release v2.1.0 - [Download Here](https://github.com/samueljustice/plugins/releases/tag/pitchflattener-v2.1.0)
+### 🎉 Latest Release v2.0.3 - [Download Here](https://github.com/samueljustice/plugins/releases/tag/pitchflattener-v2.0.3)
 
 ![Pitch Flattener flattening a siren wail: the teal detected pitch sweeps up and down while the violet output stays on the amber target line](docs/screenshot.png)
 
