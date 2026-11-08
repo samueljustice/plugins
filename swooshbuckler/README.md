@@ -30,7 +30,7 @@ Swooshbuckler is a standalone app for macOS and Windows, and also a VST3 plug-in
 
 ## Download
 
-[![Download Swooshbuckler v1.1.0](https://img.shields.io/badge/download-v1.1.0-d00a35?style=for-the-badge)](https://github.com/samueljustice/plugins/releases/tag/swooshbuckler-v1.1.0)
+[![Download Swooshbuckler v1.2.0](https://img.shields.io/badge/download-v1.2.0-d00a35?style=for-the-badge)](https://github.com/samueljustice/plugins/releases/tag/swooshbuckler-v1.2.0)
 
 Or get every Sammy J plug-in at once, Swooshbuckler included, with one installer that always has the newest version of each (its file names carry the date and time it was built):
 
