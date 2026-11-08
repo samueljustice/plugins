@@ -1,5 +1,13 @@
 # Swooshbuckler changelog
 
+## Unreleased
+
+- **AIM: hits on the peaks.** On by default for new sessions: Swooshbuckler looks ahead to each doppler pass's peak on buses A and B and fires every hit track early by its own lead-in, so the transients land right on the peak. Sensitivity sets which peaks earn a hit. Sessions saved before keep the hit gate they were made with.
+- **Peak Tremolo.** A tremolo that shakes only the loudest moments, deepening as the level nears its peak: On/Off, Sine, Square or Flutter, and whether it shakes everything, the buses or the hits, with Depth, Rate and Threshold. It sits at the left of Output.
+- **Master Trim.** A fader by the OUT meter for how loud you hear it; the tape still records at full level.
+- **Modulation depth from the control.** Cmd-drag (Ctrl on Windows) a modulated knob to set its newest wire's depth, including negative; Cmd-double-click sets +50%. Negative wires draw dashed.
+- **Modulate each track's pitch.** Drag a MOD jack onto a track's Semitones box for smooth pitch modulation (a 100% wire swings two octaves).
+
 ## 1.2.0
 
 - **LINK the buses.** A LINK button in Bus B's title bar makes bus B fly the same doppler passes as bus A (same moment, closeness and direction) with A's Doppler and Width, so the two buses move as one source for a consistent whoosh. B keeps its own Bend. Turn it off (the default) to keep energy beds on B moving on their own; B's own Doppler and Width come back as you left them. Switching it fades bus B briefly instead of clicking.
