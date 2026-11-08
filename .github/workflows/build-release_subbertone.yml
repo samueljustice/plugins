@@ -600,6 +600,18 @@ jobs:
         zip -r ../Subbertone-macOS-AU.zip *
         cd ..
     
+    # GitHub's generated notes compare with the newest release of ANY kind, which is often the
+    # combined installer (bundle-v...) or another plug-in. Compare with this plug-in's own last release.
+    - name: Find this plug-in's previous release
+      id: previous
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        PREV=$(gh release list -R "$GITHUB_REPOSITORY" --limit 200 --exclude-drafts --json tagName --jq '.[].tagName' \
+          | grep -E '^subbertone-v[0-9]+\.[0-9]+\.[0-9]+$' | grep -vxF "$GITHUB_REF_NAME" | sort -V | tail -1 || true)
+        echo "Comparing with: ${PREV:-(none)}"
+        echo "tag=$PREV" >> "$GITHUB_OUTPUT"
+
     - name: Create Release
       uses: softprops/action-gh-release@v3
       with:
@@ -612,5 +624,6 @@ jobs:
           windows-installer/*.exe
           macos-installer/*.pkg
         generate_release_notes: true
+        previous_tag: ${{ steps.previous.outputs.tag }}
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
