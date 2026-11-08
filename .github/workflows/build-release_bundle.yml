@@ -108,8 +108,9 @@ jobs:
       run: |
         printf '%s\n' "$RELEASES" > "$RUNNER_TEMP/releases.txt"
         cp README.md "$RUNNER_TEMP/README.md"
+        for f in */README.md; do mkdir -p "$RUNNER_TEMP/$(dirname "$f")"; cp "$f" "$RUNNER_TEMP/$f"; done
         python3 bundle/update-readme.py "$RUNNER_TEMP/README.md" "$GITHUB_REPOSITORY" "bundle-v${{ needs.resolve.outputs.version }}" \
-          "SammyJ-Plugins-$STAMP-macOS-Installer.pkg" "SammyJ-Plugins-$STAMP-Windows-Installer.exe" "${{ needs.resolve.outputs.built }}" "$RUNNER_TEMP/releases.txt"
+          "SammyJ-Plugins-$STAMP-macOS.dmg" "SammyJ-Plugins-$STAMP-Windows-Installer.exe" "${{ needs.resolve.outputs.built }}" "$RUNNER_TEMP/releases.txt"
 
   build-macos:
     needs: resolve
@@ -363,7 +364,8 @@ jobs:
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-    # Point the README's "Get them all" buttons at these files, say when they were built, and commit it to main.
+    # Point the README's "Get them all" buttons at these files, say when they were built, set every plug-in's
+    # download link (here and in its own README) to its newest release, and commit it to main.
     # Before the old releases go, so the buttons never point at a deleted file. Retries if main moved meanwhile.
     - name: Update the Get them all buttons in the README
       env:
@@ -371,14 +373,15 @@ jobs:
       run: |
         printf '%s\n' "$RELEASES" > "$RUNNER_TEMP/releases.txt"
         python3 bundle/update-readme.py README.md "$GITHUB_REPOSITORY" "bundle-v$VERSION" "$DMG_FILE" "$WIN_FILE" "$BUILT" "$RUNNER_TEMP/releases.txt"
-        if git diff --quiet -- README.md; then
-          echo "README already points at this installer"
+        # Also each plug-in's own README (its "latest release" link), so every download link stays current.
+        if git diff --quiet -- README.md '*/README.md'; then
+          echo "READMEs already point at this installer and these releases"
           exit 0
         fi
         git config user.name "github-actions[bot]"
         git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-        git add README.md
-        git commit -m "README: Get them all, built $BUILT (bundle-v$VERSION)"
+        git add README.md '*/README.md'
+        git commit -m "READMEs: Get them all, built $BUILT (bundle-v$VERSION), and latest-release links"
         for attempt in 1 2 3 4 5; do
           if git pull --rebase origin main && git push origin HEAD:main; then exit 0; fi
           echo "Push failed (attempt $attempt of 5), retrying"
