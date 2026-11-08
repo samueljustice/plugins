@@ -32,3 +32,20 @@ SDK/
 *.au
 *.aaxplugin
 build-*/
+
+# Experiments, prototypes and internal notes: kept on disk, never committed
+**/experiments/
+**/docs/experiments/
+**/docs/research/
+swooshbuckler/docs/redesign.md
+swooshbuckler/docs/followup-formats.md
+PTSL_beattool/Source/ptsl-beat-cli
+
+# AI assistant working files (Claude Code and friends)
+.claude/
+**/.claude/
+CLAUDE.md
+CLAUDE.local.md
+**/CLAUDE.md
+**/CLAUDE.local.md
+.mcp.json
