@@ -53,6 +53,8 @@ juce::String QuoteView::getClipboardText() const
     const auto& e = library.getEntries()[(size_t) shown];
     const auto& p = library.getPerson (e);
     auto text = e.verbatim ? openQuote + e.text + closeQuote : e.text;
+    if (e.verbatim && e.context.isNotEmpty())
+        text = "On " + e.context + ": " + text;
     text << "\n— " << p.name;
     if (p.role.isNotEmpty())
         text << ", " << p.role;
@@ -128,7 +130,10 @@ void QuoteView::rebuildLayout()
         layout.source << middleDot << juce::String (s.year);
     layout.source = layout.source.toUpperCase();
 
-    layout.label = e.verbatim ? juce::String() : juce::String ("FIELD NOTE");
+    if (! e.verbatim)
+        layout.label = "FIELD NOTE";
+    else if (e.context.isNotEmpty())
+        layout.label = ("On " + e.context).toUpperCase();
     const float labelHeight = layout.label.isNotEmpty() ? 22.0f : 0.0f;
 
     // The words: the largest size that fits, on a comfortable measure.
