@@ -24,12 +24,12 @@ Want just one? Each plug-in's own download is below, or browse all <a href="http
 
 | [<img src="swooshbuckler/docs/screenshot.png" width="400" alt="Swooshbuckler">](#-swooshbuckler) | [<img src="subbertone/docs/screenshot.jpg" width="400" alt="Subbertone">](#-subbertone) |
 |:---:|:---:|
-| **[Swooshbuckler](#-swooshbuckler)**<br>The whoosh-making rig | **[Subbertone](#-subbertone)**<br>Sub, harmonics and mastering for bass |
+| **[Swooshbuckler](#-swooshbuckler)**<br>Generates whooshes from up to ten sounds | **[Subbertone](#-subbertone)**<br>Adds a pitch-tracked sub and harmonics to bass |
 | [<img src="pitchflattener/docs/screenshot.png" width="400" alt="Pitch Flattener">](#-pitch-flattener) | [<img src="reversinator/docs/screenshot.png" width="400" alt="Reversinator">](#-reversinator) |
-| **[Pitch Flattener](#-pitch-flattener)**<br>Doppler, sirens and vibrato, flattened | **[Reversinator](#-reversinator)**<br>Backwards Machine, reborn in real time |
+| **[Pitch Flattener](#-pitch-flattener)**<br>Removes pitch movement from Doppler passes, sirens and vibrato | **[Reversinator](#-reversinator)**<br>Real-time reverse effects, recreating Backwards Machine |
 
 [<img src="soundadvice/docs/screenshot.png" width="812" alt="Sound Advice">](#-sound-advice)<br>
-**[Sound Advice](#-sound-advice)**<br>Hard-won advice from the great creative minds behind film, TV and game sound
+**[Sound Advice](#-sound-advice)**<br>Advice from film, TV and game sound professionals and other creative people
 
 </div>
 
@@ -37,7 +37,7 @@ Want just one? Each plug-in's own download is below, or browse all <a href="http
 
 ## ⚔️ Swooshbuckler
 
-> *Ten sounds go in. A tape full of whooshes comes out.*
+> Generates whooshes from up to ten sounds, and records them.
 
 <p align="center">
   <img src="swooshbuckler/docs/screenshot.png" alt="Swooshbuckler" width="820">
@@ -73,7 +73,7 @@ Drop in up to ten sounds (cloth, air, engines, creatures, metal) and Swooshbuckl
 
 ## 🔊 Subbertone
 
-> *A clean octave down, a bass that survives a phone speaker, or a talking growl. Your call.*
+> Adds a pitch-tracked sub an octave down, plus harmonics, saturation, filtering and limiting.
 
 <p align="center">
   <img src="subbertone/docs/screenshot.jpg" alt="Subbertone" width="820">
@@ -111,7 +111,7 @@ Subbertone follows the pitch of your bass, engine or drone and adds a clean sub 
 
 ## 🚨 Pitch Flattener
 
-> *The siren keeps wailing. The pitch doesn't.*
+> Removes pitch movement from Doppler passes, sirens and vibrato.
 
 <p align="center">
   <img src="pitchflattener/docs/screenshot.png" alt="Pitch Flattener" width="680">
@@ -143,7 +143,7 @@ Pitch Flattener takes the pitch movement out of a sound and keeps its energy and
 
 ## ⏪ Reversinator
 
-> *.sdrawkcab emit lear ni tI*
+> Real-time reverse effects, recreating Backwards Machine's three modes.
 
 <p align="center">
   <img src="reversinator/docs/screenshot.png" alt="Reversinator" width="760">
@@ -175,13 +175,13 @@ A real-time reverser that faithfully recreates Backwards Machine's three effects
 
 ## 🎲 Sound Advice
 
-> *Stuck? Roll the die and ask one of the greats.*
+> Shows a random piece of advice from film, TV and game sound professionals and other creative people.
 
 <p align="center">
   <img src="soundadvice/docs/screenshot.png" alt="Sound Advice, in day and night themes" width="820">
 </p>
 
-A small, quiet page of hard-won advice from the creative people behind great film, TV, game and trailer sound: re-recording mixers, sound designers, supervising editors, game audio directors and more, plus a legendary Disney Imagineer on leading creative work. Pick what you're working on (mixing, creatures, dialogue, silence, running a creative team...) and roll the die. It deals you a field note on a real technique or decision, or a quote in their own words, tied to the production it came from.
+A page of advice from people who work on film, TV, game and trailer sound: re-recording mixers, sound designers, supervising editors, game audio directors and others, plus a Disney Imagineer on leading creative work. Pick what you're working on (mixing, creatures, dialogue, silence, running a creative team...) and roll the die. It deals you a field note on a real technique or decision, or a quote in their own words, tied to the production it came from.
 
 - 📚 **712 entries from 145 people**, each name linked to their credits
 - 🔗 **Every entry traced to its source**: click through to the original interview, article or SoundWorks Collection video
