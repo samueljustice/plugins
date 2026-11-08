@@ -1,5 +1,9 @@
 # Swooshbuckler changelog
 
+## 1.0.2
+
+- **Listed under Sammy J.** Hosts show it in a Sammy J folder with the other plug-ins, and the Windows installer names Sammy J as the publisher. The sound, parameters and saved sessions are unchanged.
+
 ## 1.0.1
 
 - **Tracks show their bus.** Each track's name row has a BUS A, BUS B or HITS tag in that section's colour, and it follows the sound type.

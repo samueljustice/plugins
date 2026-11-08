@@ -1,19 +1,10 @@
-## SammyJs Reversinator 2.0.2
+## SammyJs Reversinator 2.0.3
 
-The copyright year is now the year the plugin was built, so it no longer goes out of date, and the README has a new guide to the window. The sound, the parameters and saved sessions are unchanged from 2.0.1.
+Hosts now list Reversinator under **Sammy J**, in one folder with the other plug-ins. Logic shows it as "Sammy J: SammyJs Reversinator", and the VST3 and Windows installer name Sammy J as the vendor. The sound, the parameters and saved sessions are unchanged from 2.0.2, and existing projects still find the plugin.
 
-![Reversinator](https://raw.githubusercontent.com/samueljustice/plugins/reversinator-v2.0.2/reversinator/docs/screenshot.png)
+![Reversinator](https://raw.githubusercontent.com/samueljustice/plugins/reversinator-v2.0.3/reversinator/docs/screenshot.png)
 
-### What's new
-
-- **Copyright year.** The year is the one the plugin was built in, in two places:
-  - the licence text in the About panel;
-  - the copyright in the plugin files' details (the bundle information on macOS, the file properties on Windows).
-- **A guide to the window.** The README [walks through every part of the window](https://github.com/samueljustice/plugins/blob/reversinator-v2.0.2/reversinator/README.md#a-tour-of-the-window), with screenshots. It covers:
-  - the snippet display in each effect;
-  - MODE, REVERSER, TIME, FEEDBACK DEPTH and VOLUME;
-  - typing values, tooltips and keyboard use;
-  - the About panel.
+Want every plug-in at once? The [Sammy J's Plugins installer](https://github.com/samueljustice/plugins/releases/latest) installs the newest version of each.
 
 ### Downloads
 
