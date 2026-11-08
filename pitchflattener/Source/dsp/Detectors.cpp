@@ -422,7 +422,7 @@ namespace pf
 
     void SpectralPeakDetector::analyse (const float* frame, float sensitivity, FrameObservation& out)
     {
-        const float thrDb = 15.0f - 9.0f * std::clamp (sensitivity, 0.0f, 1.0f);   // 15 .. 6 dB
+        const float thrDb = 15.0f - 9.0f * std::clamp (sensitivity, 0.0f, 1.0f) + voicingOffsetDb;   // 15 .. 6 dB, plus the offset
         const double fs = config.analysisRate;
         peaks.clear();
 
@@ -736,6 +736,12 @@ namespace pf
         : spectral (cfg), mpm (cfg)
     {
         config = cfg;
+        // In broadband noise with no pitch at all, the strongest of thousands of FFT bins still stands 10-17 dB
+        // above the local floor by chance, which Spectral Peak's own threshold (10.5 dB at the default
+        // sensitivity) calls pitched, so noise after a siren got "corrected" by up to 20 semitones. Real siren
+        // partials, even at 0 dB broadband SNR, stand 20 dB or more above it. MPM, the other half, already
+        // reports such noise as unpitched.
+        spectral.setVoicingOffsetDb (6.0f);
         frameLen = std::max (spectral.frameLength(), mpm.frameLength());
     }
 

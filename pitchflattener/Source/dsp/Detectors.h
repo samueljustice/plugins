@@ -106,6 +106,9 @@ namespace pf
         int frameLength() const override { return frameLen; }
         void analyse (const float* frame, float sensitivity, FrameObservation& out) override;
 
+        /** Raises (or lowers) how far, in dB, the strongest peak must stand above the local floor to count as pitched. */
+        void setVoicingOffsetDb (float db) { voicingOffsetDb = db; }
+
     private:
         struct Resolution
         {
@@ -125,6 +128,7 @@ namespace pf
         int frameLen = 0;
         std::vector<Peak> peaks;
         std::vector<double> prefix;
+        float voicingOffsetDb = 0.0f;
     };
 
     /**

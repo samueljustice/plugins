@@ -302,7 +302,7 @@ Each Source Type chooses a pitch detector and tuned defaults. Every setting can 
 - **pYIN** (Mauch & Dixon 2014) runs YIN's cumulative-mean-normalised difference function, computed with FFTs. It weighs every dip in that function against a Beta-distributed prior over YIN thresholds, so each frame produces several pitch candidates with probabilities instead of one guess.
 - **MPM** (McLeod & Wyvill 2005) uses the normalised squared difference function. It picks the first "key maximum" within a fraction of the highest one, which avoids octave errors on bright instruments.
 - **Spectral Peak** uses Gaussian-windowed FFTs at several lengths: short windows for fast sweeps, long ones for steady tones. Each peak is refined with quadratic interpolation and time-frequency reassignment, which gives the instantaneous frequency even mid-sweep. Its salience is measured against the local noise floor. A harmonic-support check makes the fundamental win over its overtones.
-- **Spectral + MPM** runs both on every frame and gives the tracker both sets of candidates, each weighted by its own detector's confidence. MPM is the sharper of the two on very fast yelps but loses the pitch in heavy noise; Spectral Peak survives the noise but smears the fastest sweeps. Where both are confident, MPM's pitch is favoured; in noise MPM's confidence drops and Spectral Peak carries the track.
+- **Spectral + MPM** runs both on every frame and gives the tracker both sets of candidates, each weighted by its own detector's confidence. MPM is the sharper of the two on very fast yelps but loses the pitch in heavy noise; Spectral Peak survives the noise but smears the fastest sweeps. Where both are confident, MPM's pitch is favoured; in noise MPM's confidence drops and Spectral Peak carries the track. Spectral Peak needs its strongest peak to stand 6 dB further above the noise floor than it does on its own, so noise with no pitch in it, such as the traffic left after a siren passes, is left alone rather than shifted.
 - **Harmonic Sum** (subharmonic summation, Hermes 1988) works on a whitened, log-frequency spectrum and adds up the energy at every candidate's harmonics. An odd/even-harmonic test settles octave ambiguities, for example when the fundamental is missing.
 
 ### Tracking, using lookahead
@@ -344,7 +344,7 @@ cmake --build build-tests --target PitchFlattenerTests
 
 `--wav` writes each test's input and output so you can listen to them.
 
-To see how a real recording fares, `--file sound.wav` plays it through a Source Type's settings (`--source 2`, Siren, by default; `--detector n` overrides the detector) and prints the track, target, correction and output pitch every 100 ms, with how far the output lands from the target.
+To see how a real recording fares, `--file sound.wav` plays it through a Source Type's settings (`--source 2`, Siren, by default; `--detector n` and `--maxshift n` override the detector and Max Shift) and prints the track, target, correction and output pitch every 100 ms, with how far the output lands from the target.
 
 ## Tips
 

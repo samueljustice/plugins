@@ -372,7 +372,50 @@ namespace
         return ok;
     }
 
-    /** Runs a 900 Hz tone flattened to 1000 Hz; optionally injects a NaN at t=1 s. */
+    /** A siren that stops, leaving traffic-like noise: the noise must not be treated as pitch (and shifted). */
+    bool testNoiseTail (double fs)
+    {
+        const auto& p = getSourcePreset (SourceType::Siren);
+        FlattenerCore core;
+        DetectorConfig dc;
+        dc.type = p.detector; dc.minHz = p.minHz; dc.maxHz = p.maxHz;
+        core.prepare (fs, 512, 2, dc, p.quality);
+        Case c { "noise_tail", SourceType::Siren, TargetMode::Latch, 0.0f, nullptr, 0, 0, 0 };
+        auto ls = settingsFor (c);
+        ls.gateDb = -60.0f;
+        core.setLiveSettings (ls);
+        core.setFilters (p.highpassHz, p.lowpassHz);
+
+        // 3 s of wail, then 5 s of broadband noise at -20 dBFS (well above the gate).
+        auto sig = harmonicTone (fs, 8.0, [] (double t) { return 950.0 + 400.0 * std::sin (twoPi * 0.2 * t); }, 4, 1.5, -20.0,
+                                 false, [] (double t) { return t < 3.0 ? 1.0 : 0.0; });
+        const int lat = core.getLatencySamples(), n = lat + (int) sig.l.size();
+        std::vector<float> l ((size_t) n, 0.0f);
+        std::copy (sig.l.begin(), sig.l.end(), l.begin());
+        auto r = l;
+        int tailFrames = 0, tailPitched = 0;
+        const double hopSec = 0.005;
+        for (int pos = 0; pos < n; pos += 512)
+        {
+            float* ch[2] = { l.data() + pos, r.data() + pos };
+            core.process (ch, 2, std::min (512, n - pos));
+            TelemetryFrame tf;
+            while (core.popTelemetry (tf))
+            {
+                const double t = (double) tf.frame * hopSec;
+                if (t > 4.0 && t < 7.5)   // well clear of the siren's end and the gap fill
+                {
+                    ++tailFrames;
+                    if (tf.trackHz > 0.0f) ++tailPitched;
+                }
+            }
+        }
+        const float frac = tailFrames > 0 ? (float) tailPitched / (float) tailFrames : 1.0f;
+        const bool ok = tailFrames > 100 && frac < 0.05f;
+        std::printf ("  noise after a siren: %.1f%% of %d noise frames treated as pitch -> %s\n", 100.0f * frac, tailFrames, ok ? "OK" : "FAIL");
+        return ok;
+    }
+
     /** Manual Override flattens the detected pitch to Override Hz in every target mode. */
     bool testOverride (double fs)
     {
@@ -423,7 +466,7 @@ namespace
      * every 100 ms, the tracked pitch, the target, the correction and the output pitch measured near the target,
      * then the median and 90th percentile of how far the output is from the target.
      */
-    int analyseFile (const juce::File& file, SourceType source, int detectorOverride)
+    int analyseFile (const juce::File& file, SourceType source, int detectorOverride, float maxShiftOverride)
     {
         juce::AudioFormatManager formats;
         formats.registerBasicFormats();
@@ -447,6 +490,8 @@ namespace
         Case c { file.getFileName().toStdString(), source, TargetMode::Latch, 0.0f, nullptr, 0, 0, 0 };
         auto ls = settingsFor (c);
         ls.gateDb = -60.0f;   // the plugin's default
+        if (maxShiftOverride > 0.0f)
+            ls.maxShiftSemitones = maxShiftOverride;
         core.setLiveSettings (ls);
         core.setFilters (p.highpassHz, p.lowpassHz);
 
@@ -513,6 +558,7 @@ namespace
         return 0;
     }
 
+    /** Runs a 900 Hz tone flattened to 1000 Hz; optionally injects a NaN at t=1 s. */
     bool testToneAndNaN (double fs, bool injectNaN, const char* label)
     {
         FlattenerCore core;
@@ -593,6 +639,7 @@ int main (int argc, char** argv)
     juce::String only;
     juce::File analyse;
     int analyseSource = (int) SourceType::Siren, analyseDetector = -1;
+    float analyseMaxShift = 0.0f;
 
     for (int i = 1; i < argc; ++i)
     {
@@ -606,10 +653,11 @@ int main (int argc, char** argv)
         else if (a == "--file" && i + 1 < argc) analyse = juce::File (juce::String (argv[++i]));
         else if (a == "--source" && i + 1 < argc) analyseSource = juce::String (argv[++i]).getIntValue();
         else if (a == "--detector" && i + 1 < argc) analyseDetector = juce::String (argv[++i]).getIntValue();
+        else if (a == "--maxshift" && i + 1 < argc) analyseMaxShift = juce::String (argv[++i]).getFloatValue();
     }
 
     if (analyse != juce::File())
-        return analyseFile (analyse, (SourceType) juce::jlimit (0, (int) SourceType::NumSourceTypes - 1, analyseSource), analyseDetector);
+        return analyseFile (analyse, (SourceType) juce::jlimit (0, (int) SourceType::NumSourceTypes - 1, analyseSource), analyseDetector, analyseMaxShift);
 
     std::printf ("Pitch Flattener DSP tests @ %.0f Hz, block %d\n", fs, block);
     bool ok = true;
@@ -622,6 +670,7 @@ int main (int argc, char** argv)
         ok &= testToneAndNaN (odd, false, "odd sample rate");
     ok &= testRebuildsMidStream (fs);
     ok &= testOverride (fs);
+    ok &= testNoiseTail (fs);
 
     const double c = 343.0;
     std::vector<Case> cases = {
