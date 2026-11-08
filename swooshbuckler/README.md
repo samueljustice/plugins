@@ -6,6 +6,28 @@ Swooshbuckler is a standalone app for macOS and Windows, and also a VST3 plug-in
 
 ![Swooshbuckler](docs/screenshot.png)
 
+- [Download](#download)
+- [Quick start](#quick-start)
+- [How it works](#how-it-works)
+- [A tour of the window](#a-tour-of-the-window)
+  - [Header bar](#header-bar)
+  - [Tracks](#tracks)
+  - [Ride](#ride)
+  - [Bus A and Bus B](#bus-a-and-bus-b)
+  - [Hits](#hits)
+  - [Output](#output)
+  - [The sea](#the-sea)
+  - [Morph pad](#morph-pad)
+  - [Modulation](#modulation)
+  - [Settings and recording](#settings-and-recording)
+  - [About](#about)
+- [Presets and RANDOMISE](#presets-and-randomise)
+- [Keyboard, mouse and MIDI](#keyboard-mouse-and-midi)
+- [Tips](#tips)
+- [Building](#building)
+- [Releasing](#releasing)
+- [Credits](#credits)
+
 ## Download
 
 Get the latest version from the [releases page](https://github.com/samueljustice/plugins/releases?q=swooshbuckler):
@@ -19,9 +41,11 @@ Get the latest version from the [releases page](https://github.com/samueljustice
 
 macOS builds are universal (Apple silicon and Intel), signed and notarised, and need macOS 11 or later. Windows builds need 64-bit Windows 10 or later.
 
+What's changed in each version is in the [changelog](CHANGELOG.md).
+
 ## Quick start
 
-1. **Drop sounds into Tracks**, or click the drop zone to browse. Anything works: cloth, air, engines, animals, metal, voices. Each file gets its own looping track, and Swooshbuckler listens to it, names it and works out what kind of sound it is.
+1. **Drop sounds into Tracks**, or click the drop zone to browse. Anything works: cloth, air, engines, animals, metal, voices. Each file gets its own looping track. Swooshbuckler finds the separate sounds in it, guesses what type of sound it is, and sends it to bus A, bus B or the hits.
 2. **Press PLAY.** With **AUTO RIDE** on (it is by default), every track's fader moves by itself at its own speed. When the layers swell together you get a whoosh.
 3. **Shape it** with Energy, Rate and Chaos, or try a preset or **RANDOMISE**.
 4. **Arm the tape** (ARM). It records whenever there's sound and skips the silence. Click again to stop and close the file.
@@ -29,7 +53,7 @@ macOS builds are universal (Apple silicon and Intel), signed and notarised, and 
 
 Hold **SWELL**, the space bar or any MIDI note to push every fader up at once.
 
-Every control has a tooltip: hover over it to see what it does.
+Every control has a tooltip: hover over it to see what it does and how to use it.
 
 ## How it works
 
@@ -39,114 +63,319 @@ Every control has a tooltip: hover over it to see what it does.
          └─> Hits (impacts) <── gate opens on A + B ┘
 ```
 
-- **Tracks**:
-  - Each track loops from its start marker (the flag). Click or drag on a waveform to move the marker.
-  - With **SKIP SILENCE** on (the default), the gaps between sounds are skipped, so a recording full of pauses becomes a steady source.
-- **Sound types**:
-  - Each track is sorted into one of seven types, which decide its bus and how it plays: Energy bed, Tonal content, Impact, Air / swish, Crackle, Rumble or Mixed content.
-  - Click the type badge to change a wrong guess.
-- **Bus A and Bus B** each run a moving-source chain: doppler passes, stereo travel, pitch bend, low end, swirl, an envelope filter and drive. Bus A ducks and darkens Bus B so they don't pile up.
-- **Hits**:
-  - Impact tracks only play through the hit gate. The gate opens at the loudest moments of the two buses, so the impacts land on the biggest swells.
-  - **SYNC HITS** fires all impact tracks on one shared beat, so their transients line up into one big hit. The waveforms slide into line to show it.
-- **Output**: echoes and reverb, then loudness and a limiter. The tape records what you hear.
+1. **Tracks** loop your sounds. The ride moves each track's fader, so the layers rise and fall on their own.
+2. Each track's **sound type** decides where it plays:
+   - **Bus A** gets Tonal Content, Crackle, Rumble and Mixed Content.
+   - **Bus B** gets Energy Bed and Air / Swish.
+   - **Hits** gets Impact.
+3. **Bus A and Bus B** each turn their tracks into moving sources: doppler passes that fly across the stereo field, with low end, swirl, an envelope filter and drive. Bus A is the key for bus B: when A gets loud it ducks and darkens B, so the two don't pile up.
+4. **Hits** only play when the hit gate opens. By default the gate opens at the loudest moments of the two buses, so the impacts land on the biggest swells and push the buses out of the way.
+5. **Output** adds echoes, reverb and width, makes it louder and denser, and limits it. The tape and LAST 60s record exactly what you hear.
 
-Each section's title bar has a small waveform of the last 3 seconds of what it sends on, so you can see the ducking and the gate working.
+The small brass arrows between the sections show this flow, and each section's title bar has a small waveform of the last 3 seconds of what it sends on.
 
-## Controls
+## A tour of the window
 
-Double-click any knob to reset it.
+### Header bar
 
-### Ride
-| Control | Range | What it does |
-|---|---|---|
-| **Swell** | button | Hold to push every fader up (space bar or any MIDI note also works). |
-| **Auto ride** | on / off | The faders move by themselves. Off: they stay where you set them. |
-| **Energy** | 0–100% | How far the ride pulls the faders: gentle movement to big swells out of silence. |
-| **Rate** | 0–100% | How fast the faders move, and so how long each whoosh and doppler pass lasts. |
-| **Fill** | 0–100% | Long echoes (0.5, 1 and 2 s) that fill the gaps in gappy sounds. |
-| **Chaos** | 0–100% | How unpredictable the rides and passes are. |
-| **Pitch** | ±24 semitones | Plays every track higher or lower. |
+![Header bar](docs/images/header.png)
 
-### Bus A and Bus B
+From left to right:
+
 | Control | What it does |
 |---|---|
-| **Doppler** | How dramatic each pass is: how close it comes, how much it swells and brightens. |
-| **Width** | How far each pass travels across the stereo field. |
-| **Bend** | How much the pitch dives as a pass goes by. |
-| **Low end** | A sub octave, low overtones and a lift at the loudest moments. |
-| **Swirl** | A phaser, then a flanger that sweeps with each pass. |
-| **Filter** | An envelope filter that opens as the bus gets louder. |
-| **Drive** | Saturation, from warmth to growl. |
-| **Ducked** *(B only)* | How much bus A pushes bus B down. |
-| **Filtered** *(B only)* | How much bus A darkens bus B with a low-pass filter. |
-| **TAKE TURNS** *(B only)* | Only the louder bus speaks and the other ducks under it. Off: A always ducks B. |
+| **Swooshbuckler** title | Click it, or the version number beside the website link under it, to open [About](#about). |
+| **PLAY / STOP** | Starts and stops the whole rig. It turns green and reads STOP while running. PLAY starts every track from its start flag and the ride from the top. Starting and stopping fade over about 60 ms, so there are no clicks. Swooshbuckler always opens stopped. |
+| **NEW** | A new session. It stops the rig and the tape, empties all ten tracks, turns off every mute and solo, puts every control back to its default, and removes every modulation wire. |
+| **<** and **>** | Step through the factory presets, wrapping round at either end. |
+| Preset name | Shows the current preset (or "Randomised"). Click it for the list, with **Back to Defaults** at the bottom. See [Presets and RANDOMISE](#presets-and-randomise). |
+| **RANDOMISE** | Rolls a random but musical setting and glides to it. |
+| Tape (**ARM**) | The tape machine. See [Recording](#recording). It reads **ARM**, **ARMED** (with a blinking red dot, waiting for sound) or **REC mm:ss** (recording, reels spinning). |
+| **LAST 60s** | Saves the last minute of output to a file, even if the tape wasn't armed. |
+| **SETTINGS** | Opens [Settings](#settings-and-recording): where recordings go and how they're written, and the audio device in the app. |
 
-### Hits
-| Control | Range | What it does |
-|---|---|---|
-| **Gate** | Peaks / Level / Jumps / Open | What opens the gate: the loudest moments (default), any level over Sensitivity, sudden rises, or always open. |
-| **Duck** | Volume / Darken / Mids | How the ducked buses get out of the way: turned down (default), low-passed, or only their middle (250 Hz to 4 kHz) turned down. |
-| **Sensitivity** | 0–100% | How easily the gate opens. |
-| **Boost** | 0 to +18 dB | How much the hits jump up when the gate opens. |
-| **Release** | 60 ms to 1.2 s | How long the hits tail out. |
-| **Hold** | 0–500 ms | How long the gate stays open once it opens. |
-| **Floor** | Closed, or −40 to −3 dB | How far the gate closes between hits. |
-| **Duck** | 0–100% | How far the hits push buses A and B down. |
-| **Return** | Fast, or 20 ms to 1 s | How fast ducked buses come back up. |
-| **SYNC HITS** | on / off | All impact tracks fire on one shared beat. |
-
-### Output
-| Control | Range | What it does |
-|---|---|---|
-| **Space** | 0–100% | Echoes, reverb and width. |
-| **Inflate** | 0–100% | Louder and denser without new peaks. |
-| **Push** | 0 to +18 dB | Drive into the limiter. |
-| **Ceiling** | −12 to 0 dB | Nothing gets out louder than this. |
-
-### Morph
-Click **MORPH** over the sea to show the morph pad, and switch it on with **ON**.
-
-- The morph blends bus A into bus B spectrally, so the two sounds trade tone and pitch rather than just crossfading.
-- Drag the dot, or press ▶ to let it wander along a shape.
-- There are three modes:
-  - **Blend** morphs the tone.
-  - **Glide** slides the pitches.
-  - **Cross** plays one through the other, like a vocoder.
-
-### Modulation
-Four modulators sit along the bottom. Drag a modulator's **jack** onto any knob to wire it; the morph pad and track faders are the exceptions.
-
-Each modulator can be one of four types:
-- **LFO**: a repeating wave: Sine, Triangle, Ramp, Square or Steps.
-- **Random**: a smooth random wander.
-- **Follower**: follows the loudness of bus A, bus B, the hits or the output. Pick which in the box under the scope.
-- **Macro**: one knob that turns every knob it's wired to.
-
-To work with a wire's plug on a knob:
-- Drag it up or down to set the depth (hold Shift for fine control).
-- Double-click it to set +50%.
-- Right-click it (or Alt-click) to invert it or pull it out.
-
-**CABLES** shows or hides the cables. Wires only offset the knobs, so your DAW automation stays clean.
+A status line runs along the bottom of the window. The left side always shows a hint. The right side shows the latest message, such as "Saved ...", which fades after about 8 seconds. Click a "Saved ..." message to show the file in Finder or Explorer.
 
 ### Tracks
-| Control | What it does |
+
+![Tracks](docs/images/tracks.png)
+
+This is where your sounds live: up to ten files, each on its own looping lane.
+
+**Loading sounds**
+
+- Drag audio files onto the drop zone, or anywhere in the window, or click the drop zone to browse. You can pick several files at once.
+- Each file takes the next empty track. Drop a file onto a lane that already has a sound to replace it.
+- Swooshbuckler reads WAV, AIFF, FLAC, OGG and MP3, and on macOS also CAF and M4A.
+- Files are folded to mono and play at their own sample rate. Only the first 10 minutes of a file are loaded.
+- Each track gets an automatic loudness trim, so quiet and loud files sit at similar levels before the fader.
+- When you load a file, Swooshbuckler finds the separate sounds in it, keeping their natural tails, and guesses what type of sound it is. The guess uses the audio and words in the file name: "hit", "boom" and "slam" suggest an Impact, "wind", "drone" and "rain" an Energy Bed, "whoosh", "cloth" and "sword" Air / Swish, and so on. Naming your files well gets better guesses.
+
+**A track lane**
+
+![A track lane](docs/images/track-lane.png)
+
+| Part | What it does |
 |---|---|
-| **Fader** | The track's level. With auto ride on, it's how high the ride can take it. |
-| **Bus tag** | Where the track plays: BUS A, BUS B or HITS. It follows the sound type. |
-| **Type badge** | The sound type it was sorted into, which also picks its bus. Click it to change it. |
-| **SKIP SILENCE** | On: only the sounds play. Off: the whole file loops, silence and all. |
-| **M / S / x** | Mute, solo, remove (undo with Cmd+Z, or Ctrl+Z on Windows). |
-| Double-click the name | Rename the track. |
+| **Name** | The track is named after its sound type ("Energy Bed", "Tonal Content" and so on) until you rename it. Two tracks of the same type share a name; the lane colour tells them apart. **Double-click** the name to rename it. Return keeps it and Esc cancels. Clear it to go back to the automatic name. |
+| **Bus tag** | Where the track plays: **BUS A** (coral), **BUS B** (turquoise) or **HITS** (red), in the colour of that section's knobs. It follows the sound type. |
+| **Type badge** | The sound type. Click it to change it, or choose **Auto** to go back to the guess. A ` *` means you set it yourself. The type decides the bus: see the table below. |
+| **SKIP SILENCE** | On (the default): only the sounds play and the gaps between them are skipped, so a recording full of pauses becomes a steady source. The sounds are drawn bright and the gaps faint. Off: the whole file loops, silence and all, and the lane reads "silence kept". |
+| **Fader** | The track's level, 0–100%, default 80%. With AUTO RIDE on, it sets how high the ride can take the track. Double-click to reset. Each one is also a host parameter, "Track 1" to "Track 10". |
+| **M / S / x** | Mute, solo and remove. A muted track keeps its place in the ride, so it comes straight back in when you unmute it. |
+| **Waveform** | The yellow **flag** marks where the track starts playing. It loops from there, and the part before the flag is dimmed. **Click or drag** on the waveform to move it, and **double-click** to put it back at the top. |
+| **Ride line** | The line across the waveform traces the track's actual level over the last 8 seconds, like an automation lane scrolling past, with a dot at the right for right now. The thin strip left of the waveform shows the level now. Both include the fader, the ride, and mute and solo. |
+| **Playheads** | Thin white lines show where in the file the track is playing (two while it crossfades from one sound to the next). |
+| Top left of the waveform | The file length and how many sounds were found in it. |
 
-### Settings
-Where recordings go, and their file type (WAV, AIFF, FLAC), bit depth (16, 24 or 32-bit float), sample rate and channels. You can also arm the tape every time Swooshbuckler opens. In the app, this is also where you choose the audio device.
+**Sound types**
 
-### Presets
-Factory presets: Steady energy, Jet passes, Monster swells, Gentle breeze, Fast and furious, Magic dust, Heavy hits. Choosing one glides every control to its new setting while it plays. Your tracks, their levels and the output section stay as they are.
+| Type | What it's for | Plays on |
+|---|---|---|
+| Tonal Content | Sounds with a pitch or a voice: growls, squeals, creatures, tones. | Bus A |
+| Crackle | Busy, broken-up texture: fire, debris, sparks. | Bus A |
+| Rumble | Low end: sub, thunder, rumble. | Bus A |
+| Mixed Content | A bit of everything, or no single clear type. | Bus A |
+| Energy Bed | Steady sound with body: wind, drones, engines, rain. | Bus B |
+| Air / Swish | Air movement: swishes, cloth, flaps, sword swings. | Bus B |
+| Impact | Hits and transients. | Hits |
 
-The version and build are in the **About** panel: click the title or the version number under it.
+Changing a track's type is how you move it to the other bus.
+
+**Undo**
+
+With the Tracks panel focused (click it first), Cmd+Z (Ctrl+Z on Windows) undoes the last sound you loaded or the last track you removed, on whichever track it was, and selects that track. Shift+Cmd+Z (Ctrl+Shift+Z) redoes it. Remove three tracks and three presses bring them all back. Each track keeps up to 40 steps.
+
+**Hit sync view**
+
+When **SYNC HITS** is on in the Hits section, every track on HITS zooms and slides so the transient of the hit it fired last sits on a shared red dashed line, which flashes on every beat. The lane reads "SYNCED hit N of M". If a track reads "no hits found", turn its SKIP SILENCE off: the whole file then fires as one hit, lined up on its first transient.
+
+### Ride
+
+![Ride](docs/images/ride.png)
+
+This is where the whooshes come from. With AUTO RIDE on, each track's fader rises and falls at its own speed (the ten tracks run at different speeds, so they never move together), and the layers swell, overlap and fall away.
+
+| Control | Range (default) | What it does |
+|---|---|---|
+| **Swell** | button | Hold it to push every track's fader up to its full level, over the ride. Let go and the ride takes over again. It glides rather than jumps. The space bar and any MIDI note do the same. |
+| **AUTO RIDE** | on / off (on) | The faders move by themselves. Off: the movement glides to a stop and each fader stays where you set it. |
+| **Energy** | 0–100% (60%) | How far the ride pulls the faders down between swells. Low: gentle movement that stays fairly level. High: deep swells that rise out of silence and fall back. |
+| **Rate** | 0–100% (40%) | How fast the faders move: from one rise and fall about every 25 s to one about every 2 s. It also sets how long each doppler pass on the buses lasts, from about 6 s down to about 1.6 s. |
+| **Fill** | 0–100% (30%) | Long, softened echoes at 0.5, 1 and 2 s that fill the gaps in gappy sounds. Gappy tracks get much more than steady ones. |
+| **Chaos** | 0–100% (40%) | How unpredictable it all is. Low: the rides and passes repeat in a steady pattern. High: each fader wobbles, every pass gets its own length, speed, closeness and direction, and tracks more often jump to a random sound instead of the next one, sometimes starting partway in. |
+| **Pitch** | ±24 semitones (0) | Plays every track higher or lower, like changing tape speed: lower is also slower and heavier. It glides to a new setting and isn't locked to whole semitones. |
+
+Swell only lifts the faders up to the ride's ceiling, so with AUTO RIDE off (or Energy at 0%) the faders are already there and Swell does nothing you'll hear.
+
+### Bus A and Bus B
+
+![Bus A](docs/images/bus-a.png)
+
+![Bus B](docs/images/bus-b.png)
+
+Each bus turns its tracks into a moving source: it always runs two overlapping doppler passes, and each one flies across the stereo field. In order, the chain is: doppler passes (with Width and Bend), then Low End, Swirl, Filter and Drive, then the ducking.
+
+Bus A ("growls, tones, crackle, rumble - and the key for B") is the aggressive bus. Bus B ("air and beds, ducked and filtered by A") sits under it.
+
+| Control | Default (A / B) | What it does |
+|---|---|---|
+| **Doppler** | 55% / 40% | How dramatic each pass is: how close it comes, and how much it swells and brightens as it goes by. At 0% the passes don't pan or bend, whatever Width and Bend are set to. |
+| **Width** | 80% / 80% | How far each pass travels across the stereo field, from near the middle to a full left-to-right fly-by. |
+| **Bend** | 70% / 60% | How much the pitch dives as a pass goes by, up to a race-car drop. |
+| **Low End** | 35% / 20% | Weight: a sub octave and low overtones, plus a low lift that grows at the bus's loudest moments. |
+| **Swirl** | 20% / 30% | Movement inside the sound: a phaser, then (above about a quarter) a flanger that sweeps as the passes come and go. |
+| **Filter** | 30% / 40% | A low-pass filter that opens as the bus gets louder, so quiet parts are dark and peaks are bright, like air rushing past. More also adds resonance. |
+| **Drive** | 15% / 0% | Saturation, from gentle thickening to a hard growl. |
+| **Ducked** (B only) | 40% | How much bus A pushes bus B down when A gets loud. |
+| **Filtered** (B only) | 30% | How much bus A darkens bus B with a low-pass filter when A gets loud, so B goes dark under A rather than just quieter. |
+| **TAKE TURNS** (in B's title bar) | off | Only the louder bus plays at full level and the other ducks under it by the Ducked amount, so they trade places. The other bus has to be clearly louder (about 2 dB) for 30 ms before the turn passes. Off: A always ducks B. |
+
+All the knobs run from 0 to 100%. How bus B gets out of the way (turned down, darkened or just its mids) follows the **DUCK** box in the Hits section, and how fast it comes back follows the Hits **Return** knob.
+
+The waveform in each title bar shows the last 3 seconds of what that bus sends on. Bus B's is drawn after A has ducked and filtered it, so a thin line under a busy bus A means the ducking is working.
+
+### Hits
+
+![Hits](docs/images/hits.png)
+
+Every Impact track plays here, and only when the hit gate opens. The gate listens to buses A and B together. When it opens, the hits jump up and push both buses down out of the way, so each impact punches through the whoosh.
+
+| Control | Range (default) | What it does |
+|---|---|---|
+| **GATE** box | Peaks / Level / Jumps / Open (Peaks) | What opens the gate. **Peaks**: the loudest moments of the two buses. **Level**: any time they're louder than a level set by Sensitivity. **Jumps**: sudden rises, however loud or quiet. **Open**: no gate, the hits always play. |
+| **DUCK** box | Volume / Darken / Mids (Volume) | How a ducked bus gets out of the way: turned down, low-passed, or only its crowded middle (250 Hz to 4 kHz) turned down. This also applies to bus A ducking bus B. |
+| **Sensitivity** | 0–100% (50%) | How easily the gate opens. Low: only the biggest moments fire the hits. High: they fire often. |
+| **Boost** | −6 to +12 dB (+6 dB) | How much the hits jump up when the gate opens. |
+| **Release** | 60 ms to 1.2 s (459 ms) | How long the hits tail out after the gate shuts. |
+| **Hold** | 0–500 ms (60 ms) | How long the gate stays open after the last trigger. Longer stops it chattering, so each hit reads as one event. |
+| **Floor** | Closed, or −40 to −3 dB (Closed) | How far the gate closes between hits. Closed: the hits vanish between peaks. Turn it up and they stay quietly under the mix. |
+| **Duck** | 0–100% (50%) | How far the hits push buses A and B down when they fire. |
+| **Return** | Fast, or 20 ms to 1 s (Fast) | How fast ducked buses come back up. This also applies to bus A ducking bus B. Slower is smoother, with less pumping. |
+| **HIT GATE** | light | Glows as the gate opens and fades as it closes. |
+| **SYNC HITS** | on / off (off) | Every Impact track fires its next hit on one shared beat, so their transients line up into one big hit. Switching it restarts the hit tracks. See the [hit sync view](#tracks). |
+
+The waveform in the title bar shows the last 3 seconds of what got through the gate: each spike is a hit, and the gaps are the gate closed.
+
+### Output
+
+![Output](docs/images/output.png)
+
+The last stage before your speakers and the tape.
+
+| Control | Range (default) | What it does |
+|---|---|---|
+| **Space** | 0–100% (25%) | Echoes, reverb and width around the whole mix: a ping-pong echo, a reverb whose room grows as you turn it up, and stereo widening. At 0% it's off. |
+| **Inflate** | 0–100% (30%) | Louder and denser without new peaks, so quieter detail comes forward. At 0% the sound passes through untouched. |
+| **Push** | 0 to +18 dB (+3 dB) | How hard the mix drives into the limiter. The ceiling stays put, so it can't clip. |
+| **Ceiling** | −12 to 0 dB (−0.3 dB) | The limiter's ceiling: nothing gets out louder than this. The limiter is always on. |
+| **GR** | meter | How much the limiter is turning the sound down right now (a full bar is 12 dB). The number beside the meters is the same thing in dB, and turns coral while the limiter is working. |
+| **OUT** | meter | The output peak level, after the limiter. |
+
+If the gain reduction number is coral all the time, back off Push or raise Ceiling.
+
+### The sea
+
+![The sea](docs/images/sea.png)
+
+The OUTPUT view at the top right pictures what the rig is sending out:
+
+- **The waves** are the output's spectrum, lows on the left and highs on the right. The newest wave is at the front, and older ones roll away towards the horizon.
+- **Each doppler pass** is a glowing ball that arcs across the sea. It comes closer the closer the pass, glows brighter the louder it is, and leaves a ripple as it crosses the middle.
+- After a moment of silence, the Sweet Justice logo slowly draws itself in the sky.
+- While the tape records, a blinking red dot and a "Rec" timer show in the corner.
+- **Click the sea** for a short swell.
+- **MORPH** (top right) shows or hides the [morph pad](#morph-pad). It reads **MORPH ON** in green while the morph is switched on.
+
+### Morph pad
+
+![Morph pad](docs/images/morph-pad.png)
+
+The morph blends bus A into bus B spectrally, so the two sounds trade tone and pitch rather than just crossfading. Click **MORPH** over the sea to show the pad, then switch the morph on with **ON**. The MORPH button only shows and hides the pad; the morph keeps running when the pad is hidden.
+
+- **ON / OFF** switches the morph itself, with a fade rather than a hard switch. While it's off the pad is veiled and dimmed, but everything still works, so you can set it up first.
+- **Blend / Glide / Cross** pick the mode. Changing mode crossfades, so it doesn't click.
+- **The dot**: left is bus A and right is bus B in every mode. Up and down depends on the mode:
+
+| Mode | What it does | Bottom | Top |
+|---|---|---|---|
+| **Blend** | Morphs the tone of A into B's. | **Mix**: both sounds' pitches stay audible. | **Fuse**: one fused hybrid texture. |
+| **Glide** | The pitches inside the sound slide from A's to B's. | **Move**: the character moves with the pitch. | **Shape**: the character (formants) stays put while the pitch moves. |
+| **Cross** | A vocoder: one bus played through the other's tone. | **B thru A** | **A thru B** |
+
+- **Click or drag** on the pad to move the dot. **Double-click** to put it back in the middle.
+- **Wander** (the play button at the top right) makes the dot move along a shape by itself, so the morph keeps moving. The whole shape is drawn faintly, with a bright trail behind the dot. Click it again, or click the pad, to stop.
+  - The **speed slider**, along the bottom between the Bus A and Bus B labels, sets how fast it goes, from a slow drift to busy.
+  - The **shape menu**, beside it, picks the path:
+    - **Lorenz** (the default): a chaotic loop that swaps between two wings and never repeats.
+    - **Sweet Justice**: the outline of the Sweet Justice Sound logo.
+    - **Figure Eight**, **Rose** and **Circle**: these turn slowly, one degree per lap, so they never repeat exactly.
+- The **Bus A** and **Bus B** labels under the pad show the two sources. The morph always runs between the two buses.
+
+The wandering dot is sent to your host as Morph X / Morph Y changes, so the dot only wanders while the Swooshbuckler window is open, and a host recording automation will record it.
+
+### Modulation
+
+![Modulation](docs/images/modulation.png)
+
+Four modulators run along the bottom: **MOD 1** (yellow), **MOD 2** (pink), **MOD 3** (green) and **MOD 4** (violet). Each can be one of four types, picked from the menu at its top right:
+
+| Type | What it does | Knob |
+|---|---|---|
+| **LFO** | A repeating wave that swings each wired knob up and down. The shape menu offers Sine, Triangle, Ramp (rises then drops), Square and Steps (a new random value every cycle). | **Rate**: 0.02 Hz (one cycle every 50 s) to 12 Hz |
+| **Random** | A smooth random wander up and down, never the same twice. | **Rate**: as above |
+| **Follower** | Follows the loudness of **Bus A**, **Bus B**, the **Hits** or the whole **Output** (pick which in the menu under the scope), and turns its knobs one way only. | **Speed**: slow and smooth (about 1 s) to fast and jumpy (about 10 ms) |
+| **Macro** | One knob that turns every knob it's wired to, each by its own depth. It's a host parameter, so you can automate it. | **Amount** |
+
+The defaults are MOD 1: LFO (Sine), MOD 2: LFO (Triangle), MOD 3: Random, MOD 4: Follower (Bus A). The scope on each card shows what the modulator has done over the last few seconds.
+
+**Wiring**
+
+![Cables](docs/images/cables.png)
+
+- **Drag from a modulator's jack** (the round socket at its top left) onto a knob. A cable follows the mouse, and the knob under it lights up; drop it there to wire it. Drop it anywhere else to cancel. Drag from the same jack again to wire more knobs.
+- You can wire every knob in Ride, Bus A, Bus B, Hits and Output. You can't wire the morph pad, the track faders, or the modulators' own knobs.
+- Each wire leaves a **plug**, a small coloured dot on the knob's rim, and draws an arc showing how far it moves the knob:
+  - **Drag the plug up or down** to set the depth, from −100% to +100%. New wires start at +50%. Hold Shift for fine control.
+  - **Double-click** a plug to set it to +50%.
+  - **Right-click** a plug for a menu: Invert, Depth 25%, 50% or 100%, or Pull Out the Wire.
+  - **Alt-click** a plug to pull the wire out straight away.
+- **CLEAR** on a card pulls out all of that modulator's wires.
+- **CABLES** (top right) shows or hides the cables. The plugs stay on the knobs either way.
+- Several wires on one knob add together. You can have up to 48 wires in all.
+- Wires only move the value that reaches the sound. The knob itself never moves, so your DAW automation stays clean.
+- Wires and modulator settings are saved with the session. Presets and RANDOMISE don't touch them, and NEW pulls them all out.
+
+Some ideas: follow **Bus A** with a wire on bus B's Filter to make B react to A, follow **Hits** with a wire on Space to make every impact open up the room, or put a slow Random on Pitch.
+
+### Settings and recording
+
+![Settings](docs/images/settings.png)
+
+Click **SETTINGS** to open. Close it with CLOSE, Esc, or a click outside the panel. These settings belong to Swooshbuckler itself, not to a session, and are shared by the app and every copy of the plug-in.
+
+| Setting | Options (default) | What it does |
+|---|---|---|
+| **Recordings Are Saved To** | (your Desktop) | **CHOOSE...** picks a folder, **DESKTOP** goes back to the default, and **SHOW** opens the folder. |
+| **File Type** | WAV / AIFF / FLAC (WAV) | WAV files also carry broadcast-wave details. FLAC is lossless and about half the size. |
+| **Bit Depth** | 16-Bit / 24-Bit / 32-Bit Float (24-Bit) | 32-Bit Float can't clip in the file, and is WAV only. |
+| **Sample Rate** | Session / 44.1 / 48 / 88.2 / 96 / 192 kHz (Session) | Session records at the audio device's or host's rate. Pick a higher rate and the whole rig runs at that rate, so the recording keeps the extra high end, which is good for pitching down later; you still hear it at the device rate. A note in the panel says which is happening. It can't be changed while the tape is armed. |
+| **Channels** | Stereo / Mono (Stereo) | Mono folds the output to one channel, for sounds you'll pan yourself. |
+| **Arm the tape as soon as Swooshbuckler opens** | (off) | So you never miss the first good take. |
+| **AUDIO DEVICE...** | | The app only: the audio output, sample rate and buffer size. |
+
+#### Recording
+
+- **The tape (ARM).** Click to arm. While armed, the tape writes whenever the output is above about −56 dBFS. It keeps a quarter second before each sound and 2 seconds after it, so attacks and tails survive, and leaves the silence out. Everything goes into one file until you click the tape again, press NEW or close Swooshbuckler. The REC timer counts only what's been written.
+- **LAST 60s.** Swooshbuckler always keeps the last minute of output while it plays. Click LAST 60s to save it, even if the tape wasn't armed and even while a take is going. Silence at the start is trimmed. It's always written as a stereo WAV at the rig's rate, in the bit depth you've chosen.
+- **What's recorded** is the final output, after Space and the limiter: exactly what you hear.
+- **File names** look like `Swooshbuckler_2026-11-07_16-32-10_48213.wav`. The number on the end keeps two takes in the same second apart. LAST 60s files end in `_retro`.
+- File Type, Bit Depth, Sample Rate and Channels are fixed when you arm, so changes apply to the next take.
+
+### About
+
+![About](docs/images/about.png)
+
+Click the **Swooshbuckler** title or the version number to open it. It shows the version, which format you're running (app, VST3 or AU), the build date and commit, and the credits. **COPY VERSION** copies the version, build date and commit, plus your operating system, for a bug report. **WEBSITE** opens sweetjusticesound.com.
+
+## Presets and RANDOMISE
+
+The factory presets are **Steady Energy**, **Jet Passes**, **Monster Swells**, **Gentle Breeze**, **Fast and Furious**, **Magic Dust** and **Heavy Hits**. Pick one from the preset name, or step through them with **<** and **>**. Every control glides to its new setting while it plays, so you can switch mid-whoosh. Grab a knob during the glide and your move wins.
+
+**RANDOMISE** rolls Energy, Rate, Fill, Chaos and Pitch (whole semitones from −7 to +7), the bus knobs (Doppler, Low End, Swirl, Filter and Drive, plus Ducked and Filtered on B), the hit knobs (Sensitivity, Boost, Release and Duck) and Space.
+
+Presets and RANDOMISE set the sound, not your session. They leave these alone:
+
+- your tracks and their levels
+- Inflate, Push and Ceiling
+- AUTO RIDE, SYNC HITS, the GATE and DUCK modes, and TAKE TURNS
+- the morph's ON switch, wander, shape and speed
+- the modulators and their wires
+
+Anything else a preset doesn't set goes back to its default. **Back to Defaults** at the bottom of the preset list puts every one of those controls back to its default, and leaves the same things alone. It's much gentler than NEW, which also empties the tracks, resets everything else and pulls out the wires.
+
+## Keyboard, mouse and MIDI
+
+| Input | What it does |
+|---|---|
+| Space bar (hold) | Swell. With a track lane selected, it gives a short swell instead: click outside Tracks for a held one. |
+| Any MIDI note (hold) | Swell, for as long as any note is held. Notes only work while the rig is playing. |
+| Click the sea | A short swell. |
+| Cmd+Z / Shift+Cmd+Z (Ctrl+Z / Ctrl+Shift+Z on Windows) | Undo and redo the last load or removal in Tracks, newest first. Click the Tracks panel first. |
+| Esc | Closes Settings or About. |
+| Double-click a knob | Resets it. |
+| Double-click a track name | Renames it. |
+| Double-click a waveform | Puts the start flag back at the top. |
+
+## Tips
+
+- **Start with beds and a tonal layer.** A couple of Energy Beds on bus B and one or two growls or tones on bus A make a whoosh straight away. Add impacts for punctuation.
+- **Gappy recordings** (single swishes, takes with pauses) work best with SKIP SILENCE on and a little Fill.
+- **For tight synced hits**, put two or three impacts on HITS, turn on SYNC HITS and raise Boost.
+- **For monster passes**, lower Pitch, raise Low End and Bend, and slow the Rate.
+- **If the buses fight**, turn on TAKE TURNS, or raise Ducked and Filtered on bus B.
+- **Record at 96 or 192 kHz** if you plan to pitch the whooshes down later.
+- **Leave the tape armed** while you play with the controls. It only writes when there's sound, so you just need to listen back for the good ones.
 
 ## Building
 
@@ -166,7 +395,7 @@ This builds the app, the VST3 and the AU (macOS) into `build/Swooshbuckler_artef
 
 ### Version
 
-The version lives in one place, `SWOOSHBUCKLER_VERSION` in [CMakeLists.txt](CMakeLists.txt). Release builds override it from the tag.
+The version lives in one place, `SWOOSHBUCKLER_VERSION` in [CMakeLists.txt](CMakeLists.txt). Release builds override it from the tag. The copyright year in the About panel is the year it was built.
 
 ### Icon
 
@@ -196,6 +425,7 @@ You can also run the workflow by hand (Actions → Build and Release Swooshbuckl
 
 ## Credits
 
+- Made by Samuel Justice at [Sweet Justice Sound](https://www.sweetjusticesound.com).
 - Fonts: [Pirata One](https://fonts.google.com/specimen/Pirata+One) by Rodrigo Fuenzalida and Nicolas Massi, and [IBM Plex Sans Condensed](https://github.com/IBM/plex) by IBM, both under the SIL Open Font License 1.1.
 - Built with [JUCE](https://juce.com).
 - VST is a registered trademark of Steinberg Media Technologies GmbH.

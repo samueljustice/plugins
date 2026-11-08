@@ -2,14 +2,137 @@
 
 namespace
 {
+    using namespace Theme::Colours;
+
     const juce::Identifier c_styleProperty { "reversinatorStyle" };
+    const juce::Identifier c_focusRingsProperty { "reversinatorFocusRings" };
+    const juce::Identifier c_capitalsProperty { "reversinatorCapitals" };
 
     constexpr float c_valueBoxHeight = 18.0f;
     constexpr float c_valueBoxGap = 10.0f;
 
+    // The house style's metrics (as Subbertone's LookAndFeel). Menu metrics are at design size and
+    // scaled by menuScale().
+    constexpr float c_menuRadius = 6.0f;
+    constexpr float c_menuBorder = 5.0f;
+    constexpr float c_menuTickColumn = 22.0f;
+    constexpr float c_menuTextInset = 24.0f;
+    constexpr float c_menuArrowColumn = 20.0f;
+    constexpr float c_menuHeaderHeight = 26.0f;
+    constexpr float c_menuSeparatorHeight = 9.0f;
+    constexpr float c_menuFontHeight = 13.0f;
+
+    constexpr float c_tipRadius = 5.0f;
+    constexpr float c_tipPadX = 10.0f, c_tipPadY = 7.0f;
+    constexpr float c_tipMaxWidth = 420.0f;
+
     juce::Colour accentOf(const juce::Slider& slider)
     {
         return slider.findColour(juce::Slider::trackColourId);
+    }
+
+    // A colour that looks opaque but makes JUCE create a transparent window (menus), so the rounded
+    // corners show what is behind them. The body itself is drawn with full alpha.
+    juce::Colour nearlyOpaque(juce::Colour c) { return c.withAlpha(static_cast<juce::uint8>(0xfe)); }
+
+    // Width of a line of text as drawn: getStringWidth() skips ligature placeholders, so text ending in a
+    // ligature would measure short.
+    float lineWidth(const juce::Font& font, const juce::String& text)
+    {
+        return juce::GlyphArrangement::getStringWidth(font, text + " ") - juce::GlyphArrangement::getStringWidth(font, " ");
+    }
+
+    // One line, never squashed: too long gets "...".
+    juce::String fitToWidth(const juce::Font& font, const juce::String& text, float width)
+    {
+        width -= 1.0f; // Graphics::drawText() drops a word that overruns its area by any amount
+
+        if (lineWidth(font, text) <= width)
+            return text;
+
+        auto stem = text;
+        while (stem.isNotEmpty() && lineWidth(font, stem.trimEnd() + "...") > width)
+            stem = stem.dropLastCharacters(1);
+        return stem.trimEnd() + "...";
+    }
+
+    // A ">" chevron, rotated by angle.
+    void strokeChevron(juce::Graphics& g, juce::Point<float> centre, float size, float angle, float thickness)
+    {
+        juce::Path p;
+        p.startNewSubPath(-size * 0.5f, -size);
+        p.lineTo(size * 0.5f, 0.0f);
+        p.lineTo(-size * 0.5f, size);
+        p.applyTransform(juce::AffineTransform::rotation(angle).translated(centre));
+        g.strokePath(p, juce::PathStrokeType(thickness, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+    }
+
+    // Every menu metric follows the menu's row height, so a submenu (which inherits it) matches its parent.
+    float menuScale(const juce::PopupMenu::Options& options)
+    {
+        const int h = options.getStandardItemHeight();
+        return h > 0 ? static_cast<float>(h) / static_cast<float>(Controls::LookAndFeel::menuItemHeight) : 1.0f;
+    }
+
+    // The accent of a menu: the colour its control asks for, the logo blue for everything else.
+    juce::Colour menuAccent(const juce::PopupMenu::Options& options)
+    {
+        if (auto* target = options.getTargetComponent())
+            if (target->isColourSpecified(juce::PopupMenu::highlightedBackgroundColourId))
+                return target->findColour(juce::PopupMenu::highlightedBackgroundColourId).withAlpha(1.0f);
+
+        return reverser;
+    }
+
+    // A text button with a transparent fill is a text link (the About panel's website and e-mail).
+    bool isLinkStyle(const juce::Button& b)
+    {
+        return b.findColour(juce::TextButton::buttonColourId).isTransparent();
+    }
+
+    float fieldRadius(int height) { return std::min(5.0f, static_cast<float>(height) * 0.25f); }
+
+    //==============================================================================
+    // Tab in a window shows its focus rings, a click in it hides them (stateless: the state is a property
+    // of the window, so one instance serves every window).
+    struct FocusRingTracker final : public juce::KeyListener, public juce::MouseListener
+    {
+        bool keyPressed(const juce::KeyPress& key, juce::Component* origin) override
+        {
+            if (origin != nullptr && key.isKeyCode(juce::KeyPress::tabKey))
+                setVisible(*origin, true);
+            return false; // never consumed: Tab still moves the focus
+        }
+
+        void mouseDown(const juce::MouseEvent& e) override
+        {
+            if (e.eventComponent != nullptr)
+                setVisible(*e.eventComponent, false);
+        }
+
+        static void setVisible(juce::Component& c, bool visible)
+        {
+            auto* window = c.getTopLevelComponent();
+            if (static_cast<bool>(window->getProperties().getWithDefault(c_focusRingsProperty, false)) == visible)
+                return;
+
+            window->getProperties().set(c_focusRingsProperty, visible);
+            if (auto* focused = juce::Component::getCurrentlyFocusedComponent())
+                if (window->isParentOf(focused) || focused == window)
+                    focused->repaint();
+        }
+    };
+
+    FocusRingTracker& focusRingTracker()
+    {
+        static FocusRingTracker tracker; // stateless, so it can outlive every window it listens to
+        return tracker;
+    }
+
+    juce::LookAndFeel_V4::ColourScheme themeScheme()
+    {
+        // Anything JUCE draws that this class does not override still comes out in the theme's colours.
+        return { background, panelRaised, panelRaised, outline, text, reverser, text, reverser.withAlpha(0.3f), text };
     }
 
     /** Polyline along an ellipse from angle a0 to a1 (radians, counter-clockwise on screen). */
@@ -41,9 +164,10 @@ void Controls::setStyle(juce::Slider& slider, SliderStyle style)
 // LookAndFeel
 //==============================================================================
 Controls::LookAndFeel::LookAndFeel(const Theme::Fonts& fonts)
-    : m_fonts(fonts)
+    : juce::LookAndFeel_V4(themeScheme())
+    , m_fonts(fonts)
 {
-    using namespace Theme::Colours;
+    const auto transparent = juce::Colours::transparentBlack;
 
     if (fonts.medium != nullptr)
         setDefaultSansSerifTypeface(fonts.medium);
@@ -52,22 +176,59 @@ Controls::LookAndFeel::LookAndFeel(const Theme::Fonts& fonts)
     setColour(juce::Label::textColourId, text);
 
     setColour(juce::Slider::textBoxTextColourId, text);
-    setColour(juce::Slider::textBoxOutlineColourId, juce::Colours::transparentBlack);
-    setColour(juce::Slider::textBoxBackgroundColourId, juce::Colours::transparentBlack);
-    setColour(juce::Slider::textBoxHighlightColourId, reverser.withAlpha(0.35f));
-    setColour(juce::TextEditor::focusedOutlineColourId, outline);
-    setColour(juce::CaretComponent::caretColourId, text);
+    setColour(juce::Slider::textBoxOutlineColourId, transparent);
+    setColour(juce::Slider::textBoxBackgroundColourId, transparent);
+    setColour(juce::Slider::textBoxHighlightColourId, reverser.withAlpha(0.3f));
+
+    setColour(juce::PopupMenu::backgroundColourId, nearlyOpaque(panelRaised));
+    setColour(juce::PopupMenu::textColourId, text);
+    setColour(juce::PopupMenu::headerTextColourId, textDim);
+    setColour(juce::PopupMenu::highlightedBackgroundColourId, reverser.withAlpha(0.16f));
+    setColour(juce::PopupMenu::highlightedTextColourId, text);
 
     setColour(juce::TextButton::buttonColourId, panelRaised);
     setColour(juce::TextButton::buttonOnColourId, panelRaised.brighter(0.1f));
     setColour(juce::TextButton::textColourOffId, textDim);
     setColour(juce::TextButton::textColourOnId, text);
 
+    setColour(juce::TextEditor::backgroundColourId, panelRaised);
+    setColour(juce::TextEditor::textColourId, text);
+    setColour(juce::TextEditor::outlineColourId, outline);
+    setColour(juce::TextEditor::focusedOutlineColourId, reverser.withAlpha(0.75f));
+    setColour(juce::TextEditor::highlightColourId, reverser.withAlpha(0.3f));
+    setColour(juce::TextEditor::highlightedTextColourId, text);
+    setColour(juce::TextEditor::shadowColourId, transparent);
+    setColour(juce::Label::textWhenEditingColourId, text);
+    setColour(juce::CaretComponent::caretColourId, reverser);
+
+    setColour(juce::ScrollBar::thumbColourId, textFaint);
+    setColour(juce::ScrollBar::trackColourId, transparent);
+    setColour(juce::ScrollBar::backgroundColourId, transparent);
+
     setColour(juce::TooltipWindow::backgroundColourId, panelRaised);
     setColour(juce::TooltipWindow::textColourId, text);
     setColour(juce::TooltipWindow::outlineColourId, outline);
+}
 
-    setColour(juce::ScrollBar::thumbColourId, outline);
+void Controls::LookAndFeel::showFocusRingsAfterTab(juce::Component& window)
+{
+    window.addKeyListener(&focusRingTracker());
+    window.addMouseListener(&focusRingTracker(), true);
+}
+
+bool Controls::LookAndFeel::shouldShowFocusRing(const juce::Component& c)
+{
+    if (! c.hasKeyboardFocus(false))
+        return false;
+
+    const auto* window = c.getTopLevelComponent();
+    return static_cast<bool>(window->getProperties().getWithDefault(c_focusRingsProperty, false));
+}
+
+void Controls::LookAndFeel::setLabelDrawnInCapitals(juce::Button& button)
+{
+    button.getProperties().set(c_capitalsProperty, true);
+    button.repaint();
 }
 
 int Controls::LookAndFeel::getSliderThumbRadius(juce::Slider& slider)
@@ -95,20 +256,280 @@ juce::Label* Controls::LookAndFeel::createSliderTextBox(juce::Slider& slider)
     auto* label = juce::LookAndFeel_V4::createSliderTextBox(slider);
     label->setFont(m_fonts.body(12.5f));
     label->setJustificationType(juce::Justification::centred);
-    label->setColour(juce::Label::textColourId, Theme::Colours::text);
+    label->setColour(juce::Label::textColourId, text);
     label->setColour(juce::Label::outlineColourId, juce::Colours::transparentBlack);
     label->setColour(juce::Label::backgroundColourId, juce::Colours::transparentBlack);
-    label->setColour(juce::Label::outlineWhenEditingColourId, Theme::Colours::outline);
-    label->setColour(juce::Label::backgroundWhenEditingColourId, Theme::Colours::panelRaised);
+
+    // While a value is typed: a rounded field in the slider's own accent (outline, selection, caret),
+    // with the text centred like the value it replaces. Label::createEditorComponent() copies these to
+    // its TextEditor.
+    const auto accent = accentOf(slider);
+    label->setColour(juce::Label::textWhenEditingColourId, text);
+    label->setColour(juce::Label::backgroundWhenEditingColourId, panelRaised);
+    label->setColour(juce::Label::outlineWhenEditingColourId, accent.withAlpha(0.6f));
+    label->setColour(juce::TextEditor::highlightColourId, accent.withAlpha(0.35f));
+    label->setColour(juce::TextEditor::highlightedTextColourId, text);
+    label->setColour(juce::CaretComponent::caretColourId, accent);
+    label->onEditorShow = [label]
+    {
+        if (auto* editor = label->getCurrentTextEditor())
+        {
+            editor->setJustification(juce::Justification::centred);
+            editor->setIndents(2, 0);
+        }
+    };
     return label;
 }
 
 juce::Font Controls::LookAndFeel::getLabelFont(juce::Label& label)
 {
+    // Value boxes show values; a label whose code set one of the theme's fonts keeps it (the About
+    // panel's status line); any other label is a caption. JUCE's default label font never shows.
     if (dynamic_cast<juce::Slider*>(label.getParentComponent()) != nullptr)
         return m_fonts.body(12.5f);
 
+    const auto face = label.getFont().getTypefacePtr();
+    if (face != nullptr && (face == m_fonts.regular || face == m_fonts.medium || face == m_fonts.bold))
+        return label.getFont();
+
     return m_fonts.label(10.5f);
+}
+
+//==============================================================================
+// Text fields
+//==============================================================================
+void Controls::LookAndFeel::fillTextEditorBackground(juce::Graphics& g, int width, int height, juce::TextEditor& editor)
+{
+    const auto fill = editor.findColour(juce::TextEditor::backgroundColourId);
+    if (fill.isTransparent())
+        return;
+
+    if (editor.isOpaque()) // an opaque component must cover its corners
+    {
+        g.fillAll(fill);
+        return;
+    }
+
+    g.setColour(fill);
+    g.fillRoundedRectangle(juce::Rectangle<float>(static_cast<float>(width), static_cast<float>(height)), fieldRadius(height));
+}
+
+void Controls::LookAndFeel::drawTextEditorOutline(juce::Graphics& g, int width, int height, juce::TextEditor& editor)
+{
+    if (! editor.isEnabled())
+        return;
+
+    // A field being typed in shows its focus however it got it; read-only text (the About licence) only
+    // when Tab moved the focus there, like the buttons.
+    const bool focused = editor.hasKeyboardFocus(true) && (! editor.isReadOnly() || shouldShowFocusRing(editor));
+    const auto colour = editor.findColour(focused ? juce::TextEditor::focusedOutlineColourId : juce::TextEditor::outlineColourId);
+    if (colour.isTransparent())
+        return;
+
+    const float thickness = focused ? 1.5f : 1.0f;
+    const auto r = juce::Rectangle<float>(static_cast<float>(width), static_cast<float>(height)).reduced(thickness * 0.5f);
+    g.setColour(colour);
+    if (editor.isOpaque())
+        g.drawRect(r, thickness);
+    else
+        g.drawRoundedRectangle(r, fieldRadius(height), thickness);
+}
+
+//==============================================================================
+// Popup menus
+//==============================================================================
+juce::Font Controls::LookAndFeel::menuFont(float scale) const
+{
+    return m_fonts.body(c_menuFontHeight * scale);
+}
+
+juce::Font Controls::LookAndFeel::getPopupMenuFont()
+{
+    return menuFont(1.0f);
+}
+
+int Controls::LookAndFeel::getPopupMenuBorderSizeWithOptions(const juce::PopupMenu::Options& options)
+{
+    return std::max(2, juce::roundToInt(c_menuBorder * menuScale(options)));
+}
+
+void Controls::LookAndFeel::drawPopupMenuBackgroundWithOptions(juce::Graphics& g, int width, int height,
+                                                               const juce::PopupMenu::Options& options)
+{
+    const float s = menuScale(options);
+    const auto r = juce::Rectangle<float>(static_cast<float>(width), static_cast<float>(height));
+    const auto colour = findColour(juce::PopupMenu::backgroundColourId);
+    const auto fill = colour.withAlpha(1.0f);
+
+    // JUCE makes the window opaque when it can't be transparent: then it has no corners to show through.
+    if (colour.isOpaque() || ! juce::Desktop::canUseSemiTransparentWindows())
+        g.fillAll(fill);
+
+    g.setColour(fill);
+    g.fillRoundedRectangle(r, c_menuRadius * s);
+    g.setColour(outline);
+    g.drawRoundedRectangle(r.reduced(0.5f), c_menuRadius * s, 1.0f);
+}
+
+void Controls::LookAndFeel::drawPopupMenuItemWithOptions(juce::Graphics& g, const juce::Rectangle<int>& area,
+                                                         bool isHighlighted, const juce::PopupMenu::Item& item,
+                                                         const juce::PopupMenu::Options& options)
+{
+    const float s = menuScale(options);
+    const auto border = static_cast<float>(getPopupMenuBorderSizeWithOptions(options));
+    const auto row = area.toFloat().reduced(border, 0.0f); // rows span the column; their content sits inside the border
+
+    if (item.isSeparator)
+    {
+        g.setColour(outline);
+        g.fillRect(juce::Rectangle<float>(row.getX() + 8.0f * s, std::floor(row.getCentreY()), row.getWidth() - 16.0f * s, 1.0f));
+        return;
+    }
+
+    const auto accent = menuAccent(options);
+    const bool enabled = item.isEnabled;
+    const bool hasSubMenu = item.subMenu != nullptr && (item.itemID == 0 || item.subMenu->getNumItems() > 0);
+    const bool highlighted = isHighlighted && enabled;
+
+    if (highlighted)
+    {
+        g.setColour(accent.withAlpha(0.16f));
+        g.fillRoundedRectangle(row.reduced(0.0f, 1.0f), 4.0f * s);
+    }
+
+    auto content = row;
+    const auto tickArea = content.removeFromLeft(c_menuTickColumn * s);
+    content.removeFromLeft((c_menuTextInset - c_menuTickColumn) * s);
+    const auto arrowArea = content.removeFromRight(c_menuArrowColumn * s);
+
+    if (item.image != nullptr)
+    {
+        item.image->drawWithin(g, tickArea.reduced(5.0f * s), juce::RectanglePlacement::centred | juce::RectanglePlacement::onlyReduceInSize,
+                               enabled ? 1.0f : 0.4f);
+    }
+    else if (item.isTicked)
+    {
+        // A stroked check in the menu's accent.
+        const auto c = tickArea.getCentre().translated(1.0f * s, 0.0f);
+        juce::Path tick;
+        tick.startNewSubPath(c.x - 4.0f * s, c.y + 0.2f * s);
+        tick.lineTo(c.x - 1.3f * s, c.y + 3.0f * s);
+        tick.lineTo(c.x + 4.0f * s, c.y - 3.2f * s);
+        g.setColour(enabled ? accent : textFaint);
+        g.strokePath(tick, juce::PathStrokeType(1.7f * s, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+    }
+
+    if (hasSubMenu)
+    {
+        g.setColour(! enabled ? textFaint : highlighted ? text : textDim);
+        strokeChevron(g, arrowArea.getCentre().translated(-2.0f * s, 0.0f), 3.5f * s, 0.0f, 1.4f * s);
+    }
+
+    // Text, with a trailing "(...)" qualifier in the dim colour.
+    const auto font = menuFont(s);
+    const auto main = ! enabled ? textFaint
+                    : item.colour != juce::Colour() ? item.colour
+                    : findColour(highlighted ? juce::PopupMenu::highlightedTextColourId : juce::PopupMenu::textColourId);
+    const auto shown = fitToWidth(font, item.text, content.getWidth());
+    const int open = shown.lastIndexOf(" (");
+
+    g.setFont(font);
+    if (shown == item.text && open > 0 && shown.endsWithChar(')') && enabled)
+    {
+        const auto head = shown.substring(0, open);
+        g.setColour(main);
+        g.drawText(head, content, juce::Justification::centredLeft, false);
+        g.setColour(textDim);
+        g.drawText(shown.substring(open), content.withTrimmedLeft(lineWidth(font, head)), juce::Justification::centredLeft, false);
+    }
+    else
+    {
+        g.setColour(main);
+        g.drawText(shown, content, juce::Justification::centredLeft, false);
+    }
+
+    if (item.shortcutKeyDescription.isNotEmpty())
+    {
+        g.setFont(m_fonts.label(10.0f * s));
+        g.setColour(textFaint);
+        g.drawText(item.shortcutKeyDescription, content, juce::Justification::centredRight, false);
+    }
+}
+
+void Controls::LookAndFeel::drawPopupMenuSectionHeaderWithOptions(juce::Graphics& g, const juce::Rectangle<int>& area,
+                                                                  const juce::String& sectionName,
+                                                                  const juce::PopupMenu::Options& options)
+{
+    // In the panel-header style: an accent dot in the tick column, then the name in the heading font, aligned
+    // with the items' text. (JUCE already insets a header by the menu border.)
+    const float s = menuScale(options);
+    const auto r = area.toFloat().withTrimmedTop(8.0f * s).withTrimmedBottom(2.0f * s);
+    const float dot = 5.0f * s;
+
+    g.setColour(menuAccent(options));
+    g.fillEllipse(juce::Rectangle<float>(dot, dot).withCentre({ r.getX() + c_menuTickColumn * s * 0.5f + 1.0f * s, r.getCentreY() }));
+
+    const auto font = m_fonts.heading(10.5f * s);
+    const auto textArea = r.withTrimmedLeft(c_menuTextInset * s).withTrimmedRight(8.0f * s);
+    g.setFont(font);
+    g.setColour(findColour(juce::PopupMenu::headerTextColourId));
+    g.drawText(fitToWidth(font, sectionName, textArea.getWidth()), textArea, juce::Justification::centredLeft, false);
+}
+
+void Controls::LookAndFeel::getIdealPopupMenuItemSizeWithOptions(const juce::String& itemText, bool isSeparator,
+                                                                 int standardMenuItemHeight, int& idealWidth,
+                                                                 int& idealHeight, const juce::PopupMenu::Options& options)
+{
+    const float s = menuScale(options);
+
+    if (isSeparator)
+    {
+        idealWidth = juce::roundToInt(50.0f * s);
+        idealHeight = std::max(5, juce::roundToInt(c_menuSeparatorHeight * s));
+        return;
+    }
+
+    idealHeight = standardMenuItemHeight > 0 ? standardMenuItemHeight : menuItemHeight;
+    idealWidth = juce::roundToInt(lineWidth(menuFont(s), itemText) + (c_menuTextInset + c_menuArrowColumn + 4.0f) * s);
+}
+
+void Controls::LookAndFeel::getIdealPopupMenuSectionHeaderSizeWithOptions(const juce::String& headerText, int,
+                                                                          int& idealWidth, int& idealHeight,
+                                                                          const juce::PopupMenu::Options& options)
+{
+    const float s = menuScale(options);
+    idealHeight = juce::roundToInt(c_menuHeaderHeight * s);
+    idealWidth = juce::roundToInt(lineWidth(m_fonts.heading(10.5f * s), headerText) + (c_menuTextInset + 12.0f) * s);
+}
+
+void Controls::LookAndFeel::drawPopupMenuUpDownArrowWithOptions(juce::Graphics& g, int width, int height,
+                                                                bool isScrollUpArrow, const juce::PopupMenu::Options& options)
+{
+    // A menu taller than the screen: the body colour fading out over the rows, and a chevron.
+    const float s = menuScale(options);
+    const float h = static_cast<float>(height);
+    const float inset = c_menuRadius * s;
+    const auto fill = findColour(juce::PopupMenu::backgroundColourId).withAlpha(1.0f);
+
+    g.setGradientFill(juce::ColourGradient(fill, 0.0f, isScrollUpArrow ? 0.0f : h,
+                                           fill.withAlpha(0.0f), 0.0f, isScrollUpArrow ? h : 0.0f, false));
+    g.fillRect(juce::Rectangle<float>(inset, isScrollUpArrow ? 1.0f : 0.0f, static_cast<float>(width) - 2.0f * inset, h - 1.0f));
+
+    g.setColour(textDim);
+    strokeChevron(g, { static_cast<float>(width) * 0.5f, h * 0.5f }, 3.0f * s,
+                  juce::MathConstants<float>::halfPi * (isScrollUpArrow ? -1.0f : 1.0f), 1.5f * s);
+}
+
+int Controls::LookAndFeel::getPopupMenuColumnSeparatorWidthWithOptions(const juce::PopupMenu::Options&)
+{
+    return 1;
+}
+
+void Controls::LookAndFeel::drawPopupMenuColumnSeparatorWithOptions(juce::Graphics& g, const juce::Rectangle<int>& bounds,
+                                                                    const juce::PopupMenu::Options& options)
+{
+    g.setColour(outline);
+    g.fillRect(bounds.toFloat().reduced(0.0f, 6.0f * menuScale(options)));
 }
 
 void Controls::LookAndFeel::drawLinearSlider(juce::Graphics& g, int x, int y, int width, int height, float sliderPos,
@@ -308,55 +729,198 @@ void Controls::LookAndFeel::drawFader(juce::Graphics& g, juce::Rectangle<float> 
     drawThumb(g, { cx, sliderPos }, 30.0f, accent, hot);
 }
 
+//==============================================================================
+// Buttons
+//==============================================================================
 void Controls::LookAndFeel::drawButtonBackground(juce::Graphics& g, juce::Button& button, const juce::Colour& backgroundColour,
                                                  bool isMouseOverButton, bool isButtonDown)
 {
+    if (backgroundColour.isTransparent())
+        return; // a text link: no pill (see drawButtonText)
+
     const auto r = button.getLocalBounds().toFloat().reduced(0.5f);
     const float corner = std::min(r.getWidth(), r.getHeight()) * 0.5f;
+    const bool enabled = button.isEnabled();
+    const auto fill = enabled ? backgroundColour : backgroundColour.withMultipliedAlpha(0.5f);
 
-    g.setColour(backgroundColour.brighter(isButtonDown ? 0.2f : isMouseOverButton ? 0.1f : 0.0f));
+    g.setColour(fill.brighter(isButtonDown ? 0.2f : isMouseOverButton && enabled ? 0.1f : 0.0f));
     g.fillRoundedRectangle(r, corner);
-    g.setColour(isMouseOverButton ? Theme::Colours::textDim : Theme::Colours::outline);
-    g.drawRoundedRectangle(r, corner, 1.0f);
+
+    if (shouldShowFocusRing(button))
+    {
+        g.setColour(reverser);
+        g.drawRoundedRectangle(r.reduced(0.25f), corner, 1.5f);
+    }
+    else
+    {
+        g.setColour(! enabled ? outline.withMultipliedAlpha(0.6f) : isMouseOverButton ? textDim : outline);
+        g.drawRoundedRectangle(r, corner, 1.0f);
+    }
 }
 
-juce::Font Controls::LookAndFeel::getTextButtonFont(juce::TextButton&, int buttonHeight)
+void Controls::LookAndFeel::drawButtonText(juce::Graphics& g, juce::TextButton& button, bool isMouseOverButton, bool isButtonDown)
 {
+    const auto font = getTextButtonFont(button, button.getHeight());
+    const bool capitals = static_cast<bool>(button.getProperties().getWithDefault(c_capitalsProperty, false));
+    const auto label = capitals ? button.getButtonText().toUpperCase() : button.getButtonText();
+
+    if (isLinkStyle(button))
+    {
+        // A text link: its own colour when idle, the accent under the mouse, underlined on hover or focus.
+        auto colour = button.findColour(juce::TextButton::textColourOffId);
+        if (! button.isEnabled())
+            colour = textFaint;
+        else if (isButtonDown)
+            colour = reverser.darker(0.15f);
+        else if (isMouseOverButton)
+            colour = reverser;
+
+        const auto area = button.getLocalBounds().toFloat();
+        const auto shown = fitToWidth(font, label, area.getWidth());
+        g.setFont(font);
+        g.setColour(colour);
+        g.drawText(shown, area, juce::Justification::centred, false);
+
+        if (button.isEnabled() && (isMouseOverButton || shouldShowFocusRing(button)))
+        {
+            const float w = lineWidth(font, shown);
+            const float y = std::round(area.getCentreY() + font.getAscent() * 0.5f + 2.0f);
+            g.setColour(shouldShowFocusRing(button) ? reverser : colour);
+            g.fillRect(juce::Rectangle<float>(area.getCentreX() - w * 0.5f, y, w, 1.0f));
+        }
+        return;
+    }
+
+    auto colour = button.findColour(button.getToggleState() ? juce::TextButton::textColourOnId : juce::TextButton::textColourOffId);
+    if (! button.isEnabled())
+        colour = textFaint;
+
+    // The label keeps clear of the pill's rounded ends, but a short label in a small pill ("?", the
+    // About panel's close button) takes the room it needs.
+    const auto r = button.getLocalBounds().toFloat().reduced(0.5f);
+    const float preferredPad = std::max(4.0f, std::round(r.getHeight() * 0.35f));
+    const float pad = juce::jlimit(1.0f, preferredPad, (r.getWidth() - lineWidth(font, label)) * 0.5f - 1.0f);
+    const auto area = r.reduced(pad, 0.0f);
+
+    g.setFont(font);
+    g.setColour(colour);
+    g.drawText(fitToWidth(font, label, area.getWidth()), area, juce::Justification::centred, false);
+}
+
+juce::Font Controls::LookAndFeel::getTextButtonFont(juce::TextButton& button, int buttonHeight)
+{
+    if (isLinkStyle(button))
+        return m_fonts.body(12.0f);
     return m_fonts.label(std::min(13.0f, static_cast<float>(buttonHeight) * 0.5f));
 }
 
-juce::TextLayout Controls::LookAndFeel::layoutTooltip(const juce::String& text) const
+//==============================================================================
+// Scrollbars
+//==============================================================================
+void Controls::LookAndFeel::drawScrollbar(juce::Graphics& g, juce::ScrollBar& scrollbar, int x, int y, int width, int height,
+                                          bool isScrollbarVertical, int thumbStartPosition, int thumbSize,
+                                          bool isMouseOver, bool isMouseDown)
+{
+    if (thumbSize <= 0)
+        return;
+
+    // No track: a thin pill.
+    auto thumb = (isScrollbarVertical ? juce::Rectangle<int>(x, thumbStartPosition, width, thumbSize)
+                                      : juce::Rectangle<int>(thumbStartPosition, y, thumbSize, height)).toFloat();
+    thumb = isScrollbarVertical ? thumb.withSizeKeepingCentre(4.0f, std::max(4.0f, thumb.getHeight() - 4.0f))
+                                : thumb.withSizeKeepingCentre(std::max(4.0f, thumb.getWidth() - 4.0f), 4.0f);
+
+    g.setColour(isMouseOver || isMouseDown ? textDim : scrollbar.findColour(juce::ScrollBar::thumbColourId));
+    g.fillRoundedRectangle(thumb, 2.0f);
+}
+
+//==============================================================================
+// Tooltips
+//==============================================================================
+juce::TextLayout Controls::LookAndFeel::layoutTooltip(const juce::String& tipText, juce::Colour colour) const
 {
     juce::AttributedString s;
-    s.setJustification(juce::Justification::centredLeft);
-    s.append(text, m_fonts.body(12.0f), Theme::Colours::text);
+    s.setJustification(juce::Justification::topLeft);
+    s.setLineSpacing(2.0f);
+    s.append(tipText, m_fonts.body(11.5f), colour);
 
     juce::TextLayout layout;
-    layout.createLayoutWithBalancedLineLengths(s, 300.0f);
+
+    // Balanced line lengths suit a single paragraph; a list (explicit line breaks) is laid out as it is.
+    if (tipText.containsChar('\n'))
+        layout.createLayout(s, c_tipMaxWidth);
+    else
+        layout.createLayoutWithBalancedLineLengths(s, c_tipMaxWidth);
+
     return layout;
 }
 
 juce::Rectangle<int> Controls::LookAndFeel::getTooltipBounds(const juce::String& tipText, juce::Point<int> screenPos,
                                                              juce::Rectangle<int> parentArea)
 {
-    const auto layout = layoutTooltip(tipText);
-    const int w = static_cast<int>(layout.getWidth() + 22.0f);
-    const int h = static_cast<int>(layout.getHeight() + 14.0f);
+    const auto layout = layoutTooltip(tipText, juce::Colours::black);
+    const int w = static_cast<int>(std::ceil(layout.getWidth() + 2.0f * c_tipPadX));
+    const int h = static_cast<int>(std::ceil(layout.getHeight() + 2.0f * c_tipPadY));
 
     return juce::Rectangle<int>(screenPos.x > parentArea.getCentreX() ? screenPos.x - (w + 12) : screenPos.x + 24,
                                 screenPos.y > parentArea.getCentreY() ? screenPos.y - (h + 6) : screenPos.y + 6,
-                                w, h).constrainedWithin(parentArea);
+                                w, h)
+        .constrainedWithin(parentArea);
 }
 
-void Controls::LookAndFeel::drawTooltip(juce::Graphics& g, const juce::String& text, int width, int height)
+void Controls::LookAndFeel::drawTooltip(juce::Graphics& g, const juce::String& tipText, int width, int height)
 {
-    const auto r = juce::Rectangle<float>(0.0f, 0.0f, static_cast<float>(width), static_cast<float>(height));
-    g.setColour(Theme::Colours::panelRaised);
-    g.fillRoundedRectangle(r, 6.0f);
-    g.setColour(Theme::Colours::outline);
-    g.drawRoundedRectangle(r.reduced(0.5f), 6.0f, 1.0f);
+    // The editor's tooltip window is transparent outside this rounded panel.
+    const auto r = juce::Rectangle<float>(static_cast<float>(width), static_cast<float>(height));
+    const auto fill = findColour(juce::TooltipWindow::backgroundColourId);
 
-    layoutTooltip(text).draw(g, r.reduced(11.0f, 7.0f));
+    if (! juce::Desktop::canUseSemiTransparentWindows())
+        g.fillAll(fill);
+
+    g.setColour(fill);
+    g.fillRoundedRectangle(r, c_tipRadius);
+    g.setColour(findColour(juce::TooltipWindow::outlineColourId));
+    g.drawRoundedRectangle(r.reduced(0.5f), c_tipRadius, 1.0f);
+
+    layoutTooltip(tipText, findColour(juce::TooltipWindow::textColourId)).draw(g, r.reduced(c_tipPadX, c_tipPadY));
+}
+
+//==============================================================================
+// Corner resizer, shadows, focus outlines
+//==============================================================================
+void Controls::LookAndFeel::drawCornerResizer(juce::Graphics& g, int w, int h, bool isMouseOver, bool isMouseDragging)
+{
+    // Three short grip strokes in the corner, faint until the mouse is over them.
+    const float right = static_cast<float>(w) - 3.5f, bottom = static_cast<float>(h) - 3.5f;
+    juce::Path grip;
+    for (const float d : { 3.5f, 7.5f, 11.5f })
+    {
+        grip.startNewSubPath(right - d, bottom);
+        grip.lineTo(right, bottom - d);
+    }
+    g.setColour(isMouseOver || isMouseDragging ? textDim : textFaint);
+    g.strokePath(grip, juce::PathStrokeType(1.2f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+}
+
+std::unique_ptr<juce::DropShadower> Controls::LookAndFeel::createDropShadowerForComponent(juce::Component&)
+{
+    return std::make_unique<juce::DropShadower>(juce::DropShadow(juce::Colours::black.withAlpha(0.5f), 14, { 0, 4 }));
+}
+
+std::unique_ptr<juce::FocusOutline> Controls::LookAndFeel::createFocusOutlineForComponent(juce::Component&)
+{
+    struct Properties final : public juce::FocusOutline::OutlineWindowProperties
+    {
+        juce::Rectangle<int> getOutlineBounds(juce::Component& c) override { return c.getScreenBounds().expanded(2); }
+
+        void drawOutline(juce::Graphics& g, int width, int height) override
+        {
+            g.setColour(reverser);
+            g.drawRoundedRectangle(juce::Rectangle<float>(static_cast<float>(width), static_cast<float>(height)).reduced(0.75f), 5.0f, 1.5f);
+        }
+    };
+
+    return std::make_unique<juce::FocusOutline>(std::make_unique<Properties>());
 }
 
 //==============================================================================
@@ -428,6 +992,12 @@ void Controls::ModeSelector::Lamp::paintButton(juce::Graphics& g, bool isMouseOv
     g.setColour(on ? textDim : textFaint);
     g.setFont(m_fonts.body(10.5f));
     g.drawFittedText(m_subtitle, textArea.toNearestInt(), juce::Justification::centredLeft, 1);
+
+    if (Controls::LookAndFeel::shouldShowFocusRing(*this))
+    {
+        g.setColour(reverser);
+        g.drawRoundedRectangle(getLocalBounds().toFloat().reduced(2.75f), 8.0f, 1.5f);
+    }
 }
 
 Controls::ModeSelector::ModeSelector(juce::RangedAudioParameter& modeParameter, const Theme::Fonts& fonts)
@@ -527,14 +1097,20 @@ void Controls::ReverserButton::paintButton(juce::Graphics& g, bool isMouseOver, 
         g.setColour(reverser.withAlpha(0.25f));
         g.fillPath(arrow);
     }
+
+    if (Controls::LookAndFeel::shouldShowFocusRing(*this))
+    {
+        g.setColour(reverser);
+        g.drawEllipse(body.expanded(3.5f), 1.5f);
+    }
 }
 
 //==============================================================================
-void Controls::drawMirroredText(juce::Graphics& g, const juce::String& text, const juce::Font& font,
+void Controls::drawMirroredText(juce::Graphics& g, const juce::String& line, const juce::Font& font,
                                 juce::Rectangle<float> area, const juce::Array<int>& mirroredIndices)
 {
     juce::GlyphArrangement glyphs;
-    glyphs.addLineOfText(font, text, 0.0f, 0.0f);
+    glyphs.addLineOfText(font, line, 0.0f, 0.0f);
 
     const auto box = glyphs.getBoundingBox(0, -1, true);
     const float dx = area.getCentreX() - box.getCentreX();
@@ -548,10 +1124,10 @@ void Controls::drawMirroredText(juce::Graphics& g, const juce::String& text, con
         if (mirroredIndices.contains(i))
         {
             // Pivot on the visible outline, not the (kerned) advance, so the glyph stays in place.
-            juce::Path outline;
-            glyph.createPath(outline);
-            const float pivot = outline.isEmpty() ? glyph.getLeft() + glyph.getBounds().getWidth() * 0.5f
-                                                  : outline.getBounds().getCentreX();
+            juce::Path glyphOutline;
+            glyph.createPath(glyphOutline);
+            const float pivot = glyphOutline.isEmpty() ? glyph.getLeft() + glyph.getBounds().getWidth() * 0.5f
+                                                       : glyphOutline.getBounds().getCentreX();
             transform = juce::AffineTransform::scale(-1.0f, 1.0f, pivot, 0.0f).followedBy(transform);
         }
 

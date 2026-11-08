@@ -1,16 +1,16 @@
 # Sound Advice
 
-A small, quiet page of advice from the great film, TV and game sound designers and mixers. Pick what you're working on (mixing, trailers, creatures, Foley, silence, running a creative team...) and it deals you something one of the greats said or did about it. Roll the die for another.
+A small, quiet page of advice from the great film, TV and game sound designers and mixers. Pick what you're working on (mixing, trailers, creatures, dialogue, silence, running a creative team...) and it deals you something one of the greats said or did about it. Roll the die for another.
 
 It's a VST3 / AU plug-in (audio passes straight through, untouched) and a standalone app (no audio device at all), so it can sit on a mix bus or on a second screen. Paper by day, ink by night.
 
 ![Sound Advice](docs/screenshot.png)
 
-**[Download the latest release](https://github.com/samueljustice/plugins/releases/tag/soundadvice-v1.0.0)**: macOS installer (app, VST3, AU; signed and notarised, universal, macOS 11+), the app on its own as a `.dmg`, or the Windows installer (VST3 and app).
+**[Download the latest release](https://github.com/samueljustice/plugins/releases/tag/soundadvice-v1.0.6)**: macOS installer (app, VST3, AU; signed and notarised, universal, macOS 11+), the app on its own as a `.dmg`, or the Windows installer (VST3 and app).
 
 ## What's in it
 
-847 entries from 78 people. The sound designers and mixers all have feature film, TV or AAA game credits on IMDb, and every entry comes from an interview, article or talk you can read. The Creativity & Teams category draws on a legendary Disney Imagineer's book about creative work: leading teams, finding a theme, critique, risk and knowing when to stop. Two kinds:
+712 entries from 145 people, kept to concrete, technically creative advice: sources and processing, recording, design methods and specific mix decisions, each tied to the production it came from. The sound designers and mixers all have film, TV or game credits on IMDb, and every entry links to the interview, article or SoundWorks Collection video it came from. Nothing predates 2005, either in the source or in the work it describes. The Creativity & Teams category draws on a legendary Disney Imagineer's book about creative work: leading teams, finding a theme, critique, risk and knowing when to stop. Two kinds:
 
 - **Quotes**, in quotation marks and italics: their own words, kept short.
 - **Field notes**: a technique, decision or story from that source, retold in a sentence or two. "Field note" is printed above them.
@@ -21,24 +21,23 @@ Click a person's name to open their IMDb (or other profile) page; click the sour
 
 | Category | Entries |
 |---|---|
-| Mixing | 197 |
-| Action & Impact | 81 |
-| Trailers | 56 |
-| Creatures & Voices | 76 |
-| Ambience & Worlds | 93 |
-| Foley | 94 |
-| Dialogue | 101 |
-| Field Recording | 126 |
-| Weapons & Vehicles | 69 |
-| Sci-Fi & Magic | 94 |
-| Horror & Tension | 52 |
-| Silence & Restraint | 70 |
-| Music & Sound | 101 |
-| Games | 32 |
-| Story & Emotion | 174 |
-| Craft & Technique | 216 |
-| Collaboration & Career | 153 |
-| Creativity & Teams | 131 |
+| Mixing | 226 |
+| Action & Impact | 78 |
+| Trailers | 31 |
+| Creatures & Voices | 57 |
+| Ambience & Worlds | 97 |
+| Dialogue | 143 |
+| Field Recording | 155 |
+| Weapons & Vehicles | 44 |
+| Sci-Fi & Magic | 84 |
+| Horror & Tension | 47 |
+| Silence & Restraint | 63 |
+| Music & Sound | 60 |
+| Games | 33 |
+| Story & Emotion | 106 |
+| Craft & Technique | 167 |
+| Collaboration & Career | 80 |
+| Creativity & Teams | 93 |
 
 **Anything** deals from all of them. Each category is a shuffled deck: you see every entry in it once before any comes round again.
 
@@ -53,7 +52,7 @@ Click a person's name to open their IMDb (or other profile) page; click the sour
 | Moon / sun | Night or paper |
 | ⌘C / Ctrl+C, or right-click | Copy |
 
-Drag the bottom-right corner to resize. The category, the entry on screen and the theme are saved with your session.
+Drag the bottom-right corner to resize. The category and theme are saved with your session; every time you open it (or reopen the window) it deals a fresh entry.
 
 ## The database
 
@@ -63,7 +62,7 @@ The entries live in `data/*.json`, one file per research group, each entry with 
 python3 tools/build_quotes.py
 ```
 
-To add an entry, add it to a data file (or a new one) with its source, run the script and rebuild. To leave someone out, put their name in `data/omit.txt`; to drop a single entry (too generic, a fragment, a near-duplicate), put its id in `data/omit-entries.txt`. Either way the research stays in the data files and the build just skips it. The `SoundAdviceTests` program checks the built database: at least 500 entries, every category stocked, and the no-repeat dealing.
+To add an entry, add it to a data file (or a new one) with its source, run the script and rebuild. `data/credits.json` sets the credits line shown under each name. To leave someone out, put their name in `data/omit.txt`; to drop a single entry (too generic, a fragment, a near-duplicate), put its id in `data/omit-entries.txt`. Either way the research stays in the data files and the build just skips it. `data/rewrites.json` changes an entry's wording (for example to name who did the work) without changing its id. The `SoundAdviceTests` program checks the built database: a sanity floor of 300 entries, every category stocked, and the no-repeat dealing.
 
 ## Building
 
@@ -82,7 +81,7 @@ cmake --build build --config Release
 ./build/SoundAdvicePreview_artefacts/Release/SoundAdvicePreview --hero docs/screenshot.png <paper-entry-id> <night-entry-id>
 ```
 
-The second form makes the image at the top of this page; entry ids are in `Resources/quotes.json`.
+`--icon Resources/icon.png` redraws the app icon (and `icon.ico` beside it). The `--hero` form makes the image at the top of this page; entry ids are in `Resources/quotes.json`.
 
 ## Releases
 

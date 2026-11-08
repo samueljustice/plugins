@@ -1,6 +1,10 @@
 cmake_minimum_required(VERSION 3.16)
 project(PTSLBeatTool VERSION 1.0.0)
 
+# The copyright year is the year it was built, so it never goes stale.
+string(TIMESTAMP COPYRIGHT_YEAR "%Y")
+add_compile_definitions(COPYRIGHT_YEAR="${COPYRIGHT_YEAR}")
+
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_OSX_DEPLOYMENT_TARGET "11.0")  # Updated for better compatibility
@@ -65,7 +69,7 @@ set_target_properties(ptsl_beat_tool PROPERTIES
     MACOSX_BUNDLE_EXECUTABLE_NAME "PTSL Beat Tool"
     MACOSX_BUNDLE_BUNDLE_VERSION "1.0.0"
     MACOSX_BUNDLE_SHORT_VERSION_STRING "1.0"
-    MACOSX_BUNDLE_COPYRIGHT "Copyright © 2025 Samuel Justice"
+    MACOSX_BUNDLE_COPYRIGHT "Copyright © ${COPYRIGHT_YEAR} Samuel Justice"
     MACOSX_BUNDLE_GUI_IDENTIFIER "com.samueljustice.ptslbeattool"
     OUTPUT_NAME "PTSL Beat Tool"
 )

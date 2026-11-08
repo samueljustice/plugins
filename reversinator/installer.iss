@@ -1,7 +1,7 @@
 #define MyAppName "SammyJs Reversinator"
 ; CI passes /DMyAppVersion=<version from CMakeLists.txt>; this is the local fallback.
 #ifndef MyAppVersion
-  #define MyAppVersion "2.0.0"
+  #define MyAppVersion "2.0.1"
 #endif
 #define MyAppPublisher "Sammy J"
 #define MyAppURL "https://www.sweetjusticesound.com"

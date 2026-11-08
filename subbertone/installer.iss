@@ -1,5 +1,5 @@
 #define MyAppName "SammyJs Subbertone"
-#define MyAppVersion "1.2.0"
+#define MyAppVersion "1.3.0"
 #define MyAppPublisher "Sammy J"
 #define MyAppURL "https://www.sweetjusticesound.com"
 

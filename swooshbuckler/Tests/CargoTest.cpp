@@ -302,6 +302,22 @@ int main(int argc, char* argv[])
             lane.redo(1);
             check(lane.get(1) == nullptr && lane.getRoleOverride(1) == -1 && lane.getDisplayName(1) == "Track 2",
                   "cargo: redo clears them again");
+
+            // Cmd+Z / Shift+Cmd+Z follow the order of the edits across tracks (remove two, load one, then undo).
+            CargoHold order;
+            order.loadFile(0, tmp, err);
+            order.loadFile(1, tmp, err);
+            order.clear(0);
+            order.clear(1);
+            order.loadFile(2, tmp, err);
+            const int u1 = order.undoLatest(), u2 = order.undoLatest(), u3 = order.undoLatest();
+            check(u1 == 2 && order.get(2) == nullptr, "undo order: the latest edit (a load on track 3) goes first");
+            check(u2 == 1 && order.get(1) != nullptr && u3 == 0 && order.get(0) != nullptr,
+                  "undo order: then the removals, newest first, so both removed tracks come back");
+            const int r1 = order.redoLatest();
+            check(r1 == 0 && order.get(0) == nullptr && order.get(1) != nullptr, "undo order: redo replays the most recently undone edit first");
+            order.loadFile(3, tmp, err);
+            check(! order.canRedoLatest() && order.redoLatest() == -1, "undo order: a new edit ends the redo chain");
         }
     }
 

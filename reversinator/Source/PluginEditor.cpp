@@ -31,6 +31,8 @@ ReversinatorAudioProcessorEditor::ReversinatorAudioProcessorEditor(ReversinatorA
     // Set after the content is added so every child (including slider value boxes) picks it up.
     setLookAndFeel(&m_lookAndFeel);
     m_tooltipWindow.setLookAndFeel(&m_lookAndFeel);
+    m_tooltipWindow.setOpaque(false);   // JUCE marks it opaque, which leaves its rounded corners unpainted
+    Controls::LookAndFeel::showFocusRingsAfterTab(*this);   // keyboard focus rings after Tab, hidden by a click
 
     setResizable(true, true);
     getConstrainer()->setFixedAspectRatio(static_cast<double>(baseWidth) / static_cast<double>(baseHeight));

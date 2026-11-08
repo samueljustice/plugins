@@ -50,7 +50,7 @@ Drop in up to ten sounds and Swooshbuckler rides the faders across them for you,
 - 📼 **Always recording**: grab the last 60 seconds whenever something good happens
 
 **App** (macOS, Windows) · **VST3** · **AU** &nbsp;&nbsp;
-[![Download Swooshbuckler](https://img.shields.io/badge/download-v1.0.0-d00a35?style=flat-square)](https://github.com/samueljustice/plugins/releases/tag/swooshbuckler-v1.0.0) &nbsp;
+[![Download Swooshbuckler](https://img.shields.io/badge/download-v1.0.1-d00a35?style=flat-square)](https://github.com/samueljustice/plugins/releases/tag/swooshbuckler-v1.0.1) &nbsp;
 [Read the manual →](swooshbuckler/README.md)
 
 ---
@@ -66,6 +66,7 @@ Drop in up to ten sounds and Swooshbuckler rides the faders across them for you,
 Subbertone tracks the pitch of your bass, engine or drone and adds a sub one octave below. Use it for pure sub reinforcement, for bass that still reads on a phone speaker, or for a growling octave-down monster.
 
 - 🎹 **16-bar harmonic editor** with pattern presets
+- 🧲 **Phase Align**: the harmonics add up with your bass lines and hits instead of cancelling them
 - 🔥 **Six saturation types** and a resonant, envelope-swept filter
 - 🧱 **Mastering stage**: Inflate and a brickwall limiter
 - 🚗 **32 factory presets**, engines included
@@ -74,13 +75,22 @@ Subbertone tracks the pitch of your bass, engine or drone and adds a sub one oct
 <summary>More screenshots</summary>
 <br>
 <p align="center">
+  <img src="subbertone/docs/harmonics.png" alt="Subbertone harmonic editor with Phase Align on" width="787">
+</p>
+<p align="center">
+  <img src="subbertone/docs/output-master.jpg" alt="Subbertone OUTPUT and MASTER sections" width="626">
+</p>
+<p align="center">
   <img src="subbertone/docs/presets.png" alt="Subbertone presets menu" width="400">
   <img src="subbertone/docs/patterns.png" alt="Subbertone patterns menu" width="400">
+</p>
+<p align="center">
+  <img src="subbertone/docs/idle-logo.jpg" alt="Subbertone visualiser with no signal" width="600">
 </p>
 </details>
 
 **VST3** · **AU** &nbsp;&nbsp;
-[![Download Subbertone](https://img.shields.io/badge/download-v1.2.0-d00a35?style=flat-square)](https://github.com/samueljustice/plugins/releases/tag/subbertone-v1.2.0) &nbsp;
+[![Download Subbertone](https://img.shields.io/badge/download-v1.3.0-d00a35?style=flat-square)](https://github.com/samueljustice/plugins/releases/tag/subbertone-v1.3.0) &nbsp;
 [Read the manual →](subbertone/README.md)
 
 ---
@@ -96,7 +106,7 @@ Subbertone tracks the pitch of your bass, engine or drone and adds a sub one oct
 Pitch Flattener removes pitch movement: the Doppler sweep from a pass-by, the wail from a siren, the vibrato from a voice. Pick a Source Type and it uses a pitch detector built for that sound, looks ahead to track the pitch, and flattens it sample-accurately. Made for offline-rendering hosts such as the Soundminer DSP rack.
 
 **VST3** · **AU** &nbsp;&nbsp;
-[![Download Pitch Flattener](https://img.shields.io/badge/download-v2.0.0-d00a35?style=flat-square)](https://github.com/samueljustice/plugins/releases/tag/pitchflattener-v2.0.0) &nbsp;
+[![Download Pitch Flattener](https://img.shields.io/badge/download-v2.0.2-d00a35?style=flat-square)](https://github.com/samueljustice/plugins/releases/tag/pitchflattener-v2.0.2) &nbsp;
 [Read the manual →](pitchflattener/README.md)
 
 ---
@@ -112,7 +122,7 @@ Pitch Flattener removes pitch movement: the Doppler sweep from a pass-by, the wa
 A real-time reverser: a faithful, modernised recreation of Backwards Machine's three effects, **Reverse Playback**, **Forward Backwards** and **Reverse Repeat**, with a live display of the read heads sweeping backwards through your audio.
 
 **VST3** · **AU** &nbsp;&nbsp;
-[![Download Reversinator](https://img.shields.io/badge/download-v2.0.0-d00a35?style=flat-square)](https://github.com/samueljustice/plugins/releases/tag/reversinator-v2.0.0) &nbsp;
+[![Download Reversinator](https://img.shields.io/badge/download-v2.0.2-d00a35?style=flat-square)](https://github.com/samueljustice/plugins/releases/tag/reversinator-v2.0.2) &nbsp;
 [Read the manual →](reversinator/README.md)
 
 ---
@@ -125,15 +135,15 @@ A real-time reverser: a faithful, modernised recreation of Backwards Machine's t
   <img src="soundadvice/docs/screenshot.png" alt="Sound Advice, in day and night themes" width="820">
 </p>
 
-A small, quiet page of advice from the great film, TV and game sound designers and mixers. Pick what you're working on (mixing, trailers, creatures, Foley, silence, running a creative team...) and roll the die: it deals you a quote or a technique from one of them, with a link to where it came from.
+A small, quiet page of advice from the great film, TV and game sound designers and mixers. Pick what you're working on (mixing, trailers, creatures, dialogue, silence, running a creative team...) and roll the die: it deals you a quote or a technique from one of them, with a link to where it came from.
 
-- 📚 **847 entries from 78 people**, every one traced to an interview, article or talk
-- 🗂️ **18 categories**, from Mixing and Foley to Horror & Tension and Silence & Restraint
+- 📚 **712 entries from 145 people**, every one traced to an interview, article or SoundWorks Collection video
+- 🗂️ **17 categories**, from Mixing and Dialogue to Horror & Tension and Creativity & Teams
 - 🌗 **Paper by day, ink by night**
 - 🔇 **Audio passes straight through**, so it can sit on a mix bus or on a second screen as an app
 
 **App** (macOS, Windows) · **VST3** · **AU** &nbsp;&nbsp;
-[![Download Sound Advice](https://img.shields.io/badge/download-v1.0.0-9a5a3a?style=flat-square)](https://github.com/samueljustice/plugins/releases/tag/soundadvice-v1.0.0) &nbsp;
+[![Download Sound Advice](https://img.shields.io/badge/download-v1.0.6-9a5a3a?style=flat-square)](https://github.com/samueljustice/plugins/releases/tag/soundadvice-v1.0.6) &nbsp;
 [Read the manual →](soundadvice/README.md)
 
 ---

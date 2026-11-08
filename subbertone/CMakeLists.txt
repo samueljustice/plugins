@@ -7,7 +7,11 @@ if(NOT CMAKE_OSX_DEPLOYMENT_TARGET)
     set(CMAKE_OSX_DEPLOYMENT_TARGET "11.0" CACHE STRING "Minimum macOS version" FORCE)
 endif()
 
-project(Subbertone VERSION 1.2.0)
+project(Subbertone VERSION 1.3.0)
+
+# The copyright year is the year it was built, so it never goes stale.
+string(TIMESTAMP COPYRIGHT_YEAR "%Y")
+add_compile_definitions(COPYRIGHT_YEAR="${COPYRIGHT_YEAR}")
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED TRUE)

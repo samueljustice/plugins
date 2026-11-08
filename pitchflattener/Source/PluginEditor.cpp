@@ -300,7 +300,7 @@ private:
     std::atomic<float>* m_overrideValue = nullptr;
     std::atomic<float>* m_gateValue = nullptr;
 
-    std::unique_ptr<AboutWindow> m_aboutWindow;
+    std::unique_ptr<AboutWindow> m_aboutWindow; // at most one per editor, closed with it
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (Content)
 };
@@ -311,7 +311,7 @@ PitchFlattenerAudioProcessorEditor::Content::Content (PitchFlattenerAudioProcess
     : m_processor (processor)
     , m_lookAndFeel (lookAndFeel)
     , m_display (processor)
-    , m_presetBar (processor.parameters)
+    , m_presetBar (processor.parameters, lookAndFeel)
 {
     using namespace Theme::Colours;
     auto& params = m_processor.parameters;
@@ -334,6 +334,7 @@ PitchFlattenerAudioProcessorEditor::Content::Content (PitchFlattenerAudioProcess
     addAndMakeVisible (m_presetBar);
 
     m_aboutButton.onClick = [this] { showAbout(); };
+    m_aboutButton.setTooltip ("About SammyJs Pitch Flattener");
     addAndMakeVisible (m_aboutButton);
 
     // --- Source strip ----------------------------------------------------
@@ -407,10 +408,11 @@ PitchFlattenerAudioProcessorEditor::Content::Content (PitchFlattenerAudioProcess
                  "Formant: preserve the spectral envelope while shifting (keeps voices natural). Off is usually better for sirens and machines.",
                  m_formantAttachment);
 
-    setHelp (m_presetBar.getMenu(), "Presets: one factory preset per Source Type, plus your own saved presets.");
+    setHelp (m_presetBar.getNameButton(), "Presets: one factory preset per Source Type, plus your own saved presets. "
+                                          "Click for the menu: load, save, delete, reset to defaults, show the presets folder.");
+    setHelp (m_presetBar.getPreviousButton(), "Previous preset: steps back through the factory presets, then your own, in menu order.");
+    setHelp (m_presetBar.getNextButton(), "Next preset: steps through the factory presets, then your own, in menu order.");
     setHelp (m_presetBar.getSaveButton(), "Save the current settings as a user preset.");
-    setHelp (m_presetBar.getDeleteButton(), "Move the selected user preset to the trash.");
-    setHelp (m_presetBar.getResetButton(), "Reset every parameter to its default.");
     setHelp (m_aboutButton, "About Pitch Flattener: version, credits and update check.");
 
     // Help text for every child (and grandchild) under the mouse.
@@ -597,11 +599,16 @@ void PitchFlattenerAudioProcessorEditor::Content::timerCallback()
 
 void PitchFlattenerAudioProcessorEditor::Content::showAbout()
 {
-    if (m_aboutWindow == nullptr)
-        m_aboutWindow = std::make_unique<AboutWindow> (m_lookAndFeel);
+    // One About window per editor: another click brings it back to the front. The content owns it,
+    // so it is closed (and its update check stopped) when the editor goes.
+    if (m_aboutWindow != nullptr)
+    {
+        m_aboutWindow->setMinimised (false);
+        m_aboutWindow->toFront (true);
+        return;
+    }
 
-    m_aboutWindow->setVisible (true);
-    m_aboutWindow->toFront (true);
+    m_aboutWindow = std::make_unique<AboutWindow> (m_lookAndFeel, [this] { m_aboutWindow.reset(); });
 }
 
 //==============================================================================
@@ -653,11 +660,11 @@ void PitchFlattenerAudioProcessorEditor::Content::resized()
 {
     auto bounds = getLocalBounds();
 
-    // Header: title (painted), preset bar, about
+    // Header: title (painted), preset bar (<  name  >  SAVE), about
     auto header = bounds.removeFromTop (c_headerHeight).reduced (c_margin, 0);
     m_aboutButton.setBounds (header.removeFromRight (26).withSizeKeepingCentre (26, 26));
-    header.removeFromRight (12);
-    m_presetBar.setBounds (header.removeFromRight (430).withSizeKeepingCentre (430, 26));
+    header.removeFromRight (14);
+    m_presetBar.setBounds (header.removeFromRight (400).withSizeKeepingCentre (400, 26)); // as Subbertone's
 
     bounds.reduce (c_margin, 0);
 
@@ -770,32 +777,7 @@ void PitchFlattenerAudioProcessorEditor::Content::paint (juce::Graphics& g)
     auto header = getLocalBounds().removeFromTop (c_headerHeight).reduced (c_margin, 0).toFloat();
 
     // Mark: a wobbling teal line that settles into a flat amber line.
-    {
-        const auto mark = header.removeFromLeft (34.0f).withSizeKeepingCentre (34.0f, 22.0f);
-        const float split = 0.55f;
-        juce::Path wobble, flat;
-
-        for (int i = 0; i <= 40; ++i)
-        {
-            const float t = (float) i / 40.0f;
-            if (t > split)
-                break;
-
-            const float fade = 1.0f - t / split;
-            const float y = mark.getCentreY() + 7.0f * fade * std::sin (t * juce::MathConstants<float>::twoPi * 3.2f);
-            const juce::Point<float> p { mark.getX() + t * mark.getWidth(), y };
-            if (i == 0) wobble.startNewSubPath (p);
-            else        wobble.lineTo (p);
-        }
-
-        flat.startNewSubPath (mark.getX() + split * mark.getWidth(), mark.getCentreY());
-        flat.lineTo (mark.getRight(), mark.getCentreY());
-
-        g.setColour (detect.withAlpha (0.85f));
-        g.strokePath (wobble, juce::PathStrokeType (1.6f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
-        g.setColour (target);
-        g.strokePath (flat, juce::PathStrokeType (2.4f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
-    }
+    PitchFlattenerLookAndFeel::drawMark (g, header.removeFromLeft (34.0f).withSizeKeepingCentre (34.0f, 22.0f));
 
     header.removeFromLeft (12.0f);
 
@@ -899,6 +881,8 @@ PitchFlattenerAudioProcessorEditor::PitchFlattenerAudioProcessorEditor (PitchFla
     , m_lookAndFeel (*m_fonts)
 {
     setLookAndFeel (&m_lookAndFeel);
+    m_tooltipWindow.setLookAndFeel (&m_lookAndFeel);
+    PitchFlattenerLookAndFeel::showFocusRingsAfterTab (*this); // keyboard focus rings after Tab, hidden by a click
 
     m_content = std::make_unique<Content> (p, m_lookAndFeel);
     addAndMakeVisible (*m_content);
@@ -914,8 +898,22 @@ PitchFlattenerAudioProcessorEditor::PitchFlattenerAudioProcessorEditor (PitchFla
 
 PitchFlattenerAudioProcessorEditor::~PitchFlattenerAudioProcessorEditor()
 {
+    // Nothing the editor opened may outlive it: the content closes the About window (and its update
+    // check) and the preset dialogs; then any popup menu (it would keep using m_lookAndFeel) and the
+    // tooltip window go.
     m_content.reset();
+    juce::PopupMenu::dismissAllActiveMenus();
+    m_tooltipWindow.hideTip();
+    m_tooltipWindow.setLookAndFeel (nullptr);
     setLookAndFeel (nullptr);
+}
+
+//==============================================================================
+PitchFlattenerAudioProcessorEditor::EditorTooltipWindow::EditorTooltipWindow (juce::Component& editor)
+    : juce::TooltipWindow (&editor, 700)
+{
+    setOpaque (false);                        // the LookAndFeel draws a rounded panel; its corners show the editor
+    setInterceptsMouseClicks (false, false);  // a tip pushed under the mouse near an edge never takes a click
 }
 
 void PitchFlattenerAudioProcessorEditor::paint (juce::Graphics& g)
@@ -936,250 +934,3 @@ void PitchFlattenerAudioProcessorEditor::resized()
     m_content->setBounds (0, 0, baseWidth, baseHeight);
     m_content->setTransform (juce::AffineTransform::scale (scale).translated (x, y));
 }
-
-//==============================================================================
-// LookAndFeel
-//==============================================================================
-PitchFlattenerLookAndFeel::PitchFlattenerLookAndFeel (const Theme::Fonts& fonts)
-    : m_fonts (fonts)
-{
-    using namespace Theme::Colours;
-    const auto accent = detect;
-
-    if (fonts.medium != nullptr)
-        setDefaultSansSerifTypeface (fonts.medium);
-
-    setColour (juce::ResizableWindow::backgroundColourId, background);
-    setColour (juce::DocumentWindow::textColourId, text);
-    setColour (juce::Label::textColourId, text);
-
-    setColour (juce::Slider::textBoxTextColourId, text);
-    setColour (juce::Slider::textBoxOutlineColourId, juce::Colours::transparentBlack);
-    setColour (juce::Slider::textBoxBackgroundColourId, juce::Colours::transparentBlack);
-    setColour (juce::Slider::textBoxHighlightColourId, accent.withAlpha (0.35f));
-
-    setColour (juce::TextEditor::backgroundColourId, panelRaised);
-    setColour (juce::TextEditor::textColourId, text);
-    setColour (juce::TextEditor::outlineColourId, outline);
-    setColour (juce::TextEditor::focusedOutlineColourId, accent.withAlpha (0.6f));
-    setColour (juce::TextEditor::highlightColourId, accent.withAlpha (0.35f));
-    setColour (juce::CaretComponent::caretColourId, text);
-
-    setColour (juce::ComboBox::backgroundColourId, panelRaised);
-    setColour (juce::ComboBox::outlineColourId, outline);
-    setColour (juce::ComboBox::textColourId, text);
-    setColour (juce::ComboBox::arrowColourId, accent);
-    setColour (juce::ComboBox::focusedOutlineColourId, accent.withAlpha (0.6f));
-
-    setColour (juce::PopupMenu::backgroundColourId, panelRaised);
-    setColour (juce::PopupMenu::textColourId, text);
-    setColour (juce::PopupMenu::headerTextColourId, textFaint);
-    setColour (juce::PopupMenu::highlightedBackgroundColourId, accent.withAlpha (0.18f));
-    setColour (juce::PopupMenu::highlightedTextColourId, text);
-
-    setColour (juce::TextButton::buttonColourId, panelRaised);
-    setColour (juce::TextButton::buttonOnColourId, panelRaised.brighter (0.1f));
-    setColour (juce::TextButton::textColourOffId, textDim);
-    setColour (juce::TextButton::textColourOnId, text);
-
-    setColour (juce::ToggleButton::textColourId, textDim);
-    setColour (juce::ToggleButton::tickColourId, accent);
-
-    setColour (juce::AlertWindow::backgroundColourId, panel);
-    setColour (juce::AlertWindow::textColourId, text);
-    setColour (juce::AlertWindow::outlineColourId, outline);
-
-    setColour (juce::TooltipWindow::backgroundColourId, panelRaised);
-    setColour (juce::TooltipWindow::textColourId, text);
-    setColour (juce::TooltipWindow::outlineColourId, outline);
-
-    setColour (juce::ScrollBar::thumbColourId, outline.brighter (0.2f));
-}
-
-void PitchFlattenerLookAndFeel::drawRotarySlider (juce::Graphics& g, int x, int y, int width, int height,
-                                                  float sliderPos, float rotaryStartAngle, float rotaryEndAngle,
-                                                  juce::Slider& slider)
-{
-    using namespace Theme::Colours;
-
-    const bool enabled = slider.isEnabled();
-    const float alpha = enabled ? 1.0f : 0.3f;
-    const auto accent = slider.findColour (juce::Slider::rotarySliderFillColourId);
-    const bool hot = enabled && slider.isMouseOverOrDragging();
-
-    const auto area = juce::Rectangle<int> (x, y, width, height).toFloat().reduced (4.0f);
-    const float diameter = std::min (area.getWidth(), area.getHeight());
-    const auto centre = area.getCentre();
-    const float radius = diameter * 0.5f;
-    const float trackWidth = std::max (2.5f, radius * 0.09f);
-    const float arcRadius = radius - trackWidth * 0.5f;
-    const float angle = rotaryStartAngle + sliderPos * (rotaryEndAngle - rotaryStartAngle);
-
-    // Track
-    juce::Path track;
-    track.addCentredArc (centre.x, centre.y, arcRadius, arcRadius, 0.0f, rotaryStartAngle, rotaryEndAngle, true);
-    g.setColour (outline);
-    g.strokePath (track, juce::PathStrokeType (trackWidth, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
-
-    // Value arc: bipolar parameters grow from the centre.
-    const bool bipolar = slider.getMinimum() < 0.0 && slider.getMaximum() > 0.0
-                      && juce::approximatelyEqual (slider.getMinimum(), -slider.getMaximum());
-    const float fromAngle = bipolar ? (rotaryStartAngle + rotaryEndAngle) * 0.5f : rotaryStartAngle;
-
-    juce::Path value;
-    value.addCentredArc (centre.x, centre.y, arcRadius, arcRadius, 0.0f, std::min (fromAngle, angle), std::max (fromAngle, angle), true);
-    g.setColour (accent.withMultipliedAlpha ((hot ? 1.0f : 0.9f) * alpha));
-    g.strokePath (value, juce::PathStrokeType (trackWidth, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
-
-    // Body
-    const float bodyRadius = arcRadius - trackWidth * 1.6f;
-    const auto body = juce::Rectangle<float> (bodyRadius * 2.0f, bodyRadius * 2.0f).withCentre (centre);
-
-    g.setColour (juce::Colours::black.withAlpha (0.35f));
-    g.fillEllipse (body.translated (0.0f, 2.0f));
-
-    g.setGradientFill (juce::ColourGradient (panelRaised.brighter (hot ? 0.18f : 0.1f), centre.x, body.getY(),
-                                             panelRaised.darker (0.25f), centre.x, body.getBottom(), false));
-    g.fillEllipse (body);
-    g.setColour (outline.brighter (0.15f));
-    g.drawEllipse (body.reduced (0.5f), 1.0f);
-
-    // Pointer
-    const auto direction = juce::Point<float> (std::sin (angle), -std::cos (angle));
-    g.setColour (text.withAlpha (enabled ? 1.0f : 0.35f));
-    g.drawLine ({ centre + direction * (bodyRadius * 0.35f), centre + direction * (bodyRadius * 0.82f) }, 2.0f);
-}
-
-juce::Slider::SliderLayout PitchFlattenerLookAndFeel::getSliderLayout (juce::Slider& slider)
-{
-    juce::Slider::SliderLayout layout;
-    auto bounds = slider.getLocalBounds();
-    layout.textBoxBounds = bounds.removeFromBottom (18).withSizeKeepingCentre (std::min (bounds.getWidth(), 92), 18);
-    bounds.removeFromBottom (2);
-    layout.sliderBounds = bounds;
-    return layout;
-}
-
-juce::Label* PitchFlattenerLookAndFeel::createSliderTextBox (juce::Slider& slider)
-{
-    auto* label = juce::LookAndFeel_V4::createSliderTextBox (slider);
-    label->setFont (m_fonts.body (12.0f));
-    label->setJustificationType (juce::Justification::centred);
-    label->setColour (juce::Label::textColourId, Theme::Colours::text);
-    label->setColour (juce::Label::outlineColourId, juce::Colours::transparentBlack);
-    label->setColour (juce::Label::backgroundColourId, juce::Colours::transparentBlack);
-    label->setColour (juce::Label::outlineWhenEditingColourId, Theme::Colours::outline);
-    label->setColour (juce::Label::backgroundWhenEditingColourId, Theme::Colours::panelRaised);
-    return label;
-}
-
-juce::Font PitchFlattenerLookAndFeel::getLabelFont (juce::Label& label)
-{
-    if (dynamic_cast<juce::Slider*> (label.getParentComponent()) != nullptr)
-        return m_fonts.body (12.0f);
-
-    return m_fonts.label (10.5f);
-}
-
-void PitchFlattenerLookAndFeel::drawComboBox (juce::Graphics& g, int width, int height, bool,
-                                              int, int, int, int, juce::ComboBox& box)
-{
-    const auto r = juce::Rectangle<float> (0.0f, 0.0f, (float) width, (float) height).reduced (0.5f);
-    const bool enabled = box.isEnabled();
-    const bool hot = enabled && (box.isMouseOver (true) || box.isPopupActive());
-
-    g.setColour (box.findColour (juce::ComboBox::backgroundColourId).brighter (hot ? 0.08f : 0.0f));
-    g.fillRoundedRectangle (r, 5.0f);
-    g.setColour (hot ? box.findColour (juce::ComboBox::focusedOutlineColourId) : box.findColour (juce::ComboBox::outlineColourId));
-    g.drawRoundedRectangle (r, 5.0f, 1.0f);
-
-    const float cx = r.getRight() - 13.0f;
-    const float cy = r.getCentreY();
-    juce::Path chevron;
-    chevron.startNewSubPath (cx - 4.0f, cy - 2.0f);
-    chevron.lineTo (cx, cy + 2.0f);
-    chevron.lineTo (cx + 4.0f, cy - 2.0f);
-    g.setColour (box.findColour (juce::ComboBox::arrowColourId).withMultipliedAlpha (enabled ? 1.0f : 0.35f));
-    g.strokePath (chevron, juce::PathStrokeType (1.5f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
-}
-
-juce::Font PitchFlattenerLookAndFeel::getComboBoxFont (juce::ComboBox&)
-{
-    return m_fonts.body (12.0f);
-}
-
-void PitchFlattenerLookAndFeel::positionComboBoxText (juce::ComboBox& box, juce::Label& label)
-{
-    label.setBounds (8, 0, box.getWidth() - 30, box.getHeight());
-    label.setFont (getComboBoxFont (box));
-}
-
-juce::Font PitchFlattenerLookAndFeel::getPopupMenuFont()
-{
-    return m_fonts.body (13.0f);
-}
-
-void PitchFlattenerLookAndFeel::drawButtonBackground (juce::Graphics& g, juce::Button& button,
-                                                      const juce::Colour& backgroundColour,
-                                                      bool isMouseOverButton, bool isButtonDown)
-{
-    const auto r = button.getLocalBounds().toFloat().reduced (0.5f);
-    const float corner = std::min (r.getWidth(), r.getHeight()) * 0.5f;
-    const float alpha = button.isEnabled() ? 1.0f : 0.4f;
-
-    g.setColour (backgroundColour.brighter (isButtonDown ? 0.2f : isMouseOverButton ? 0.1f : 0.0f).withMultipliedAlpha (alpha));
-    g.fillRoundedRectangle (r, corner);
-    g.setColour ((isMouseOverButton ? Theme::Colours::textDim : Theme::Colours::outline).withMultipliedAlpha (alpha));
-    g.drawRoundedRectangle (r, corner, 1.0f);
-}
-
-juce::Font PitchFlattenerLookAndFeel::getTextButtonFont (juce::TextButton&, int buttonHeight)
-{
-    return m_fonts.label (std::min (12.0f, (float) buttonHeight * 0.5f));
-}
-
-void PitchFlattenerLookAndFeel::drawToggleButton (juce::Graphics& g, juce::ToggleButton& button,
-                                                  bool isMouseOverButton, bool isButtonDown)
-{
-    using namespace Theme::Colours;
-
-    const bool enabled = button.isEnabled();
-    const bool on = button.getToggleState();
-    const float alpha = enabled ? 1.0f : 0.35f;
-    const auto accent = button.findColour (juce::ToggleButton::tickColourId);
-
-    auto bounds = button.getLocalBounds().toFloat();
-    constexpr float trackW = 32.0f, trackH = 16.0f;
-    const auto buttonText = button.getButtonText();
-
-    // Centred switch when there is no text, otherwise switch on the left with the label after it.
-    const auto track = buttonText.isEmpty() ? juce::Rectangle<float> (trackW, trackH).withCentre (bounds.getCentre())
-                                      : bounds.removeFromLeft (trackW).withSizeKeepingCentre (trackW, trackH);
-
-    const float corner = trackH * 0.5f;
-    g.setColour ((on ? accent.withAlpha (0.85f) : panelRaised.brighter (isMouseOverButton ? 0.08f : 0.0f)).withMultipliedAlpha (alpha));
-    g.fillRoundedRectangle (track, corner);
-    g.setColour ((on ? accent : (isMouseOverButton ? textDim : outline)).withMultipliedAlpha (alpha));
-    g.drawRoundedRectangle (track.reduced (0.5f), corner, 1.0f);
-
-    const float thumb = trackH - 4.0f + (isButtonDown ? 1.0f : 0.0f);
-    const float thumbX = on ? track.getRight() - 2.0f - thumb : track.getX() + 2.0f;
-    const auto thumbBounds = juce::Rectangle<float> (thumbX, track.getCentreY() - thumb * 0.5f, thumb, thumb);
-
-    g.setColour (juce::Colours::black.withAlpha (0.3f * alpha));
-    g.fillEllipse (thumbBounds.translated (0.0f, 1.0f));
-    g.setColour ((on ? Theme::Colours::text : textDim).withMultipliedAlpha (alpha));
-    g.fillEllipse (thumbBounds);
-
-    if (buttonText.isNotEmpty())
-    {
-        bounds.removeFromLeft (8.0f);
-        g.setFont (m_fonts.label (10.5f));
-        g.setColour (button.findColour (juce::ToggleButton::textColourId).withMultipliedAlpha (alpha));
-        g.drawText (buttonText.toUpperCase(), bounds, juce::Justification::centredLeft, true);
-    }
-}
-
-juce::Font PitchFlattenerLookAndFeel::getAlertWindowTitleFont()   { return m_fonts.heading (14.0f); }
-juce::Font PitchFlattenerLookAndFeel::getAlertWindowMessageFont() { return m_fonts.body (13.0f); }
-juce::Font PitchFlattenerLookAndFeel::getAlertWindowFont()        { return m_fonts.body (12.0f); }

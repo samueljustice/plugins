@@ -654,7 +654,7 @@ void RigEngine::renderHits(int frames)
     const float sense = sj::clamp(m_params.hitSense, 0.0f, 1.0f);
     const float threshold = sj::dbToGain(-0.5f - 3.0f * sense);         // how close to the recent peak
     const float overAverage = sj::dbToGain(3.0f + 5.0f * (1.0f - sense)); // and how far above the average
-    const float boost = sj::dbToGain(m_params.hitBoost - 6.0f);
+    const float boost = sj::dbToGain(m_params.hitBoost - 6.0f); // the Boost readout shows this (-6 .. +12 dB)
     const float release = 1.0f - std::exp(-1.0f / (0.001f * sj::lerp(60.0f, 1200.0f, m_params.hitRelease) * m_fs));
     const float attack = coef(2.0f, m_fs);
     const float holdTime = 0.5f * sj::clamp(m_params.hitHold, 0.0f, 1.0f);

@@ -269,9 +269,18 @@ jobs:
             exit 1
           fi
         done
-        xcrun stapler staple "app/Sound Advice.app"
-        xcrun stapler staple "vst3/Sound Advice.vst3"
-        xcrun stapler staple "au/Sound Advice.component"
+        # Apple's ticket fetch occasionally drops the connection (stapler error 68): retry before failing.
+        staple() {
+          for attempt in 1 2 3 4; do
+            if xcrun stapler staple "$1"; then return 0; fi
+            echo "Stapling $1 failed (attempt $attempt of 4)"
+            if [ "$attempt" -lt 4 ]; then sleep 30; fi
+          done
+          return 1
+        }
+        staple "app/Sound Advice.app"
+        staple "vst3/Sound Advice.vst3"
+        staple "au/Sound Advice.component"
 
     - name: Build installer package
       run: |
@@ -346,6 +355,15 @@ jobs:
         APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
         APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
       run: |
+        # Apple's ticket fetch occasionally drops the connection (stapler error 68): retry before failing.
+        staple() {
+          for attempt in 1 2 3 4; do
+            if xcrun stapler staple "$1"; then return 0; fi
+            echo "Stapling $1 failed (attempt $attempt of 4)"
+            if [ "$attempt" -lt 4 ]; then sleep 30; fi
+          done
+          return 1
+        }
         cd soundadvice
         for f in SoundAdvice_Installer.pkg SoundAdvice.dmg; do
           echo "Notarising $f"
@@ -356,7 +374,7 @@ jobs:
             xcrun notarytool log "$ID" --apple-id "$APPLE_ID" --password "$APPLE_APP_PASSWORD" --team-id "$APPLE_TEAM_ID"
             exit 1
           fi
-          xcrun stapler staple "$f"
+          staple "$f"
         done
         spctl --assess --type install -vv SoundAdvice_Installer.pkg
         spctl --assess --type execute -vv "staging/app/Sound Advice.app"

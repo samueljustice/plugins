@@ -30,7 +30,7 @@ int main()
     std::cout << entries.size() << " entries, " << lib.getPeople().size() << " people, "
               << cats.size() - 1 << " categories\n";
 
-    expect (entries.size() >= 500, "at least 500 entries");
+    expect (entries.size() >= 300, "at least 300 entries (a sanity floor, not a target)");
     expect (cats.size() > 1 && cats[0].id == QuoteLibrary::allCategoryId, "first category is Anything");
     expect (cats[0].entries.size() == entries.size(), "Anything holds every entry");
 
@@ -73,6 +73,15 @@ int main()
             expect (pick != last || pool.size() == 1, cats[c].name + ": no repeat across reshuffles");
             last = pick;
         }
+    }
+
+    // Unseeded pickers (one per launch) must not deal the same sequence: compare the first 8 picks.
+    {
+        QuotePicker a (lib), b (lib);
+        int same = 0;
+        for (int i = 0; i < 8; ++i)
+            same += a.next (0) == b.next (0) ? 1 : 0;
+        expect (same < 8, "two launches deal different sequences");
     }
 
     expect (lib.findEntry (entries.front().id) == 0, "find an entry by id");

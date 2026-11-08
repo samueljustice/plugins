@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.21)
 
 # The one place the version lives. Release builds pass -DSOUNDADVICE_VERSION=x.y.z (from the
 # soundadvice-vx.y.z tag); it ends up in the bundles, the installers and the footer.
-set(SOUNDADVICE_VERSION "1.0.0" CACHE STRING "Sound Advice version (major.minor.patch)")
+set(SOUNDADVICE_VERSION "1.0.6" CACHE STRING "Sound Advice version (major.minor.patch)")
 project(SoundAdvice VERSION ${SOUNDADVICE_VERSION})
 
 set(CMAKE_CXX_STANDARD 20)
@@ -41,6 +41,7 @@ juce_add_plugin(SoundAdvice
     PRODUCT_NAME "Sound Advice"
     AU_MAIN_TYPE kAudioUnitType_Effect
     VST3_CATEGORIES Fx Tools
+    ICON_BIG "${CMAKE_CURRENT_SOURCE_DIR}/Resources/icon.png"   # app icon (.icns / .ico are made from it); see tools/Preview.cpp --icon
 )
 
 if(APPLE)
