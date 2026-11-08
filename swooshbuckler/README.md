@@ -200,6 +200,7 @@ Bus A ("growls, tones, crackle, rumble - and the key for B") is the aggressive b
 | **Drive** | 15% / 0% | Saturation, from gentle thickening to a hard growl. |
 | **Ducked** (B only) | 40% | How much bus A pushes bus B down when A gets loud. |
 | **Filtered** (B only) | 30% | How much bus A darkens bus B with a low-pass filter when A gets loud, so B goes dark under A rather than just quieter. |
+| **LINK** (in B's title bar) | off | Bus B flies the same doppler passes as bus A: at the same moment, as close, in the same direction, with A's Doppler and Width. The two buses move as one source, for one consistent whoosh. B keeps its own Bend, so its pitch can dive more or less. While linked, B's own Doppler and Width are dimmed, and they come back as you set them when you unlink. Leave it off to keep energy beds on B moving on their own. |
 | **TAKE TURNS** (in B's title bar) | off | Only the louder bus plays at full level and the other ducks under it by the Ducked amount, so they trade places. The other bus has to be clearly louder (about 2 dB) for 30 ms before the turn passes. Off: A always ducks B. |
 
 All the knobs run from 0 to 100%. How bus B gets out of the way (turned down, darkened or just its mids) follows the **DUCK** box in the Hits section, and how fast it comes back follows the Hits **Return** knob.
@@ -359,7 +360,7 @@ Presets and RANDOMISE set the sound, not your session. They leave these alone:
 
 - your tracks, their levels and each track's pitch and VARI
 - Inflate, Push and Ceiling
-- AUTO RIDE, SYNC HITS, the GATE and DUCK modes, and TAKE TURNS
+- AUTO RIDE, SYNC HITS, the GATE and DUCK modes, TAKE TURNS and LINK
 - the morph's ON switch, wander, shape and speed
 - the modulators and their wires
 
@@ -386,6 +387,7 @@ Anything else a preset doesn't set goes back to its default. **Back to Defaults*
 - **For monster passes**, lower Pitch, raise Low End and Bend, and slow the Rate.
 - **Two takes of one sound**: load the same file on two tracks and detune one by 10 to 20 cents with VARI off, for a thicker, chorused layer.
 - **Keep a hit's timing but change its size**: pitch an impact down with VARI off and it lands on the same beat, just heavier.
+- **For one clean pass instead of two layers flying about**, turn on LINK so bus B follows bus A's passes. Turn it off when B carries a bed that should keep moving on its own.
 - **If the buses fight**, turn on TAKE TURNS, or raise Ducked and Filtered on bus B.
 - **Record at 96 or 192 kHz** if you plan to pitch the whooshes down later.
 - **Leave the tape armed** while you play with the controls. It only writes when there's sound, so you just need to listen back for the good ones.

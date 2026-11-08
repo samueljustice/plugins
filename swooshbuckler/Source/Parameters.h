@@ -49,6 +49,7 @@ namespace ParamIDs
     inline constexpr const char* duckMode   = "duckMode";   // Volume (original) / Darken / Mids
     inline constexpr const char* duckReturn = "duckReturn";
     inline constexpr const char* takeTurns  = "takeTurns";
+    inline constexpr const char* linkBuses  = "linkBuses"; // bus B flies bus A's passes, with A's Doppler and Width
 
     // Morph (Zynaptiq-style spectral morph between bus A and bus B)
     inline constexpr const char* morphOn     = "morphOn";
@@ -155,6 +156,7 @@ namespace Params
                                        AudioParameterFloatAttributes().withStringFromValueFunction(
                                            [](float v, int) { return v <= 0.001f ? String("Fast") : String(roundToInt(20.0f + 980.0f * v)) + " ms"; })));
         layout.add(std::make_unique<AudioParameterBool>(ParameterID { ParamIDs::takeTurns, 2 }, "Take Turns", false));
+        layout.add(std::make_unique<AudioParameterBool>(ParameterID { ParamIDs::linkBuses, 3 }, "Link Buses", false));
 
         layout.add(std::make_unique<AudioParameterBool>(ParameterID { ParamIDs::morphOn, 2 }, "Morph", false));
         layout.add(std::make_unique<AudioParameterChoice>(ParameterID { ParamIDs::morphMode, 2 }, "Morph Mode", StringArray { "Blend", "Glide", "Cross" }, 0));

@@ -169,6 +169,7 @@ private:
                           *takeTurns = nullptr;
         std::atomic<float>* space = nullptr, *inflate = nullptr, *push = nullptr, *ceiling = nullptr;
         std::atomic<float>* morphOn = nullptr, *morphMode = nullptr, *morphX = nullptr, *morphY = nullptr;
+        std::atomic<float>* linkBuses = nullptr;
         std::atomic<float>* modType[ParamIDs::numMods] {}, *modShape[ParamIDs::numMods] {}, *modKnob[ParamIDs::numMods] {},
                             *modFollow[ParamIDs::numMods] {};
     } m_raw;

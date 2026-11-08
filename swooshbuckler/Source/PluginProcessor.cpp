@@ -49,6 +49,7 @@ SwooshbucklerAudioProcessor::SwooshbucklerAudioProcessor()
     m_raw.duckMode = raw(ParamIDs::duckMode);
     m_raw.duckReturn = raw(ParamIDs::duckReturn);
     m_raw.takeTurns = raw(ParamIDs::takeTurns);
+    m_raw.linkBuses = raw(ParamIDs::linkBuses);
     m_raw.space = raw(ParamIDs::space);
     m_raw.inflate = raw(ParamIDs::inflate);
     m_raw.push = raw(ParamIDs::push);
@@ -230,6 +231,7 @@ void SwooshbucklerAudioProcessor::updateEngineParams()
     p.duckMode = juce::jlimit(0, 2, juce::roundToInt(m_raw.duckMode->load()));
     p.duckReturn = modValue(m_raw.duckReturn);
     p.takeTurns = m_raw.takeTurns->load() > 0.5f;
+    p.linkBuses = m_raw.linkBuses->load() > 0.5f;
     p.space = modValue(m_raw.space);
     p.morphOn = m_raw.morphOn->load() > 0.5f;
     p.morphMode = juce::roundToInt(m_raw.morphMode->load());

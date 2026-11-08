@@ -81,6 +81,7 @@ public:
         int duckMode = 0;        // 0 Volume 1 Darken (low-pass the ducked bus) 2 Mids (duck only 250 Hz..4 kHz)
         float duckReturn = 0.0f; // 0 = fast (original) .. 1 = ducked buses take 1 s to come back
         bool takeTurns = false;  // A and B: only the louder one speaks, the other ducks under it
+        bool linkBuses = false;  // B flies A's doppler passes, with A's Doppler and Width (its own Bend)
 
         float space = 0.25f;
         bool swell = false;    // held: every fader rides up
@@ -136,6 +137,7 @@ private:
     {
         double time = 0.0;
         float length = 3.0f, mach = 0.2f, closest = 0.02f, dir = 1.0f, closeness = 0.5f;
+        float machBase = 0.2f; // the pass's speed before Bend (a linked bus applies its own Bend to the shared pass)
         sj::OnePole airL, airR;
         float view = 0.0f, x = 0.0f;
     };
@@ -174,7 +176,13 @@ private:
 
     void startPass(Head& h, const BusParams& p);
     void renderTracks(const float* inL, const float* inR, int offset, int frames);
-    void renderBus(BusState& bus, int frames, float keyEnv, bool isKeyBus);
+    /** lead / leadStart: with the buses linked, bus A's passes as they are now (after A rendered this chunk) and as
+        they were at the start of it; B follows them instead of rolling its own. nullptr when not linked. */
+    void renderBus(BusState& bus, int frames, float keyEnv, bool isKeyBus,
+                   const std::array<Head, 2>* lead = nullptr, const std::array<Head, 2>* leadStart = nullptr);
+    /** newPass: also take the pass's speed at this bus's Bend (set once per pass, as unlinked); otherwise just keep
+        in step with the lead (the speed stays, so moving Bend mid-pass never steps the delay). */
+    static void followPass(Head& h, const Head& from, float bend, bool newPass);
     static void snapBus(BusState& bus, const BusParams& p);
     void renderHits(int frames);
     void renderSpace(int frames);
@@ -234,6 +242,9 @@ private:
     std::atomic<int> m_hitBeatView { 0 };
     std::atomic<double> m_hitPreView { 0.0 }, m_hitPostView { 0.0 };
     std::array<ScopeRing, 3> m_scopes;
+    std::array<Head, 2> m_leadStart {}; // bus A's passes at the start of the chunk (linked buses)
+    bool m_linkNow = false;             // the link in use: a change fades bus B out, swaps, and fades it back in
+    float m_linkFade = 1.0f;
 
     // Per-track pitch: semitones glide; VARI on changes the playback speed, off goes through a pitch shifter.
     std::array<PitchShifter, c_tracks> m_shifters;

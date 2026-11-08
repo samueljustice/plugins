@@ -47,7 +47,7 @@ namespace Presets
         if (id.startsWith("cargo")) // track levels, and each track's pitch and VARI
             return true;
         return id == input || id == inflate || id == push || id == ceiling || id == rideOn || id == hitSync
-            || id == gateMode || id == duckMode || id == takeTurns // how the rig behaves: kept by presets and Randomise
+            || id == gateMode || id == duckMode || id == takeTurns || id == linkBuses // how the rig behaves: kept by presets and Randomise
             || id == morphOn || id == morphWander || id == morphShape || id == morphSpeed
             || id.startsWith("mod"); // the modulators and their wires belong to the session, not to a preset
     }

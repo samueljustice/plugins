@@ -131,8 +131,19 @@ void RigEngine::reset()
         startPass(bus.heads[0], m_params.buses[i]);
         startPass(bus.heads[1], m_params.buses[i]);
         bus.heads[1].time = 0.5 * bus.heads[1].length;
-        snapBus(bus, m_params.buses[i]);
+        // Linked: B starts on A's Doppler and Width and on A's passes (A was set up just before it).
+        auto snapped = m_params.buses[i];
+        if (m_params.linkBuses && i > 0)
+        {
+            snapped.doppler = m_params.buses[0].doppler;
+            snapped.width = m_params.buses[0].width;
+            for (size_t k = 0; k < bus.heads.size(); ++k)
+                followPass(bus.heads[k], m_buses[0].heads[k], snapped.bend, true);
+        }
+        snapBus(bus, snapped);
     }
+    m_linkNow = m_params.linkBuses;
+    m_linkFade = 1.0f;
 
     m_echoL.reset(); m_echoR.reset();
     m_reverb.reset();
@@ -172,8 +183,10 @@ void RigEngine::setParams(const Params& p)
 
     for (size_t i = 0; i < m_buses.size(); ++i)
     {
+        // Linked: bus B takes bus A's Doppler and Width (it keeps its own settings for when they're unlinked).
         const auto& b = p.buses[i];
-        const float v[9] = { b.doppler, b.width, b.bend, b.low, b.swirl, b.filter, b.drive, b.duck, b.key };
+        const auto& lead = (p.linkBuses && i > 0) ? p.buses[0] : b;
+        const float v[9] = { lead.doppler, lead.width, b.bend, b.low, b.swirl, b.filter, b.drive, b.duck, b.key };
         for (size_t k = 0; k < 9; ++k)
             m_buses[i].springs[k].target = v[k];
     }
@@ -220,11 +233,25 @@ void RigEngine::startPass(Head& h, const BusParams& p)
     h.time = 0.0;
     h.length = sj::clamp(sj::lerp(6.0f, 1.6f, m_params.rate) * std::exp2(c * 0.5f * m_rng.gauss()), 0.8f, 8.0f);
     // Bend scales the speed (= the doppler pitch bend); the pass still swells and pans as set by Doppler and Width.
-    h.mach = sj::clamp(0.42f * std::pow(d, 1.3f) * (1.0f + c * 0.6f * m_rng.bipolar()) * sj::clamp(p.bend, 0.0f, 1.0f), 0.0f, 0.5f);
+    h.machBase = 0.42f * std::pow(d, 1.3f) * (1.0f + c * 0.6f * m_rng.bipolar());
+    h.mach = sj::clamp(h.machBase * sj::clamp(p.bend, 0.0f, 1.0f), 0.0f, 0.5f);
     h.mach = std::min(h.mach, c_maxPassDelay / (0.5f * h.length));
     h.closeness = sj::clamp(0.55f + 0.45f * d * m_rng.bipolar() * (0.4f + c), 0.0f, 1.0f);
     h.closest = 0.004f * std::exp2(5.0f * (1.0f - h.closeness));
     h.dir = m_rng.bipolar() >= 0.0f ? 1.0f : -1.0f;
+}
+
+void RigEngine::followPass(Head& h, const Head& from, float bend, bool newPass)
+{
+    // The same pass as the lead bus (when, how long, how close, which way), at this bus's own Bend.
+    h.time = from.time;
+    h.length = from.length;
+    h.machBase = from.machBase;
+    h.closest = from.closest;
+    h.closeness = from.closeness;
+    h.dir = from.dir;
+    if (newPass)
+        h.mach = std::min(sj::clamp(h.machBase * sj::clamp(bend, 0.0f, 1.0f), 0.0f, 0.5f), c_maxPassDelay / (0.5f * h.length));
 }
 
 void RigEngine::renderTracks(const float* inL, const float* inR, int offset, int frames)
@@ -486,7 +513,8 @@ void RigEngine::renderTracks(const float* inL, const float* inR, int offset, int
         }
 }
 
-void RigEngine::renderBus(BusState& bus, int frames, float keyEnv, bool isKeyBus)
+void RigEngine::renderBus(BusState& bus, int frames, float keyEnv, bool isKeyBus,
+                          const std::array<Head, 2>* lead, const std::array<Head, 2>* leadStart)
 {
     BusParams p;
     p.doppler = sj::clamp(bus.springs[0].step(), 0.0f, 1.0f);
@@ -509,9 +537,15 @@ void RigEngine::renderBus(BusState& bus, int frames, float keyEnv, bool isKeyBus
     std::fill(bus.l.begin(), bus.l.begin() + frames, 0.0f);
     std::fill(bus.r.begin(), bus.r.begin() + frames, 0.0f);
 
+    // Linked: line up with bus A's passes as they were at the start of this chunk (A has already rendered it).
+    if (leadStart != nullptr)
+        for (size_t k = 0; k < bus.heads.size(); ++k)
+            followPass(bus.heads[k], (*leadStart)[k], p.bend, false);
+
     // Doppler: two overlapping passes (sine windows half a pass apart keep the power steady).
-    for (auto& h : bus.heads)
+    for (size_t k = 0; k < bus.heads.size(); ++k)
     {
+        auto& h = bus.heads[k];
         {
             const double s = (h.time / h.length - 0.5) * h.length;
             const float x = h.dir * h.mach * static_cast<float>(s);
@@ -526,7 +560,16 @@ void RigEngine::renderBus(BusState& bus, int frames, float keyEnv, bool isKeyBus
         for (int i = 0; i < frames; ++i)
         {
             if (h.time >= h.length)
-                startPass(h, p);
+            {
+                if (lead != nullptr)
+                {
+                    // Take the pass bus A started at this same moment (it rendered this chunk first).
+                    followPass(h, (*lead)[k], p.bend, true);
+                    h.time = 0.0;
+                }
+                else
+                    startPass(h, p);
+            }
 
             const float u = static_cast<float>(h.time / h.length);
             const double s = (h.time / h.length - 0.5) * h.length;
@@ -861,11 +904,43 @@ void RigEngine::process(const float* inL, const float* inR, float* outL, float* 
         // Bus A first: it is the key for the others (ducking and filtering).
         const int numBuses = c_maxBuses;
         auto& keyBus = m_buses[0];
+        // Turning LINK on or off fades bus B out (~30 ms), swaps (lining B up with A's passes), and fades it back
+        // in, so B never jumps to a new place in its delay mid-pass.
+        const float linkFade0 = m_linkFade;
+        {
+            const float linkStep = static_cast<float>(frames) / (0.03f * m_fs);
+            if (m_params.linkBuses != m_linkNow)
+            {
+                m_linkFade = std::max(0.0f, m_linkFade - linkStep);
+                if (m_linkFade <= 0.0f)
+                {
+                    m_linkNow = m_params.linkBuses;
+                    if (m_linkNow)
+                        for (int b = 1; b < numBuses; ++b)
+                            for (size_t k = 0; k < keyBus.heads.size(); ++k)
+                                followPass(m_buses[static_cast<size_t>(b)].heads[k], keyBus.heads[k],
+                                           m_buses[static_cast<size_t>(b)].springs[2].value, true);
+                }
+            }
+            else
+                m_linkFade = std::min(1.0f, m_linkFade + linkStep);
+        }
+        const float linkFade1 = m_linkFade;
+        const bool link = m_linkNow;
+        if (link)
+            m_leadStart = keyBus.heads; // A's passes before this chunk, for B to line up with
         renderBus(keyBus, frames, 0.0f, true);
         for (int b = 1; b < numBuses; ++b)
         {
             auto& bus = m_buses[static_cast<size_t>(b)];
-            renderBus(bus, frames, keyBus.env, false);
+            renderBus(bus, frames, keyBus.env, false, link ? &keyBus.heads : nullptr, link ? &m_leadStart : nullptr);
+            if (linkFade0 < 1.0f || linkFade1 < 1.0f)
+                for (int i = 0; i < frames; ++i)
+                {
+                    const float g = linkFade0 + (linkFade1 - linkFade0) * static_cast<float>(i + 1) / static_cast<float>(frames);
+                    bus.l[static_cast<size_t>(i)] *= g;
+                    bus.r[static_cast<size_t>(i)] *= g;
+                }
 
             // B is ducked by A. Take turns: whichever is louder (before any ducking, so no feedback) ducks the other.
             const float amount = sj::clamp(bus.springs[7].value, 0.0f, 1.0f);

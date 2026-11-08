@@ -343,6 +343,92 @@ int main(int argc, char* argv[])
         check(finite, "hit sync through the rig: finite output");
     }
 
+    // Linked buses: bus B flies bus A's passes (same moment, position, closeness, direction); unlinked they differ.
+    {
+        auto passGap = [&](bool link)
+        {
+            RigEngine e;
+            e.setCargoHold(&hold);
+            auto q = p;
+            q.linkBuses = link;
+            q.chaos = 0.8f; // plenty of variety between passes
+            e.setParams(q);
+            e.prepare(c_rate, c_block);
+            e.setParams(q);
+            juce::AudioBuffer<float> o(2, c_block);
+            float worst = 0.0f;
+            for (int blk = 0; blk < static_cast<int>(20.0 * c_rate) / c_block; ++blk)
+            {
+                e.process(nullptr, nullptr, o.getWritePointer(0), o.getWritePointer(1), c_block);
+                for (int k = 0; k < 2; ++k)
+                {
+                    const auto a = e.getFlightView(k), b = e.getFlightView(2 + k);
+                    worst = std::max({ worst, std::abs(a.x - b.x), std::abs(a.closeness - b.closeness), std::abs(a.age - b.age) });
+                }
+            }
+            return worst;
+        };
+        const float linked = passGap(true), unlinked = passGap(false);
+        std::cout << "  bus passes A vs B: linked gap " << linked << ", unlinked gap " << unlinked << std::endl;
+        check(linked < 1.0e-4f, "linked buses: B's passes match A's over 20 s (position, closeness, timing)");
+        check(unlinked > 0.05f, "unlinked buses: each bus does its own passes");
+    }
+
+    // Turning LINK on and off mid-pass doesn't click: B fades out, lines up with A, and fades back in.
+    // Two steady sine tones (one per bus, no hits) so any jump in the delay shows as a spike in the
+    // waveform's second difference, far above anything a smoothly moving sine makes.
+    {
+        auto tone = [](double hz)
+        {
+            juce::AudioBuffer<float> b(1, static_cast<int>(4.0 * c_rate));
+            for (int i = 0; i < b.getNumSamples(); ++i)
+                b.setSample(0, i, 0.5f * std::sin(static_cast<float>(juce::MathConstants<double>::twoPi * hz * i / c_rate)));
+            return b;
+        };
+        CargoHold tones;
+        juce::String err;
+        tones.loadFile(0, writeWav(folder, "rig_src_toneA", tone(220.0)), err);
+        tones.loadFile(1, writeWav(folder, "rig_src_toneB", tone(330.0)), err);
+        tones.setRoleOverride(0, static_cast<int>(CargoRole::Tonal)); // bus A
+        tones.setRoleOverride(1, static_cast<int>(CargoRole::Bed));   // bus B
+        tones.setSkipSilence(0, false);
+        tones.setSkipSilence(1, false);
+
+        RigEngine e;
+        e.setCargoHold(&tones);
+        auto q = p;
+        q.chaos = 0.8f;
+        q.rideOn = false;   // steady levels
+        q.fill = 0.0f;
+        q.space = 0.0f;
+        for (auto& b : q.buses) { b.swirl = 0.0f; b.drive = 0.0f; b.low = 0.0f; b.filter = 0.0f; }
+        e.setParams(q);
+        e.prepare(c_rate, c_block);
+        e.setParams(q);
+        juce::AudioBuffer<float> o(2, static_cast<int>(9.0 * c_rate));
+        const int switchOn = static_cast<int>(3.0 * c_rate) / c_block * c_block;
+        const int switchOff = static_cast<int>(6.0 * c_rate) / c_block * c_block;
+        for (int pos = 0; pos < o.getNumSamples(); pos += c_block)
+        {
+            if (pos == switchOn) { q.linkBuses = true; e.setParams(q); }
+            if (pos == switchOff) { q.linkBuses = false; e.setParams(q); }
+            e.process(nullptr, nullptr, o.getWritePointer(0, pos), o.getWritePointer(1, pos), juce::jmin(c_block, o.getNumSamples() - pos));
+        }
+        auto maxCurve = [&](int from, int to)
+        {
+            float m = 0.0f;
+            for (int ch = 0; ch < 2; ++ch)
+                for (int i = from + 2; i < to; ++i)
+                    m = std::max(m, std::abs(o.getSample(ch, i) - 2.0f * o.getSample(ch, i - 1) + o.getSample(ch, i - 2)));
+            return m;
+        };
+        const float normal = maxCurve(static_cast<int>(1.0 * c_rate), switchOn);
+        const float around = std::max(maxCurve(switchOn, switchOn + static_cast<int>(0.2 * c_rate)),
+                                      maxCurve(switchOff, switchOff + static_cast<int>(0.2 * c_rate)));
+        std::cout << "  link switch: sharpest change " << around << " vs " << normal << " in normal play" << std::endl;
+        check(around <= 2.0f * normal, "turning LINK on and off mid-pass doesn't click");
+    }
+
     // Per-track pitch: VARI on changes the track's speed, VARI off keeps it (through the pitch shifter).
     {
         auto run = [&](float semis, bool vari, float& speed, float& rms, bool& finite)

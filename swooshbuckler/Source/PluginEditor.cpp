@@ -669,6 +669,15 @@ SwooshbucklerAudioProcessorEditor::SwooshbucklerAudioProcessorEditor(Swooshbuckl
     m_takeTurns.setWantsKeyboardFocus(false);
     m_takeTurns.setTooltip("Take Turns\nOn: only the louder of bus A and bus B speaks at a time and the other ducks under it (by as much as Ducked), so they trade places instead of piling up. Off: A always ducks B (the original rig). Good for taming the everything-at-once wall of sound.");
     m_content.addAndMakeVisible(m_takeTurns);
+    m_linkBuses.setClickingTogglesState(true);
+    m_linkBuses.setColour(juce::TextButton::buttonOnColourId, TC::movement);
+    m_linkBuses.setWantsKeyboardFocus(false);
+    m_linkBuses.setTooltip("Link\nOn: bus B flies the same doppler passes as bus A, at the same moment, as close and in the same direction, "
+                           "with A's Doppler and Width, so the two buses move as one source: one consistent whoosh. "
+                           "B keeps its own Bend, so its pitch can dive more or less.\n"
+                           "Off (the default): each bus does its own passes, which keeps energy beds on B moving independently. "
+                           "B's own Doppler and Width, and any modulator wires on them, come back when you unlink.");
+    m_content.addAndMakeVisible(m_linkBuses);
 
     {
         const auto& engine = p.getEngine();
@@ -688,6 +697,7 @@ SwooshbucklerAudioProcessorEditor::SwooshbucklerAudioProcessorEditor(Swooshbuckl
         }
     }
     m_takeTurnsAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment>(p.getState(), ParamIDs::takeTurns, m_takeTurns);
+    m_linkBusesAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment>(p.getState(), ParamIDs::linkBuses, m_linkBuses);
 
     addKnob(ParamIDs::space, "Space", TC::space, "Echoes, reverb and stereo width around the whole mix. Low: close and dry. High: a big open space for the whooshes to fly through.");
     addKnob(ParamIDs::inflate, "Inflate", TC::master, "Makes the mix louder and denser without adding new peaks, so quieter detail comes forward. Good for thin sources.");
@@ -867,12 +877,13 @@ void SwooshbucklerAudioProcessorEditor::layoutContent()
         m_gateModeLabel = { m_gateMode.getX() - 40, y, 38, 22 };
         const auto& busB = m_sections[1].bounds;
         m_takeTurns.setBounds(busB.getRight() - 14 - 96, busB.getY() + 9, 96, 22);
+        m_linkBuses.setBounds(m_takeTurns.getX() - 6 - 56, busB.getY() + 9, 56, 22);
 
         // The little waveforms, at the right of each title bar (left of any buttons there).
         const auto& busA = m_sections[0].bounds;
         const auto& out = m_sections[3].bounds;
         m_sectionScopes[0]->setBounds(busA.getRight() - 14 - 180, busA.getY() + 9, 180, 22);
-        m_sectionScopes[1]->setBounds(m_takeTurns.getX() - 8 - 160, busB.getY() + 9, 160, 22);
+        m_sectionScopes[1]->setBounds(m_linkBuses.getX() - 8 - 120, busB.getY() + 9, 120, 22);
         m_sectionScopes[2]->setBounds(m_gateModeLabel.getX() - 6 - 120, hits.getY() + 9, 120, 22);
         m_sectionScopes[3]->setBounds(out.getRight() - 14 - 180, out.getY() + 9, 180, 22);
     }
@@ -1161,8 +1172,26 @@ void SwooshbucklerAudioProcessorEditor::syncMorphPad()
     m_morphPad.setXY(value(ParamIDs::morphX), value(ParamIDs::morphY));
 }
 
+void SwooshbucklerAudioProcessorEditor::showLinkedKnobs()
+{
+    // Linked, bus B's Doppler and Width follow bus A: dim them (they keep their own values for when it's unlinked).
+    const bool linked = m_processor.getState().getRawParameterValue(ParamIDs::linkBuses)->load() > 0.5f;
+    if (m_linkShown == (linked ? 1 : 0))
+        return;
+    m_linkShown = linked ? 1 : 0;
+    for (const int k : { static_cast<int>(ParamIDs::Doppler), static_cast<int>(ParamIDs::Width) })
+    {
+        const auto it = m_controls.find(juce::String(ParamIDs::bus[1][k]));
+        if (it == m_controls.end() || it->second == nullptr)
+            continue;
+        it->second->setEnabled(! linked);
+        it->second->setAlpha(linked ? 0.35f : 1.0f);
+    }
+}
+
 void SwooshbucklerAudioProcessorEditor::timerCallback()
 {
+    showLinkedKnobs();
     if ((++m_morphSyncTick % 6) == 0)
         syncMorphPad();
 

@@ -310,7 +310,7 @@ WheelKnob* ModWires::knobAt(juce::Point<float> p, juce::String* id) const
     float bestDistance = 0.0f;
     for (const auto& [paramId, knob] : m_knobs)
     {
-        if (knob == nullptr || ! knob->isShowing())
+        if (knob == nullptr || ! knob->isShowing() || ! knob->isEnabled()) // dimmed (e.g. bus B's linked Doppler): no new wires
             continue;
         const float d = getLocalPoint(knob, knob->getDialCentre()).getDistanceFrom(p);
         if (d <= knob->getDialRadius() + 10.0f && (best == nullptr || d < bestDistance))

@@ -186,6 +186,10 @@ private:
     // Gate and ducking options (defaults = the original rig)
     juce::ComboBox m_gateMode, m_duckMode;
     juce::TextButton m_takeTurns { "TAKE TURNS" };
+    juce::TextButton m_linkBuses { "LINK" };
+    std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> m_linkBusesAttachment;
+    int m_linkShown = -1; // the LINK state the bus B knobs were last dimmed for
+    void showLinkedKnobs();
     std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> m_gateModeAttachment, m_duckModeAttachment;
     std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> m_takeTurnsAttachment;
     juce::Rectangle<int> m_gateModeLabel, m_duckModeLabel;
