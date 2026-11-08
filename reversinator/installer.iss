@@ -3,7 +3,7 @@
 #ifndef MyAppVersion
   #define MyAppVersion "2.0.1"
 #endif
-#define MyAppPublisher "Samuel Justice"
+#define MyAppPublisher "Sammy J"
 #define MyAppURL "https://www.sweetjusticesound.com"
 
 [Setup]

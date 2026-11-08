@@ -36,7 +36,7 @@ juce_add_plugin(Reversinator
     PLUGIN_CODE Revr
     FORMATS ${REVERSINATOR_FORMATS}
     PRODUCT_NAME "SammyJs Reversinator"
-    COMPANY_NAME "Samuel Justice"
+    COMPANY_NAME "Sammy J"
     COMPANY_COPYRIGHT "Copyright ${COPYRIGHT_YEAR} Samuel Justice"
     COMPANY_WEBSITE "https://www.sweetjusticesound.com"
     COMPANY_EMAIL "sam@sweetjusticesound.com"

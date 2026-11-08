@@ -41,7 +41,7 @@ add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/../SDK/JUCE ${CMAKE_CURRENT_BINARY_
 
 juce_add_plugin(Swooshbuckler
     VERSION ${PROJECT_VERSION}
-    COMPANY_NAME "Sweet Justice"
+    COMPANY_NAME "Sammy J"
     COMPANY_WEBSITE "https://sweetjusticesound.com"
     BUNDLE_ID "com.samueljustice.swooshbuckler"
     IS_SYNTH TRUE

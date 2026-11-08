@@ -390,6 +390,8 @@ jobs:
     - name: Create Release
       uses: softprops/action-gh-release@v3
       with:
+        # The combined Sammy J installer is the "Latest" release, so the README's download links keep working.
+        make_latest: false
         files: |
           StretchArmstrong-Windows-VST3.zip
           StretchArmstrong-macOS-VST3.zip

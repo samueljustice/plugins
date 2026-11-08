@@ -1,0 +1,9 @@
+# The plug-ins in the combined Sammy J installer, one per line:
+#   id | release tag prefix | display name | bundle name (.vst3 / .component) | app name (blank if none)
+# The installer picks up each plug-in's newest release with that tag prefix and repackages its files.
+# Adding a plug-in: add a line here and its components to bundle/installer.iss.
+swooshbuckler|swooshbuckler-v|Swooshbuckler|Swooshbuckler|Swooshbuckler
+soundadvice|soundadvice-v|Sound Advice|Sound Advice|Sound Advice
+subbertone|subbertone-v|Subbertone|SammyJs Subbertone|
+pitchflattener|pitchflattener-v|Pitch Flattener|SammyJs Pitch Flattener|
+reversinator|reversinator-v|Reversinator|SammyJs Reversinator|

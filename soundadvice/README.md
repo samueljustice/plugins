@@ -1,6 +1,6 @@
 # Sound Advice
 
-A small, quiet page of advice from the great film, TV and game sound designers and mixers. Pick what you're working on (mixing, trailers, creatures, dialogue, silence, running a creative team...) and it deals you something one of the greats said or did about it. Roll the die for another.
+A small, quiet page of advice from the great creative people behind film, TV and game sound: sound designers, mixers, editors and audio directors, plus a legendary Disney Imagineer on leading creative work. Pick what you're working on (mixing, trailers, creatures, dialogue, silence, running a creative team...) and it deals you something one of the greats said or did about it. Roll the die for another.
 
 It's a VST3 / AU plug-in (audio passes straight through, untouched) and a standalone app (no audio device at all), so it can sit on a mix bus or on a second screen. Paper by day, ink by night.
 

@@ -48,7 +48,7 @@ add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/../SDK/JUCE ${CMAKE_CURRENT_BINARY_
 # Main plugin target
 juce_add_plugin(Subbertone
     VERSION ${PROJECT_VERSION}
-    COMPANY_NAME "Samuel Justice"
+    COMPANY_NAME "Sammy J"
     BUNDLE_ID "com.samueljustice.subbertone"
     IS_SYNTH FALSE
     NEEDS_MIDI_INPUT FALSE
