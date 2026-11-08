@@ -5,11 +5,14 @@ name: Build and Release Sammy J Installer
 # It runs by itself whenever a plug-in's release workflow finishes a tagged release, and rebuilds from the
 # newest release of every plug-in in bundle/plugins.txt. It doesn't rebuild the plug-ins: it repackages the
 # files those releases already published (signed and notarised on macOS), then signs and notarises the new
-# installer. The result is published as the repository's "Latest" release with fixed file names, so these
-# links always get the newest one:
-#   https://github.com/samueljustice/plugins/releases/latest/download/SammyJ-Plugins-macOS-Installer.pkg
-#   https://github.com/samueljustice/plugins/releases/latest/download/SammyJ-Plugins-Windows-Installer.exe
-# (Each plug-in's own workflow publishes with make_latest: false, so it doesn't take "Latest" away.)
+# installer. The result is published as the repository's "Latest" release, with the build's date and time
+# (UTC) in the file names:
+#   SammyJ-Plugins-2026-11-08-1253-macOS-Installer.pkg, SammyJ-Plugins-2026-11-08-1253-Windows-Installer.exe
+# Then it rewrites the "Get them all" block at the top of the root README (between its get-them-all markers,
+# with bundle/update-readme.py) so the buttons download exactly those files and say when they were built,
+# commits that to main, and only then deletes the installer releases this one replaces.
+# The installer's release page is always https://github.com/samueljustice/plugins/releases/latest
+# (each plug-in's own workflow publishes with make_latest: false, so it doesn't take "Latest" away).
 #
 # Run it by hand (workflow_dispatch) to rebuild it now. Pull requests that touch bundle/ build it without
 # publishing.
@@ -51,6 +54,8 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.v.outputs.version }}
+      stamp: ${{ steps.v.outputs.stamp }}
+      built: ${{ steps.v.outputs.built }}
       releases: ${{ steps.r.outputs.releases }}
       publish: ${{ steps.v.outputs.publish }}
     steps:
@@ -60,10 +65,17 @@ jobs:
       id: v
       run: |
         # Date plus run number: always increasing, and valid as a Windows file version (a.b.c.d).
-        VERSION="$(date -u +%Y.%-m.%-d).${{ github.run_number }}"
+        # One reading of the clock (UTC) for everything, so the tag and the file names never disagree.
+        NOW=$(date -u +%s)
+        VERSION="$(date -u -d "@$NOW" +%Y.%-m.%-d).${{ github.run_number }}"
         echo "Version: $VERSION"
         echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-        if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+        # When it was built: in the file names (2026-11-08-1253) and the README ("8 Nov 2026, 12:53 UTC").
+        echo "stamp=$(date -u -d "@$NOW" +%Y-%m-%d-%H%M)" >> "$GITHUB_OUTPUT"
+        echo "built=$(date -u -d "@$NOW" '+%-d %b %Y, %H:%M UTC')" >> "$GITHUB_OUTPUT"
+        # Only main publishes (it also rewrites main's README and deletes old installers). Pull requests, and a
+        # manual run on any other branch, build the installers without publishing.
+        if [[ "${{ github.event_name }}" == "pull_request" || "${{ github.ref }}" != "refs/heads/main" ]]; then
           echo "publish=false" >> "$GITHUB_OUTPUT"
         else
           echo "publish=true" >> "$GITHUB_OUTPUT"
@@ -81,6 +93,23 @@ jobs:
           cat releases.txt
           echo "EOF"
         } >> "$GITHUB_OUTPUT"
+
+  # Without publishing: check that the README still has its get-them-all markers and update-readme.py runs.
+  check-readme:
+    needs: resolve
+    if: needs.resolve.outputs.publish != 'true'
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v5
+    - name: Try the README update on a copy
+      env:
+        RELEASES: ${{ needs.resolve.outputs.releases }}
+        STAMP: ${{ needs.resolve.outputs.stamp }}
+      run: |
+        printf '%s\n' "$RELEASES" > "$RUNNER_TEMP/releases.txt"
+        cp README.md "$RUNNER_TEMP/README.md"
+        python3 bundle/update-readme.py "$RUNNER_TEMP/README.md" "$GITHUB_REPOSITORY" "bundle-v${{ needs.resolve.outputs.version }}" \
+          "SammyJ-Plugins-$STAMP-macOS-Installer.pkg" "SammyJ-Plugins-$STAMP-Windows-Installer.exe" "${{ needs.resolve.outputs.built }}" "$RUNNER_TEMP/releases.txt"
 
   build-macos:
     needs: resolve
@@ -253,11 +282,26 @@ jobs:
     runs-on: ubuntu-latest
     env:
       VERSION: ${{ needs.resolve.outputs.version }}
+      STAMP: ${{ needs.resolve.outputs.stamp }}
+      BUILT: ${{ needs.resolve.outputs.built }}
+      MAC_FILE: SammyJ-Plugins-${{ needs.resolve.outputs.stamp }}-macOS-Installer.pkg
+      WIN_FILE: SammyJ-Plugins-${{ needs.resolve.outputs.stamp }}-Windows-Installer.exe
     steps:
+    # main itself (not the commit that started the run), so the README update below lands on the newest main.
     - uses: actions/checkout@v5
+      with:
+        ref: main
+        fetch-depth: 0
 
     - name: Download installers
       uses: actions/download-artifact@v7
+
+    # Renaming doesn't touch the signature or the stapled notarisation ticket (they belong to the contents).
+    - name: Stamp the file names with the build date and time
+      run: |
+        mv macos-installer/SammyJ-Plugins-macOS-Installer.pkg "macos-installer/$MAC_FILE"
+        mv windows-installer/SammyJ-Plugins-Windows-Installer.exe "windows-installer/$WIN_FILE"
+        ls -la macos-installer windows-installer
 
     - name: Write release notes
       env:
@@ -276,6 +320,8 @@ jobs:
             echo "| [$name](https://github.com/${{ github.repository }}/releases/tag/$tag) | $ver |"
           done
           echo
+          echo "Built $BUILT."
+          echo
           echo "### Downloads"
           echo "- **macOS** (\`.pkg\`): every app, VST3 and AU. Choose Customize to pick. Signed and notarised; Universal (Apple silicon and Intel), macOS 11 or later."
           echo "- **Windows** (\`.exe\`): every VST3, plus the Swooshbuckler and Sound Advice apps. 64-bit Windows 10 or later."
@@ -287,14 +333,38 @@ jobs:
       with:
         tag_name: bundle-v${{ env.VERSION }}
         target_commitish: ${{ github.sha }}
-        name: Sammy J's Plugins ${{ env.VERSION }}
+        name: Sammy J's Plugins ${{ env.VERSION }} (built ${{ env.BUILT }})
         body_path: notes.md
         make_latest: true
         files: |
-          macos-installer/SammyJ-Plugins-macOS-Installer.pkg
-          windows-installer/SammyJ-Plugins-Windows-Installer.exe
+          macos-installer/${{ env.MAC_FILE }}
+          windows-installer/${{ env.WIN_FILE }}
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    # Point the README's "Get them all" buttons at these files, say when they were built, and commit it to main.
+    # Before the old releases go, so the buttons never point at a deleted file. Retries if main moved meanwhile.
+    - name: Update the Get them all buttons in the README
+      env:
+        RELEASES: ${{ needs.resolve.outputs.releases }}
+      run: |
+        printf '%s\n' "$RELEASES" > "$RUNNER_TEMP/releases.txt"
+        python3 bundle/update-readme.py README.md "$GITHUB_REPOSITORY" "bundle-v$VERSION" "$MAC_FILE" "$WIN_FILE" "$BUILT" "$RUNNER_TEMP/releases.txt"
+        if git diff --quiet -- README.md; then
+          echo "README already points at this installer"
+          exit 0
+        fi
+        git config user.name "github-actions[bot]"
+        git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+        git add README.md
+        git commit -m "README: Get them all, built $BUILT (bundle-v$VERSION)"
+        for attempt in 1 2 3 4 5; do
+          if git pull --rebase origin main && git push origin HEAD:main; then exit 0; fi
+          echo "Push failed (attempt $attempt of 5), retrying"
+          git rebase --abort 2>/dev/null || true
+          sleep $((attempt * 10))
+        done
+        exit 1
 
     # Only the newest installer is worth keeping: it always holds every plug-in's newest release, and
     # each plug-in's own releases stay. Runs are one at a time (see concurrency), so this never

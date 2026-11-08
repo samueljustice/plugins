@@ -32,10 +32,10 @@ Swooshbuckler is a standalone app for macOS and Windows, and also a VST3 plug-in
 
 [![Download Swooshbuckler v1.1.0](https://img.shields.io/badge/download-v1.1.0-d00a35?style=for-the-badge)](https://github.com/samueljustice/plugins/releases/tag/swooshbuckler-v1.1.0)
 
-Or get every Sammy J plug-in at once, Swooshbuckler included, with one installer that always has the newest version of each:
+Or get every Sammy J plug-in at once, Swooshbuckler included, with one installer that always has the newest version of each (its file names carry the date and time it was built):
 
-[![Everything for macOS](https://img.shields.io/badge/Everything_for_macOS-000000?style=flat-square&logo=apple&logoColor=white)](https://github.com/samueljustice/plugins/releases/latest/download/SammyJ-Plugins-macOS-Installer.pkg)
-[![Everything for Windows](https://img.shields.io/badge/Everything_for_Windows-0078D6?style=flat-square&logo=windows&logoColor=white)](https://github.com/samueljustice/plugins/releases/latest/download/SammyJ-Plugins-Windows-Installer.exe)
+[![Everything for macOS](https://img.shields.io/badge/Everything_for_macOS-000000?style=flat-square&logo=apple&logoColor=white)](https://github.com/samueljustice/plugins/releases/latest)
+[![Everything for Windows](https://img.shields.io/badge/Everything_for_Windows-0078D6?style=flat-square&logo=windows&logoColor=white)](https://github.com/samueljustice/plugins/releases/latest)
 
 Swooshbuckler's own release (above, or every version on the [releases page](https://github.com/samueljustice/plugins/releases?q=swooshbuckler)) has these files:
 
