@@ -191,7 +191,7 @@ A page of advice from people who work on film, TV, game and trailer sound: re-re
 - 🔇 **Audio passes straight through**, so it can sit on a mix bus, or run as an app on a second screen
 
 **App** (macOS, Windows) · **VST3** · **AU** &nbsp;&nbsp;
-[![Download Sound Advice](https://img.shields.io/badge/download-v1.0.10-9a5a3a?style=flat-square)](https://github.com/samueljustice/plugins/releases/tag/soundadvice-v1.0.10) &nbsp;
+[![Download Sound Advice](https://img.shields.io/badge/download-v1.0.11-9a5a3a?style=flat-square)](https://github.com/samueljustice/plugins/releases/tag/soundadvice-v1.0.11) &nbsp;
 [Read the manual →](soundadvice/README.md)
 
 ---
