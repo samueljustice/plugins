@@ -67,6 +67,7 @@ juce::String QuoteLibrary::loadFromJson (const juce::String& jsonText)
             entry.id = e["id"].toString();
             entry.text = e["text"].toString();
             entry.verbatim = e["kind"].toString() == "quote";
+            entry.context = e["context"].toString();
 
             const auto who = e["person"].toString();
             const auto p = personIndex.find (who);

@@ -27,6 +27,7 @@ public:
         int person = -1;
         bool verbatim = true;          // true: the person's own words; false: a technique or story retold
         juce::String text;
+        juce::String context;          // what a quote is about (a film, show or game), shown above it
         juce::StringArray categories;  // category ids, primary first
         Source source;
     };

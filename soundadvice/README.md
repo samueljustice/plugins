@@ -10,9 +10,9 @@ It's a VST3 / AU plug-in (audio passes straight through, untouched) and a standa
 
 ## What's in it
 
-829 entries from 147 people, kept to concrete, technically creative advice: sources and processing, recording, design methods and specific mix decisions, each tied to the production it came from. The sound designers and mixers all have film, TV or game credits on IMDb, and every entry links to the interview, article or SoundWorks Collection video it came from. Nothing predates 2005, either in the source or in the work it describes, apart from the Star Wars prequels. The Creativity & Teams category draws on a legendary Disney Imagineer's book about creative work: leading teams, finding a theme, critique, risk and knowing when to stop. Two kinds:
+824 entries from 147 people, kept to concrete, technically creative advice: sources and processing, recording, design methods and specific mix decisions, each tied to the production it came from. The sound designers and mixers all have film, TV or game credits on IMDb, and every entry links to the interview, article or SoundWorks Collection video it came from. Nothing predates 2005, either in the source or in the work it describes, apart from the Star Wars prequels. The Creativity & Teams category draws on a legendary Disney Imagineer's book about creative work: leading teams, finding a theme, critique, risk and knowing when to stop. Two kinds:
 
-- **Quotes**, in quotation marks and italics: their own words, kept short.
+- **Quotes**, in quotation marks and italics: their own words, kept short. When a quote is about a particular film, show or game, it's named above it ("On Arrival").
 - **Field notes**: a technique, decision or story from that source, retold in a sentence or two. "Field note" is printed above them.
 
 Click a person's name to open their IMDb (or other profile) page; click the source line at the foot of the page to read the original article. Right-click to copy.
@@ -26,18 +26,18 @@ Click a person's name to open their IMDb (or other profile) page; click the sour
 | Trailers | 30 |
 | Creatures & Voices | 83 |
 | Ambience & Worlds | 115 |
-| Dialogue | 174 |
-| Field Recording | 180 |
-| Weapons & Vehicles | 50 |
-| Sci-Fi & Magic | 133 |
+| Dialogue | 173 |
+| Field Recording | 179 |
+| Weapons & Vehicles | 49 |
+| Sci-Fi & Magic | 131 |
 | Horror & Tension | 53 |
 | Silence & Restraint | 69 |
 | Music & Sound | 66 |
 | Games | 33 |
-| Story & Emotion | 118 |
-| Craft & Technique | 205 |
+| Story & Emotion | 117 |
+| Craft & Technique | 202 |
 | Collaboration & Career | 82 |
-| Creativity & Teams | 76 |
+| Creativity & Teams | 75 |
 
 **Anything** deals from all of them. Each category is a shuffled deck: you see every entry in it once before any comes round again.
 
@@ -62,7 +62,7 @@ The entries live in `data/*.json`, one file per research group, each entry with 
 python3 tools/build_quotes.py
 ```
 
-To add an entry, add it to a data file (or a new one) with its source, run the script and rebuild. `data/credits.json` sets the credits line shown under each name. To leave someone out, put their name in `data/omit.txt`; to drop a single entry (too generic, a fragment, a near-duplicate), put its id in `data/omit-entries.txt`. Either way the research stays in the data files and the build just skips it. `data/rewrites.json` changes an entry's wording (for example to name who did the work) without changing its id. The `SoundAdviceTests` program checks the built database: a sanity floor of 300 entries, every category stocked, and the no-repeat dealing.
+To add an entry, add it to a data file (or a new one) with its source, run the script and rebuild. `data/credits.json` sets the credits line shown under each name. To leave someone out, put their name in `data/omit.txt`; to drop a single entry (too generic, a fragment, a near-duplicate), put its id in `data/omit-entries.txt`. Either way the research stays in the data files and the build just skips it. `data/contexts.json` names the production a quote is about, shown above it. `data/rewrites.json` changes an entry's wording (for example to name who did the work) without changing its id. The `SoundAdviceTests` program checks the built database: a sanity floor of 300 entries, every category stocked, and the no-repeat dealing.
 
 ## Building
 

@@ -662,3 +662,10 @@ acord-d1f1bf  # David Acord: For The Mandalorian and Grogu, Acord's team did —
 farmer-ebe6b9  # David Farmer: On the 2010 A Nightmare on Elm Street — vague "reined it back"
 pfeiffer-15903c  # Margit Pfeiffer: Pfeiffer's team handled Andor in blocks of three — scheduling logistics
 walston-19547e  # Tim Walston: For Stealth, supervising sound editor Bruce Stambler had — job assignment logistics
+
+# Context pass: about a specific project the source never names, or outside the rules once it was identified.
+aadahl-4db0f5  # Erik Aadahl: When jet recordings made a broom flight sound — production never named
+albrechtsen-7e84e0  # Peter Albrechtsen: Wanting something weightier than a stock whoosh for — production never named
+murch-b5076b  # Walter Murch: On a William Kentridge series with very reverberant — production never named
+rohde-bb28ba  # Joe Rohde: When the brief kept shifting, Rohde kept asking — park-specific
+farmer-823ffa  # David Farmer: Farmer delights in casting a sound against type, — pre-2005 film
