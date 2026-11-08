@@ -1,5 +1,12 @@
 # Swooshbuckler changelog
 
+## Unreleased
+
+- **Per-track pitch.** Every track has its own Semitones (±24) and Cents (±100), on top of the Ride's Pitch knob, and a **VARI** switch:
+  - VARI on (the default): varispeed, like tape. The pitch and the speed change together.
+  - VARI off: the pitch changes and the speed stays the same, through a new pitch shifter built for Swooshbuckler. It keeps attacks sharp and adds about 43 ms of delay to that track; synced hits allow for it.
+  - Pitch glides to a new setting, and switching VARI fades the track rather than clicking. Each control is a host parameter, saved with the session; presets leave them alone.
+
 ## 1.0.2
 
 - **Listed under Sammy J.** Hosts show it in a Sammy J folder with the other plug-ins, and the Windows installer names Sammy J as the publisher. The sound, parameters and saved sessions are unchanged.

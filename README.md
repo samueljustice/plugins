@@ -45,6 +45,7 @@ Drop in up to ten sounds (cloth, air, engines, creatures, metal) and Swooshbuckl
 
 - 🎚️ **Auto ride** across up to ten looping tracks, each fader on its own path, shaped by Energy, Rate, Fill, Chaos and Pitch
 - 🧠 **Smart loading** finds the separate sounds in each file, skips the gaps and guesses what each one is from the audio and the file name
+- 🎛️ **Per-track pitch** in semitones and cents, with **VARI** on for tape-style varispeed or off to change the pitch and keep the speed
 - 🌀 **Two Doppler buses** with Width, Bend, Low End, Swirl, an envelope filter and Drive. Bus A can duck and darken Bus B, or they **Take Turns**
 - 🧬 **Spectral morph pad** blends A into B (Blend, Glide or vocoder-style Cross), and can wander along a Lorenz loop, a rose or a figure eight
 - 💥 **Hit gate** fires your impacts at the biggest swells, and **Sync Hits** stacks their transients into one huge hit
