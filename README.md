@@ -123,6 +123,7 @@ Pitch Flattener takes the pitch movement out of a sound and keeps its energy and
 - 🔭 **Lookahead tracking** fixes octave errors, bridges gaps and smooths with zero lag, so the very first syllable or rev is already flat
 - 🎚️ **Latch, Fixed or Auto**: hold each sound at the pitch it starts on, flatten everything to one note (type `A4`), or take out only the vibrato and keep the melody
 - 📈 **Live pitch display**: eight seconds of detection, track, target and corrected output over a spectrogram
+- 🚨 **Wobble warning**: a red warning when the output isn't coming out flat, suggesting the Source Type that would do better
 - 📏 **Measured, not guessed**: the test suite flattens a siren wail to within 2 cents and an engine pass-by to within 1 cent
 - 💾 **Amount** for half-flattened results, **Formant** for natural-sounding voices, and presets you can save
 
@@ -136,7 +137,7 @@ Pitch Flattener takes the pitch movement out of a sound and keeps its energy and
 </details>
 
 **VST3** (macOS, Windows) · **AU** (macOS) &nbsp;&nbsp;
-[![Download Pitch Flattener](https://img.shields.io/badge/download-v2.1.0-d00a35?style=flat-square)](https://github.com/samueljustice/plugins/releases/tag/pitchflattener-v2.1.0) &nbsp;
+[![Download Pitch Flattener](https://img.shields.io/badge/download-v2.2.0-d00a35?style=flat-square)](https://github.com/samueljustice/plugins/releases/tag/pitchflattener-v2.2.0) &nbsp;
 [Read the manual →](pitchflattener/README.md)
 
 ---
