@@ -2,7 +2,7 @@
 
 A VST3/AU plugin that removes pitch movement from a sound while keeping its energy and character. Use it to take the Doppler sweep out of a pass-by, iron the wail out of a siren, take the vibrato out of a voice or instrument, or lock a warbling tone to one note so the pitch is malleable again.
 
-### 🎉 Latest Release v2.0.3 - [Download Here](https://github.com/samueljustice/plugins/releases/tag/pitchflattener-v2.0.3)
+### 🎉 Latest Release v2.1.0 - [Download Here](https://github.com/samueljustice/plugins/releases/tag/pitchflattener-v2.1.0)
 
 ![Pitch Flattener flattening a siren wail: the teal detected pitch sweeps up and down while the violet output stays on the amber target line](docs/screenshot.png)
 
@@ -350,6 +350,7 @@ To see how a real recording fares, `--file sound.wav` plays it through a Source 
 
 - **Doppler pass-by:** choose Engine / Doppler and Latch. If the approach is quieter than the pass, use **Re-latch** or Fixed with the engine's idle pitch.
 - **Siren:** choose Siren and Fixed at the pitch you want. For a wail, Smooth quality sounds cleaner; for a yelp, keep Tight.
+- **Ricochets and whizzes:** choose Siren. Raise Max Freq to about 6 kHz for bright ones that start above 3 kHz; don't lower Min Freq, or the low thump of the impact competes with the whine. If you can hear two tones at once and the result moves the wrong way, set Detector to Spectral Peak.
 - **Vibrato only:** use Auto mode with an Auto Window of 300–600 ms.
 - **Half-flattened, more natural result:** set Amount to 50–70 %.
 - **The output jumps or warbles:** narrow Min/Max Freq around the source, lower Speed, or try another Source Type. Turn on RAW in the display to see what the detector is hearing.
@@ -392,7 +393,8 @@ Created by Samuel Justice, [www.sweetjusticesound.com](https://www.sweetjustices
 
 ## Version history
 
-- **v2.0.3**: Hosts list it under **Sammy J**, alongside the other plug-ins. The sound, parameters and saved sessions are unchanged.
+- **v2.1.0**: Siren uses a new detector, Spectral + MPM: fast yelps track far more closely, and the traffic noise left after a siren is no longer shifted. Siren also sets Max Shift to 24 semitones, so a siren that switches pattern (yelp, two-tone, wail) stays flat; choosing any Source Type now sets Max Shift. Saved sessions and presets keep their settings, but Detector automation recorded in a VST3 host with 2.0.x needs recording again.
+- v2.0.3: Hosts list it under **Sammy J**, alongside the other plug-ins. The sound, parameters and saved sessions are unchanged.
 - v2.0.2: Manual Override flattens to Override Hz again, in every target mode; About window copyright runs to the build year; README tour of the interface.
 - v2.0.1: consistent styling for every menu, submenu, dialog, tooltip and text field; preset bar and menu reworked; user presets tracked by file; CI stapling retries.
 - v2.0.0: new detection and correction engine, Source Types, lookahead tracking, sample-accurate latency, new UI, test suite.
