@@ -272,9 +272,20 @@ jobs:
             exit 1
           fi
         done
-        xcrun stapler staple app/Swooshbuckler.app
-        xcrun stapler staple vst3/Swooshbuckler.vst3
-        xcrun stapler staple au/Swooshbuckler.component
+        # Fetching the ticket from Apple sometimes drops the connection (stapler error 68), at times
+        # for minutes, so retry with a growing pause (30 s, 60 s, ..., about 10 minutes in all).
+        staple() {
+          local delay=30
+          for attempt in 1 2 3 4 5 6 7; do
+            if xcrun stapler staple "$1"; then return 0; fi
+            echo "Stapling $1 failed (attempt $attempt of 7)"
+            if [ "$attempt" -lt 7 ]; then sleep "$delay"; delay=$((delay + 30)); fi
+          done
+          return 1
+        }
+        staple app/Swooshbuckler.app
+        staple vst3/Swooshbuckler.vst3
+        staple au/Swooshbuckler.component
 
     - name: Build installer package
       run: |
@@ -350,6 +361,17 @@ jobs:
         APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
       run: |
         cd swooshbuckler
+        # Fetching the ticket from Apple sometimes drops the connection (stapler error 68), at times
+        # for minutes, so retry with a growing pause (30 s, 60 s, ..., about 10 minutes in all).
+        staple() {
+          local delay=30
+          for attempt in 1 2 3 4 5 6 7; do
+            if xcrun stapler staple "$1"; then return 0; fi
+            echo "Stapling $1 failed (attempt $attempt of 7)"
+            if [ "$attempt" -lt 7 ]; then sleep "$delay"; delay=$((delay + 30)); fi
+          done
+          return 1
+        }
         for f in Swooshbuckler_Installer.pkg Swooshbuckler.dmg; do
           echo "Notarising $f"
           ID=$(xcrun notarytool submit "$f" --apple-id "$APPLE_ID" --password "$APPLE_APP_PASSWORD" --team-id "$APPLE_TEAM_ID" --output-format json | jq -r '.id')
@@ -359,7 +381,7 @@ jobs:
             xcrun notarytool log "$ID" --apple-id "$APPLE_ID" --password "$APPLE_APP_PASSWORD" --team-id "$APPLE_TEAM_ID"
             exit 1
           fi
-          xcrun stapler staple "$f"
+          staple "$f"
         done
         spctl --assess --type install -vv Swooshbuckler_Installer.pkg
         spctl --assess --type execute -vv staging/app/Swooshbuckler.app
