@@ -160,7 +160,7 @@ private:
 
     struct Raw
     {
-        std::array<std::atomic<float>*, ParamIDs::numCargoTracks> tracks {};
+        std::array<std::atomic<float>*, ParamIDs::numCargoTracks> tracks {}, trackSemis {}, trackCents {}, trackVari {};
         std::atomic<float>* pitch = nullptr, *input = nullptr;
         std::atomic<float>* rideOn = nullptr, *energy = nullptr, *rate = nullptr, *fill = nullptr, *chaos = nullptr;
         std::atomic<float>* bus[ParamIDs::numBuses][ParamIDs::numBusControls] {};

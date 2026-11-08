@@ -22,7 +22,12 @@ SwooshbucklerAudioProcessor::SwooshbucklerAudioProcessor()
 {
     auto raw = [this](const char* id) { return m_state.getRawParameterValue(id); };
     for (int i = 0; i < ParamIDs::numCargoTracks; ++i)
+    {
         m_raw.tracks[static_cast<size_t>(i)] = raw(ParamIDs::cargoTrack[i]);
+        m_raw.trackSemis[static_cast<size_t>(i)] = raw(ParamIDs::trackSemis[i]);
+        m_raw.trackCents[static_cast<size_t>(i)] = raw(ParamIDs::trackCents[i]);
+        m_raw.trackVari[static_cast<size_t>(i)] = raw(ParamIDs::trackVari[i]);
+    }
     m_raw.pitch = raw(ParamIDs::pitch);
     m_raw.input = raw(ParamIDs::input);
     m_raw.rideOn = raw(ParamIDs::rideOn);
@@ -187,7 +192,12 @@ void SwooshbucklerAudioProcessor::updateEngineParams()
 
     RigEngine::Params p;
     for (size_t i = 0; i < p.levels.size(); ++i)
+    {
         p.levels[i] = m_raw.tracks[i]->load();
+        // Semitones plus cents, held to two octaves either way so VARI on and off reach the same extremes.
+        p.trackPitch[i] = juce::jlimit(-24.0f, 24.0f, std::round(m_raw.trackSemis[i]->load()) + std::round(m_raw.trackCents[i]->load()) / 100.0f);
+        p.trackVari[i] = m_raw.trackVari[i]->load() > 0.5f;
+    }
     p.pitch = modValue(m_raw.pitch);
     p.input = 0.0f; // sample-based only
     p.rideOn = m_raw.rideOn->load() > 0.5f;

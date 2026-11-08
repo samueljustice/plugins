@@ -122,6 +122,8 @@ This is where your sounds live: up to ten files, each on its own looping lane.
 | **Type badge** | The sound type. Click it to change it, or choose **Auto** to go back to the guess. A ` *` means you set it yourself. The type decides the bus: see the table below. |
 | **SKIP SILENCE** | On (the default): only the sounds play and the gaps between them are skipped, so a recording full of pauses becomes a steady source. The sounds are drawn bright and the gaps faint. Off: the whole file loops, silence and all, and the lane reads "silence kept". |
 | **Fader** | The track's level, 0–100%, default 80%. With AUTO RIDE on, it sets how high the ride can take the track. Double-click to reset. Each one is also a host parameter, "Track 1" to "Track 10". |
+| **Semitones / Cents** | The track's own pitch: up to 24 semitones either way, plus up to 100 cents for fine tuning. It adds to the Ride's Pitch knob and glides to a new setting. **Drag up or down** on a box to change it, and **double-click** to reset. Each one is also a host parameter ("Track 1 Semitones", "Track 1 Cents" and so on). |
+| **VARI** | On (the default): varispeed, like tape. The pitch and the speed change together, so up an octave also plays twice as fast. Off: the pitch changes and the speed stays the same, through a pitch shifter, which delays that track by about 43 ms. Synced hits allow for both. |
 | **M / S / x** | Mute, solo and remove. A muted track keeps its place in the ride, so it comes straight back in when you unmute it. |
 | **Waveform** | The yellow **flag** marks where the track starts playing. It loops from there, and the part before the flag is dimmed. **Click or drag** on the waveform to move it, and **double-click** to put it back at the top. |
 | **Ride line** | The line across the waveform traces the track's actual level over the last 8 seconds, like an automation lane scrolling past, with a dot at the right for right now. The thin strip left of the waveform shows the level now. Both include the fader, the ride, and mute and solo. |
@@ -165,6 +167,8 @@ This is where the whooshes come from. With AUTO RIDE on, each track's fader rise
 | **Fill** | 0–100% (30%) | Long, softened echoes at 0.5, 1 and 2 s that fill the gaps in gappy sounds. Gappy tracks get much more than steady ones. |
 | **Chaos** | 0–100% (40%) | How unpredictable it all is. Low: the rides and passes repeat in a steady pattern. High: each fader wobbles, every pass gets its own length, speed, closeness and direction, and tracks more often jump to a random sound instead of the next one, sometimes starting partway in. |
 | **Pitch** | ±24 semitones (0) | Plays every track higher or lower, like changing tape speed: lower is also slower and heavier. It glides to a new setting and isn't locked to whole semitones. |
+
+Pitch moves every track at once. To pitch one track on its own, with or without changing its speed, use that track's Semitones, Cents and VARI controls in [Tracks](#tracks).
 
 Swell only lifts the faders up to the ride's ceiling, so with AUTO RIDE off (or Energy at 0%) the faders are already there and Swell does nothing you'll hear.
 
@@ -346,7 +350,7 @@ The factory presets are **Steady Energy**, **Jet Passes**, **Monster Swells**, *
 
 Presets and RANDOMISE set the sound, not your session. They leave these alone:
 
-- your tracks and their levels
+- your tracks, their levels and each track's pitch and VARI
 - Inflate, Push and Ceiling
 - AUTO RIDE, SYNC HITS, the GATE and DUCK modes, and TAKE TURNS
 - the morph's ON switch, wander, shape and speed
@@ -373,6 +377,8 @@ Anything else a preset doesn't set goes back to its default. **Back to Defaults*
 - **Gappy recordings** (single swishes, takes with pauses) work best with SKIP SILENCE on and a little Fill.
 - **For tight synced hits**, put two or three impacts on HITS, turn on SYNC HITS and raise Boost.
 - **For monster passes**, lower Pitch, raise Low End and Bend, and slow the Rate.
+- **Two takes of one sound**: load the same file on two tracks and detune one by 10 to 20 cents with VARI off, for a thicker, chorused layer.
+- **Keep a hit's timing but change its size**: pitch an impact down with VARI off and it lands on the same beat, just heavier.
 - **If the buses fight**, turn on TAKE TURNS, or raise Ducked and Filtered on bus B.
 - **Record at 96 or 192 kHz** if you plan to pitch the whooshes down later.
 - **Leave the tape armed** while you play with the controls. It only writes when there's sound, so you just need to listen back for the good ones.

@@ -9,6 +9,14 @@ namespace ParamIDs
     inline constexpr const char* cargoTrack[10] = { "cargo1", "cargo2", "cargo3", "cargo4", "cargo5",
                                                     "cargo6", "cargo7", "cargo8", "cargo9", "cargo10" };
     inline constexpr int numCargoTracks = 10;
+    // Per-track pitch: semitones and cents, and VARI (on: tape-style, the speed follows the pitch;
+    // off: the pitch moves and the speed stays, through a pitch shifter).
+    inline constexpr const char* trackSemis[10] = { "cargo1Semis", "cargo2Semis", "cargo3Semis", "cargo4Semis", "cargo5Semis",
+                                                    "cargo6Semis", "cargo7Semis", "cargo8Semis", "cargo9Semis", "cargo10Semis" };
+    inline constexpr const char* trackCents[10] = { "cargo1Cents", "cargo2Cents", "cargo3Cents", "cargo4Cents", "cargo5Cents",
+                                                    "cargo6Cents", "cargo7Cents", "cargo8Cents", "cargo9Cents", "cargo10Cents" };
+    inline constexpr const char* trackVari[10]  = { "cargo1Vari", "cargo2Vari", "cargo3Vari", "cargo4Vari", "cargo5Vari",
+                                                    "cargo6Vari", "cargo7Vari", "cargo8Vari", "cargo9Vari", "cargo10Vari" };
     inline constexpr const char* pitch    = "pitch";
     inline constexpr const char* input    = "input";
 
@@ -82,6 +90,19 @@ namespace Params
 
         for (int i = 0; i < ParamIDs::numCargoTracks; ++i)
             layout.add(pct(ParamIDs::cargoTrack[i], "Track " + String(i + 1), 0.8f));
+        for (int i = 0; i < ParamIDs::numCargoTracks; ++i)
+        {
+            const String track = "Track " + String(i + 1);
+            layout.add(std::make_unique<P>(ParameterID { ParamIDs::trackSemis[i], 3 }, track + " Semitones",
+                                           NormalisableRange<float>(-24.0f, 24.0f, 1.0f), 0.0f,
+                                           AudioParameterFloatAttributes().withLabel("st").withStringFromValueFunction(
+                                               [](float v, int) { const int s = roundToInt(v); return (s > 0 ? "+" : "") + String(s) + " st"; })));
+            layout.add(std::make_unique<P>(ParameterID { ParamIDs::trackCents[i], 3 }, track + " Cents",
+                                           NormalisableRange<float>(-100.0f, 100.0f, 1.0f), 0.0f,
+                                           AudioParameterFloatAttributes().withLabel("c").withStringFromValueFunction(
+                                               [](float v, int) { const int c = roundToInt(v); return (c > 0 ? "+" : "") + String(c) + " c"; })));
+            layout.add(std::make_unique<AudioParameterBool>(ParameterID { ParamIDs::trackVari[i], 3 }, track + " Vari", true));
+        }
         layout.add(std::make_unique<P>(ParameterID { ParamIDs::pitch, 2 }, "Pitch", NormalisableRange<float>(-24.0f, 24.0f), 0.0f,
                                        AudioParameterFloatAttributes().withLabel("st").withStringFromValueFunction(
                                            [](float v, int) { return (v > 0.05f ? "+" : "") + String(v, 1) + " st"; })));

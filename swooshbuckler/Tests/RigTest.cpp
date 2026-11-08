@@ -343,6 +343,39 @@ int main(int argc, char* argv[])
         check(finite, "hit sync through the rig: finite output");
     }
 
+    // Per-track pitch: VARI on changes the track's speed, VARI off keeps it (through the pitch shifter).
+    {
+        auto run = [&](float semis, bool vari, float& speed, float& rms, bool& finite)
+        {
+            RigEngine e;
+            e.setCargoHold(&hold);
+            auto q = p;
+            q.trackPitch[1] = semis;
+            q.trackVari[1] = vari;
+            e.setParams(q);
+            e.prepare(c_rate, c_block);
+            e.setParams(q);
+            juce::AudioBuffer<float> o(2, static_cast<int>(4.0 * c_rate));
+            for (int pos = 0; pos < o.getNumSamples(); pos += c_block)
+                e.process(nullptr, nullptr, o.getWritePointer(0, pos), o.getWritePointer(1, pos), juce::jmin(c_block, o.getNumSamples() - pos));
+            speed = e.getTrackSpeed(1);
+            rms = o.getRMSLevel(0, static_cast<int>(1.0 * c_rate), static_cast<int>(3.0 * c_rate));
+            finite = true;
+            for (int i = 0; i < o.getNumSamples(); ++i)
+                finite = finite && std::isfinite(o.getSample(0, i)) && std::isfinite(o.getSample(1, i));
+        };
+        float sUp = 0, rUp = 0, sKeep = 0, rKeep = 0, sFlat = 0, rFlat = 0;
+        bool fUp = false, fKeep = false, fFlat = false;
+        run(12.0f, true, sUp, rUp, fUp);
+        run(7.25f, false, sKeep, rKeep, fKeep);
+        run(0.0f, true, sFlat, rFlat, fFlat);
+        std::cout << "  track pitch: VARI +12 speed " << sUp << ", VARI off +7.25 speed " << sKeep
+                  << ", rms " << rFlat << " / " << rUp << " / " << rKeep << std::endl;
+        check(std::abs(sUp - 2.0f) < 0.01f && std::abs(sKeep - 1.0f) < 1.0e-6f && std::abs(sFlat - 1.0f) < 1.0e-6f,
+              "track pitch: VARI changes the track's speed (+12 st = twice as fast), VARI off keeps it");
+        check(fUp && fKeep && fFlat && rUp > 1.0e-4f && rKeep > 1.0e-4f, "track pitch: both modes play, finite");
+    }
+
     // Morph between the buses: finite, audible, and the wander-style X sweep doesn't blow up.
     {
         RigEngine m;

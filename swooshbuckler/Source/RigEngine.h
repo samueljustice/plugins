@@ -3,6 +3,7 @@
 #include <JuceHeader.h>
 #include "Cargo.h"
 #include "ScopeRing.h"
+#include "PitchShifter.h"
 #include "DspUtils.h"
 #include "SpectralMorph.h"
 
@@ -62,6 +63,8 @@ public:
         float pitch = 0.0f;    // semitones, every track
         float input = 0.0f;    // the audio input, mixed into bus A
         std::array<float, c_tracks> levels { 0.8f, 0.8f, 0.8f, 0.8f, 0.8f, 0.8f, 0.8f, 0.8f, 0.8f, 0.8f };
+        std::array<float, c_tracks> trackPitch {}; // semitones (cents included), each track on its own
+        std::array<bool, c_tracks> trackVari { true, true, true, true, true, true, true, true, true, true }; // off = keep the speed
 
         std::array<BusParams, c_maxBuses> buses { BusParams { 0.55f, 0.8f, 0.7f, 0.35f, 0.2f, 0.3f, 0.15f, 0.0f, 0.0f },
                                                   BusParams { 0.4f, 0.8f, 0.6f, 0.2f, 0.3f, 0.4f, 0.0f, 0.4f, 0.3f } };
@@ -119,6 +122,8 @@ public:
     /** Little waveforms for the section scopes: 0 = bus A, 1 = bus B, 2 = the hits (what each adds to the mix). */
     const ScopeRing& getScope(int which) const { return m_scopes[static_cast<size_t>(std::clamp(which, 0, 2))]; }
     float getBusLevel(int bus) const { return m_busView[static_cast<size_t>(bus)].load(std::memory_order_relaxed); }
+    /** A track's own VARI speed (1 = as the global Pitch plays it; 1 for VARI off), for the hit sync view. */
+    float getTrackSpeed(int track) const { return m_trackSpeedView[static_cast<size_t>(track)].load(std::memory_order_relaxed); }
 
     /** Audio thread: RMS of bus A, bus B and the hits (what each adds to the mix) since the last call, for the
         Follower modulators. */
@@ -229,6 +234,17 @@ private:
     std::atomic<int> m_hitBeatView { 0 };
     std::atomic<double> m_hitPreView { 0.0 }, m_hitPostView { 0.0 };
     std::array<ScopeRing, 3> m_scopes;
+
+    // Per-track pitch: semitones glide; VARI on changes the playback speed, off goes through a pitch shifter.
+    std::array<PitchShifter, c_tracks> m_shifters;
+    std::array<float, c_tracks> m_trackPitchNow {};  // smoothed semitones
+    std::array<bool, c_tracks> m_variNow {};         // the mode in use (a switch fades out, swaps, fades in)
+    std::array<float, c_tracks> m_modeGain {};       // that fade, 0..1
+    std::array<int, c_tracks> m_modeHold {};         // samples to stay silent after switching to the shifter
+    std::array<bool, c_tracks> m_shifterUsed {};     // the shifter holds sound (flushed once when the track empties)
+    float m_trackPitchGlide = 0.1f;                  // per-chunk smoothing coefficient
+    std::array<std::atomic<float>, c_tracks> m_trackSpeedView {};
+    float trackSpeed(int track) const;               // VARI ratio of a track right now (1 when VARI is off)
     std::array<double, 3> m_sectionSquares {}; // sums for takeSectionLevels()
     int m_sectionSamples = 0;
     std::array<float, 3> m_sectionLevels {};

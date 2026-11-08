@@ -13,6 +13,12 @@ namespace
 }
 
 //==============================================================================
+float RigEngine::trackSpeed(int track) const
+{
+    const auto t = static_cast<size_t>(track);
+    return m_variNow[t] ? std::exp2(m_trackPitchNow[t] / 12.0f) : 1.0f;
+}
+
 std::array<float, 3> RigEngine::takeSectionLevels()
 {
     // Nothing rendered since the last call (the resampler can skip a block): keep the last levels.
@@ -44,8 +50,10 @@ void RigEngine::prepare(double sampleRate, int maxBlockSize)
     for (auto* s : { &m_fillSpring, &m_spaceSpring, &m_inputSpring })
         s->prepare(controlRate, 2.0f, 0.8f);
 
+    m_trackPitchGlide = 1.0f - std::exp(-static_cast<float>(c_chunk) / (0.04f * m_fs)); // ~40 ms
     for (int t = 0; t < c_tracks; ++t)
     {
+        m_shifters[static_cast<size_t>(t)].prepare(sampleRate);
         m_players[static_cast<size_t>(t)].prepare(sampleRate);
         m_fillLines[static_cast<size_t>(t)].prepare(static_cast<int>(2.2f * m_fs));
         m_fillTone[static_cast<size_t>(t)].set(6000.0f, m_fs);
@@ -89,6 +97,16 @@ void RigEngine::prepare(double sampleRate, int maxBlockSize)
 void RigEngine::reset()
 {
     for (auto& p : m_players) p.reset();
+    for (size_t t = 0; t < m_shifters.size(); ++t)
+    {
+        m_trackPitchNow[t] = m_params.trackPitch[t];
+        m_shifters[t].reset(std::exp2(m_trackPitchNow[t] / 12.0f), static_cast<float>(t) / static_cast<float>(c_tracks)); // staggered frames
+        m_modeHold[t] = 0;
+        m_shifterUsed[t] = false;
+        m_variNow[t] = m_params.trackVari[t];
+        m_modeGain[t] = 1.0f;
+        m_trackSpeedView[t].store(trackSpeed(static_cast<int>(t)), std::memory_order_relaxed);
+    }
     m_pendingHitRegion.fill(-1);
     m_beatViewWait = -1.0;
     m_sectionSquares = {};
@@ -227,6 +245,42 @@ void RigEngine::renderTracks(const float* inL, const float* inR, int offset, int
     const float morphMix = sj::clamp(m_morphMix.step(), 0.0f, 1.0f);
     const bool morphing = morphMix > 1.0e-4f;
 
+    // Each track's own pitch, settled before the hit window below (which depends on every track's speed and mode).
+    // The pitch glides to a new setting. A VARI switch fades the track out (~15 ms) and swaps the mode; switching to
+    // the shifter then waits for its latency (its delay line refills) before fading back in, so neither a jump in
+    // speed nor a step in the delayed sound is heard as a click.
+    std::array<float, c_tracks> modeFrom {}, modeTo {};
+    {
+        const float modeStep = static_cast<float>(frames) / (0.015f * m_fs);
+        for (size_t ti = 0; ti < static_cast<size_t>(c_tracks); ++ti)
+        {
+            auto& now = m_trackPitchNow[ti];
+            const float want = m_params.trackPitch[ti];
+            now += (want - now) * m_trackPitchGlide;
+            if (std::abs(want - now) < 1.0e-4f)
+                now = want;
+
+            auto& gain = m_modeGain[ti];
+            modeFrom[ti] = gain;
+            if (m_params.trackVari[ti] != m_variNow[ti])
+            {
+                gain = std::max(0.0f, gain - modeStep);
+                if (gain <= 0.0f)
+                {
+                    m_variNow[ti] = m_params.trackVari[ti];
+                    m_shifters[ti].reset(std::exp2(now / 12.0f), static_cast<float>(ti) / static_cast<float>(c_tracks));
+                    m_modeHold[ti] = m_variNow[ti] ? 0 : m_shifters[ti].getLatencySamples();
+                }
+            }
+            else if (m_modeHold[ti] > 0)
+                m_modeHold[ti] = std::max(0, m_modeHold[ti] - frames);
+            else
+                gain = std::min(1.0f, gain + modeStep);
+            modeTo[ti] = gain;
+            m_trackSpeedView[ti].store(trackSpeed(static_cast<int>(ti)), std::memory_order_relaxed);
+        }
+    }
+
     // Hit sync: one shared beat for every hit track; each fires its next sound so the transients
     // (the regions' focus points) land together. Switching it either way restarts the hit tracks.
     const bool hitSync = m_params.hitSync;
@@ -260,16 +314,30 @@ void RigEngine::renderTracks(const float* inL, const float* inR, int offset, int
         {
             // The window comes from the regions exactly as each player will fire them, so skip silence (off = the
             // whole file is one hit, aligned on its first transient) and the start markers are respected.
-            HitWindow window;
+            // Each track at its own speed (global Pitch times its own VARI pitch), in output seconds. A VARI-off track
+            // is heard later by its shifter's latency, so it needs that much more lead-in to fire early enough.
+            double maxPre = 0.0, maxPost = 0.0;
+            bool any = false;
             for (int t = 0; t < c_tracks; ++t)
             {
                 const auto* d = m_cargo->getLive(t);
-                if (d != nullptr && m_cargo->getBus(t) == CargoHold::c_hitsBus)
-                    window.extend(*d, m_cargo->getSkipSilence(t), m_cargo->getStart(t));
+                if (d == nullptr || m_cargo->getBus(t) != CargoHold::c_hitsBus)
+                    continue;
+                HitWindow w;
+                w.extend(*d, m_cargo->getSkipSilence(t), m_cargo->getStart(t));
+                const double speed = juce::jmax(0.01, static_cast<double>(pitchRatio * trackSpeed(t)));
+                const double lead = m_variNow[static_cast<size_t>(t)]
+                                        ? 0.0 : static_cast<double>(m_shifters[static_cast<size_t>(t)].getLatencySamples()) / m_sampleRate;
+                maxPre = std::max(maxPre, std::min(w.pre / speed, 1.0) + lead);
+                maxPost = std::max(maxPost, w.post / speed);
+                any = true;
             }
-            const double invPitch = 1.0 / juce::jmax(0.01, static_cast<double>(pitchRatio));
-            double maxPre = window.pre * invPitch, maxPost = window.post * invPitch;
-            maxPre = std::min(maxPre, 1.0);
+            if (! any)
+            {
+                const HitWindow none;
+                maxPre = none.pre / juce::jmax(0.01, static_cast<double>(pitchRatio));
+                maxPost = none.post / juce::jmax(0.01, static_cast<double>(pitchRatio));
+            }
             const double period = std::min(maxPre + maxPost + 0.08, 4.0);
             hitCue.active = true;
             hitCue.secondsToPeak = maxPre;
@@ -308,6 +376,11 @@ void RigEngine::renderTracks(const float* inL, const float* inR, int offset, int
         if (data == nullptr && m_gain[ti] < 1.0e-5f)
         {
             m_gain[ti] = 0.0f;
+            if (m_shifterUsed[ti]) // emptied while VARI was off: drop the old sound still inside the shifter (once)
+            {
+                m_shifters[ti].reset(std::exp2(m_trackPitchNow[ti] / 12.0f), static_cast<float>(t) / static_cast<float>(c_tracks));
+                m_shifterUsed[ti] = false;
+            }
             m_players[ti].render(nullptr, CargoRole::Bed, true, 1.0f, chaos, m_rng, 0.6f, CargoCue {}, m_trackScratch.data(), frames);
             m_hitRegionView[ti].store(-1, std::memory_order_relaxed);
             m_pendingHitRegion[ti] = -1;
@@ -329,14 +402,28 @@ void RigEngine::renderTracks(const float* inL, const float* inR, int offset, int
             m_fillAmount[ti] = sj::clamp(1.2f * (1.0f - m_coverage[ti]) + 0.15f, 0.0f, 1.0f);
         }
 
+        const float modeGain0 = modeFrom[ti], modeGain1 = modeTo[ti];
+        const bool vari = m_variNow[ti];
+        const float ownRatio = std::exp2(m_trackPitchNow[ti] / 12.0f);
+
         const bool skip = m_cargo == nullptr || m_cargo->getSkipSilence(t);
         m_players[ti].setStart(m_cargo != nullptr ? m_cargo->getStart(t) : 0.0f);
-        const float rate = pitchRatio;
+        const float rate = pitchRatio * (vari ? ownRatio : 1.0f);
         const bool syncedHit = hitSync && m_cargo != nullptr && m_cargo->getBus(t) == CargoHold::c_hitsBus;
         if (syncedHit)
-            m_players[ti].render(data, CargoRole::Impact, skip, rate, chaos, m_rng, 0.15f, hitCue, m_trackScratch.data(), frames);
+        {
+            CargoCue cue = hitCue;
+            if (cue.active && ! vari) // heard later by the shifter's latency: fire that much earlier
+                cue.secondsToPeak = std::max(0.0, cue.secondsToPeak - static_cast<double>(m_shifters[ti].getLatencySamples()) / m_sampleRate);
+            m_players[ti].render(data, CargoRole::Impact, skip, rate, chaos, m_rng, 0.15f, cue, m_trackScratch.data(), frames);
+        }
         else
             m_players[ti].render(data, CargoRole::Bed, skip, rate, chaos, m_rng, 0.6f, CargoCue {}, m_trackScratch.data(), frames);
+        if (! vari)
+        {
+            m_shifters[ti].process(m_trackScratch.data(), m_trackScratch.data(), frames, ownRatio);
+            m_shifterUsed[ti] = true;
+        }
         if (! syncedHit)
         {
             m_hitRegionView[ti].store(-1, std::memory_order_relaxed);
@@ -360,8 +447,9 @@ void RigEngine::renderTracks(const float* inL, const float* inR, int offset, int
                                                        + 0.35f * line.readLinear(1.0f * m_fs)
                                                        + 0.25f * line.readLinear(2.0f * m_fs));
             line.push(x + 0.3f * delayed);
-            const float y = x + fillAmount * delayed;
-            const float g = g0 + (target - g0) * (static_cast<float>(i + 1) * invFrames);
+            const float frac = static_cast<float>(i + 1) * invFrames;
+            const float y = (x + fillAmount * delayed) * (modeGain0 + (modeGain1 - modeGain0) * frac);
+            const float g = g0 + (target - g0) * frac;
             dest[i] += y * g;
         }
         m_gain[ti] = target;

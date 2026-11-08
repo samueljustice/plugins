@@ -74,6 +74,7 @@ set(SWOOSHBUCKLER_DSP_SOURCES
     Source/RigEngine.cpp
     Source/SpectralMorph.cpp
     Source/Modulators.cpp
+    Source/PitchShifter.cpp
 )
 
 target_sources(Swooshbuckler
@@ -154,6 +155,16 @@ if(SWOOSHBUCKLER_TESTS)
     target_compile_definitions(SwooshbucklerClassify PRIVATE JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JUCE_USE_MP3AUDIOFORMAT=1)
     target_link_libraries(SwooshbucklerClassify
         PRIVATE juce::juce_audio_utils juce::juce_dsp
+        PUBLIC juce::juce_recommended_config_flags juce::juce_recommended_warning_flags)
+
+    # Pitch test: the per-track pitch shifter (pitch, level, length, transients, bypass, chunking, speed).
+    juce_add_console_app(SwooshbucklerPitch PRODUCT_NAME "SwooshbucklerPitch")
+    juce_generate_juce_header(SwooshbucklerPitch)
+    target_sources(SwooshbucklerPitch PRIVATE Tests/PitchTest.cpp Source/PitchShifter.cpp)
+    target_include_directories(SwooshbucklerPitch PRIVATE Source)
+    target_compile_definitions(SwooshbucklerPitch PRIVATE JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0)
+    target_link_libraries(SwooshbucklerPitch
+        PRIVATE juce::juce_dsp juce::juce_audio_formats
         PUBLIC juce::juce_recommended_config_flags juce::juce_recommended_warning_flags)
 endif()
 
