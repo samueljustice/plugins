@@ -43,6 +43,9 @@ set(SUBBERTONE_FORMATS "AU;VST3" CACHE STRING "Plugin formats to build")
 # Add the JUCE library subdirectory
 add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/../SDK/JUCE ${CMAKE_CURRENT_BINARY_DIR}/SDK/JUCE)
 
+include(${CMAKE_CURRENT_SOURCE_DIR}/../cmake/AAX.cmake)
+sammyj_enable_aax(SUBBERTONE_FORMATS)
+
 # JUCE-native pitch detection using autocorrelation
 
 # Main plugin target

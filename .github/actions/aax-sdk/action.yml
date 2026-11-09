@@ -1,0 +1,50 @@
+name: AAX SDK
+description: >
+  Fetches Avid's AAX SDK from the private samueljustice/aax-sdk repository and unpacks it. Without the
+  deploy key it outputs an empty path, and the build uses the AAX SDK bundled with JUCE instead.
+  The SDK is never committed to this (public) repository: it is Avid's, under their licence or GPLv3.
+
+inputs:
+  deploy-key:
+    description: Read-only deploy key for samueljustice/aax-sdk (secrets.AAX_SDK_DEPLOY_KEY)
+    required: false
+    default: ''
+
+outputs:
+  path:
+    description: The unpacked SDK folder (forward slashes, for CMake), or empty to use JUCE's bundled SDK
+    value: ${{ steps.unpack.outputs.path }}
+
+runs:
+  using: composite
+  steps:
+    - name: Check out the AAX SDK repository
+      if: inputs.deploy-key != ''
+      uses: actions/checkout@v5
+      with:
+        repository: samueljustice/aax-sdk
+        ssh-key: ${{ inputs.deploy-key }}
+        path: .aax-sdk-download
+        persist-credentials: false
+
+    - name: Unpack the AAX SDK
+      id: unpack
+      shell: bash
+      env:
+        AAX_SDK_ZIP: aax-sdk-2-10-0.zip
+        HAVE_KEY: ${{ inputs.deploy-key != '' }}
+      run: |
+        if [[ "$HAVE_KEY" != "true" ]]; then
+          echo "No AAX_SDK_DEPLOY_KEY secret: building AAX with the SDK bundled with JUCE"
+          echo "path=" >> "$GITHUB_OUTPUT"
+          exit 0
+        fi
+        dest="$RUNNER_TEMP/aax-sdk"
+        rm -rf "$dest" && mkdir -p "$dest"
+        (cd "$dest" && cmake -E tar xf "$GITHUB_WORKSPACE/.aax-sdk-download/$AAX_SDK_ZIP")
+        rm -rf "$GITHUB_WORKSPACE/.aax-sdk-download"
+        sdk=$(dirname "$(find "$dest" -maxdepth 3 -type d -name Interfaces | head -1)")
+        [[ -d "$sdk/Interfaces/ACF" ]] || { echo "No AAX SDK found in $AAX_SDK_ZIP"; exit 1; }
+        if command -v cygpath >/dev/null; then sdk=$(cygpath -m "$sdk"); fi
+        echo "AAX SDK: $sdk ($(grep -m1 'AAX_SDK_CURRENT_REVISION' "$sdk/Interfaces/AAX_Version.h"))"
+        echo "path=$sdk" >> "$GITHUB_OUTPUT"

@@ -39,6 +39,9 @@ option(SWOOSHBUCKLER_TESTS "Build the offline tests" ON)
 
 add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/../SDK/JUCE ${CMAKE_CURRENT_BINARY_DIR}/SDK/JUCE)
 
+include(${CMAKE_CURRENT_SOURCE_DIR}/../cmake/AAX.cmake)
+sammyj_enable_aax(SWOOSHBUCKLER_FORMATS)
+
 juce_add_plugin(Swooshbuckler
     VERSION ${PROJECT_VERSION}
     COMPANY_NAME "Sammy J"
