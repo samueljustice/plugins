@@ -116,7 +116,10 @@ target_sources(Roarschach
 
 # The DSP modules compare floats exactly on purpose (settled glides, unchanged settings).
 file(GLOB ROARSCHACH_DSP_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/Source/dsp/modules/*.cpp)
-set_source_files_properties(${ROARSCHACH_DSP_SOURCES} PROPERTIES COMPILE_OPTIONS "-Wno-float-equal")
+# Clang/GCC only: MSVC rejects the flag (D8021) and has no such warning anyway.
+if(NOT MSVC)
+    set_source_files_properties(${ROARSCHACH_DSP_SOURCES} PROPERTIES COMPILE_OPTIONS "-Wno-float-equal")
+endif()
 
 target_compile_definitions(Roarschach
     PUBLIC
