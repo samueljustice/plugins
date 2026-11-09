@@ -28,6 +28,9 @@ Want just one? Each plug-in's own download is below, or browse all <a href="http
 | [<img src="pitchflattener/docs/screenshot.png" width="400" alt="Pitch Flattener">](#-pitch-flattener) | [<img src="reversinator/docs/screenshot.png" width="400" alt="Reversinator">](#-reversinator) |
 | **[Pitch Flattener](#-pitch-flattener)**<br>Removes pitch movement from Doppler passes, sirens and vibrato | **[Reversinator](#-reversinator)**<br>Real-time reverse effects, recreating Backwards Machine |
 
+[<img src="roarschach/docs/screenshot.jpg" width="812" alt="Roarschach">](#-roarschach)<br>
+**[Roarschach](#-roarschach)**<br>Turn a voice into a creature
+
 [<img src="soundadvice/docs/screenshot.png" width="812" alt="Sound Advice">](#-sound-advice)<br>
 **[Sound Advice](#-sound-advice)**<br>Advice from film, TV and game sound professionals and other creative people
 
@@ -174,6 +177,40 @@ A real-time reverser that faithfully recreates Backwards Machine's three effects
 
 ---
 
+## 👹 Roarschach
+
+> *Say the line. The monster says it back.*
+
+<p align="center">
+  <img src="roarschach/docs/screenshot.jpg" alt="Roarschach" width="820">
+</p>
+
+Roarschach turns a spoken or shouted performance into a big, liquid, gravelly creature voice that still reads as words. Fourteen modules (PITCH, CLEAN, DE-ESS, DETAIL, VOCODER, RING, SHIMMER, GROWL, SWIRL, ROAR, ENSEMBLE, TAME, SUB and OVERTONE) run between an input stage and a level-matched output, in any order, and a creature drawn in OpenGL reacts to every sound and every knob.
+
+- 🗣️ **Pitch and size, separately**: shift the voice up to two octaves down, then give it a bigger throat. Native-rate processing brings a 96 or 192 kHz recording's ultrasonic detail down into the voice
+- 🐉 **Texture and weight**: a growling chop, a liquid wobble, a phaser, tube saturation, an ensemble, a tracked sub and overtones that carry the low end on small speakers
+- 🤖 **Machines**: a 32-band pulse-carrier vocoder and a ring modulator with a pitch-tracking carrier and a resonant body
+- 🧩 **Any order**: drag any module by its header, or use its ••• menu, to anywhere in the chain. Moves are click-free
+- 🔊 **A finished output**: Push into a true-peak-safe limiter and an oversampled clipper, with Attack, Release and Auto to choose between clean limiting and low-end crunch
+- 👁️ **A living creature** that forms out of drifting cloud, opens its jaw, glows, shakes and drips with the voice, softens back into fog in silence, and slowly evolves the harder you push it. Plus **39 factory presets** in six groups
+
+<details>
+<summary>More screenshots</summary>
+<br>
+<p align="center">
+  <img src="roarschach/docs/view-forming.jpg" alt="Roarschach creature forming out of the fog" width="400"> <img src="roarschach/docs/view-crown.jpg" alt="Roarschach creature after a long, loud session" width="400">
+</p>
+<p align="center">
+  <img src="roarschach/docs/panel-out.png" alt="Roarschach output stage" width="300"> <img src="roarschach/docs/tooltip.png" alt="Roarschach tooltip" width="474">
+</p>
+</details>
+
+**VST3** (macOS, Windows) · **AU** (macOS) &nbsp;&nbsp;
+[![Download Roarschach](https://img.shields.io/badge/download-v1.0.0-d00a35?style=flat-square)](https://github.com/samueljustice/plugins/releases/tag/roarschach-v1.0.0) &nbsp;
+[Read the manual →](roarschach/README.md)
+
+---
+
 ## 🎲 Sound Advice
 
 > Shows a random piece of advice from film, TV and game sound professionals and other creative people.
@@ -207,7 +244,7 @@ Every project builds with CMake and expects its dependencies in `SDK/` at the ro
 
 | Dependency | Used by |
 |---|---|
-| [JUCE](https://github.com/juce-framework/JUCE) 8.0.8, at `SDK/JUCE` | Swooshbuckler, Sound Advice, Subbertone, Pitch Flattener, Reversinator, Stretch Armstrong |
+| [JUCE](https://github.com/juce-framework/JUCE) 8.0.8, at `SDK/JUCE` | Swooshbuckler, Sound Advice, Subbertone, Pitch Flattener, Reversinator, Roarschach, Stretch Armstrong |
 | [RubberBand](https://breakfastquay.com/rubberband/) 4.0.0, at `SDK/rubberband-4.0.0` | Pitch Flattener, Stretch Armstrong |
 | Beat-and-Tempo-Tracking, at `SDK/Beat-and-Tempo-Tracking`, and [py-ptsl](https://pypi.org/project/py-ptsl/) | PTSL Beat Tool |
 
@@ -235,7 +272,7 @@ git tag swooshbuckler-v1.0.0
 git push origin swooshbuckler-v1.0.0
 ```
 
-The tag prefixes are `swooshbuckler-v`, `soundadvice-v`, `subbertone-v`, `pitchflattener-v`, `reversinator-v`, `stretcharmstrong-v` and `ptsl-beattool-v`.
+The tag prefixes are `swooshbuckler-v`, `soundadvice-v`, `subbertone-v`, `pitchflattener-v`, `reversinator-v`, `roarschach-v`, `stretcharmstrong-v` and `ptsl-beattool-v`.
 
 When a plug-in's release finishes, `build-release_bundle.yml` rebuilds the combined **Sammy J's Plugins** installer for macOS and Windows from every plug-in's newest release, and publishes it as the repository's Latest release (tagged `bundle-v<date>.<run>`, with the build's date and time in the file names, like `SammyJ-Plugins-2026-11-08-1253-macOS-Installer.pkg`). It then points the **Get them all** buttons at the top of this README at those files and says when they were built (it rewrites the block between the `get-them-all` markers and commits it), and deletes the installer releases it replaces. It doesn't rebuild the plug-ins; it repackages what their releases published. The plug-ins it includes are listed in [`bundle/plugins.txt`](bundle/plugins.txt). After publishing, it points the Get them all buttons at the new files and sets every plug-in's download link, here and in each plug-in's own README, to that plug-in's newest release, so those never need editing by hand. On macOS the download is a disk image holding the installer and **Uninstall Sammy J's Plugins**, an app that removes everything again and, if asked, the settings and presets listed in [`bundle/userdata.txt`](bundle/userdata.txt); on Windows the installer's own uninstaller does the same. Run it by hand from the Actions tab to rebuild it now.
 

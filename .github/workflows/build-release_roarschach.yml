@@ -1,0 +1,449 @@
+name: Build and Release Roarschach
+
+# Push a tag like roarschach-v1.0.0 to build, test, sign, notarise and publish a release.
+# The version lives in roarschach/CMakeLists.txt (ROARSCHACH_VERSION); the tag must match it,
+# so a mis-tagged release fails early. It ends up in the About panel, the bundles and the installers.
+# Run it by hand (workflow_dispatch) to get the same artefacts without a release.
+# Pull requests that touch Roarschach build, test, sign and package too (no release),
+# so problems show up before a tag is pushed.
+#
+# Secrets (the same ones the other plug-ins use):
+#   APPLE_DEVELOPER_CERTIFICATE_P12_BASE64, APPLE_DEVELOPER_CERTIFICATE_PASSWORD
+#     a .p12 holding BOTH "Developer ID Application" and "Developer ID Installer"
+#   APPLE_ID, APPLE_APP_PASSWORD, APPLE_TEAM_ID   for notarisation
+# Optional, for Windows signing (skipped when missing):
+#   WINDOWS_CERTIFICATE_PFX_BASE64, WINDOWS_CERTIFICATE_PASSWORD
+#     a code-signing certificate exported as .pfx, base64 encoded
+
+on:
+  push:
+    tags:
+      - 'roarschach-v*'
+  pull_request:
+    paths:
+      - 'roarschach/**'
+      - '.github/workflows/build-release_roarschach.yml'
+  workflow_dispatch:
+
+# A newer push to the same PR replaces the run in progress.
+concurrency:
+  group: roarschach-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: write
+  pull-requests: read   # the release changelog reads Roarschach's pull request titles
+
+env:
+  JUCE_VERSION: 8.0.8
+
+jobs:
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+    steps:
+    - uses: actions/checkout@v5
+    - name: Read and check the version
+      id: v
+      run: |
+        VERSION=$(sed -n 's/^set(ROARSCHACH_VERSION "\([0-9.]*\)".*/\1/p' roarschach/CMakeLists.txt)
+        if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+          echo "Could not read a version like 1.2.3 from roarschach/CMakeLists.txt (got '$VERSION')"
+          exit 1
+        fi
+        if [[ "$GITHUB_REF" == refs/tags/roarschach-v* ]]; then
+          TAG_VERSION="${GITHUB_REF#refs/tags/roarschach-v}"
+          if [ "$TAG_VERSION" != "$VERSION" ]; then
+            echo "Tag version $TAG_VERSION does not match CMakeLists.txt version $VERSION"
+            exit 1
+          fi
+        fi
+        echo "Version: $VERSION"
+        echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+  build-windows:
+    needs: version
+    runs-on: windows-latest
+    timeout-minutes: 90
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+
+    steps:
+    - uses: actions/checkout@v5
+
+    - name: Setup JUCE
+      run: |
+        mkdir SDK
+        git clone --depth 1 --branch $env:JUCE_VERSION https://github.com/juce-framework/JUCE.git SDK/JUCE
+
+    - name: Configure CMake
+      run: |
+        cd roarschach
+        $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm UTC" -AsUTC
+        cmake -B build -S . -DCMAKE_BUILD_TYPE=Release `
+          -DROARSCHACH_VERSION="$env:VERSION" `
+          -DROARSCHACH_FORMATS="VST3" `
+          -DROARSCHACH_TESTS=OFF `
+          -DBUILD_TIMESTAMP="$timestamp"
+
+    - name: Build VST3
+      run: |
+        cd roarschach
+        cmake --build build --config Release --parallel
+
+    - name: Gather files
+      run: |
+        cd roarschach
+        $out = "build\Roarschach_artefacts\Release"
+        New-Item -ItemType Directory -Force -Path windows-package\vst3 | Out-Null
+        Copy-Item "$out\VST3\Roarschach.vst3" windows-package\vst3\ -Recurse
+        Get-ChildItem windows-package -Recurse | Select-Object FullName, Length
+
+    - name: Check for Windows certificate
+      id: wincert
+      shell: bash
+      run: |
+        if [[ -n "${{ secrets.WINDOWS_CERTIFICATE_PFX_BASE64 }}" ]]; then
+          echo "has_cert=true" >> "$GITHUB_OUTPUT"
+        else
+          echo "has_cert=false" >> "$GITHUB_OUTPUT"
+          echo "No Windows certificate in secrets: the Windows build will be unsigned"
+        fi
+
+    - name: Import Windows certificate
+      if: steps.wincert.outputs.has_cert == 'true'
+      run: |
+        $bytes = [Convert]::FromBase64String("${{ secrets.WINDOWS_CERTIFICATE_PFX_BASE64 }}")
+        $pfx = Join-Path $env:RUNNER_TEMP "codesign.pfx"
+        [IO.File]::WriteAllBytes($pfx, $bytes)
+        "PFX_PATH=$pfx" | Out-File -FilePath $env:GITHUB_ENV -Append
+        $signtool = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin\*\x64\signtool.exe" | Sort-Object FullName -Descending | Select-Object -First 1
+        "SIGNTOOL=$($signtool.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+    - name: Sign VST3
+      if: steps.wincert.outputs.has_cert == 'true'
+      env:
+        PFX_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+      run: |
+        cd roarschach
+        $files = Get-ChildItem windows-package\vst3 -Recurse -Filter *.vst3 -File | ForEach-Object { $_.FullName }
+        foreach ($f in $files) {
+          & $env:SIGNTOOL sign /f $env:PFX_PATH /p $env:PFX_PASSWORD /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 /d "Roarschach" $f
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & $env:SIGNTOOL verify /pa $f
+        }
+
+    - name: Build installer
+      run: |
+        cd roarschach
+        choco install innosetup -y --no-progress
+        & "${env:ProgramFiles(x86)}\Inno Setup 6\iscc.exe" /DMyAppVersion=$env:VERSION installer.iss
+        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+        Get-Item Roarschach_Installer.exe
+
+    - name: Sign installer
+      if: steps.wincert.outputs.has_cert == 'true'
+      env:
+        PFX_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+      run: |
+        cd roarschach
+        & $env:SIGNTOOL sign /f $env:PFX_PATH /p $env:PFX_PASSWORD /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 /d "Roarschach installer" Roarschach_Installer.exe
+        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+        & $env:SIGNTOOL verify /pa Roarschach_Installer.exe
+
+    - name: Clean up certificate
+      if: always() && steps.wincert.outputs.has_cert == 'true'
+      run: Remove-Item -Force -ErrorAction SilentlyContinue $env:PFX_PATH
+
+    - name: Upload Windows installer
+      uses: actions/upload-artifact@v6
+      with:
+        name: windows-installer
+        path: roarschach/Roarschach_Installer.exe
+
+    - name: Upload Windows files
+      uses: actions/upload-artifact@v6
+      with:
+        name: windows-files
+        path: roarschach/windows-package/
+
+  build-macos:
+    needs: version
+    runs-on: macos-15
+    timeout-minutes: 150 # notarisation can queue; fail fast instead of GitHub's 6 hours
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+
+    steps:
+    - uses: actions/checkout@v5
+
+    - name: Setup JUCE
+      run: |
+        mkdir SDK
+        git clone --depth 1 --branch "$JUCE_VERSION" https://github.com/juce-framework/JUCE.git SDK/JUCE
+
+    - name: Configure CMake
+      run: |
+        cd roarschach
+        cmake -B build -S . -DCMAKE_BUILD_TYPE=Release \
+          -DCMAKE_OSX_ARCHITECTURES="x86_64;arm64" \
+          -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0 \
+          -DROARSCHACH_VERSION="$VERSION" \
+          -DROARSCHACH_TESTS=ON \
+          -DBUILD_TIMESTAMP="$(date -u "+%Y-%m-%d %H:%M UTC")"
+
+    - name: Build AU, VST3 and tests
+      run: |
+        cd roarschach
+        # Bounded: a bare --parallel is "make -j" with no limit, which starts every JUCE module at once
+        # and can run the 3-core runner out of memory. One job per core.
+        cmake --build build --config Release --parallel "$(sysctl -n hw.ncpu)"
+
+    - name: Run the offline tests
+      run: |
+        cd roarschach
+        exe=$(find build -name RoarschachTests -type f -perm +111 | head -1)
+        [[ -n "$exe" ]] || { echo "RoarschachTests not built"; exit 1; }
+        "$exe"
+
+    - name: Check for certificates
+      id: check_certs
+      run: |
+        if [[ -n "${{ secrets.APPLE_DEVELOPER_CERTIFICATE_P12_BASE64 }}" ]]; then
+          echo "has_certs=true" >> "$GITHUB_OUTPUT"
+        else
+          echo "has_certs=false" >> "$GITHUB_OUTPUT"
+          echo "No certificates in secrets: the macOS build will be unsigned"
+        fi
+
+    - name: Import certificates
+      if: steps.check_certs.outputs.has_certs == 'true'
+      uses: apple-actions/import-codesign-certs@v6
+      with:
+        p12-file-base64: ${{ secrets.APPLE_DEVELOPER_CERTIFICATE_P12_BASE64 }}
+        p12-password: ${{ secrets.APPLE_DEVELOPER_CERTIFICATE_PASSWORD }}
+
+    - name: Verify certificates
+      if: steps.check_certs.outputs.has_certs == 'true'
+      run: |
+        security find-identity -v -p codesigning | grep -q "Developer ID Application" || { echo "Developer ID Application certificate not found"; exit 1; }
+        security find-identity -v -p basic | grep -q "Developer ID Installer" || { echo "Developer ID Installer certificate not found"; exit 1; }
+        echo "Both certificates imported"
+
+    - name: Gather bundles
+      run: |
+        cd roarschach
+        OUT=build/Roarschach_artefacts/Release
+        mkdir -p staging/vst3 staging/au
+        cp -R "$OUT/VST3/Roarschach.vst3" staging/vst3/
+        cp -R "$OUT/AU/Roarschach.component" staging/au/
+        /usr/libexec/PlistBuddy -c "Print CFBundleShortVersionString" staging/vst3/Roarschach.vst3/Contents/Info.plist
+
+    - name: Sign bundles
+      if: steps.check_certs.outputs.has_certs == 'true'
+      run: |
+        cd roarschach
+        IDENTITY=$(security find-identity -v -p codesigning | grep "Developer ID Application" | head -1 | awk -F'"' '{print $2}')
+        for b in staging/vst3/Roarschach.vst3 staging/au/Roarschach.component; do
+          echo "Signing $b"
+          codesign --force --sign "$IDENTITY" --timestamp --options runtime --entitlements entitlements.plist "$b"
+          codesign --verify --deep --strict --verbose=2 "$b"
+        done
+
+    - name: Notarise bundles
+      if: steps.check_certs.outputs.has_certs == 'true'
+      env:
+        APPLE_ID: ${{ secrets.APPLE_ID }}
+        APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+        APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      run: |
+        cd roarschach/staging
+        zip -qry ../notarise-plugins.zip vst3 au
+        ID=$(xcrun notarytool submit ../notarise-plugins.zip --apple-id "$APPLE_ID" --password "$APPLE_APP_PASSWORD" --team-id "$APPLE_TEAM_ID" --output-format json | jq -r '.id')
+        xcrun notarytool wait "$ID" --apple-id "$APPLE_ID" --password "$APPLE_APP_PASSWORD" --team-id "$APPLE_TEAM_ID"
+        STATUS=$(xcrun notarytool info "$ID" --apple-id "$APPLE_ID" --password "$APPLE_APP_PASSWORD" --team-id "$APPLE_TEAM_ID" --output-format json | jq -r '.status')
+        if [ "$STATUS" != "Accepted" ]; then
+          xcrun notarytool log "$ID" --apple-id "$APPLE_ID" --password "$APPLE_APP_PASSWORD" --team-id "$APPLE_TEAM_ID"
+          exit 1
+        fi
+        # Staple notarization. Fetching the ticket from Apple sometimes drops the connection
+        # (stapler error 68), at times for minutes, so retry with a growing pause (30 s, 60 s, ...,
+        # about 10 minutes in all) before failing the build.
+        staple() {
+          local delay=30
+          for attempt in 1 2 3 4 5 6 7; do
+            if xcrun stapler staple "$1"; then return 0; fi
+            echo "Stapling $1 failed (attempt $attempt of 7)"
+            if [ "$attempt" -lt 7 ]; then sleep "$delay"; delay=$((delay + 30)); fi
+          done
+          return 1
+        }
+        staple vst3/Roarschach.vst3
+        staple au/Roarschach.component
+
+    - name: Build installer package
+      run: |
+        cd roarschach
+        # Bundles are marked non-relocatable: otherwise Installer "updates" any other copy
+        # with the same bundle ID it finds on disk (the AU and VST3 share one) instead of
+        # installing into /Library/Audio/Plug-Ins.
+        for kind in vst3 au; do
+          if [ "$kind" = "vst3" ]; then location="/Library/Audio/Plug-Ins/VST3"; else location="/Library/Audio/Plug-Ins/Components"; fi
+          pkgbuild --analyze --root "staging/$kind" "$kind-components.plist"
+          /usr/libexec/PlistBuddy -c "Delete :0:BundleIsRelocatable" "$kind-components.plist" 2>/dev/null || true
+          /usr/libexec/PlistBuddy -c "Add :0:BundleIsRelocatable bool false" "$kind-components.plist"
+          pkgbuild --identifier "com.sweetjusticesound.roarschach.$kind" --version "$VERSION" \
+            --root "staging/$kind" --component-plist "$kind-components.plist" \
+            --install-location "$location" "$kind.pkg"
+        done
+
+        cat > distribution.xml << EOF
+        <?xml version="1.0" encoding="utf-8"?>
+        <installer-gui-script minSpecVersion="2.0">
+            <title>Roarschach $VERSION</title>
+            <organization>com.sweetjusticesound</organization>
+            <domains enable_localSystem="true"/>
+            <options customize="always" require-scripts="false" hostArchitectures="x86_64,arm64"/>
+            <choices-outline>
+                <line choice="vst3"/>
+                <line choice="au"/>
+            </choices-outline>
+            <choice id="vst3" title="VST3 plug-in">
+                <pkg-ref id="com.sweetjusticesound.roarschach.vst3"/>
+            </choice>
+            <choice id="au" title="Audio Unit plug-in">
+                <pkg-ref id="com.sweetjusticesound.roarschach.au"/>
+            </choice>
+            <pkg-ref id="com.sweetjusticesound.roarschach.vst3">vst3.pkg</pkg-ref>
+            <pkg-ref id="com.sweetjusticesound.roarschach.au">au.pkg</pkg-ref>
+        </installer-gui-script>
+        EOF
+        productbuild --distribution distribution.xml --package-path . --version "$VERSION" Roarschach_Installer.pkg
+
+    - name: Sign installer package
+      if: steps.check_certs.outputs.has_certs == 'true'
+      run: |
+        cd roarschach
+        INSTALLER_IDENTITY=$(security find-identity -v -p basic | grep "Developer ID Installer" | head -1 | awk -F'"' '{print $2}')
+        productsign --sign "$INSTALLER_IDENTITY" --timestamp Roarschach_Installer.pkg Roarschach_Installer_Signed.pkg
+        mv Roarschach_Installer_Signed.pkg Roarschach_Installer.pkg
+        pkgutil --check-signature Roarschach_Installer.pkg
+
+    - name: Notarise installer package
+      if: steps.check_certs.outputs.has_certs == 'true'
+      env:
+        APPLE_ID: ${{ secrets.APPLE_ID }}
+        APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+        APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      run: |
+        cd roarschach
+        f=Roarschach_Installer.pkg
+        ID=$(xcrun notarytool submit "$f" --apple-id "$APPLE_ID" --password "$APPLE_APP_PASSWORD" --team-id "$APPLE_TEAM_ID" --output-format json | jq -r '.id')
+        xcrun notarytool wait "$ID" --apple-id "$APPLE_ID" --password "$APPLE_APP_PASSWORD" --team-id "$APPLE_TEAM_ID"
+        STATUS=$(xcrun notarytool info "$ID" --apple-id "$APPLE_ID" --password "$APPLE_APP_PASSWORD" --team-id "$APPLE_TEAM_ID" --output-format json | jq -r '.status')
+        if [ "$STATUS" != "Accepted" ]; then
+          xcrun notarytool log "$ID" --apple-id "$APPLE_ID" --password "$APPLE_APP_PASSWORD" --team-id "$APPLE_TEAM_ID"
+          exit 1
+        fi
+        # Staple, retried with a growing pause as for the plug-ins (the ticket fetch
+        # sometimes drops the connection for minutes).
+        delay=30
+        for attempt in 1 2 3 4 5 6 7; do
+          if xcrun stapler staple "$f"; then break; fi
+          if [ "$attempt" -eq 7 ]; then exit 1; fi
+          echo "Stapling the installer failed (attempt $attempt of 7), retrying in $delay s"
+          sleep "$delay"
+          delay=$((delay + 30))
+        done
+        spctl --assess --type install -vv "$f"
+
+    - name: Zip plug-ins
+      run: |
+        cd roarschach/staging
+        ditto -c -k --keepParent vst3/Roarschach.vst3 ../Roarschach-macOS-VST3.zip
+        ditto -c -k --keepParent au/Roarschach.component ../Roarschach-macOS-AU.zip
+
+    - name: Upload macOS files
+      uses: actions/upload-artifact@v6
+      with:
+        name: macos
+        path: |
+          roarschach/Roarschach_Installer.pkg
+          roarschach/Roarschach-macOS-VST3.zip
+          roarschach/Roarschach-macOS-AU.zip
+
+  create-release:
+    needs: [version, build-windows, build-macos]
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+
+    steps:
+    - name: Check out release notes
+      uses: actions/checkout@v5
+      with:
+        path: repo
+        fetch-depth: 0   # history and tags, for the changelog
+        sparse-checkout: roarschach/RELEASE_NOTES.md
+        sparse-checkout-cone-mode: false
+
+    - name: Changelog
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        # This repository releases several plug-ins, so compare with Roarschach's own previous release
+        # and list only the pull requests that changed Roarschach. (GitHub's generated notes would use
+        # the newest release of any plug-in and list every plug-in's pull requests.) The base is the newest
+        # earlier tag that has a published release: a tag whose release run failed is skipped.
+        cd repo
+        current="$GITHUB_REF_NAME"
+        previous=
+        for t in $(git tag --list 'roarschach-v*' | sort -V); do
+          [ "$t" = "$current" ] && break
+          gh release view "$t" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1 && previous=$t
+        done
+        cp roarschach/RELEASE_NOTES.md ../release_body.md
+        if [ -z "$previous" ]; then
+          echo "No earlier Roarschach release, so no changelog section"
+          exit 0
+        fi
+        prs=$(git log --first-parent --format='%s' "$previous..$current" -- roarschach .github/workflows/build-release_roarschach.yml \
+              | { grep -oE '#[0-9]+' || true; } | tr -d '#' | sort -un)
+        {
+          echo
+          if [ -n "$prs" ]; then
+            echo "## What's Changed"
+            for n in $prs; do
+              gh pr view "$n" --repo "$GITHUB_REPOSITORY" --json title,url --jq '"* \(.title) in \(.url)"' || echo "* #$n"
+            done
+            echo
+          fi
+          echo "**Full Changelog**: https://github.com/$GITHUB_REPOSITORY/compare/$previous...$current"
+        } >> ../release_body.md
+        tail -n 8 ../release_body.md
+
+    - name: Download all artifacts
+      uses: actions/download-artifact@v7
+
+    - name: Name the files with the version
+      run: |
+        mkdir release
+        cp macos/Roarschach_Installer.pkg "release/Roarschach-$VERSION-macOS-Installer.pkg"
+        cp macos/Roarschach-macOS-VST3.zip "release/Roarschach-$VERSION-macOS-VST3.zip"
+        cp macos/Roarschach-macOS-AU.zip "release/Roarschach-$VERSION-macOS-AU.zip"
+        cp windows-installer/Roarschach_Installer.exe "release/Roarschach-$VERSION-Windows-Installer.exe"
+        (cd windows-files/vst3 && zip -qr "../../release/Roarschach-$VERSION-Windows-VST3.zip" Roarschach.vst3)
+        ls -la release
+
+    - name: Create release
+      uses: softprops/action-gh-release@v3
+      with:
+        # The combined Sammy J installer is the "Latest" release, so the README's download links keep working.
+        make_latest: false
+        name: Roarschach ${{ env.VERSION }}
+        files: release/*
+        body_path: release_body.md
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
