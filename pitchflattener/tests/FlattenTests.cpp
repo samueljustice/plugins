@@ -657,6 +657,59 @@ namespace
         return 0;
     }
 
+    /**
+     * --sweep: plays a recording through its Source Type's settings (Latch) with one parameter set to each value in
+     * turn, and prints one CSV line per value: param,value,file,flatness,coverage,metered,medianOffCents.
+     * minfreq / maxfreq values are multiples of the Source Type's own range.
+     */
+    int sweepFile (const juce::File& file, int source, const juce::String& param, const juce::StringArray& values)
+    {
+        juce::AudioFormatManager formats;
+        formats.registerBasicFormats();
+        std::unique_ptr<juce::AudioFormatReader> reader (formats.createReaderFor (file));
+        if (reader == nullptr) { std::printf ("can't read %s\n", file.getFullPathName().toRawUTF8()); return 1; }
+        const double fs = reader->sampleRate;
+        const int len = (int) std::min<juce::int64> (reader->lengthInSamples, (juce::int64) (15.0 * fs));   // first 15 s
+        juce::AudioBuffer<float> in (1, len);
+        reader->read (&in, 0, len, 0, true, false);
+
+        ProcessingSettings base;
+        base.live.targetMode = TargetMode::Latch;
+        base.live.gateDb = -60.0f;
+        base.live.targetHz = 440.0f;
+        base = withSourceType (base, (SourceType) source);
+
+        for (const auto& vs : values)
+        {
+            auto st = base;
+            const float v = vs.getFloatValue();
+            if      (param == "none")        {}
+            else if (param == "sensitivity") st.live.sensitivity = v / 100.0f;
+            else if (param == "speed")       st.live.trackingSpeedOctPerSec = v;
+            else if (param == "smoothing")   st.live.smoothingMs = v;
+            else if (param == "gapfill")     st.live.gapFillMs = v;
+            else if (param == "gate")        st.live.gateDb = v;
+            else if (param == "highpass")    st.highpassHz = v;
+            else if (param == "lowpass")     st.lowpassHz = v;
+            else if (param == "minfreq")     st.minHz = base.minHz * v;
+            else if (param == "maxfreq")     st.maxHz = base.maxHz * v;
+            else if (param == "maxshift")    st.live.maxShiftSemitones = v;
+            else if (param == "quality")     st.quality = (int) v;
+            else if (param == "formant")     st.live.formantPreserve = v > 0.5f;
+            else if (param == "detector")    st.detector = (DetectorType) (int) v;
+            else if (param == "autowindow")  { st.live.targetMode = TargetMode::Auto; st.live.autoWindowMs = v; }
+            else if (param == "mode")        st.live.targetMode = (TargetMode) (int) v;
+            else { std::printf ("unknown parameter %s\n", param.toRawUTF8()); return 1; }
+
+            if (st.maxHz < st.minHz * 1.5f) st.maxHz = st.minHz * 1.5f;
+            const auto r = runTrial (in.getReadPointer (0), len, fs, st);
+            std::printf ("%s,%s,%s,%.4f,%.3f,%.3f,%.1f\n", param.toRawUTF8(), vs.toRawUTF8(), file.getFileName().toRawUTF8(),
+                         r.flatness, r.coverage, r.metered, r.medianOffCents);
+            std::fflush (stdout);
+        }
+        return 0;
+    }
+
     /** The advisor suggests the right Source Type when the current one is wrong, and nothing when it is right. */
     bool testSourceAdvisor (double fs)
     {
@@ -794,6 +847,8 @@ int main (int argc, char** argv)
     double analyseStep = 0.1;
     float analyseMaxFreq = 0.0f, analyseMinFreq = 0.0f;
     juce::File analyseOut, advise;
+    juce::String sweepParam;
+    juce::StringArray sweepValues;
 
     for (int i = 1; i < argc; ++i)
     {
@@ -808,12 +863,16 @@ int main (int argc, char** argv)
         else if (a == "--source" && i + 1 < argc) analyseSource = juce::String (argv[++i]).getIntValue();
         else if (a == "--detector" && i + 1 < argc) analyseDetector = juce::String (argv[++i]).getIntValue();
         else if (a == "--maxshift" && i + 1 < argc) analyseMaxShift = juce::String (argv[++i]).getFloatValue();
+        else if (a == "--sweep" && i + 2 < argc) { sweepParam = juce::String (argv[++i]); sweepValues = juce::StringArray::fromTokens (juce::String (argv[++i]), ",", ""); }
         else if (a == "--advise" && i + 1 < argc) advise = juce::File (juce::String (argv[++i]));
         else if (a == "--out" && i + 1 < argc) analyseOut = juce::File (juce::String (argv[++i]));
         else if (a == "--minfreq" && i + 1 < argc) analyseMinFreq = juce::String (argv[++i]).getFloatValue();
         else if (a == "--maxfreq" && i + 1 < argc) analyseMaxFreq = juce::String (argv[++i]).getFloatValue();
         else if (a == "--step" && i + 1 < argc) analyseStep = juce::jmax (0.005, juce::String (argv[++i]).getDoubleValue());
     }
+
+    if (sweepParam.isNotEmpty() && analyse != juce::File())
+        return sweepFile (analyse, juce::jlimit (0, (int) SourceType::NumSourceTypes - 1, analyseSource), sweepParam, sweepValues);
 
     if (advise != juce::File())
         return adviseFile (advise, juce::jlimit (0, (int) SourceType::NumSourceTypes - 1, analyseSource));
