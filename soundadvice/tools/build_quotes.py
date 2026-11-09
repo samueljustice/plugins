@@ -53,10 +53,20 @@ MAX_QUOTE_WORDS = 15
 IMDB = re.compile(r"^https://(www\.|m\.)?imdb\.com/name/nm\d+/?$")
 
 
+def id_text(text):
+    """The text an entry's id is hashed from. Frozen: it strips every outer quote mark, as the
+    original clean() did, so ids (and everything keyed on them) never change."""
+    return re.sub(r"\s+", " ", str(text or "")).strip().strip("\"'“”‘’ ")
+
+
 def clean(text):
     text = re.sub(r"\s+", " ", str(text or "")).strip()
-    # Quotation marks are drawn by the plug-in, so strip any that came with the words.
-    return text.strip("\"'“”‘’ ")
+    # Quotation marks are drawn by the plug-in, so strip a pair that wraps the whole text. A quote mark
+    # that belongs to the words (like the opening of '"No" is a lazy answer') stays.
+    quotes = "\"'“”‘’"
+    while len(text) > 1 and text[0] in quotes and text[-1] in quotes and not any(q in text[1:-1] for q in quotes if q not in "'’"):
+        text = text[1:-1].strip()
+    return text
 
 
 def smarten(text):
@@ -116,6 +126,10 @@ def main(check_only):
     rewrites_file = DATA / "rewrites.json"
     rewrites = json.loads(rewrites_file.read_text(encoding="utf-8")) if rewrites_file.exists() else {}
     rewritten = set()
+    # data/contexts.json: {"<entry id>": "War Horse"}. A quote can't be reworded, so when it's about a
+    # specific production, the card shows "ON WAR HORSE" above it.
+    contexts_file = DATA / "contexts.json"
+    contexts = json.loads(contexts_file.read_text(encoding="utf-8")) if contexts_file.exists() else {}
 
     for path in sorted(DATA.glob("*.json")):
         data = json.loads(path.read_text(encoding="utf-8"))
@@ -151,7 +165,8 @@ def main(check_only):
             who = clean(e.get("person"))
             who = alias.get(who, who)
             text = clean(e.get("text"))
-            all_ids.add(f"{norm(who.split()[-1]) or 'x'}-{hashlib.sha1(f'{who}|{text}'.encode()).hexdigest()[:6]}")
+            key_text = id_text(e.get("text"))
+            all_ids.add(f"{norm(who.split()[-1]) or 'x'}-{hashlib.sha1(f'{who}|{key_text}'.encode()).hexdigest()[:6]}")
             kind = e.get("kind")
             raw_cats = list(dict.fromkeys(e.get("categories") or []))
             if raw_cats and raw_cats[0] in DROPPED_CATEGORIES:
@@ -166,7 +181,7 @@ def main(check_only):
                 continue
 
             surname = norm(who.split()[-1]) or "x"
-            digest = hashlib.sha1(f"{who}|{text}".encode()).hexdigest()[:6]
+            digest = hashlib.sha1(f"{who}|{key_text}".encode()).hexdigest()[:6]
             entry_id = f"{surname}-{digest}"
             if entry_id in omit_ids:
                 cut_ids.add(entry_id)
@@ -203,8 +218,10 @@ def main(check_only):
                 omitted["before " + str(MIN_YEAR)] += 1
                 continue
 
+            record_context = clean(contexts.get(entry_id, "")) if kind == "quote" else ""
             entries.append({
                 "id": entry_id,
+                "context": record_context,
                 "person": who,
                 "kind": kind,
                 "text": finish_quote(smarten(text[:1].upper() + text[1:])) if kind == "quote" else smarten(text),
@@ -245,6 +262,10 @@ def main(check_only):
         print(f"omitted {omitted[key]} entries whose main category is {key[9:]}")
     for who in sorted(omit):
         print(f"omitted {who} ({omitted[who]} entries)" if omitted[who] else f"omit.txt names {who!r}, who has no entries")
+    if contexts:
+        print(f"{sum(1 for e in entries if e.get('context'))} quotes have a context line")
+        for stale in sorted(set(contexts) - all_ids):
+            print(f"  contexts.json lists {stale}, which no longer exists")
     if rewrites:
         print(f"rewrote {len(rewritten)} entries from rewrites.json")
         for stale in sorted(set(rewrites) - all_ids):

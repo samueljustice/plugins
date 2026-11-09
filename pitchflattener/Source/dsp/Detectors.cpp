@@ -422,7 +422,7 @@ namespace pf
 
     void SpectralPeakDetector::analyse (const float* frame, float sensitivity, FrameObservation& out)
     {
-        const float thrDb = 15.0f - 9.0f * std::clamp (sensitivity, 0.0f, 1.0f);   // 15 .. 6 dB
+        const float thrDb = 15.0f - 9.0f * std::clamp (sensitivity, 0.0f, 1.0f) + voicingOffsetDb;   // 15 .. 6 dB, plus the offset
         const double fs = config.analysisRate;
         peaks.clear();
 
@@ -730,6 +730,43 @@ namespace pf
     }
 
     //==========================================================================
+    // Spectral Peak + MPM
+    //==========================================================================
+    SpectralMpmDetector::SpectralMpmDetector (const DetectorConfig& cfg)
+        : spectral (cfg), mpm (cfg)
+    {
+        config = cfg;
+        // In broadband noise with no pitch at all, the strongest of thousands of FFT bins still stands 10-17 dB
+        // above the local floor by chance, which Spectral Peak's own threshold (10.5 dB at the default
+        // sensitivity) calls pitched, so noise after a siren got "corrected" by up to 20 semitones. Real siren
+        // partials, even at 0 dB broadband SNR, stand 20 dB or more above it. MPM, the other half, already
+        // reports such noise as unpitched.
+        spectral.setVoicingOffsetDb (6.0f);
+        frameLen = std::max (spectral.frameLength(), mpm.frameLength());
+    }
+
+    void SpectralMpmDetector::analyse (const float* frame, float sensitivity, FrameObservation& out)
+    {
+        // Both see the same moment: each gets the centre of the (longer) frame.
+        FrameObservation s, m;
+        s.clear();
+        m.clear();
+        spectral.analyse (frame + (frameLen - spectral.frameLength()) / 2, sensitivity, s);
+        mpm.analyse (frame + (frameLen - mpm.frameLength()) / 2, sensitivity, m);
+
+        for (int i = 0; i < s.numCands; ++i)
+            out.add (s.cands[(size_t) i].hz, s.cands[(size_t) i].salience * s.voicedProb);
+        // MPM's pitch is the sharper one on fast sweeps, so where both are confident it should win. Weighted by
+        // its own confidence, it fades out in noise, where Spectral Peak's candidates carry the track.
+        constexpr float mpmWeight = 4.0f;
+        for (int i = 0; i < m.numCands; ++i)
+            out.add (m.cands[(size_t) i].hz, m.cands[(size_t) i].salience * m.voicedProb * mpmWeight);
+
+        out.voicedProb = std::max (s.voicedProb, m.voicedProb);
+        out.sortBySalience();
+    }
+
+    //==========================================================================
     std::unique_ptr<IPitchDetector> createDetector (const DetectorConfig& cfgIn)
     {
         DetectorConfig cfg = cfgIn;
@@ -741,6 +778,7 @@ namespace pf
             case DetectorType::PYin:         return std::make_unique<PYinDetector> (cfg);
             case DetectorType::Mpm:          return std::make_unique<MpmDetector> (cfg);
             case DetectorType::HarmonicSum:  return std::make_unique<HarmonicSumDetector> (cfg);
+            case DetectorType::SpectralMpm:  return std::make_unique<SpectralMpmDetector> (cfg);
             case DetectorType::SpectralPeak:
             case DetectorType::NumDetectors:
             default:                         return std::make_unique<SpectralPeakDetector> (cfg);

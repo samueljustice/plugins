@@ -17,7 +17,10 @@ const std::vector<juce::String>& ModMatrix::targets()
                     ids.emplace_back(ParamIDs::bus[b][k]);
         for (auto* id : { ParamIDs::hitSense, ParamIDs::hitBoost, ParamIDs::hitRelease, ParamIDs::hitDuck,
                           ParamIDs::hitHold, ParamIDs::hitFloor, ParamIDs::duckReturn,
-                          ParamIDs::space, ParamIDs::inflate, ParamIDs::push, ParamIDs::ceiling })
+                          ParamIDs::space, ParamIDs::inflate, ParamIDs::push, ParamIDs::ceiling,
+                          ParamIDs::tremDepth, ParamIDs::tremRate, ParamIDs::tremThreshold }) // appended: wires are saved by ID
+            ids.emplace_back(id);
+        for (auto* id : ParamIDs::trackSemis) // each track's pitch (the Semitones box): modulated smoothly, not in steps
             ids.emplace_back(id);
         jassert(ids.size() <= 64);
         return ids;

@@ -2,7 +2,7 @@
 
 A VST3/AU plugin that removes pitch movement from a sound while keeping its energy and character. Use it to take the Doppler sweep out of a pass-by, iron the wail out of a siren, take the vibrato out of a voice or instrument, or lock a warbling tone to one note so the pitch is malleable again.
 
-### 🎉 Latest Release v2.0.2 - [Download Here](https://github.com/samueljustice/plugins/releases/tag/pitchflattener-v2.0.2)
+### 🎉 Latest Release v2.2.0 - [Download Here](https://github.com/samueljustice/plugins/releases/tag/pitchflattener-v2.2.0)
 
 ![Pitch Flattener flattening a siren wail: the teal detected pitch sweeps up and down while the violet output stays on the amber target line](docs/screenshot.png)
 
@@ -123,7 +123,7 @@ Presets saved with 1.x lived in `Documents/PitchFlattener Presets`. To use them,
 
 ### 2. Source strip
 
-![The source strip: Source Type menu set to Siren, a description of the detector, the Detector menu set to Spectral Peak, and RUNNING: SPECTRAL PEAK](docs/source-strip.png)
+![The source strip: Source Type menu set to Siren, a description of the detector, the Detector menu set to Spectral + MPM, and RUNNING: SPECTRAL + MPM](docs/source-strip.png)
 
 From left to right:
 
@@ -134,7 +134,7 @@ From left to right:
 
 <p>
   <img src="docs/menu-source.png" alt="The Source Type menu: Vocal / Speech, Instrument, Siren (ticked), Whistle / Tone, Engine / Doppler, Drone / Hum, Noisy Field, Custom" width="38%">
-  <img src="docs/menu-detector.png" alt="The Detector menu: pYIN, MPM (McLeod), Spectral Peak (ticked), Harmonic Sum" width="34%">
+  <img src="docs/menu-detector.png" alt="The Detector menu: pYIN, MPM (McLeod), Spectral Peak, Harmonic Sum, Spectral + MPM (ticked)" width="34%">
 </p>
 
 See [Source Types and detectors](#source-types-and-detectors) for which to pick and how each detector works.
@@ -158,6 +158,19 @@ The legend chips along the bottom each switch one layer on or off:
 **ZOOM** (top right) switches the vertical range. **AUTO** fits the view to the recent pitch; **RANGE** shows the whole Min..Max Freq detection range:
 
 ![The same siren with ZOOM: RANGE, showing the whole 300 Hz to 3 kHz detection range, with the siren's harmonics visible in the spectrogram above the track](docs/display-siren-range.png)
+
+#### Wobble warning
+
+![A red warning across the top of the graph: WOBBLING: OUTPUT 45 CT OFF TARGET. Siren comes out about 2.2x flatter here. With TRY SIREN and close buttons](docs/display-wobble.png)
+
+While sound plays, the plugin measures the pitch of its own flattened output against the target. If the output stays well off the target (more than about 35 cents, for more than a second), a red warning appears across the graph with how far off it is.
+
+It then replays the last few seconds through every Source Type in the background, keeping your target settings, and measures each one's output the same way:
+
+- If one comes out clearly flatter, the warning names it, with a **TRY** button that switches to it, just as picking it from the Source menu would.
+- If none does clearly better, it says so and suggests narrowing Min / Max Freq around the sound or lowering Speed.
+
+The warning goes once the output has been flat for about two seconds; **X** hides it until then, or until a setting changes. It only judges what it can measure: a sound too short or too noisy for the meter to read, such as a ricochet's crack, never raises it. With Amount or Mix turned below 95 % the result isn't meant to be flat, so it stays quiet.
 
 What it looks like on other sources:
 
@@ -195,7 +208,7 @@ The column to the right of the display gives numbers for the newest analysed mom
 The amber section sets the pitch the sound is flattened to and how much is removed.
 
 - **Target mode** (the menu in the section's title bar):
-  - **Latch** (default) locks to the opening pitch of each sound: the median of its first ~300 ms, read with lookahead. It re-latches when a new sound starts after more than a second without pitch.
+  - **Latch** (default) locks to the opening pitch of each sound: the median of its first ~300 ms, read with lookahead. The latch is decided before the sound plays, so it is flattened from its first sample, soft or breathy attacks included. It re-latches when a new sound starts after more than a second without pitch.
   - **Fixed** flattens everything to **Target Hz**.
   - **Auto** removes movement faster than **Auto Win** and keeps the slower overall contour. Use it to take out vibrato or warble without changing the melody.
 - **TARGET HZ** (Fixed): the pitch everything is flattened to. You can type a note name such as `A4` into its value.
@@ -242,7 +255,7 @@ The teal sections control how the pitch is found and followed.
 
 The violet section controls the shifter.
 
-- **MAX SHIFT** (semitones): the largest correction allowed. Larger deviations are only corrected this far.
+- **MAX SHIFT** (semitones): the largest correction allowed. Larger deviations are only corrected this far. Siren sets it to 24, because sirens often switch between patterns far apart in pitch (a yelp, then a two-tone horn an octave lower); the other Source Types set 12.
 - **MIX**: blends in the time-aligned dry signal. Keep it at 100 % for flattening; partial mixes can sound phasey.
 - **QUALITY**:
   - **Smooth** uses the shifter's standard window and gives the best sound on sustained tones.
@@ -290,7 +303,7 @@ Each Source Type chooses a pitch detector and tuned defaults. Every setting can 
 |---|---|---|
 | **Vocal / Speech** | pYIN (probabilistic YIN) | Voices, singing, vocal-like animal calls. Ignores breaths and consonants and follows the voice smoothly. Formant preservation is on by default. |
 | **Instrument** | MPM (McLeod Pitch Method) | Solo melodic instruments: vibrato, warble, tape wow. |
-| **Siren** | Spectral Peak (reassigned STFT) | Wail, yelp, hi-lo and electronic sweeps, even in traffic noise. Uses the Tight window to follow fast sweeps. |
+| **Siren** | Spectral + MPM | Wail, yelp, hi-lo and electronic sweeps, even in traffic noise. Uses the Tight window to follow fast sweeps, and a 24-semitone Max Shift so a siren that switches pattern stays flat. |
 | **Whistle / Tone** | Spectral Peak, long windows | Whistles, feedback, test tones, theremin. Very stable on near-pure tones. |
 | **Engine / Doppler** | Harmonic Sum (subharmonic summation) | Engines, pass-bys, props, motors and trains. Follows the whole harmonic series, so it does not jump octaves and copes with a weak or missing fundamental. |
 | **Drone / Hum** | Harmonic Sum, slow tracking | Hums, generators and drones down to 25 Hz. |
@@ -302,6 +315,7 @@ Each Source Type chooses a pitch detector and tuned defaults. Every setting can 
 - **pYIN** (Mauch & Dixon 2014) runs YIN's cumulative-mean-normalised difference function, computed with FFTs. It weighs every dip in that function against a Beta-distributed prior over YIN thresholds, so each frame produces several pitch candidates with probabilities instead of one guess.
 - **MPM** (McLeod & Wyvill 2005) uses the normalised squared difference function. It picks the first "key maximum" within a fraction of the highest one, which avoids octave errors on bright instruments.
 - **Spectral Peak** uses Gaussian-windowed FFTs at several lengths: short windows for fast sweeps, long ones for steady tones. Each peak is refined with quadratic interpolation and time-frequency reassignment, which gives the instantaneous frequency even mid-sweep. Its salience is measured against the local noise floor. A harmonic-support check makes the fundamental win over its overtones.
+- **Spectral + MPM** runs both on every frame and gives the tracker both sets of candidates, each weighted by its own detector's confidence. MPM is the sharper of the two on very fast yelps but loses the pitch in heavy noise; Spectral Peak survives the noise but smears the fastest sweeps. Where both are confident, MPM's pitch is favoured; in noise MPM's confidence drops and Spectral Peak carries the track. Spectral Peak needs its strongest peak to stand 6 dB further above the noise floor than it does on its own, so noise with no pitch in it, such as the traffic left after a siren passes, is left alone rather than shifted.
 - **Harmonic Sum** (subharmonic summation, Hermes 1988) works on a whitened, log-frequency spectrum and adds up the energy at every candidate's harmonics. An odd/even-harmonic test settles octave ambiguities, for example when the fundamental is missing.
 
 ### Tracking, using lookahead
@@ -323,7 +337,9 @@ The shifter is **Rubber Band Library R3** (the "finer" engine) in high-consisten
 | Test signal | Input pitch range | Output error (median / 90th pct) |
 |---|---|---|
 | Siren wail, 550–1350 Hz sweep | 1520 cents | 2 / 4 cents |
-| Siren yelp, 1 octave triangle at 3 Hz (6 oct/s) | 1060 cents | 18 / 40 cents |
+| Siren yelp, 1 octave triangle at 3 Hz (6 oct/s) | 1060 cents | 17 / 39 cents |
+| Siren cycle: fast yelp, then a two-tone horn an octave lower, then a wail | 1910 cents | 2 / 42 cents |
+| Siren yelp in heavy noise (about 0 dB SNR) | 1060 cents | 17 / 40 cents |
 | Voice, 50-cent vibrato + 3-semitone drift, formants, gaps | 350 cents | 7 / 11 cents |
 | Engine pass-by, 25 m/s Doppler | 250 cents | 1 / 5 cents |
 | Engine with missing fundamental, Doppler | 200 cents | 5 / 11 cents |
@@ -341,10 +357,13 @@ cmake --build build-tests --target PitchFlattenerTests
 
 `--wav` writes each test's input and output so you can listen to them.
 
+To see how a real recording fares, `--file sound.wav` plays it through a Source Type's settings (`--source 2`, Siren, by default) and prints the track, target, correction and output pitch every 100 ms, with how far the output lands from the target. `--detector n`, `--minfreq`, `--maxfreq` and `--maxshift` override those settings, `--step` changes the reporting interval (use 0.01 for short sounds) and `--out processed.wav` writes the result, lined up with the input. `--advise sound.wav` runs the wobble warning's Source Type check on a whole recording (starting from `--source n`) and prints how flat each Source Type comes out.
+
 ## Tips
 
 - **Doppler pass-by:** choose Engine / Doppler and Latch. If the approach is quieter than the pass, use **Re-latch** or Fixed with the engine's idle pitch.
 - **Siren:** choose Siren and Fixed at the pitch you want. For a wail, Smooth quality sounds cleaner; for a yelp, keep Tight.
+- **Ricochets and whizzes:** choose Siren. Raise Max Freq to about 6 kHz for bright ones that start above 3 kHz; don't lower Min Freq, or the low thump of the impact competes with the whine. If you can hear two tones at once and the result moves the wrong way, set Detector to Spectral Peak.
 - **Vibrato only:** use Auto mode with an Auto Window of 300–600 ms.
 - **Half-flattened, more natural result:** set Amount to 50–70 %.
 - **The output jumps or warbles:** narrow Min/Max Freq around the source, lower Speed, or try another Source Type. Turn on RAW in the display to see what the detector is hearing.
@@ -387,7 +406,10 @@ Created by Samuel Justice, [www.sweetjusticesound.com](https://www.sweetjustices
 
 ## Version history
 
-- **v2.0.2**: Manual Override flattens to Override Hz again, in every target mode; About window copyright runs to the build year; README tour of the interface.
+- **v2.2.0**: Latch decides before a sound plays, so soft or breathy starts are flattened from the first sample instead of wobbling until it latches. A red warning appears over the display when the output is wobbling, and suggests a Source Type that comes out clearly flatter, with a button to switch to it.
+- v2.1.0: Siren uses a new detector, Spectral + MPM: fast yelps track far more closely, and the traffic noise left after a siren is no longer shifted. Siren also sets Max Shift to 24 semitones, so a siren that switches pattern (yelp, two-tone, wail) stays flat; choosing any Source Type now sets Max Shift. Saved sessions and presets keep their settings, but Detector automation recorded in a VST3 host with 2.0.x needs recording again.
+- v2.0.3: Hosts list it under **Sammy J**, alongside the other plug-ins. The sound, parameters and saved sessions are unchanged.
+- v2.0.2: Manual Override flattens to Override Hz again, in every target mode; About window copyright runs to the build year; README tour of the interface.
 - v2.0.1: consistent styling for every menu, submenu, dialog, tooltip and text field; preset bar and menu reworked; user presets tracked by file; CI stapling retries.
 - v2.0.0: new detection and correction engine, Source Types, lookahead tracking, sample-accurate latency, new UI, test suite.
 - v1.2.5: help text and About button scaling fixes, FFT visualiser.

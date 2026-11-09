@@ -115,6 +115,7 @@ int main(int argc, char* argv[])
     RigEngine rig;
     rig.setCargoHold(&hold);
     RigEngine::Params p;
+    p.hitAim = false; // the gate and sync tests below describe the classic hit gate; AIM has its own test
     rig.setParams(p);
     rig.prepare(c_rate, c_block);
     rig.setParams(p);
@@ -341,6 +342,212 @@ int main(int argc, char* argv[])
         for (int i = 0; i < o.getNumSamples(); ++i)
             finite = finite && std::isfinite(o.getSample(0, i));
         check(finite, "hit sync through the rig: finite output");
+    }
+
+    // AIM: the hits land on pass peaks. Every time a cued hit is heard, some bus pass should be at its middle (its
+    // loudest, closest moment), and Sensitivity should set how many peaks get a hit.
+    {
+        auto aimRun = [&](float sense, int& beats, int& onPeak)
+        {
+            RigEngine e;
+            e.setCargoHold(&hold);
+            auto q = p;
+            q.hitAim = true;
+            q.hitSense = sense;
+            e.setParams(q);
+            e.prepare(c_rate, c_block);
+            e.setParams(q);
+            juce::AudioBuffer<float> o(2, c_block);
+            beats = onPeak = 0;
+            int last = e.getHitBeats();
+            for (int blk = 0; blk < static_cast<int>(40.0 * c_rate) / c_block; ++blk)
+            {
+                e.process(nullptr, nullptr, o.getWritePointer(0), o.getWritePointer(1), c_block);
+                if (e.getHitBeats() == last)
+                    continue;
+                last = e.getHitBeats();
+                ++beats;
+                for (int f = 0; f < RigEngine::c_maxFlights; ++f)
+                    if (std::abs(e.getFlightView(f).age - 0.5f) < 0.02f)
+                    {
+                        ++onPeak;
+                        break;
+                    }
+            }
+        };
+        int beatsHi = 0, peakHi = 0, beatsLo = 0, peakLo = 0;
+        aimRun(1.0f, beatsHi, peakHi);
+        aimRun(0.2f, beatsLo, peakLo);
+        std::cout << "  aim: " << beatsHi << " hits at sensitivity 100% (" << peakHi << " on a pass peak), "
+                  << beatsLo << " at 20% (" << peakLo << " on a peak)" << std::endl;
+        check(beatsHi >= 8 && peakHi >= beatsHi * 9 / 10, "aim: hits land on pass peaks");
+        check(beatsLo < beatsHi, "aim: lower Sensitivity keeps only the bigger peaks");
+    }
+
+    // Peak tremolo: with Depth up the level flutters at the peaks; at 0 it's off.
+    {
+        auto flutter = [&](float depth, int target)
+        {
+            RigEngine e;
+            e.setCargoHold(&hold);
+            auto q = p;
+            q.tremOn = depth > 0.0f;
+            q.tremDepth = depth;
+            q.tremThreshold = 0.0f;
+            q.tremShape = 1; // square: easy to see
+            q.tremRate = 0.4f;
+            q.tremTarget = target;
+            q.space = 0.0f;
+            e.setParams(q);
+            e.prepare(c_rate, c_block);
+            e.setParams(q);
+            juce::AudioBuffer<float> o(2, static_cast<int>(10.0 * c_rate));
+            for (int pos = 0; pos < o.getNumSamples(); pos += c_block)
+                e.process(nullptr, nullptr, o.getWritePointer(0, pos), o.getWritePointer(1, pos), juce::jmin(c_block, o.getNumSamples() - pos));
+            // Within each tremolo cycle: the range (dB) between the loudest and quietest 5 ms window. The median over
+            // all cycles: steady material changes a little, a deep tremolo dips hard every cycle.
+            const double hz = 1.5 * std::pow(20.0, 0.4);
+            const int cycle = static_cast<int>(c_rate / hz), w = static_cast<int>(0.005 * c_rate);
+            std::vector<float> ranges;
+            for (int c0 = static_cast<int>(2.0 * c_rate); c0 + cycle < o.getNumSamples(); c0 += cycle)
+            {
+                float lo = 1000.0f, hi = -1000.0f;
+                for (int i = c0; i + w <= c0 + cycle; i += w)
+                {
+                    const float db = juce::Decibels::gainToDecibels(o.getRMSLevel(0, i, w), -80.0f);
+                    lo = std::min(lo, db);
+                    hi = std::max(hi, db);
+                }
+                if (hi > -70.0f)
+                    ranges.push_back(hi - lo);
+            }
+            std::sort(ranges.begin(), ranges.end());
+            return ranges.empty() ? 0.0 : static_cast<double>(ranges[ranges.size() / 2]);
+        };
+        const double off = flutter(0.0f, 0), everything = flutter(1.0f, 0), buses = flutter(1.0f, 1);
+        std::cout << "  tremolo: level range within a cycle " << off << " dB off, " << everything << " dB on everything, "
+                  << buses << " dB on the buses" << std::endl;
+        check(everything > off + 10.0 && buses > off + 4.0, // the hits stay steady with only the buses shaking
+               "peak tremolo shakes the level, on everything or the buses");
+    }
+
+    // Linked buses: bus B flies bus A's passes (same moment, position, closeness, direction); unlinked they differ.
+    {
+        auto passGap = [&](bool link)
+        {
+            RigEngine e;
+            e.setCargoHold(&hold);
+            auto q = p;
+            q.linkBuses = link;
+            q.chaos = 0.8f; // plenty of variety between passes
+            e.setParams(q);
+            e.prepare(c_rate, c_block);
+            e.setParams(q);
+            juce::AudioBuffer<float> o(2, c_block);
+            float worst = 0.0f;
+            for (int blk = 0; blk < static_cast<int>(20.0 * c_rate) / c_block; ++blk)
+            {
+                e.process(nullptr, nullptr, o.getWritePointer(0), o.getWritePointer(1), c_block);
+                for (int k = 0; k < 2; ++k)
+                {
+                    const auto a = e.getFlightView(k), b = e.getFlightView(2 + k);
+                    worst = std::max({ worst, std::abs(a.x - b.x), std::abs(a.closeness - b.closeness), std::abs(a.age - b.age) });
+                }
+            }
+            return worst;
+        };
+        const float linked = passGap(true), unlinked = passGap(false);
+        std::cout << "  bus passes A vs B: linked gap " << linked << ", unlinked gap " << unlinked << std::endl;
+        check(linked < 1.0e-4f, "linked buses: B's passes match A's over 20 s (position, closeness, timing)");
+        check(unlinked > 0.05f, "unlinked buses: each bus does its own passes");
+    }
+
+    // Turning LINK on and off mid-pass doesn't click: B fades out, lines up with A, and fades back in.
+    // Two steady sine tones (one per bus, no hits) so any jump in the delay shows as a spike in the
+    // waveform's second difference, far above anything a smoothly moving sine makes.
+    {
+        auto tone = [](double hz)
+        {
+            juce::AudioBuffer<float> b(1, static_cast<int>(4.0 * c_rate));
+            for (int i = 0; i < b.getNumSamples(); ++i)
+                b.setSample(0, i, 0.5f * std::sin(static_cast<float>(juce::MathConstants<double>::twoPi * hz * i / c_rate)));
+            return b;
+        };
+        CargoHold tones;
+        juce::String err;
+        tones.loadFile(0, writeWav(folder, "rig_src_toneA", tone(220.0)), err);
+        tones.loadFile(1, writeWav(folder, "rig_src_toneB", tone(330.0)), err);
+        tones.setRoleOverride(0, static_cast<int>(CargoRole::Tonal)); // bus A
+        tones.setRoleOverride(1, static_cast<int>(CargoRole::Bed));   // bus B
+        tones.setSkipSilence(0, false);
+        tones.setSkipSilence(1, false);
+
+        RigEngine e;
+        e.setCargoHold(&tones);
+        auto q = p;
+        q.chaos = 0.8f;
+        q.rideOn = false;   // steady levels
+        q.fill = 0.0f;
+        q.space = 0.0f;
+        for (auto& b : q.buses) { b.swirl = 0.0f; b.drive = 0.0f; b.low = 0.0f; b.filter = 0.0f; }
+        e.setParams(q);
+        e.prepare(c_rate, c_block);
+        e.setParams(q);
+        juce::AudioBuffer<float> o(2, static_cast<int>(9.0 * c_rate));
+        const int switchOn = static_cast<int>(3.0 * c_rate) / c_block * c_block;
+        const int switchOff = static_cast<int>(6.0 * c_rate) / c_block * c_block;
+        for (int pos = 0; pos < o.getNumSamples(); pos += c_block)
+        {
+            if (pos == switchOn) { q.linkBuses = true; e.setParams(q); }
+            if (pos == switchOff) { q.linkBuses = false; e.setParams(q); }
+            e.process(nullptr, nullptr, o.getWritePointer(0, pos), o.getWritePointer(1, pos), juce::jmin(c_block, o.getNumSamples() - pos));
+        }
+        auto maxCurve = [&](int from, int to)
+        {
+            float m = 0.0f;
+            for (int ch = 0; ch < 2; ++ch)
+                for (int i = from + 2; i < to; ++i)
+                    m = std::max(m, std::abs(o.getSample(ch, i) - 2.0f * o.getSample(ch, i - 1) + o.getSample(ch, i - 2)));
+            return m;
+        };
+        const float normal = maxCurve(static_cast<int>(1.0 * c_rate), switchOn);
+        const float around = std::max(maxCurve(switchOn, switchOn + static_cast<int>(0.2 * c_rate)),
+                                      maxCurve(switchOff, switchOff + static_cast<int>(0.2 * c_rate)));
+        std::cout << "  link switch: sharpest change " << around << " vs " << normal << " in normal play" << std::endl;
+        check(around <= 2.0f * normal, "turning LINK on and off mid-pass doesn't click");
+    }
+
+    // Per-track pitch: VARI on changes the track's speed, VARI off keeps it (through the pitch shifter).
+    {
+        auto run = [&](float semis, bool vari, float& speed, float& rms, bool& finite)
+        {
+            RigEngine e;
+            e.setCargoHold(&hold);
+            auto q = p;
+            q.trackPitch[1] = semis;
+            q.trackVari[1] = vari;
+            e.setParams(q);
+            e.prepare(c_rate, c_block);
+            e.setParams(q);
+            juce::AudioBuffer<float> o(2, static_cast<int>(4.0 * c_rate));
+            for (int pos = 0; pos < o.getNumSamples(); pos += c_block)
+                e.process(nullptr, nullptr, o.getWritePointer(0, pos), o.getWritePointer(1, pos), juce::jmin(c_block, o.getNumSamples() - pos));
+            speed = e.getTrackSpeed(1);
+            rms = o.getRMSLevel(0, static_cast<int>(1.0 * c_rate), static_cast<int>(3.0 * c_rate));
+            finite = true;
+            for (int i = 0; i < o.getNumSamples(); ++i)
+                finite = finite && std::isfinite(o.getSample(0, i)) && std::isfinite(o.getSample(1, i));
+        };
+        float sUp = 0, rUp = 0, sKeep = 0, rKeep = 0, sFlat = 0, rFlat = 0;
+        bool fUp = false, fKeep = false, fFlat = false;
+        run(12.0f, true, sUp, rUp, fUp);
+        run(7.25f, false, sKeep, rKeep, fKeep);
+        run(0.0f, true, sFlat, rFlat, fFlat);
+        std::cout << "  track pitch: VARI +12 speed " << sUp << ", VARI off +7.25 speed " << sKeep
+                  << ", rms " << rFlat << " / " << rUp << " / " << rKeep << std::endl;
+        check(std::abs(sUp - 2.0f) < 0.01f && std::abs(sKeep - 1.0f) < 1.0e-6f && std::abs(sFlat - 1.0f) < 1.0e-6f,
+              "track pitch: VARI changes the track's speed (+12 st = twice as fast), VARI off keeps it");
+        check(fUp && fKeep && fFlat && rUp > 1.0e-4f && rKeep > 1.0e-4f, "track pitch: both modes play, finite");
     }
 
     // Morph between the buses: finite, audible, and the wander-style X sweep doesn't blow up.

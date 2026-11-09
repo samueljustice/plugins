@@ -30,7 +30,14 @@ Swooshbuckler is a standalone app for macOS and Windows, and also a VST3 plug-in
 
 ## Download
 
-Get the latest version from the [releases page](https://github.com/samueljustice/plugins/releases?q=swooshbuckler):
+[![Download Swooshbuckler v1.3.0](https://img.shields.io/badge/download-v1.3.0-d00a35?style=for-the-badge)](https://github.com/samueljustice/plugins/releases/tag/swooshbuckler-v1.3.0)
+
+Or get every Sammy J plug-in at once, Swooshbuckler included, with one installer that always has the newest version of each (its file names carry the date and time it was built):
+
+[![Everything for macOS](https://img.shields.io/badge/Everything_for_macOS-000000?style=flat-square&logo=apple&logoColor=white)](https://github.com/samueljustice/plugins/releases/latest)
+[![Everything for Windows](https://img.shields.io/badge/Everything_for_Windows-0078D6?style=flat-square&logo=windows&logoColor=white)](https://github.com/samueljustice/plugins/releases/latest)
+
+Swooshbuckler's own release (above, or every version on the [releases page](https://github.com/samueljustice/plugins/releases?q=swooshbuckler)) has these files:
 
 | File | What's in it |
 |---|---|
@@ -122,6 +129,8 @@ This is where your sounds live: up to ten files, each on its own looping lane.
 | **Type badge** | The sound type. Click it to change it, or choose **Auto** to go back to the guess. A ` *` means you set it yourself. The type decides the bus: see the table below. |
 | **SKIP SILENCE** | On (the default): only the sounds play and the gaps between them are skipped, so a recording full of pauses becomes a steady source. The sounds are drawn bright and the gaps faint. Off: the whole file loops, silence and all, and the lane reads "silence kept". |
 | **Fader** | The track's level, 0–100%, default 80%. With AUTO RIDE on, it sets how high the ride can take the track. Double-click to reset. Each one is also a host parameter, "Track 1" to "Track 10". |
+| **Semitones / Cents** | The track's own pitch: up to 24 semitones either way, plus up to 100 cents for fine tuning. It adds to the Ride's Pitch knob and glides to a new setting. **Drag up or down** on a box to change it, and **double-click** to reset. Each one is also a host parameter ("Track 1 Semitones", "Track 1 Cents" and so on). Drag a MOD jack onto the Semitones box to modulate the track's pitch; its plugs sit in a row under the box. |
+| **VARI** | On (the default): varispeed, like tape. The pitch and the speed change together, so up an octave also plays twice as fast. Off: the pitch changes and the speed stays the same, through a pitch shifter, which delays that track by about 43 ms. Synced hits allow for both. |
 | **M / S / x** | Mute, solo and remove. A muted track keeps its place in the ride, so it comes straight back in when you unmute it. |
 | **Waveform** | The yellow **flag** marks where the track starts playing. It loops from there, and the part before the flag is dimmed. **Click or drag** on the waveform to move it, and **double-click** to put it back at the top. |
 | **Ride line** | The line across the waveform traces the track's actual level over the last 8 seconds, like an automation lane scrolling past, with a dot at the right for right now. The thin strip left of the waveform shows the level now. Both include the fader, the ride, and mute and solo. |
@@ -166,6 +175,8 @@ This is where the whooshes come from. With AUTO RIDE on, each track's fader rise
 | **Chaos** | 0–100% (40%) | How unpredictable it all is. Low: the rides and passes repeat in a steady pattern. High: each fader wobbles, every pass gets its own length, speed, closeness and direction, and tracks more often jump to a random sound instead of the next one, sometimes starting partway in. |
 | **Pitch** | ±24 semitones (0) | Plays every track higher or lower, like changing tape speed: lower is also slower and heavier. It glides to a new setting and isn't locked to whole semitones. |
 
+Pitch moves every track at once. To pitch one track on its own, with or without changing its speed, use that track's Semitones, Cents and VARI controls in [Tracks](#tracks).
+
 Swell only lifts the faders up to the ride's ceiling, so with AUTO RIDE off (or Energy at 0%) the faders are already there and Swell does nothing you'll hear.
 
 ### Bus A and Bus B
@@ -189,6 +200,7 @@ Bus A ("growls, tones, crackle, rumble - and the key for B") is the aggressive b
 | **Drive** | 15% / 0% | Saturation, from gentle thickening to a hard growl. |
 | **Ducked** (B only) | 40% | How much bus A pushes bus B down when A gets loud. |
 | **Filtered** (B only) | 30% | How much bus A darkens bus B with a low-pass filter when A gets loud, so B goes dark under A rather than just quieter. |
+| **LINK** (in B's title bar) | off | Bus B flies the same doppler passes as bus A: at the same moment, as close, in the same direction, with A's Doppler and Width. The two buses move as one source, for one consistent whoosh. B keeps its own Bend, so its pitch can dive more or less. While linked, B's own Doppler and Width are dimmed, and they come back as you set them when you unlink. Leave it off to keep energy beds on B moving on their own. |
 | **TAKE TURNS** (in B's title bar) | off | Only the louder bus plays at full level and the other ducks under it by the Ducked amount, so they trade places. The other bus has to be clearly louder (about 2 dB) for 30 ms before the turn passes. Off: A always ducks B. |
 
 All the knobs run from 0 to 100%. How bus B gets out of the way (turned down, darkened or just its mids) follows the **DUCK** box in the Hits section, and how fast it comes back follows the Hits **Return** knob.
@@ -199,21 +211,27 @@ The waveform in each title bar shows the last 3 seconds of what that bus sends o
 
 ![Hits](docs/images/hits.png)
 
-Every Impact track plays here, and only when the hit gate opens. The gate listens to buses A and B together. When it opens, the hits jump up and push both buses down out of the way, so each impact punches through the whoosh.
+Every Impact track plays here. The hits jump up and push both buses down out of the way, so each impact punches through the whoosh. There are two ways of timing them:
+
+- **AIM** (on by default): the hits are **aimed at the peaks of the doppler passes** on buses A and B. Each pass is loudest at its middle, when it's closest to you, and that moment is known as soon as the pass starts. So Swooshbuckler looks ahead: when a peak is coming, it decides whether it earns a hit (closer passes on a louder bus score higher, against **Sensitivity**), picks every hit track's next sound, and starts each one early by that sound's own lead-in, so all the transients land right on the peak. It allows for each track's pitch and VARI, and peaks that land together (with LINK, say) fire once. The gate isn't needed, so GATE, Release, Hold, Floor and SYNC HITS rest, and the lamp reads AIMED HITS and flashes on each hit.
+- **The hit gate** (AIM off): the hits play only when the gate opens. The gate listens to buses A and B together.
+
+Sessions saved before AIM existed open with it off, so they keep the gate they were made with.
 
 | Control | Range (default) | What it does |
 |---|---|---|
 | **GATE** box | Peaks / Level / Jumps / Open (Peaks) | What opens the gate. **Peaks**: the loudest moments of the two buses. **Level**: any time they're louder than a level set by Sensitivity. **Jumps**: sudden rises, however loud or quiet. **Open**: no gate, the hits always play. |
 | **DUCK** box | Volume / Darken / Mids (Volume) | How a ducked bus gets out of the way: turned down, low-passed, or only its crowded middle (250 Hz to 4 kHz) turned down. This also applies to bus A ducking bus B. |
-| **Sensitivity** | 0–100% (50%) | How easily the gate opens. Low: only the biggest moments fire the hits. High: they fire often. |
+| **Sensitivity** | 0–100% (50%) | How easily the hits fire. With AIM: which pass peaks get a hit. With the gate: how easily it opens. Low: only the biggest moments. High: often. |
 | **Boost** | −6 to +12 dB (+6 dB) | How much the hits jump up when the gate opens. |
 | **Release** | 60 ms to 1.2 s (459 ms) | How long the hits tail out after the gate shuts. |
 | **Hold** | 0–500 ms (60 ms) | How long the gate stays open after the last trigger. Longer stops it chattering, so each hit reads as one event. |
 | **Floor** | Closed, or −40 to −3 dB (Closed) | How far the gate closes between hits. Closed: the hits vanish between peaks. Turn it up and they stay quietly under the mix. |
 | **Duck** | 0–100% (50%) | How far the hits push buses A and B down when they fire. |
 | **Return** | Fast, or 20 ms to 1 s (Fast) | How fast ducked buses come back up. This also applies to bus A ducking bus B. Slower is smoother, with less pumping. |
-| **HIT GATE** | light | Glows as the gate opens and fades as it closes. |
-| **SYNC HITS** | on / off (off) | Every Impact track fires its next hit on one shared beat, so their transients line up into one big hit. Switching it restarts the hit tracks. See the [hit sync view](#tracks). |
+| **HIT GATE / AIMED HITS** | light | Glows as the gate opens and fades as it closes; with AIM, flashes on each aimed hit. |
+| **AIM** | on / off (on) | Aims the hits at the pass peaks (see above). |
+| **SYNC HITS** | on / off (off), with AIM off | Every Impact track fires its next hit on one shared beat, so their transients line up into one big hit. Switching it restarts the hit tracks. See the [hit sync view](#tracks). |
 
 The waveform in the title bar shows the last 3 seconds of what got through the gate: each spike is a hit, and the gaps are the gate closed.
 
@@ -221,16 +239,23 @@ The waveform in the title bar shows the last 3 seconds of what got through the g
 
 ![Output](docs/images/output.png)
 
-The last stage before your speakers and the tape.
+The last stage before your speakers and the tape. At its left is the **Peak Tremolo**, a tremolo that shakes only the loudest moments: as the level climbs towards its recent peak, past **Threshold**, the tremolo deepens (up to **Depth**), and it lets go as the level falls, so the dynamics flutter where the whoosh is biggest. It comes before Space, so the echoes and reverb carry it.
 
 | Control | Range (default) | What it does |
 |---|---|---|
+| Tremolo **On / Off** | menu (Off) | Switches the peak tremolo. It fades in and out. |
+| Tremolo wave | Sine / Square / Flutter (Sine) | **Sine**: a smooth throb. **Square**: hard chops, like a helicopter. **Flutter**: a random wobble, like wings or a loose flap. |
+| Tremolo shakes | Everything / Buses A + B / Hits (Everything) | What it shakes, and whose level drives it. **Everything**: the whole mix. **Buses A + B**: each bus by its own level, dipping together, while the hits stay solid. **Hits**: only the hits. |
+| **Depth** | 0–100% (50%) | How deep it goes at the very peak. |
+| **Rate** | 1.5–30 Hz | From a slow throb to a buzzing flutter. |
+| **Threshold** | 0–100% (60%) | How near its peak the level has to be before it starts. Low: it shakes most of the time. High: only right at the top. |
 | **Space** | 0–100% (25%) | Echoes, reverb and width around the whole mix: a ping-pong echo, a reverb whose room grows as you turn it up, and stereo widening. At 0% it's off. |
 | **Inflate** | 0–100% (30%) | Louder and denser without new peaks, so quieter detail comes forward. At 0% the sound passes through untouched. |
 | **Push** | 0 to +18 dB (+3 dB) | How hard the mix drives into the limiter. The ceiling stays put, so it can't clip. |
 | **Ceiling** | −12 to 0 dB (−0.3 dB) | The limiter's ceiling: nothing gets out louder than this. The limiter is always on. |
-| **GR** | meter | How much the limiter is turning the sound down right now (a full bar is 12 dB). The number beside the meters is the same thing in dB, and turns coral while the limiter is working. |
-| **OUT** | meter | The output peak level, after the limiter. |
+| **GR** | meter | How much the limiter is turning the sound down right now (a full bar is 12 dB). The number above the meters is the same thing in dB, and turns coral while the limiter is working. |
+| **OUT** | meter | The output peak level, after the limiter and the trim. |
+| **TRIM** | silence to +6 dB (0 dB) | How loud you hear it (and what your DAW gets from the plug-in), after the limiter. The tape and LAST 60s record before it, at full level, so turning it down never makes a quieter take. Double-click to reset. |
 
 If the gain reduction number is coral all the time, back off Push or raise Ceiling.
 
@@ -294,9 +319,11 @@ The defaults are MOD 1: LFO (Sine), MOD 2: LFO (Triangle), MOD 3: Random, MOD 4:
 ![Cables](docs/images/cables.png)
 
 - **Drag from a modulator's jack** (the round socket at its top left) onto a knob. A cable follows the mouse, and the knob under it lights up; drop it there to wire it. Drop it anywhere else to cancel. Drag from the same jack again to wire more knobs.
-- You can wire every knob in Ride, Bus A, Bus B, Hits and Output. You can't wire the morph pad, the track faders, or the modulators' own knobs.
+- You can wire every knob in Ride, Bus A, Bus B, Hits and Output (the Peak Tremolo's included), and each track's **Semitones** box, which modulates that track's pitch smoothly (a 100% wire swings two octaves). You can't wire the morph pad, the track faders, or the modulators' own knobs.
 - Each wire leaves a **plug**, a small coloured dot on the knob's rim, and draws an arc showing how far it moves the knob:
-  - **Drag the plug up or down** to set the depth, from −100% to +100%. New wires start at +50%. Hold Shift for fine control.
+  - **Cmd-drag the control itself** (Ctrl-drag on Windows) to set the depth of its newest wire: up for more, down through zero for negative (the wire then moves the control the other way). A bubble shows the amount. Hold Shift for fine control. **Cmd-double-click** (Ctrl on Windows) sets it back to +50%.
+  - Or **drag the plug up or down**, from −100% to +100%. New wires start at +50%. Hold Shift for fine control.
+  - A negative depth draws its arc **dashed**, so you can see at a glance which way a wire pushes.
   - **Double-click** a plug to set it to +50%.
   - **Right-click** a plug for a menu: Invert, Depth 25%, 50% or 100%, or Pull Out the Wire.
   - **Alt-click** a plug to pull the wire out straight away.
@@ -346,9 +373,9 @@ The factory presets are **Steady Energy**, **Jet Passes**, **Monster Swells**, *
 
 Presets and RANDOMISE set the sound, not your session. They leave these alone:
 
-- your tracks and their levels
-- Inflate, Push and Ceiling
-- AUTO RIDE, SYNC HITS, the GATE and DUCK modes, and TAKE TURNS
+- your tracks, their levels and each track's pitch and VARI
+- Inflate, Push, Ceiling, TRIM and the Peak Tremolo
+- AUTO RIDE, AIM, SYNC HITS, the GATE and DUCK modes, TAKE TURNS and LINK
 - the morph's ON switch, wander, shape and speed
 - the modulators and their wires
 
@@ -373,6 +400,9 @@ Anything else a preset doesn't set goes back to its default. **Back to Defaults*
 - **Gappy recordings** (single swishes, takes with pauses) work best with SKIP SILENCE on and a little Fill.
 - **For tight synced hits**, put two or three impacts on HITS, turn on SYNC HITS and raise Boost.
 - **For monster passes**, lower Pitch, raise Low End and Bend, and slow the Rate.
+- **Two takes of one sound**: load the same file on two tracks and detune one by 10 to 20 cents with VARI off, for a thicker, chorused layer.
+- **Keep a hit's timing but change its size**: pitch an impact down with VARI off and it lands on the same beat, just heavier.
+- **For one clean pass instead of two layers flying about**, turn on LINK so bus B follows bus A's passes. Turn it off when B carries a bed that should keep moving on its own.
 - **If the buses fight**, turn on TAKE TURNS, or raise Ducked and Filtered on bus B.
 - **Record at 96 or 192 kHz** if you plan to pitch the whooshes down later.
 - **Leave the tape armed** while you play with the controls. It only writes when there's sound, so you just need to listen back for the good ones.
@@ -417,6 +447,8 @@ git push origin swooshbuckler-v1.0.0
 ```
 
 The number in the tag becomes the version everywhere: the About panel, the bundles and both installers.
+
+When the release finishes, the combined Sammy J installer ([build-release_bundle.yml](../.github/workflows/build-release_bundle.yml)) rebuilds itself with the new version, so the "Everything" downloads pick it up. Bump the download button at the top of this README and the root README to the new version.
 
 - **macOS**: uses the same signing secrets as the other plug-ins. The p12 must hold both the Developer ID Application and the Developer ID Installer certificates. `APPLE_ID`, `APPLE_APP_PASSWORD` and `APPLE_TEAM_ID` are for notarisation.
 - **Windows**: add `WINDOWS_CERTIFICATE_PFX_BASE64` and `WINDOWS_CERTIFICATE_PASSWORD` (a code-signing certificate as base64 .pfx) to sign the app, the VST3 and the installer. Without them the Windows build is unsigned.

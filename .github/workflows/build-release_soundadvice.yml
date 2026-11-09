@@ -418,6 +418,18 @@ jobs:
         (cd windows-files/app && zip -q "../../release/SoundAdvice-$VERSION-Windows-App.zip" "Sound Advice.exe")
         ls -la release
 
+    # GitHub's generated notes compare with the newest release of ANY kind, which is often the
+    # combined installer (bundle-v...) or another plug-in. Compare with this plug-in's own last release.
+    - name: Find this plug-in's previous release
+      id: previous
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        PREV=$(gh release list -R "$GITHUB_REPOSITORY" --limit 200 --exclude-drafts --json tagName --jq '.[].tagName' \
+          | grep -E '^soundadvice-v[0-9]+\.[0-9]+\.[0-9]+$' | grep -vxF "$GITHUB_REF_NAME" | sort -V | tail -1 || true)
+        echo "Comparing with: ${PREV:-(none)}"
+        echo "tag=$PREV" >> "$GITHUB_OUTPUT"
+
     - name: Create release
       uses: softprops/action-gh-release@v3
       with:
@@ -428,7 +440,7 @@ jobs:
         body: |
           ## Sound Advice ${{ env.VERSION }}
 
-          A quiet page of advice from the great film, TV and game sound designers and mixers. Pick a category, roll the die. VST3 and AU plug-ins, plus a standalone app.
+          A quiet page of advice from the great creative people behind film, TV and game sound: sound designers, mixers, editors, audio directors and a Disney Imagineer. Pick a category, roll the die. VST3 and AU plug-ins, plus a standalone app.
 
           ### Downloads
           - **macOS installer** (`.pkg`): the app, VST3 and AU. Choose which with Customize.
@@ -440,5 +452,6 @@ jobs:
 
           See the [Sound Advice README](https://github.com/${{ github.repository }}/tree/main/soundadvice) for how to use it.
         generate_release_notes: true
+        previous_tag: ${{ steps.previous.outputs.tag }}
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

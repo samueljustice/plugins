@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.21)
 
 # The one place the version lives. Release builds pass -DSOUNDADVICE_VERSION=x.y.z (from the
 # soundadvice-vx.y.z tag); it ends up in the bundles, the installers and the footer.
-set(SOUNDADVICE_VERSION "1.0.6" CACHE STRING "Sound Advice version (major.minor.patch)")
+set(SOUNDADVICE_VERSION "1.0.11" CACHE STRING "Sound Advice version (major.minor.patch)")
 project(SoundAdvice VERSION ${SOUNDADVICE_VERSION})
 
 set(CMAKE_CXX_STANDARD 20)

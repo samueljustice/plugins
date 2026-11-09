@@ -124,7 +124,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout PitchFlattenerAudioProcessor
                                                         AudioParameterFloatAttributes().withLabel ("ms").withStringFromValueFunction (ms)));
     p.push_back (std::make_unique<AudioParameterFloat> (pid (ParamIDs::flattenAmount), "Flatten Amount", NormalisableRange<float> (0.0f, 100.0f, 1.0f), 100.0f,
                                                         AudioParameterFloatAttributes().withLabel ("%").withStringFromValueFunction (pct)));
-    p.push_back (std::make_unique<AudioParameterFloat> (pid (ParamIDs::maxShift), "Max Shift", NormalisableRange<float> (1.0f, 24.0f, 0.5f), 12.0f,
+    p.push_back (std::make_unique<AudioParameterFloat> (pid (ParamIDs::maxShift), "Max Shift", NormalisableRange<float> (1.0f, 24.0f, 0.5f), d.maxShiftSemitones,
                                                         AudioParameterFloatAttributes().withLabel ("st")
                                                             .withStringFromValueFunction ([] (float v, int) { return String (v, 1) + " st"; })));
     p.push_back (std::make_unique<AudioParameterBool> (pid (ParamIDs::manualOverride), "Manual Override", false));
@@ -168,6 +168,25 @@ pf::LiveSettings PitchFlattenerAudioProcessor::readLiveSettings() const
     s.mix = raw.mix->load();
     s.formantPreserve = raw.rbFormantPreserve->load() > 0.5f;
     return s;
+}
+
+pf::ProcessingSettings PitchFlattenerAudioProcessor::getProcessingSettings() const
+{
+    pf::ProcessingSettings s;
+    s.live = readLiveSettings();
+    const auto c = wantedDetectorConfig();
+    s.detector = c.type;
+    s.minHz = c.minHz;
+    s.maxHz = c.maxHz;
+    s.quality = (int) raw.quality->load();
+    s.highpassHz = raw.detectionHighpass->load();
+    s.lowpassHz = raw.detectionLowpass->load();
+    return s;
+}
+
+int PitchFlattenerAudioProcessor::getSourceType() const
+{
+    return juce::jlimit (0, (int) pf::SourceType::NumSourceTypes - 1, juce::roundToInt (raw.sourceType->load()));
 }
 
 void PitchFlattenerAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
@@ -286,6 +305,7 @@ void PitchFlattenerAudioProcessor::applySourceTypeDefaults (pf::SourceType type)
     set (ParamIDs::detectionLowpass, p.lowpassHz);
     set (ParamIDs::rbFormantPreserve, p.formant ? 1.0f : 0.0f);
     set (ParamIDs::quality, (float) p.quality);
+    set (ParamIDs::maxShift, p.maxShiftSemitones);
 }
 
 //==============================================================================

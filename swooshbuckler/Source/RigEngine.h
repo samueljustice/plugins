@@ -3,6 +3,7 @@
 #include <JuceHeader.h>
 #include "Cargo.h"
 #include "ScopeRing.h"
+#include "PitchShifter.h"
 #include "DspUtils.h"
 #include "SpectralMorph.h"
 
@@ -62,6 +63,8 @@ public:
         float pitch = 0.0f;    // semitones, every track
         float input = 0.0f;    // the audio input, mixed into bus A
         std::array<float, c_tracks> levels { 0.8f, 0.8f, 0.8f, 0.8f, 0.8f, 0.8f, 0.8f, 0.8f, 0.8f, 0.8f };
+        std::array<float, c_tracks> trackPitch {}; // semitones (cents included), each track on its own
+        std::array<bool, c_tracks> trackVari { true, true, true, true, true, true, true, true, true, true }; // off = keep the speed
 
         std::array<BusParams, c_maxBuses> buses { BusParams { 0.55f, 0.8f, 0.7f, 0.35f, 0.2f, 0.3f, 0.15f, 0.0f, 0.0f },
                                                   BusParams { 0.4f, 0.8f, 0.6f, 0.2f, 0.3f, 0.4f, 0.0f, 0.4f, 0.3f } };
@@ -78,6 +81,15 @@ public:
         int duckMode = 0;        // 0 Volume 1 Darken (low-pass the ducked bus) 2 Mids (duck only 250 Hz..4 kHz)
         float duckReturn = 0.0f; // 0 = fast (original) .. 1 = ducked buses take 1 s to come back
         bool takeTurns = false;  // A and B: only the louder one speaks, the other ducks under it
+        bool linkBuses = false;  // B flies A's doppler passes, with A's Doppler and Width (its own Bend)
+        bool hitAim = true;      // fire the hits so their transients land on the pass peaks (gate open)
+        // Peak tremolo: deepens as the level nears its recent peak.
+        bool tremOn = false;         // off: the tremolo fades out
+        float tremDepth = 0.5f;      // 0..1
+        float tremRate = 0.5f;       // 0..1 -> 1.5..30 Hz
+        float tremThreshold = 0.6f;  // 0..1: how close to the peak it starts
+        int tremShape = 0;           // 0 Sine, 1 Square, 2 Flutter
+        int tremTarget = 0;          // 0 everything, 1 buses A + B, 2 hits
 
         float space = 0.25f;
         bool swell = false;    // held: every fader rides up
@@ -119,6 +131,8 @@ public:
     /** Little waveforms for the section scopes: 0 = bus A, 1 = bus B, 2 = the hits (what each adds to the mix). */
     const ScopeRing& getScope(int which) const { return m_scopes[static_cast<size_t>(std::clamp(which, 0, 2))]; }
     float getBusLevel(int bus) const { return m_busView[static_cast<size_t>(bus)].load(std::memory_order_relaxed); }
+    /** A track's own VARI speed (1 = as the global Pitch plays it; 1 for VARI off), for the hit sync view. */
+    float getTrackSpeed(int track) const { return m_trackSpeedView[static_cast<size_t>(track)].load(std::memory_order_relaxed); }
 
     /** Audio thread: RMS of bus A, bus B and the hits (what each adds to the mix) since the last call, for the
         Follower modulators. */
@@ -131,6 +145,8 @@ private:
     {
         double time = 0.0;
         float length = 3.0f, mach = 0.2f, closest = 0.02f, dir = 1.0f, closeness = 0.5f;
+        float machBase = 0.2f; // the pass's speed before Bend (a linked bus applies its own Bend to the shared pass)
+        bool aimed = false;    // AIM has decided about this pass's peak
         sj::OnePole airL, airR;
         float view = 0.0f, x = 0.0f;
     };
@@ -169,7 +185,13 @@ private:
 
     void startPass(Head& h, const BusParams& p);
     void renderTracks(const float* inL, const float* inR, int offset, int frames);
-    void renderBus(BusState& bus, int frames, float keyEnv, bool isKeyBus);
+    /** lead / leadStart: with the buses linked, bus A's passes as they are now (after A rendered this chunk) and as
+        they were at the start of it; B follows them instead of rolling its own. nullptr when not linked. */
+    void renderBus(BusState& bus, int frames, float keyEnv, bool isKeyBus,
+                   const std::array<Head, 2>* lead = nullptr, const std::array<Head, 2>* leadStart = nullptr);
+    /** newPass: also take the pass's speed at this bus's Bend (set once per pass, as unlinked); otherwise just keep
+        in step with the lead (the speed stays, so moving Bend mid-pass never steps the delay). */
+    static void followPass(Head& h, const Head& from, float bend, bool newPass);
     static void snapBus(BusState& bus, const BusParams& p);
     void renderHits(int frames);
     void renderSpace(int frames);
@@ -209,7 +231,23 @@ private:
     void duckSample(BusState::Duck& d, float target, float returnCoef, float& l, float& r);
     float m_peakRef = 1.0e-3f, m_average = 0.0f, m_gate = 0.0f, m_hold = 0.0f;
     double m_hitClock = 0.0;     // samples to the next synced hit
-    bool m_lastHitSync = false;
+    // Peak tremolo, one per thing it can shake: 0 the whole mix, 1 bus A, 2 bus B, 3 the hits.
+    struct PeakTremolo
+    {
+        double phase = 0.0;
+        float env = 0.0f, peak = 1.0e-4f, depth = 0.0f;
+        float from = 0.5f, to = 0.5f;  // Flutter: the random levels it glides between each cycle
+        sj::Random rng;                // its own, so a copy of this state draws the same Flutter
+    };
+    std::array<PeakTremolo, 4> m_trem;
+    float m_tremAttack = 0.0f, m_tremRelease = 0.0f, m_tremPeakDecay = 0.0f, m_tremDepthUp = 0.0f, m_tremDepthDown = 0.0f;
+    /** selected: this is what the tremolo shakes now. The others keep following their level and their LFO so a switch
+        (or turning it on) starts from the present, and they fade out instead of stopping dead. */
+    void applyTremolo(PeakTremolo& t, float* l, float* r, int frames, bool selected);
+
+    int m_lastHitTiming = -1;            // 0 gate, 1 sync beat, 2 aimed at pass peaks
+    double m_aimClock = 0.0;             // samples rendered (for telling aimed peaks apart)
+    double m_lastAimTarget = -1.0e12;    // when the last aimed peak lands (m_aimClock samples)
     sj::Svf m_hitsTone;
 
     // Mix + space
@@ -229,6 +267,20 @@ private:
     std::atomic<int> m_hitBeatView { 0 };
     std::atomic<double> m_hitPreView { 0.0 }, m_hitPostView { 0.0 };
     std::array<ScopeRing, 3> m_scopes;
+    std::array<Head, 2> m_leadStart {}; // bus A's passes at the start of the chunk (linked buses)
+    bool m_linkNow = false;             // the link in use: a change fades bus B out, swaps, and fades it back in
+    float m_linkFade = 1.0f;
+
+    // Per-track pitch: semitones glide; VARI on changes the playback speed, off goes through a pitch shifter.
+    std::array<PitchShifter, c_tracks> m_shifters;
+    std::array<float, c_tracks> m_trackPitchNow {};  // smoothed semitones
+    std::array<bool, c_tracks> m_variNow {};         // the mode in use (a switch fades out, swaps, fades in)
+    std::array<float, c_tracks> m_modeGain {};       // that fade, 0..1
+    std::array<int, c_tracks> m_modeHold {};         // samples to stay silent after switching to the shifter
+    std::array<bool, c_tracks> m_shifterUsed {};     // the shifter holds sound (flushed once when the track empties)
+    float m_trackPitchGlide = 0.1f;                  // per-chunk smoothing coefficient
+    std::array<std::atomic<float>, c_tracks> m_trackSpeedView {};
+    float trackSpeed(int track) const;               // VARI ratio of a track right now (1 when VARI is off)
     std::array<double, 3> m_sectionSquares {}; // sums for takeSectionLevels()
     int m_sectionSamples = 0;
     std::array<float, 3> m_sectionLevels {};

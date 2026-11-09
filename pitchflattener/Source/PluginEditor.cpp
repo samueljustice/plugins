@@ -333,6 +333,9 @@ PitchFlattenerAudioProcessorEditor::Content::Content (PitchFlattenerAudioProcess
     addAndMakeVisible (m_display);
     addAndMakeVisible (m_presetBar);
 
+    // The wobble warning's "Try ..." button picks a Source Type exactly as the Source menu does.
+    m_display.onTrySourceType = [this] (int type) { userPickedSourceType (type); };
+
     m_aboutButton.onClick = [this] { showAbout(); };
     m_aboutButton.setTooltip ("About SammyJs Pitch Flattener");
     addAndMakeVisible (m_aboutButton);
@@ -341,7 +344,7 @@ PitchFlattenerAudioProcessorEditor::Content::Content (PitchFlattenerAudioProcess
     setupSourceType();
     setupChoice (m_detectorCombo, ParamIDs::detector, detect,
                  "Detector: the pitch detection algorithm. Each Source Type picks one; change it here to override. "
-                 "pYIN suits voices, MPM solo instruments, Spectral Peak sirens and tones, Harmonic Sum engines and drones.",
+                 "pYIN suits voices, MPM solo instruments, Spectral Peak tones, Spectral + MPM sirens, Harmonic Sum engines and drones.",
                  m_detectorAttachment);
 
     // --- Target ------------------------------------------------------------

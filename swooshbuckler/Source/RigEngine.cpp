@@ -13,6 +13,12 @@ namespace
 }
 
 //==============================================================================
+float RigEngine::trackSpeed(int track) const
+{
+    const auto t = static_cast<size_t>(track);
+    return m_variNow[t] ? std::exp2(m_trackPitchNow[t] / 12.0f) : 1.0f;
+}
+
 std::array<float, 3> RigEngine::takeSectionLevels()
 {
     // Nothing rendered since the last call (the resampler can skip a block): keep the last levels.
@@ -44,8 +50,17 @@ void RigEngine::prepare(double sampleRate, int maxBlockSize)
     for (auto* s : { &m_fillSpring, &m_spaceSpring, &m_inputSpring })
         s->prepare(controlRate, 2.0f, 0.8f);
 
+    m_trackPitchGlide = 1.0f - std::exp(-static_cast<float>(c_chunk) / (0.04f * m_fs)); // ~40 ms
+    // Peak tremolo: a follower (5 ms up, 120 ms down) against a peak that falls back over ~3 s; the depth eases in
+    // over ~15 ms and out over ~150 ms.
+    m_tremAttack = 1.0f - std::exp(-1.0f / (0.005f * m_fs));
+    m_tremRelease = 1.0f - std::exp(-1.0f / (0.12f * m_fs));
+    m_tremPeakDecay = std::exp(-1.0f / (3.0f * m_fs));
+    m_tremDepthUp = 1.0f - std::exp(-1.0f / (0.015f * m_fs));
+    m_tremDepthDown = 1.0f - std::exp(-1.0f / (0.15f * m_fs));
     for (int t = 0; t < c_tracks; ++t)
     {
+        m_shifters[static_cast<size_t>(t)].prepare(sampleRate);
         m_players[static_cast<size_t>(t)].prepare(sampleRate);
         m_fillLines[static_cast<size_t>(t)].prepare(static_cast<int>(2.2f * m_fs));
         m_fillTone[static_cast<size_t>(t)].set(6000.0f, m_fs);
@@ -89,6 +104,17 @@ void RigEngine::prepare(double sampleRate, int maxBlockSize)
 void RigEngine::reset()
 {
     for (auto& p : m_players) p.reset();
+    for (auto& t : m_trem) t = PeakTremolo {};
+    for (size_t t = 0; t < m_shifters.size(); ++t)
+    {
+        m_trackPitchNow[t] = m_params.trackPitch[t];
+        m_shifters[t].reset(std::exp2(m_trackPitchNow[t] / 12.0f), static_cast<float>(t) / static_cast<float>(c_tracks)); // staggered frames
+        m_modeHold[t] = 0;
+        m_shifterUsed[t] = false;
+        m_variNow[t] = m_params.trackVari[t];
+        m_modeGain[t] = 1.0f;
+        m_trackSpeedView[t].store(trackSpeed(static_cast<int>(t)), std::memory_order_relaxed);
+    }
     m_pendingHitRegion.fill(-1);
     m_beatViewWait = -1.0;
     m_sectionSquares = {};
@@ -113,8 +139,19 @@ void RigEngine::reset()
         startPass(bus.heads[0], m_params.buses[i]);
         startPass(bus.heads[1], m_params.buses[i]);
         bus.heads[1].time = 0.5 * bus.heads[1].length;
-        snapBus(bus, m_params.buses[i]);
+        // Linked: B starts on A's Doppler and Width and on A's passes (A was set up just before it).
+        auto snapped = m_params.buses[i];
+        if (m_params.linkBuses && i > 0)
+        {
+            snapped.doppler = m_params.buses[0].doppler;
+            snapped.width = m_params.buses[0].width;
+            for (size_t k = 0; k < bus.heads.size(); ++k)
+                followPass(bus.heads[k], m_buses[0].heads[k], snapped.bend, true);
+        }
+        snapBus(bus, snapped);
     }
+    m_linkNow = m_params.linkBuses;
+    m_linkFade = 1.0f;
 
     m_echoL.reset(); m_echoR.reset();
     m_reverb.reset();
@@ -154,8 +191,10 @@ void RigEngine::setParams(const Params& p)
 
     for (size_t i = 0; i < m_buses.size(); ++i)
     {
+        // Linked: bus B takes bus A's Doppler and Width (it keeps its own settings for when they're unlinked).
         const auto& b = p.buses[i];
-        const float v[9] = { b.doppler, b.width, b.bend, b.low, b.swirl, b.filter, b.drive, b.duck, b.key };
+        const auto& lead = (p.linkBuses && i > 0) ? p.buses[0] : b;
+        const float v[9] = { lead.doppler, lead.width, b.bend, b.low, b.swirl, b.filter, b.drive, b.duck, b.key };
         for (size_t k = 0; k < 9; ++k)
             m_buses[i].springs[k].target = v[k];
     }
@@ -202,11 +241,28 @@ void RigEngine::startPass(Head& h, const BusParams& p)
     h.time = 0.0;
     h.length = sj::clamp(sj::lerp(6.0f, 1.6f, m_params.rate) * std::exp2(c * 0.5f * m_rng.gauss()), 0.8f, 8.0f);
     // Bend scales the speed (= the doppler pitch bend); the pass still swells and pans as set by Doppler and Width.
-    h.mach = sj::clamp(0.42f * std::pow(d, 1.3f) * (1.0f + c * 0.6f * m_rng.bipolar()) * sj::clamp(p.bend, 0.0f, 1.0f), 0.0f, 0.5f);
+    h.machBase = 0.42f * std::pow(d, 1.3f) * (1.0f + c * 0.6f * m_rng.bipolar());
+    h.mach = sj::clamp(h.machBase * sj::clamp(p.bend, 0.0f, 1.0f), 0.0f, 0.5f);
     h.mach = std::min(h.mach, c_maxPassDelay / (0.5f * h.length));
     h.closeness = sj::clamp(0.55f + 0.45f * d * m_rng.bipolar() * (0.4f + c), 0.0f, 1.0f);
     h.closest = 0.004f * std::exp2(5.0f * (1.0f - h.closeness));
     h.dir = m_rng.bipolar() >= 0.0f ? 1.0f : -1.0f;
+    h.aimed = false;
+}
+
+void RigEngine::followPass(Head& h, const Head& from, float bend, bool newPass)
+{
+    // The same pass as the lead bus (when, how long, how close, which way), at this bus's own Bend.
+    h.time = from.time;
+    h.length = from.length;
+    h.machBase = from.machBase;
+    h.closest = from.closest;
+    h.closeness = from.closeness;
+    h.dir = from.dir;
+    if (newPass)
+        h.aimed = false;
+    if (newPass)
+        h.mach = std::min(sj::clamp(h.machBase * sj::clamp(bend, 0.0f, 1.0f), 0.0f, 0.5f), c_maxPassDelay / (0.5f * h.length));
 }
 
 void RigEngine::renderTracks(const float* inL, const float* inR, int offset, int frames)
@@ -227,18 +283,58 @@ void RigEngine::renderTracks(const float* inL, const float* inR, int offset, int
     const float morphMix = sj::clamp(m_morphMix.step(), 0.0f, 1.0f);
     const bool morphing = morphMix > 1.0e-4f;
 
-    // Hit sync: one shared beat for every hit track; each fires its next sound so the transients
-    // (the regions' focus points) land together. Switching it either way restarts the hit tracks.
-    const bool hitSync = m_params.hitSync;
-    if (hitSync != m_lastHitSync)
+    // Each track's own pitch, settled before the hit window below (which depends on every track's speed and mode).
+    // The pitch glides to a new setting. A VARI switch fades the track out (~15 ms) and swaps the mode; switching to
+    // the shifter then waits for its latency (its delay line refills) before fading back in, so neither a jump in
+    // speed nor a step in the delayed sound is heard as a click.
+    std::array<float, c_tracks> modeFrom {}, modeTo {};
     {
-        m_lastHitSync = hitSync;
+        const float modeStep = static_cast<float>(frames) / (0.015f * m_fs);
+        for (size_t ti = 0; ti < static_cast<size_t>(c_tracks); ++ti)
+        {
+            auto& now = m_trackPitchNow[ti];
+            const float want = m_params.trackPitch[ti];
+            now += (want - now) * m_trackPitchGlide;
+            if (std::abs(want - now) < 1.0e-4f)
+                now = want;
+
+            auto& gain = m_modeGain[ti];
+            modeFrom[ti] = gain;
+            if (m_params.trackVari[ti] != m_variNow[ti])
+            {
+                gain = std::max(0.0f, gain - modeStep);
+                if (gain <= 0.0f)
+                {
+                    m_variNow[ti] = m_params.trackVari[ti];
+                    m_shifters[ti].reset(std::exp2(now / 12.0f), static_cast<float>(ti) / static_cast<float>(c_tracks));
+                    m_modeHold[ti] = m_variNow[ti] ? 0 : m_shifters[ti].getLatencySamples();
+                }
+            }
+            else if (m_modeHold[ti] > 0)
+                m_modeHold[ti] = std::max(0, m_modeHold[ti] - frames);
+            else
+                gain = std::min(1.0f, gain + modeStep);
+            modeTo[ti] = gain;
+            m_trackSpeedView[ti].store(trackSpeed(static_cast<int>(ti)), std::memory_order_relaxed);
+        }
+    }
+
+    // Hit timing. AIM: the hits are fired so their transients land on the buses' pass peaks. SYNC HITS: on one
+    // shared beat. Otherwise they loop through the hit gate. Either cued mode fires every hit track's next sound
+    // together, started early by that sound's own lead-in. Switching between them restarts the hit tracks.
+    const bool aim = m_params.hitAim;
+    const bool hitSync = m_params.hitSync && ! aim;
+    const int timing = aim ? 2 : (hitSync ? 1 : 0);
+    if (timing != m_lastHitTiming)
+    {
+        m_lastHitTiming = timing;
         m_hitClock = 0.0;
+        m_lastAimTarget = -1.0e12;
         for (int t = 0; t < c_tracks; ++t)
             if (m_cargo != nullptr && m_cargo->getBus(t) == CargoHold::c_hitsBus)
                 m_players[static_cast<size_t>(t)].reset();
     }
-    // The last cued beat reaches its transients: publish it for the track view.
+    // The last cued hit reaches its transients: publish it for the track view.
     if (m_beatViewWait >= 0.0)
     {
         m_beatViewWait -= frames;
@@ -249,8 +345,51 @@ void RigEngine::renderTracks(const float* inL, const float* inR, int offset, int
             m_hitBeatView.fetch_add(1, std::memory_order_relaxed);
         }
     }
-    if (! hitSync)
+    if (timing == 0)
         m_beatViewWait = -1.0;
+
+    // The lead-in and tail the cued hits need: from the regions exactly as each player will fire them (skip silence
+    // off = the whole file is one hit, aligned on its first transient; start markers respected), each track at its own
+    // speed (global Pitch times its own VARI pitch), in output seconds. A VARI-off track is heard later by its
+    // shifter's latency, so it needs that much more lead-in.
+    auto hitWindow = [&](double& maxPre, double& maxPost)
+    {
+        maxPre = maxPost = 0.0;
+        bool any = false;
+        for (int t = 0; t < c_tracks; ++t)
+        {
+            const auto* d = m_cargo->getLive(t);
+            if (d == nullptr || m_cargo->getBus(t) != CargoHold::c_hitsBus)
+                continue;
+            HitWindow w;
+            w.extend(*d, m_cargo->getSkipSilence(t), m_cargo->getStart(t));
+            const double speed = juce::jmax(0.01, static_cast<double>(pitchRatio * trackSpeed(t)));
+            const double lead = m_variNow[static_cast<size_t>(t)]
+                                    ? 0.0 : static_cast<double>(m_shifters[static_cast<size_t>(t)].getLatencySamples()) / m_sampleRate;
+            maxPre = std::max(maxPre, std::min(w.pre / speed, 1.0) + lead);
+            maxPost = std::max(maxPost, w.post / speed);
+            any = true;
+        }
+        if (! any)
+        {
+            const HitWindow none;
+            maxPre = none.pre / juce::jmax(0.01, static_cast<double>(pitchRatio));
+            maxPost = none.post / juce::jmax(0.01, static_cast<double>(pitchRatio));
+        }
+        return any;
+    };
+    auto publishCue = [&](CargoCue& cue, double toPeak, double maxPost)
+    {
+        const double period = std::min(toPeak + maxPost + 0.08, 4.0);
+        cue.active = true;
+        cue.secondsToPeak = toPeak;
+        cue.flightSeconds = period;
+        m_beatViewWait = toPeak * m_sampleRate; // the view moves when the transients land
+        const double ratio = juce::jmax(0.01, static_cast<double>(pitchRatio));
+        m_hitPreView.store(toPeak * ratio, std::memory_order_relaxed);
+        m_hitPostView.store(juce::jmax(0.0, period - toPeak - 0.08) * ratio, std::memory_order_relaxed);
+        return period;
+    };
 
     CargoCue hitCue;
     if (hitSync && m_cargo != nullptr)
@@ -258,30 +397,58 @@ void RigEngine::renderTracks(const float* inL, const float* inR, int offset, int
         m_hitClock -= frames;
         if (m_hitClock <= 0.0)
         {
-            // The window comes from the regions exactly as each player will fire them, so skip silence (off = the
-            // whole file is one hit, aligned on its first transient) and the start markers are respected.
-            HitWindow window;
-            for (int t = 0; t < c_tracks; ++t)
-            {
-                const auto* d = m_cargo->getLive(t);
-                if (d != nullptr && m_cargo->getBus(t) == CargoHold::c_hitsBus)
-                    window.extend(*d, m_cargo->getSkipSilence(t), m_cargo->getStart(t));
-            }
-            const double invPitch = 1.0 / juce::jmax(0.01, static_cast<double>(pitchRatio));
-            double maxPre = window.pre * invPitch, maxPost = window.post * invPitch;
-            maxPre = std::min(maxPre, 1.0);
-            const double period = std::min(maxPre + maxPost + 0.08, 4.0);
-            hitCue.active = true;
-            hitCue.secondsToPeak = maxPre;
-            hitCue.flightSeconds = period;
-            m_hitClock += period * m_sampleRate;
-            m_beatViewWait = maxPre * m_sampleRate; // the view moves when the transients land
-            const double ratio = juce::jmax(0.01, static_cast<double>(pitchRatio));
-            m_hitPreView.store(maxPre * ratio, std::memory_order_relaxed);
-            m_hitPostView.store(juce::jmax(0.0, period - maxPre - 0.08) * ratio, std::memory_order_relaxed);
+            double maxPre = 0.0, maxPost = 0.0;
+            hitWindow(maxPre, maxPost);
+            m_hitClock += publishCue(hitCue, maxPre, maxPost) * m_sampleRate;
         }
     }
-
+    else if (aim && m_cargo != nullptr)
+    {
+        // Look ahead: each doppler pass is loudest at its middle (closest to the listener), which is known as soon as
+        // the pass starts. Once a pass's peak is no further off than the longest lead-in any hit needs, decide whether
+        // it earns a hit (closer passes and a louder bus score higher; Sensitivity sets the bar) and cue every hit
+        // track so its transient lands on it. Peaks that land together (linked buses, overlapping passes) fire once.
+        double maxPre = 0.0, maxPost = 0.0;
+        if (hitWindow(maxPre, maxPost))
+        {
+            const double chunk = static_cast<double>(frames) / m_sampleRate;
+            const float bar = 0.85f * (1.0f - sj::clamp(m_params.hitSense, 0.0f, 1.0f));
+            // One cue per chunk: the nearest peak that earns a hit. A pass is settled (aimed) once it's cued, scored too
+            // low, or found to be a peak already aimed at. Others in range wait for a later chunk, and a bus that's
+            // silent right now is looked at again while its peak is still far enough off.
+            double best = -1.0;
+            Head* bestHead = nullptr;
+            for (auto& bus : m_buses)
+                for (auto& h : bus.heads)
+                {
+                    const double toPeak = 0.5 * static_cast<double>(h.length) - h.time;
+                    if (h.aimed || toPeak <= chunk || toPeak > maxPre + chunk)
+                        continue;
+                    if (bus.env < 0.002f)
+                        continue; // nothing playing on this bus yet: check again next chunk
+                    const float level = sj::clamp(bus.env / std::max(bus.peakRef, 1.0e-4f), 0.0f, 1.0f);
+                    const float score = 0.5f * h.closeness + 0.5f * level;
+                    const double target = m_aimClock + toPeak * m_sampleRate;
+                    if (score < bar || std::abs(target - m_lastAimTarget) < 0.15 * m_sampleRate)
+                    {
+                        h.aimed = true; // not big enough, or the same peak as one already aimed at
+                        continue;
+                    }
+                    if (best < 0.0 || toPeak < best)
+                    {
+                        best = toPeak;
+                        bestHead = &h;
+                    }
+                }
+            if (bestHead != nullptr)
+            {
+                bestHead->aimed = true;
+                m_lastAimTarget = m_aimClock + best * m_sampleRate;
+                publishCue(hitCue, best, maxPost);
+            }
+        }
+    }
+    m_aimClock += frames;
 
     for (int t = 0; t < c_tracks; ++t)
     {
@@ -308,6 +475,11 @@ void RigEngine::renderTracks(const float* inL, const float* inR, int offset, int
         if (data == nullptr && m_gain[ti] < 1.0e-5f)
         {
             m_gain[ti] = 0.0f;
+            if (m_shifterUsed[ti]) // emptied while VARI was off: drop the old sound still inside the shifter (once)
+            {
+                m_shifters[ti].reset(std::exp2(m_trackPitchNow[ti] / 12.0f), static_cast<float>(t) / static_cast<float>(c_tracks));
+                m_shifterUsed[ti] = false;
+            }
             m_players[ti].render(nullptr, CargoRole::Bed, true, 1.0f, chaos, m_rng, 0.6f, CargoCue {}, m_trackScratch.data(), frames);
             m_hitRegionView[ti].store(-1, std::memory_order_relaxed);
             m_pendingHitRegion[ti] = -1;
@@ -329,14 +501,28 @@ void RigEngine::renderTracks(const float* inL, const float* inR, int offset, int
             m_fillAmount[ti] = sj::clamp(1.2f * (1.0f - m_coverage[ti]) + 0.15f, 0.0f, 1.0f);
         }
 
+        const float modeGain0 = modeFrom[ti], modeGain1 = modeTo[ti];
+        const bool vari = m_variNow[ti];
+        const float ownRatio = std::exp2(m_trackPitchNow[ti] / 12.0f);
+
         const bool skip = m_cargo == nullptr || m_cargo->getSkipSilence(t);
         m_players[ti].setStart(m_cargo != nullptr ? m_cargo->getStart(t) : 0.0f);
-        const float rate = pitchRatio;
-        const bool syncedHit = hitSync && m_cargo != nullptr && m_cargo->getBus(t) == CargoHold::c_hitsBus;
+        const float rate = pitchRatio * (vari ? ownRatio : 1.0f);
+        const bool syncedHit = timing != 0 && m_cargo != nullptr && m_cargo->getBus(t) == CargoHold::c_hitsBus;
         if (syncedHit)
-            m_players[ti].render(data, CargoRole::Impact, skip, rate, chaos, m_rng, 0.15f, hitCue, m_trackScratch.data(), frames);
+        {
+            CargoCue cue = hitCue;
+            if (cue.active && ! vari) // heard later by the shifter's latency: fire that much earlier
+                cue.secondsToPeak = std::max(0.0, cue.secondsToPeak - static_cast<double>(m_shifters[ti].getLatencySamples()) / m_sampleRate);
+            m_players[ti].render(data, CargoRole::Impact, skip, rate, chaos, m_rng, 0.15f, cue, m_trackScratch.data(), frames);
+        }
         else
             m_players[ti].render(data, CargoRole::Bed, skip, rate, chaos, m_rng, 0.6f, CargoCue {}, m_trackScratch.data(), frames);
+        if (! vari)
+        {
+            m_shifters[ti].process(m_trackScratch.data(), m_trackScratch.data(), frames, ownRatio);
+            m_shifterUsed[ti] = true;
+        }
         if (! syncedHit)
         {
             m_hitRegionView[ti].store(-1, std::memory_order_relaxed);
@@ -360,8 +546,9 @@ void RigEngine::renderTracks(const float* inL, const float* inR, int offset, int
                                                        + 0.35f * line.readLinear(1.0f * m_fs)
                                                        + 0.25f * line.readLinear(2.0f * m_fs));
             line.push(x + 0.3f * delayed);
-            const float y = x + fillAmount * delayed;
-            const float g = g0 + (target - g0) * (static_cast<float>(i + 1) * invFrames);
+            const float frac = static_cast<float>(i + 1) * invFrames;
+            const float y = (x + fillAmount * delayed) * (modeGain0 + (modeGain1 - modeGain0) * frac);
+            const float g = g0 + (target - g0) * frac;
             dest[i] += y * g;
         }
         m_gain[ti] = target;
@@ -398,7 +585,8 @@ void RigEngine::renderTracks(const float* inL, const float* inR, int offset, int
         }
 }
 
-void RigEngine::renderBus(BusState& bus, int frames, float keyEnv, bool isKeyBus)
+void RigEngine::renderBus(BusState& bus, int frames, float keyEnv, bool isKeyBus,
+                          const std::array<Head, 2>* lead, const std::array<Head, 2>* leadStart)
 {
     BusParams p;
     p.doppler = sj::clamp(bus.springs[0].step(), 0.0f, 1.0f);
@@ -421,9 +609,15 @@ void RigEngine::renderBus(BusState& bus, int frames, float keyEnv, bool isKeyBus
     std::fill(bus.l.begin(), bus.l.begin() + frames, 0.0f);
     std::fill(bus.r.begin(), bus.r.begin() + frames, 0.0f);
 
+    // Linked: line up with bus A's passes as they were at the start of this chunk (A has already rendered it).
+    if (leadStart != nullptr)
+        for (size_t k = 0; k < bus.heads.size(); ++k)
+            followPass(bus.heads[k], (*leadStart)[k], p.bend, false);
+
     // Doppler: two overlapping passes (sine windows half a pass apart keep the power steady).
-    for (auto& h : bus.heads)
+    for (size_t k = 0; k < bus.heads.size(); ++k)
     {
+        auto& h = bus.heads[k];
         {
             const double s = (h.time / h.length - 0.5) * h.length;
             const float x = h.dir * h.mach * static_cast<float>(s);
@@ -438,7 +632,16 @@ void RigEngine::renderBus(BusState& bus, int frames, float keyEnv, bool isKeyBus
         for (int i = 0; i < frames; ++i)
         {
             if (h.time >= h.length)
-                startPass(h, p);
+            {
+                if (lead != nullptr)
+                {
+                    // Take the pass bus A started at this same moment (it rendered this chunk first).
+                    followPass(h, (*lead)[k], p.bend, true);
+                    h.time = 0.0;
+                }
+                else
+                    startPass(h, p);
+            }
 
             const float u = static_cast<float>(h.time / h.length);
             const double s = (h.time / h.length - 0.5) * h.length;
@@ -659,7 +862,7 @@ void RigEngine::renderHits(int frames)
     const float attack = coef(2.0f, m_fs);
     const float holdTime = 0.5f * sj::clamp(m_params.hitHold, 0.0f, 1.0f);
     const float floorGain = m_params.hitFloor > 0.001f ? sj::dbToGain(-40.0f + 37.0f * sj::clamp(m_params.hitFloor, 0.0f, 1.0f)) : 0.0f;
-    const int mode = m_params.gateMode;
+    const int mode = m_params.hitAim ? 3 : m_params.gateMode; // AIM times the hits itself: the gate stays open
     const float levelThreshold = sj::dbToGain(-12.0f - 30.0f * sense);       // Level: a fixed level (-12 .. -42 dBFS)
     const float jump = sj::dbToGain(1.0f + 7.0f * (1.0f - sense));           // Jumps: how far above the slow envelope
     const float slowCoef = 1.0f - std::exp(-1.0f / (0.12f * m_fs));
@@ -667,7 +870,7 @@ void RigEngine::renderHits(int frames)
     const float decay = std::exp(-1.0f / (6.0f * m_fs));
     const float avgCoef = 1.0f - std::exp(-1.0f / (2.0f * m_fs));
     const float dt = 1.0f / m_fs;
-    float gateMax = 0.0f;
+    float gateMax = 0.0f, hitsMax = 0.0f;
 
     for (int i = 0; i < frames; ++i)
     {
@@ -710,14 +913,62 @@ void RigEngine::renderHits(int frames)
         // The gated hits duck both buses, so the hit punches through.
         // The duck follows the gated hits only (a raised Floor keeps the hits under the mix, it doesn't hold the buses down).
         const float gated = floorGain > 0.0f ? m_hitsIn[ii] * m_gate * boost : h;
-        const float duck = 0.6f * m_params.hitDuck * sj::clamp(m_hitsFollower.process(gated) * 3.0f, 0.0f, 1.0f);
+        const float hitsLevel = sj::clamp(m_hitsFollower.process(gated) * 3.0f, 0.0f, 1.0f);
+        hitsMax = std::max(hitsMax, hitsLevel);
+        const float duck = 0.6f * m_params.hitDuck * hitsLevel;
         for (int b = 0; b < numBuses; ++b)
         {
             auto& bus = m_buses[static_cast<size_t>(b)];
             duckSample(bus.byHits, duck, returnCoef, bus.l[ii], bus.r[ii]);
         }
     }
-    m_gateView.store(gateMax, std::memory_order_relaxed);
+    // The HIT GATE lamp: the gate, or with AIM (gate held open) the aimed hits themselves, so it flashes on each.
+    m_gateView.store(m_params.hitAim ? hitsMax : gateMax, std::memory_order_relaxed);
+}
+
+void RigEngine::applyTremolo(PeakTremolo& t, float* l, float* r, int frames, bool selected)
+{
+    // A tremolo that deepens as the level nears its own recent peak: past Threshold it eases in, up to Depth at
+    // the very peak, so the loudest moments shake and the rest stays steady. Off, or not the selected target, it
+    // fades out but keeps tracking, so nothing is stale when it comes back.
+    const float depthSet = (m_params.tremOn && selected) ? sj::clamp(m_params.tremDepth, 0.0f, 1.0f) : 0.0f;
+    const double inc = 1.5 * std::pow(20.0, static_cast<double>(sj::clamp(m_params.tremRate, 0.0f, 1.0f))) / m_sampleRate;
+    const float th = sj::clamp(m_params.tremThreshold, 0.0f, 0.98f);
+    const int shape = m_params.tremShape;
+    for (int i = 0; i < frames; ++i)
+    {
+        const float x = std::max(std::abs(l[i]), std::abs(r[i]));
+        t.env += (x - t.env) * (x > t.env ? m_tremAttack : m_tremRelease);
+        t.peak = std::max(t.env, t.peak * m_tremPeakDecay);
+        const float near = t.peak > 1.0e-4f ? t.env / t.peak : 0.0f;
+        const float u = sj::clamp((near - th) / (1.0f - th), 0.0f, 1.0f);
+        const float want = depthSet * u * u * (3.0f - 2.0f * u);
+        t.depth += (want - t.depth) * (want > t.depth ? m_tremDepthUp : m_tremDepthDown);
+
+        t.phase += inc;
+        if (t.phase >= 1.0)
+        {
+            t.phase -= 1.0;
+            t.from = t.to;
+            t.to = t.rng.unipolar();
+        }
+        const float ph = static_cast<float>(t.phase);
+        float m = 0.0f; // 0 = full level, 1 = the deepest dip
+        switch (shape)
+        {
+            case 1:  m = 0.5f + 0.5f * std::tanh(6.0f * std::sin(sj::c_twoPi * ph)); break;                 // Square (soft edges)
+            case 2:  m = t.from + (t.to - t.from) * ph * ph * (3.0f - 2.0f * ph); break;                    // Flutter
+            default: m = 0.5f - 0.5f * std::cos(sj::c_twoPi * ph); break;                                  // Sine
+        }
+        if (t.depth > 1.0e-6f)
+        {
+            const float g = 1.0f - t.depth * m;
+            l[i] *= g;
+            r[i] *= g;
+        }
+        else
+            t.depth = 0.0f;
+    }
 }
 
 void RigEngine::renderSpace(int frames)
@@ -773,11 +1024,43 @@ void RigEngine::process(const float* inL, const float* inR, float* outL, float* 
         // Bus A first: it is the key for the others (ducking and filtering).
         const int numBuses = c_maxBuses;
         auto& keyBus = m_buses[0];
+        // Turning LINK on or off fades bus B out (~30 ms), swaps (lining B up with A's passes), and fades it back
+        // in, so B never jumps to a new place in its delay mid-pass.
+        const float linkFade0 = m_linkFade;
+        {
+            const float linkStep = static_cast<float>(frames) / (0.03f * m_fs);
+            if (m_params.linkBuses != m_linkNow)
+            {
+                m_linkFade = std::max(0.0f, m_linkFade - linkStep);
+                if (m_linkFade <= 0.0f)
+                {
+                    m_linkNow = m_params.linkBuses;
+                    if (m_linkNow)
+                        for (int b = 1; b < numBuses; ++b)
+                            for (size_t k = 0; k < keyBus.heads.size(); ++k)
+                                followPass(m_buses[static_cast<size_t>(b)].heads[k], keyBus.heads[k],
+                                           m_buses[static_cast<size_t>(b)].springs[2].value, true);
+                }
+            }
+            else
+                m_linkFade = std::min(1.0f, m_linkFade + linkStep);
+        }
+        const float linkFade1 = m_linkFade;
+        const bool link = m_linkNow;
+        if (link)
+            m_leadStart = keyBus.heads; // A's passes before this chunk, for B to line up with
         renderBus(keyBus, frames, 0.0f, true);
         for (int b = 1; b < numBuses; ++b)
         {
             auto& bus = m_buses[static_cast<size_t>(b)];
-            renderBus(bus, frames, keyBus.env, false);
+            renderBus(bus, frames, keyBus.env, false, link ? &keyBus.heads : nullptr, link ? &m_leadStart : nullptr);
+            if (linkFade0 < 1.0f || linkFade1 < 1.0f)
+                for (int i = 0; i < frames; ++i)
+                {
+                    const float g = linkFade0 + (linkFade1 - linkFade0) * static_cast<float>(i + 1) / static_cast<float>(frames);
+                    bus.l[static_cast<size_t>(i)] *= g;
+                    bus.r[static_cast<size_t>(i)] *= g;
+                }
 
             // B is ducked by A. Take turns: whichever is louder (before any ducking, so no feedback) ducks the other.
             const float amount = sj::clamp(bus.springs[7].value, 0.0f, 1.0f);
@@ -822,6 +1105,23 @@ void RigEngine::process(const float* inL, const float* inR, float* outL, float* 
 
         renderHits(frames);
 
+        // Peak tremolo on the buses and on the hits (each only deepens when it's the selected target). The two buses
+        // share the tremolo's timing (so they dip together) while each deepens by its own level.
+        {
+            const bool buses = m_params.tremTarget == 1;
+            const auto lfo = m_trem[1]; // bus A's tremolo before this chunk: bus B starts from the same timing
+            applyTremolo(m_trem[1], m_buses[0].l.data(), m_buses[0].r.data(), frames, buses);
+            if (numBuses > 1)
+            {
+                m_trem[2].phase = lfo.phase;
+                m_trem[2].from = lfo.from;
+                m_trem[2].to = lfo.to;
+                m_trem[2].rng = lfo.rng;
+                applyTremolo(m_trem[2], m_buses[1].l.data(), m_buses[1].r.data(), frames, buses);
+            }
+            applyTremolo(m_trem[3], m_hitsL.data(), m_hitsR.data(), frames, m_params.tremTarget == 2);
+        }
+
         for (int i = 0; i < frames; ++i)
         {
             const auto ii = static_cast<size_t>(i);
@@ -844,6 +1144,8 @@ void RigEngine::process(const float* inL, const float* inR, float* outL, float* 
             m_mixL[ii] = l;
             m_mixR[ii] = r;
         }
+        // Peak tremolo on everything (by the mix's level), before Space so the echoes and reverb carry it.
+        applyTremolo(m_trem[0], m_mixL.data(), m_mixR.data(), frames, m_params.tremTarget == 0);
         renderSpace(frames);
 
         for (int i = 0; i < frames; ++i)

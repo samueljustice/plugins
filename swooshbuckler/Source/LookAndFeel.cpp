@@ -405,12 +405,70 @@ float WheelKnob::getDialRadius() const
     return juce::jmin(bounds.getWidth(), bounds.getHeight()) * 0.5f - 2.0f;
 }
 
-void WheelKnob::setModLive(float normalised)
+void ModTarget::setModLive(float normalised)
 {
     if (std::abs(normalised - m_modLive) < 0.002f)
         return;
     m_modLive = normalised;
     repaint();
+}
+
+void ModTarget::mouseDown(const juce::MouseEvent& e)
+{
+    // Cmd-drag (Ctrl on Windows) on a modulated control sets its wire's depth instead of the control's value.
+    if (e.mods.isCommandDown() && isModulated() && onModDepthGesture)
+    {
+        m_modGesture = true;
+        onModDepthGesture(e, 0);
+        return;
+    }
+    juce::Slider::mouseDown(e);
+}
+
+void ModTarget::mouseDrag(const juce::MouseEvent& e)
+{
+    if (m_modGesture)
+    {
+        onModDepthGesture(e, 1);
+        return;
+    }
+    juce::Slider::mouseDrag(e);
+}
+
+void ModTarget::mouseUp(const juce::MouseEvent& e)
+{
+    if (m_modGesture)
+    {
+        m_modGesture = false;
+        onModDepthGesture(e, 2);
+        return;
+    }
+    juce::Slider::mouseUp(e);
+}
+
+void ModTarget::mouseDoubleClick(const juce::MouseEvent& e)
+{
+    if (e.mods.isCommandDown() && isModulated() && onModDepthGesture)
+    {
+        onModDepthGesture(e, 3);
+        return;
+    }
+    juce::Slider::mouseDoubleClick(e);
+}
+
+void ModTarget::strokeModPath(juce::Graphics& g, const juce::Path& p, juce::Colour colour, float depth, float thickness)
+{
+    g.setColour(colour);
+    const juce::PathStrokeType stroke(thickness, juce::PathStrokeType::curved, juce::PathStrokeType::rounded);
+    if (depth >= 0.0f)
+    {
+        g.strokePath(p, stroke);
+        return;
+    }
+    const float dashes[] = { 3.0f, 2.6f };
+    juce::Path dashed;
+    stroke.createDashedStroke(dashed, p, dashes, 2);
+    g.fillPath(dashed);
 }
 
 void WheelKnob::valueChanged()
@@ -468,8 +526,7 @@ void WheelKnob::paint(juce::Graphics& g)
             const float hi = m.bipolar ? base + 0.5f * std::abs(m.depth) : juce::jmax(base, base + m.depth);
             juce::Path p;
             p.addCentredArc(centre.x, centre.y, r, r, 0.0f, angleAt(lo), angleAt(hi), true);
-            g.setColour(m.colour.withAlpha(0.9f));
-            g.strokePath(p, juce::PathStrokeType(2.0f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+            strokeModPath(g, p, m.colour.withAlpha(0.9f), m.depth, 2.0f); // dashed: negative depth
             r -= 2.6f;
             if (r < radius * 0.78f)
                 break;

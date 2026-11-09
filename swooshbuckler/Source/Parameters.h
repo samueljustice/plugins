@@ -9,6 +9,14 @@ namespace ParamIDs
     inline constexpr const char* cargoTrack[10] = { "cargo1", "cargo2", "cargo3", "cargo4", "cargo5",
                                                     "cargo6", "cargo7", "cargo8", "cargo9", "cargo10" };
     inline constexpr int numCargoTracks = 10;
+    // Per-track pitch: semitones and cents, and VARI (on: tape-style, the speed follows the pitch;
+    // off: the pitch moves and the speed stays, through a pitch shifter).
+    inline constexpr const char* trackSemis[10] = { "cargo1Semis", "cargo2Semis", "cargo3Semis", "cargo4Semis", "cargo5Semis",
+                                                    "cargo6Semis", "cargo7Semis", "cargo8Semis", "cargo9Semis", "cargo10Semis" };
+    inline constexpr const char* trackCents[10] = { "cargo1Cents", "cargo2Cents", "cargo3Cents", "cargo4Cents", "cargo5Cents",
+                                                    "cargo6Cents", "cargo7Cents", "cargo8Cents", "cargo9Cents", "cargo10Cents" };
+    inline constexpr const char* trackVari[10]  = { "cargo1Vari", "cargo2Vari", "cargo3Vari", "cargo4Vari", "cargo5Vari",
+                                                    "cargo6Vari", "cargo7Vari", "cargo8Vari", "cargo9Vari", "cargo10Vari" };
     inline constexpr const char* pitch    = "pitch";
     inline constexpr const char* input    = "input";
 
@@ -41,6 +49,8 @@ namespace ParamIDs
     inline constexpr const char* duckMode   = "duckMode";   // Volume (original) / Darken / Mids
     inline constexpr const char* duckReturn = "duckReturn";
     inline constexpr const char* takeTurns  = "takeTurns";
+    inline constexpr const char* linkBuses  = "linkBuses"; // bus B flies bus A's passes, with A's Doppler and Width
+    inline constexpr const char* hitAim     = "hitAim";    // fire the hits so their transients land on the buses' pass peaks
 
     // Morph (Zynaptiq-style spectral morph between bus A and bus B)
     inline constexpr const char* morphOn     = "morphOn";
@@ -56,6 +66,14 @@ namespace ParamIDs
     inline constexpr const char* inflate  = "inflate";
     inline constexpr const char* push     = "push";
     inline constexpr const char* ceiling  = "ceiling";
+    // Peak tremolo: a tremolo that deepens as the level nears its peak.
+    inline constexpr const char* masterTrim    = "masterTrim";  // what you hear, after the limiter (the tape is before it)
+    inline constexpr const char* tremOn        = "tremOn";
+    inline constexpr const char* tremDepth     = "tremDepth";
+    inline constexpr const char* tremRate      = "tremRate";
+    inline constexpr const char* tremThreshold = "tremThreshold";
+    inline constexpr const char* tremShape     = "tremShape";   // Sine / Square / Flutter
+    inline constexpr const char* tremTarget    = "tremTarget";  // Everything / Buses A + B / Hits
 
     // Modulators (the panel at the bottom; wired to knobs by dragging their jacks)
     inline constexpr int numMods = 4;
@@ -82,6 +100,19 @@ namespace Params
 
         for (int i = 0; i < ParamIDs::numCargoTracks; ++i)
             layout.add(pct(ParamIDs::cargoTrack[i], "Track " + String(i + 1), 0.8f));
+        for (int i = 0; i < ParamIDs::numCargoTracks; ++i)
+        {
+            const String track = "Track " + String(i + 1);
+            layout.add(std::make_unique<P>(ParameterID { ParamIDs::trackSemis[i], 3 }, track + " Semitones",
+                                           NormalisableRange<float>(-24.0f, 24.0f, 1.0f), 0.0f,
+                                           AudioParameterFloatAttributes().withLabel("st").withStringFromValueFunction(
+                                               [](float v, int) { const int s = roundToInt(v); return (s > 0 ? "+" : "") + String(s) + " st"; })));
+            layout.add(std::make_unique<P>(ParameterID { ParamIDs::trackCents[i], 3 }, track + " Cents",
+                                           NormalisableRange<float>(-100.0f, 100.0f, 1.0f), 0.0f,
+                                           AudioParameterFloatAttributes().withLabel("c").withStringFromValueFunction(
+                                               [](float v, int) { const int c = roundToInt(v); return (c > 0 ? "+" : "") + String(c) + " c"; })));
+            layout.add(std::make_unique<AudioParameterBool>(ParameterID { ParamIDs::trackVari[i], 3 }, track + " Vari", true));
+        }
         layout.add(std::make_unique<P>(ParameterID { ParamIDs::pitch, 2 }, "Pitch", NormalisableRange<float>(-24.0f, 24.0f), 0.0f,
                                        AudioParameterFloatAttributes().withLabel("st").withStringFromValueFunction(
                                            [](float v, int) { return (v > 0.05f ? "+" : "") + String(v, 1) + " st"; })));
@@ -134,6 +165,8 @@ namespace Params
                                        AudioParameterFloatAttributes().withStringFromValueFunction(
                                            [](float v, int) { return v <= 0.001f ? String("Fast") : String(roundToInt(20.0f + 980.0f * v)) + " ms"; })));
         layout.add(std::make_unique<AudioParameterBool>(ParameterID { ParamIDs::takeTurns, 2 }, "Take Turns", false));
+        layout.add(std::make_unique<AudioParameterBool>(ParameterID { ParamIDs::linkBuses, 3 }, "Link Buses", false));
+        layout.add(std::make_unique<AudioParameterBool>(ParameterID { ParamIDs::hitAim, 3 }, "Aim Hits", true));
 
         layout.add(std::make_unique<AudioParameterBool>(ParameterID { ParamIDs::morphOn, 2 }, "Morph", false));
         layout.add(std::make_unique<AudioParameterChoice>(ParameterID { ParamIDs::morphMode, 2 }, "Morph Mode", StringArray { "Blend", "Glide", "Cross" }, 0));
@@ -152,6 +185,26 @@ namespace Params
         layout.add(std::make_unique<P>(ParameterID { ParamIDs::ceiling, 2 }, "Ceiling", NormalisableRange<float>(-12.0f, 0.0f), -0.3f,
                                        AudioParameterFloatAttributes().withLabel("dB").withStringFromValueFunction(
                                            [](float v, int) { return String(v, 1) + " dB"; })));
+
+        layout.add(std::make_unique<P>(ParameterID { ParamIDs::masterTrim, 3 }, "Master Trim", NormalisableRange<float>(-60.0f, 6.0f, 0.0f, 2.5f), 0.0f,
+                                       AudioParameterFloatAttributes().withLabel("dB").withStringFromValueFunction(
+                                           [](float v, int) { return v <= -59.9f ? String("-inf dB") : (v > 0.05f ? "+" : "") + String(v, 1) + " dB"; })));
+
+        // Peak tremolo (off by default).
+        layout.add(std::make_unique<AudioParameterBool>(ParameterID { ParamIDs::tremOn, 3 }, "Tremolo", false));
+        layout.add(std::make_unique<P>(ParameterID { ParamIDs::tremDepth, 3 }, "Tremolo Depth", NormalisableRange<float>(0.0f, 1.0f), 0.5f,
+                                       AudioParameterFloatAttributes().withStringFromValueFunction(
+                                           [](float v, int) { return String(roundToInt(v * 100.0f)) + "%"; })));
+        layout.add(std::make_unique<P>(ParameterID { ParamIDs::tremRate, 3 }, "Tremolo Rate", NormalisableRange<float>(0.0f, 1.0f), 0.5f,
+                                       AudioParameterFloatAttributes().withStringFromValueFunction(
+                                           [](float v, int) { return String(1.5f * std::pow(20.0f, v), v < 0.5f ? 1 : 0) + " Hz"; })));
+        layout.add(std::make_unique<P>(ParameterID { ParamIDs::tremThreshold, 3 }, "Tremolo Threshold", NormalisableRange<float>(0.0f, 1.0f), 0.6f,
+                                       AudioParameterFloatAttributes().withStringFromValueFunction(
+                                           [](float v, int) { return String(roundToInt(v * 100.0f)) + "%"; })));
+        layout.add(std::make_unique<AudioParameterChoice>(ParameterID { ParamIDs::tremShape, 3 }, "Tremolo Shape",
+                                                          StringArray { "Sine", "Square", "Flutter" }, 0));
+        layout.add(std::make_unique<AudioParameterChoice>(ParameterID { ParamIDs::tremTarget, 3 }, "Tremolo Shakes",
+                                                          StringArray { "Everything", "Buses A + B", "Hits" }, 0));
 
         // Modulators: LFO, LFO, Random, Follower by default.
         const int defaultTypes[ParamIDs::numMods] = { 0, 0, 1, 2 };

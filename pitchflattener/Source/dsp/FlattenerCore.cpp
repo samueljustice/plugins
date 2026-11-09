@@ -123,6 +123,11 @@ namespace pf
         for (int c = 0; c < numCh; ++c)
             feedPtrs[(size_t) c] = feedScratch[(size_t) c].data();
 
+        const int monitorSize = nextPow2 ((int) std::ceil (7.0 * fs));
+        monitorIn.assign ((size_t) monitorSize, 0.0f);
+        monitorOut.assign ((size_t) monitorSize, 0.0f);
+        monitorMask = monitorSize - 1;
+
         telemetryBuf.assign ((size_t) telemetryFifo.getTotalSize(), TelemetryFrame {});
         uiAudioBuf.assign ((size_t) uiAudioFifo.getTotalSize(), 0.0f);
 
@@ -158,6 +163,9 @@ namespace pf
         for (auto& ch : inRing)  std::fill (ch.begin(), ch.end(), 0.0f);
         for (auto& ch : wetRing) std::fill (ch.begin(), ch.end(), 0.0f);
         inWritten = 0;
+        monitorInWritten.store (0, std::memory_order_release);
+        monitorOutWritten.store (0, std::memory_order_release);
+        resetCount.fetch_add (1, std::memory_order_acq_rel);
         fed = 0;
         wetWritten = 0;
         xfadeStart = 0;
@@ -391,6 +399,7 @@ namespace pf
                 mono += x;
             }
             mono *= (numCh > 1 && numChannels > 1) ? monoScale : 1.0f;
+            monitorIn[(size_t) ((start + i) & monitorMask)] = mono;
 
             float y = mono;
             for (int s = 0; s < aaStages; ++s)
@@ -441,7 +450,48 @@ namespace pf
                 const float y = dry * (1.0f - mix) + wet * mix;
                 channels[c][i] = std::isfinite (y) ? y : 0.0f;
             }
+            if (o >= 0)
+            {
+                // The flattened (wet) signal only: what the processing did, whatever Mix or bypass let through.
+                float m = 0.0f;
+                if (o < wetWritten)
+                {
+                    const int r = (int) (o & ringMask);
+                    for (int c = 0; c < numCh; ++c)
+                        m += wetRing[(size_t) c][(size_t) r];
+                    m /= (float) numCh;
+                }
+                monitorOut[(size_t) (o & monitorMask)] = m;
+            }
         }
+
+        monitorInWritten.store (inWritten, std::memory_order_release);
+        monitorOutWritten.store (std::max<int64_t> (0, inWritten - totalLatency), std::memory_order_release);
+    }
+
+    bool FlattenerCore::copyMonitor (bool output, int64_t from, int numSamples, float* dest)
+    {
+        // The rings are only reallocated by prepare(), which holds this lock.
+        const std::lock_guard<std::mutex> lock (structMutex);
+        if (! prepared.load() || numSamples <= 0 || from < 0)
+            return false;
+
+        const auto& ring = output ? monitorOut : monitorIn;
+        const auto& written = output ? monitorOutWritten : monitorInWritten;
+        const int64_t capacity = (int64_t) ring.size();
+        const int before = resetCount.load (std::memory_order_acquire);
+        const int64_t end = written.load (std::memory_order_acquire);
+
+        // Keep well clear of where the audio thread is writing.
+        const int64_t margin = (int64_t) (2 * maxChunk + maxBlock);
+        if (from + numSamples > end || from < end - capacity + margin)
+            return false;
+
+        for (int i = 0; i < numSamples; ++i)
+            dest[i] = ring[(size_t) ((from + i) & monitorMask)];
+
+        return resetCount.load (std::memory_order_acquire) == before
+            && from >= written.load (std::memory_order_acquire) - capacity + margin / 2;
     }
 
     void FlattenerCore::runAnalysis()

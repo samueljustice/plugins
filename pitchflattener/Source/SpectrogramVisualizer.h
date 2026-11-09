@@ -3,6 +3,8 @@
 #include <JuceHeader.h>
 #include "Theme.h"
 #include "dsp/FlattenerTypes.h"
+#include "dsp/SourceAdvisor.h"
+#include <functional>
 
 class PitchFlattenerAudioProcessor;
 
@@ -97,6 +99,9 @@ public:
     void mouseMove (const juce::MouseEvent&) override;
     void mouseExit (const juce::MouseEvent&) override;
 
+    /** Called with a pf::SourceType when the wobble warning's "Try ..." button is clicked. */
+    std::function<void (int)> onTrySourceType;
+
     /** Help text for whatever part of the display is under the given local point. */
     juce::String getHelpTextAt (juce::Point<int> localPoint) const;
 
@@ -165,6 +170,49 @@ private:
     float m_inputDb = -120.0f;
 
     juce::Path m_rawPath, m_trackPath, m_targetPath, m_outputPath;
+
+    //==========================================================================
+    // Wobble warning: the output pitch is metered against the target; when it stays well off, a red warning shows
+    // over the graph, and a background thread replays the last few seconds through every Source Type to suggest one.
+    class AdvisorThread;
+    void checkForWobble();
+    void updateWobbleState (bool haveEvidence, bool wobbling, float offCents);
+    void startAdvisor();
+    void pollAdvisor();
+    void resetWobble();
+    void layoutWarning();
+    void paintWobbleWarning (juce::Graphics&);
+
+    enum class Advice { none, checking, recommend, noneBetter };
+    struct WobbleState
+    {
+        bool showing = false;
+        bool dismissed = false;
+        float offCents = 0.0f;
+        int badChecks = 0, goodChecks = 0;
+        Advice advice = Advice::none;
+        int recommended = -1;        // a pf::SourceType
+        float recommendedGain = 0.0f;
+    } m_wobble;
+
+    std::unique_ptr<AdvisorThread> m_advisor;
+    juce::TextButton m_tryButton, m_dismissButton { "X" };
+    juce::Rectangle<float> m_warningArea;
+    int m_wobbleCheckCountdown = 0;
+    int m_lastResetCount = -1;
+    pf::ProcessingSettings m_lastSettings;
+    bool m_haveLastSettings = false;
+    int64_t m_firstHistoryToJudge = 0;  // history index: older entries predate the last reset or settings change
+    int64_t m_firstFrameToJudge = 0;    // telemetry frame: older frames were processed the old way
+    double m_lastAdvisorMs = -1.0e9;
+    std::atomic<float>* m_mix = nullptr;
+    std::atomic<float>* m_amount = nullptr;
+    std::vector<float> m_meterBuf, m_meterDecimated, m_meterScratch;
+
+    // One output reading per metered frame, so each is measured once: frame number and cents off (-1 = unreadable).
+    static constexpr int c_readingSlots = 1024;
+    std::vector<int64_t> m_readingFrame = std::vector<int64_t> ((size_t) c_readingSlots, -1);
+    std::vector<float> m_readingOff = std::vector<float> ((size_t) c_readingSlots, -1.0f);
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (PitchDisplay)
 };

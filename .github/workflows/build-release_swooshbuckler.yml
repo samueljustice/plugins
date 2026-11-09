@@ -201,7 +201,7 @@ jobs:
     - name: Run tests
       run: |
         cd swooshbuckler
-        for t in SwooshbucklerRig SwooshbucklerCargo SwooshbucklerClassify; do
+        for t in SwooshbucklerRig SwooshbucklerCargo SwooshbucklerClassify SwooshbucklerPitch; do
           exe=$(find build -name "$t" -type f -perm +111 | head -1)
           echo "== $t"
           "$exe"
@@ -272,9 +272,20 @@ jobs:
             exit 1
           fi
         done
-        xcrun stapler staple app/Swooshbuckler.app
-        xcrun stapler staple vst3/Swooshbuckler.vst3
-        xcrun stapler staple au/Swooshbuckler.component
+        # Fetching the ticket from Apple sometimes drops the connection (stapler error 68), at times
+        # for minutes, so retry with a growing pause (30 s, 60 s, ..., about 10 minutes in all).
+        staple() {
+          local delay=30
+          for attempt in 1 2 3 4 5 6 7; do
+            if xcrun stapler staple "$1"; then return 0; fi
+            echo "Stapling $1 failed (attempt $attempt of 7)"
+            if [ "$attempt" -lt 7 ]; then sleep "$delay"; delay=$((delay + 30)); fi
+          done
+          return 1
+        }
+        staple app/Swooshbuckler.app
+        staple vst3/Swooshbuckler.vst3
+        staple au/Swooshbuckler.component
 
     - name: Build installer package
       run: |
@@ -350,6 +361,17 @@ jobs:
         APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
       run: |
         cd swooshbuckler
+        # Fetching the ticket from Apple sometimes drops the connection (stapler error 68), at times
+        # for minutes, so retry with a growing pause (30 s, 60 s, ..., about 10 minutes in all).
+        staple() {
+          local delay=30
+          for attempt in 1 2 3 4 5 6 7; do
+            if xcrun stapler staple "$1"; then return 0; fi
+            echo "Stapling $1 failed (attempt $attempt of 7)"
+            if [ "$attempt" -lt 7 ]; then sleep "$delay"; delay=$((delay + 30)); fi
+          done
+          return 1
+        }
         for f in Swooshbuckler_Installer.pkg Swooshbuckler.dmg; do
           echo "Notarising $f"
           ID=$(xcrun notarytool submit "$f" --apple-id "$APPLE_ID" --password "$APPLE_APP_PASSWORD" --team-id "$APPLE_TEAM_ID" --output-format json | jq -r '.id')
@@ -359,7 +381,7 @@ jobs:
             xcrun notarytool log "$ID" --apple-id "$APPLE_ID" --password "$APPLE_APP_PASSWORD" --team-id "$APPLE_TEAM_ID"
             exit 1
           fi
-          xcrun stapler staple "$f"
+          staple "$f"
         done
         spctl --assess --type install -vv Swooshbuckler_Installer.pkg
         spctl --assess --type execute -vv staging/app/Swooshbuckler.app
@@ -403,6 +425,18 @@ jobs:
         (cd windows-files/app && zip -q "../../release/Swooshbuckler-$VERSION-Windows-App.zip" Swooshbuckler.exe)
         ls -la release
 
+    # GitHub's generated notes compare with the newest release of ANY kind, which is often the
+    # combined installer (bundle-v...) or another plug-in. Compare with this plug-in's own last release.
+    - name: Find this plug-in's previous release
+      id: previous
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        PREV=$(gh release list -R "$GITHUB_REPOSITORY" --limit 200 --exclude-drafts --json tagName --jq '.[].tagName' \
+          | grep -E '^swooshbuckler-v[0-9]+\.[0-9]+\.[0-9]+$' | grep -vxF "$GITHUB_REF_NAME" | sort -V | tail -1 || true)
+        echo "Comparing with: ${PREV:-(none)}"
+        echo "tag=$PREV" >> "$GITHUB_OUTPUT"
+
     - name: Create release
       uses: softprops/action-gh-release@v3
       with:
@@ -425,5 +459,6 @@ jobs:
 
           See the [Swooshbuckler README](https://github.com/${{ github.repository }}/tree/main/swooshbuckler) for how to use it.
         generate_release_notes: true
+        previous_tag: ${{ steps.previous.outputs.tag }}
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

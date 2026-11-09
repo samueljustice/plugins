@@ -3,7 +3,7 @@ cmake_minimum_required(VERSION 3.15)
 # Set universal binary architectures BEFORE project()
 set(CMAKE_OSX_ARCHITECTURES "x86_64;arm64" CACHE STRING "Build architectures for macOS")
 
-project(PitchFlattener VERSION 2.0.2)
+project(PitchFlattener VERSION 2.2.0)
 
 # The copyright year is the year it was built, so it never goes stale.
 string(TIMESTAMP COPYRIGHT_YEAR "%Y")
@@ -35,6 +35,7 @@ set(PF_DSP_SOURCES
     Source/dsp/PitchTracker.cpp
     Source/dsp/RubberBandDriver.cpp
     Source/dsp/FlattenerCore.cpp
+    Source/dsp/SourceAdvisor.cpp
 )
 
 option(PITCHFLATTENER_COPY_AFTER_BUILD "Copy plugins to the system folders after building" ON)

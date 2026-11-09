@@ -1,0 +1,11 @@
+# Settings and presets each plug-in writes, removed by the uninstallers only when the user asks.
+# One line per item:
+#   id | macOS path, relative to the home folder | folder to remove afterwards if it is left empty
+# Recordings and anything else the user saved where they chose are never removed.
+# Windows: the same items are listed in bundle/installer.iss ([Code], RemoveUserData).
+swooshbuckler|Library/Application Support/Sweet Justice/Swooshbuckler.settings|Library/Application Support/Sweet Justice
+swooshbuckler|Library/Saved Application State/com.samueljustice.swooshbuckler.savedState|
+soundadvice|Library/Application Support/Sweet Justice/Sound Advice.settings|Library/Application Support/Sweet Justice
+soundadvice|Library/Saved Application State/com.samueljustice.soundadvice.savedState|
+subbertone|Library/Audio/Presets/SammyJs/Subbertone|Library/Audio/Presets/SammyJs
+pitchflattener|Library/SammyJs/PitchFlattener|Library/SammyJs

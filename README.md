@@ -4,13 +4,15 @@
 
 **Toys I've made for sound designers.**
 
-### ⬇️ Get them all
+<!-- get-them-all:start (written by .github/workflows/build-release_bundle.yml; edits here are replaced) -->
+### ⬇️ Get them all (last built 8 Nov 2026, 19:30 UTC)
 
-[![Download for macOS](https://img.shields.io/badge/Download_for_macOS-everything-000000?style=for-the-badge&logo=apple&logoColor=white)](https://github.com/samueljustice/plugins/releases/latest/download/SammyJ-Plugins-macOS-Installer.pkg)
-[![Download for Windows](https://img.shields.io/badge/Download_for_Windows-everything-0078D6?style=for-the-badge&logo=windows&logoColor=white)](https://github.com/samueljustice/plugins/releases/latest/download/SammyJ-Plugins-Windows-Installer.exe)
+[![Get them all for macOS](https://img.shields.io/badge/Get_them_all-macOS-000000?style=for-the-badge&logo=apple&logoColor=white)](https://github.com/samueljustice/plugins/releases/download/bundle-v2026.11.8.43/SammyJ-Plugins-2026-11-08-1930-macOS.dmg)
+[![Get them all for Windows](https://img.shields.io/badge/Get_them_all-Windows-0078D6?style=for-the-badge&logo=windows&logoColor=white)](https://github.com/samueljustice/plugins/releases/download/bundle-v2026.11.8.43/SammyJ-Plugins-2026-11-08-1930-Windows-Installer.exe)
 
-<sub>One installer with the newest version of every plug-in: the apps, the VST3s and (on macOS) the AUs. It removes older copies first, so nothing shows up twice in your host.<br>
+<sub>One installer with the newest version of every plug-in: Swooshbuckler 1.3.0 · Sound Advice 1.0.11 · Subbertone 1.3.1 · Pitch Flattener 2.1.0 · Reversinator 2.0.3. The apps, the VST3s and (on macOS) the AUs. It removes older copies first, so nothing shows up twice in your host. To remove them again: on macOS, run Uninstall Sammy J's Plugins from the same disk image; on Windows, use Settings &gt; Apps.<br>
 Want just one? Each plug-in's own download is below, or browse all <a href="https://github.com/samueljustice/plugins/releases">releases</a>.</sub>
+<!-- get-them-all:end -->
 
 ![VST3](https://img.shields.io/badge/VST3-222?style=flat-square)
 ![AU](https://img.shields.io/badge/AU-222?style=flat-square)
@@ -22,15 +24,15 @@ Want just one? Each plug-in's own download is below, or browse all <a href="http
 
 | [<img src="swooshbuckler/docs/screenshot.png" width="400" alt="Swooshbuckler">](#-swooshbuckler) | [<img src="subbertone/docs/screenshot.jpg" width="400" alt="Subbertone">](#-subbertone) |
 |:---:|:---:|
-| **[Swooshbuckler](#-swooshbuckler)**<br>The whoosh-making rig | **[Subbertone](#-subbertone)**<br>Sub, harmonics and mastering for bass |
+| **[Swooshbuckler](#-swooshbuckler)**<br>Generates whooshes from up to ten sounds | **[Subbertone](#-subbertone)**<br>Adds a pitch-tracked sub and harmonics to bass |
 | [<img src="pitchflattener/docs/screenshot.png" width="400" alt="Pitch Flattener">](#-pitch-flattener) | [<img src="reversinator/docs/screenshot.png" width="400" alt="Reversinator">](#-reversinator) |
-| **[Pitch Flattener](#-pitch-flattener)**<br>Doppler, sirens and vibrato, flattened | **[Reversinator](#-reversinator)**<br>Backwards Machine, reborn in real time |
+| **[Pitch Flattener](#-pitch-flattener)**<br>Removes pitch movement from Doppler passes, sirens and vibrato | **[Reversinator](#-reversinator)**<br>Real-time reverse effects, recreating Backwards Machine |
 
 [<img src="roarschach/docs/screenshot.jpg" width="812" alt="Roarschach">](#-roarschach)<br>
 **[Roarschach](#-roarschach)**<br>Turn a voice into a creature
 
 [<img src="soundadvice/docs/screenshot.png" width="812" alt="Sound Advice">](#-sound-advice)<br>
-**[Sound Advice](#-sound-advice)**<br>Hard-won advice from the great creative minds behind film, TV and game sound
+**[Sound Advice](#-sound-advice)**<br>Advice from film, TV and game sound professionals and other creative people
 
 </div>
 
@@ -38,7 +40,7 @@ Want just one? Each plug-in's own download is below, or browse all <a href="http
 
 ## ⚔️ Swooshbuckler
 
-> *Ten sounds go in. A tape full of whooshes comes out.*
+> Generates whooshes from up to ten sounds, and records them.
 
 <p align="center">
   <img src="swooshbuckler/docs/screenshot.png" alt="Swooshbuckler" width="820">
@@ -48,6 +50,7 @@ Drop in up to ten sounds (cloth, air, engines, creatures, metal) and Swooshbuckl
 
 - 🎚️ **Auto ride** across up to ten looping tracks, each fader on its own path, shaped by Energy, Rate, Fill, Chaos and Pitch
 - 🧠 **Smart loading** finds the separate sounds in each file, skips the gaps and guesses what each one is from the audio and the file name
+- 🎛️ **Per-track pitch** in semitones and cents, with **VARI** on for tape-style varispeed or off to change the pitch and keep the speed
 - 🌀 **Two Doppler buses** with Width, Bend, Low End, Swirl, an envelope filter and Drive. Bus A can duck and darken Bus B, or they **Take Turns**
 - 🧬 **Spectral morph pad** blends A into B (Blend, Glide or vocoder-style Cross), and can wander along a Lorenz loop, a rose or a figure eight
 - 💥 **Hit gate** fires your impacts at the biggest swells, and **Sync Hits** stacks their transients into one huge hit
@@ -66,14 +69,14 @@ Drop in up to ten sounds (cloth, air, engines, creatures, metal) and Swooshbuckl
 </details>
 
 **App** (macOS, Windows) · **VST3** · **AU** &nbsp;&nbsp;
-[![Download Swooshbuckler](https://img.shields.io/badge/download-v1.0.1-d00a35?style=flat-square)](https://github.com/samueljustice/plugins/releases/tag/swooshbuckler-v1.0.1) &nbsp;
+[![Download Swooshbuckler](https://img.shields.io/badge/download-v1.3.0-d00a35?style=flat-square)](https://github.com/samueljustice/plugins/releases/tag/swooshbuckler-v1.3.0) &nbsp;
 [Read the manual →](swooshbuckler/README.md)
 
 ---
 
 ## 🔊 Subbertone
 
-> *A clean octave down, a bass that survives a phone speaker, or a talking growl. Your call.*
+> Adds a pitch-tracked sub an octave down, plus harmonics, saturation, filtering and limiting.
 
 <p align="center">
   <img src="subbertone/docs/screenshot.jpg" alt="Subbertone" width="820">
@@ -104,14 +107,14 @@ Subbertone follows the pitch of your bass, engine or drone and adds a clean sub 
 </details>
 
 **VST3** (macOS, Windows) · **AU** (macOS) &nbsp;&nbsp;
-[![Download Subbertone](https://img.shields.io/badge/download-v1.3.0-d00a35?style=flat-square)](https://github.com/samueljustice/plugins/releases/tag/subbertone-v1.3.0) &nbsp;
+[![Download Subbertone](https://img.shields.io/badge/download-v1.3.1-d00a35?style=flat-square)](https://github.com/samueljustice/plugins/releases/tag/subbertone-v1.3.1) &nbsp;
 [Read the manual →](subbertone/README.md)
 
 ---
 
 ## 🚨 Pitch Flattener
 
-> *The siren keeps wailing. The pitch doesn't.*
+> Removes pitch movement from Doppler passes, sirens and vibrato.
 
 <p align="center">
   <img src="pitchflattener/docs/screenshot.png" alt="Pitch Flattener" width="680">
@@ -119,10 +122,11 @@ Subbertone follows the pitch of your bass, engine or drone and adds a clean sub 
 
 Pitch Flattener takes the pitch movement out of a sound and keeps its energy and character: the Doppler sweep from a pass-by, the wail from a siren, the vibrato from a voice. Or lock a warbling tone to one note. Pick a Source Type and it loads a pitch detector built for that kind of sound, looks about 2.6 seconds ahead, and lines the correction up with the audio sample-accurately. Made for offline rendering: the Soundminer DSP rack, a DAW bounce or AudioSuite-style processing.
 
-- 🎯 **Eight Source Types** (Vocal, Instrument, Siren, Whistle, Engine / Doppler, Drone, Noisy Field, Custom), each with its own tuned detector
+- 🎯 **Eight Source Types** (Vocal, Instrument, Siren, Whistle, Engine / Doppler, Drone, Noisy Field, Custom), each with its own tuned detector; Siren runs two at once, so fast yelps and sirens in traffic both track
 - 🔭 **Lookahead tracking** fixes octave errors, bridges gaps and smooths with zero lag, so the very first syllable or rev is already flat
 - 🎚️ **Latch, Fixed or Auto**: hold each sound at the pitch it starts on, flatten everything to one note (type `A4`), or take out only the vibrato and keep the melody
 - 📈 **Live pitch display**: eight seconds of detection, track, target and corrected output over a spectrogram
+- 🚨 **Wobble warning**: a red warning when the output isn't coming out flat, suggesting the Source Type that would do better
 - 📏 **Measured, not guessed**: the test suite flattens a siren wail to within 2 cents and an engine pass-by to within 1 cent
 - 💾 **Amount** for half-flattened results, **Formant** for natural-sounding voices, and presets you can save
 
@@ -136,14 +140,14 @@ Pitch Flattener takes the pitch movement out of a sound and keeps its energy and
 </details>
 
 **VST3** (macOS, Windows) · **AU** (macOS) &nbsp;&nbsp;
-[![Download Pitch Flattener](https://img.shields.io/badge/download-v2.0.2-d00a35?style=flat-square)](https://github.com/samueljustice/plugins/releases/tag/pitchflattener-v2.0.2) &nbsp;
+[![Download Pitch Flattener](https://img.shields.io/badge/download-v2.2.0-d00a35?style=flat-square)](https://github.com/samueljustice/plugins/releases/tag/pitchflattener-v2.2.0) &nbsp;
 [Read the manual →](pitchflattener/README.md)
 
 ---
 
 ## ⏪ Reversinator
 
-> *.sdrawkcab emit lear ni tI*
+> Real-time reverse effects, recreating Backwards Machine's three modes.
 
 <p align="center">
   <img src="reversinator/docs/screenshot.png" alt="Reversinator" width="760">
@@ -168,7 +172,7 @@ A real-time reverser that faithfully recreates Backwards Machine's three effects
 </details>
 
 **VST3** (macOS, Windows) · **AU** (macOS) &nbsp;&nbsp;
-[![Download Reversinator](https://img.shields.io/badge/download-v2.0.2-d00a35?style=flat-square)](https://github.com/samueljustice/plugins/releases/tag/reversinator-v2.0.2) &nbsp;
+[![Download Reversinator](https://img.shields.io/badge/download-v2.0.3-d00a35?style=flat-square)](https://github.com/samueljustice/plugins/releases/tag/reversinator-v2.0.3) &nbsp;
 [Read the manual →](reversinator/README.md)
 
 ---
@@ -209,15 +213,15 @@ Roarschach turns a spoken or shouted performance into a big, liquid, gravelly cr
 
 ## 🎲 Sound Advice
 
-> *Stuck? Roll the die and ask one of the greats.*
+> Shows a random piece of advice from film, TV and game sound professionals and other creative people.
 
 <p align="center">
   <img src="soundadvice/docs/screenshot.png" alt="Sound Advice, in day and night themes" width="820">
 </p>
 
-A small, quiet page of hard-won advice from the creative people behind great film, TV, game and trailer sound: re-recording mixers, sound designers, supervising editors, game audio directors and more, plus a legendary Disney Imagineer on leading creative work. Pick what you're working on (mixing, creatures, dialogue, silence, running a creative team...) and roll the die. It deals you a field note on a real technique or decision, or a quote in their own words, tied to the production it came from.
+A page of advice from people who work on film, TV, game and trailer sound: re-recording mixers, sound designers, supervising editors, game audio directors and others, plus a Disney Imagineer on leading creative work. Pick what you're working on (mixing, creatures, dialogue, silence, running a creative team...) and roll the die. It deals you a field note on a real technique or decision, or a quote in their own words, tied to the production it came from.
 
-- 📚 **712 entries from 145 people**, each name linked to their credits
+- 📚 **843 entries from 148 people**, each name linked to their credits
 - 🔗 **Every entry traced to its source**: click through to the original interview, article or SoundWorks Collection video
 - 🛠️ **Concrete, not fortune-cookie**: mostly field notes on real sources, recording methods and mix decisions
 - 🗂️ **17 categories**, from Mixing and Field Recording to Horror & Tension, Silence & Restraint and Creativity & Teams. Each is a shuffled deck, so nothing repeats until you've seen the lot
@@ -225,7 +229,7 @@ A small, quiet page of hard-won advice from the creative people behind great fil
 - 🔇 **Audio passes straight through**, so it can sit on a mix bus, or run as an app on a second screen
 
 **App** (macOS, Windows) · **VST3** · **AU** &nbsp;&nbsp;
-[![Download Sound Advice](https://img.shields.io/badge/download-v1.0.6-9a5a3a?style=flat-square)](https://github.com/samueljustice/plugins/releases/tag/soundadvice-v1.0.6) &nbsp;
+[![Download Sound Advice](https://img.shields.io/badge/download-v1.0.11-9a5a3a?style=flat-square)](https://github.com/samueljustice/plugins/releases/tag/soundadvice-v1.0.11) &nbsp;
 [Read the manual →](soundadvice/README.md)
 
 ---
@@ -268,7 +272,7 @@ git push origin swooshbuckler-v1.0.0
 
 The tag prefixes are `swooshbuckler-v`, `soundadvice-v`, `subbertone-v`, `pitchflattener-v`, `reversinator-v`, `roarschach-v`, `stretcharmstrong-v` and `ptsl-beattool-v`.
 
-When a plug-in's release finishes, `build-release_bundle.yml` rebuilds the combined **Sammy J's Plugins** installer for macOS and Windows from every plug-in's newest release, and publishes it as the repository's Latest release (tagged `bundle-v<date>.<run>`), which the download buttons at the top link to. It doesn't rebuild the plug-ins; it repackages what their releases published. The plug-ins it includes are listed in [`bundle/plugins.txt`](bundle/plugins.txt). Run it by hand from the Actions tab to rebuild it now.
+When a plug-in's release finishes, `build-release_bundle.yml` rebuilds the combined **Sammy J's Plugins** installer for macOS and Windows from every plug-in's newest release, and publishes it as the repository's Latest release (tagged `bundle-v<date>.<run>`, with the build's date and time in the file names, like `SammyJ-Plugins-2026-11-08-1253-macOS-Installer.pkg`). It then points the **Get them all** buttons at the top of this README at those files and says when they were built (it rewrites the block between the `get-them-all` markers and commits it), and deletes the installer releases it replaces. It doesn't rebuild the plug-ins; it repackages what their releases published. The plug-ins it includes are listed in [`bundle/plugins.txt`](bundle/plugins.txt). After publishing, it points the Get them all buttons at the new files and sets every plug-in's download link, here and in each plug-in's own README, to that plug-in's newest release, so those never need editing by hand. On macOS the download is a disk image holding the installer and **Uninstall Sammy J's Plugins**, an app that removes everything again and, if asked, the settings and presets listed in [`bundle/userdata.txt`](bundle/userdata.txt); on Windows the installer's own uninstaller does the same. Run it by hand from the Actions tab to rebuild it now.
 
 </details>
 

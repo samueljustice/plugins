@@ -22,7 +22,13 @@ SwooshbucklerAudioProcessor::SwooshbucklerAudioProcessor()
 {
     auto raw = [this](const char* id) { return m_state.getRawParameterValue(id); };
     for (int i = 0; i < ParamIDs::numCargoTracks; ++i)
+    {
         m_raw.tracks[static_cast<size_t>(i)] = raw(ParamIDs::cargoTrack[i]);
+        m_raw.trackSemis[static_cast<size_t>(i)] = raw(ParamIDs::trackSemis[i]);
+        m_raw.trackCents[static_cast<size_t>(i)] = raw(ParamIDs::trackCents[i]);
+        m_raw.trackVari[static_cast<size_t>(i)] = raw(ParamIDs::trackVari[i]);
+        m_trackPitchTarget[static_cast<size_t>(i)] = ModMatrix::targetIndex(ParamIDs::trackSemis[i]);
+    }
     m_raw.pitch = raw(ParamIDs::pitch);
     m_raw.input = raw(ParamIDs::input);
     m_raw.rideOn = raw(ParamIDs::rideOn);
@@ -44,6 +50,15 @@ SwooshbucklerAudioProcessor::SwooshbucklerAudioProcessor()
     m_raw.duckMode = raw(ParamIDs::duckMode);
     m_raw.duckReturn = raw(ParamIDs::duckReturn);
     m_raw.takeTurns = raw(ParamIDs::takeTurns);
+    m_raw.linkBuses = raw(ParamIDs::linkBuses);
+    m_raw.hitAim = raw(ParamIDs::hitAim);
+    m_raw.tremOn = raw(ParamIDs::tremOn);
+    m_raw.tremDepth = raw(ParamIDs::tremDepth);
+    m_raw.tremRate = raw(ParamIDs::tremRate);
+    m_raw.tremThreshold = raw(ParamIDs::tremThreshold);
+    m_raw.tremShape = raw(ParamIDs::tremShape);
+    m_raw.tremTarget = raw(ParamIDs::tremTarget);
+    m_raw.masterTrim = raw(ParamIDs::masterTrim);
     m_raw.space = raw(ParamIDs::space);
     m_raw.inflate = raw(ParamIDs::inflate);
     m_raw.push = raw(ParamIDs::push);
@@ -85,6 +100,11 @@ bool SwooshbucklerAudioProcessor::isBusesLayoutSupported(const BusesLayout& layo
 void SwooshbucklerAudioProcessor::prepareToPlay(double sampleRate, int samplesPerBlock)
 {
     m_deviceRate = sampleRate;
+    m_trimGain.reset(sampleRate, 0.03); // Master Trim glides over 30 ms
+    {
+        const float trimDb = m_raw.masterTrim != nullptr ? m_raw.masterTrim->load() : 0.0f;
+        m_trimGain.setCurrentAndTargetValue(trimDb <= -59.9f ? 1.0e-4f : juce::Decibels::decibelsToGain(trimDb));
+    }
     m_blockSize = juce::jmax(256, samplesPerBlock);
     m_mods.prepare(sampleRate); // the modulators run once per device block
     m_outRing.prepare(sampleRate);
@@ -187,7 +207,20 @@ void SwooshbucklerAudioProcessor::updateEngineParams()
 
     RigEngine::Params p;
     for (size_t i = 0; i < p.levels.size(); ++i)
+    {
         p.levels[i] = m_raw.tracks[i]->load();
+        // Semitones plus cents, plus any modulator wires on the Semitones box (smooth, not stepped: a 100% wire
+        // swings the whole 48 semitones), held to two octaves either way so VARI on and off reach the same extremes.
+        float pitch = std::round(m_raw.trackSemis[i]->load()) + std::round(m_raw.trackCents[i]->load()) / 100.0f;
+        if (const int t = m_trackPitchTarget[i]; t >= 0 && (m_mods.isWired(t) || m_mods.offset(t) != 0.0f))
+        {
+            pitch += 48.0f * m_mods.offset(t);
+            if (m_mods.isWired(t))
+                m_mods.publishTarget(t, juce::jlimit(0.0f, 1.0f, (pitch + 24.0f) / 48.0f));
+        }
+        p.trackPitch[i] = juce::jlimit(-24.0f, 24.0f, pitch);
+        p.trackVari[i] = m_raw.trackVari[i]->load() > 0.5f;
+    }
     p.pitch = modValue(m_raw.pitch);
     p.input = 0.0f; // sample-based only
     p.rideOn = m_raw.rideOn->load() > 0.5f;
@@ -220,6 +253,14 @@ void SwooshbucklerAudioProcessor::updateEngineParams()
     p.duckMode = juce::jlimit(0, 2, juce::roundToInt(m_raw.duckMode->load()));
     p.duckReturn = modValue(m_raw.duckReturn);
     p.takeTurns = m_raw.takeTurns->load() > 0.5f;
+    p.linkBuses = m_raw.linkBuses->load() > 0.5f;
+    p.hitAim = m_raw.hitAim->load() > 0.5f;
+    p.tremOn = m_raw.tremOn->load() > 0.5f;
+    p.tremDepth = modValue(m_raw.tremDepth);
+    p.tremRate = modValue(m_raw.tremRate);
+    p.tremThreshold = modValue(m_raw.tremThreshold);
+    p.tremShape = juce::jlimit(0, 2, juce::roundToInt(m_raw.tremShape->load()));
+    p.tremTarget = juce::jlimit(0, 2, juce::roundToInt(m_raw.tremTarget->load()));
     p.space = modValue(m_raw.space);
     p.morphOn = m_raw.morphOn->load() > 0.5f;
     p.morphMode = juce::roundToInt(m_raw.morphMode->load());
@@ -340,16 +381,26 @@ void SwooshbucklerAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
             m_fifoCount -= used;
         }
 
-        // Transport fade
+        // Transport fade, and Master Trim (what you hear; the tape above already has the full-level signal).
+        double preTrimSquares = 0.0;
         {
             const float step = static_cast<float>(1.0 / (0.06 * juce::jmax(1.0, m_deviceRate)));
             const float target = m_playing.load() ? 1.0f : 0.0f;
+            const float trimDb = m_raw.masterTrim->load();
+            m_trimGain.setTargetValue(trimDb <= -59.9f ? 1.0e-4f : juce::Decibels::decibelsToGain(trimDb));
+            preTrimSquares = 0.0;
             for (int i = 0; i < len; ++i)
             {
                 m_transportGain = target > m_transportGain ? juce::jmin(target, m_transportGain + step)
                                                            : juce::jmax(target, m_transportGain - step);
                 outL[i] *= m_transportGain;
                 outR[i] *= m_transportGain;
+                // The Output Follower hears the rig before the trim, so turning Trim down never changes the sound.
+                preTrimSquares += 0.5 * (static_cast<double>(outL[i]) * outL[i] + static_cast<double>(outR[i]) * outR[i]);
+                const float trim = m_trimGain.getNextValue();
+                const float g = trim <= 1.0e-4f ? 0.0f : trim;
+                outL[i] *= g;
+                outR[i] *= g;
             }
         }
 
@@ -382,7 +433,8 @@ void SwooshbucklerAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
             peak = juce::jmax(peak, std::abs(outL[i]), std::abs(outR[i]));
         }
         m_scopeWrite.store(w, std::memory_order_release);
-        m_followerLevels[ModMatrix::FollowOutput] = static_cast<float>(std::sqrt(sumSquares / juce::jmax(1, len)));
+        juce::ignoreUnused(sumSquares);
+        m_followerLevels[ModMatrix::FollowOutput] = static_cast<float>(std::sqrt(preTrimSquares / juce::jmax(1, len)));
         const auto sections = m_engine.takeSectionLevels();
         m_followerLevels[ModMatrix::FollowBusA] = sections[0];
         m_followerLevels[ModMatrix::FollowBusB] = sections[1];
@@ -604,6 +656,16 @@ void SwooshbucklerAudioProcessor::setStateInformation(const void* data, int size
     const int width = tree.getProperty("editorWidth", 0);
     const juce::String preset = tree.getProperty("presetName", "Default").toString();
     tree.removeProperty("throwPath", nullptr); // v2 sessions
+
+    // Sessions saved before AIM existed keep the hit gate (and SYNC HITS) they were made with: AIM is on only for new
+    // sessions. A parameter missing from a saved state would otherwise keep its default (on).
+    if (! tree.getChildWithProperty("id", ParamIDs::hitAim).isValid())
+    {
+        juce::ValueTree aim("PARAM");
+        aim.setProperty("id", ParamIDs::hitAim, nullptr);
+        aim.setProperty("value", 0.0f, nullptr);
+        tree.appendChild(aim, nullptr);
+    }
 
     // The wires (a state without them has none).
     {

@@ -594,3 +594,78 @@ rohde-77bc0c  # Joe Rohde: With Animal Kingdom stalled in limbo, Rohde told — 
 rohde-7ce827  # Joe Rohde: Things are what they do. Action is existence — near-duplicate of rohde-fdb4da
 rohde-d7303c  # Joe Rohde: We create not just art. We create ourselves — generic motivational
 rohde-af5ac6  # Joe Rohde: Rohde says expeditions and projects alike must begin — near-duplicate of rohde-fa1efd
+
+# Rohde second pass: odd anecdotes, strange analogies and abstract imagery.
+rohde-026df4  # Joe Rohde: Feeding a crew well tells them what’s expected — crew food anecdote
+rohde-ebc30c  # Joe Rohde: In a market, Rohde rejected a braided finger — earring anecdote
+rohde-7b7efc  # Joe Rohde: To think laterally, forget an object’s name and — chair/robot oddity
+rohde-edb6b9  # Joe Rohde: When his canvases were pre-tinted for autumn and — blizzard painting anecdote
+rohde-a0ac33  # Joe Rohde: Painting a mural with Inuit communities, Rohde set — mural anecdote
+rohde-006adb  # Joe Rohde: Wandering inside an abandoned film set, Rohde found — film-set anecdote
+rohde-579b2e  # Joe Rohde: When a teacher asked teenage Rohde to design — teenage set anecdote
+rohde-9e45a0  # Joe Rohde: A technique Rohde took from his actress mother: — personal anecdote
+rohde-fef6d9  # Joe Rohde: Rohde’s cinematographer father’s storyboards taught him that a — biographical
+rohde-a600b3  # Joe Rohde: A trend line is an abstraction; only the — odd analogy
+rohde-04d853  # Joe Rohde: Efficiency is often irrelevant to creative work: the — odd analogy
+rohde-3ba9c4  # Joe Rohde: Rohde admires the Balinese view that anything sacred — spiritual aside
+rohde-89e15b  # Joe Rohde: Rohde treats an ensemble as one virtual creative — abstract
+rohde-d18a4e  # Joe Rohde: Rohde contrasts two geometries. Organisations map known goals — abstract imagery
+rohde-4761e4  # Joe Rohde: Rohde describes direction as geometry: it defines the — abstract imagery
+rohde-855963  # Joe Rohde: Rohde pictures a creative team as a solar — abstract imagery
+rohde-34b39b  # Joe Rohde: Rohde treats the crew’s emotional state as a — odd anecdote
+
+# Walston/Farmer/Wood and making-of videos: near-duplicates across panels, logistics, trivia.
+wood-2c0f06  # Matthew Wood: Recording vehicles for Phantom Menace's pod race, Wood — dup of wood-f0f852
+wood-c0f06e  # Matthew Wood: Burtt's advice to Wood when recording vehicles for — dup of wood-f0f852
+wood-49f930  # Matthew Wood: For the podrace in The Phantom Menace, Wood — dup of wood-9eca47
+acord-d03a55  # David Acord: For the Millennium Falcon in the sequel trilogy — dup of acord-2b309a
+collins-38cd0e  # David W. Collins: Cutting the first episode of Star Wars Resistance — dup of acord-2b309a
+collins-17677a  # David W. Collins: When cutting the Star Wars Resistance pilot, Collins — dup of acord-2b309a
+wood-6de12d  # Matthew Wood: Wood's team keeps the Star Wars library, over — dup of wood-27d180
+wood-a8edd9  # Matthew Wood: Skywalker keeps Star Wars sounds in a restricted — dup of wood-27d180
+collins-a002b2  # David W. Collins: For The Bad Batch episode 'Faster', the director — dup of collins-dc4289
+collins-970117  # David W. Collins: For the flying creatures in The Mandalorian season — dup of collins-220bd2
+wood-e0280e  # Matthew Wood: For Jawas in The Mandalorian and Book of — dup of collins-d767a4
+burtt-7792b5  # Ben Burtt: I created what I call an audio — fragment; dup of burtt-5d7e64
+wood-14e376  # Matthew Wood: Wood on Attack of the Clones' seismic charge — dup of burtt-5d7e64
+wood-731c4c  # Matthew Wood: Wood recorded new Kylo Ren lines in Adam — dup of wood-8a7087
+acord-fe2b59  # David Acord: When Jon Favreau wanted Grogu more human and — dup of wood-b9c811
+acord-721f1c  # David Acord: For Mon Mothma's Senate speech in Andor, Acord — dup of pfeiffer-e9fb5e
+acord-5aabe4  # David Acord: Acord on Andor's Senate chamber: the more naked — dup of pfeiffer-e9fb5e
+acord-fca2ec  # David Acord: Andor episode 8 is one long build — dup of pfeiffer-c48a61
+pfeiffer-63bb0d  # Margit Pfeiffer: Pfeiffer's loop group for Andor's Ghorman worked in — dup of pfeiffer-36eab3
+pfeiffer-61aac1  # Margit Pfeiffer: For the brutal Syril-Cassian bar fight in Andor — dup of pfeiffer-a92e1d
+wood-18bc17  # Matthew Wood: On Skeleton Crew, the loop group bantered together — dup of wood-924350
+acord-878b0b  # David Acord: To match Andor's grounded, gritty tone, David Acord — dup of acord-fc52c1
+collins-492d24  # David W. Collins: R5-D4 does very little in A New Hope — dup of collins-f9aa2e
+wood-c78d11  # Matthew Wood: When a mouse droid rolls past as K-2SO — dup of wood-8176f6
+wood-856c78  # Matthew Wood: For the Star Wars prequels, when ADR had — dup of wood-219393
+farmer-9f9ce2  # David Farmer: If you don't miss it, you don't need — fragment; dup of farmer-ca2cb6
+wood-c99286  # Matthew Wood: …make you feel small and intimate if you've — fragment, no context
+wood-c2b078  # Matthew Wood: During The Phantom Menace ADR, Wood fed Pro — gadget trivia
+wood-d16218  # Matthew Wood: For Attack of the Clones ADR, Wood ran — dated logistics, obsolete tech
+wood-cec45b  # Matthew Wood: A laugh cut in for BB-8 in — trivia anecdote
+wood-b22bc1  # Matthew Wood: For The Last Jedi, Wood's team retired the — trivia
+wood-593ea5  # Matthew Wood: For the Rey and Kylo Ren tug-of-war over — trivia, sound reuse only
+wood-05644d  # Matthew Wood: Wood recalls Burtt sending him out in Sydney — anecdote, nothing transferable
+wood-dcd5f1  # Matthew Wood: On Rogue One, Wood and Christopher Scarabosio split — logistics/division of labour
+wood-428abf  # Matthew Wood: The Mandalorian was mixed natively in Atmos from — logistics
+wood-40d903  # Matthew Wood: Because Jon Favreau wanted an almost documentary-like realism — vague, nothing to try
+wood-0f8704  # Matthew Wood: Reading the script for Obi-Wan Kenobi's final Vader — scheduling logistics
+wood-7780d2  # Matthew Wood: Wood on the darksaber in The Mandalorian: the — credits, vague technique
+wood-34e44b  # Matthew Wood: For Disney+ delivery of shows like The Mandalorian — proprietary tool, not reusable
+wood-61e410  # Matthew Wood: Babu Frick's performer, Shirley Henderson, improvised her lines — performer trivia
+scarabosio-ecb147  # Christopher Scarabosio: Scarabosio temped Rogue One's Jedha market with a — clearance trivia
+dupre-354567  # Danielle Dupre: Dupre finds that remote ADR, recording actors wherever — industry observation, no technique
+dupre-ca8ed4  # Danielle Dupre: Dupre mirrored Obi-Wan's arc in the Obi-Wan Kenobi — abstract, story-driven
+acord-d1f1bf  # David Acord: For The Mandalorian and Grogu, Acord's team did — too thin
+farmer-ebe6b9  # David Farmer: On the 2010 A Nightmare on Elm Street — vague "reined it back"
+pfeiffer-15903c  # Margit Pfeiffer: Pfeiffer's team handled Andor in blocks of three — scheduling logistics
+walston-19547e  # Tim Walston: For Stealth, supervising sound editor Bruce Stambler had — job assignment logistics
+
+# Context pass: about a specific project the source never names, or outside the rules once it was identified.
+aadahl-4db0f5  # Erik Aadahl: When jet recordings made a broom flight sound — production never named
+albrechtsen-7e84e0  # Peter Albrechtsen: Wanting something weightier than a stock whoosh for — production never named
+murch-b5076b  # Walter Murch: On a William Kentridge series with very reverberant — production never named
+rohde-bb28ba  # Joe Rohde: When the brief kept shifting, Rohde kept asking — park-specific
+farmer-823ffa  # David Farmer: Farmer delights in casting a sound against type, — pre-2005 film

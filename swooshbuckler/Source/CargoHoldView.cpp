@@ -7,7 +7,7 @@ namespace TC = Theme::Colours;
 namespace
 {
     constexpr int c_peakBlock = 256;
-    constexpr int c_headerWidth = 250;
+    constexpr int c_headerWidth = 282; // room for the pitch boxes and VARI next to the fader
     constexpr int c_skipWidth = 96;
     // CAF and M4A are read through Core Audio, so only on macOS.
    #if JUCE_MAC
@@ -40,14 +40,118 @@ bool CargoHoldView::isAudioFile(const juce::String& path)
 }
 
 //==============================================================================
+/** A small number box (semitones or cents): drag up or down to change it, double-click to reset. The Semitones box
+    is also a modulation target: each wire's reach is a bar under the number (dashed when negative), the live pitch
+    a dot, and a Cmd-drag (Ctrl on Windows) sets the wire's depth (see ModTarget). */
+class PitchBox : public ModTarget
+{
+public:
+    PitchBox(const Theme::Fonts& fonts, juce::Colour colour, int pixelsForFullRange) : m_fonts(fonts), m_colour(colour)
+    {
+        setSliderStyle(juce::Slider::RotaryVerticalDrag); // a vertical drag over a set distance, not over the box's 16 px
+        setTextBoxStyle(juce::Slider::NoTextBox, false, 0, 0);
+        setMouseDragSensitivity(pixelsForFullRange);
+        setDoubleClickReturnValue(true, 0.0);
+        setMouseCursor(juce::MouseCursor::UpDownResizeCursor);
+        setWantsKeyboardFocus(false);
+        setScrollWheelEnabled(false); // the wheel scrolls the track list, it never retunes a track by accident
+    }
+
+    void paint(juce::Graphics& g) override
+    {
+        auto r = getLocalBounds().toFloat().reduced(0.5f);
+        const bool zero = std::abs(getValue()) < 0.5;
+        const bool hot = isMouseOverOrDragging();
+        g.setColour(TC::scope);
+        g.fillRoundedRectangle(r, 3.0f);
+        g.setColour(zero ? (hot ? TC::outline.brighter(0.5f) : TC::outline) : m_colour.withAlpha(hot ? 1.0f : 0.8f));
+        g.drawRoundedRectangle(r, 3.0f, 1.0f);
+        g.setFont(m_fonts.label(10.5f));
+        g.setColour(zero ? TC::textDim : TC::text);
+        g.drawFittedText(getTextFromValue(getValue()), getLocalBounds().reduced(2, 0), juce::Justification::centred, 1, 0.8f);
+
+        // Modulation: each wire's reach along the bottom edge, from the set pitch (both ways for LFO / Random,
+        // one way for Follower / Macro), dashed when negative; the live pitch as a dot.
+        if (! m_modArcs.empty())
+        {
+            const float base = static_cast<float>(valueToProportionOfLength(getValue()));
+            const float x0 = r.getX() + 3.0f, w = r.getWidth() - 6.0f;
+            float y = r.getBottom() - 2.0f;
+            for (const auto& m : m_modArcs)
+            {
+                const float lo = m.bipolar ? base - 0.5f * std::abs(m.depth) : juce::jmin(base, base + m.depth);
+                const float hi = m.bipolar ? base + 0.5f * std::abs(m.depth) : juce::jmax(base, base + m.depth);
+                juce::Path p;
+                p.startNewSubPath(x0 + w * juce::jlimit(0.0f, 1.0f, lo), y);
+                p.lineTo(x0 + w * juce::jlimit(0.0f, 1.0f, hi), y);
+                strokeModPath(g, p, m.colour, m.depth, 1.6f);
+                y -= 2.2f;
+            }
+            if (m_modLive >= 0.0f)
+            {
+                g.setColour(TC::text);
+                g.fillEllipse(juce::Rectangle<float>(4.0f, 4.0f).withCentre({ x0 + w * m_modLive, r.getBottom() - 2.0f }));
+            }
+        }
+        if (! m_wireHover.isTransparent())
+        {
+            g.setColour(m_wireHover.withAlpha(0.85f));
+            g.drawRoundedRectangle(r.expanded(1.5f), 4.0f, 2.0f);
+        }
+    }
+
+    juce::Point<float> getDialCentre() const override { return getLocalBounds().toFloat().getCentre(); }
+    // A flat box: its plugs sit in a row just under it (not around a dial, where they'd cover the buttons above).
+    juce::Point<float> getPlugPosition(int index) const override
+    {
+        return { 7.0f + 11.0f * static_cast<float>(index), static_cast<float>(getHeight()) + 4.0f };
+    }
+    float getDialRadius() const override { return static_cast<float>(getHeight()) * 0.5f + 2.0f; }
+    bool isReachable() const override
+    {
+        // Inside the scrolling track list: only when fully in view.
+        if (! ModTarget::isReachable())
+            return false;
+        if (const auto* vp = findParentComponentOfClass<juce::Viewport>())
+            return vp->getLocalBounds().contains(vp->getLocalArea(this, getLocalBounds()));
+        return true;
+    }
+
+private:
+    const Theme::Fonts& m_fonts;
+    juce::Colour m_colour;
+};
+
+//==============================================================================
 class CargoHoldView::Lane : public juce::Component, public juce::TooltipClient
 {
 public:
     Lane(CargoHoldView& owner, int track)
         : m_owner(owner), m_track(track),
-          m_levelAttachment(owner.m_processor.getState(), ParamIDs::cargoTrack[track], m_level)
+          m_semis(owner.m_fonts, Theme::trackColour(track), 240), m_cents(owner.m_fonts, Theme::trackColour(track), 400),
+          m_levelAttachment(owner.m_processor.getState(), ParamIDs::cargoTrack[track], m_level),
+          m_semisAttachment(owner.m_processor.getState(), ParamIDs::trackSemis[track], m_semis),
+          m_centsAttachment(owner.m_processor.getState(), ParamIDs::trackCents[track], m_cents),
+          m_variAttachment(owner.m_processor.getState(), ParamIDs::trackVari[track], m_vari)
     {
         const auto colour = Theme::trackColour(track);
+
+        // This track's own pitch, on top of the Ride's Pitch knob.
+        m_semis.caption = "Track " + juce::String(track + 1) + " Pitch";
+        m_semis.setTooltip("Semitones\nThis track's own pitch, up to two octaves up or down, on top of the Ride's Pitch knob. "
+                           "With VARI on it works like tape, so higher is also faster; with VARI off the speed stays the same. "
+                           "Drag a MOD jack onto it to modulate the track's pitch (smoothly, not in steps); a 100% wire swings two octaves.\n"
+                           "Drag up or down. Double-click to reset. Cmd-drag (Ctrl on Windows) when it's modulated to set the wire's depth, up or down."); 
+        m_cents.setTooltip("Cents\nFine tuning for this track, up to a semitone either way (100 cents), on top of the semitones.\n"
+                           "Drag up or down. Double-click to reset.");
+        m_vari.setClickingTogglesState(true);
+        m_vari.setColour(juce::TextButton::buttonOnColourId, colour);
+        m_vari.setWantsKeyboardFocus(false);
+        m_vari.setTooltip("Vari\nOn (the default): varispeed, like tape. The pitch and the speed change together, as with the Ride's Pitch knob. "
+                          "Off: the pitch changes and the speed stays the same, through a pitch shifter. "
+                          "That delays the track by about 43 ms; synced hits allow for it.\nClick to switch.");
+        for (auto* c : std::initializer_list<juce::Component*> { &m_semis, &m_cents, &m_vari })
+            addAndMakeVisible(c);
 
         m_level.setSliderStyle(juce::Slider::LinearHorizontal);
         m_level.setTextBoxStyle(juce::Slider::NoTextBox, false, 0, 0);
@@ -95,6 +199,7 @@ public:
     }
 
     int getTrack() const { return m_track; }
+    ModTarget* getSemisBox() { return &m_semis; }
     bool hasData() const { return m_data != nullptr && m_data->length() > 0; }
     bool hasSelection() const { return selEnd != selStart; }
     int selectionStart() const { return juce::jmin(selStart, selEnd); }
@@ -163,7 +268,15 @@ public:
         row.removeFromRight(4);
         m_type.setBounds(row);
         header.removeFromTop(4);
-        m_level.setBounds(header.removeFromTop(juce::jlimit(10, 16, header.getHeight())));
+        // The fader, then this track's pitch: semitones, cents and VARI.
+        auto bottom = header.removeFromTop(juce::jlimit(12, 16, header.getHeight()));
+        m_vari.setBounds(bottom.removeFromRight(36));
+        bottom.removeFromRight(3);
+        m_cents.setBounds(bottom.removeFromRight(40));
+        bottom.removeFromRight(3);
+        m_semis.setBounds(bottom.removeFromRight(40));
+        bottom.removeFromRight(6);
+        m_level.setBounds(bottom);
     }
 
     juce::Rectangle<int> waveArea() const { return getLocalBounds().withTrimmedLeft(c_headerWidth + 14).reduced(0, 6).withTrimmedRight(10); }
@@ -308,8 +421,10 @@ public:
         if (m_align > 0.5f)
         {
             g.setColour(TC::record.brighter(0.3f).withAlpha(m_align));
-            g.drawText(m_syncCount == 0 ? juce::String("SYNCED   no hits found (try Skip Silence off)")
-                                        : "SYNCED   hit " + juce::String(m_syncIndex + 1) + " of " + juce::String(m_syncCount)
+            const bool aimed = m_owner.m_processor.getState().getRawParameterValue(ParamIDs::hitAim)->load() > 0.5f;
+            const juce::String mode = aimed ? "AIMED" : "SYNCED";
+            g.drawText(m_syncCount == 0 ? mode + "   no hits found (try Skip Silence off)"
+                                        : mode + "   hit " + juce::String(m_syncIndex + 1) + " of " + juce::String(m_syncCount)
                                               + (m_owner.m_hold.getSkipSilence(m_track) ? "" : "  (whole file)"),
                        wave.reduced(16, 4), juce::Justification::topLeft);
         }
@@ -498,9 +613,11 @@ private:
                 m_syncIndex = juce::jlimit(0, m_syncCount - 1, juce::jmax(0, m_syncRegion));
                 const auto r = CargoPlayer::regionAt(d, skip, start, m_syncIndex);
                 // The engine's shared beat window (source seconds), plus a margin.
+                // Scaled by this track's own VARI speed: a faster track covers more of its file in the same beat.
                 const auto& win = m_owner.m_hitWindow;
-                const double pre = juce::jmax(0.01, win.pre) + 0.03;
-                const double post = juce::jmax(0.05, win.post) + 0.03;
+                const double speed = static_cast<double>(m_owner.m_processor.getEngine().getTrackSpeed(m_track));
+                const double pre = juce::jmax(0.01, win.pre * speed) + 0.03;
+                const double post = juce::jmax(0.05, win.post * speed) + 0.03;
                 m_syncFocus = r.focus;
                 const float e = m_align * m_align * (3.0f - 2.0f * m_align); // smoothstep
                 w0 = juce::jmap(static_cast<double>(e), 0.0, r.focus - pre * d.sampleRate);
@@ -603,10 +720,13 @@ private:
     std::vector<std::pair<float, float>> m_peaks;
 
     juce::Slider m_level;
+    PitchBox m_semis, m_cents;
+    juce::TextButton m_vari { "VARI" };
     juce::TextButton m_type, m_mute { "M" }, m_solo { "S" }, m_remove { "x" }, m_skip { "SKIP SILENCE" };
     juce::TextEditor m_nameEditor;
     juce::Rectangle<int> m_busTagArea; // set in paint(), for the tooltip
-    juce::AudioProcessorValueTreeState::SliderAttachment m_levelAttachment;
+    juce::AudioProcessorValueTreeState::SliderAttachment m_levelAttachment, m_semisAttachment, m_centsAttachment;
+    juce::AudioProcessorValueTreeState::ButtonAttachment m_variAttachment;
 };
 
 //==============================================================================
@@ -646,6 +766,7 @@ CargoHoldView::CargoHoldView(SwooshbucklerAudioProcessor& processor, const Theme
     }
 
     m_viewport.setViewedComponent(&m_laneHolder, false);
+    m_viewport.onMoved = [this] { if (onLanesMoved) onLanesMoved(); };
     m_viewport.setScrollBarsShown(true, false);
     m_viewport.setScrollBarThickness(8);
     addAndMakeVisible(m_viewport);
@@ -704,6 +825,14 @@ void CargoHoldView::paint(juce::Graphics& g)
     }
 }
 
+std::map<juce::String, ModTarget*> CargoHoldView::getModTargets()
+{
+    std::map<juce::String, ModTarget*> targets;
+    for (auto& lane : m_lanes)
+        targets[ParamIDs::trackSemis[lane->getTrack()]] = lane->getSemisBox();
+    return targets;
+}
+
 void CargoHoldView::resized()
 {
     auto r = getLocalBounds().reduced(16, 0);
@@ -754,6 +883,8 @@ void CargoHoldView::resized()
     {
         m_dropZone = {};
     }
+    if (onLanesMoved)
+        onLanesMoved(); // lanes appear, go and change size: their plugs move
 }
 
 void CargoHoldView::changeListenerCallback(juce::ChangeBroadcaster*)
@@ -773,7 +904,9 @@ void CargoHoldView::timerCallback()
     const auto& engine = m_processor.getEngine();
 
     // Hit sync view: the shared beat window over every hit track, and a flash on each beat.
-    const bool hitSync = m_processor.getState().getRawParameterValue(ParamIDs::hitSync)->load() > 0.5f;
+    // Hit tracks line up their transients in the view whenever they're cued: SYNC HITS or AIM.
+    const bool hitSync = m_processor.getState().getRawParameterValue(ParamIDs::hitSync)->load() > 0.5f
+                      || m_processor.getState().getRawParameterValue(ParamIDs::hitAim)->load() > 0.5f;
     // The window the engine used for its last beat (pitch and caps applied), so the view matches what plays.
     m_hitWindow.pre = engine.getHitPre();
     m_hitWindow.post = engine.getHitPost();

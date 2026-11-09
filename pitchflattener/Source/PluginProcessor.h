@@ -3,6 +3,7 @@
 #include <JuceHeader.h>
 #include "ParamIDs.h"
 #include "dsp/FlattenerCore.h"
+#include "dsp/SourceAdvisor.h"
 #include "dsp/SourcePresets.h"
 
 class PitchFlattenerAudioProcessor : public juce::AudioProcessor,
@@ -63,6 +64,16 @@ public:
     int   getReportedLatency() const    { return getLatencySamples(); }
     int   getUnderrunCount() const      { return core.getUnderrunCount(); }
     pf::DetectorType getActiveDetector() const { return core.getActiveDetector(); }
+
+    // For the wobble check and the Source Type advisor (message thread)
+    /** The settings the parameters set now, as the advisor replays them. */
+    pf::ProcessingSettings getProcessingSettings() const;
+    /** The Source Type parameter (a pf::SourceType). */
+    int getSourceType() const;
+    double getFrameInputSamples() const          { return core.getFrameInputSamples(); }
+    int64_t getMonitorWritten (bool output) const { return core.getMonitorWritten (output); }
+    int getResetCount() const                    { return core.getResetCount(); }
+    bool copyMonitor (bool output, int64_t from, int numSamples, float* dest) { return core.copyMonitor (output, from, numSamples, dest); }
 
     static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
 

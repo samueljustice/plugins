@@ -1,6 +1,7 @@
 #pragma once
 
 #include <JuceHeader.h>
+#include "LookAndFeel.h" // ModTarget
 #include "PluginProcessor.h"
 #include "Theme.h"
 
@@ -43,6 +44,10 @@ public:
     juce::String loadFiles(const juce::StringArray& files, int track = -1);
 
     std::function<void()> onSwell; // space bar while the tracks have focus
+    /** The lanes moved (scrolled, added, removed or resized): modulation plugs on them need placing again. */
+    std::function<void()> onLanesMoved;
+    /** Each track's Semitones box, as a modulation target (parameter ID -> control). */
+    std::map<juce::String, ModTarget*> getModTargets();
     std::function<void(const juce::String&)> onStatus;
 
     static bool isAudioFile(const juce::String& path);
@@ -68,7 +73,13 @@ private:
 
     std::vector<std::pair<Action, std::unique_ptr<juce::TextButton>>> m_buttons;
     std::array<std::unique_ptr<Lane>, CargoHold::c_numTracks> m_lanes;
-    juce::Viewport m_viewport;        // the lanes scroll when there are more than fit
+    /** The lanes scroll when there are more than fit; scrolling tells the owner (onLanesMoved). */
+    struct LaneViewport : juce::Viewport
+    {
+        std::function<void()> onMoved;
+        void visibleAreaChanged(const juce::Rectangle<int>&) override { if (onMoved) onMoved(); }
+    };
+    LaneViewport m_viewport;
     juce::Component m_laneHolder;
     int m_active = 0;
     HitWindow m_hitWindow;      // hit sync's shared beat window (source seconds), for the aligned lanes

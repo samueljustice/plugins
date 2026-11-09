@@ -44,10 +44,11 @@ namespace Presets
     inline bool isSessionParameter(const juce::String& id)
     {
         using namespace ParamIDs;
-        for (const auto* t : cargoTrack)
-            if (id == t) return true;
+        if (id.startsWith("cargo")) // track levels, and each track's pitch and VARI
+            return true;
         return id == input || id == inflate || id == push || id == ceiling || id == rideOn || id == hitSync
-            || id == gateMode || id == duckMode || id == takeTurns // how the rig behaves: kept by presets and Randomise
+            || id == gateMode || id == duckMode || id == takeTurns || id == linkBuses || id == hitAim || id == masterTrim
+            || id.startsWith("trem") // the peak tremolo, like the rest of the output stage // how the rig behaves: kept by presets and Randomise
             || id == morphOn || id == morphWander || id == morphShape || id == morphSpeed
             || id.startsWith("mod"); // the modulators and their wires belong to the session, not to a preset
     }

@@ -109,12 +109,6 @@
    "imdb": "https://www.imdb.com/name/nm0003357/"
   },
   {
-   "name": "Dallas Taylor",
-   "role": "Creative director, Defacto Sound; host of Twenty Thousand Hertz",
-   "credits": "Twenty Thousand Hertz; Blood Brother",
-   "imdb": "https://www.imdb.com/name/nm1707229/"
-  },
-  {
    "name": "Dan Hiland",
    "role": "Re-recording mixer",
    "credits": "The Midnight Sky",
@@ -3104,66 +3098,6 @@
     "publication": "SoundWorks Collection",
     "url": "https://www.youtube.com/watch?v=8xNX94Ekv3s",
     "year": 2018
-   }
-  },
-  {
-   "person": "Dallas Taylor",
-   "kind": "insight",
-   "text": "Mixing the Twenty Thousand Hertz podcast, Taylor's team keeps a tight dynamic range so every beat survives being turned down. A listener poll showed about 90% listened on earbuds, so they mix for earbuds and avoid the bright, brittle top end that sounds fine only on studio monitors.",
-   "categories": [
-    "mixing",
-    "craft"
-   ],
-   "source": {
-    "title": "Dallas Taylor - Twenty Thousand Hertz Podcast & Defacto Sound",
-    "publication": "SoundWorks Collection",
-    "url": "https://www.youtube.com/watch?v=njtSs3NFvvA",
-    "year": 2020
-   }
-  },
-  {
-   "person": "Dallas Taylor",
-   "kind": "insight",
-   "text": "Twenty Thousand Hertz is delivered at around -16 LUFS integrated, and the team holds that number exactly. The ads are stitched in dynamically at different times, so any ad can be swapped across the whole show and still has to sit seamlessly.",
-   "categories": [
-    "mixing",
-    "craft"
-   ],
-   "source": {
-    "title": "Dallas Taylor - Twenty Thousand Hertz Podcast & Defacto Sound",
-    "publication": "SoundWorks Collection",
-    "url": "https://www.youtube.com/watch?v=njtSs3NFvvA",
-    "year": 2020
-   }
-  },
-  {
-   "person": "Dallas Taylor",
-   "kind": "insight",
-   "text": "On Defacto Sound's car spots, the hard part is giving the impression of dynamic range with almost none: hitting hard, then dropping quiet, while still landing on a -24 loudness spec. Taylor says to always decide the mix by where it will be heard.",
-   "categories": [
-    "mixing",
-    "trailers"
-   ],
-   "source": {
-    "title": "Dallas Taylor - Twenty Thousand Hertz Podcast & Defacto Sound",
-    "publication": "SoundWorks Collection",
-    "url": "https://www.youtube.com/watch?v=njtSs3NFvvA",
-    "year": 2020
-   }
-  },
-  {
-   "person": "Dallas Taylor",
-   "kind": "insight",
-   "text": "For remote podcast guests, Taylor's team asks even seasoned sound people for a test sample first. In a pinch, they record straight from a phone's own mic, using Voice Memos set to high quality or a dedicated recording app, with a call recorder running as backup, because the voice is what matters most.",
-   "categories": [
-    "dialogue",
-    "recording"
-   ],
-   "source": {
-    "title": "Dallas Taylor - Twenty Thousand Hertz Podcast & Defacto Sound",
-    "publication": "SoundWorks Collection",
-    "url": "https://www.youtube.com/watch?v=njtSs3NFvvA",
-    "year": 2020
    }
   },
   {

@@ -62,7 +62,7 @@ namespace pf
         // Allowed movement per hop: tracking speed (oct/s) -> cents per hop. Floor keeps jitter cheap.
         sigmaCents = std::max (6.0f, 1200.0f * s.trackingSpeedOctPerSec / hopsPerSec);
         harmonicDetector = detector == DetectorType::HarmonicSum;
-        octaveCost = harmonicDetector ? 4.0f : (detector == DetectorType::SpectralPeak ? 3.0f : 2.5f);
+        octaveCost = harmonicDetector ? 4.0f : (detector == DetectorType::SpectralPeak || detector == DetectorType::SpectralMpm ? 3.0f : 2.5f);
         voicedOn = 0.5f;
 
         gapFrames = std::clamp ((int) std::lround (s.gapFillMs * 0.001f * hopsPerSec), 0, gapLag);
@@ -381,19 +381,31 @@ namespace pf
             case TargetMode::NumModes:
             default:
             {
-                if (! latched && tr.flag == Voiced)
+                if (! latched && active)
                 {
-                    // latch to the median of the first ~300 ms of the sound (we can see ahead)
-                    const int ahead = std::min (targetLag, (int) std::lround (0.3 / hopSec));
-                    int n = 0;
-                    for (int k = 0; k <= ahead && n < (int) scratch.size(); k += std::max (1, ahead / 60))
+                    // Latch before the sound plays: from its very first tracked frame (including the lead-in the
+                    // gap fill bridges before the detector is sure), look ahead to its first confident frame and
+                    // lock to the median of the ~300 ms from there. Otherwise the start of every sound would play
+                    // uncorrected until that first confident frame came round, then snap to the latch.
+                    int first = -1;
+                    for (int k = 0; k <= targetLag && first < 0; ++k)
+                        if (smoothed[(size_t) idx (t + k)].flag == Voiced)
+                            first = k;
+
+                    if (first >= 0)
                     {
-                        const auto& v = smoothed[(size_t) idx (t + k)];
-                        if (v.flag == Voiced)
-                            scratch[(size_t) n++] = v.cents;
+                        const int last = std::min (targetLag, first + (int) std::lround (0.3 / hopSec));
+                        const int stride = std::max (1, (last - first) / 60);
+                        int n = 0;
+                        for (int k = first; k <= last && n < (int) scratch.size(); k += stride)
+                        {
+                            const auto& v = smoothed[(size_t) idx (t + k)];
+                            if (v.flag == Voiced)
+                                scratch[(size_t) n++] = v.cents;
+                        }
+                        latchedCents = n > 0 ? medianOf (scratch.data(), n) : trackCents;
+                        latched = true;
                     }
-                    latchedCents = n > 0 ? medianOf (scratch.data(), n) : trackCents;
-                    latched = true;
                 }
                 target = latched ? latchedCents : trackCents;
                 break;

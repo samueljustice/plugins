@@ -127,6 +127,7 @@ void PresetManager::buildFactoryPresets()
         setParamValue (state, ParamIDs::detectionLowpass, p.lowpassHz);
         setParamValue (state, ParamIDs::rbFormantPreserve, p.formant ? 1.0f : 0.0f);
         setParamValue (state, ParamIDs::quality, (float) p.quality);
+        setParamValue (state, ParamIDs::maxShift, p.maxShiftSemitones);
         setParamValue (state, ParamIDs::targetMode, (float) (int) target.mode);
         setParamValue (state, ParamIDs::autoWindow, target.autoWindowMs);
 
