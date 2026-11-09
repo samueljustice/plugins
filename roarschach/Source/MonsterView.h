@@ -2,7 +2,9 @@
 
 #include <JuceHeader.h>
 #include "CreatureEvolution.h"
+#include "CreatureMotion.h"
 #include "LogoSdf.h"
+#include "MonsterRenderer.h"
 #include "Theme.h"
 #include "dsp/MonsterFeatures.h"
 
@@ -13,20 +15,22 @@
 #include <memory>
 
 /**
- * The creature view: one fragment shader on a full-screen quad draws a mirror-symmetric ink-blot
- * creature head that is animated by what the audio is doing: the voice opens the jaw, growl shakes
- * the teeth, shimmer ripples the skin and drips ink, swirl sweeps a sheen up and down the face,
- * ensemble spreads filaments to the sides, roar heats the eyes, sub sends out rings, the vocoder
- * lights a frill of 32 ridges under the jaw, overtone lights one rib per harmonic under the chin
- * (hollow in Replace), ring puts flickering metal plates over the mouth, de-ess glints on the
- * teeth, tame dims the crown, a shut gate closes the lips, the limiter swells veins at the
- * temples and the clipper throws sparks off the edges. After 1.5 s of silence it falls asleep.
+ * The creature view: a mirror-symmetric ink-blot creature head formed of a lit, swirling ink-smoke
+ * medium, animated by what the audio is doing. The voice works a heavy, damped jaw (JawMotion);
+ * growl stirs the smoke and shivers the lips; shimmer ripples the skin and drips ink; swirl spins a
+ * mirrored pair of vortices at the phaser's notch; ensemble stretches the smoke sideways; roar
+ * jets heat from the mouth corners and the eyes and throat glow through the ink; sub onsets push
+ * rings through the fog; the vocoder lights 32 ridges under the jaw; overtone lights one rib per
+ * harmonic (hollow in Replace); ring puts dark plates over the mouth; de-ess glints on the teeth;
+ * tame dims the crown; a shut gate closes the lips; the limiter throbs at the temples and the
+ * clipper throws sparks of heat off the edges. After 1.5 s of silence it falls asleep.
  *
- * The creature is a condensation of a drifting cloud field (painterly, with a slight liquid-ink
- * feel): a roar pulls it together, quiet lets it thin out, and sleep disperses it back into cloud
- * (eyes and maw form first and go last). A low front fog drifts over it. Its form evolves slowly
- * with the session (CreatureEvolution, stepped by the processor); the view only reads the evaluated
- * parameters and smooths them. A right-click on the view offers Live / Frozen evolution and a reset.
+ * The creature condenses out of a drifting, advected cloud (MonsterRenderer: a small fluid sim
+ * carries the cloud, a front fog, heat and red ink): a roar pulls it together, quiet lets it thin
+ * out, and sleep unwinds it back into swirls (eyes and maw form first and go last). Its form
+ * evolves slowly with the session (CreatureEvolution, stepped by the processor); the view only
+ * reads the evaluated parameters and smooths them. Weak GPUs get a lighter tier, or the single-pass
+ * stateless shader. A right-click on the view offers Live / Frozen evolution and a reset.
  *
  * Threads: the audio thread writes MonsterFeatures (atomics); the message thread writes the knob
  * values with setParams() (atomics); the GL thread reads both in renderOpenGL() and keeps its own
@@ -65,6 +69,12 @@ public:
 
     void mouseDown (const juce::MouseEvent&) override;
 
+    /** Tests and snapshots: a fixed 1/30 s sim step and a 120-step warm-up, so frames repeat. */
+    void setFixedStepForTests (bool fixed) { m_testFixedStep.store (fixed, std::memory_order_relaxed); }
+
+    /** The renderer's quality tier in use (0..3, -1 before the first frame). */
+    int getQualityTier() const { return m_tier.load (std::memory_order_relaxed); }
+
     /** Tests and snapshots: hold the formation and the front fog (each < 0 = live). */
     void setFormationForTests (float formation, float fog)
     {
@@ -92,7 +102,6 @@ public:
 
 private:
     void timerCallback() override;
-    bool buildShader();
     void releaseGL();
     void updateAnimation (float dt);
     void showCreatureMenu();
@@ -104,6 +113,7 @@ private:
     const roar::CreatureShared& m_creature;
     const LogoSdf& m_logo { LogoSdf::shared() };            // built once per process (on the first editor)
     std::atomic<float> m_testFormation { -1.0f }, m_testFog { -1.0f };
+    std::atomic<bool> m_testFixedStep { false };
     juce::OpenGLContext m_context;
     juce::SharedResourcePointer<Theme::Fonts> m_fonts;
 
@@ -123,6 +133,7 @@ private:
     std::atomic<bool> m_asleep { false };
     std::atomic<bool> m_stale { false };     // the audio thread stopped publishing (host not processing)
     std::atomic<bool> m_idle { false };      // asleep and fully settled: frames can come slowly
+    std::atomic<int> m_tier { -1 };          // the renderer's tier (the idle frame rate depends on it)
 
     // Frame read-back for snapshots (never used while a host runs the plug-in).
     std::atomic<bool> m_captureRequested { false };
@@ -130,24 +141,15 @@ private:
     juce::Image m_capture;
 
     // GL thread only.
-    std::unique_ptr<juce::OpenGLShaderProgram> m_program;
-    GLuint m_vbo = 0, m_vao = 0, m_logoTexture = 0;
-    GLint m_positionAttrib = -1;
-
-    enum Uniform
-    {
-        uRes, uPxScale, uRadius, uTime, uJaw, uGrowl, uGrowlMod, uLiquid, uLiquidPhase, uRoar,
-        uRoarDrive, uSub, uSubLevel, uSubPhase, uPitch, uSize, uGravelOn, uDetailLow, uDetailHigh,
-        uBoost, uCut, uSleep, uBlink, uLevel, uBands,
-        uSwirlNotch, uSwirlAmt, uEnsWidth, uDeess, uTame, uGateClosed, uOvLevel, uOvHarm, uOvReplace,
-        uRing, uRingFlicker, uRingBody, uStrain, uStrainPulse, uClip,
-        uColScope, uColGrid, uColOuter, uColPitch, uColGrowl, uColLiquid, uColRoar, uColSub,
-        uColDetail, uColVocoder, uColOutput, uColText, uColSwirl, uColOvertone, uColRing, uColDeess, uColEnsemble,
-        uEvoHead, uEvoWing, uEvoHorn, uEvoEyes, uEvoMaw, uEvoInk, uEvoFlow, uEvoPal, uEvoMisc, uForm, uCloud, uSeed, uSeedB,
-        uDrift, uFlow, uFlow2, uColCloud, uColCloudLit, uColUnderglow, uColRedInk, uColWashA, uColWashB, uEgg, uLogoBox, uLogoSdf,
-        numUniforms
-    };
-    std::array<GLint, numUniforms> m_uniforms {};
+    roar::MonsterRenderer m_renderer;
+    roar::MonsterFrame m_frame;
+    roar::JawMotion m_jawMotion;
+    roar::HeadMotion m_head;
+    roar::AudioForces m_audioForces;
+    float m_jawFast = 0.0f, m_prevFormation = -1.0f, m_formationRate = 0.0f;
+    float m_lastInterval = 1.0f / 30.0f;
+    bool m_lastClamped = false;
+    double m_clock = 0.0;
 
     using Clock = std::chrono::steady_clock;
     Clock::time_point m_startTime { Clock::now() };
@@ -177,7 +179,7 @@ private:
     // Message thread only (overlay readouts).
     juce::String m_f0Text, m_detailText;
     bool m_gravelShown = false, m_sleepShown = false, m_failShown = false;
-    int m_frameTick = 0;       // counts timer ticks for the slow idle frame rate
+    int m_timerHz = 30;        // the frame timer's current rate (30 awake, slower once asleep and settled)
     int m_ticksWithoutGL = 0;  // timer ticks spent on screen without a working GL context
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (MonsterView)

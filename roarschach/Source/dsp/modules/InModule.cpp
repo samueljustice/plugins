@@ -30,7 +30,7 @@ namespace roar
         constexpr double c_unvoicedWithinDb = 6.0;             // unvoiced frames teach only near the voice level
         constexpr double c_silenceDb = -100.0;                 // a frame this quiet never teaches
 
-        constexpr double c_jawAttackSeconds = 0.005, c_jawReleaseSeconds = 0.120;
+        constexpr double c_jawAttackSeconds = 0.005, c_jawReleaseSeconds = 0.120, c_jawFastReleaseSeconds = 0.030;
         constexpr float c_jawFloorDb = -48.0f, c_jawFullDb = -6.0f;
         constexpr double c_meterReleaseSeconds = 0.300;
 
@@ -55,6 +55,7 @@ namespace roar
         m_floorRiseDb = c_floorRiseDbPerSecond / frameRate;
         m_jawAttack = static_cast<float> (dsp::onePoleCoeff (c_jawAttackSeconds, m_fs));
         m_jawRelease = static_cast<float> (dsp::onePoleCoeff (c_jawReleaseSeconds, m_fs));
+        m_jawFastRelease = static_cast<float> (dsp::onePoleCoeff (c_jawFastReleaseSeconds, m_fs));
         m_meterRelease = static_cast<float> (dsp::poleFromTau (c_meterReleaseSeconds, m_fs));
 
         m_weightHp.setCoeffs (Biquad::highpass (m_fs, c_weightHpHz, Biquad::c_butterworthQ));
@@ -101,7 +102,17 @@ namespace roar
 
     float InModule::getJaw() const
     {
-        const float db = 20.0f * std::log10 (std::max (m_s.jawEnv, 1.0e-6f));
+        return jawOf (m_s.jawEnv);
+    }
+
+    float InModule::getJawFast() const
+    {
+        return jawOf (m_s.jawFastEnv);
+    }
+
+    float InModule::jawOf (float env)
+    {
+        const float db = 20.0f * std::log10 (std::max (env, 1.0e-6f));
         return std::clamp ((db - c_jawFloorDb) / (c_jawFullDb - c_jawFloorDb), 0.0f, 1.0f);
     }
 
@@ -166,6 +177,7 @@ namespace roar
 
         constexpr double invFrame = 1.0 / static_cast<double> (c_voiceFrameSize);
         float jaw = s.jawEnv;
+        float jawFast = s.jawFastEnv;
         float meter = s.inputLevel;
 
         for (int i = 0; i < n; ++i)
@@ -194,6 +206,7 @@ namespace roar
 
             const float a = std::abs (out);
             jaw += (a > jaw ? m_jawAttack : m_jawRelease) * (a - jaw);
+            jawFast += (a > jawFast ? m_jawAttack : m_jawFastRelease) * (a - jawFast);
 
             m_detector.pushSample (out);
             const VoiceInfo& v = m_detector.getVoiceInfo();
@@ -204,6 +217,7 @@ namespace roar
         }
 
         s.jawEnv = std::isfinite (jaw) ? dsp::flushTiny (jaw) : 0.0f;
+        s.jawFastEnv = std::isfinite (jawFast) ? dsp::flushTiny (jawFast) : 0.0f;
         s.inputLevel = std::isfinite (meter) ? dsp::flushTiny (meter) : 0.0f;
     }
 
@@ -222,6 +236,7 @@ namespace roar
         const VoiceInfo& v = m_detector.getVoiceInfo();
         features.inputLevel.store (std::min (m_s.inputLevel, 1.0f), std::memory_order_relaxed);
         features.jaw.store (getJaw(), std::memory_order_relaxed);
+        features.jawFast.store (getJawFast(), std::memory_order_relaxed);
         features.f0Hz.store (v.f0Hz, std::memory_order_relaxed);
         features.voiced.store (v.voiced ? 1.0f : 0.0f, std::memory_order_relaxed);
     }

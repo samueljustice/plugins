@@ -81,6 +81,7 @@ namespace roar
             seedGlide,         // 0..1 between them
             cloudX, cloudY,    // offset of the (unmirrored) cloud field
             stageOut, energyOut,
+            charFluid, charBeast, charEldritch, charDeep,   // how far each character leans, -1/3..1 (0 neutral)
             numParams
         };
 
@@ -224,6 +225,7 @@ namespace roar
         using Vec4 = std::array<float, 4>;
         using Vec3 = std::array<float, 3>;
         Vec4 head, wing, horn, eyes, maw, ink, flow, pal, misc, form, cloud, seed, seedB;
+        Vec4 character;   // fluid, beast, eldritch, deep leans (the medium's look and flow); seedB.w is the stage
         Vec3 colCloud, colCloudLit, colUnderglow, colRedInk, colWashA, colWashB;
         float egg = 0.0f;
 

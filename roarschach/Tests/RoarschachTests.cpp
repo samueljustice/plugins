@@ -25,7 +25,15 @@
 
 #include <JuceHeader.h>
 
+#if defined(__APPLE__)
+ #define GL_SILENCE_DEPRECATION 1
+ #include <OpenGL/OpenGL.h>   // an offscreen context for the renderer test (after JUCE: it declares the GL types)
+#endif
+
 #include "CreatureEvolution.h"
+#include "CreatureMotion.h"
+#include "MonsterRenderer.h"
+#include "NoiseTexture.h"
 #include "LogoSdf.h"
 #include "Params.h"
 #include "PluginEditor.h"
@@ -49,6 +57,7 @@
 #include <numeric>
 #include <optional>
 #include <random>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -3230,6 +3239,790 @@ namespace
         }
     }
 
+    //==========================================================================
+    // The creature view's motion (the jaw spring, the head, the audio forces), the quality
+    // governor, the baked noise, and the renderer's GL lifetime.
+
+    // Reversals of y whose swing is at least `prominence` (a peak or trough counts only once the
+    // signal has moved that far back from it).
+    int countReversals(const std::vector<float>& y, float prominence)
+    {
+        int reversals = 0, dir = 0;
+        float ext = y.empty() ? 0.0f : y.front();
+        for (float v : y)
+        {
+            if (dir >= 0)
+            {
+                if (v > ext) ext = v;
+                else if (ext - v >= prominence) { if (dir > 0) ++reversals; dir = -1; ext = v; }
+                else if (dir == 0 && v < ext) {}
+            }
+            if (dir <= 0)
+            {
+                if (v < ext && dir < 0) ext = v;
+                else if (v - ext >= prominence) { if (dir < 0) ++reversals; dir = 1; ext = v; }
+            }
+        }
+        return reversals;
+    }
+
+    // Steps a jaw at `fps` through an input function of time; returns y per frame.
+    std::vector<float> runJaw(roar::JawMotion& jaw, double fps, double seconds,
+                              const std::function<void(double, float&, float&, float&)>& input)
+    {
+        std::vector<float> ys;
+        const int n = static_cast<int>(std::lround(seconds * fps));
+        for (int i = 0; i < n; ++i)
+        {
+            float x = 0, xf = 0, heat = 0;
+            input(i / fps, x, xf, heat);
+            jaw.step(static_cast<float>(1.0 / fps), x, xf, heat, 0.5f);
+            ys.push_back(jaw.y);
+        }
+        return ys;
+    }
+
+    // (y[i] is the state after step i, at time (i + 1) / fps)
+    float sampleAt(const std::vector<float>& y, double fps, double t)
+    {
+        const double i = std::clamp(t * fps - 1.0, 0.0, static_cast<double>(y.size() - 1));
+        const auto i0 = static_cast<size_t>(i);
+        const auto i1 = std::min(i0 + 1, y.size() - 1);
+        return static_cast<float>(y[i0] + (y[i1] - y[i0]) * (i - static_cast<double>(i0)));
+    }
+
+    void testMotion()
+    {
+        std::printf("[motion] jaw spring, head, audio forces, quality governor, noise\n");
+        using roar::JawMotion;
+
+        const auto flap = [](double t, float& x, float& xf, float&)
+        {
+            const bool hi = std::fmod(t * 4.5, 1.0) < 0.5;
+            x = hi ? 0.85f : 0.45f;
+            xf = hi ? 0.85f : 0.2f;
+        };
+        const auto stepOpen = [](double, float& x, float& xf, float&) { x = xf = 0.8f; };
+
+        std::map<double, std::vector<float>> flapAt, openAt;
+        for (const double fps : { 30.0, 60.0, 144.0 })
+        {
+            const auto tag = " (" + juce::String(fps, 0) + " fps)";
+
+            // 1. No flap through 4.5 Hz syllables.
+            {
+                JawMotion j;
+                const auto y = runJaw(j, fps, 3.0, flap);
+                flapAt[fps] = y;
+                const double mean = std::accumulate(y.begin(), y.end(), 0.0) / static_cast<double>(y.size());
+                const double rate = countReversals(y, 0.08f) / 3.0;
+                if (fps == 60.0)
+                    std::printf("  syllables at 4.5 Hz: %.2f reversals/s, mean opening %.2f\n", rate, mean);
+                check(rate <= 1.0, "jaw: no flap" + tag + ", " + juce::String(rate, 2) + " reversals/s");
+                check(mean >= 0.55, "jaw: mean opening through syllables" + tag + " " + juce::String(mean, 2));
+            }
+            // 2. Step open: heavy, no overshoot.
+            JawMotion j;
+            const auto up = runJaw(j, fps, 3.0, stepOpen);
+            openAt[fps] = up;
+            {
+                const float fin = up.back();
+                float peak = 0.0f;
+                double t10 = -1, t90 = -1;
+                for (size_t i = 0; i < up.size(); ++i)
+                {
+                    peak = std::max(peak, up[i]);
+                    if (t10 < 0 && up[i] >= 0.1f * fin) t10 = static_cast<double>(i + 1) / fps;
+                    if (t90 < 0 && up[i] >= 0.9f * fin) t90 = static_cast<double>(i + 1) / fps;
+                }
+                const double rise = t90 - t10;
+                if (fps == 60.0)
+                    std::printf("  step open: 10-90 %% rise %.2f s, overshoot %.1f %%\n", rise, 100.0 * (peak / fin - 1.0));
+                check(rise >= 0.12 && rise <= 0.45, "jaw: 10-90 % rise 0.12-0.45 s" + tag + " (" + juce::String(rise, 2) + ")");
+                check(peak <= fin * 1.02f, "jaw: overshoot <= 2 %" + tag);
+            }
+            // 2b. The onset keeps up with the sound: a full-scale step reaches half its visible
+            // opening (the shader opens by y^1.6) within 150 ms at every jaw mass.
+            for (const float sizeJ : { 0.0f, 0.5f, 1.0f })
+            {
+                JawMotion o;
+                const int n = static_cast<int>(std::lround(fps));
+                std::vector<float> vis;
+                for (int i = 0; i < n; ++i)
+                {
+                    o.step(static_cast<float>(1.0 / fps), 0.95f, 0.95f, 0.0f, sizeJ);
+                    vis.push_back(std::pow(o.y, 1.6f));
+                }
+                const float plateau = vis.back();
+                double t50 = -1.0;
+                for (size_t i = 0; i < vis.size() && t50 < 0; ++i)
+                    if (vis[i] >= 0.5f * plateau) t50 = static_cast<double>(i + 1) / fps;
+                check(t50 > 0.0 && t50 <= 0.150, "jaw: half the visible opening within 150 ms at sizeJ " + juce::String(sizeJ, 1) + tag
+                                                     + " (" + juce::String(1000.0 * t50, 0) + " ms)");
+            }
+            // 3. Step close.
+            {
+                const float peak = j.y;
+                double below = -1.0;
+                float lowest = 1.0f, rebound = 0.0f;
+                bool touched = false;
+                const auto down = runJaw(j, fps, 2.0, [](double, float& x, float& xf, float&) { x = xf = 0.0f; });
+                for (size_t i = 0; i < down.size(); ++i)
+                {
+                    lowest = std::min(lowest, down[i]);
+                    if (below < 0 && down[i] < 0.1f * peak) below = static_cast<double>(i + 1) / fps;
+                    if (down[i] <= 1.0e-4f) touched = true;
+                    else if (touched) rebound = std::max(rebound, down[i]);
+                }
+                if (fps == 60.0)
+                    std::printf("  step close: under 10 %% after %.2f s, rebound %.3f\n", below, rebound);
+                check(below > 0.0 && below <= 0.8, "jaw: closes to 10 % within 0.8 s" + tag + " (" + juce::String(below, 2) + ")");
+                check(lowest >= 0.0f, "jaw: never below shut" + tag);
+                check(rebound <= 0.02f, "jaw: rebound <= 0.02" + tag + " (" + juce::String(rebound, 3) + ")");
+            }
+            // 4. A roar holds through a 150 ms dip.
+            {
+                JawMotion r;
+                const auto y = runJaw(r, fps, 2.2, [](double t, float& x, float& xf, float&)
+                {
+                    const bool dip = t >= 1.5 && t < 1.65;
+                    x = dip ? 0.6f : 1.0f;
+                    xf = dip ? 0.4f : 1.0f;
+                });
+                const float peak = sampleAt(y, fps, 1.49);
+                float through = 1.0f;
+                for (double t = 1.5; t < 1.9; t += 1.0 / fps)
+                    through = std::min(through, sampleAt(y, fps, t));
+                check(through >= 0.85f * peak, "jaw: roar holds through a dip" + tag + " (" + juce::String(through / peak, 2) + " of peak)");
+            }
+            // 5. A bark (90 ms of voice, through the plug-in's envelopes) opens part way and shuts.
+            {
+                JawMotion b;
+                double env = 0.0, envFast = 0.0;
+                const auto y = runJaw(b, fps, 1.3, [&env, &envFast, fps](double t, float& x, float& xf, float&)
+                {
+                    // the 5 ms / 120 ms and 5 ms / 30 ms envelopes of a full-scale 90 ms burst, per frame
+                    const double a = t < 0.09 ? 1.0 : 0.0, dt = 1.0 / fps;
+                    env += (a > env ? 1.0 - std::exp(-dt / 0.005) : 1.0 - std::exp(-dt / 0.120)) * (a - env);
+                    envFast += (a > envFast ? 1.0 - std::exp(-dt / 0.005) : 1.0 - std::exp(-dt / 0.030)) * (a - envFast);
+                    x = roar::InModule::jawOf(static_cast<float>(env));
+                    xf = roar::InModule::jawOf(static_cast<float>(envFast));
+                });
+                const float peak = *std::max_element(y.begin(), y.end());
+                const float after = sampleAt(y, fps, 1.09);
+                if (fps == 60.0)
+                    std::printf("  90 ms bark: peak %.2f, %.3f a second later\n", peak, after);
+                // (the onset is fast now: a bark snaps the mouth open while it sounds, then it shuts)
+                check(peak >= 0.5f && peak <= 1.05f, "jaw: bark peak 0.5-1.05" + tag + " (" + juce::String(peak, 2) + ")");
+                check(after < 0.05f, "jaw: shut within 1 s of a bark" + tag);
+            }
+            // 8. Silence from any state.
+            {
+                JawMotion s;
+                runJaw(s, fps, 1.0, [](double, float& x, float& xf, float& h) { x = xf = 1.0f; h = 1.0f; });
+                runJaw(s, fps, 1.2, [](double, float& x, float& xf, float&) { x = xf = 0.0f; });
+                check(s.y < 0.02f && std::abs(s.v) < 0.05f, "jaw: shut and still after 1.2 s of silence" + tag + " (" + juce::String(s.y, 3) + ")");
+            }
+        }
+        // 5b. Speech: phrases of different loudness with 4 Hz syllables. The jaw follows the phrase,
+        // not the syllables (few reversals), but loud and soft phrases open differently.
+        for (const double fps : { 30.0, 60.0, 144.0 })
+        {
+            JawMotion sp;
+            std::mt19937 rng(7);
+            std::uniform_real_distribution<float> uni(0.0f, 1.0f);
+            double env = 0.0, envFast = 0.0, phraseEnd = 0.0, nextPhrase = 0.0;
+            bool inPhrase = false;
+            float loud = 0.7f;
+            std::vector<float> y;
+            for (int i = 0; i < static_cast<int>(60.0 * fps); ++i)
+            {
+                const double t = i / fps, dt = 1.0 / fps;
+                if (inPhrase && t >= phraseEnd) { inPhrase = false; nextPhrase = t + 0.3 + 0.6 * uni(rng); }
+                if (! inPhrase && t >= nextPhrase) { inPhrase = true; phraseEnd = t + 1.0 + 2.5 * uni(rng); loud = 0.4f + 0.55f * uni(rng); }
+                const double a = inPhrase ? loud * (1.0 - 0.85 * (0.5 + 0.5 * std::cos(6.283185307 * 4.0 * t))) : 0.0;
+                env += (a > env ? 1.0 - std::exp(-dt / 0.005) : 1.0 - std::exp(-dt / 0.120)) * (a - env);
+                envFast += (a > envFast ? 1.0 - std::exp(-dt / 0.005) : 1.0 - std::exp(-dt / 0.030)) * (a - envFast);
+                sp.step(static_cast<float>(dt), static_cast<float>(env), static_cast<float>(envFast), 0.0f, 0.5f);
+                y.push_back(sp.y);
+            }
+            double m = 0.0, m2 = 0.0;
+            int c = 0;
+            for (const float v : y)
+                if (v > 0.3f) { m += v; m2 += v * v; ++c; }
+            m /= std::max(c, 1);
+            const double sd = std::sqrt(std::max(0.0, m2 / std::max(c, 1) - m * m));
+            const double rate = countReversals(y, 0.08f) / 60.0;
+            if (fps == 60.0)
+                std::printf("  speech: %.2f reversals/s, opening sd %.3f while open\n", rate, sd);
+            const auto tag = " (" + juce::String(fps, 0) + " fps)";
+            check(rate <= 1.0, "jaw: speech reversals <= 1/s" + tag + " (" + juce::String(rate, 2) + ")");
+            check(sd >= 0.15, "jaw: speech opening varies with the phrase, sd >= 0.15" + tag + " (" + juce::String(sd, 3) + ")");
+        }
+        // 6. Frame-rate independence (30 vs 144 fps, resampled).
+        {
+            float worstFlap = 0.0f, worstOpen = 0.0f;
+            for (double t = 0.0; t < 2.95; t += 0.01)
+            {
+                worstFlap = std::max(worstFlap, std::abs(sampleAt(flapAt[30.0], 30.0, t) - sampleAt(flapAt[144.0], 144.0, t)));
+                worstOpen = std::max(worstOpen, std::abs(sampleAt(openAt[30.0], 30.0, t) - sampleAt(openAt[144.0], 144.0, t)));
+            }
+            const float worst = std::max(worstFlap, worstOpen);
+            std::printf("  30 vs 144 fps: worst difference %.3f through syllables, %.3f on a step\n", worstFlap, worstOpen);
+            // (the fast onset is two or three frames long at 30 fps: a little more room than the slow spring needed)
+            check(worst <= 0.13f, "jaw: 30 and 144 fps agree within 0.13 (" + juce::String(worst, 3) + ")");
+        }
+        // 7. Robustness.
+        {
+            JawMotion r;
+            const float nan = std::numeric_limits<float>::quiet_NaN(), inf = std::numeric_limits<float>::infinity();
+            const float inputs[] = { nan, inf, -inf, -1.0f, 2.0f, 0.7f };
+            const float dts[] = { 0.0f, 1.0e-6f, 0.5f, 1.0f / 60.0f, nan, -1.0f };
+            bool ok = true;
+            for (float x : inputs)
+                for (float dt : dts)
+                {
+                    r.step(dt, x, x, x, x);
+                    ok = ok && std::isfinite(r.y) && std::isfinite(r.v) && std::isfinite(r.lip) && r.y >= 0.0f && r.y <= 1.05f;
+                }
+            check(ok, "jaw: finite and in range for NaN, inf, negative inputs and odd dt");
+        }
+
+        // The head.
+        {
+            using roar::HeadMotion;
+            const auto rate = [](float sleep, float phrase)
+            {
+                HeadMotion h;
+                int wraps = 0;
+                float last = 0.0f;
+                for (int i = 0; i < 60 * 60; ++i)
+                {
+                    h.step(1.0f / 60.0f, 0.0f, phrase, false, 0.0f, 0.0f, 0.0f, sleep);
+                    if (h.phase < last) ++wraps;
+                    last = h.phase;
+                }
+                return static_cast<float>(wraps) / 60.0f;
+            };
+            const float awake = rate(0.0f, 0.0f), asleep = rate(1.0f, 0.0f), loud = rate(0.0f, 1.0f);
+            std::printf("  breath: %.3f Hz awake, %.3f Hz asleep, %.3f Hz through a loud phrase\n", awake, asleep, loud);
+            check(std::abs(awake - 0.20f) < 0.02f && std::abs(asleep - 0.11f) < 0.02f, "head: breath 0.20 Hz awake, 0.11 Hz asleep");
+            check(loud <= 0.07f, "head: breathing nearly stops while the phrase is loud");
+
+            HeadMotion h;
+            float best = 0.0f;
+            double at = 0.0;
+            for (int i = 0; i < 120; ++i)
+            {
+                h.step(1.0f / 120.0f, 0.0f, 0.5f, i == 0, i == 0 ? 5.0f : 0.0f, 0.0f, 0.0f, 1.0f);
+                if (h.offY < best) { best = h.offY; at = (i + 1) / 120.0; }
+            }
+            std::printf("  onset lunge: deepest %.4f at %.0f ms\n", best, 1000.0 * at);
+            check(at >= 0.15 && at <= 0.25, "head: the lag peaks 150-250 ms after an onset (" + juce::String(1000.0 * at, 0) + " ms)");
+
+            HeadMotion bad;
+            const float nan = std::numeric_limits<float>::quiet_NaN();
+            for (int i = 0; i < 10; ++i)
+                bad.step(i % 2 ? nan : 0.5f, nan, nan, true, nan, nan, nan, nan);
+            check(std::isfinite(bad.offY) && std::isfinite(bad.scaleAdd) && std::isfinite(bad.breath) && std::isfinite(bad.follow), "head: finite under NaN input");
+        }
+
+        // The audio forces.
+        {
+            using roar::AudioForces;
+            AudioForces f;
+            AudioForces::Inputs in;
+            std::vector<double> onsetTimes;
+            int lastOnsets = 0;
+            for (int i = 0; i < 600; ++i)   // a sub level jumping every 50 ms for 10 s at 60 fps
+            {
+                in.subLevel = (i / 3) % 2 == 0 ? 1.0f : 0.0f;
+                f.step(1.0f / 60.0f, in);
+                if (f.onsets != lastOnsets) { onsetTimes.push_back(i / 60.0); lastOnsets = f.onsets; }
+            }
+            double minGap = 1e9;
+            int worstSecond = 0;
+            for (size_t k = 1; k < onsetTimes.size(); ++k)
+                minGap = std::min(minGap, onsetTimes[k] - onsetTimes[k - 1]);
+            for (size_t k = 0; k < onsetTimes.size(); ++k)
+            {
+                int n = 0;
+                for (size_t m = k; m < onsetTimes.size() && onsetTimes[m] < onsetTimes[k] + 1.0 - 1e-9; ++m) ++n;
+                worstSecond = std::max(worstSecond, n);
+            }
+            std::printf("  sub onsets: %zu in 10 s, shortest gap %.0f ms, at most %d in a second\n", onsetTimes.size(), 1000.0 * minGap, worstSecond);
+            check(onsetTimes.size() >= 10 && minGap >= 0.12 - 1e-6, "forces: sub onsets keep their 120 ms refractory");
+            check(worstSecond <= 3, "forces: at most 3 flashes a second");
+
+            // Followers: at least 40 ms up and 150 ms down (63 % step response).
+            const auto t63 = [](bool up, const std::function<void(AudioForces::Inputs&, float)>& setIn,
+                                const std::function<float(const AudioForces&)>& out)
+            {
+                AudioForces a;
+                AudioForces::Inputs x;
+                setIn(x, up ? 0.0f : 1.0f);
+                for (int i = 0; i < 2000; ++i) a.step(0.001f, x);
+                setIn(x, up ? 1.0f : 0.0f);
+                for (int i = 1; i < 5000; ++i)
+                {
+                    a.step(0.001f, x);
+                    const float v = out(a);
+                    if (up ? v >= 0.632f : v <= 0.368f)
+                        return i / 1000.0;
+                }
+                return 99.0;
+            };
+            struct Fl { const char* n; std::function<void(AudioForces::Inputs&, float)> in; std::function<float(const AudioForces&)> out; };
+            const std::vector<Fl> fl {
+                { "roar", [](auto& x, float v) { x.roarHeat = v; }, [](const auto& a) { return a.roar; } },
+                { "growl", [](auto& x, float v) { x.growlMod = v; }, [](const auto& a) { return a.growl; } },
+                { "sub", [](auto& x, float v) { x.subLevel = v; }, [](const auto& a) { return a.sub; } },
+                { "swirl", [](auto& x, float v) { x.swirlOn = v; }, [](const auto& a) { return a.swirl; } },
+                { "ensemble", [](auto& x, float v) { x.ensemble = v; }, [](const auto& a) { return a.ensemble; } },
+                { "clip", [](auto& x, float v) { x.clip = v; }, [](const auto& a) { return a.clip; } },
+                { "strain", [](auto& x, float v) { x.strain = v; }, [](const auto& a) { return a.strain; } },
+            };
+            for (const auto& e : fl)
+            {
+                const double a = t63(true, e.in, e.out), r = t63(false, e.in, e.out);
+                check(a >= 0.039 && r >= 0.149, juce::String("forces: ") + e.n + " follower attack " + juce::String(1000.0 * a, 0)
+                                                     + " ms, release " + juce::String(1000.0 * r, 0) + " ms");
+            }
+        }
+
+        // The quality governor (scripted timings).
+        {
+            using roar::QualityGovernor;
+            const float T = 1.0f / 30.0f;
+            const auto warm = [T](QualityGovernor& g) { for (int i = 0; i < 70; ++i) g.step(T, T, -1.0f, false); };
+
+            // (slow by the frame interval, which needs no EMA to build up)
+            QualityGovernor g;
+            g.reset(3);
+            warm(g);
+            int at = -1;
+            for (int i = 0; i < 25 && at < 0; ++i)
+                if (g.step(2.0f * T, T, -1.0f, false) == 2) at = i + 1;
+            check(at == 20, "governor: down one tier after 20 slow frames (" + juce::String(at) + ")");
+            int frames = 0;
+            while (g.step(2.0f * T, T, -1.0f, false) == 2 && frames < 5000) ++frames;
+            const float waited = static_cast<float>(frames + 1) * 2.0f * T;
+            check(waited >= 2.9f && waited <= 4.5f, "governor: a further drop waits out the 3 s drop cooldown (" + juce::String(waited, 1) + " s)");
+            QualityGovernor gg;
+            gg.reset(3);
+            warm(gg);
+            int gpuAt = -1;
+            for (int i = 0; i < 60 && gpuAt < 0; ++i)
+                if (gg.step(T, T, 6.0f, false) == 2) gpuAt = i + 1;
+            check(gpuAt == 20, "governor: a slow GPU (EMA over 4 ms) steps down (" + juce::String(gpuAt) + " frames)");
+
+            // A weak GPU far over budget, at the intervals the view really reports: 70 ms frames are
+            // measurements (the view flags only gaps of 250 ms or more as stalls).
+            {
+                QualityGovernor weak;
+                weak.reset(3);
+                warm(weak);
+                const float raw = 0.070f;
+                const bool stalled = raw > 0.25f;   // (MonsterView: m_lastClamped = raw > c_stallSeconds)
+                float tDrop = -1.0f, tAt = 0.0f;
+                for (int i = 0; i < 200 && tDrop < 0.0f; ++i)
+                {
+                    tAt += raw;
+                    if (weak.step(raw, T, 60.0f, stalled) < 3) tDrop = tAt;
+                }
+                check(tDrop > 0.0f && tDrop <= 1.0f, "governor: 70 ms frames with 60 ms GPU drop within 1 s (" + juce::String(tDrop, 2) + " s)");
+                check(weak.tier == 1, "governor: far over budget drops two tiers at once (" + juce::String(weak.tier) + ")");
+                // (the single pass costs more per pixel than tier 1: measurement never goes below tier 1)
+                for (int i = 0; i < 400; ++i) weak.step(raw, T, 60.0f, stalled);
+                check(weak.tier == 1, "governor: measurement never drops to the single pass (" + juce::String(weak.tier) + ")");
+                QualityGovernor r0;
+                r0.resume(3, 0, true);
+                check(r0.tier == 1, "governor: a remembered tier 0 resumes at tier 1 (" + juce::String(r0.tier) + ")");
+            }
+            // A busy host message thread (21 fps frames, GPU well under budget) costs no quality.
+            {
+                QualityGovernor busy;
+                busy.reset(3);
+                warm(busy);
+                for (int i = 0; i < 600; ++i) busy.step(0.048f, T, 1.0f, false);
+                check(busy.tier == 3, "governor: slow intervals with a fast GPU timer never drop (" + juce::String(busy.tier) + ")");
+            }
+            // A start tier of 0 (no capability) is final.
+            {
+                QualityGovernor none;
+                none.reset(0);
+                for (int i = 0; i < 3000; ++i) none.step(T, T, 0.2f, false);
+                check(none.tier == 0, "governor: a start tier of 0 stays 0");
+            }
+            // Resuming where this GPU settled (a reopened editor).
+            {
+                QualityGovernor r;
+                r.resume(3, 1, true);
+                check(r.tier == 1 && r.startTier == 3 && r.upgradesLocked, "governor: resumes at the settled tier with its lock");
+                QualityGovernor r2;
+                r2.resume(2, 3, false);
+                check(r2.tier == 2, "governor: a resumed tier is capped by the start tier");
+            }
+
+            QualityGovernor u;
+            u.reset(3);
+            warm(u);
+            for (int i = 0; i < 20; ++i) u.step(2.0f * T, T, -1.0f, false);   // to 2
+            for (int i = 0; i < 1300; ++i) u.step(T, T, 1.0f, false);           // the cooldown passes, then 300 fast frames
+            check(u.tier == 3, "governor: back up after 300 fast frames");
+            for (int i = 0; i < 2000; ++i) u.step(T, T, 0.5f, false);
+            check(u.tier == 3, "governor: never above the starting tier");
+            for (int i = 0; i < 60 && u.tier == 3; ++i) u.step(T, T, 8.0f, false);   // to 2 again
+            for (int i = 0; i < 3000 && u.tier < 3; ++i) u.step(T, T, 1.0f, false);   // up to 3
+            const int before = u.tier;
+            for (int i = 0; i < 60 && u.tier == 3; ++i) u.step(T, T, 8.0f, false);   // slow right after the upgrade
+            check(before == 3 && u.tier == 2 && u.upgradesLocked, "governor: a failed upgrade reverts and locks");
+            for (int i = 0; i < 3000; ++i) u.step(T, T, 0.5f, false);
+            check(u.tier == 2, "governor: no upgrade once locked");
+
+            QualityGovernor z;
+            z.reset(3);
+            warm(z);
+            for (int i = 0; i < 100; ++i) { z.step(T, T, 0.0f, false); z.step(T, T, 300.0f, false); }
+            check(z.tier == 3 && ! z.emaValid, "governor: ignores readings of 0 and over 250 ms");
+
+            QualityGovernor n;
+            n.reset(2);
+            warm(n);
+            for (int i = 0; i < 20; ++i) n.step(2.0f * T, T, -1.0f, false);
+            check(n.tier == 1, "governor: works from the frame interval alone");
+            QualityGovernor c;
+            c.reset(2);
+            warm(c);
+            for (int i = 0; i < 40; ++i) c.step(2.0f * T, T, -1.0f, true);
+            check(c.tier == 2, "governor: ignores stalled frames");
+            QualityGovernor w;
+            w.reset(1);
+            for (int i = 0; i < 40; ++i) w.step(2.0f * T, T, 9.0f, false);
+            check(w.tier == 1, "governor: ignores the first 2 s");
+
+            check(QualityGovernor::startTierFor("AMD Radeon(TM) Graphics", "ATI Technologies Inc.") == 1
+                      && QualityGovernor::startTierFor("AMD Radeon(TM) Vega 8 Graphics", "ATI Technologies Inc.") == 1
+                      && QualityGovernor::startTierFor("AMD Radeon Pro 560 OpenGL Engine", "ATI Technologies Inc.") == 2
+                      && QualityGovernor::startTierFor("AMD Radeon Pro 5500M OpenGL Engine", "ATI Technologies Inc.") == 3
+                      && QualityGovernor::startTierFor("AMD Radeon RX 6800 XT", "ATI Technologies Inc.") == 3,
+                  "governor: integrated and entry-level AMD parts start lower");
+            check(QualityGovernor::startTierFor("Apple M1", "Apple") == 3 && QualityGovernor::startTierFor("NVIDIA GeForce RTX 3060", "NVIDIA Corporation") == 3
+                      && QualityGovernor::startTierFor("Intel(R) Iris(R) Xe Graphics", "Intel") == 2
+                      && QualityGovernor::startTierFor("Intel(R) UHD Graphics 620", "Intel") == 1
+                      && QualityGovernor::startTierFor("llvmpipe (LLVM 15.0.7, 256 bits)", "Mesa") == 0
+                      && QualityGovernor::startTierFor("GDI Generic", "Microsoft Corporation") == 0,
+                  "governor: starting tier from the renderer name");
+        }
+
+        // The top mist's opacity: ~0.88 awake, ~0.95 asleep, thins towards 0.70 on a roar, never
+        // clears, eases without pops at any frame rate, and survives garbage input.
+        {
+            using roar::MistMotion;
+            const float awakeT = MistMotion::target(0.0f, 0.0f, 0.2f);
+            const float asleepT = MistMotion::target(1.0f, 0.0f, 0.0f);
+            const float roarT = MistMotion::target(0.0f, 1.0f, 1.0f);
+            check(awakeT >= 0.85f && awakeT <= 0.90f, "mist: awake and quiet ~85-90 % (" + juce::String(awakeT, 3) + ")");
+            check(std::abs(asleepT - 0.95f) < 0.01f, "mist: asleep ~95 % (" + juce::String(asleepT, 3) + ")");
+            check(roarT >= MistMotion::c_min && roarT <= 0.72f, "mist: a loud roar thins it to ~70 %, never clear (" + juce::String(roarT, 3) + ")");
+            bool monotone = true, bounded = true;
+            for (int i = 0; i <= 20; ++i)
+            {
+                const float h = static_cast<float>(i) / 20.0f;
+                const float a = MistMotion::target(0.0f, h, 0.5f), b = MistMotion::target(0.0f, h + 0.05f, 0.5f);
+                monotone = monotone && b <= a + 1.0e-6f;
+                for (const float sl : { 0.0f, 0.5f, 1.0f })
+                {
+                    const float x = MistMotion::target(sl, h, h);
+                    bounded = bounded && x >= MistMotion::c_min && x <= 0.96f;
+                }
+            }
+            check(monotone && bounded, "mist: thins monotonically with heat and stays within its range");
+
+            std::map<double, float> at1s;
+            float worstStep = 0.0f;
+            for (const double fps : { 30.0, 60.0, 144.0 })
+            {
+                MistMotion m;
+                const float dt = static_cast<float>(1.0 / fps);
+                float prev = m.step(dt, 0.0f, 0.0f, 0.2f, 0.0);
+                const int n = static_cast<int>(3.0 * fps);
+                for (int i = 1; i < n; ++i)
+                {
+                    const double t = i / fps;
+                    const bool roar = t >= 0.5 && t < 2.0;   // a step in, a step out
+                    const float a = m.step(dt, 0.0f, roar ? 1.0f : 0.0f, roar ? 1.0f : 0.2f, t);
+                    worstStep = std::max(worstStep, std::abs(a - prev) * static_cast<float>(fps / 30.0));
+                    if (i == static_cast<int>(1.5 * fps)) at1s[fps] = a;
+                    prev = a;
+                }
+            }
+            check(worstStep < 0.03f, "mist: no pops (largest change per 1/30 s " + juce::String(worstStep, 4) + ")");
+            check(std::abs(at1s[30.0] - at1s[144.0]) < 0.01f && at1s[30.0] < 0.75f,
+                  "mist: thins within a second of a roar, the same at 30 and 144 fps (" + juce::String(at1s[30.0], 3) + ", " + juce::String(at1s[144.0], 3) + ")");
+            MistMotion bad;
+            const float g = bad.step(std::numeric_limits<float>::quiet_NaN(), std::numeric_limits<float>::quiet_NaN(),
+                                     std::numeric_limits<float>::infinity(), -5.0f, std::numeric_limits<double>::quiet_NaN());
+            const float g2 = bad.step(1.0e9f, 0.0f, 0.0f, 0.0f, 1.0);
+            check(std::isfinite(g) && std::isfinite(g2) && g >= MistMotion::c_min && g2 <= 0.96f
+                  && std::isfinite(bad.drift[0]) && std::isfinite(bad.drift[1]), "mist: garbage in stays finite and in range");
+        }
+
+        // The baked noise.
+        {
+            const auto t = roar::NoiseTexture::bake(256);
+            const int n = t.size;
+            const auto v = [&](int x, int y) { return t.value[static_cast<size_t>(((y % n + n) % n) * n + ((x % n + n) % n))]; };
+            float interior = 0.0f, seam = 0.0f;
+            for (int y = 0; y < n; ++y)
+                for (int x = 0; x + 1 < n; ++x)
+                    interior = std::max(interior, std::abs(v(x + 1, y) - v(x, y)));
+            for (int i = 0; i < n; ++i)
+                seam = std::max({ seam, std::abs(v(0, i) - v(n - 1, i)), std::abs(v(i, 0) - v(i, n - 1)) });
+            check(seam <= interior, "noise: tiles seamlessly (seam " + juce::String(seam, 4) + ", interior step " + juce::String(interior, 4) + ")");
+            float worst = 0.0f;
+            for (int y = 0; y < n; ++y)
+                for (int x = 0; x < n; ++x)
+                {
+                    const float fx = 0.5f * (v(x + 1, y) - v(x - 1, y)), fy = 0.5f * (v(x, y + 1) - v(x, y - 1));
+                    const size_t i = static_cast<size_t>(y * n + x);
+                    worst = std::max({ worst, std::abs(t.gradX[i] - fx) * roar::NoiseTexture::c_gradScale, std::abs(t.gradY[i] - fy) * roar::NoiseTexture::c_gradScale });
+                }
+            check(worst <= 3.0f / 255.0f, "noise: gradient matches finite differences within 3/255 (" + juce::String(worst * 255.0f, 2) + "/255)");
+            check(t.rgba.size() == static_cast<size_t>(n * n * 4), "noise: packed");
+        }
+
+        // The uniform table: unique names, one per shader uniform.
+        {
+            std::set<std::string> names;
+            for (const auto& s : roar::c_uniformSpecs)
+                names.insert(s.name);
+            check(static_cast<int>(names.size()) == roar::c_numFrameUniforms, "renderer: uniform names are unique");
+        }
+    }
+
+   #if defined(__APPLE__)
+    // The renderer in a real (offscreen) GL context: every program builds, frames draw on every
+    // tier, a tier change and a context loss leave nothing behind and nothing empty.
+    void testRenderer()
+    {
+        std::printf("[renderer] GL lifetime, tiers, first frame\n");
+        for (const bool core : { true, false })
+        {
+            CGLPixelFormatAttribute attrs[] = { kCGLPFAOpenGLProfile, static_cast<CGLPixelFormatAttribute>(core ? kCGLOGLPVersion_3_2_Core : kCGLOGLPVersion_Legacy),
+                                                kCGLPFAColorSize, static_cast<CGLPixelFormatAttribute>(24), static_cast<CGLPixelFormatAttribute>(0) };
+            CGLPixelFormatObj pf = nullptr;
+            GLint npf = 0;
+            if (CGLChoosePixelFormat(attrs, &pf, &npf) != kCGLNoError || pf == nullptr)
+            {
+                std::printf("  (no %s GL pixel format: skipped)\n", core ? "core" : "legacy");
+                continue;
+            }
+            CGLContextObj ctx = nullptr;
+            CGLCreateContext(pf, nullptr, &ctx);
+            CGLDestroyPixelFormat(pf);
+            CGLSetCurrentContext(ctx);
+            juce::gl::loadFunctions();
+            using namespace juce::gl;
+            const juce::String tag = core ? " (core)" : " (legacy)";
+
+            const int W = 784, H = 240;
+            GLuint fbo = 0, rb = 0;
+            glGenFramebuffers(1, &fbo);
+            glBindFramebuffer(GL_FRAMEBUFFER, fbo);
+            glGenRenderbuffers(1, &rb);
+            glBindRenderbuffer(GL_RENDERBUFFER, rb);
+            glRenderbufferStorage(GL_RENDERBUFFER, GL_RGBA8, W, H);
+            glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_RENDERBUFFER, rb);
+
+            const auto& noise = roar::NoiseTexture::shared();
+            const auto& logo = LogoSdf::shared();
+            roar::MonsterFrame frame;
+            const auto p = roar::CreatureEvolution::evaluateAt(0.4f, { 0.25f, 0.25f, 0.25f, 0.25f }, 1.0f, 1u);
+            const auto u = roar::CreatureUniforms::pack(p, 1.0f, 0.25f, 0.3f, 0.7f);
+            using roar::U;
+            frame.set(U::uRes, static_cast<float>(W), static_cast<float>(H));
+            frame.set(U::uPxScale, 0.5f);
+            frame.set(U::uJaw, 0.4f);
+            frame.set(U::uRoar, 0.35f);
+            frame.set(U::uSize, 0.35f);
+            frame.set(U::uEvoHead, u.head[0], u.head[1], u.head[2], u.head[3]);
+            frame.set(U::uEvoWing, u.wing[0], u.wing[1], u.wing[2], u.wing[3]);
+            frame.set(U::uEvoHorn, u.horn[0], u.horn[1], u.horn[2], u.horn[3]);
+            frame.set(U::uEvoEyes, u.eyes[0], u.eyes[1], u.eyes[2], u.eyes[3]);
+            frame.set(U::uEvoMaw, u.maw[0], u.maw[1], u.maw[2], u.maw[3]);
+            frame.set(U::uEvoInk, u.ink[0], u.ink[1], u.ink[2], u.ink[3]);
+            frame.set(U::uEvoFlow, u.flow[0], u.flow[1], u.flow[2], u.flow[3]);
+            frame.set(U::uEvoPal, u.pal[0], u.pal[1], u.pal[2], u.pal[3]);
+            frame.set(U::uEvoMisc, u.misc[0], u.misc[1], u.misc[2], u.misc[3]);
+            frame.set(U::uForm, u.form[0], u.form[1], u.form[2], u.form[3]);
+            frame.set(U::uCloud, u.cloud[0], u.cloud[1], u.cloud[2], u.cloud[3]);
+            frame.set(U::uSeed, u.seed[0], u.seed[1], u.seed[2], u.seed[3]);
+            frame.set(U::uColCloud, u.colCloud[0], u.colCloud[1], u.colCloud[2]);
+            frame.set(U::uColCloudLit, u.colCloudLit[0], u.colCloudLit[1], u.colCloudLit[2]);
+            frame.set(U::uColScope, 0.035f, 0.043f, 0.06f);
+            frame.set(U::uColOutput, 1.0f, 0.71f, 0.3f);
+            frame.set(U::uColRoar, 1.0f, 0.478f, 0.271f);      // (Theme::Colours::roar, as the view sets it: a roar's glow takes its hue)
+            frame.set(U::uColVocoder, 0.776f, 0.910f, 0.420f);  // (Theme::Colours::vocoder)
+
+            const auto meanLuma = [&]
+            {
+                std::vector<unsigned char> px(static_cast<size_t>(W * H * 4));
+                glBindFramebuffer(GL_FRAMEBUFFER, fbo);
+                glReadPixels(0, 0, W, H, GL_RGBA, GL_UNSIGNED_BYTE, px.data());
+                double s = 0.0;
+                for (size_t i = 0; i < px.size(); i += 4)
+                    s += 0.3 * px[i] + 0.59 * px[i + 1] + 0.11 * px[i + 2];
+                return s / (W * H) / 255.0;
+            };
+            const int vp[4] = { 0, 0, W, H };
+            const auto draw = [&](roar::MonsterRenderer& r, int frames)
+            {
+                for (int i = 0; i < frames; ++i)
+                {
+                    frame.clock += 1.0 / 30.0;
+                    r.prepare(frame);
+                    glBindFramebuffer(GL_FRAMEBUFFER, fbo);
+                    glClearColor(0, 0, 0, 1);
+                    glClear(GL_COLOR_BUFFER_BIT);
+                    r.render(frame, fbo, vp);
+                }
+            };
+
+            roar::MonsterRenderer r;
+            r.setFixedStep(true, 30);
+            const bool created = r.create(core, static_cast<float>(W) / H, logo.rgba, LogoSdf::c_size, noise.rgba, noise.size);
+            check(created, "renderer: created" + tag);
+            if (created)
+            {
+                const auto& st = r.getStats();
+                std::printf("  %s: start tier %d, float probe %s, timers %s, %d texture units, programs built in %.0f ms\n", core ? "core" : "legacy",
+                            st.startTier, st.probeOk ? "ok" : "failed", st.timers ? "yes" : "no", st.maxUnits, st.compileMs);
+                check(st.probeOk && st.startTier >= 1, "renderer: half floats work and the fluid tiers are available" + tag);
+                for (const int tier : { 3, 2, 1, 0 })
+                {
+                    r.setForcedTier(tier);
+                    draw(r, 4);
+                    const double l = meanLuma();
+                    check(r.getTier() == tier && l > 0.02 && l < 0.9, "renderer: tier " + juce::String(tier) + " draws (mean " + juce::String(l, 3) + ")" + tag);
+                }
+                // The atmosphere: prepare() fills the mist (eased, 85-90 % awake) and a near-white hue lean,
+                // and the drawn frame is high-key and cool (the palette's luma and saturation, loosely:
+                // this test scene is small and not the reference state).
+                {
+                    const float a = frame.get(U::uAtmo, 0);
+                    const float* tint = frame.at(U::uAtmoTint);
+                    check(a >= 0.84f && a <= 0.90f && frame.get(U::uAtmo, 3) > 0.5f, "renderer: the top mist is on at ~85-90 % (" + juce::String(a, 3) + ")" + tag);
+                    check(std::abs(tint[0] - 1.0f) < 0.25f && std::abs(tint[1] - 1.0f) < 0.25f && std::abs(tint[2] - 1.0f) < 0.25f,
+                          "renderer: the stage's hue lean is subtle" + tag);
+                    frame.set(U::uRadius, 4.0f);   // (as the view sets it: with no radius the corner mask halves every pixel)
+                    for (const int tier : { 3, 0 })
+                    {
+                        r.setForcedTier(tier);
+                        draw(r, 8);
+                        std::vector<unsigned char> px(static_cast<size_t>(W * H * 4));
+                        glBindFramebuffer(GL_FRAMEBUFFER, fbo);
+                        glReadPixels(0, 0, W, H, GL_RGBA, GL_UNSIGNED_BYTE, px.data());
+                        std::vector<float> lum, sat, hues;
+                        double rs = 0.0, bs = 0.0;
+                        for (int y = H / 10; y < H - H / 10; ++y)
+                            for (int x = W / 20; x < W - W / 20; ++x)
+                            {
+                                const unsigned char* q = &px[(static_cast<size_t>(y) * static_cast<size_t>(W) + static_cast<size_t>(x)) * 4];
+                                const float rr = q[0] / 255.0f, gg = q[1] / 255.0f, bb = q[2] / 255.0f;
+                                const float mx = std::max(rr, std::max(gg, bb)), mn = std::min(rr, std::min(gg, bb));
+                                lum.push_back(0.3f * rr + 0.59f * gg + 0.11f * bb);
+                                sat.push_back(mx > 1.0e-4f ? (mx - mn) / mx : 0.0f);
+                                if (mx > 1.0e-4f && (mx - mn) / mx > 0.05f)
+                                {
+                                    const float d = mx - mn;
+                                    const int top = rr >= gg && rr >= bb ? 0 : (gg >= bb ? 1 : 2);
+                                    float hh = top == 0 ? std::fmod((gg - bb) / d + 6.0f, 6.0f) : top == 1 ? (bb - rr) / d + 2.0f : (rr - gg) / d + 4.0f;
+                                    hues.push_back(hh * 60.0f);
+                                }
+                                rs += rr;
+                                bs += bb;
+                            }
+                        std::sort(lum.begin(), lum.end());
+                        std::sort(sat.begin(), sat.end());
+                        const float l50 = lum[lum.size() / 2], s50 = sat[sat.size() / 2];
+                        check(l50 > 0.52f && l50 < 0.80f && s50 > 0.12f && s50 < 0.36f && bs > rs,
+                              "renderer: tier " + juce::String(tier) + " is high-key and cool (luma median " + juce::String(l50, 3) + ", saturation median " + juce::String(s50, 3) + ")" + tag);
+                        std::sort(hues.begin(), hues.end());
+                        const float h50 = hues.empty() ? 0.0f : hues[hues.size() / 2];
+                        check(h50 > 196.0f && h50 < 212.0f, "renderer: tier " + juce::String(tier) + " keeps the reference's blue-grey hue (median " + juce::String(h50, 1) + " degrees)" + tag);
+                    }
+                    // Roaring: the warm accents are veiled, not removed (some pixels stay warm), and the
+                    // throat's glow sits in a dark cavity (the warmest pixel is below the frame's median value).
+                    frame.set(U::uRoarDrive, 1.0f);
+                    frame.set(U::uRoar, 1.0f);
+                    frame.set(U::uJaw, 1.0f);
+                    frame.set(U::uLevel, 0.7f);
+                    for (const int tier : { 3, 0 })
+                    {
+                        r.setForcedTier(tier);
+                        draw(r, 12);
+                        std::vector<unsigned char> px(static_cast<size_t>(W * H * 4));
+                        glBindFramebuffer(GL_FRAMEBUFFER, fbo);
+                        glReadPixels(0, 0, W, H, GL_RGBA, GL_UNSIGNED_BYTE, px.data());
+                        int warm = 0;
+                        float bestRB = -1.0f, bestL = 0.0f;
+                        std::vector<float> lum;
+                        for (size_t i = 0; i < px.size(); i += 4)
+                        {
+                            const float rr = px[i] / 255.0f, gg = px[i + 1] / 255.0f, bb = px[i + 2] / 255.0f;
+                            const float l = 0.3f * rr + 0.59f * gg + 0.11f * bb;
+                            lum.push_back(l);
+                            warm += rr - bb > 0.04f ? 1 : 0;
+                            // (the throat: the warmest pixel below the centre line, under the eyes; GL rows run bottom up)
+                            if (static_cast<int>(i / 4) / W < H / 2 && rr - bb > bestRB) { bestRB = rr - bb; bestL = l; }
+                        }
+                        std::sort(lum.begin(), lum.end());
+                        const float l50 = lum[lum.size() / 2];
+                        check(warm >= 40 && bestRB < 0.25f, "renderer: tier " + juce::String(tier) + " roaring keeps veiled warm accents (" + juce::String(warm) + " pixels, R-B max " + juce::String(bestRB, 3) + ")" + tag);
+                        check(bestL < l50, "renderer: tier " + juce::String(tier) + " the throat glows in a dark cavity, not a pale fill (" + juce::String(bestL, 3) + " vs median " + juce::String(l50, 3) + ")" + tag);
+                    }
+                    frame.set(U::uRoarDrive, 0.0f);
+                    frame.set(U::uRoar, 0.35f);
+                    frame.set(U::uJaw, 0.4f);
+                    frame.set(U::uLevel, 0.0f);
+                }
+                r.setForcedTier(3);
+                draw(r, 6);
+                std::vector<float> v;
+                int vw = 0, vh = 0;
+                bool finite = r.readTarget(roar::MonsterRenderer::Target::velocity, v, vw, vh);
+                for (float x : v) finite = finite && std::isfinite(x);
+                check(finite, "renderer: the fluid stays finite across tier changes" + tag);
+                const double before = meanLuma();
+
+                std::vector<unsigned int> tex, fbos, progs, bufs;
+                r.collectObjectIds(tex, fbos, progs, bufs);
+                r.release();
+                int alive = 0;
+                for (auto id : tex) alive += glIsTexture(id) ? 1 : 0;
+                for (auto id : fbos) alive += glIsFramebuffer(id) ? 1 : 0;
+                for (auto id : progs) alive += glIsProgram(id) ? 1 : 0;
+                for (auto id : bufs) alive += glIsBuffer(id) ? 1 : 0;
+                std::vector<unsigned int> after;
+                r.collectObjectIds(after, after, after, after);
+                check(! tex.empty() && alive == 0 && after.empty(), "renderer: release deletes every GL object and zeroes the ids (" + juce::String(alive) + " left)" + tag);
+
+                // A context loss and back: the first frame is a full one, not an empty grid.
+                r.create(core, static_cast<float>(W) / H, logo.rgba, LogoSdf::c_size, noise.rgba, noise.size);
+                draw(r, 1);
+                const double first = meanLuma();
+                check(std::abs(first - before) <= 0.15 * before, "renderer: first frame after recreation matches (" + juce::String(first, 3) + " vs " + juce::String(before, 3) + ")" + tag);
+                r.release();
+            }
+            glDeleteRenderbuffers(1, &rb);
+            glDeleteFramebuffers(1, &fbo);
+            CGLSetCurrentContext(nullptr);
+            CGLDestroyContext(ctx);
+        }
+    }
+   #endif
+
     void testLogoSdf()
     {
         std::printf("[logo] distance field of the maker's logo\n");
@@ -4044,6 +4837,13 @@ int main(int argc, char* argv[])
 {
     juce::ScopedJuceInitialiser_GUI juceInit;
 
+    if (argc >= 2 && std::string(argv[1]) == "--motion")
+    {
+        // (just the creature's motion models and the quality governor: quick)
+        testMotion();
+        std::printf("\n%d checks, %d failed\n", g_checks, g_failures);
+        return g_failures == 0 ? 0 : 1;
+    }
     if (argc >= 3 && std::string(argv[1]) == "--snapshot")
     {
         // A PNG of the editor at its design size (for a quick look at the layout).
@@ -4142,6 +4942,10 @@ int main(int argc, char* argv[])
         { "editor", testEditor },
         { "creature", testCreature },
         { "logo", testLogoSdf },
+        { "motion", testMotion },
+       #if defined(__APPLE__)
+        { "renderer", testRenderer },
+       #endif
         { "cpu", testCpu },
     };
 
