@@ -17,11 +17,10 @@ A VST3/AU plugin that removes pitch movement from a sound while keeping its ener
   2. [Source strip](#2-source-strip)
   3. [Pitch display](#3-pitch-display)
   4. [Readouts](#4-readouts)
-  5. [Target](#5-target)
-  6. [Tracking](#6-tracking)
-  7. [Input](#7-input)
-  8. [Output](#8-output)
-  9. [Help bar, tooltips and shortcuts](#9-help-bar-tooltips-and-shortcuts)
+  5. [Flatten](#5-flatten)
+  6. [Range](#6-range)
+  7. [Advanced](#7-advanced)
+  8. [Help bar, tooltips and shortcuts](#8-help-bar-tooltips-and-shortcuts)
   - [About window](#about-window)
 - [Source Types and detectors](#source-types-and-detectors)
 - [Measured performance](#measured-performance)
@@ -50,7 +49,7 @@ Pitch Flattener runs as a normal realtime plugin, so it loads in any VST3/AU hos
 
 ## A tour of the interface
 
-![The Pitch Flattener window with numbered call-outs: 1 header and presets, 2 source strip, 3 pitch display, 4 readouts, 5 Target, 6 Tracking, 7 Input, 8 Output, 9 help bar](docs/overview-annotated.png)
+![The Pitch Flattener window with numbered call-outs: 1 header and presets, 2 source strip, 3 pitch display, 4 readouts, 5 Flatten, 6 Range, 7 Advanced, 8 help bar](docs/overview-annotated.png)
 
 | # | Part | What it's for |
 |---|---|---|
@@ -58,11 +57,10 @@ Pitch Flattener runs as a normal realtime plugin, so it loads in any VST3/AU hos
 | 2 | [Source strip](#2-source-strip) | Say what you're flattening; see which detector is running. |
 | 3 | [Pitch display](#3-pitch-display) | The last 8 s of detected pitch, target and output over a spectrogram. |
 | 4 | [Readouts](#4-readouts) | Numbers for the newest analysed moment: pitch, target, correction, confidence, level. |
-| 5 | [Target](#5-target) | What pitch the sound is flattened to, and how much. |
-| 6 | [Tracking](#6-tracking) | How the pitch is found and followed. |
-| 7 | [Input](#7-input) | What the detector listens to. |
-| 8 | [Output](#8-output) | How the audio is shifted and mixed. |
-| 9 | [Help bar](#9-help-bar-tooltips-and-shortcuts) | Explains whatever is under the mouse. |
+| 5 | [Flatten](#5-flatten) | What pitch the sound is flattened to, how much, and how it sounds. |
+| 6 | [Range](#6-range) | Where in this particular file to listen for the pitch. |
+| 7 | [Advanced](#7-advanced) | Detection and shifter settings the Source Type sets; adjustable on Custom. |
+| 8 | [Help bar](#8-help-bar-tooltips-and-shortcuts) | Explains whatever is under the mouse. |
 
 The window can be resized from the bottom-right corner, from 60 % to 200 % of its normal size. It keeps its proportions and the layout scales as a whole.
 
@@ -127,9 +125,9 @@ Presets saved with 1.x lived in `Documents/PitchFlattener Presets`. To use them,
 
 From left to right:
 
-- **SOURCE**: what you're flattening. Picking a Source Type loads tuned detector, frequency range, tracking, filter and shifter settings for that kind of sound. You can change any of them afterwards.
+- **SOURCE**: what you're flattening. Picking a Source Type loads tuned settings for that kind of sound. The Flatten and Range controls stay adjustable; the Detector and the Advanced settings can be changed after switching to Custom, which keeps the current values.
 - **The description**: a short note on the chosen Source Type: which detector it uses and the sounds it suits.
-- **DETECTOR** (*set by source*): the pitch detection algorithm. Each Source Type picks one; change it here to override it.
+- **DETECTOR** (*set by source*): the pitch detection algorithm. Each Source Type picks one. It can be changed on Custom, as a rescue for a sound no Source Type handles.
 - **RUNNING**: the detector that is actually running. After a change it can lag for a moment while the new detector is set up.
 
 <p>
@@ -161,14 +159,14 @@ The legend chips along the bottom each switch one layer on or off:
 
 #### Wobble warning
 
-![A red warning across the top of the graph: WOBBLING: OUTPUT 45 CT OFF TARGET. Siren comes out about 2.2x flatter here. With TRY SIREN and close buttons](docs/display-wobble.png)
+![A red warning across the top of the graph: WOBBLING: OUTPUT 46 CT OFF TARGET. Siren comes out about 1.9x flatter here. With TRY SIREN and close buttons](docs/display-wobble.png)
 
 While sound plays, the plugin measures the pitch of its own flattened output against the target. If the output stays well off the target (more than about 35 cents, for more than a second), a red warning appears across the graph with how far off it is.
 
 It then replays the last few seconds through every Source Type in the background, keeping your target settings, and measures each one's output the same way:
 
 - If one comes out clearly flatter, the warning names it, with a **TRY** button that switches to it, just as picking it from the Source menu would.
-- If none does clearly better, it says so and suggests narrowing Min / Max Freq around the sound or lowering Speed.
+- If none does clearly better, it says so and suggests narrowing Min / Max Freq around the sound or setting a Fixed target.
 
 The warning goes once the output has been flat for about two seconds; **X** hides it until then, or until a setting changes. It only judges what it can measure: a sound too short or too noisy for the meter to read, such as a ricochet's crack, never raises it. With Amount or Mix turned below 95 % the result isn't meant to be flat, so it stays quiet.
 
@@ -193,7 +191,6 @@ The column to the right of the display gives numbers for the newest analysed mom
   - "LATCHED AT *x* HZ", or "LISTENING TO LATCH" while waiting for a pitch to latch on to
   - "FIXED TARGET"
   - "AUTO: FOLLOWS CONTOUR"
-  - "MANUAL OVERRIDE" when Override is on
 - **CORRECTION**: the shift being applied, in cents. The bar fills left or right from its centre tick; each half spans the Max Shift setting.
 - **CONFIDENCE**: how sure the detector is that the sound is pitched.
 - **INPUT**: the live input level. The white tick on the bar marks the Gate.
@@ -201,72 +198,62 @@ The column to the right of the display gives numbers for the newest analysed mom
 
 <br clear="right">
 
-### 5. Target
+### 5. Flatten
 
-<img src="docs/section-target.png" alt="The Target section: Target mode menu, Target Hz, Auto Win and Amount knobs, Re-latch button, Override switch and Override Hz knob" width="295" align="right">
+<img src="docs/section-flatten.png" alt="The Flatten section: Target mode menu, Target Hz, Auto Win and Amount knobs, Mix knob and Formant switch" width="390" align="right">
 
-The amber section sets the pitch the sound is flattened to and how much is removed.
+The amber section sets the pitch the sound is flattened to, how much is removed, and how the result sounds.
 
 - **Target mode** (the menu in the section's title bar):
-  - **Latch** (default) locks to the opening pitch of each sound: the median of its first ~300 ms, read with lookahead. The latch is decided before the sound plays, so it is flattened from its first sample, soft or breathy attacks included. It re-latches when a new sound starts after more than a second without pitch.
-  - **Fixed** flattens everything to **Target Hz**.
-  - **Auto** removes movement faster than **Auto Win** and keeps the slower overall contour. Use it to take out vibrato or warble without changing the melody.
+  - **Latch** (default) locks to the opening pitch of each sound: the median of its first ~300 ms, read with lookahead. The latch is decided before the sound plays, so it is flattened from its first sample, soft or breathy attacks included. It re-latches when a new sound starts after more than a second without pitch, so a file with several separate sounds flattens each to its own pitch. This is the mode for batch work: no pitch to type per file.
+  - **Fixed** flattens everything to **Target Hz**. Use it to put a sound on a chosen note, or when the start of a sound is too quiet to latch on.
+  - **Auto** removes movement faster than **Auto Win** and keeps the slower overall contour. Use it to take out vibrato or warble without changing the melody. It deliberately keeps slow movement, so it isn't the mode for a Doppler drop.
 - **TARGET HZ** (Fixed): the pitch everything is flattened to. You can type a note name such as `A4` into its value.
-- **AUTO WIN** (Auto): movement faster than this is removed, slower movement is kept. Longer is flatter.
+- **AUTO WIN** (Auto, 200 ms–2 s): movement faster than this is removed, slower movement is kept. Half of the knob's travel covers 200–600 ms, where vibrato and warble live. Longer is flatter.
 - **AMOUNT** (0–100 %): how much of the pitch deviation is removed. 100 % is completely flat; 50 % halves a Doppler sweep.
-- **RE-LATCH** (Latch): forgets the latched pitch so the next stable pitch is latched again.
-- **OVERRIDE** and **OVERRIDE HZ**: flatten to Override Hz instead of the target mode's target. Detection still runs, so the sound is followed as usual; only the pitch it is flattened to changes.
+- **MIX**: blends in the time-aligned dry signal. Keep it at 100 % for flattening; partial mixes can sound phasey.
+- **FORMANT**: keeps a voice's character natural when it is shifted. Leave it off for machines and sirens.
 
 <br clear="right">
 
 <img src="docs/menu-target-mode.png" alt="The Target mode menu: Latch (ticked), Fixed, Auto" width="307">
 
-Only the controls the current mode uses are lit. The others are dimmed but keep their values:
+Only the knob the current mode uses is lit. The other is dimmed but keeps its value:
 
-![The Target section in each mode: Latch lights Re-latch; Fixed lights Target Hz; Auto lights Auto Win; Override on lights Override Hz and dims Target Hz, Auto Win and Re-latch](docs/target-modes.png)
+![The Flatten section in each mode: Latch dims both Target Hz and Auto Win; Fixed lights Target Hz; Auto lights Auto Win](docs/target-modes.png)
 
-### 6. Tracking
+### 6. Range
 
-<img src="docs/section-tracking.png" alt="The Tracking section: Sensitivity, Speed, Smoothing, Gap Fill, Min Freq and Max Freq knobs" width="295" align="right">
+<img src="docs/section-range.png" alt="The Range section: Min Freq, Max Freq and Gate knobs and the input level meter" width="204" align="right">
 
-The teal sections control how the pitch is found and followed.
+The teal section says where to listen in this particular file. The Source Type sets sensible values; these are the ones worth adjusting per file.
 
-- **SENSITIVITY**: how readily a sound counts as pitched. Raise it for quiet or breathy sources; lower it for noisy recordings.
-- **SPEED** (oct/s): the fastest pitch movement the tracker will believe. Lower it to reject glitches on slow sources such as engines and drones. Raise it for yelps.
-- **SMOOTHING** (ms): smooths the pitch track before correcting it. It is centred, using the lookahead, so it adds no lag.
-- **GAP FILL** (ms): the longest unpitched gap that is bridged before the correction relaxes, so it doesn't drop out mid-sound.
-- **MIN FREQ / MAX FREQ**: the pitch search range. Bracket your source; a tighter range is more reliable.
+- **MIN FREQ / MAX FREQ**: the pitch search range. Bracket your source; a tighter range is more reliable and stops the tracker jumping an octave or locking onto rumble.
+- **GATE** (-80 to -40 dB): input quieter than this counts as unpitched. Raise it to ignore room tone or a quiet tail between sounds. From about -40 dB up it starts cutting into the sound itself, so the knob stops there. Pure tones such as whistles track best at -60 dB or higher.
+- **LEVEL**: the live input level. It turns green when the input is above the gate (the teal line), so the detector is listening.
 
 <br clear="right">
 
-### 7. Input
+### 7. Advanced
 
-<img src="docs/section-input.png" alt="The Input section: Gate knob, Level meter, Highpass and Lowpass knobs" width="204" align="right">
+<img src="docs/section-advanced.png" alt="The Advanced section dimmed: Sensitivity, Max Shift, Quality, Highpass and Lowpass, labelled Set by Source, pick Custom to change" width="390" align="right">
 
-- **GATE** (dB): input quieter than this counts as unpitched.
-- **LEVEL**: the live input level. It turns green when the input is above the gate (the teal line), so the detector is listening.
+The violet section holds the detection and shifter settings each Source Type tunes for its kind of sound. They are dimmed and locked unless the Source Type is **Custom**: pick the closest Source Type first, then switch to Custom to adjust from there (choosing Custom changes nothing by itself). The **Detector** menu in the source strip works the same way.
+
+- **SENSITIVITY**: how readily a sound counts as pitched. Raise it for quiet or breathy sources such as creature calls; lower it for shimmering tones and noisy recordings.
+- **MAX SHIFT** (6–24 semitones): the largest correction allowed. Below 6 it mostly stops the flattening, so the knob starts there. Siren, Whistle / Tone and Drone / Hum set 24; the others set 12.
+- **QUALITY**:
+  - **Smooth** uses the shifter's standard window and gives the best sound on sustained tones.
+  - **Tight** uses a short window and follows very fast sweeps and transients more closely.
 - **HIGHPASS / LOWPASS**: filters that apply to the detector's input only, to keep rumble or hiss out of detection. They do not change the sound.
 
 <br clear="right">
 
-### 8. Output
+<img src="docs/section-advanced-custom.png" alt="The Advanced section on Custom: the same controls lit and adjustable" width="390">
 
-<img src="docs/section-output.png" alt="The Output section: Max Shift and Mix knobs, Quality menu and Formant switch" width="202" align="right">
+Speed, Smoothing and Gap Fill are set by each Source Type and aren't on the panel: measured across 58 recordings, the only thing they changed was making results worse at their extremes. See the [parameter audit](docs/parameter-audit.md).
 
-The violet section controls the shifter.
-
-- **MAX SHIFT** (semitones): the largest correction allowed. Larger deviations are only corrected this far. Siren sets it to 24, because sirens often switch between patterns far apart in pitch (a yelp, then a two-tone horn an octave lower); the other Source Types set 12.
-- **MIX**: blends in the time-aligned dry signal. Keep it at 100 % for flattening; partial mixes can sound phasey.
-- **QUALITY**:
-  - **Smooth** uses the shifter's standard window and gives the best sound on sustained tones.
-  - **Tight** uses a short window and follows very fast sweeps and transients more closely.
-- **FORMANT**: keeps a voice's character natural when it is shifted. Leave it off for machines and sirens.
-
-<br clear="right">
-
-<img src="docs/menu-quality.png" alt="The Quality menu: Smooth, Tight (ticked)" width="214">
-
-### 9. Help bar, tooltips and shortcuts
+### 8. Help bar, tooltips and shortcuts
 
 The bar along the bottom explains whatever is under the mouse, including each part of the display. The version number is on its right.
 
@@ -297,16 +284,16 @@ Shortcuts:
 
 ## Source Types and detectors
 
-Each Source Type chooses a pitch detector and tuned defaults. Every setting can still be changed afterwards.
+Each Source Type chooses a pitch detector and tuned defaults. Flatten and Range can be changed at any time; the Detector and the Advanced settings on Custom; Speed, Smoothing and Gap Fill always come from the Source Type.
 
 | Source Type | Detector | Use it for |
 |---|---|---|
 | **Vocal / Speech** | pYIN (probabilistic YIN) | Voices, singing, vocal-like animal calls. Ignores breaths and consonants and follows the voice smoothly. Formant preservation is on by default. |
 | **Instrument** | MPM (McLeod Pitch Method) | Solo melodic instruments: vibrato, warble, tape wow. |
 | **Siren** | Spectral + MPM | Wail, yelp, hi-lo and electronic sweeps, even in traffic noise. Uses the Tight window to follow fast sweeps, and a 24-semitone Max Shift so a siren that switches pattern stays flat. |
-| **Whistle / Tone** | Spectral Peak, long windows | Whistles, feedback, test tones, theremin. Very stable on near-pure tones. |
+| **Whistle / Tone** | Spectral + MPM | Whistles, feedback, test tones, theremin. Very stable on near-pure tones; low Sensitivity and a 24-semitone Max Shift keep shimmering feedback flat. |
 | **Engine / Doppler** | Harmonic Sum (subharmonic summation) | Engines, pass-bys, props, motors and trains. Follows the whole harmonic series, so it does not jump octaves and copes with a weak or missing fundamental. |
-| **Drone / Hum** | Harmonic Sum, slow tracking | Hums, generators and drones down to 25 Hz. |
+| **Drone / Hum** | Harmonic Sum, heavy smoothing | Hums, generators and drones down to 25 Hz, with a 24-semitone Max Shift. |
 | **Noisy Field** | Harmonic Sum, strict voicing | Rough field recordings with lots of broadband noise. |
 | **Custom** | Any | Your own settings. Choosing Custom doesn't change anything. |
 
@@ -357,16 +344,16 @@ cmake --build build-tests --target PitchFlattenerTests
 
 `--wav` writes each test's input and output so you can listen to them.
 
-To see how a real recording fares, `--file sound.wav` plays it through a Source Type's settings (`--source 2`, Siren, by default) and prints the track, target, correction and output pitch every 100 ms, with how far the output lands from the target. `--detector n`, `--minfreq`, `--maxfreq` and `--maxshift` override those settings, `--step` changes the reporting interval (use 0.01 for short sounds) and `--out processed.wav` writes the result, lined up with the input. `--advise sound.wav` runs the wobble warning's Source Type check on a whole recording (starting from `--source n`) and prints how flat each Source Type comes out.
+To see how a real recording fares, `--file sound.wav` plays it through a Source Type's settings (`--source 2`, Siren, by default) and prints the track, target, correction and output pitch every 100 ms, with how far the output lands from the target. `--detector n`, `--minfreq`, `--maxfreq` and `--maxshift` override those settings, `--step` changes the reporting interval (use 0.01 for short sounds) and `--out processed.wav` writes the result, lined up with the input. `--advise sound.wav` runs the wobble warning's Source Type check on a whole recording (starting from `--source n`) and prints how flat each Source Type comes out. `--sweep param v1,v2,... --file sound.wav --source n` changes one parameter across those values and prints the flatness for each (how the [parameter audit](docs/parameter-audit.md) was measured).
 
 ## Tips
 
-- **Doppler pass-by:** choose Engine / Doppler and Latch. If the approach is quieter than the pass, use **Re-latch** or Fixed with the engine's idle pitch.
-- **Siren:** choose Siren and Fixed at the pitch you want. For a wail, Smooth quality sounds cleaner; for a yelp, keep Tight.
-- **Ricochets and whizzes:** choose Siren. Raise Max Freq to about 6 kHz for bright ones that start above 3 kHz; don't lower Min Freq, or the low thump of the impact competes with the whine. If you can hear two tones at once and the result moves the wrong way, set Detector to Spectral Peak.
+- **Doppler pass-by:** choose Engine / Doppler and Latch. If the approach is too quiet to latch on, use Fixed with the engine's idle pitch.
+- **Siren:** choose Siren and Fixed at the pitch you want. For a wail, Smooth quality can sound cleaner: switch Source Type to Custom (it keeps the Siren settings) and set Quality to Smooth. For a yelp, keep Tight.
+- **Ricochets and whizzes:** choose Siren. Raise Max Freq to about 6 kHz for bright ones that start above 3 kHz; don't lower Min Freq, or the low thump of the impact competes with the whine. If you can hear two tones at once and the result moves the wrong way, switch Source Type to Custom and set Detector to Spectral Peak.
 - **Vibrato only:** use Auto mode with an Auto Window of 300–600 ms.
 - **Half-flattened, more natural result:** set Amount to 50–70 %.
-- **The output jumps or warbles:** narrow Min/Max Freq around the source, lower Speed, or try another Source Type. Turn on RAW in the display to see what the detector is hearing.
+- **The output jumps or warbles:** narrow Min/Max Freq around the source, or try another Source Type (the wobble warning suggests one when it can). Turn on RAW in the display to see what the detector is hearing.
 
 ## What changed in 2.0
 

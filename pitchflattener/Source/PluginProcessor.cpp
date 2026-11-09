@@ -1,5 +1,6 @@
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
+#include "StateMigration.h"
 
 namespace
 {
@@ -90,7 +91,9 @@ juce::AudioProcessorValueTreeState::ParameterLayout PitchFlattenerAudioProcessor
     // Source Type is a label for the editor (it writes its defaults into the other parameters), not automatable.
     p.push_back (std::make_unique<AudioParameterChoice> (pid (ParamIDs::sourceType), "Source Type", sourceTypeNames(), defaultSource,
                                                          AudioParameterChoiceAttributes().withAutomatable (false)));
-    p.push_back (std::make_unique<AudioParameterChoice> (pid (ParamIDs::detector), "Detector", detectorNames(), (int) d.detector));
+    // Detector, Speed, Smoothing and Gap Fill are set by the Source Type (Detector is adjustable on Custom): not for automation.
+    p.push_back (std::make_unique<AudioParameterChoice> (pid (ParamIDs::detector), "Detector", detectorNames(), (int) d.detector,
+                                                         AudioParameterChoiceAttributes().withAutomatable (false)));
     p.push_back (std::make_unique<AudioParameterFloat> (pid (ParamIDs::minFreq), "Min Frequency", hzRange (20.0f, 2000.0f, 200.0f), d.minHz,
                                                         AudioParameterFloatAttributes().withLabel ("Hz").withStringFromValueFunction (hzText)));
     p.push_back (std::make_unique<AudioParameterFloat> (pid (ParamIDs::maxFreq), "Max Frequency", hzRange (100.0f, 8000.0f, 1500.0f), d.maxHz,
@@ -101,14 +104,14 @@ juce::AudioProcessorValueTreeState::ParameterLayout PitchFlattenerAudioProcessor
         NormalisableRange<float> r (0.5f, 40.0f, 0.1f);
         r.setSkewForCentre (6.0f);
         p.push_back (std::make_unique<AudioParameterFloat> (pid (ParamIDs::trackingSpeed), "Tracking Speed", r, d.trackingSpeed,
-                                                            AudioParameterFloatAttributes().withLabel ("oct/s")
+                                                            AudioParameterFloatAttributes().withLabel ("oct/s").withAutomatable (false)
                                                                 .withStringFromValueFunction ([] (float v, int) { return String (v, v < 10.0f ? 1 : 0) + " oct/s"; })));
     }
     p.push_back (std::make_unique<AudioParameterFloat> (pid (ParamIDs::trackSmoothing), "Smoothing", NormalisableRange<float> (0.0f, 50.0f, 0.5f), d.smoothingMs,
-                                                        AudioParameterFloatAttributes().withLabel ("ms").withStringFromValueFunction (ms)));
+                                                        AudioParameterFloatAttributes().withLabel ("ms").withStringFromValueFunction (ms).withAutomatable (false)));
     p.push_back (std::make_unique<AudioParameterFloat> (pid (ParamIDs::gapFill), "Gap Fill", NormalisableRange<float> (0.0f, 400.0f, 1.0f), d.gapFillMs,
-                                                        AudioParameterFloatAttributes().withLabel ("ms").withStringFromValueFunction (ms)));
-    p.push_back (std::make_unique<AudioParameterFloat> (pid (ParamIDs::volumeThreshold), "Gate", NormalisableRange<float> (-80.0f, 0.0f, 0.1f), -60.0f,
+                                                        AudioParameterFloatAttributes().withLabel ("ms").withStringFromValueFunction (ms).withAutomatable (false)));
+    p.push_back (std::make_unique<AudioParameterFloat> (pid (ParamIDs::volumeThreshold), "Gate", NormalisableRange<float> (-80.0f, -40.0f, 0.1f), -60.0f,
                                                         AudioParameterFloatAttributes().withLabel ("dB")
                                                             .withStringFromValueFunction ([] (float v, int) { return String (v, 1) + " dB"; })));
     p.push_back (std::make_unique<AudioParameterFloat> (pid (ParamIDs::detectionHighpass), "Detection High-pass", hzRange (20.0f, 2000.0f, 200.0f), d.highpassHz,
@@ -120,16 +123,24 @@ juce::AudioProcessorValueTreeState::ParameterLayout PitchFlattenerAudioProcessor
     p.push_back (std::make_unique<AudioParameterChoice> (pid (ParamIDs::targetMode), "Target Mode", StringArray { "Latch", "Fixed", "Auto" }, 0));
     p.push_back (std::make_unique<AudioParameterFloat> (pid (ParamIDs::targetPitch), "Target Pitch", hzRange (20.0f, 4000.0f, 440.0f), 440.0f,
                                                         AudioParameterFloatAttributes().withLabel ("Hz").withStringFromValueFunction (hzText)));
-    p.push_back (std::make_unique<AudioParameterFloat> (pid (ParamIDs::autoWindow), "Auto Window", NormalisableRange<float> (200.0f, 2000.0f, 10.0f), 1000.0f,
-                                                        AudioParameterFloatAttributes().withLabel ("ms").withStringFromValueFunction (ms)));
+    {
+        // More of the knob for the 200-600 ms vibrato and warble zone.
+        NormalisableRange<float> r (200.0f, 2000.0f, 10.0f);
+        r.setSkewForCentre (600.0f);
+        p.push_back (std::make_unique<AudioParameterFloat> (pid (ParamIDs::autoWindow), "Auto Window", r, 1000.0f,
+                                                            AudioParameterFloatAttributes().withLabel ("ms").withStringFromValueFunction (ms)));
+    }
     p.push_back (std::make_unique<AudioParameterFloat> (pid (ParamIDs::flattenAmount), "Flatten Amount", NormalisableRange<float> (0.0f, 100.0f, 1.0f), 100.0f,
                                                         AudioParameterFloatAttributes().withLabel ("%").withStringFromValueFunction (pct)));
-    p.push_back (std::make_unique<AudioParameterFloat> (pid (ParamIDs::maxShift), "Max Shift", NormalisableRange<float> (1.0f, 24.0f, 0.5f), d.maxShiftSemitones,
+    p.push_back (std::make_unique<AudioParameterFloat> (pid (ParamIDs::maxShift), "Max Shift", NormalisableRange<float> (6.0f, 24.0f, 0.5f), d.maxShiftSemitones,
                                                         AudioParameterFloatAttributes().withLabel ("st")
                                                             .withStringFromValueFunction ([] (float v, int) { return String (v, 1) + " st"; })));
-    p.push_back (std::make_unique<AudioParameterBool> (pid (ParamIDs::manualOverride), "Manual Override", false));
-    p.push_back (std::make_unique<AudioParameterFloat> (pid (ParamIDs::overrideFreq), "Override Frequency", hzRange (20.0f, 4000.0f, 440.0f), 440.0f,
-                                                        AudioParameterFloatAttributes().withLabel ("Hz").withStringFromValueFunction (hzText)));
+    // Retired: Manual Override did what Fixed + Target Pitch do. Kept (hidden, not automatable) so old sessions load; a
+    // state with it on is converted to Fixed at the Override pitch (StateMigration::overrideToFixed).
+    p.push_back (std::make_unique<AudioParameterBool> (pid (ParamIDs::manualOverride), "Manual Override (retired)", false,
+                                                       AudioParameterBoolAttributes().withAutomatable (false)));
+    p.push_back (std::make_unique<AudioParameterFloat> (pid (ParamIDs::overrideFreq), "Override Frequency (retired)", hzRange (20.0f, 4000.0f, 440.0f), 440.0f,
+                                                        AudioParameterFloatAttributes().withLabel ("Hz").withStringFromValueFunction (hzText).withAutomatable (false)));
 
     // Shifter / output
     p.push_back (std::make_unique<AudioParameterBool> (pid (ParamIDs::rbFormantPreserve), "Formant Preserve", d.formant));
@@ -163,8 +174,9 @@ pf::LiveSettings PitchFlattenerAudioProcessor::readLiveSettings() const
     s.amount = raw.flattenAmount->load() * 0.01f;
     s.maxShiftSemitones = raw.maxShift->load();
     s.gateDb = raw.volumeThreshold->load();
-    s.manualOverride = raw.manualOverride->load() > 0.5f;
-    s.overrideHz = raw.overrideFreq->load();
+    // Manual Override is retired (stored states are converted to Fixed on load): a host or stray preset setting the
+    // hidden parameter must not take over the target where the panel can't show it.
+    s.manualOverride = false;
     s.mix = raw.mix->load();
     s.formantPreserve = raw.rbFormantPreserve->load() > 0.5f;
     return s;
@@ -377,6 +389,7 @@ void PitchFlattenerAudioProcessor::setStateInformation (const void* data, int si
 
     auto tree = juce::ValueTree::fromXml (*xml);
     migrateLegacyState (tree);
+    StateMigration::overrideToFixed (tree);
 
     // Parameters missing from the stored state get their defaults, not this instance's current values.
     for (auto* p : getParameters())

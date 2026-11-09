@@ -1,4 +1,5 @@
 #include "PresetManager.h"
+#include "StateMigration.h"
 #include "ParamIDs.h"
 #include "dsp/SourcePresets.h"
 
@@ -144,7 +145,12 @@ void PresetManager::buildFactoryPresets()
         for (const auto& file : files)
             if (auto xml = juce::XmlDocument::parse (file))
                 if (xml->hasTagName (m_state.state.getType().toString()))
-                    m_factory.emplace_back (file.getFileNameWithoutExtension(), juce::ValueTree::fromXml (*xml));
+                {
+                    auto state = juce::ValueTree::fromXml (*xml);
+                    migrateLegacyPreset (state);
+                    StateMigration::overrideToFixed (state);
+                    m_factory.emplace_back (file.getFileNameWithoutExtension(), state);
+                }
     }
 }
 
@@ -210,6 +216,7 @@ bool PresetManager::loadUserPreset (const juce::File& file)
 
     auto state = juce::ValueTree::fromXml (*xml);
     migrateLegacyPreset (state);
+    StateMigration::overrideToFixed (state);
     applyState (state, file.getFileNameWithoutExtension(), file.getFileName());
     return true;
 }
