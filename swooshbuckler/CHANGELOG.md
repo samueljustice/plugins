@@ -1,6 +1,6 @@
 # Swooshbuckler changelog
 
-## Unreleased
+## 1.4.0
 
 - **Every knob reworked so all of its travel is usable.** Each one was measured across its range and remapped; the details and numbers are in [docs/knob-audit.md](docs/knob-audit.md). The main changes:
   - Energy dips evenly in dB, all the way to silence. Fill's echoes come after the fader, so they fill the ride's dips. Chaos varies the size of each swell. Rate shows the swell time.
