@@ -28,6 +28,7 @@ on:
       - Build and Release Subbertone
       - Build and Release Pitch Flattener
       - Build and Release Reversinator
+      - Build and Release Roarschach
     types: [completed]
   pull_request:
     paths:

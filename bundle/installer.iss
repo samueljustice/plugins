@@ -2,7 +2,8 @@
 ; Built by .github/workflows/build-release_bundle.yml from each plug-in's newest release, which lays the
 ; files out as windows-package\<id>\vst3\<Bundle>.vst3 and windows-package\<id>\app\<App>.exe and passes:
 ;   iscc /DBundleVersion=2026.11.7.1 /DSwooshbucklerVersion=1.0.0 /DSoundAdviceVersion=1.0.0
-;        /DSubbertoneVersion=1.2.0 /DPitchFlattenerVersion=2.0.0 /DReversinatorVersion=2.0.0 installer.iss
+;        /DSubbertoneVersion=1.2.0 /DPitchFlattenerVersion=2.0.0 /DReversinatorVersion=2.0.0
+;        /DRoarschachVersion=1.0.0 installer.iss
 ;
 ; Old versions: before installing a plug-in it silently runs that plug-in's own (stand-alone) uninstaller
 ; if one is registered, then deletes the old .vst3 folders, so no stale files or duplicate plug-ins are
@@ -25,6 +26,9 @@
 #endif
 #ifndef ReversinatorVersion
   #define ReversinatorVersion "?"
+#endif
+#ifndef RoarschachVersion
+  #define RoarschachVersion "?"
 #endif
 
 #define MyAppName "Sammy J's Plugins"
@@ -74,6 +78,7 @@ Name: "soundadvice\vst3"; Description: "VST3 plug-in"; Types: full
 Name: "subbertone"; Description: "Subbertone {#SubbertoneVersion} (VST3)"; Types: full
 Name: "pitchflattener"; Description: "Pitch Flattener {#PitchFlattenerVersion} (VST3)"; Types: full
 Name: "reversinator"; Description: "Reversinator {#ReversinatorVersion} (VST3)"; Types: full
+Name: "roarschach"; Description: "Roarschach {#RoarschachVersion} (VST3)"; Types: full
 
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Components: swooshbuckler\app soundadvice\app; Flags: unchecked
@@ -91,6 +96,8 @@ Type: filesandordirs; Name: "{#VST3Dir}\SammyJs Pitch Flattener.vst3"; Component
 Type: filesandordirs; Name: "{#UserVST3Dir}\SammyJs Pitch Flattener.vst3"; Components: pitchflattener
 Type: filesandordirs; Name: "{#VST3Dir}\SammyJs Reversinator.vst3"; Components: reversinator
 Type: filesandordirs; Name: "{#UserVST3Dir}\SammyJs Reversinator.vst3"; Components: reversinator
+Type: filesandordirs; Name: "{#VST3Dir}\Roarschach.vst3"; Components: roarschach
+Type: filesandordirs; Name: "{#UserVST3Dir}\Roarschach.vst3"; Components: roarschach
 
 [UninstallDelete]
 ; Per-user copies of the plug-ins (the installer removes these too, so hosts don't list them twice), and
@@ -100,6 +107,7 @@ Type: filesandordirs; Name: "{#UserVST3Dir}\Sound Advice.vst3"
 Type: filesandordirs; Name: "{#UserVST3Dir}\SammyJs Subbertone.vst3"
 Type: filesandordirs; Name: "{#UserVST3Dir}\SammyJs Pitch Flattener.vst3"
 Type: filesandordirs; Name: "{#UserVST3Dir}\SammyJs Reversinator.vst3"
+Type: filesandordirs; Name: "{#UserVST3Dir}\Roarschach.vst3"
 Type: dirifempty; Name: "{app}\Swooshbuckler"
 Type: dirifempty; Name: "{app}\Sound Advice"
 Type: dirifempty; Name: "{app}"
@@ -112,6 +120,7 @@ Source: "windows-package\soundadvice\vst3\Sound Advice.vst3\*"; DestDir: "{#VST3
 Source: "windows-package\subbertone\vst3\SammyJs Subbertone.vst3\*"; DestDir: "{#VST3Dir}\SammyJs Subbertone.vst3"; Components: subbertone; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "windows-package\pitchflattener\vst3\SammyJs Pitch Flattener.vst3\*"; DestDir: "{#VST3Dir}\SammyJs Pitch Flattener.vst3"; Components: pitchflattener; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "windows-package\reversinator\vst3\SammyJs Reversinator.vst3\*"; DestDir: "{#VST3Dir}\SammyJs Reversinator.vst3"; Components: reversinator; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "windows-package\roarschach\vst3\Roarschach.vst3\*"; DestDir: "{#VST3Dir}\Roarschach.vst3"; Components: roarschach; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
 Name: "{group}\Swooshbuckler"; Filename: "{app}\Swooshbuckler\Swooshbuckler.exe"; Components: swooshbuckler\app
@@ -181,6 +190,7 @@ begin
     RemoveUserFile(Data + '\Sweet Justice\Sound Advice.settings');
     RemoveUserFolder(Data + '\SammyJs\Subbertone');
     RemoveUserFolder(Data + '\SammyJs\PitchFlattener');
+    RemoveUserFolder(Data + '\SammyJs\Roarschach');
     { The vendor folders are shared with other plug-ins, so they go only when nothing is left in them. }
     DeleteIfEmpty(Data + '\Sweet Justice');
     DeleteIfEmpty(Data + '\SammyJs');
@@ -200,5 +210,7 @@ begin
     RunOldUninstaller('{85CA9E2F-3B5A-4D1B-9C5E-8F5A7B2C3D4E}');
   if WizardIsComponentSelected('reversinator') then
     RunOldUninstaller('{A5D8E3F2-4C6B-5E2D-8F6C-9B3A5D1E7F8B}');
+  if WizardIsComponentSelected('roarschach') then
+    RunOldUninstaller('{EDA89529-4B87-433C-AC72-15F7FBDFC421}');
   Result := '';
 end;
