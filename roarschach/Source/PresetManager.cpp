@@ -12,6 +12,7 @@ namespace
     const juce::Identifier c_valueAttr      { "value" };
     const juce::Identifier c_nameAttr       { "name" };
     const juce::Identifier c_versionAttr    { "pluginVersion" };
+    const juce::Identifier c_formatAttr     { "version" };   // the preset format: 2 = the 14-module chain
 
     const juce::Identifier c_statePresetName     { "presetName" };
     const juce::Identifier c_statePresetFactory  { "presetIsFactory" };
@@ -221,8 +222,9 @@ namespace
 }
 
 //==============================================================================
-PresetManager::PresetManager(juce::AudioProcessorValueTreeState& parameters, HostNotifier notifyHost)
-    : m_parameters(parameters), m_notifyHost(std::move(notifyHost))
+PresetManager::PresetManager(juce::AudioProcessorValueTreeState& parameters, HostNotifier notifyHost,
+                             roar::PositionWrites* positionWrites)
+    : m_parameters(parameters), m_notifyHost(std::move(notifyHost)), m_positionWrites(positionWrites)
 {
     const auto& params = m_parameters.processor.getParameters();
     m_numParameters = params.size();
@@ -674,6 +676,7 @@ bool PresetManager::saveUserPreset(const juce::String& rawName)
 
     juce::XmlElement xml(c_presetTag.toString());
     xml.setAttribute(c_nameAttr.toString(), name);
+    xml.setAttribute(c_formatAttr.toString(), 2);
     xml.setAttribute(c_versionAttr.toString(), JucePlugin_VersionString);
 
     for (const auto& [id, value] : captureValues())
@@ -776,6 +779,7 @@ void PresetManager::applyValues(const Values& values)
     // belong on the message thread; elsewhere (a host's program change) the values are set
     // without them, which is allowed on any thread.
     const bool withGestures = juce::MessageManager::existsAndIsCurrentThread();
+    const roar::PositionWrites::Scope positionScope(m_positionWrites);
 
     for (auto* p : m_parameters.processor.getParameters())
     {
@@ -899,6 +903,7 @@ void PresetManager::restoreState(const StateInfo& info, const std::function<void
     {
         // The parameters come from the state; that is not an edit.
         const ScopedApply applying(*this);
+        const roar::PositionWrites::Scope positionScope(m_positionWrites);
         if (replaceParameters != nullptr)
             replaceParameters();
     }

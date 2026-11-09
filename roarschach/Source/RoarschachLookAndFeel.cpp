@@ -28,6 +28,7 @@ namespace
 
     const juce::Identifier c_focusRingsProperty { "roarschachFocusRings" };
     const juce::Identifier c_capitalsProperty { "roarschachCapitals" };
+    const juce::Identifier c_valueFontProperty { "roarschachValueFont" };
 
     // A colour that looks opaque but makes JUCE create a transparent window (menus), so the rounded corners
     // show what is behind them. The body itself is drawn with full alpha.
@@ -210,6 +211,10 @@ RoarschachLookAndFeel::RoarschachLookAndFeel(const Theme::Fonts& fonts)
     setColour(juce::TextButton::textColourOnId, text);
 
     setColour(juce::HyperlinkButton::textColourId, textDim);
+
+    setColour(juce::ToggleButton::tickColourId, output);
+    setColour(juce::ToggleButton::tickDisabledColourId, textFaint);
+    setColour(juce::ToggleButton::textColourId, textDim);
 
     setColour(juce::AlertWindow::backgroundColourId, panel);
     setColour(juce::AlertWindow::textColourId, text);
@@ -457,10 +462,15 @@ juce::Slider::SliderLayout RoarschachLookAndFeel::getSliderLayout(juce::Slider& 
     return layout;
 }
 
+void RoarschachLookAndFeel::setValueFontHeight(juce::Slider& slider, float height)
+{
+    slider.getProperties().set(c_valueFontProperty, height);
+}
+
 juce::Label* RoarschachLookAndFeel::createSliderTextBox(juce::Slider& slider)
 {
     auto* label = juce::LookAndFeel_V4::createSliderTextBox(slider);
-    label->setFont(m_fonts.body(12.0f));
+    label->setFont(m_fonts.body(static_cast<float>(slider.getProperties().getWithDefault(c_valueFontProperty, 12.0f))));
     label->setJustificationType(juce::Justification::centred);
     label->setColour(juce::Label::textColourId, text);
     label->setColour(juce::Label::outlineColourId, juce::Colours::transparentBlack);
@@ -490,8 +500,8 @@ juce::Font RoarschachLookAndFeel::getLabelFont(juce::Label& label)
 {
     // Knob value boxes show values; every other editor label is a caption. A label whose code set one of the
     // theme's fonts keeps it (e.g. the About window's status line); JUCE's default label font never shows.
-    if (dynamic_cast<juce::Slider*>(label.getParentComponent()) != nullptr)
-        return m_fonts.body(12.0f);
+    if (auto* slider = dynamic_cast<juce::Slider*>(label.getParentComponent()))
+        return m_fonts.body(static_cast<float>(slider->getProperties().getWithDefault(c_valueFontProperty, 12.0f)));
 
     if (dynamic_cast<juce::ComboBox*>(label.getParentComponent()) == nullptr)
     {
@@ -501,6 +511,61 @@ juce::Font RoarschachLookAndFeel::getLabelFont(juce::Label& label)
     }
 
     return m_fonts.label(10.5f);
+}
+
+//==============================================================================
+// Toggle buttons (On LEDs)
+//==============================================================================
+void RoarschachLookAndFeel::drawLed(juce::Graphics& g, juce::Rectangle<float> area, juce::Colour accent, bool on, bool hot, bool focused)
+{
+    // A round lamp: lit, it is the accent with a soft halo and a bright core; off, a dark socket with a
+    // faint rim. The rim brightens under the mouse; keyboard focus adds an amber ring.
+    const float d = std::min(area.getWidth(), area.getHeight());
+    const auto c = area.getCentre();
+    const auto lamp = juce::Rectangle<float>(d, d).withCentre(c).reduced(d * 0.18f);
+
+    if (on)
+    {
+        g.setGradientFill(juce::ColourGradient(accent.withAlpha(0.45f), c.x, c.y, accent.withAlpha(0.0f), c.x + d * 0.5f, c.y, true));
+        g.fillEllipse(juce::Rectangle<float>(d, d).withCentre(c));
+        g.setGradientFill(juce::ColourGradient(accent.interpolatedWith(juce::Colours::white, 0.55f), c.x - lamp.getWidth() * 0.15f,
+                                               c.y - lamp.getHeight() * 0.2f, accent, c.x, lamp.getBottom(), true));
+        g.fillEllipse(lamp);
+        g.setColour(accent.brighter(hot ? 0.4f : 0.15f));
+        g.drawEllipse(lamp, 1.0f);
+    }
+    else
+    {
+        g.setColour(background);
+        g.fillEllipse(lamp);
+        g.setColour(hot ? accent.withAlpha(0.8f) : textFaint);
+        g.drawEllipse(lamp.reduced(0.5f), 1.2f);
+    }
+
+    if (focused)
+    {
+        g.setColour(output);
+        g.drawEllipse(juce::Rectangle<float>(d, d).withCentre(c).reduced(0.75f), 1.5f);
+    }
+}
+
+void RoarschachLookAndFeel::drawToggleButton(juce::Graphics& g, juce::ToggleButton& button, bool isMouseOverButton, bool isButtonDown)
+{
+    auto r = button.getLocalBounds().toFloat();
+    const float ledSize = std::min(r.getHeight(), 16.0f);
+    const auto accent = button.findColour(juce::ToggleButton::tickColourId);
+    const bool hot = button.isEnabled() && (isMouseOverButton || isButtonDown);
+    drawLed(g, r.removeFromLeft(std::max(ledSize, std::min(r.getWidth(), r.getHeight()))).withSizeKeepingCentre(ledSize, ledSize),
+            button.isEnabled() ? accent : textFaint, button.getToggleState(), hot, shouldShowFocusRing(button));
+
+    if (button.getButtonText().isNotEmpty())
+    {
+        r.removeFromLeft(6.0f);
+        const auto font = m_fonts.label(std::min(11.0f, r.getHeight() * 0.6f));
+        g.setFont(font);
+        g.setColour(!button.isEnabled() ? textFaint : button.getToggleState() ? text : textDim);
+        g.drawText(fitToWidth(font, button.getButtonText().toUpperCase(), r.getWidth()), r, juce::Justification::centredLeft, false);
+    }
 }
 
 //==============================================================================

@@ -1,165 +1,165 @@
 #pragma once
 
 #include <JuceHeader.h>
+#include "Params.h"
+#include "PositionWrites.h"
 #include "Theme.h"
 #include "dsp/MonsterFeatures.h"
 
 #include <array>
 #include <memory>
+#include <vector>
 
 /**
- * The signal chain, left to right: one panel per stage (IN, PITCH, GROWL, LIQUID, ROAR, SUB, OUT) with
- * chevrons between them, and the two movable modules (DETAIL and VOCODER) drawn in the slot they sit in.
+ * The signal chain: IN, the 14 movable modules in the order the audio takes them (two rows of
+ * seven, joined by a return connector), and OUTPUT.
  *
- * Moving a module: drag its panel by the header and drop it on one of the markers that appear in the
- * gaps, or pick a position from the menu of the header's "..." chip (also reachable with Tab and Return).
- * Either way the slot parameter is set as one complete host gesture. The strip follows the slot
- * parameters (a click, automation, a preset), sliding the panels to their new places.
+ * Every module tile has a header (its On LED, its place in the chain, its name and a move chip),
+ * its knobs, a mode chip (a menu of its choice parameters) and a footer readout. A tile is moved
+ * by dragging its header across both rows, from the move chip's menu, or with Alt+Left/Right while
+ * one of its controls has the keyboard focus. Every move writes the whole permutation as one host
+ * gesture. Position changes from the host or a preset animate the tiles into place: the strip polls
+ * the positions and never writes them in response.
  *
- * Message thread only. A timer polls the level meters and the vocoder bands (MonsterFeatures, atomics
- * written by the audio thread) and repaints only what moved.
+ * Message thread only. A timer polls the positions and the readouts (MonsterFeatures: relaxed
+ * atomics written by the audio thread).
  */
 class SignalFlowStrip : public juce::Component, private juce::Timer
 {
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(SignalFlowStrip)
 
 public:
-    enum class Module { detail, vocoder };
-
+    /** positionWrites (optional) is held while a reorder writes the module positions. */
     SignalFlowStrip(juce::AudioProcessorValueTreeState& parameters, const roar::MonsterFeatures& features,
-                    const Theme::Fonts& fonts);
+                    const Theme::Fonts& fonts, roar::PositionWrites* positionWrites = nullptr);
     ~SignalFlowStrip() override;
 
     void paint(juce::Graphics&) override;
+    void paintOverChildren(juce::Graphics&) override;
     void resized() override;
+    bool keyPressed(const juce::KeyPress&) override;
 
-    /** Opens the "Move to" menu of a movable module (what its header chip does). */
-    void showMoveMenu(Module module);
-    /** That menu (items are slot + 1, the current slot ticked) and where it opens. */
-    juce::PopupMenu buildMoveMenu(Module module);
-    juce::PopupMenu::Options moveMenuOptions(Module module);
+    //==============================================================================
+    // The chain order
+    /** The resolved order (order[slot] = module), from the position parameters. */
+    Params::Order getOrder() const;
+    /** Writes a complete permutation as one gesture: begin on every position that changes, set
+        them all, then end them all. Positions that stay are not touched. */
+    void setOrder(const Params::Order& order);
 
-    /** Where a module's panel is (or is heading), in local coordinates; its header chip. */
-    juce::Rectangle<int> getModuleBounds(Module module) const;
-    juce::Component& getMoveChip(Module module);
+    /** The move menu's item IDs. Move After uses moveAfterBase + the module it goes after. */
+    enum MoveItem
+    {
+        moveToStart = 1, moveEarlier, moveLater, moveToEnd, toggleOnOff, resetOrder,
+        moveAfterBase = 100
+    };
 
-    /** Lays the panels out at once (no slide), e.g. after the slots were set while hidden. */
+    /** The order after a move menu item (pure; toggleOnOff leaves it as it is). */
+    static Params::Order orderAfterMove(const Params::Order& order, int module, int item);
+    juce::PopupMenu buildMoveMenu(int module) const;
+    void applyMove(int module, int item);
+
+    /** The mode chip's menu. itemMap[itemId] = (choice parameter, choice index). */
+    juce::PopupMenu buildModeMenu(int module, std::vector<std::pair<const char*, int>>& itemMap) const;
+    /** The mode chip's text: the current choices, compact. */
+    juce::String modeChipText(int module, float maxWidth) const;
+
+    void showMoveMenu(int module);
+    void showModeMenu(int module);
+
+    /** Menus open inside this component instead of on the desktop (a headless snapshot). */
+    void setMenuParentForSnapshots(juce::Component* parent) { m_menuParent = parent; }
+
+    //==============================================================================
+    // Dragging a tile (the tile's header calls these; strip coordinates)
+    void beginDrag(int module, juce::Point<float> position);
+    void dragTo(juce::Point<float> position);
+    void endDrag(bool commit);
+    bool isDragging() const noexcept { return m_drag.module >= 0; }
+
+    /** Puts every tile where it belongs now (no animation left). */
     void finishAnimations();
+    /** Polls the positions and the readouts now (the timer does this 30 times a second). */
+    void refresh() { timerCallback(); }
+
+    //==============================================================================
+    // For the tests and the snapshot harness
+    juce::Component* getModuleTile(int module) const;
+    juce::Component* getInTile() const;
+    juce::Component* getOutputTile() const;
+    juce::Button* getModeChip(int module) const;   // nullptr for a module without choices
+    juce::Button* getMoveChip(int module) const;
+    juce::Button* getOnButton(int module) const;
+    juce::Rectangle<int> getSlotBounds(int slot) const;
+    /** The knob sliders of a tile, with the parameter each one controls. */
+    std::vector<std::pair<juce::Slider*, const char*>> getKnobs(juce::Component* tile) const;
+
+    /** The tooltip of a parameter's control (plain words). Empty for an unknown ID. */
+    static juce::String tooltipFor(const char* paramId);
+
+    static constexpr int c_headerHeight = 26;
 
 private:
-    enum PanelId { inPanel, pitchPanel, growlPanel, liquidPanel, roarPanel, subPanel, outPanel,
-                   detailPanel, vocoderPanel, numPanels };
-
-    enum class Format { Percent, Semitones };
-
-    struct Knob
-    {
-        juce::Slider slider;
-        juce::Label label;
-        std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> attachment;
-    };
-
-    /** A panel of the chain. It paints its frame and its readouts through the strip; movable
-        panels hand their header's mouse events to the strip, which runs the drag. */
-    class Panel : public juce::Component, public juce::SettableTooltipClient
-    {
-    public:
-        Panel(SignalFlowStrip& owner, PanelId id, juce::String title, juce::Colour accent);
-
-        void paint(juce::Graphics&) override;
-        void mouseMove(const juce::MouseEvent&) override;
-        void mouseExit(const juce::MouseEvent&) override;
-        void mouseDown(const juce::MouseEvent&) override;
-        void mouseDrag(const juce::MouseEvent&) override;
-        void mouseUp(const juce::MouseEvent&) override;
-
-        bool isMovable() const noexcept { return m_id == detailPanel || m_id == vocoderPanel; }
-        bool isInHeader(juce::Point<int> p) const;
-
-        const PanelId m_id;
-        const juce::String m_title;
-        const juce::Colour m_accent;
-        bool m_headerHot = false;
-
-    private:
-        SignalFlowStrip& m_owner;
-    };
-
-    /** The "..." chip in a movable panel's header: opens its "Move to" menu. */
-    class MoveChip final : public juce::Button
-    {
-    public:
-        MoveChip(juce::Colour accent);
-        void paintButton(juce::Graphics&, bool isMouseOverButton, bool isButtonDown) override;
-
-    private:
-        juce::Colour m_accent;
-    };
+    struct Knob;
+    class Tile;
+    class ModuleTile;
+    class InTile;
+    class OutputTile;
+    class MoveChip;
+    class DragShadow;
 
     void timerCallback() override;
 
-    void setupKnob(Knob& knob, Panel& panel, const juce::String& name, const juce::String& paramId,
-                   const juce::String& tooltip, juce::Colour accent, Format format);
-
-    // Layout
-    std::array<juce::Rectangle<int>, numPanels> computeLayout(int detailSlot, int vocoderSlot) const;
-    void relayout(bool animate);
-    void layoutPanelContents(Panel& panel);
-    juce::Rectangle<int> knobRowArea(const Panel& panel) const;
-    juce::Rectangle<int> readoutArea(const Panel& panel) const;
-
-    // Painting
-    void paintPanel(juce::Graphics&, const Panel& panel);
-    void paintReadout(juce::Graphics&, const Panel& panel, juce::Rectangle<float> area);
-    void paintMeterRow(juce::Graphics&, juce::Rectangle<float> area, const juce::String& caption,
-                       const juce::String& value, float fill01, juce::Colour accent, bool centredFill = false);
-    void paintChevron(juce::Graphics&, float x, float y) const;
-    void paintDropMarkers(juce::Graphics&);
-    void paintOverChildren(juce::Graphics&) override;
-
-    // Moving the modules
-    int getSlot(Module module) const;
-    void setSlot(Module module, int slot);
-    void panelMouseDown(Panel& panel, const juce::MouseEvent& e);
-    void panelMouseDrag(Panel& panel, const juce::MouseEvent& e);
-    void panelMouseUp(Panel& panel, const juce::MouseEvent& e);
-    int nearestSlot(float x) const;
-    float slotMarkerX(int slot) const;
-    Panel& panelFor(Module module) { return *m_panels[static_cast<size_t>(module == Module::detail ? detailPanel : vocoderPanel)]; }
-    static Module moduleOf(PanelId id) { return id == detailPanel ? Module::detail : Module::vocoder; }
+    void layoutTiles(bool animate, double durationMs);
+    void animateTile(int module, juce::Rectangle<int> target, double durationMs);
+    void stepAnimations();
+    int stereoSplitSlot(const Params::Order& order) const;
+    int nearestSlot(juce::Point<float> centre) const;
+    juce::PopupMenu::Options menuOptions(juce::Component& target) const;
+    void setParameter(const char* id, float plainValue);
+    float rawValue(const char* id) const;
+    bool isModuleOn(int module) const;
 
     juce::AudioProcessorValueTreeState& m_parameters;
     const roar::MonsterFeatures& m_features;
+    roar::PositionWrites* const m_positionWrites;
     const Theme::Fonts& m_fonts;
 
-    std::array<std::unique_ptr<Panel>, numPanels> m_panels;
+    std::unique_ptr<InTile> m_inTile;
+    std::unique_ptr<OutputTile> m_outTile;
+    std::array<std::unique_ptr<ModuleTile>, Params::numModules> m_tiles;
+    std::unique_ptr<DragShadow> m_shadow;
 
-    Knob m_pitch, m_size, m_growl, m_liquid, m_roar, m_sub, m_mix, m_detailLow, m_detailHigh, m_gravel;
+    Params::Order m_order {};          // the order the parameters ask for (last poll)
+    Params::Order m_shown {};          // the order the tiles show (m_order, or the drag preview)
+    int m_split = Params::numModules;  // the slot whose module makes the chain stereo
 
-    MoveChip m_detailChip { Theme::Colours::detail }, m_vocoderChip { Theme::Colours::vocoder };
-    juce::TextButton m_octaveButton;
-    std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> m_octaveAttachment;
+    struct Drag
+    {
+        int module = -1;
+        juce::Point<float> grabOffset;  // mouse position - tile position at the press
+        int slot = -1;                  // the insertion slot shown
+    };
+    Drag m_drag;
 
-    std::unique_ptr<juce::ParameterAttachment> m_detailSlotAttachment, m_vocoderSlotAttachment;
-    int m_detailSlot = 0, m_vocoderSlot = 0;
+    struct Animation
+    {
+        juce::Rectangle<float> from, to;
+        double startMs = 0.0, durationMs = 0.0;
+        bool active = false;
+    };
+    std::array<Animation, Params::numModules> m_animations {};
 
-    // Panel positions: where each one is drawn now, and where it is sliding to.
-    std::array<juce::Rectangle<float>, numPanels> m_current, m_target;
-    bool m_animating = false;
-    bool m_laidOut = false;
+    class AnimationTimer : public juce::Timer
+    {
+    public:
+        explicit AnimationTimer(SignalFlowStrip& s) : m_strip(s) {}
+        void timerCallback() override { m_strip.stepAnimations(); }
+    private:
+        SignalFlowStrip& m_strip;
+    };
+    AnimationTimer m_animationTimer { *this };
 
-    // Drag of a movable panel by its header.
-    PanelId m_dragPanel = numPanels;   // numPanels: no drag
-    bool m_dragStarted = false;
-    int m_dropSlot = -1;
-    juce::Point<float> m_dragOffset;    // mouse position in the panel at the press
-
-    // Meters and readouts (smoothed for display).
-    float m_inDb = -100.0f, m_outDb = -100.0f;
-    float m_growlActivity = 0.0f, m_roarDrive = 0.0f, m_subLevel = 0.0f, m_liquidPhase = 0.0f;
-    float m_boostDb = 0.0f, m_cutDb = 0.0f, m_f0 = 0.0f;
-    bool m_voiced = false, m_gravelActive = false;
-    std::array<float, roar::MonsterFeatures::numBands> m_bands {};
-    int m_tick = 0;
-    int m_lastGeneration = -1, m_staleTicks = 0; // feature freshness (host stopped processing)
+    juce::Component* m_menuParent = nullptr;
+    double m_lastTickMs = 0.0;
 };

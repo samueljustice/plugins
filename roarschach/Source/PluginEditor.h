@@ -95,16 +95,6 @@ private:
     SignalFlowStrip m_strip;
     bool m_sizeRestored = false;  // don't save the size until the saved one has been applied
 
-    // Raw parameter values for the creature view (looked up once).
-    std::atomic<float>* m_pitchParam = nullptr;
-    std::atomic<float>* m_sizeParam = nullptr;
-    std::atomic<float>* m_growlParam = nullptr;
-    std::atomic<float>* m_liquidParam = nullptr;
-    std::atomic<float>* m_roarParam = nullptr;
-    std::atomic<float>* m_subParam = nullptr;
-    std::atomic<float>* m_gravelParam = nullptr;
-    std::atomic<float>* m_detailLowParam = nullptr;
-    std::atomic<float>* m_detailHighParam = nullptr;
 
     juce::TextButton m_aboutButton;
     ThemeLink m_websiteLink { "SWEETJUSTICESOUND.COM", juce::URL("https://sweetjusticesound.com") };

@@ -181,24 +181,23 @@ A real-time reverser that faithfully recreates Backwards Machine's three effects
   <img src="roarschach/docs/screenshot.jpg" alt="Roarschach" width="820">
 </p>
 
-Roarschach turns a spoken or shouted performance into a big, liquid, gravelly creature voice that still reads as words. The voice runs through a chain of stages, each with one or two knobs: PITCH and SIZE, GROWL, LIQUID, ROAR and SUB, with an automatic clean-up before them and a level-matched finish after. Two modules, DETAIL and VOCODER, can be dragged to any point in the chain, and a creature drawn in OpenGL reacts to every sound and every knob.
+Roarschach turns a spoken or shouted performance into a big, liquid, gravelly creature voice that still reads as words. Fourteen modules (PITCH, CLEAN, DE-ESS, DETAIL, VOCODER, RING, SHIMMER, GROWL, SWIRL, ROAR, ENSEMBLE, TAME, SUB and OVERTONE) run between an input stage and a level-matched output, in any order, and a creature drawn in OpenGL reacts to every sound and every knob.
 
-- 🗣️ **Pitch and size, separately**: move the voice down while the vowels stay put, then give it a bigger body, chest and throat
-- 🐉 **Growl, Liquid, Roar and Sub**: an octave-down rattle, a wet stereo shimmer, tube saturation with self-taming highs, and a tracked sub for weight
-- 🧩 **Movable DETAIL and VOCODER**: drag them by the header, or use their ••• menu, to any of six points in the chain. Moves are click-free
-- 🪨 **32-band vocoder** on a pulse tone one or two octaves below the voice, with consonants rebuilt from noise so the words survive
-- 🔍 **DETAIL** lifts breaths and word endings and holds down shouts, without raising room noise
-- 👁️ **A living ink-blot creature** that opens its jaw, glows, shakes and drips with the voice, and falls asleep in silence. Plus **22 factory presets** in four groups
+- 🗣️ **Pitch and size, separately**: shift the voice up to two octaves down, then give it a bigger throat. Native-rate processing brings a 96 or 192 kHz recording's ultrasonic detail down into the voice
+- 🐉 **Texture and weight**: a growling chop, a liquid wobble, a phaser, tube saturation, an ensemble, a tracked sub and overtones that carry the low end on small speakers
+- 🤖 **Machines**: a 32-band pulse-carrier vocoder and a ring modulator with a pitch-tracking carrier and a resonant body
+- 🧩 **Any order**: drag any module by its header, or use its ••• menu, to anywhere in the chain. Moves are click-free
+- 🔊 **A finished output**: Push into a true-peak-safe limiter and an oversampled clipper, with Attack, Release and Auto to choose between clean limiting and low-end crunch
+- 👁️ **A living creature** that forms out of drifting cloud, opens its jaw, glows, shakes and drips with the voice, softens back into fog in silence, and slowly evolves the harder you push it. Plus **39 factory presets** in six groups
 
 <details>
 <summary>More screenshots</summary>
 <br>
 <p align="center">
-  <img src="roarschach/docs/view-talking.jpg" alt="Roarschach creature view" width="820">
+  <img src="roarschach/docs/view-forming.jpg" alt="Roarschach creature forming out of the fog" width="400"> <img src="roarschach/docs/view-crown.jpg" alt="Roarschach creature after a long, loud session" width="400">
 </p>
 <p align="center">
-  <img src="roarschach/docs/move-menu.png" alt="Roarschach move menu" width="400">
-  <img src="roarschach/docs/tooltip.png" alt="Roarschach tooltip" width="400">
+  <img src="roarschach/docs/panel-out.png" alt="Roarschach output stage" width="300"> <img src="roarschach/docs/tooltip.png" alt="Roarschach tooltip" width="474">
 </p>
 </details>
 

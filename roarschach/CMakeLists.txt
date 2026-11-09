@@ -89,18 +89,34 @@ target_sources(Roarschach
     Source/PluginEditor.cpp
     Source/SignalFlowStrip.cpp
     Source/MonsterView.cpp
+    Source/CreatureEvolution.cpp
+    Source/LogoSdf.cpp
     Source/dsp/PitchDetector.cpp
-    Source/dsp/CleanStage.cpp
-    Source/dsp/FormantShifter.cpp
-    Source/dsp/GrowlStage.cpp
-    Source/dsp/LiquidStage.cpp
-    Source/dsp/RoarStage.cpp
-    Source/dsp/SubStage.cpp
-    Source/dsp/FinishStage.cpp
-    Source/dsp/DetailCompressor.cpp
-    Source/dsp/GravelVocoder.cpp
     Source/dsp/CreatureChain.cpp
+    Source/dsp/common/HilbertPair.cpp
+    Source/dsp/common/Oversampler2x.cpp
+    Source/dsp/common/VoiceStream.cpp
+    Source/dsp/modules/InModule.cpp
+    Source/dsp/modules/PitchModule.cpp
+    Source/dsp/modules/CleanModule.cpp
+    Source/dsp/modules/DeessModule.cpp
+    Source/dsp/modules/DetailModule.cpp
+    Source/dsp/modules/VocoderModule.cpp
+    Source/dsp/modules/RingModule.cpp
+    Source/dsp/modules/ShimmerModule.cpp
+    Source/dsp/modules/GrowlModule.cpp
+    Source/dsp/modules/SwirlModule.cpp
+    Source/dsp/modules/RoarModule.cpp
+    Source/dsp/modules/EnsembleModule.cpp
+    Source/dsp/modules/TameModule.cpp
+    Source/dsp/modules/SubModule.cpp
+    Source/dsp/modules/OvertoneModule.cpp
+    Source/dsp/modules/OutputModule.cpp
 )
+
+# The DSP modules compare floats exactly on purpose (settled glides, unchanged settings).
+file(GLOB ROARSCHACH_DSP_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/Source/dsp/modules/*.cpp)
+set_source_files_properties(${ROARSCHACH_DSP_SOURCES} PROPERTIES COMPILE_OPTIONS "-Wno-float-equal")
 
 target_compile_definitions(Roarschach
     PUBLIC

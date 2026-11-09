@@ -61,8 +61,16 @@ public:
     juce::Slider::SliderLayout getSliderLayout(juce::Slider&) override;
     juce::Label* createSliderTextBox(juce::Slider&) override;
 
+    /** A knob whose value box uses a smaller font than the default 12 px (the chain tiles). */
+    static void setValueFontHeight(juce::Slider&, float height);
+
     // Labels
     juce::Font getLabelFont(juce::Label&) override;
+
+    // Toggle buttons: an On LED (the chain tiles' switches). No tick boxes anywhere: every ToggleButton is
+    // drawn as an LED in its tickColourId, lit when on, with its text (if any) beside it.
+    void drawToggleButton(juce::Graphics&, juce::ToggleButton&, bool isMouseOverButton, bool isButtonDown) override;
+    static void drawLed(juce::Graphics&, juce::Rectangle<float> area, juce::Colour accent, bool on, bool hot, bool focused);
 
     // Combo boxes and their popups
     void drawComboBox(juce::Graphics&, int width, int height, bool isButtonDown, int buttonX, int buttonY,

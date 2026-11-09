@@ -1,19 +1,32 @@
 #pragma once
 
 #include <JuceHeader.h>
+#include "CreatureEvolution.h"
+#include "LogoSdf.h"
 #include "Theme.h"
 #include "dsp/MonsterFeatures.h"
 
 #include <array>
 #include <atomic>
 #include <chrono>
+#include <functional>
 #include <memory>
 
 /**
  * The creature view: one fragment shader on a full-screen quad draws a mirror-symmetric ink-blot
- * creature head that is animated by what the audio is doing (roar opens the maw, growl shakes the
- * teeth, liquid ripples the skin and drips ink, sub sends out rings, the vocoder lights a frill of
- * 32 ridges under the jaw). After 1.5 s of silence it falls asleep.
+ * creature head that is animated by what the audio is doing: the voice opens the jaw, growl shakes
+ * the teeth, shimmer ripples the skin and drips ink, swirl sweeps a sheen up and down the face,
+ * ensemble spreads filaments to the sides, roar heats the eyes, sub sends out rings, the vocoder
+ * lights a frill of 32 ridges under the jaw, overtone lights one rib per harmonic under the chin
+ * (hollow in Replace), ring puts flickering metal plates over the mouth, de-ess glints on the
+ * teeth, tame dims the crown, a shut gate closes the lips, the limiter swells veins at the
+ * temples and the clipper throws sparks off the edges. After 1.5 s of silence it falls asleep.
+ *
+ * The creature is a condensation of a drifting cloud field (painterly, with a slight liquid-ink
+ * feel): a roar pulls it together, quiet lets it thin out, and sleep disperses it back into cloud
+ * (eyes and maw form first and go last). A low front fog drifts over it. Its form evolves slowly
+ * with the session (CreatureEvolution, stepped by the processor); the view only reads the evaluated
+ * parameters and smooths them. A right-click on the view offers Live / Frozen evolution and a reset.
  *
  * Threads: the audio thread writes MonsterFeatures (atomics); the message thread writes the knob
  * values with setParams() (atomics); the GL thread reads both in renderOpenGL() and keeps its own
@@ -34,10 +47,30 @@ public:
         float gravel = 0.0f;
         float detailLow = 0.30f;
         float detailHigh = 0.20f;
+        float swirl = 0.0f;        // SWIRL amount (the sheen band's strength)
+        float ensemble = 0.0f;     // ENSEMBLE amount (the tendrils' strength)
+        float overtone = 0.0f;     // OVERTONE amount (the ribs' strength)
+        float ring = 0.0f;         // RING amount (the plates over the mouth)
+        float cleanOn = 1.0f;      // CLEAN is On: its gate may close the lips
     };
 
-    explicit MonsterView (const roar::MonsterFeatures& features);
+    /** creature: the evolved form published by the processor (nullptr: a fixed, fully formed one). */
+    explicit MonsterView (const roar::MonsterFeatures& features, const roar::CreatureShared* creature = nullptr);
     ~MonsterView() override;
+
+    /** The right-click menu's actions (set by the editor; the menu shows only when they are set). */
+    std::function<bool()> isCreatureFrozen;
+    std::function<void (bool)> setCreatureFrozen;
+    std::function<void()> resetCreature;
+
+    void mouseDown (const juce::MouseEvent&) override;
+
+    /** Tests and snapshots: hold the formation and the front fog (each < 0 = live). */
+    void setFormationForTests (float formation, float fog)
+    {
+        m_testFormation.store (formation, std::memory_order_relaxed);
+        m_testFog.store (fog, std::memory_order_relaxed);
+    }
 
     /** Message thread. Stores into atomics read by the GL thread. */
     void setParams (const Params& params);
@@ -48,6 +81,11 @@ public:
     void paint (juce::Graphics&) override;
     void resized() override;
 
+    /** Tests and snapshots: the next GL frame is read back on the GL thread; takeCapture() returns it
+        (an invalid image until a frame has been read). */
+    void requestCapture() { m_captureRequested.store (true, std::memory_order_relaxed); }
+    juce::Image takeCapture();
+
     void newOpenGLContextCreated() override;
     void renderOpenGL() override;
     void openGLContextClosing() override;
@@ -57,17 +95,24 @@ private:
     bool buildShader();
     void releaseGL();
     void updateAnimation (float dt);
+    void showCreatureMenu();
 
     static constexpr int c_numBands = roar::MonsterFeatures::numBands;
 
     const roar::MonsterFeatures& m_features;
+    std::unique_ptr<roar::CreatureShared> m_ownCreature;   // when no processor publishes one
+    const roar::CreatureShared& m_creature;
+    const LogoSdf& m_logo { LogoSdf::shared() };            // built once per process (on the first editor)
+    std::atomic<float> m_testFormation { -1.0f }, m_testFog { -1.0f };
     juce::OpenGLContext m_context;
     juce::SharedResourcePointer<Theme::Fonts> m_fonts;
 
     // Written on the message thread, read on the GL thread.
     std::atomic<float> m_pitchSt { -2.0f }, m_size { 0.35f }, m_growl { 0.30f }, m_liquid { 0.30f },
                        m_roar { 0.35f }, m_sub { 0.25f }, m_gravel { 0.0f },
-                       m_detailLow { 0.30f }, m_detailHigh { 0.20f };
+                       m_detailLow { 0.30f }, m_detailHigh { 0.20f },
+                       m_swirlKnob { 0.0f }, m_ensembleKnob { 0.0f }, m_overtoneKnob { 0.0f }, m_ringKnob { 0.0f },
+                       m_cleanOn { 1.0f };
     std::atomic<int> m_width { 0 }, m_height { 0 };
     std::atomic<float> m_cornerRadius { 8.0f };
     std::atomic<juce::uint32> m_outsideArgb { Theme::Colours::background.getARGB() };
@@ -79,9 +124,14 @@ private:
     std::atomic<bool> m_stale { false };     // the audio thread stopped publishing (host not processing)
     std::atomic<bool> m_idle { false };      // asleep and fully settled: frames can come slowly
 
+    // Frame read-back for snapshots (never used while a host runs the plug-in).
+    std::atomic<bool> m_captureRequested { false };
+    juce::CriticalSection m_captureLock;
+    juce::Image m_capture;
+
     // GL thread only.
     std::unique_ptr<juce::OpenGLShaderProgram> m_program;
-    GLuint m_vbo = 0, m_vao = 0;
+    GLuint m_vbo = 0, m_vao = 0, m_logoTexture = 0;
     GLint m_positionAttrib = -1;
 
     enum Uniform
@@ -89,8 +139,12 @@ private:
         uRes, uPxScale, uRadius, uTime, uJaw, uGrowl, uGrowlMod, uLiquid, uLiquidPhase, uRoar,
         uRoarDrive, uSub, uSubLevel, uSubPhase, uPitch, uSize, uGravelOn, uDetailLow, uDetailHigh,
         uBoost, uCut, uSleep, uBlink, uLevel, uBands,
+        uSwirlNotch, uSwirlAmt, uEnsWidth, uDeess, uTame, uGateClosed, uOvLevel, uOvHarm, uOvReplace,
+        uRing, uRingFlicker, uRingBody, uStrain, uStrainPulse, uClip,
         uColScope, uColGrid, uColOuter, uColPitch, uColGrowl, uColLiquid, uColRoar, uColSub,
-        uColDetail, uColVocoder, uColOutput, uColText,
+        uColDetail, uColVocoder, uColOutput, uColText, uColSwirl, uColOvertone, uColRing, uColDeess, uColEnsemble,
+        uEvoHead, uEvoWing, uEvoHorn, uEvoEyes, uEvoMaw, uEvoInk, uEvoFlow, uEvoPal, uEvoMisc, uForm, uCloud, uSeed, uSeedB,
+        uDrift, uFlow, uFlow2, uColCloud, uColCloudLit, uColUnderglow, uColRedInk, uColWashA, uColWashB, uEgg, uLogoBox, uLogoSdf,
         numUniforms
     };
     std::array<GLint, numUniforms> m_uniforms {};
@@ -103,11 +157,21 @@ private:
     // Smoothed animation state (GL thread only).
     float m_jaw = 0.0f, m_growlMod = 0.0f, m_roarDrive = 0.0f, m_subLevel = 0.0f, m_level = 0.0f;
     float m_boost = 0.0f, m_cut = 0.0f, m_gravelOn = 0.0f, m_sleep = 0.0f, m_subPhase = 0.0f;
+    float m_swirlNotch = 0.0f, m_ensWidth = 0.0f, m_deess = 0.0f, m_tame = 0.0f, m_gate = 1.0f;
+    float m_ovLevel = 0.0f, m_ovReplace = 0.0f, m_ring = 0.0f, m_ringPhase = 0.0f, m_ringBody = 0.0f;
+    float m_strain = 0.0f, m_strainPhase = 0.0f, m_clip = 0.0f;
+    std::array<float, roar::MonsterFeatures::numOvertoneHarmonics> m_ovHarm {};
     float m_quietSeconds = 0.0f, m_staleSeconds = 0.0f;
     int m_lastGeneration = -1;
     float m_blinkClock = 0.0f, m_nextBlink = 3.0f;
     Params m_knobs;  // the knob values, smoothed so turning one animates instead of jumping
     std::array<float, c_numBands> m_bands {};
+    roar::CreatureEvolution::Params m_evo {};   // the evolved form, smoothed per frame
+    roar::CreatureFormation m_formation;
+    bool m_evoSnap = true;                      // the first frame takes the form as it is
+    double m_driftBack[2] {}, m_driftFront[2] {}, m_bloomPhase = 0.0;
+    static constexpr int c_numFlows = 4;
+    double m_flowPhase[c_numFlows] {};          // the slow noise scrolls, as angles round their circles
     juce::Random m_random { 0x5ea1 };
 
     // Message thread only (overlay readouts).

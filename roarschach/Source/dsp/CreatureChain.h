@@ -1,117 +1,254 @@
 #pragma once
 
-#include "CleanStage.h"
-#include "DetailCompressor.h"
-#include "FinishStage.h"
-#include "FormantShifter.h"
-#include "GravelVocoder.h"
-#include "GrowlStage.h"
-#include "LiquidStage.h"
+#include "../Params.h"
+#include "DryPhaseMatch.h"
 #include "MonsterFeatures.h"
-#include "PitchDetector.h"
-#include "RoarStage.h"
-#include "SubStage.h"
-#include "VoiceInfo.h"
+#include "common/DelayLine.h"
+#include "common/Module.h"
+#include "common/VoiceStream.h"
+#include "modules/CleanModule.h"
+#include "modules/DeessModule.h"
+#include "modules/DetailModule.h"
+#include "modules/EnsembleModule.h"
+#include "modules/GrowlModule.h"
+#include "modules/InModule.h"
+#include "modules/OutputModule.h"
+#include "modules/OvertoneModule.h"
+#include "modules/PitchModule.h"
+#include "modules/RingModule.h"
+#include "modules/RoarModule.h"
+#include "modules/ShimmerModule.h"
+#include "modules/SubModule.h"
+#include "modules/SwirlModule.h"
+#include "modules/TameModule.h"
+#include "modules/VocoderModule.h"
 
+#include <array>
+#include <cstdint>
 #include <vector>
 
 namespace roar
 {
+    /** Every setting of the chain for one chunk, filled by the processor from the parameters. */
+    struct ChainSettings
+    {
+        InSettings in;
+        PitchSettings pitch;
+        CleanSettings clean;
+        DeessSettings deess;
+        DetailSettings detail;
+        VocoderSettings vocoder;
+        RingSettings ring;
+        ShimmerSettings shimmer;
+        GrowlSettings growl;
+        SwirlSettings swirl;
+        RoarSettings roar;
+        EnsembleSettings ensemble;
+        TameSettings tame;
+        SubSettings sub;
+        OvertoneSettings overtone;
+        OutputSettings output;
+        Params::Order positions = Params::defaultPositions();
+
+        bool isOn (int module) const;
+    };
+
+    /** The resolved order and the stereo split slot (numModules: the whole chain is mono). */
+    struct Topology
+    {
+        Params::Order order {};
+        int split = Params::numModules;
+
+        bool operator== (const Topology& o) const { return order == o.order && split == o.split; }
+        bool operator!= (const Topology& o) const { return ! (*this == o); }
+    };
+
     /**
-     * The whole wet path: owns every stage, the two movable modules and their slots, the voice
-     * plumbing between the stages and the visualiser feed.
+     * The whole wet path:
      *
-     *   IN (mono sum) --> CLEAN --> [0] --> PITCH + SIZE --> [1] --> GROWL --> [2] --> LIQUID (makes stereo)
-     *      --> [3] --> ROAR --> [4] --> SUB --> [5] --> FINISH --> OUT (wet, stereo)
+     *   host in --> IN (mono sum, trim, auto level, YIN --> VoiceStream)
+     *           --> chain A (or A and B during a reorder fade): the 14 movable modules in the resolved
+     *               order, mono up to the first stereo-creating module, stereo from there
+     *           --> OUTPUT (filters, auto gain, Ride, Push, Mix with the phase-matched dry, maximizer,
+     *               clipper, safety) --> out
      *
-     * DETAIL and VOCODER each sit in one slot [n]; when both choose the same one, DETAIL runs first.
-     * Slots 0..2 are mono (left only), 3..5 stereo.
+     *   host in --> delay (sum of the module latencies) --> DryPhaseMatch --> OUTPUT's dry
      *
-     * Voices: the vocoder's carrier follows a pitch detector on the CLEAN output (times the shifter's
-     * ratio once the vocoder sits after PITCH); GROWL and SUB follow the shifter's output voice.
+     * Order (spec §3.1): the modules sorted by (position, defaultIndex), read once per chunk. The
+     * stereo split is the slot of the first module that creates stereo (ENSEMBLE when On, SHIMMER
+     * On in Stereo); before it the modules run mono (left only), from it on stereo (R starts as L).
      *
-     * Slot moves are click-free: the module fades out where it is (its output blends back to its
-     * input over 20 ms, so it acts as a bypass), moves at the end of that chunk, then fades in at
-     * its new slot. Both movable modules have zero latency, so a move never changes the latency,
-     * which is the sum of the PITCH, GROWL and ROAR latencies whatever the settings.
+     * Reorder (spec §3.5): a different order or split clones the running chain into the idle one
+     * (copyStateFrom, no allocation), gives it the new topology (modules that enter the stereo part
+     * copy their left state to the right), runs both and crossfades over 30 ms (power preserving: the gains follow the running correlation of the two renders, so renders that drift apart in phase do not cancel). A
+     * module whose upstream changes (another module or another latency before it) would see a splice
+     * at its input: its history is the old order's signal, its next sample the new order's. So for
+     * the first 10 ms the incoming chain feeds each such module a smoothstep blend from the input the
+     * outgoing chain gives that module to its own; no splice ever enters a module's state (a
+     * PSOLA grain may read its history a long way back). The crossfade starts once that blended
+     * stretch has left the incoming chain (the latency from the first blended module to the end,
+     * plus the blend: at most about 45 ms), so the two renders it mixes have the same timing. A
+     * change that arrives during a fade waits; when the fade ends the latest request is compared
+     * with what runs, so at most one reorder runs at a time (30 to 75 ms) and the last request
+     * always wins. A new request starts a fade only after it has stood for 5 ms (and at least one
+     * further chunk), so positions written one parameter at a time never start a fade into an
+     * order in between. After prepare() or reset() the first chunk snaps to the requested topology and
+     * settings.
      *
+     * Voice (spec §3.6): IN's stream passes through one VoicePass per module (its latency, and
+     * PITCH's rewrite), in the order the audio takes.
+     *
+     * Latency: constant, the sum of every module's latency plus OUTPUT's, for any order and setting.
      * Process at most maxBlock samples per call. No allocation after prepare(), no locks.
      */
     class CreatureChain
     {
     public:
-        static constexpr int numSlots = 6;
+        static constexpr double c_reorderSeconds = 0.030;
+        static constexpr double c_inputBlendSeconds = 0.010;
+        /** The reorder fade's correlation estimate: time constant, floor and the gain cap it allows. */
+        /** A requested topology must stay the same this long (and over two chunks) before a fade starts. */
+        static constexpr double c_reorderSettleSeconds = 0.005;
+        static constexpr double c_fadeCorrelationSeconds = 0.004;
+        static constexpr double c_minFadeCorrelation = -0.6;
+        static constexpr double c_maxFadeGain = 2.0;
 
-        struct Settings
-        {
-            float pitchSt = -2.0f;   // semitones
-            float size = 0.35f;      // the rest 0..1
-            float growl = 0.30f;
-            float liquid = 0.30f;
-            float roar = 0.35f;
-            float sub = 0.25f;
-            float detailLow = 0.30f;
-            float detailHigh = 0.20f;
-            float gravel = 0.0f;
-            int detailSlot = 0;      // 0..5
-            int vocoderSlot = 0;     // 0..5
-            int vocoderOctave = 0;   // 0 = -1 oct, 1 = -2 oct
-        };
+        CreatureChain();
 
-        void prepare (double sampleRate, int maxBlockSize);
+        void prepare (double sampleRate, int maxBlock);
+        /** Audio thread safe (no allocation): clears every state; the next chunk snaps. */
         void reset();
+
         int getLatencySamples() const { return m_latency; }
+        /** The part of the latency before OUTPUT (the delay of OUTPUT's dry). */
+        int getModuleLatencySamples() const { return m_moduleLatency; }
 
-        /** l, r in: the input (r may be a copy of l, the chain sums them to mono).
-            Out: the wet stereo signal. n <= maxBlockSize. Publishes the features once per call. */
-        void process (float* l, float* r, int n, const Settings& settings, MonsterFeatures& features);
+        /**
+         * inL / inR: the host input (inR == inL or inStereo false for a mono input). outL / outR:
+         * the processed stereo output (may alias the input). n <= maxBlock.
+         */
+        void process (const float* inL, const float* inR, bool inStereo, float* outL, float* outR, int n,
+                      const ChainSettings& settings, MonsterFeatures& features);
 
-        /** Slot each movable module is running in right now (differs from the setting during a move). */
-        int getDetailSlotInUse() const { return m_detail.slot; }
-        int getVocoderSlotInUse() const { return m_vocoder.slot; }
-        bool isMoving() const { return m_detail.slot != m_detail.target || m_detail.gain < 1.0f
-                                    || m_vocoder.slot != m_vocoder.target || m_vocoder.gain < 1.0f; }
+        /** The topology running now (the incoming one during a fade). */
+        const Topology& getTopology() const { return m_sets[static_cast<size_t> (frontSet())].topology(); }
+        bool isReordering() const { return m_fadePos >= 0; }
+        int getReorderCount() const { return m_reorderCount; }
+        std::uint64_t getClampCount() const { return m_output.getClampCount(); }
+        const OutputModule& getOutput() const { return m_output; }
+
+        /** Test hooks: OUTPUT's filters, auto gain and Ride (all on in the plug-in). */
+        void setOutputTestOptions (bool filters, bool autoGain, bool ride) { m_output.setTestOptions (filters, autoGain, ride); }
+
+        /** The requested topology for these settings (pure function, also used by tests). */
+        static Topology topologyFor (const ChainSettings& settings);
 
     private:
-        // Slot state of one movable module.
-        struct Movable
+        /** One complete chain of the 14 movable modules (the twin chains A and B). */
+        class ModuleSet
         {
-            int slot = 0;        // where it runs
-            int target = 0;      // where it should be
-            float gain = 1.0f;   // 0 = bypassed (faded out), 1 = fully in
+        public:
+            ModuleSet();
+            ModuleSet (const ModuleSet&) = delete;
+            ModuleSet& operator= (const ModuleSet&) = delete;
+
+            void prepare (double fs, int maxBlock);
+            void reset();
+            int getLatencySamples() const;
+
+            void setParams (const ChainSettings& s);
+            void setTopology (const Topology& t);
+            /** The modules that are stereo in `next` but were mono in the current topology copy L to R. */
+            void enterTopology (const Topology& next);
+            const Topology& topology() const { return m_topology; }
+
+            /**
+             * l holds the mono input; l and r receive the stereo output. recordTaps keeps every
+             * module's input of this chunk (the outgoing chain during a fade); blendSource, while
+             * an input blend runs, is the outgoing chain whose taps the inputs glide from.
+             */
+            void process (float* l, float* r, int n, const VoiceFrameView& voice, bool recordTaps, const ModuleSet* blendSource);
+
+            /**
+             * After a clone: the modules whose upstream changes glide their input over `length`
+             * samples. Returns how long the output crossfade must wait (0 when nothing is blended).
+             */
+            int beginInputBlend (const Topology& from, const Topology& to, int length);
+
+            void copyStateFrom (const ModuleSet& other);
+            void publishFeatures (const ChainSettings& s, MonsterFeatures& features) const;
+
+            Module& module (int m) { return *m_modules[static_cast<size_t> (m)]; }
+            const Module& module (int m) const { return *m_modules[static_cast<size_t> (m)]; }
+
+        private:
+            /** Settings that depend on the order (VOCODER's formant offset follows PITCH Size only after PITCH). */
+            void applyOrderDependent();
+            int slotOf (int module) const;
+
+            PitchModule m_pitch;
+            CleanModule m_clean;
+            DeessModule m_deess;
+            DetailModule m_detail;
+            VocoderModule m_vocoder;
+            RingModule m_ring;
+            ShimmerModule m_shimmer;
+            GrowlModule m_growl;
+            SwirlModule m_swirl;
+            RoarModule m_roar;
+            EnsembleModule m_ensemble;
+            TameModule m_tame;
+            SubModule m_sub;
+            OvertoneModule m_overtone;
+
+            std::array<Module*, Params::numModules> m_modules {};
+            std::array<VoicePass, Params::numModules> m_passes;
+            Topology m_topology;
+            VocoderSettings m_vocoderSettings;
+
+            // Input blend after a clone, and the module inputs of the last chunk (taps).
+            std::array<std::vector<float>, Params::numModules> m_tapL, m_tapR;
+            std::array<bool, Params::numModules> m_tapStereo {};
+            int m_blendFromSlot = Params::numModules;
+            int m_blendPos = 0, m_blendLength = 1;
+            float m_pitchSizeShift = 0.0f;   // -4 Size bands when PITCH is On
         };
 
-        void runSlot (int slot, float* l, float* r, int n);
-        void runMovable (Movable& m, bool isVocoder, float* l, float* r, int n, bool stereo);
-        void finishMoves();
-        void publish (const float* input, const float* l, const float* r, int n, MonsterFeatures& features);
+        int frontSet() const { return m_fadePos >= 0 ? 1 - m_active : m_active; }
+        void startReorder (const Topology& next);
+        void publish (const ChainSettings& settings, const float* outL, const float* outR, int n, MonsterFeatures& features);
+        static DryPhaseMatch::Settings dryMatchSettings (const ChainSettings& s);
 
-        double m_sampleRate = 48000.0;
+        double m_fs = 48000.0;
         int m_maxBlock = 512;
         int m_latency = 0;
-        float m_fadeStep = 0.001f;
+        int m_moduleLatency = 0;
+        int m_fadeLength = 1440;
+
+        InModule m_in;
+        std::array<ModuleSet, 2> m_sets;
+        OutputModule m_output;
+
+        int m_active = 0;
+        int m_fadePos = -1;        // >= 0 while crossfading from m_active to the other set
+        int m_inputBlendLength = 480;
+        int m_waitLeft = 0;        // samples the incoming chain runs unheard before the crossfade starts
+        Topology m_pendingTopology;  // the latest requested topology and how long it has stood
+        int m_pendingSamples = 0;
+        int m_settleSamples = 240;
+        double m_corrPole = 0.995;  // running power and cross power of A and B during the fade
+        double m_corrAA = 0.0, m_corrBB = 0.0, m_corrAB = 0.0;
+        int m_reorderCount = 0;
         bool m_snap = true;
 
-        CleanStage m_clean;
-        PitchDetector m_cleanDetector;
-        FormantShifter m_shifter;
-        GrowlStage m_growl;
-        LiquidStage m_liquid;
-        RoarStage m_roar;
-        SubStage m_sub;
-        FinishStage m_finish;
-        DetailCompressor m_detailStage;
-        GravelVocoder m_vocoderStage;
+        // Dry for OUTPUT's Mix: the host input delayed by the module latency, phase-matched.
+        std::array<DelayLine, 2> m_dryDelay;
+        DryPhaseMatch m_dryMatch;
 
-        Movable m_detail, m_vocoder;
-        Settings m_settings;
-        VoiceInfo m_cleanVoice;
+        std::vector<float> m_dryL, m_dryR, m_monoIn, m_aL, m_aR, m_bL, m_bR, m_scratchR;
 
-        std::vector<float> m_input;      // mono input of this chunk
-        std::vector<float> m_dryL, m_dryR; // a module's input while it fades
-
-        // Visualiser state.
-        float m_jawEnv = 0.0f, m_jawAttack = 0.0f, m_jawRelease = 0.0f;
-        float m_inputLevel = 0.0f, m_outputLevel = 0.0f;
+        float m_outputLevel = 0.0f;
+        float m_levelRelease = 0.999f;
+        int m_generation = 0;
     };
 }

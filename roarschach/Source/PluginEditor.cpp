@@ -8,7 +8,7 @@ namespace
     // Design-size layout (everything is scaled uniformly from here).
     constexpr int c_margin = 16;
     constexpr int c_headerHeight = 56;
-    constexpr int c_stripHeight = 288;
+    constexpr int c_stripHeight = 336;
     constexpr int c_sectionGap = 12;
     constexpr float c_viewRadius = 8.0f;
     constexpr float c_minScale = 0.5f, c_maxScale = 1.25f, c_defaultScale = 0.8f;
@@ -29,8 +29,8 @@ RoarschachAudioProcessorEditor::RoarschachAudioProcessorEditor(RoarschachAudioPr
     : AudioProcessorEditor(&audioProcessor)
     , m_audioProcessor(audioProcessor)
     , m_lookAndFeel(*m_fonts)
-    , m_monsterView(audioProcessor.getMonsterFeatures())
-    , m_strip(audioProcessor.getValueTreeState(), audioProcessor.getMonsterFeatures(), *m_fonts)
+    , m_monsterView(audioProcessor.getMonsterFeatures(), &audioProcessor.getCreatureShared())
+    , m_strip(audioProcessor.getValueTreeState(), audioProcessor.getMonsterFeatures(), *m_fonts, &audioProcessor.getPositionWrites())
 {
     setLookAndFeel(&m_lookAndFeel);
     m_tooltipWindow.setLookAndFeel(&m_lookAndFeel);
@@ -40,18 +40,10 @@ RoarschachAudioProcessorEditor::RoarschachAudioProcessorEditor(RoarschachAudioPr
     m_content.onResized = [this] { layoutContent(); };
     addAndMakeVisible(m_content);
 
-    auto& parameters = m_audioProcessor.getValueTreeState();
-    m_pitchParam      = parameters.getRawParameterValue(Params::pitch);
-    m_sizeParam       = parameters.getRawParameterValue(Params::size);
-    m_growlParam      = parameters.getRawParameterValue(Params::growl);
-    m_liquidParam     = parameters.getRawParameterValue(Params::liquid);
-    m_roarParam       = parameters.getRawParameterValue(Params::roar);
-    m_subParam        = parameters.getRawParameterValue(Params::sub);
-    m_gravelParam     = parameters.getRawParameterValue(Params::gravel);
-    m_detailLowParam  = parameters.getRawParameterValue(Params::detailLow);
-    m_detailHighParam = parameters.getRawParameterValue(Params::detailHigh);
-
     m_monsterView.setCorner(c_viewRadius, Theme::Colours::background);
+    m_monsterView.isCreatureFrozen = [&audioProcessor] { return audioProcessor.isCreatureFrozen(); };
+    m_monsterView.setCreatureFrozen = [&audioProcessor](bool frozen) { audioProcessor.setCreatureFrozen(frozen); };
+    m_monsterView.resetCreature = [&audioProcessor] { audioProcessor.resetCreature(); };
     updateMonsterParams();
     m_content.addAndMakeVisible(m_monsterView);
     m_content.addAndMakeVisible(m_strip);
@@ -202,23 +194,32 @@ void RoarschachAudioProcessorEditor::timerCallback()
 
 void RoarschachAudioProcessorEditor::updateMonsterParams()
 {
-    const auto percent = [](const std::atomic<float>* p, float fallback)
+    auto& parameters = m_audioProcessor.getValueTreeState();
+    const auto value = [&parameters](const char* id)
     {
-        const float v = p != nullptr ? p->load(std::memory_order_relaxed) : fallback;
-        return std::isfinite(v) ? juce::jlimit(0.0f, 1.0f, v / 100.0f) : fallback / 100.0f;
+        const auto* p = parameters.getRawParameterValue(id);
+        const float v = p != nullptr ? p->load(std::memory_order_relaxed) : Params::defaultOf(id);
+        return std::isfinite(v) ? v : Params::defaultOf(id);
     };
+    const auto on = [&value](const char* id) { return value(id) >= 0.5f ? 1.0f : 0.0f; };
+    const auto percent = [&value](const char* id) { return juce::jlimit(0.0f, 1.0f, value(id) / 100.0f); };
 
+    // The creature reads the knobs of the modules that are On (an Off module reads 0).
     MonsterView::Params params;
-    const float pitch = m_pitchParam != nullptr ? m_pitchParam->load(std::memory_order_relaxed) : Params::pitchDefault;
-    params.pitchSt = std::isfinite(pitch) ? juce::jlimit(Params::pitchMin, Params::pitchMax, pitch) : Params::pitchDefault;
-    params.size = percent(m_sizeParam, Params::sizeDefault);
-    params.growl = percent(m_growlParam, Params::growlDefault);
-    params.liquid = percent(m_liquidParam, Params::liquidDefault);
-    params.roar = percent(m_roarParam, Params::roarDefault);
-    params.sub = percent(m_subParam, Params::subDefault);
-    params.gravel = percent(m_gravelParam, Params::gravelDefault);
-    params.detailLow = percent(m_detailLowParam, Params::detailLowDefault);
-    params.detailHigh = percent(m_detailHighParam, Params::detailHighDefault);
+    params.pitchSt = on(Params::pitchOn) * juce::jlimit(-24.0f, 12.0f, value(Params::pitch));
+    params.size = on(Params::pitchOn) * percent(Params::pitchSize);
+    params.growl = on(Params::growlOn) * percent(Params::growl);
+    params.liquid = on(Params::shimmerOn) * percent(Params::shimmer);   // skin ripple and drips
+    params.swirl = on(Params::swirlOn) * percent(Params::swirl);
+    params.ensemble = on(Params::ensembleOn) * percent(Params::ensemble);
+    params.overtone = on(Params::overtoneOn) * percent(Params::overtone);
+    params.ring = on(Params::ringOn) * percent(Params::ring);
+    params.cleanOn = on(Params::cleanOn);
+    params.roar = on(Params::roarOn) * percent(Params::roar);
+    params.sub = on(Params::subOn) * percent(Params::sub);
+    params.gravel = on(Params::vocoderOn) * percent(Params::gravel);
+    params.detailLow = on(Params::detailOn) * percent(Params::detailLow);
+    params.detailHigh = on(Params::detailOn) * percent(Params::detailHigh);
     m_monsterView.setParams(params);
 }
 
@@ -305,7 +306,13 @@ void RoarschachAudioProcessorEditor::showPresetMenu()
         if (presets[i].isFactory && presets[i].category.isEmpty())
             menu.addItem(i + 1, presets[i].name, true, isCurrentFactory(i));
 
-    for (const char* category : { "Creatures", "Voices", "Vocoder", "Utility" })
+    // The categories in the order the factory list first names them (every category gets its submenu).
+    juce::StringArray categories;
+    for (const auto& preset : presets)
+        if (preset.isFactory && preset.category.isNotEmpty())
+            categories.addIfNotAlreadyThere(preset.category);
+
+    for (const auto& category : categories)
     {
         juce::PopupMenu sub;
         bool containsCurrent = false;

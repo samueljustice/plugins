@@ -2,6 +2,8 @@
 
 #include <JuceHeader.h>
 
+#include "PositionWrites.h"
+
 #include <atomic>
 #include <functional>
 #include <map>
@@ -102,7 +104,10 @@ public:
 
     /** notifyHost is called (from the thread that made the change) after preset changes made
         through the plugin's own UI, so the host can update its program display and dirty flag. */
-    explicit PresetManager(juce::AudioProcessorValueTreeState& parameters, HostNotifier notifyHost = {});
+    /** positionWrites (optional) is held for the whole of every preset or state apply, so the
+        audio thread never runs a half-applied module order. */
+    explicit PresetManager(juce::AudioProcessorValueTreeState& parameters, HostNotifier notifyHost = {},
+                           roar::PositionWrites* positionWrites = nullptr);
     ~PresetManager() override;
 
     /** Rescans the user folder. Factory presets always come first, in a fixed order. */
@@ -205,6 +210,7 @@ private:
 
     juce::AudioProcessorValueTreeState& m_parameters;
     const HostNotifier m_notifyHost;
+    roar::PositionWrites* const m_positionWrites;
 
     juce::CriticalSection m_operationLock; // serialises everything that changes the preset
     mutable juce::CriticalSection m_lock;  // guards the members below; held only briefly

@@ -2,9 +2,10 @@
 
 #include <JuceHeader.h>
 
+#include "CreatureEvolution.h"
+#include "Params.h"
 #include "PresetManager.h"
 #include "dsp/CreatureChain.h"
-#include "dsp/DryPhaseMatch.h"
 #include "dsp/MonsterFeatures.h"
 
 #include <array>
@@ -65,14 +66,37 @@ public:
     void setViewValue(const juce::Identifier& option, const juce::var& value);
 
     PresetManager& getPresetManager() { return m_presetManager; }
+    /** Hold a Scope on this while writing several module positions (see PositionWrites). */
+    roar::PositionWrites& getPositionWrites() { return m_positionWrites; }
     juce::AudioProcessorValueTreeState& getValueTreeState() { return m_parameters; }
 
     /** What the audio is doing, for the visualiser (written by the audio thread once per chunk). */
     const roar::MonsterFeatures& getMonsterFeatures() const { return m_features; }
 
-    /** Slot each movable module is running in right now (during a move it lags the parameter). */
-    int getDetailSlotInUse() const { return m_detailSlotInUse.load(std::memory_order_relaxed); }
-    int getVocoderSlotInUse() const { return m_vocoderSlotInUse.load(std::memory_order_relaxed); }
+    /** The creature's evolved form, published ten times a second by the message thread. */
+    const roar::CreatureShared& getCreatureShared() const { return m_creatureShared; }
+    /** Evolution Live / Frozen (message thread; saved with the session). */
+    bool isCreatureFrozen() const;
+    void setCreatureFrozen(bool frozen);
+    /** Eases the creature home over a few seconds and grows a new one (message thread). */
+    void resetCreature();
+
+    /** Tests: one evolution step with the features as they are now (what the timer does). */
+    void stepCreatureForTests(float dt) { stepCreature(dt); }
+    /** Tests: direct access (hold no other lock while using it). */
+    template <typename Fn> void withCreatureForTests(Fn&& fn)
+    {
+        const juce::ScopedLock sl(m_creatureLock);
+        fn(m_creature);
+        m_creatureShared.publish(m_creature.evaluate());
+    }
+
+    /** Test and render hooks: the chain itself (audio thread state; use it only while not processing). */
+    const roar::CreatureChain& getChain() const { return m_chain; }
+    roar::CreatureChain& getChainForTests() { return m_chain; }
+
+    /** The chain settings the parameters describe right now (any thread; atomics only). */
+    roar::ChainSettings readSettings() const;
 
     // Parameters
     juce::AudioProcessorValueTreeState m_parameters;
@@ -96,11 +120,35 @@ private:
     };
 
     HostDisplayUpdater m_hostDisplay { *this };   // before m_presetManager: it reports through this
+    roar::PositionWrites m_positionWrites;         // before m_presetManager: it holds scopes on this
+    Params::Order m_heldPositions {};             // audio thread: the last complete order read
+    bool m_haveHeldPositions = false;
     PresetManager m_presetManager;                // after m_parameters: it listens to them
 
     static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
 
-    roar::CreatureChain::Settings readSettings() const;
+    /**
+     * A parameter's index in Params::all, resolved at compile time from its ID, so the audio
+     * thread's readSettings() never searches the table. An unknown ID does not compile.
+     */
+    struct ParamIndex
+    {
+        consteval ParamIndex(const char* id) : index(Params::indexOf(id))
+        {
+            if (index < 0)
+                unknownParameterId();
+        }
+        int index;
+
+    private:
+        static void unknownParameterId() {}   // not constexpr: calling it makes the ID a compile error
+    };
+
+    float value(ParamIndex p) const { return valueAt(p.index); }
+    float valueAt(int index) const;
+    float percent(ParamIndex p) const { return valueAt(p.index) * 0.01f; }
+    bool toggle(ParamIndex p) const { return valueAt(p.index) >= 0.5f; }
+    int choice(ParamIndex p) const;
 
     void render(juce::AudioBuffer<float>& buffer, bool bypassed);
     void handlePendingReset(bool bypassed);
@@ -109,22 +157,17 @@ private:
 
     roar::CreatureChain m_chain;
     roar::MonsterFeatures m_features;
-    std::atomic<int> m_detailSlotInUse { 0 }, m_vocoderSlotInUse { 0 };
 
     // Scratch buffers, sized in prepareToPlay. Blocks larger than this are processed in chunks.
     static constexpr int c_chunkSize = 512;
-    std::vector<float> m_wetL, m_wetR;
+    std::vector<float> m_inL, m_inR, m_wetL, m_wetR;
 
-    // Dry path: the input through a delay of exactly the reported latency (always fed), used by
-    // MIX and by the host bypass crossfade. Two channels: a mono output takes the mono fold.
-    static constexpr double c_bypassFadeSeconds = 0.015;
+    // Host bypass: the input through a delay of exactly the reported latency (always fed), which
+    // the output crossfades to while bypassed. Two channels: a mono output takes the mono fold.
+    static constexpr double c_bypassFadeSeconds = 0.020;
     static constexpr int c_maxChannels = 2;
     std::array<std::vector<float>, c_maxChannels> m_dryDelay;   // getLatencySamples() long
     std::array<std::vector<float>, c_maxChannels> m_dryChunk;   // c_chunkSize: delayed input for this chunk
-    // The delayed input with the phase of the wet chain's fixed filters (see DryPhaseMatch): the
-    // dry that partial MIX settings and the bypass crossfade blend with, so they do not comb.
-    std::array<std::vector<float>, c_maxChannels> m_dryMatchedChunk;
-    std::array<roar::DryPhaseMatch, c_maxChannels> m_dryMatch;
     std::array<float, c_chunkSize> m_fadeWeights {};
     int m_dryDelayLength = 0;
     int m_dryDelayPosition = 0;
@@ -139,28 +182,34 @@ private:
     std::atomic<juce::uint32> m_resetRequests { 0 };
     juce::uint32 m_resetRequestsHandled = 0;     // audio thread
 
-    // Raw parameter pointers (looked up once)
-    std::atomic<float>* m_pitchParam = nullptr;
-    std::atomic<float>* m_sizeParam = nullptr;
-    std::atomic<float>* m_growlParam = nullptr;
-    std::atomic<float>* m_liquidParam = nullptr;
-    std::atomic<float>* m_roarParam = nullptr;
-    std::atomic<float>* m_subParam = nullptr;
-    std::atomic<float>* m_detailLowParam = nullptr;
-    std::atomic<float>* m_detailHighParam = nullptr;
-    std::atomic<float>* m_gravelParam = nullptr;
-    std::atomic<float>* m_mixParam = nullptr;
-    std::atomic<float>* m_detailSlotParam = nullptr;
-    std::atomic<float>* m_vocoderSlotParam = nullptr;
-    std::atomic<float>* m_vocoderOctaveParam = nullptr;
-
-    juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> m_mixSmoothed;
-    // 0: MIX blends the plain delayed input (exactly the input at Mix 0); 1: the phase-matched
-    // one. Glides over 20 ms when Mix leaves or reaches 0, so the switch never clicks.
-    juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> m_dryMatchAmount;
+    // Raw parameter values, in Params::all order (looked up once).
+    std::array<std::atomic<float>*, Params::numParameters> m_values {};
 
     // Editor view options. Kept out of the APVTS tree (which the host may replace on another
     // thread at any time) and written into / read from the state XML.
     mutable juce::CriticalSection m_viewLock;
     juce::NamedValueSet m_viewOptions;
+
+    // The creature's evolution: stepped on the message thread (so it grows with the editor shut),
+    // read by the GL thread through m_creatureShared. The lock covers the host saving or loading
+    // the state on another thread.
+    void stepCreature(float dt);
+    roar::CreatureEvolution::Inputs readCreatureInputs();
+    mutable juce::CriticalSection m_creatureLock;
+    roar::CreatureEvolution m_creature;
+    roar::CreatureShared m_creatureShared;
+    int m_creatureGeneration = -1;
+    float m_creatureStaleSeconds = 0.0f;
+
+    struct CreatureClock final : private juce::Timer
+    {
+        explicit CreatureClock(RoarschachAudioProcessor& p) : m_processor(p) { startTimerHz(10); }
+        ~CreatureClock() override { stopTimer(); }
+
+    private:
+        void timerCallback() override;
+        RoarschachAudioProcessor& m_processor;
+        double m_last = juce::Time::getMillisecondCounterHiRes();
+    };
+    CreatureClock m_creatureClock { *this };   // last: stops before anything it reads goes away
 };
