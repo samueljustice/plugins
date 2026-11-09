@@ -24,18 +24,18 @@ namespace Presets
     {
         using namespace ParamIDs;
         static const std::vector<Preset> presets {
-            { "Steady Energy",   { { energy, 0.37f }, { rate, 0.3f }, { chaos, 0.3f }, { fill, 0.4f } } },
-            { "Jet Passes",      { { energy, 0.56f }, { rate, 0.55f }, { "aDoppler", 0.9f }, { "bDoppler", 0.75f }, { "aSwirl", 0.48f },
+            { "Steady Energy",   { { energy, 0.2f }, { rate, 0.3f }, { chaos, 0.3f }, { fill, 0.25f } } },
+            { "Jet Passes",      { { energy, 0.36f }, { rate, 0.55f }, { "aDoppler", 0.9f }, { "bDoppler", 0.75f }, { "aSwirl", 0.48f },
                                    { "bSwirl", 0.37f }, { "aLow", 0.5f }, { hitSense, 0.4f } } },
-            { "Monster Swells",  { { energy, 0.9f }, { rate, 0.25f }, { pitch, -7.0f }, { "aLow", 0.8f }, { "bLow", 0.5f },
-                                   { "aDrive", 0.53f }, { hitBoost, 9.0f }, { hitDuck, 0.7f } } },
-            { "Gentle Breeze",   { { energy, 0.27f }, { rate, 0.2f }, { "aDoppler", 0.3f }, { "bDoppler", 0.3f }, { "aDrive", 0.0f },
+            { "Monster Swells",  { { energy, 0.92f }, { rate, 0.25f }, { pitch, -7.0f }, { "aLow", 0.8f }, { "bLow", 0.5f },
+                                   { "aDrive", 0.4f }, { hitBoost, 9.0f }, { hitDuck, 0.7f } } },
+            { "Gentle Breeze",   { { energy, 0.14f }, { rate, 0.2f }, { "aDoppler", 0.3f }, { "bDoppler", 0.3f }, { "aDrive", 0.0f },
                                    { "aLow", 0.15f }, { "bFilter", 0.5f }, { space, 0.45f }, { hitBoost, 0.0f } } },
             { "Fast and Furious",{ { energy, 0.9f }, { rate, 0.85f }, { chaos, 0.7f }, { "aDoppler", 0.75f }, { "bDoppler", 0.7f },
                                    { "aFilter", 0.6f }, { "bDuck", 0.6f }, { hitSense, 0.65f } } },
-            { "Magic Dust",      { { energy, 0.43f }, { rate, 0.45f }, { pitch, 7.0f }, { "aSwirl", 0.66f }, { "bSwirl", 0.73f },
+            { "Magic Dust",      { { energy, 0.24f }, { rate, 0.45f }, { pitch, 7.0f }, { "aSwirl", 0.66f }, { "bSwirl", 0.73f },
                                    { space, 0.7f }, { "aLow", 0.1f }, { "bLow", 0.05f } } },
-            { "Heavy Hits",      { { energy, 0.77f }, { rate, 0.4f }, { hitSense, 0.7f }, { hitBoost, 10.0f }, { hitRelease, 0.55f },
+            { "Heavy Hits",      { { energy, 0.63f }, { rate, 0.4f }, { hitSense, 0.7f }, { hitBoost, 10.0f }, { hitRelease, 0.55f },
                                    { hitDuck, 0.8f }, { "aLow", 0.6f } } },
         };
         return presets;
@@ -59,9 +59,9 @@ namespace Presets
         using namespace ParamIDs;
         auto u = [&r](float lo, float hi) { return lo + (hi - lo) * r.nextFloat(); };
         Preset p { "Randomised", {} };
-        p.values[energy] = u(0.3f, 0.9f);
+        p.values[energy] = u(0.15f, 0.85f);
         p.values[rate] = u(0.15f, 0.8f);
-        p.values[fill] = u(0.1f, 0.6f);
+        p.values[fill] = u(0.05f, 0.4f);
         p.values[chaos] = u(0.2f, 0.7f);
         p.values[pitch] = std::round(u(-7.0f, 7.0f));
         for (int b = 0; b < numBuses; ++b)
@@ -70,7 +70,7 @@ namespace Presets
             p.values[bus[b][Low]] = u(0.0f, 0.7f);
             p.values[bus[b][Swirl]] = u(0.0f, 0.75f);
             p.values[bus[b][Filter]] = u(0.0f, 0.7f);
-            p.values[bus[b][Drive]] = u(0.0f, b == 0 ? 0.6f : 0.35f);
+            p.values[bus[b][Drive]] = u(0.0f, b == 0 ? 0.48f : 0.22f);
             if (b > 0)
             {
                 p.values[bus[b][Duck]] = u(0.1f, 0.7f);

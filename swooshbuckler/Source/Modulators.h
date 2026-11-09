@@ -97,8 +97,8 @@ public:
     void publishTarget(int target, float normalised) { m_targetView[static_cast<size_t>(target)].store(normalised, std::memory_order_relaxed); }
 
     static float rateHz(float knob) { return 0.05f * std::pow(160.0f, juce::jlimit(0.0f, 1.0f, knob)); } // 0.05 .. 8 Hz
-    /** Follower release time (its attack is 0.3x this): 2 s .. 15 ms. */
-    static float followerSeconds(float knob) { return 2.0f * std::pow(0.0075f, juce::jlimit(0.0f, 1.0f, knob)); }
+    /** Follower release time (its attack is 0.3x this): 2 s .. 26 ms (faster is finer than it updates). */
+    static float followerSeconds(float knob) { return 2.0f * std::pow(0.0133f, juce::jlimit(0.0f, 1.0f, knob)); }
     static juce::String typeName(Type t);
     static juce::String shapeName(Shape s);
 

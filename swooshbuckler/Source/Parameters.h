@@ -101,12 +101,20 @@ namespace Params
     inline juce::String ridePeriodText(float rate)
     {
         const float s = 1.0f / rideHz(rate);
-        return juce::String(s, s < 10.0f ? 1 : 0) + " s";
+        return (s < 10.0f ? juce::String(s, 1) : juce::String(juce::roundToInt(s))) + " s";
     }
-    inline float hitFloorDb(float k) { return -28.0f + 25.0f * std::clamp(k, 0.0f, 1.0f); }
+    inline float hitFloorDb(float k) { return -28.0f + 25.0f * std::pow(std::clamp(k, 0.0f, 1.0f), 0.6f); }
     inline float hitDuckDb(float k) { return 12.0f * std::clamp(k, 0.0f, 1.0f); }
     /** Tremolo Depth knob -> how far the level dips at the peak (0..1 of the gain). */
     inline float tremDepthAmount(float k) { return 1.0f - std::pow(1.0f - std::clamp(k, 0.0f, 1.0f), 1.6f); }
+    /** Tremolo Threshold knob -> the level (against the recent peak) where the shake starts easing in. */
+    inline float tremThresholdLevel(float k) { return 0.98f * (1.0f - std::pow(1.0f - std::clamp(k, 0.0f, 1.0f), 1.5f)); }
+    /** Energy knob -> how far the ride dips (0..1): the lowest point falls 4 dB per 10%, to -36 dB at 90%, then to silence. */
+    inline float energyDepth(float k)
+    {
+        k = std::clamp(k, 0.0f, 1.0f);
+        return 1.0f - std::pow(10.0f, -2.0f * k) * std::min(1.0f, 10.0f * (1.0f - k));
+    }
 
     inline juce::AudioProcessorValueTreeState::ParameterLayout createLayout()
     {
@@ -143,18 +151,18 @@ namespace Params
         // Finer around the centre (where most settings live), still two octaves either way.
         layout.add(std::make_unique<P>(ParameterID { ParamIDs::pitch, 2 }, "Pitch", NormalisableRange<float>(-24.0f, 24.0f, 0.0f, 1.0f / 1.3f, true), 0.0f,
                                        AudioParameterFloatAttributes().withLabel("st").withStringFromValueFunction(
-                                           [](float v, int) { return (v > 0.05f ? "+" : "") + String(v, 1) + " st"; })));
+                                           [](float v, int) { const float st = std::round(v * 10.0f) / 10.0f; return (st > 0.0f ? "+" : "") + String(st == 0.0f ? 0.0f : st, 1) + " st"; })));
 
         layout.add(std::make_unique<AudioParameterBool>(ParameterID { ParamIDs::rideOn, 2 }, "Auto Ride", true));
-        layout.add(pct(ParamIDs::energy, "Energy", 0.55f));
+        layout.add(pct(ParamIDs::energy, "Energy", 0.35f));
         layout.add(std::make_unique<P>(ParameterID { ParamIDs::rate, 2 }, "Rate", NormalisableRange<float>(0.0f, 1.0f), 0.4f,
                                        AudioParameterFloatAttributes().withStringFromValueFunction(
                                            [](float v, int) { return ridePeriodText(v); })));
-        layout.add(pct(ParamIDs::fill, "Fill", 0.3f));
+        layout.add(pct(ParamIDs::fill, "Fill", 0.15f));
         layout.add(pct(ParamIDs::chaos, "Chaos", 0.4f));
 
         const float defaults[ParamIDs::numBuses][ParamIDs::numBusControls] = {
-            { 0.55f, 0.7f, 0.7f, 0.35f, 0.3f, 0.3f, 0.2f, 0.0f, 0.0f },
+            { 0.55f, 0.7f, 0.7f, 0.35f, 0.3f, 0.3f, 0.12f, 0.0f, 0.0f },
             { 0.4f, 0.7f, 0.6f, 0.3f, 0.3f, 0.4f, 0.0f, 0.35f, 0.3f },
         };
         const char* controlNames[] = { "Doppler", "Width", "Bend", "Low End", "Swirl", "Filter", "Drive", "Ducked by A", "Filtered by A" };
@@ -164,17 +172,15 @@ namespace Params
                     layout.add(pct(ParamIDs::bus[b][k], String("Bus ") + ParamIDs::busNames[b] + " " + controlNames[k], defaults[b][k]));
 
         layout.add(pct(ParamIDs::hitSense, "Hit Sensitivity", 0.5f));
-        layout.add(std::make_unique<P>(ParameterID { ParamIDs::hitBoost, 2 }, "Hit Boost", NormalisableRange<float>(0.0f, 18.0f), 12.0f,
-                                       // The stored value is 0..18 (sessions and presets keep it); the engine plays it 6 dB lower,
-                                       // so the readout shows the gain the hits really get: -6 .. +12 dB.
+        layout.add(std::make_unique<P>(ParameterID { ParamIDs::hitBoost, 2 }, "Hit Boost", NormalisableRange<float>(-3.0f, 12.0f), 6.0f,
                                        AudioParameterFloatAttributes().withLabel("dB")
                                            .withStringFromValueFunction([](float v, int)
                                            {
                                                // Round first so values just under 0 read "+0.0", not "-0.0".
-                                               const float db = std::round((v - 6.0f) * 10.0f) / 10.0f;
+                                               const float db = std::round(v * 10.0f) / 10.0f;
                                                return (db >= 0.0f ? "+" : "") + String(db == 0.0f ? 0.0f : db, 1) + " dB";
                                            })
-                                           .withValueFromStringFunction([](const String& t) { return t.retainCharacters("-+.0123456789").getFloatValue() + 6.0f; })));
+                                           .withValueFromStringFunction([](const String& t) { return t.retainCharacters("-+.0123456789").getFloatValue(); })));
         layout.add(std::make_unique<P>(ParameterID { ParamIDs::hitRelease, 2 }, "Hit Release", NormalisableRange<float>(0.0f, 1.0f), 0.35f,
                                        AudioParameterFloatAttributes().withStringFromValueFunction(
                                            [](float v, int) { return String(roundToInt(60.0f + v * 1140.0f)) + " ms"; })));
@@ -229,9 +235,9 @@ namespace Params
         layout.add(std::make_unique<P>(ParameterID { ParamIDs::tremRate, 3 }, "Tremolo Rate", NormalisableRange<float>(0.0f, 1.0f), 0.5f,
                                        AudioParameterFloatAttributes().withStringFromValueFunction(
                                            [](float v, int) { const float hz = 1.5f * std::pow(20.0f, v); return (hz < 10.0f ? String(hz, 1) : String(roundToInt(hz))) + " Hz"; })));
-        layout.add(std::make_unique<P>(ParameterID { ParamIDs::tremThreshold, 3 }, "Tremolo Threshold", NormalisableRange<float>(0.0f, 1.0f), 0.6f,
+        layout.add(std::make_unique<P>(ParameterID { ParamIDs::tremThreshold, 3 }, "Tremolo Threshold", NormalisableRange<float>(0.0f, 1.0f), 0.45f,
                                        AudioParameterFloatAttributes().withStringFromValueFunction(
-                                           [](float v, int) { return v < 0.005f ? String("All") : String(20.0f * std::log10(0.98f * v), 1) + " dB"; })));
+                                           [](float v, int) { return v < 0.005f ? String("All") : String(20.0f * std::log10(tremThresholdLevel(v)), 1) + " dB"; })));
         layout.add(std::make_unique<AudioParameterChoice>(ParameterID { ParamIDs::tremShape, 3 }, "Tremolo Shape",
                                                           StringArray { "Sine", "Square", "Flutter" }, 0));
         layout.add(std::make_unique<AudioParameterChoice>(ParameterID { ParamIDs::tremTarget, 3 }, "Tremolo Shakes",

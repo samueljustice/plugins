@@ -183,7 +183,8 @@ private:
         struct Duck
         {
             float amount = 0.0f;              // applied attenuation 0..1 (after the return glide)
-            float lp[2] {}, lo[2] {}, mid[2] {};
+            float lp[2] {};
+            sj::Svf band[2];                  // Mids: the 250 Hz .. 4 kHz band (centred on 1 kHz)
         };
         Duck byBus, byHits;
         std::array<float, c_chunk> l {}, r {}, in {};
@@ -224,7 +225,13 @@ private:
     std::array<float, c_tracks> m_gain {};          // gain applied at the end of the previous chunk
     std::array<sj::Spring, c_tracks> m_levelSprings;
     sj::Spring m_swellSpring, m_energySpring, m_pitchSpring, m_fillSpring, m_spaceSpring;
-    std::array<float, c_tracks> m_rideDepth {};     // Chaos: how far this cycle of each track's ride dips (redrawn each cycle)
+    std::array<float, c_tracks> m_rideDepth {};
+    // The modulator offsets, glided per chunk (the modulators update once per host block; a step would click).
+    float m_energyModNow = 0.0f, m_pitchModNow = 0.0f, m_fillModNow = 0.0f, m_spaceModNow = 0.0f;
+    std::array<std::array<float, 9>, c_maxBuses> m_busModNow {};
+    float m_modGlide = 0.5f;
+    float m_morphMixNow = 0.0f; // how far the morph is in (B isn't ducked or filtered by A while morphing)
+    void glideMods();     // Chaos: how far this cycle of each track's ride dips (redrawn each cycle)
     std::array<float, c_chunk> m_trackScratch {};
     SpectralMorph m_morph;
     sj::Spring m_morphMix;
@@ -237,7 +244,7 @@ private:
     float m_slowEnv = 0.0f;
     int m_talker = 0;          // take turns: 0 = A speaks, 1 = B speaks
     float m_talkerHold = 0.0f; // seconds the other bus has been clearly louder  // Jumps gate: the slow envelope the fast one has to jump above
-    float m_loCoef = 0.0f, m_midCoef = 0.0f; // Mids duck band edges (one-pole coefficients)
+
     float duckReturnCoef() const;
     /** full: the amount at which Darken reaches its darkest (the deepest the caller ever asks for). */
     void duckSample(BusState::Duck& d, float target, float returnCoef, float full, float& l, float& r);

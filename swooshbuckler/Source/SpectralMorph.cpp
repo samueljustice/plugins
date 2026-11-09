@@ -492,7 +492,7 @@ void SpectralMorph::renderGlide(float xe, float y, std::vector<Cpx>& dest)
     // frequency. Phases are locked to the moved peak, whose phase is advanced at the moved frequency.
     const int bins = m_bins;
     const auto binsS = static_cast<size_t>(bins);
-    const float t = xe;
+    const float t = xe * xe; // the tonal / noise change otherwise all happens in the first few percent of X
     const float advance = c_twoPi * static_cast<float>(m_hop) / static_cast<float>(m_fftSize);
 
     std::fill(dest.begin(), dest.end(), Cpx {});
@@ -600,6 +600,6 @@ void SpectralMorph::renderGlide(float xe, float y, std::vector<Cpx>& dest)
         }
         mean /= static_cast<float>(bins);
         for (size_t k = 0; k < binsS; ++k)
-            dest[k] *= std::exp(clampf(y * (m_scratch2[k] - mean), -1.5f, 1.5f));
+            dest[k] *= std::exp(clampf(0.18f * y * (m_scratch2[k] - mean), -1.5f, 1.5f)); // Y spans the even part of the correction
     }
 }

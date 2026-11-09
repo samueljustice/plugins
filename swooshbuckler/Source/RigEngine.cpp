@@ -38,8 +38,7 @@ void RigEngine::prepare(double sampleRate, int maxBlockSize)
     m_fs = static_cast<float>(sampleRate);
     for (auto& scope : m_scopes)
         scope.prepare(sampleRate);
-    m_loCoef = 1.0f - std::exp(-sj::c_twoPi * 250.0f / m_fs);
-    m_midCoef = 1.0f - std::exp(-sj::c_twoPi * 4000.0f / m_fs);
+    m_modGlide = 1.0f - std::exp(-static_cast<float>(c_chunk) / (0.015f * m_fs)); // ~15 ms
     const float controlRate = m_fs / static_cast<float>(c_chunk);
 
     for (auto& s : m_levelSprings) s.prepare(controlRate, 2.5f, 0.85f);
@@ -84,6 +83,9 @@ void RigEngine::prepare(double sampleRate, int maxBlockSize)
         bus->lowFollower.set(5.0f, 90.0f, m_fs);
         bus->follower.set(4.0f, 160.0f, m_fs);
         for (auto& s : bus->springs) s.prepare(controlRate, 2.2f, 0.6f);
+        for (auto* d : { &bus->byBus, &bus->byHits })
+            for (auto& band : d->band)
+                band.set(1000.0f, 0.35f, m_fs);
     }
 
     m_detect.set(1.0f, 60.0f, m_fs);
@@ -164,7 +166,18 @@ void RigEngine::reset()
     m_talker = 0;
     m_talkerHold = 0.0f;
     for (auto& bus : m_buses)
-        bus.byBus = bus.byHits = {};
+        for (auto* d : { &bus.byBus, &bus.byHits })
+        {
+            d->amount = 0.0f;
+            d->lp[0] = d->lp[1] = 0.0f;
+            d->band[0].reset();
+            d->band[1].reset();
+        }
+    m_energyModNow = m_params.energyMod;
+    m_pitchModNow = m_params.pitchMod;
+    m_fillModNow = m_params.fillMod;
+    m_spaceModNow = m_params.spaceMod;
+    m_busModNow = m_params.busMod;
 
     for (size_t t = 0; t < m_levelSprings.size(); ++t)
         m_levelSprings[t].snap(m_params.levels[t]);
@@ -208,6 +221,18 @@ void RigEngine::snapBus(BusState& bus, const BusParams& b)
 }
 
 float RigEngine::getLatencySamples() const { return 0.0f; }
+
+void RigEngine::glideMods()
+{
+    const float a = m_modGlide;
+    m_energyModNow += (m_params.energyMod - m_energyModNow) * a;
+    m_pitchModNow += (m_params.pitchMod - m_pitchModNow) * a;
+    m_fillModNow += (m_params.fillMod - m_fillModNow) * a;
+    m_spaceModNow += (m_params.spaceMod - m_spaceModNow) * a;
+    for (size_t b = 0; b < m_busModNow.size(); ++b)
+        for (size_t k = 0; k < m_busModNow[b].size(); ++k)
+            m_busModNow[b][k] += (m_params.busMod[b][k] - m_busModNow[b][k]) * a;
+}
 
 void RigEngine::restart()
 {
@@ -273,19 +298,21 @@ void RigEngine::renderTracks(int frames)
     std::fill(m_hitsIn.begin(), m_hitsIn.begin() + frames, 0.0f);
     const int numBuses = c_maxBuses;
 
-    // Energy: how deep each track's fader dips, even in dB across the knob: (1 - knob)^2 is the lowest the fader
-    // goes (-12 dB at 50%, silence at 100%). Modulator offsets go on after the springs (see Params::energyMod).
-    const float energyKnob = sj::clamp(m_energySpring.step() + (m_params.rideOn ? m_params.energyMod : 0.0f), 0.0f, 1.0f);
-    const float energy = 1.0f - (1.0f - energyKnob) * (1.0f - energyKnob);
+    // Energy: how deep each track's fader dips, even in dB across the knob (-4 dB per 10%, then silence at the top).
+    // Modulator offsets go on after the springs (see Params::energyMod).
+    glideMods();
+    const float energyKnob = sj::clamp(m_energySpring.step() + (m_params.rideOn ? m_energyModNow : 0.0f), 0.0f, 1.0f);
+    const float energy = ::Params::energyDepth(energyKnob);
     const float swell = sj::clamp(m_swellSpring.step(), 0.0f, 1.0f);
-    const float pitchRatio = std::exp2(sj::clamp(m_pitchSpring.step() + m_params.pitchMod, -24.0f, 24.0f) / 12.0f);
+    const float pitchRatio = std::exp2(sj::clamp(m_pitchSpring.step() + m_pitchModNow, -24.0f, 24.0f) / 12.0f);
     // Fill: echoes after the fader (so they hang into the ride's dips), up to about +6 dB of echo send.
-    const float fillKnob = sj::clamp(m_fillSpring.step() + m_params.fillMod, 0.0f, 1.0f);
-    const float fill = 2.0f * fillKnob * std::sqrt(fillKnob);
+    const float fillKnob = sj::clamp(m_fillSpring.step() + m_fillModNow, 0.0f, 1.0f);
+    const float fill = 2.0f * std::pow(fillKnob, 1.2f);
     const float chaos = m_params.chaos;
     const float baseHz = ::Params::rideHz(m_params.rate);
     const float invFrames = 1.0f / static_cast<float>(frames);
     const float morphMix = sj::clamp(m_morphMix.step(), 0.0f, 1.0f);
+    m_morphMixNow = morphMix;
     const bool morphing = morphMix > 1.0e-4f;
 
     // Each track's own pitch, settled before the hit window below (which depends on every track's speed and mode).
@@ -433,7 +460,8 @@ void RigEngine::renderTracks(int frames)
                     if (bus.env < 0.002f)
                         continue; // nothing playing on this bus yet: check again next chunk
                     const float level = sj::clamp(bus.env / std::max(bus.peakRef, 1.0e-4f), 0.0f, 1.0f);
-                    const float score = 0.5f * h.closeness + 0.5f * level;
+                    // Closeness counts most: with steady levels (ride off, Swell) the level part is the same for every pass.
+                    const float score = 0.7f * h.closeness + 0.3f * level;
                     const double target = m_aimClock + toPeak * m_sampleRate;
                     if (score < bar || std::abs(target - m_lastAimTarget) < 0.15 * m_sampleRate)
                     {
@@ -597,7 +625,7 @@ float RigEngine::keyLevel(const BusState& bus)
 {
     const float rel = sj::clamp(bus.env / std::max(bus.peakRef, 1.0e-3f), 0.0f, 1.0f);
     const float db = 20.0f * std::log10(std::max(bus.env, 1.0e-6f));
-    return rel * sj::clamp((db + 60.0f) / 20.0f, 0.0f, 1.0f);
+    return rel * sj::clamp((db + 40.0f) / 20.0f, 0.0f, 1.0f); // nothing below -40 dBFS, full from -20 dBFS
 }
 
 void RigEngine::renderBus(BusState& bus, int frames, float key, bool isKeyBus,
@@ -605,9 +633,9 @@ void RigEngine::renderBus(BusState& bus, int frames, float key, bool isKeyBus,
 {
     // The knobs (after their springs) plus any modulator offsets.
     const size_t busIndex = static_cast<size_t>(&bus - m_buses.data());
-    const auto& mod = m_params.busMod[busIndex];
+    const auto& mod = m_busModNow[busIndex];
     // Linked: bus B flies A's passes with A's Doppler and Width, so it takes A's modulation of them too.
-    const auto& leadMod = (m_linkNow && busIndex > 0) ? m_params.busMod[0] : mod;
+    const auto& leadMod = (m_linkNow && busIndex > 0) ? m_busModNow[0] : mod;
     auto knob = [&](size_t k, float offset) { return sj::clamp(bus.springs[k].step() + offset, 0.0f, 1.0f); };
     BusParams p;
     p.doppler = knob(0, leadMod[0]);
@@ -672,7 +700,7 @@ void RigEngine::renderBus(BusState& bus, int frames, float key, bool isKeyBus,
             // between the ears (so Width, not the amount of bend, sets how wide a pass is; Width 0 is centred).
             const float lateral = static_cast<float>(s) / (0.5f * h.length);
             const float side = std::copysign(std::pow(std::abs(lateral), 0.6f), lateral);
-            const float az = std::pow(p.width, 0.6f) * sj::clamp(h.dir * side, -1.0f, 1.0f);
+            const float az = std::pow(p.width, 0.8f) * sj::clamp(h.dir * side, -1.0f, 1.0f);
             const float distL = dist + c_earOffset * az;
             const float distR = dist - c_earOffset * az;
             const float back = static_cast<float>(frames - 1 - i);
@@ -797,17 +825,17 @@ void RigEngine::renderBus(BusState& bus, int frames, float key, bool isKeyBus,
 
     // Envelope filter: opens as each pass swells and closes in its tail, by the bus's level against its own recent
     // peak (so it works the same on loud and quiet material). Higher settings blend more of it in, close it further
-    // at the peak and, over the top 40%, add resonance.
+    // at the peak (from 21 kHz at 0% to about 280 Hz at 100%) and, over the top 40%, add a little resonance.
     const float f = p.filter;
     const float mix = f <= 0.8f ? (1.0f - std::pow(10.0f, -1.875f * f)) / (1.0f - std::pow(10.0f, -1.5f)) : 1.0f;
     if (mix > 1.0e-4f)
     {
-        const float cutoff = std::max(170.0f, 170.0f * std::exp2(7.0f * std::sqrt(peakness) * (1.0f - 0.4f * f)));
+        const float cutoff = std::max(170.0f, 170.0f * std::exp2(7.0f * std::sqrt(peakness) * (1.0f - 0.9f * std::sqrt(f))));
         const float resonance = sj::clamp((f - 0.6f) / 0.4f, 0.0f, 1.0f);
-        const float q = 0.7f + 4.0f * resonance * resonance;
+        const float q = 0.7f + 1.5f * resonance * resonance;
         bus.fL.set(cutoff, q, fs);
         bus.fR.set(cutoff, q, fs);
-        const float trim = 1.0f / (1.0f + 0.1f * (q - 0.7f));
+        const float trim = 1.0f / (1.0f + 0.35f * (q - 0.7f));
         for (int i = 0; i < frames; ++i)
         {
             auto& l = bus.l[static_cast<size_t>(i)];
@@ -838,7 +866,7 @@ void RigEngine::renderBus(BusState& bus, int frames, float key, bool isKeyBus,
     // keeps it from being mostly a jump in loudness, while the denser, flatter swell (its character) stays.
     if (p.drive > 1.0e-4f)
     {
-        const float d = std::sqrt((std::pow(10.0f, 1.32f * p.drive) - 1.0f) / 20.0f);
+        const float d = std::sqrt((std::pow(10.0f, 1.32f * std::pow(p.drive, 0.7f)) - 1.0f) / 20.0f);
         const float drive = 1.0f + 20.0f * d * d;
         const float comp = 1.0f / (1.0f + 0.35f * std::log2(drive));
         const float dmix = sj::clamp(d * 2.5f, 0.0f, 1.0f);
@@ -893,12 +921,10 @@ void RigEngine::duckSample(BusState::Duck& d, float target, float returnCoef, fl
         d.amount += (target - d.amount) * returnCoef;
     const float amt = sj::clamp(d.amount, 0.0f, 1.0f);
     float* ch[2] = { &l, &r };
-    // The band splitters always run, so switching Duck mode mid-duck doesn't start from stale filter state.
+    // The band filters always run, so switching Duck mode mid-duck doesn't start from stale filter state.
+    float band[2];
     for (int c = 0; c < 2; ++c)
-    {
-        d.lo[c] += m_loCoef * (*ch[c] - d.lo[c]);
-        d.mid[c] += m_midCoef * (*ch[c] - d.mid[c]);
-    }
+        band[c] = d.band[c].bandpass(*ch[c]);
     switch (m_params.duckMode)
     {
         case 1: // Darken: low-pass the ducked bus (an envelope filter keyed by the other bus), a little quieter
@@ -919,8 +945,7 @@ void RigEngine::duckSample(BusState::Duck& d, float target, float returnCoef, fl
             for (int c = 0; c < 2; ++c)
             {
                 const float x = *ch[c];
-                const float mid = d.mid[c] - d.lo[c], hi = x - d.mid[c];
-                *ch[c] = d.lo[c] + mid * g + hi;
+                *ch[c] = x - (1.0f - g) * band[c];
                 d.lp[c] = x;
             }
             break;
@@ -947,7 +972,7 @@ void RigEngine::renderHits(int frames)
     const float holdTime = 0.5f * sj::clamp(m_params.hitHold, 0.0f, 1.0f);
     const float floorGain = m_params.hitFloor > 0.001f ? sj::dbToGain(::Params::hitFloorDb(m_params.hitFloor)) : 0.0f;
     const int mode = m_params.hitAim ? 3 : m_params.gateMode; // AIM times the hits itself: the gate stays open
-    const float levelThreshold = sj::dbToGain(-6.0f - 36.0f * sense);        // Level: a fixed level (-6 .. -42 dBFS)
+    const float levelUnder = sj::dbToGain(-2.0f - 28.0f * sense);           // Level: within 2 .. 30 dB of the recent peak
     const float jump = sj::dbToGain(5.55f - 4.2f * sense);                   // Jumps: how far above the slow envelope (5.6 .. 1.4 dB)
     const float duckDepth = 1.0f - sj::dbToGain(-::Params::hitDuckDb(m_params.hitDuck)); // at the hits' peaks
     const float slowCoef = 1.0f - std::exp(-1.0f / (0.12f * m_fs));
@@ -971,7 +996,7 @@ void RigEngine::renderHits(int frames)
         bool open = false;
         switch (mode)
         {
-            case 1:  open = env > levelThreshold; break;
+            case 1:  open = env > m_peakRef * levelUnder && env > 0.003f; break;
             case 2:  open = env > m_slowEnv * jump && env > 0.003f; break;
             case 3:  open = true; break;
             default: open = env > m_peakRef * threshold && env > m_average * overAverage && env > 0.003f; break; // Peaks
@@ -1018,7 +1043,7 @@ void RigEngine::applyTremolo(PeakTremolo& t, float* l, float* r, int frames, boo
     // fades out but keeps tracking, so nothing is stale when it comes back.
     const float depthSet = (m_params.tremOn && selected) ? ::Params::tremDepthAmount(m_params.tremDepth) : 0.0f;
     const double inc = 1.5 * std::pow(20.0, static_cast<double>(sj::clamp(m_params.tremRate, 0.0f, 1.0f))) / m_sampleRate;
-    const float th = 0.98f * sj::clamp(m_params.tremThreshold, 0.0f, 1.0f);
+    const float th = ::Params::tremThresholdLevel(m_params.tremThreshold);
     const int shape = m_params.tremShape;
     for (int i = 0; i < frames; ++i)
     {
@@ -1058,7 +1083,7 @@ void RigEngine::applyTremolo(PeakTremolo& t, float* l, float* r, int frames, boo
 
 void RigEngine::renderSpace(int frames)
 {
-    const float s = sj::clamp(m_spaceSpring.step() + m_params.spaceMod, 0.0f, 1.0f);
+    const float s = sj::clamp(m_spaceSpring.step() + m_spaceModNow, 0.0f, 1.0f);
     if (s < 1.0e-4f)
         return;
 
@@ -1115,7 +1140,7 @@ void RigEngine::process(const float* inL, const float* inR, float* outL, float* 
                         for (int b = 1; b < numBuses; ++b)
                             for (size_t k = 0; k < keyBus.heads.size(); ++k)
                                 followPass(m_buses[static_cast<size_t>(b)].heads[k], keyBus.heads[k],
-                                           sj::clamp(m_buses[static_cast<size_t>(b)].springs[2].value + m_params.busMod[static_cast<size_t>(b)][2], 0.0f, 1.0f), true);
+                                           sj::clamp(m_buses[static_cast<size_t>(b)].springs[2].value + m_busModNow[static_cast<size_t>(b)][2], 0.0f, 1.0f), true);
                 }
             }
             else
@@ -1129,7 +1154,7 @@ void RigEngine::process(const float* inL, const float* inR, float* outL, float* 
         for (int b = 1; b < numBuses; ++b)
         {
             auto& bus = m_buses[static_cast<size_t>(b)];
-            renderBus(bus, frames, keyLevel(keyBus), false, link ? &keyBus.heads : nullptr, link ? &m_leadStart : nullptr);
+            renderBus(bus, frames, keyLevel(keyBus) * (1.0f - m_morphMixNow), false, link ? &keyBus.heads : nullptr, link ? &m_leadStart : nullptr);
             if (linkFade0 < 1.0f || linkFade1 < 1.0f)
                 for (int i = 0; i < frames; ++i)
                 {
@@ -1140,7 +1165,8 @@ void RigEngine::process(const float* inL, const float* inR, float* outL, float* 
 
             // B is ducked by A, up to -20 dB at A's peaks (by A's level against its own recent peak). Take turns:
             // whichever is louder (before any ducking, so no feedback) ducks the other.
-            const float amount = sj::clamp(bus.springs[7].value + m_params.busMod[static_cast<size_t>(b)][7], 0.0f, 1.0f);
+            // While morphing, A and B carry the same sound, so A mustn't duck B (it would slide B away as X moves).
+            const float amount = sj::clamp(bus.springs[7].value + m_busModNow[static_cast<size_t>(b)][7], 0.0f, 1.0f) * (1.0f - m_morphMixNow);
             auto duckFor = [amount](float keyed) { return 1.0f - sj::dbToGain(-20.0f * amount * keyed * std::sqrt(keyed)); };
             float duckTarget = duckFor(keyLevel(keyBus));
             float keyTarget = 0.0f;

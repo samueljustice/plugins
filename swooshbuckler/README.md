@@ -77,7 +77,7 @@ Every control has a tooltip: hover over it to see what it does and how to use it
    - **Hits** gets Impact.
 3. **Bus A and Bus B** each turn their tracks into moving sources: doppler passes that fly across the stereo field, with low end, swirl, an envelope filter and drive. Bus A is the key for bus B: when A gets loud it ducks and darkens B, so the two don't pile up.
 4. **Hits** only play when the hit gate opens. By default the gate opens at the loudest moments of the two buses, so the impacts land on the biggest swells and push the buses out of the way.
-5. **Output** adds echoes, reverb and width, makes it louder and denser, and limits it. The tape and LAST 60s record exactly what you hear.
+5. **Output** adds echoes and reverb, makes it louder and denser, and limits it. The tape and LAST 60s record exactly what you hear.
 
 The small brass arrows between the sections show this flow, and each section's title bar has a small waveform of the last 3 seconds of what it sends on.
 
@@ -169,15 +169,17 @@ This is where the whooshes come from. With AUTO RIDE on, each track's fader rise
 |---|---|---|
 | **Swell** | button | Hold it to push every track's fader up to its full level, over the ride. Let go and the ride takes over again. It glides rather than jumps. The space bar and any MIDI note do the same. |
 | **AUTO RIDE** | on / off (on) | The faders move by themselves. Off: the movement glides to a stop and each fader stays where you set it. |
-| **Energy** | 0–100% (55%) | How deep the ride dips the faders between swells, evenly in dB: about −4 dB at 20%, −12 dB at 50%, −28 dB at 80%, and down to silence at 100%. Dimmed with AUTO RIDE off, when it does nothing. |
+| **Energy** | 0–100% (35%) | How deep the ride dips the faders between swells, evenly in dB: 4 dB more for every 10%, to −36 dB at 90% and silence at 100%. Dimmed with AUTO RIDE off, when it does nothing. |
 | **Rate** | 25 s to 1.9 s (6.4 s) | How fast the faders move: the readout is the time of one rise and fall. It also sets how long each doppler pass lasts, from about 6 s down to about 1.6 s. |
-| **Fill** | 0–100% (30%) | Long, softened echoes at 0.5, 1 and 2 s, after each track's fader, so they hang on into the dips of the ride and the gaps of gappy sounds. |
-| **Chaos** | 0–100% (40%) | How unpredictable it all is. Low: the rides and passes repeat in a steady pattern. High: each fader wobbles, every pass gets its own length, speed, closeness and direction, and tracks more often jump to a random sound instead of the next one, sometimes starting partway in. |
-| **Pitch** | ±24 semitones (0) | Plays every track higher or lower, like changing tape speed: lower is also slower and heavier. It glides to a new setting and isn't locked to whole semitones. |
+| **Fill** | 0–100% (15%) | Long, softened echoes at 0.5, 1 and 2 s, after each track's fader, so they hang on into the dips of the ride and the gaps of gappy sounds. |
+| **Chaos** | 0–100% (40%) | How unpredictable it all is. At 0% the rides and passes repeat in a steady pattern and every track plays its sounds in order from its start. Higher: each swell gets its own size and speed, every pass its own length, speed, closeness and direction, and tracks more often jump to a random sound, sometimes starting partway in. |
+| **Pitch** | ±24 semitones (0) | Finer near the middle. Plays every track higher or lower, like changing tape speed: lower is also slower and heavier. It glides to a new setting and isn't locked to whole semitones. |
 
 Pitch moves every track at once. To pitch one track on its own, with or without changing its speed, use that track's Semitones, Cents and VARI controls in [Tracks](#tracks).
 
 Swell only lifts the faders up to the ride's ceiling, so with AUTO RIDE off (or Energy at 0%) the faders are already there and Swell does nothing you'll hear.
+
+How far each knob goes, and why, is measured in the [knob audit](docs/knob-audit.md).
 
 ### Bus A and Bus B
 
@@ -191,17 +193,17 @@ Bus A ("growls, tones, crackle, rumble - and the key for B") is the aggressive b
 
 | Control | Default (A / B) | What it does |
 |---|---|---|
-| **Doppler** | 55% / 40% | How dramatic each pass is: how close it comes, and how much it swells and brightens as it goes by. At 0% the passes don't pan or bend, whatever Width and Bend are set to. |
+| **Doppler** | 55% / 40% | How dramatic each pass is: how close it comes, how much it swells and brightens as it goes by, and (with Bend) how far its pitch dives. |
 | **Width** | 70% / 70% | How far each pass travels across the stereo field: at 0% it stays in the middle, at 100% it flies fully from side to side. |
 | **Bend** | 70% / 60% | How much the pitch dives as a pass goes by, up to a race-car drop. |
-| **Low End** | 35% / 20% | Weight: a sub octave and low overtones, plus a low lift that grows at the bus's loudest moments. |
-| **Swirl** | 20% / 30% | Movement inside the sound: a phaser, then (above about a quarter) a flanger that sweeps as the passes come and go. |
-| **Filter** | 30% / 40% | A low-pass filter that opens as the bus gets louder, so quiet parts are dark and peaks are bright, like air rushing past. More also adds resonance. |
-| **Drive** | 15% / 0% | Saturation, from gentle thickening to a hard growl. |
-| **Ducked** (B only) | 40% | How much bus A pushes bus B down when A gets loud. |
-| **Filtered** (B only) | 30% | How much bus A darkens bus B with a low-pass filter when A gets loud, so B goes dark under A rather than just quieter. |
+| **Low End** | 35% / 30% | Weight: a sub octave and low overtones, plus a low lift that grows at the bus's loudest moments. |
+| **Swirl** | 30% / 30% | Movement inside the sound: a phaser, then (from about a third of the way) a flanger that sweeps as the passes come and go. Its level is matched, so it changes the colour, not the loudness. |
+| **Filter** | 30% / 40% | A low-pass filter that opens as each pass swells and closes in its tail, so the tails are dark and the peaks bright, like air rushing past. More blends more of it in and closes it further at the peak; the top 40% adds resonance. |
+| **Drive** | 12% / 0% | Saturation, from gentle thickening to a hard, flattened growl. The drive rises evenly in dB and the level stays roughly steady, so it adds character rather than just loudness. |
+| **Ducked** (B only) | 35% | How far bus A pushes bus B down at A's peaks, up to −20 dB, judged against A's own recent peak so it works the same on quiet and loud material. |
+| **Filtered** (B only) | 30% | How far bus A closes a low-pass filter on bus B at A's peaks, down to about 280 Hz at 100%, so B goes dark under A rather than just quieter. |
 | **LINK** (in B's title bar) | off | Bus B flies the same doppler passes as bus A: at the same moment, as close, in the same direction, with A's Doppler and Width. The two buses move as one source, for one consistent whoosh. B keeps its own Bend, so its pitch can dive more or less. While linked, B's own Doppler and Width are dimmed, and they come back as you set them when you unlink. Leave it off to keep energy beds on B moving on their own. |
-| **TAKE TURNS** (in B's title bar) | off | Only the louder bus plays at full level and the other ducks under it by the Ducked amount, so they trade places. The other bus has to be clearly louder (about 2 dB) for 30 ms before the turn passes. Off: A always ducks B. |
+| **TAKE TURNS** (in B's title bar) | off | Only the louder bus plays at full level and the other ducks under it by the Ducked amount (at 0% Ducked it does nothing), so they trade places. The other bus has to be clearly louder (about 2 dB) for 30 ms before the turn passes. Off: A always ducks B. |
 
 All the knobs run from 0 to 100%. How bus B gets out of the way (turned down, darkened or just its mids) follows the **DUCK** box in the Hits section, and how fast it comes back follows the Hits **Return** knob.
 
@@ -222,11 +224,11 @@ Sessions saved before AIM existed open with it off, so they keep the gate they w
 |---|---|---|
 | **GATE** box | Peaks / Level / Jumps / Open (Peaks) | What opens the gate. **Peaks**: the loudest moments of the two buses. **Level**: any time they're louder than a level set by Sensitivity. **Jumps**: sudden rises, however loud or quiet. **Open**: no gate, the hits always play. |
 | **DUCK** box | Volume / Darken / Mids (Volume) | How a ducked bus gets out of the way: turned down, low-passed, or only its crowded middle (250 Hz to 4 kHz) turned down. This also applies to bus A ducking bus B. |
-| **Sensitivity** | 0–100% (50%) | How easily the hits fire. With AIM: which pass peaks get a hit. With the gate: how easily it opens. Low: only the biggest moments. High: often. |
+| **Sensitivity** | 0–100% (50%) | How easily the hits fire. With AIM: which pass peaks get a hit. With the gate: how easily it opens (Level: within 2 dB of the recent peak at 0%, within 30 dB at 100%). Low: only the biggest moments. High: often. With GATE on Open it is dimmed, as are Release, Hold and Floor. |
 | **Boost** | −3 to +12 dB (+6 dB) | How loud the hits come in when they fire, against their own level. |
 | **Release** | 60 ms to 1.2 s (459 ms) | How long the hits tail out after the gate shuts. |
 | **Hold** | 0–500 ms (60 ms) | How long the gate stays open after the last trigger. Longer stops it chattering, so each hit reads as one event. |
-| **Floor** | Closed, or −28 to −3 dB (Closed) | How far the gate closes between hits. |
+| **Floor** | Closed, or −22 to −3 dB, finer near the top (Closed) | How far the gate closes between hits. |
 | **Duck** | Off, or down to −12 dB (−4.8 dB) | How far the hits push buses A and B down at their peaks. |
 | **Return** | Fast, or 20 ms to 1 s (Fast) | How fast ducked buses come back up. This also applies to bus A ducking bus B. Slower is smoother, with less pumping. |
 | **HIT GATE / AIMED HITS** | light | Glows as the gate opens and fades as it closes; with AIM, flashes on each aimed hit. |
@@ -246,11 +248,11 @@ The last stage before your speakers and the tape. At its left is the **Peak Trem
 | Tremolo **On / Off** | menu (Off) | Switches the peak tremolo. It fades in and out. |
 | Tremolo wave | Sine / Square / Flutter (Sine) | **Sine**: a smooth throb. **Square**: hard chops, like a helicopter. **Flutter**: a random wobble, like wings or a loose flap. |
 | Tremolo shakes | Everything / Buses A + B / Hits (Everything) | What it shakes, and whose level drives it. **Everything**: the whole mix. **Buses A + B**: each bus by its own level, dipping together, while the hits stay solid. **Hits**: only the hits. |
-| **Depth** | 0–100% (50%) | How deep it goes at the very peak. |
-| **Rate** | 1.5–30 Hz | From a slow throb to a buzzing flutter. |
-| **Threshold** | 0–100% (60%) | How near its peak the level has to be before it starts. Low: it shakes most of the time. High: only right at the top. |
-| **Space** | 0–100% (25%) | Echoes, reverb and width around the whole mix: a ping-pong echo, a reverb whose room grows as you turn it up, and stereo widening. At 0% it's off. |
-| **Inflate** | 0–100% (30%) | Louder and denser without new peaks, so quieter detail comes forward. At 0% the sound passes through untouched. |
+| **Depth** | 0 dB to a full chop (−8.3 dB) | How far the level dips at the very peak (the readout is the deepest dip); 100% chops right down to silence. |
+| **Rate** | 1.5–30 Hz (6.7 Hz) | From a slow throb to a buzzing flutter. |
+| **Threshold** | All, or −17 to −0.2 dB under the peak (−4.7 dB) | How near its recent peak the level has to be before it starts. Low: it shakes most of the time. High: only right at the top. A steady bed sits at its own peak, so it shakes all the time. |
+| **Space** | 0–100% (30%) | Echoes and reverb around the whole mix: a ping-pong echo and a reverb whose room grows as you turn it up. At 0% it's off; at the top it's a big wash that smooths out the swells. |
+| **Inflate** | 0–100% (30%) | Louder and denser without new peaks, so quieter detail comes forward. Up to 70% it blends in; the last 30% makes it harder and grittier. At 0% the sound passes through untouched. |
 | **Push** | 0 to +15 dB (+3 dB) | How hard the mix drives into the limiter. The ceiling stays put, so it can't clip. |
 | **Ceiling** | −6 to 0 dB (−0.3 dB) | The limiter's ceiling, finer near the top. The limiter is always on. |
 | **GR** | meter | How much the limiter is turning the sound down right now (a full bar is 12 dB). The number above the meters is the same thing in dB, and turns coral while the limiter is working. |
