@@ -17,7 +17,7 @@ A VST3/AU creature voice designer by **Samuel Justice**. Roarschach turns a spok
 - **Control**: CLEAN (tone EQ, gate and a leveller), DE-ESS, DETAIL (lifts the quiet parts and pushes the loud parts into a soft ceiling) and TAME (holds back harsh top end).
 - **A finished output**: OUTPUT matches the level to the input, then Push drives a true-peak-safe limiter with a clipper after it. Attack and Release set how clean or crunchy the limiting is, and Auto release keeps it clean. MIX blends in the dry voice, phase-matched to the processed one.
 - **A creature that reacts**: an OpenGL creature that forms out of drifting cloud, whose jaw, eyes, skin and throat follow the voice and every module. It softens back into fog when the input goes quiet, and slowly evolves with sustained intensity.
-- **Presets**: 39 factory presets (Init plus six groups: Creatures, Voices, Machines, Signal Flow, Vocoder, Utility). Save your own with SAVE. They are plain files, easy to back up and share.
+- **Presets**: 40 factory presets (Init plus six groups: Creatures, Voices, Machines, Signal Flow, Vocoder, Utility). Save your own with SAVE. They are plain files, easy to back up and share.
 - **Full recall**: every parameter, the module order, the preset name and the window size are saved with your session, and the factory presets are exposed to the host as programs.
 - **Resizable interface**: drag the corner to scale the whole window from 50% to 125%.
 - **Constant latency** of about 46 ms (2192 samples at 48 kHz), the same for every setting and every module order, reported to the host so it is compensated. Host bypass stays in time and switches without clicks. Mono or stereo, full DAW automation.
@@ -89,7 +89,7 @@ Every control has a tooltip: hover over it to see what it does. The footer of ea
 
 <img src="docs/tooltip.png" alt="The tooltip over RING's Freq knob: The carrier frequency. Low values give a robotic flutter, the low hundreds a clangy metallic voice, higher values a bell-like, alien tone." width="474">
 
-The close-ups below are from the Kaiju preset; RING and OUTPUT are from Cyborg Commander.
+The close-ups below are from the Kaiju preset; RING and OUTPUT are from Cyber Commander.
 
 ### IN
 
@@ -303,9 +303,9 @@ Use the arrows either side of the preset name to step through presets, or click 
 | Group | Presets |
 |---|---|
 | | Init (every control at its default: a slightly lower, bigger voice with a light wobble, growl, tube edge, sub and overtones) |
-| **Creatures** | Liquid Beast, Gravel Throat, Cave Troll, Kaiju, Gargoyle, Hellhound, Golem, Kraken, Throat Singer |
+| **Creatures** | Symbiote, Liquid Beast, Gravel Throat, Cave Troll, Kaiju, Gargoyle, Hellhound, Golem, Kraken, Throat Singer |
 | **Voices** | Big Bad Narrator, Demon Whisper, Giant, Possessed, Ogre Radio |
-| **Machines** | Cyborg Commander, Respirator Rasp, Rasp Machine, Robot Ogre |
+| **Machines** | Cyber Commander, Respirator Rasp, Rasp Machine, Robot Ogre |
 | **Signal Flow** | Scorched Swirl, Molten Chorus, Sub Furnace, Ribcage, Tar Pit, Breathing Walls, Chopped Space, Vocoded Fire, Clanking Choir |
 | **Vocoder** | Pulse Choir, Two Octaves Down, Gravel Pit, Iron Lung |
 | **Utility** | Detail Only, Subtle Size, Clean Lift, Loud & Contained, Crunch Lift, Smashed, Phone Monster |

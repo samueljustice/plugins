@@ -234,6 +234,29 @@ const std::vector<PresetManager::FactoryPreset>& PresetManager::getFactoryPreset
             .out(8.0f, -1.0f, 0.0f, 0.0f, 2.0f, 60.0f, on, 100.0f)),
 
         // CREATURES -------------------------------------------------------------------------------
+        // A liquid alien monster, built the classic way: a voice pitched a little lower, contained
+        // and de-essed, then many subtle layers - a frequency-shift wobble, a fine 27 Hz chop, a
+        // phaser, warm tube drive on lows and highs, a near-mono chorus that makes the low end
+        // liquid, top-band taming and a tight octave underneath, kept intelligible by the limiter.
+        preset("Symbiote", "Creatures", Sound()
+            .order("PI CL DS SH GR SW RO EN TA SU DT VO RM OV")
+            .in(0.0f, on)
+            .pi(on, -2.0f, 0.0f, 20.0f, pm::shift, fm::follow)
+            .cl(on, 40.0f, 45.0f, tone::voice)
+            .ds(on, 40.0f, ds::split)
+            .dt(off, 30.0f, 25.0f, spd::natural)
+            .vo(off, 50.0f, oct::down1)
+            .rm(off, 40.0f, 150.0f, 1.0f, car::sine, trk::fixed, rmode::ring, body::off)
+            .sh(on, 25.0f, 11.0f, sh::upDown)
+            .gr(on, 55.0f, 27.0f, shape::sine, chr::warm)
+            .sw(on, 32.0f, 0.35f, circ::liquid4, mot::lfoLevel)
+            .ro(on, 50.0f, 0.0f, vc::line)
+            .en(on, 30.0f, 15.0f, voices::six, emot::medium)
+            .ta(on, 35.0f)
+            .su(on, 55.0f, 40.0f, reg::tight, sc::clean)
+            .ov(off, 10.0f, 0.0f, pat::chest, om::add)
+            .out(8.0f, -1.0f, 0.0f, 0.0f, 2.0f, 60.0f, on, 100.0f)),
+
         // A rolling, wet beast with a wide liquid body.
         preset("Liquid Beast", "Creatures", Sound()
             .order(c_reference)
@@ -517,10 +540,10 @@ const std::vector<PresetManager::FactoryPreset>& PresetManager::getFactoryPreset
             .out(8.0f, -1.0f, 0.0f, 0.0f, 2.0f, 60.0f, on, 100.0f)),
 
         // MACHINES (ring-modulated voices) --------------------------------------------------------
-        // A yelled voice pushed through a struggling machine larynx: barely lower, a clangy metallic
-        // ring around every word, a hard little voice box and gravel on the peaks.
-        preset("Cyborg Commander", "Machines", Sound()
-            .order("CL PI RM RO DS DT GR TA VO SH SW EN SU OV")
+        // A yelled voice pushed through a struggling machine larynx: tone-shaped, ring-modulated in a
+        // hard little voice box, then pitched barely lower, with gravel on the peaks.
+        preset("Cyber Commander", "Machines", Sound()
+            .order("CL RM PI RO DS DT GR TA VO SH SW EN SU OV")
             .in(0.0f, on)
             .pi(on, -1.0f, 0.0f, 40.0f, pm::shift, fm::follow)
             .cl(on, 55.0f, 40.0f, tone::heavy)

@@ -1633,7 +1633,7 @@ namespace
             }
         }
         check(presetIndex("Init") == 0, "Init is the first preset");
-        for (const char* required : { "Phone Monster", "Throat Singer", "Ribcage", "Cyborg Commander", "Respirator Rasp", "Rasp Machine" })
+        for (const char* required : { "Phone Monster", "Throat Singer", "Ribcage", "Cyber Commander", "Respirator Rasp", "Rasp Machine" })
             check(presetIndex(required) >= 0, juce::String("missing preset ") + required);
 
         // Every preset loaded through the host program interface sets exactly its values.
@@ -2538,7 +2538,7 @@ namespace
         }
 
         // 2. Presets that light the other parts of the creature.
-        for (const char* name : { "Cyborg Commander", "Ribcage", "Smashed", "Pulse Choir", "Kaiju" })
+        for (const char* name : { "Cyber Commander", "Ribcage", "Smashed", "Pulse Choir", "Kaiju" })
         {
             const int index = presetIndex(name);
             if (index < 0)
@@ -2559,7 +2559,7 @@ namespace
             save(picture.getClippedImage(face), "03-face-" + slug + "@2x.png");
         }
         save(stage.createComponentSnapshot(stripArea(), true, 2.0f), "04-strip-last-preset@2x.png");
-        p->setCurrentProgram(presetIndex("Cyborg Commander"));
+        p->setCurrentProgram(presetIndex("Cyber Commander"));
         play(0.5);
         strip.finishAnimations();
 
