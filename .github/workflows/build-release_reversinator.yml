@@ -59,11 +59,17 @@ jobs:
         cd JUCE
         git checkout 8.0.8
     
+    - name: Get the AAX SDK
+      id: aax
+      uses: ./.github/actions/aax-sdk
+      with:
+        deploy-key: ${{ secrets.AAX_SDK_DEPLOY_KEY }}
+
     - name: Configure CMake
       run: |
         cd reversinator
         $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm UTC"
-        cmake -B build -S . -DCMAKE_BUILD_TYPE=Release -DBUILD_TIMESTAMP="$timestamp"
+        cmake -B build -S . -DCMAKE_BUILD_TYPE=Release -DBUILD_TIMESTAMP="$timestamp" -DSAMMYJ_AAX=ON -DAAX_SDK_PATH="${{ steps.aax.outputs.path }}"
 
     - name: Build VST3
       run: |
@@ -157,6 +163,21 @@ jobs:
       with:
         name: windows-vst3
         path: reversinator/windows-vst3-package/
+
+    # Unsigned AAX, for testing in Pro Tools Developer only (PACE wraptool signing comes later).
+    # It is a build artifact of this run, not part of the release or the installer.
+    - name: Zip Windows AAX (unsigned)
+      shell: pwsh
+      run: |
+        cd reversinator
+        Compress-Archive -Path "build\Reversinator_artefacts\Release\AAX\SammyJs Reversinator.aaxplugin" -DestinationPath "Reversinator-Windows-AAX-unsigned.zip" -Force
+
+    - name: Upload Windows AAX (unsigned)
+      uses: actions/upload-artifact@v6
+      with:
+        name: Reversinator-Windows-AAX-unsigned
+        path: reversinator/Reversinator-Windows-AAX-unsigned.zip
+        if-no-files-found: error
     
   build-macos:
     needs: version
@@ -226,11 +247,17 @@ jobs:
         
         echo "✓ Both certificates imported successfully"
     
+    - name: Get the AAX SDK
+      id: aax
+      uses: ./.github/actions/aax-sdk
+      with:
+        deploy-key: ${{ secrets.AAX_SDK_DEPLOY_KEY }}
+
     - name: Configure CMake
       run: |
         cd reversinator
         TIMESTAMP=$(date -u "+%Y-%m-%d %H:%M UTC")
-        cmake -B build -S . -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_ARCHITECTURES="x86_64;arm64" -DBUILD_TIMESTAMP="$TIMESTAMP"
+        cmake -B build -S . -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_ARCHITECTURES="x86_64;arm64" -DBUILD_TIMESTAMP="$TIMESTAMP" -DSAMMYJ_AAX=ON -DAAX_SDK_PATH="${{ steps.aax.outputs.path }}"
 
     - name: Build VST3 and AU
       run: |
@@ -542,6 +569,20 @@ jobs:
       with:
         name: macos-au
         path: reversinator/build/Reversinator_artefacts/Release/AU/*.component
+
+    # Unsigned AAX, for testing in Pro Tools Developer only (PACE wraptool signing comes later).
+    # It is a build artifact of this run, not part of the release or the installer.
+    - name: Zip macOS AAX (unsigned)
+      run: |
+        cd reversinator
+        ditto -c -k --keepParent "build/Reversinator_artefacts/Release/AAX/SammyJs Reversinator.aaxplugin" Reversinator-macOS-AAX-unsigned.zip
+
+    - name: Upload macOS AAX (unsigned)
+      uses: actions/upload-artifact@v6
+      with:
+        name: Reversinator-macOS-AAX-unsigned
+        path: reversinator/Reversinator-macOS-AAX-unsigned.zip
+        if-no-files-found: error
   
   create-release:
     needs: [version, build-windows, build-macos]

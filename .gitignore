@@ -53,3 +53,4 @@ CLAUDE.local.md
 # Python caches
 __pycache__/
 *.pyc
+/.aax-sdk-download/

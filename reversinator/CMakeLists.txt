@@ -28,6 +28,9 @@ option(REVERSINATOR_BUILD_TESTS "Build the offline DSP test runner" OFF)
 
 add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/../SDK/JUCE ${CMAKE_CURRENT_BINARY_DIR}/SDK/JUCE)
 
+include(${CMAKE_CURRENT_SOURCE_DIR}/../cmake/AAX.cmake)
+sammyj_enable_aax(REVERSINATOR_FORMATS)
+
 # The manufacturer/plugin codes and bundle ID must never change: hosts use them
 # to find existing instances in saved sessions.
 juce_add_plugin(Reversinator

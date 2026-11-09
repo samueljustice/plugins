@@ -64,11 +64,17 @@ jobs:
         New-Item -ItemType Directory -Force -Path lib | Out-Null
         Copy-Item $lib.FullName lib\librubberband.a
 
+    - name: Get the AAX SDK
+      id: aax
+      uses: ./.github/actions/aax-sdk
+      with:
+        deploy-key: ${{ secrets.AAX_SDK_DEPLOY_KEY }}
+
     - name: Configure CMake
       run: |
         cd pitchflattener
         $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm UTC"
-        cmake -B build -S . -DCMAKE_BUILD_TYPE=Release -DPITCHFLATTENER_COPY_AFTER_BUILD=OFF -DBUILD_TIMESTAMP="$timestamp"
+        cmake -B build -S . -DCMAKE_BUILD_TYPE=Release -DPITCHFLATTENER_COPY_AFTER_BUILD=OFF -DBUILD_TIMESTAMP="$timestamp" -DSAMMYJ_AAX=ON -DAAX_SDK_PATH="${{ steps.aax.outputs.path }}"
 
     - name: Build VST3
       run: |
@@ -159,6 +165,21 @@ jobs:
       with:
         name: windows-vst3
         path: pitchflattener/windows-vst3-package/
+
+    # Unsigned AAX, for testing in Pro Tools Developer only (PACE wraptool signing comes later).
+    # It is not part of the release, installer or release zips.
+    - name: Zip Windows AAX (unsigned)
+      shell: pwsh
+      run: |
+        cd pitchflattener
+        Compress-Archive -Path "build\PitchFlattener_artefacts\Release\AAX\SammyJs Pitch Flattener.aaxplugin" -DestinationPath "PitchFlattener-Windows-AAX-unsigned.zip" -Force
+
+    - name: Upload Windows AAX (unsigned)
+      uses: actions/upload-artifact@v6
+      with:
+        name: PitchFlattener-Windows-AAX-unsigned
+        path: pitchflattener/PitchFlattener-Windows-AAX-unsigned.zip
+        if-no-files-found: error
     
   build-macos:
     runs-on: macos-15
@@ -248,16 +269,22 @@ jobs:
         
         echo "✓ Both certificates imported successfully"
     
+    - name: Get the AAX SDK
+      id: aax
+      uses: ./.github/actions/aax-sdk
+      with:
+        deploy-key: ${{ secrets.AAX_SDK_DEPLOY_KEY }}
+
     - name: Configure CMake
       run: |
         cd pitchflattener
         TIMESTAMP=$(date -u "+%Y-%m-%d %H:%M UTC")
-        cmake -B build -S . -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_ARCHITECTURES="x86_64;arm64" -DPITCHFLATTENER_COPY_AFTER_BUILD=OFF -DPITCHFLATTENER_BUILD_TESTS=ON -DBUILD_TIMESTAMP="$TIMESTAMP"
+        cmake -B build -S . -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_ARCHITECTURES="x86_64;arm64" -DPITCHFLATTENER_COPY_AFTER_BUILD=OFF -DPITCHFLATTENER_BUILD_TESTS=ON -DBUILD_TIMESTAMP="$TIMESTAMP" -DSAMMYJ_AAX=ON -DAAX_SDK_PATH="${{ steps.aax.outputs.path }}"
     
     - name: Build VST3 and AU
       run: |
         cd pitchflattener
-        cmake --build build --config Release --target PitchFlattener_VST3 PitchFlattener_AU
+        cmake --build build --config Release --target PitchFlattener_VST3 PitchFlattener_AU PitchFlattener_AAX
 
     - name: Run DSP tests
       run: |
@@ -565,6 +592,20 @@ jobs:
       with:
         name: macos-au
         path: pitchflattener/build/PitchFlattener_artefacts/Release/AU/*.component
+
+    # Unsigned AAX, for testing in Pro Tools Developer only (PACE wraptool signing comes later).
+    # It is not codesigned or notarised here and is not part of the release, installer or release zips.
+    - name: Zip macOS AAX (unsigned)
+      run: |
+        cd pitchflattener
+        ditto -c -k --keepParent "build/PitchFlattener_artefacts/Release/AAX/SammyJs Pitch Flattener.aaxplugin" PitchFlattener-macOS-AAX-unsigned.zip
+
+    - name: Upload macOS AAX (unsigned)
+      uses: actions/upload-artifact@v6
+      with:
+        name: PitchFlattener-macOS-AAX-unsigned
+        path: pitchflattener/PitchFlattener-macOS-AAX-unsigned.zip
+        if-no-files-found: error
   
   create-release:
     needs: [build-windows, build-macos]
