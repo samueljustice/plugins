@@ -4,7 +4,7 @@ A VST3/AU creature voice designer by **Samuel Justice**. Roarschach turns a spok
 
 ### 🎉 Latest Release v1.0.0 - [Download Here](https://github.com/samueljustice/plugins/releases/tag/roarschach-v1.0.0)
 
-<img src="docs/screenshot.jpg" alt="The Roarschach window with the Kaiju preset after a long, loud session: the creature, many-eyed and crowned with spines, roaring out of the cloud with the vocoder's fan of bands glowing under its jaw, and the chain of fourteen modules between IN and OUTPUT below" width="800">
+<img src="docs/screenshot.jpg" alt="The Roarschach window with the Kaiju preset after a long, loud session: the creature, a many-eyed head of dark ink smoke with wide smoke wings, roaring through a pale blue-grey mist with the vocoder's fan of ridges under its jaw, and the chain of fourteen modules between IN and OUTPUT below" width="800">
 
 ## Features
 
@@ -274,11 +274,11 @@ The meters show the output level (with the ceiling marked), the limiter's gain r
 
 ## Visualiser
 
-The creature above the chain is drawn live in OpenGL from the audio and the controls. It forms out of slowly drifting cloud: when the voice comes in, its eyes and mouth glow through first, then the brow and teeth, then the head, and the cloud condenses into a mirror-symmetric ink blot. When it goes quiet the face softens back into fog, with the eyes the last to fade.
+The creature above the chain is drawn live in OpenGL from the audio and the controls. It forms out of slowly swirling cloud, all of it seen through a drifting veil of pale, cool blue-grey mist: when the voice comes in, its eyes and mouth glow through first, then the brow and teeth, then the head, and the cloud condenses into a mirror-symmetric blot of ink smoke that reads through the mist as a soft dark shape. The mist thins a little around the eyes and on loud roars but never clears. When it goes quiet the face softens back into fog, with the eyes the last to fade.
 
-<img src="docs/view-asleep.jpg" alt="Silence: drifting blue-grey cloud with only a faint suggestion of a face in it" width="400"> <img src="docs/view-forming.jpg" alt="The voice comes in: two amber eyes and a glowing mouth gather out of the fog first" width="400">
-<img src="docs/view-talking.jpg" alt="Early on, talking: a soft, round cloud face with large amber eyes and a small toothy mouth" width="400"> <img src="docs/view-liquid.jpg" alt="After a few minutes of roaring with Liquid Beast: a dark, glossy head with a wide maw of needle teeth and ink tendrils streaming out to the sides" width="400">
-<img src="docs/view-horned.jpg" alt="Later, with Kaiju: a heavier head with swept horns, bony wings and the vocoder's fan of ridges under its jaw" width="400"> <img src="docs/view-crown.jpg" alt="After a long, loud session: extra eyes open on its brow and cheeks, a crown of spines rises and points of light scatter across its wings" width="400">
+<img src="docs/view-asleep.jpg" alt="Silence: pale blue-grey cloud drifting under a thick veil of mist, with no face in it" width="400"> <img src="docs/view-forming.jpg" alt="The voice comes in: two small amber eyes and the line of a mouth gather out of the mist first" width="400">
+<img src="docs/view-talking.jpg" alt="Early on, talking: a faint smoky face in the mist with large amber eyes and a small toothy mouth glowing in its throat" width="400"> <img src="docs/view-liquid.jpg" alt="After a few minutes of roaring with Liquid Beast: a dark, smoky head seen through the mist, with slit eyes and a wide maw of needle teeth around a red-glowing throat" width="400">
+<img src="docs/view-horned.jpg" alt="Later, with Kaiju: a heavier head with broad smoke wings spreading through the mist and the vocoder's fan of ridges under its jaw" width="400"> <img src="docs/view-crown.jpg" alt="After a long, loud session: extra eyes open on its brow and cheeks, and pale rings show in its wings" width="400">
 
 **It evolves.** Sustained intensity (loud, heated, growling, driven sound, not just high knob settings) slowly grows it from a pale pressed blot into something larger: a soft moth-like spirit, a horned beast, a dripping liquid horror, a winged and horned wyrm, and finally a many-eyed thing with a crown of spines. The stages blend into each other and never switch: horns and spines grow out of the head, extra eyes open from creases in the skin, and the change takes minutes, not seconds. Quiet lets it cool and settle back over minutes. A long, hard session leaves its mark: it only drifts all the way home after a long stretch of quiet. Which modules carry the sound also leans its character: SHIMMER, SWIRL and ENSEMBLE make it more fluid, ROAR, GROWL and the clipper more bestial, the VOCODER, RING and OVERTONE more eldritch, and SUB, a low PITCH and a straining limiter heavier and darker. Every instance grows its own creature, and the creature and how far it has evolved are saved with the session.
 
@@ -287,10 +287,10 @@ Right-click the creature for **Evolution: Live** (it keeps evolving), **Evolutio
 On top of whatever form it has taken, every module still shows on it:
 
 - Its jaw opens with the voice; PITCH and SIZE make its head and jaw bigger.
-- GROWL shakes its teeth, SHIMMER ripples its skin and drips ink, SWIRL sweeps a sheen up and down its face, and ENSEMBLE spreads filaments to the sides.
-- ROAR heats its eyes, SUB sends rings out of its throat, the VOCODER lights a fan of 32 ridges under its jaw (one per band), and OVERTONE lights one rib per overtone under its chin (hollow in Replace).
+- GROWL stirs the smoke and shivers its lips, SHIMMER ripples its skin and drips ink, SWIRL spins a pair of eddies through the smoke and sweeps a sheen up and down its face, and ENSEMBLE stretches the smoke out to the sides.
+- ROAR heats its eyes and throat, SUB sends rings out of its throat, the VOCODER lights a fan of 32 ridges under its jaw (one per band), and OVERTONE lights one rib per overtone under its chin (hollow in Replace).
 - RING puts flickering metal plates over its mouth, DE-ESS glints on its teeth, TAME dims its crown, and CLEAN's gate closes its lips between words.
-- At the output, the limiter swells veins at its temples and the clipper throws sparks off its edges.
+- At the output, the limiter throbs at its temples and the clipper throws sparks off its edges.
 
 The top corners show the voice's pitch (F0) and how much DETAIL is lifting and holding. After 1.5 seconds of silence the creature falls asleep, dissolving into fog, and the label ASLEEP appears; it gathers itself again as soon as sound comes back.
 

@@ -64,6 +64,8 @@ namespace roar
         float getFloorDb() const { return static_cast<float> (m_s.floorDb); }
         float getInputLevel() const { return m_s.inputLevel; } // 0..1 linear, smoothed peak (after Input)
         float getJaw() const;                                  // 0..1
+        float getJawFast() const;                              // 0..1, 5 ms / 30 ms
+        static float jawOf (float envelope);                   // envelope to 0..1 (-48..-6 dB)
         const VoiceInfo& getVoiceInfo() const { return m_detector.getVoiceInfo(); }
 
     private:
@@ -77,7 +79,7 @@ namespace roar
         double m_fastLevelCoeff = 0.0;                     // per sample
         double m_floorFallCoeff = 0.0, m_floorRiseDb = 0.0;
         int m_quickFrames = 1, m_meanFrames = 1;
-        float m_jawAttack = 0.0f, m_jawRelease = 0.0f, m_meterRelease = 0.0f;
+        float m_jawAttack = 0.0f, m_jawRelease = 0.0f, m_jawFastRelease = 0.0f, m_meterRelease = 0.0f;
 
         Biquad m_weightHp, m_weightShelf;
         PitchDetector m_detector;
@@ -100,6 +102,7 @@ namespace roar
             double gainPrev = 1.0, gainNext = 1.0;   // linear, interpolated across a frame
 
             float jawEnv = 0.0f;
+            float jawFastEnv = 0.0f;
             float inputLevel = 0.0f;
         };
 

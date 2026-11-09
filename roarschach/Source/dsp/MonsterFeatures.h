@@ -20,6 +20,7 @@ namespace roar
         std::atomic<float> inputLevel { 0.0f };    // 0..1 linear, smoothed
         std::atomic<float> outputLevel { 0.0f };   // 0..1 linear, smoothed
         std::atomic<float> jaw { 0.0f };           // 0..1 fast envelope of the input (5 ms / 120 ms)
+        std::atomic<float> jawFast { 0.0f };       // 0..1 the same mapping, 5 ms / 30 ms (the jaw's phrase and lip detail)
         std::atomic<float> f0Hz { 0.0f };          // IN's VoiceStream
         std::atomic<float> voiced { 0.0f };        // 0 or 1
 

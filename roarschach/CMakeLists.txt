@@ -89,6 +89,10 @@ target_sources(Roarschach
     Source/PluginEditor.cpp
     Source/SignalFlowStrip.cpp
     Source/MonsterView.cpp
+    Source/MonsterRenderer.cpp
+    Source/MonsterShaders.cpp
+    Source/CreatureMotion.cpp
+    Source/NoiseTexture.cpp
     Source/CreatureEvolution.cpp
     Source/LogoSdf.cpp
     Source/dsp/PitchDetector.cpp

@@ -247,6 +247,8 @@ namespace roar
                 p[(size_t) o.param] += d * charScale;
             }
             for (size_t f = 0; f < 4; ++f)
+                p[(size_t) P::charFluid + f] = (weights[f] - 0.25f) * (4.0f / 3.0f) * charScale;
+            for (size_t f = 0; f < 4; ++f)
             {
                 const float t = clamp01 ((weights[f] - 0.25f) * (4.0f / 3.0f)) * charScale * c_cornerTint;
                 if (t > 0.0f)
@@ -722,7 +724,8 @@ namespace roar
         u.form = { formation, fogA, formationFast, p[P::coffeeRing] };
         u.cloud = { p[P::inkiness], p[P::eyeSpacing], p[P::crownSpread], bloomPhase };
         u.seed = { p[P::seedAX], p[P::seedAY], p[P::cloudX], p[P::cloudY] };
-        u.seedB = { p[P::seedBX], p[P::seedBY], p[P::seedGlide], 0.0f };
+        u.seedB = { p[P::seedBX], p[P::seedBY], p[P::seedGlide], p[P::stageOut] };
+        u.character = v4 (P::charFluid, P::charBeast, P::charEldritch, P::charDeep);
         u.colCloud = v3 (P::cloudR);
         u.colCloudLit = v3 (P::cloudLitR);
         u.colUnderglow = v3 (P::underglowR);
