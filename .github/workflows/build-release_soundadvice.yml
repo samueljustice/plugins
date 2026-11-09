@@ -73,6 +73,12 @@ jobs:
         mkdir SDK
         git clone --depth 1 --branch $env:JUCE_VERSION https://github.com/juce-framework/JUCE.git SDK/JUCE
 
+    - name: Get the AAX SDK
+      id: aax
+      uses: ./.github/actions/aax-sdk
+      with:
+        deploy-key: ${{ secrets.AAX_SDK_DEPLOY_KEY }}
+
     - name: Configure CMake
       run: |
         cd soundadvice
@@ -82,12 +88,27 @@ jobs:
           -DSOUNDADVICE_VERSION="$env:VERSION" `
           -DSOUNDADVICE_FORMATS="Standalone;VST3" `
           -DSOUNDADVICE_TESTS=OFF `
+          -DSAMMYJ_AAX=ON -DAAX_SDK_PATH="${{ steps.aax.outputs.path }}" `
           -DBUILD_TIMESTAMP="$timestamp" -DBUILD_COMMIT="$commit"
 
     - name: Build app and VST3
       run: |
         cd soundadvice
         cmake --build build --config Release --parallel
+
+    # Unsigned AAX, for testing in Pro Tools Developer only (PACE wraptool signing comes later).
+    # Not part of the release, the installer or the zips attached to it.
+    - name: Zip the unsigned AAX
+      run: |
+        cd soundadvice
+        Compress-Archive -Path "build\SoundAdvice_artefacts\Release\AAX\Sound Advice.aaxplugin" -DestinationPath SoundAdvice-Windows-AAX-unsigned.zip -Force
+
+    - name: Upload the unsigned AAX
+      uses: actions/upload-artifact@v6
+      with:
+        name: SoundAdvice-Windows-AAX-unsigned
+        path: soundadvice/SoundAdvice-Windows-AAX-unsigned.zip
+        if-no-files-found: error
 
     - name: Gather files
       run: |
@@ -181,6 +202,12 @@ jobs:
         mkdir SDK
         git clone --depth 1 --branch "$JUCE_VERSION" https://github.com/juce-framework/JUCE.git SDK/JUCE
 
+    - name: Get the AAX SDK
+      id: aax
+      uses: ./.github/actions/aax-sdk
+      with:
+        deploy-key: ${{ secrets.AAX_SDK_DEPLOY_KEY }}
+
     - name: Configure CMake
       run: |
         cd soundadvice
@@ -188,6 +215,7 @@ jobs:
           -DCMAKE_OSX_ARCHITECTURES="x86_64;arm64" \
           -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0 \
           -DSOUNDADVICE_VERSION="$VERSION" \
+          -DSAMMYJ_AAX=ON -DAAX_SDK_PATH="${{ steps.aax.outputs.path }}" \
           -DBUILD_TIMESTAMP="$(date -u "+%Y-%m-%d %H:%M UTC")" \
           -DBUILD_COMMIT="$(git rev-parse --short HEAD)"
 
@@ -197,6 +225,20 @@ jobs:
         # Bounded: a bare --parallel is "make -j" with no limit, which starts every JUCE module at once
         # and can run the 3-core runner out of memory. One job per core.
         cmake --build build --config Release --parallel "$(sysctl -n hw.ncpu)"
+
+    # Unsigned AAX, for testing in Pro Tools Developer only (PACE wraptool signing comes later).
+    # Not part of the release, the installer or the zips attached to it.
+    - name: Zip the unsigned AAX
+      run: |
+        cd soundadvice
+        ditto -c -k --keepParent "build/SoundAdvice_artefacts/Release/AAX/Sound Advice.aaxplugin" SoundAdvice-macOS-AAX-unsigned.zip
+
+    - name: Upload the unsigned AAX
+      uses: actions/upload-artifact@v6
+      with:
+        name: SoundAdvice-macOS-AAX-unsigned
+        path: soundadvice/SoundAdvice-macOS-AAX-unsigned.zip
+        if-no-files-found: error
 
     - name: Check the quote database
       run: |
@@ -403,6 +445,8 @@ jobs:
       VERSION: ${{ needs.version.outputs.version }}
 
     steps:
+    # Everything is downloaded (the unsigned AAX test builds too), but only the files copied by name
+    # below go into release/, so the AAX never reaches the release.
     - name: Download all artifacts
       uses: actions/download-artifact@v7
 

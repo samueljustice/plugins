@@ -19,6 +19,8 @@ set(RUBBERBAND_LIB "${RUBBERBAND_ROOT}/lib/librubberband.a")
 
 # Plugin formats; pass -DPITCHFLATTENER_FORMATS="AU;VST3;Standalone" for a standalone app.
 set(PITCHFLATTENER_FORMATS "AU;VST3" CACHE STRING "Plugin formats to build")
+include(${CMAKE_CURRENT_SOURCE_DIR}/../cmake/AAX.cmake)
+sammyj_enable_aax(PITCHFLATTENER_FORMATS)
 option(PITCHFLATTENER_BUILD_TESTS "Build the offline flattening test harness" OFF)
 
 # Embedded UI fonts (Azeret Mono, SIL OFL 1.1)

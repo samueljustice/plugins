@@ -24,6 +24,9 @@ add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/../SDK/JUCE ${CMAKE_CURRENT_BINARY_
 # AU and VST3 for DAWs; the standalone app is handy for a second screen.
 set(SOUNDADVICE_FORMATS "AU;VST3;Standalone" CACHE STRING "Plugin formats to build")
 
+include(${CMAKE_CURRENT_SOURCE_DIR}/../cmake/AAX.cmake)
+sammyj_enable_aax(SOUNDADVICE_FORMATS)
+
 juce_add_plugin(SoundAdvice
     VERSION ${PROJECT_VERSION}
     COMPANY_NAME "Sammy J"

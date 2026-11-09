@@ -73,6 +73,12 @@ jobs:
         mkdir SDK
         git clone --depth 1 --branch $env:JUCE_VERSION https://github.com/juce-framework/JUCE.git SDK/JUCE
 
+    - name: Get the AAX SDK
+      id: aax
+      uses: ./.github/actions/aax-sdk
+      with:
+        deploy-key: ${{ secrets.AAX_SDK_DEPLOY_KEY }}
+
     - name: Configure CMake
       run: |
         cd swooshbuckler
@@ -82,12 +88,27 @@ jobs:
           -DSWOOSHBUCKLER_VERSION="$env:VERSION" `
           -DSWOOSHBUCKLER_FORMATS="Standalone;VST3" `
           -DSWOOSHBUCKLER_TESTS=OFF `
+          -DSAMMYJ_AAX=ON -DAAX_SDK_PATH="${{ steps.aax.outputs.path }}" `
           -DBUILD_TIMESTAMP="$timestamp" -DBUILD_COMMIT="$commit"
 
     - name: Build app and VST3
       run: |
         cd swooshbuckler
         cmake --build build --config Release --parallel
+
+    # Unsigned AAX, for testing in Pro Tools Developer only (PACE wraptool signing comes later).
+    # It is not part of the release, the installer or the release zips.
+    - name: Zip unsigned AAX
+      run: |
+        cd swooshbuckler
+        Compress-Archive -Path "build\Swooshbuckler_artefacts\Release\AAX\Swooshbuckler.aaxplugin" -DestinationPath Swooshbuckler-Windows-AAX-unsigned.zip -Force
+
+    - name: Upload unsigned AAX
+      uses: actions/upload-artifact@v6
+      with:
+        name: Swooshbuckler-Windows-AAX-unsigned
+        path: swooshbuckler/Swooshbuckler-Windows-AAX-unsigned.zip
+        if-no-files-found: error
 
     - name: Gather files
       run: |
@@ -181,6 +202,12 @@ jobs:
         mkdir SDK
         git clone --depth 1 --branch "$JUCE_VERSION" https://github.com/juce-framework/JUCE.git SDK/JUCE
 
+    - name: Get the AAX SDK
+      id: aax
+      uses: ./.github/actions/aax-sdk
+      with:
+        deploy-key: ${{ secrets.AAX_SDK_DEPLOY_KEY }}
+
     - name: Configure CMake
       run: |
         cd swooshbuckler
@@ -188,6 +215,7 @@ jobs:
           -DCMAKE_OSX_ARCHITECTURES="x86_64;arm64" \
           -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0 \
           -DSWOOSHBUCKLER_VERSION="$VERSION" \
+          -DSAMMYJ_AAX=ON -DAAX_SDK_PATH="${{ steps.aax.outputs.path }}" \
           -DBUILD_TIMESTAMP="$(date -u "+%Y-%m-%d %H:%M UTC")" \
           -DBUILD_COMMIT="$(git rev-parse --short HEAD)"
 
@@ -197,6 +225,20 @@ jobs:
         # Bounded: a bare --parallel is "make -j" with no limit, which starts every JUCE module and test at once
         # and runs the 3-core runner out of memory (it stalled for hours). One job per core.
         cmake --build build --config Release --parallel "$(sysctl -n hw.ncpu)"
+
+    # Unsigned AAX, for testing in Pro Tools Developer only (PACE wraptool signing comes later).
+    # It is not part of the release, the installer or the release zips.
+    - name: Zip unsigned AAX
+      run: |
+        cd swooshbuckler
+        ditto -c -k --keepParent "build/Swooshbuckler_artefacts/Release/AAX/Swooshbuckler.aaxplugin" Swooshbuckler-macOS-AAX-unsigned.zip
+
+    - name: Upload unsigned AAX
+      uses: actions/upload-artifact@v6
+      with:
+        name: Swooshbuckler-macOS-AAX-unsigned
+        path: swooshbuckler/Swooshbuckler-macOS-AAX-unsigned.zip
+        if-no-files-found: error
 
     - name: Run tests
       run: |
