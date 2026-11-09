@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.21)
 
 # The one place the version lives. Release builds pass -DSWOOSHBUCKLER_VERSION=x.y.z (from the
 # swooshbuckler-vx.y.z tag); it ends up in the About panel, the bundles, the installers and the app.
-set(SWOOSHBUCKLER_VERSION "1.3.0" CACHE STRING "Swooshbuckler version (major.minor.patch)")
+set(SWOOSHBUCKLER_VERSION "1.4.0" CACHE STRING "Swooshbuckler version (major.minor.patch)")
 project(Swooshbuckler VERSION ${SWOOSHBUCKLER_VERSION})
 
 set(CMAKE_CXX_STANDARD 20)
@@ -181,4 +181,11 @@ if(SWOOSHBUCKLER_TOOLS)
     target_link_libraries(SwooshbucklerIcon
         PRIVATE juce::juce_gui_basics
         PUBLIC juce::juce_recommended_config_flags)
+
+    # Knob audit: sweeps a parameter through the real plug-in offline and measures each step (tools/KnobAudit.cpp).
+    juce_add_console_app(SwooshbucklerAudit PRODUCT_NAME "SwooshbucklerAudit")
+    target_sources(SwooshbucklerAudit PRIVATE tools/KnobAudit.cpp)
+    target_include_directories(SwooshbucklerAudit PRIVATE Source ${CMAKE_CURRENT_BINARY_DIR}/Swooshbuckler_artefacts/JuceLibraryCode $<TARGET_PROPERTY:Swooshbuckler,INCLUDE_DIRECTORIES>)
+    target_compile_definitions(SwooshbucklerAudit PRIVATE $<TARGET_PROPERTY:Swooshbuckler,COMPILE_DEFINITIONS>)
+    target_link_libraries(SwooshbucklerAudit PRIVATE Swooshbuckler)
 endif()

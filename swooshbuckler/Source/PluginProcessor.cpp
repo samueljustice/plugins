@@ -30,7 +30,6 @@ SwooshbucklerAudioProcessor::SwooshbucklerAudioProcessor()
         m_trackPitchTarget[static_cast<size_t>(i)] = ModMatrix::targetIndex(ParamIDs::trackSemis[i]);
     }
     m_raw.pitch = raw(ParamIDs::pitch);
-    m_raw.input = raw(ParamIDs::input);
     m_raw.rideOn = raw(ParamIDs::rideOn);
     m_raw.energy = raw(ParamIDs::energy);
     m_raw.rate = raw(ParamIDs::rate);
@@ -208,7 +207,7 @@ void SwooshbucklerAudioProcessor::updateEngineParams()
     RigEngine::Params p;
     for (size_t i = 0; i < p.levels.size(); ++i)
     {
-        p.levels[i] = m_raw.tracks[i]->load();
+        p.levels[i] = Params::faderGain(m_raw.tracks[i]->load());
         // Semitones plus cents, plus any modulator wires on the Semitones box (smooth, not stepped: a 100% wire
         // swings the whole 48 semitones), held to two octaves either way so VARI on and off reach the same extremes.
         float pitch = std::round(m_raw.trackSemis[i]->load()) + std::round(m_raw.trackCents[i]->load()) / 100.0f;
@@ -221,16 +220,23 @@ void SwooshbucklerAudioProcessor::updateEngineParams()
         p.trackPitch[i] = juce::jlimit(-24.0f, 24.0f, pitch);
         p.trackVari[i] = m_raw.trackVari[i]->load() > 0.5f;
     }
-    p.pitch = modValue(m_raw.pitch);
-    p.input = 0.0f; // sample-based only
+    // Knobs that glide on springs in the engine get their own value plus the modulators' offset separately, so the
+    // engine can add the offset after the glide (a fast modulator would otherwise be smoothed away).
+    auto modDelta = [this](std::atomic<float>* raw) { return modValue(raw) - raw->load(); };
+    p.pitch = m_raw.pitch->load();
+    p.pitchMod = modDelta(m_raw.pitch);
     p.rideOn = m_raw.rideOn->load() > 0.5f;
-    p.energy = modValue(m_raw.energy);
+    p.energy = m_raw.energy->load();
+    p.energyMod = modDelta(m_raw.energy);
     p.rate = modValue(m_raw.rate);
-    p.fill = modValue(m_raw.fill);
+    p.fill = m_raw.fill->load();
+    p.fillMod = modDelta(m_raw.fill);
     p.chaos = modValue(m_raw.chaos);
     for (int b = 0; b < RigEngine::c_maxBuses; ++b)
     {
-        auto get = [&](int k) { return m_raw.bus[b][k] != nullptr ? modValue(m_raw.bus[b][k]) : 0.0f; };
+        auto get = [&](int k) { return m_raw.bus[b][k] != nullptr ? m_raw.bus[b][k]->load() : 0.0f; };
+        for (int k = 0; k < ParamIDs::numBusControls; ++k)
+            p.busMod[static_cast<size_t>(b)][static_cast<size_t>(k)] = m_raw.bus[b][k] != nullptr ? modDelta(m_raw.bus[b][k]) : 0.0f;
         auto& d = p.buses[static_cast<size_t>(b)];
         d.doppler = get(ParamIDs::Doppler);
         d.width = get(ParamIDs::Width);
@@ -261,7 +267,8 @@ void SwooshbucklerAudioProcessor::updateEngineParams()
     p.tremThreshold = modValue(m_raw.tremThreshold);
     p.tremShape = juce::jlimit(0, 2, juce::roundToInt(m_raw.tremShape->load()));
     p.tremTarget = juce::jlimit(0, 2, juce::roundToInt(m_raw.tremTarget->load()));
-    p.space = modValue(m_raw.space);
+    p.space = m_raw.space->load();
+    p.spaceMod = modDelta(m_raw.space);
     p.morphOn = m_raw.morphOn->load() > 0.5f;
     p.morphMode = juce::roundToInt(m_raw.morphMode->load());
     p.morphX = m_raw.morphX->load();
@@ -272,8 +279,10 @@ void SwooshbucklerAudioProcessor::updateEngineParams()
     m_engine.setParams(p);
 
     MasterProcessor::Parameters mp;
-    mp.inflateEffect = modValue(m_raw.inflate);
-    mp.inflateCurve = 0.0f;
+    // Inflate: the first 70% blends the effect in; the last 30% moves its curve from neutral to its hardest.
+    const float inflate = modValue(m_raw.inflate);
+    mp.inflateEffect = juce::jmin(1.0f, inflate / 0.7f);
+    mp.inflateCurve = juce::jlimit(0.0f, 1.0f, (inflate - 0.7f) / 0.3f);
     mp.limiterOn = true;
     mp.ceilingDb = modValue(m_raw.ceiling);
     m_pushDb = modValue(m_raw.push);

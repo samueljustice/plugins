@@ -344,7 +344,9 @@ void SpectralMorph::processFrame()
             m_powOut += (outPow / (m_trim * m_trim) - m_powOut) * m_trimCoeff; // untrimmed output power
             if (m_powOut > 1.0e-12f)
             {
-                const float want = clampf(std::sqrt(m_powTarget / m_powOut), 0.7f, 1.6f); // -3 .. +4 dB
+                // -3 .. +4 dB; Glide can lose more level, so it may make up to +/-12 dB.
+                const float want = m_mode == Glide ? clampf(std::sqrt(m_powTarget / m_powOut), 0.25f, 4.0f)
+                                                   : clampf(std::sqrt(m_powTarget / m_powOut), 0.7f, 1.6f);
                 m_trim += (want - m_trim) * m_trimCoeff;
             }
         }
@@ -369,14 +371,15 @@ void SpectralMorph::renderMode(int mode, float xe, float y, std::vector<Cpx>& de
             const float first = std::min(1.0f, 2.0f * xe), second = std::max(0.0f, 2.0f * xe - 1.0f);
             const float envW = lerpf(second, first, y);
             const float fineW = lerpf(first, second, y);
-            renderBlend(xe, 1.0f, envW, fineW, dest);
+            renderBlend(xe, 0.0f, envW, fineW, dest); // geometric: a clean swap of the fine structures
             break;
         }
 
         case Blend:
         default:
-            // y = 0: power mean of the fine structures (both pitches), y = 1: geometric (fused).
-            renderBlend(xe, 2.0f * (1.0f - y), xe, xe, dest);
+            // y = 0: power mean of the fine structures (both pitches), y = 1: geometric (fused). Square law, so the
+            // lower half of Y moves too (the power mean barely changes between p = 2 and p = 1.2).
+            renderBlend(xe, 2.0f * (1.0f - y) * (1.0f - y), xe, xe, dest);
             break;
     }
 }
@@ -384,7 +387,7 @@ void SpectralMorph::renderMode(int mode, float xe, float y, std::vector<Cpx>& de
 void SpectralMorph::renderBlend(float xe, float p, float envW, float fineW, std::vector<Cpx>& dest)
 {
     juce::ignoreUnused(xe);
-    const bool geometric = p < 0.05f;
+    const bool geometric = p < 0.001f;
     const float invP = geometric ? 0.0f : 1.0f / p;
 
     for (int k = 0; k < m_bins; ++k)
@@ -489,7 +492,7 @@ void SpectralMorph::renderGlide(float xe, float y, std::vector<Cpx>& dest)
     // frequency. Phases are locked to the moved peak, whose phase is advanced at the moved frequency.
     const int bins = m_bins;
     const auto binsS = static_cast<size_t>(bins);
-    const float t = xe;
+    const float t = xe * xe; // the tonal / noise change otherwise all happens in the first few percent of X
     const float advance = c_twoPi * static_cast<float>(m_hop) / static_cast<float>(m_fftSize);
 
     std::fill(dest.begin(), dest.end(), Cpx {});
@@ -597,6 +600,6 @@ void SpectralMorph::renderGlide(float xe, float y, std::vector<Cpx>& dest)
         }
         mean /= static_cast<float>(bins);
         for (size_t k = 0; k < binsS; ++k)
-            dest[k] *= std::exp(clampf(y * (m_scratch2[k] - mean), -6.0f, 6.0f));
+            dest[k] *= std::exp(clampf(0.18f * y * (m_scratch2[k] - mean), -1.5f, 1.5f)); // Y spans the even part of the correction
     }
 }

@@ -1,5 +1,18 @@
 # Swooshbuckler changelog
 
+## 1.4.0
+
+- **Every knob reworked so all of its travel is usable.** Each one was measured across its range and remapped; the details and numbers are in [docs/knob-audit.md](docs/knob-audit.md). The main changes:
+  - Energy dips evenly in dB, all the way to silence. Fill's echoes come after the fader, so they fill the ride's dips. Chaos varies the size of each swell. Rate shows the swell time.
+  - Track faders are 30 dB faders in dB, and Pitch is finer near the middle.
+  - Width really pans, at any Doppler. Filter sweeps instead of just turning the level down. Drive and Swirl add character without jumping in level. Ducked by A reaches -20 dB, and Filtered by A works whatever the Filter is set to.
+  - Hit Boost is -3 to +12 dB, Duck reaches -12 dB, Floor is curved, and Sensitivity is spread out in every gate mode (Level now follows the recent peak).
+  - Push is 0 to +15 dB, Ceiling -6 to 0 dB, Master Trim stops at 0 dB, and Space no longer pushes wide beds out of phase. Inflate's last 30% gets harder.
+  - Tremolo Depth and Threshold read in dB and are even.
+  - Modulators run from 20 s cycles to 8 Hz and reach every knob without being smoothed away. Random starts moving straight away, and the Follower runs from 2 s to 26 ms. Morph X holds its level, and Glide no longer collapses.
+- **Removed:** the Input parameter (the plug-in has no audio input).
+- Saved sessions and automation use the new curves, so they can sound different.
+
 ## 1.3.0
 
 - **AIM: hits on the peaks.** On by default for new sessions: Swooshbuckler looks ahead to each doppler pass's peak on buses A and B and fires every hit track early by its own lead-in, so the transients land right on the peak. Sensitivity sets which peaks earn a hit. Sessions saved before keep the hit gate they were made with.

@@ -75,7 +75,8 @@ public:
         {
             m_owner.m_processor.getMods().clearSource(m_source);
         };
-        m_knob.setDoubleClickReturnValue(true, 0.4);
+        if (auto* param = owner.m_processor.getState().getParameter(ParamIDs::modKnob[source]))
+            m_knob.setDoubleClickReturnValue(true, param->convertFrom0to1(param->getDefaultValue()));
         for (auto* c : std::initializer_list<juce::Component*> { &m_type, &m_shape, &m_follow, &m_knob, &m_clear })
             addAndMakeVisible(c);
         updateType();
@@ -87,7 +88,21 @@ public:
         m_knob.caption = knobCaption(t);
         m_knob.setTooltip(t == ModMatrix::Type::Macro ? "Amount\nThe macro's value: turn it and every wired knob follows, each by its own depth.\nDouble-click to reset it."
                           : t == ModMatrix::Type::Follower ? "Speed\nHow quickly it follows its input: slow is smooth and gentle, fast is jumpy and follows every hit.\nDouble-click to reset it."
-                                                           : "Rate\nHow fast it moves, from one cycle every 50 seconds (0.02 Hz) to 12 times a second.\nDouble-click to reset it.");
+                                                           : "Rate\nHow fast it moves, from one cycle every 20 seconds to 8 times a second.\nDouble-click to reset it.");
+        // The readout in the knob's own units: the cycle time or rate, the follow time, or the amount.
+        m_knob.textFromValueFunction = [t](double v)
+        {
+            const float k = static_cast<float>(v);
+            if (t == ModMatrix::Type::Macro)
+                return juce::String(juce::roundToInt(k * 100.0f)) + "%";
+            if (t == ModMatrix::Type::Follower)
+            {
+                const float sec = ModMatrix::followerSeconds(k);
+                return sec < 1.0f ? juce::String(juce::roundToInt(sec * 1000.0f)) + " ms" : juce::String(sec, 1) + " s";
+            }
+            const float hz = ModMatrix::rateHz(k);
+            return hz < 1.0f ? juce::String(1.0f / hz, 1) + " s" : juce::String(hz, 1) + " Hz";
+        };
         m_type.setTooltip(typeTip(t));
         m_shape.setVisible(t == ModMatrix::Type::Lfo);
         m_follow.setVisible(t == ModMatrix::Type::Follower);

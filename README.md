@@ -5,12 +5,12 @@
 **Toys I've made for sound designers.**
 
 <!-- get-them-all:start (written by .github/workflows/build-release_bundle.yml; edits here are replaced) -->
-### ⬇️ Get them all (last built 9 Nov 2026, 09:26 UTC)
+### ⬇️ Get them all (last built 9 Nov 2026, 15:57 UTC)
 
-[![Get them all for macOS](https://img.shields.io/badge/Get_them_all-macOS-000000?style=for-the-badge&logo=apple&logoColor=white)](https://github.com/samueljustice/plugins/releases/download/bundle-v2026.11.9.57/SammyJ-Plugins-2026-11-09-0926-macOS.dmg)
-[![Get them all for Windows](https://img.shields.io/badge/Get_them_all-Windows-0078D6?style=for-the-badge&logo=windows&logoColor=white)](https://github.com/samueljustice/plugins/releases/download/bundle-v2026.11.9.57/SammyJ-Plugins-2026-11-09-0926-Windows-Installer.exe)
+[![Get them all for macOS](https://img.shields.io/badge/Get_them_all-macOS-000000?style=for-the-badge&logo=apple&logoColor=white)](https://github.com/samueljustice/plugins/releases/download/bundle-v2026.11.9.64/SammyJ-Plugins-2026-11-09-1557-macOS.dmg)
+[![Get them all for Windows](https://img.shields.io/badge/Get_them_all-Windows-0078D6?style=for-the-badge&logo=windows&logoColor=white)](https://github.com/samueljustice/plugins/releases/download/bundle-v2026.11.9.64/SammyJ-Plugins-2026-11-09-1557-Windows-Installer.exe)
 
-<sub>One installer with the newest version of every plug-in: Swooshbuckler 1.3.0 · Sound Advice 1.0.11 · Subbertone 1.3.1 · Pitch Flattener 2.2.0 · Reversinator 2.0.3 · Roarschach 1.0.0. The apps, the VST3s and (on macOS) the AUs. It removes older copies first, so nothing shows up twice in your host. To remove them again: on macOS, run Uninstall Sammy J's Plugins from the same disk image; on Windows, use Settings &gt; Apps.<br>
+<sub>One installer with the newest version of every plug-in: Swooshbuckler 1.4.0 · Sound Advice 1.0.12 · Subbertone 1.3.1 · Pitch Flattener 2.2.0 · Reversinator 2.0.3 · Roarschach 1.0.0. The apps, the VST3s and (on macOS) the AUs. It removes older copies first, so nothing shows up twice in your host. To remove them again: on macOS, run Uninstall Sammy J's Plugins from the same disk image; on Windows, use Settings &gt; Apps.<br>
 Want just one? Each plug-in's own download is below, or browse all <a href="https://github.com/samueljustice/plugins/releases">releases</a>.</sub>
 <!-- get-them-all:end -->
 
@@ -69,7 +69,7 @@ Drop in up to ten sounds (cloth, air, engines, creatures, metal) and Swooshbuckl
 </details>
 
 **App** (macOS, Windows) · **VST3** · **AU** &nbsp;&nbsp;
-[![Download Swooshbuckler](https://img.shields.io/badge/download-v1.3.0-d00a35?style=flat-square)](https://github.com/samueljustice/plugins/releases/tag/swooshbuckler-v1.3.0) &nbsp;
+[![Download Swooshbuckler](https://img.shields.io/badge/download-v1.4.0-d00a35?style=flat-square)](https://github.com/samueljustice/plugins/releases/tag/swooshbuckler-v1.4.0) &nbsp;
 [Read the manual →](swooshbuckler/README.md)
 
 ---
@@ -221,7 +221,7 @@ Roarschach turns a spoken or shouted performance into a big, liquid, gravelly cr
 
 A page of advice from people who work on film, TV, game and trailer sound: re-recording mixers, sound designers, supervising editors, game audio directors and others, plus a Disney Imagineer on leading creative work. Pick what you're working on (mixing, creatures, dialogue, silence, running a creative team...) and roll the die. It deals you a field note on a real technique or decision, or a quote in their own words, tied to the production it came from.
 
-- 📚 **843 entries from 148 people**, each name linked to their credits
+- 📚 **839 entries from 147 people**, each name linked to their credits
 - 🔗 **Every entry traced to its source**: click through to the original interview, article or SoundWorks Collection video
 - 🛠️ **Concrete, not fortune-cookie**: mostly field notes on real sources, recording methods and mix decisions
 - 🗂️ **17 categories**, from Mixing and Field Recording to Horror & Tension, Silence & Restraint and Creativity & Teams. Each is a shuffled deck, so nothing repeats until you've seen the lot
@@ -229,7 +229,7 @@ A page of advice from people who work on film, TV, game and trailer sound: re-re
 - 🔇 **Audio passes straight through**, so it can sit on a mix bus, or run as an app on a second screen
 
 **App** (macOS, Windows) · **VST3** · **AU** &nbsp;&nbsp;
-[![Download Sound Advice](https://img.shields.io/badge/download-v1.0.11-9a5a3a?style=flat-square)](https://github.com/samueljustice/plugins/releases/tag/soundadvice-v1.0.11) &nbsp;
+[![Download Sound Advice](https://img.shields.io/badge/download-v1.0.12-9a5a3a?style=flat-square)](https://github.com/samueljustice/plugins/releases/tag/soundadvice-v1.0.12) &nbsp;
 [Read the manual →](soundadvice/README.md)
 
 ---
