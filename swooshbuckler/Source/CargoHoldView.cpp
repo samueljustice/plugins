@@ -156,7 +156,7 @@ public:
         m_level.setSliderStyle(juce::Slider::LinearHorizontal);
         m_level.setTextBoxStyle(juce::Slider::NoTextBox, false, 0, 0);
         m_level.setColour(juce::Slider::trackColourId, colour);
-        m_level.setTooltip("Track Level\nThis track's fader. With Auto Ride on it moves by itself and this sets how high it can go; "
+        m_level.setTooltip("Track Level\nThis track's fader, in dB (30 dB of travel, then silence at the bottom). With Auto Ride on it moves by itself and this sets how high it can go; "
                            "the strip next to the waveform shows where it is right now.\nDouble-click to reset it.");
         addAndMakeVisible(m_level);
 
@@ -922,7 +922,7 @@ void CargoHoldView::timerCallback()
     for (auto& lane : m_lanes)
     {
         const int t = lane->getTrack();
-        const float level = m_processor.getState().getParameter(ParamIDs::cargoTrack[t])->getValue();
+        const float level = Params::faderGain(m_processor.getState().getParameter(ParamIDs::cargoTrack[t])->getValue()); // the gain, not the fader position
         lane->pushRide(engine.getRide(t) * level * m_hold.laneGain(CargoHold::c_numBuiltIns + t));
     }
     for (auto& lane : m_lanes)

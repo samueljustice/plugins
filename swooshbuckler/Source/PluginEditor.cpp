@@ -623,11 +623,11 @@ SwooshbucklerAudioProcessorEditor::SwooshbucklerAudioProcessorEditor(Swooshbuckl
     m_content.addAndMakeVisible(m_rideButton);
     m_rideAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment>(p.getState(), ParamIDs::rideOn, m_rideButton);
 
-    addKnob(ParamIDs::energy, "Energy", TC::flight, "How far the auto ride pulls the faders. Low: gentle movement that stays fairly level. High: big swells that rise out of silence and fall back, so each whoosh really arrives and leaves.");
-    addKnob(ParamIDs::rate, "Rate", TC::flight, "How fast the faders move, and so how long each whoosh and each doppler pass lasts. Low: slow, long passes. High: quick, short swishes.");
-    addKnob(ParamIDs::fill, "Fill", TC::flight, "Long echoes (0.5, 1 and 2 s) that fill the gaps in unsteady, gappy sounds so the result stays continuous. Sounds with more gaps get more of it; steady sounds barely change.");
-    addKnob(ParamIDs::chaos, "Chaos", TC::flight, "How unpredictable it is. Low: the rides and doppler passes repeat in a steady pattern. High: every swell and pass has a different speed, size and direction, and crackle tracks jump around.");
-    addKnob(ParamIDs::pitch, "Pitch", TC::flight, "Plays every track higher or lower, in semitones (up to two octaves either way). Down makes everything bigger and heavier; up makes it smaller and faster.");
+    addKnob(ParamIDs::energy, "Energy", TC::flight, "How deep the auto ride dips the faders between swells, evenly in dB: 4 dB more for every 10%, to -36 dB at 90% and right down to silence at 100%, so each whoosh rises out of nothing and falls back. Low: gentle movement that stays fairly level. Does nothing with Auto Ride off.");
+    addKnob(ParamIDs::rate, "Rate", TC::flight, "How fast the faders move, and so how long each whoosh and each doppler pass lasts. The readout is the time of one swell (each track rides a little faster or slower than it). Low: slow, long passes (25 s swells, 6 s passes). High: short ones (under 2 s swells, 1.6 s passes).");
+    addKnob(ParamIDs::fill, "Fill", TC::flight, "Long echoes (0.5, 1 and 2 s) after each track's fader, so they hang on into the dips of the ride and the gaps of unsteady sounds and keep the result going. Gappy sounds get more of it.");
+    addKnob(ParamIDs::chaos, "Chaos", TC::flight, "How unpredictable it is. 0 is a steady pattern that repeats (every track plays in order from its start). Higher: every swell has a different size and speed, every pass a different speed, length and closeness, and crackle tracks jump around.");
+    addKnob(ParamIDs::pitch, "Pitch", TC::flight, "Plays every track higher or lower, in semitones (up to two octaves either way), finer near the middle. Down makes everything bigger, heavier and slower; up makes it smaller and faster (the hits too).");
 
     // Buses: one set of controls per bus, shown one bus at a time (tabs) --------
     {
@@ -635,14 +635,14 @@ SwooshbucklerAudioProcessorEditor::SwooshbucklerAudioProcessorEditor(Swooshbuckl
         const char* names[] = { "Doppler", "Width", "Bend", "Low End", "Swirl", "Filter", "Drive", "Ducked", "Filtered" };
         const char* tips[] = {
             "How dramatic each pass of the moving source is: how close it comes, how much it swells and brightens on the way by. Speed, distance and direction change by themselves with every pass.",
-            "How far each pass travels across the stereo field. Low: it stays near the middle. High: a full left-to-right fly-by.",
-            "How much the pitch dives as a pass goes by (the doppler bend). Low: passes go by without the pitch dive. High: a big race-car drop.",
+            "How far each pass travels across the stereo field. 0: in the middle. High: a full side-to-side fly-by. With LINK on, bus B uses bus A's Width.",
+            "How much the pitch dives as a pass goes by (the doppler bend), together with Doppler. Low: passes go by without the pitch dive. High: a big race-car drop.",
             "Weight: a sub octave, low overtones, and an extra low lift at the loudest moments.",
-            "Movement inside the sound: a phaser, then a flanger that sweeps along with each pass.",
-            "A filter that opens as the bus gets louder, so quiet parts are dark and the peaks are bright, like air rushing past.",
-            "Saturation: grit and warmth, from a gentle thickening to a hard growl.",
-            "How much bus A pushes this bus down when A gets loud (side-chain ducking), so the two buses don't pile up. With TAKE TURNS on, also how far the quieter bus goes down.",
-            "How much bus A closes a low-pass filter on this bus when A gets loud (a side-chained envelope filter): B goes dark under A instead of quieter.",
+            "Movement inside the sound: a phaser, then (from about a third of the way) a flanger that sweeps along with each pass. The level stays put; only the colour moves. High settings narrow and darken a bed.",
+            "A filter that opens as each pass swells and closes in its tail, so the tails are dark and the peaks bright, like air rushing past. More: more of it, closing further at the peak, and over the top 40% a resonant edge.",
+            "Saturation: grit and density, from a gentle thickening to a hard, flattened growl. The level is kept roughly steady, so it adds character rather than just loudness.",
+            "How much bus A pushes this bus down at A's peaks (side-chain ducking, up to -20 dB in Volume mode), so the two buses don't pile up. DUCK sets how (Volume, Darken or Mids). With TAKE TURNS on, also how far the quieter bus goes down: at 0, Take Turns does nothing.",
+            "How far bus A closes a low-pass filter on this bus at A's peaks (down to about 280 Hz at 100%): B goes dark under A instead of quieter.",
         };
         for (int b = 0; b < ParamIDs::numBuses; ++b)
         {
@@ -656,12 +656,12 @@ SwooshbucklerAudioProcessorEditor::SwooshbucklerAudioProcessorEditor(Swooshbuckl
 
     // Hits + output --------------------------------------------------------------
     addKnob(ParamIDs::hitSense, "Sensitivity", TC::record, "How easily the hits fire. With AIM on: which pass peaks get a hit (closer passes on a louder bus score higher). With AIM off: how easily the hit gate opens, by the GATE mode. Low: only the biggest moments fire the hits. High: they fire often.");
-    addKnob(ParamIDs::hitBoost, "Boost", TC::record, "How much the hit tracks jump up when the gate opens, from 6 dB under their own level to 12 dB over it. More makes the hits punch out of the whoosh.");
+    addKnob(ParamIDs::hitBoost, "Boost", TC::record, "How loud the hit tracks come in when they fire, from 3 dB under their own level to 12 dB over it. More makes the hits punch out of the whoosh (the top end leans on the limiter).");
     addKnob(ParamIDs::hitRelease, "Release", TC::record, "How long the hits tail out after the gate opens. Short: tight, dry impacts. Long: the hits ring on into the next swell.");
     addKnob(ParamIDs::hitHold, "Hold", TC::record, "How long the gate stays open once it opens. Longer stops it chattering open and shut, so each hit reads as one event.");
-    addKnob(ParamIDs::hitFloor, "Floor", TC::record, "How far the gate closes between hits. Closed (fully left): the hits vanish completely between peaks, like the original rig. Turn it up and they stay quietly under the mix instead.");
-    addKnob(ParamIDs::hitDuck, "Duck", TC::record, "When the hits fire they push buses A and B down out of the way, so the impact punches through the wall of whoosh. DUCK sets how they get out of the way.");
-    addKnob(ParamIDs::duckReturn, "Return", TC::record, "How fast ducked buses come back up afterwards (here, and bus B ducked by A). Fast (fully left) is the original rig. Slower is smoother, with less pumping.");
+    addKnob(ParamIDs::hitFloor, "Floor", TC::record, "How far the gate closes between hits. Closed (fully left): the hits vanish completely between peaks. Turn it up and they stay under the mix instead, from -22 dB to just under their full level.");
+    addKnob(ParamIDs::hitDuck, "Duck", TC::record, "How far buses A and B get out of the way when the hits fire (up to -12 dB at the hits' peaks), so the impact punches through the wall of whoosh. DUCK sets how they get out of the way.");
+    addKnob(ParamIDs::duckReturn, "Return", TC::record, "How fast ducked buses come back up afterwards, for the hits' duck and for bus B ducked by A. Fast (fully left) follows straight away. Slower is smoother; at the top it pumps.");
 
     // Gate and duck modes: the first entry of each is the original rig.
     m_gateMode.addItemList({ "Peaks", "Level", "Jumps", "Open" }, 1);
@@ -710,14 +710,14 @@ SwooshbucklerAudioProcessorEditor::SwooshbucklerAudioProcessorEditor(Swooshbuckl
     m_takeTurnsAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment>(p.getState(), ParamIDs::takeTurns, m_takeTurns);
     m_linkBusesAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment>(p.getState(), ParamIDs::linkBuses, m_linkBuses);
 
-    addKnob(ParamIDs::space, "Space", TC::space, "Echoes, reverb and stereo width around the whole mix. Low: close and dry. High: a big open space for the whooshes to fly through.");
-    addKnob(ParamIDs::inflate, "Inflate", TC::master, "Makes the mix louder and denser without adding new peaks, so quieter detail comes forward. Good for thin sources.");
-    addKnob(ParamIDs::push, "Push", TC::master, "How hard the mix drives into the limiter (up to +18 dB). More is louder and denser; the ceiling stays where it is, so it can't clip.");
-    addKnob(ParamIDs::ceiling, "Ceiling", TC::master, "The limiter's ceiling: nothing gets out louder than this (0 to -12 dBFS). The default, -0.3 dB, leaves a little headroom for file conversion.");
+    addKnob(ParamIDs::space, "Space", TC::space, "Echoes and reverb around the whole mix. Low: close and dry. High: a big open wash for the whooshes to fly through (it smooths out the swells).");
+    addKnob(ParamIDs::inflate, "Inflate", TC::master, "Makes the mix louder and denser without adding new peaks, so quieter detail comes forward. Up to 70% it blends in; the last 30% makes its curve harder and grittier. Good for thin sources.");
+    addKnob(ParamIDs::push, "Push", TC::master, "How hard the mix drives into the limiter (up to +15 dB). More is louder and denser, then squashed; the ceiling stays where it is, so it can't clip.");
+    addKnob(ParamIDs::ceiling, "Ceiling", TC::master, "The limiter's ceiling: nothing gets out louder than this (0 to -6 dBFS, finer near the top). The default, -0.3 dB, leaves a little headroom for file conversion.");
 
     // Peak tremolo: a framed group at the left of Output (before Space in the signal): On/Off, wave and Shakes menus
     // over its Depth, Rate and Threshold knobs.
-    addKnob(ParamIDs::tremDepth, "Depth", TC::movement, "Tremolo Depth\nHow deep the tremolo goes at the very peak. It only shakes the loudest moments: past Threshold it eases in, "
+    addKnob(ParamIDs::tremDepth, "Depth", TC::movement, "Tremolo Depth\nHow far the level dips at the very peak (the readout), up to a full chop at 100%. It only shakes the loudest moments: past Threshold it eases in, "
             "deepest at the peak, and lets go as the level falls, so the dynamics flutter where the whoosh is biggest.");
     m_tremOn.addItemList({ "Off", "On" }, 1);
     m_tremOn.setWantsKeyboardFocus(false);
@@ -727,8 +727,8 @@ SwooshbucklerAudioProcessorEditor::SwooshbucklerAudioProcessorEditor(Swooshbuckl
     m_content.addAndMakeVisible(m_tremOn);
     m_tremOnAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment>(p.getState(), ParamIDs::tremOn, m_tremOn);
     addKnob(ParamIDs::tremRate, "Rate", TC::movement, "Tremolo Rate\nHow fast it shakes, from 1.5 Hz (a slow throb) to 30 Hz (a buzzing flutter).");
-    addKnob(ParamIDs::tremThreshold, "Threshold", TC::movement, "Tremolo Threshold\nHow near its peak the level has to be before the tremolo starts, measured against the recent peak. "
-            "Low: it shakes most of the time. High: only right at the top of each swell.");
+    addKnob(ParamIDs::tremThreshold, "Threshold", TC::movement, "Tremolo Threshold\nHow near its recent peak the level has to be before the tremolo starts (the readout, in dB under the peak). "
+            "Low: it shakes most of the time. High: only right at the top of each swell. A steady bed sits at its own peak, so it shakes all the time.");
     m_tremShape.addItemList({ "Sine", "Square", "Flutter" }, 1);
     m_tremShape.setTooltip("Tremolo Shape\nSine: a smooth throb. Square: hard chops, like a helicopter. Flutter: a random wobble, like wings or a loose flap.");
     m_tremTarget.addItemList({ "Everything", "Buses A + B", "Hits" }, 1);
@@ -748,7 +748,7 @@ SwooshbucklerAudioProcessorEditor::SwooshbucklerAudioProcessorEditor(Swooshbuckl
     m_trim.setColour(juce::Slider::trackColourId, TC::master);
     m_trim.setDoubleClickReturnValue(true, 0.0);
     m_trim.setWantsKeyboardFocus(false);
-    m_trim.setTooltip("Master Trim\nHow loud you hear it (and what your DAW gets from the plug-in), from silence to +6 dB, after the limiter. "
+    m_trim.setTooltip("Master Trim\nHow loud you hear it (and what your DAW gets from the plug-in), from silence up to the limiter's level, after the limiter. "
                       "The tape and LAST 60s record before it, at full level, so turning it down never makes a quieter take.\n"
                       "Drag it. Double-click to reset it to 0 dB.");
     m_content.addAndMakeVisible(m_trim);
@@ -1269,20 +1269,36 @@ void SwooshbucklerAudioProcessorEditor::syncMorphPad()
 
 void SwooshbucklerAudioProcessorEditor::showAimControls()
 {
-    // AIM times the hits itself and holds the gate open: dim what only the gate (or the sync beat) uses.
-    const bool aim = m_processor.getState().getRawParameterValue(ParamIDs::hitAim)->load() > 0.5f;
-    if (m_aimShown == (aim ? 1 : 0))
+    // AIM times the hits itself and holds the gate open: dim what only the gate (or the sync beat) uses. GATE Open
+    // holds the gate open too, so the knobs that shape the gate do nothing there either. Energy does nothing with
+    // Auto Ride off.
+    auto& state = m_processor.getState();
+    const bool aim = state.getRawParameterValue(ParamIDs::hitAim)->load() > 0.5f;
+    const bool open = ! aim && juce::roundToInt(state.getRawParameterValue(ParamIDs::gateMode)->load()) == 3;
+    const bool ride = state.getRawParameterValue(ParamIDs::rideOn)->load() > 0.5f;
+    const int shown = (aim ? 1 : 0) + (open ? 2 : 0) + (ride ? 4 : 0);
+    if (m_aimShown == shown)
         return;
-    m_aimShown = aim ? 1 : 0;
-    std::vector<juce::Component*> resting { &m_gateMode, &m_syncHits };
-    for (const auto* id : { ParamIDs::hitRelease, ParamIDs::hitHold, ParamIDs::hitFloor })
-        if (const auto it = m_controls.find(juce::String(id)); it != m_controls.end() && it->second != nullptr)
-            resting.push_back(it->second);
-    for (auto* c : resting)
+    m_aimShown = shown;
+    auto control = [this](const char* id) -> juce::Component*
     {
-        c->setEnabled(! aim);
-        c->setAlpha(aim ? 0.35f : 1.0f);
-    }
+        const auto it = m_controls.find(juce::String(id));
+        return it != m_controls.end() ? it->second : nullptr;
+    };
+    auto dim = [](juce::Component* c, bool off)
+    {
+        if (c == nullptr)
+            return;
+        c->setEnabled(! off);
+        c->setAlpha(off ? 0.35f : 1.0f);
+    };
+    dim(&m_gateMode, aim);
+    dim(&m_syncHits, aim);
+    for (const auto* id : { ParamIDs::hitRelease, ParamIDs::hitHold, ParamIDs::hitFloor })
+        dim(control(id), aim || open);
+    dim(control(ParamIDs::hitSense), open);
+    if (auto* energy = control(ParamIDs::energy))
+        energy->setAlpha(ride ? 1.0f : 0.45f); // still usable, so it can be set before switching the ride on
     m_content.repaint(m_gateLamp.expanded(10));
 }
 

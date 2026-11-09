@@ -61,23 +61,26 @@ public:
         float fill = 0.3f;     // long delays into the gaps
         float chaos = 0.4f;    // randomness of the rides and the passes
         float pitch = 0.0f;    // semitones, every track
-        float input = 0.0f;    // the audio input, mixed into bus A
-        std::array<float, c_tracks> levels { 0.8f, 0.8f, 0.8f, 0.8f, 0.8f, 0.8f, 0.8f, 0.8f, 0.8f, 0.8f };
+        // Modulator offsets for the knobs that glide on springs, in the knob's own units. They are added after the
+        // spring, so a fast modulator isn't smoothed away by the glide meant for turning the knob.
+        float energyMod = 0.0f, pitchMod = 0.0f, fillMod = 0.0f, spaceMod = 0.0f;
+        std::array<std::array<float, 9>, c_maxBuses> busMod {}; // doppler width bend low swirl filter drive duck key
+        std::array<float, c_tracks> levels { 0.9f, 0.9f, 0.9f, 0.9f, 0.9f, 0.9f, 0.9f, 0.9f, 0.9f, 0.9f }; // gain (fader law applied)
         std::array<float, c_tracks> trackPitch {}; // semitones (cents included), each track on its own
         std::array<bool, c_tracks> trackVari { true, true, true, true, true, true, true, true, true, true }; // off = keep the speed
 
-        std::array<BusParams, c_maxBuses> buses { BusParams { 0.55f, 0.8f, 0.7f, 0.35f, 0.2f, 0.3f, 0.15f, 0.0f, 0.0f },
-                                                  BusParams { 0.4f, 0.8f, 0.6f, 0.2f, 0.3f, 0.4f, 0.0f, 0.4f, 0.3f } };
+        std::array<BusParams, c_maxBuses> buses { BusParams { 0.55f, 0.7f, 0.7f, 0.35f, 0.3f, 0.3f, 0.2f, 0.0f, 0.0f },
+                                                  BusParams { 0.4f, 0.7f, 0.6f, 0.3f, 0.3f, 0.4f, 0.0f, 0.35f, 0.3f } };
 
         float hitSense = 0.5f; // how easily the hit gate opens
-        float hitBoost = 12.0f;// dB when open
+        float hitBoost = 6.0f; // dB when open (-3 .. +12)
         float hitRelease = 0.35f; // 0..1 -> 60..1200 ms
-        float hitDuck = 0.5f;  // hits duck A and B
+        float hitDuck = 0.4f;  // hits duck A and B (0..1 -> 0..-12 dB at the hits' peaks)
         bool hitSync = false;  // hit tracks fire together, their transients lined up
         // Gate and ducking options (the defaults are the original behaviour).
         int gateMode = 0;        // 0 Peaks (loudest moments, original) 1 Level 2 Jumps (sudden rises) 3 Open (no gate)
         float hitHold = 0.12f;   // 0..1 -> 0..500 ms the gate stays open (0.12 = 60 ms)
-        float hitFloor = 0.0f;   // 0 = closes fully, else -40..-3 dB: hits never vanish completely
+        float hitFloor = 0.0f;   // 0 = closes fully, else -28..-3 dB: hits never vanish completely
         int duckMode = 0;        // 0 Volume 1 Darken (low-pass the ducked bus) 2 Mids (duck only 250 Hz..4 kHz)
         float duckReturn = 0.0f; // 0 = fast (original) .. 1 = ducked buses take 1 s to come back
         bool takeTurns = false;  // A and B: only the louder one speaks, the other ducks under it
@@ -85,13 +88,13 @@ public:
         bool hitAim = true;      // fire the hits so their transients land on the pass peaks (gate open)
         // Peak tremolo: deepens as the level nears its recent peak.
         bool tremOn = false;         // off: the tremolo fades out
-        float tremDepth = 0.5f;      // 0..1
+        float tremDepth = 0.45f;     // 0..1 (knob; Params::tremDepthAmount gives the dip)
         float tremRate = 0.5f;       // 0..1 -> 1.5..30 Hz
         float tremThreshold = 0.6f;  // 0..1: how close to the peak it starts
         int tremShape = 0;           // 0 Sine, 1 Square, 2 Flutter
         int tremTarget = 0;          // 0 everything, 1 buses A + B, 2 hits
 
-        float space = 0.25f;
+        float space = 0.3f;
         bool swell = false;    // held: every fader rides up
 
         // Morph: buses A and B are fed a spectral morph of the two (split back between them by X)
@@ -164,8 +167,11 @@ private:
         float phFbL = 0, phFbR = 0, lfo = 0;
         sj::DelayLine flL, flR;
         float flFbL = 0, flFbR = 0;
-        // filter
-        sj::Svf fL, fR;
+        // filter, and Filtered by A (its own low-pass)
+        sj::Svf fL, fR, keyL, keyR;
+        // level matching (slow mean squares) around Swirl and Drive, and the gains they set
+        float swirlPre = 0.0f, swirlPost = 0.0f, swirlGain = 1.0f;
+        float drivePre = 0.0f, drivePost = 0.0f, driveGain = 1.0f;
         sj::Follower follower;
         // drive tone
         sj::OnePole toneL, toneR;
@@ -177,17 +183,22 @@ private:
         struct Duck
         {
             float amount = 0.0f;              // applied attenuation 0..1 (after the return glide)
-            float lp[2] {}, lo[2] {}, mid[2] {};
+            float lp[2] {};
+            sj::Svf band[2];                  // Mids: the 250 Hz .. 4 kHz band (centred on 1 kHz)
         };
         Duck byBus, byHits;
         std::array<float, c_chunk> l {}, r {}, in {};
     };
 
     void startPass(Head& h, const BusParams& p);
-    void renderTracks(const float* inL, const float* inR, int offset, int frames);
+    void renderTracks(int frames);
+    /** How strongly a bus keys the other one: its level against its own recent peak, faded out below -40 dBFS so a
+        quiet bus with an old peak can't duck the other. */
+    static float keyLevel(const BusState& bus);
     /** lead / leadStart: with the buses linked, bus A's passes as they are now (after A rendered this chunk) and as
         they were at the start of it; B follows them instead of rolling its own. nullptr when not linked. */
-    void renderBus(BusState& bus, int frames, float keyEnv, bool isKeyBus,
+    /** key: bus A's level against its own recent peak (0..1, floored at quiet levels), for Ducked / Filtered by A. */
+    void renderBus(BusState& bus, int frames, float key, bool isKeyBus,
                    const std::array<Head, 2>* lead = nullptr, const std::array<Head, 2>* leadStart = nullptr);
     /** newPass: also take the pass's speed at this bus's Bend (set once per pass, as unlinked); otherwise just keep
         in step with the lead (the speed stays, so moving Bend mid-pass never steps the delay). */
@@ -213,7 +224,14 @@ private:
     std::array<sj::Drift, c_tracks> m_rideDrift;
     std::array<float, c_tracks> m_gain {};          // gain applied at the end of the previous chunk
     std::array<sj::Spring, c_tracks> m_levelSprings;
-    sj::Spring m_swellSpring, m_energySpring, m_pitchSpring, m_fillSpring, m_spaceSpring, m_inputSpring;
+    sj::Spring m_swellSpring, m_energySpring, m_pitchSpring, m_fillSpring, m_spaceSpring;
+    std::array<float, c_tracks> m_rideDepth {};
+    // The modulator offsets, glided per chunk (the modulators update once per host block; a step would click).
+    float m_energyModNow = 0.0f, m_pitchModNow = 0.0f, m_fillModNow = 0.0f, m_spaceModNow = 0.0f;
+    std::array<std::array<float, 9>, c_maxBuses> m_busModNow {};
+    float m_modGlide = 0.5f;
+    float m_morphMixNow = 0.0f; // how far the morph is in (B isn't ducked or filtered by A while morphing)
+    void glideMods();     // Chaos: how far this cycle of each track's ride dips (redrawn each cycle)
     std::array<float, c_chunk> m_trackScratch {};
     SpectralMorph m_morph;
     sj::Spring m_morphMix;
@@ -226,9 +244,10 @@ private:
     float m_slowEnv = 0.0f;
     int m_talker = 0;          // take turns: 0 = A speaks, 1 = B speaks
     float m_talkerHold = 0.0f; // seconds the other bus has been clearly louder  // Jumps gate: the slow envelope the fast one has to jump above
-    float m_loCoef = 0.0f, m_midCoef = 0.0f; // Mids duck band edges (one-pole coefficients)
+
     float duckReturnCoef() const;
-    void duckSample(BusState::Duck& d, float target, float returnCoef, float& l, float& r);
+    /** full: the amount at which Darken reaches its darkest (the deepest the caller ever asks for). */
+    void duckSample(BusState::Duck& d, float target, float returnCoef, float full, float& l, float& r);
     float m_peakRef = 1.0e-3f, m_average = 0.0f, m_gate = 0.0f, m_hold = 0.0f;
     double m_hitClock = 0.0;     // samples to the next synced hit
     // Peak tremolo, one per thing it can shake: 0 the whole mix, 1 bus A, 2 bus B, 3 the hits.
