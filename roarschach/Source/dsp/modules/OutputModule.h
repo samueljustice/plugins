@@ -19,7 +19,7 @@ namespace roar
         float ceilingDb = -1.0f;      // -12..0 dBTP
         float clipDb = 0.0f;          // 0..18 dB of each peak clipped instead of limited (0 = Off)
         float clipShape = 0.0f;       // 0 Soft .. 1 Hard
-        float attackMs = 2.0f;        // 0.05..10 ms (inside the fixed 10 ms look-ahead)
+        float attackMs = 2.0f;        // 0.2..10 ms (inside the fixed 10 ms look-ahead)
         float releaseMs = 60.0f;      // 1..1000 ms; with Auto it sets how quickly Auto breathes
         bool autoRelease = true;      // program-dependent release with an adaptive hold
         float mix = 1.0f;             // 0..1
@@ -30,13 +30,15 @@ namespace roar
      *
      *   wet --> HPF 30 Hz (24 dB/oct) --> LPF 18 kHz (12 dB/oct) --> auto gain --> Ride --> Push
      *       --> mix with the dry --> MAXIMIZER --> CLIPPER --> SAFETY --> clamp at Ceiling --> out
+     *   (the maximizer's reduction and the clipper's residual are each DC-blocked)
      *
      *   Auto gain   matches the wet's loudness (measured before Push, the 20-80 Hz band at -6 dB)
      *               to the raw input's (K-style, 400 ms); +6 / -12 dB, 400 ms glide, held while
      *               the input is below -50 dBFS. It never pushes on its own: a boost is limited to
      *               Ceiling + 3 dB - the wet's 1 s peak.
      *   Ride        RMS (10 ms) at -8 dBFS, 10:1, 6 dB knee, 3 ms / 150 ms, at most -12 dB.
-     *   Push        0..+24 dB, 20 ms.
+     *   Push        0..+24 dB, relative to the ceiling: the gain is Push + Ceiling + 1 dB
+     *               (laws::pushGainDb), so Ceiling only sets the output level, never the drive. 20 ms.
      *
      *   Maximizer   theta = Ceiling - 0.3 dB. Detector: the max over channels of the sample and an
      *               8x interpolated true peak (161-tap Kaiser beta 5, Dtp = 10), against theta + Clip,
@@ -50,13 +52,15 @@ namespace roar
      *               Release envelope in dB, instant attack:
      *                 manual   one pole at Release (1..1000 ms), no hold: short times let the gain
      *                          follow the bass waveform (crunch), long times are clean;
-     *                 Auto     fast pole clamp (0.25 Release, 3, 250 ms), an adaptive hold
+     *                 Auto     fast pole laws::autoFastReleaseMs (Release): 3 ms at 1 ms, 15 ms at
+     *                          60 ms, log in between, Release / 4 above (at most 250 ms); an adaptive hold
      *                          (25..150 ms: 1.25 x the longest of the last 4 intervals under 150 ms
      *                          between peak events, a peak within 0.5 dB of the 200 ms maximum and
      *                          at least 3 ms after the last), and a 400 ms slow stage; e = max.
      *   Clipper     odd quadratic-knee curve bounded at cb = theta - 0.2 dB, C1, half-width
-     *               w = 0.5 (1 - Shape) capped at 1 - 10^(-Clip/20) (it never bends material more
-     *               than Clip dB under the bound). Only its departure from linear (the residual) is
+     *               w = min (0.5, cap) (1 - Shape)^2, cap = 1 - 10^(-Clip/20) (laws::clipKnee: it
+     *               never bends material more than Clip dB under the bound, and Shape acts over
+     *               its whole travel at any Clip). Only its departure from linear (the residual) is
      *               computed: 4x oversampled (Oversampler2x, then a 25-tap half-band 2x -> 4x stage),
      *               ADAA-1 on the residual in closed form, then a 2-tap average and 3 samples of delay
      *               at 4x so it sits on a whole 2x sample, back to 2x through the half-band, then a
@@ -65,13 +69,20 @@ namespace roar
      *               rate. The linear part is the input delayed by the same 49 samples, so material
      *               below the knee passes bit-exactly. Clip 0 is a pure delay (crossing 0 fades the
      *               residual over 20 ms).
+     *   DC blockers one-pole 10 Hz high-passes on the maximizer's reduction ((g - 1) x) and on
+     *               the clipper's residual (the safety stage after them catches what the filtering
+     *               moves): a gain that follows an asymmetric wave (a driven preset at
+     *               a high Push, a short Release) leaves no DC offset, and material neither stage
+     *               touches passes bit-exactly. No latency.
      *   Safety      the same look-ahead construction with Ls = round (0.5 ms fs), attack = Ls, a
      *               5 ms release, target theta; it only catches the clipper's band-limiting
      *               overshoot. Then a hard clamp at the ceiling, counted (getClampCount()).
      *
      * The dry for Mix (and the auto gain reference) is the raw input aligned with OUTPUT's input:
-     * delayed by the chain latency before OUTPUT and phase-matched by the processor. The mix
-     * happens before the maximizer, so the ceiling holds at any Mix.
+     * delayed by the chain latency before OUTPUT and phase-matched by the processor. The dry gets
+     * the same Push gain as the wet (auto gain already matches the wet to it), and the two are
+     * crossfaded at equal power (cos / sin of Mix x 90 degrees), so Mix changes the blend, not the
+     * level. The mix happens before the maximizer, so the ceiling holds at any Mix.
      *
      * Latency L + Dtp + 49 + Ls + Dtp (573 at 48 kHz), constant for every setting. No allocation
      * after prepare(), NaN-safe (non-finite input is taken as silence, input held to +80 dBFS).
@@ -170,6 +181,8 @@ namespace roar
         struct Channel
         {
             Biquad hp1, hp2, lp;
+            Biquad dcBlock;                          // 10 Hz one-pole on the clipper's residual
+            Biquad gainDcBlock;                      // 10 Hz one-pole on the maximizer's reduction
             Biquad wetHp, wetLowShelf, wetShelf;     // wet loudness weighting
             Biquad dryHp, dryShelf;                  // raw input loudness weighting
             TruePeakHistory mainPeak, safetyPeak;
@@ -234,6 +247,7 @@ namespace roar
             double pushTarget = 3.0, pushDb = 3.0, pushGain = 1.4125375446227544;
             double ceilingTarget = -1.0, ceilingDb = -1.0;
             double mixTarget = 1.0, mix = 1.0;
+            double mixGainsFor = -1.0, mixDry = 0.0, mixWet = 1.0;   // the crossfade gains for `mix`
             double clipTarget = 0.0, clipDb = 0.0;
             double shapeTarget = 0.0, shape = 0.0;
             double clipBlend = 0.0;                       // fades the residual in and out around Clip 0

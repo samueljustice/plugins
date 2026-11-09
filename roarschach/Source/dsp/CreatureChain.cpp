@@ -94,12 +94,7 @@ namespace roar
     {
         m_pitch.setParams (s.pitch);
         m_clean.setParams (s.clean);
-
-        // DE-ESS widens its range with ROAR's drive (the tube makes the sibilants fizzier).
-        DeessSettings deess = s.deess;
-        deess.roarOn = s.roar.on;
-        deess.roarDrive = s.roar.drive;
-        m_deess.setParams (deess);
+        m_deess.setParams (s.deess);
 
         m_detail.setParams (s.detail);
         m_vocoderSettings = s.vocoder;
@@ -220,6 +215,10 @@ namespace roar
                     std::copy (r, r + n, m_tapR[mi].begin());
                 m_tapStereo[mi] = stereo;
             }
+
+            // DETAIL follows CLEAN's gate when CLEAN runs before it (it never lifts gated room tone).
+            if (m == index (Params::ModuleId::detail))
+                m_detail.setGateTrace (slotOf (index (Params::ModuleId::clean)) < k ? m_clean.getGateTrace() : nullptr);
 
             Module& mod = module (m);
             mod.process (l, r, n, stereo, v);

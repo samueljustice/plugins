@@ -148,7 +148,9 @@ namespace roar
                                                 : std::max (blendTarget, s.autoBlend - m_blendStep);
 
         s.gainPrev = s.gainNext;
-        s.gainNext = std::exp (dsp::smoothstep01 (s.autoBlend) * s.autoGainDb * c_dbToLog);
+        // With Auto Level on, Input is replaced by its target offset (the level was learnt before Input).
+        const double autoDb = s.autoGainDb + laws::inAutoTargetOffsetDb (s.trimDb) - s.trimDb;
+        s.gainNext = std::exp (dsp::smoothstep01 (s.autoBlend) * autoDb * c_dbToLog);
     }
 
     void InModule::process (float* l, float* r, int n, bool stereo, const VoiceFrameView& /*voice*/)
@@ -180,7 +182,7 @@ namespace roar
             const double y = x * trimGain;
             meter = std::max (static_cast<float> (std::abs (y)), meter * m_meterRelease);
 
-            const double w = m_weightShelf.process (m_weightHp.process (y));
+            const double w = m_weightShelf.process (m_weightHp.process (x));   // learnt before Input
             const double w2 = w * w;
             s.frameSum += w2;
             s.fastMs = dsp::flushTiny (s.fastMs + m_fastLevelCoeff * (w2 - s.fastMs));

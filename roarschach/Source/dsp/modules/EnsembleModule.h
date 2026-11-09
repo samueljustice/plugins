@@ -24,28 +24,29 @@ namespace roar
      * creates stereo when On.
      *
      *   tau_v = D (1 + 0.07 v) + Dep LFO_v + S RND_v               (clamped to >= 3 ms)
-     *   LFO_v = 0.8 sin (2 pi R t + 2 pi v / N) + 0.2 sin (2 pi 6.2 t + 1.7 . 2 pi v / N)
+     *   tau_v += 0.18 ms sin (2 pi 6.2 t + 1.7 . 2 pi v / N)        (the same depth for every motion)
+     *   LFO_v = 0.8 sin (2 pi R t + 2 pi v / N)
      *   RND_v = smooth random (continuous slope), 0.7 .. 3 Hz, its own rate and seed per voice
      *   tap_v = cubic Hermite read of one shared line at tau_v
      *   Lw, Rw = equal-power pans per voice (v0 left, v1 right, v2 centre; 6 voices repeat it)
-     *   mid_w = (Lw + Rw) / 2,  side_w = (Lw - Rw) / 2 . k_N w(W),  w(W) = 1 - exp (-(W / 0.75)^2)
-     *   out_L,R = c(m) ((1 - m) x_L,R + m g_N (mid_w +- side_w))
+     *   mid_w = (Lw + Rw) / 2,  side_w = (Lw - Rw) / 2 . k_N w(W),  w(W) = 0.859 (W / 1.5)^1.3
+     *   out_L,R = c(m) ((1 - m) x_L,R + m g_N (mid_w +- side_w)),  m = 0.7 Amount
+     *   (laws::ensembleAmount, laws::ensembleSideGain: past m = 0.7 and w = 0.859 the chorus turns
+     *   seasick and out of phase, so the travel ends there)
      *
      *   - The input of the voices is the mid of the module's input; the dry is the input itself,
      *     undelayed, so it keeps any stereo it already has.
      *   - The wet is never high-passed: the slow comb movement in the low end is the point.
      *   - Width law: the voices share most of their low end, so (Lw - Rw) is small and needs the
-     *     scale k_N (2.08 for 3 voices, 2.55 for 6) to reach a correlation of about 0.2 at 150 %.
-     *     The square-law start keeps the default 15 % at about -31 dB side/mid on voice, while
-     *     60 % still gives a correlation of about 0.73 (pink noise, mix 50 %).
+     *     scale k_N (2.08 for 3 voices, 2.55 for 6).
      *   - g_N is calibrated per voice count and motion so the wet (W = 0) of pink noise has the
      *     dry's RMS; a motion change glides it over 50 ms. c(m) =
      *     1 / sqrt ((1 - m)^2 + m^2) is the static mix-law makeup (the dry and a voice 7-25 ms
      *     later are incoherent over most of the band); it is 1 at m = 0, so Amount 0 is an exact
      *     pass-through.
      *   - Motion: Slow (R 0.25 Hz, Dep 2.5 ms, D 15 ms, S 1.0 ms), Medium (0.45, 1.8, 12, 0.5),
-     *     Fast (1.2, 1.0, 9, 0.4), Vibrato (5.5, 0.8, 7, 0.2), which forces the mix up to at
-     *     least 70 % once Amount passes 10 % (it ramps in from 0, so Amount 0 stays neutral).
+     *     Fast (1.2, 1.0, 9, 0.4), Vibrato (5.5, 0.8, 7, 0.2), whose wet share is sqrt (m), so a
+     *     vibrato is heard early in the travel and still grows with it (Amount 0 stays neutral).
      *     Motion changes glide over 150 ms; a voice-count change glides the voice phases over
      *     300 ms and fades the extra voices over 50 ms.
      *
@@ -162,6 +163,7 @@ namespace roar
         float voiceDelayTarget (int v);   // tau_v at the current phases, samples; advances RND_v
 
         double m_fs = 48000.0;
+        double m_fastDepth = 0.0;      // the 6.2 Hz component's depth, samples
         int m_maxBlock = 512;
         double m_motionCoeff = 0.0;    // control rate, per stage of a two-stage glide (150 ms in all)
         double m_phaseCoeff = 0.0;     // control rate, per stage (300 ms in all)

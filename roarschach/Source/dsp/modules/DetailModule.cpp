@@ -1,5 +1,6 @@
 #include "DetailModule.h"
 
+#include "../KnobLaws.h"
 #include "../MonsterFeatures.h"
 
 #include <cmath>
@@ -40,14 +41,14 @@ namespace roar
         constexpr double c_noBoostAboveFloorDb = 2.0;
         constexpr double c_fullBoostAboveFloorDb = 8.0;
         constexpr double c_maxExpansionDb = 6.0;
+        constexpr double c_gateGuardFromDb = 1.0, c_gateGuardFullDb = 5.0;   // CLEAN's gate reduction
 
         constexpr double c_dbToLog = 0.11512925464970228;   // ln (10) / 20
     }
 
     double DetailModule::depthForKnob (double u)
     {
-        u = std::clamp (u, 0.0, 1.0);
-        return 48.0 * std::pow (u, 1.68);
+        return laws::detailDepthDb (u);
     }
 
     double DetailModule::softMin (double a, double b)
@@ -319,7 +320,14 @@ namespace roar
             }
 
             const double net = gLow + gHigh - m_curve.trim;
-            const double target = net - s.floorWeight * std::max (net, 0.0) - s.floorCutDb;
+            double noBoost = s.floorWeight;
+            if (m_gateTrace != nullptr && s.floorOn)
+            {
+                // CLEAN's gate is closing: this is room tone it is taking out, never lift it.
+                const double closing = -static_cast<double> (m_gateTrace[i]);
+                noBoost = std::max (noBoost, dsp::smoothstep01 ((closing - c_gateGuardFromDb) / (c_gateGuardFullDb - c_gateGuardFromDb)));
+            }
+            const double target = net - noBoost * std::max (net, 0.0) - s.floorCutDb;
 
             s.gainDb = target < s.gainDb ? target : s.gainDb + m_gainRise * (target - s.gainDb);
             s.gainDb = dsp::flushTiny (s.gainDb);

@@ -21,7 +21,7 @@ namespace roar
         bool on = true;
         float pitchSemitones = -2.0f;   // -24..+12 st
         float size = 0.0f;              // u, 0..1
-        float drive = 0.25f;            // u, 0..1
+        float drive = Params::defaultOf (Params::pitchDrive) * 0.01f;   // u, 0..1
         Params::PitchMode mode = Params::PitchMode::shift;
         Params::PitchFormant formant = Params::PitchFormant::follow;
     };
@@ -187,7 +187,7 @@ namespace roar
             double voicedShare = 0.0;      // smoothed share of the output from voiced grains
 
             // Parameter targets.
-            float pitchTarget = -2.0f, sizeTarget = 0.0f, driveTarget = 0.25f;
+            float pitchTarget = -2.0f, sizeTarget = 0.0f, driveTarget = 0.05f;
             Params::PitchMode mode = Params::PitchMode::shift;
             Params::PitchFormant formant = Params::PitchFormant::follow;
 
@@ -210,7 +210,7 @@ namespace roar
             int throatWrite = 0;
 
             // Drive.
-            double drive = 0.25;           // smoothed u
+            double drive = 0.05;           // smoothed u
             double driveCoeffFor = -1.0;   // the drive value the coefficients were made for
             float driveMix = 0.0f;         // 0 delay only .. 1 drive
             int driveFadePos = 0;

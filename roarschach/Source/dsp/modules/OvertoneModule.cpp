@@ -1,5 +1,7 @@
 #include "OvertoneModule.h"
 
+#include "../KnobLaws.h"
+
 #include <algorithm>
 #include <cmath>
 #include <complex>
@@ -56,7 +58,7 @@ namespace roar
         constexpr double c_hpQ1 = 0.54119610014619698, c_hpQ2 = 1.30656296487637652;
         constexpr double c_lpQ = 0.70710678118654752;
         constexpr double c_crossoverQ = 0.70710678118654752;
-        constexpr double c_minFxHz = 30.0, c_maxFxHz = 1000.0;
+        constexpr double c_minFxHz = 30.0, c_maxFxHz = 300.0;   // above 300 Hz the split would take the voice's body
 
         constexpr double c_minConfidence = 0.4;
         constexpr double c_minF0Hz = 30.0, c_maxF0Hz = 1500.0;
@@ -107,7 +109,7 @@ namespace roar
         if (! (u > 0.0))
             return 0.0;
         u = std::min (u, 1.0);
-        const auto lawDb = [] (double x) { return -20.0 + 26.0 * std::pow (x, 0.6); };
+        const auto lawDb = [] (double x) { return laws::overtoneLevelDb (x); };
         if (u < c_amountFadeBelow)
             return dsp::dbToGain (lawDb (c_amountFadeBelow)) * (u / c_amountFadeBelow);
         return dsp::dbToGain (lawDb (u));
@@ -437,6 +439,19 @@ namespace roar
                 m_s.oct = octTarget;
         }
 
+        // The share of the low cut.
+        {
+            const auto cutTarget = static_cast<float> (laws::overtoneLowCut (static_cast<double> (m_settings.amount)));
+            if (! m_s.controlsValid)
+                m_s.lowCut = cutTarget;
+            else
+            {
+                m_s.lowCut += static_cast<float> (m_octCoeff) * (cutTarget - m_s.lowCut);
+                if (std::abs (cutTarget - m_s.lowCut) < 1.0e-5f)
+                    m_s.lowCut = cutTarget;
+            }
+        }
+
         // Generator gain, and whether the generator runs at all.
         m_s.gainTarget = gainTargetFor();
         const bool wanted = ! (m_s.gain == 0.0f && m_s.gainTarget == 0.0f);
@@ -696,6 +711,7 @@ namespace roar
                 {
                     float* io = ch == 0 ? l + i : r + i;
                     Crossover xo = ch == 0 ? m_s.xoL : m_s.xoR;
+                    const float lowCut = m_s.lowCut;
                     int pos = m_s.modePos;
                     for (int k = 0; k < count; ++k)
                     {
@@ -711,6 +727,8 @@ namespace roar
                             for (size_t j = 0; j < 3; ++j)
                                 wm[j] = m_s.modeFrom[j] + t * (m_s.modeTo[j] - m_s.modeFrom[j]);
                         }
+                        // Only part of the low cut at a small Amount (Add: wm[1] == wm[2] == 0, unchanged).
+                        wm[1] += (wm[2] - wm[1]) * (1.0f - lowCut);
                         float out = wm[0] * in + wm[1] * low + wm[2] * high;
                         const float hk = h[static_cast<size_t> (k)];
                         if (hk != 0.0f)

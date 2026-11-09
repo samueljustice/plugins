@@ -1,5 +1,7 @@
 #include "SwirlModule.h"
 
+#include "../KnobLaws.h"
+
 #include "../MonsterFeatures.h"
 
 #include <algorithm>
@@ -183,7 +185,7 @@ namespace roar
 
     void SwirlModule::snapToTargets()
     {
-        m_state.amount = std::clamp (m_settings.amount, 0.0f, 1.0f);
+        m_state.amount = static_cast<float> (laws::swirlMix (static_cast<double> (m_settings.amount)));
         m_state.logRate = std::log (static_cast<double> (m_settings.rateHz));
         m_state.lampRate = static_cast<double> (m_settings.rateHz);
         m_lamp.setRate (m_state.lampRate);
@@ -310,7 +312,7 @@ namespace roar
             resetMotion();   // the oversampled input path kept running while Off
 
         auto& st = m_state;
-        const float amountTarget = m_settings.amount;
+        const auto amountTarget = static_cast<float> (laws::swirlMix (static_cast<double> (m_settings.amount)));   // u -> a
         const double logRateTarget = std::log (static_cast<double> (m_settings.rateHz));
         const int motionSetting = std::clamp (static_cast<int> (m_settings.motion), 0, c_numMotions - 1);
         const int circuitSetting = requestedCircuitId();

@@ -1,5 +1,7 @@
 #include "TameModule.h"
 
+#include "../KnobLaws.h"
+
 #include "../MonsterFeatures.h"
 #include "../common/GainComputer.h"
 
@@ -48,7 +50,7 @@ namespace roar
     double TameModule::staticCurveDb (int band, double t, double levelDb)
     {
         const auto& b = c_bandSpecs[static_cast<size_t> (std::clamp (band, 0, 1))];
-        t = std::clamp (t, 0.0, 1.0);
+        t = std::clamp (t, 0.0, laws::tameT (1.0));
         return curve (levelDb, b.baseThreshold + b.thresholdPerT * t, b.depthPerT * t, b.slope);
     }
 
@@ -109,7 +111,7 @@ namespace roar
     void TameModule::setParams (const TameSettings& s)
     {
         m_fade.setOn (s.on);
-        m_amountTarget = std::clamp (static_cast<double> (s.amount), 0.0, 1.0);
+        m_amountTarget = laws::tameT (static_cast<double> (s.amount));
     }
 
     void TameModule::setForcedGainsForTest (bool forced, double highMidDb, double highDb)

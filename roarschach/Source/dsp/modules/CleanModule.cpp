@@ -2,6 +2,7 @@
 
 #include "../MonsterFeatures.h"
 #include "../common/GainComputer.h"
+#include "../KnobLaws.h"
 
 #include <algorithm>
 #include <cmath>
@@ -17,8 +18,7 @@ namespace roar
         // 12 dB/oct high-pass Q: a touch above Butterworth so Flat (40 Hz) stays within 0.1 dB from 80 Hz up.
         constexpr double c_hpfQ = 0.75;
 
-        // Gate (fixed).
-        constexpr double c_gateRatio = 2.5;
+        // Gate (ratio and depth: KnobLaws).
         constexpr double c_gateKneeDb = 6.0;
         constexpr double c_gateHysteresisDb = 4.0;
         constexpr double c_gateHoldSeconds = 0.060;
@@ -147,6 +147,7 @@ namespace roar
     void CleanModule::prepare (double fs, int maxBlock)
     {
         m_fs = dsp::safeSampleRate (fs);
+        m_gateTrace.assign (static_cast<size_t> (std::max (1, maxBlock)), 0.0f);
         designTones();
 
         m_xfadeLength = std::max (1, dsp::samplesFor (c_toneFadeSeconds, m_fs));
@@ -237,12 +238,14 @@ namespace roar
         if (std::abs (m_gateTarget - m_gateU) < 1.0e-6)
             m_gateU = m_gateTarget;
 
-        m_gateDepthDb = -40.0 * m_gateU;
-        m_levThreshold = levThresholdFor (m_contain);
-        m_levSlope = levSlopeFor (m_contain);
-        m_peakThreshold = peakThresholdFor (m_contain);
-        m_makeupDb = staticMakeupDb (m_contain);
-        m_engage = dsp::smoothstep01 (m_contain / c_engageSpan);
+        m_gateDepthDb = laws::gateDepthDb (m_gateU);
+        m_gateRatio = laws::gateRatio (m_gateU);
+        const double c = laws::containCurve (m_contain);
+        m_levThreshold = levThresholdFor (c);
+        m_levSlope = levSlopeFor (c);
+        m_peakThreshold = peakThresholdFor (c);
+        m_makeupDb = staticMakeupDb (c);
+        m_engage = dsp::smoothstep01 (c / c_engageSpan);
 
         // Tone change: start a crossfade into a freshly designed bank (one at a time).
         if (m_xfadePos == 0 && m_requestedTone != m_banks[static_cast<size_t> (m_activeBank)].tone)
@@ -262,6 +265,7 @@ namespace roar
         {
             m_fade.outputDry (l, r, n, stereo);
             m_gateOpen = 0.0f;
+            std::fill (m_gateTrace.begin(), m_gateTrace.begin() + std::min (n, static_cast<int> (m_gateTrace.size())), 0.0f);
             return;
         }
         if (m_fade.consumeRestart())
@@ -371,7 +375,7 @@ namespace roar
 
                 const double gateTarget = m_gateIsOpen
                     ? 0.0
-                    : GainComputer::expand (gateLevel, m_gateThresholdDb, c_gateRatio, c_gateKneeDb, m_gateDepthDb);
+                    : GainComputer::expand (gateLevel, m_gateThresholdDb, m_gateRatio, c_gateKneeDb, m_gateDepthDb);
                 if (gateTarget > m_gateGainDb)
                     m_gateGainDb += m_gateOpenCoeff * (gateTarget - m_gateGainDb);
                 else
@@ -402,6 +406,9 @@ namespace roar
                 const double held = static_cast<double> (m_peakHold.process (static_cast<float> (peakDb)));
                 const double peakTarget = m_engage * GainComputer::compress (held, m_peakThreshold, peakSlope, c_peakKneeDb);
                 m_peakGainDb = m_peakBallistics.process (peakTarget);
+
+                if (i < static_cast<int> (m_gateTrace.size()))
+                    m_gateTrace[static_cast<size_t> (i)] = static_cast<float> (m_gateGainDb) * m_fade.getValue();
 
                 // ---- Apply
                 m_totalGainDb = m_gateGainDb + m_levGainDb + m_peakGainDb;

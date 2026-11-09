@@ -23,11 +23,14 @@ namespace roar
      * ROAR: a two-stage triode saturator with the tone stack between the stages (spec §5.10).
      *
      *   in -> voicing (Line: flat; Mic: -3.8 dB wide bell @ 70 Hz, -2 dB top shelf)
-     *      -> 2x up -> x Drive1 -> Miller LPF 1 (20 kHz * 0.5^a) -> TRIODE 1 (dynamic bias)
+     *      -> 2x up -> x Drive1 (18 a + 48 max (0, a - 0.5)^2 dB, laws::roarDrive1Db) -> Miller LPF 1 (20 kHz * 0.5^a) -> TRIODE 1 (dynamic bias)
      *      -> / Drive1 -> coupling HPF 12 Hz
      *      -> tone stack: bass boost (1st-order low shelves 80 + 300 Hz, split 85/15),
-     *                     plate scoop (bell 200 Hz, Q 0.8, -14 dB per unit Drive, at most -7 dB),
+     *                     plate scoop (bell 200 Hz, Q 0.8: -14 a dB to a = 0.4, a smooth turn to
+     *                     -7 dB at 0.6, flat above; laws::roarScoopDb),
      *                     treble boost (1st-order high shelf 2.5 kHz + 2nd-order 10 kHz shelf, 35/65),
+     *                     bass = 6 (a - s t) dB, treble = 7 (a + s t) dB, Tone t, tilt strength
+     *                     s = 1.5 max (a, 0.5) (laws::roarToneStrength: Tone works at low Drive too),
      *                     fixed +1.5 dB top lift
      *      -> x Drive2 -> Miller LPF 2 (16 kHz) -> TRIODE 2 (lighter bias shift) -> / Drive2
      *      -> 2x down -> output transformer (1-pole LPF 18 kHz * 0.75^a, HPF 25 Hz Q 0.9)

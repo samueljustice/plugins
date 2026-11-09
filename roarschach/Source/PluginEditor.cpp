@@ -1,4 +1,5 @@
 #include "PluginEditor.h"
+#include "dsp/KnobLaws.h"
 
 #include "AboutWindow.h"
 #include "Params.h"
@@ -204,22 +205,25 @@ void RoarschachAudioProcessorEditor::updateMonsterParams()
     const auto on = [&value](const char* id) { return value(id) >= 0.5f ? 1.0f : 0.0f; };
     const auto percent = [&value](const char* id) { return juce::jlimit(0.0f, 1.0f, value(id) / 100.0f); };
 
-    // The creature reads the knobs of the modules that are On (an Off module reads 0).
+    // The creature reads the knobs of the modules that are On (an Off module reads 0), as the
+    // effect they have (roar::laws::view), so it follows the sound rather than the knob travel.
+    namespace view = roar::laws::view;
+    const auto effect = [&percent](double (*law)(double), const char* id) { return static_cast<float>(law(static_cast<double>(percent(id)))); };
     MonsterView::Params params;
     params.pitchSt = on(Params::pitchOn) * juce::jlimit(-24.0f, 12.0f, value(Params::pitch));
     params.size = on(Params::pitchOn) * percent(Params::pitchSize);
-    params.growl = on(Params::growlOn) * percent(Params::growl);
-    params.liquid = on(Params::shimmerOn) * percent(Params::shimmer);   // skin ripple and drips
-    params.swirl = on(Params::swirlOn) * percent(Params::swirl);
-    params.ensemble = on(Params::ensembleOn) * percent(Params::ensemble);
-    params.overtone = on(Params::overtoneOn) * percent(Params::overtone);
+    params.growl = on(Params::growlOn) * effect(view::growl, Params::growl);
+    params.liquid = on(Params::shimmerOn) * effect(view::shimmer, Params::shimmer);   // skin ripple and drips
+    params.swirl = on(Params::swirlOn) * effect(view::swirl, Params::swirl);
+    params.ensemble = on(Params::ensembleOn) * effect(view::ensemble, Params::ensemble);
+    params.overtone = on(Params::overtoneOn) * effect(view::overtone, Params::overtone);
     params.ring = on(Params::ringOn) * percent(Params::ring);
     params.cleanOn = on(Params::cleanOn);
-    params.roar = on(Params::roarOn) * percent(Params::roar);
-    params.sub = on(Params::subOn) * percent(Params::sub);
-    params.gravel = on(Params::vocoderOn) * percent(Params::gravel);
-    params.detailLow = on(Params::detailOn) * percent(Params::detailLow);
-    params.detailHigh = on(Params::detailOn) * percent(Params::detailHigh);
+    params.roar = on(Params::roarOn) * effect(view::roar, Params::roar);
+    params.sub = on(Params::subOn) * effect(view::sub, Params::sub);
+    params.gravel = on(Params::vocoderOn) * effect(view::gravel, Params::gravel);
+    params.detailLow = on(Params::detailOn) * effect(view::detail, Params::detailLow);
+    params.detailHigh = on(Params::detailOn) * effect(view::detail, Params::detailHigh);
     m_monsterView.setParams(params);
 }
 

@@ -1,5 +1,7 @@
 #include "EnsembleModule.h"
 
+#include "../KnobLaws.h"
+
 #include "../MonsterFeatures.h"
 
 #include <algorithm>
@@ -16,10 +18,8 @@ namespace roar
         constexpr double c_amountSmoothingSeconds = 0.020;
         constexpr double c_randomLowHz = 0.7;
         constexpr double c_randomHighHz = 3.0;
-        constexpr float c_vibratoMinMix = 0.70f;
-        constexpr float c_vibratoRampAmount = 0.10f;
+        constexpr double c_fastDepthMs = 0.18;   // the 6.2 Hz component's depth, the same for every motion
         constexpr float c_halfSqrt2 = 0.70710678f;
-        constexpr float c_widthKnee = 0.75f;
 
         // Equal-power pan per voice: v0 left, v1 right, v2 centre, then the same again.
         constexpr float c_panLeft[3] = { 1.0f, 0.0f, c_halfSqrt2 };
@@ -52,10 +52,10 @@ namespace roar
 
     float EnsembleModule::sideGainForWidth (float w)
     {
-        // 1 - exp (-(W / 0.75)^2): square law at small widths (15 % is effectively mono), close
-        // to linear through the middle of the range, flattening towards 150 %.
-        const float u = std::clamp (w, 0.0f, 1.5f) / c_widthKnee;
-        return 1.0f - std::exp (-u * u);
+        // laws::ensembleSideGain: 0.859 (W / 1.5)^1.3, a gentle start (10 % is effectively mono),
+        // and 150 % stops where the side is as strong as the shared low end allows (the old
+        // curve's 105 %), so the top of the travel never turns the chorus out of phase.
+        return static_cast<float> (laws::ensembleSideGain (static_cast<double> (w)));
     }
 
     float EnsembleModule::sideScaleFor (int numVoices)
@@ -89,6 +89,7 @@ namespace roar
     void EnsembleModule::prepare (double fs, int maxBlock)
     {
         m_fs = dsp::safeSampleRate (fs);
+        m_fastDepth = c_fastDepthMs * 0.001 * m_fs;
         m_maxBlock = std::max (1, maxBlock);
 
         const double controlRate = m_fs / c_controlBlock;
@@ -139,10 +140,10 @@ namespace roar
 
     float EnsembleModule::effectiveAmount() const
     {
-        const float m = m_settings.amount;
+        const double m = laws::ensembleAmount (static_cast<double> (m_settings.amount));
         if (m_settings.motion != Params::EnsembleMotion::vibrato)
-            return m;
-        return std::max (m, c_vibratoMinMix * std::min (1.0f, m / c_vibratoRampAmount));
+            return static_cast<float> (m);
+        return static_cast<float> (laws::ensembleVibratoAmount (m));
     }
 
     int EnsembleModule::activeVoices() const
@@ -155,12 +156,12 @@ namespace roar
         const auto& st = m_state;
         const auto& voice = st.voices[static_cast<size_t> (v)];
         const double phi = static_cast<double> (voice.phase);
-        const double lfo = 0.8 * std::sin (dsp::c_twoPi * (st.slowPhase + phi))
-                         + 0.2 * std::sin (dsp::c_twoPi * (st.fastPhase + 1.7 * phi));
+        const double lfo = 0.8 * std::sin (dsp::c_twoPi * (st.slowPhase + phi));
+        const double fast = m_fastDepth * std::sin (dsp::c_twoPi * (st.fastPhase + 1.7 * phi));
         // Always advance the generator (once per voice per block), so a clone stays in step.
         const double rndValue = static_cast<double> (m_random[static_cast<size_t> (v)].process());
         const double rnd = m_diagnostics.random ? rndValue : 0.0;
-        const double tau = st.delay * (1.0 + 0.07 * static_cast<double> (v)) + st.depth * lfo + st.scatter * rnd;
+        const double tau = st.delay * (1.0 + 0.07 * static_cast<double> (v)) + st.depth * lfo + fast + st.scatter * rnd;
         return static_cast<float> (std::clamp (tau, static_cast<double> (m_minDelay), static_cast<double> (m_maxDelay)));
     }
 

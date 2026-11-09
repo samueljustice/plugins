@@ -1,6 +1,7 @@
 #pragma once
 
 #include <array>
+#include <cmath>
 #include <cstdint>
 #include <string_view>
 
@@ -167,13 +168,14 @@ namespace Params
     // How a parameter is created and displayed:
     //   percent       0..max %, display "45%"                     (float)
     //   bipolar       -100..+100 %, roarTone: "Bass 40%" / "Even" / "Treble 40%"
-    //   decibels      display "+3.0 dB" (outClip shows "Off" at 0)
+    //   decibels      display "+3.0 dB" (outClip shows "Off" at 0); linear, or skewed so `centre` sits at mid travel
     //   semitones     display "-2.00 st"
     //   octaves       display "+0.25 oct"
-    //   hertz         log taper (centre = the value at the knob's mid point), display "27.0 Hz"
+    //   hertz         true log taper (equal travel per octave; centre = sqrt (min max), the value at
+    //                 the knob's mid point), display "27.0 Hz"
     //                 (>= 10 Hz: one decimal, < 10 Hz: two decimals, >= 1 kHz: "1.20 kHz")
-    //   ratio         log taper around `centre`, display "x1.50"
-    //   milliseconds  log taper around `centre`, display "2.0 ms" / "0.05 ms" / "60 ms" / "1.00 s"
+    //   ratio         true log taper (centre = sqrt (min max)), display "x1.50"
+    //   milliseconds  true log taper (centre = sqrt (min max)), display "2.0 ms" / "0.20 ms" / "60 ms" / "1.00 s"
     //   choice        AudioParameterChoice over `choices`
     //   toggle        AudioParameterBool, display "On" / "Off"
     //   position      AudioParameterInt 0..numModules-1, display "1st" .. "14th"
@@ -188,7 +190,8 @@ namespace Params
         float maxValue;
         float step;              // 0 = continuous
         float defaultValue;      // choice / toggle / position: the index (0 or 1 for toggles)
-        float centre;            // hertz / ratio / milliseconds: the value at the knob's mid point; 0 otherwise
+        float centre;            // hertz / ratio / milliseconds: the value at the knob's mid point (sqrt (min max));
+                                 // decibels: 0 = linear, else the value at mid travel (a skewed taper)
         const char* const* choices;
         int numChoices;
     };
@@ -220,9 +223,9 @@ namespace Params
                      names.data(), static_cast<int> (N) };
         }
 
-        constexpr Spec decibels (const char* id, const char* name, float lo, float hi, float def)
+        constexpr Spec decibels (const char* id, const char* name, float lo, float hi, float def, float centre = 0.0f)
         {
-            return { id, name, Kind::decibels, lo, hi, 0.1f, def, 0.0f, nullptr, 0 };
+            return { id, name, Kind::decibels, lo, hi, 0.1f, def, centre, nullptr, 0 };
         }
 
         constexpr Spec hertz (const char* id, const char* name, float lo, float hi, float def, float centre)
@@ -253,42 +256,42 @@ namespace Params
         // CLEAN
         detail::toggle (cleanOn, "Clean On", true),
         detail::position (cleanPos, "Clean Position", 1),
-        detail::percent (cleanContain, "Contain", 35.0f),
-        detail::percent (cleanGate, "Gate", 35.0f),
+        detail::percent (cleanContain, "Contain", 22.0f),
+        detail::percent (cleanGate, "Gate", 47.0f),
         detail::choice (cleanTone, "Clean Tone", cleanToneNames, 1),
         // DE-ESS
         detail::toggle (deessOn, "De-ess On", true),
         detail::position (deessPos, "De-ess Position", 2),
-        detail::percent (deess, "De-ess", 30.0f),
+        detail::percent (deess, "De-ess", 59.0f),
         detail::choice (deessMode, "De-ess Mode", deessModeNames, 0),
         // DETAIL
         detail::toggle (detailOn, "Detail On", true),
         detail::position (detailPos, "Detail Position", 3),
-        detail::percent (detailLow, "Detail Low", 30.0f),
-        detail::percent (detailHigh, "Detail High", 25.0f),
+        detail::percent (detailLow, "Detail Low", 25.0f),
+        detail::percent (detailHigh, "Detail High", 19.0f),
         detail::choice (detailSpeed, "Detail Speed", detailSpeedNames, 0),
         // VOCODER
         detail::toggle (vocoderOn, "Vocoder On", false),
         detail::position (vocoderPos, "Vocoder Position", 4),
-        detail::percent (gravel, "Gravel", 50.0f),
+        detail::percent (gravel, "Gravel", 41.0f),
         detail::choice (vocoderOctave, "Vocoder Octave", vocoderOctaveNames, 0),
         // SHIMMER
         detail::toggle (shimmerOn, "Shimmer On", true),
         detail::position (shimmerPos, "Shimmer Position", 6),
-        detail::percent (shimmer, "Shimmer", 12.0f),
-        detail::hertz (shimmerRate, "Shimmer Rate", 0.5f, 40.0f, 11.0f, 5.0f),
+        detail::percent (shimmer, "Shimmer", 18.0f),
+        detail::hertz (shimmerRate, "Shimmer Rate", 0.5f, 25.0f, 11.0f, 3.5355339f),        // sqrt (0.5 * 25)
         detail::choice (shimmerMode, "Shimmer Mode", shimmerModeNames, 0),
         // GROWL
         detail::toggle (growlOn, "Growl On", true),
         detail::position (growlPos, "Growl Position", 7),
-        detail::percent (growl, "Growl Depth", 48.0f),
-        detail::hertz (growlRate, "Growl Rate", 1.0f, 150.0f, 27.0f, 12.247449f),   // sqrt (1 * 150)
+        detail::percent (growl, "Growl Depth", 25.0f),
+        detail::hertz (growlRate, "Growl Rate", 2.0f, 150.0f, 27.0f, 17.320508f),     // sqrt (2 * 150)
         detail::choice (growlShape, "Growl Shape", growlShapeNames, 0),
         detail::choice (growlCharacter, "Growl Character", growlCharacterNames, 1),
         // SWIRL
         detail::toggle (swirlOn, "Swirl On", true),
         detail::position (swirlPos, "Swirl Position", 8),
-        detail::percent (swirl, "Swirl", 30.0f),
+        detail::percent (swirl, "Swirl", 21.0f),
         detail::hertz (swirlRate, "Swirl Rate", 0.05f, 10.0f, 0.35f, 0.70710678f),  // sqrt (0.05 * 10)
         detail::choice (swirlCircuit, "Swirl Circuit", swirlCircuitNames, 0),
         detail::choice (swirlMotion, "Swirl Motion", swirlMotionNames, 1),
@@ -296,24 +299,24 @@ namespace Params
         detail::toggle (roarOn, "Roar On", true),
         detail::position (roarPos, "Roar Position", 9),
         detail::percent (roar, "Roar Drive", 45.0f),
-        Spec { roarTone, "Roar Tone", Kind::bipolar, -100.0f, 100.0f, 0.1f, 10.0f, 0.0f, nullptr, 0 },
+        Spec { roarTone, "Roar Tone", Kind::bipolar, -100.0f, 100.0f, 0.1f, 6.0f, 0.0f, nullptr, 0 },
         detail::choice (roarVoicing, "Roar Voicing", roarVoicingNames, 0),
         // ENSEMBLE
         detail::toggle (ensembleOn, "Ensemble On", true),
         detail::position (ensemblePos, "Ensemble Position", 10),
-        detail::percent (ensemble, "Ensemble", 18.0f),
-        detail::percent (ensembleWidth, "Width", 12.0f, 150.0f),
+        detail::percent (ensemble, "Ensemble", 26.0f),
+        detail::percent (ensembleWidth, "Width", 10.0f, 150.0f),
         detail::choice (ensembleVoices, "Ensemble Voices", ensembleVoicesNames, 0),
         detail::choice (ensembleMotion, "Ensemble Motion", ensembleMotionNames, 1),
         // TAME
         detail::toggle (tameOn, "Tame On", true),
         detail::position (tamePos, "Tame Position", 11),
-        detail::percent (tame, "Tame", 30.0f),
+        detail::percent (tame, "Tame", 18.0f),
         // SUB
         detail::toggle (subOn, "Sub On", true),
         detail::position (subPos, "Sub Position", 12),
-        detail::percent (sub, "Sub Level", 45.0f),
-        detail::percent (subDrive, "Sub Drive", 60.0f),
+        detail::percent (sub, "Sub Level", 49.0f),
+        detail::percent (subDrive, "Sub Drive", 20.0f),
         detail::choice (subRegister, "Sub Register", subRegisterNames, 0),
         detail::choice (subCharacter, "Sub Character", subCharacterNames, 0),
         // OVERTONE
@@ -327,19 +330,19 @@ namespace Params
         detail::toggle (ringOn, "Ring On", false),
         detail::position (ringPos, "Ring Position", 5),
         detail::percent (ring, "Ring Amount", 40.0f),
-        detail::hertz (ringFreq, "Ring Freq", 20.0f, 4000.0f, 150.0f, 150.0f),
+        detail::hertz (ringFreq, "Ring Freq", 20.0f, 4000.0f, 150.0f, 282.84271f),        // sqrt (20 * 4000)
         Spec { ringRatio, "Ring Ratio", Kind::ratio, 0.25f, 4.0f, 0.01f, 1.0f, 1.0f, nullptr, 0 },
         detail::choice (ringCarrier, "Ring Carrier", ringCarrierNames, 0),
         detail::choice (ringTrack, "Ring Track", ringTrackNames, 0),
         detail::choice (ringMode, "Ring Mode", ringModeNames, 0),
         detail::choice (ringBody, "Ring Body", ringBodyNames, 0),
         // OUTPUT
-        detail::decibels (outPush, "Push", 0.0f, 24.0f, 8.0f),
+        detail::decibels (outPush, "Push", 0.0f, 24.0f, 8.0f, 10.0f),
         detail::decibels (outCeiling, "Ceiling", -12.0f, 0.0f, -1.0f),
-        detail::decibels (outClip, "Clip", 0.0f, 18.0f, 0.0f),
+        detail::decibels (outClip, "Clip", 0.0f, 18.0f, 0.0f, 5.0f),
         detail::percent (outClipShape, "Clip Shape", 0.0f),
-        detail::milliseconds (outAttack, "Attack", 0.05f, 10.0f, 2.0f, 2.0f),
-        detail::milliseconds (outRelease, "Release", 1.0f, 1000.0f, 60.0f, 60.0f),
+        detail::milliseconds (outAttack, "Attack", 0.2f, 10.0f, 2.0f, 1.4142136f),
+        detail::milliseconds (outRelease, "Release", 1.0f, 1000.0f, 60.0f, 31.622777f),
         detail::toggle (outAuto, "Auto Release", true),
         detail::percent (mix, "Mix", 100.0f),
     };
@@ -361,6 +364,30 @@ namespace Params
     }
 
     constexpr float defaultOf (std::string_view id) { return spec (id).defaultValue; }
+
+    /** True for the kinds with a log taper (hertz, ratio, milliseconds). */
+    constexpr bool hasLogTaper (const Spec& s)
+    {
+        return s.kind == Kind::hertz || s.kind == Kind::ratio || s.kind == Kind::milliseconds;
+    }
+
+    /** Log taper: the value at knob position n (0..1), v = min (max / min)^n. */
+    inline float logTaperValue (const Spec& s, float n)
+    {
+        const double t = n > 0.0f ? (n < 1.0f ? static_cast<double> (n) : 1.0) : 0.0;
+        const double v = static_cast<double> (s.minValue) * std::exp (t * std::log (static_cast<double> (s.maxValue) / s.minValue));
+        return static_cast<float> (v < s.minValue ? s.minValue : (v > s.maxValue ? s.maxValue : v));
+    }
+
+    /** Log taper: the knob position (0..1) of value v. */
+    inline float logTaperPosition (const Spec& s, float v)
+    {
+        if (! (v > s.minValue))
+            return 0.0f;
+        if (v >= s.maxValue)
+            return 1.0f;
+        return static_cast<float> (std::log (static_cast<double> (v) / s.minValue) / std::log (static_cast<double> (s.maxValue) / s.minValue));
+    }
 
     // ---------------------------------------------------------------------------------- modules
     // The 14 movable modules, in the reference (default) order. `defaultIndex` is the default
@@ -482,6 +509,8 @@ namespace Params
     // ---------------------------------------------------------------------------------- checks
     namespace detail
     {
+        constexpr float absDiff (float a, float b) { return a > b ? a - b : b - a; }
+
         constexpr bool tableIsConsistent()
         {
             // Every module's On, position, knob and chip parameters exist, the chips are choices,
@@ -523,8 +552,17 @@ namespace Params
                     return false;
                 if (s.kind == Kind::choice && (s.choices == nullptr || s.numChoices != static_cast<int> (s.maxValue) + 1))
                     return false;
+                // Log kinds: true log taper, so the mid point is the geometric centre.
                 if ((s.kind == Kind::hertz || s.kind == Kind::ratio || s.kind == Kind::milliseconds)
-                    && (s.centre <= s.minValue || s.centre >= s.maxValue))
+                    && (s.minValue <= 0.0f || s.centre <= s.minValue || s.centre >= s.maxValue
+                        || absDiff (s.centre * s.centre, s.minValue * s.maxValue) > 2.0e-3f * s.minValue * s.maxValue))
+                    return false;
+                // Decibels: linear (centre 0) or skewed around a centre inside the range.
+                if (s.kind == Kind::decibels && s.centre != 0.0f && (s.centre <= s.minValue || s.centre >= s.maxValue))
+                    return false;
+                // Everything else has no centre.
+                if (s.kind != Kind::hertz && s.kind != Kind::ratio && s.kind != Kind::milliseconds && s.kind != Kind::decibels
+                    && s.centre != 0.0f)
                     return false;
             }
             return true;

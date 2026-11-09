@@ -4,6 +4,7 @@
 #include "../common/Biquad.h"
 #include "../common/Module.h"
 #include "../common/VoiceStream.h"
+#include "../KnobLaws.h"
 
 namespace roar
 {
@@ -26,7 +27,9 @@ namespace roar
      *   - it learns only while the detector reports voiced, or on loud unvoiced material (more than
      *     12 dB above the tracked floor and within 6 dB of the voice level learnt so far); pauses,
      *     consonants, breaths, silence and room tone hold everything;
-     *   - gain = clamp (R - L_voice, -12, +20) dB, glided with tau 1.5 s rising and 4 s falling.
+     *   - gain = clamp (R - L_voice, -12, +30) dB, L_voice measured before Input, glided with tau
+     *     1.5 s rising and 4 s falling. With Auto Level on, Input then offsets the target: the voice
+     *     lands at R + 0.5 Input (+-12 dB), following Input within its 20 ms glide;
      *     For the first second of voicing after a reset it learns fast (running mean and a
      *     0.25 s glide), so a take settles within about 2 s; after that it is slow, so a yell
      *     stays louder than a mutter within a line;
@@ -43,7 +46,7 @@ namespace roar
     {
     public:
         static constexpr double c_referenceDb = -20.0;   // R
-        static constexpr double c_minGainDb = -12.0, c_maxGainDb = 20.0;
+        static constexpr double c_minGainDb = laws::inAutoMinGainDb, c_maxGainDb = laws::inAutoMaxGainDb;
 
         void prepare (double fs, int maxBlock) override;
         void reset() override;

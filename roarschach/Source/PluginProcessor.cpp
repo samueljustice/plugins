@@ -1,6 +1,7 @@
 #include "PluginProcessor.h"
 
 #include "PluginEditor.h"
+#include "dsp/KnobLaws.h"
 
 namespace
 {
@@ -129,7 +130,9 @@ namespace
         return names;
     }
 
+    // 2: the first release. 3: the knob laws of dsp/KnobLaws.h (older states are converted on load).
     const juce::Identifier c_stateVersion  { "stateVersion" };
+    constexpr int c_currentStateVersion = 3;
     const juce::Identifier c_pluginVersion { "pluginVersion" };
 
     // The creature (saved among the view options: setStateInformation keeps only "view..." names).
@@ -218,14 +221,28 @@ juce::AudioProcessorValueTreeState::ParameterLayout RoarschachAudioProcessor::cr
             case Params::Kind::ratio:
             case Params::Kind::milliseconds:
             {
-                juce::NormalisableRange<float> range(spec.minValue, spec.maxValue, spec.step);
-                // Only the log kinds have a centre (Params::Spec): the others are linear, even
-                // where 0 lies inside an asymmetric range (Pitch, -24 to +12 st).
-                const bool logTaper = spec.kind == Params::Kind::hertz || spec.kind == Params::Kind::ratio
-                                      || spec.kind == Params::Kind::milliseconds;
-                if (logTaper && spec.centre > spec.minValue && spec.centre < spec.maxValue)
-                    range.setSkewForCentre(spec.centre);
                 const Params::Spec* s = &spec;   // points into the constexpr table: lives forever
+                juce::NormalisableRange<float> range(spec.minValue, spec.maxValue, spec.step);
+                // The log kinds (hertz, ratio, milliseconds) get a true log taper: equal travel per
+                // octave, the geometric centre at mid travel. Decibel knobs with a centre are skewed
+                // so it sits at mid travel (Push, Clip). Everything else is linear, even where 0 lies
+                // inside an asymmetric range (Pitch, -24 to +12 st).
+                if (Params::hasLogTaper(spec))
+                {
+                    range = juce::NormalisableRange<float>(
+                        spec.minValue, spec.maxValue,
+                        [s](float, float, float n) { return Params::logTaperValue(*s, n); },
+                        [s](float, float, float v) { return Params::logTaperPosition(*s, v); },
+                        [s](float, float, float v)
+                        {
+                            v = juce::jlimit(s->minValue, s->maxValue, v);
+                            return s->step > 0.0f ? juce::jlimit(s->minValue, s->maxValue, s->step * std::round(v / s->step)) : v;
+                        });
+                }
+                else if (spec.kind == Params::Kind::decibels && spec.centre > spec.minValue && spec.centre < spec.maxValue)
+                {
+                    range.setSkewForCentre(spec.centre);
+                }
                 layout.add(std::make_unique<juce::AudioParameterFloat>(
                     id, spec.name, range, spec.defaultValue,
                     juce::AudioParameterFloatAttributes()
@@ -354,7 +371,7 @@ roar::CreatureEvolution::Inputs RoarschachAudioProcessor::readCreatureInputs()
     const auto on = [mask](Params::ModuleId id) { return (mask >> static_cast<int>(id)) & 1 ? 1.0f : 0.0f; };
     in.shimmerOn = on(Params::ModuleId::shimmer);
     in.swirlOn = on(Params::ModuleId::swirl);
-    in.liquidKnob = in.shimmerOn * juce::jlimit(0.0f, 1.0f, percent(Params::shimmer));
+    in.liquidKnob = in.shimmerOn * static_cast<float>(roar::laws::view::shimmer(static_cast<double>(percent(Params::shimmer))));
     in.eggVisible = m_creatureShared.eggVisible.load(std::memory_order_relaxed);
     return in;
 }
@@ -457,7 +474,7 @@ void RoarschachAudioProcessor::getStateInformation(juce::MemoryBlock& destData)
             child.setProperty("value", value->load(), nullptr);
     }
 
-    state.setProperty(c_stateVersion, 2, nullptr);
+    state.setProperty(c_stateVersion, c_currentStateVersion, nullptr);
     state.setProperty(c_pluginVersion, JucePlugin_VersionString, nullptr);
 
     {
@@ -554,6 +571,22 @@ void RoarschachAudioProcessor::setStateInformation(const void* data, int sizeInB
     for (auto child : tree)
         if (child.hasProperty("value") && !std::isfinite(static_cast<double>(child.getProperty("value"))))
             child.removeProperty("value", nullptr);
+
+    // A state saved with the first release's knob laws: convert its values so it sounds the same.
+    if (xmlState->getIntAttribute(c_stateVersion.toString(), 0) < c_currentStateVersion)
+    {
+        std::map<std::string, double> values;
+        for (auto child : tree)
+            if (child.hasProperty("value"))
+                values[child.getProperty("id").toString().toStdString()] = static_cast<double>(child.getProperty("value"));
+        roar::laws::migrateFromV1(values);
+        for (auto child : tree)
+        {
+            const auto it = values.find(child.getProperty("id").toString().toStdString());
+            if (it != values.end() && child.hasProperty("value"))
+                child.setProperty("value", it->second, nullptr);
+        }
+    }
 
     // APVTS::replaceState leaves a parameter without a PARAM child at its current value, so a
     // partial or older state would recall differently depending on what this instance held.

@@ -66,16 +66,16 @@ The order is saved with the session and with presets, and the host can automate 
 OUTPUT always ends the chain. In order, it:
 
 1. **Matches the level** of the processed voice to the input, so turning modules on and off does not make the voice much louder or quieter. The matching never drives the voice into the ceiling by itself: that is Push's job.
-2. **Pushes** the voice by up to +24 dB.
-3. **Mixes** in the dry voice, so the limiter and the clipper hold the ceiling at any Mix.
+2. **Pushes** the voice by up to +24 dB. Push is measured against the ceiling, so lowering the Ceiling lowers the output without driving the limiter harder.
+3. **Mixes** in the dry voice at the same loudness as the processed one (the dry is pushed too, and the two are blended at equal power), so the limiter and the clipper hold the ceiling at any Mix and Mix changes the character, not the level.
 4. **Limits** at the **Ceiling** with a look-ahead limiter. More Push is louder and denser; the peaks never pass the ceiling, which is true-peak safe.
 5. **Clips** what the limiter leaves for it. **Clip** sets how many dB of each peak above the ceiling are clipped instead of limited (Off by default), and **Shape** sets the clipper from Soft (rounded peaks) to Hard (flat peaks, brighter and more aggressive). The clipper is oversampled, so it does not add aliasing.
 
 **Attack and Release decide whether the limiting is clean or crunchy.** When the limiter's gain recovers quickly enough to move between the peaks of a low note's waveform, it turns that waveform's every peak down a little and lets it back up in between. That reshapes the low end and adds a dense, buzzy distortion on top of the voice: maximizer crunch, which sounds big on roars and impacts.
 
-- **Release** sets how much crunch there is. Very short releases (1 to 5 ms) let the gain follow the bass and crunch clearly; around 50 ms it is gritty; from about 300 ms up it is clean.
-- **Attack** sets which frequencies can crunch. The limiter starts turning down this long before each peak, and only notes whose waveform peaks are further apart than that can crunch: roughly everything below 1 / (2 × Attack). At 2 ms (the default) that is everything below about 250 Hz, the whole low end of a creature voice; at 5 ms only the lowest notes; at 10 ms almost nothing. Shorter attacks are also punchier on transients.
-- **Auto** (on by default) adapts the release to the material and holds the gain steady between bass peaks, so the low end stays clean whatever the Attack. Release still sets how quickly Auto breathes. Turn Auto off to use Release directly.
+- **Release** sets how much crunch there is. Very short releases (2 to 10 ms) let the gain follow the bass and crunch clearly; 25 to 60 ms is gritty; from about 200 ms up it is clean.
+- **Attack** sets which frequencies can crunch. The limiter starts turning down this long before each peak, and only notes whose waveform peaks are further apart than that can crunch: roughly everything below 1 / (2 × Attack). At 2 ms (the default) that is everything below about 250 Hz, the whole low end of a creature voice; at 5 ms only the lowest notes; at 10 ms almost nothing. 0.3 to 3 ms is the crunchy range. Shorter attacks are also punchier on transients.
+- **Auto** (on by default) adapts the release to the material and holds the gain steady between bass peaks, so the low end stays clean whatever the Attack. Release still sets how quickly Auto breathes, across its whole range. Turn Auto off to use Release directly.
 
 For crunch, turn Auto off, set Release to a few milliseconds, and raise Push until you hear it. Lower Mix to blend the crunched voice with the clean one. The Utility presets Crunch Lift and Smashed are starting points.
 
@@ -85,11 +85,11 @@ Roarschach runs at the host's sample rate and never resamples the audio. PITCH r
 
 ## Controls
 
-Every control has a tooltip: hover over it to see what it does. The footer of each module shows what the module is doing right now (hover over it for an explanation). Double-click any knob to reset it to its default. The mode chip under the knobs opens a menu of the module's choices; the ••• button moves the module.
+Every control has a tooltip: hover over it to see what it does, and where its useful range is. The footer of each module shows what the module is doing right now (hover over it for an explanation). Double-click any knob to reset it to its default. The mode chip under the knobs opens a menu of the module's choices; the ••• button moves the module.
 
 <img src="docs/tooltip.png" alt="The tooltip over RING's Freq knob: The carrier frequency. Low values give a robotic flutter, the low hundreds a clangy metallic voice, higher values a bell-like, alien tone." width="474">
 
-The close-ups below are from the Kaiju preset; RING and OUTPUT are from Cyber Commander.
+The close-ups below are from the Kaiju preset; RING and OUTPUT are from Cyber Commander. Every knob's travel was measured on real voice recordings and mapped so that all of it does something; the measurements are in [docs/parameter-audit.md](docs/parameter-audit.md).
 
 ### IN
 
@@ -97,7 +97,7 @@ The close-ups below are from the Kaiju preset; RING and OUTPUT are from Cyber Co
 
 | Control | Range | Default | Description |
 |---|---|---|---|
-| **Input** | −24 to +24 dB | 0 dB | Level into the plug-in, before everything else. |
+| **Input** | −24 to +24 dB | 0 dB | Level into the plug-in, before everything else. With Auto on, it raises or lowers the levelled voice by half as much. |
 | **Auto** | on / off | On | Brings any voice to the same working level, so every module reacts the same way to a quiet or a loud take. |
 
 The meter shows the input level and the readout the voice's pitch. A stereo input is summed to mono here.
@@ -108,10 +108,10 @@ The meter shows the input level and the readout the voice's pitch. A stereo inpu
 
 | Control | Range | Default | Description |
 |---|---|---|---|
-| **Pitch** | −24 to +12 st | −2 st | How far the voice is shifted, in semitones. Lower is bigger. |
-| **Size** | 0 to 100% | 0% | Makes the throat bigger: lowers the formants and adds body. |
-| **Drive** | 0 to 100% | 5% | Tube drive after the shift: warmth first, then grit. |
-| **Mode** | Shift / Snap / Mono | Shift | Shift moves the voice by the set interval. Snap also lands each note on the nearest semitone. Mono holds the voice on one note. |
+| **Pitch** | −24 to +12 st | −2 st | How far the voice is shifted, in semitones. −2 to −4: a bigger human; −5 to −9: a creature; −10 to −14: a monster (add Size, or Formant Keep to hold the words). Below −15 the words blur with Follow; above +6 the throat stops following. In Mono mode it sets the note held (0 st = C3). |
+| **Size** | 0 to 100% | 0% | Makes the throat bigger: lowers the formants and adds body. With Pitch below −18 st and Follow, the throat is already at its lowest, so Size only adds body. |
+| **Drive** | 0 to 100% | 5% | Tube drive after the shift: up to about 40% warmth, 50–80% grit, 100% heavy. |
+| **Mode** | Shift / Snap / Mono | Shift | Shift moves the voice by the set interval. Snap also lands each note on the nearest semitone. Mono holds the voice on one note, set by Pitch (0 st = C3). |
 | **Formant** | Follow / Keep | Follow | Follow moves the throat with the pitch, for a bigger or smaller creature. Keep leaves the throat where it is, so only the pitch changes. |
 
 ### CLEAN
@@ -120,9 +120,9 @@ The meter shows the input level and the readout the voice's pitch. A stereo inpu
 
 | Control | Range | Default | Description |
 |---|---|---|---|
-| **Contain** | 0 to 100% | 35% | Evens out the level and catches peaks before the creature stages. |
-| **Gate** | 0 to 100% | 35% | Closes on room noise between words. |
-| **Tone** | Flat / Voice / Heavy / Radio | Voice | Flat leaves the voice as it is, Voice cleans up the low mids, Heavy adds weight without boom, Radio is a narrow, lo-fi band. |
+| **Contain** | 0 to 100% | 22% | Evens out the level and catches peaks before the creature stages. It starts working at the bottom of the travel. |
+| **Gate** | 0 to 100% | 47% | Closes on room noise between words; higher settings close further and harder. 25–40% suits dialogue. |
+| **Tone** | Flat / Voice / Heavy / Radio | Voice | The voice EQ. Flat leaves the voice as it is, Voice cleans up the low mids, Heavy cuts the boom and low mids hard for a tight, forward chest (it thins the lows), Radio is a narrow, lo-fi band. |
 
 ### DE-ESS
 
@@ -130,8 +130,8 @@ The meter shows the input level and the readout the voice's pitch. A stereo inpu
 
 | Control | Range | Default | Description |
 |---|---|---|---|
-| **Amount** | 0 to 100% | 30% | Softens harsh S and T sounds. |
-| **Mode** | Split / Wide | Split | Split turns down only the hiss on each S. Wide turns down the whole voice. |
+| **Amount** | 0 to 100% | 59% | Softens harsh S and T sounds: more travel takes them down further. |
+| **Mode** | Split / Wide | Split | Split turns down only the hiss above about 3.5 kHz on each S. Wide turns down the whole voice for the length of the S, which also tames lisps and mouth noise but dips the words. |
 
 ### DETAIL
 
@@ -139,8 +139,8 @@ The meter shows the input level and the readout the voice's pitch. A stereo inpu
 
 | Control | Range | Default | Description |
 |---|---|---|---|
-| **Low** | 0 to 100% | 30% | Lifts the quiet parts (breaths, consonants, tails) while the loud syllables stay where they are. |
-| **High** | 0 to 100% | 25% | Pushes the loud parts up into a soft ceiling: denser and more forward. |
+| **Low** | 0 to 100% | 25% | Lifts the quiet parts (breaths, consonants, tails) while the loud syllables stay where they are. 40–60% is a clear lift; it never lifts the room tone the gate is taking out. |
+| **High** | 0 to 100% | 19% | Pushes the loud parts up into a soft ceiling: denser and more forward. 30–60% is a strong, even level. |
 | **Speed** | Natural / Snappy | Natural | How quickly the level follows the voice. Natural is smooth; Snappy recovers faster and sounds more lively. |
 
 DETAIL leaves the room tone between lines alone, so it lifts the voice, not the noise floor.
@@ -151,8 +151,8 @@ DETAIL leaves the room tone between lines alone, so it lifts the voice, not the 
 
 | Control | Range | Default | Description |
 |---|---|---|---|
-| **Gravel** | 0 to 100% | 50% | How much of the pulse-carrier vocoder is heard: a gravelly machine voice under the words. |
-| **Octave** | −1 Oct / −2 Oct | −1 Oct | Pitch of the vocoder's pulse carrier: one or two octaves below the voice. |
+| **Gravel** | 0 to 100% | 41% | How much of the pulse-carrier vocoder is heard. About 30% is gritty with the words fully intact; about 70% is a dominant buzz. |
+| **Octave** | −1 Oct / −2 Oct | −1 Oct | Register of the vocoder's pulse carrier: −1 Oct is low and buzzy, −2 Oct lower and rougher. The filter bank keeps its weight above the deepest bass. |
 
 ### RING
 
@@ -160,10 +160,10 @@ DETAIL leaves the room tone between lines alone, so it lifts the voice, not the 
 
 | Control | Range | Default | Description |
 |---|---|---|---|
-| **Amount** | 0 to 100% | 40% | How much of the ring-modulated voice is heard. Low settings add a metallic edge; high settings turn the voice into a machine. |
-| **Freq** (Track Fixed) | 20 Hz to 4 kHz | 150 Hz | The carrier frequency. Low values give a robotic flutter, the low hundreds a clangy metallic voice, higher values a bell-like, alien tone. |
-| **Ratio** (Track Follow) | ×0.25 to ×4 | ×1.00 | The carrier as a multiple of the voice's pitch. Whole and half ratios stay in tune with the voice; other ratios clash. |
-| **Carrier** | Sine / Triangle / Square | Sine | The carrier waveform. Sine is smooth, triangle slightly brighter, square buzzy and hard. |
+| **Amount** | 0 to 100% | 40% | How much of the ring-modulated voice is heard. About 20% adds a metallic edge, 50% is an equal metallic blend, 100% is pure ring. |
+| **Freq** (Track Fixed) | 20 Hz to 4 kHz | 150 Hz | The carrier frequency. 110–450 Hz gives a metallic voice; below about 50 Hz it becomes a tremolo; above about 1.3 kHz it squeaks. |
+| **Ratio** (Track Follow) | ×0.25 to ×4 | ×1.00 | The carrier as a multiple of the voice's pitch. Whole-number ratios stay in tune with the voice; in-between ratios clang; below ×0.35 it chops. |
+| **Carrier** | Sine / Triangle / Square | Sine | The carrier waveform. Sine is smooth, Triangle a softened sine, Square buzzy and hard. |
 | **Track** | Fixed / Follow | Fixed | Fixed holds the carrier at one frequency. Follow moves it with the voice's pitch. |
 | **Mode** | Ring / AM | Ring | Ring removes the original pitch and leaves only the metallic sidebands. AM keeps the original voice and adds the sidebands around it. |
 | **Body** | Off / Box / Can | Off | Puts the voice inside a small resonant box. Box is a hard, hollow enclosure; Can is smaller and more metallic. |
@@ -176,9 +176,9 @@ The second knob is Freq when Track is Fixed and Ratio when Track is Follow.
 
 | Control | Range | Default | Description |
 |---|---|---|---|
-| **Amount** | 0 to 100% | 12% | A liquid wobble: a copy of the voice moved a few hertz beats against the voice. |
-| **Rate** | 0.5 to 40 Hz | 11 Hz | How fast the wobble beats. |
-| **Mode** | Up / Down / Up+Down / Stereo | Up | Which way the copy is moved. Up and Down wobble differently, Up+Down uses both, Stereo puts one on each side. |
+| **Amount** | 0 to 100% | 18% | A liquid wobble: a copy of the voice moved a few hertz beats against the voice. 15–30% is a subtle layer; 90–100% a full wobble. |
+| **Rate** | 0.5 to 25 Hz | 11 Hz | How fast the wobble beats. 0.5–2 Hz is a liquid swell, 3–9 Hz a warble, 13 Hz and up rough. |
+| **Mode** | Up / Down / Up+Down / Stereo | Up | Which way the copy is moved. Up and Down wobble differently, Up+Down uses both, Stereo puts one on each side (summed to mono, Stereo wobbles less). |
 
 ### GROWL
 
@@ -186,9 +186,9 @@ The second knob is Freq when Track is Fixed and Ratio when Track is Follow.
 
 | Control | Range | Default | Description |
 |---|---|---|---|
-| **Depth** | 0 to 100% | 48% | How deeply the voice is chopped. |
-| **Rate** | 1 to 150 Hz | 27 Hz | How fast the voice is chopped. Around 25–30 Hz reads as a rough growl; lower rates stutter. |
-| **Shape** | Sine / Opto / Square / Throat / Rattle | Sine | Sine is smooth, Opto pulses like a lamp, Square switches hard, Throat locks to half the voice's pitch, Rattle speeds up on loud lines. |
+| **Depth** | 0 to 100% | 25% | How deeply the voice is chopped. 15–35% adds texture; 45–100% is an obvious growl. |
+| **Rate** | 2 to 150 Hz | 27 Hz | How fast the voice is chopped. 5–7 Hz stutters, 20–35 Hz growls, 60–100 Hz buzzes. Not used by the Throat shape. |
+| **Shape** | Sine / Opto / Square / Throat / Rattle | Sine | Sine is smooth, Opto pulses like a lamp, Square switches hard, Throat locks to half the voice's pitch (Rate is not used), Rattle speeds up as the voice gets louder. |
 | **Character** | Clean / Warm / Grind | Warm | What the chop does to the tone. Clean only changes the level, Warm rounds the low end, Grind adds a gritty edge. |
 
 ### SWIRL
@@ -197,8 +197,8 @@ The second knob is Freq when Track is Fixed and Ratio when Track is Follow.
 
 | Control | Range | Default | Description |
 |---|---|---|---|
-| **Amount** | 0 to 100% | 30% | How much of the sweeping phaser is mixed in. |
-| **Rate** | 0.05 to 10 Hz | 0.35 Hz | How fast the phaser sweeps. |
+| **Amount** | 0 to 100% | 21% | How much of the sweeping phaser is mixed in. |
+| **Rate** | 0.05 to 10 Hz | 0.35 Hz | How fast the phaser sweeps. 0.15–0.5 Hz is slow and liquid, 1–2.5 Hz animated, 4 Hz and up a warble. |
 | **Circuit** | Liquid 4 / Smooth 4 / Talky 4 / Deep 6 / Deep 12 / Dark 5 | Liquid 4 | The phaser's circuit: how many notches it has and how deep they cut, from a liquid four-stage to a dense twelve-stage sweep. |
 | **Motion** | LFO / LFO+Level / Random | LFO+Level | What moves the sweep. LFO is steady, LFO+Level sweeps further on loud words, Random wanders. |
 
@@ -208,8 +208,8 @@ The second knob is Freq when Track is Fixed and Ratio when Track is Follow.
 
 | Control | Range | Default | Description |
 |---|---|---|---|
-| **Drive** | 0 to 100% | 45% | Tube saturation: warm at first, gritty and dense when pushed. |
-| **Tone** | Bass 100% to Treble 100% | Treble 10% | Tilts what the tube drives harder: the bass or the treble. |
+| **Drive** | 0 to 100% | 45% | Tube saturation. 25–45% gives warmth and presence; 70–100% grit. |
+| **Tone** | Bass 100% to Treble 100% | Treble 6% | Tilts what the tube drives harder: the bass or the treble. It works at any Drive. |
 | **Voicing** | Line / Mic | Line | Line drives the tube flat. Mic first trims the boom and the air, as from a close microphone. |
 
 ### ENSEMBLE
@@ -218,8 +218,8 @@ The second knob is Freq when Track is Fixed and Ratio when Track is Follow.
 
 | Control | Range | Default | Description |
 |---|---|---|---|
-| **Amount** | 0 to 100% | 18% | How much of the chorus of voices is mixed in. |
-| **Width** | 0 to 150% | 12% | How far the chorus spreads to the sides. |
+| **Amount** | 0 to 100% | 26% | How much of the chorus of voices is mixed in. |
+| **Width** | 0 to 150% | 10% | How far the chorus spreads to the sides. Past about 100% the chorus thins when the mix is summed to mono. |
 | **Voices** | 3 / 6 | 3 | How many voices sing along: 3 is tight, 6 is a crowd. |
 | **Motion** | Slow / Medium / Fast / Vibrato | Medium | How the voices drift. Slow, Medium and Fast set the movement; Vibrato makes them waver in pitch. |
 
@@ -229,7 +229,7 @@ The second knob is Freq when Track is Fixed and Ratio when Track is Follow.
 
 | Control | Range | Default | Description |
 |---|---|---|---|
-| **Amount** | 0 to 100% | 30% | Holds back harsh top end when it gets loud. |
+| **Amount** | 0 to 100% | 18% | Holds back harsh top end when it gets loud; higher settings start lower and hold back harder. |
 
 ### SUB
 
@@ -237,9 +237,9 @@ The second knob is Freq when Track is Fixed and Ratio when Track is Follow.
 
 | Control | Range | Default | Description |
 |---|---|---|---|
-| **Level** | 0 to 100% | 45% | Level of the octave underneath the voice. |
-| **Drive** | 0 to 100% | 60% | Drive on the octave: rounder or growlier. |
-| **Register** | Follow / Tight / Deep | Follow | Where the octave sits. Follow tracks the voice, Tight keeps it in a firm low band, Deep always goes a full octave down. |
+| **Level** | 0 to 100% | 49% | Level of the octave underneath the voice. 40–65% is a solid octave. With Overtone in Replace, Sub Level also adds weight through the overtones. |
+| **Drive** | 0 to 100% | 20% | Drive on the octave. Up to about 20% it stays clean; above that it gets thicker and growlier. |
+| **Register** | Follow / Tight / Deep | Follow | Where the octave sits. Follow tracks the voice an octave down, Tight keeps it at 55 Hz or above, Deep goes a full octave down to about 32 Hz. |
 | **Character** | Clean / Resonant / Thick | Clean | The octave's colour. Clean is a pure low tone, Resonant rings and drives harder, Thick adds a second, fuller layer. |
 
 ### OVERTONE
@@ -248,7 +248,7 @@ The second knob is Freq when Track is Fixed and Ratio when Track is Follow.
 
 | Control | Range | Default | Description |
 |---|---|---|---|
-| **Amount** | 0 to 100% | 10% | How strongly the low end is echoed as overtones. They let the voice's weight be heard on small speakers without adding more bass. |
+| **Amount** | 0 to 100% | 10% | How strongly the low end is echoed as overtones. They let the voice's weight be heard on small speakers without adding more bass. In Lean and Replace the original low end is cut more as Amount rises. |
 | **Freq** | −1 to +1 oct | 0 oct | Moves the overtone bands up or down together. Higher translates better to small speakers; lower is warmer. |
 | **Pattern** | Chest / Throat / Beast / Speaker / Broad / Tracked | Chest | Which low regions are turned into overtones. Chest: body and octave. Throat: gruff upper growl. Beast: hollow, odd-heavy snarl. Speaker: high overtones for small or radio-like creatures. Broad: one wide low band. Tracked: follows the voice's pitch exactly. |
 | **Mode** | Add / Lean / Replace | Add | Add keeps the original low end. Lean lowers it. Replace removes it, so the low end is heard only through its overtones. |
@@ -261,14 +261,14 @@ Placed after SUB (the default), OVERTONE also makes SUB's octave audible on smal
 
 | Control | Range | Default | Description |
 |---|---|---|---|
-| **Push** | 0 to +24 dB | +8 dB | Drives the voice into the ceiling. More push is louder and denser; the peaks never pass the ceiling. |
-| **Ceiling** | −12 to 0 dB | −1 dB | The highest level the output can reach, true-peak safe. |
+| **Push** | 0 to +24 dB | +8 dB | Drives the voice into the ceiling. Push 8–12 is clean and dense; for loud, Push 14–18 with Clip 6–9. The peaks never pass the ceiling. |
+| **Ceiling** | −12 to 0 dB | −1 dB | The highest level the output can reach, true-peak safe. It sets the output level only: Push decides how hard the limiter works. |
 | **Clip** | Off to 18 dB | Off | How many dB of each peak above the ceiling are clipped instead of limited. Raise Push to drive into it. |
 | **Shape** | Soft to Hard | Soft | Clip shape. Soft rounds the peaks gently; Hard clips them flat, which is brighter and more aggressive. |
-| **Attack** | 0.05 to 10 ms | 2 ms | How early the limiter starts turning down before a peak. Shorter is punchier and crunchier on the low end. |
-| **Release** | 1 ms to 1 s | 60 ms | How fast the limiter recovers. Very short times make the gain follow the bass and crunch; long times are clean. |
+| **Attack** | 0.2 to 10 ms | 2 ms | How early the limiter starts turning down before a peak. With Auto off and a short Release, 0.3–3 ms crunches the low end. |
+| **Release** | 1 ms to 1 s | 60 ms | How fast the limiter recovers. With Auto off: 2–10 ms crunch, 25–60 ms grit, 200 ms and up clean. |
 | **Auto** | on / off | On | Auto release: adapts the recovery to the material and keeps the low end clean. Release sets how quickly it breathes. |
-| **Mix** | 0 to 100% | 100% | Blends the processed voice with the dry voice, which is delayed and phase-matched to line up with it. |
+| **Mix** | 0 to 100% | 100% | Blends the processed voice with the dry voice, which is delayed and phase-matched to line up with it. The two are matched in loudness, so Mix changes the character, not the level. |
 
 The meters show the output level (with the ceiling marked), the limiter's gain reduction (GR) and how much the clipper takes (CLIP). See [The output stage](#the-output-stage) for how Attack and Release shape the crunch.
 

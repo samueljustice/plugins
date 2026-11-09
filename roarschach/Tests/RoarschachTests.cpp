@@ -11,6 +11,13 @@
 //                   [--order "PI CL ..."]
 //                                          render a file at its own sample rate (no resampling),
 //                                          latency-trimmed, 24-bit, through factory presets
+//                   [--set id=value]...    after the preset: a real value, a choice name, On/Off,
+//                                          or @0.75 for a knob position (0..1)
+//                   [--metrics out.json]   measurements per render (Tests/RenderMetrics.h)
+//                   [--sweep id from to steps [--norm]] [--no-wav]
+//                                          the same input at each value of one parameter (real
+//                                          values, or knob positions with --norm); metrics go to
+//                                          --metrics or <outdir>/sweep-<id>.json
 
 #if defined(__APPLE__)
  #include <CoreFoundation/CoreFoundation.h>   // the snapshot harness runs the run loop (before JUCE: it declares Point)
@@ -27,6 +34,8 @@
 #include "dsp/modules/CleanModule.h"
 #include "dsp/modules/InModule.h"
 #include "dsp/modules/TameModule.h"
+#include "dsp/KnobLaws.h"
+#include "RenderMetrics.h"
 
 #include <algorithm>
 #include <chrono>
@@ -681,7 +690,10 @@ namespace
                 const float back = ranged->convertFrom0to1(ranged->getValueForText(text));
                 const bool wholePercent = spec.kind == Params::Kind::percent || spec.kind == Params::Kind::bipolar
                                           || spec.kind == Params::Kind::position;   // displayed as whole numbers
-                const float tolerance = std::max({ wholePercent ? 0.51f : 0.051f, std::abs(plain) * 0.01f, spec.step });
+                // Milliseconds from 10 ms up display whole milliseconds (the log taper's mid point,
+                // 31.6 ms, reads "32 ms").
+                const bool wholeMs = spec.kind == Params::Kind::milliseconds && plain >= 10.0f && plain < 1000.0f;
+                const float tolerance = std::max({ wholePercent || wholeMs ? 0.51f : 0.051f, std::abs(plain) * 0.01f, spec.step });
                 if (std::abs(back - plain) > tolerance)
                 {
                     ++textFailures;
@@ -691,14 +703,16 @@ namespace
         }
         check(textFailures == 0, juce::String(textFailures) + " text round trips off");
 
-        // Only the log kinds (hertz, ratio, milliseconds) have a skewed taper: the rest are linear,
-        // so Pitch's -24..-12 st octave gets a third of the travel.
+        // Only the log kinds (hertz, ratio, milliseconds) and the decibel knobs with a centre (Push,
+        // Clip) have a non-linear taper: the rest are linear, so Pitch's -24..-12 st octave gets a
+        // third of the travel. (Push and Clip were linear in the first release; their skew puts
+        // the useful range, 10 dB and 5 dB, at mid travel.)
         for (const auto& spec : Params::all)
         {
             if (spec.kind == Params::Kind::choice || spec.kind == Params::Kind::toggle || spec.kind == Params::Kind::position)
                 continue;
             const bool logTaper = spec.kind == Params::Kind::hertz || spec.kind == Params::Kind::ratio || spec.kind == Params::Kind::milliseconds;
-            if (logTaper)
+            if (logTaper || (spec.kind == Params::Kind::decibels && spec.centre != 0.0f))
                 continue;
             auto* param = p->getValueTreeState().getParameter(spec.id);
             const float mid = 0.5f * (spec.minValue + spec.maxValue);
@@ -722,7 +736,8 @@ namespace
         check(text(Params::outClip, 0.0f) == "Off", "Clip text at 0");
         check(text(Params::outClipShape, 0.0f) == "Soft" && text(Params::outClipShape, 100.0f) == "Hard", "Clip Shape ends");
         check(text(Params::outRelease, 60.0f) == "60 ms" && text(Params::outRelease, 1000.0f) == "1.00 s", "Release text");
-        check(text(Params::outAttack, 2.0f) == "2.0 ms" && text(Params::outAttack, 0.05f) == "0.05 ms", "Attack text");
+        // (Attack now starts at 0.2 ms: below that it was dead.)
+        check(text(Params::outAttack, 2.0f) == "2.0 ms" && text(Params::outAttack, 0.2f) == "0.20 ms", "Attack text");
         check(text(Params::ringFreq, 1200.0f) == "1.20 kHz" && text(Params::ringFreq, 150.0f) == "150.0 Hz", "Ring Freq text");
         check(text(Params::ringRatio, 1.5f) == "x1.50", "Ring Ratio text");
         check(text(Params::overtoneFreq, 0.25f) == "+0.25 oct", "Overtone Frequency text");
@@ -3259,8 +3274,56 @@ namespace
     //==========================================================================
     // Offline render mode.
 
-    int renderFiles(const juce::File& input, const juce::File& outDir, juce::StringArray presetNames,
-                    const juce::StringArray& only, const juce::StringArray& without, const juce::String& order)
+    struct RenderOptions
+    {
+        juce::StringArray presets, only, without;
+        juce::String order;
+        juce::StringArray sets;    // "id=value" (real value or choice name) or "id=@0.75" (knob position 0..1)
+        juce::File metrics;        // --metrics: a JSON file of metrics per render
+        juce::String sweepId;      // --sweep id from to steps
+        double sweepFrom = 0.0, sweepTo = 0.0;
+        int sweepSteps = 0;
+        bool sweepNorm = false;    // --norm: the sweep's from/to are knob positions 0..1
+        bool writeWav = true;      // --no-wav
+    };
+
+    /** Sets id from "value", "@knob" (0..1) or a choice name; false (and a message) when it cannot. */
+    bool setFromText(RoarschachAudioProcessor& p, const juce::String& id, const juce::String& text)
+    {
+        auto* param = p.getValueTreeState().getParameter(id);
+        if (param == nullptr)
+        {
+            std::printf("no parameter \"%s\"\n", id.toRawUTF8());
+            return false;
+        }
+        if (text.startsWithChar('@'))
+        {
+            param->setValueNotifyingHost(juce::jlimit(0.0f, 1.0f, text.substring(1).getFloatValue()));
+            return true;
+        }
+        if (!text.containsOnly("+-.0123456789eE"))
+        {
+            for (const auto& spec : Params::all)
+                if (id == spec.id && spec.choices != nullptr)
+                    for (int c = 0; c < spec.numChoices; ++c)
+                        if (text.equalsIgnoreCase(spec.choices[c]))
+                        {
+                            param->setValueNotifyingHost(param->convertTo0to1(static_cast<float>(c)));
+                            return true;
+                        }
+            if (text.equalsIgnoreCase("on") || text.equalsIgnoreCase("off"))
+            {
+                param->setValueNotifyingHost(text.equalsIgnoreCase("on") ? 1.0f : 0.0f);
+                return true;
+            }
+            std::printf("cannot read \"%s\" as a value of %s\n", text.toRawUTF8(), id.toRawUTF8());
+            return false;
+        }
+        param->setValueNotifyingHost(param->convertTo0to1(text.getFloatValue()));
+        return true;
+    }
+
+    int renderFiles(const juce::File& input, const juce::File& outDir, RenderOptions opt)
     {
         juce::AudioFormatManager formats;
         formats.registerBasicFormats();
@@ -3282,10 +3345,10 @@ namespace
         in.r = file.getNumChannels() > 1 ? Signal(file.getReadPointer(1), file.getReadPointer(1) + length) : in.l;
         const bool monoIn = file.getNumChannels() < 2;
 
-        if (presetNames.isEmpty())
-            presetNames = { "Init" };
+        if (opt.presets.isEmpty())
+            opt.presets = { "Init" };
 
-        if (!outDir.createDirectory())
+        if (opt.writeWav && !outDir.createDirectory())
         {
             std::printf("cannot create %s\n", outDir.getFullPathName().toRawUTF8());
             return 1;
@@ -3295,8 +3358,65 @@ namespace
         std::printf("input %s: %.2f s @ %.0f Hz (rendered at this rate), %d ch, rms %.1f dBFS, peak %.1f dBFS\n",
                     input.getFileName().toRawUTF8(), length / sr, sr, file.getNumChannels(), toDb(inStats.rms), toDb(inStats.peak));
 
+        // The sweep's values (or one pass without a sweep).
+        const Params::Spec* sweepSpec = nullptr;
+        std::vector<double> sweepValues { std::numeric_limits<double>::quiet_NaN() };
+        if (opt.sweepId.isNotEmpty())
+        {
+            for (const auto& spec : Params::all)
+                if (opt.sweepId == spec.id)
+                    sweepSpec = &spec;
+            if (sweepSpec == nullptr || opt.sweepSteps < 1)
+            {
+                std::printf("bad sweep: parameter \"%s\", %d steps\n", opt.sweepId.toRawUTF8(), opt.sweepSteps);
+                return 1;
+            }
+            sweepValues.clear();
+            for (int i = 0; i < opt.sweepSteps; ++i)
+                sweepValues.push_back(opt.sweepSteps == 1 ? opt.sweepFrom
+                                      : opt.sweepFrom + (opt.sweepTo - opt.sweepFrom) * i / (opt.sweepSteps - 1));
+        }
+
+        const bool wantMetrics = opt.metrics != juce::File();
+        std::unique_ptr<RenderMetrics::Reference> reference;
+        juce::Array<juce::var> records;
+        auto* root = new juce::DynamicObject();
+        juce::var rootVar(root);
+        if (wantMetrics)
+        {
+            reference = std::make_unique<RenderMetrics::Reference>(RenderMetrics::makeReference(in.l, in.r, sr));
+            auto* inRec = new juce::DynamicObject();
+            inRec->setProperty("file", input.getFullPathName());
+            inRec->setProperty("sampleRate", sr);
+            inRec->setProperty("seconds", length / sr);
+            inRec->setProperty("channels", file.getNumChannels());
+            inRec->setProperty("sineHz", RenderMetrics::num(reference->sineHz));
+            inRec->setProperty("metrics", RenderMetrics::measure(in.l, in.r, *reference, sr,
+                                                                 toDb(std::max(truePeak(in.l), truePeak(in.r))), 0));
+            root->setProperty("input", juce::var(inRec));
+            root->setProperty("thirdOctaveCentresHz", RenderMetrics::numArray(RenderMetrics::thirdOctaveCentres()));
+            root->setProperty("amBandEdgesHz", RenderMetrics::numArray(RenderMetrics::modBandEdges()));
+            juce::Array<juce::var> setList;
+            for (const auto& s : opt.sets)
+                setList.add(s);
+            root->setProperty("set", setList);
+            if (sweepSpec != nullptr)
+            {
+                auto* sw = new juce::DynamicObject();
+                sw->setProperty("param", opt.sweepId);
+                sw->setProperty("name", juce::String(sweepSpec->name));
+                sw->setProperty("min", sweepSpec->minValue);
+                sw->setProperty("max", sweepSpec->maxValue);
+                sw->setProperty("from", opt.sweepFrom);
+                sw->setProperty("to", opt.sweepTo);
+                sw->setProperty("steps", opt.sweepSteps);
+                sw->setProperty("norm", opt.sweepNorm);
+                root->setProperty("sweep", juce::var(sw));
+            }
+        }
+
         int failures = 0;
-        for (const auto& name : presetNames)
+        for (const auto& name : opt.presets)
         {
             const int index = presetIndex(name);
             if (index < 0)
@@ -3306,77 +3426,609 @@ namespace
                 continue;
             }
 
-            auto p = makeProcessor(sr, 512, monoIn ? 1 : 2, 2);
-            p->setCurrentProgram(index);
-            juce::String suffix;
-            if (!only.isEmpty())
+            for (const double sweepValue : sweepValues)
             {
-                for (const auto& m : Params::modules)
-                    setParam(*p, m.onId, only.contains(m.code) ? 1.0f : 0.0f);
-                suffix << "-only-" << only.joinIntoString("-").toLowerCase();
-            }
-            for (const auto& code : without)
-            {
-                const int m = Params::moduleIndexForCode(code.toStdString());
-                if (m >= 0)
-                    setParam(*p, Params::modules[static_cast<size_t>(m)].onId, 0.0f);
-            }
-            if (!without.isEmpty())
-                suffix << "-without-" << without.joinIntoString("-").toLowerCase();
-            if (order.isNotEmpty())
-            {
-                setOrder(*p, orderFromCodes(order));
-                suffix << "-order-" << order.removeCharacters(" ,").toLowerCase();
-            }
-            restart(*p, sr, 512);
-            const int latency = p->getLatencySamples();
+                auto p = makeProcessor(sr, 512, monoIn ? 1 : 2, 2);
+                p->setCurrentProgram(index);
+                juce::String suffix;
+                if (!opt.only.isEmpty())
+                {
+                    for (const auto& m : Params::modules)
+                        setParam(*p, m.onId, opt.only.contains(m.code) ? 1.0f : 0.0f);
+                    suffix << "-only-" << opt.only.joinIntoString("-").toLowerCase();
+                }
+                for (const auto& code : opt.without)
+                {
+                    const int m = Params::moduleIndexForCode(code.toStdString());
+                    if (m >= 0)
+                        setParam(*p, Params::modules[static_cast<size_t>(m)].onId, 0.0f);
+                }
+                if (!opt.without.isEmpty())
+                    suffix << "-without-" << opt.without.joinIntoString("-").toLowerCase();
+                if (opt.order.isNotEmpty())
+                {
+                    setOrder(*p, orderFromCodes(opt.order));
+                    suffix << "-order-" << opt.order.removeCharacters(" ,").toLowerCase();
+                }
+                for (const auto& s : opt.sets)
+                {
+                    const auto id = s.upToFirstOccurrenceOf("=", false, false).trim();
+                    const auto value = s.fromFirstOccurrenceOf("=", false, false).trim();
+                    if (!s.contains("=") || !setFromText(*p, id, value))
+                        return 1;
+                    suffix << "-" << id << "-" << value.removeCharacters("@");
+                }
 
-            // Pad with the latency plus a tail, then drop the latency so the file lines up with the input.
-            Stereo padded = in;
-            const int extra = latency + static_cast<int>(0.5 * sr);
-            padded.l.resize(static_cast<size_t>(length + extra), 0.0f);
-            padded.r.resize(static_cast<size_t>(length + extra), 0.0f);
-            auto out = render(*p, padded, 512);
-            out.l.erase(out.l.begin(), out.l.begin() + latency);
-            out.r.erase(out.r.begin(), out.r.begin() + latency);
+                juce::RangedAudioParameter* swept = nullptr;
+                if (sweepSpec != nullptr)
+                {
+                    swept = p->getValueTreeState().getParameter(opt.sweepId);
+                    if (opt.sweepNorm)
+                        swept->setValueNotifyingHost(static_cast<float>(juce::jlimit(0.0, 1.0, sweepValue)));
+                    else
+                        swept->setValueNotifyingHost(swept->convertTo0to1(static_cast<float>(sweepValue)));
+                    suffix << "-" << opt.sweepId << "-" << juce::String(getParam(*p, opt.sweepId.toRawUTF8()), 3);
+                }
 
-            const auto st = stats(out);
-            double sideSq = 0.0, midSq = 0.0;
-            for (size_t i = 0; i < out.l.size(); ++i)
-            {
-                const double mid = 0.5 * (out.l[i] + out.r[i]), side = 0.5 * (out.l[i] - out.r[i]);
-                sideSq += side * side;
-                midSq += mid * mid;
+                restart(*p, sr, 512);
+                const int latency = p->getLatencySamples();
+
+                // Pad with the latency plus a tail, then drop the latency so the file lines up with the input.
+                Stereo padded = in;
+                const int extra = latency + static_cast<int>(0.5 * sr);
+                padded.l.resize(static_cast<size_t>(length + extra), 0.0f);
+                padded.r.resize(static_cast<size_t>(length + extra), 0.0f);
+                auto out = render(*p, padded, 512);
+                out.l.erase(out.l.begin(), out.l.begin() + latency);
+                out.r.erase(out.r.begin(), out.r.begin() + latency);
+
+                const auto st = stats(out);
+                double sideSq = 0.0, midSq = 0.0;
+                for (size_t i = 0; i < out.l.size(); ++i)
+                {
+                    const double mid = 0.5 * (out.l[i] + out.r[i]), side = 0.5 * (out.l[i] - out.r[i]);
+                    sideSq += side * side;
+                    midSq += mid * mid;
+                }
+                const double tpDb = toDb(std::max(truePeak(out.l), truePeak(out.r)));
+                const auto clamps = p->getChain().getClampCount();
+
+                const juce::File target = outDir.getChildFile((name + suffix).replaceCharacter(' ', '-').replaceCharacter('&', 'n').toLowerCase() + ".wav");
+                if (opt.writeWav)
+                {
+                    target.deleteFile();
+                    juce::WavAudioFormat wav;
+                    std::unique_ptr<juce::OutputStream> stream(target.createOutputStream());
+                    std::unique_ptr<juce::AudioFormatWriter> writer(stream != nullptr
+                        ? wav.createWriterFor(stream.get(), sr, 2, 24, {}, 0) : nullptr);
+                    if (writer != nullptr)
+                    {
+                        stream.release();
+                        const float* channels[] { out.l.data(), out.r.data() };
+                        writer->writeFromFloatArrays(channels, 2, static_cast<int>(out.l.size()));
+                    }
+                    else
+                    {
+                        std::printf("cannot write %s\n", target.getFullPathName().toRawUTF8());
+                        ++failures;
+                    }
+                }
+
+                const float ceiling = ceilingGain(getParam(*p, Params::outCeiling));
+                const bool broken = !st.finite || st.peak > ceiling || std::abs(st.mean) > 0.01;
+                failures += broken ? 1 : 0;
+
+                juce::String metricLine;
+                if (wantMetrics)
+                {
+                    // Measured over the input's length (aligned with it); the tail is in the file only.
+                    const Signal l(out.l.begin(), out.l.begin() + length), r(out.r.begin(), out.r.begin() + length);
+                    auto m = RenderMetrics::measure(l, r, *reference, sr, tpDb, clamps);
+                    auto* rec = new juce::DynamicObject();
+                    rec->setProperty("preset", name);
+                    rec->setProperty("suffix", suffix);
+                    if (swept != nullptr)
+                    {
+                        rec->setProperty("param", opt.sweepId);
+                        rec->setProperty("value", getParam(*p, opt.sweepId.toRawUTF8()));   // the real value after snapping
+                        rec->setProperty("norm", swept->getValue());
+                        rec->setProperty("text", swept->getCurrentValueAsText());
+                    }
+                    rec->setProperty("latency", latency);
+                    rec->setProperty("wav", opt.writeWav ? juce::var(target.getFullPathName()) : juce::var());
+                    rec->setProperty("broken", broken);
+                    rec->setProperty("metrics", m);
+                    records.add(juce::var(rec));
+                    metricLine << juce::String::formatted("  %6.1f LUFS  HNR %5.1f dB  env r %.2f",
+                                                          static_cast<double>(m["lufs"]), static_cast<double>(m["hnrDb"]),
+                                                          static_cast<double>(m["envCorr1to4k"]));
+                }
+
+                std::printf("%-18s%s rms %6.1f dBFS  peak %6.2f dBFS  true peak %6.2f dBTP  side/mid %5.1f dB  clamps %llu  latency %d  %s%s%s%s\n",
+                            name.toRawUTF8(), suffix.toRawUTF8(), toDb(st.rms), toDb(st.peak), tpDb,
+                            toDb(std::sqrt(sideSq / std::max(midSq, 1.0e-20))), static_cast<unsigned long long>(clamps),
+                            latency, broken ? "BROKEN" : "ok", metricLine.toRawUTF8(),
+                            opt.writeWav ? " -> " : "", opt.writeWav ? target.getFullPathName().toRawUTF8() : "");
             }
+        }
 
-            const juce::File target = outDir.getChildFile(name.replaceCharacter(' ', '-').replaceCharacter('&', 'n').toLowerCase() + suffix + ".wav");
-            target.deleteFile();
-            juce::WavAudioFormat wav;
-            std::unique_ptr<juce::OutputStream> stream(target.createOutputStream());
-            std::unique_ptr<juce::AudioFormatWriter> writer(stream != nullptr
-                ? wav.createWriterFor(stream.get(), sr, 2, 24, {}, 0) : nullptr);
-            if (writer != nullptr)
+        if (wantMetrics)
+        {
+            root->setProperty("records", records);
+            opt.metrics.getParentDirectory().createDirectory();
+            if (!opt.metrics.replaceWithText(juce::JSON::toString(rootVar)))
             {
-                stream.release();
-                const float* channels[] { out.l.data(), out.r.data() };
-                writer->writeFromFloatArrays(channels, 2, static_cast<int>(out.l.size()));
+                std::printf("cannot write %s\n", opt.metrics.getFullPathName().toRawUTF8());
+                ++failures;
             }
             else
             {
-                std::printf("cannot write %s\n", target.getFullPathName().toRawUTF8());
-                ++failures;
+                std::printf("metrics -> %s\n", opt.metrics.getFullPathName().toRawUTF8());
             }
-
-            const float ceiling = ceilingGain(getParam(*p, Params::outCeiling));
-            const bool broken = !st.finite || st.peak > ceiling || std::abs(st.mean) > 0.01;
-            failures += broken ? 1 : 0;
-            std::printf("%-18s%s rms %6.1f dBFS  peak %6.2f dBFS  true peak %6.2f dBTP  side/mid %5.1f dB  clamps %llu  latency %d  %s -> %s\n",
-                        name.toRawUTF8(), suffix.toRawUTF8(), toDb(st.rms), toDb(st.peak),
-                        toDb(std::max(truePeak(out.l, true), truePeak(out.r, true))),
-                        toDb(std::sqrt(sideSq / std::max(midSq, 1.0e-20))), static_cast<unsigned long long>(p->getChain().getClampCount()),
-                        latency, broken ? "BROKEN" : "ok", target.getFullPathName().toRawUTF8());
         }
         return failures == 0 ? 0 : 1;
+    }
+
+}
+
+namespace
+{
+    // ---------------------------------------------------------------------------------------------
+    // Knob laws (dsp/KnobLaws.h): tapers, laws, conversions, state migration, preset conversion.
+
+    /** n -> value of a parameter through the processor's own range (the knob's taper). */
+    float valueAtKnob(RoarschachAudioProcessor& p, const char* id, float n)
+    {
+        return p.getValueTreeState().getParameter(id)->convertFrom0to1(n);
+    }
+
+    // The first release's factory preset values for the remapped knobs (the conversion source).
+    struct V1Preset
+    {
+        const char* name;
+        bool roarOn;
+        // contain, gate, deess, low, high, gravel, shimmer, swirl, ensemble, width, growl, roar,
+        // roarTone, tame, sub, subDrive, overtone, push, ceiling, clip, clipShape, attack
+        std::array<float, 22> v;
+    };
+
+    const std::vector<V1Preset>& v1Presets()
+    {
+        static const std::vector<V1Preset> t {
+            { "Init", true, { 35.0f, 35.0f, 30.0f, 30.0f, 25.0f, 50.0f, 12.0f, 30.0f, 18.0f, 12.0f, 48.0f, 45.0f, 10.0f, 30.0f, 45.0f, 60.0f, 10.0f, 8.0f, -1.0f, 0.0f, 0.0f, 2.0f } },
+            { "Symbiote", true, { 40.0f, 45.0f, 40.0f, 30.0f, 25.0f, 50.0f, 25.0f, 32.0f, 30.0f, 15.0f, 55.0f, 50.0f, 0.0f, 35.0f, 55.0f, 40.0f, 10.0f, 8.0f, -1.0f, 0.0f, 0.0f, 2.0f } },
+            { "Liquid Beast", true, { 35.0f, 35.0f, 30.0f, 30.0f, 25.0f, 50.0f, 40.0f, 50.0f, 60.0f, 70.0f, 40.0f, 40.0f, 0.0f, 30.0f, 55.0f, 50.0f, 10.0f, 7.0f, -1.0f, 0.0f, 0.0f, 2.0f } },
+            { "Gravel Throat", true, { 35.0f, 35.0f, 30.0f, 30.0f, 25.0f, 45.0f, 12.0f, 30.0f, 18.0f, 12.0f, 55.0f, 50.0f, 0.0f, 30.0f, 50.0f, 50.0f, 35.0f, 7.0f, -1.0f, 0.0f, 0.0f, 2.0f } },
+            { "Cave Troll", true, { 35.0f, 35.0f, 30.0f, 30.0f, 25.0f, 50.0f, 15.0f, 30.0f, 30.0f, 10.0f, 50.0f, 45.0f, -30.0f, 30.0f, 70.0f, 50.0f, 40.0f, 7.0f, -1.0f, 0.0f, 0.0f, 2.0f } },
+            { "Kaiju", true, { 35.0f, 35.0f, 30.0f, 30.0f, 25.0f, 40.0f, 12.0f, 30.0f, 18.0f, 12.0f, 60.0f, 65.0f, -20.0f, 70.0f, 80.0f, 65.0f, 40.0f, 7.0f, -1.0f, 4.0f, 0.0f, 2.0f } },
+            { "Gargoyle", true, { 35.0f, 35.0f, 30.0f, 30.0f, 25.0f, 50.0f, 12.0f, 50.0f, 18.0f, 12.0f, 35.0f, 60.0f, 40.0f, 30.0f, 50.0f, 50.0f, 10.0f, 7.5f, -1.0f, 0.0f, 0.0f, 2.0f } },
+            { "Hellhound", true, { 35.0f, 35.0f, 30.0f, 30.0f, 25.0f, 50.0f, 12.0f, 30.0f, 18.0f, 12.0f, 70.0f, 70.0f, 20.0f, 30.0f, 45.0f, 70.0f, 35.0f, 8.0f, -2.0f, 3.0f, 60.0f, 0.5f } },
+            { "Golem", true, { 35.0f, 35.0f, 30.0f, 60.0f, 35.0f, 50.0f, 12.0f, 30.0f, 18.0f, 12.0f, 30.0f, 40.0f, 0.0f, 30.0f, 60.0f, 50.0f, 10.0f, 6.5f, -1.0f, 0.0f, 0.0f, 2.0f } },
+            { "Kraken", true, { 35.0f, 35.0f, 30.0f, 30.0f, 25.0f, 50.0f, 60.0f, 55.0f, 70.0f, 90.0f, 20.0f, 45.0f, 10.0f, 30.0f, 50.0f, 50.0f, 10.0f, 7.5f, -1.0f, 0.0f, 0.0f, 2.0f } },
+            { "Throat Singer", true, { 35.0f, 35.0f, 30.0f, 30.0f, 25.0f, 50.0f, 12.0f, 30.0f, 18.0f, 12.0f, 40.0f, 45.0f, 10.0f, 30.0f, 60.0f, 50.0f, 55.0f, 7.0f, -1.0f, 0.0f, 0.0f, 2.0f } },
+            { "Big Bad Narrator", true, { 35.0f, 35.0f, 30.0f, 70.0f, 40.0f, 50.0f, 12.0f, 20.0f, 18.0f, 12.0f, 15.0f, 30.0f, 0.0f, 30.0f, 40.0f, 50.0f, 10.0f, 7.5f, -1.0f, 0.0f, 0.0f, 2.0f } },
+            { "Demon Whisper", true, { 50.0f, 15.0f, 70.0f, 60.0f, 40.0f, 50.0f, 35.0f, 30.0f, 35.0f, 60.0f, 48.0f, 45.0f, 40.0f, 30.0f, 25.0f, 50.0f, 10.0f, 8.0f, -1.0f, 0.0f, 0.0f, 2.0f } },
+            { "Giant", true, { 35.0f, 35.0f, 30.0f, 30.0f, 25.0f, 50.0f, 12.0f, 35.0f, 25.0f, 0.0f, 45.0f, 30.0f, -30.0f, 30.0f, 65.0f, 50.0f, 10.0f, 6.5f, -1.0f, 0.0f, 0.0f, 2.0f } },
+            { "Possessed", true, { 35.0f, 35.0f, 30.0f, 30.0f, 25.0f, 35.0f, 30.0f, 30.0f, 18.0f, 12.0f, 40.0f, 40.0f, 0.0f, 30.0f, 50.0f, 50.0f, 10.0f, 7.0f, -1.0f, 0.0f, 0.0f, 2.0f } },
+            { "Ogre Radio", true, { 50.0f, 45.0f, 30.0f, 30.0f, 25.0f, 50.0f, 12.0f, 30.0f, 35.0f, 15.0f, 48.0f, 70.0f, 50.0f, 30.0f, 20.0f, 50.0f, 10.0f, 8.0f, -1.0f, 0.0f, 0.0f, 2.0f } },
+            { "Cyber Commander", true, { 55.0f, 40.0f, 60.0f, 65.0f, 35.0f, 50.0f, 25.0f, 35.0f, 35.0f, 15.0f, 20.0f, 45.0f, 30.0f, 55.0f, 50.0f, 50.0f, 30.0f, 9.0f, -2.5f, 3.0f, 40.0f, 2.0f } },
+            { "Respirator Rasp", true, { 50.0f, 20.0f, 35.0f, 85.0f, 40.0f, 50.0f, 15.0f, 35.0f, 35.0f, 15.0f, 35.0f, 35.0f, 10.0f, 30.0f, 50.0f, 50.0f, 30.0f, 7.5f, -1.0f, 0.0f, 0.0f, 2.0f } },
+            { "Rasp Machine", true, { 60.0f, 45.0f, 55.0f, 55.0f, 45.0f, 50.0f, 25.0f, 35.0f, 35.0f, 15.0f, 25.0f, 65.0f, 40.0f, 60.0f, 50.0f, 50.0f, 30.0f, 9.0f, -3.0f, 6.0f, 70.0f, 0.5f } },
+            { "Robot Ogre", true, { 35.0f, 35.0f, 30.0f, 30.0f, 25.0f, 80.0f, 12.0f, 30.0f, 18.0f, 12.0f, 40.0f, 45.0f, 10.0f, 30.0f, 50.0f, 50.0f, 10.0f, 7.0f, -1.0f, 0.0f, 0.0f, 2.0f } },
+            { "Scorched Swirl", true, { 35.0f, 35.0f, 30.0f, 30.0f, 25.0f, 50.0f, 12.0f, 55.0f, 18.0f, 12.0f, 48.0f, 50.0f, 0.0f, 30.0f, 50.0f, 50.0f, 10.0f, 7.0f, -1.0f, 0.0f, 0.0f, 2.0f } },
+            { "Molten Chorus", true, { 35.0f, 35.0f, 30.0f, 30.0f, 25.0f, 50.0f, 12.0f, 30.0f, 55.0f, 80.0f, 48.0f, 55.0f, 0.0f, 30.0f, 50.0f, 50.0f, 10.0f, 8.5f, -1.0f, 0.0f, 0.0f, 2.0f } },
+            { "Sub Furnace", true, { 35.0f, 35.0f, 30.0f, 30.0f, 25.0f, 50.0f, 12.0f, 30.0f, 18.0f, 12.0f, 48.0f, 60.0f, -30.0f, 30.0f, 65.0f, 75.0f, 10.0f, 5.5f, -1.0f, 0.0f, 0.0f, 2.0f } },
+            { "Ribcage", true, { 35.0f, 35.0f, 30.0f, 30.0f, 25.0f, 50.0f, 12.0f, 30.0f, 18.0f, 12.0f, 48.0f, 45.0f, -10.0f, 30.0f, 60.0f, 50.0f, 60.0f, 6.5f, -1.0f, 0.0f, 0.0f, 2.0f } },
+            { "Tar Pit", true, { 35.0f, 35.0f, 30.0f, 30.0f, 25.0f, 50.0f, 12.0f, 30.0f, 18.0f, 12.0f, 50.0f, 50.0f, 0.0f, 30.0f, 50.0f, 50.0f, 10.0f, 7.5f, -1.0f, 0.0f, 0.0f, 2.0f } },
+            { "Breathing Walls", true, { 35.0f, 35.0f, 30.0f, 80.0f, 30.0f, 50.0f, 12.0f, 30.0f, 18.0f, 12.0f, 48.0f, 45.0f, 10.0f, 30.0f, 50.0f, 50.0f, 10.0f, 7.5f, -1.0f, 0.0f, 0.0f, 2.0f } },
+            { "Chopped Space", true, { 35.0f, 35.0f, 30.0f, 30.0f, 25.0f, 50.0f, 35.0f, 30.0f, 18.0f, 12.0f, 50.0f, 45.0f, 10.0f, 30.0f, 50.0f, 50.0f, 10.0f, 8.0f, -1.0f, 0.0f, 0.0f, 2.0f } },
+            { "Vocoded Fire", true, { 35.0f, 35.0f, 30.0f, 30.0f, 25.0f, 55.0f, 12.0f, 30.0f, 18.0f, 12.0f, 48.0f, 55.0f, 0.0f, 30.0f, 50.0f, 50.0f, 10.0f, 7.5f, -1.0f, 0.0f, 0.0f, 2.0f } },
+            { "Clanking Choir", true, { 35.0f, 35.0f, 30.0f, 30.0f, 25.0f, 50.0f, 12.0f, 30.0f, 60.0f, 90.0f, 48.0f, 45.0f, 10.0f, 30.0f, 50.0f, 50.0f, 10.0f, 11.5f, -1.0f, 0.0f, 0.0f, 2.0f } },
+            { "Pulse Choir", true, { 35.0f, 35.0f, 30.0f, 30.0f, 25.0f, 70.0f, 12.0f, 30.0f, 60.0f, 100.0f, 45.0f, 20.0f, 0.0f, 30.0f, 30.0f, 50.0f, 10.0f, 7.5f, -1.0f, 0.0f, 0.0f, 2.0f } },
+            { "Two Octaves Down", true, { 35.0f, 35.0f, 30.0f, 30.0f, 25.0f, 75.0f, 12.0f, 30.0f, 18.0f, 12.0f, 48.0f, 45.0f, 10.0f, 30.0f, 60.0f, 50.0f, 10.0f, 7.0f, -1.0f, 0.0f, 0.0f, 2.0f } },
+            { "Gravel Pit", true, { 35.0f, 35.0f, 30.0f, 30.0f, 25.0f, 90.0f, 12.0f, 30.0f, 18.0f, 12.0f, 50.0f, 55.0f, 0.0f, 30.0f, 50.0f, 50.0f, 10.0f, 7.5f, -1.0f, 0.0f, 0.0f, 2.0f } },
+            { "Iron Lung", true, { 35.0f, 35.0f, 30.0f, 80.0f, 35.0f, 60.0f, 50.0f, 50.0f, 18.0f, 12.0f, 48.0f, 45.0f, 10.0f, 30.0f, 50.0f, 50.0f, 10.0f, 7.0f, -1.0f, 0.0f, 0.0f, 2.0f } },
+            { "Detail Only", false, { 50.0f, 45.0f, 50.0f, 70.0f, 35.0f, 50.0f, 25.0f, 35.0f, 35.0f, 15.0f, 45.0f, 35.0f, 0.0f, 50.0f, 50.0f, 50.0f, 30.0f, 7.5f, -1.0f, 0.0f, 0.0f, 2.0f } },
+            { "Subtle Size", true, { 35.0f, 35.0f, 30.0f, 30.0f, 25.0f, 50.0f, 15.0f, 20.0f, 20.0f, 15.0f, 25.0f, 20.0f, 0.0f, 30.0f, 35.0f, 50.0f, 20.0f, 7.5f, -1.0f, 0.0f, 0.0f, 2.0f } },
+            { "Clean Lift", false, { 35.0f, 35.0f, 30.0f, 55.0f, 30.0f, 50.0f, 25.0f, 35.0f, 35.0f, 15.0f, 45.0f, 35.0f, 0.0f, 30.0f, 50.0f, 50.0f, 30.0f, 7.5f, -1.0f, 0.0f, 0.0f, 2.0f } },
+            { "Loud & Contained", true, { 70.0f, 45.0f, 30.0f, 30.0f, 25.0f, 50.0f, 12.0f, 30.0f, 18.0f, 12.0f, 48.0f, 45.0f, 10.0f, 70.0f, 50.0f, 50.0f, 10.0f, 10.5f, -1.0f, 4.0f, 0.0f, 2.0f } },
+            { "Crunch Lift", true, { 35.0f, 35.0f, 30.0f, 30.0f, 25.0f, 50.0f, 12.0f, 30.0f, 18.0f, 12.0f, 48.0f, 45.0f, 10.0f, 30.0f, 50.0f, 50.0f, 10.0f, 10.0f, -1.0f, 3.0f, 60.0f, 0.5f } },
+            { "Smashed", true, { 35.0f, 35.0f, 30.0f, 30.0f, 25.0f, 50.0f, 12.0f, 30.0f, 18.0f, 12.0f, 48.0f, 45.0f, 10.0f, 30.0f, 50.0f, 50.0f, 10.0f, 13.0f, -1.0f, 9.0f, 100.0f, 0.05f } },
+            { "Phone Monster", true, { 35.0f, 35.0f, 30.0f, 30.0f, 25.0f, 50.0f, 12.0f, 30.0f, 18.0f, 12.0f, 48.0f, 45.0f, 10.0f, 30.0f, 55.0f, 50.0f, 60.0f, 7.5f, -1.0f, 0.0f, 0.0f, 2.0f } },
+        };
+        return t;
+    }
+
+    /** True when f is non-decreasing over u in 0..1, with the given end values and real movement
+        in the first and last 10 % of the travel (no dead bottom or top). */
+    bool lawShape(const std::function<double(double)>& f, double at0, double at1, double tol, juce::String& why)
+    {
+        double prev = f(0.0);
+        for (int i = 1; i <= 1000; ++i)
+        {
+            const double y = f(i / 1000.0);
+            if (y < prev - 1e-12)
+            {
+                why = "not monotonic at " + juce::String(i / 1000.0);
+                return false;
+            }
+            prev = y;
+        }
+        if (std::abs(f(0.0) - at0) > tol || std::abs(f(1.0) - at1) > tol)
+        {
+            why = "ends " + juce::String(f(0.0)) + " .. " + juce::String(f(1.0));
+            return false;
+        }
+        const double span = std::abs(at1 - at0);
+        const double bottom = std::abs(f(0.1) - f(0.0)) / span, top = std::abs(f(1.0) - f(0.9)) / span;
+        if (bottom < 0.02 || top < 0.02)
+        {
+            why = "first / last 10 % move " + juce::String(bottom * 100.0, 1) + " % / " + juce::String(top * 100.0, 1) + " % of the span";
+            return false;
+        }
+        return true;
+    }
+
+    void testKnobLaws()
+    {
+        std::printf("[laws] log tapers, knob laws, conversions, state migration, preset conversion, DC, Vibrato, Rattle\n");
+        namespace laws = roar::laws;
+        auto p = makeProcessor(48000.0, 512);
+
+        // Log tapers: the geometric centre at mid travel, equal travel per octave, n -> v -> n.
+        for (const auto& spec : Params::all)
+        {
+            if (!Params::hasLogTaper(spec))
+                continue;
+            auto* param = p->getValueTreeState().getParameter(spec.id);
+            const float mid = param->convertFrom0to1(0.5f);
+            const float centre = std::sqrt(spec.minValue * spec.maxValue);
+            check(std::abs(mid - centre) <= 0.005f * centre + spec.step, juce::String(spec.id) + " mid travel " + juce::String(mid) + " (sqrt (min max) " + juce::String(centre) + ")");
+            int worst = 0;
+            for (int i = 0; i <= 20; ++i)
+            {
+                const float n = static_cast<float>(i) / 20.0f;
+                const float v = param->convertFrom0to1(n);
+                const float back = param->convertTo0to1(v);
+                const float stepN = spec.step > 0.0f ? param->convertTo0to1(std::min(spec.maxValue, v + spec.step)) - back : 0.0f;
+                if (std::abs(back - n) > 1e-4f + std::abs(stepN))
+                    ++worst;
+            }
+            check(worst == 0, juce::String(spec.id) + ": " + juce::String(worst) + " knob positions do not round trip");
+            // Equal travel per octave: the first 20 % of the travel covers 20 % of the octaves.
+            const double octaves = std::log2(static_cast<double>(spec.maxValue / spec.minValue));
+            const double first = std::log2(static_cast<double>(param->convertFrom0to1(0.2f) / spec.minValue));
+            check(std::abs(first / octaves - 0.2) < 0.01, juce::String(spec.id) + ": the first 20 % covers " + juce::String(100.0 * first / octaves, 1) + " % of the octaves");
+        }
+        check(std::abs(valueAtKnob(*p, Params::shimmerRate, 1.0f) - 25.0f) < 1e-3f && std::abs(valueAtKnob(*p, Params::growlRate, 0.0f) - 2.0f) < 1e-3f
+                  && std::abs(valueAtKnob(*p, Params::outAttack, 0.0f) - 0.2f) < 1e-4f,
+              "Shimmer Rate tops at 25 Hz, Growl Rate starts at 2 Hz, Attack at 0.2 ms");
+        // Push and Clip: skewed, 10 dB and 5 dB at mid travel.
+        check(std::abs(valueAtKnob(*p, Params::outPush, 0.5f) - 10.0f) < 0.06f, "Push: 10 dB at mid travel");
+        check(std::abs(valueAtKnob(*p, Params::outClip, 0.5f) - 5.0f) < 0.06f, "Clip: 5 dB at mid travel");
+
+        // Each forward law: monotonic, the documented ends, and no dead bottom or top.
+        struct Law { const char* name; std::function<double(double)> f; double at0, at1; };
+        const std::vector<Law> forward {
+            { "contain", laws::containCurve, 0.0, 1.0 },
+            { "gate depth", [](double u) { return -laws::gateDepthDb(u); }, 0.0, 30.0 },
+            { "gate ratio", laws::gateRatio, 1.5, 5.0 },
+            { "de-ess range", [](double u) { return -laws::deessRangeDb(u); }, 0.0, 15.0 },
+            { "detail depth", laws::detailDepthDb, 0.0, 34.0 },
+            { "gravel", laws::gravelAmount, 0.0, 1.0 },
+            { "ring AM", laws::ringAmAmount, 0.0, 1.0 },
+            { "shimmer", laws::shimmerAmount, 0.0, 0.65 },
+            { "growl depth", laws::growlDepth, 0.0, 1.0 - std::pow(10.0, -18.0 / 20.0) },
+            { "swirl", laws::swirlMix, 0.0, 1.0 },
+            { "roar scoop", [](double a) { return -laws::roarScoopDb(a); }, 0.0, 7.0 },
+            { "roar drive", laws::roarDrive1Db, 0.0, 30.0 },
+            { "ensemble", laws::ensembleAmount, 0.0, 0.7 },
+            { "vibrato", [](double u) { return laws::ensembleVibratoAmount(laws::ensembleAmount(u)); }, 0.0, std::sqrt(0.7) },
+            { "width", [](double u) { return laws::ensembleSideGain(1.5 * u); }, 0.0, 0.85914057 },
+            { "tame", laws::tameT, 0.0, 5.0 / 3.0 },
+            { "sub level", laws::subLevelDb, -14.0, 10.0 },
+            { "overtone", laws::overtoneLevelDb, -10.0, 10.0 },
+            { "overtone low cut", laws::overtoneLowCut, 0.0, 1.0 },
+            { "clip knee", [](double s) { return -laws::clipKnee(s, 0.2); }, -0.2, 0.0 },
+            { "auto fast release (log)", [](double u) { return std::log(laws::autoFastReleaseMs(std::pow(1000.0, u))); }, std::log(3.0), std::log(250.0) },
+            { "mix wet", laws::mixWetGain, 0.0, 1.0 },
+        };
+        for (const auto& law : forward)
+        {
+            juce::String why;
+            // The roar scoop and the overtone low cut reach their end early on purpose (flat from
+            // 60 % and 25 %), and the equal-power mix flattens at 100 % by design (sin): only their
+            // monotonic ends are checked.
+            const juce::String n(law.name);
+            const bool flatTop = n == "roar scoop" || n == "overtone low cut" || n == "mix wet";
+            bool ok = true;
+            if (flatTop)
+            {
+                double prev = law.f(0.0);
+                for (int i = 1; i <= 1000 && ok; ++i)
+                {
+                    const double y = law.f(i / 1000.0);
+                    ok = y >= prev - 1e-12;
+                    prev = y;
+                }
+                ok = ok && std::abs(law.f(0.0) - law.at0) < 1e-6 && std::abs(law.f(1.0) - law.at1) < 1e-6;
+            }
+            else
+                ok = lawShape(law.f, law.at0, law.at1, 1e-6, why);
+            check(ok, juce::String("law ") + law.name + " " + why);
+        }
+        // The scoop is C1 (no kink at 40 % or 60 %) and matches the old -14 a up to 40 %.
+        {
+            const double h = 1e-6;
+            const auto slope = [h](double a) { return (laws::roarScoopDb(a + h) - laws::roarScoopDb(a - h)) / (2.0 * h); };
+            check(std::abs(slope(0.4) - (-14.0)) < 1e-3 && std::abs(slope(0.6)) < 1e-3 && std::abs(laws::roarScoopDb(0.3) + 4.2) < 1e-9,
+                  "roar scoop: -14 a to 40 %, smooth turn, flat -7 dB from 60 %");
+        }
+        // Clip Shape acts over its whole travel at any Clip (no dead span below 1 - 2 cap).
+        for (const double clipDb : { 1.0, 3.0, 6.0 })
+        {
+            const double cap = 1.0 - std::pow(10.0, -clipDb / 20.0);
+            check(laws::clipKnee(0.0, cap) - laws::clipKnee(0.25, cap) > 0.1 * laws::clipKnee(0.0, cap),
+                  "Clip Shape moves the knee from 0 % at Clip " + juce::String(clipDb));
+            check(laws::clipKnee(0.75, cap) - laws::clipKnee(1.0, cap) > 0.1 * laws::clipKnee(0.0, cap),
+                  "Clip Shape still moves the knee in its last 25 % at Clip " + juce::String(clipDb));
+        }
+        // Auto release's fast stage: 3 ms at 1 ms, 15 ms at 60 ms, R / 4 above, continuous.
+        check(std::abs(laws::autoFastReleaseMs(1.0) - 3.0) < 1e-9 && std::abs(laws::autoFastReleaseMs(60.0) - 15.0) < 1e-9
+                  && std::abs(laws::autoFastReleaseMs(400.0) - 100.0) < 1e-9 && laws::autoFastReleaseMs(3.0) > laws::autoFastReleaseMs(2.0) + 0.3,
+              "Auto fast release: 3 ms at 1 ms, 15 ms at 60 ms, a step for every Release");
+
+        // Conversions: the new law at the converted value gives the old law's value.
+        {
+            int bad = 0;
+            const auto near = [&bad](double a, double b, double tol, const char* what, double old)
+            {
+                if (std::abs(a - b) > tol)
+                {
+                    ++bad;
+                    std::printf("    %s at %.1f: %.5f vs %.5f\n", what, old, a, b);
+                }
+            };
+            namespace cv = laws::convert;
+            for (int i = 0; i <= 100; ++i)
+            {
+                const double old = i, u = old / 100.0;
+                near(laws::containCurve(cv::contain(old) / 100.0), laws::v1::containCurve(u), 1e-6, "contain", old);
+                near(laws::detailDepthDb(cv::detail(old) / 100.0), std::min(laws::v1::detailDepthDb(u), 34.0), 1e-6, "detail", old);
+                near(laws::gravelAmount(cv::gravel(old) / 100.0), laws::v1::gravelAmount(u), 1e-6, "gravel", old);
+                near(laws::ringAmAmount(cv::ringAm(old) / 100.0), laws::v1::ringAmAmount(u), 1e-6, "ring AM", old);
+                near(laws::shimmerAmount(cv::shimmer(old) / 100.0), std::min(laws::v1::shimmerAmount(u), 0.65), 1e-6, "shimmer", old);
+                near(laws::growlDepth(cv::growl(old) / 100.0), std::min(laws::v1::growlDepth(u), laws::growlDepth(1.0)), 1e-6, "growl", old);
+                near(laws::swirlMix(cv::swirl(old) / 100.0), laws::v1::swirlMix(u), 1e-6, "swirl", old);
+                near(laws::ensembleAmount(cv::ensemble(old, false) / 100.0), std::min(laws::v1::ensembleAmount(u), 0.7), 1e-6, "ensemble", old);
+                near(laws::tameT(cv::tame(old) / 100.0), laws::v1::tameT(u), 1e-6, "tame", old);
+                if (i > 0)
+                    near(laws::subLevelDb(cv::sub(old) / 100.0), std::min(laws::v1::subLevelDb(u), 10.0), 1e-6, "sub", old);
+                // Overtone (with the 2 % fade-ins), as linear gains.
+                {
+                    const auto gainFor = [](double (*law)(double), double x)
+                    {
+                        if (x <= 0.0)
+                            return 0.0;
+                        return x < 0.02 ? std::pow(10.0, law(0.02) / 20.0) * x / 0.02 : std::pow(10.0, law(x) / 20.0);
+                    };
+                    near(gainFor(laws::overtoneLevelDb, cv::overtone(old) / 100.0), gainFor(laws::v1::overtoneLevelDb, u), 1e-6, "overtone", old);
+                }
+                // Gate: the room-tone cut matches up to the 15 dB the old law could reach.
+                near(laws::gateDepthDb(cv::gate(old) / 100.0), -std::min(-laws::v1::gateDepthDb(u), 15.0), 1e-6, "gate", old);
+                // De-ess: the old range (with the ROAR link) up to the new 15 dB.
+                for (const double drive : { 0.0, 50.0, 100.0 })
+                    near(laws::deessRangeDb(cv::deess(old, true, drive) / 100.0), std::max(laws::v1::deessRangeDb(u, true, drive / 100.0), -15.0), 1e-6, "de-ess", old);
+                // Roar: the first stage's drive matches (up to the old top).
+                near(laws::roarDrive1Db(cv::roarDrive(old) / 100.0), laws::v1::roarDrive1Db(u), 1e-6, "roar drive", old);
+                // Width (up to the new 150 %, which is the old 105 %).
+                if (old <= 105.0)
+                    near(laws::ensembleSideGain(cv::width(old) / 100.0), laws::v1::ensembleSideGain(u), 1e-6, "width", old);
+            }
+            for (int t = -100; t <= 100; t += 10)
+                for (const double drive : { 10.0, 45.0, 70.0 })
+                {
+                    const double nd = laws::convert::roarDrive(drive);
+                    near(laws::roarToneStrength(nd / 100.0) * laws::convert::roarTone(t, drive, nd) / 100.0,
+                         laws::v1::roarToneStrength(drive / 100.0) * t / 100.0, 1e-6, "roar tone", t);
+                }
+            for (int s = 0; s <= 100; s += 10)
+                for (const double clipDb : { 1.0, 3.0, 9.0 })
+                {
+                    const double cap = 1.0 - std::pow(10.0, -clipDb / 20.0);
+                    near(laws::clipKnee(laws::convert::clipShape(s, clipDb) / 100.0, cap), laws::v1::clipKnee(s / 100.0, cap), 1e-6, "clip shape", s);
+                }
+            near(laws::pushGainDb(laws::convert::push(8.0, -2.0), -2.0), 8.0, 1e-9, "push", 8.0);
+            check(bad == 0, juce::String(bad) + " conversions do not reproduce the old law");
+        }
+
+        // State migration: a first-release state (stateVersion 2) loads converted; a current one is untouched.
+        {
+            auto src = makeProcessor(48000.0, 512);
+            setValues(*src, { { Params::cleanContain, 35.0f }, { Params::growl, 48.0f }, { Params::shimmer, 12.0f }, { Params::outPush, 8.0f },
+                              { Params::outCeiling, -3.0f }, { Params::subDrive, 60.0f }, { Params::roar, 70.0f }, { Params::roarTone, 20.0f },
+                              { Params::ringMode, 1.0f }, { Params::ring, 50.0f }, { Params::ensembleMotion, 3.0f }, { Params::ensemble, 18.0f },
+                              { Params::inAuto, 1.0f }, { Params::inTrim, 6.0f } });
+            juce::MemoryBlock current;
+            src->getStateInformation(current);
+            auto xml = juce::AudioProcessor::getXmlFromBinary(current.getData(), static_cast<int>(current.getSize()));
+            check(xml != nullptr && xml->getIntAttribute("stateVersion") == 3, "states are written as version 3");
+
+            auto same = makeProcessor(48000.0, 512);
+            same->setStateInformation(current.getData(), static_cast<int>(current.getSize()));
+            check(std::abs(getParam(*same, Params::growl) - 48.0f) < 1e-3f && std::abs(getParam(*same, Params::outPush) - 8.0f) < 1e-3f,
+                  "a current state is not converted");
+
+            xml->setAttribute("stateVersion", 2);
+            juce::MemoryBlock old;
+            juce::AudioProcessor::copyXmlToBinary(*xml, old);
+            auto q = makeProcessor(48000.0, 512);
+            q->setStateInformation(old.getData(), static_cast<int>(old.getSize()));
+            const auto expect = [&q](const char* id, double value, double tol)
+            {
+                const float v = getParam(*q, id);
+                check(std::abs(static_cast<double>(v) - value) <= tol, juce::String("v2 state: ") + id + " " + juce::String(v) + " (expected " + juce::String(value) + ")");
+            };
+            namespace cv = laws::convert;
+            expect(Params::cleanContain, cv::contain(35.0), 0.06);
+            expect(Params::growl, cv::growl(48.0), 0.06);
+            expect(Params::shimmer, cv::shimmer(12.0), 0.06);
+            expect(Params::outPush, 10.0, 0.06);                          // 8 dB at a -3 dB ceiling
+            expect(Params::subDrive, laws::subDriveNeutral, 0.06);
+            expect(Params::roar, cv::roarDrive(70.0), 0.06);
+            expect(Params::roarTone, cv::roarTone(20.0, 70.0, cv::roarDrive(70.0)), 0.06);
+            expect(Params::ring, 25.0, 0.06);                             // AM: old^2
+            expect(Params::ensemble, 70.0, 0.06);                         // Vibrato: the old 70 % wet
+            expect(Params::inTrim, 0.0, 0.06);                            // inside Auto Level's old dead window
+            expect(Params::cleanGate, cv::gate(Params::defaultOf(Params::cleanGate)), 0.06);   // a default that was written too
+        }
+
+        // The converter user presets and states share: values it has no rule for, and missing
+        // values, are left alone; Ring Amount converts only in AM mode.
+        {
+            std::map<std::string, double> v { { "growl", 48.0 }, { "tame", 50.0 }, { "pitch", -7.0 }, { "ring", 50.0 } };
+            laws::migrateFromV1(v);
+            check(std::abs(v["growl"] - laws::convert::growl(48.0)) < 1e-9 && std::abs(v["tame"] - 30.0) < 1e-9 && std::abs(v["pitch"] + 7.0) < 1e-9
+                      && v["ring"] == 50.0 && v.count("subDrive") == 0,
+                  "migrateFromV1 converts only what it has rules for");
+        }
+
+        // Factory presets: every remapped value is the conversion of the first release's value,
+        // except the deliberate changes (listed here).
+        {
+            const auto& presets = PresetManager::getFactoryPresets();
+            int bad = 0;
+            namespace cv = laws::convert;
+            for (const auto& old : v1Presets())
+            {
+                const int i = presetIndex(old.name);
+                check(i >= 0, juce::String("v1 preset table: unknown preset ") + old.name);
+                if (i < 0)
+                    continue;
+                const auto& values = presets[static_cast<size_t>(i)].values;
+                const auto get = [&values](const char* id) { return static_cast<double>(values.at(id)); };
+                const juce::String name(old.name);
+                const auto& o = old.v;
+                const auto expect = [&](const char* id, double value)
+                {
+                    if (std::abs(get(id) - value) > 0.51)
+                    {
+                        ++bad;
+                        std::printf("    %s %s: %.2f, expected %.2f\n", old.name, id, get(id), value);
+                    }
+                };
+                expect(Params::cleanContain, cv::contain(o[0]));
+                expect(Params::cleanGate, cv::gate(o[1]));
+                expect(Params::deess, cv::deess(o[2], old.roarOn, o[11]));
+                expect(Params::detailLow, name == "Respirator Rasp" ? 100.0 : cv::detail(o[3]));   // deliberate: the old 80
+                expect(Params::detailHigh, cv::detail(o[4]));
+                expect(Params::gravel, cv::gravel(o[5]));
+                expect(Params::shimmer, cv::shimmer(o[6]));
+                expect(Params::swirl, cv::swirl(o[7]));
+                expect(Params::ensemble, cv::ensemble(o[8], false));
+                expect(Params::ensembleWidth, cv::width(o[9]));
+                expect(Params::growl, cv::growl(o[10]));
+                const double drive = cv::roarDrive(o[11]);
+                expect(Params::roar, drive);
+                expect(Params::roarTone, cv::roarTone(o[12], o[11], std::round(drive)));
+                expect(Params::tame, cv::tame(o[13]));
+                expect(Params::sub, cv::sub(o[14]));
+                // Deliberate: Sub Drive 20 (clean) except the presets that chose a growlier sub.
+                const bool growlySub = name == "Kaiju" || name == "Hellhound" || name == "Sub Furnace";
+                expect(Params::subDrive, growlySub ? o[15] : laws::subDriveNeutral);
+                // Deliberate: the old Overtone values in the dead zone (40 or less) become 10.
+                expect(Params::overtone, o[16] <= 40.0f ? 10.0 : cv::overtone(o[16]));
+                if (name == "Crunch Lift")
+                {
+                    // Deliberate re-tune: Clip 1 dB, Mix and Push set by render.
+                    expect(Params::outClip, 1.0);
+                    expect(Params::outClipShape, cv::clipShape(o[20], o[19]));
+                }
+                else
+                {
+                    expect(Params::outPush, cv::push(o[17], o[18]));
+                    expect(Params::outClipShape, cv::clipShape(o[20], o[19]));
+                }
+                expect(Params::outAttack, std::max(0.2, static_cast<double>(o[21])));
+            }
+            check(bad == 0, juce::String(bad) + " factory preset values are not the conversion of the first release's");
+            check(v1Presets().size() == presets.size(), "the v1 preset table covers every factory preset");
+            // The parameter defaults are Init's values.
+            int defaults = 0;
+            for (const auto& [id, value] : presets[0].values)
+                if (std::abs(Params::defaultOf(id.toStdString()) - value) > 1e-4f && !id.endsWith("Pos"))
+                {
+                    ++defaults;
+                    std::printf("    default of %s is %.2f, Init has %.2f\n", id.toRawUTF8(), Params::defaultOf(id.toStdString()), value);
+                }
+            check(defaults == 0, juce::String(defaults) + " defaults differ from Init");
+        }
+
+        const double sr = 48000.0;
+        // DC: a heavy, asymmetric preset pushed to the limit leaves no DC after the clipper.
+        {
+            auto q = makeProcessor(sr, 512);
+            q->setCurrentProgram(presetIndex("Smashed"));
+            setParam(*q, Params::outPush, 24.0f);
+            const auto out = render(*q, dual(makeVoice(sr, 5.0)), 512);
+            // The mean over whole syllable cycles of the test voice (0.45 s each), after the first second.
+            const int from = static_cast<int>(sr), count = static_cast<int>(8 * 0.45 * sr);
+            double mean = 0.0;
+            for (int i = from; i < from + count; ++i)
+                mean += static_cast<double>(out.l[static_cast<size_t>(i)]);
+            mean /= static_cast<double>(count);
+            // (1.0.0 left -0.004 to -0.009 on real recordings here. What remains comes from the
+            // safety stage, which must stay exact so the ceiling holds.)
+            check(std::abs(mean) < 1e-3, "Smashed at Push 24: DC " + juce::String(mean, 6));
+        }
+
+        const auto renderWith = [sr](const Values& values, int seconds10 = 15)
+        {
+            auto q = makeProcessor(sr, 512);
+            setValues(*q, values);
+            q->reset();
+            return render(*q, dual(makeVoice(sr, seconds10 / 10.0)), 512);
+        };
+        const auto differenceDb = [](const Stereo& a, const Stereo& b)
+        {
+            double d = 0.0, e = 0.0;
+            for (int i = a.size() / 3; i < a.size(); ++i)
+            {
+                const double x = a.l[static_cast<size_t>(i)], y = b.l[static_cast<size_t>(i)];
+                d += (x - y) * (x - y);
+                e += x * x;
+            }
+            return 10.0 * std::log10(d / std::max(e, 1e-30) + 1e-30);
+        };
+        // Ensemble Vibrato grows with Amount (it was stuck at 70 % wet from 10 % up).
+        {
+            const Values base { { Params::ensembleMotion, 3.0f } };
+            auto a = base, b = base;
+            a.push_back({ Params::ensemble, 20.0f });
+            b.push_back({ Params::ensemble, 60.0f });
+            const double d = differenceDb(renderWith(a), renderWith(b));
+            check(d > -30.0, "Vibrato at 20 % and 60 % differ by " + juce::String(d, 1) + " dB");
+        }
+        // Rattle rattles at the reference level (it was identical to Sine).
+        {
+            const Values base { { Params::growl, 60.0f }, { Params::growlRate, 20.0f } };
+            auto a = base, b = base;
+            a.push_back({ Params::growlShape, 0.0f });
+            b.push_back({ Params::growlShape, 4.0f });
+            const double d = differenceDb(renderWith(a), renderWith(b));
+            check(d > -40.0, "Rattle differs from Sine by " + juce::String(d, 1) + " dB at the reference level");
+        }
+        // Sub Drive 20 is clean; 100 is audibly driven (it was inaudible at every setting).
+        {
+            const Values base { { Params::sub, 60.0f } };
+            auto a = base, b = base, c = base;
+            a.push_back({ Params::subDrive, 0.0f });
+            b.push_back({ Params::subDrive, 20.0f });
+            c.push_back({ Params::subDrive, 100.0f });
+            const auto ra = renderWith(a);
+            const double clean = differenceDb(ra, renderWith(b)), driven = differenceDb(ra, renderWith(c));
+            check(driven > clean + 10.0 && driven > -30.0, "Sub Drive: 20 % vs 0 % " + juce::String(clean, 1) + " dB, 100 % vs 0 % " + juce::String(driven, 1) + " dB");
+        }
     }
 }
 
@@ -3406,24 +4058,53 @@ int main(int argc, char* argv[])
 
     if (argc >= 4 && std::string(argv[1]) == "--render")
     {
-        juce::StringArray presets, only, without;
-        juce::String order;
+        RenderOptions opt;
         for (int i = 4; i < argc; ++i)
         {
             const std::string a(argv[i]);
             const bool hasValue = i + 1 < argc;
             if (a == "--preset" && hasValue)
-                presets.add(argv[++i]);
+                opt.presets.add(argv[++i]);
             else if (a == "--only" && hasValue)
-                only.add(juce::String(argv[++i]).toUpperCase());
+                opt.only.add(juce::String(argv[++i]).toUpperCase());
             else if (a == "--without" && hasValue)
-                without.add(juce::String(argv[++i]).toUpperCase());
+                opt.without.add(juce::String(argv[++i]).toUpperCase());
             else if (a == "--order" && hasValue)
-                order = argv[++i];
+                opt.order = argv[++i];
+            else if (a == "--set" && hasValue)
+                opt.sets.add(argv[++i]);
+            else if (a == "--metrics" && hasValue)
+                opt.metrics = juce::File::getCurrentWorkingDirectory().getChildFile(argv[++i]);
+            else if (a == "--sweep" && i + 4 < argc)
+            {
+                opt.sweepId = argv[++i];
+                opt.sweepFrom = std::atof(argv[++i]);
+                opt.sweepTo = std::atof(argv[++i]);
+                opt.sweepSteps = std::atoi(argv[++i]);
+            }
+            else if (a == "--norm")
+                opt.sweepNorm = true;
+            else if (a == "--no-wav")
+                opt.writeWav = false;
+            else if (a.rfind("--", 0) == 0)
+            {
+                std::printf("unknown or incomplete option %s\n", a.c_str());
+                return 1;
+            }
             else
-                presets.add(argv[i]);   // a bare name is a preset
+                opt.presets.add(argv[i]);   // a bare name is a preset
         }
-        return renderFiles(juce::File(argv[2]), juce::File(argv[3]), presets, only, without, order);
+        for (const auto* codes : { &opt.only, &opt.without })
+            for (const auto& code : *codes)
+                if (Params::moduleIndexForCode(code.toStdString()) < 0)
+                {
+                    std::printf("unknown module code %s (one of PI CL DS DT VO RM SH GR SW RO EN TA SU OV)\n", code.toRawUTF8());
+                    return 1;
+                }
+        if (opt.sweepId.isNotEmpty() && opt.metrics == juce::File())
+            opt.metrics = juce::File::getCurrentWorkingDirectory().getChildFile(argv[3]).getChildFile("sweep-" + opt.sweepId + ".json");
+        return renderFiles(juce::File::getCurrentWorkingDirectory().getChildFile(argv[2]),
+                           juce::File::getCurrentWorkingDirectory().getChildFile(argv[3]), opt);
     }
 
     juce::StringArray selected;
@@ -3437,6 +4118,7 @@ int main(int argc, char* argv[])
 
     const std::vector<std::pair<const char*, void (*)()>> tests {
         { "params", testParameters },
+        { "laws", testKnobLaws },
         { "latency", testLatency },
         { "null", testNulls },
         { "mix", testMixPhase },

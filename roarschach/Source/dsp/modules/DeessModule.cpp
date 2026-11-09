@@ -1,5 +1,6 @@
 #include "DeessModule.h"
 
+#include "../KnobLaws.h"
 #include "../MonsterFeatures.h"
 
 #include <cmath>
@@ -21,9 +22,7 @@ namespace roar
 
     double DeessModule::rangeDbFor (const DeessSettings& s)
     {
-        const double range = -24.0 * std::clamp (static_cast<double> (s.amount), 0.0, 1.0);
-        const double link = s.roarOn ? 1.0 + 0.5 * std::clamp (static_cast<double> (s.roarDrive), 0.0, 1.0) : 1.0;
-        return range * link;
+        return laws::deessRangeDb (static_cast<double> (s.amount));
     }
 
     void DeessModule::prepare (double fs, int maxBlock)

@@ -12,10 +12,8 @@ namespace roar
     struct DeessSettings
     {
         bool on = true;
-        float amount = 0.50f;                                 // u, 0..1: Range = -24 u dB
+        float amount = 0.50f;                                 // u, 0..1: Range = -15 u dB
         Params::DeessMode mode = Params::DeessMode::split;
-        bool roarOn = true;                                   // drive link (filled by the chain)
-        float roarDrive = 0.35f;                              // ROAR Drive u, 0..1
     };
 
     /**
@@ -30,7 +28,7 @@ namespace roar
      *   12 kHz), so vowel formants below 3 kHz stay out of it. rel = L_band - L_full from peak envelopes
      *   (0.5 ms / 40 ms). GR = clamp (-1.5 (rel + 16), Range, 0) dB, smoothed 0.5 ms / 50 ms;
      *   no action while L_band < -55 dBFS.
-     *   Range = -24 u dB; with ROAR On, Range_eff = Range (1 + 0.5 uRoar).
+     *   Range = -15 u dB (KnobLaws): the gain reduction reaches it across the whole travel.
      *
      * The split is defined by the low-pass (not by a high-pass subtracted from the input): a
      * 2nd-order high-pass and its complement are 90 degrees apart around the corner, so reducing

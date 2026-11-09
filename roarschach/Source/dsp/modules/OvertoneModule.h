@@ -62,7 +62,9 @@ namespace roar
      *
      *   x (mid when stereo) --> band A generator --+
      *                       \-> band B generator --+--> bell 280 Hz -4 dB --> x gain law --> h
-     *   dry per channel: Add = untouched | Lean / Replace = LR4 split at fx, low x {0.5, 0} + high
+     *   dry per channel: Add = untouched | Lean / Replace = LR4 split at fx (at most 300 Hz), low x
+     *   {0.5, 0} + high, the cut applied in proportion min (1, Amount / 25 %) (laws::overtoneLowCut),
+     *   so a small Amount never acts as a plain high-pass
      *   out = dry + h   (h is added equally to both channels)
      *
      * Band generator: two cascaded TPT SVF band-passes (0 dB peak) at fb and a 2nd-order
@@ -82,7 +84,7 @@ namespace roar
      *             smoothed over 20 ms (breaths and consonants generate >= 9 dB less)
      *   floor expander: 1:2 below A_env = -60 dBFS, 1 ms / 50 ms
      *
-     * Gain law: L(u) = -20 + 26 u^0.6 dB (30 % -> -7.4 dB, 100 % -> +6 dB), faded linearly to
+     * Gain law: L(u) = -10 + 20 u^0.6 dB (laws::overtoneLevelDb; 10 % -> -5 dB, 100 % -> +10 dB), faded linearly to
      * nothing below u = 0.02 (0 is a bit-exact null in Add), plus +1.5 dB (Lean) or +3 dB
      * (Replace). Smoothed over 20 ms.
      *
@@ -180,6 +182,7 @@ namespace roar
             float swapGain = 1.0f;
 
             float gain = 0.0f, gainTarget = 0.0f;
+            float lowCut = 0.0f;                 // share of the mode's low cut applied (laws::overtoneLowCut, glided)
             bool genRunning = false;
 
             // Dry variants: weights of raw, low, high, crossfaded.

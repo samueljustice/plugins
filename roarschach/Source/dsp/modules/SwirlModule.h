@@ -59,7 +59,8 @@ namespace roar
      *              (0.25 / Rate per pole): a drunken walk
      * A motion change crossfades the modulation over 50 ms.
      *
-     * Amount a is the mix (default 35 %). It also scales k by (0.6 + 0.4 a / 0.35), capped at the
+     * Amount sets the mix a = 1 - (1 - u)^1.5 (laws::swirlMix: the effect arrives early in the
+     * travel and the top is a gentle approach to full wet). It also scales k by (0.6 + 0.4 a / 0.35), capped at the
      * circuit's k x 1.3 and at 0.95. Amount 0 outputs the latency-aligned dry exactly.
      *
      * Latency: Oversampler2x::c_latency (23 samples) at every rate and setting (the dry is the

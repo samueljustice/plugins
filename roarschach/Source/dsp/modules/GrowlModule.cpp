@@ -161,7 +161,7 @@ namespace roar
         const double depth = depthForAmount (static_cast<double> (m_settings.depth));
         m_state.depth = static_cast<float> (depth);
         m_state.depthEff = m_settings.shape == Params::GrowlShape::throat ? 0.0f : m_state.depth;   // Throat waits for voicing
-        m_state.logRate = std::log (std::clamp (static_cast<double> (m_settings.rateHz), 1.0, 150.0));
+        m_state.logRate = std::log (std::clamp (static_cast<double> (m_settings.rateHz), laws::growlMinRateHz, 150.0));
         m_state.rateNow = std::exp (m_state.logRate);
         m_state.lampRate = m_state.rateNow;
         m_lamp.setRate (m_state.lampRate);
@@ -184,7 +184,7 @@ namespace roar
     {
         m_settings = s;
         m_settings.depth = std::clamp (dsp::finiteOrZero (s.depth), 0.0f, 1.0f);
-        m_settings.rateHz = std::clamp (std::isfinite (s.rateHz) ? s.rateHz : 27.0f, 1.0f, 150.0f);
+        m_settings.rateHz = std::clamp (std::isfinite (s.rateHz) ? s.rateHz : 27.0f, static_cast<float> (laws::growlMinRateHz), 150.0f);
         m_fade.setOn (s.on);
     }
 
@@ -301,6 +301,7 @@ namespace roar
         const int charSetting = static_cast<int> (m_settings.character);
         const bool clean = charSetting == c_clean;
         const float envThreshold = static_cast<float> (c_envThresholdDb);
+        const float rattleThreshold = static_cast<float> (c_rattleThresholdDb);
         const float envRange = static_cast<float> (c_envRangeDb);
         const float maxDepth = static_cast<float> (c_maxDepth);
         const float makeupCap = static_cast<float> (dsp::dbToGain (c_makeupCapDb));
@@ -317,9 +318,9 @@ namespace roar
             const float peak = std::max (std::abs (x0), std::abs (x1));
             st.env += (peak > st.env ? m_envAttack : m_envRelease) * (peak - st.env);
             st.env = dsp::flushTiny (st.env);
-            const float mEnv = m_diagnostics.envelope
-                                 ? std::clamp ((dsp::gainToDb (st.env) - envThreshold) / envRange, 0.0f, 1.0f)
-                                 : 0.0f;
+            const float envDb = dsp::gainToDb (st.env);
+            const float mEnv = m_diagnostics.envelope ? std::clamp ((envDb - envThreshold) / envRange, 0.0f, 1.0f) : 0.0f;
+            const float rEnv = m_diagnostics.envelope ? std::clamp ((envDb - rattleThreshold) / envRange, 0.0f, 1.0f) : 0.0f;
 
             st.depth += m_paramCoeff * (depthTarget - st.depth);
             st.logRate += static_cast<double> (m_paramCoeff) * (logRateTarget - st.logRate);
@@ -347,7 +348,7 @@ namespace roar
             const double drift = c_driftAmount * static_cast<double> (m_drift.process());
             double rate = std::exp (st.logRate) * (m_diagnostics.drift ? 1.0 + drift : 1.0);
             if (wRattle > 0.0f)
-                rate *= 1.0 + (std::exp2 (c_rattleOctaves * static_cast<double> (mEnv)) - 1.0) * static_cast<double> (wRattle);
+                rate *= 1.0 + (std::exp2 (c_rattleOctaves * static_cast<double> (rEnv)) - 1.0) * static_cast<double> (wRattle);
             st.rateNow = wThroat > 0.5f ? 0.5 * st.f0 : rate;
 
             if ((st.controlCount++ & 31u) == 0u)
@@ -389,7 +390,12 @@ namespace roar
             if (wFrom > 0.0f)
                 s = wTo * s + wFrom * shapeValue (st.shapeFrom, st.phase, st.throatPhase);
 
-            float depthNow = st.depth * (1.0f + static_cast<float> (c_envDepthPush) * mEnv)
+            // Grind's curve flattens the open part of the cycle: its depth is scaled up so the
+            // tremolo stays as deep as Warm's at the same Depth.
+            const float wc = dsp::smoothstep01 (st.charMix);
+            const float wGrind = st.osWeight * ((st.charTo == c_grind ? wc : 0.0f) + (st.charFrom == c_grind ? 1.0f - wc : 0.0f));
+            float depthNow = st.depth * (1.0f + static_cast<float> (c_grindDepthScale - 1.0) * wGrind)
+                                      * (1.0f + static_cast<float> (c_envDepthPush) * mEnv)
                                       * (1.0f + static_cast<float> (c_humanizeDepth) * st.humanize)
                                       * (1.0f + (st.voicing - 1.0f) * wThroat);
             depthNow = std::clamp (depthNow, 0.0f, maxDepth);

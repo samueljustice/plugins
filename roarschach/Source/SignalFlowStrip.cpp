@@ -39,65 +39,65 @@ namespace
     };
 
     constexpr Control c_controls[] {
-        { Params::inTrim, "INPUT", "Level into the plug-in, before everything else." },
+        { Params::inTrim, "INPUT", "Level into the plug-in, before everything else. With Auto on, it raises or lowers the levelled voice by half as much." },
         { Params::inAuto, "AUTO", "Brings any voice to the same working level, so every module reacts the same way to a quiet or a loud take." },
-        { Params::pitch, "PITCH", "How far the voice is shifted, in semitones. Lower is bigger." },
-        { Params::pitchSize, "SIZE", "Makes the throat bigger: lowers the formants and adds body." },
-        { Params::pitchDrive, "DRIVE", "Tube drive after the shift: warmth first, then grit." },
-        { Params::pitchMode, "MODE", "Shift moves the voice by the set interval. Snap also lands each note on the nearest semitone. Mono holds the voice on one note." },
+        { Params::pitch, "PITCH", "How far the voice is shifted, in semitones. -2 to -4: a bigger human; -5 to -9: a creature; -10 to -14: a monster (add Size, or Formant Keep to hold the words). Below -15 the words blur with Follow; above +6 the throat stops following. In Mono mode it sets the note held (0 st = C3)." },
+        { Params::pitchSize, "SIZE", "Makes the throat bigger: lowers the formants and adds body. With Pitch below -18 st and Follow, the throat is already at its lowest, so Size only adds body." },
+        { Params::pitchDrive, "DRIVE", "Tube drive after the shift: up to about 40 % warmth, 50-80 % grit, 100 % heavy." },
+        { Params::pitchMode, "MODE", "Shift moves the voice by the set interval. Snap also lands each note on the nearest semitone. Mono holds the voice on one note, set by Pitch (0 st = C3)." },
         { Params::pitchFormant, "FORMANT", "Follow moves the throat with the pitch, for a bigger or smaller creature. Keep leaves the throat where it is, so only the pitch changes." },
-        { Params::cleanContain, "CONTAIN", "Evens out the level and catches peaks before the creature stages." },
-        { Params::cleanGate, "GATE", "Closes on room noise between words." },
-        { Params::cleanTone, "TONE", "The voice EQ. Flat leaves the voice as it is, Voice cleans up the low mids, Heavy adds weight without boom, Radio is a narrow, lo-fi band." },
-        { Params::deess, "AMOUNT", "Softens harsh S and T sounds." },
-        { Params::deessMode, "MODE", "Split turns down only the hiss on each S. Wide turns down the whole voice." },
-        { Params::detailLow, "LOW", "Lifts the quiet parts (breaths, consonants, tails) while the loud syllables stay where they are." },
-        { Params::detailHigh, "HIGH", "Pushes the loud parts up into a soft ceiling: denser and more forward." },
+        { Params::cleanContain, "CONTAIN", "Evens out the level and catches peaks before the creature stages. It starts working at the bottom of the travel." },
+        { Params::cleanGate, "GATE", "Closes on room noise between words; higher settings close further and harder. 25-40 % suits dialogue." },
+        { Params::cleanTone, "TONE", "The voice EQ. Flat leaves the voice as it is, Voice cleans up the low mids, Heavy cuts the boom and low mids hard for a tight, forward chest (it thins the lows), Radio is a narrow, lo-fi band." },
+        { Params::deess, "AMOUNT", "Softens harsh S and T sounds: more travel takes them down further." },
+        { Params::deessMode, "MODE", "Split turns down only the hiss above about 3.5 kHz on each S. Wide turns down the whole voice for the length of the S, which also tames lisps and mouth noise but dips the words." },
+        { Params::detailLow, "LOW", "Lifts the quiet parts (breaths, consonants, tails) while the loud syllables stay where they are. 40-60 % is a clear lift; it never lifts the room tone the gate is taking out." },
+        { Params::detailHigh, "HIGH", "Pushes the loud parts up into a soft ceiling: denser and more forward. 30-60 % is a strong, even level." },
         { Params::detailSpeed, "SPEED", "How quickly the level follows the voice. Natural is smooth; Snappy recovers faster and sounds more lively." },
-        { Params::gravel, "GRAVEL", "How much of the pulse-carrier vocoder is heard: a gravelly machine voice under the words." },
-        { Params::vocoderOctave, "OCTAVE", "Pitch of the vocoder's pulse carrier: one or two octaves below the voice." },
-        { Params::ring, "AMOUNT", "How much of the ring-modulated voice is heard. Low settings add a metallic edge; high settings turn the voice into a machine." },
-        { Params::ringFreq, "FREQ", "The carrier frequency. Low values give a robotic flutter, the low hundreds a clangy metallic voice, higher values a bell-like, alien tone." },
-        { Params::ringRatio, "RATIO", "The carrier as a multiple of the voice's pitch. Whole and half ratios stay in tune with the voice; other ratios clash." },
-        { Params::ringCarrier, "CARRIER", "The carrier waveform. Sine is smooth, triangle slightly brighter, square buzzy and hard." },
+        { Params::gravel, "GRAVEL", "How much of the pulse-carrier vocoder is heard. About 30 % is gritty with the words fully intact; about 70 % is a dominant buzz." },
+        { Params::vocoderOctave, "OCTAVE", "Register of the vocoder's pulse carrier: -1 Oct is low and buzzy, -2 Oct lower and rougher. The filter bank keeps its weight above the deepest bass." },
+        { Params::ring, "AMOUNT", "How much of the ring-modulated voice is heard. About 20 % adds a metallic edge, 50 % is an equal metallic blend, 100 % is pure ring." },
+        { Params::ringFreq, "FREQ", "The carrier frequency. 110-450 Hz gives a metallic voice; below about 50 Hz it becomes a tremolo; above about 1.3 kHz it squeaks." },
+        { Params::ringRatio, "RATIO", "The carrier as a multiple of the voice's pitch. Whole-number ratios stay in tune with the voice; in-between ratios clang; below x0.35 it chops." },
+        { Params::ringCarrier, "CARRIER", "The carrier waveform. Sine is smooth, Triangle a softened sine, Square buzzy and hard." },
         { Params::ringTrack, "TRACK", "Fixed holds the carrier at one frequency. Follow moves it with the voice's pitch." },
         { Params::ringMode, "MODE", "Ring removes the original pitch and leaves only the metallic sidebands. AM keeps the original voice and adds the sidebands around it." },
         { Params::ringBody, "BODY", "Puts the voice inside a small resonant box. Box is a hard, hollow enclosure; Can is smaller and more metallic." },
-        { Params::shimmer, "AMOUNT", "A liquid wobble: a copy of the voice moved a few hertz beats against the voice." },
-        { Params::shimmerRate, "RATE", "How fast the wobble beats." },
-        { Params::shimmerMode, "MODE", "Which way the copy is moved. Up and Down wobble differently, Up+Down uses both, Stereo puts one on each side." },
-        { Params::growl, "DEPTH", "How deeply the voice is chopped." },
-        { Params::growlRate, "RATE", "How fast the voice is chopped. Around 25-30 Hz reads as a rough growl; lower rates stutter." },
-        { Params::growlShape, "SHAPE", "The chop's shape. Sine is smooth, Opto pulses like a lamp, Square switches hard, Throat locks to half the voice's pitch, Rattle speeds up on loud lines." },
+        { Params::shimmer, "AMOUNT", "A liquid wobble: a copy of the voice moved a few hertz beats against the voice. 15-30 % is a subtle layer; 90-100 % a full wobble." },
+        { Params::shimmerRate, "RATE", "How fast the wobble beats. 0.5-2 Hz is a liquid swell, 3-9 Hz a warble, 13 Hz and up rough." },
+        { Params::shimmerMode, "MODE", "Which way the copy is moved. Up and Down wobble differently, Up+Down uses both, Stereo puts one on each side (summed to mono, Stereo wobbles less)." },
+        { Params::growl, "DEPTH", "How deeply the voice is chopped. 15-35 % adds texture; 45-100 % is an obvious growl." },
+        { Params::growlRate, "RATE", "How fast the voice is chopped. 5-7 Hz stutters, 20-35 Hz growls, 60-100 Hz buzzes. Not used by the Throat shape." },
+        { Params::growlShape, "SHAPE", "The chop's shape. Sine is smooth, Opto pulses like a lamp, Square switches hard, Throat locks to half the voice's pitch (Rate is not used), Rattle speeds up as the voice gets louder." },
         { Params::growlCharacter, "CHARACTER", "What the chop does to the tone. Clean only changes the level, Warm rounds the low end, Grind adds a gritty edge." },
         { Params::swirl, "AMOUNT", "How much of the sweeping phaser is mixed in." },
-        { Params::swirlRate, "RATE", "How fast the phaser sweeps." },
+        { Params::swirlRate, "RATE", "How fast the phaser sweeps. 0.15-0.5 Hz is slow and liquid, 1-2.5 Hz animated, 4 Hz and up a warble." },
         { Params::swirlCircuit, "CIRCUIT", "The phaser's circuit: how many notches it has and how deep they cut, from a liquid four-stage to a dense twelve-stage sweep." },
         { Params::swirlMotion, "MOTION", "What moves the sweep. LFO is steady, LFO+Level sweeps further on loud words, Random wanders." },
-        { Params::roar, "DRIVE", "Tube saturation: warm at first, gritty and dense when pushed." },
-        { Params::roarTone, "TONE", "Tilts what the tube drives harder: the bass or the treble." },
+        { Params::roar, "DRIVE", "Tube saturation. 25-45 % gives warmth and presence; 70-100 % grit." },
+        { Params::roarTone, "TONE", "Tilts what the tube drives harder: the bass or the treble. It works at any Drive." },
         { Params::roarVoicing, "VOICING", "Line drives the tube flat. Mic first trims the boom and the air, as from a close microphone." },
         { Params::ensemble, "AMOUNT", "How much of the chorus of voices is mixed in." },
-        { Params::ensembleWidth, "WIDTH", "How far the chorus spreads to the sides." },
+        { Params::ensembleWidth, "WIDTH", "How far the chorus spreads to the sides. Past about 100 % the chorus thins when the mix is summed to mono." },
         { Params::ensembleVoices, "VOICES", "How many voices sing along: 3 is tight, 6 is a crowd." },
         { Params::ensembleMotion, "MOTION", "How the voices drift. Slow, Medium and Fast set the movement; Vibrato makes them waver in pitch." },
-        { Params::tame, "AMOUNT", "Holds back harsh top end when it gets loud." },
-        { Params::sub, "LEVEL", "Level of the octave underneath the voice." },
-        { Params::subDrive, "DRIVE", "Drive on the octave: rounder or growlier." },
-        { Params::subRegister, "REGISTER", "Where the octave sits. Follow tracks the voice, Tight keeps it in a firm low band, Deep always goes a full octave down." },
+        { Params::tame, "AMOUNT", "Holds back harsh top end when it gets loud; higher settings start lower and hold back harder." },
+        { Params::sub, "LEVEL", "Level of the octave underneath the voice. 40-65 % is a solid octave. With Overtone in Replace, Sub Level also adds weight through the overtones." },
+        { Params::subDrive, "DRIVE", "Drive on the octave. Up to about 20 % it stays clean; above that it gets thicker and growlier." },
+        { Params::subRegister, "REGISTER", "Where the octave sits. Follow tracks the voice an octave down, Tight keeps it at 55 Hz or above, Deep goes a full octave down to about 32 Hz." },
         { Params::subCharacter, "CHARACTER", "The octave's colour. Clean is a pure low tone, Resonant rings and drives harder, Thick adds a second, fuller layer." },
-        { Params::overtone, "AMOUNT", "How strongly the low end is echoed as overtones. They let the voice's weight be heard on small speakers without adding more bass." },
+        { Params::overtone, "AMOUNT", "How strongly the low end is echoed as overtones. They let the voice's weight be heard on small speakers without adding more bass. In Lean and Replace the original low end is cut more as Amount rises." },
         { Params::overtoneFreq, "FREQ", "Moves the overtone bands up or down together. Higher translates better to small speakers; lower is warmer." },
         { Params::overtonePattern, "PATTERN", "Which low regions are turned into overtones. Chest: body and octave. Throat: gruff upper growl. Beast: hollow, odd-heavy snarl. Speaker: high overtones for small or radio-like creatures. Broad: one wide low band. Tracked: follows the voice's pitch exactly." },
         { Params::overtoneMode, "MODE", "Add keeps the original low end. Lean lowers it. Replace removes it, so the low end is heard only through its overtones." },
-        { Params::outPush, "PUSH", "Drives the voice into the ceiling. More push is louder and denser; the peaks never pass the ceiling." },
-        { Params::outCeiling, "CEILING", "The highest level the output can reach, true-peak safe." },
+        { Params::outPush, "PUSH", "Drives the voice into the ceiling. Push 8-12 is clean and dense; for loud, Push 14-18 with Clip 6-9. The peaks never pass the ceiling." },
+        { Params::outCeiling, "CEILING", "The highest level the output can reach, true-peak safe. It sets the output level only: Push decides how hard the limiter works." },
         { Params::outClip, "CLIP", "How many dB of each peak above the ceiling are clipped instead of limited. Raise Push to drive into it." },
         { Params::outClipShape, "SHAPE", "Clip shape. Soft rounds the peaks gently; Hard clips them flat, which is brighter and more aggressive." },
-        { Params::outAttack, "ATTACK", "How early the limiter starts turning down before a peak. Shorter is punchier and crunchier on the low end." },
-        { Params::outRelease, "RELEASE", "How fast the limiter recovers. Very short times make the gain follow the bass and crunch; long times are clean." },
+        { Params::outAttack, "ATTACK", "How early the limiter starts turning down before a peak. With Auto off and a short Release, 0.3-3 ms crunches the low end." },
+        { Params::outRelease, "RELEASE", "How fast the limiter recovers. With Auto off: 2-10 ms crunch, 25-60 ms grit, 200 ms and up clean." },
         { Params::outAuto, "AUTO", "Auto release: adapts the recovery to the material and keeps the low end clean. Release sets how quickly it breathes." },
-        { Params::mix, "MIX", "Blends the processed voice with the dry voice." },
+        { Params::mix, "MIX", "Blends the processed voice with the dry voice at the same loudness, so only the character changes." },
     };
 
     const Control* findControl(std::string_view id)
@@ -453,14 +453,29 @@ public:
         if (on == m_on)
             return;
         m_on = on;
-        const float alpha = on ? 1.0f : c_offAlpha;
-        for (auto& k : m_knobs)
+        applyAlpha();
+        repaint();
+    }
+
+    /** Dims knob k while the current settings do not use it (Growl Rate with the Throat shape). */
+    void setKnobDimmed(size_t k, bool dimmed)
+    {
+        if (k >= m_knobDimmed.size() || m_knobDimmed[k] == dimmed)
+            return;
+        m_knobDimmed[k] = dimmed;
+        applyAlpha();
+    }
+
+    void applyAlpha()
+    {
+        const float alpha = m_on ? 1.0f : c_offAlpha;
+        for (size_t i = 0; i < m_knobs.size(); ++i)
         {
-            k->slider.setAlpha(alpha);
-            k->caption.setAlpha(alpha);
+            const float a = i < m_knobDimmed.size() && m_knobDimmed[i] ? c_offAlpha : alpha;
+            m_knobs[i]->slider.setAlpha(a);
+            m_knobs[i]->caption.setAlpha(a);
         }
         m_modeChip.setAlpha(alpha);
-        repaint();
     }
 
     void setSlot(int slot)
@@ -785,6 +800,7 @@ public:
     const Params::ModuleSpec& m_spec;
     int m_slot = -1;
     bool m_on = true, m_lifted = false, m_pressInHeader = false;
+    std::array<bool, 3> m_knobDimmed {};
     juce::String m_dragTip, m_footerTip;
     float m_blinkPhase = 0.0f;
 
@@ -1697,6 +1713,8 @@ void SignalFlowStrip::timerCallback()
     {
         auto& tile = *m_tiles[static_cast<size_t>(m)];
         tile.setOn(isModuleOn(m));
+        if (m == static_cast<int>(Params::ModuleId::growl))   // Throat follows the voice: Rate is not used
+            tile.setKnobDimmed(1, juce::roundToInt(rawValue(Params::growlShape)) == static_cast<int>(Params::GrowlShape::throat));
 
         if (tile.m_modeChip.isVisible())
         {

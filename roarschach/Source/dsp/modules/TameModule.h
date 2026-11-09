@@ -27,9 +27,10 @@ namespace roar
      *     GR = -|D| tanh (-g / |D|). No makeup.
      *   - Attack, plus a dual release: the fast one, and a slow one at 6x that charges once the
      *     reduction has been held (not releasing) for 100 ms; the deeper of the two is applied.
-     *   - Amount t: HM T = -24 - 12t dBFS, |D| = 12t dB, s 0.45, 4 / 140 ms (measured release);
-     *               H  T = -30 - 12t dBFS, |D| = 16t dB, s 0.55, 2 /  90 ms.
-     *     t = 0 gives no reduction (the module is the allpass).
+     *   - Amount t = 5/3 u (laws::tameT, u = the knob): HM T = -24 - 12t dBFS, |D| = 12t dB, s 0.45,
+     *               4 / 140 ms (measured release); H  T = -30 - 12t dBFS, |D| = 16t dB, s 0.55, 2 / 90 ms.
+     *     So at 100 %: HM -44 dBFS, 20 dB; H -50 dBFS, 26.7 dB. t = 0 gives no reduction (the
+     *     module is the allpass).
      *
      * Off still runs the split and the sum, so the phase (AP_A AP_B, matched by DryPhaseMatch)
      * never jumps; only the band gains fade to 1. Linked detection (max of L and R).
@@ -58,7 +59,7 @@ namespace roar
         /** Test hook: force the band gains (dB) instead of the dynamics; NaN-free values only. */
         void setForcedGainsForTest (bool forced, double highMidDb = 0.0, double highDb = 0.0);
 
-        /** Static gain reduction (dB) of a band for detector level x (dB) at amount t. band 0 = HM, 1 = H. */
+        /** Static gain reduction (dB) of a band for detector level x (dB) at curve position t (0..5/3). band 0 = HM, 1 = H. */
         static double staticCurveDb (int band, double t, double levelDb);
 
     private:
