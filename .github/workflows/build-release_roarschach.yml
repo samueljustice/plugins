@@ -77,6 +77,12 @@ jobs:
         mkdir SDK
         git clone --depth 1 --branch $env:JUCE_VERSION https://github.com/juce-framework/JUCE.git SDK/JUCE
 
+    - name: Get the AAX SDK
+      id: aax
+      uses: ./.github/actions/aax-sdk
+      with:
+        deploy-key: ${{ secrets.AAX_SDK_DEPLOY_KEY }}
+
     - name: Configure CMake
       run: |
         cd roarschach
@@ -85,12 +91,28 @@ jobs:
           -DROARSCHACH_VERSION="$env:VERSION" `
           -DROARSCHACH_FORMATS="VST3" `
           -DROARSCHACH_TESTS=OFF `
-          -DBUILD_TIMESTAMP="$timestamp"
+          -DBUILD_TIMESTAMP="$timestamp" `
+          -DSAMMYJ_AAX=ON -DAAX_SDK_PATH="${{ steps.aax.outputs.path }}"
 
     - name: Build VST3
       run: |
         cd roarschach
         cmake --build build --config Release --parallel
+
+    # Unsigned AAX, for testing in Pro Tools Developer only (PACE wraptool signing comes later).
+    # It is a build artifact, not part of the release or the installer.
+    - name: Zip unsigned Windows AAX
+      shell: pwsh
+      run: |
+        cd roarschach
+        Compress-Archive -Path "build\Roarschach_artefacts\Release\AAX\Roarschach.aaxplugin" -DestinationPath "Roarschach-Windows-AAX-unsigned.zip" -Force
+
+    - name: Upload unsigned Windows AAX
+      uses: actions/upload-artifact@v6
+      with:
+        name: Roarschach-Windows-AAX-unsigned
+        path: roarschach/Roarschach-Windows-AAX-unsigned.zip
+        if-no-files-found: error
 
     - name: Gather files
       run: |
@@ -183,6 +205,12 @@ jobs:
         mkdir SDK
         git clone --depth 1 --branch "$JUCE_VERSION" https://github.com/juce-framework/JUCE.git SDK/JUCE
 
+    - name: Get the AAX SDK
+      id: aax
+      uses: ./.github/actions/aax-sdk
+      with:
+        deploy-key: ${{ secrets.AAX_SDK_DEPLOY_KEY }}
+
     - name: Configure CMake
       run: |
         cd roarschach
@@ -191,7 +219,8 @@ jobs:
           -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0 \
           -DROARSCHACH_VERSION="$VERSION" \
           -DROARSCHACH_TESTS=ON \
-          -DBUILD_TIMESTAMP="$(date -u "+%Y-%m-%d %H:%M UTC")"
+          -DBUILD_TIMESTAMP="$(date -u "+%Y-%m-%d %H:%M UTC")" \
+          -DSAMMYJ_AAX=ON -DAAX_SDK_PATH="${{ steps.aax.outputs.path }}"
 
     - name: Build AU, VST3 and tests
       run: |
@@ -206,6 +235,20 @@ jobs:
         exe=$(find build -name RoarschachTests -type f -perm +111 | head -1)
         [[ -n "$exe" ]] || { echo "RoarschachTests not built"; exit 1; }
         "$exe"
+
+    # Unsigned AAX, for testing in Pro Tools Developer only (PACE wraptool signing comes later).
+    # It is a build artifact: not signed, notarised, packaged or released with the VST3/AU.
+    - name: Zip unsigned macOS AAX
+      run: |
+        cd roarschach
+        ditto -c -k --keepParent "build/Roarschach_artefacts/Release/AAX/Roarschach.aaxplugin" Roarschach-macOS-AAX-unsigned.zip
+
+    - name: Upload unsigned macOS AAX
+      uses: actions/upload-artifact@v6
+      with:
+        name: Roarschach-macOS-AAX-unsigned
+        path: roarschach/Roarschach-macOS-AAX-unsigned.zip
+        if-no-files-found: error
 
     - name: Check for certificates
       id: check_certs
