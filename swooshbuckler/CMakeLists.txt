@@ -181,4 +181,11 @@ if(SWOOSHBUCKLER_TOOLS)
     target_link_libraries(SwooshbucklerIcon
         PRIVATE juce::juce_gui_basics
         PUBLIC juce::juce_recommended_config_flags)
+
+    # Knob audit: sweeps a parameter through the real plug-in offline and measures each step (tools/KnobAudit.cpp).
+    juce_add_console_app(SwooshbucklerAudit PRODUCT_NAME "SwooshbucklerAudit")
+    target_sources(SwooshbucklerAudit PRIVATE tools/KnobAudit.cpp)
+    target_include_directories(SwooshbucklerAudit PRIVATE Source ${CMAKE_CURRENT_BINARY_DIR}/Swooshbuckler_artefacts/JuceLibraryCode $<TARGET_PROPERTY:Swooshbuckler,INCLUDE_DIRECTORIES>)
+    target_compile_definitions(SwooshbucklerAudit PRIVATE $<TARGET_PROPERTY:Swooshbuckler,COMPILE_DEFINITIONS>)
+    target_link_libraries(SwooshbucklerAudit PRIVATE Swooshbuckler)
 endif()

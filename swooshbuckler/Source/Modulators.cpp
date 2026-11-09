@@ -227,7 +227,12 @@ void ModMatrix::reset()
     for (auto& b : m_bipolarView)
         b.store(true, std::memory_order_relaxed); // until process() knows the types (the UI derives them itself anyway)
     for (auto& s : m_state)
+    {
         s = State {};
+        // Random and Steps have somewhere to go from the start (not a whole silent first cycle).
+        s.to = m_rng.nextFloat() * 2.0f - 1.0f;
+        s.held = m_rng.nextFloat() * 2.0f - 1.0f;
+    }
     std::fill(m_offsets.begin(), m_offsets.end(), 0.0f);
     for (auto& v : m_targetView)
         v.store(-1.0f, std::memory_order_relaxed);
@@ -283,11 +288,11 @@ void ModMatrix::process(const std::array<SourceSettings, c_numSources>& settings
             }
             case Type::Follower:
             {
-                // Loudness of the chosen input, -48..0 dBFS -> 0..1. Speed: slow (1 s) .. fast (10 ms).
+                // Loudness of the chosen input, -40..-6 dBFS -> 0..1. Speed: slow (2 s, follows whole passes) .. fast (15 ms).
                 const float in = followerInputs[static_cast<size_t>(juce::jlimit(0, c_numFollowerInputs - 1, set.follow))];
                 const float db = juce::Decibels::gainToDecibels(juce::jmax(1.0e-6f, in), -100.0f);
-                const float target = juce::jlimit(0.0f, 1.0f, (db + 48.0f) / 48.0f);
-                const float tau = 1.0f * std::pow(0.01f, juce::jlimit(0.0f, 1.0f, set.knob));
+                const float target = juce::jlimit(0.0f, 1.0f, (db + 40.0f) / 34.0f);
+                const float tau = followerSeconds(set.knob);
                 const float tauNow = target > st.env ? tau * 0.3f : tau;
                 st.env += (target - st.env) * (1.0f - std::exp(static_cast<float>(-dt) / juce::jmax(0.001f, tauNow)));
                 st.value = st.env;

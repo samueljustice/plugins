@@ -128,7 +128,7 @@ This is where your sounds live: up to ten files, each on its own looping lane.
 | **Bus tag** | Where the track plays: **BUS A** (coral), **BUS B** (turquoise) or **HITS** (red), in the colour of that section's knobs. It follows the sound type. |
 | **Type badge** | The sound type. Click it to change it, or choose **Auto** to go back to the guess. A ` *` means you set it yourself. The type decides the bus: see the table below. |
 | **SKIP SILENCE** | On (the default): only the sounds play and the gaps between them are skipped, so a recording full of pauses becomes a steady source. The sounds are drawn bright and the gaps faint. Off: the whole file loops, silence and all, and the lane reads "silence kept". |
-| **Fader** | The track's level, 0–100%, default 80%. With AUTO RIDE on, it sets how high the ride can take the track. Double-click to reset. Each one is also a host parameter, "Track 1" to "Track 10". |
+| **Fader** | The track's level, in dB: 30 dB of travel (each 10% is 3 dB), with the last 5% fading to silence; default −2.1 dB. With AUTO RIDE on, it sets how high the ride can take the track. Double-click to reset. Each one is also a host parameter, "Track 1" to "Track 10". |
 | **Semitones / Cents** | The track's own pitch: up to 24 semitones either way, plus up to 100 cents for fine tuning. It adds to the Ride's Pitch knob and glides to a new setting. **Drag up or down** on a box to change it, and **double-click** to reset. Each one is also a host parameter ("Track 1 Semitones", "Track 1 Cents" and so on). Drag a MOD jack onto the Semitones box to modulate the track's pitch; its plugs sit in a row under the box. |
 | **VARI** | On (the default): varispeed, like tape. The pitch and the speed change together, so up an octave also plays twice as fast. Off: the pitch changes and the speed stays the same, through a pitch shifter, which delays that track by about 43 ms. Synced hits allow for both. |
 | **M / S / x** | Mute, solo and remove. A muted track keeps its place in the ride, so it comes straight back in when you unmute it. |
@@ -169,9 +169,9 @@ This is where the whooshes come from. With AUTO RIDE on, each track's fader rise
 |---|---|---|
 | **Swell** | button | Hold it to push every track's fader up to its full level, over the ride. Let go and the ride takes over again. It glides rather than jumps. The space bar and any MIDI note do the same. |
 | **AUTO RIDE** | on / off (on) | The faders move by themselves. Off: the movement glides to a stop and each fader stays where you set it. |
-| **Energy** | 0–100% (60%) | How far the ride pulls the faders down between swells. Low: gentle movement that stays fairly level. High: deep swells that rise out of silence and fall back. |
-| **Rate** | 0–100% (40%) | How fast the faders move: from one rise and fall about every 25 s to one about every 2 s. It also sets how long each doppler pass on the buses lasts, from about 6 s down to about 1.6 s. |
-| **Fill** | 0–100% (30%) | Long, softened echoes at 0.5, 1 and 2 s that fill the gaps in gappy sounds. Gappy tracks get much more than steady ones. |
+| **Energy** | 0–100% (55%) | How deep the ride dips the faders between swells, evenly in dB: about −4 dB at 20%, −12 dB at 50%, −28 dB at 80%, and down to silence at 100%. Dimmed with AUTO RIDE off, when it does nothing. |
+| **Rate** | 25 s to 1.9 s (6.4 s) | How fast the faders move: the readout is the time of one rise and fall. It also sets how long each doppler pass lasts, from about 6 s down to about 1.6 s. |
+| **Fill** | 0–100% (30%) | Long, softened echoes at 0.5, 1 and 2 s, after each track's fader, so they hang on into the dips of the ride and the gaps of gappy sounds. |
 | **Chaos** | 0–100% (40%) | How unpredictable it all is. Low: the rides and passes repeat in a steady pattern. High: each fader wobbles, every pass gets its own length, speed, closeness and direction, and tracks more often jump to a random sound instead of the next one, sometimes starting partway in. |
 | **Pitch** | ±24 semitones (0) | Plays every track higher or lower, like changing tape speed: lower is also slower and heavier. It glides to a new setting and isn't locked to whole semitones. |
 
@@ -192,7 +192,7 @@ Bus A ("growls, tones, crackle, rumble - and the key for B") is the aggressive b
 | Control | Default (A / B) | What it does |
 |---|---|---|
 | **Doppler** | 55% / 40% | How dramatic each pass is: how close it comes, and how much it swells and brightens as it goes by. At 0% the passes don't pan or bend, whatever Width and Bend are set to. |
-| **Width** | 80% / 80% | How far each pass travels across the stereo field, from near the middle to a full left-to-right fly-by. |
+| **Width** | 70% / 70% | How far each pass travels across the stereo field: at 0% it stays in the middle, at 100% it flies fully from side to side. |
 | **Bend** | 70% / 60% | How much the pitch dives as a pass goes by, up to a race-car drop. |
 | **Low End** | 35% / 20% | Weight: a sub octave and low overtones, plus a low lift that grows at the bus's loudest moments. |
 | **Swirl** | 20% / 30% | Movement inside the sound: a phaser, then (above about a quarter) a flanger that sweeps as the passes come and go. |
@@ -223,11 +223,11 @@ Sessions saved before AIM existed open with it off, so they keep the gate they w
 | **GATE** box | Peaks / Level / Jumps / Open (Peaks) | What opens the gate. **Peaks**: the loudest moments of the two buses. **Level**: any time they're louder than a level set by Sensitivity. **Jumps**: sudden rises, however loud or quiet. **Open**: no gate, the hits always play. |
 | **DUCK** box | Volume / Darken / Mids (Volume) | How a ducked bus gets out of the way: turned down, low-passed, or only its crowded middle (250 Hz to 4 kHz) turned down. This also applies to bus A ducking bus B. |
 | **Sensitivity** | 0–100% (50%) | How easily the hits fire. With AIM: which pass peaks get a hit. With the gate: how easily it opens. Low: only the biggest moments. High: often. |
-| **Boost** | −6 to +12 dB (+6 dB) | How much the hits jump up when the gate opens. |
+| **Boost** | −3 to +12 dB (+6 dB) | How loud the hits come in when they fire, against their own level. |
 | **Release** | 60 ms to 1.2 s (459 ms) | How long the hits tail out after the gate shuts. |
 | **Hold** | 0–500 ms (60 ms) | How long the gate stays open after the last trigger. Longer stops it chattering, so each hit reads as one event. |
-| **Floor** | Closed, or −40 to −3 dB (Closed) | How far the gate closes between hits. Closed: the hits vanish between peaks. Turn it up and they stay quietly under the mix. |
-| **Duck** | 0–100% (50%) | How far the hits push buses A and B down when they fire. |
+| **Floor** | Closed, or −28 to −3 dB (Closed) | How far the gate closes between hits. |
+| **Duck** | Off, or down to −12 dB (−4.8 dB) | How far the hits push buses A and B down at their peaks. |
 | **Return** | Fast, or 20 ms to 1 s (Fast) | How fast ducked buses come back up. This also applies to bus A ducking bus B. Slower is smoother, with less pumping. |
 | **HIT GATE / AIMED HITS** | light | Glows as the gate opens and fades as it closes; with AIM, flashes on each aimed hit. |
 | **AIM** | on / off (on) | Aims the hits at the pass peaks (see above). |
@@ -251,11 +251,11 @@ The last stage before your speakers and the tape. At its left is the **Peak Trem
 | **Threshold** | 0–100% (60%) | How near its peak the level has to be before it starts. Low: it shakes most of the time. High: only right at the top. |
 | **Space** | 0–100% (25%) | Echoes, reverb and width around the whole mix: a ping-pong echo, a reverb whose room grows as you turn it up, and stereo widening. At 0% it's off. |
 | **Inflate** | 0–100% (30%) | Louder and denser without new peaks, so quieter detail comes forward. At 0% the sound passes through untouched. |
-| **Push** | 0 to +18 dB (+3 dB) | How hard the mix drives into the limiter. The ceiling stays put, so it can't clip. |
-| **Ceiling** | −12 to 0 dB (−0.3 dB) | The limiter's ceiling: nothing gets out louder than this. The limiter is always on. |
+| **Push** | 0 to +15 dB (+3 dB) | How hard the mix drives into the limiter. The ceiling stays put, so it can't clip. |
+| **Ceiling** | −6 to 0 dB (−0.3 dB) | The limiter's ceiling, finer near the top. The limiter is always on. |
 | **GR** | meter | How much the limiter is turning the sound down right now (a full bar is 12 dB). The number above the meters is the same thing in dB, and turns coral while the limiter is working. |
 | **OUT** | meter | The output peak level, after the limiter and the trim. |
-| **TRIM** | silence to +6 dB (0 dB) | How loud you hear it (and what your DAW gets from the plug-in), after the limiter. The tape and LAST 60s record before it, at full level, so turning it down never makes a quieter take. Double-click to reset. |
+| **TRIM** | silence to 0 dB (0 dB) | How loud you hear it (and what your DAW gets from the plug-in), after the limiter. The tape and LAST 60s record before it, at full level, so turning it down never makes a quieter take. Double-click to reset. |
 
 If the gain reduction number is coral all the time, back off Push or raise Ceiling.
 
@@ -307,9 +307,9 @@ Four modulators run along the bottom: **MOD 1** (yellow), **MOD 2** (pink), **MO
 
 | Type | What it does | Knob |
 |---|---|---|
-| **LFO** | A repeating wave that swings each wired knob up and down. The shape menu offers Sine, Triangle, Ramp (rises then drops), Square and Steps (a new random value every cycle). | **Rate**: 0.02 Hz (one cycle every 50 s) to 12 Hz |
+| **LFO** | A repeating wave that swings each wired knob up and down. The shape menu offers Sine, Triangle, Ramp (rises then drops), Square and Steps (a new random value every cycle). | **Rate**: one cycle every 20 s (0.05 Hz) to 8 Hz |
 | **Random** | A smooth random wander up and down, never the same twice. | **Rate**: as above |
-| **Follower** | Follows the loudness of **Bus A**, **Bus B**, the **Hits** or the whole **Output** (pick which in the menu under the scope), and turns its knobs one way only. | **Speed**: slow and smooth (about 1 s) to fast and jumpy (about 10 ms) |
+| **Follower** | Follows the loudness of **Bus A**, **Bus B**, the **Hits** or the whole **Output** (pick which in the menu under the scope), and turns its knobs one way only. | **Speed**: slow and smooth (2 s) to fast and jumpy (15 ms) |
 | **Macro** | One knob that turns every knob it's wired to, each by its own depth. It's a host parameter, so you can automate it. | **Amount** |
 
 The defaults are MOD 1: LFO (Sine), MOD 2: LFO (Triangle), MOD 3: Random, MOD 4: Follower (Bus A). The scope on each card shows what the modulator has done over the last few seconds.
