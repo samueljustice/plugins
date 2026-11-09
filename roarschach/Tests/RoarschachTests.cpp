@@ -2724,10 +2724,18 @@ namespace
             const double fading = measure(0, true);
             std::printf("  %6.0f Hz: Init %.1f %%, worst preset %s %.1f %%, Init reordering continuously (both chains) %.1f %%\n",
                         sr, init, presets[static_cast<size_t>(worstIndex)].name, worst, fading);
-            if (sr == 48000.0)
+            // The budgets are wall-clock times, so they are only enforced on a quiet machine: shared CI
+            // runners (CI set) vary by several points from run to run, so there they are reported only.
+            // Real time (below) is checked everywhere.
+            static const bool onSharedRunner = std::getenv("CI") != nullptr;
+            if (sr == 48000.0 && !onSharedRunner)
             {
                 check(init <= 12.0, "Init CPU " + juce::String(init, 1) + " % (<= 12 %)");
                 check(worst <= 25.0, "worst preset CPU " + juce::String(worst, 1) + " % (<= 25 %)");
+            }
+            else if (sr == 48000.0)
+            {
+                std::printf("  CPU budgets reported only on a shared runner (Init <= 12 %%, worst <= 25 %%)\n");
             }
             check(worst < 100.0, "not real time at " + juce::String(sr));
         }
