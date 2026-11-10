@@ -9,6 +9,7 @@
 #include "FlattenerTypes.h"
 #include "Detectors.h"
 #include "PitchTracker.h"
+#include "HindsightGuide.h"
 #include "RubberBandDriver.h"
 
 namespace pf
@@ -24,6 +25,13 @@ namespace pf
      *           ├─ mono ─ decimate to ~24 kHz ─ filters ─ frames ─ detector ─ tracker ─ ratio track
      *           │                                                         │
      *           └─ delay D_a ─────────────── RubberBand R3 (pitch = ratio track) ── wet ┘
+     *
+     * With Shift Below on, each input sample is split as it arrives by a 4th-order Linkwitz-Riley crossover (lowRing,
+     * highRing): only the low band is fed to the shifter, and the high band is added back unshifted at the output, so
+     * the two sum flat. Splitting before the shift matters: content above the split never reaches the shifter, so it
+     * can't be moved down into the output's low band. modeRing remembers, per input sample, whether it was fed to the
+     * shifter split, so turning Shift Below on or off mid-stream switches the output exactly where the feed switched.
+     * With Mix below 100 % the dry side is lowRing + highRing (the same all-pass), so the bands stay in phase.
      *
      * The shifter is fed D_a samples behind the input, so every ratio it uses
      * has been decided with the full tracker lookahead. Its output is written
@@ -77,6 +85,12 @@ namespace pf
         int getLatencySamples() const { return totalLatency; }
 
         void requestRelatch() { relatchRequested.store (true); }
+        /** Offline rendering: the hindsight guide then analyses on the audio thread, so it is never late. Audio thread. */
+        void setNonRealtime (bool nonRealtime) { guide.setNonRealtime (nonRealtime); }
+        /** For tests: allow or forbid the hindsight guide. */
+        void setHindsightAllowed (bool allowed) { hindsightAllowed = allowed; }
+        /** For tests: hindsight windows analysed, and how many of them guided the track. */
+        int getHindsightWindows (bool guidedOnly) const { return guidedOnly ? guide.getWindowsGuided() : guide.getWindowsAnalysed(); }
 
         // Telemetry for the UI -------------------------------------------------
         bool popTelemetry (TelemetryFrame& f);
@@ -171,6 +185,8 @@ namespace pf
         DetectorConfig wantedConfig;      // message thread: config asked for
 
         PitchTracker tracker;
+        bool hindsightAllowed = true;
+        HindsightGuide guide;             // Harmonic Sum only: a whole-window second opinion for engines
 
         // Shifter --------------------------------------------------------------
         std::unique_ptr<RubberBandDriver> shifter;
@@ -194,6 +210,19 @@ namespace pf
         std::vector<float*> feedPtrs;
 
         LiveSettings live;
+
+        // Shift Below: Linkwitz-Riley crossover on the input. The low band (lowRing, input-aligned) feeds the shifter;
+        // the high band of the dry input joins the wet at the output. An exhaust's fixed resonances are not dragged along.
+        void updateSplit();
+        float splitHz = 0.0f;             // 0 = off: the shifter gets the full input
+        std::array<std::array<Biquad, 2>, 2> splitLow, splitHigh;   // [channel][stage]
+        std::vector<std::vector<float>> lowRing, highRing;          // per channel, like inRing
+        std::vector<uint8_t> modeRing;                              // 1 = this input sample was fed to the shifter split
+        float shifterInput (size_t c, int64_t pos) const
+        {
+            const auto r = (size_t) (pos & ringMask);
+            return modeRing[r] != 0 ? lowRing[c][r] : inRing[c][r];
+        }
 
         // Telemetry --------------------------------------------------------------
         juce::AbstractFifo telemetryFifo { 1024 };

@@ -131,7 +131,7 @@ From left to right:
 - **RUNNING**: the detector that is actually running. After a change it can lag for a moment while the new detector is set up.
 
 <p>
-  <img src="docs/menu-source.png" alt="The Source Type menu: Vocal / Speech, Instrument, Siren (ticked), Whistle / Tone, Engine / Doppler, Drone / Hum, Noisy Field, Custom" width="38%">
+  <img src="docs/menu-source.png" alt="The Source Type menu: Vocal / Speech, Instrument, Siren, Whistle / Tone, Engine / Doppler, Engine Run-up, Drone / Hum, Noisy Field, Custom (ticked)" width="38%">
   <img src="docs/menu-detector.png" alt="The Detector menu: pYIN, MPM (McLeod), Spectral Peak, Harmonic Sum, Spectral + MPM (ticked)" width="34%">
 </p>
 
@@ -236,12 +236,13 @@ The teal section says where to listen in this particular file. The Source Type s
 
 ### 7. Advanced
 
-<img src="docs/section-advanced.png" alt="The Advanced section dimmed: Sensitivity, Max Shift, Quality, Highpass and Lowpass, labelled Set by Source, pick Custom to change" width="390" align="right">
+<img src="docs/section-advanced.png" alt="The Advanced section dimmed: Sensitivity, Max Shift, Quality, Highpass, Lowpass and Shift Below, labelled Set by Source, pick Custom to change" width="390" align="right">
 
 The violet section holds the detection and shifter settings each Source Type tunes for its kind of sound. They are dimmed and locked unless the Source Type is **Custom**: pick the closest Source Type first, then switch to Custom to adjust from there (choosing Custom changes nothing by itself). The **Detector** menu in the source strip works the same way.
 
 - **SENSITIVITY**: how readily a sound counts as pitched. Raise it for quiet or breathy sources such as creature calls; lower it for shimmering tones and noisy recordings.
-- **MAX SHIFT** (6–24 semitones): the largest correction allowed. Below 6 it mostly stops the flattening, so the knob starts there. Siren, Whistle / Tone and Drone / Hum set 24; the others set 12.
+- **MAX SHIFT** (6–36 semitones): the largest correction allowed. Below 6 it mostly stops the flattening, so the knob starts there. Engine Run-up sets 36; Siren, Whistle / Tone and Drone / Hum set 24; the others set 12.
+- **SHIFT BELOW** (200 Hz–20 kHz, or Off): only the sound below this frequency goes through the shifter; above it the audio passes through unshifted. The two bands are split before shifting by a crossover that sums back flat. An engine's exhaust and body resonances, its roar and any steady whine stay at fixed frequencies while the engine's pitch moves. Shifting everything drags them down as the correction grows, which is heard as a dive. With Shift Below they stay put. Engine Run-up sets 1.2 kHz; the others set Off.
 - **QUALITY**:
   - **Smooth** uses the shifter's standard window and gives the best sound on sustained tones.
   - **Tight** uses a short window and follows very fast sweeps and transients more closely.
@@ -293,6 +294,7 @@ Each Source Type chooses a pitch detector and tuned defaults. Flatten and Range 
 | **Siren** | Spectral + MPM | Wail, yelp, hi-lo and electronic sweeps, even in traffic noise. Uses the Tight window to follow fast sweeps, and a 24-semitone Max Shift so a siren that switches pattern stays flat. |
 | **Whistle / Tone** | Spectral + MPM | Whistles, feedback, test tones, theremin. Very stable on near-pure tones; low Sensitivity and a 24-semitone Max Shift keep shimmering feedback flat. |
 | **Engine / Doppler** | Harmonic Sum (subharmonic summation) | Engines, pass-bys, props, motors and trains. Follows the whole harmonic series, so it does not jump octaves and copes with a weak or missing fundamental. |
+| **Engine Run-up** | Harmonic Sum, with the [hindsight guide](#hindsight-guide-harmonic-sum) | Revs and run-ups that climb an octave or more. Max Shift 36 semitones so the whole climb can be held flat, and Shift Below 1.2 kHz so the exhaust's fixed resonances stay where they are instead of diving. |
 | **Drone / Hum** | Harmonic Sum, heavy smoothing | Hums, generators and drones down to 25 Hz, with a 24-semitone Max Shift. |
 | **Noisy Field** | Harmonic Sum, strict voicing | Rough field recordings with lots of broadband noise. |
 | **Custom** | Any | Your own settings. Choosing Custom doesn't change anything. |
@@ -314,6 +316,16 @@ Every detector feeds the same tracker, which can see well into the future of the
 3. **Gap fill:** short dropouts are bridged. Before a sound starts, the correction is set up in advance, so the first syllable or rev is already flattened.
 4. **Centred Gaussian smoothing** in cents. It is zero-phase, so the curve doesn't lag.
 5. **Target and correction:** the shift needed to move the track to the target, limited by Max Shift.
+
+#### Hindsight guide (Harmonic Sum)
+
+Each frame detector decides one moment at a time. Through a fast engine run-up the strongest partial keeps changing (the firing rate, a half order, a cylinder harmonic), so the track can hop from one to another and the correction jumps with it. When the detector is Harmonic Sum (Engine / Doppler, Engine Run-up, Drone / Hum, Noisy Field, or Custom with Harmonic Sum), a second tracker works in hindsight alongside it:
+
+- Every second it analyses the last 8¼ s of the signal as a whole, so each moment is judged knowing what came before and after it. It measures how the whole set of partials moves together and follows one line through the run-up.
+- It only steps in when the sound behaves like an engine: its first pass must jump between partials, and most of those jumps must be whole octaves of the line it follows. Tonal pads, synths and everything the other Source Types are for are left to the normal tracker.
+- Where the normal track stays within a semitone and a half of the guide, the normal track is kept, with its finer detail. The guide replaces it only where the normal track has hopped to another partial. The guide also takes its octave from the normal track, so the target stays where it was.
+
+It runs on its own thread while you play, and on the audio thread when rendering offline, so the result is the same either way. It needs no settings and leaves the latency unchanged. A run-up can span more than Max Shift, though: past that point the output rises smoothly instead of staying flat.
 
 The shifter is **Rubber Band Library R3** (the "finer" engine) in high-consistency mode. Each ~3 ms chunk is shifted by the correction measured at the same moment in the audio.
 
@@ -344,11 +356,12 @@ cmake --build build-tests --target PitchFlattenerTests
 
 `--wav` writes each test's input and output so you can listen to them.
 
-To see how a real recording fares, `--file sound.wav` plays it through a Source Type's settings (`--source 2`, Siren, by default) and prints the track, target, correction and output pitch every 100 ms, with how far the output lands from the target. `--detector n`, `--minfreq`, `--maxfreq` and `--maxshift` override those settings, `--step` changes the reporting interval (use 0.01 for short sounds) and `--out processed.wav` writes the result, lined up with the input. `--advise sound.wav` runs the wobble warning's Source Type check on a whole recording (starting from `--source n`) and prints how flat each Source Type comes out. `--sweep param v1,v2,... --file sound.wav --source n` changes one parameter across those values and prints the flatness for each (how the [parameter audit](docs/parameter-audit.md) was measured).
+To see how a real recording fares, `--file sound.wav` plays it through a Source Type's settings (`--source 2`, Siren, by default) and prints the track, target, correction and output pitch every 100 ms, with how far the output lands from the target. `--detector n`, `--minfreq`, `--maxfreq` and `--maxshift` override those settings, `--step` changes the reporting interval (use 0.01 for short sounds) and `--out processed.wav` writes the result, lined up with the input. `--advise sound.wav` runs the wobble warning's Source Type check on a whole recording (starting from `--source n`) and prints how flat each Source Type comes out. `--realtime` plays the file at real-time pace, as a live host would, so the hindsight guide runs on its own thread. `--split hz` (0 = off) and `--formant 0|1` override Shift Below and formant preservation, and `--guide 0` turns the hindsight guide off. `--sweep param v1,v2,... --file sound.wav --source n` changes one parameter across those values and prints the flatness for each (how the [parameter audit](docs/parameter-audit.md) was measured).
 
 ## Tips
 
 - **Doppler pass-by:** choose Engine / Doppler and Latch. If the approach is too quiet to latch on, use Fixed with the engine's idle pitch.
+- **Engine run-up:** choose Engine Run-up. If the high end still sounds like it rises with the engine, switch to Custom and lower Shift Below; if the low end seems to dive, raise it. For pass-bys keep Engine / Doppler: its 12-semitone Max Shift stops a tracking slip from becoming a big jump.
 - **Siren:** choose Siren and Fixed at the pitch you want. For a wail, Smooth quality can sound cleaner: switch Source Type to Custom (it keeps the Siren settings) and set Quality to Smooth. For a yelp, keep Tight.
 - **Ricochets and whizzes:** choose Siren. Raise Max Freq to about 6 kHz for bright ones that start above 3 kHz; don't lower Min Freq, or the low thump of the impact competes with the whine. If you can hear two tones at once and the result moves the wrong way, switch Source Type to Custom and set Detector to Spectral Peak.
 - **Vibrato only:** use Auto mode with an Auto Window of 300–600 ms.

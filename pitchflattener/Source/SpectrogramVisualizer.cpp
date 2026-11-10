@@ -366,7 +366,7 @@ namespace
             && x.smoothingMs == y.smoothingMs && x.gapFillMs == y.gapFillMs && x.targetMode == y.targetMode
             && x.targetHz == y.targetHz && x.autoWindowMs == y.autoWindowMs && x.amount == y.amount
             && x.maxShiftSemitones == y.maxShiftSemitones && x.gateDb == y.gateDb && x.manualOverride == y.manualOverride
-            && x.overrideHz == y.overrideHz && x.formantPreserve == y.formantPreserve;
+            && x.overrideHz == y.overrideHz && x.formantPreserve == y.formantPreserve && x.shiftBelowHz == y.shiftBelowHz;
     }
 }
 

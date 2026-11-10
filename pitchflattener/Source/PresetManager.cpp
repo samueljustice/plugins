@@ -109,9 +109,9 @@ void PresetManager::buildFactoryPresets()
 {
     m_factory.clear();
 
-    for (int i = 0; i < (int) pf::SourceType::NumSourceTypes; ++i)
+    for (const auto type : pf::sourceTypeMenuOrder)
     {
-        const auto type = (pf::SourceType) i;
+        const int i = (int) type;
         const auto& p = pf::getSourcePreset (type);
         const auto target = factoryTargetFor (type);
 
@@ -129,6 +129,7 @@ void PresetManager::buildFactoryPresets()
         setParamValue (state, ParamIDs::rbFormantPreserve, p.formant ? 1.0f : 0.0f);
         setParamValue (state, ParamIDs::quality, (float) p.quality);
         setParamValue (state, ParamIDs::maxShift, p.maxShiftSemitones);
+        setParamValue (state, ParamIDs::shiftBelow, p.shiftBelowHz > 0.0f ? p.shiftBelowHz : pf::shiftBelowOffHz);
         setParamValue (state, ParamIDs::targetMode, (float) (int) target.mode);
         setParamValue (state, ParamIDs::autoWindow, target.autoWindowMs);
 
@@ -187,6 +188,17 @@ void PresetManager::applyState (const juce::ValueTree& newState, const juce::Str
         if (child.hasType ("PARAM") && m_state.getParameter (child.getProperty (c_idProperty).toString()) == nullptr)
             state.removeChild (i, nullptr);
     }
+
+    // Parameters the preset predates (e.g. Shift Below) get their defaults, not whatever is set now.
+    for (auto* p : m_state.processor.getParameters())
+        if (auto* rp = dynamic_cast<juce::RangedAudioParameter*> (p))
+            if (! state.getChildWithProperty (c_idProperty, rp->paramID).isValid())
+            {
+                juce::ValueTree child ("PARAM");
+                child.setProperty (c_idProperty, rp->paramID, nullptr);
+                child.setProperty (c_valueProperty, rp->convertFrom0to1 (rp->getDefaultValue()), nullptr);
+                state.appendChild (child, nullptr);
+            }
 
     // replaceState sets every parameter; bracket it in gestures so hosts record
     // the change as one edit.

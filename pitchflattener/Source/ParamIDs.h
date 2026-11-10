@@ -32,4 +32,5 @@ namespace ParamIDs
     inline constexpr const char* rbFormantPreserve = "rbFormantPreserve"; // bool (kept from 1.x)
     inline constexpr const char* quality         = "quality";          // Choice: Smooth / Tight
     inline constexpr const char* mix             = "mix";              // 0..1 (kept from 1.x)
+    inline constexpr const char* shiftBelow      = "shiftBelow";       // Hz; the top of the range = Off (shift everything)
 }
