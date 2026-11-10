@@ -295,6 +295,45 @@ void PitchFlattenerAudioProcessor::timerCallback()
     if (core.isPrepared())
         handleAsyncUpdate();
     core.housekeeping();
+
+    // ANALYSE: end a take whose audio stopped, and apply what an analysis worked out (once).
+    auto& learned = core.getLearned();
+    learned.messageTick();
+    pf::LearnedLine::Suggestion s;
+    if (learned.popSuggestion (s))
+        applySuggestion (s);
+}
+
+void PitchFlattenerAudioProcessor::analysePressed()
+{
+    auto& learned = core.getLearned();
+    const auto state = learned.getState();
+    if (state == pf::LearnedLine::State::Armed || state == pf::LearnedLine::State::Recording)
+        learned.finish();
+    else if (state != pf::LearnedLine::State::Analysing)
+        learned.arm (getProcessingSettings(), getSourceType());
+}
+
+void PitchFlattenerAudioProcessor::applySuggestion (const pf::LearnedLine::Suggestion& s)
+{
+    if (! s.valid)
+        return;
+    auto set = [this] (const char* id, float value)
+    {
+        if (auto* param = parameters.getParameter (id))
+        {
+            param->beginChangeGesture();
+            param->setValueNotifyingHost (param->convertTo0to1 (value));
+            param->endChangeGesture();
+        }
+    };
+    if (s.sourceType >= 0 && s.sourceType != (int) pf::SourceType::Custom)
+        applySourceTypeDefaults ((pf::SourceType) s.sourceType);
+    set (ParamIDs::minFreq, s.minHz);
+    set (ParamIDs::maxFreq, s.maxHz);
+    set (ParamIDs::maxShift, s.maxShiftSemitones);
+    set (ParamIDs::shiftBelow, s.shiftBelowHz > 0.0f ? s.shiftBelowHz : pf::shiftBelowOffHz);
+    appliedSuggestion = s;
 }
 
 void PitchFlattenerAudioProcessor::applySourceTypeDefaults (pf::SourceType type)
@@ -340,6 +379,17 @@ void PitchFlattenerAudioProcessor::getStateInformation (juce::MemoryBlock& destD
 {
     auto state = parameters.copyState();
     state.setProperty ("pluginVersion", PLUGIN_VERSION, nullptr);
+    // What ANALYSE learned travels with the session.
+    for (int i = state.getNumChildren(); --i >= 0;)
+        if (state.getChild (i).hasType ("LEARN"))
+            state.removeChild (i, nullptr);
+    if (const auto learned = core.getLearned().saveState(); learned.isNotEmpty())
+    {
+        juce::ValueTree l ("LEARN");
+        l.setProperty ("version", 1, nullptr);
+        l.setProperty ("data", learned, nullptr);
+        state.appendChild (l, nullptr);
+    }
     if (auto xml = state.createXml())
         copyXmlToBinary (*xml, destData);
 }
@@ -420,6 +470,13 @@ void PitchFlattenerAudioProcessor::setStateInformation (const void* data, int si
         }
     }
 
+    if (auto l = tree.getChildWithName ("LEARN"); l.isValid())
+    {
+        core.getLearned().loadState (l.getProperty ("data").toString());
+        tree.removeChild (l, nullptr);
+    }
+    else
+        core.getLearned().forget();
     parameters.replaceState (tree);
 
     if (juce::MessageManager::existsAndIsCurrentThread())

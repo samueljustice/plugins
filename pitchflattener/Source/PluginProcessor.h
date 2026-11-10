@@ -75,6 +75,17 @@ public:
     int getResetCount() const                    { return core.getResetCount(); }
     bool copyMonitor (bool output, int64_t from, int numSamples, float* dest) { return core.copyMonitor (output, from, numSamples, dest); }
 
+    // ANALYSE (message thread) ------------------------------------------------------
+    /** The button: listen for the next sound and learn it; while listening, stop and analyse; when learned, again. */
+    void analysePressed();
+    void forgetLearned() { core.getLearned().forget(); }
+    pf::LearnedLine::State getAnalyseState() const { return core.getLearned().getState(); }
+    float getAnalyseProgress() const { return core.getLearned().getProgress(); }
+    bool isLearnedMatched() const { return core.getLearned().isLocked(); }
+    double getLearnedSeconds() const { return core.getLearned().getTakeSeconds(); }
+    /** The last suggestion applied, for the editor to describe. */
+    pf::LearnedLine::Suggestion getAppliedSuggestion() const { return appliedSuggestion; }
+
     static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
 
 private:
@@ -86,6 +97,8 @@ private:
     void migrateLegacyState (juce::ValueTree& state);
 
     pf::FlattenerCore core;
+    pf::LearnedLine::Suggestion appliedSuggestion;
+    void applySuggestion (const pf::LearnedLine::Suggestion& s);
     double currentSampleRate = 0.0;
 
     struct Raw

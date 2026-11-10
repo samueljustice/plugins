@@ -10,6 +10,7 @@
 #include "Detectors.h"
 #include "PitchTracker.h"
 #include "HindsightGuide.h"
+#include "LearnedLine.h"
 #include "RubberBandDriver.h"
 
 namespace pf
@@ -86,7 +87,10 @@ namespace pf
 
         void requestRelatch() { relatchRequested.store (true); }
         /** Offline rendering: the hindsight guide then analyses on the audio thread, so it is never late. Audio thread. */
-        void setNonRealtime (bool nonRealtime) { guide.setNonRealtime (nonRealtime); }
+        void setNonRealtime (bool nonRealtime) { guide.setNonRealtime (nonRealtime); learned.setNonRealtime (nonRealtime); }
+        /** ANALYSE: what learns a take and guides later passes with it. Its message-thread calls are safe any time. */
+        LearnedLine& getLearned() { return learned; }
+        const LearnedLine& getLearned() const { return learned; }
         /** For tests: allow or forbid the hindsight guide. */
         void setHindsightAllowed (bool allowed) { hindsightAllowed = allowed; }
         /** For tests: hindsight windows analysed, and how many of them guided the track. */
@@ -186,7 +190,17 @@ namespace pf
 
         PitchTracker tracker;
         bool hindsightAllowed = true;
+        LearnedLine learned;              // ANALYSE: a learned take's line, once matched, comes before the hindsight guide
+        struct GuideMux : TrackGuide
+        {
+            GuideMux (LearnedLine& l, HindsightGuide& h) : learnedLine (l), hindsight (h) {}
+            bool lookup (int64_t f, float& c) const override { return learnedLine.lookup (f, c) || hindsight.lookup (f, c); }
+            void markUsed (int64_t f) override { learnedLine.markUsed (f); hindsight.markUsed (f); }
+            LearnedLine& learnedLine;
+            HindsightGuide& hindsight;
+        };
         HindsightGuide guide;             // Harmonic Sum only: a whole-window second opinion for engines
+        GuideMux guideMux { learned, guide };
 
         // Shifter --------------------------------------------------------------
         std::unique_ptr<RubberBandDriver> shifter;
