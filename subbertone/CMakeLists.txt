@@ -91,7 +91,12 @@ target_sources(Subbertone
     Source/WaveformVisualizer.cpp
     Source/AboutWindow.cpp
     Source/SubbertoneLookAndFeel.cpp
+    Source/UpdatePopup.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/../common/SammyJUpdateCheck.cpp
 )
+
+# The update check shared by every Sammy J plug-in (common/).
+target_include_directories(Subbertone PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../common)
 
 # Plugin unique ID is set in juce_add_plugin above
 

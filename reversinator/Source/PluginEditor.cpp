@@ -43,10 +43,18 @@ ReversinatorAudioProcessorEditor::ReversinatorAudioProcessorEditor(ReversinatorA
 
     m_constructed = true;
     m_processor.setEditorWidth(getWidth());
+
+    // Looks for a newer release in the background (at most once a day; silent if offline) and shows
+    // the popup if there is one. The offline test runner builds with this off, so it never goes online.
+#ifndef REVERSINATOR_NO_UPDATE_CHECK
+    m_updateCheck = std::make_unique<sammyj::UpdateCheck>("reversinator", "reversinator-v", JucePlugin_VersionString,
+                                                          [this](const sammyj::UpdateInfo& info) { showUpdatePopup(info); });
+#endif
 }
 
 ReversinatorAudioProcessorEditor::~ReversinatorAudioProcessorEditor()
 {
+    m_updateCheck.reset();   // stop the check before anything it calls back into goes away
     m_tooltipWindow.setLookAndFeel(nullptr);
     setLookAndFeel(nullptr);
 }
@@ -54,6 +62,11 @@ ReversinatorAudioProcessorEditor::~ReversinatorAudioProcessorEditor()
 void ReversinatorAudioProcessorEditor::paint(juce::Graphics& g)
 {
     g.fillAll(Theme::Colours::background);
+}
+
+void ReversinatorAudioProcessorEditor::showUpdatePopup(const sammyj::UpdateInfo& info)
+{
+    m_content.showUpdatePopup(info);
 }
 
 void ReversinatorAudioProcessorEditor::resized()
@@ -81,6 +94,7 @@ ReversinatorAudioProcessorEditor::Content::Content(ReversinatorAudioProcessor& p
     , m_wetAttachment(p.getParameters(), ParamIDs::wetMix, m_wetSlider)
     , m_dryAttachment(p.getParameters(), ParamIDs::dryMix, m_drySlider)
     , m_about(fonts)
+    , m_updatePopup(fonts)
 {
     using namespace Theme::Colours;
 
@@ -122,7 +136,8 @@ ReversinatorAudioProcessorEditor::Content::Content(ReversinatorAudioProcessor& p
     m_aboutButton.onClick = [this] { m_about.show(); };
     addAndMakeVisible(m_aboutButton);
 
-    addChildComponent(m_about);   // hidden until "?" is clicked; added last so it sits on top
+    addChildComponent(m_about);         // hidden until "?" is clicked; added last so it sits on top
+    addChildComponent(m_updatePopup);   // hidden until a newer release is found; above everything, the About panel too
 
     // The attachment changes the toggle without notifications (e.g. host automation),
     // so watch the state value to keep the label in step.
@@ -163,6 +178,7 @@ void ReversinatorAudioProcessorEditor::Content::resized()
 {
     auto bounds = getLocalBounds();
     m_about.setBounds(bounds);
+    m_updatePopup.setBounds(bounds);
 
     auto header = bounds.removeFromTop(c_headerHeight).reduced(c_margin, 0);
     m_aboutButton.setBounds(header.removeFromRight(26).withSizeKeepingCentre(26, 26));

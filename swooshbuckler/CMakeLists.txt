@@ -91,7 +91,12 @@ target_sources(Swooshbuckler
     Source/MorphPad.cpp
     Source/LogoOutline.cpp
     Source/ModPanel.cpp
+    Source/UpdatePopup.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/../common/SammyJUpdateCheck.cpp
 )
+
+# The shared "new version available" check (common/).
+target_include_directories(Swooshbuckler PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../common)
 
 # Our own standalone app (Source/StandaloneApp.cpp): a normal native window without JUCE's Options bar.
 target_sources(Swooshbuckler_Standalone PRIVATE Source/StandaloneApp.cpp)

@@ -807,7 +807,21 @@ SwooshbucklerAudioProcessorEditor::SwooshbucklerAudioProcessorEditor(Swooshbuckl
         if (Presets::factory()[i].name.equalsIgnoreCase(p.currentPresetName)) // sessions saved before the names were Title Case
             m_presetIndex = static_cast<int>(i);
 
+    // A newer release: the popup sits on the editor itself, above the scaled content, and scales with it.
+    addChildComponent(m_updatePopup);
+    m_updatePopup.setBounds(0, 0, c_width, c_height);
+    m_updatePopup.setTransform(m_content.getTransform());
+
     startTimerHz(60);
+
+    // Checks GitHub at most once a day in the background, silently; only an editor ever asks.
+    m_updateCheck = std::make_unique<sammyj::UpdateCheck>("swooshbuckler", "swooshbuckler-v", JucePlugin_VersionString,
+                                                          [this](const sammyj::UpdateInfo& info) { showUpdatePopup(info); });
+}
+
+void SwooshbucklerAudioProcessorEditor::showUpdatePopup(const sammyj::UpdateInfo& info)
+{
+    m_updatePopup.show(info);
 }
 
 SwooshbucklerAudioProcessorEditor::~SwooshbucklerAudioProcessorEditor()
@@ -855,6 +869,7 @@ void SwooshbucklerAudioProcessorEditor::resized()
 {
     const float scale = static_cast<float>(getWidth()) / static_cast<float>(c_width);
     m_content.setTransform(juce::AffineTransform::scale(scale));
+    m_updatePopup.setTransform(juce::AffineTransform::scale(scale));
     if (m_sizeRestored)
         m_processor.savedEditorWidth = getWidth();
 }
@@ -1108,6 +1123,11 @@ bool SwooshbucklerAudioProcessorEditor::keyPressed(const juce::KeyPress& key)
             m_processor.setSwell(true);
             m_swell.press(true);
         }
+        return true;
+    }
+    if (key == juce::KeyPress::escapeKey && m_updatePopup.isVisible()) // when the popup didn't get the focus
+    {
+        m_updatePopup.setVisible(false);
         return true;
     }
     if (key == juce::KeyPress::escapeKey && (m_settings.isVisible() || m_about.isVisible()))

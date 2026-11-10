@@ -63,8 +63,13 @@ target_sources(Reversinator
         Source/Controls.cpp
         Source/SnippetDisplay.cpp
         Source/AboutPanel.cpp
+        Source/UpdatePopup.cpp
         Source/ReverseEngine.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/../common/SammyJUpdateCheck.cpp
 )
+
+# The update check shared by every Sammy J plug-in.
+target_include_directories(Reversinator PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../common)
 
 juce_add_binary_data(ReversinatorBinaryData
     SOURCES
