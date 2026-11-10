@@ -15,7 +15,7 @@
 namespace Theme
 {
     /** The line under the name in the editor header and the About window. */
-    inline constexpr const char* tagline = "SAMMY J  /  CREATURE VOICE DESIGNER";
+    inline constexpr const char* tagline = "SAMMY J  /  MODULAR VOICE PROCESSOR";
 
     namespace Colours
     {

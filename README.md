@@ -179,13 +179,13 @@ A real-time reverser that faithfully recreates Backwards Machine's three effects
 
 ## 👹 Roarschach
 
-> *Say the line. The monster says it back.*
+> *Fifteen modules, any order. See where your voice ends up.*
 
 <p align="center">
   <img src="roarschach/docs/screenshot.jpg" alt="Roarschach" width="820">
 </p>
 
-Roarschach turns a spoken or shouted performance into a big, liquid, gravelly creature voice that still reads as words. Fourteen modules (PITCH, CLEAN, DE-ESS, DETAIL, VOCODER, RING, SHIMMER, GROWL, SWIRL, ROAR, ENSEMBLE, TAME, SUB and OVERTONE) run between an input stage and a level-matched output, in any order, and a creature drawn in OpenGL reacts to every sound and every knob.
+Roarschach is a modular voice processor built for exploration and fun. Fifteen modules (PITCH, CHAMBER, CLEAN, DE-ESS, DETAIL, VOCODER, RING, SHIMMER, GROWL, SWIRL, ROAR, ENSEMBLE, TAME, SUB and OVERTONE) run between an input stage and a level-matched output, in any order. Use a few lightly for a bigger, wider voice, or stack them into creatures, machines and anything in between, and a creature drawn in OpenGL reacts to every sound and every knob.
 
 - 🗣️ **Pitch and size, separately**: shift the voice up to two octaves down, then give it a bigger throat. Native-rate processing brings a 96 or 192 kHz recording's ultrasonic detail down into the voice
 - 🐉 **Texture and weight**: a growling chop, a liquid wobble, a phaser, tube saturation, an ensemble, a tracked sub and overtones that carry the low end on small speakers
