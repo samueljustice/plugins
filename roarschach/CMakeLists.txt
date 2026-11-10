@@ -100,6 +100,8 @@ target_sources(Roarschach
     Source/CreatureEvolution.cpp
     Source/CreatureMood.cpp
     Source/LogoSdf.cpp
+    Source/UpdatePopup.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/../common/SammyJUpdateCheck.cpp
     Source/dsp/PitchDetector.cpp
     Source/dsp/CreatureChain.cpp
     Source/dsp/common/HilbertPair.cpp
@@ -132,6 +134,9 @@ file(GLOB ROARSCHACH_DSP_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/Source/dsp/modules/
 if(NOT MSVC)
     set_source_files_properties(${ROARSCHACH_DSP_SOURCES} PROPERTIES COMPILE_OPTIONS "-Wno-float-equal")
 endif()
+
+# The update check shared by every Sammy J plug-in (the editor's "new version" popup).
+target_include_directories(Roarschach PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../common)
 
 target_compile_definitions(Roarschach
     PUBLIC
