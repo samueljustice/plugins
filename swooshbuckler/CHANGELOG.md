@@ -1,5 +1,9 @@
 # Swooshbuckler changelog
 
+## 1.4.2
+
+- **New-version notice.** Swooshbuckler tells you when a new version is out: when you open it and a newer release has been published, a small window offers Download (the release page), Later or Skip this version. It checks in the background at most once a day, and says nothing when you're offline. The sound, the parameters and saved sessions are unchanged from 1.4.1.
+
 ## 1.4.1
 
 - **The passes in the sea show their bus.** Each doppler pass glows in its bus's colour (coral for A, turquoise for B) with a small label above it naming the bus, and the track when it is the only one on that bus.
