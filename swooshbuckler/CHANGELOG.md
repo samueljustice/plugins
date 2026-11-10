@@ -1,5 +1,9 @@
 # Swooshbuckler changelog
 
+## Unreleased
+
+- **The passes in the sea show their bus.** Each doppler pass glows in its bus's colour (coral for A, turquoise for B) with a small label above it naming the bus, and the track when it is the only one on that bus.
+
 ## 1.4.0
 
 - **Every knob reworked so all of its travel is usable.** Each one was measured across its range and remapped; the details and numbers are in [docs/knob-audit.md](docs/knob-audit.md). The main changes:

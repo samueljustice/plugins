@@ -268,7 +268,7 @@ If the gain reduction number is coral all the time, back off Push or raise Ceili
 The OUTPUT view at the top right pictures what the rig is sending out:
 
 - **The waves** are the output's spectrum, lows on the left and highs on the right. The newest wave is at the front, and older ones roll away towards the horizon.
-- **Each doppler pass** is a glowing ball that arcs across the sea. It comes closer the closer the pass, glows brighter the louder it is, and leaves a ripple as it crosses the middle.
+- **Each doppler pass** is a glowing ball that arcs across the sea, in its bus's colour (coral for bus A, turquoise for bus B). It comes closer the closer the pass, glows brighter the louder it is, and leaves a ripple as it crosses the middle. A label above it names the bus, and the track too when only one track plays on that bus ("BUS B · Energy Bed").
 - After a moment of silence, the Sweet Justice logo slowly draws itself in the sky.
 - While the tape records, a blinking red dot and a "Rec" timer show in the corner.
 - **Click the sea** for a short swell.
