@@ -5,12 +5,12 @@
 **Toys I've made for sound designers.**
 
 <!-- get-them-all:start (written by .github/workflows/build-release_bundle.yml; edits here are replaced) -->
-### ⬇️ Get them all (last built 10 Nov 2026, 15:56 UTC)
+### ⬇️ Get them all (last built 10 Nov 2026, 16:00 UTC)
 
-[![Get them all for macOS](https://img.shields.io/badge/Get_them_all-macOS-000000?style=for-the-badge&logo=apple&logoColor=white)](https://github.com/samueljustice/plugins/releases/download/bundle-v2026.11.10.98/SammyJ-Plugins-2026-11-10-1556-macOS.dmg)
-[![Get them all for Windows](https://img.shields.io/badge/Get_them_all-Windows-0078D6?style=for-the-badge&logo=windows&logoColor=white)](https://github.com/samueljustice/plugins/releases/download/bundle-v2026.11.10.98/SammyJ-Plugins-2026-11-10-1556-Windows-Installer.exe)
+[![Get them all for macOS](https://img.shields.io/badge/Get_them_all-macOS-000000?style=for-the-badge&logo=apple&logoColor=white)](https://github.com/samueljustice/plugins/releases/download/bundle-v2026.11.10.99/SammyJ-Plugins-2026-11-10-1600-macOS.dmg)
+[![Get them all for Windows](https://img.shields.io/badge/Get_them_all-Windows-0078D6?style=for-the-badge&logo=windows&logoColor=white)](https://github.com/samueljustice/plugins/releases/download/bundle-v2026.11.10.99/SammyJ-Plugins-2026-11-10-1600-Windows-Installer.exe)
 
-<sub>One installer with the newest version of every plug-in: Swooshbuckler 1.4.2 · Sound Advice 1.0.13 · Subbertone 1.3.2 · Pitch Flattener 2.3.0 · Reversinator 2.0.3 · Roarschach 1.0.0. The apps, the VST3s and (on macOS) the AUs. It removes older copies first, so nothing shows up twice in your host. To remove them again: on macOS, run Uninstall Sammy J's Plugins from the same disk image; on Windows, use Settings &gt; Apps.<br>
+<sub>One installer with the newest version of every plug-in: Swooshbuckler 1.4.2 · Sound Advice 1.0.13 · Subbertone 1.3.2 · Pitch Flattener 2.3.1 · Reversinator 2.0.3 · Roarschach 1.0.0. The apps, the VST3s and (on macOS) the AUs. It removes older copies first, so nothing shows up twice in your host. To remove them again: on macOS, run Uninstall Sammy J's Plugins from the same disk image; on Windows, use Settings &gt; Apps.<br>
 Want just one? Each plug-in's own download is below, or browse all <a href="https://github.com/samueljustice/plugins/releases">releases</a>.</sub>
 <!-- get-them-all:end -->
 
@@ -141,7 +141,7 @@ Pitch Flattener takes the pitch movement out of a sound and keeps its energy and
 </details>
 
 **VST3** (macOS, Windows) · **AU** (macOS) &nbsp;&nbsp;
-[![Download Pitch Flattener](https://img.shields.io/badge/download-v2.3.0-d00a35?style=flat-square)](https://github.com/samueljustice/plugins/releases/tag/pitchflattener-v2.3.0) &nbsp;
+[![Download Pitch Flattener](https://img.shields.io/badge/download-v2.3.1-d00a35?style=flat-square)](https://github.com/samueljustice/plugins/releases/tag/pitchflattener-v2.3.1) &nbsp;
 [Read the manual →](pitchflattener/README.md)
 
 ---
