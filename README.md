@@ -5,12 +5,12 @@
 **Toys I've made for sound designers.**
 
 <!-- get-them-all:start (written by .github/workflows/build-release_bundle.yml; edits here are replaced) -->
-### ⬇️ Get them all (last built 10 Nov 2026, 12:34 UTC)
+### ⬇️ Get them all (last built 10 Nov 2026, 16:08 UTC)
 
-[![Get them all for macOS](https://img.shields.io/badge/Get_them_all-macOS-000000?style=for-the-badge&logo=apple&logoColor=white)](https://github.com/samueljustice/plugins/releases/download/bundle-v2026.11.10.72/SammyJ-Plugins-2026-11-10-1234-macOS.dmg)
-[![Get them all for Windows](https://img.shields.io/badge/Get_them_all-Windows-0078D6?style=for-the-badge&logo=windows&logoColor=white)](https://github.com/samueljustice/plugins/releases/download/bundle-v2026.11.10.72/SammyJ-Plugins-2026-11-10-1234-Windows-Installer.exe)
+[![Get them all for macOS](https://img.shields.io/badge/Get_them_all-macOS-000000?style=for-the-badge&logo=apple&logoColor=white)](https://github.com/samueljustice/plugins/releases/download/bundle-v2026.11.10.101/SammyJ-Plugins-2026-11-10-1608-macOS.dmg)
+[![Get them all for Windows](https://img.shields.io/badge/Get_them_all-Windows-0078D6?style=for-the-badge&logo=windows&logoColor=white)](https://github.com/samueljustice/plugins/releases/download/bundle-v2026.11.10.101/SammyJ-Plugins-2026-11-10-1608-Windows-Installer.exe)
 
-<sub>One installer with the newest version of every plug-in: Swooshbuckler 1.4.1 · Sound Advice 1.0.12 · Subbertone 1.3.1 · Pitch Flattener 2.3.0 · Reversinator 2.0.3 · Roarschach 1.0.0. The apps, the VST3s and (on macOS) the AUs. It removes older copies first, so nothing shows up twice in your host. To remove them again: on macOS, run Uninstall Sammy J's Plugins from the same disk image; on Windows, use Settings &gt; Apps.<br>
+<sub>One installer with the newest version of every plug-in: Swooshbuckler 1.4.2 · Sound Advice 1.0.13 · Subbertone 1.3.2 · Pitch Flattener 2.3.1 · Reversinator 2.0.4 · Roarschach 1.0.1. The apps, the VST3s and (on macOS) the AUs. It removes older copies first, so nothing shows up twice in your host. To remove them again: on macOS, run Uninstall Sammy J's Plugins from the same disk image; on Windows, use Settings &gt; Apps.<br>
 Want just one? Each plug-in's own download is below, or browse all <a href="https://github.com/samueljustice/plugins/releases">releases</a>.</sub>
 <!-- get-them-all:end -->
 
@@ -70,7 +70,7 @@ Drop in up to ten sounds (cloth, air, engines, creatures, metal) and Swooshbuckl
 </details>
 
 **App** (macOS, Windows) · **VST3** · **AU** &nbsp;&nbsp;
-[![Download Swooshbuckler](https://img.shields.io/badge/download-v1.4.1-d00a35?style=flat-square)](https://github.com/samueljustice/plugins/releases/tag/swooshbuckler-v1.4.1) &nbsp;
+[![Download Swooshbuckler](https://img.shields.io/badge/download-v1.4.2-d00a35?style=flat-square)](https://github.com/samueljustice/plugins/releases/tag/swooshbuckler-v1.4.2) &nbsp;
 [Read the manual →](swooshbuckler/README.md)
 
 ---
@@ -108,7 +108,7 @@ Subbertone follows the pitch of your bass, engine or drone and adds a clean sub 
 </details>
 
 **VST3** (macOS, Windows) · **AU** (macOS) &nbsp;&nbsp;
-[![Download Subbertone](https://img.shields.io/badge/download-v1.3.1-d00a35?style=flat-square)](https://github.com/samueljustice/plugins/releases/tag/subbertone-v1.3.1) &nbsp;
+[![Download Subbertone](https://img.shields.io/badge/download-v1.3.2-d00a35?style=flat-square)](https://github.com/samueljustice/plugins/releases/tag/subbertone-v1.3.2) &nbsp;
 [Read the manual →](subbertone/README.md)
 
 ---
@@ -141,7 +141,7 @@ Pitch Flattener takes the pitch movement out of a sound and keeps its energy and
 </details>
 
 **VST3** (macOS, Windows) · **AU** (macOS) &nbsp;&nbsp;
-[![Download Pitch Flattener](https://img.shields.io/badge/download-v2.3.0-d00a35?style=flat-square)](https://github.com/samueljustice/plugins/releases/tag/pitchflattener-v2.3.0) &nbsp;
+[![Download Pitch Flattener](https://img.shields.io/badge/download-v2.3.1-d00a35?style=flat-square)](https://github.com/samueljustice/plugins/releases/tag/pitchflattener-v2.3.1) &nbsp;
 [Read the manual →](pitchflattener/README.md)
 
 ---
@@ -173,7 +173,7 @@ A real-time reverser that faithfully recreates Backwards Machine's three effects
 </details>
 
 **VST3** (macOS, Windows) · **AU** (macOS) &nbsp;&nbsp;
-[![Download Reversinator](https://img.shields.io/badge/download-v2.0.3-d00a35?style=flat-square)](https://github.com/samueljustice/plugins/releases/tag/reversinator-v2.0.3) &nbsp;
+[![Download Reversinator](https://img.shields.io/badge/download-v2.0.4-d00a35?style=flat-square)](https://github.com/samueljustice/plugins/releases/tag/reversinator-v2.0.4) &nbsp;
 [Read the manual →](reversinator/README.md)
 
 ---
@@ -207,7 +207,7 @@ Roarschach turns a spoken or shouted performance into a big, liquid, gravelly cr
 </details>
 
 **VST3** (macOS, Windows) · **AU** (macOS) &nbsp;&nbsp;
-[![Download Roarschach](https://img.shields.io/badge/download-v1.0.0-d00a35?style=flat-square)](https://github.com/samueljustice/plugins/releases/tag/roarschach-v1.0.0) &nbsp;
+[![Download Roarschach](https://img.shields.io/badge/download-v1.0.1-d00a35?style=flat-square)](https://github.com/samueljustice/plugins/releases/tag/roarschach-v1.0.1) &nbsp;
 [Read the manual →](roarschach/README.md)
 
 ---
@@ -230,7 +230,7 @@ A page of advice from people who work on film, TV, game and trailer sound: re-re
 - 🔇 **Audio passes straight through**, so it can sit on a mix bus, or run as an app on a second screen
 
 **App** (macOS, Windows) · **VST3** · **AU** &nbsp;&nbsp;
-[![Download Sound Advice](https://img.shields.io/badge/download-v1.0.12-9a5a3a?style=flat-square)](https://github.com/samueljustice/plugins/releases/tag/soundadvice-v1.0.12) &nbsp;
+[![Download Sound Advice](https://img.shields.io/badge/download-v1.0.13-9a5a3a?style=flat-square)](https://github.com/samueljustice/plugins/releases/tag/soundadvice-v1.0.13) &nbsp;
 [Read the manual →](soundadvice/README.md)
 
 ---

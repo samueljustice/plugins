@@ -2,7 +2,7 @@
 
 A VST3/AU creature voice designer by **Samuel Justice**. Roarschach turns a spoken or shouted performance into a big, liquid, gravelly monster voice that still reads as words. One insert holds fourteen modules (pitch and size, clean-up, de-essing, detail, a vocoder, a ring modulator, shimmer, growl, a phaser, tube roar, an ensemble, a top-end tamer, a tracked sub and overtones) that run in any order, between an input stage and a level-matched output with a limiter and a clipper.
 
-### 🎉 Latest Release v1.0.0 - [Download Here](https://github.com/samueljustice/plugins/releases/tag/roarschach-v1.0.0)
+### 🎉 Latest Release v1.0.1 - [Download Here](https://github.com/samueljustice/plugins/releases/tag/roarschach-v1.0.1)
 
 <img src="docs/screenshot.jpg" alt="The Roarschach window with the Kaiju preset after a long, loud session: the creature, many-eyed and crowned with spines, roaring out of the cloud with the vocoder's fan of bands glowing under its jaw, and the chain of fourteen modules between IN and OUTPUT below" width="800">
 
