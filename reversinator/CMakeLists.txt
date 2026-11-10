@@ -9,7 +9,7 @@ if(NOT CMAKE_OSX_DEPLOYMENT_TARGET)
     set(CMAKE_OSX_DEPLOYMENT_TARGET "11.0" CACHE STRING "Minimum macOS version" FORCE)
 endif()
 
-project(Reversinator VERSION 2.0.3)
+project(Reversinator VERSION 2.0.4)
 
 # The copyright year is the year it was built, so it never goes stale.
 string(TIMESTAMP COPYRIGHT_YEAR "%Y")
@@ -63,8 +63,13 @@ target_sources(Reversinator
         Source/Controls.cpp
         Source/SnippetDisplay.cpp
         Source/AboutPanel.cpp
+        Source/UpdatePopup.cpp
         Source/ReverseEngine.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/../common/SammyJUpdateCheck.cpp
 )
+
+# The update check shared by every Sammy J plug-in.
+target_include_directories(Reversinator PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../common)
 
 juce_add_binary_data(ReversinatorBinaryData
     SOURCES

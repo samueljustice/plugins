@@ -1,4 +1,5 @@
 #include "PresetManager.h"
+#include "StateMigration.h"
 #include "ParamIDs.h"
 #include "dsp/SourcePresets.h"
 
@@ -108,9 +109,9 @@ void PresetManager::buildFactoryPresets()
 {
     m_factory.clear();
 
-    for (int i = 0; i < (int) pf::SourceType::NumSourceTypes; ++i)
+    for (const auto type : pf::sourceTypeMenuOrder)
     {
-        const auto type = (pf::SourceType) i;
+        const int i = (int) type;
         const auto& p = pf::getSourcePreset (type);
         const auto target = factoryTargetFor (type);
 
@@ -128,6 +129,7 @@ void PresetManager::buildFactoryPresets()
         setParamValue (state, ParamIDs::rbFormantPreserve, p.formant ? 1.0f : 0.0f);
         setParamValue (state, ParamIDs::quality, (float) p.quality);
         setParamValue (state, ParamIDs::maxShift, p.maxShiftSemitones);
+        setParamValue (state, ParamIDs::shiftBelow, p.shiftBelowHz > 0.0f ? p.shiftBelowHz : pf::shiftBelowOffHz);
         setParamValue (state, ParamIDs::targetMode, (float) (int) target.mode);
         setParamValue (state, ParamIDs::autoWindow, target.autoWindowMs);
 
@@ -144,7 +146,12 @@ void PresetManager::buildFactoryPresets()
         for (const auto& file : files)
             if (auto xml = juce::XmlDocument::parse (file))
                 if (xml->hasTagName (m_state.state.getType().toString()))
-                    m_factory.emplace_back (file.getFileNameWithoutExtension(), juce::ValueTree::fromXml (*xml));
+                {
+                    auto state = juce::ValueTree::fromXml (*xml);
+                    migrateLegacyPreset (state);
+                    StateMigration::overrideToFixed (state);
+                    m_factory.emplace_back (file.getFileNameWithoutExtension(), state);
+                }
     }
 }
 
@@ -182,6 +189,17 @@ void PresetManager::applyState (const juce::ValueTree& newState, const juce::Str
             state.removeChild (i, nullptr);
     }
 
+    // Parameters the preset predates (e.g. Shift Below) get their defaults, not whatever is set now.
+    for (auto* p : m_state.processor.getParameters())
+        if (auto* rp = dynamic_cast<juce::RangedAudioParameter*> (p))
+            if (! state.getChildWithProperty (c_idProperty, rp->paramID).isValid())
+            {
+                juce::ValueTree child ("PARAM");
+                child.setProperty (c_idProperty, rp->paramID, nullptr);
+                child.setProperty (c_valueProperty, rp->convertFrom0to1 (rp->getDefaultValue()), nullptr);
+                state.appendChild (child, nullptr);
+            }
+
     // replaceState sets every parameter; bracket it in gestures so hosts record
     // the change as one edit.
     auto& params = m_state.processor.getParameters();
@@ -210,6 +228,7 @@ bool PresetManager::loadUserPreset (const juce::File& file)
 
     auto state = juce::ValueTree::fromXml (*xml);
     migrateLegacyPreset (state);
+    StateMigration::overrideToFixed (state);
     applyState (state, file.getFileNameWithoutExtension(), file.getFileName());
     return true;
 }

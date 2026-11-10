@@ -3,6 +3,9 @@
 
 #include "AboutWindow.h"
 #include "Params.h"
+#include "UpdatePopup.h"
+
+#include "SammyJUpdateCheck.h"
 
 namespace
 {
@@ -94,12 +97,22 @@ RoarschachAudioProcessorEditor::RoarschachAudioProcessorEditor(RoarschachAudioPr
     m_sizeRestored = true;
 
     startTimerHz(30);
+
+    // Look for a newer release once the UI is up (a background thread; silent if it can't connect).
+    // Only in a host or the standalone app: not when tests or tools build the editor around a bare processor.
+    if (audioProcessor.wrapperType != juce::AudioProcessor::wrapperType_Undefined)
+        m_updateCheck = std::make_unique<sammyj::UpdateCheck>("roarschach", "roarschach-v", JucePlugin_VersionString,
+                                                              [this](const sammyj::UpdateInfo& info) { showUpdatePopup(info); });
 }
 
 RoarschachAudioProcessorEditor::~RoarschachAudioProcessorEditor()
 {
     stopTimer();
     removeMouseListener(&m_diceFocusRelease);
+
+    // The update check first (its thread stops, its callback never runs), then its popup.
+    m_updateCheck.reset();
+    m_updatePopup.reset();
 
     // Nothing the editor opened may outlive it: the About window (and its update check), any
     // popup menu (it would keep using m_lookAndFeel), alerts and the tooltip window.
@@ -139,6 +152,9 @@ void RoarschachAudioProcessorEditor::resized()
 
     if (m_sizeRestored)
         m_audioProcessor.setViewValue(c_viewEditorScale, scale);
+
+    if (m_updatePopup != nullptr)
+        m_updatePopup->setBounds(getLocalBounds()); // the card stays centred
 }
 
 void RoarschachAudioProcessorEditor::paint(juce::Graphics& g)
@@ -265,6 +281,31 @@ void RoarschachAudioProcessorEditor::showAboutWindow()
     }
 
     m_aboutWindow = std::make_unique<AboutWindow>(m_lookAndFeel, [this] { m_aboutWindow.reset(); });
+}
+
+void RoarschachAudioProcessorEditor::showUpdatePopup(const sammyj::UpdateInfo& info)
+{
+    if (m_updatePopup != nullptr)
+        return;
+
+    m_updatePopup = std::make_unique<UpdatePopup>(m_lookAndFeel, info, [this] { closeUpdatePopup(); });
+
+    // The creature's OpenGL view is a native view on top of the editor's window, so nothing the editor
+    // paints can cover it: it is hidden while the popup is up (its context comes back when it is shown).
+    m_monsterView.setVisible(false);
+
+    addAndMakeVisible(*m_updatePopup); // the last child: above the content (and the corner resizer)
+    m_updatePopup->setBounds(getLocalBounds());
+    m_updatePopup->toFront(false);
+
+    if (isShowing())
+        m_updatePopup->grabKeyboardFocus(); // Escape and Return work at once; Tab moves through the buttons
+}
+
+void RoarschachAudioProcessorEditor::closeUpdatePopup()
+{
+    m_updatePopup.reset();
+    m_monsterView.setVisible(true);
 }
 
 //==============================================================================

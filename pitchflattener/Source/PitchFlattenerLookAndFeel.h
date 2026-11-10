@@ -48,6 +48,10 @@ public:
     /** The accent of a dialog of this kind: its header dot and its Return-key button. */
     static juce::Colour accentFor (juce::MessageBoxIconType);
 
+    /** Draws a button that is not in an AlertWindow (the update popup's) as a dialog button: capitals, the
+        dialog font and pill, focus ring in `accent`, and tinted in `accent` when it is the primary action. */
+    static void setDialogButton (juce::Button&, juce::Colour accent, bool primary);
+
     /** The Pitch Flattener mark: a wobbling teal line that settles into a flat amber line (editor header,
         designed at 34 x 22 and scaled to the area). */
     static void drawMark (juce::Graphics&, juce::Rectangle<float> area);
@@ -134,6 +138,7 @@ private:
     juce::Font menuFont (float scale) const;
     juce::TextLayout layoutTooltip (const juce::String& text, juce::Colour colour) const;
     static bool isPrimaryDialogButton (const juce::Button&);
+    static juce::Colour dialogAccentFor (const juce::Button&);
 
     const Theme::Fonts& m_fonts;
 

@@ -62,6 +62,7 @@ namespace pf
         const std::lock_guard<std::mutex> lock (structMutex);
 
         sampleRate = fs;
+        splitHz = 0.0f;   // Shift Below's filters are designed for this rate on the next process()
         maxBlock = std::max (32, maxBlockSize);
         numCh = std::clamp (numChannels, 1, 2);
 
@@ -101,6 +102,9 @@ namespace pf
         activeDetectorType.store ((int) currentConfig.type);
 
         tracker.prepare ((double) hop / analysisRate);
+        guide.prepare (analysisRate, hop);
+        learned.prepare (analysisRate, hop);
+        tracker.setGuide (&guideMux);
 
         // Shifter: chunk of ~5 ms, power of two
         shifterChunk = nextPow2 ((int) std::lround (128.0 * fs / 48000.0));
@@ -117,6 +121,9 @@ namespace pf
         const int ringSize = nextPow2 (totalLatency + 4 * C + 2 * maxChunk + 16);
         ringMask = ringSize - 1;
         inRing.assign ((size_t) numCh, std::vector<float> ((size_t) ringSize, 0.0f));
+        lowRing.assign ((size_t) numCh, std::vector<float> ((size_t) ringSize, 0.0f));
+        highRing.assign ((size_t) numCh, std::vector<float> ((size_t) ringSize, 0.0f));
+        modeRing.assign ((size_t) ringSize, 0);
         wetRing.assign ((size_t) numCh, std::vector<float> ((size_t) ringSize, 0.0f));
         feedScratch.assign ((size_t) numCh, std::vector<float> ((size_t) C, 0.0f));
         feedPtrs.resize ((size_t) numCh);
@@ -139,6 +146,8 @@ namespace pf
     {
         const std::lock_guard<std::mutex> lock (structMutex);
         prepared.store (false);
+        guide.release();
+        learned.release();
         if (auto* p = pendingDetector.exchange (nullptr)) delete p;
         if (auto* p = retiredDetector.exchange (nullptr)) delete p;
         if (auto* p = pendingShifter.exchange (nullptr)) delete p;
@@ -148,6 +157,11 @@ namespace pf
     void FlattenerCore::reset()
     {
         for (auto& f : aaFilters) f.clear();
+        for (auto& ch : splitLow) for (auto& f : ch) f.clear();
+        for (auto& ch : splitHigh) for (auto& f : ch) f.clear();
+        for (auto& ch : lowRing)  std::fill (ch.begin(), ch.end(), 0.0f);
+        for (auto& ch : highRing) std::fill (ch.begin(), ch.end(), 0.0f);
+        std::fill (modeRing.begin(), modeRing.end(), (uint8_t) 0);
         hpFilter.clear();
         lpFilter.clear();
         decimPhase = 0;
@@ -159,6 +173,8 @@ namespace pf
         anaWritten = frameWindow / 2;
         framesDone = 0;
         tracker.reset();
+        guide.reset();
+        learned.reset();
 
         for (auto& ch : inRing)  std::fill (ch.begin(), ch.end(), 0.0f);
         for (auto& ch : wetRing) std::fill (ch.begin(), ch.end(), 0.0f);
@@ -286,13 +302,13 @@ namespace pf
             const float g = (float) (p - fadeOutStart) / 256.0f;   // old wet -> dry
             const int r = (int) (p & ringMask);
             for (size_t c = 0; c < wetRing.size(); ++c)
-                wetRing[c][(size_t) r] = wetRing[c][(size_t) r] * (1.0f - g) + inRing[c][(size_t) r] * g;
+                wetRing[c][(size_t) r] = wetRing[c][(size_t) r] * (1.0f - g) + shifterInput (c, p) * g;
         }
         for (; wetWritten < fed; ++wetWritten)
         {
             const int r = (int) (wetWritten & ringMask);
             for (size_t c = 0; c < wetRing.size(); ++c)
-                wetRing[c][(size_t) r] = inRing[c][(size_t) r];
+                wetRing[c][(size_t) r] = shifterInput (c, wetWritten);
         }
         wetWritten = fed;
         xfadeFrom = fed;
@@ -352,9 +368,16 @@ namespace pf
         if (resetRequested.exchange (false))
             reset();
 
+        updateSplit();      // before installPending: a new shifter's fill and crossfade follow the current split
         installPending();
         shifter->setFormantPreserve (live.formantPreserve);
         tracker.setSettings (live, detector->getConfig().type);
+        {
+            // The hindsight guide is for engine-like sounds, which the Harmonic Sum detector is chosen for.
+            const auto& cfg = detector->getConfig();
+            guide.setActive (hindsightAllowed && cfg.type == DetectorType::HarmonicSum, cfg.minHz, cfg.maxHz);
+            learned.setGateDb (live.gateDb);
+        }
         if (relatchRequested.exchange (false))
             tracker.requestRelatch();
 
@@ -396,6 +419,13 @@ namespace pf
                     x = 0.0f;   // one bad sample must not poison the filters, analysis or shifter
                 x = std::clamp (x, -64.0f, 64.0f);
                 inRing[(size_t) c][(size_t) w] = x;
+                if (splitHz > 0.0f)
+                {
+                    auto& lo = splitLow[(size_t) c];
+                    auto& hi = splitHigh[(size_t) c];
+                    lowRing[(size_t) c][(size_t) w] = lo[1].process (lo[0].process (x));
+                    highRing[(size_t) c][(size_t) w] = hi[1].process (hi[0].process (x));
+                }
                 mono += x;
             }
             mono *= (numCh > 1 && numChannels > 1) ? monoScale : 1.0f;
@@ -412,6 +442,8 @@ namespace pf
                 anaLevelRing[(size_t) a] = y;
                 anaRing[(size_t) a] = lpFilter.process (hpFilter.process (y));
                 ++anaWritten;
+                guide.push (y);
+                learned.push (y);
 
                 if (uiAudioFifo.getFreeSpace() > 0)
                 {
@@ -424,6 +456,8 @@ namespace pf
         inWritten += numSamples;
 
         // 2. analyse every complete frame
+        guide.service();
+        learned.service();
         runAnalysis();
 
         // 3. feed the shifter with audio whose correction is now final
@@ -434,31 +468,45 @@ namespace pf
         for (int i = 0; i < numSamples; ++i)
         {
             const int64_t o = start + i - totalLatency;
+            float dry[2] = { 0.0f, 0.0f }, wet[2] = { 0.0f, 0.0f };
+            const bool haveWet = o >= 0 && o < wetWritten;
+            if (o >= 0)
+            {
+                const int r = (int) (o & ringMask);
+                // Was this sample fed to the shifter split? Then the wet holds its low band only: add the high band
+                // back (LR4 low + high sum to an all-pass). Below 100 % Mix the dry side is the same all-pass, so the
+                // bands stay in phase; at 0 % (and in bypass) it is the plain input.
+                const bool split = haveWet && modeRing[(size_t) r] != 0;
+                for (int c = 0; c < numCh; ++c)
+                {
+                    dry[c] = inRing[(size_t) c][(size_t) r];
+                    if (haveWet)
+                        wet[c] = wetRing[(size_t) c][(size_t) r];
+                    if (split)
+                    {
+                        const float high = highRing[(size_t) c][(size_t) r];
+                        wet[c] += high;
+                        if (mix > 0.0f)
+                            dry[c] = lowRing[(size_t) c][(size_t) r] + high;
+                    }
+                }
+                if (! haveWet)
+                    underruns.fetch_add (1);
+            }
             for (int c = 0; c < numChannels; ++c)
             {
                 const int ch = std::min (c, numCh - 1);
-                float dry = 0.0f, wet = 0.0f;
-                if (o >= 0)
-                {
-                    const int r = (int) (o & ringMask);
-                    dry = inRing[(size_t) ch][(size_t) r];
-                    if (o < wetWritten)
-                        wet = wetRing[(size_t) ch][(size_t) r];
-                    else if (c == 0)
-                        underruns.fetch_add (1);
-                }
-                const float y = dry * (1.0f - mix) + wet * mix;
+                const float y = dry[ch] * (1.0f - mix) + wet[ch] * mix;
                 channels[c][i] = std::isfinite (y) ? y : 0.0f;
             }
             if (o >= 0)
             {
                 // The flattened (wet) signal only: what the processing did, whatever Mix or bypass let through.
                 float m = 0.0f;
-                if (o < wetWritten)
+                if (haveWet)
                 {
-                    const int r = (int) (o & ringMask);
                     for (int c = 0; c < numCh; ++c)
-                        m += wetRing[(size_t) c][(size_t) r];
+                        m += wet[c];
                     m /= (float) numCh;
                 }
                 monitorOut[(size_t) (o & monitorMask)] = m;
@@ -467,6 +515,41 @@ namespace pf
 
         monitorInWritten.store (inWritten, std::memory_order_release);
         monitorOutWritten.store (std::max<int64_t> (0, inWritten - totalLatency), std::memory_order_release);
+    }
+
+    void FlattenerCore::updateSplit()
+    {
+        const float wanted = live.shiftBelowHz > 0.0f ? std::clamp (live.shiftBelowHz, 20.0f, (float) (0.45 * sampleRate)) : 0.0f;
+        if (juce::exactlyEqual (wanted, splitHz))
+            return;
+        if (wanted > 0.0f)
+        {
+            const bool fresh = splitHz <= 0.0f;
+            for (size_t c = 0; c < 2; ++c)
+                for (size_t s = 0; s < 2; ++s)
+                {
+                    auto& lo = splitLow[c][s];
+                    auto& hi = splitHigh[c][s];
+                    designRbj (lo, false, wanted, sampleRate, 0.7071);
+                    designRbj (hi, true, wanted, sampleRate, 0.7071);
+                    if (fresh) { lo.clear(); hi.clear(); }
+                }
+
+            // Turning it on: the shifter has yet to be fed the input from `fed` on, so split that input now.
+            if (fresh)
+                for (size_t c = 0; c < lowRing.size(); ++c)
+                {
+                    auto& lo = splitLow[c];
+                    auto& hi = splitHigh[c];
+                    for (int64_t k = std::max<int64_t> (0, fed); k < inWritten; ++k)
+                    {
+                        const auto w = (size_t) (k & ringMask);
+                        lowRing[c][w] = lo[1].process (lo[0].process (inRing[c][w]));
+                        highRing[c][w] = hi[1].process (hi[0].process (inRing[c][w]));
+                    }
+                }
+        }
+        splitHz = wanted;
     }
 
     bool FlattenerCore::copyMonitor (bool output, int64_t from, int numSamples, float* dest)
@@ -551,9 +634,12 @@ namespace pf
         const int C = shifter->getChunkSize();
         while (fed + C <= inWritten - analysisDelay)
         {
+            const bool split = splitHz > 0.0f;
+            for (int i = 0; i < C; ++i)
+                modeRing[(size_t) ((fed + i) & ringMask)] = split ? 1 : 0;
             for (int c = 0; c < numCh; ++c)
             {
-                auto& ring = inRing[(size_t) c];
+                auto& ring = split ? lowRing[(size_t) c] : inRing[(size_t) c];
                 float* dst = feedScratch[(size_t) c].data();
                 for (int i = 0; i < C; ++i)
                     dst[i] = ring[(size_t) ((fed + i) & ringMask)];
@@ -575,7 +661,7 @@ namespace pf
                         {
                             const float g = (float) (pos - xfadeFrom) / (float) xfadeLength;   // dry -> new wet
                             for (int c = 0; c < numCh; ++c)
-                                wetRing[(size_t) c][(size_t) w] = inRing[(size_t) c][(size_t) w] * (1.0f - g) + data[c][i] * g;
+                                wetRing[(size_t) c][(size_t) w] = shifterInput ((size_t) c, pos) * (1.0f - g) + data[c][i] * g;
                         }
                         else
                         {

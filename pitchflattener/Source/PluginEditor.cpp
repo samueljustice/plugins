@@ -3,6 +3,7 @@
 #include "AboutWindow.h"
 #include "PresetManager.h"
 #include "SpectrogramVisualizer.h"
+#include "UpdatePopup.h"
 
 namespace
 {
@@ -26,7 +27,7 @@ namespace
 
     const char* const c_defaultHelp = "Hover over a control for help.  Double-click a knob to reset it, Alt-click a menu to reset it.";
 
-    enum class Format { Percent, MixPercent, Hertz, HertzNote, Decibels, OctavesPerSecond, Milliseconds, Semitones };
+    enum class Format { Percent, MixPercent, Hertz, HertzNote, HertzOff, Decibels, OctavesPerSecond, Milliseconds, Semitones };
 
     /** "A4", "c#3", "Bb2" -> Hz, or 0 when the text is not a note name. */
     double parseNoteName (const juce::String& text)
@@ -58,7 +59,10 @@ namespace
     {
         const auto t = text.trim();
 
-        if (format == Format::Hertz || format == Format::HertzNote)
+        if (format == Format::HertzOff && t.startsWithIgnoreCase ("off"))
+            return pf::shiftBelowOffHz;
+
+        if (format == Format::Hertz || format == Format::HertzNote || format == Format::HertzOff)
             if (const double hz = parseNoteName (t); hz > 0.0)
                 return hz;
 
@@ -68,6 +72,7 @@ namespace
         {
             case Format::Hertz:
             case Format::HertzNote:
+            case Format::HertzOff:
                 if (t.containsIgnoreCase ("k"))
                     v *= 1000.0;
                 break;
@@ -95,6 +100,7 @@ namespace
             case Format::Percent:          return juce::String (juce::roundToInt (v)) + "%";
             case Format::MixPercent:       return juce::String (juce::roundToInt (v * 100.0)) + "%";
             case Format::Hertz:            return Theme::formatHertz (v);
+            case Format::HertzOff:         return v >= pf::shiftBelowOffHz - 1.0 ? juce::String ("Off") : Theme::formatHertz (v);
             case Format::HertzNote:        return Theme::formatHertz (v) + " " + Theme::noteName ((float) v);
             case Format::Decibels:         return Theme::signedText (v, " dB");
             case Format::OctavesPerSecond: return juce::String (v, v < 10.0 ? 1 : 0) + " oct/s";
@@ -206,10 +212,9 @@ public:
 private:
     enum KnobId
     {
-        targetPitchKnob, autoWindowKnob, amountKnob, overrideFreqKnob,
-        sensitivityKnob, speedKnob, smoothingKnob, gapFillKnob, minFreqKnob, maxFreqKnob,
-        gateKnob, highpassKnob, lowpassKnob,
-        maxShiftKnob, mixKnob,
+        targetPitchKnob, autoWindowKnob, amountKnob, mixKnob,      // FLATTEN
+        minFreqKnob, maxFreqKnob, gateKnob,                         // RANGE
+        sensitivityKnob, maxShiftKnob, highpassKnob, lowpassKnob, shiftBelowKnob,   // ADVANCED (Custom only)
         numKnobs
     };
 
@@ -258,6 +263,9 @@ private:
     PitchDisplay m_display;
     PresetBar m_presetBar;
     juce::TextButton m_aboutButton { "?" };
+    juce::TextButton m_analyseButton { "ANALYSE" };
+    void analyseClicked();
+    void updateAnalyseButton();
 
     // Source strip
     ResetComboBox m_sourceCombo, m_detectorCombo;
@@ -273,11 +281,6 @@ private:
     // Target
     ResetComboBox m_targetModeCombo;
     std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> m_targetModeAttachment;
-    juce::TextButton m_relatchButton { "RE-LATCH" };
-    juce::Label m_relatchLabel;
-    juce::ToggleButton m_overrideToggle;
-    juce::Label m_overrideLabel;
-    std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> m_overrideAttachment;
 
     // Input
     GateMeter m_gateMeter;
@@ -291,13 +294,14 @@ private:
     juce::Label m_formantLabel;
     std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> m_formantAttachment;
 
-    std::array<Section, 4> m_sections;
+    std::array<Section, 3> m_sections;   // FLATTEN, RANGE, ADVANCED
     juce::Rectangle<int> m_helpArea;
     juce::String m_helpText { c_defaultHelp };
     std::map<const juce::Component*, juce::String> m_help;
 
     std::atomic<float>* m_targetModeValue = nullptr;
-    std::atomic<float>* m_overrideValue = nullptr;
+    std::atomic<float>* m_sourceTypeValue = nullptr;
+    bool m_advancedShown = true;
     std::atomic<float>* m_gateValue = nullptr;
 
     std::unique_ptr<AboutWindow> m_aboutWindow; // at most one per editor, closed with it
@@ -322,19 +326,24 @@ PitchFlattenerAudioProcessorEditor::Content::Content (PitchFlattenerAudioProcess
     setLookAndFeel (&m_lookAndFeel);
 
     m_targetModeValue = params.getRawParameterValue (ParamIDs::targetMode);
-    m_overrideValue = params.getRawParameterValue (ParamIDs::manualOverride);
+    m_sourceTypeValue = params.getRawParameterValue (ParamIDs::sourceType);
     m_gateValue = params.getRawParameterValue (ParamIDs::volumeThreshold);
 
-    m_sections = { Section { "TARGET",   target,     {} },
-                   Section { "TRACKING", detect,     {} },
-                   Section { "INPUT",    detect,     {} },
-                   Section { "OUTPUT",   correction, {} } };
+    m_sections = { Section { "FLATTEN",  target,     {} },
+                   Section { "RANGE",    detect,     {} },
+                   Section { "ADVANCED", correction, {} } };
 
     addAndMakeVisible (m_display);
     addAndMakeVisible (m_presetBar);
 
     // The wobble warning's "Try ..." button picks a Source Type exactly as the Source menu does.
     m_display.onTrySourceType = [this] (int type) { userPickedSourceType (type); };
+
+    m_analyseButton.onClick = [this] { analyseClicked(); };
+    addAndMakeVisible (m_analyseButton);
+    setHelp (m_analyseButton, "Analyse: press, then play the sound once. Pitch Flattener learns it as a whole: it picks the Source Type "
+                              "and range for it and works out its pitch line in hindsight. On every later play it recognises the "
+                              "sound and follows the learned line where the live tracker slips. Press again while listening to stop early.");
 
     m_aboutButton.onClick = [this] { showAbout(); };
     m_aboutButton.setTooltip ("About SammyJs Pitch Flattener");
@@ -343,8 +352,8 @@ PitchFlattenerAudioProcessorEditor::Content::Content (PitchFlattenerAudioProcess
     // --- Source strip ----------------------------------------------------
     setupSourceType();
     setupChoice (m_detectorCombo, ParamIDs::detector, detect,
-                 "Detector: the pitch detection algorithm. Each Source Type picks one; change it here to override. "
-                 "pYIN suits voices, MPM solo instruments, Spectral Peak tones, Spectral + MPM sirens, Harmonic Sum engines and drones.",
+                 "Detector: the pitch detection algorithm. Each Source Type picks one; switch Source Type to Custom to change it. "
+                 "pYIN suits voices, MPM solo instruments, Spectral + MPM sirens, whistles and feedback, Harmonic Sum engines and drones.",
                  m_detectorAttachment);
 
     // --- Target ------------------------------------------------------------
@@ -359,57 +368,42 @@ PitchFlattenerAudioProcessorEditor::Content::Content (PitchFlattenerAudioProcess
                "Auto Window (Auto mode): pitch movement faster than this is removed, slower movement is kept. Longer = flatter.");
     setupKnob (amountKnob, ParamIDs::flattenAmount, "Amount", target, Format::Percent,
                "Amount: how much of the pitch deviation is removed. 100% = completely flat, 50% = half the movement.");
-    setupKnob (overrideFreqKnob, ParamIDs::overrideFreq, "Override Hz", target, Format::HertzNote,
-               "Override Hz: the target used while Override is on, replacing the target mode.");
+    setupKnob (mixKnob, ParamIDs::mix, "Mix", target, Format::MixPercent,
+               "Mix: blend between the dry input and the flattened signal (both latency-aligned).");
+    setupToggle (m_formantToggle, m_formantLabel, ParamIDs::rbFormantPreserve, "Formant", target,
+                 "Formant: preserve the spectral envelope while shifting (keeps voices natural). Off is usually better for sirens and machines.",
+                 m_formantAttachment);
 
-    setupCaption (m_relatchLabel, "Latch");
-    m_relatchButton.onClick = [this] { m_processor.relatch(); };
-    addAndMakeVisible (m_relatchButton);
-    setHelp (m_relatchButton, "Re-latch (Latch mode): forget the latched pitch so the next stable pitch is latched again.");
-
-    setupToggle (m_overrideToggle, m_overrideLabel, ParamIDs::manualOverride, "Override", target,
-                 "Override: flatten to Override Hz instead of the target mode.", m_overrideAttachment);
-
-    // --- Tracking ----------------------------------------------------------
-    setupKnob (sensitivityKnob, ParamIDs::sensitivity, "Sensitivity", detect, Format::Percent,
-               "Sensitivity: how readily frames are treated as pitched. Higher tracks quieter or noisier sounds; lower rejects more noise.");
-    setupKnob (speedKnob, ParamIDs::trackingSpeed, "Speed", detect, Format::OctavesPerSecond,
-               "Tracking Speed: the fastest pitch movement the tracker follows, in octaves per second. Raise it for fast sirens and yelps.");
-    setupKnob (smoothingKnob, ParamIDs::trackSmoothing, "Smoothing", detect, Format::Milliseconds,
-               "Smoothing: smooths the pitch track (centred, using the lookahead, so it adds no lag).");
-    setupKnob (gapFillKnob, ParamIDs::gapFill, "Gap Fill", detect, Format::Milliseconds,
-               "Gap Fill: bridges unpitched gaps up to this long so the correction does not drop out mid-sound.");
+    // --- Range ---------------------------------------------------------------
     setupKnob (minFreqKnob, ParamIDs::minFreq, "Min Freq", detect, Format::Hertz,
                "Min Freq: lowest pitch the detector looks for. Keep the range tight around the source for the most reliable tracking.");
     setupKnob (maxFreqKnob, ParamIDs::maxFreq, "Max Freq", detect, Format::Hertz,
                "Max Freq: highest pitch the detector looks for.");
 
-    // --- Input ---------------------------------------------------------------
     setupKnob (gateKnob, ParamIDs::volumeThreshold, "Gate", detect, Format::Decibels,
-               "Gate: input below this level is treated as unpitched (the teal line on the level meter).");
-    setupKnob (highpassKnob, ParamIDs::detectionHighpass, "Highpass", detect, Format::Hertz,
-               "Detection Highpass: filters rumble out of the signal the detector hears. The audio itself is not filtered.");
-    setupKnob (lowpassKnob, ParamIDs::detectionLowpass, "Lowpass", detect, Format::Hertz,
-               "Detection Lowpass: filters hiss and high harmonics out of the signal the detector hears. The audio itself is not filtered.");
+               "Gate: input below this level is treated as unpitched (the teal line on the level meter). Raise it to ignore room tone between sounds.");
 
     setupCaption (m_levelLabel, "Level");
     addAndMakeVisible (m_gateMeter);
     setHelp (m_gateMeter, "Live input level. Green when above the gate (teal line), so the detector is listening.");
 
-    // --- Output --------------------------------------------------------------
+    // --- Advanced: set by the Source Type, adjustable on Custom -------------------
+    setupKnob (sensitivityKnob, ParamIDs::sensitivity, "Sensitivity", correction, Format::Percent,
+               "Sensitivity (Custom): how readily frames are treated as pitched. Higher tracks quieter or noisier sounds; lower rejects more noise.");
     setupKnob (maxShiftKnob, ParamIDs::maxShift, "Max Shift", correction, Format::Semitones,
-               "Max Shift: the largest correction allowed, in semitones. Larger deviations are only corrected this far.");
-    setupKnob (mixKnob, ParamIDs::mix, "Mix", correction, Format::MixPercent,
-               "Mix: blend between the dry input and the flattened signal (both latency-aligned).");
+               "Max Shift (Custom): the largest correction allowed, in semitones. Larger deviations are only corrected this far.");
+    setupKnob (highpassKnob, ParamIDs::detectionHighpass, "Highpass", correction, Format::Hertz,
+               "Detection Highpass (Custom): filters rumble out of the signal the detector hears. The audio itself is not filtered.");
+    setupKnob (lowpassKnob, ParamIDs::detectionLowpass, "Lowpass", correction, Format::Hertz,
+               "Detection Lowpass (Custom): filters hiss and high harmonics out of the signal the detector hears. The audio itself is not filtered.");
+    setupKnob (shiftBelowKnob, ParamIDs::shiftBelow, "Shift Below", correction, Format::HertzOff,
+               "Shift Below (Custom): only the sound below this frequency is flattened; above it the audio passes through unshifted. "
+               "Keeps an engine's fixed resonances and roar from diving as the correction grows. Off shifts everything.");
 
     setupCaption (m_qualityLabel, "Quality");
     setupChoice (m_qualityCombo, ParamIDs::quality, correction,
-                 "Shifter quality. Smooth: standard window, best for sustained tones. Tight: short window, better for fast movement and transients.",
+                 "Shifter quality (Custom). Smooth: standard window, best for sustained tones. Tight: short window, better for fast movement and transients.",
                  m_qualityAttachment);
-
-    setupToggle (m_formantToggle, m_formantLabel, ParamIDs::rbFormantPreserve, "Formant", correction,
-                 "Formant: preserve the spectral envelope while shifting (keeps voices natural). Off is usually better for sirens and machines.",
-                 m_formantAttachment);
 
     setHelp (m_presetBar.getNameButton(), "Presets: one factory preset per Source Type, plus your own saved presets. "
                                           "Click for the menu: load, save, delete, reset to defaults, show the presets folder.");
@@ -519,14 +513,15 @@ void PitchFlattenerAudioProcessorEditor::Content::setupSourceType()
     auto* param = m_processor.parameters.getParameter (ParamIDs::sourceType);
     jassert (param != nullptr);
 
-    if (auto* choice = dynamic_cast<juce::AudioParameterChoice*> (param))
-        m_sourceCombo.addItemList (choice->choices, 1);
+    // Item ID = Source Type index + 1, listed in menu order (Engine Run-up is stored after Custom, shown after Engine).
+    for (const auto type : pf::sourceTypeMenuOrder)
+        m_sourceCombo.addItem (pf::getSourcePreset (type).name, (int) type + 1);
 
     m_sourceCombo.setColour (juce::ComboBox::arrowColourId, detect);
     m_sourceCombo.setColour (juce::ComboBox::focusedOutlineColourId, detect.withAlpha (0.6f));
     addAndMakeVisible (m_sourceCombo);
-    setHelp (m_sourceCombo, "Source Type: what you are flattening. Picking one loads tuned detector, range, tracking, filter "
-                            "and shifter settings for that kind of sound; adjust them afterwards as needed.");
+    setHelp (m_sourceCombo, "Source Type: what you are flattening. Picking one loads tuned settings for that kind of sound. "
+                            "Flatten and Range stay adjustable; switch to Custom to adjust the Detector and the Advanced settings.");
 
     if (param == nullptr)
         return;
@@ -537,11 +532,11 @@ void PitchFlattenerAudioProcessorEditor::Content::setupSourceType()
     // therefore only fires for the user's own menu selection.
     m_sourceAttachment = std::make_unique<juce::ParameterAttachment> (*param, [this] (float value)
     {
-        m_sourceCombo.setSelectedItemIndex (juce::roundToInt (value), juce::dontSendNotification);
+        m_sourceCombo.setSelectedId (juce::roundToInt (value) + 1, juce::dontSendNotification);
         updateSourceBlurb();
     });
 
-    m_sourceCombo.onChange = [this] { userPickedSourceType (m_sourceCombo.getSelectedItemIndex()); };
+    m_sourceCombo.onChange = [this] { userPickedSourceType (m_sourceCombo.getSelectedId() - 1); };
     m_sourceCombo.onResetRequest = [this, param]
     {
         userPickedSourceType (juce::roundToInt (param->convertFrom0to1 (param->getDefaultValue())));
@@ -562,7 +557,7 @@ void PitchFlattenerAudioProcessorEditor::Content::userPickedSourceType (int inde
 
 void PitchFlattenerAudioProcessorEditor::Content::updateSourceBlurb()
 {
-    const int index = m_sourceCombo.getSelectedItemIndex();
+    const int index = m_sourceCombo.getSelectedId() - 1;
     m_sourceBlurb = index >= 0 ? juce::String (pf::getSourcePreset ((pf::SourceType) index).blurb) : juce::String();
     repaint (m_blurbArea);
 }
@@ -570,7 +565,7 @@ void PitchFlattenerAudioProcessorEditor::Content::updateSourceBlurb()
 void PitchFlattenerAudioProcessorEditor::Content::updateEnablement()
 {
     const int mode = m_targetModeValue != nullptr ? juce::roundToInt (m_targetModeValue->load()) : 0;
-    const bool overrideOn = m_overrideValue != nullptr && m_overrideValue->load() > 0.5f;
+    const bool custom = m_sourceTypeValue != nullptr && juce::roundToInt (m_sourceTypeValue->load()) == (int) pf::SourceType::Custom;
 
     const auto enable = [] (juce::Component& c, juce::Label& label, bool on)
     {
@@ -579,14 +574,69 @@ void PitchFlattenerAudioProcessorEditor::Content::updateEnablement()
     };
 
     auto& k = m_knobs;
-    enable (k[targetPitchKnob].slider, k[targetPitchKnob].label, ! overrideOn && mode == (int) pf::TargetMode::Fixed);
-    enable (k[autoWindowKnob].slider, k[autoWindowKnob].label, ! overrideOn && mode == (int) pf::TargetMode::Auto);
-    enable (k[overrideFreqKnob].slider, k[overrideFreqKnob].label, overrideOn);
-    enable (m_relatchButton, m_relatchLabel, ! overrideOn && mode == (int) pf::TargetMode::Latch);
+    enable (k[targetPitchKnob].slider, k[targetPitchKnob].label, mode == (int) pf::TargetMode::Fixed);
+    enable (k[autoWindowKnob].slider, k[autoWindowKnob].label, mode == (int) pf::TargetMode::Auto);
+
+    // The Source Type sets these; they are for rescuing a sound on Custom.
+    for (auto id : { sensitivityKnob, maxShiftKnob, highpassKnob, lowpassKnob, shiftBelowKnob })
+        enable (k[(size_t) id].slider, k[(size_t) id].label, custom);
+    enable (m_qualityCombo, m_qualityLabel, custom);
+    m_detectorCombo.setEnabled (custom);
+    if (custom != m_advancedShown)
+    {
+        m_advancedShown = custom;
+        repaint (m_sections[2].bounds);
+        repaint (m_sourceStrip);
+    }
+}
+
+void PitchFlattenerAudioProcessorEditor::Content::analyseClicked()
+{
+    if (m_processor.getAnalyseState() != pf::LearnedLine::State::Ready)
+    {
+        m_processor.analysePressed();
+        updateAnalyseButton();
+        return;
+    }
+    juce::PopupMenu menu;
+    menu.addItem (1, "Analyse again");
+    menu.addItem (2, "Forget what was learned");
+    menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&m_analyseButton),
+                        [safe = juce::Component::SafePointer<Content> (this)] (int result)
+                        {
+                            if (safe == nullptr)
+                                return;
+                            if (result == 1)
+                                safe->m_processor.analysePressed();
+                            else if (result == 2)
+                                safe->m_processor.forgetLearned();
+                            safe->updateAnalyseButton();
+                        });
+}
+
+void PitchFlattenerAudioProcessorEditor::Content::updateAnalyseButton()
+{
+    using State = pf::LearnedLine::State;
+    juce::String text;
+    switch (m_processor.getAnalyseState())
+    {
+        case State::Empty:     text = "ANALYSE"; break;
+        case State::Armed:     text = "PLAY THE SOUND"; break;
+        case State::Recording: text = "LISTENING " + juce::String (m_processor.getLearnedSeconds(), 1) + " s"; break;
+        case State::Analysing: text = "ANALYSING " + juce::String (juce::roundToInt (100.0f * m_processor.getAnalyseProgress())) + "%"; break;
+        case State::Ready:     text = m_processor.isLearnedMatched() ? "LEARNED: MATCHED" : "LEARNED " + juce::String (m_processor.getLearnedSeconds(), 1) + " s"; break;
+        case State::Failed:    text = "ANALYSE: TRY AGAIN"; break;
+    }
+    if (m_analyseButton.getButtonText() != text)
+        m_analyseButton.setButtonText (text);
+    const bool busy = m_processor.getAnalyseState() == State::Armed || m_processor.getAnalyseState() == State::Recording
+                      || m_processor.getAnalyseState() == State::Analysing;
+    m_analyseButton.setToggleState (busy || m_processor.getAnalyseState() == State::Ready, juce::dontSendNotification);
 }
 
 void PitchFlattenerAudioProcessorEditor::Content::timerCallback()
 {
+    updateAnalyseButton();
     updateEnablement();
     m_presetBar.refreshIfNameChanged();
 
@@ -679,7 +729,9 @@ void PitchFlattenerAudioProcessorEditor::Content::resized()
     {
         auto r = m_sourceStrip.reduced (12, 0);
         r.removeFromLeft (84); // "SOURCE" caption (painted)
-        m_sourceCombo.setBounds (r.removeFromLeft (190).withSizeKeepingCentre (190, 26));
+        m_sourceCombo.setBounds (r.removeFromLeft (180).withSizeKeepingCentre (180, 26));
+        r.removeFromLeft (10);
+        m_analyseButton.setBounds (r.removeFromLeft (140).withSizeKeepingCentre (140, 26));
         r.removeFromLeft (14);
 
         m_activeArea = r.removeFromRight (104);
@@ -696,14 +748,12 @@ void PitchFlattenerAudioProcessorEditor::Content::resized()
     bounds.removeFromBottom (c_sectionGap);
     m_display.setBounds (bounds);
 
-    // 3 + 3 + 2 + 2 columns
-    const int unit = (controls.getWidth() - 3 * c_sectionGap) / 10;
-    m_sections[0].bounds = controls.removeFromLeft (unit * 3);
+    // FLATTEN 4 + RANGE 2 + ADVANCED 4 units
+    const int unit = (controls.getWidth() - 2 * c_sectionGap) / 10;
+    m_sections[0].bounds = controls.removeFromLeft (unit * 4);
     controls.removeFromLeft (c_sectionGap);
-    m_sections[1].bounds = controls.removeFromLeft (unit * 3);
+    m_sections[1].bounds = controls.removeFromLeft (unit * 2);
     controls.removeFromLeft (c_sectionGap);
-    m_sections[3].bounds = controls.removeFromRight (unit * 2);
-    controls.removeFromRight (c_sectionGap);
     m_sections[2].bounds = controls;
 
     const auto grid = [this] (const Section& s, int columns)
@@ -725,48 +775,37 @@ void PitchFlattenerAudioProcessorEditor::Content::resized()
         k[(size_t) id].slider.setBounds (cell);
     };
 
-    // TARGET
+    // FLATTEN: target mode in the header; the target, how much, and how it sounds
     {
         const auto cell = grid (m_sections[0], 3);
         placeKnob (targetPitchKnob, cell (0, 0));
         placeKnob (autoWindowKnob, cell (1, 0));
         placeKnob (amountKnob, cell (2, 0));
-
-        placeInCell (cell (0, 1).reduced (6, 0), m_relatchButton, m_relatchLabel, 26);
-        placeInCell (cell (1, 1), m_overrideToggle, m_overrideLabel, 26);
-        placeKnob (overrideFreqKnob, cell (2, 1));
+        placeKnob (mixKnob, cell (0, 1));
+        placeInCell (cell (1, 1), m_formantToggle, m_formantLabel, 26);
 
         auto row = m_sections[0].bounds.withHeight (c_sectionHeaderHeight).reduced (8, 5);
         m_targetModeCombo.setBounds (row.removeFromRight (std::min (120, row.getWidth() - 90)));
     }
 
-    // TRACKING
+    // RANGE: what to listen for in this particular file
     {
-        const auto cell = grid (m_sections[1], 3);
-        placeKnob (sensitivityKnob, cell (0, 0));
-        placeKnob (speedKnob, cell (1, 0));
-        placeKnob (smoothingKnob, cell (2, 0));
-        placeKnob (gapFillKnob, cell (0, 1));
-        placeKnob (minFreqKnob, cell (1, 1));
-        placeKnob (maxFreqKnob, cell (2, 1));
+        const auto cell = grid (m_sections[1], 2);
+        placeKnob (minFreqKnob, cell (0, 0));
+        placeKnob (maxFreqKnob, cell (1, 0));
+        placeKnob (gateKnob, cell (0, 1));
+        placeInCell (cell (1, 1), m_gateMeter, m_levelLabel);
     }
 
-    // INPUT
+    // ADVANCED: set by the Source Type, adjustable on Custom
     {
-        const auto cell = grid (m_sections[2], 2);
-        placeKnob (gateKnob, cell (0, 0));
-        placeInCell (cell (1, 0), m_gateMeter, m_levelLabel);
+        const auto cell = grid (m_sections[2], 3);
+        placeKnob (sensitivityKnob, cell (0, 0));
+        placeKnob (maxShiftKnob, cell (1, 0));
+        placeInCell (cell (2, 0).reduced (6, 0), m_qualityCombo, m_qualityLabel, 26);
         placeKnob (highpassKnob, cell (0, 1));
         placeKnob (lowpassKnob, cell (1, 1));
-    }
-
-    // OUTPUT
-    {
-        const auto cell = grid (m_sections[3], 2);
-        placeKnob (maxShiftKnob, cell (0, 0));
-        placeKnob (mixKnob, cell (1, 0));
-        placeInCell (cell (0, 1).reduced (4, 0), m_qualityCombo, m_qualityLabel, 26);
-        placeInCell (cell (1, 1), m_formantToggle, m_formantLabel, 26);
+        placeKnob (shiftBelowKnob, cell (2, 1));
     }
 }
 
@@ -833,7 +872,7 @@ void PitchFlattenerAudioProcessorEditor::Content::paint (juce::Graphics& g)
         g.drawText ("DETECTOR", caption.withTrimmedBottom (caption.getHeight() / 2).withTrimmedTop (4), juce::Justification::bottomRight, false);
         g.setFont (m_fonts->label (8.5f));
         g.setColour (textFaint);
-        g.drawText ("SET BY SOURCE", caption.withTrimmedTop (caption.getHeight() / 2 + 2), juce::Justification::topRight, false);
+        g.drawText (m_advancedShown ? "CUSTOM" : "SET BY SOURCE", caption.withTrimmedTop (caption.getHeight() / 2 + 2), juce::Justification::topRight, false);
 
         // Running detector (it can lag a parameter change while it is rebuilt)
         const auto active = m_activeArea;
@@ -857,6 +896,15 @@ void PitchFlattenerAudioProcessorEditor::Content::paint (juce::Graphics& g)
         g.setColour (outlineSoft);
         g.drawHorizontalLine (section.bounds.getY() + c_sectionHeaderHeight,
                               (float) section.bounds.getX() + 12.0f, (float) section.bounds.getRight() - 12.0f);
+    }
+
+    // ADVANCED says why its controls are dimmed.
+    {
+        const auto row = m_sections[2].bounds.toFloat().withHeight ((float) c_sectionHeaderHeight).reduced (14.0f, 0.0f);
+        g.setFont (m_fonts->label (9.0f));
+        g.setColour (textFaint);
+        g.drawText (m_advancedShown ? juce::String ("CUSTOM") : juce::String ("SET BY SOURCE  /  PICK CUSTOM TO CHANGE"),
+                    row, juce::Justification::centredRight, false);
     }
 
     // Help bar
@@ -897,10 +945,19 @@ PitchFlattenerAudioProcessorEditor::PitchFlattenerAudioProcessorEditor (PitchFla
         constrainer->setFixedAspectRatio ((double) baseWidth / (double) baseHeight);
 
     setSize (baseWidth, baseHeight);
+
+    // Looks for a newer release on a background thread (at most once a day, silent on any failure) and
+    // shows the popup on the message thread if there is one.
+    m_updateCheck = std::make_unique<sammyj::UpdateCheck> ("pitchflattener", "pitchflattener-v", c_version,
+        [this] (const sammyj::UpdateInfo& info) { showUpdatePopup (info); });
 }
 
 PitchFlattenerAudioProcessorEditor::~PitchFlattenerAudioProcessorEditor()
 {
+    // The update check first (it joins its thread and drops a pending callback), then its popup.
+    m_updateCheck.reset();
+    m_updatePopup.reset();
+
     // Nothing the editor opened may outlive it: the content closes the About window (and its update
     // check) and the preset dialogs; then any popup menu (it would keep using m_lookAndFeel) and the
     // tooltip window go.
@@ -936,4 +993,33 @@ void PitchFlattenerAudioProcessorEditor::resized()
 
     m_content->setBounds (0, 0, baseWidth, baseHeight);
     m_content->setTransform (juce::AffineTransform::scale (scale).translated (x, y));
+
+    if (m_updatePopup != nullptr)
+    {
+        m_updatePopup->setBounds (getLocalBounds());
+        m_updatePopup->setEditorScale (scale);
+    }
+}
+
+void PitchFlattenerAudioProcessorEditor::showUpdatePopup (const sammyj::UpdateInfo& info)
+{
+    if (m_updatePopup != nullptr)
+        return;
+
+    m_updatePopup = std::make_unique<UpdatePopup> (info, [safeThis = juce::Component::SafePointer<PitchFlattenerAudioProcessorEditor> (this)]
+    {
+        // Deferred: this runs inside one of the popup's own button callbacks.
+        juce::MessageManager::callAsync ([safeThis]
+        {
+            if (safeThis != nullptr)
+                safeThis->m_updatePopup.reset();
+        });
+    });
+
+    addAndMakeVisible (*m_updatePopup); // the last child: above the content and the resizer
+    m_updatePopup->toFront (false);
+    resized();
+
+    if (isShowing())
+        m_updatePopup->grabKeyboardFocus(); // Return and Escape reach it, as a dialog; rings only after Tab
 }

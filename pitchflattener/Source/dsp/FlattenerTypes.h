@@ -39,6 +39,7 @@ namespace pf
         Drone,
         NoisyField,
         Custom,
+        EngineRunup,      // after Custom so saved sessions keep their index; menus list it after Engine (sourceTypeMenuOrder)
         NumSourceTypes
     };
 
@@ -147,6 +148,17 @@ namespace pf
         float overrideHz = 440.0f;
         float mix = 1.0f;
         bool formantPreserve = false;
+        float shiftBelowHz = 0.0f;       // > 0: only the band below this is shifted; above it the input passes unshifted
+    };
+
+    /** A second opinion on the pitch track that PitchTracker consults per frame (hindsight guide, learned line). */
+    struct TrackGuide
+    {
+        virtual ~TrackGuide() = default;
+        /** True, with the guide's pitch in cents, when frame f is guided. False: use the plugin's own track. */
+        virtual bool lookup (int64_t frame, float& cents) const = 0;
+        /** The plugin has used frame f. */
+        virtual void markUsed (int64_t frame) = 0;
     };
 
     /** Per-frame telemetry published for the editor. */

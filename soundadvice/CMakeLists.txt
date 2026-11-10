@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.21)
 
 # The one place the version lives. Release builds pass -DSOUNDADVICE_VERSION=x.y.z (from the
 # soundadvice-vx.y.z tag); it ends up in the bundles, the installers and the footer.
-set(SOUNDADVICE_VERSION "1.0.12" CACHE STRING "Sound Advice version (major.minor.patch)")
+set(SOUNDADVICE_VERSION "1.0.13" CACHE STRING "Sound Advice version (major.minor.patch)")
 project(SoundAdvice VERSION ${SOUNDADVICE_VERSION})
 
 set(CMAKE_CXX_STANDARD 20)
@@ -62,7 +62,12 @@ target_sources(SoundAdvice
     Source/PluginProcessor.cpp
     Source/PluginEditor.cpp
     Source/QuoteView.cpp
+    Source/UpdatePopup.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/../common/SammyJUpdateCheck.cpp
 )
+
+# The shared "new version available" check (common/SammyJUpdateCheck), shown by Source/UpdatePopup.
+target_include_directories(SoundAdvice PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../common)
 
 # Our own standalone app (Source/StandaloneApp.cpp): the page in a native window, no audio device.
 target_sources(SoundAdvice_Standalone PRIVATE Source/StandaloneApp.cpp)
@@ -115,10 +120,12 @@ if(SOUNDADVICE_TOOLS)
     juce_add_console_app(SoundAdvicePreview PRODUCT_NAME "SoundAdvicePreview")
     juce_generate_juce_header(SoundAdvicePreview)
     target_sources(SoundAdvicePreview PRIVATE tools/Preview.cpp Source/QuoteLibrary.cpp Source/PluginProcessor.cpp
-                   Source/PluginEditor.cpp Source/QuoteView.cpp)
-    target_include_directories(SoundAdvicePreview PRIVATE Source)
+                   Source/PluginEditor.cpp Source/QuoteView.cpp Source/UpdatePopup.cpp
+                   ${CMAKE_CURRENT_SOURCE_DIR}/../common/SammyJUpdateCheck.cpp)
+    target_include_directories(SoundAdvicePreview PRIVATE Source ${CMAKE_CURRENT_SOURCE_DIR}/../common)
+    # The preview renders offline: no update check, no network.
     target_compile_definitions(SoundAdvicePreview PRIVATE JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0
-        JucePlugin_Name="Sound Advice")
+        JucePlugin_Name="Sound Advice" SOUNDADVICE_NO_UPDATE_CHECK=1)
     target_link_libraries(SoundAdvicePreview
         PRIVATE juce::juce_audio_utils SoundAdviceBinaryData
         PUBLIC juce::juce_recommended_config_flags juce::juce_recommended_warning_flags)

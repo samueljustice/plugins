@@ -5,18 +5,19 @@
 **Toys I've made for sound designers.**
 
 <!-- get-them-all:start (written by .github/workflows/build-release_bundle.yml; edits here are replaced) -->
-### ⬇️ Get them all (last built 9 Nov 2026, 15:57 UTC)
+### ⬇️ Get them all (last built 10 Nov 2026, 18:14 UTC)
 
-[![Get them all for macOS](https://img.shields.io/badge/Get_them_all-macOS-000000?style=for-the-badge&logo=apple&logoColor=white)](https://github.com/samueljustice/plugins/releases/download/bundle-v2026.11.9.64/SammyJ-Plugins-2026-11-09-1557-macOS.dmg)
-[![Get them all for Windows](https://img.shields.io/badge/Get_them_all-Windows-0078D6?style=for-the-badge&logo=windows&logoColor=white)](https://github.com/samueljustice/plugins/releases/download/bundle-v2026.11.9.64/SammyJ-Plugins-2026-11-09-1557-Windows-Installer.exe)
+[![Get them all for macOS](https://img.shields.io/badge/Get_them_all-macOS-000000?style=for-the-badge&logo=apple&logoColor=white)](https://github.com/samueljustice/plugins/releases/download/bundle-v2026.11.10.105/SammyJ-Plugins-2026-11-10-1814-macOS.dmg)
+[![Get them all for Windows](https://img.shields.io/badge/Get_them_all-Windows-0078D6?style=for-the-badge&logo=windows&logoColor=white)](https://github.com/samueljustice/plugins/releases/download/bundle-v2026.11.10.105/SammyJ-Plugins-2026-11-10-1814-Windows-Installer.exe)
 
-<sub>One installer with the newest version of every plug-in: Swooshbuckler 1.4.0 · Sound Advice 1.0.12 · Subbertone 1.3.1 · Pitch Flattener 2.2.0 · Reversinator 2.0.3 · Roarschach 1.0.0. The apps, the VST3s and (on macOS) the AUs. It removes older copies first, so nothing shows up twice in your host. To remove them again: on macOS, run Uninstall Sammy J's Plugins from the same disk image; on Windows, use Settings &gt; Apps.<br>
+<sub>One installer with the newest version of every plug-in: Swooshbuckler 1.4.2 · Sound Advice 1.0.13 · Subbertone 1.3.2 · Pitch Flattener 2.4.0 · Reversinator 2.0.4 · Roarschach 1.0.1. The apps, the VST3s and (on macOS) the AUs. It removes older copies first, so nothing shows up twice in your host. To remove them again: on macOS, run Uninstall Sammy J's Plugins from the same disk image; on Windows, use Settings &gt; Apps.<br>
 Want just one? Each plug-in's own download is below, or browse all <a href="https://github.com/samueljustice/plugins/releases">releases</a>.</sub>
 <!-- get-them-all:end -->
 
 ![VST3](https://img.shields.io/badge/VST3-222?style=flat-square)
 ![AU](https://img.shields.io/badge/AU-222?style=flat-square)
 ![Standalone](https://img.shields.io/badge/Standalone-222?style=flat-square)
+![AAX coming soon](https://img.shields.io/badge/AAX-coming_soon-555?style=flat-square)
 [![Built with JUCE](https://img.shields.io/badge/built%20with-JUCE-8DC63F?style=flat-square)](https://juce.com)
 ![Downloads](https://img.shields.io/github/downloads/samueljustice/plugins/total?style=flat-square&color=d00a35)
 
@@ -69,7 +70,7 @@ Drop in up to ten sounds (cloth, air, engines, creatures, metal) and Swooshbuckl
 </details>
 
 **App** (macOS, Windows) · **VST3** · **AU** &nbsp;&nbsp;
-[![Download Swooshbuckler](https://img.shields.io/badge/download-v1.4.0-d00a35?style=flat-square)](https://github.com/samueljustice/plugins/releases/tag/swooshbuckler-v1.4.0) &nbsp;
+[![Download Swooshbuckler](https://img.shields.io/badge/download-v1.4.2-d00a35?style=flat-square)](https://github.com/samueljustice/plugins/releases/tag/swooshbuckler-v1.4.2) &nbsp;
 [Read the manual →](swooshbuckler/README.md)
 
 ---
@@ -107,7 +108,7 @@ Subbertone follows the pitch of your bass, engine or drone and adds a clean sub 
 </details>
 
 **VST3** (macOS, Windows) · **AU** (macOS) &nbsp;&nbsp;
-[![Download Subbertone](https://img.shields.io/badge/download-v1.3.1-d00a35?style=flat-square)](https://github.com/samueljustice/plugins/releases/tag/subbertone-v1.3.1) &nbsp;
+[![Download Subbertone](https://img.shields.io/badge/download-v1.3.2-d00a35?style=flat-square)](https://github.com/samueljustice/plugins/releases/tag/subbertone-v1.3.2) &nbsp;
 [Read the manual →](subbertone/README.md)
 
 ---
@@ -122,7 +123,7 @@ Subbertone follows the pitch of your bass, engine or drone and adds a clean sub 
 
 Pitch Flattener takes the pitch movement out of a sound and keeps its energy and character: the Doppler sweep from a pass-by, the wail from a siren, the vibrato from a voice. Or lock a warbling tone to one note. Pick a Source Type and it loads a pitch detector built for that kind of sound, looks about 2.6 seconds ahead, and lines the correction up with the audio sample-accurately. Made for offline rendering: the Soundminer DSP rack, a DAW bounce or AudioSuite-style processing.
 
-- 🎯 **Eight Source Types** (Vocal, Instrument, Siren, Whistle, Engine / Doppler, Drone, Noisy Field, Custom), each with its own tuned detector; Siren runs two at once, so fast yelps and sirens in traffic both track
+- 🎯 **Nine Source Types** (Vocal, Instrument, Siren, Whistle, Engine / Doppler, Engine Run-up, Drone, Noisy Field, Custom), each with its own tuned detector; Siren runs two at once, so fast yelps and sirens in traffic both track
 - 🔭 **Lookahead tracking** fixes octave errors, bridges gaps and smooths with zero lag, so the very first syllable or rev is already flat
 - 🎚️ **Latch, Fixed or Auto**: hold each sound at the pitch it starts on, flatten everything to one note (type `A4`), or take out only the vibrato and keep the melody
 - 📈 **Live pitch display**: eight seconds of detection, track, target and corrected output over a spectrogram
@@ -140,7 +141,7 @@ Pitch Flattener takes the pitch movement out of a sound and keeps its energy and
 </details>
 
 **VST3** (macOS, Windows) · **AU** (macOS) &nbsp;&nbsp;
-[![Download Pitch Flattener](https://img.shields.io/badge/download-v2.2.0-d00a35?style=flat-square)](https://github.com/samueljustice/plugins/releases/tag/pitchflattener-v2.2.0) &nbsp;
+[![Download Pitch Flattener](https://img.shields.io/badge/download-v2.4.0-d00a35?style=flat-square)](https://github.com/samueljustice/plugins/releases/tag/pitchflattener-v2.4.0) &nbsp;
 [Read the manual →](pitchflattener/README.md)
 
 ---
@@ -172,7 +173,7 @@ A real-time reverser that faithfully recreates Backwards Machine's three effects
 </details>
 
 **VST3** (macOS, Windows) · **AU** (macOS) &nbsp;&nbsp;
-[![Download Reversinator](https://img.shields.io/badge/download-v2.0.3-d00a35?style=flat-square)](https://github.com/samueljustice/plugins/releases/tag/reversinator-v2.0.3) &nbsp;
+[![Download Reversinator](https://img.shields.io/badge/download-v2.0.4-d00a35?style=flat-square)](https://github.com/samueljustice/plugins/releases/tag/reversinator-v2.0.4) &nbsp;
 [Read the manual →](reversinator/README.md)
 
 ---
@@ -212,7 +213,7 @@ Roarschach is a modular voice processor built for exploration and fun. Fifteen m
 </details>
 
 **VST3** (macOS, Windows) · **AU** (macOS) &nbsp;&nbsp;
-[![Download Roarschach](https://img.shields.io/badge/download-v1.0.0-d00a35?style=flat-square)](https://github.com/samueljustice/plugins/releases/tag/roarschach-v1.0.0) &nbsp;
+[![Download Roarschach](https://img.shields.io/badge/download-v1.0.1-d00a35?style=flat-square)](https://github.com/samueljustice/plugins/releases/tag/roarschach-v1.0.1) &nbsp;
 [Read the manual →](roarschach/README.md)
 
 ---
@@ -235,7 +236,7 @@ A page of advice from people who work on film, TV, game and trailer sound: re-re
 - 🔇 **Audio passes straight through**, so it can sit on a mix bus, or run as an app on a second screen
 
 **App** (macOS, Windows) · **VST3** · **AU** &nbsp;&nbsp;
-[![Download Sound Advice](https://img.shields.io/badge/download-v1.0.12-9a5a3a?style=flat-square)](https://github.com/samueljustice/plugins/releases/tag/soundadvice-v1.0.12) &nbsp;
+[![Download Sound Advice](https://img.shields.io/badge/download-v1.0.13-9a5a3a?style=flat-square)](https://github.com/samueljustice/plugins/releases/tag/soundadvice-v1.0.13) &nbsp;
 [Read the manual →](soundadvice/README.md)
 
 ---
@@ -293,6 +294,8 @@ When a plug-in's release finishes, `build-release_bundle.yml` rebuilds the combi
 ### 👋 Made by Samuel Justice
 
 Creative Sound Supervisor at **[Sweet Justice](https://www.sweetjusticesound.com)**
+
+I taught myself C++ during the development of SOMA, but my knowledge only goes so far. These plug-ins are experiments: ideas that have been sitting in my head for a while, built with what I know and with help from Claude.
 
 <sub>Found a bug or have an idea? <a href="https://github.com/samueljustice/plugins/issues">Open an issue</a>.</sub>
 

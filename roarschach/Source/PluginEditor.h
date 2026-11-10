@@ -11,6 +11,8 @@
 #include <memory>
 
 class AboutWindow;
+class UpdatePopup;
+namespace sammyj { class UpdateCheck; struct UpdateInfo; }
 
 /**
  * The editor is laid out once at a fixed design size (c_baseWidth x c_baseHeight) inside a single
@@ -56,6 +58,10 @@ private:
     void layoutContent();
     void showAboutWindow();
     void updateMonsterParams();
+
+    /** The "new version available" popup, drawn over the editor (called by the update check). */
+    void showUpdatePopup(const sammyj::UpdateInfo& info);
+    void closeUpdatePopup();
 
     // Presets
     void setupPresetBar();
@@ -123,4 +129,6 @@ private:
     std::unique_ptr<juce::AlertWindow> m_alert; // owned so it never outlives the LookAndFeel
     EditorTooltipWindow m_tooltipWindow { *this }; // after m_lookAndFeel, so it is deleted first
     std::unique_ptr<AboutWindow> m_aboutWindow;     // at most one per editor, closed with it
+    std::unique_ptr<UpdatePopup> m_updatePopup;     // over everything while it is up
+    std::unique_ptr<sammyj::UpdateCheck> m_updateCheck; // last: stopped before anything its callback touches goes
 };

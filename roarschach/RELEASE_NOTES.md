@@ -2,6 +2,8 @@
 
 Roarschach 1.1.0 adds a fifteenth module, **CHAMBER**: the voice played through a small speaker into a tight, resonant room and blended back under it, with ten bundled rooms and a Width control. The creature has a new renderer, every knob was measured and remapped so its whole travel does something, the factory presets have been redesigned, with twelve new ones, and three kinds of die roll new sounds.
 
+It also includes the update notice from 1.0.1: when a newer release is out, a small window offers Download (the release page), Later or Skip this version. It checks in the background at most once a day.
+
 Parameter IDs, their order and their types are unchanged, so sessions, presets and hosts keep finding every control. CHAMBER's nine parameters are new, and are added after the existing ones.
 
 ### New: CHAMBER

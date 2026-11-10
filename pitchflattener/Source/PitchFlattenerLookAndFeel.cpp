@@ -33,6 +33,8 @@ namespace
 
     const juce::Identifier c_focusRingsProperty { "pitchFlattenerFocusRings" };
     const juce::Identifier c_capitalsProperty { "pitchFlattenerCapitals" };
+    const juce::Identifier c_dialogAccentProperty { "pitchFlattenerDialogAccent" };   // ARGB of a dialog button outside an alert
+    const juce::Identifier c_dialogPrimaryProperty { "pitchFlattenerDialogPrimary" }; // ... and whether it is the primary action
 
     // A colour that looks opaque but makes JUCE create a transparent window (menus), so the rounded corners
     // show what is behind them. The body itself is drawn with full alpha.
@@ -113,9 +115,11 @@ namespace
         return c_chrome;
     }
 
+    // A button of a dialog: in an AlertWindow, or marked with setDialogButton() (the update popup's).
     bool isInAlert (const juce::Component& c)
     {
-        return dynamic_cast<const juce::AlertWindow*> (c.getParentComponent()) != nullptr;
+        return dynamic_cast<const juce::AlertWindow*> (c.getParentComponent()) != nullptr
+            || c.getProperties().contains (c_dialogAccentProperty);
     }
 
     // A text button with a transparent fill is a text link (the About window's website and e-mail).
@@ -513,9 +517,30 @@ juce::PopupMenu::Options PitchFlattenerLookAndFeel::getOptionsForComboBoxPopupMe
 //==============================================================================
 // Buttons
 //==============================================================================
+void PitchFlattenerLookAndFeel::setDialogButton (juce::Button& button, juce::Colour accent, bool primary)
+{
+    button.getProperties().set (c_dialogAccentProperty, (juce::int64) accent.getARGB());
+    button.getProperties().set (c_dialogPrimaryProperty, primary);
+    button.repaint();
+}
+
 bool PitchFlattenerLookAndFeel::isPrimaryDialogButton (const juce::Button& button)
 {
+    if (button.getProperties().contains (c_dialogAccentProperty))
+        return (bool) button.getProperties().getWithDefault (c_dialogPrimaryProperty, false);
+
     return isInAlert (button) && button.isRegisteredForShortcut (juce::KeyPress (juce::KeyPress::returnKey));
+}
+
+juce::Colour PitchFlattenerLookAndFeel::dialogAccentFor (const juce::Button& button)
+{
+    if (const auto* argb = button.getProperties().getVarPointer (c_dialogAccentProperty))
+        return juce::Colour ((juce::uint32) (juce::int64) *argb);
+
+    if (auto* alert = dynamic_cast<const juce::AlertWindow*> (button.getParentComponent()))
+        return accentFor (alert->getAlertType());
+
+    return c_chrome;
 }
 
 void PitchFlattenerLookAndFeel::drawButtonBackground (juce::Graphics& g, juce::Button& button,
@@ -534,10 +559,10 @@ void PitchFlattenerLookAndFeel::drawButtonBackground (juce::Graphics& g, juce::B
     auto edge = hot ? textDim : outline;
     auto ringColour = c_chrome;
 
-    if (auto* alert = dynamic_cast<juce::AlertWindow*> (button.getParentComponent()))
+    if (isInAlert (button))
     {
         // The Return-key button is the dialog's primary action, tinted in the dialog's accent.
-        const auto accent = accentFor (alert->getAlertType());
+        const auto accent = dialogAccentFor (button);
         ringColour = accent;
 
         if (isPrimaryDialogButton (button))

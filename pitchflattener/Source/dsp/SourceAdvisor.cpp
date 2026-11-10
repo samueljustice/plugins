@@ -25,6 +25,7 @@ namespace pf
         s.live.gapFillMs = p.gapFillMs;
         s.live.formantPreserve = p.formant;
         s.live.maxShiftSemitones = p.maxShiftSemitones;
+        s.live.shiftBelowHz = p.shiftBelowHz;
         return s;
     }
 
@@ -73,6 +74,7 @@ namespace pf
         dc.minHz = s.minHz;
         dc.maxHz = s.maxHz;
         core.prepare (fs, block, 1, dc, s.quality);
+        core.setNonRealtime (true);   // the hindsight guide analyses in step, so every trial gives the same result
         auto live = s.live;
         live.mix = 1.0f;
         core.setLiveSettings (live);
@@ -160,9 +162,11 @@ namespace pf
 
         int best = -1;
         float bestFlatness = -1.0f;
-        for (int i = 0; i < (int) SourceType::Custom; ++i)
+        for (int i = 0; i < (int) SourceType::NumSourceTypes; ++i)
         {
             const auto type = (SourceType) i;
+            if (type == SourceType::Custom)
+                continue;   // Custom is whatever is set now: nothing to suggest
             advice.bySource[(size_t) i] = runTrial (mono, numSamples, sampleRate, withSourceType (current, type), cancel);
             if (cancelled (cancel))
                 return advice;

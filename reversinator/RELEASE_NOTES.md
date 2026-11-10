@@ -1,8 +1,10 @@
-## SammyJs Reversinator 2.0.3
+## SammyJs Reversinator 2.0.4
 
-Hosts now list Reversinator under **Sammy J**, in one folder with the other plug-ins. Logic shows it as "Sammy J: SammyJs Reversinator", and the VST3 and Windows installer name Sammy J as the vendor. The sound, the parameters and saved sessions are unchanged from 2.0.2, and existing projects still find the plugin.
+Reversinator now tells you when a new version is out: when you open it and a newer release has been published, a small window offers Download (the release page), Later or Skip this version. It checks in the background at most once a day, and says nothing when you're offline.
 
-![Reversinator](https://raw.githubusercontent.com/samueljustice/plugins/reversinator-v2.0.3/reversinator/docs/screenshot.png)
+The sound, the parameters and saved sessions are unchanged from 2.0.3.
+
+![Reversinator](https://raw.githubusercontent.com/samueljustice/plugins/reversinator-v2.0.4/reversinator/docs/screenshot.png)
 
 Want every plug-in at once? The [Sammy J's Plugins installer](https://github.com/samueljustice/plugins/releases/latest) installs the newest version of each.
 

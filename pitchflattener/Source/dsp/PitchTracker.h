@@ -7,6 +7,7 @@
 
 namespace pf
 {
+
     /**
      * Turns frame-wise candidates into a correction curve, using lookahead.
      *
@@ -15,7 +16,8 @@ namespace pf
      *   2. Octave repair against the local median, then a median-5.
      *   3. Gap fill: short unvoiced gaps are bridged, long ones held then released.
      *   4. Centred Gaussian smoothing in cents (sigma = smoothing time).
-     *   5. Target (latch / fixed / auto) and correction ratio in cents.
+     *   5. Target (latch / fixed / auto) and correction ratio in cents. Where the hindsight guide
+     *      (HindsightGuide.h) has a line for a frame, that line replaces the track from here on.
      *
      * The total lag is constant, so the plugin's latency never changes with
      * the settings. Frame f's final ratio is available once frame
@@ -37,6 +39,8 @@ namespace pf
         /** Per-hop tuning. detector selects the internal costs. */
         void setSettings (const LiveSettings& s, DetectorType detector);
         void requestRelatch() { relatchPending = true; }
+        /** The hindsight guide consulted in stage 5 (may be null). Frames are numbered as pushed here. */
+        void setGuide (TrackGuide* g) { guide = g; }
 
         /** Pushes frame number (numPushed) and advances every stage by one frame. */
         void push (const FrameObservation& obs);
@@ -62,6 +66,11 @@ namespace pf
         void stageGap (int64_t f);
         void stageSmooth (int64_t f);
         void stageTarget (int64_t f);
+        /** Pitch of smoothed frame f for the target stage: the guide's where it has one. */
+        bool targetTrack (int64_t f, float& cents, float& weight) const;
+        struct Filled;
+        static bool guideOverrides (const Filled& own, float guideCents);
+        static bool registerOffset (float ownMinusGuideCents, float& offset);
 
         // Tuning
         double hopSec = 0.005;
@@ -75,6 +84,18 @@ namespace pf
         bool harmonicDetector = false;
 
         int64_t numPushed = 0;
+        TrackGuide* guide = nullptr;
+        bool guideOffsetSet = false;   // a guided stretch is under way, with its register fixed
+        bool guideUsable = false;      // the guide is a simple ratio (octave, fifth) from the own track
+        float guideOffset = 0.0f;      // cents added to the guide to put it in the own track's register
+        int64_t lastGuideFrame = -1000000;
+        // Who jumped: when the guide and the own track part, the guide takes over only if the own track hopped away
+        // and the guide stayed on its line, until the two agree again.
+        bool ownJumped = false, guideJumped = false;
+        float lastOwnVoiced = 0.0f;     // the own track's latest voiced value (kept across its gaps)
+        float lastGuideCents = 0.0f;    // the guide's value on the previous frame (0 = none)
+        std::vector<float> ownHistory = std::vector<float> (ringSize, 0.0f);     // 0 = none
+        bool guideMayLead (const Filled& own, float guideCents) const;
 
         // Raw observations (for telemetry) and Viterbi lattice
         struct Lattice

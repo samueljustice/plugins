@@ -192,6 +192,8 @@ begin
     RemoveUserFolder(Data + '\SammyJs\PitchFlattener');
     RemoveUserFolder(Data + '\SammyJs\Roarschach');
     { The vendor folders are shared with other plug-ins, so they go only when nothing is left in them. }
+    RemoveUserFile(Data + '\Sammy J\Updates.settings');
+    DeleteIfEmpty(Data + '\Sammy J');
     DeleteIfEmpty(Data + '\Sweet Justice');
     DeleteIfEmpty(Data + '\SammyJs');
   end;

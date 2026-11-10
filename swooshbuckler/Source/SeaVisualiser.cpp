@@ -236,13 +236,34 @@ void SeaVisualiser::paint(juce::Graphics& g)
 
     }
 
-    // Cannonballs
+    // Cannonballs: each in its bus's colour (Bus A coral, Bus B turquoise, as their knobs and track tags), labelled
+    // with the bus, and the track when only one track plays on it.
+    std::array<juce::String, RigEngine::c_maxBuses> busLabels;
+    {
+        auto& cargo = m_processor.getCargo();
+        for (int b = 0; b < RigEngine::c_maxBuses; ++b)
+        {
+            int count = 0, only = -1;
+            for (int t = 0; t < CargoHold::c_numTracks; ++t)
+                if (cargo.get(t) != nullptr && cargo.getBus(t) == b)
+                {
+                    ++count;
+                    only = t;
+                }
+            busLabels[static_cast<size_t>(b)] = juce::String("BUS ") + (b == 0 ? "A" : "B")
+                                                + (count == 1 ? (" " + juce::String::charToString(0x00b7) + " ") + cargo.getDisplayName(only) : juce::String());
+        }
+    }
+    struct Label { float env = -1.0f, alpha = 0.0f; juce::Point<float> at; };
+    std::array<Label, RigEngine::c_maxBuses> labels; // one per bus, on its louder pass
     for (size_t i = 0; i < m_trails.size(); ++i)
     {
         const auto& trail = m_trails[i];
         if (trail.size() < 2)
             continue;
 
+        const size_t bus = i / 2; // two passes per bus
+        const juce::Colour colour = bus == 0 ? Theme::Colours::movement : Theme::Colours::sources;
         const float env = m_flightEnv[i];
         for (size_t j = 1; j < trail.size(); ++j)
         {
@@ -250,30 +271,59 @@ void SeaVisualiser::paint(juce::Graphics& g)
             const auto p0 = project(trail[j - 1]);
             const auto p1 = project(trail[j]);
             const float width = (1.0f + 7.0f * env) * a * (m_focal / (trail[j].z * 260.0f));
-            g.setColour(Theme::Colours::flight.withAlpha(0.55f * a * a));
+            g.setColour(colour.withAlpha(0.55f * a * a));
             g.drawLine({ p0, p1 }, width);
 
             // Reflection on the water
             const auto r0 = project({ trail[j - 1].x, -trail[j - 1].y * 0.35f, trail[j - 1].z });
             const auto r1 = project({ trail[j].x, -trail[j].y * 0.35f, trail[j].z });
-            g.setColour(Theme::Colours::flight.withAlpha(0.12f * a * a));
+            g.setColour(colour.withAlpha(0.12f * a * a));
             g.drawLine({ r0, r1 }, width * 0.7f);
         }
 
         const auto head = trail.back();
         const auto p = project(head);
         const float radius = (0.05f + 0.11f * env) * m_focal / head.z;
-        juce::ColourGradient glow(Theme::Colours::flight.withAlpha(0.9f), p.x, p.y, Theme::Colours::flight.withAlpha(0.0f), p.x + radius * 2.2f, p.y, true);
+        juce::ColourGradient glow(colour.withAlpha(0.9f), p.x, p.y, colour.withAlpha(0.0f), p.x + radius * 2.2f, p.y, true);
         g.setGradientFill(glow);
         g.fillEllipse(juce::Rectangle<float>(radius * 4.4f, radius * 4.4f).withCentre(p));
-        g.setColour(juce::Colour(0xfffff1d6));
+        g.setColour(juce::Colour(0xfffff1d6).interpolatedWith(colour, 0.35f));
         g.fillEllipse(juce::Rectangle<float>(radius * 0.9f, radius * 0.9f).withCentre(p));
+
+        // Its label goes just above the glow (drawn below, once per bus, on its louder pass).
+        if (env > labels[bus].env)
+            labels[bus] = { env, juce::jlimit(0.0f, 1.0f, (env - 0.04f) * 6.0f), { p.x, p.y - radius * 2.3f - 9.0f } };
 
         if (m_flash[i] > 0.02f)
         {
             const float ring = (1.0f - m_flash[i]) * m_focal * 0.5f / head.z;
-            g.setColour(Theme::Colours::flight.withAlpha(0.5f * m_flash[i]));
+            g.setColour(colour.withAlpha(0.5f * m_flash[i]));
             g.drawEllipse(juce::Rectangle<float>(ring * 2.0f, ring * 0.7f).withCentre(project({ head.x, 0.0f, head.z })), 1.5f);
+        }
+    }
+
+    // Bus labels, fading in and out with the passes, kept apart when they meet.
+    {
+        g.setFont(m_fonts.label(10.5f));
+        std::vector<juce::Rectangle<float>> placed;
+        for (size_t b = 0; b < labels.size(); ++b)
+        {
+            const auto& label = labels[b];
+            if (label.alpha <= 0.01f)
+                continue;
+            const auto& text = busLabels[b];
+            const float textW = juce::GlyphArrangement::getStringWidth(g.getCurrentFont(), text) + 4.0f;
+            auto area = juce::Rectangle<float>(textW, 14.0f).withCentre(label.at);
+            area = area.withX(juce::jlimit(4.0f, juce::jmax(4.0f, w - textW - 4.0f), area.getX())).withY(juce::jmax(4.0f, area.getY()));
+            for (const auto& other : placed)
+                if (area.intersects(other))
+                    area = area.withY(other.getY() - area.getHeight() - 1.0f);
+            placed.push_back(area);
+            const juce::Colour colour = b == 0 ? Theme::Colours::movement : Theme::Colours::sources;
+            g.setColour(juce::Colour(0xff061219).withAlpha(0.55f * label.alpha));
+            g.drawText(text, area.translated(1.0f, 1.0f), juce::Justification::centred, false);
+            g.setColour(colour.withAlpha(0.95f * label.alpha));
+            g.drawText(text, area, juce::Justification::centred, false);
         }
     }
 

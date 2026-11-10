@@ -30,7 +30,7 @@ Swooshbuckler is a standalone app for macOS and Windows, and also a VST3 plug-in
 
 ## Download
 
-[![Download Swooshbuckler v1.4.0](https://img.shields.io/badge/download-v1.4.0-d00a35?style=for-the-badge)](https://github.com/samueljustice/plugins/releases/tag/swooshbuckler-v1.4.0)
+[![Download Swooshbuckler v1.4.2](https://img.shields.io/badge/download-v1.4.2-d00a35?style=for-the-badge)](https://github.com/samueljustice/plugins/releases/tag/swooshbuckler-v1.4.2)
 
 Or get every Sammy J plug-in at once, Swooshbuckler included, with one installer that always has the newest version of each (its file names carry the date and time it was built):
 
@@ -268,7 +268,7 @@ If the gain reduction number is coral all the time, back off Push or raise Ceili
 The OUTPUT view at the top right pictures what the rig is sending out:
 
 - **The waves** are the output's spectrum, lows on the left and highs on the right. The newest wave is at the front, and older ones roll away towards the horizon.
-- **Each doppler pass** is a glowing ball that arcs across the sea. It comes closer the closer the pass, glows brighter the louder it is, and leaves a ripple as it crosses the middle.
+- **Each doppler pass** is a glowing ball that arcs across the sea, in its bus's colour (coral for bus A, turquoise for bus B). It comes closer the closer the pass, glows brighter the louder it is, and leaves a ripple as it crosses the middle. A label above it names the bus, and the track too when only one track plays on that bus ("BUS B · Energy Bed").
 - After a moment of silence, the Sweet Justice logo slowly draws itself in the sky.
 - While the tape records, a blinking red dot and a "Rec" timer show in the corner.
 - **Click the sea** for a short swell.

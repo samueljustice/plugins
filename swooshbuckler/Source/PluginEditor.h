@@ -11,6 +11,8 @@
 #include "SectionScope.h"
 #include "Theme.h"
 #include "LogoOutline.h"
+#include "UpdatePopup.h"
+#include "SammyJUpdateCheck.h"
 
 /**
  * The ship. Laid out once at a fixed design size inside a content component
@@ -39,6 +41,9 @@ public:
 
     bool isInterestedInFileDrag(const juce::StringArray& files) override;
     void filesDropped(const juce::StringArray& files, int x, int y) override;
+
+    /** A newer release is out: dims the ship and offers DOWNLOAD / LATER / SKIP THIS VERSION. */
+    void showUpdatePopup(const sammyj::UpdateInfo& info);
 
     static constexpr int c_width = 1280;
     static constexpr int c_height = 1024;
@@ -244,6 +249,11 @@ private:
     std::array<Section, 4> m_sections; // ride, buses, hits, output
     float m_gate = 0.0f;
     bool m_sizeRestored = false;
+
+    // Over everything, the content included. The check is declared after the popup so it is destroyed first:
+    // its destructor stops the thread and drops any pending callback before the popup goes.
+    UpdatePopup m_updatePopup { *m_fonts };
+    std::unique_ptr<sammyj::UpdateCheck> m_updateCheck;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(SwooshbucklerAudioProcessorEditor)
 };

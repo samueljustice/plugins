@@ -3,7 +3,7 @@ cmake_minimum_required(VERSION 3.15)
 # Set universal binary architectures BEFORE project()
 set(CMAKE_OSX_ARCHITECTURES "x86_64;arm64" CACHE STRING "Build architectures for macOS")
 
-project(PitchFlattener VERSION 2.2.0)
+project(PitchFlattener VERSION 2.4.0)
 
 # The copyright year is the year it was built, so it never goes stale.
 string(TIMESTAMP COPYRIGHT_YEAR "%Y")
@@ -38,6 +38,9 @@ set(PF_DSP_SOURCES
     Source/dsp/RubberBandDriver.cpp
     Source/dsp/FlattenerCore.cpp
     Source/dsp/SourceAdvisor.cpp
+    Source/dsp/HindsightGuide.cpp
+    Source/dsp/HindsightTracker.cpp
+    Source/dsp/LearnedLine.cpp
 )
 
 option(PITCHFLATTENER_COPY_AFTER_BUILD "Copy plugins to the system folders after building" ON)
@@ -78,6 +81,8 @@ target_sources(PitchFlattener
         Source/PresetManager.cpp
         Source/SpectrogramVisualizer.cpp
         Source/AboutWindow.cpp
+        Source/UpdatePopup.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/../common/SammyJUpdateCheck.cpp
         ${PF_DSP_SOURCES}
 )
 
@@ -104,6 +109,7 @@ target_include_directories(PitchFlattener
         ${RUBBERBAND_ROOT}
         ${RUBBERBAND_ROOT}/src
         ${CMAKE_CURRENT_SOURCE_DIR}/Source
+        ${CMAKE_CURRENT_SOURCE_DIR}/../common
 )
 
 # Link libraries
@@ -133,7 +139,7 @@ if(WIN32)
 endif()
 
 # Set C++ standard
-target_compile_features(PitchFlattener PRIVATE cxx_std_17)
+target_compile_features(PitchFlattener PRIVATE cxx_std_20)
 
 # Build universal binary on macOS
 if(APPLE)
@@ -152,7 +158,7 @@ if(PITCHFLATTENER_BUILD_TESTS)
     target_compile_definitions(PitchFlattenerTests PRIVATE JUCE_USE_CURL=0 JUCE_WEB_BROWSER=0 JUCE_STANDALONE_APPLICATION=1)
     target_link_libraries(PitchFlattenerTests PRIVATE juce::juce_core juce::juce_audio_basics juce::juce_audio_formats juce::juce_dsp ${RUBBERBAND_LIB}
         PUBLIC juce::juce_recommended_config_flags juce::juce_recommended_warning_flags)
-    target_compile_features(PitchFlattenerTests PRIVATE cxx_std_17)
+    target_compile_features(PitchFlattenerTests PRIVATE cxx_std_20)
     if(APPLE)
         target_link_libraries(PitchFlattenerTests PRIVATE "-framework Accelerate")
     endif()

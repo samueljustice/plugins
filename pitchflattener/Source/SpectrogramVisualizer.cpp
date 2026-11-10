@@ -366,7 +366,7 @@ namespace
             && x.smoothingMs == y.smoothingMs && x.gapFillMs == y.gapFillMs && x.targetMode == y.targetMode
             && x.targetHz == y.targetHz && x.autoWindowMs == y.autoWindowMs && x.amount == y.amount
             && x.maxShiftSemitones == y.maxShiftSemitones && x.gateDb == y.gateDb && x.manualOverride == y.manualOverride
-            && x.overrideHz == y.overrideHz && x.formantPreserve == y.formantPreserve;
+            && x.overrideHz == y.overrideHz && x.formantPreserve == y.formantPreserve && x.shiftBelowHz == y.shiftBelowHz;
     }
 }
 
@@ -607,7 +607,7 @@ void PitchDisplay::paintWobbleWarning (juce::Graphics& g)
             detail = juce::String (pf::getSourcePreset ((pf::SourceType) w.recommended).name)
                    + " comes out about " + juce::String (std::min (9.9f, w.recommendedGain), 1) + "x flatter here.";
             break;
-        case Advice::noneBetter: detail = "No Source Type does clearly better. Narrow Min / Max Freq around the sound, or lower Speed."; break;
+        case Advice::noneBetter: detail = "No Source Type does clearly better. Narrow Min / Max Freq around the sound, or set a Fixed target."; break;
         case Advice::none:
         default:                 detail = "The detector is losing the pitch. Try another Source Type, or narrow Min / Max Freq."; break;
     }

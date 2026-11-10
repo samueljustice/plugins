@@ -28,6 +28,8 @@ namespace
 
     const juce::Identifier c_focusRingsProperty { "subbertoneFocusRings" };
     const juce::Identifier c_capitalsProperty { "subbertoneCapitals" };
+    const juce::Identifier c_dialogButtonProperty { "subbertoneDialogButton" }; // 1 = secondary, 2 = primary
+    const juce::Identifier c_dialogAccentProperty { "subbertoneDialogAccent" };
 
     // A colour that looks opaque but makes JUCE create a transparent window (menus), so the rounded corners
     // show what is behind them. The body itself is drawn with full alpha.
@@ -108,9 +110,23 @@ namespace
         return output;
     }
 
+    // An AlertWindow's buttons, and buttons drawn like them in the editor's own dialogs (setDrawnAsDialogButton()).
     bool isInAlert(const juce::Component& c)
     {
-        return dynamic_cast<const juce::AlertWindow*>(c.getParentComponent()) != nullptr;
+        return dynamic_cast<const juce::AlertWindow*>(c.getParentComponent()) != nullptr
+            || static_cast<int>(c.getProperties().getWithDefault(c_dialogButtonProperty, 0)) > 0;
+    }
+
+    // The accent of the dialog a button is in: its alert's kind, or the one given to setDrawnAsDialogButton().
+    juce::Colour dialogAccent(const juce::Button& b)
+    {
+        if (auto* alert = dynamic_cast<const juce::AlertWindow*>(b.getParentComponent()))
+            return SubbertoneLookAndFeel::accentFor(alert->getAlertType());
+
+        if (const auto* stored = b.getProperties().getVarPointer(c_dialogAccentProperty))
+            return juce::Colour(static_cast<juce::uint32>(static_cast<juce::int64>(*stored)));
+
+        return output;
     }
 
     // A text button with a transparent fill is a text link (the About window's website and e-mail).
@@ -254,6 +270,36 @@ bool SubbertoneLookAndFeel::shouldShowFocusRing(const juce::Component& c)
 
     const auto* window = c.getTopLevelComponent();
     return static_cast<bool>(window->getProperties().getWithDefault(c_focusRingsProperty, false));
+}
+
+void SubbertoneLookAndFeel::setDrawnAsDialogButton(juce::Button& button, bool primary, juce::Colour accent)
+{
+    button.getProperties().set(c_dialogButtonProperty, primary ? 2 : 1);
+    button.getProperties().set(c_dialogAccentProperty, static_cast<juce::int64>(accent.getARGB()));
+    button.repaint();
+}
+
+juce::Rectangle<float> SubbertoneLookAndFeel::drawDialogCard(juce::Graphics& g, juce::Rectangle<float> bounds,
+                                                             const juce::String& title, juce::Colour accent) const
+{
+    // As drawAlertBox(): a panel like the editor's sections, with no icon.
+    g.setColour(findColour(juce::AlertWindow::backgroundColourId));
+    g.fillRoundedRectangle(bounds, c_dialogRadius);
+    g.setColour(findColour(juce::AlertWindow::outlineColourId));
+    g.drawRoundedRectangle(bounds.reduced(0.5f), c_dialogRadius, 1.0f);
+
+    auto header = bounds.withHeight(c_dialogHeaderHeight).reduced(14.0f, 0.0f);
+    g.setColour(accent);
+    g.fillEllipse(header.removeFromLeft(6.0f).withSizeKeepingCentre(6.0f, 6.0f));
+    header.removeFromLeft(8.0f);
+    const auto titleFont = m_fonts.heading(11.5f);
+    g.setFont(titleFont);
+    g.setColour(text.withAlpha(0.85f));
+    g.drawText(fitToWidth(titleFont, title.toUpperCase(), header.getWidth()), header, juce::Justification::centredLeft, false);
+    g.setColour(outlineSoft);
+    g.fillRect(juce::Rectangle<float>(bounds.getX() + 12.0f, bounds.getY() + c_dialogHeaderHeight, bounds.getWidth() - 24.0f, 1.0f));
+
+    return bounds.withTrimmedTop(c_dialogHeaderHeight + 1.0f);
 }
 
 void SubbertoneLookAndFeel::setLabelDrawnInCapitals(juce::Button& button)
@@ -494,6 +540,9 @@ juce::PopupMenu::Options SubbertoneLookAndFeel::getOptionsForComboBoxPopupMenu(j
 //==============================================================================
 bool SubbertoneLookAndFeel::isPrimaryDialogButton(const juce::Button& button)
 {
+    if (static_cast<int>(button.getProperties().getWithDefault(c_dialogButtonProperty, 0)) == 2)
+        return true;
+
     return isInAlert(button) && button.isRegisteredForShortcut(juce::KeyPress(juce::KeyPress::returnKey));
 }
 
@@ -511,15 +560,12 @@ void SubbertoneLookAndFeel::drawButtonBackground(juce::Graphics& g, juce::Button
     auto fill = backgroundColour;
     auto edge = isMouseOverButton && enabled ? textDim : outline;
 
-    if (auto* alert = dynamic_cast<juce::AlertWindow*>(button.getParentComponent()))
+    // The Return-key button is the dialog's primary action, tinted like LIMIT / LO CUT when on.
+    if (isPrimaryDialogButton(button))
     {
-        // The Return-key button is the dialog's primary action, tinted like LIMIT / LO CUT when on.
-        if (isPrimaryDialogButton(button))
-        {
-            const auto accent = accentFor(alert->getAlertType());
-            fill = accent.withAlpha(0.28f);
-            edge = isMouseOverButton ? accent : accent.withAlpha(0.6f);
-        }
+        const auto accent = dialogAccent(button);
+        fill = accent.withAlpha(0.28f);
+        edge = isMouseOverButton ? accent : accent.withAlpha(0.6f);
     }
 
     if (!enabled)
@@ -530,8 +576,7 @@ void SubbertoneLookAndFeel::drawButtonBackground(juce::Graphics& g, juce::Button
 
     if (shouldShowFocusRing(button))
     {
-        auto* alert = dynamic_cast<juce::AlertWindow*>(button.getParentComponent());
-        g.setColour(alert != nullptr ? accentFor(alert->getAlertType()) : output);
+        g.setColour(isInAlert(button) ? dialogAccent(button) : output);
         g.drawRoundedRectangle(r.reduced(0.25f), corner, 1.5f);
     }
     else

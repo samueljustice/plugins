@@ -51,6 +51,13 @@ namespace pf
         latchUnvoicedRun = 0;
         relatchPending = false;
         lastRatio = 0.0f;
+        guideOffsetSet = false;
+        guideUsable = false;
+        ownJumped = guideJumped = false;
+        lastOwnVoiced = lastGuideCents = 0.0f;
+        std::fill (ownHistory.begin(), ownHistory.end(), 0.0f);
+        guideOffset = 0.0f;
+        lastGuideFrame = -1000000;
         telemetry = TelemetryFrame {};
     }
 
@@ -322,6 +329,52 @@ namespace pf
             out.cents = (float) (sum / wsum);
     }
 
+    bool PitchTracker::guideOverrides (const Filled& own, float guideCents)
+    {
+        // The guide repairs hops onto another partial; where the plugin's own track is on the same line
+        // (within a semitone and a half), the own track's finer detail is kept.
+        constexpr float sameLineCents = 150.0f;
+        return own.flag == None || std::abs (guideCents - own.cents) > sameLineCents;
+    }
+
+    bool PitchTracker::registerOffset (float ownMinusGuide, float& offset)
+    {
+        // The guide may follow another member of the same family of partials (an octave, a fifth below...).
+        // Its shape is what matters; the register stays the plugin's: snap to the nearest simple ratio.
+        static constexpr float ratios[] = { -2400.0f, -1902.0f, -1200.0f, -702.0f, 0.0f, 702.0f, 1200.0f, 1902.0f, 2400.0f };
+        float best = 0.0f;
+        for (float r : ratios)
+            if (std::abs (ownMinusGuide - r) < std::abs (ownMinusGuide - best))
+                best = r;
+        offset = best;
+        return std::abs (ownMinusGuide - best) < 150.0f;   // no simple ratio: the guide stays out of this stretch
+    }
+
+    bool PitchTracker::guideMayLead (const Filled& own, float guideCents) const
+    {
+        if (! guideOverrides (own, guideCents))
+            return false;               // same line: keep the own track's detail
+        if (guideJumped)
+            return false;               // the guide left the line: trust the own track
+        return own.flag == None || ownJumped;
+    }
+
+    bool PitchTracker::targetTrack (int64_t f, float& cents, float& weight) const
+    {
+        const auto& v = smoothed[(size_t) idx (f)];
+        float g = 0.0f;
+        if (guide != nullptr && guideOffsetSet && guideUsable && lattice[(size_t) idx (f)].rmsDb >= settings.gateDb
+            && guide->lookup (f, g) && guideMayLead (v, g + guideOffset))
+        {
+            cents = g + guideOffset;
+            weight = 1.0f;
+            return true;
+        }
+        cents = v.cents;
+        weight = v.weight;
+        return v.flag == Voiced;
+    }
+
     void PitchTracker::stageTarget (int64_t t)
     {
         const auto& tr = smoothed[(size_t) idx (t)];
@@ -329,7 +382,61 @@ namespace pf
 
         const float releaseFrames = (float) (0.25 / hopSec);
         bool active = tr.flag != None && ! (tr.flag == Held && (float) tr.heldFor > releaseFrames);
-        const float trackCents = tr.cents;
+        float trackCents = tr.cents;
+        bool guided = false;
+        if (guide != nullptr)
+        {
+            // The hindsight line, where there is one, is the pitch being flattened.
+            // A guided stretch takes its register from the plugin's own track at its first voiced frame, and
+            // ends after a second without the guide (also for the lookahead reads in targetTrack).
+            if (t - lastGuideFrame > (int64_t) (1.0 / hopSec))
+            {
+                guideOffsetSet = false;
+                ownJumped = guideJumped = false;
+            }
+            float g = 0.0f;
+            const bool haveGuide = guide->lookup (t, g);
+            ownHistory[(size_t) idx (t)] = tr.flag != None ? tr.cents : 0.0f;
+            if (! haveGuide)
+                lastGuideCents = 0.0f;
+            if (haveGuide)
+            {
+                lastGuideFrame = t;
+                if (! guideOffsetSet && tr.flag == Voiced)
+                {
+                    guideUsable = registerOffset (tr.cents - g, guideOffset);
+                    guideOffsetSet = true;
+                }
+                if (guideOffsetSet && guideUsable)
+                {
+                    const float gc = g + guideOffset;
+                    if (tr.flag != None && std::abs (gc - tr.cents) <= 150.0f)
+                        ownJumped = guideJumped = false;   // back on the same line
+                    else
+                    {
+                        // Which of the two left the line? The own track is smoothed, so a hop shows over ~30 ms (or
+                        // across a gap, against its last voiced value); the guide is not, so a hop of its own is a
+                        // step from one frame to the next, which a fast glide never makes.
+                        const int64_t back = t - 6;
+                        const float ownBefore = back >= 0 && ownHistory[(size_t) idx (back)] != 0.0f ? ownHistory[(size_t) idx (back)]
+                                                                                                      : lastOwnVoiced;
+                        if (tr.flag != None && ownBefore != 0.0f && std::abs (tr.cents - ownBefore) > 150.0f)
+                            ownJumped = true;
+                        if (lastGuideCents != 0.0f && std::abs (gc - lastGuideCents) > 60.0f)
+                            guideJumped = true;
+                    }
+                    lastGuideCents = gc;
+                    // Never past the Gate: a frame the user gated out stays uncorrected, whatever the guide says.
+                    guided = L.rmsDb >= settings.gateDb && guideMayLead (tr, gc);
+                }
+            }
+            if (tr.flag == Voiced || tr.flag == Interp)
+                lastOwnVoiced = tr.cents;
+            if (guided)
+                trackCents = g + guideOffset;
+            active = active || guided;
+            guide->markUsed (t);
+        }
 
         // --- latch state -----------------------------------------------------
         // Manual Override replaces the target, so nothing is latched while it is on: turning it off
@@ -340,7 +447,7 @@ namespace pf
             relatchPending = false;
         }
 
-        if (tr.flag == Voiced || tr.flag == Interp)
+        if (tr.flag == Voiced || tr.flag == Interp || guided)
             latchUnvoicedRun = 0;
         else if (++latchUnvoicedRun > (int64_t) (1.0 / hopSec))
             latched = false;    // a new sound after >1 s of silence re-latches
@@ -367,10 +474,10 @@ namespace pf
                 {
                     const int64_t f = t + k;
                     if (f < 0) continue;
-                    const auto& v = smoothed[(size_t) idx (f)];
-                    if (v.flag != Voiced && v.flag != Interp) continue;
-                    const double w = std::exp (-(float) (k * k) * inv2s2) * v.weight;
-                    sum += w * v.cents;
+                    float c = 0.0f, wt = 0.0f;
+                    if (! targetTrack (f, c, wt) && smoothed[(size_t) idx (f)].flag != Interp) continue;
+                    const double w = std::exp (-(float) (k * k) * inv2s2) * wt;
+                    sum += w * c;
                     wsum += w;
                 }
                 target = wsum > 0.0 ? (float) (sum / wsum) : trackCents;
@@ -388,8 +495,9 @@ namespace pf
                     // lock to the median of the ~300 ms from there. Otherwise the start of every sound would play
                     // uncorrected until that first confident frame came round, then snap to the latch.
                     int first = -1;
+                    float c = 0.0f, wt = 0.0f;
                     for (int k = 0; k <= targetLag && first < 0; ++k)
-                        if (smoothed[(size_t) idx (t + k)].flag == Voiced)
+                        if (targetTrack (t + k, c, wt))
                             first = k;
 
                     if (first >= 0)
@@ -399,9 +507,8 @@ namespace pf
                         int n = 0;
                         for (int k = first; k <= last && n < (int) scratch.size(); k += stride)
                         {
-                            const auto& v = smoothed[(size_t) idx (t + k)];
-                            if (v.flag == Voiced)
-                                scratch[(size_t) n++] = v.cents;
+                            if (targetTrack (t + k, c, wt))
+                                scratch[(size_t) n++] = c;
                         }
                         latchedCents = n > 0 ? medianOf (scratch.data(), n) : trackCents;
                         latched = true;

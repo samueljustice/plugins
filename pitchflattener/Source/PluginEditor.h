@@ -3,7 +3,10 @@
 #include <JuceHeader.h>
 #include "PitchFlattenerLookAndFeel.h"
 #include "PluginProcessor.h"
+#include "SammyJUpdateCheck.h"
 #include "Theme.h"
+
+class UpdatePopup;
 
 //==============================================================================
 /**
@@ -24,6 +27,9 @@ public:
     void paint (juce::Graphics&) override;
     void resized() override;
 
+    /** Shows the "new version available" popup over everything in the editor (the update check calls it). */
+    void showUpdatePopup (const sammyj::UpdateInfo&);
+
     static constexpr int baseWidth = 1000;
     static constexpr int baseHeight = 640;
 
@@ -42,6 +48,8 @@ private:
     PitchFlattenerLookAndFeel m_lookAndFeel; // before every component, menu, alert and window that uses it
     std::unique_ptr<Content> m_content;
     EditorTooltipWindow m_tooltipWindow { *this }; // after m_lookAndFeel, so it is deleted first
+    std::unique_ptr<UpdatePopup> m_updatePopup;
+    std::unique_ptr<sammyj::UpdateCheck> m_updateCheck; // after m_updatePopup: stopped before anything its callback touches goes
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (PitchFlattenerAudioProcessorEditor)
 };

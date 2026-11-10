@@ -1,6 +1,7 @@
 #pragma once
 
 #include <algorithm>
+#include <iterator>
 #include "FlattenerTypes.h"
 
 namespace pf
@@ -20,27 +21,41 @@ namespace pf
         bool formant;
         int quality;              // 0 = Smooth (standard window), 1 = Tight (short window)
         float maxShiftSemitones;  // sirens often switch between patterns far apart in pitch (yelp, two-tone, wail)
+        float shiftBelowHz;       // 0 = shift everything; else only below this (an engine's fixed resonances stay put)
     };
+
+    /** The order Source Types are listed in menus and factory presets (Engine Run-up sits next to Engine / Doppler). */
+    inline constexpr SourceType sourceTypeMenuOrder[] = {
+        SourceType::Vocal, SourceType::Instrument, SourceType::Siren, SourceType::Whistle, SourceType::Engine,
+        SourceType::EngineRunup, SourceType::Drone, SourceType::NoisyField, SourceType::Custom
+    };
+    static_assert (std::size (sourceTypeMenuOrder) == (size_t) SourceType::NumSourceTypes);
+
+    /** The Shift Below parameter's top value, which means Off. */
+    inline constexpr float shiftBelowOffHz = 20000.0f;
+    inline float shiftBelowFromParam (float v) { return v >= shiftBelowOffHz - 1.0f ? 0.0f : v; }
 
     inline const SourcePreset& getSourcePreset(SourceType t)
     {
         static const SourcePreset presets[] = {
             { "Vocal / Speech", "pYIN with an HMM tracker. Voices, singing, vocal-like calls.",
-              DetectorType::PYin,         60.0f, 1000.0f, 0.50f, 12.0f, 15.0f, 150.0f,   50.0f,  4000.0f, true, 0, 12.0f },
+              DetectorType::PYin,         60.0f, 1000.0f, 0.50f, 12.0f, 15.0f, 150.0f,   50.0f,  4000.0f, true, 0, 12.0f, 0.0f },
             { "Instrument",     "McLeod pitch method. Solo melodic instruments, vibrato, warble.",
-              DetectorType::Mpm,          40.0f, 2500.0f, 0.50f, 16.0f, 10.0f, 150.0f,   30.0f,  8000.0f, false, 0, 12.0f },
+              DetectorType::Mpm,          40.0f, 2500.0f, 0.50f, 16.0f, 10.0f, 150.0f,   30.0f,  8000.0f, false, 0, 12.0f, 0.0f },
             { "Siren",          "Spectral peaks with MPM. Wail, yelp, hi-lo and electronic sweeps.",
-              DetectorType::SpectralMpm,  300.0f, 3000.0f, 0.50f, 30.0f,  8.0f, 300.0f,  200.0f, 10000.0f, false, 1, 24.0f },
-            { "Whistle / Tone", "Long-window spectral peaks. Whistles, feedback, test tones, theremin.",
-              DetectorType::SpectralPeak, 150.0f, 6000.0f, 0.50f,  8.0f, 20.0f, 300.0f,  100.0f, 11000.0f, false, 0, 12.0f },
+              DetectorType::SpectralMpm,  300.0f, 3000.0f, 0.50f, 30.0f,  8.0f, 300.0f,  200.0f, 10000.0f, false, 1, 24.0f, 0.0f },
+            { "Whistle / Tone", "Spectral peaks with MPM. Whistles, feedback, test tones, theremin.",
+              DetectorType::SpectralMpm,  150.0f, 6000.0f, 0.30f,  8.0f, 20.0f, 300.0f,  100.0f, 11000.0f, false, 0, 24.0f, 0.0f },
             { "Engine / Doppler", "Harmonic sum spectrum. Engines, pass-bys, props, motors, trains.",
-              DetectorType::HarmonicSum,   25.0f, 1000.0f, 0.50f,  4.0f, 30.0f, 400.0f,   20.0f,  5000.0f, false, 0, 12.0f },
+              DetectorType::HarmonicSum,   25.0f, 1000.0f, 0.50f,  4.0f, 30.0f, 400.0f,   20.0f,  5000.0f, false, 0, 12.0f, 0.0f },
             { "Drone / Hum",    "Very stable harmonic tracking for hums, generators and drones.",
-              DetectorType::HarmonicSum,   25.0f,  400.0f, 0.50f,  1.0f, 50.0f, 400.0f,   20.0f,  3000.0f, false, 0, 12.0f },
+              DetectorType::HarmonicSum,   25.0f,  400.0f, 0.50f,  6.0f, 50.0f, 400.0f,   20.0f,  3000.0f, false, 0, 24.0f, 0.0f },
             { "Noisy Field",    "Harmonic sum with strict voicing for rough field recordings.",
-              DetectorType::HarmonicSum,   40.0f, 1500.0f, 0.35f,  4.0f, 40.0f, 400.0f,   40.0f,  6000.0f, false, 0, 12.0f },
+              DetectorType::HarmonicSum,   40.0f, 1500.0f, 0.35f,  4.0f, 40.0f, 400.0f,   40.0f,  6000.0f, false, 0, 12.0f, 0.0f },
             { "Custom",         "Choose the detector and every setting yourself.",
-              DetectorType::SpectralPeak, 100.0f, 2000.0f, 0.50f,  8.0f, 15.0f, 200.0f,   40.0f,  8000.0f, false, 0, 12.0f },
+              DetectorType::SpectralPeak, 100.0f, 2000.0f, 0.50f,  8.0f, 15.0f, 200.0f,   40.0f,  8000.0f, false, 0, 12.0f, 0.0f },
+            { "Engine Run-up",  "Harmonic sum with a hindsight guide; the band above 1.2 kHz stays unshifted. Revs and run-ups.",
+              DetectorType::HarmonicSum,   25.0f, 1000.0f, 0.50f,  4.0f, 30.0f, 400.0f,   20.0f,  5000.0f, false, 0, 36.0f, 1200.0f },
         };
 
         auto i = std::clamp((int) t, 0, (int) SourceType::NumSourceTypes - 1);
