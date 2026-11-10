@@ -94,17 +94,31 @@ Every control has a tooltip: hover over it to see what it does, and where its us
 
 ### The dice
 
-<img src="docs/panel-roll-all.png" alt="RANDOMISE ALL: a die in the empty slot after the last module, above the connector into OUTPUT" width="152">
+Three kinds of die roll new settings: one beside the preset name, one after the last module, and one on every module.
 
-Three kinds of die roll new settings. Each roll is one step you can take back: right-click any die for **Undo** and **Redo** (with the keyboard, Shift+F10 on a die opens the same menu), or press Cmd+Z (Ctrl+Z on Windows) straight after clicking a die, and Shift+Cmd+Z (Shift+Ctrl+Z) to redo. Once you use another control, these keys go back to the host's own undo; some hosts keep them for themselves anyway, and the right-click menu always works. Undo takes back only what the roll changed, and a knob you turned afterwards stays where you put it, even one the roll had changed. Loading a preset or session, even the same one again, ends the history. The host sees every control a roll changes, so it records the roll and its automation follows.
+<img src="docs/dice-preset-tooltip.png" alt="The preset bar with the pointer on the die after the next-preset arrow and its tooltip: Loads a random factory preset, never the one showing. Every factory preset comes up once before any comes up again. Right-click any die to undo a roll (or press Cmd+Z straight after clicking it)." width="397">
+
+<img src="docs/dice-roll-all-tooltip.png" alt="RANDOMISE ALL, the die in the empty slot after the last module, under the pointer with its tooltip: Rolls a new creature: turns three to seven modules on (the rest off) and gives every module's knobs and modes new settings, each inside its useful range. The module order, IN and OUTPUT stay as they are, so the level stays safe." width="509">
+
+<img src="docs/dice-module-tooltip.png" alt="PITCH's small die, beside its SHIFT · FOLLOW mode chip, under the pointer with its tooltip: Rolls new settings for PITCH: its knobs and modes, each inside its useful range. Its On switch and its place in the chain stay as they are." width="556">
+
+Each roll is one step you can take back: right-click any die for **Undo** and **Redo** (with the keyboard, Shift+F10 on a die opens the same menu), or press Cmd+Z (Ctrl+Z on Windows) straight after clicking a die, and Shift+Cmd+Z (Shift+Ctrl+Z) to redo. Once you use another control, these keys go back to the host's own undo; some hosts keep them for themselves anyway, and the right-click menu always works. Undo takes back only what the roll changed, and a knob you turned afterwards stays where you put it, even one the roll had changed. Loading a preset or session, even the same one again, ends the history. The host sees every control a roll changes, so it records the roll and its automation follows.
 
 - **Random preset** (the die beside the preset name): loads a random factory preset, never the one showing. Every factory preset comes up once before any comes up again.
 - **Randomise all** (the die after the last module): a new creature. It turns three to seven modules on and the rest off (at least two of them ones that change the voice, not only CLEAN, DE-ESS, DETAIL and TAME), and gives every module's knobs and modes new settings. The preset name shows `*`, as for any edit.
 - **A module's die** (beside its mode chip): new settings for that module's knobs and modes only. Its On switch and its place in the chain stay as they are.
 
+<img src="docs/dice-undo-menu.png" alt="The menu from right-clicking RANDOMISE ALL straight after a roll: Undo Roll All, and Redo Roll greyed out" width="200">
+
+One RANDOMISE ALL roll from the Big Bad Narrator preset. Before, PITCH, CLEAN, DE-ESS, DETAIL, ROAR, TAME, SUB, OVERTONE and CHAMBER are on; after, CLEAN, VOCODER, RING, SHIMMER and ENSEMBLE are, every module has new settings, the preset name shows `*`, and the creature has metal plates over its mouth from RING. The module order, IN and OUTPUT are as they were.
+
+<img src="docs/roll-before.jpg" alt="The whole window with the Big Bad Narrator preset playing a voice: PITCH, CLEAN, DE-ESS, DETAIL, ROAR, TAME, SUB, OVERTONE and CHAMBER switched on" width="880">
+
+<img src="docs/roll-after.jpg" alt="The same window after one RANDOMISE ALL roll: the preset name reads Big Bad Narrator *, and CLEAN, VOCODER, RING, SHIMMER and ENSEMBLE are on with new settings while the other modules are off; the creature has grey metal plates over its mouth" width="880">
+
 A roll only lands where a knob is useful: each knob rolls inside the range the [parameter audit](docs/parameter-audit.md) found usable, never into its dead or harmful ends (PITCH −14 to −2 st, Swirl up to 50% and its Deep 6 circuit up to 30%, Ring Freq 60–450 Hz, Chamber 15–65%, and so on), and each mode is picked evenly from its options (Boom leaves out Heavy). The dice never move a module or touch IN or OUTPUT, so the level stays safe: on five real voice takes, 200 rolls each, 998 of the 1,000 rolls played within 3 LU of Init (the other two 3.0 and 3.8 LU quieter), and none went over the ceiling. Knobs glide to their new values and modules fade in and out, so a roll does not click while audio plays.
 
-The close-ups below are from the Kaiju preset; RING and OUTPUT are from Cyber Commander, and CHAMBER from Iron Tyrant. Every knob's travel was measured on real voice recordings and mapped so that all of it does something; the measurements are in [docs/parameter-audit.md](docs/parameter-audit.md).
+The close-ups below are from the Kaiju preset; RING and OUTPUT are from Cyber Commander, and the CHAMBER tiles from the presets named under them. Every knob's travel was measured on real voice recordings and mapped so that all of it does something; the measurements are in [docs/parameter-audit.md](docs/parameter-audit.md).
 
 ### IN
 
@@ -272,8 +286,6 @@ Placed after SUB (the default), OVERTONE also makes SUB's octave audible on smal
 
 ### CHAMBER
 
-<img src="docs/panel-chamber.png" alt="The CHAMBER tile with Amount 60%, Resonance 65%, Edge 60% and Width 50%, in Steel Box with the Horn speaker and Heavy Boom, its footer showing the room's decay" width="152">
-
 CHAMBER plays the voice through a small speaker into a tight, resonant room, then blends it back under the untreated voice. A little gives a voice an edge and a sense of size; more puts it inside a box, a booth or a can. The rooms are small and ringing, not a hall reverb. CHAMBER is Off by default (and in sessions saved before it existed), and sits right after PITCH.
 
 | Control | Range | Default | Description |
@@ -285,6 +297,16 @@ CHAMBER plays the voice through a small speaker into a tight, resonant room, the
 | **Room** | 8 rooms (below) | Concrete Room | The room the speaker plays into. |
 | **Speaker** | Tiny / Small / Horn | Small | The speaker the voice is played through. Tiny is thin and nasal, Small a compact full-range box, Horn a narrow, honking paging horn. |
 | **Boom** | Off / Light / Medium / Heavy | Light | Low-end weight added after the whole chain, a shelf at 110 Hz: Light +3 dB, Medium +6 dB, Heavy +9 dB. |
+
+The mode chip shows the room, the speaker and the Boom, shortened to fit (CONC · SML · LGT is Concrete Room, Small, Light). Click it for a menu with one list for each, the current choice ticked. When CHAMBER is on, its footer shows the room and how long it rings at the current Resonance.
+
+<img src="docs/chamber-off.png" alt="CHAMBER Off, as in Init: dimmed knobs at Amount 50%, Reson 40%, Edge 30% and Width 35%, the chip reading CONC · SML · LGT and the footer OFF" width="152"> <img src="docs/chamber-simple-size.png" alt="CHAMBER in Simple Size: Amount 30%, Reson 30%, Edge 15%, Width 70%, Resonant Chamber with the Small speaker and Medium Boom, the footer showing the room ringing for 0.62 s" width="152"> <img src="docs/chamber-tin-can-drone.png" alt="CHAMBER in Tin Can Drone: Amount 75%, Reson 90%, Edge 40%, Width 30%, Tin Booth with the Tiny speaker and Boom Off, the footer showing 0.82 s" width="152"> <img src="docs/panel-chamber.png" alt="CHAMBER in Iron Tyrant: Amount 60%, Reson 65%, Edge 60%, Width 50%, Steel Box with the Horn speaker and Heavy Boom, the footer showing the room's decay" width="152">
+
+<img src="docs/chamber-menu-room.png" alt="CHAMBER's mode menu with its Room list open: Steel Box, Resonant Chamber (ticked), Concrete Room, Tin Booth, Padded Cell, Wood Chamber, Timber Room and Soft Bloom; the main menu lists Room (Resonant Chamber), Speaker (Small) and Boom (Medium)" width="441">
+
+<img src="docs/chamber-menu-speaker.png" alt="CHAMBER's Speaker list: Tiny, Small (ticked) and Horn" width="363"> <img src="docs/chamber-menu-boom.png" alt="CHAMBER's Boom list: Off, Light, Medium (ticked) and Heavy" width="369">
+
+<img src="docs/chamber-tooltip-edge.png" alt="The tooltip over CHAMBER's Edge knob: Drives the small speaker into breakup: grit at 15-35 %, a cranked speaker at 50-70 %, torn and buzzing towards 100 %. Heard once Amount is about 60 % or more." width="461"> <img src="docs/chamber-move-menu.png" alt="CHAMBER's ••• menu: CHAMBER (2 of 15), Move to Start, Move Earlier, Move Later, Move to End, Move After, Turn Off, and Reset Chain Order greyed out because the chain is in the default order" width="332">
 
 | Room | Character | Decay (about) |
 |---|---|---|
@@ -326,12 +348,14 @@ The meters show the output level (with the ceiling marked), the limiter's gain r
 The creature above the chain is drawn live in OpenGL from the audio and the controls. It forms out of slowly swirling cloud, all of it seen through a drifting veil of pale, cool blue-grey mist: when the voice comes in, its eyes and mouth glow through first, then the brow and teeth, then the head, and the cloud condenses into a mirror-symmetric blot of ink smoke that reads through the mist as a soft dark shape. The mist thins a little around the eyes and on loud roars but never clears. When it goes quiet the face softens back into fog, with the eyes the last to fade.
 
 <img src="docs/view-asleep.jpg" alt="Silence: pale blue-grey cloud drifting under a thick veil of mist, with no face in it" width="400"> <img src="docs/view-forming.jpg" alt="The voice comes in: two small amber eyes and the line of a mouth gather out of the mist first" width="400">
-<img src="docs/view-talking.jpg" alt="Early on, talking: a faint smoky face in the mist with large amber eyes and a small toothy mouth glowing in its throat" width="400"> <img src="docs/view-liquid.jpg" alt="After a few minutes of roaring with Liquid Beast: a dark, smoky head seen through the mist, with slit eyes and a wide maw of needle teeth around a red-glowing throat" width="400">
-<img src="docs/view-horned.jpg" alt="Later, with Kaiju: a heavier head with broad smoke wings spreading through the mist and the vocoder's fan of ridges under its jaw" width="400"> <img src="docs/view-crown.jpg" alt="After a long, loud session: extra eyes open on its brow and cheeks, and pale rings show in its wings" width="400">
+<img src="docs/view-talking.jpg" alt="Early on, talking: a round smoky head in the mist with slit amber eyes and a small mouth of teeth glowing orange in its throat" width="400"> <img src="docs/view-liquid.jpg" alt="After a few minutes of roaring with Liquid Beast: a dark, smoky head seen through the mist with swept-out wisps of smoke at its sides, slit eyes and a wide maw of needle teeth around a glowing throat" width="400">
+<img src="docs/view-horned.jpg" alt="Later, with Kaiju: a heavier head with broad smoke wings spreading through the mist, faint creases on its brow and the vocoder's fan of ridges under its jaw" width="400"> <img src="docs/view-crown.jpg" alt="After a long, loud session: extra eyes open on its brow and cheeks, and its smoke wings spread wide with ragged edges" width="400">
 
 **It evolves.** Sustained intensity (loud, heated, growling, driven sound, not just high knob settings) slowly grows it from a pale pressed blot into something larger: a soft moth-like spirit, a horned beast, a dripping liquid horror, a winged and horned wyrm, and finally a many-eyed thing with a crown of spines. The stages blend into each other and never switch: horns and spines grow out of the head, extra eyes open from creases in the skin, and the change takes minutes, not seconds. Quiet lets it cool and settle back over minutes. A long, hard session leaves its mark: it only drifts all the way home after a long stretch of quiet. Which modules carry the sound also leans its character: SHIMMER, SWIRL and ENSEMBLE make it more fluid, ROAR, GROWL and the clipper more bestial, the VOCODER, RING and OVERTONE more eldritch, and SUB, a low PITCH and a straining limiter heavier and darker. Every instance grows its own creature, and the creature and how far it has evolved are saved with the session.
 
 Right-click the creature for **Evolution: Live** (it keeps evolving), **Evolution: Frozen** (it holds its current form; it still moves with the voice) and **Reset creature** (it eases back to a blot over a few seconds and grows a new one).
+
+<img src="docs/creature-menu.jpg" alt="The creature's right-click menu under the lower-left corner of the view: a Creature heading, Evolution: Live (ticked), Evolution: Frozen and Reset creature" width="420">
 
 On top of whatever form it has taken, every module still shows on it:
 
@@ -350,6 +374,12 @@ Use the arrows either side of the preset name to step through presets, or click 
 
 <img src="docs/header.png" alt="The preset bar: the previous and next arrows, the preset name (Kaiju), the random-preset die, SAVE and the About button" width="500">
 
+The list opens with Init, then one submenu per group, with the current preset ticked in its group. Your own presets are under USER.
+
+<img src="docs/preset-menu-machines.png" alt="The preset list open from the preset name, with Cyber Commander loaded: FACTORY with Init and the Creatures, Voices, Machines, Signal Flow, Vocoder and Utility groups, then USER, Save As, Delete and Show Presets Folder; the Machines group is open, listing Cyber Commander (ticked), Respirator Rasp, Rasp Machine, Robot Ogre, Iron Tyrant and Tin Can Drone" width="467">
+
+<img src="docs/preset-menu-creatures.png" alt="The Creatures group open with Symbiote ticked: Symbiote, Liquid Beast, Gravel Throat, Cave Troll, Kaiju, Gargoyle, Hellhound, Golem, Kraken and Throat Singer" width="452"> <img src="docs/preset-menu-voices.png" alt="The Voices group open with Simple Size ticked: Big Bad Narrator, Demon Whisper, Giant, Possessed, Ogre Radio and Simple Size" width="474">
+
 | Group | Presets |
 |---|---|
 | | Init (every control at its default: a slightly lower, bigger voice with a light wobble, growl, tube edge, sub and overtones) |
@@ -361,6 +391,11 @@ Use the arrows either side of the preset name to step through presets, or click 
 | **Utility** | Detail Only, Subtle Size, Clean Lift, Loud & Contained, Crunch Lift, Smashed, Phone Monster |
 
 Every preset sets every control, including the module order. The Signal Flow presets move modules to show what a placement does: for example, Tar Pit drives and chops the voice before PITCH lowers it, and Breathing Walls puts DETAIL last, so it lifts every tail and breath the other modules make.
+
+A few contrasting presets, each playing the same voice (the creature is shown at a different stage of growth in each):
+
+<img src="docs/preset-simple-size.jpg" alt="Simple Size: PITCH at -1 st, CLEAN, DE-ESS, TAME and CHAMBER on and everything else off; a faint early creature in the mist" width="440"> <img src="docs/preset-cyber-commander.jpg" alt="Cyber Commander: CLEAN, RING, PITCH, ROAR, DE-ESS, DETAIL, GROWL and TAME on, with CLEAN and RING moved ahead of PITCH; the creature has RING's metal plates over its mouth" width="440">
+<img src="docs/preset-symbiote.jpg" alt="Symbiote: PITCH, CLEAN, DE-ESS, SHIMMER, GROWL, SWIRL, ROAR, ENSEMBLE, TAME and SUB on; a dark smoky head with spreading wings and a wide maw of teeth" width="440"> <img src="docs/preset-iron-tyrant.jpg" alt="Iron Tyrant: CHAMBER after ROAR in Steel Box with the Horn speaker, and PITCH, CLEAN, DE-ESS, DETAIL, GROWL, TAME and SUB on; a horned head with broad wings and a glowing maw" width="440">
 
 Each preset's settings sit in the useful part of every knob's travel, as measured in [docs/parameter-audit.md](docs/parameter-audit.md), and every preset except the deliberately loud Utility ones (Loud & Contained, Crunch Lift and Smashed) plays within about 1.5 LU of Init.
 
