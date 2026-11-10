@@ -29,7 +29,7 @@ Want just one? Each plug-in's own download is below, or browse all <a href="http
 | **[Pitch Flattener](#-pitch-flattener)**<br>Removes pitch movement from Doppler passes, sirens and vibrato | **[Reversinator](#-reversinator)**<br>Real-time reverse effects, recreating Backwards Machine |
 
 [<img src="roarschach/docs/screenshot.jpg" width="812" alt="Roarschach">](#-roarschach)<br>
-**[Roarschach](#-roarschach)**<br>Turn a voice into a creature
+**[Roarschach](#-roarschach)**<br>A modular voice processor for exploration and fun
 
 [<img src="soundadvice/docs/screenshot.png" width="812" alt="Sound Advice">](#-sound-advice)<br>
 **[Sound Advice](#-sound-advice)**<br>Advice from film, TV and game sound professionals and other creative people
