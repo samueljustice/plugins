@@ -5,12 +5,12 @@
 **Toys I've made for sound designers.**
 
 <!-- get-them-all:start (written by .github/workflows/build-release_bundle.yml; edits here are replaced) -->
-### ⬇️ Get them all (last built 10 Nov 2026, 12:34 UTC)
+### ⬇️ Get them all (last built 10 Nov 2026, 15:45 UTC)
 
-[![Get them all for macOS](https://img.shields.io/badge/Get_them_all-macOS-000000?style=for-the-badge&logo=apple&logoColor=white)](https://github.com/samueljustice/plugins/releases/download/bundle-v2026.11.10.72/SammyJ-Plugins-2026-11-10-1234-macOS.dmg)
-[![Get them all for Windows](https://img.shields.io/badge/Get_them_all-Windows-0078D6?style=for-the-badge&logo=windows&logoColor=white)](https://github.com/samueljustice/plugins/releases/download/bundle-v2026.11.10.72/SammyJ-Plugins-2026-11-10-1234-Windows-Installer.exe)
+[![Get them all for macOS](https://img.shields.io/badge/Get_them_all-macOS-000000?style=for-the-badge&logo=apple&logoColor=white)](https://github.com/samueljustice/plugins/releases/download/bundle-v2026.11.10.94/SammyJ-Plugins-2026-11-10-1545-macOS.dmg)
+[![Get them all for Windows](https://img.shields.io/badge/Get_them_all-Windows-0078D6?style=for-the-badge&logo=windows&logoColor=white)](https://github.com/samueljustice/plugins/releases/download/bundle-v2026.11.10.94/SammyJ-Plugins-2026-11-10-1545-Windows-Installer.exe)
 
-<sub>One installer with the newest version of every plug-in: Swooshbuckler 1.4.1 · Sound Advice 1.0.12 · Subbertone 1.3.1 · Pitch Flattener 2.3.0 · Reversinator 2.0.3 · Roarschach 1.0.0. The apps, the VST3s and (on macOS) the AUs. It removes older copies first, so nothing shows up twice in your host. To remove them again: on macOS, run Uninstall Sammy J's Plugins from the same disk image; on Windows, use Settings &gt; Apps.<br>
+<sub>One installer with the newest version of every plug-in: Swooshbuckler 1.4.1 · Sound Advice 1.0.12 · Subbertone 1.3.2 · Pitch Flattener 2.3.0 · Reversinator 2.0.3 · Roarschach 1.0.0. The apps, the VST3s and (on macOS) the AUs. It removes older copies first, so nothing shows up twice in your host. To remove them again: on macOS, run Uninstall Sammy J's Plugins from the same disk image; on Windows, use Settings &gt; Apps.<br>
 Want just one? Each plug-in's own download is below, or browse all <a href="https://github.com/samueljustice/plugins/releases">releases</a>.</sub>
 <!-- get-them-all:end -->
 
@@ -108,7 +108,7 @@ Subbertone follows the pitch of your bass, engine or drone and adds a clean sub 
 </details>
 
 **VST3** (macOS, Windows) · **AU** (macOS) &nbsp;&nbsp;
-[![Download Subbertone](https://img.shields.io/badge/download-v1.3.1-d00a35?style=flat-square)](https://github.com/samueljustice/plugins/releases/tag/subbertone-v1.3.1) &nbsp;
+[![Download Subbertone](https://img.shields.io/badge/download-v1.3.2-d00a35?style=flat-square)](https://github.com/samueljustice/plugins/releases/tag/subbertone-v1.3.2) &nbsp;
 [Read the manual →](subbertone/README.md)
 
 ---
