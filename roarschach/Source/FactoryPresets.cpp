@@ -475,6 +475,56 @@ const std::vector<PresetManager::FactoryPreset>& PresetManager::getFactoryPreset
             .ov(on, 25.0f, 0.0f, pat::tracked, om::add)
             .out(7.0f, -1.0f, 0.0f, 0.0f, 2.0f, 60.0f, on, 100.0f)),
 
+        // A dry, human horror throat: no pitch change and no space. A narrow radio band and a lean,
+        // raised speaker resonance cut the voice down to its mid-range screech, quiet mouth clicks
+        // and wet noises are lifted and bounce back fast, and a gritty rattle chops faster as the
+        // voice gets louder. Built for a performed screech and inhaled vocal-fry clicks, not for
+        // plain speech.
+        preset("Spore Throat", "Creatures", Sound()
+            .order("PI CH CL DS DT VO RM SH GR SW RO EN TA SU OV")
+            .in(0.0f, on)
+            .pi(off, 0.0f, 0.0f, 1.0f, pm::shift, fm::keep)
+            .cl(on, 40.0f, 30.0f, tone::radio)
+            .ds(on, 15.0f, ds::split)
+            .dt(on, 60.0f, 40.0f, spd::snappy)
+            .vo(off, 41.0f, oct::down1)
+            .rm(off, 40.0f, 150.0f, 1.0f, car::sine, trk::fixed, rmode::ring, body::off)
+            .sh(off, 18.0f, 11.0f, sh::up)
+            .gr(on, 50.0f, 10.0f, shape::rattle, chr::grind)
+            .sw(off, 21.0f, 0.35f, circ::liquid4, mot::lfoLevel)
+            .ro(on, 40.0f, 90.0f, vc::mic)
+            .en(off, 10.0f, 10.0f, voices::three, emot::medium)
+            .ta(off, 10.0f)
+            .su(off, 49.0f, 20.0f, reg::follow, sc::clean)
+            .ov(on, 70.0f, 1.0f, pat::speaker, om::lean)
+            .ch(off, 50.0f, 40.0f, 30.0f, 35.0f, room::concreteRoom, spk::small, boom::off)
+            .out(8.5f, -1.0f, 0.0f, 0.0f, 2.0f, 60.0f, on, 100.0f)),
+
+        // Enormous but articulate: the voice eight semitones down with the throat lowered on its own,
+        // so the consonants stay crisp, over a gravelly two-octave vocoder bed, a light rumble that
+        // quickens on loud words, a tight octave and bass-tilted warmth with overtone weight.
+        // Breaths between lines are kept and lifted, and the whole beast rings in a wide, hard
+        // chamber.
+        preset("Hoarse Hoarder", "Creatures", Sound()
+            .order("PI CL DS DT RO VO GR TA SU OV RM SH SW EN CH")
+            .in(0.0f, on)
+            .pi(on, -8.0f, 45.0f, 10.0f, pm::shift, fm::keep)
+            .cl(on, 25.0f, 25.0f, tone::voice)
+            .ds(on, 30.0f, ds::split)
+            .dt(on, 55.0f, 35.0f, spd::natural)
+            .vo(on, 30.0f, oct::down2)
+            .rm(off, 40.0f, 150.0f, 1.0f, car::sine, trk::fixed, rmode::ring, body::off)
+            .sh(off, 18.0f, 11.0f, sh::up)
+            .gr(on, 22.0f, 28.0f, shape::rattle, chr::warm)
+            .sw(off, 21.0f, 0.35f, circ::liquid4, mot::lfoLevel)
+            .ro(on, 35.0f, -45.0f, vc::line)
+            .en(off, 10.0f, 10.0f, voices::three, emot::medium)
+            .ta(off, 8.0f)
+            .su(on, 30.0f, 20.0f, reg::tight, sc::clean)
+            .ov(on, 35.0f, 0.0f, pat::chest, om::add)
+            .ch(on, 55.0f, 75.0f, 0.0f, 100.0f, room::resonantChamber, spk::small, boom::off)
+            .out(8.0f, -1.0f, 0.0f, 0.0f, 2.0f, 60.0f, on, 100.0f)),
+
         // VOICES (intelligibility first) ----------------------------------------------------------
         // A huge but clear storyteller in a warm wooden room.
         preset("Big Bad Narrator", "Voices", Sound()
@@ -600,6 +650,56 @@ const std::vector<PresetManager::FactoryPreset>& PresetManager::getFactoryPreset
             .ov(off, 4.0f, 0.0f, pat::chest, om::add)
             .ch(on, 30.0f, 30.0f, 15.0f, 70.0f, room::resonantChamber, spk::small, boom::medium)
             .out(7.0f, -1.0f, 0.0f, 0.0f, 2.0f, 60.0f, on, 100.0f)),
+
+        // A deep, creaking villain: the voice stays at its own pitch and in the centre (the throat
+        // only slightly lower), is levelled in several light stages so no one stage works hard, and
+        // gets low-end girth from a bass-tilted tube and a tight, clean octave underneath that never
+        // outweighs it. Mouth clicks and creak are lifted, the top is only softened, and the whole
+        // voice, octave included, rings in a wide room around it, kept low enough that every word
+        // still reads.
+        preset("Upside Down", "Voices", Sound()
+            .order("CL DS DT PI RO TA SU EN OV VO RM SH GR SW CH")
+            .in(0.0f, on)
+            .pi(on, 0.0f, 20.0f, 6.0f, pm::shift, fm::keep)
+            .cl(on, 45.0f, 25.0f, tone::flat)
+            .ds(on, 20.0f, ds::split)
+            .dt(on, 50.0f, 45.0f, spd::natural)
+            .vo(off, 41.0f, oct::down1)
+            .rm(off, 40.0f, 150.0f, 1.0f, car::sine, trk::fixed, rmode::ring, body::off)
+            .sh(off, 18.0f, 11.0f, sh::up)
+            .gr(off, 25.0f, 27.0f, shape::sine, chr::warm)
+            .sw(off, 15.0f, 0.2f, circ::liquid4, mot::lfo)
+            .ro(on, 25.0f, -25.0f, vc::line)
+            .en(on, 12.0f, 70.0f, voices::three, emot::slow)
+            .ta(on, 5.0f)
+            .su(on, 18.0f, 20.0f, reg::tight, sc::clean)
+            .ov(off, 4.0f, 0.0f, pat::chest, om::add)
+            .ch(on, 32.0f, 70.0f, 0.0f, 100.0f, room::concreteRoom, spk::small, boom::off)
+            .out(6.0f, -1.0f, 0.0f, 0.0f, 2.0f, 60.0f, on, 100.0f)),
+
+        // A commanding voice from inside the listener: an octave down, then played through a
+        // speaker into a small concrete room that rattles, with a heavy low-end thump and a light
+        // tight octave, a crowd of slow voices and a croaky throat, the room between words gated
+        // out, and blended half and half with the natural voice, which stays on top.
+        preset("Use Your Words", "Voices", Sound()
+            .order("PI CH CL DS DT RO GR EN TA SU OV VO RM SH SW")
+            .in(0.0f, on)
+            .pi(on, -12.0f, 0.0f, 10.0f, pm::shift, fm::follow)
+            .cl(on, 35.0f, 45.0f, tone::voice)
+            .ds(on, 45.0f, ds::split)
+            .dt(on, 40.0f, 20.0f, spd::natural)
+            .vo(off, 41.0f, oct::down1)
+            .rm(off, 40.0f, 150.0f, 1.0f, car::sine, trk::fixed, rmode::ring, body::off)
+            .sh(off, 18.0f, 11.0f, sh::up)
+            .gr(on, 20.0f, 27.0f, shape::throat, chr::warm)
+            .sw(off, 21.0f, 0.35f, circ::liquid4, mot::lfoLevel)
+            .ro(on, 30.0f, -10.0f, vc::line)
+            .en(on, 40.0f, 50.0f, voices::six, emot::slow)
+            .ta(on, 40.0f)
+            .su(on, 20.0f, 20.0f, reg::tight, sc::resonant)
+            .ov(off, 4.0f, 0.0f, pat::chest, om::add)
+            .ch(on, 65.0f, 30.0f, 35.0f, 70.0f, room::concreteRoom, spk::small, boom::heavy)
+            .out(8.5f, -1.0f, 0.0f, 0.0f, 2.0f, 60.0f, on, 50.0f)),
 
         // MACHINES (ring-modulated voices) --------------------------------------------------------
         // A yelled voice pushed through a struggling machine larynx: tone-shaped, ring-modulated in a
@@ -729,6 +829,56 @@ const std::vector<PresetManager::FactoryPreset>& PresetManager::getFactoryPreset
             .ov(off, 4.0f, 0.0f, pat::chest, om::add)
             .ch(on, 75.0f, 90.0f, 40.0f, 30.0f, room::tinBooth, spk::tiny, boom::off)
             .out(8.0f, -1.0f, 0.0f, 0.0f, 2.0f, 60.0f, on, 100.0f)),
+
+        // A furious voice in a metal shell: a sine carrier at 28 Hz ring-modulates the whole voice,
+        // chopping it into a staccato electronic stutter, with nothing else on it but light
+        // levelling, a low-mid trim and a touch of top control. The character comes from the
+        // delivery: shout, pitch it up, hector. For a smaller or bigger shell change PITCH, not the
+        // carrier.
+        preset("Angry Pepper Pot", "Machines", Sound()
+            .order("CL DS RM PI CH DT VO SH GR SW RO EN TA SU OV")
+            .in(0.0f, on)
+            .pi(off, 0.0f, 0.0f, 1.0f, pm::shift, fm::keep)
+            .cl(on, 35.0f, 30.0f, tone::heavy)
+            .ds(on, 20.0f, ds::split)
+            .dt(off, 25.0f, 19.0f, spd::natural)
+            .vo(off, 41.0f, oct::down1)
+            .rm(on, 100.0f, 28.0f, 1.0f, car::sine, trk::fixed, rmode::ring, body::off)
+            .sh(off, 18.0f, 11.0f, sh::up)
+            .gr(off, 25.0f, 27.0f, shape::sine, chr::warm)
+            .sw(off, 21.0f, 0.35f, circ::liquid4, mot::lfoLevel)
+            .ro(off, 45.0f, 3.0f, vc::line)
+            .en(off, 10.0f, 10.0f, voices::three, emot::medium)
+            .ta(on, 4.0f)
+            .su(off, 49.0f, 20.0f, reg::follow, sc::clean)
+            .ov(off, 4.0f, 0.0f, pat::chest, om::add)
+            .ch(off, 50.0f, 40.0f, 30.0f, 35.0f, room::concreteRoom, spk::small, boom::off)
+            .out(9.0f, -1.0f, 0.0f, 0.0f, 2.0f, 60.0f, on, 100.0f)),
+
+        // A small, chirpy machine: the voice an octave up and stepped to semitones like a played
+        // synth (the throat stays put, as a mouth shaping a tone would), a faint buzzing carrier
+        // and in-tune metallic sidebands for a synthetic stack, a quick warble and a tight gate for
+        // clipped syllables, then played through a tiny speaker in a dead box with a lean, raised
+        // speaker resonance, which leaves a small, bright tone. Best fed short cooed syllables.
+        preset("Ball Bearing", "Machines", Sound()
+            .order("CL PI VO RM SH DS DT TA CH GR SW RO EN SU OV")
+            .in(0.0f, on)
+            .pi(on, 12.0f, 0.0f, 5.0f, pm::snap, fm::keep)
+            .cl(on, 35.0f, 45.0f, tone::heavy)
+            .ds(on, 10.0f, ds::split)
+            .dt(on, 30.0f, 65.0f, spd::snappy)
+            .vo(on, 15.0f, oct::down1)
+            .rm(on, 40.0f, 150.0f, 2.0f, car::sine, trk::follow, rmode::am, body::off)
+            .sh(on, 25.0f, 4.8f, sh::up)
+            .gr(off, 25.0f, 27.0f, shape::sine, chr::warm)
+            .sw(off, 21.0f, 0.35f, circ::liquid4, mot::lfoLevel)
+            .ro(off, 45.0f, 3.0f, vc::line)
+            .en(off, 10.0f, 10.0f, voices::three, emot::medium)
+            .ta(off, 15.0f)
+            .su(off, 49.0f, 20.0f, reg::follow, sc::clean)
+            .ov(on, 40.0f, 0.5f, pat::speaker, om::lean)
+            .ch(on, 75.0f, 10.0f, 15.0f, 0.0f, room::paddedCell, spk::tiny, boom::off)
+            .out(8.5f, -1.0f, 0.0f, 0.0f, 2.0f, 60.0f, on, 100.0f)),
 
         // SIGNAL FLOW (reordered chains; each shows off a placement) ------------------------------
         // Saturate first, then modulate: the notches and the shimmer cut through the grit instead

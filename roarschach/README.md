@@ -19,7 +19,7 @@ A VST3/AU creature voice designer by **Samuel Justice**. Roarschach turns a spok
 - **A finished output**: OUTPUT matches the level to the input, then Push drives a true-peak-safe limiter with a clipper after it. Attack and Release set how clean or crunchy the limiting is, and Auto release keeps it clean. MIX blends in the dry voice, phase-matched to the processed one.
 - **A creature that reacts**: an OpenGL creature that forms out of drifting cloud, whose jaw, eyes, skin and throat follow the voice and every module. It softens back into fog when the input goes quiet, and slowly evolves with sustained intensity.
 - **Dice**: one die loads a random factory preset, one rolls a whole new creature, and one on each module rolls just that module, always inside each knob's useful range. Every roll can be undone.
-- **Presets**: 43 factory presets (Init plus six groups: Creatures, Voices, Machines, Signal Flow, Vocoder, Utility). Save your own with SAVE. They are plain files, easy to back up and share.
+- **Presets**: 49 factory presets (Init plus six groups: Creatures, Voices, Machines, Signal Flow, Vocoder, Utility). Save your own with SAVE. They are plain files, easy to back up and share.
 - **Full recall**: every parameter, the module order, the preset name and the window size are saved with your session, and the factory presets are exposed to the host as programs.
 - **Resizable interface**: drag the corner to scale the whole window from 50% to 125% (never larger than the screen).
 - **Constant latency** of about 46 ms (2192 samples at 48 kHz), the same for every setting and every module order, reported to the host so it is compensated. Host bypass stays in time and switches without clicks. Mono or stereo, full DAW automation.
@@ -376,35 +376,48 @@ Use the arrows either side of the preset name to step through presets, or click 
 
 The list opens with Init, then one submenu per group, with the current preset ticked in its group. Your own presets are under USER.
 
-<img src="docs/preset-menu-machines.png" alt="The preset list open from the preset name, with Cyber Commander loaded: FACTORY with Init and the Creatures, Voices, Machines, Signal Flow, Vocoder and Utility groups, then USER, Save As, Delete and Show Presets Folder; the Machines group is open, listing Cyber Commander (ticked), Respirator Rasp, Rasp Machine, Robot Ogre, Iron Tyrant and Tin Can Drone" width="467">
+<img src="docs/preset-menu-machines.png" alt="The preset list open from the preset name, with Cyber Commander loaded: FACTORY with Init and the Creatures, Voices, Machines, Signal Flow, Vocoder and Utility groups, then USER, Save As, Delete and Show Presets Folder; the Machines group is open, listing Cyber Commander (ticked), Respirator Rasp, Rasp Machine, Robot Ogre, Iron Tyrant, Tin Can Drone, Angry Pepper Pot and Ball Bearing" width="467">
 
-<img src="docs/preset-menu-creatures.png" alt="The Creatures group open with Symbiote ticked: Symbiote, Liquid Beast, Gravel Throat, Cave Troll, Kaiju, Gargoyle, Hellhound, Golem, Kraken and Throat Singer" width="452"> <img src="docs/preset-menu-voices.png" alt="The Voices group open with Simple Size ticked: Big Bad Narrator, Demon Whisper, Giant, Possessed, Ogre Radio and Simple Size" width="474">
+<img src="docs/preset-menu-creatures.png" alt="The Creatures group open with Symbiote ticked: Symbiote, Liquid Beast, Gravel Throat, Cave Troll, Kaiju, Gargoyle, Hellhound, Golem, Kraken, Throat Singer, Spore Throat and Hoarse Hoarder" width="452"> <img src="docs/preset-menu-voices.png" alt="The Voices group open with Simple Size ticked: Big Bad Narrator, Demon Whisper, Giant, Possessed, Ogre Radio, Simple Size, Upside Down and Use Your Words" width="474">
 
 | Group | Presets |
 |---|---|
 | | Init (every control at its default: a slightly lower, bigger voice with a light wobble, growl, tube edge, sub and overtones) |
-| **Creatures** | Symbiote, Liquid Beast, Gravel Throat, Cave Troll, Kaiju, Gargoyle, Hellhound, Golem, Kraken, Throat Singer |
-| **Voices** | Big Bad Narrator, Demon Whisper, Giant, Possessed, Ogre Radio, Simple Size |
-| **Machines** | Cyber Commander, Respirator Rasp, Rasp Machine, Robot Ogre, Iron Tyrant, Tin Can Drone |
+| **Creatures** | Symbiote, Liquid Beast, Gravel Throat, Cave Troll, Kaiju, Gargoyle, Hellhound, Golem, Kraken, Throat Singer, Spore Throat, Hoarse Hoarder |
+| **Voices** | Big Bad Narrator, Demon Whisper, Giant, Possessed, Ogre Radio, Simple Size, Upside Down, Use Your Words |
+| **Machines** | Cyber Commander, Respirator Rasp, Rasp Machine, Robot Ogre, Iron Tyrant, Tin Can Drone, Angry Pepper Pot, Ball Bearing |
 | **Signal Flow** | Scorched Swirl, Molten Chorus, Sub Furnace, Ribcage, Tar Pit, Breathing Walls, Chopped Space, Vocoded Fire, Clanking Choir |
 | **Vocoder** | Pulse Choir, Two Octaves Down, Gravel Pit, Iron Lung |
 | **Utility** | Detail Only, Subtle Size, Clean Lift, Loud & Contained, Crunch Lift, Smashed, Phone Monster |
 
 Every preset sets every control, including the module order. The Signal Flow presets move modules to show what a placement does: for example, Tar Pit drives and chops the voice before PITCH lowers it, and Breathing Walls puts DETAIL last, so it lifts every tail and breath the other modules make.
 
+Six character presets are each built around one technique, and each works best with the delivery it describes:
+
+- **Upside Down** (Voices): a deep, creaking villain voice. Your own voice stays at pitch and in the centre, is levelled in gentle stages, and gets low-end girth and a tight, clean octave underneath, with the top gently softened, all in a wide room.
+- **Use Your Words** (Voices): a commanding voice that seems to come from inside the listener. It is pitched an octave down and played through a rattling speaker into a small room, with a heavy low-end thump and a crowd of voices, then blended half and half with your natural voice, which stays on top.
+- **Spore Throat** (Creatures): a dry, human-sounding horror throat. The low end is cut away, the voice is narrowed to its mid-range screech, the wet mouth clicks are lifted, and a rattle speeds up as you get louder. Perform the clicks and screeches yourself: it frames a performance rather than inventing one.
+- **Hoarse Hoarder** (Creatures): an enormous beast that still speaks clearly. The voice is pitched eight semitones down with a lower throat, over a gravelly vocoder bed and a light rumble, with breaths lifted between lines, in a wide, ringing chamber.
+- **Angry Pepper Pot** (Machines): a furious voice in a metal shell. A low ring modulator chops the voice into a staccato electronic stutter, and nothing else colours it. Shout, and pitch your delivery up to hector.
+- **Ball Bearing** (Machines): a small, chirpy machine. The voice is raised an octave and stepped to semitones, with a faint synthetic buzz, a quick warble and a tiny speaker. Coo and chirp short syllables rather than speaking.
+
 A few contrasting presets, each playing the same voice (the creature is shown at a different stage of growth in each):
 
 <img src="docs/preset-simple-size.jpg" alt="Simple Size: PITCH at -1 st, CLEAN, DE-ESS, TAME and CHAMBER on and everything else off; a faint early creature in the mist" width="440"> <img src="docs/preset-cyber-commander.jpg" alt="Cyber Commander: CLEAN, RING, PITCH, ROAR, DE-ESS, DETAIL, GROWL and TAME on, with CLEAN and RING moved ahead of PITCH; the creature has RING's faint dark metal muzzle round its mouth" width="440">
 <img src="docs/preset-symbiote.jpg" alt="Symbiote: PITCH, CLEAN, DE-ESS, SHIMMER, GROWL, SWIRL, ROAR, ENSEMBLE, TAME and SUB on; a dark smoky head with spreading wings and a wide maw of teeth" width="440"> <img src="docs/preset-iron-tyrant.jpg" alt="Iron Tyrant: CHAMBER after ROAR in Steel Box with the Horn speaker, and PITCH, CLEAN, DE-ESS, DETAIL, GROWL, TAME and SUB on; a horned head with broad wings and a glowing maw" width="440">
+<img src="docs/preset-upside-down.jpg" alt="Upside Down: CLEAN, DE-ESS, DETAIL, PITCH at 0 st, ROAR, TAME, SUB at Tight, ENSEMBLE and CHAMBER last in Concrete Room; a broad grey head in the mist with amber eyes and an open, glowing maw" width="440"> <img src="docs/preset-spore-throat.jpg" alt="Spore Throat: no pitch change and no room, with CLEAN on Radio, DE-ESS, DETAIL, GROWL on Rattle, ROAR on Mic and OVERTONE on Speaker, Lean; a horned head with wide wings and a toothed maw" width="440">
+<img src="docs/preset-ball-bearing.jpg" alt="Ball Bearing: PITCH at +12 st on Snap, CLEAN, VOCODER, RING, SHIMMER, DE-ESS, DETAIL, CHAMBER in Padded Cell with the Tiny speaker and OVERTONE on; a faint early creature with amber eyes and a small open mouth" width="440">
 
 Each preset's settings sit in the useful part of every knob's travel, as measured in [docs/parameter-audit.md](docs/parameter-audit.md), and every preset except the deliberately loud Utility ones (Loud & Contained, Crunch Lift and Smashed) plays within about 1.5 LU of Init.
 
-Seven presets use CHAMBER:
+Eleven presets use CHAMBER:
 
 - **Simple Size**: a subtly bigger, wider voice with a touch of chamber and low-end weight. The voice is lowered a semitone and lightly cleaned, and a little of a hard, resonant room is blended under it, with no creature effects.
 - **Iron Tyrant**: a low, driven voice fed from ROAR into a horn speaker in a steel box, like an amp into a cabinet. Metal modes ring on every syllable, over a heavy low end.
 - **Tin Can Drone**: talking down a pipe. A tiny speaker in a ringing tin booth, through CLEAN's Radio tone.
-- **Big Bad Narrator** sits in a warm wooden room. **Cave Troll**, **Gargoyle** and **Demon Whisper** put the whole creature in a room, with CHAMBER last: concrete, hard stone and a soft bloom.
+- **Use Your Words**: the octave-down voice played through a small speaker into a rattling concrete room with Heavy Boom, right after PITCH.
+- **Ball Bearing**: the raised voice played through a tiny speaker in a padded cell, a dead box at the end of its chain.
+- **Big Bad Narrator** sits in a warm wooden room. **Cave Troll**, **Gargoyle** and **Demon Whisper** put the whole creature in a room, with CHAMBER last: concrete, hard stone and a soft bloom. **Upside Down** and **Hoarse Hoarder** do the same in a concrete room and a resonant chamber, so the octave and the rumble ring in the room too.
 
 User presets are kept in:
 

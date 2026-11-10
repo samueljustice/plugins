@@ -1,6 +1,6 @@
 ## Roarschach 1.1.0
 
-Roarschach 1.1.0 adds a fifteenth module, **CHAMBER**: the voice played through a small speaker into a tight, resonant room and blended back under it, with eight bundled rooms and a Width control. The creature has a new renderer, every knob was measured and remapped so its whole travel does something, the factory presets have been redesigned, with four new ones, and three kinds of die roll new sounds.
+Roarschach 1.1.0 adds a fifteenth module, **CHAMBER**: the voice played through a small speaker into a tight, resonant room and blended back under it, with eight bundled rooms and a Width control. The creature has a new renderer, every knob was measured and remapped so its whole travel does something, the factory presets have been redesigned, with ten new ones, and three kinds of die roll new sounds.
 
 Parameter IDs, their order and their types are unchanged, so sessions, presets and hosts keep finding every control. CHAMBER's nine parameters are new, and are added after the existing ones.
 
@@ -107,12 +107,18 @@ The factory presets have been redesigned on the new mappings. Each keeps its nam
 
 Every preset except Loud & Contained, Crunch Lift and Smashed plays within about 1.5 LU of Init. Those three are louder on purpose (about +3, +1.5 and +5 LU).
 
-Four new presets:
+Ten new presets:
 
 - **Simple Size** (Voices): a subtly bigger, wider voice with a touch of chamber and low-end weight, and no creature effects.
 - **Iron Tyrant** (Machines): a low, driven voice through a horn speaker into a steel box, with metal modes ringing and a heavy low end.
 - **Tin Can Drone** (Machines): talking down a pipe, through a tiny speaker in a ringing tin booth.
 - **Symbiote** (Creatures): a liquid alien voice built from many subtle layers (a wobble, a fine chop, a phaser, warm tube drive, a near-mono chorus and a tight octave underneath) that still keeps every word.
+- **Upside Down** (Voices): a deep, creaking villain voice: your own voice kept at pitch and in the centre, levelled in gentle stages, with low-end girth and a clean octave underneath, in a wide, ringing room.
+- **Use Your Words** (Voices): a commanding voice from inside the listener: an octave down through a rattling speaker into a small room with a heavy thump and a crowd of voices, blended with your natural voice.
+- **Spore Throat** (Creatures): a dry, human-sounding horror throat, narrowed to its mid-range screech with the wet mouth clicks lifted and a rattle that speeds up as you get louder. Perform the clicks and screeches yourself.
+- **Hoarse Hoarder** (Creatures): an enormous beast that still speaks clearly: eight semitones down with a lower throat, over a gravelly vocoder bed and a light rumble, in a wide, ringing chamber.
+- **Angry Pepper Pot** (Machines): a furious voice in a metal shell, chopped by a low ring modulator into a staccato electronic stutter. Shout, and pitch your delivery up.
+- **Ball Bearing** (Machines): a small, chirpy machine: an octave up, stepped to semitones, with a faint synthetic buzz, a quick warble and a tiny speaker. Coo and chirp short syllables.
 
 **Cyber Commander** (Machines) is the 1.0.0 cyborg preset under a new name. It keeps its chain (tone shaping, then a ring modulator in a small resonant box, then a slight pitch drop), and the gravel on its peaks is now audible.
 
