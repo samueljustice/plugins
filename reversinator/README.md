@@ -249,6 +249,7 @@ See [LICENSE](LICENSE). The plugin uses the JUCE framework; see JUCE's license f
 
 ## Version History
 
+- **v2.0.4**: It tells you when a new version is out: when you open it and a newer release has been published, a small window offers Download (the release page), Later or Skip this version. It checks in the background at most once a day, and says nothing when you're offline. The sound, the parameters and saved sessions are unchanged from 2.0.3.
 - **v2.0.3**: Hosts list it under **Sammy J**, alongside the other plug-ins. The sound, parameters and saved sessions are unchanged.
 - **v2.0.2**: The About panel's licence text and the plugin's copyright string show the year the plugin was built. The README gains a tour of the window, with screenshots. The sound and parameters are unchanged.
 - **v2.0.1**: The interface takes on Subbertone's look: menus, value-box editing, links, keyboard focus rings, tooltips, the scrollbar and the resize grip, with nothing left in JUCE's default style. Fixes the licence text's "fi" ligature, the display's arrow sizes, and Tab reaching the controls behind the About panel. The sound and parameters are unchanged.
