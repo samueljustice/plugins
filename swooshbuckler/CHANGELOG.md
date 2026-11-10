@@ -1,6 +1,6 @@
 # Swooshbuckler changelog
 
-## Unreleased
+## 1.4.1
 
 - **The passes in the sea show their bus.** Each doppler pass glows in its bus's colour (coral for A, turquoise for B) with a small label above it naming the bus, and the track when it is the only one on that bus.
 
