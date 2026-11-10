@@ -1,5 +1,7 @@
 #include "RingModule.h"
 
+#include "../KnobLaws.h"
+
 #include <algorithm>
 #include <cmath>
 
@@ -525,9 +527,10 @@ namespace roar
             const float mw = dsp::smoothstep01 (m_s.modeMix);
             if (mw > 0.0f)
             {
-                const float kAm = amMakeupFor (a, kS);
-                const float amDry = kAm * (1.0f - 0.5f * a);
-                const float amWet = kAm * 0.5f * a / kS;
+                const auto aAm = static_cast<float> (laws::ringAmAmount (static_cast<double> (a)));
+                const float kAm = amMakeupFor (aAm, kS);
+                const float amDry = kAm * (1.0f - 0.5f * aAm);
+                const float amWet = kAm * 0.5f * aAm / kS;
                 dryGain += mw * (amDry - dryGain);
                 wetGain += mw * (amWet - wetGain);
             }

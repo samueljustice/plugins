@@ -54,7 +54,8 @@ namespace roar
      *   Triangle  odd harmonics 8 / (pi^2 k^2), alternating sign, kS = sqrt 3
      *   Square    odd harmonics 4 / (pi k), kS = 1
      *   Triangle and Square are mip-mapped: level L covers fc in [10 2^L, 10 2^(L+1)) Hz and holds
-     *   the odd harmonics with k 10 2^(L+1) <= fmaxC = min (20 kHz, 0.42 fs) (the fundamental
+     *   the odd harmonics with k 10 2^(L+1) <= fmaxC = min (10 kHz, 0.42 fs) (the fundamental
+     *   always; above 10 kHz the products would only add fizz to a voice)
      *   always). The table of a level has max (2048, 8 kmax) points (a power of two), read with
      *   cubic Hermite. Within an octave the reader crossfades from level L to level L+1 by the
      *   log position in the octave, so no harmonic switches on or off as fc sweeps. With the input
@@ -62,7 +63,8 @@ namespace roar
      *   Carrier changes crossfade the two carriers over 10 ms.
      *
      * Mode changes crossfade the Ring and AM outputs over 20 ms. kAM = 1 / rms (g) of the AM gain
-     * g = 1 - a/2 + (a/2) c, capped at +3 dB.
+     * g = 1 - a/2 + (a/2) c, capped at +3 dB, with a = sqrt (Amount) in AM mode (laws::ringAmAmount:
+     * the index is sqrt (Amount) / 2, so the low end of the travel already modulates audibly).
      *
      * Body (on the mixed output, at the base rate):
      *   z = y + fb LP1 (z[n - D]);   out = (1 - bm) y + bm z sqrt (1 - fb^2)
@@ -89,7 +91,7 @@ namespace roar
         static constexpr double c_maxCarrierFraction = 0.45;     // of fs
         static constexpr double c_minFreqHz = 20.0, c_maxFreqHz = 4000.0;
         static constexpr double c_minRatio = 0.25, c_maxRatio = 4.0;
-        static constexpr double c_harmonicMaxHz = 20000.0;
+        static constexpr double c_harmonicMaxHz = 10000.0;
         static constexpr double c_harmonicMaxFraction = 0.42;    // of fs
         static constexpr double c_levelBaseHz = 10.0;
         static constexpr int c_maxLevels = 18;
@@ -224,7 +226,7 @@ namespace roar
         double m_invFsOs = 1.0 / 96000.0;
         bool m_oversample = true;
         int m_maxBlock = 512;
-        double m_harmonicMaxHz = 20000.0;
+        double m_harmonicMaxHz = 10000.0;
         double m_logMin = 0.0, m_logMax = 0.0, m_logBase = 0.0;
         int m_numLevels = 2;
 

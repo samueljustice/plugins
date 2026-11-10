@@ -1,6 +1,7 @@
 #include "PluginProcessor.h"
 
 #include "PluginEditor.h"
+#include "dsp/KnobLaws.h"
 
 namespace
 {
@@ -129,22 +130,26 @@ namespace
         return names;
     }
 
+    // 2: the first release. 3: the knob laws of dsp/KnobLaws.h (older states are converted on load).
     const juce::Identifier c_stateVersion  { "stateVersion" };
+    constexpr int c_currentStateVersion = 3;
     const juce::Identifier c_pluginVersion { "pluginVersion" };
 
     // The creature (saved among the view options: setStateInformation keeps only "view..." names).
     // Seed and mode are user-visible changes; the growth values are only written when the host saves.
     const juce::Identifier c_creatureSeed       { "viewCreatureSeed" };
     const juce::Identifier c_creatureMode       { "viewCreatureMode" };
+    const juce::Identifier c_creatureColour     { "viewCreatureColour" };   // Frozen: the colour mood held, four numbers
     const juce::Identifier c_creatureEnergy     { "viewCreatureEnergy" };
     const juce::Identifier c_creatureExperience { "viewCreatureExperience" };
     const juce::Identifier c_creatureStage      { "viewCreatureStage" };
     const std::array<juce::Identifier, 4> c_creatureFamily { juce::Identifier { "viewCreatureFluid" }, juce::Identifier { "viewCreatureBeast" },
                                                              juce::Identifier { "viewCreatureEldritch" }, juce::Identifier { "viewCreatureDeep" } };
 
-    // The chain holds a little sound after the input stops (the ensemble lines, the body combs,
-    // the release times); this covers it with room to spare.
-    constexpr double c_tailSeconds = 0.5;
+    // The chain holds sound after the input stops (CHAMBER's rooms ring for up to 0.75 s, with
+    // Resonance up to about 1.1 s; the ensemble lines, the body combs, the release times); this
+    // covers it with room to spare.
+    constexpr double c_tailSeconds = 1.5;
 }
 
 juce::AudioProcessor* JUCE_CALLTYPE createPluginFilter()
@@ -158,6 +163,7 @@ RoarschachAudioProcessor::RoarschachAudioProcessor()
                        .withOutput("Output", juce::AudioChannelSet::stereo(), true))
       , m_parameters(*this, nullptr, juce::Identifier("RoarschachParameters"), createParameterLayout())
       , m_presetManager(m_parameters, [this](const juce::AudioProcessorListener::ChangeDetails& details) { m_hostDisplay.post(details); }, &m_positionWrites)
+      , m_dice(m_parameters, m_presetManager, [this](const juce::AudioProcessorListener::ChangeDetails& details) { m_hostDisplay.post(details); })
 {
     for (int i = 0; i < Params::numParameters; ++i)
     {
@@ -177,13 +183,13 @@ juce::AudioProcessorValueTreeState::ParameterLayout RoarschachAudioProcessor::cr
 {
     // The order of Params::all is the AU index order: it never changes once released, so saved
     // sessions and automation keep mapping to the same parameters (Logic addresses AU
-    // parameters by index).
-    constexpr int v = Params::versionHint;
+    // parameters by index). Each row carries its own version hint: 1 for 1.0's, 2 for the rows
+    // appended in 1.1.
     juce::AudioProcessorValueTreeState::ParameterLayout layout;
 
     for (const auto& spec : Params::all)
     {
-        const juce::ParameterID id(spec.id, v);
+        const juce::ParameterID id(spec.id, spec.version);
         switch (spec.kind)
         {
             case Params::Kind::toggle:
@@ -196,6 +202,26 @@ juce::AudioProcessorValueTreeState::ParameterLayout RoarschachAudioProcessor::cr
                 break;
 
             case Params::Kind::position:
+                if (std::string_view(spec.id) == Params::chamberPos)
+                {
+                    // CHAMBER's insertion slot: how many of the other 14 modules come before it
+                    // (their positions count those 14 only, as in 1.0).
+                    layout.add(std::make_unique<juce::AudioParameterInt>(
+                        id, spec.name, juce::roundToInt(spec.minValue), juce::roundToInt(spec.maxValue), juce::roundToInt(spec.defaultValue),
+                        juce::AudioParameterIntAttributes()
+                            .withStringFromValueFunction([](int p, int)
+                            {
+                                const int slot = juce::jlimit(0, Params::numLegacyModules, p);
+                                return slot == 0 ? juce::String("before 1st")
+                                                 : "after " + juce::String(Params::positionNames[static_cast<size_t>(slot - 1)]);
+                            })
+                            .withValueFromStringFunction([max = juce::roundToInt(spec.maxValue)](const juce::String& text)
+                            {
+                                return text.trim().startsWithIgnoreCase("before") ? 0
+                                                                                  : juce::jlimit(0, max, text.retainCharacters("0123456789").getIntValue());
+                            })));
+                    break;
+                }
                 layout.add(std::make_unique<juce::AudioParameterInt>(
                     id, spec.name, juce::roundToInt(spec.minValue), juce::roundToInt(spec.maxValue), juce::roundToInt(spec.defaultValue),
                     juce::AudioParameterIntAttributes()
@@ -203,9 +229,9 @@ juce::AudioProcessorValueTreeState::ParameterLayout RoarschachAudioProcessor::cr
                         {
                             return juce::String(Params::positionNames[static_cast<size_t>(juce::jlimit(0, Params::numModules - 1, p))]);
                         })
-                        .withValueFromStringFunction([](const juce::String& text)
+                        .withValueFromStringFunction([max = juce::roundToInt(spec.maxValue)](const juce::String& text)
                         {
-                            return juce::jlimit(0, Params::numModules - 1, text.getIntValue() - 1);
+                            return juce::jlimit(0, max, text.getIntValue() - 1);
                         })));
                 break;
 
@@ -218,14 +244,28 @@ juce::AudioProcessorValueTreeState::ParameterLayout RoarschachAudioProcessor::cr
             case Params::Kind::ratio:
             case Params::Kind::milliseconds:
             {
-                juce::NormalisableRange<float> range(spec.minValue, spec.maxValue, spec.step);
-                // Only the log kinds have a centre (Params::Spec): the others are linear, even
-                // where 0 lies inside an asymmetric range (Pitch, -24 to +12 st).
-                const bool logTaper = spec.kind == Params::Kind::hertz || spec.kind == Params::Kind::ratio
-                                      || spec.kind == Params::Kind::milliseconds;
-                if (logTaper && spec.centre > spec.minValue && spec.centre < spec.maxValue)
-                    range.setSkewForCentre(spec.centre);
                 const Params::Spec* s = &spec;   // points into the constexpr table: lives forever
+                juce::NormalisableRange<float> range(spec.minValue, spec.maxValue, spec.step);
+                // The log kinds (hertz, ratio, milliseconds) get a true log taper: equal travel per
+                // octave, the geometric centre at mid travel. Decibel knobs with a centre are skewed
+                // so it sits at mid travel (Push, Clip). Everything else is linear, even where 0 lies
+                // inside an asymmetric range (Pitch, -24 to +12 st).
+                if (Params::hasLogTaper(spec))
+                {
+                    range = juce::NormalisableRange<float>(
+                        spec.minValue, spec.maxValue,
+                        [s](float, float, float n) { return Params::logTaperValue(*s, n); },
+                        [s](float, float, float v) { return Params::logTaperPosition(*s, v); },
+                        [s](float, float, float v)
+                        {
+                            v = juce::jlimit(s->minValue, s->maxValue, v);
+                            return s->step > 0.0f ? juce::jlimit(s->minValue, s->maxValue, s->step * std::round(v / s->step)) : v;
+                        });
+                }
+                else if (spec.kind == Params::Kind::decibels && spec.centre > spec.minValue && spec.centre < spec.maxValue)
+                {
+                    range.setSkewForCentre(spec.centre);
+                }
                 layout.add(std::make_unique<juce::AudioParameterFloat>(
                     id, spec.name, range, spec.defaultValue,
                     juce::AudioParameterFloatAttributes()
@@ -354,7 +394,7 @@ roar::CreatureEvolution::Inputs RoarschachAudioProcessor::readCreatureInputs()
     const auto on = [mask](Params::ModuleId id) { return (mask >> static_cast<int>(id)) & 1 ? 1.0f : 0.0f; };
     in.shimmerOn = on(Params::ModuleId::shimmer);
     in.swirlOn = on(Params::ModuleId::swirl);
-    in.liquidKnob = in.shimmerOn * juce::jlimit(0.0f, 1.0f, percent(Params::shimmer));
+    in.liquidKnob = in.shimmerOn * static_cast<float>(roar::laws::view::shimmer(static_cast<double>(percent(Params::shimmer))));
     in.eggVisible = m_creatureShared.eggVisible.load(std::memory_order_relaxed);
     return in;
 }
@@ -407,6 +447,36 @@ void RoarschachAudioProcessor::resetCreature()
     setViewValue(c_creatureSeed, static_cast<int>(seed));
 }
 
+std::optional<std::array<float, 4>> RoarschachAudioProcessor::getCreatureColour() const
+{
+    const auto text = getViewValue(c_creatureColour, {}).toString();
+    juce::StringArray parts;
+    parts.addTokens(text, " ", "");
+    parts.removeEmptyStrings();
+    if (parts.size() != 4)
+        return std::nullopt;
+    std::array<float, 4> colour {};
+    for (int i = 0; i < 4; ++i)
+    {
+        const auto v = parts[i].getDoubleValue();
+        if (!std::isfinite(v))
+            return std::nullopt;
+        colour[static_cast<size_t>(i)] = juce::jlimit(0.0f, 1.0f, static_cast<float>(v));
+    }
+    return colour;
+}
+
+void RoarschachAudioProcessor::setCreatureColour(std::optional<std::array<float, 4>> colour)
+{
+    juce::String text;
+    if (colour.has_value())
+        for (const float v : *colour)
+            text << (text.isEmpty() ? "" : " ") << juce::String(std::isfinite(v) ? juce::jlimit(0.0f, 1.0f, v) : 0.0f, 4);
+    if (text.isEmpty() && getViewValue(c_creatureColour, {}).toString().isEmpty())
+        return;   // (nothing kept, nothing to clear: the session has not changed)
+    setViewValue(c_creatureColour, text);
+}
+
 void RoarschachAudioProcessor::changeProgramName(int index, const juce::String& newName)
 {
     juce::ignoreUnused(index, newName); // factory programs are read-only
@@ -457,7 +527,7 @@ void RoarschachAudioProcessor::getStateInformation(juce::MemoryBlock& destData)
             child.setProperty("value", value->load(), nullptr);
     }
 
-    state.setProperty(c_stateVersion, 2, nullptr);
+    state.setProperty(c_stateVersion, c_currentStateVersion, nullptr);
     state.setProperty(c_pluginVersion, JucePlugin_VersionString, nullptr);
 
     {
@@ -554,6 +624,23 @@ void RoarschachAudioProcessor::setStateInformation(const void* data, int sizeInB
     for (auto child : tree)
         if (child.hasProperty("value") && !std::isfinite(static_cast<double>(child.getProperty("value"))))
             child.removeProperty("value", nullptr);
+
+    // A state saved with the first release's knob laws: convert its values to the nearest setting under
+    // the new laws (close, not identical: see migrateFromV1 for what cannot be carried over).
+    if (xmlState->getIntAttribute(c_stateVersion.toString(), 0) < c_currentStateVersion)
+    {
+        std::map<std::string, double> values;
+        for (auto child : tree)
+            if (child.hasProperty("value"))
+                values[child.getProperty("id").toString().toStdString()] = static_cast<double>(child.getProperty("value"));
+        roar::laws::migrateFromV1(values);
+        for (auto child : tree)
+        {
+            const auto it = values.find(child.getProperty("id").toString().toStdString());
+            if (it != values.end() && child.hasProperty("value"))
+                child.setProperty("value", it->second, nullptr);
+        }
+    }
 
     // APVTS::replaceState leaves a parameter without a PARAM child at its current value, so a
     // partial or older state would recall differently depending on what this instance held.
@@ -756,6 +843,15 @@ roar::ChainSettings RoarschachAudioProcessor::readSettings() const
     s.overtone.freqOct = value(overtoneFreq);
     s.overtone.pattern = static_cast<::roar::OvertonePattern>(choice(overtonePattern));
     s.overtone.mode = static_cast<::roar::OvertoneMode>(choice(overtoneMode));
+
+    s.chamber.on = toggle(chamberOn);
+    s.chamber.amount = percent(chamber);
+    s.chamber.resonance = percent(chamberResonance);
+    s.chamber.edge = percent(chamberDrive);
+    s.chamber.width = percent(chamberWidth);
+    s.chamber.room = choice(chamberRoom);
+    s.chamber.speaker = choice(chamberSpeaker);
+    s.chamber.boom = choice(chamberBoom);
 
     s.output.pushDb = value(outPush);
     s.output.ceilingDb = value(outCeiling);

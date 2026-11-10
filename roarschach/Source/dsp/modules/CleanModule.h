@@ -1,5 +1,7 @@
 #pragma once
 
+#include <vector>
+
 #include "../../Params.h"
 #include "../common/Biquad.h"
 #include "../common/LogBallistics.h"
@@ -24,18 +26,19 @@ namespace roar
      *   HPF -> Tone EQ -> expander (gate) -> leveller (Avg) + static makeup -> peak catcher (Peak + 10 ms hold)
      *
      *   - Tone (chip) picks the HPF and EQ: Flat / Voice / Heavy / Radio. A tone change crossfades
-     *     the old and the new filter bank over 20 ms.
-     *   - Gate: depth -40 u dB, ratio 1:2.5, knee 6 dB, hysteresis 4 dB (opens above T + 4, closes
-     *     below T after a 60 ms hold), open 1 ms, close 150 ms. T = floor + 10 dB in [-62, -40] dBFS;
+     *     the previous and the new filter bank over 20 ms.
+     *   - Gate: depth -30 u dB, ratio 1:(1.5 + 3.5 u) (so the depth is reached), knee 6 dB, hysteresis 4 dB (opens above T + 4, closes
+     *     below T after a 60 ms hold), open 1 ms, close 150 ms. T = floor + O dB in [-72 + O, -50 + O] dBFS,
+     *     O = 6 + 12 u (laws::gateThresholdOffsetDb): higher settings also close on the shorter, louder gaps;
      *     the floor (the mean room level) is learnt only while the gate is closed. A voiced frame
      *     with confidence > 0.6 holds the gate open. Closing moves at |depth| per 150 ms. A gate
      *     held open by a steady room (its quietest level of the last 3 s above T) keeps learning
      *     the floor while open, so it cannot stay stuck open.
-     *   - Contain: leveller T = -20 - 16 u dBFS, ratio 1.4 + 1.2 u, knee 10 dB, 15 / 250 ms, with a
+     *   - Contain: c = u^0.7 (KnobLaws). Leveller T = -20 - 16 c dBFS, ratio 1.4 + 1.2 c, knee 10 dB, 15 / 250 ms, with a
      *     static makeup equal to its gain reduction at the reference level (-20 dBFS). It starts at
      *     that reduction after a reset, holds it while the gate is closed, and releases 20x slower
      *     on unvoiced sound, so a line's onsets are not lifted by the makeup. Peak catcher
-     *     T = -6 - 12 u dBFS, 6:1, knee 4 dB, 0.3 / 60 ms on a 10 ms peak hold. Below 10 % the
+     *     T = -6 - 12 c dBFS, 6:1, knee 4 dB, 0.3 / 60 ms on a 10 ms peak hold. Below c = 10 % the
      *     leveller and the catcher fade out, so Contain 0 % is exactly unity (neutral null).
      *
      * Detection is linked (one gain for both channels). Zero latency. Knobs are smoothed (20 ms)
@@ -66,10 +69,13 @@ namespace roar
         static int highPassSections (double fs, Params::CleanTone tone, std::array<Biquad::Coeffs, 2>& out);
 
         /** Static makeup (dB) for a Contain value: minus the leveller's gain reduction at -20 dBFS. */
-        static double staticMakeupDb (double contain);
+        static double staticMakeupDb (double contain);   // contain: the curve value c (laws::containCurve)
 
         // Readouts (audio thread values of the last processed sample).
         float getGateOpen() const { return m_gateOpen; }               // 0 closed .. 1 open
+        /** The gate's gain (dB, <= 0, scaled by the On fade) per sample of the last process() call:
+            n values, valid until the next call. DETAIL reads it to keep from lifting gated room tone. */
+        const float* getGateTrace() const { return m_gateTrace.data(); }
         float getGateGainDb() const { return static_cast<float> (m_gateGainDb); }
         float getLevellerGainDb() const { return static_cast<float> (m_levGainDb); }   // GR + makeup
         float getPeakGainDb() const { return static_cast<float> (m_peakGainDb); }
@@ -108,7 +114,7 @@ namespace roar
         double m_contain = 0.5, m_gateU = 0.45;
         double m_knobCoeff = 0.0;    // one-pole per control block
         int m_ctrlCountdown = 0;
-        double m_gateDepthDb = -18.0;
+        double m_gateDepthDb = -18.0, m_gateRatio = 2.5, m_gateOffsetDb = 10.0;
         double m_levThreshold = -28.0, m_levSlope = -0.5;
         double m_peakThreshold = -12.0;
         double m_makeupDb = 0.0;
@@ -126,6 +132,7 @@ namespace roar
         bool m_floorStuck = false;
         double m_gateGainDb = 0.0, m_gateOpenCoeff = 0.0, m_gateCloseRate = 0.0;   // close: |depth| per c_gateCloseSeconds
         float m_gateOpen = 0.0f;
+        std::vector<float> m_gateTrace;   // maxBlock
 
         // Leveller.
         double m_levMs = 0.0, m_levMsCoeff = 0.0;

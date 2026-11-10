@@ -1,5 +1,7 @@
 #include "OutputModule.h"
 
+#include "../KnobLaws.h"
+
 #include "../MonsterFeatures.h"
 #include "../common/GainComputer.h"
 
@@ -29,10 +31,9 @@ namespace roar
 
         // Maximizer
         constexpr double c_lookaheadSeconds = 0.010;
-        constexpr double c_minAttackMs = 0.05, c_maxAttackMs = 10.0;
+        constexpr double c_minAttackMs = 0.2, c_maxAttackMs = 10.0;
         constexpr double c_minReleaseMs = 1.0, c_maxReleaseMs = 1000.0;
-        constexpr double c_autoFastScale = 0.25;
-        constexpr double c_autoFastMinSeconds = 0.003, c_autoFastMaxSeconds = 0.250;
+        constexpr double c_dcBlockHz = 10.0;
         constexpr double c_autoSlowSeconds = 0.400;
         constexpr double c_attackFadeSeconds = 0.020;
         constexpr double c_truePeakBeta = 5.0;
@@ -47,7 +48,6 @@ namespace roar
 
         // Clipper
         constexpr double c_maxClipDb = 18.0;
-        constexpr double c_maxKnee = 0.5;                    // Shape 0 (Soft): the knee starts 6 dB under the bound
         constexpr double c_clipFadeSeconds = 0.020;
         constexpr double c_halfbandBeta = 9.0;
         constexpr double c_decimatorBeta = 9.0;
@@ -203,6 +203,8 @@ namespace roar
     void OutputModule::Channel::copyStateFrom (const Channel& o)
     {
         hp1.copyStateFrom (o.hp1);
+        dcBlock.copyStateFrom (o.dcBlock);
+        gainDcBlock.copyStateFrom (o.gainDcBlock);
         hp2.copyStateFrom (o.hp2);
         lp.copyStateFrom (o.lp);
         wetHp.copyStateFrom (o.wetHp);
@@ -351,6 +353,8 @@ namespace roar
         for (auto& c : m_ch)
         {
             c.hp1.setCoeffs (Biquad::highpass (m_fs, c_highPassHz, Biquad::c_bw4Q1));
+            c.dcBlock.setCoeffs (Biquad::highpass1 (m_fs, c_dcBlockHz));
+            c.gainDcBlock.setCoeffs (Biquad::highpass1 (m_fs, c_dcBlockHz));
             c.hp2.setCoeffs (Biquad::highpass (m_fs, c_highPassHz, Biquad::c_bw4Q2));
             c.lp.setCoeffs (Biquad::lowpass (m_fs, m_lowPassHz, Biquad::c_butterworthQ));
             c.wetHp.setCoeffs (Biquad::highpass (m_fs, c_wetHpHz, Biquad::c_butterworthQ));
@@ -415,6 +419,7 @@ namespace roar
             c.decHistory.fill (0.0f);
             c.decPos = 0;
             c.decZeroRun = 0;
+            c.dcBlock.reset();
         }
     }
 
@@ -423,6 +428,8 @@ namespace roar
         for (auto& c : m_ch)
         {
             c.hp1.reset();
+            c.dcBlock.reset();
+            c.gainDcBlock.reset();
             c.hp2.reset();
             c.lp.reset();
             c.wetHp.reset();
@@ -444,8 +451,8 @@ namespace roar
         const State keep = m_s;
         m_s = State {};
         m_s.pushTarget = m_s.pushDb = keep.pushTarget;
-        m_s.pushGain = std::exp (m_s.pushDb * c_dbToLog);
         m_s.ceilingTarget = m_s.ceilingDb = keep.ceilingTarget;
+        m_s.pushGain = std::exp (laws::pushGainDb (m_s.pushDb, m_s.ceilingDb) * c_dbToLog);
         m_s.mixTarget = m_s.mix = keep.mixTarget;
         m_s.clipTarget = m_s.clipDb = keep.clipTarget;
         m_s.shapeTarget = m_s.shape = keep.shapeTarget;
@@ -484,8 +491,8 @@ namespace roar
         {
             m_s.snap = false;
             m_s.pushDb = m_s.pushTarget;
-            m_s.pushGain = std::exp (m_s.pushDb * c_dbToLog);
             m_s.ceilingDb = m_s.ceilingTarget;
+            m_s.pushGain = std::exp (laws::pushGainDb (m_s.pushDb, m_s.ceilingDb) * c_dbToLog);
             m_s.mix = m_s.mixTarget;
             m_s.clipDb = m_s.clipTarget;
             m_s.shape = m_s.shapeTarget;
@@ -611,7 +618,7 @@ namespace roar
         // Block rate: release coefficient, and one Attack change at a time (primed, then crossfaded).
         const double releaseSeconds = s.releaseMs * 1.0e-3;
         const double releaseCoeff = s.autoRelease
-            ? dsp::onePoleCoeff (std::clamp (c_autoFastScale * releaseSeconds, c_autoFastMinSeconds, c_autoFastMaxSeconds), m_fs)
+            ? dsp::onePoleCoeff (laws::autoFastReleaseMs (s.releaseMs) * 1.0e-3, m_fs)
             : dsp::onePoleCoeff (releaseSeconds, m_fs);
         {
             const int target = attackSamples (s.attackTargetMs);
@@ -633,12 +640,12 @@ namespace roar
         for (int i = 0; i < n; ++i)
         {
             // Smoothed settings.
-            if (s.pushDb != s.pushTarget)
+            if (s.pushDb != s.pushTarget || s.ceilingDb != s.ceilingTarget)
             {
                 s.pushDb = smooth (s.pushDb, s.pushTarget, m_smoothCoeff);
-                s.pushGain = std::exp (s.pushDb * c_dbToLog);
+                s.ceilingDb = smooth (s.ceilingDb, s.ceilingTarget, m_smoothCoeff);
+                s.pushGain = std::exp (laws::pushGainDb (s.pushDb, s.ceilingDb) * c_dbToLog);
             }
-            s.ceilingDb = smooth (s.ceilingDb, s.ceilingTarget, m_smoothCoeff);
             s.mix = smooth (s.mix, s.mixTarget, m_smoothCoeff);
             s.clipDb = smooth (s.clipDb, s.clipTarget, m_smoothCoeff);
             s.shape = smooth (s.shape, s.shapeTarget, m_smoothCoeff);
@@ -687,16 +694,21 @@ namespace roar
             }
             const auto gain = static_cast<float> (autoGain * rideGain * s.pushGain);
 
-            // 5. Mix with the dry (both aligned with OUTPUT's input).
+            // 5. Mix with the dry (both aligned with OUTPUT's input): the dry gets Push too, equal power.
+            if (s.mix != s.mixGainsFor)
+            {
+                s.mixGainsFor = s.mix;
+                s.mixDry = laws::mixDryGain (s.mix);
+                s.mixWet = laws::mixWetGain (s.mix);
+            }
             float z[2] = { 0.0f, 0.0f };
-            const auto mix = static_cast<float> (s.mix);
             for (int c = 0; c < numCh; ++c)
             {
                 float v = w[c] * gain;
-                if (hasDry)
+                if (hasDry && s.mix < 1.0)
                 {
-                    const float d = safeInput (dry[c][i]);
-                    v = d + mix * (v - d);
+                    const double d = static_cast<double> (safeInput (dry[c][i])) * s.pushGain;
+                    v = static_cast<float> (s.mixDry * d + s.mixWet * static_cast<double> (v));
                 }
                 z[c] = v;
             }
@@ -787,7 +799,7 @@ namespace roar
             {
                 bound = std::exp ((static_cast<double> (m_ceilingRing.read (m_lookahead + c_truePeakDelay)) - c_marginDb - c_clipBelowDb) * c_dbToLog);
                 const double cap = 1.0 - std::exp (-s.clipDb * c_dbToLog);
-                knee = std::min (c_maxKnee * (1.0 - s.shape), cap);
+                knee = laws::clipKnee (s.shape, cap);
             }
             const auto blend = static_cast<float> (s.clipBlend);
 
@@ -795,12 +807,19 @@ namespace roar
             for (int c = 0; c < numCh; ++c)
             {
                 auto& ch = m_ch[static_cast<size_t> (c)];
-                const auto main = static_cast<float> (static_cast<double> (ch.mainDelay.processFixed (z[c])) * g);
+                // The maximizer's gain moves with the waveform, so on an asymmetric wave its reduction
+                // (g - 1) x carries DC: the reduction is DC-blocked, so no gain change leaves an offset
+                // and material the maximizer leaves alone passes bit-exactly.
+                const auto delayed = static_cast<double> (ch.mainDelay.processFixed (z[c]));
+                const auto main = static_cast<float> (delayed + ch.gainDcBlock.process ((g - 1.0) * delayed));
                 const float linear = ch.clipDelay.processFixed (main);
                 float out = linear;
                 if (runClip)
                 {
-                    out += blend * clipResidual (ch, main, bound, knee);
+                    // The residual of an asymmetric wave carries DC: it is taken out of the residual
+                    // only, so material below the knee still passes bit-exactly.
+                    const double residual = ch.dcBlock.process (static_cast<double> (blend * clipResidual (ch, main, bound, knee)));
+                    out = dsp::flushTiny (static_cast<float> (static_cast<double> (linear) + residual));
                     prePeak = std::max (prePeak, std::abs (linear));
                     postPeak = std::max (postPeak, std::abs (out));
                 }
@@ -823,8 +842,9 @@ namespace roar
             const auto ceilingLin = static_cast<float> (std::exp (static_cast<double> (m_ceilingRing.read (m_latency)) * c_dbToLog));
             for (int c = 0; c < numCh; ++c)
             {
-                const float d = m_ch[static_cast<size_t> (c)].safetyDelay.processFixed (y[c]);
-                float out = dsp::flushTiny (static_cast<float> (static_cast<double> (d) * gs));
+                auto& ch = m_ch[static_cast<size_t> (c)];
+                const auto d = static_cast<double> (ch.safetyDelay.processFixed (y[c]));
+                float out = dsp::flushTiny (static_cast<float> (d * gs));
                 if (std::abs (out) > ceilingLin)
                 {
                     out = out > 0.0f ? ceilingLin : -ceilingLin;

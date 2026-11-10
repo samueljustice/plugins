@@ -31,6 +31,7 @@ namespace roar
             case Params::ModuleId::tame:     return tame.on;
             case Params::ModuleId::sub:      return sub.on;
             case Params::ModuleId::overtone: return overtone.on;
+            case Params::ModuleId::chamber:  return chamber.on;
         }
         return false;
     }
@@ -54,6 +55,7 @@ namespace roar
         m_modules[static_cast<size_t> (index (Params::ModuleId::tame))] = &m_tame;
         m_modules[static_cast<size_t> (index (Params::ModuleId::sub))] = &m_sub;
         m_modules[static_cast<size_t> (index (Params::ModuleId::overtone))] = &m_overtone;
+        m_modules[static_cast<size_t> (index (Params::ModuleId::chamber))] = &m_chamber;
 
         for (int k = 0; k < c_numModules; ++k)
             m_topology.order[static_cast<size_t> (k)] = k;
@@ -94,12 +96,7 @@ namespace roar
     {
         m_pitch.setParams (s.pitch);
         m_clean.setParams (s.clean);
-
-        // DE-ESS widens its range with ROAR's drive (the tube makes the sibilants fizzier).
-        DeessSettings deess = s.deess;
-        deess.roarOn = s.roar.on;
-        deess.roarDrive = s.roar.drive;
-        m_deess.setParams (deess);
+        m_deess.setParams (s.deess);
 
         m_detail.setParams (s.detail);
         m_vocoderSettings = s.vocoder;
@@ -114,6 +111,7 @@ namespace roar
         m_tame.setParams (s.tame);
         m_sub.setParams (s.sub);
         m_overtone.setParams (s.overtone);
+        m_chamber.setParams (s.chamber);
     }
 
     int CreatureChain::ModuleSet::slotOf (int moduleIndex) const
@@ -221,6 +219,10 @@ namespace roar
                 m_tapStereo[mi] = stereo;
             }
 
+            // DETAIL follows CLEAN's gate when CLEAN runs before it (it never lifts gated room tone).
+            if (m == index (Params::ModuleId::detail))
+                m_detail.setGateTrace (slotOf (index (Params::ModuleId::clean)) < k ? m_clean.getGateTrace() : nullptr);
+
             Module& mod = module (m);
             mod.process (l, r, n, stereo, v);
             v = m_passes[static_cast<size_t> (m)].process (v, mod.getVoiceRewriter());
@@ -228,6 +230,10 @@ namespace roar
 
         if (m_topology.split >= c_numModules)
             std::copy (l, l + n, r);       // no module made stereo: R = L before OUTPUT
+
+        // The post-chain hook, on both channels (CHAMBER's Boom; a bit-exact pass while inactive).
+        for (int m = 0; m < c_numModules; ++m)
+            module (m).processReturn (l, r, n);
 
         if (blending)
             m_blendPos = std::min (m_blendLength, m_blendPos + n);
@@ -332,7 +338,8 @@ namespace roar
         {
             const auto m = static_cast<Params::ModuleId> (t.order[static_cast<size_t> (k)]);
             const bool makesStereo = (m == Params::ModuleId::ensemble && s.ensemble.on)
-                                  || (m == Params::ModuleId::shimmer && s.shimmer.on && s.shimmer.mode == Params::ShimmerMode::stereo);
+                                  || (m == Params::ModuleId::shimmer && s.shimmer.on && s.shimmer.mode == Params::ShimmerMode::stereo)
+                                  || (m == Params::ModuleId::chamber && s.chamber.on && s.chamber.width > 0.0f);
             if (makesStereo)
             {
                 t.split = k;

@@ -6,6 +6,7 @@
 #include "Theme.h"
 #include "MonsterView.h"
 #include "SignalFlowStrip.h"
+#include "DiceButton.h"
 
 #include <memory>
 
@@ -19,8 +20,8 @@ namespace sammyj { class UpdateCheck; struct UpdateInfo; }
  * text, knobs and the OpenGL view together and nothing reflows; the chosen size is saved with the
  * plugin state.
  *
- * Layout: the header (mark, name, tagline, website link, preset bar, About), the creature view, and the
- * signal-flow strip with every control.
+ * Layout: the header (mark, name, tagline, website link, preset bar with its die, About), the creature
+ * view, and the signal-flow strip with every control (and the ROLL ALL and module dice).
  *
  * Everything the editor opens (menus, alerts, tooltips, the About window) is drawn with its
  * RoarschachLookAndFeel, and is owned by it or dismissed when it is deleted, so nothing outlives it or
@@ -40,7 +41,7 @@ public:
     void paint(juce::Graphics&) override;
     void timerCallback() override;
 
-    static constexpr int c_baseWidth = 1600;
+    static constexpr int c_baseWidth = 1760;
     static constexpr int c_baseHeight = 900;
 
 private:
@@ -75,6 +76,24 @@ private:
     void showAlert(std::unique_ptr<juce::AlertWindow> alert, std::function<void(int, juce::AlertWindow&)> onResult);
     void updatePresetDisplay();
 
+    // Dice
+    void setupDice();
+    void afterRoll();
+    void showDiceMenu(juce::Component& die);
+    bool diceUndoKey(bool redo);
+
+    /** A die keeps the keyboard focus after a click (knobs never take it), and while it has the
+        focus Cmd+Z undoes rolls. Using any other control gives the focus up, so Cmd+Z goes back to
+        the host's undo. */
+    class DiceFocusRelease final : public juce::MouseListener
+    {
+    public:
+        void mouseDown(const juce::MouseEvent& e) override { release(e); }
+        void mouseWheelMove(const juce::MouseEvent& e, const juce::MouseWheelDetails&) override { release(e); }
+        static void release(const juce::MouseEvent& e);
+    };
+    DiceFocusRelease m_diceFocusRelease;
+
     /** Tooltips in a desktop window of their own: the creature's OpenGL view is a native view on
         top of the editor's window, so it would cover any part of a tip the editor paints itself. */
     class EditorTooltipWindow final : public juce::TooltipWindow
@@ -106,6 +125,7 @@ private:
     ThemeLink m_websiteLink { "SWEETJUSTICESOUND.COM", juce::URL("https://sweetjusticesound.com") };
 
     juce::TextButton m_presetPrevButton, m_presetNameButton, m_presetNextButton, m_presetSaveButton;
+    DiceButton m_presetDice { "Random Preset" };
     std::unique_ptr<juce::AlertWindow> m_alert; // owned so it never outlives the LookAndFeel
     EditorTooltipWindow m_tooltipWindow { *this }; // after m_lookAndFeel, so it is deleted first
     std::unique_ptr<AboutWindow> m_aboutWindow;     // at most one per editor, closed with it

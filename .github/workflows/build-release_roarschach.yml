@@ -1,6 +1,6 @@
 name: Build and Release Roarschach
 
-# Push a tag like roarschach-v1.0.0 to build, test, sign, notarise and publish a release.
+# Push a tag like roarschach-v1.1.0 to build, test, sign, notarise and publish a release.
 # The version lives in roarschach/CMakeLists.txt (ROARSCHACH_VERSION); the tag must match it,
 # so a mis-tagged release fails early. It ends up in the About panel, the bundles and the installers.
 # Run it by hand (workflow_dispatch) to get the same artefacts without a release.
@@ -14,6 +14,15 @@ name: Build and Release Roarschach
 # Optional, for Windows signing (skipped when missing):
 #   WINDOWS_CERTIFICATE_PFX_BASE64, WINDOWS_CERTIFICATE_PASSWORD
 #     a code-signing certificate exported as .pfx, base64 encoded
+# Optional, for the unsigned AAX test build (.github/actions/aax-sdk):
+#   AAX_SDK_DEPLOY_KEY   read-only deploy key for the private AAX SDK repository
+# CHAMBER's bundled rooms (.github/actions/roarschach-irs):
+#   ROARSCHACH_IRS_DEPLOY_KEY   read-only deploy key for the private room-captures repository
+#   ROARSCHACH_IR_KEY           64 hex digits (32 bytes): the key the rooms are encrypted with in the binary
+#   Pull requests and manual runs without them build CHAMBER with its modelled rooms and warn.
+#   A tag (release) run fails instead: a release always carries the bundled rooms.
+#   The key reaches CMake through the environment only, and the captures and key files are
+#   deleted after the build, so every build step must stay before that cleanup step.
 
 on:
   push:
@@ -23,6 +32,7 @@ on:
     paths:
       - 'roarschach/**'
       - '.github/workflows/build-release_roarschach.yml'
+      - '.github/actions/roarschach-irs/**'
   workflow_dispatch:
 
 # A newer push to the same PR replaces the run in progress.
@@ -77,7 +87,38 @@ jobs:
         mkdir SDK
         git clone --depth 1 --branch $env:JUCE_VERSION https://github.com/juce-framework/JUCE.git SDK/JUCE
 
+    - name: Get the AAX SDK
+      id: aax
+      uses: ./.github/actions/aax-sdk
+      with:
+        deploy-key: ${{ secrets.AAX_SDK_DEPLOY_KEY }}
+
+    - name: Get CHAMBER's rooms
+      id: irs
+      uses: ./.github/actions/roarschach-irs
+      with:
+        deploy-key: ${{ secrets.ROARSCHACH_IRS_DEPLOY_KEY }}
+        have-ir-key: ${{ secrets.ROARSCHACH_IR_KEY != '' }}
+
+    - name: Check CHAMBER's rooms
+      shell: bash
+      env:
+        IR_PATH: ${{ steps.irs.outputs.path }}
+      run: |
+        if [[ -n "$IR_PATH" ]]; then
+          echo "CHAMBER: bundled rooms" | tee -a "$GITHUB_STEP_SUMMARY"
+        else
+          echo "CHAMBER: modelled rooms (the room captures or key are missing)" | tee -a "$GITHUB_STEP_SUMMARY"
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            echo "::error title=CHAMBER rooms::A release must carry the bundled rooms: check ROARSCHACH_IRS_DEPLOY_KEY, ROARSCHACH_IR_KEY and the captures repository"
+            exit 1
+          fi
+        fi
+
     - name: Configure CMake
+      env:
+        # Only when the rooms were fetched; CMake reads it from the environment (never the cache or a log).
+        ROARSCHACH_IR_KEY: ${{ steps.irs.outputs.path != '' && secrets.ROARSCHACH_IR_KEY || '' }}
       run: |
         cd roarschach
         $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm UTC" -AsUTC
@@ -85,12 +126,35 @@ jobs:
           -DROARSCHACH_VERSION="$env:VERSION" `
           -DROARSCHACH_FORMATS="VST3" `
           -DROARSCHACH_TESTS=OFF `
-          -DBUILD_TIMESTAMP="$timestamp"
+          -DBUILD_TIMESTAMP="$timestamp" `
+          -DSAMMYJ_AAX=ON -DAAX_SDK_PATH="${{ steps.aax.outputs.path }}" `
+          -DROARSCHACH_IR_DIR="${{ steps.irs.outputs.path }}"
 
     - name: Build VST3
       run: |
         cd roarschach
         cmake --build build --config Release --parallel
+
+    # Must stay after the last build step: a later build would re-configure without the key.
+    - name: Remove CHAMBER's room captures
+      if: always() && steps.irs.outputs.path != ''
+      shell: bash
+      run: rm -rf "$RUNNER_TEMP/roarschach-irs" roarschach/build/chamber_irs/ir.key roarschach/build/chamber_irs/RoarschachIrKey.h
+
+    # Unsigned AAX, for testing in Pro Tools Developer only (PACE wraptool signing comes later).
+    # It is a build artifact, not part of the release or the installer.
+    - name: Zip unsigned Windows AAX
+      shell: pwsh
+      run: |
+        cd roarschach
+        Compress-Archive -Path "build\Roarschach_artefacts\Release\AAX\Roarschach.aaxplugin" -DestinationPath "Roarschach-Windows-AAX-unsigned.zip" -Force
+
+    - name: Upload unsigned Windows AAX
+      uses: actions/upload-artifact@v6
+      with:
+        name: Roarschach-Windows-AAX-unsigned
+        path: roarschach/Roarschach-Windows-AAX-unsigned.zip
+        if-no-files-found: error
 
     - name: Gather files
       run: |
@@ -183,7 +247,38 @@ jobs:
         mkdir SDK
         git clone --depth 1 --branch "$JUCE_VERSION" https://github.com/juce-framework/JUCE.git SDK/JUCE
 
+    - name: Get the AAX SDK
+      id: aax
+      uses: ./.github/actions/aax-sdk
+      with:
+        deploy-key: ${{ secrets.AAX_SDK_DEPLOY_KEY }}
+
+    - name: Get CHAMBER's rooms
+      id: irs
+      uses: ./.github/actions/roarschach-irs
+      with:
+        deploy-key: ${{ secrets.ROARSCHACH_IRS_DEPLOY_KEY }}
+        have-ir-key: ${{ secrets.ROARSCHACH_IR_KEY != '' }}
+
+    - name: Check CHAMBER's rooms
+      shell: bash
+      env:
+        IR_PATH: ${{ steps.irs.outputs.path }}
+      run: |
+        if [[ -n "$IR_PATH" ]]; then
+          echo "CHAMBER: bundled rooms" | tee -a "$GITHUB_STEP_SUMMARY"
+        else
+          echo "CHAMBER: modelled rooms (the room captures or key are missing)" | tee -a "$GITHUB_STEP_SUMMARY"
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            echo "::error title=CHAMBER rooms::A release must carry the bundled rooms: check ROARSCHACH_IRS_DEPLOY_KEY, ROARSCHACH_IR_KEY and the captures repository"
+            exit 1
+          fi
+        fi
+
     - name: Configure CMake
+      env:
+        # Only when the rooms were fetched; CMake reads it from the environment (never the cache or a log).
+        ROARSCHACH_IR_KEY: ${{ steps.irs.outputs.path != '' && secrets.ROARSCHACH_IR_KEY || '' }}
       run: |
         cd roarschach
         cmake -B build -S . -DCMAKE_BUILD_TYPE=Release \
@@ -191,7 +286,9 @@ jobs:
           -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0 \
           -DROARSCHACH_VERSION="$VERSION" \
           -DROARSCHACH_TESTS=ON \
-          -DBUILD_TIMESTAMP="$(date -u "+%Y-%m-%d %H:%M UTC")"
+          -DBUILD_TIMESTAMP="$(date -u "+%Y-%m-%d %H:%M UTC")" \
+          -DSAMMYJ_AAX=ON -DAAX_SDK_PATH="${{ steps.aax.outputs.path }}" \
+          -DROARSCHACH_IR_DIR="${{ steps.irs.outputs.path }}"
 
     - name: Build AU, VST3 and tests
       run: |
@@ -200,12 +297,32 @@ jobs:
         # and can run the 3-core runner out of memory. One job per core.
         cmake --build build --config Release --parallel "$(sysctl -n hw.ncpu)"
 
+    # Must stay after the last build step: a later build would re-configure without the key.
+    - name: Remove CHAMBER's room captures
+      if: always() && steps.irs.outputs.path != ''
+      shell: bash
+      run: rm -rf "$RUNNER_TEMP/roarschach-irs" roarschach/build/chamber_irs/ir.key roarschach/build/chamber_irs/RoarschachIrKey.h
+
     - name: Run the offline tests
       run: |
         cd roarschach
         exe=$(find build -name RoarschachTests -type f -perm +111 | head -1)
         [[ -n "$exe" ]] || { echo "RoarschachTests not built"; exit 1; }
         "$exe"
+
+    # Unsigned AAX, for testing in Pro Tools Developer only (PACE wraptool signing comes later).
+    # It is a build artifact: not signed, notarised, packaged or released with the VST3/AU.
+    - name: Zip unsigned macOS AAX
+      run: |
+        cd roarschach
+        ditto -c -k --keepParent "build/Roarschach_artefacts/Release/AAX/Roarschach.aaxplugin" Roarschach-macOS-AAX-unsigned.zip
+
+    - name: Upload unsigned macOS AAX
+      uses: actions/upload-artifact@v6
+      with:
+        name: Roarschach-macOS-AAX-unsigned
+        path: roarschach/Roarschach-macOS-AAX-unsigned.zip
+        if-no-files-found: error
 
     - name: Check for certificates
       id: check_certs

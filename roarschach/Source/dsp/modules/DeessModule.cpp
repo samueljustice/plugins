@@ -1,5 +1,6 @@
 #include "DeessModule.h"
 
+#include "../KnobLaws.h"
 #include "../MonsterFeatures.h"
 
 #include <cmath>
@@ -21,9 +22,7 @@ namespace roar
 
     double DeessModule::rangeDbFor (const DeessSettings& s)
     {
-        const double range = -24.0 * std::clamp (static_cast<double> (s.amount), 0.0, 1.0);
-        const double link = s.roarOn ? 1.0 + 0.5 * std::clamp (static_cast<double> (s.roarDrive), 0.0, 1.0) : 1.0;
-        return range * link;
+        return laws::deessRangeDb (static_cast<double> (s.amount));
     }
 
     void DeessModule::prepare (double fs, int maxBlock)
@@ -56,6 +55,7 @@ namespace roar
             for (auto& f : d)
                 f.reset();
         m_range = m_rangeTarget;
+        m_shift = m_shiftTarget;
         m_wide = m_wideTarget;
         m_envBand = m_envFull = 0.0;
         m_grBallistics.reset();
@@ -72,6 +72,7 @@ namespace roar
     {
         m_fade.setOn (s.on);
         m_rangeTarget = rangeDbFor (s);
+        m_shiftTarget = laws::deessThresholdShiftDb (static_cast<double> (s.amount));
         m_wideTarget = s.mode == Params::DeessMode::wide ? 1.0 : 0.0;
     }
 
@@ -90,7 +91,9 @@ namespace roar
         {
             m_range += m_rangeCoeff * (m_rangeTarget - m_range);
             m_wide += m_wideCoeff * (m_wideTarget - m_wide);
+            m_shift += m_rangeCoeff * (m_shiftTarget - m_shift);
             m_range = dsp::flushTiny (m_range);
+            m_shift = dsp::flushTiny (m_shift);
             m_wide = dsp::flushTiny (m_wide);
 
             const double xl = dsp::finiteOrZero (static_cast<double> (l[i]));
@@ -114,7 +117,7 @@ namespace roar
             if (bandDb >= c_bandFloorDb)
             {
                 const double rel = bandDb - dsp::gainToDb (m_envFull);
-                target = std::clamp (-c_relSlope * (rel + c_relOffsetDb), std::min (m_range, 0.0), 0.0);
+                target = std::clamp (-c_relSlope * (rel + c_relOffsetDb + m_shift), std::min (m_range, 0.0), 0.0);
             }
             m_grDb = std::min (0.0, m_grBallistics.process (target));
 
@@ -144,6 +147,8 @@ namespace roar
         }
         m_rangeTarget = o.m_rangeTarget;
         m_range = o.m_range;
+        m_shiftTarget = o.m_shiftTarget;
+        m_shift = o.m_shift;
         m_wideTarget = o.m_wideTarget;
         m_wide = o.m_wide;
         m_envBand = o.m_envBand;

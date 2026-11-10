@@ -6,6 +6,7 @@
 #include "common/DelayLine.h"
 #include "common/Module.h"
 #include "common/VoiceStream.h"
+#include "modules/ChamberModule.h"
 #include "modules/CleanModule.h"
 #include "modules/DeessModule.h"
 #include "modules/DetailModule.h"
@@ -47,6 +48,7 @@ namespace roar
         TameSettings tame;
         SubSettings sub;
         OvertoneSettings overtone;
+        ChamberSettings chamber;
         OutputSettings output;
         Params::Order positions = Params::defaultPositions();
 
@@ -67,8 +69,9 @@ namespace roar
      * The whole wet path:
      *
      *   host in --> IN (mono sum, trim, auto level, YIN --> VoiceStream)
-     *           --> chain A (or A and B during a reorder fade): the 14 movable modules in the resolved
-     *               order, mono up to the first stereo-creating module, stereo from there
+     *           --> chain A (or A and B during a reorder fade): the 15 movable modules in the resolved
+     *               order, mono up to the first stereo-creating module, stereo from there, then
+     *               the post-chain hook (CHAMBER's Boom shelf)
      *           --> OUTPUT (filters, auto gain, Ride, Push, Mix with the phase-matched dry, maximizer,
      *               clipper, safety) --> out
      *
@@ -76,13 +79,13 @@ namespace roar
      *
      * Order (spec §3.1): the modules sorted by (position, defaultIndex), read once per chunk. The
      * stereo split is the slot of the first module that creates stereo (ENSEMBLE when On, SHIMMER
-     * On in Stereo); before it the modules run mono (left only), from it on stereo (R starts as L).
+     * On in Stereo, CHAMBER On with Width above 0); before it the modules run mono (left only), from it on stereo (R starts as L).
      *
      * Reorder (spec §3.5): a different order or split clones the running chain into the idle one
      * (copyStateFrom, no allocation), gives it the new topology (modules that enter the stereo part
      * copy their left state to the right), runs both and crossfades over 30 ms (power preserving: the gains follow the running correlation of the two renders, so renders that drift apart in phase do not cancel). A
      * module whose upstream changes (another module or another latency before it) would see a splice
-     * at its input: its history is the old order's signal, its next sample the new order's. So for
+     * at its input: its history is the previous order's signal, its next sample the new order's. So for
      * the first 10 ms the incoming chain feeds each such module a smoothstep blend from the input the
      * outgoing chain gives that module to its own; no splice ever enters a module's state (a
      * PSOLA grain may read its history a long way back). The crossfade starts once that blended
@@ -144,7 +147,7 @@ namespace roar
         static Topology topologyFor (const ChainSettings& settings);
 
     private:
-        /** One complete chain of the 14 movable modules (the twin chains A and B). */
+        /** One complete chain of the 15 movable modules (the twin chains A and B). */
         class ModuleSet
         {
         public:
@@ -200,6 +203,7 @@ namespace roar
             TameModule m_tame;
             SubModule m_sub;
             OvertoneModule m_overtone;
+            ChamberModule m_chamber;
 
             std::array<Module*, Params::numModules> m_modules {};
             std::array<VoicePass, Params::numModules> m_passes;

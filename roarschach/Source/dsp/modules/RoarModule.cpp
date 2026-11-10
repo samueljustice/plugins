@@ -1,5 +1,7 @@
 #include "RoarModule.h"
 
+#include "../KnobLaws.h"
+
 #include "../MonsterFeatures.h"
 
 #include <algorithm>
@@ -35,7 +37,7 @@ namespace roar
         constexpr double c_inputLimit = 32.0;
 
         // Drives.
-        constexpr double c_drive1Cal = 1.41, c_drive1RangeDb = 18.0;
+        constexpr double c_drive1Cal = 1.41;   // Drive1 law: laws::roarDrive1Db
         constexpr double c_drive2Cal = 0.5, c_drive2RangeDb = 8.0;
 
         // Filters.
@@ -48,7 +50,7 @@ namespace roar
         constexpr double c_couplingHz = 12.0;
         constexpr double c_bassLowHz = 80.0, c_bassHighHz = 300.0, c_bassLowShare = 0.85;
         constexpr double c_bassMaxDb = 6.0;
-        constexpr double c_scoopHz = 200.0, c_scoopQ = 0.8, c_scoopPerDrive = 14.0, c_scoopMaxDb = 7.0;
+        constexpr double c_scoopHz = 200.0, c_scoopQ = 0.8;   // depth: laws::roarScoopDb
         constexpr double c_trebleLowHz = 2500.0, c_trebleHighHz = 10000.0, c_trebleLowShare = 0.35;
         constexpr double c_trebleMaxDb = 7.0;
         constexpr double c_fixedTopHz = 13000.0, c_fixedTopDb = 1.5;
@@ -63,13 +65,15 @@ namespace roar
         // Static makeup in dB: rows Tone -1, -0.5, 0, +0.5, +1; columns Drive 0, 0.1, ..., 1.
         // Calibrated at 48 kHz at the reference level (-20 dBFS RMS): the mean of voice-shaped pink
         // noise and the reference voice signal, K-ish weighted RMS (80 Hz HPF, +4 dB at 1.5 kHz).
+        // The top columns absorb the extra drive of the steeper law above 50 % (the stage
+        // compresses harder there), and the outer rows the stronger tilt at low Drive.
         constexpr int c_makeupTones = 5, c_makeupDrives = 11;
         constexpr double c_makeupTable[c_makeupTones][c_makeupDrives] = {
-            { 0.36, 0.40, 0.45, 0.49, 0.55, 0.46, 0.36, 0.33, 0.40, 0.58, 0.89 },
-            { 0.36, 0.44, 0.51, 0.62, 0.71, 0.66, 0.62, 0.66, 0.79, 1.03, 1.43 },
-            { 0.36, 0.47, 0.60, 0.70, 0.81, 0.82, 0.81, 0.89, 1.05, 1.32, 1.71 },
-            { 0.36, 0.50, 0.65, 0.77, 0.91, 0.91, 0.92, 1.00, 1.16, 1.41, 1.77 },
-            { 0.36, 0.55, 0.69, 0.85, 0.96, 0.96, 0.95, 1.01, 1.14, 1.31, 1.59 },
+            { 0.22, 0.32, 0.42, 0.49, 0.57, 0.40, 0.43, 0.67, 1.57, 3.43, 6.44 },
+            { 0.31, 0.43, 0.52, 0.64, 0.74, 0.61, 0.70, 1.03, 1.99, 3.88, 6.86 },
+            { 0.36, 0.47, 0.60, 0.70, 0.81, 0.75, 0.86, 1.21, 2.18, 4.03, 6.83 },
+            { 0.36, 0.47, 0.60, 0.71, 0.84, 0.79, 0.89, 1.22, 2.14, 3.86, 6.39 },
+            { 0.32, 0.44, 0.54, 0.68, 0.80, 0.76, 0.81, 1.08, 1.89, 3.39, 5.55 },
         };
 
         double plateCurrent (double g)
@@ -122,7 +126,7 @@ namespace roar
         return t;
     }
 
-    double RoarModule::drive1For (double a) { return c_drive1Cal * dsp::dbToGain (c_drive1RangeDb * a); }
+    double RoarModule::drive1For (double a) { return c_drive1Cal * dsp::dbToGain (laws::roarDrive1Db (a)); }
     double RoarModule::drive2For (double a) { return c_drive2Cal * dsp::dbToGain (c_drive2RangeDb * a); }
 
     double RoarModule::makeupDb (double a, double t)
@@ -220,9 +224,10 @@ namespace roar
 
         if (a != m_designedA || t != m_designedTone)
         {
-            const double bassDb = c_bassMaxDb * a * (1.0 - t);
-            const double trebleDb = c_trebleMaxDb * a * (1.0 + t);
-            const double scoopDb = -std::min (c_scoopMaxDb, c_scoopPerDrive * a);
+            const double tilt = laws::roarToneStrength (a) * t;
+            const double bassDb = c_bassMaxDb * (a - tilt);
+            const double trebleDb = c_trebleMaxDb * (a + tilt);
+            const double scoopDb = laws::roarScoopDb (a);
 
             const auto couplingTreble = cascade1 (Biquad::highpass1 (m_fs2, c_couplingHz),
                                                   Biquad::highShelf1 (m_fs2, c_trebleLowHz, c_trebleLowShare * trebleDb));

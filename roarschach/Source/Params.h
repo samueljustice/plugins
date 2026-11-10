@@ -1,6 +1,7 @@
 #pragma once
 
 #include <array>
+#include <cmath>
 #include <cstdint>
 #include <string_view>
 
@@ -8,8 +9,9 @@
 // for the processor, the editor, the presets and the tests. Plain C++ (no JUCE).
 //
 // The declaration order of `all` is the AU index order (Logic addresses AU parameters by index):
-// it is frozen at 1.0. Every parameter below has version hint 1. Anything added after 1.0 gets
+// it is frozen at 1.0. The parameters of 1.0 have version hint 1. Anything added after 1.0 gets
 // hint 2 or later and is appended, never inserted; nothing is ever removed, renamed or reordered.
+// 1.1 appends the CHAMBER rows (hint 2).
 namespace Params
 {
     inline constexpr int versionHint = 1;
@@ -118,6 +120,16 @@ namespace Params
     inline constexpr const char* outRelease = "outRelease";
     inline constexpr const char* outAuto = "outAuto";
     inline constexpr const char* mix = "mix";
+    // CHAMBER (appended in 1.1, version hint 2)
+    inline constexpr const char* chamberOn = "chamberOn";
+    inline constexpr const char* chamberPos = "chamberPos";
+    inline constexpr const char* chamber = "chamber";
+    inline constexpr const char* chamberResonance = "chamberResonance";
+    inline constexpr const char* chamberDrive = "chamberDrive";
+    inline constexpr const char* chamberWidth = "chamberWidth";
+    inline constexpr const char* chamberRoom = "chamberRoom";
+    inline constexpr const char* chamberSpeaker = "chamberSpeaker";
+    inline constexpr const char* chamberBoom = "chamberBoom";
 
     // ---------------------------------------------------------------------------------- choice names
     inline constexpr std::array<const char*, 3> pitchModeNames { "Shift", "Snap", "Mono" };
@@ -142,6 +154,12 @@ namespace Params
     inline constexpr std::array<const char*, 2> ringTrackNames { "Fixed", "Follow" };
     inline constexpr std::array<const char*, 2> ringModeNames { "Ring", "AM" };
     inline constexpr std::array<const char*, 3> ringBodyNames { "Off", "Box", "Can" };
+    // Frozen once released: appending a choice changes the VST3 normalised values and the AU range.
+    inline constexpr std::array<const char*, 10> chamberRoomNames { "Steel Box", "Resonant Chamber", "Concrete Room", "Tin Booth",
+                                                                   "Padded Cell", "Wood Chamber", "Timber Room", "Soft Bloom",
+                                                                   "Party Wall", "Tower Block" };
+    inline constexpr std::array<const char*, 3> chamberSpeakerNames { "Tiny", "Small", "Horn" };
+    inline constexpr std::array<const char*, 4> chamberBoomNames { "Off", "Light", "Medium", "Heavy" };
 
     // Choice indices the DSP switches on (same order as the names above). OVERTONE and RING use
     // the enums their modules define (roar::OvertonePattern, roar::RingCarrier, ...), in the same
@@ -162,21 +180,26 @@ namespace Params
     enum class EnsembleMotion : int { slow, medium, fast, vibrato };
     enum class SubRegister : int { follow, tight, deep };
     enum class SubCharacter : int { clean, resonant, thick };
+    enum class ChamberRoom : int { steelBox, resonantChamber, concreteRoom, tinBooth, paddedCell, woodChamber, timberRoom, softBloom, partyWall, towerBlock };
+    enum class ChamberSpeaker : int { tiny, small, horn };
+    enum class ChamberBoom : int { off, light, medium, heavy };
 
     // ---------------------------------------------------------------------------------- parameter table
     // How a parameter is created and displayed:
     //   percent       0..max %, display "45%"                     (float)
     //   bipolar       -100..+100 %, roarTone: "Bass 40%" / "Even" / "Treble 40%"
-    //   decibels      display "+3.0 dB" (outClip shows "Off" at 0)
+    //   decibels      display "+3.0 dB" (outClip shows "Off" at 0); linear, or skewed so `centre` sits at mid travel
     //   semitones     display "-2.00 st"
     //   octaves       display "+0.25 oct"
-    //   hertz         log taper (centre = the value at the knob's mid point), display "27.0 Hz"
+    //   hertz         true log taper (equal travel per octave; centre = sqrt (min max), the value at
+    //                 the knob's mid point), display "27.0 Hz"
     //                 (>= 10 Hz: one decimal, < 10 Hz: two decimals, >= 1 kHz: "1.20 kHz")
-    //   ratio         log taper around `centre`, display "x1.50"
-    //   milliseconds  log taper around `centre`, display "2.0 ms" / "0.05 ms" / "60 ms" / "1.00 s"
+    //   ratio         true log taper (centre = sqrt (min max)), display "x1.50"
+    //   milliseconds  true log taper (centre = sqrt (min max)), display "2.0 ms" / "0.20 ms" / "60 ms" / "1.00 s"
     //   choice        AudioParameterChoice over `choices`
     //   toggle        AudioParameterBool, display "On" / "Off"
-    //   position      AudioParameterInt 0..numModules-1, display "1st" .. "14th"
+    //   position      AudioParameterInt, display "1st" .. "15th": the 14 modules of 1.0 keep 0..13 (their
+    //                 place among those 14); CHAMBER's is an insertion slot 0..14 (see resolveOrder)
     enum class Kind { percent, bipolar, decibels, semitones, octaves, hertz, ratio, milliseconds, choice, toggle, position };
 
     struct Spec
@@ -188,13 +211,18 @@ namespace Params
         float maxValue;
         float step;              // 0 = continuous
         float defaultValue;      // choice / toggle / position: the index (0 or 1 for toggles)
-        float centre;            // hertz / ratio / milliseconds: the value at the knob's mid point; 0 otherwise
+        float centre;            // hertz / ratio / milliseconds: the value at the knob's mid point (sqrt (min max));
+                                 // decibels: 0 = linear, else the value at mid travel (a skewed taper)
         const char* const* choices;
         int numChoices;
+        int version = versionHint;   // the ParameterID version hint: 1 for 1.0's rows, 2 for 1.1's
     };
 
-    // The 14 movable modules. Declared here because the position range depends on it.
-    inline constexpr int numModules = 14;
+    // The movable modules. Declared here because the position ranges depend on it. The first 14
+    // are 1.0's (their positions are a permutation of 0..13, frozen); CHAMBER (1.1) has an
+    // insertion slot among them instead, so 1.0's position ranges never change.
+    inline constexpr int numModules = 15;
+    inline constexpr int numLegacyModules = 14;
 
     namespace detail
     {
@@ -210,7 +238,14 @@ namespace Params
 
         constexpr Spec position (const char* id, const char* name, int def)
         {
-            return { id, name, Kind::position, 0.0f, static_cast<float> (numModules - 1), 1.0f, static_cast<float> (def), 0.0f, nullptr, 0 };
+            return { id, name, Kind::position, 0.0f, static_cast<float> (numLegacyModules - 1), 1.0f, static_cast<float> (def), 0.0f, nullptr, 0 };
+        }
+
+        /** A version-2 row (appended in 1.1). */
+        constexpr Spec v2 (Spec s)
+        {
+            s.version = 2;
+            return s;
         }
 
         template <size_t N>
@@ -220,9 +255,9 @@ namespace Params
                      names.data(), static_cast<int> (N) };
         }
 
-        constexpr Spec decibels (const char* id, const char* name, float lo, float hi, float def)
+        constexpr Spec decibels (const char* id, const char* name, float lo, float hi, float def, float centre = 0.0f)
         {
-            return { id, name, Kind::decibels, lo, hi, 0.1f, def, 0.0f, nullptr, 0 };
+            return { id, name, Kind::decibels, lo, hi, 0.1f, def, centre, nullptr, 0 };
         }
 
         constexpr Spec hertz (const char* id, const char* name, float lo, float hi, float def, float centre)
@@ -236,7 +271,8 @@ namespace Params
         }
     }
 
-    inline constexpr int numParameters = 87;
+    inline constexpr int numParameters = 96;
+    inline constexpr int numLegacyParameters = 87;   // 1.0's rows: indices 0..86
 
     inline constexpr std::array<Spec, numParameters> all {
         // IN
@@ -247,48 +283,48 @@ namespace Params
         detail::position (pitchPos, "Pitch Position", 0),
         Spec { pitch, "Pitch", Kind::semitones, -24.0f, 12.0f, 0.01f, -2.0f, 0.0f, nullptr, 0 },
         detail::percent (pitchSize, "Size", 0.0f),
-        detail::percent (pitchDrive, "Drive", 5.0f),
+        detail::percent (pitchDrive, "Drive", 1.0f),
         detail::choice (pitchMode, "Pitch Mode", pitchModeNames, 0),
         detail::choice (pitchFormant, "Formant", pitchFormantNames, 0),
         // CLEAN
         detail::toggle (cleanOn, "Clean On", true),
         detail::position (cleanPos, "Clean Position", 1),
-        detail::percent (cleanContain, "Contain", 35.0f),
-        detail::percent (cleanGate, "Gate", 35.0f),
+        detail::percent (cleanContain, "Contain", 22.0f),
+        detail::percent (cleanGate, "Gate", 47.0f),
         detail::choice (cleanTone, "Clean Tone", cleanToneNames, 1),
         // DE-ESS
         detail::toggle (deessOn, "De-ess On", true),
         detail::position (deessPos, "De-ess Position", 2),
-        detail::percent (deess, "De-ess", 30.0f),
+        detail::percent (deess, "De-ess", 49.0f),
         detail::choice (deessMode, "De-ess Mode", deessModeNames, 0),
         // DETAIL
         detail::toggle (detailOn, "Detail On", true),
         detail::position (detailPos, "Detail Position", 3),
-        detail::percent (detailLow, "Detail Low", 30.0f),
-        detail::percent (detailHigh, "Detail High", 25.0f),
+        detail::percent (detailLow, "Detail Low", 25.0f),
+        detail::percent (detailHigh, "Detail High", 19.0f),
         detail::choice (detailSpeed, "Detail Speed", detailSpeedNames, 0),
         // VOCODER
         detail::toggle (vocoderOn, "Vocoder On", false),
         detail::position (vocoderPos, "Vocoder Position", 4),
-        detail::percent (gravel, "Gravel", 50.0f),
+        detail::percent (gravel, "Gravel", 41.0f),
         detail::choice (vocoderOctave, "Vocoder Octave", vocoderOctaveNames, 0),
         // SHIMMER
         detail::toggle (shimmerOn, "Shimmer On", true),
         detail::position (shimmerPos, "Shimmer Position", 6),
-        detail::percent (shimmer, "Shimmer", 12.0f),
-        detail::hertz (shimmerRate, "Shimmer Rate", 0.5f, 40.0f, 11.0f, 5.0f),
+        detail::percent (shimmer, "Shimmer", 18.0f),
+        detail::hertz (shimmerRate, "Shimmer Rate", 0.5f, 25.0f, 11.0f, 3.5355339f),        // sqrt (0.5 * 25)
         detail::choice (shimmerMode, "Shimmer Mode", shimmerModeNames, 0),
         // GROWL
         detail::toggle (growlOn, "Growl On", true),
         detail::position (growlPos, "Growl Position", 7),
-        detail::percent (growl, "Growl Depth", 48.0f),
-        detail::hertz (growlRate, "Growl Rate", 1.0f, 150.0f, 27.0f, 12.247449f),   // sqrt (1 * 150)
+        detail::percent (growl, "Growl Depth", 25.0f),
+        detail::hertz (growlRate, "Growl Rate", 2.0f, 150.0f, 27.0f, 17.320508f),     // sqrt (2 * 150)
         detail::choice (growlShape, "Growl Shape", growlShapeNames, 0),
         detail::choice (growlCharacter, "Growl Character", growlCharacterNames, 1),
         // SWIRL
         detail::toggle (swirlOn, "Swirl On", true),
         detail::position (swirlPos, "Swirl Position", 8),
-        detail::percent (swirl, "Swirl", 30.0f),
+        detail::percent (swirl, "Swirl", 21.0f),
         detail::hertz (swirlRate, "Swirl Rate", 0.05f, 10.0f, 0.35f, 0.70710678f),  // sqrt (0.05 * 10)
         detail::choice (swirlCircuit, "Swirl Circuit", swirlCircuitNames, 0),
         detail::choice (swirlMotion, "Swirl Motion", swirlMotionNames, 1),
@@ -296,30 +332,30 @@ namespace Params
         detail::toggle (roarOn, "Roar On", true),
         detail::position (roarPos, "Roar Position", 9),
         detail::percent (roar, "Roar Drive", 45.0f),
-        Spec { roarTone, "Roar Tone", Kind::bipolar, -100.0f, 100.0f, 0.1f, 10.0f, 0.0f, nullptr, 0 },
+        Spec { roarTone, "Roar Tone", Kind::bipolar, -100.0f, 100.0f, 0.1f, 3.0f, 0.0f, nullptr, 0 },
         detail::choice (roarVoicing, "Roar Voicing", roarVoicingNames, 0),
         // ENSEMBLE
         detail::toggle (ensembleOn, "Ensemble On", true),
         detail::position (ensemblePos, "Ensemble Position", 10),
-        detail::percent (ensemble, "Ensemble", 18.0f),
-        detail::percent (ensembleWidth, "Width", 12.0f, 150.0f),
+        detail::percent (ensemble, "Ensemble", 10.0f),
+        detail::percent (ensembleWidth, "Width", 10.0f, 150.0f),
         detail::choice (ensembleVoices, "Ensemble Voices", ensembleVoicesNames, 0),
         detail::choice (ensembleMotion, "Ensemble Motion", ensembleMotionNames, 1),
         // TAME
         detail::toggle (tameOn, "Tame On", true),
         detail::position (tamePos, "Tame Position", 11),
-        detail::percent (tame, "Tame", 30.0f),
+        detail::percent (tame, "Tame", 6.0f),
         // SUB
         detail::toggle (subOn, "Sub On", true),
         detail::position (subPos, "Sub Position", 12),
-        detail::percent (sub, "Sub Level", 45.0f),
-        detail::percent (subDrive, "Sub Drive", 60.0f),
+        detail::percent (sub, "Sub Level", 49.0f),
+        detail::percent (subDrive, "Sub Drive", 20.0f),
         detail::choice (subRegister, "Sub Register", subRegisterNames, 0),
         detail::choice (subCharacter, "Sub Character", subCharacterNames, 0),
         // OVERTONE
         detail::toggle (overtoneOn, "Overtone On", true),
         detail::position (overtonePos, "Overtone Position", 13),
-        detail::percent (overtone, "Overtone Amount", 10.0f),
+        detail::percent (overtone, "Overtone Amount", 4.0f),
         Spec { overtoneFreq, "Overtone Frequency", Kind::octaves, -1.0f, 1.0f, 0.01f, 0.0f, 0.0f, nullptr, 0 },
         detail::choice (overtonePattern, "Overtone Pattern", overtonePatternNames, 0),
         detail::choice (overtoneMode, "Overtone Mode", overtoneModeNames, 0),
@@ -327,21 +363,31 @@ namespace Params
         detail::toggle (ringOn, "Ring On", false),
         detail::position (ringPos, "Ring Position", 5),
         detail::percent (ring, "Ring Amount", 40.0f),
-        detail::hertz (ringFreq, "Ring Freq", 20.0f, 4000.0f, 150.0f, 150.0f),
+        detail::hertz (ringFreq, "Ring Freq", 20.0f, 4000.0f, 150.0f, 282.84271f),        // sqrt (20 * 4000)
         Spec { ringRatio, "Ring Ratio", Kind::ratio, 0.25f, 4.0f, 0.01f, 1.0f, 1.0f, nullptr, 0 },
         detail::choice (ringCarrier, "Ring Carrier", ringCarrierNames, 0),
         detail::choice (ringTrack, "Ring Track", ringTrackNames, 0),
         detail::choice (ringMode, "Ring Mode", ringModeNames, 0),
         detail::choice (ringBody, "Ring Body", ringBodyNames, 0),
         // OUTPUT
-        detail::decibels (outPush, "Push", 0.0f, 24.0f, 8.0f),
+        detail::decibels (outPush, "Push", 0.0f, 24.0f, 8.0f, 10.0f),
         detail::decibels (outCeiling, "Ceiling", -12.0f, 0.0f, -1.0f),
-        detail::decibels (outClip, "Clip", 0.0f, 18.0f, 0.0f),
+        detail::decibels (outClip, "Clip", 0.0f, 18.0f, 0.0f, 5.0f),
         detail::percent (outClipShape, "Clip Shape", 0.0f),
-        detail::milliseconds (outAttack, "Attack", 0.05f, 10.0f, 2.0f, 2.0f),
-        detail::milliseconds (outRelease, "Release", 1.0f, 1000.0f, 60.0f, 60.0f),
+        detail::milliseconds (outAttack, "Attack", 0.2f, 10.0f, 2.0f, 1.4142136f),
+        detail::milliseconds (outRelease, "Release", 1.0f, 1000.0f, 60.0f, 31.622777f),
         detail::toggle (outAuto, "Auto Release", true),
         detail::percent (mix, "Mix", 100.0f),
+        // CHAMBER (1.1, version hint 2). Its position is an insertion slot among the 14 (0..14).
+        detail::v2 (detail::toggle (chamberOn, "Chamber On", false)),
+        detail::v2 ({ chamberPos, "Chamber Position", Kind::position, 0.0f, static_cast<float> (numLegacyModules), 1.0f, 1.0f, 0.0f, nullptr, 0 }),
+        detail::v2 (detail::percent (chamber, "Chamber", 50.0f)),
+        detail::v2 (detail::percent (chamberResonance, "Resonance", 40.0f)),
+        detail::v2 (detail::percent (chamberDrive, "Edge", 30.0f)),
+        detail::v2 (detail::percent (chamberWidth, "Chamber Width", 35.0f)),
+        detail::v2 (detail::choice (chamberRoom, "Chamber Room", chamberRoomNames, 2)),
+        detail::v2 (detail::choice (chamberSpeaker, "Chamber Speaker", chamberSpeakerNames, 1)),
+        detail::v2 (detail::choice (chamberBoom, "Chamber Boom", chamberBoomNames, 1)),
     };
 
     /** Index of a parameter in `all` (the AU index), -1 if unknown. */
@@ -362,10 +408,35 @@ namespace Params
 
     constexpr float defaultOf (std::string_view id) { return spec (id).defaultValue; }
 
+    /** True for the kinds with a log taper (hertz, ratio, milliseconds). */
+    constexpr bool hasLogTaper (const Spec& s)
+    {
+        return s.kind == Kind::hertz || s.kind == Kind::ratio || s.kind == Kind::milliseconds;
+    }
+
+    /** Log taper: the value at knob position n (0..1), v = min (max / min)^n. */
+    inline float logTaperValue (const Spec& s, float n)
+    {
+        const double t = n > 0.0f ? (n < 1.0f ? static_cast<double> (n) : 1.0) : 0.0;
+        const double v = static_cast<double> (s.minValue) * std::exp (t * std::log (static_cast<double> (s.maxValue) / s.minValue));
+        return static_cast<float> (v < s.minValue ? s.minValue : (v > s.maxValue ? s.maxValue : v));
+    }
+
+    /** Log taper: the knob position (0..1) of value v. */
+    inline float logTaperPosition (const Spec& s, float v)
+    {
+        if (! (v > s.minValue))
+            return 0.0f;
+        if (v >= s.maxValue)
+            return 1.0f;
+        return static_cast<float> (std::log (static_cast<double> (v) / s.minValue) / std::log (static_cast<double> (s.maxValue) / s.minValue));
+    }
+
     // ---------------------------------------------------------------------------------- modules
-    // The 14 movable modules, in the reference (default) order. `defaultIndex` is the default
-    // position and the tie-break when two modules ask for the same position.
-    enum class ModuleId : int { pitch, clean, deess, detail, vocoder, ring, shimmer, growl, swirl, roar, ensemble, tame, sub, overtone };
+    // The movable modules. 1.0's 14 are in their reference order: `defaultIndex` is the default
+    // position and the tie-break when two of them ask for the same position. CHAMBER is appended
+    // (ModuleId 14); its `defaultIndex` is its default insertion slot (1: right after PITCH).
+    enum class ModuleId : int { pitch, clean, deess, detail, vocoder, ring, shimmer, growl, swirl, roar, ensemble, tame, sub, overtone, chamber };
 
     struct ModuleSpec
     {
@@ -376,39 +447,41 @@ namespace Params
         std::uint32_t accent;          // ARGB
         const char* onId;
         const char* posId;
-        std::array<const char*, 3> knobIds;   // nullptr where unused (PITCH has 3)
+        std::array<const char*, 4> knobIds;   // nullptr where unused (PITCH has 3, CHAMBER 4)
         std::array<const char*, 4> chipIds;   // the mode chip's choice parameters, nullptr where unused
     };
 
     inline constexpr std::array<ModuleSpec, numModules> modules {
         ModuleSpec { ModuleId::pitch, "PI", "PITCH", 0, 0xffa992ffu, pitchOn, pitchPos,
-                     { pitch, pitchSize, pitchDrive }, { pitchMode, pitchFormant, nullptr, nullptr } },
+                     { pitch, pitchSize, pitchDrive, nullptr }, { pitchMode, pitchFormant, nullptr, nullptr } },
         ModuleSpec { ModuleId::clean, "CL", "CLEAN", 1, 0xff8fb7a3u, cleanOn, cleanPos,
-                     { cleanContain, cleanGate, nullptr }, { cleanTone, nullptr, nullptr, nullptr } },
+                     { cleanContain, cleanGate, nullptr, nullptr }, { cleanTone, nullptr, nullptr, nullptr } },
         ModuleSpec { ModuleId::deess, "DS", "DE-ESS", 2, 0xffb3c6dcu, deessOn, deessPos,
-                     { deess, nullptr, nullptr }, { deessMode, nullptr, nullptr, nullptr } },
+                     { deess, nullptr, nullptr, nullptr }, { deessMode, nullptr, nullptr, nullptr } },
         ModuleSpec { ModuleId::detail, "DT", "DETAIL", 3, 0xff6fd6b4u, detailOn, detailPos,
-                     { detailLow, detailHigh, nullptr }, { detailSpeed, nullptr, nullptr, nullptr } },
+                     { detailLow, detailHigh, nullptr, nullptr }, { detailSpeed, nullptr, nullptr, nullptr } },
         ModuleSpec { ModuleId::vocoder, "VO", "VOCODER", 4, 0xffc6e86bu, vocoderOn, vocoderPos,
-                     { gravel, nullptr, nullptr }, { vocoderOctave, nullptr, nullptr, nullptr } },
+                     { gravel, nullptr, nullptr, nullptr }, { vocoderOctave, nullptr, nullptr, nullptr } },
         ModuleSpec { ModuleId::ring, "RM", "RING", 5, 0xffe6edf5u, ringOn, ringPos,
-                     { ring, ringFreq, ringRatio }, { ringCarrier, ringTrack, ringMode, ringBody } },
+                     { ring, ringFreq, ringRatio, nullptr }, { ringCarrier, ringTrack, ringMode, ringBody } },
         ModuleSpec { ModuleId::shimmer, "SH", "SHIMMER", 6, 0xff7fe3f0u, shimmerOn, shimmerPos,
-                     { shimmer, shimmerRate, nullptr }, { shimmerMode, nullptr, nullptr, nullptr } },
+                     { shimmer, shimmerRate, nullptr, nullptr }, { shimmerMode, nullptr, nullptr, nullptr } },
         ModuleSpec { ModuleId::growl, "GR", "GROWL", 7, 0xffef6f8eu, growlOn, growlPos,
-                     { growl, growlRate, nullptr }, { growlShape, growlCharacter, nullptr, nullptr } },
+                     { growl, growlRate, nullptr, nullptr }, { growlShape, growlCharacter, nullptr, nullptr } },
         ModuleSpec { ModuleId::swirl, "SW", "SWIRL", 8, 0xffd38cf0u, swirlOn, swirlPos,
-                     { swirl, swirlRate, nullptr }, { swirlCircuit, swirlMotion, nullptr, nullptr } },
+                     { swirl, swirlRate, nullptr, nullptr }, { swirlCircuit, swirlMotion, nullptr, nullptr } },
         ModuleSpec { ModuleId::roar, "RO", "ROAR", 9, 0xffff7a45u, roarOn, roarPos,
-                     { roar, roarTone, nullptr }, { roarVoicing, nullptr, nullptr, nullptr } },
+                     { roar, roarTone, nullptr, nullptr }, { roarVoicing, nullptr, nullptr, nullptr } },
         ModuleSpec { ModuleId::ensemble, "EN", "ENSEMBLE", 10, 0xff5ec8d8u, ensembleOn, ensemblePos,
-                     { ensemble, ensembleWidth, nullptr }, { ensembleVoices, ensembleMotion, nullptr, nullptr } },
+                     { ensemble, ensembleWidth, nullptr, nullptr }, { ensembleVoices, ensembleMotion, nullptr, nullptr } },
         ModuleSpec { ModuleId::tame, "TA", "TAME", 11, 0xffd9b66au, tameOn, tamePos,
-                     { tame, nullptr, nullptr }, { nullptr, nullptr, nullptr, nullptr } },
+                     { tame, nullptr, nullptr, nullptr }, { nullptr, nullptr, nullptr, nullptr } },
         ModuleSpec { ModuleId::sub, "SU", "SUB", 12, 0xff6f8dffu, subOn, subPos,
-                     { sub, subDrive, nullptr }, { subRegister, subCharacter, nullptr, nullptr } },
+                     { sub, subDrive, nullptr, nullptr }, { subRegister, subCharacter, nullptr, nullptr } },
         ModuleSpec { ModuleId::overtone, "OV", "OVERTONE", 13, 0xffff6fcfu, overtoneOn, overtonePos,
-                     { overtone, overtoneFreq, nullptr }, { overtonePattern, overtoneMode, nullptr, nullptr } },
+                     { overtone, overtoneFreq, nullptr, nullptr }, { overtonePattern, overtoneMode, nullptr, nullptr } },
+        ModuleSpec { ModuleId::chamber, "CH", "CHAMBER", 1, 0xffb08968u, chamberOn, chamberPos,
+                     { chamber, chamberResonance, chamberDrive, chamberWidth }, { chamberRoom, chamberSpeaker, chamberBoom, nullptr } },
     };
 
     // The fixed ends of the chain.
@@ -422,7 +495,7 @@ namespace Params
 
     constexpr const ModuleSpec& module (ModuleId id) { return modules[static_cast<size_t> (id)]; }
 
-    /** Module for a two-letter code ("PI" .. "OV"), -1 if unknown. */
+    /** Module for a two-letter code ("PI" .. "OV", "CH"), -1 if unknown. */
     constexpr int moduleIndexForCode (std::string_view code)
     {
         for (int i = 0; i < numModules; ++i)
@@ -431,43 +504,76 @@ namespace Params
         return -1;
     }
 
-    /** "1st" .. "14th" for positions 0..13. */
+    /** "1st" .. "15th" for positions / slots 0..14. */
     inline constexpr std::array<const char*, numModules> positionNames {
-        "1st", "2nd", "3rd", "4th", "5th", "6th", "7th", "8th", "9th", "10th", "11th", "12th", "13th", "14th"
+        "1st", "2nd", "3rd", "4th", "5th", "6th", "7th", "8th", "9th", "10th", "11th", "12th", "13th", "14th", "15th"
     };
 
+    /** order[slot] = module, or (as the input of resolveOrder) positions[module] = position parameter. */
     using Order = std::array<int, numModules>;
 
     /**
-     * The resolved order: the modules sorted by (position, defaultIndex), so duplicates and
-     * partial states always resolve the same way. positions[m] is module m's position parameter
-     * (any int; clamped to 0..numModules-1). Returns order[slot] = module index. Insertion sort
-     * over 14 entries: allocation-free, fine on the audio thread.
+     * The resolved order. 1.0's 14 modules are sorted by (position, defaultIndex) exactly as 1.0
+     * does, so duplicates and partial states always resolve the same way (positions clamped to
+     * 0..13); then CHAMBER is inserted at its slot (clamped to 0..14). positions[m] is module m's
+     * position parameter (any int). Returns order[slot] = module index. A 1.0 state (no chamberPos:
+     * the default 1) runs 1.0's order with CHAMBER, Off and latency-free, in slot 1.
+     * Allocation-free, fine on the audio thread.
      */
     constexpr Order resolveOrder (const Order& positions)
     {
-        Order order {};
-        Order key {};
-        for (int m = 0; m < numModules; ++m)
+        std::array<int, numLegacyModules> legacy {};
+        std::array<int, numLegacyModules> key {};
+        for (int m = 0; m < numLegacyModules; ++m)
         {
             const int p = positions[static_cast<size_t> (m)];
-            const int clamped = p < 0 ? 0 : (p > numModules - 1 ? numModules - 1 : p);
-            order[static_cast<size_t> (m)] = m;
-            key[static_cast<size_t> (m)] = clamped * numModules + modules[static_cast<size_t> (m)].defaultIndex;
+            const int clamped = p < 0 ? 0 : (p > numLegacyModules - 1 ? numLegacyModules - 1 : p);
+            legacy[static_cast<size_t> (m)] = m;
+            key[static_cast<size_t> (m)] = clamped * numLegacyModules + modules[static_cast<size_t> (m)].defaultIndex;
         }
 
-        for (int i = 1; i < numModules; ++i)
+        for (int i = 1; i < numLegacyModules; ++i)
         {
-            const int moving = order[static_cast<size_t> (i)];
+            const int moving = legacy[static_cast<size_t> (i)];
             int j = i - 1;
-            while (j >= 0 && key[static_cast<size_t> (order[static_cast<size_t> (j)])] > key[static_cast<size_t> (moving)])
+            while (j >= 0 && key[static_cast<size_t> (legacy[static_cast<size_t> (j)])] > key[static_cast<size_t> (moving)])
             {
-                order[static_cast<size_t> (j + 1)] = order[static_cast<size_t> (j)];
+                legacy[static_cast<size_t> (j + 1)] = legacy[static_cast<size_t> (j)];
                 --j;
             }
-            order[static_cast<size_t> (j + 1)] = moving;
+            legacy[static_cast<size_t> (j + 1)] = moving;
         }
+
+        const int c = static_cast<int> (ModuleId::chamber);
+        const int p = positions[static_cast<size_t> (c)];
+        const int slot = p < 0 ? 0 : (p > numLegacyModules ? numLegacyModules : p);
+        Order order {};
+        int k = 0;
+        for (int s = 0; s < numModules; ++s)
+            order[static_cast<size_t> (s)] = s == slot ? c : legacy[static_cast<size_t> (k++)];
         return order;
+    }
+
+    /**
+     * The position parameters that resolve to a complete order (the inverse of resolveOrder for a
+     * permutation): 1.0's modules get their place among those 14 (CHAMBER left out), CHAMBER its
+     * slot. Every 15-permutation is exactly one such pair, so nothing is lost.
+     */
+    constexpr Order positionsFor (const Order& order)
+    {
+        Order positions {};
+        int rank = 0;
+        for (int s = 0; s < numModules; ++s)
+        {
+            const int m = order[static_cast<size_t> (s)];
+            if (m < 0 || m >= numModules)
+                continue;
+            if (m == static_cast<int> (ModuleId::chamber))
+                positions[static_cast<size_t> (m)] = s;
+            else
+                positions[static_cast<size_t> (m)] = rank++;
+        }
+        return positions;
     }
 
     /** The default positions (the reference order). */
@@ -479,9 +585,14 @@ namespace Params
         return p;
     }
 
+    /** The reference order: PI CH CL DS DT VO RM SH GR SW RO EN TA SU OV. */
+    constexpr Order referenceOrder() { return resolveOrder (defaultPositions()); }
+
     // ---------------------------------------------------------------------------------- checks
     namespace detail
     {
+        constexpr float absDiff (float a, float b) { return a > b ? a - b : b - a; }
+
         constexpr bool tableIsConsistent()
         {
             // Every module's On, position, knob and chip parameters exist, the chips are choices,
@@ -489,7 +600,9 @@ namespace Params
             for (int m = 0; m < numModules; ++m)
             {
                 const auto& mod = modules[static_cast<size_t> (m)];
-                if (mod.defaultIndex != m || static_cast<int> (mod.id) != m)
+                if (static_cast<int> (mod.id) != m)
+                    return false;
+                if (m < numLegacyModules && mod.defaultIndex != m)
                     return false;
                 if (indexOf (mod.onId) < 0 || indexOf (mod.posId) < 0)
                     return false;
@@ -504,6 +617,10 @@ namespace Params
                     if (c != nullptr && (indexOf (c) < 0 || spec (c).kind != Kind::choice))
                         return false;
             }
+            // 1.0's rows have version 1, the appended ones 2.
+            for (int i = 0; i < numParameters; ++i)
+                if (all[static_cast<size_t> (i)].version != (i < numLegacyParameters ? 1 : 2))
+                    return false;
             // Every position parameter belongs to exactly one module.
             int positions = 0;
             for (const auto& s : all)
@@ -523,8 +640,17 @@ namespace Params
                     return false;
                 if (s.kind == Kind::choice && (s.choices == nullptr || s.numChoices != static_cast<int> (s.maxValue) + 1))
                     return false;
+                // Log kinds: true log taper, so the mid point is the geometric centre.
                 if ((s.kind == Kind::hertz || s.kind == Kind::ratio || s.kind == Kind::milliseconds)
-                    && (s.centre <= s.minValue || s.centre >= s.maxValue))
+                    && (s.minValue <= 0.0f || s.centre <= s.minValue || s.centre >= s.maxValue
+                        || absDiff (s.centre * s.centre, s.minValue * s.maxValue) > 2.0e-3f * s.minValue * s.maxValue))
+                    return false;
+                // Decibels: linear (centre 0) or skewed around a centre inside the range.
+                if (s.kind == Kind::decibels && s.centre != 0.0f && (s.centre <= s.minValue || s.centre >= s.maxValue))
+                    return false;
+                // Everything else has no centre.
+                if (s.kind != Kind::hertz && s.kind != Kind::ratio && s.kind != Kind::milliseconds && s.kind != Kind::decibels
+                    && s.centre != 0.0f)
                     return false;
             }
             return true;
@@ -532,19 +658,29 @@ namespace Params
 
         constexpr bool defaultOrderIsReference()
         {
+            // 1.0's reference order with CHAMBER right after PITCH.
             const Order order = resolveOrder (defaultPositions());
+            if (order[0] != 0 || order[1] != static_cast<int> (ModuleId::chamber))
+                return false;
+            for (int i = 2; i < numModules; ++i)
+                if (order[static_cast<size_t> (i)] != i - 1)
+                    return false;
+            // positionsFor inverts resolveOrder.
+            const Order back = resolveOrder (positionsFor (order));
             for (int i = 0; i < numModules; ++i)
-                if (order[static_cast<size_t> (i)] != i)
+                if (back[static_cast<size_t> (i)] != order[static_cast<size_t> (i)])
                     return false;
             return true;
         }
     }
 
-    static_assert (all.size() == 87, "the parameter table has 87 parameters");
+    static_assert (all.size() == 96, "the parameter table has 96 parameters (87 from 1.0, 9 appended in 1.1)");
     static_assert (detail::tableIsConsistent(), "module table and parameter table disagree");
     static_assert (detail::defaultOrderIsReference(), "the default positions resolve to the reference order");
     static_assert (indexOf (inTrim) == 0 && indexOf (outPush) == 79 && indexOf (mix) == 86, "AU index order is frozen");
     static_assert (indexOf (overtoneOn) == 64 && indexOf (ringOn) == 70, "AU index order is frozen");
+    static_assert (indexOf (chamberOn) == 87 && indexOf (chamberBoom) == 95, "1.1's rows are appended");
+    static_assert (moduleIndexForCode ("CH") == static_cast<int> (ModuleId::chamber), "module codes");
     static_assert (moduleIndexForCode ("RM") == static_cast<int> (ModuleId::ring)
                    && moduleIndexForCode ("OV") == static_cast<int> (ModuleId::overtone), "module codes");
 }

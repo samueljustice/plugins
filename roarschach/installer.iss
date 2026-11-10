@@ -2,7 +2,7 @@
 ; Built by .github/workflows/build-release_roarschach.yml, which passes the version:
 ;   iscc /DMyAppVersion=1.2.3 installer.iss
 #ifndef MyAppVersion
-  #define MyAppVersion "1.0.1"
+  #define MyAppVersion "1.1.0"
 #endif
 #define MyAppName "Roarschach"
 #define MyAppPublisher "Sammy J"

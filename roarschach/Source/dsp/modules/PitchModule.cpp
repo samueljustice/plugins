@@ -1,5 +1,7 @@
 #include "PitchModule.h"
 
+#include "../KnobLaws.h"
+
 #include "../common/DspMath.h"
 
 #include <algorithm>
@@ -320,7 +322,7 @@ namespace roar
         Core& c = m_core;
         c.pitchTarget = static_cast<float> (clampFinite (static_cast<double> (s.pitchSemitones), c_minPitchSt, c_maxPitchSt, 0.0));
         c.sizeTarget = static_cast<float> (clampFinite (static_cast<double> (s.size), 0.0, 1.0, 0.0));
-        c.driveTarget = static_cast<float> (clampFinite (static_cast<double> (s.drive), 0.0, 1.0, 0.0));
+        c.driveTarget = static_cast<float> (laws::pitchDriveAmount (clampFinite (static_cast<double> (s.drive), 0.0, 1.0, 0.0)));
         if (s.mode != c.mode)
         {
             c.haveSnapNote = false;

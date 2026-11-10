@@ -1,5 +1,7 @@
 #include "VocoderModule.h"
 
+#include "../KnobLaws.h"
+
 #include "../MonsterFeatures.h"
 
 #include <algorithm>
@@ -77,9 +79,14 @@ namespace roar
 
     // ============================================================================== module
 
+    float VocoderModule::gravelFor (float u)
+    {
+        return std::isfinite (u) ? static_cast<float> (laws::gravelAmount (static_cast<double> (u))) : 0.0f;
+    }
+
     void VocoderModule::prepare (double fs, int maxBlock)
     {
-        m_engine.setParams (m_settings.gravel, static_cast<int> (m_settings.octave), m_settings.formantShiftBands);
+        m_engine.setParams (gravelFor (m_settings.gravel), static_cast<int> (m_settings.octave), m_settings.formantShiftBands);
         m_engine.prepare (fs);
         m_fade.prepare (fs, maxBlock, getLatencySamples());
         m_fade.setOn (m_settings.on);
@@ -95,7 +102,7 @@ namespace roar
     void VocoderModule::setParams (const VocoderSettings& s)
     {
         m_settings = s;
-        m_engine.setParams (s.gravel, static_cast<int> (s.octave), s.formantShiftBands);
+        m_engine.setParams (gravelFor (s.gravel), static_cast<int> (s.octave), s.formantShiftBands);
         m_fade.setOn (s.on);
     }
 

@@ -4,6 +4,7 @@
 #include "../common/Biquad.h"
 #include "../common/Module.h"
 #include "../common/VoiceStream.h"
+#include "../KnobLaws.h"
 
 namespace roar
 {
@@ -26,7 +27,9 @@ namespace roar
      *   - it learns only while the detector reports voiced, or on loud unvoiced material (more than
      *     12 dB above the tracked floor and within 6 dB of the voice level learnt so far); pauses,
      *     consonants, breaths, silence and room tone hold everything;
-     *   - gain = clamp (R - L_voice, -12, +20) dB, glided with tau 1.5 s rising and 4 s falling.
+     *   - gain = clamp (R - L_voice, -12, +30) dB, L_voice measured before Input, glided with tau
+     *     1.5 s rising and 4 s falling. With Auto Level on, Input then offsets the target: the voice
+     *     lands at R + 0.5 Input (+-12 dB), following Input within its 20 ms glide;
      *     For the first second of voicing after a reset it learns fast (running mean and a
      *     0.25 s glide), so a take settles within about 2 s; after that it is slow, so a yell
      *     stays louder than a mutter within a line;
@@ -43,7 +46,7 @@ namespace roar
     {
     public:
         static constexpr double c_referenceDb = -20.0;   // R
-        static constexpr double c_minGainDb = -12.0, c_maxGainDb = 20.0;
+        static constexpr double c_minGainDb = laws::inAutoMinGainDb, c_maxGainDb = laws::inAutoMaxGainDb;
 
         void prepare (double fs, int maxBlock) override;
         void reset() override;
@@ -64,6 +67,8 @@ namespace roar
         float getFloorDb() const { return static_cast<float> (m_s.floorDb); }
         float getInputLevel() const { return m_s.inputLevel; } // 0..1 linear, smoothed peak (after Input)
         float getJaw() const;                                  // 0..1
+        float getJawFast() const;                              // 0..1, 5 ms / 30 ms
+        static float jawOf (float envelope);                   // envelope to 0..1 (-48..-6 dB)
         const VoiceInfo& getVoiceInfo() const { return m_detector.getVoiceInfo(); }
 
     private:
@@ -77,7 +82,7 @@ namespace roar
         double m_fastLevelCoeff = 0.0;                     // per sample
         double m_floorFallCoeff = 0.0, m_floorRiseDb = 0.0;
         int m_quickFrames = 1, m_meanFrames = 1;
-        float m_jawAttack = 0.0f, m_jawRelease = 0.0f, m_meterRelease = 0.0f;
+        float m_jawAttack = 0.0f, m_jawRelease = 0.0f, m_jawFastRelease = 0.0f, m_meterRelease = 0.0f;
 
         Biquad m_weightHp, m_weightShelf;
         PitchDetector m_detector;
@@ -100,6 +105,7 @@ namespace roar
             double gainPrev = 1.0, gainNext = 1.0;   // linear, interpolated across a frame
 
             float jawEnv = 0.0f;
+            float jawFastEnv = 0.0f;
             float inputLevel = 0.0f;
         };
 

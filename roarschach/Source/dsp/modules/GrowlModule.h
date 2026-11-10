@@ -3,6 +3,7 @@
 #include "../../Params.h"
 #include "../common/LampLfo.h"
 #include "../common/Module.h"
+#include "../KnobLaws.h"
 #include "../common/Oversampler2x.h"
 #include "../common/SmoothRandom.h"
 #include "../common/TptOnePole.h"
@@ -16,7 +17,7 @@ namespace roar
     {
         bool on = Params::defaultOf (Params::growlOn) > 0.5f;
         float depth = Params::defaultOf (Params::growl) * 0.01f;          // u, 0..1
-        float rateHz = Params::defaultOf (Params::growlRate);             // 1..150 Hz
+        float rateHz = Params::defaultOf (Params::growlRate);             // 2..150 Hz
         Params::GrowlShape shape = static_cast<Params::GrowlShape> (static_cast<int> (Params::defaultOf (Params::growlShape)));
         Params::GrowlCharacter character = static_cast<Params::GrowlCharacter> (static_cast<int> (Params::defaultOf (Params::growlCharacter)));
     };
@@ -25,7 +26,8 @@ namespace roar
      * GROWL: an analog-style amplitude tremolo, the fast "chop" of a creature voice (spec §5.8).
      *
      *   s      = shape (phase) in 0..1, 1 = fully open
-     *   D      = 0.85 u                                 (u = Depth; default 45 % -> D = 0.38)
+     *   D      = 1 - 10^(-18 u / 20)                   (u = Depth, laws::growlDepth: even steps in dB
+     *                                                   of trough; 25 % -> D = 0.40, 100 % -> 0.87)
      *   D_eff  = D (1 + 0.3 m_env) (1 + 0.08 h) gate    (<= 0.95; h: per-cycle depth jitter in -1..1)
      *   g      = 1 - D_eff (1 - s)                      (g <= 1: the stage never boosts by itself)
      *   gm     = g makeup,   makeup = 1 / rms (g), capped at +3 dB: in closed form from D_eff for
@@ -33,8 +35,8 @@ namespace roar
      *            push without lag; measured over each LFO cycle (then smoothed, 50 ms) for Opto and
      *            Square. Derived from the modulation law only, never from the output level.
      *
-     *   The line depth of a sine at depth D is m = (D / 2) / (1 - D / 2): 0.236 at the default,
-     *   0.74 at 100 %.
+     *   The line depth of a sine at depth D is m = (D / 2) / (1 - D / 2): 0.25 at the default,
+     *   0.77 at 100 %.
      *
      * Shapes:
      *   Sine     s = 0.5 + 0.5 cos (2 pi phase)
@@ -44,7 +46,9 @@ namespace roar
      *            two time constants add up to 0.35 * 0.25 / f (at least 0.3 ms)
      *   Throat   Sine at f0 / 2 of the voice stream: alternate glottal periods get different gains.
      *            Depth fades in and out with voicing over 15 ms, so noise and unvoiced parts get no AM.
-     *   Rattle   Sine at f 2^(1.5 m_env): loud lines rattle faster
+     *   Rattle   Sine at f 2^(1.5 r_env): louder lines rattle faster,
+     *            r_env = clamp ((e_dB - (R - 12)) / 24, 0, 1), so a voice at the reference level
+     *            already moves the rate
      *
      *   m_env = clamp ((e_dB - (R + 6)) / 24, 0, 1), e_dB from a 15 / 180 ms peak follower,
      *   R = -20 dBFS. The rate drifts by at most +-0.5 % (a slow smooth random), so the line stays a
@@ -53,11 +57,11 @@ namespace roar
      * Character ("bias tremolo": the distortion moves with the gain), 2x oversampled:
      *   v = x gm dB(drive);  y = Sat (v + b (1 - g)) - Sat (b (1 - g));  out = y / dB(drive)
      *   Clean  drive 0 dB, no curve
-     *   Warm   drive +3 dB, b -0.15, split at 300 Hz: the low band through tanh (1.5 lo + 0.1) / 1.5,
+     *   Warm   drive +9 dB, b -0.15, split at 300 Hz: the low band through tanh (1.5 lo + 0.1) / 1.5,
      *          the high band linear. The bias is negative so the closed part of the cycle sits near
      *          the curve's point of symmetry (lo = -0.067): the even harmonics of the curve's offset
      *          sound in the open part and vanish in the trough (crest THD about 13 dB above the trough)
-     *   Grind  drive +8 dB, b +0.15, asymmetric: 1.2 tanh (1.8 v) / 1.8 above 0, 0.6 tanh (v / 0.6) below
+     *   Grind  drive +12 dB, depth x 1.2 (the curve flattens the open part of the cycle), b +0.15, asymmetric: 1.2 tanh (1.8 v) / 1.8 above 0, 0.6 tanh (v / 0.6) below
      *   Only the curve's deviation from linear is DC-blocked (10 Hz), so the linear part keeps its
      *   phase. The character fades in over the first 10 % of Depth (Depth 0 is an exact delay),
      *   and character changes crossfade over 20 ms.
@@ -83,10 +87,10 @@ namespace roar
             bool envelope = true;    // false: m_env = 0 (no depth or rate push from the level)
         };
 
-        static constexpr double c_depthScale = 0.85;
         static constexpr double c_maxDepth = 0.95;
         static constexpr double c_referenceDb = -20.0;          // R (spec §4)
         static constexpr double c_envThresholdDb = c_referenceDb + 6.0;
+        static constexpr double c_rattleThresholdDb = c_referenceDb - 12.0;
         static constexpr double c_envRangeDb = 24.0;
         static constexpr double c_envAttack = 0.015, c_envRelease = 0.180;
         static constexpr double c_envDepthPush = 0.3;
@@ -97,8 +101,9 @@ namespace roar
         static constexpr double c_makeupCapDb = 3.0;
         static constexpr double c_warmBias = -0.15;
         static constexpr double c_grindBias = 0.15;
-        static constexpr double c_warmDriveDb = 3.0;
-        static constexpr double c_grindDriveDb = 8.0;
+        static constexpr double c_warmDriveDb = 9.0;
+        static constexpr double c_grindDriveDb = 12.0;
+        static constexpr double c_grindDepthScale = 1.2;   // Grind's depth, re Warm's (keeps the tremolo as deep)
         static constexpr double c_dcBlockHz = 10.0;
         static constexpr double c_optoTauOn = 0.003, c_optoTauOff = 0.025, c_optoReferenceHz = 8.0;
         static constexpr double c_squareSmooth = 0.35 * 0.25, c_squareMinTau = 0.0003;
@@ -124,7 +129,7 @@ namespace roar
         float getOnValue() const { return m_fade.getValue(); }
 
         /** D for a Depth u (0..1), and the line depth m of a sine at depth D. */
-        static double depthForAmount (double u) { return c_depthScale * std::clamp (u, 0.0, 1.0); }
+        static double depthForAmount (double u) { return laws::growlDepth (u); }
         static double lineDepthFor (double depth) { return (0.5 * depth) / (1.0 - 0.5 * depth); }
 
         /** 1 / rms (g) of a sine at depth D, capped at +3 dB. */

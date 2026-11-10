@@ -1,5 +1,7 @@
 #include "ShimmerModule.h"
 
+#include "../KnobLaws.h"
+
 #include "../MonsterFeatures.h"
 
 #include <algorithm>
@@ -10,7 +12,7 @@ namespace roar
     namespace
     {
         constexpr double c_minRateHz = 0.5;
-        constexpr double c_maxRateHz = 40.0;
+        constexpr double c_maxRateHz = laws::shimmerMaxRateHz;
         constexpr double c_loopHighpassHz = 30.0;
         constexpr double c_loopLowpassHz = 16000.0;
         constexpr double c_amountSmoothingSeconds = 0.020;
@@ -90,7 +92,7 @@ namespace roar
 
     void ShimmerModule::snapSmoothers()
     {
-        m_state.amount.snap (std::clamp (m_settings.amount, 0.0f, 1.0f));
+        m_state.amount.snap (static_cast<float> (laws::shimmerAmount (static_cast<double> (m_settings.amount))));
         m_state.loopPower.snap (loopPowerFor (m_settings.mode));
         m_state.rateSmoothed = std::clamp (static_cast<double> (m_settings.rateHz), c_minRateHz, c_maxRateHz);
         m_state.shiftHz = m_state.rateSmoothed;
@@ -174,7 +176,7 @@ namespace roar
 
         float* io[2] = { l, r };
         auto& st = m_state;
-        const float amountTarget = m_settings.amount;
+        const auto amountTarget = static_cast<float> (laws::shimmerAmount (static_cast<double> (m_settings.amount)));   // u -> m
         const float loopPowerTarget = loopPowerFor (m_settings.mode);
         const bool fixedFeedback = m_diagnostics.feedback >= 0.0f;
         const float gFixed = std::clamp (m_diagnostics.feedback, 0.0f, 0.95f);

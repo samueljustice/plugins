@@ -1,4 +1,5 @@
 #include "PresetManager.h"
+#include "dsp/KnobLaws.h"
 
 #include <cmath>
 #include <cstring>
@@ -12,7 +13,9 @@ namespace
     const juce::Identifier c_valueAttr      { "value" };
     const juce::Identifier c_nameAttr       { "name" };
     const juce::Identifier c_versionAttr    { "pluginVersion" };
-    const juce::Identifier c_formatAttr     { "version" };   // the preset format: 2 = the 14-module chain
+    const juce::Identifier c_formatAttr     { "version" };   // the preset format: 2 = the 14-module chain,
+                                                             // 3 = the knob laws of dsp/KnobLaws.h (2 is converted on load)
+    constexpr int c_currentFormat = 3;
 
     const juce::Identifier c_statePresetName     { "presetName" };
     const juce::Identifier c_statePresetFactory  { "presetIsFactory" };
@@ -496,6 +499,7 @@ bool PresetManager::applyFactory(int factoryIndex, Origin origin)
 
     const auto& preset = factoryPresets()[static_cast<size_t>(factoryIndex)];
     const int programBefore = currentProgram();
+    m_loadGeneration.fetch_add(1);
 
     {
         const ScopedApply applying(*this);
@@ -527,6 +531,7 @@ bool PresetManager::applyUserFile(const juce::File& file, Origin origin)
         return false;
 
     const int programBefore = currentProgram();
+    m_loadGeneration.fetch_add(1);
 
     {
         const ScopedApply applying(*this);
@@ -676,7 +681,7 @@ bool PresetManager::saveUserPreset(const juce::String& rawName)
 
     juce::XmlElement xml(c_presetTag.toString());
     xml.setAttribute(c_nameAttr.toString(), name);
-    xml.setAttribute(c_formatAttr.toString(), 2);
+    xml.setAttribute(c_formatAttr.toString(), c_currentFormat);
     xml.setAttribute(c_versionAttr.toString(), JucePlugin_VersionString);
 
     for (const auto& [id, value] : captureValues())
@@ -831,6 +836,18 @@ bool PresetManager::readPresetFile(const juce::File& file, Values& values, juce:
         values.emplace_back(id, static_cast<float>(value));
     }
 
+    // A preset saved with the first release's knob laws: convert its values to the nearest setting under
+    // the new laws (close, not identical: see migrateFromV1 for what cannot be carried over).
+    if (xml->getIntAttribute(c_formatAttr.toString(), 0) < c_currentFormat)
+    {
+        std::map<std::string, double> byId;
+        for (const auto& [id, value] : values)
+            byId[id.toStdString()] = static_cast<double>(value);
+        roar::laws::migrateFromV1(byId);
+        for (auto& [id, value] : values)
+            value = static_cast<float>(byId[id.toStdString()]);
+    }
+
     return true;
 }
 
@@ -896,9 +913,11 @@ PresetManager::StateInfo PresetManager::readStateInfo(const juce::XmlElement& st
     return info;
 }
 
-void PresetManager::restoreState(const StateInfo& info, const std::function<void()>& replaceParameters)
+void PresetManager::restoreState(const StateInfo& info, const std::function<void()>& replaceParameters, bool isLoad)
 {
     const juce::ScopedLock op(m_operationLock);
+    if (isLoad)
+        m_loadGeneration.fetch_add(1);
 
     {
         // The parameters come from the state; that is not an edit.

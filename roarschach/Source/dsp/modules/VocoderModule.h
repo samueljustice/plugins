@@ -30,7 +30,8 @@ namespace roar
      *   pulse stack (16 PolyBLEP pulses at f0 / 2 or f0 / 4) --+--> 32 x 8-pole band-pass --> carrier
      *   white noise (unvoiced and breath bands) ----------------+     whitening --> x envelope
      *        --> soft per-band VCA saturation --> sum (stereo: bands panned alternately +-30 %)
-     *        --> power-normalised blend with the dry (wet = 0.85 Gravel)
+     *        --> power-normalised blend with the dry (wet = 0.85 g; g = 0.15 + 0.85 Gravel, faded in
+     *            over the first 1 % of Gravel: laws::gravelAmount)
      *
      * Why it sounds like it does:
      *   - the followers are fast enough that ripple at the voice's glottal rate survives as
@@ -60,6 +61,9 @@ namespace roar
     class VocoderModule final : public Module
     {
     public:
+        /** The character amount g for a Gravel position u (laws::gravelAmount). */
+        static float gravelFor (float u);
+
         static constexpr int c_numBands = 32;
 
         void prepare (double fs, int maxBlock) override;
@@ -90,7 +94,7 @@ namespace roar
 
             void prepare (double sampleRate);
             void clearState();
-            void setParams (float gravel01, int octaveIndex, float formantShiftBands);
+            void setParams (float gravel01, int octaveIndex, float formantShiftBands);   // gravel01: g (after the law)
 
             /** Restart from cleared state with the wet already at its target (the OnFade fades it). */
             void restart (const VoiceFrame& voice);

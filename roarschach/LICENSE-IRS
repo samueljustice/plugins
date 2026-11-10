@@ -1,0 +1,15 @@
+Roarschach CHAMBER rooms
+
+Copyright (c) 2026 Samuel Justice. All rights reserved.
+
+The rooms CHAMBER plays the voice into (the impulse responses that release builds of
+Roarschach carry, encrypted, inside the plug-in) are not covered by the MIT License in LICENSE.
+They are licensed for use only within Roarschach: you may use them as part of the plug-in,
+including in audio you make with it, which is yours. You may not extract, copy, decrypt,
+redistribute, sell or use them in any other product or form.
+
+The room captures are not part of this repository. Builds made from the source without them use
+CHAMBER's modelled rooms, which are part of the MIT-licensed code.
+
+Everything else in this folder (the source code, the modelled rooms, the presets and the
+documentation) is under the MIT License in LICENSE.

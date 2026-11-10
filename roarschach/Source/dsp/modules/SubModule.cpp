@@ -1,5 +1,7 @@
 #include "SubModule.h"
 
+#include "../KnobLaws.h"
+
 #include "../MonsterFeatures.h"
 
 #include <algorithm>
@@ -21,8 +23,9 @@ namespace roar
         constexpr double c_glideSeconds = 0.030;
         constexpr double c_octaveConfirmSeconds = 0.040;
         constexpr double c_octaveTolerance = 0.125;     // octaves
-        constexpr double c_followSwitchHz = 84.0;       // Follow: sub = f0 / 2 below 42 Hz -> divide 2 f0
-        constexpr double c_tightSwitchHz = 102.2;       // Tight: sqrt (2 * 55 * 95), the sub nearer 55..95 Hz
+        constexpr double c_followFloorHz = 42.0;        // Follow: sub = f0 / 2 below 42 Hz -> divide 2 f0
+        constexpr double c_tightFloorHz = 55.0;         // Tight: the lowest sub of f0 / 2, f0, 2 f0 at or above 55 Hz
+        constexpr double c_deepFloorHz = 32.0;          // Deep: f0 / 2 down to 32 Hz
         constexpr double c_registerHysteresis = 1.03;
         constexpr double c_estimateRange = 0.68;        // octaves (x 1.6) a divider toggle rate may differ from fIn
         constexpr double c_estimateCoeff = 0.25;
@@ -36,6 +39,8 @@ namespace roar
 
         constexpr double c_betaClean = 0.1, c_betaBiased = 0.25;
         constexpr double c_driveMinDb = -6.0;   // driveDbFor(): -6 + 24 u
+        constexpr double c_shaperOffsetDb = -6.0;   // the shaper sees driveDb - 6 dB: up to Drive 20 % its
+                                                    // products stay 30 dB or more under the sub
         constexpr double c_driveTableStepDb = 0.25;
         constexpr double c_driveSeconds = 0.020;
 
@@ -45,7 +50,7 @@ namespace roar
         constexpr double c_evenCos = 0.573576436, c_evenSin = -0.819152044;
         constexpr double c_evenDbAtZero = -25.0, c_evenDbPerDb = 5.0 / 6.0, c_evenMaxDb = -12.0;
 
-        constexpr double c_hpRatio = 0.6, c_lpRatio = 1.5;
+        constexpr double c_hpRatio = 0.6, c_lpRatio = 1.5, c_postLpRatio = 4.0;
         constexpr double c_hpQClean = 0.7071, c_hpQResonant = 1.4;
         constexpr double c_lpQ1 = 0.5412, c_lpQ2 = 1.3066;   // 4th-order Butterworth
 
@@ -92,7 +97,7 @@ namespace roar
         // Calibrated on the reference take: on a low voice band 1 divides 2 f0, so "H1" here is the
         // 2nd harmonic, and the reference's octave layer sits well above it (Init's 40-80 Hz share
         // of -3 to -6 dB and 160-500 Hz share of -9 dB or less need about +4 dB at 50 %).
-        const auto lawDb = [] (double x) { return -14.0 + 26.0 * std::pow (x, 0.55); };
+        const auto lawDb = [] (double x) { return laws::subLevelDb (x); };
         if (u < c_levelFadeBelow)
             return dsp::dbToGain (lawDb (c_levelFadeBelow)) * (u / c_levelFadeBelow);
         return dsp::dbToGain (lawDb (u));
@@ -115,7 +120,7 @@ namespace roar
     {
         m_fs = dsp::safeSampleRate (fs);
 
-        for (auto* f : { &m_band1a, &m_band1b, &m_band2a, &m_band2b, &m_hp, &m_lp1, &m_lp2, &m_even })
+        for (auto* f : { &m_band1a, &m_band1b, &m_band2a, &m_band2b, &m_hp, &m_lp1, &m_lp2, &m_lpPost, &m_even })
             f->prepare (m_fs);
 
         m_envAttack = static_cast<float> (dsp::onePoleCoeff (c_envAttackSeconds, m_fs));
@@ -129,10 +134,21 @@ namespace roar
         m_driveCoeff = static_cast<float> (1.0 - std::exp (-static_cast<double> (c_voiceFrameSize) / (c_driveSeconds * m_fs)));
         m_octaveConfirmSamples = dsp::samplesFor (c_octaveConfirmSeconds, m_fs, 1);
 
-        // The drive's gain on the divided waveform's f / 2 component, in the steady state of the
-        // normaliser (level = the band's amplitude A = 1): u = sin (theta) over one input cycle and
-        // -sin (theta) over the next, out = f (G sqrt2 u) / sqrt2. The table is its inverse.
+        // The drive's gain on the band-passed sub (a sine of amplitude 1, the normaliser's steady
+        // state): out = f (G sqrt2 sin) / sqrt2, its fundamental. The table is its inverse.
         constexpr int points = 2048;
+        {
+            // The divided waveform's f / 2 component per unit band amplitude: u = sin (theta) over
+            // one input cycle and -sin (theta) over the next.
+            std::complex<double> acc { 0.0, 0.0 };
+            for (int m = 0; m < points; ++m)
+            {
+                const double phase = 2.0 * dsp::c_twoPi * (m + 0.5) / points;
+                const double u = (m < points / 2 ? 1.0 : -1.0) * std::sin (phase);
+                acc += u * std::polar (1.0, -dsp::c_twoPi * (m + 0.5) / points);
+            }
+            m_dividedFundamental = static_cast<float> (2.0 * std::abs (acc) / points);
+        }
         for (int bi = 0; bi < 2; ++bi)
         {
             const double beta = bi == 0 ? c_betaClean : c_betaBiased;
@@ -140,12 +156,11 @@ namespace roar
             const double cb = std::cosh (beta);
             for (int k = 0; k < c_driveTableSize; ++k)
             {
-                const double g = dsp::dbToGain (c_driveMinDb + c_driveTableStepDb * k);
+                const double g = dsp::dbToGain (c_driveMinDb + c_driveTableStepDb * k + c_shaperOffsetDb);
                 std::complex<double> acc { 0.0, 0.0 };
                 for (int m = 0; m < points; ++m)
                 {
-                    const double phase = 2.0 * dsp::c_twoPi * (m + 0.5) / points;   // two input cycles
-                    const double u = (m < points / 2 ? 1.0 : -1.0) * std::sin (phase);
+                    const double u = std::sin (dsp::c_twoPi * (m + 0.5) / points);
                     const double y = (std::tanh (g * c_sqrt2 * u + beta) - tb) * cb * cb / c_sqrt2;
                     acc += y * std::polar (1.0, -dsp::c_twoPi * (m + 0.5) / points);
                 }
@@ -155,7 +170,8 @@ namespace roar
         }
 
         // The output filters' gain at fsub, per character (Clean, Resonant, Thick).
-        const double lp = lpMagnitude (1.0 / c_lpRatio, c_lpQ1) * lpMagnitude (1.0 / c_lpRatio, c_lpQ2);
+        const double lp = lpMagnitude (1.0 / c_lpRatio, c_lpQ1) * lpMagnitude (1.0 / c_lpRatio, c_lpQ2)
+                        * lpMagnitude (1.0 / c_postLpRatio, c_sqrt2 * 0.5);
         m_filterMakeup[0] = static_cast<float> (1.0 / (hpMagnitude (1.0 / c_hpRatio, c_hpQClean) * lp));
         m_filterMakeup[1] = static_cast<float> (1.0 / (hpMagnitude (1.0 / c_hpRatio, c_hpQResonant) * lp));
         m_filterMakeup[2] = m_filterMakeup[0];
@@ -195,7 +211,8 @@ namespace roar
             const double unitH2 = std::max (2.0 * std::abs (h2) / points, 1.0e-6);
             const auto post = [] (double ratio, double hpQ)
             {
-                return hpMagnitude (ratio / c_hpRatio, hpQ) * lpMagnitude (ratio / c_lpRatio, c_lpQ1) * lpMagnitude (ratio / c_lpRatio, c_lpQ2);
+                return hpMagnitude (ratio / c_hpRatio, hpQ) * lpMagnitude (ratio / c_lpRatio, c_lpQ1) * lpMagnitude (ratio / c_lpRatio, c_lpQ2)
+                       * lpMagnitude (ratio / c_postLpRatio, c_sqrt2 * 0.5);
             };
             for (int c = 0; c < 3; ++c)
             {
@@ -225,7 +242,7 @@ namespace roar
         m_controlsValid = false;
 
         m_driveDb = static_cast<float> (driveDbFor (static_cast<double> (m_settings.drive)));
-        m_driveGain = dsp::dbToGain (m_driveDb);
+        m_driveGain = dsp::dbToGain (m_driveDb + c_shaperOffsetDb);
         m_beta = betaIndex() == 0 ? c_betaClean : c_betaBiased;
         m_tanhBeta = std::tanh (m_beta);
         m_coshBeta2 = std::cosh (m_beta) * std::cosh (m_beta);
@@ -236,11 +253,12 @@ namespace roar
 
     void SubModule::resetWet()
     {
-        for (auto* f : { &m_band1a, &m_band1b, &m_band2a, &m_band2b, &m_hp, &m_lp1, &m_lp2, &m_even })
+        for (auto* f : { &m_band1a, &m_band1b, &m_band2a, &m_band2b, &m_hp, &m_lp1, &m_lp2, &m_lpPost, &m_even })
             f->reset();
         m_div1 = {};
         m_div2 = {};
         m_norm = 0.0;
+        m_evenNorm = 0.0;
         m_adaaX1 = 0.0;
         m_adaaF1 = antiderivative (0.0);
         m_expGain = 0.0f;
@@ -278,18 +296,19 @@ namespace roar
 
     float SubModule::evenGainTarget() const
     {
-        // Relative to the driven signal's fundamental, which is 1 / driveMakeup per unit band
-        // amplitude; the output filters' tilt is in m_evenScale.
+        // Relative to the divided layer's fundamental (m_dividedFundamental per unit band
+        // amplitude), which the drive's makeup keeps at its level; the filters' tilt is in m_evenScale.
         return static_cast<float> (dsp::dbToGain (evenDbFor (static_cast<double> (m_driveDb)))
                                    * static_cast<double> (m_evenScale[static_cast<size_t> (m_settings.character)])
-                                   / driveMakeup (static_cast<double> (m_driveDb), betaIndex()));
+                                   * static_cast<double> (m_dividedFundamental));
     }
 
     float SubModule::gainTarget() const
     {
         return static_cast<float> (levelLawGain (static_cast<double> (m_settings.level))
                                    * driveMakeup (static_cast<double> (m_driveDb), betaIndex())
-                                   * static_cast<double> (m_filterMakeup[static_cast<size_t> (m_settings.character)]));
+                                   * static_cast<double> (m_filterMakeup[static_cast<size_t> (m_settings.character)])
+                                   / static_cast<double> (m_dividedFundamental));
     }
 
     void SubModule::updateTracker (const VoiceFrame& frame)
@@ -339,24 +358,35 @@ namespace roar
             m_candidateSamples = 0;
         }
 
-        // Register: which harmonic band 1 divides.
+        // Register: which harmonic band 1 divides (sub = multiplier f0 / 2): the lowest multiplier
+        // whose sub is at or above the register's floor, with 3 % hysteresis.
         const double f0Followed = std::exp2 (m_f0Log);
-        double switchHz = 0.0;
-        if (m_settings.reg == Params::SubRegister::follow)
-            switchHz = c_followSwitchHz;
-        else if (m_settings.reg == Params::SubRegister::tight)
-            switchHz = c_tightSwitchHz;
+        double floorHz = c_followFloorHz;
+        int maxMultiplier = 2;
+        if (m_settings.reg == Params::SubRegister::tight)
+        {
+            floorHz = c_tightFloorHz;
+            maxMultiplier = 4;
+        }
+        else if (m_settings.reg == Params::SubRegister::deep)
+            floorHz = c_deepFloorHz;
 
-        if (switchHz <= 0.0)
+        const auto subFor = [f0Followed] (int multiplier) { return 0.5 * f0Followed * multiplier; };
+        if (! m_controlsValid || m_multiplier > maxMultiplier)
+        {
             m_multiplier = 1;
-        else if (! m_controlsValid)
-            m_multiplier = f0Followed < switchHz ? 2 : 1;
-        else if (m_multiplier == 1 && f0Followed < switchHz / c_registerHysteresis)
-            m_multiplier = 2;
-        else if (m_multiplier == 2 && f0Followed > switchHz * c_registerHysteresis)
-            m_multiplier = 1;
+            while (m_multiplier < maxMultiplier && subFor (m_multiplier) < floorHz)
+                m_multiplier *= 2;
+        }
+        else
+        {
+            while (m_multiplier < maxMultiplier && subFor (m_multiplier) < floorHz / c_registerHysteresis)
+                m_multiplier *= 2;
+            while (m_multiplier > 1 && subFor (m_multiplier / 2) > floorHz * c_registerHysteresis)
+                m_multiplier /= 2;
+        }
 
-        const double inTarget = std::clamp (m_f0Log + (m_multiplier == 2 ? 1.0 : 0.0),
+        const double inTarget = std::clamp (m_f0Log + (m_multiplier == 4 ? 2.0 : (m_multiplier == 2 ? 1.0 : 0.0)),
                                             std::log2 (c_minInputHz), std::log2 (c_maxInputHz));
 
         double subTarget = inTarget - 1.0;
@@ -391,6 +421,7 @@ namespace roar
         m_hp.setParams (fSub * c_hpRatio, resonant ? c_hpQResonant : c_hpQClean);
         m_lp1.setParams (fSub * c_lpRatio, c_lpQ1);
         m_lp2.setParams (fSub * c_lpRatio, c_lpQ2);
+        m_lpPost.setParams (fSub * c_postLpRatio, c_sqrt2 * 0.5);
         m_even.setParams (fSub, c_evenQ);
     }
 
@@ -403,7 +434,7 @@ namespace roar
         m_driveDb += m_driveCoeff * (driveTarget - m_driveDb);
         if (std::abs (driveTarget - m_driveDb) < 1.0e-3f)
             m_driveDb = driveTarget;
-        m_driveGain = dsp::dbToGain (m_driveDb);
+        m_driveGain = dsp::dbToGain (m_driveDb + c_shaperOffsetDb);
 
         const double beta = betaIndex() == 0 ? c_betaClean : c_betaBiased;
         if (beta != m_beta)
@@ -516,10 +547,17 @@ namespace roar
                 const float expTarget = std::min (1.0f, m_div1.env / c_expanderThreshold);
                 m_expGain = dsp::flushTiny (m_expGain + (expTarget > m_expGain ? m_expAttack : m_expRelease) * (expTarget - m_expGain));
 
-                // Drive, normalised by the level of s.
-                m_norm = dsp::flushTiny (std::max (static_cast<double> (std::abs (s)), m_norm * m_normRelease));
+                // The even harmonic (scaled by the level of s), then the tight band-pass: the clean sub.
+                m_evenNorm = dsp::flushTiny (std::max (static_cast<double> (std::abs (s)), m_evenNorm * m_normRelease));
+                const auto quadrature = m_even.process (u1);
+                const double lpq = static_cast<double> (quadrature.lowpass), bpq = static_cast<double> (quadrature.bandpass);
+                const double even = (c_evenCos * (lpq * lpq - bpq * bpq) + c_evenSin * 2.0 * lpq * bpq) / std::max (m_evenNorm, c_normFloor);
+                const float clean = m_lp2.lowpass (m_lp1.lowpass (m_hp.highpass (static_cast<float> (static_cast<double> (s) + static_cast<double> (m_evenGain) * even))));
+
+                // Drive on the clean sub, normalised by its level.
+                m_norm = dsp::flushTiny (std::max (static_cast<double> (std::abs (clean)), m_norm * m_normRelease));
                 const double norm = std::max (m_norm, c_normFloor);
-                const double v = drive * static_cast<double> (s) / norm;
+                const double v = drive * static_cast<double> (clean) / norm;
                 double y;
                 const double dv = v - m_adaaX1;
                 const double fv = antiderivative (v);
@@ -529,13 +567,10 @@ namespace roar
                     y = (fv - m_adaaF1) / dv;
                 m_adaaX1 = v;
                 m_adaaF1 = fv;
-                const auto quadrature = m_even.process (u1);
-                const double lpq = static_cast<double> (quadrature.lowpass), bpq = static_cast<double> (quadrature.bandpass);
-                const double even = (c_evenCos * (lpq * lpq - bpq * bpq) + c_evenSin * 2.0 * lpq * bpq) / norm;
-                const float driven = static_cast<float> (y * norm * inverseSqrt2 + static_cast<double> (m_evenGain) * even);
+                const auto driven = static_cast<float> (y * norm * inverseSqrt2);
 
-                // Tight output band-pass.
-                const float shaped = m_lp2.lowpass (m_lp1.lowpass (m_hp.highpass (driven)));
+                // The drive's products above 4 fsub are taken out.
+                const float shaped = m_lpPost.lowpass (driven);
 
                 m_gain += m_gainCoeff * (m_gainTarget - m_gain);
                 if (std::abs (m_gainTarget - m_gain) < 1.0e-7f)
@@ -578,11 +613,13 @@ namespace roar
         m_hp.copyStateFrom (o.m_hp);
         m_lp1.copyStateFrom (o.m_lp1);
         m_lp2.copyStateFrom (o.m_lp2);
+        m_lpPost.copyStateFrom (o.m_lpPost);
         m_even.copyStateFrom (o.m_even);
         m_evenGain = o.m_evenGain;
         m_div1 = o.m_div1;
         m_div2 = o.m_div2;
         m_norm = o.m_norm;
+        m_evenNorm = o.m_evenNorm;
         m_adaaX1 = o.m_adaaX1;
         m_adaaF1 = o.m_adaaF1;
         m_beta = o.m_beta;
