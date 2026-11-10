@@ -3,6 +3,7 @@
 #include "AboutWindow.h"
 #include "PresetManager.h"
 #include "SpectrogramVisualizer.h"
+#include "UpdatePopup.h"
 
 namespace
 {
@@ -878,10 +879,19 @@ PitchFlattenerAudioProcessorEditor::PitchFlattenerAudioProcessorEditor (PitchFla
         constrainer->setFixedAspectRatio ((double) baseWidth / (double) baseHeight);
 
     setSize (baseWidth, baseHeight);
+
+    // Looks for a newer release on a background thread (at most once a day, silent on any failure) and
+    // shows the popup on the message thread if there is one.
+    m_updateCheck = std::make_unique<sammyj::UpdateCheck> ("pitchflattener", "pitchflattener-v", c_version,
+        [this] (const sammyj::UpdateInfo& info) { showUpdatePopup (info); });
 }
 
 PitchFlattenerAudioProcessorEditor::~PitchFlattenerAudioProcessorEditor()
 {
+    // The update check first (it joins its thread and drops a pending callback), then its popup.
+    m_updateCheck.reset();
+    m_updatePopup.reset();
+
     // Nothing the editor opened may outlive it: the content closes the About window (and its update
     // check) and the preset dialogs; then any popup menu (it would keep using m_lookAndFeel) and the
     // tooltip window go.
@@ -917,4 +927,33 @@ void PitchFlattenerAudioProcessorEditor::resized()
 
     m_content->setBounds (0, 0, baseWidth, baseHeight);
     m_content->setTransform (juce::AffineTransform::scale (scale).translated (x, y));
+
+    if (m_updatePopup != nullptr)
+    {
+        m_updatePopup->setBounds (getLocalBounds());
+        m_updatePopup->setEditorScale (scale);
+    }
+}
+
+void PitchFlattenerAudioProcessorEditor::showUpdatePopup (const sammyj::UpdateInfo& info)
+{
+    if (m_updatePopup != nullptr)
+        return;
+
+    m_updatePopup = std::make_unique<UpdatePopup> (info, [safeThis = juce::Component::SafePointer<PitchFlattenerAudioProcessorEditor> (this)]
+    {
+        // Deferred: this runs inside one of the popup's own button callbacks.
+        juce::MessageManager::callAsync ([safeThis]
+        {
+            if (safeThis != nullptr)
+                safeThis->m_updatePopup.reset();
+        });
+    });
+
+    addAndMakeVisible (*m_updatePopup); // the last child: above the content and the resizer
+    m_updatePopup->toFront (false);
+    resized();
+
+    if (isShowing())
+        m_updatePopup->grabKeyboardFocus(); // Return and Escape reach it, as a dialog; rings only after Tab
 }

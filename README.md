@@ -289,6 +289,8 @@ When a plug-in's release finishes, `build-release_bundle.yml` rebuilds the combi
 
 Creative Sound Supervisor at **[Sweet Justice](https://www.sweetjusticesound.com)**
 
+I taught myself C++ during the development of SOMA, but my knowledge only goes so far. These plug-ins are experiments: ideas that have been sitting in my head for a while, built with what I know and with help from Claude.
+
 <sub>Found a bug or have an idea? <a href="https://github.com/samueljustice/plugins/issues">Open an issue</a>.</sub>
 
 </div>

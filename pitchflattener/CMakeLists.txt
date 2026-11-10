@@ -78,6 +78,8 @@ target_sources(PitchFlattener
         Source/PresetManager.cpp
         Source/SpectrogramVisualizer.cpp
         Source/AboutWindow.cpp
+        Source/UpdatePopup.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/../common/SammyJUpdateCheck.cpp
         ${PF_DSP_SOURCES}
 )
 
@@ -104,6 +106,7 @@ target_include_directories(PitchFlattener
         ${RUBBERBAND_ROOT}
         ${RUBBERBAND_ROOT}/src
         ${CMAKE_CURRENT_SOURCE_DIR}/Source
+        ${CMAKE_CURRENT_SOURCE_DIR}/../common
 )
 
 # Link libraries

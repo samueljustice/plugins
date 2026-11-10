@@ -12,15 +12,18 @@ target_sources(ReversinatorTests
         ../Source/Controls.cpp
         ../Source/SnippetDisplay.cpp
         ../Source/AboutPanel.cpp
+        ../Source/UpdatePopup.cpp
         ../Source/ReverseEngine.cpp
+        ../../common/SammyJUpdateCheck.cpp
 )
 
-target_include_directories(ReversinatorTests PRIVATE ../Source)
+target_include_directories(ReversinatorTests PRIVATE ../Source ../../common)
 
 target_compile_definitions(ReversinatorTests
     PRIVATE
         JUCE_WEB_BROWSER=0
         JUCE_USE_CURL=0
+        REVERSINATOR_NO_UPDATE_CHECK=1
         JUCE_PLUGINHOST_VST3=1
         JUCE_PLUGINHOST_AU=1
         JucePlugin_Name="SammyJs Reversinator"

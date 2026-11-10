@@ -11,6 +11,13 @@
 #include <memory>
 
 class AboutWindow;
+class UpdatePopup;
+
+namespace sammyj
+{
+    class UpdateCheck;
+    struct UpdateInfo;
+}
 
 /**
  * The editor is laid out once at a fixed design size (c_baseWidth x c_baseHeight)
@@ -35,6 +42,8 @@ public:
     void resized() override;
     void paint(juce::Graphics&) override;
     void timerCallback() override;
+    void parentHierarchyChanged() override;
+    void visibilityChanged() override;
 
     static constexpr int c_baseWidth = 1600;
     static constexpr int c_baseHeight = 780;
@@ -61,6 +70,12 @@ private:
     void setupChoice(juce::ComboBox& combo, const juce::String& paramId, const juce::String& tooltip,
                      std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment>& attachment);
     void showAboutWindow();
+
+    // New-version popup: the check starts once the editor is on screen, and calls showUpdatePopup()
+    // (message thread) if a newer release is out.
+    void startUpdateCheckWhenShown();
+    void showUpdatePopup(const sammyj::UpdateInfo& info);
+    void closeUpdatePopup();
 
     // Harmonic patterns (one-shot actions that set the 16 harmonic bars)
     void showPatternMenu();
@@ -173,6 +188,8 @@ private:
     std::unique_ptr<juce::AlertWindow> m_alert; // owned so it never outlives the LookAndFeel
     EditorTooltipWindow m_tooltipWindow { *this }; // after m_lookAndFeel, so it is deleted first
     std::unique_ptr<AboutWindow> m_aboutWindow;     // at most one per editor, closed with it
+    std::unique_ptr<UpdatePopup> m_updatePopup;     // the new-version popup, over everything in the editor
+    std::unique_ptr<sammyj::UpdateCheck> m_updateCheck; // after the popup: stopped before anything its callback uses goes
 
     std::array<Section, 6> m_sections;
 };

@@ -6,6 +6,8 @@
 #include "Controls.h"
 #include "SnippetDisplay.h"
 #include "AboutPanel.h"
+#include "UpdatePopup.h"
+#include "SammyJUpdateCheck.h"
 
 /**
  * Laid out at a fixed base size and scaled uniformly, so the window can be
@@ -20,6 +22,9 @@ public:
     void paint(juce::Graphics&) override;
     void resized() override;
 
+    /** Shows the "new version available" card over the editor (called by the update check). */
+    void showUpdatePopup(const sammyj::UpdateInfo&);
+
     static constexpr int baseWidth = 820;
     static constexpr int baseHeight = 560;
 
@@ -32,6 +37,8 @@ private:
 
         void paint(juce::Graphics&) override;
         void resized() override;
+
+        void showUpdatePopup(const sammyj::UpdateInfo& info) { m_updatePopup.show(info); }
 
     private:
         void valueChanged(juce::Value&) override;
@@ -68,7 +75,8 @@ private:
         juce::AudioProcessorValueTreeState::SliderAttachment m_wetAttachment;
         juce::AudioProcessorValueTreeState::SliderAttachment m_dryAttachment;
 
-        AboutPanel m_about;   // overlay, added last so it sits on top
+        AboutPanel m_about;           // overlays, added last so they sit on top
+        UpdatePopup m_updatePopup;
 
         std::array<Section, 3> m_sections;
         std::array<Caption, 4> m_captions;
@@ -81,6 +89,9 @@ private:
     Content m_content;
     juce::TooltipWindow m_tooltipWindow;
     bool m_constructed = false;   // don't record the window size until construction has finished
+
+    // Last, so it is destroyed first: its destructor stops the check before the popup it calls goes away.
+    std::unique_ptr<sammyj::UpdateCheck> m_updateCheck;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(ReversinatorAudioProcessorEditor)
 };
