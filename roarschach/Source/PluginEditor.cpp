@@ -55,6 +55,7 @@ RoarschachAudioProcessorEditor::RoarschachAudioProcessorEditor(RoarschachAudioPr
     m_content.addAndMakeVisible(m_aboutButton);
 
     setupPresetBar();
+    setupDice();
 
     m_websiteLink.setFont(m_fonts->label(10.5f), false, juce::Justification::centredLeft);
     m_websiteLink.setColour(juce::HyperlinkButton::textColourId, Theme::Colours::textDim); // amber on hover (ThemeLink)
@@ -64,12 +65,27 @@ RoarschachAudioProcessorEditor::RoarschachAudioProcessorEditor(RoarschachAudioPr
     // Resizable, uniformly scaled, fixed aspect ratio; the size is part of the saved state.
     // Read the saved scale first: setting the limits below resizes the editor, which
     // would otherwise overwrite it. A damaged value (NaN, inf) must not give a 0 x 0 editor.
+    // The largest scale also stays within the largest display's work area, so the window can never
+    // be wider or taller than the screen (the design is 1760 px wide; 125 % would be 2200 px).
+    float maxScale = c_maxScale;
+    {
+        float fits = 0.0f;
+        for (const auto& display : juce::Desktop::getInstance().getDisplays().displays)
+        {
+            const auto area = display.userArea;
+            if (area.getWidth() > 0 && area.getHeight() > 40)
+                fits = std::max(fits, std::min(static_cast<float>(area.getWidth()) / static_cast<float>(c_baseWidth),
+                                               static_cast<float>(area.getHeight() - 40) / static_cast<float>(c_baseHeight)));
+        }
+        if (fits > 0.0f)
+            maxScale = juce::jlimit(c_minScale, c_maxScale, fits);
+    }
     const auto savedScale = static_cast<double>(m_audioProcessor.getViewValue(c_viewEditorScale, c_defaultScale));
-    const float scale = std::isfinite(savedScale) ? static_cast<float>(juce::jlimit<double>(c_minScale, c_maxScale, savedScale))
-                                                  : c_defaultScale;
+    const float scale = std::isfinite(savedScale) ? static_cast<float>(juce::jlimit<double>(c_minScale, maxScale, savedScale))
+                                                  : std::min(c_defaultScale, maxScale);
     setResizable(true, true);
     setResizeLimits(juce::roundToInt(c_baseWidth * c_minScale), juce::roundToInt(c_baseHeight * c_minScale),
-                    juce::roundToInt(c_baseWidth * c_maxScale), juce::roundToInt(c_baseHeight * c_maxScale));
+                    juce::roundToInt(c_baseWidth * maxScale), juce::roundToInt(c_baseHeight * maxScale));
     if (auto* sizeConstrainer = getConstrainer())
         sizeConstrainer->setFixedAspectRatio(static_cast<double>(c_baseWidth) / c_baseHeight);
 
@@ -82,6 +98,7 @@ RoarschachAudioProcessorEditor::RoarschachAudioProcessorEditor(RoarschachAudioPr
 RoarschachAudioProcessorEditor::~RoarschachAudioProcessorEditor()
 {
     stopTimer();
+    removeMouseListener(&m_diceFocusRelease);
 
     // Nothing the editor opened may outlive it: the About window (and its update check), any
     // popup menu (it would keep using m_lookAndFeel), alerts and the tooltip window.
@@ -144,11 +161,13 @@ void RoarschachAudioProcessorEditor::layoutContent()
         m_websiteLink.setBounds(linkX, 2 + (c_headerHeight - 20) / 2, linkWidth, 20);
     }
 
-    // Preset bar, right-aligned next to the About button.
+    // Preset bar, right-aligned next to the About button: < name > die SAVE.
     header.removeFromRight(14);
-    auto presetRow = header.removeFromRight(400).withSizeKeepingCentre(400, 26);
+    auto presetRow = header.removeFromRight(430).withSizeKeepingCentre(430, 26);
     m_presetSaveButton.setBounds(presetRow.removeFromRight(64));
     presetRow.removeFromRight(8);
+    m_presetDice.setBounds(presetRow.removeFromRight(26));
+    presetRow.removeFromRight(4);
     m_presetNextButton.setBounds(presetRow.removeFromRight(26));
     presetRow.removeFromRight(4);
     m_presetPrevButton.setBounds(presetRow.removeFromLeft(26));
@@ -280,6 +299,79 @@ void RoarschachAudioProcessorEditor::setupPresetBar()
 
     presets.refresh();
     updatePresetDisplay();
+}
+
+//==============================================================================
+// Dice
+//==============================================================================
+void RoarschachAudioProcessorEditor::setupDice()
+{
+    const auto undoHint = SignalFlowStrip::diceUndoHint();
+    m_presetDice.setTooltip("Loads a random factory preset, never the one showing. Every factory preset comes up once "
+                            "before any comes up again. " + undoHint);
+    m_presetDice.setTitle("Random Preset");
+    m_presetDice.setAccent(Theme::Colours::output);
+    m_presetDice.onClick = [this] { m_audioProcessor.getDice().rollPreset(); afterRoll(); };
+    m_presetDice.onSecondaryClick = [this] { showDiceMenu(m_presetDice); };
+    m_presetDice.onUndoKey = [this](bool redo) { return diceUndoKey(redo); };
+    m_content.addAndMakeVisible(m_presetDice);
+
+    m_strip.onRollAll = [this] { m_audioProcessor.getDice().rollAll(); afterRoll(); };
+    m_strip.onRollModule = [this](int module) { m_audioProcessor.getDice().rollModule(module); afterRoll(); };
+    m_strip.onDiceMenu = [this](juce::Component& die) { showDiceMenu(die); };
+    m_strip.onDiceUndoKey = [this](bool redo) { return diceUndoKey(redo); };
+    addMouseListener(&m_diceFocusRelease, true);
+    afterRoll();
+}
+
+void RoarschachAudioProcessorEditor::afterRoll()
+{
+    const int face = m_audioProcessor.getDice().getFace();
+    m_presetDice.setFace(face);
+    m_strip.setDiceFace(face);
+    updatePresetDisplay();
+}
+
+void RoarschachAudioProcessorEditor::showDiceMenu(juce::Component& die)
+{
+    auto& dice = m_audioProcessor.getDice();
+    auto& undo = dice.getUndoManager();
+    juce::PopupMenu menu;
+    menu.setLookAndFeel(&m_lookAndFeel);
+    menu.addItem(1, dice.canUndo() ? "Undo " + undo.getUndoDescription() : juce::String("Undo Roll"), dice.canUndo());
+    menu.addItem(2, dice.canRedo() ? "Redo " + undo.getRedoDescription() : juce::String("Redo Roll"), dice.canRedo());
+    menu.showMenuAsync(RoarschachLookAndFeel::menuOptionsFor(die),
+                       [safe = juce::Component::SafePointer<RoarschachAudioProcessorEditor>(this)](int result)
+                       {
+                           if (safe == nullptr || result == 0)
+                               return;
+                           auto& d = safe->m_audioProcessor.getDice();
+                           if (result == 1)
+                               d.undo();
+                           else if (result == 2)
+                               d.redo();
+                           safe->afterRoll();
+                       });
+}
+
+bool RoarschachAudioProcessorEditor::diceUndoKey(bool redo)
+{
+    // Only the dice's own history: anything else is the host's to undo.
+    auto& dice = m_audioProcessor.getDice();
+    const bool done = redo ? dice.redo() : dice.undo();
+    afterRoll();
+    return done;
+}
+
+void RoarschachAudioProcessorEditor::DiceFocusRelease::release(const juce::MouseEvent& e)
+{
+    auto* focused = juce::Component::getCurrentlyFocusedComponent();
+    if (dynamic_cast<DiceButton*>(focused) == nullptr || e.eventComponent == nullptr)
+        return;
+    for (auto* c = e.eventComponent; c != nullptr; c = c->getParentComponent())
+        if (dynamic_cast<DiceButton*>(c) != nullptr)
+            return;   // a die itself (it takes the focus)
+    focused->giveAwayKeyboardFocus();
 }
 
 void RoarschachAudioProcessorEditor::updatePresetDisplay()

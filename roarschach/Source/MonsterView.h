@@ -160,6 +160,9 @@ private:
     float m_jaw = 0.0f, m_growlMod = 0.0f, m_roarDrive = 0.0f, m_subLevel = 0.0f, m_level = 0.0f;
     float m_boost = 0.0f, m_cut = 0.0f, m_gravelOn = 0.0f, m_sleep = 0.0f, m_subPhase = 0.0f;
     float m_swirlNotch = 0.0f, m_ensWidth = 0.0f, m_deess = 0.0f, m_tame = 0.0f, m_gate = 1.0f;
+    // CHAMBER: how strongly the head leaves an after-image (the room ringing, with Resonance), the
+    // lagged head it trails, the Boom pulse's depth and its slow phase.
+    float m_chamberEcho = 0.0f, m_chamberLagY = 0.0f, m_chamberBoom = 0.0f, m_chamberPhase = 0.0f;
     float m_ovLevel = 0.0f, m_ovReplace = 0.0f, m_ring = 0.0f, m_ringPhase = 0.0f, m_ringBody = 0.0f;
     float m_strain = 0.0f, m_strainPhase = 0.0f, m_clip = 0.0f;
     std::array<float, roar::MonsterFeatures::numOvertoneHarmonics> m_ovHarm {};

@@ -499,6 +499,7 @@ bool PresetManager::applyFactory(int factoryIndex, Origin origin)
 
     const auto& preset = factoryPresets()[static_cast<size_t>(factoryIndex)];
     const int programBefore = currentProgram();
+    m_loadGeneration.fetch_add(1);
 
     {
         const ScopedApply applying(*this);
@@ -530,6 +531,7 @@ bool PresetManager::applyUserFile(const juce::File& file, Origin origin)
         return false;
 
     const int programBefore = currentProgram();
+    m_loadGeneration.fetch_add(1);
 
     {
         const ScopedApply applying(*this);
@@ -834,7 +836,8 @@ bool PresetManager::readPresetFile(const juce::File& file, Values& values, juce:
         values.emplace_back(id, static_cast<float>(value));
     }
 
-    // A preset saved with the first release's knob laws: convert its values so it sounds the same.
+    // A preset saved with the first release's knob laws: convert its values to the nearest setting under
+    // the new laws (close, not identical: see migrateFromV1 for what cannot be carried over).
     if (xml->getIntAttribute(c_formatAttr.toString(), 0) < c_currentFormat)
     {
         std::map<std::string, double> byId;
@@ -910,9 +913,11 @@ PresetManager::StateInfo PresetManager::readStateInfo(const juce::XmlElement& st
     return info;
 }
 
-void PresetManager::restoreState(const StateInfo& info, const std::function<void()>& replaceParameters)
+void PresetManager::restoreState(const StateInfo& info, const std::function<void()>& replaceParameters, bool isLoad)
 {
     const juce::ScopedLock op(m_operationLock);
+    if (isLoad)
+        m_loadGeneration.fetch_add(1);
 
     {
         // The parameters come from the state; that is not an edit.

@@ -3,6 +3,7 @@
 #include <JuceHeader.h>
 
 #include "CreatureEvolution.h"
+#include "Dice.h"
 #include "Params.h"
 #include "PresetManager.h"
 #include "dsp/CreatureChain.h"
@@ -66,6 +67,8 @@ public:
     void setViewValue(const juce::Identifier& option, const juce::var& value);
 
     PresetManager& getPresetManager() { return m_presetManager; }
+    /** The preset, ROLL ALL and module dice, with their undo history (message thread). */
+    DiceRoller& getDice() { return m_dice; }
     /** Hold a Scope on this while writing several module positions (see PositionWrites). */
     roar::PositionWrites& getPositionWrites() { return m_positionWrites; }
     juce::AudioProcessorValueTreeState& getValueTreeState() { return m_parameters; }
@@ -124,6 +127,7 @@ private:
     Params::Order m_heldPositions {};             // audio thread: the last complete order read
     bool m_haveHeldPositions = false;
     PresetManager m_presetManager;                // after m_parameters: it listens to them
+    DiceRoller m_dice;                            // after m_presetManager: it loads and restores presets
 
     static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
 

@@ -121,6 +121,15 @@ namespace roar
         return g > 0.0 ? 20.0 * std::log10 (g) : -200.0;
     }
 
+    double OvertoneModule::amountGain (double u, OvertoneMode m)
+    {
+        if (! (u > 0.0))
+            return 0.0;
+        if (m == OvertoneMode::add)
+            return laws::overtoneAddGain (std::min (u, 1.0));
+        return amountLawGain (u) * dsp::dbToGain (modeMakeupDb (m));
+    }
+
     double OvertoneModule::modeMakeupDb (OvertoneMode m)
     {
         if (m == OvertoneMode::lean)
@@ -267,10 +276,7 @@ namespace roar
 
     float OvertoneModule::gainTargetFor() const
     {
-        const double law = amountLawGain (static_cast<double> (m_settings.amount));
-        if (! (law > 0.0))
-            return 0.0f;
-        return static_cast<float> (law * dsp::dbToGain (modeMakeupDb (m_settings.mode)));
+        return static_cast<float> (amountGain (static_cast<double> (m_settings.amount), m_settings.mode));
     }
 
     double OvertoneModule::targetLogHz (int band) const

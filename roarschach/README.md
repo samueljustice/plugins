@@ -1,53 +1,56 @@
 # Roarschach
 
-A VST3/AU creature voice designer by **Samuel Justice**. Roarschach turns a spoken or shouted performance into a big, liquid, gravelly monster voice that still reads as words. One insert holds fourteen modules (pitch and size, clean-up, de-essing, detail, a vocoder, a ring modulator, shimmer, growl, a phaser, tube roar, an ensemble, a top-end tamer, a tracked sub and overtones) that run in any order, between an input stage and a level-matched output with a limiter and a clipper.
+A VST3/AU creature voice designer by **Samuel Justice**. Roarschach turns a spoken or shouted performance into a big, liquid, gravelly monster voice that still reads as words. One insert holds fifteen modules (pitch and size, a small speaker in a resonant room, clean-up, de-essing, detail, a vocoder, a ring modulator, shimmer, growl, a phaser, tube roar, an ensemble, a top-end tamer, a tracked sub and overtones) that run in any order, between an input stage and a level-matched output with a limiter and a clipper.
 
-### 🎉 Latest Release v1.0.0 - [Download Here](https://github.com/samueljustice/plugins/releases/tag/roarschach-v1.0.0)
+### 🎉 Latest Release v1.1.0 - [Download Here](https://github.com/samueljustice/plugins/releases/tag/roarschach-v1.1.0)
 
-<img src="docs/screenshot.jpg" alt="The Roarschach window with the Kaiju preset after a long, loud session: the creature, a many-eyed head of dark ink smoke with wide smoke wings, roaring through a pale blue-grey mist with the vocoder's fan of ridges under its jaw, and the chain of fourteen modules between IN and OUTPUT below" width="800">
+<img src="docs/screenshot.jpg" alt="The Roarschach window with the Kaiju preset: the creature, a horned head of dark ink smoke with slit amber eyes and a maw of needle teeth, roaring through a pale blue-grey mist, and the chain of fifteen modules in two rows between IN and OUTPUT below, with a die beside the preset name, on every module and after the last module" width="880">
 
 ## Features
 
-- **Fourteen modules, any order**: every module has an On switch and can sit anywhere in the chain. Drag a module by its header, use its **•••** menu, or press Alt+Left / Alt+Right on one of its controls. A move crossfades over 30 ms, so it is click-free even while audio plays.
+- **Fifteen modules, any order**: every module has an On switch and can sit anywhere in the chain. Drag a module by its header, use its **•••** menu, or press Alt+Left / Alt+Right on one of its controls. A move crossfades over 30 ms, so it is click-free even while audio plays.
 - **Pitch and size, separately**: PITCH shifts the voice from two octaves down to one octave up, with Shift, Snap and Mono modes, and SIZE gives it a bigger throat.
 - **Full bandwidth at any sample rate**: the audio is never resampled. At 96 or 192 kHz a two-octave drop brings the recording's ultrasonic content down into the audible band.
 - **Texture**: GROWL chops the voice into a growl, SHIMMER adds a liquid wobble, SWIRL a sweeping phaser, ROAR two-stage tube saturation, ENSEMBLE a chorus of voices that makes the chain stereo.
+- **A room**: CHAMBER plays the voice through a small speaker into a tight, resonant room and blends it back under the voice, with eight bundled rooms, three speakers, speaker breakup, stereo width and a low-end Boom.
 - **Machines**: a 32-band VOCODER on a pulse carrier one or two octaves below the voice, and a RING modulator with a fixed or pitch-tracking carrier and a small resonant body.
 - **Weight**: SUB adds a tracked octave below the voice; OVERTONE turns the low end into overtones so the weight carries on small speakers.
 - **Control**: CLEAN (tone EQ, gate and a leveller), DE-ESS, DETAIL (lifts the quiet parts and pushes the loud parts into a soft ceiling) and TAME (holds back harsh top end).
 - **A finished output**: OUTPUT matches the level to the input, then Push drives a true-peak-safe limiter with a clipper after it. Attack and Release set how clean or crunchy the limiting is, and Auto release keeps it clean. MIX blends in the dry voice, phase-matched to the processed one.
 - **A creature that reacts**: an OpenGL creature that forms out of drifting cloud, whose jaw, eyes, skin and throat follow the voice and every module. It softens back into fog when the input goes quiet, and slowly evolves with sustained intensity.
-- **Presets**: 40 factory presets (Init plus six groups: Creatures, Voices, Machines, Signal Flow, Vocoder, Utility). Save your own with SAVE. They are plain files, easy to back up and share.
+- **Dice**: one die loads a random factory preset, one rolls a whole new creature, and one on each module rolls just that module, always inside each knob's useful range. Every roll can be undone.
+- **Presets**: 43 factory presets (Init plus six groups: Creatures, Voices, Machines, Signal Flow, Vocoder, Utility). Save your own with SAVE. They are plain files, easy to back up and share.
 - **Full recall**: every parameter, the module order, the preset name and the window size are saved with your session, and the factory presets are exposed to the host as programs.
-- **Resizable interface**: drag the corner to scale the whole window from 50% to 125%.
+- **Resizable interface**: drag the corner to scale the whole window from 50% to 125% (never larger than the screen).
 - **Constant latency** of about 46 ms (2192 samples at 48 kHz), the same for every setting and every module order, reported to the host so it is compensated. Host bypass stays in time and switches without clicks. Mono or stereo, full DAW automation.
 
 ## How it works
 
-The voice comes in through **IN**, runs through the fourteen modules (two rows of seven in the window, read left to right, top row first) and leaves through **OUTPUT**. IN and OUTPUT always stay at the ends; everything between them can move.
+The voice comes in through **IN**, runs through the fifteen modules (two rows of eight in the window, read left to right, top row first) and leaves through **OUTPUT**. IN and OUTPUT always stay at the ends; everything between them can move.
 
 The default order, and what each module does:
 
 | # | Module | What it does |
 |---|---|---|
 | 1 | **PITCH** | Shifts the pitch of the voice and, separately, the size of the throat (the formants). Lower and bigger is a bigger creature. A tube drive after the shift adds warmth or grit. |
-| 2 | **CLEAN** | A voice channel strip: a tone EQ, a gate that closes on room noise between words, and a leveller that evens out the level and catches peaks. |
-| 3 | **DE-ESS** | Softens harsh S and T sounds. |
-| 4 | **DETAIL** | Lifts the quiet parts (breaths, consonants, word endings) a long way while the loud syllables stay where they are, and pushes the loud parts into a soft ceiling. |
-| 5 | **VOCODER** | A 32-band vocoder whose carrier is a buzz one or two octaves below the voice: a gravelly machine voice under the words. Off by default. |
-| 6 | **RING** | A ring modulator: metallic sidebands from a carrier at a fixed frequency or at a ratio of the voice's pitch, with an optional small resonant box around it. Off by default. |
-| 7 | **SHIMMER** | A copy of the voice shifted by a few hertz beats against the voice: a liquid wobble. |
-| 8 | **GROWL** | Chops the voice's level many times a second, the rough flutter of a growl. |
-| 9 | **SWIRL** | A phaser that sweeps notches up and down the voice. |
-| 10 | **ROAR** | Two-stage tube saturation with a tone stack between the stages: warm at first, gritty and dense when pushed. |
-| 11 | **ENSEMBLE** | A chorus of three or six voices that spreads to the sides. It makes the chain stereo. |
-| 12 | **TAME** | Holds back the harsh top end, only when it gets loud. |
-| 13 | **SUB** | An octave below the voice that follows its pitch. |
-| 14 | **OVERTONE** | Turns the low end into overtones, so its weight can be heard on speakers that cannot play it. |
+| 2 | **CHAMBER** | Plays the voice through a small speaker into a tight, resonant room and blends it back under the voice: an edge and a sense of size, or the voice inside a box, a booth or a can. Off by default. |
+| 3 | **CLEAN** | A voice channel strip: a tone EQ, a gate that closes on room noise between words, and a leveller that evens out the level and catches peaks. |
+| 4 | **DE-ESS** | Softens harsh S and T sounds. |
+| 5 | **DETAIL** | Lifts the quiet parts (breaths, consonants, word endings) a long way while the loud syllables stay where they are, and pushes the loud parts into a soft ceiling. |
+| 6 | **VOCODER** | A 32-band vocoder whose carrier is a buzz one or two octaves below the voice: a gravelly machine voice under the words. Off by default. |
+| 7 | **RING** | A ring modulator: metallic sidebands from a carrier at a fixed frequency or at a ratio of the voice's pitch, with an optional small resonant box around it. Off by default. |
+| 8 | **SHIMMER** | A copy of the voice shifted by a few hertz beats against the voice: a liquid wobble. |
+| 9 | **GROWL** | Chops the voice's level many times a second, the rough flutter of a growl. |
+| 10 | **SWIRL** | A phaser that sweeps notches up and down the voice. |
+| 11 | **ROAR** | Two-stage tube saturation with a tone stack between the stages: warm at first, gritty and dense when pushed. |
+| 12 | **ENSEMBLE** | A chorus of three or six voices that spreads to the sides. It makes the chain stereo. |
+| 13 | **TAME** | Holds back the harsh top end, only when it gets loud. |
+| 14 | **SUB** | An octave below the voice that follows its pitch. |
+| 15 | **OVERTONE** | Turns the low end into overtones, so its weight can be heard on speakers that cannot play it. |
 
-Where a module sits changes the sound. ROAR before GROWL drives the voice and then chops it; ROAR after GROWL distorts the chopped voice. SUB before ROAR sends the octave through the tube, so its rumble gets harmonics locked to the voice. The VOCODER late in the chain vocodes everything before it. The Signal Flow presets each show one of these placements.
+Where a module sits changes the sound. CHAMBER after PITCH puts the pitched voice in the room; after ROAR it is an amp into a cabinet; last, it puts the whole creature in the room. ROAR before GROWL drives the voice and then chops it; ROAR after GROWL distorts the chopped voice. SUB before ROAR sends the octave through the tube, so its rumble gets harmonics locked to the voice. The VOCODER late in the chain vocodes everything before it. The Signal Flow presets each show one of these placements.
 
-The chain is mono up to the first module that makes stereo: ENSEMBLE, or SHIMMER in Stereo mode. An **ST** badge on the connector after that module marks the point.
+The chain is mono up to the first module that makes stereo: ENSEMBLE, SHIMMER in Stereo mode, or CHAMBER with Width above 0%. An **ST** badge on the connector after that module marks the point.
 
 ### Moving modules
 
@@ -55,11 +58,11 @@ The chain is mono up to the first module that makes stereo: ENSEMBLE, or SHIMMER
 - **The ••• menu** in the header: Move to Start, Move Earlier, Move Later, Move to End, Move After (any other module), Turn Off / Turn On, and Reset Chain Order (back to the default order above).
 - **The keyboard**: with one of a module's controls focused, Alt+Left moves it one place earlier and Alt+Right one place later.
 
-The order is saved with the session and with presets, and the host can automate it (each module has a position parameter, 1st to 14th).
+The order is saved with the session and with presets, and the host can automate it. The fourteen modules other than CHAMBER each have a position parameter, 1st to 14th, that counts only those fourteen; CHAMBER's position parameter is the place it is inserted among them (before 1st, after 1st, ... after 14th). The tiles number all fifteen, so for a module after CHAMBER the host shows one place lower than its tile.
 
-<img src="docs/strip-dragging.png" alt="GROWL lifted out of the second row and carried into the first, with the space it will drop into outlined and the other tiles moved aside" width="1584">
+<img src="docs/strip-dragging.png" alt="GROWL lifted out of the second row and carried into the first, with the space it will drop into outlined and the other tiles moved aside" width="1744">
 
-<img src="docs/move-menu.png" alt="RING's ••• menu: its place in the chain (3 of 14), Move to Start, Move Earlier, Move Later, Move to End, Move After, Turn Off and Reset Chain Order" width="420"> <img src="docs/mode-menu.png" alt="RING's mode menu with Carrier, Track, Mode and Body, each showing its current choice" width="280">
+<img src="docs/move-menu.png" alt="RING's ••• menu: its place in the chain (3 of 15), Move to Start, Move Earlier, Move Later, Move to End, Move After, Turn Off and Reset Chain Order" width="420"> <img src="docs/mode-menu.png" alt="RING's mode menu with Carrier, Track, Mode and Body, each showing its current choice" width="280">
 
 ### The output stage
 
@@ -85,15 +88,27 @@ Roarschach runs at the host's sample rate and never resamples the audio. PITCH r
 
 ## Controls
 
-Every control has a tooltip: hover over it to see what it does, and where its useful range is. The footer of each module shows what the module is doing right now (hover over it for an explanation). Double-click any knob to reset it to its default. The mode chip under the knobs opens a menu of the module's choices; the ••• button moves the module.
+Every control has a tooltip: hover over it to see what it does, and where its useful range is. The footer of each module shows what the module is doing right now (hover over it for an explanation). Double-click any knob to reset it to its default. The mode chip under the knobs opens a menu of the module's choices, and the die beside it rolls the module; the ••• button moves the module.
 
-<img src="docs/tooltip.png" alt="The tooltip over RING's Freq knob: The carrier frequency. Low values give a robotic flutter, the low hundreds a clangy metallic voice, higher values a bell-like, alien tone." width="474">
+<img src="docs/tooltip.png" alt="The tooltip over RING's Freq knob: The carrier frequency. 110-450 Hz gives a metallic voice; below about 50 Hz it becomes a tremolo; above about 1.3 kHz it squeaks." width="583">
 
-The close-ups below are from the Kaiju preset; RING and OUTPUT are from Cyber Commander. Every knob's travel was measured on real voice recordings and mapped so that all of it does something; the measurements are in [docs/parameter-audit.md](docs/parameter-audit.md).
+### The dice
+
+<img src="docs/panel-roll-all.png" alt="RANDOMISE ALL: a die in the empty slot after the last module, above the connector into OUTPUT" width="152">
+
+Three kinds of die roll new settings. Each roll is one step you can take back: right-click any die for **Undo** and **Redo** (with the keyboard, Shift+F10 on a die opens the same menu), or press Cmd+Z (Ctrl+Z on Windows) straight after clicking a die, and Shift+Cmd+Z (Shift+Ctrl+Z) to redo. Once you use another control, these keys go back to the host's own undo; some hosts keep them for themselves anyway, and the right-click menu always works. Undo takes back only what the roll changed, and a knob you turned afterwards stays where you put it, even one the roll had changed. Loading a preset or session, even the same one again, ends the history. The host sees every control a roll changes, so it records the roll and its automation follows.
+
+- **Random preset** (the die beside the preset name): loads a random factory preset, never the one showing. Every factory preset comes up once before any comes up again.
+- **Randomise all** (the die after the last module): a new creature. It turns three to seven modules on and the rest off (at least two of them ones that change the voice, not only CLEAN, DE-ESS, DETAIL and TAME), and gives every module's knobs and modes new settings. The preset name shows `*`, as for any edit.
+- **A module's die** (beside its mode chip): new settings for that module's knobs and modes only. Its On switch and its place in the chain stay as they are.
+
+A roll only lands where a knob is useful: each knob rolls inside the range the [parameter audit](docs/parameter-audit.md) found usable, never into its dead or harmful ends (PITCH −14 to −2 st, Swirl up to 50% and its Deep 6 circuit up to 30%, Ring Freq 60–450 Hz, Chamber 15–65%, and so on), and each mode is picked evenly from its options (Boom leaves out Heavy). The dice never move a module or touch IN or OUTPUT, so the level stays safe: on five real voice takes, 200 rolls each, 998 of the 1,000 rolls played within 3 LU of Init (the other two 3.0 and 3.8 LU quieter), and none went over the ceiling. Knobs glide to their new values and modules fade in and out, so a roll does not click while audio plays.
+
+The close-ups below are from the Kaiju preset; RING and OUTPUT are from Cyber Commander, and CHAMBER from Iron Tyrant. Every knob's travel was measured on real voice recordings and mapped so that all of it does something; the measurements are in [docs/parameter-audit.md](docs/parameter-audit.md).
 
 ### IN
 
-<img src="docs/panel-in.png" alt="The IN tile: the Input knob, the AUTO button, an input level meter and the voice's pitch" width="120">
+<img src="docs/panel-in.png" alt="The IN tile: the Input knob, the AUTO button, an input level meter and the voice's pitch" width="112">
 
 | Control | Range | Default | Description |
 |---|---|---|---|
@@ -104,19 +119,19 @@ The meter shows the input level and the readout the voice's pitch. A stereo inpu
 
 ### PITCH
 
-<img src="docs/panel-pitch.png" alt="The PITCH tile at -9 st with Size 60% and Drive 50%, in Shift and Follow" width="161">
+<img src="docs/panel-pitch.png" alt="The PITCH tile at -9 st with Size 60% and Drive 35%, in Shift and Follow" width="152">
 
 | Control | Range | Default | Description |
 |---|---|---|---|
 | **Pitch** | −24 to +12 st | −2 st | How far the voice is shifted, in semitones. −2 to −4: a bigger human; −5 to −9: a creature; −10 to −14: a monster (add Size, or Formant Keep to hold the words). Below −15 the words blur with Follow; above +6 the throat stops following. In Mono mode it sets the note held (0 st = C3). |
 | **Size** | 0 to 100% | 0% | Makes the throat bigger: lowers the formants and adds body. With Pitch below −18 st and Follow, the throat is already at its lowest, so Size only adds body. |
-| **Drive** | 0 to 100% | 5% | Tube drive after the shift: up to about 40% warmth, 50–80% grit, 100% heavy. |
+| **Drive** | 0 to 100% | 1% | Tube drive after the shift: up to about 25% warmth, 35–70% grit, 100% heavy. |
 | **Mode** | Shift / Snap / Mono | Shift | Shift moves the voice by the set interval. Snap also lands each note on the nearest semitone. Mono holds the voice on one note, set by Pitch (0 st = C3). |
 | **Formant** | Follow / Keep | Follow | Follow moves the throat with the pitch, for a bigger or smaller creature. Keep leaves the throat where it is, so only the pitch changes. |
 
 ### CLEAN
 
-<img src="docs/panel-clean.png" alt="The CLEAN tile with Contain and Gate at 35% and the Voice tone, the gate open" width="161">
+<img src="docs/panel-clean.png" alt="The CLEAN tile with Contain 22% and Gate 40% and the Voice tone, the gate open" width="152">
 
 | Control | Range | Default | Description |
 |---|---|---|---|
@@ -126,16 +141,16 @@ The meter shows the input level and the readout the voice's pitch. A stereo inpu
 
 ### DE-ESS
 
-<img src="docs/panel-deess.png" alt="The DE-ESS tile with Amount 30% in Split" width="161">
+<img src="docs/panel-deess.png" alt="The DE-ESS tile with Amount 51% in Split" width="152">
 
 | Control | Range | Default | Description |
 |---|---|---|---|
-| **Amount** | 0 to 100% | 59% | Softens harsh S and T sounds: more travel takes them down further. |
+| **Amount** | 0 to 100% | 49% | Softens harsh S and T sounds: more travel takes them down further. |
 | **Mode** | Split / Wide | Split | Split turns down only the hiss above about 3.5 kHz on each S. Wide turns down the whole voice for the length of the S, which also tames lisps and mouth noise but dips the words. |
 
 ### DETAIL
 
-<img src="docs/panel-detail.png" alt="The DETAIL tile with Low 30% and High 25% in Natural, showing the lift" width="161">
+<img src="docs/panel-detail.png" alt="The DETAIL tile with Low 30% and High 25% in Natural, showing the lift" width="152">
 
 | Control | Range | Default | Description |
 |---|---|---|---|
@@ -147,7 +162,7 @@ DETAIL leaves the room tone between lines alone, so it lifts the voice, not the 
 
 ### VOCODER
 
-<img src="docs/panel-vocoder.png" alt="The VOCODER tile with Gravel 40% at -2 Oct, its footer showing the level of each band" width="161">
+<img src="docs/panel-vocoder.png" alt="The VOCODER tile with Gravel 35% at -2 Oct, its footer showing the level of each band" width="152">
 
 | Control | Range | Default | Description |
 |---|---|---|---|
@@ -156,7 +171,7 @@ DETAIL leaves the room tone between lines alone, so it lifts the voice, not the 
 
 ### RING
 
-<img src="docs/panel-ring.png" alt="The RING tile with Amount 45% and Freq 150 Hz, Sine carrier, Fixed, Ring mode and the Box body" width="161">
+<img src="docs/panel-ring.png" alt="The RING tile with Amount 45% and Freq 150 Hz, Sine carrier, Fixed, Ring mode and the Box body" width="152">
 
 | Control | Range | Default | Description |
 |---|---|---|---|
@@ -172,7 +187,7 @@ The second knob is Freq when Track is Fixed and Ratio when Track is Follow.
 
 ### SHIMMER
 
-<img src="docs/panel-shimmer.png" alt="The SHIMMER tile with Amount 12% and Rate 11 Hz, Up" width="161">
+<img src="docs/panel-shimmer.png" alt="The SHIMMER tile with Amount 22% and Rate 11 Hz, Up" width="152">
 
 | Control | Range | Default | Description |
 |---|---|---|---|
@@ -182,7 +197,7 @@ The second knob is Freq when Track is Fixed and Ratio when Track is Follow.
 
 ### GROWL
 
-<img src="docs/panel-growl.png" alt="The GROWL tile with Depth 60% and Rate 27 Hz, Rattle and Warm" width="161">
+<img src="docs/panel-growl.png" alt="The GROWL tile with Depth 40% and Rate 27 Hz, Rattle and Warm" width="152">
 
 | Control | Range | Default | Description |
 |---|---|---|---|
@@ -193,7 +208,7 @@ The second knob is Freq when Track is Fixed and Ratio when Track is Follow.
 
 ### SWIRL
 
-<img src="docs/panel-swirl.png" alt="The SWIRL tile with Amount 30% and Rate 0.35 Hz, Liquid 4 and LFO+Level" width="161">
+<img src="docs/panel-swirl.png" alt="The SWIRL tile with Amount 21% and Rate 0.35 Hz, Liquid 4 and LFO+Level" width="152">
 
 | Control | Range | Default | Description |
 |---|---|---|---|
@@ -204,36 +219,36 @@ The second knob is Freq when Track is Fixed and Ratio when Track is Follow.
 
 ### ROAR
 
-<img src="docs/panel-roar.png" alt="The ROAR tile with Drive 65% and Tone Bass 20%, Line" width="161">
+<img src="docs/panel-roar.png" alt="The ROAR tile with Drive 61% and Tone Bass 15%, Line" width="152">
 
 | Control | Range | Default | Description |
 |---|---|---|---|
 | **Drive** | 0 to 100% | 45% | Tube saturation. 25–45% gives warmth and presence; 70–100% grit. |
-| **Tone** | Bass 100% to Treble 100% | Treble 6% | Tilts what the tube drives harder: the bass or the treble. It works at any Drive. |
+| **Tone** | Bass 100% to Treble 100% | Treble 3% | Tilts what the tube drives harder: the bass or the treble. It works at any Drive. |
 | **Voicing** | Line / Mic | Line | Line drives the tube flat. Mic first trims the boom and the air, as from a close microphone. |
 
 ### ENSEMBLE
 
-<img src="docs/panel-ensemble.png" alt="The ENSEMBLE tile with Amount 18% and Width 12%, 3 voices, Medium" width="161">
+<img src="docs/panel-ensemble.png" alt="The ENSEMBLE tile, Off, with Amount 10% and Width 10%, 3 voices, Medium" width="152">
 
 | Control | Range | Default | Description |
 |---|---|---|---|
-| **Amount** | 0 to 100% | 26% | How much of the chorus of voices is mixed in. |
+| **Amount** | 0 to 100% | 10% | How much of the chorus of voices is mixed in. |
 | **Width** | 0 to 150% | 10% | How far the chorus spreads to the sides. Past about 100% the chorus thins when the mix is summed to mono. |
 | **Voices** | 3 / 6 | 3 | How many voices sing along: 3 is tight, 6 is a crowd. |
 | **Motion** | Slow / Medium / Fast / Vibrato | Medium | How the voices drift. Slow, Medium and Fast set the movement; Vibrato makes them waver in pitch. |
 
 ### TAME
 
-<img src="docs/panel-tame.png" alt="The TAME tile with Amount 70%" width="161">
+<img src="docs/panel-tame.png" alt="The TAME tile with Amount 19%" width="152">
 
 | Control | Range | Default | Description |
 |---|---|---|---|
-| **Amount** | 0 to 100% | 18% | Holds back harsh top end when it gets loud; higher settings start lower and hold back harder. |
+| **Amount** | 0 to 100% | 6% | Holds back harsh top end when it gets loud; higher settings start lower and hold back harder. |
 
 ### SUB
 
-<img src="docs/panel-sub.png" alt="The SUB tile with Level 80% and Drive 65%, Follow and Resonant, showing the octave's level and frequency" width="161">
+<img src="docs/panel-sub.png" alt="The SUB tile with Level 75% and Drive 65%, Follow and Resonant, showing the octave's level and frequency" width="152">
 
 | Control | Range | Default | Description |
 |---|---|---|---|
@@ -244,20 +259,54 @@ The second knob is Freq when Track is Fixed and Ratio when Track is Follow.
 
 ### OVERTONE
 
-<img src="docs/panel-overtone.png" alt="The OVERTONE tile with Amount 40% and Freq +0.00 oct, Beast and Add, its bands at 45 and 90 Hz" width="161">
+<img src="docs/panel-overtone.png" alt="The OVERTONE tile with Amount 10% and Freq +0.00 oct, Beast and Add, its bands at 45 and 90 Hz" width="152">
 
 | Control | Range | Default | Description |
 |---|---|---|---|
-| **Amount** | 0 to 100% | 10% | How strongly the low end is echoed as overtones. They let the voice's weight be heard on small speakers without adding more bass. In Lean and Replace the original low end is cut more as Amount rises. |
+| **Amount** | 0 to 100% | 4% | How strongly the low end is echoed as overtones. They let the voice's weight be heard on small speakers without adding more bass. In Lean and Replace the original low end is cut more as Amount rises. |
 | **Freq** | −1 to +1 oct | 0 oct | Moves the overtone bands up or down together. Higher translates better to small speakers; lower is warmer. |
 | **Pattern** | Chest / Throat / Beast / Speaker / Broad / Tracked | Chest | Which low regions are turned into overtones. Chest: body and octave. Throat: gruff upper growl. Beast: hollow, odd-heavy snarl. Speaker: high overtones for small or radio-like creatures. Broad: one wide low band. Tracked: follows the voice's pitch exactly. |
 | **Mode** | Add / Lean / Replace | Add | Add keeps the original low end. Lean lowers it. Replace removes it, so the low end is heard only through its overtones. |
 
 Placed after SUB (the default), OVERTONE also makes SUB's octave audible on small speakers.
 
+### CHAMBER
+
+<img src="docs/panel-chamber.png" alt="The CHAMBER tile with Amount 60%, Resonance 65%, Edge 60% and Width 50%, in Steel Box with the Horn speaker and Heavy Boom, its footer showing the room's decay" width="152">
+
+CHAMBER plays the voice through a small speaker into a tight, resonant room, then blends it back under the untreated voice. A little gives a voice an edge and a sense of size; more puts it inside a box, a booth or a can. The rooms are small and ringing, not a hall reverb. CHAMBER is Off by default (and in sessions saved before it existed), and sits right after PITCH.
+
+| Control | Range | Default | Description |
+|---|---|---|---|
+| **Amount** | 0 to 100% | 50% | How much of the voice played into the room is blended under the dry voice. 15–35% adds a subtle edge, 45–65% is a clear chamber; around 80% the two are equal; at 100% the room leads. |
+| **Reson** (Resonance) | 0 to 100% | 40% | How much the room rings after each sound. Lower is tight and boxy; higher lets its resonances sustain longer. The level stays the same. |
+| **Edge** | 0 to 100% | 30% | Drives the small speaker into breakup: grit at 15–35%, a cranked speaker at 50–70%, torn and buzzing towards 100%. Heard once Amount is about 60% or more. |
+| **Width** | 0 to 100% | 35% | How far the room spreads to the sides. 0% keeps it centred; 100% is the room's full stereo. Summed to mono it sounds the same at any Width. |
+| **Room** | 8 rooms (below) | Concrete Room | The room the speaker plays into. |
+| **Speaker** | Tiny / Small / Horn | Small | The speaker the voice is played through. Tiny is thin and nasal, Small a compact full-range box, Horn a narrow, honking paging horn. |
+| **Boom** | Off / Light / Medium / Heavy | Light | Low-end weight added after the whole chain, a shelf at 110 Hz: Light +3 dB, Medium +6 dB, Heavy +9 dB. |
+
+| Room | Character | Decay (about) |
+|---|---|---|
+| **Steel Box** | Bright and metallic | 0.4 s |
+| **Resonant Chamber** | Long and ringing | 0.7 s |
+| **Concrete Room** | Hard and dense | 0.6 s |
+| **Tin Booth** | Thin, with a sharp ring | 0.5 s |
+| **Padded Cell** | Dark and short | 0.35 s |
+| **Wood Chamber** | Warm | 0.55 s |
+| **Timber Room** | Sparse and soft | 0.55 s |
+| **Soft Bloom** | A diffuse swell, with almost no ring | 0.2 s |
+
+The decays are at Resonance 40%, which plays each room as captured; Resonance stretches them to about half or up to 1.6 times (as far as each room allows).
+
+- **Where it sits** decides what goes into the room. After PITCH (the default) the pitched voice is in the room, and CLEAN's gate then trims its tail. After ROAR it is an amp into a cabinet: the speaker tames ROAR's fizz. Last, it puts the whole creature, SUB included, in the room.
+- **Boom** works after the whole chain wherever CHAMBER sits, so it also lifts SUB and the pitched voice. On presets that are already low and dense, keep it at Off or Light: Medium and Heavy make OUTPUT's limiter duck the voice's presence.
+- **Latency:** none, at any setting or position. Changing Room crossfades over 50 ms; the block where the change happens costs about three times a normal one (CHAMBER alone uses under 1% of a core at 48 kHz, about 4–7% at 192 kHz).
+- **The rooms** in release builds are captured rooms, bundled (encrypted) in the plug-in and licensed for use only within Roarschach (see [License](#license)). A build from source without them uses modelled rooms with the same names, voiced to match.
+
 ### OUTPUT
 
-<img src="docs/panel-out.png" alt="The OUTPUT tile with Push +9 dB, Ceiling -2.5 dB, Clip 3 dB, Shape 40%, Attack 2 ms, Release 60 ms, Auto on and Mix 100%, with the output, gain reduction and clip meters" width="300">
+<img src="docs/panel-out.png" alt="The OUTPUT tile with Push +10.5 dB, Ceiling -2.5 dB, Clip 3 dB, Shape Soft, Attack 2 ms, Release 60 ms, Auto on and Mix 100%, with the output, gain reduction and clip meters" width="292">
 
 | Control | Range | Default | Description |
 |---|---|---|---|
@@ -290,27 +339,37 @@ On top of whatever form it has taken, every module still shows on it:
 - GROWL stirs the smoke and shivers its lips, SHIMMER ripples its skin and drips ink, SWIRL spins a pair of eddies through the smoke and sweeps a sheen up and down its face, and ENSEMBLE stretches the smoke out to the sides.
 - ROAR heats its eyes and throat, SUB sends rings out of its throat, the VOCODER lights a fan of 32 ridges under its jaw (one per band), and OVERTONE lights one rib per overtone under its chin (hollow in Replace).
 - RING puts flickering metal plates over its mouth, DE-ESS glints on its teeth, TAME dims its crown, and CLEAN's gate closes its lips between words.
+- CHAMBER leaves an after-image: while the room rings, its wings and tendrils trail each movement for longer, and Boom adds a slow swell to its breathing.
 - At the output, the limiter throbs at its temples and the clipper throws sparks off its edges.
 
 The top corners show the voice's pitch (F0) and how much DETAIL is lifting and holding. After 1.5 seconds of silence the creature falls asleep, dissolving into fog, and the label ASLEEP appears; it gathers itself again as soon as sound comes back.
 
 ## Presets
 
-Use the arrows either side of the preset name to step through presets, or click the name for the full list, grouped by category. SAVE stores the current settings as a user preset, and the list also has Save As, Delete and Show Presets Folder.
+Use the arrows either side of the preset name to step through presets, or click the name for the full list, grouped by category. The die after the arrows loads a random factory preset (see [The dice](#the-dice)). SAVE stores the current settings as a user preset, and the list also has Save As, Delete and Show Presets Folder.
 
-<img src="docs/header.png" alt="The preset bar: the previous and next arrows, the preset name (Kaiju), SAVE and the About button" width="457">
+<img src="docs/header.png" alt="The preset bar: the previous and next arrows, the preset name (Kaiju), the random-preset die, SAVE and the About button" width="500">
 
 | Group | Presets |
 |---|---|
 | | Init (every control at its default: a slightly lower, bigger voice with a light wobble, growl, tube edge, sub and overtones) |
 | **Creatures** | Symbiote, Liquid Beast, Gravel Throat, Cave Troll, Kaiju, Gargoyle, Hellhound, Golem, Kraken, Throat Singer |
-| **Voices** | Big Bad Narrator, Demon Whisper, Giant, Possessed, Ogre Radio |
-| **Machines** | Cyber Commander, Respirator Rasp, Rasp Machine, Robot Ogre |
+| **Voices** | Big Bad Narrator, Demon Whisper, Giant, Possessed, Ogre Radio, Simple Size |
+| **Machines** | Cyber Commander, Respirator Rasp, Rasp Machine, Robot Ogre, Iron Tyrant, Tin Can Drone |
 | **Signal Flow** | Scorched Swirl, Molten Chorus, Sub Furnace, Ribcage, Tar Pit, Breathing Walls, Chopped Space, Vocoded Fire, Clanking Choir |
 | **Vocoder** | Pulse Choir, Two Octaves Down, Gravel Pit, Iron Lung |
 | **Utility** | Detail Only, Subtle Size, Clean Lift, Loud & Contained, Crunch Lift, Smashed, Phone Monster |
 
 Every preset sets every control, including the module order. The Signal Flow presets move modules to show what a placement does: for example, Tar Pit drives and chops the voice before PITCH lowers it, and Breathing Walls puts DETAIL last, so it lifts every tail and breath the other modules make.
+
+Each preset's settings sit in the useful part of every knob's travel, as measured in [docs/parameter-audit.md](docs/parameter-audit.md), and every preset except the deliberately loud Utility ones (Loud & Contained, Crunch Lift and Smashed) plays within about 1.5 LU of Init.
+
+Seven presets use CHAMBER:
+
+- **Simple Size**: a subtly bigger, wider voice with a touch of chamber and low-end weight. The voice is lowered a semitone and lightly cleaned, and a little of a hard, resonant room is blended under it, with no creature effects.
+- **Iron Tyrant**: a low, driven voice fed from ROAR into a horn speaker in a steel box, like an amp into a cabinet. Metal modes ring on every syllable, over a heavy low end.
+- **Tin Can Drone**: talking down a pipe. A tiny speaker in a ringing tin booth, through CLEAN's Radio tone.
+- **Big Bad Narrator** sits in a warm wooden room. **Cave Troll**, **Gargoyle** and **Demon Whisper** put the whole creature in a room, with CHAMBER last: concrete, hard stone and a soft bloom.
 
 User presets are kept in:
 
@@ -328,7 +387,7 @@ Click **?** at the top right to open the About window, with the credits, the ver
 ## Quick start
 
 - **Instant creature:** start from a Creatures preset, then set PITCH and SIZE for how big it should be.
-- **Big but clear:** "Big Bad Narrator" or "Giant". Keep GROWL and ROAR low and let DETAIL keep every word up front.
+- **Big but clear:** "Big Bad Narrator" or "Giant". Keep GROWL and ROAR low and let DETAIL keep every word up front. For barely-processed size, try "Simple Size".
 - **Gravelly throat:** turn the VOCODER on with GRAVEL at 40–70%, and add some GROWL.
 - **Machine voice:** a Machines preset, or turn RING on and try Track Follow at a ratio of ×0.5 or ×1.5.
 - **Two voices at once:** "Possessed", or lower MIX to 70–80% so some of the performance stays under the creature.
@@ -364,9 +423,10 @@ The plugin is built to:
 Options:
 
 - `-DROARSCHACH_FORMATS=Standalone` builds a standalone app instead (handy for UI work), or `-DROARSCHACH_FORMATS="AU;VST3;Standalone"` for all three.
+- `-DROARSCHACH_IR_DIR=<folder>`, with the `ROARSCHACH_IR_KEY` environment variable set to 64 hex digits, packs CHAMBER's room captures from that folder into the build, encrypted. The captures are not in this repository; without them CHAMBER uses its modelled rooms.
 - `-DROARSCHACH_TESTS=ON` builds `RoarschachTests`, an offline test runner that drives the real processor at several sample rates and block sizes:
-  - `RoarschachTests` runs every test: parameters, constant latency, exact dry and bypass nulls, the dry's phase match, stereo, click-free module moves in any order, the output ceiling, state round-trip, every factory preset, non-finite input, block sizes, native-rate pitch at 192 kHz, RING and OVERTONE, the editor, and CPU use. `--quick` runs shorter versions, and test names (for example `RoarschachTests latency presets`) run only those. It exits non-zero on a failure.
-  - `RoarschachTests --render in.wav outdir [--preset NAME]...` renders a file through factory presets at the file's own sample rate. `--only`, `--without` (module codes such as `GR` or `RM`) and `--order` change the chain for the render.
+  - `RoarschachTests` runs every test: parameters, constant latency, exact dry and bypass nulls, the dry's phase match, stereo, click-free module moves in any order, the output ceiling, state round-trip, every factory preset, non-finite input, block sizes, native-rate pitch at 192 kHz, RING, OVERTONE and CHAMBER, the editor, the dice, and CPU use. `--quick` runs shorter versions, and test names (for example `RoarschachTests latency presets`) run only those. It exits non-zero on a failure.
+  - `RoarschachTests --render in.wav outdir [--preset NAME]...` renders a file through factory presets at the file's own sample rate. `--only`, `--without` (module codes such as `GR` or `RM`) and `--order` change the chain for the render, and `--roll FROM TO` renders one Randomise All roll per seed (with `--metrics out.json`, the loudness of each).
   - `RoarschachTests --snapshot out.png` writes a picture of the editor, and `RoarschachTests --snapshots folder` writes the window, the chain, menus, a tooltip and a drag, with the creature.
 
 ### Installation
@@ -383,4 +443,8 @@ Created by Samuel Justice, Creative Sound Supervisor at [Sweet Justice](https://
 
 ## License
 
-MIT License. See [LICENSE](LICENSE) for details.
+The code is under the MIT License. See [LICENSE](LICENSE) for details.
+
+CHAMBER's bundled rooms (the room captures that release builds carry inside the plug-in) are not covered by the MIT License: they are © Samuel Justice, all rights reserved, and licensed for use only within Roarschach. See [LICENSE-IRS](LICENSE-IRS).
+
+The measurements behind every knob's range and taper are in [docs/parameter-audit.md](docs/parameter-audit.md).

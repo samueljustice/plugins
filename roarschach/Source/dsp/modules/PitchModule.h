@@ -68,7 +68,8 @@ namespace roar
      * Size: formants down by up to 6 st, body peaks (+2 dB at 250 and 500 Hz at full Size) and a
      * 1..4 ms throat comb of gain 0.15 Size. All of it is inactive at Size 0.
      *
-     * Drive (wet path, after the shifter; 2x oversampled, 23 samples):
+     * Drive (wet path, after the shifter; 2x oversampled, 23 samples), d = u^(2/3) for the knob u
+     * (laws::pitchDriveAmount, so the drive gain is 24 u dB: even steps in dB over the travel):
      *   g = dB (24 d^1.5);  x1 = HighShelf (+3 d dB, 2.5 kHz) (x);  env = follower (|x1|, 5 / 80 ms)
      *   bias = (0.18 - 0.25 env) d^0.6;  y = S (g x1 + bias) - S (bias)
      *   S (u) = u >= 0 ? tanh (1.4 u) / 1.4 : tanh (0.8 u) / 0.8      (plate side limits sooner)

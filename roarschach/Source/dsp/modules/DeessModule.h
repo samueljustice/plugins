@@ -12,7 +12,7 @@ namespace roar
     struct DeessSettings
     {
         bool on = true;
-        float amount = 0.50f;                                 // u, 0..1: Range = -15 u dB
+        float amount = 0.50f;                                 // u, 0..1 (laws::deessRangeDb, laws::deessThresholdShiftDb)
         Params::DeessMode mode = Params::DeessMode::split;
     };
 
@@ -26,9 +26,12 @@ namespace roar
      *
      *   Detector: a 12 dB/oct band-pass centred near 7 kHz (Butterworth HP2 at 4 kHz into LP2 at
      *   12 kHz), so vowel formants below 3 kHz stay out of it. rel = L_band - L_full from peak envelopes
-     *   (0.5 ms / 40 ms). GR = clamp (-1.5 (rel + 16), Range, 0) dB, smoothed 0.5 ms / 50 ms;
+     *   (0.5 ms / 40 ms). GR = clamp (-1.5 (rel + 16 + S), Range, 0) dB, smoothed 0.5 ms / 50 ms;
      *   no action while L_band < -55 dBFS.
-     *   Range = -15 u dB (KnobLaws): the gain reduction reaches it across the whole travel.
+     *   Range = -15 u - 9 x dB and the threshold shift S = 12 x dB, x = ((u - 0.4) / 0.6)^1.5 above 40 %
+     *   (KnobLaws):
+     *   with the range alone the reduction stopped at the detector's slope around 70 %, so the
+     *   threshold follows the top of the travel and every step keeps taking more.
      *
      * The split is defined by the low-pass (not by a high-pass subtracted from the input): a
      * 2nd-order high-pass and its complement are 90 degrees apart around the corner, so reducing
@@ -70,6 +73,7 @@ namespace roar
         std::array<std::array<Biquad, 2>, 2> m_detector;   // per channel: HP2, LP2
 
         double m_rangeTarget = -12.0, m_range = -12.0, m_rangeCoeff = 0.0;
+        double m_shiftTarget = 0.0, m_shift = 0.0;   // detector threshold shift (dB, laws::deessThresholdShiftDb)
         double m_wideTarget = 0.0, m_wide = 0.0, m_wideCoeff = 0.0;
 
         double m_envBand = 0.0, m_envFull = 0.0;

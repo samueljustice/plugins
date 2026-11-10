@@ -14,10 +14,13 @@
 //                   [--set id=value]...    after the preset: a real value, a choice name, On/Off,
 //                                          or @0.75 for a knob position (0..1)
 //                   [--metrics out.json]   measurements per render (Tests/RenderMetrics.h)
-//                   [--sweep id from to steps [--norm]] [--no-wav]
+//                   [--sweep id from to steps [--norm]] [--no-wav] [--raw-out]
 //                                          the same input at each value of one parameter (real
 //                                          values, or knob positions with --norm); metrics go to
-//                                          --metrics or <outdir>/sweep-<id>.json
+//                                          --metrics or <outdir>/sweep-<id>.json; --raw-out turns
+//                                          OUTPUT's filters, auto gain and Ride off
+//                   [--roll from to]       one render per seed from..to: the preset (and sets),
+//                                          then ROLL ALL with that seed (the dice's batch check)
 
 #if defined(__APPLE__)
  #include <CoreFoundation/CoreFoundation.h>   // the snapshot harness runs the run loop (before JUCE: it declares Point)
@@ -39,6 +42,10 @@
 #include "PluginEditor.h"
 #include "PluginProcessor.h"
 #include "PresetManager.h"
+#include "dsp/common/ChaCha20Poly1305.h"
+#include "dsp/common/IrPack.h"
+#include "dsp/common/ZeroLatencyConvolver.h"
+#include "dsp/modules/ChamberModule.h"
 #include "dsp/modules/CleanModule.h"
 #include "dsp/modules/InModule.h"
 #include "dsp/modules/TameModule.h"
@@ -50,6 +57,7 @@
 #include <cmath>
 #include <complex>
 #include <cstdio>
+#include <cstring>
 #include <functional>
 #include <limits>
 #include <map>
@@ -68,6 +76,7 @@ struct RoarschachEditorInspector
     static MonsterView& monster(RoarschachAudioProcessorEditor& e) { return e.m_monsterView; }
     static juce::Component& content(RoarschachAudioProcessorEditor& e) { return e.m_content; }
     static juce::LookAndFeel& lookAndFeel(RoarschachAudioProcessorEditor& e) { return e.m_lookAndFeel; }
+    static DiceButton& presetDice(RoarschachAudioProcessorEditor& e) { return e.m_presetDice; }
 };
 
 namespace
@@ -335,8 +344,30 @@ namespace
 
     void setOrder(RoarschachAudioProcessor& p, const Params::Order& order)
     {
-        for (int slot = 0; slot < Params::numModules; ++slot)
-            setParam(p, Params::modules[static_cast<size_t>(order[static_cast<size_t>(slot)])].posId, static_cast<float>(slot));
+        // 1.0's modules: their place among those 14; CHAMBER: its insertion slot.
+        const auto positions = Params::positionsFor(order);
+        for (int m = 0; m < Params::numModules; ++m)
+            setParam(p, Params::modules[static_cast<size_t>(m)].posId, static_cast<float>(positions[static_cast<size_t>(m)]));
+    }
+
+    int slotOf(const Params::Order& order, Params::ModuleId id)
+    {
+        return static_cast<int>(std::find(order.begin(), order.end(), static_cast<int>(id)) - order.begin());
+    }
+
+    /** 1.0's 14 positions are a permutation of 0..13 and CHAMBER's insertion slot is in 0..14. */
+    bool positionsAreValid(const Params::Order& positions)
+    {
+        std::array<bool, Params::numLegacyModules> seen {};
+        for (int m = 0; m < Params::numLegacyModules; ++m)
+        {
+            const int pos = positions[static_cast<size_t>(m)];
+            if (!juce::isPositiveAndBelow(pos, Params::numLegacyModules) || seen[static_cast<size_t>(pos)])
+                return false;
+            seen[static_cast<size_t>(pos)] = true;
+        }
+        const int slot = positions[static_cast<size_t>(Params::ModuleId::chamber)];
+        return slot >= 0 && slot <= Params::numLegacyModules;
     }
 
     Params::Order orderFromCodes(const juce::String& codes)
@@ -352,6 +383,16 @@ namespace
                 used[static_cast<size_t>(m)] = true;
                 order[static_cast<size_t>(slot++)] = m;
             }
+        }
+        // CHAMBER not named: its default slot, right after the first module (as the presets do).
+        constexpr int chamber = static_cast<int>(Params::ModuleId::chamber);
+        if (!used[static_cast<size_t>(chamber)] && slot >= Params::numLegacyModules)
+        {
+            const int at = static_cast<int>(Params::defaultOf(Params::chamberPos));
+            std::copy_backward(order.begin() + at, order.begin() + slot, order.begin() + slot + 1);
+            order[static_cast<size_t>(at)] = chamber;
+            used[static_cast<size_t>(chamber)] = true;
+            ++slot;
         }
         // Modules not named keep their reference order after the named ones.
         for (int m = 0; m < Params::numModules; ++m)
@@ -899,7 +940,23 @@ namespace
     {
         std::printf("[mix] a partial Mix does not comb (dry follows the wet's fixed filters)\n");
         const double sr = 48000.0;
-        for (const char* tone : { "Off", "Voice", "Radio" })
+        const auto configure = [](RoarschachAudioProcessor& p, const char* tone)
+        {
+            if (juce::String(tone) == "Boom")
+            {
+                // CHAMBER at Chamber 0 % (the direct path only) with Boom Heavy: the shelf's phase is
+                // not matched on the dry (DryPhaseMatch says why); its worst blend loss is bounded.
+                setValues(p, { { Params::chamberOn, 1.0f }, { Params::chamber, 0.0f }, { Params::chamberBoom, 3.0f },
+                               { Params::chamberDrive, 0.0f } });
+            }
+            else if (juce::String(tone) != "Off")
+            {
+                // CLEAN at no dynamics, only its tone; the dry gets the tone's high-pass phase.
+                setValues(p, { { Params::cleanOn, 1.0f }, { Params::cleanContain, 0.0f }, { Params::cleanGate, 0.0f },
+                               { Params::cleanTone, juce::String(tone) == "Voice" ? 1.0f : 3.0f } });
+            }
+        };
+        for (const char* tone : { "Off", "Voice", "Radio", "Boom" })
         {
             double worst = 0.0;
             for (double hz : { 50.0, 100.0, 300.0, 1000.0, 3000.0, 6000.0, 12000.0 })
@@ -912,12 +969,7 @@ namespace
                     setAllModules(*p, false);
                     setParam(*p, Params::outPush, 0.0f);
                     setParam(*p, Params::inAuto, 0.0f);
-                    if (juce::String(tone) != "Off")
-                    {
-                        // CLEAN at no dynamics, only its tone; the dry gets the tone's high-pass phase.
-                        setValues(*p, { { Params::cleanOn, 1.0f }, { Params::cleanContain, 0.0f }, { Params::cleanGate, 0.0f },
-                                        { Params::cleanTone, juce::String(tone) == "Voice" ? 1.0f : 3.0f } });
-                    }
+                    configure(*p, tone);
                     setParam(*p, Params::mix, k == 0 ? 100.0f : 0.0f);
                     restart(*p, sr, 512);
                     const auto sine = makeSine(sr, 0.6, hz, 0.1);
@@ -930,9 +982,7 @@ namespace
                 setAllModules(*p, false);
                 setParam(*p, Params::outPush, 0.0f);
                 setParam(*p, Params::inAuto, 0.0f);
-                if (juce::String(tone) != "Off")
-                    setValues(*p, { { Params::cleanOn, 1.0f }, { Params::cleanContain, 0.0f }, { Params::cleanGate, 0.0f },
-                                    { Params::cleanTone, juce::String(tone) == "Voice" ? 1.0f : 3.0f } });
+                configure(*p, tone);
                 setParam(*p, Params::mix, 50.0f);
                 restart(*p, sr, 512);
                 const auto sine = makeSine(sr, 0.6, hz, 0.1);
@@ -942,9 +992,9 @@ namespace
                 const double lossDb = toDb(half) - toDb(ideal);
                 worst = std::min(worst, lossDb);
             }
-            std::printf("  CLEAN %-5s: worst 50 %% mix loss %.2f dB (phase mismatch)\n", tone, worst);
+            std::printf("  %-11s: worst 50 %% mix loss %.2f dB (phase mismatch)\n", (juce::String(juce::String(tone) == "Boom" ? "Boom Heavy" : "CLEAN ") + (juce::String(tone) == "Boom" ? "" : tone)).toRawUTF8(), worst);
             // Radio's band-pass EQ is far from flat, its phase is matched only at the corners.
-            check(worst > (juce::String(tone) == "Radio" ? -3.0 : -0.5), juce::String("Mix combs with CLEAN ") + tone);
+            check(worst > (juce::String(tone) == "Radio" ? -3.0 : juce::String(tone) == "Boom" ? -0.65 : -0.5), juce::String("Mix combs with ") + tone);
         }
     }
 
@@ -976,7 +1026,8 @@ namespace
         {
             auto p = makeProcessor(sr, 512);
             auto order = Params::resolveOrder(Params::defaultPositions());
-            std::rotate(order.begin(), order.begin() + static_cast<int>(Params::ModuleId::ensemble), order.begin() + static_cast<int>(Params::ModuleId::ensemble) + 1);
+            const int at = slotOf(order, Params::ModuleId::ensemble);
+            std::rotate(order.begin(), order.begin() + at, order.begin() + at + 1);
             setOrder(*p, order);
             setParam(*p, Params::ensembleWidth, 100.0f);
             restart(*p, sr, 512);
@@ -992,7 +1043,7 @@ namespace
             setParam(*p, Params::shimmerMode, 3.0f);
             restart(*p, sr, 512);
             const auto out = render(*p, in, 512);
-            check(p->getChain().getTopology().split == static_cast<int>(Params::ModuleId::shimmer), "SHIMMER Stereo: split at its slot");
+            check(p->getChain().getTopology().split == slotOf(Params::referenceOrder(), Params::ModuleId::shimmer), "SHIMMER Stereo: split at its slot");
             std::printf("  SHIMMER Stereo: side/mid %.1f dB\n", side(out));
             check(side(out) > -40.0, "SHIMMER Stereo makes stereo");
         }
@@ -1147,7 +1198,7 @@ namespace
         // or dip is the mechanism's own. With those modules a moved module legitimately changes the
         // phase of a pure tone, and the 5 ms frames of these runs compare against fresh renders
         // that are not phase-locked to the render: those runs are reported, not gated. The fade's
-        // level on them is gated below, against the exact continuation of the old order.
+        // level on them is gated below, against the exact continuation of the previous order.
         const Values steady { { Params::growlOn, 0.0f }, { Params::shimmerOn, 0.0f }, { Params::swirlOn, 0.0f },
                               { Params::pitchOn, 0.0f }, { Params::ensembleOn, 0.0f }, { Params::subOn, 0.0f },
                               { Params::overtoneOn, 0.0f } };
@@ -1220,7 +1271,7 @@ namespace
             check(result.peak <= ceilingGain(-1.0f), "over the ceiling during reorders");
         }
 
-        // Single reorders against the exact continuation of the old order (the same processor's
+        // Single reorders against the exact continuation of the previous order (the same processor's
         // history, never reordered) and a fresh render of the new order: the level during the fade
         // must not drop under the quieter of the two. On Init, PITCH's grains, SUB's divider and
         // ENSEMBLE's delays leave the two renders out of phase, so this is where a plain linear
@@ -1262,7 +1313,7 @@ namespace
                     dips.push_back(worst);
                 }
                 std::sort(dips.begin(), dips.end());
-                std::printf("  %-27s %d single reorders against the old order's continuation: worst 20 ms dip %.2f dB, median %.2f dB\n",
+                std::printf("  %-27s %d single reorders against the previous order's continuation: worst 20 ms dip %.2f dB, median %.2f dB\n",
                             c.name, trials, dips.front(), dips[dips.size() / 2]);
                 check(dips.front() >= c.limitDb, juce::String(c.name) + ": reorder fade dip " + juce::String(dips.front(), 2) + " dB");
             }
@@ -1561,11 +1612,15 @@ namespace
             };
             auto target = Params::resolveOrder(Params::defaultPositions());
             std::reverse(target.begin(), target.end());
+            const auto targetPositions = Params::positionsFor(target);
             const auto writeHalf = [&](RoarschachAudioProcessor& q, bool first)
             {
                 for (int slot = 0; slot < Params::numModules; ++slot)
                     if ((slot < Params::numModules / 2) == first)
-                        setParam(q, Params::modules[static_cast<size_t>(target[static_cast<size_t>(slot)])].posId, static_cast<float>(slot));
+                    {
+                        const int m = target[static_cast<size_t>(slot)];
+                        setParam(q, Params::modules[static_cast<size_t>(m)].posId, static_cast<float>(targetPositions[static_cast<size_t>(m)]));
+                    }
             };
 
             for (int scoped = 0; scoped < 2; ++scoped)
@@ -1594,14 +1649,17 @@ namespace
             Params::Order positions {};
             positions.fill(3);
             const auto order = Params::resolveOrder(positions);
-            bool reference = true;
-            for (int k = 0; k < Params::numModules; ++k)
-                reference = reference && order[static_cast<size_t>(k)] == k;
+            // 1.0's 14 in their reference order, CHAMBER inserted at its slot (3).
+            bool reference = order[3] == static_cast<int>(Params::ModuleId::chamber);
+            for (int k = 0, m = 0; k < Params::numModules; ++k)
+                if (k != 3)
+                    reference = reference && order[static_cast<size_t>(k)] == m++;
             check(reference, "all-equal positions resolve to the reference order");
             positions = Params::defaultPositions();
             positions[static_cast<size_t>(Params::ModuleId::sub)] = 0;   // SUB and PITCH both ask for 0
             const auto o2 = Params::resolveOrder(positions);
-            check(o2[0] == static_cast<int>(Params::ModuleId::pitch) && o2[1] == static_cast<int>(Params::ModuleId::sub), "tie-break by the reference index");
+            check(o2[0] == static_cast<int>(Params::ModuleId::pitch) && o2[1] == static_cast<int>(Params::ModuleId::chamber)
+                      && o2[2] == static_cast<int>(Params::ModuleId::sub), "tie-break by the reference index");
         }
 
         // Loading a reordered preset during playback: exactly one reorder fade.
@@ -1632,19 +1690,12 @@ namespace
             check(static_cast<int>(preset.values.size()) == Params::numParameters, juce::String(preset.name) + " spells out "
                                                                                    + juce::String(static_cast<int>(preset.values.size())) + " values");
             Params::Order positions {};
-            std::array<bool, Params::numModules> slots {};
-            bool permutation = true;
             for (int m = 0; m < Params::numModules; ++m)
             {
                 const auto it = preset.values.find(Params::modules[static_cast<size_t>(m)].posId);
-                const int pos = it != preset.values.end() ? juce::roundToInt(it->second) : -1;
-                if (pos < 0 || pos >= Params::numModules || slots[static_cast<size_t>(pos)])
-                    permutation = false;
-                else
-                    slots[static_cast<size_t>(pos)] = true;
-                positions[static_cast<size_t>(m)] = pos;
+                positions[static_cast<size_t>(m)] = it != preset.values.end() ? juce::roundToInt(it->second) : -1;
             }
-            check(permutation, juce::String(preset.name) + " positions are a permutation");
+            check(positionsAreValid(positions), juce::String(preset.name) + " positions are a permutation");
             for (const auto& [id, value] : preset.values)
             {
                 const int i = Params::indexOf(id.toStdString());
@@ -1657,8 +1708,24 @@ namespace
             }
         }
         check(presetIndex("Init") == 0, "Init is the first preset");
-        for (const char* required : { "Phone Monster", "Throat Singer", "Ribcage", "Cyber Commander", "Respirator Rasp", "Rasp Machine" })
+        for (const char* required : { "Phone Monster", "Throat Singer", "Ribcage", "Cyber Commander", "Respirator Rasp", "Rasp Machine",
+                                      "Simple Size", "Iron Tyrant", "Tin Can Drone" })
             check(presetIndex(required) >= 0, juce::String("missing preset ") + required);
+        // The presets that use CHAMBER, and its slot in each (an insertion slot among the 14).
+        {
+            int chamberPresets = 0;
+            for (const auto& preset : presets)
+                chamberPresets += preset.values.at(Params::chamberOn) > 0.5f ? 1 : 0;
+            check(chamberPresets == 7, juce::String(chamberPresets) + " presets use CHAMBER (expected 7)");
+            const auto slot = [&](const char* name)
+            {
+                const int i = presetIndex(name);
+                return i < 0 ? -1 : juce::roundToInt(presets[static_cast<size_t>(i)].values.at(Params::chamberPos));
+            };
+            check(slot("Simple Size") == 1 && slot("Tin Can Drone") == 1, "Simple Size and Tin Can Drone: CHAMBER right after PITCH");
+            check(slot("Iron Tyrant") == 5, "Iron Tyrant: CHAMBER right after ROAR");
+            check(slot("Cave Troll") == 14 && slot("Gargoyle") == 14 && slot("Demon Whisper") == 14, "the creature in the room: CHAMBER last");
+        }
 
         // Every preset loaded through the host program interface sets exactly its values.
         {
@@ -1917,15 +1984,10 @@ namespace
 
     bool isPermutationOfPositions(RoarschachAudioProcessor& p)
     {
-        std::array<bool, Params::numModules> seen {};
-        for (const auto& m : Params::modules)
-        {
-            const int pos = juce::roundToInt(getParam(p, m.posId));
-            if (!juce::isPositiveAndBelow(pos, Params::numModules) || seen[static_cast<size_t>(pos)])
-                return false;
-            seen[static_cast<size_t>(pos)] = true;
-        }
-        return true;
+        Params::Order positions {};
+        for (int m = 0; m < Params::numModules; ++m)
+            positions[static_cast<size_t>(m)] = juce::roundToInt(getParam(p, Params::modules[static_cast<size_t>(m)].posId));
+        return positionsAreValid(positions);
     }
 
     juce::MouseEvent mouseEventFor(juce::Component& c, juce::Point<float> pos, juce::Point<float> downPos, bool dragged)
@@ -1978,6 +2040,568 @@ namespace
             out.add(item.text);
             if (item.subMenu != nullptr)
                 collectMenuTexts(*item.subMenu, out);
+        }
+    }
+
+    //==========================================================================
+    // The dice: the preset die's bag, ROLL ALL's ranges and loudness, a module's die, undo, gestures,
+    // and a roll mid-stream.
+
+    struct GestureCounter : juce::AudioProcessorListener
+    {
+        std::map<int, int> begins, ends;
+        void audioProcessorParameterChanged(juce::AudioProcessor*, int, float) override {}
+        void audioProcessorChanged(juce::AudioProcessor*, const ChangeDetails&) override {}
+        void audioProcessorParameterChangeGestureBegin(juce::AudioProcessor*, int i) override { ++begins[i]; }
+        void audioProcessorParameterChangeGestureEnd(juce::AudioProcessor*, int i) override { ++ends[i]; }
+    };
+
+    std::vector<float> normalisedState(RoarschachAudioProcessor& p)
+    {
+        std::vector<float> v;
+        for (auto* param : p.getParameters())
+            v.push_back(param->getValue());
+        return v;
+    }
+
+    bool isModuleControl(int module, std::string_view id)
+    {
+        const auto& m = Params::modules[static_cast<size_t>(module)];
+        for (const char* k : m.knobIds)
+            if (k != nullptr && id == k)
+                return true;
+        for (const char* c : m.chipIds)
+            if (c != nullptr && id == c)
+                return true;
+        return false;
+    }
+
+    double integratedLufs(const Stereo& s, double sr, int from)
+    {
+        const RenderMetrics::Sig l(s.l.begin() + from, s.l.end()), r(s.r.begin() + from, s.r.end());
+        return RenderMetrics::loudness(l, r, sr).integrated;
+    }
+
+    void testDice()
+    {
+        std::printf("[dice] preset bag, ROLL ALL ranges and loudness, module dice, undo, gestures, a roll mid-stream\n");
+        const int numFactory = PresetManager::getNumFactory();
+
+        // 1. The preset die: never the preset showing, never the same twice in a row, every factory
+        //    preset once per round.
+        {
+            auto p = makeProcessor(48000.0, 512);
+            auto& dice = p->getDice();
+            auto& pm = p->getPresetManager();
+            dice.setSeed(11);
+            std::vector<int> seen(static_cast<size_t>(numFactory), 0);
+            int repeats = 0, wrong = 0, modified = 0, firstRoundMissing = 0;
+            int previous = pm.getCurrentFactoryIndex();
+            const int rounds = 3;
+            for (int k = 0; k < rounds * numFactory; ++k)
+            {
+                const int pick = dice.rollPreset();
+                repeats += pick == previous ? 1 : 0;
+                wrong += pick < 0 || pm.getCurrentFactoryIndex() != pick || pm.getCurrentName() != PresetManager::getFactoryPresetName(pick) ? 1 : 0;
+                modified += pm.isModified() ? 1 : 0;
+                if (pick >= 0)
+                    ++seen[static_cast<size_t>(pick)];
+                previous = pick;
+                if (k == numFactory - 1)
+                    for (int c : seen)
+                        firstRoundMissing += c == 0 ? 1 : 0;
+            }
+            const auto [lo, hi] = std::minmax_element(seen.begin(), seen.end());
+            std::printf("  preset die: %d rolls over %d presets, each came up %d-%d times, %d back-to-back repeats\n",
+                        rounds * numFactory, numFactory, *lo, *hi, repeats);
+            check(repeats == 0, "the preset die repeated a preset back to back");
+            check(wrong == 0, "the preset die loads the preset it picked");
+            check(modified == 0, "a rolled preset shows as the preset, not edited");
+            check(firstRoundMissing == 0, juce::String(firstRoundMissing) + " presets missing from the first round of the preset die");
+            check(*lo == rounds && *hi == rounds, "every factory preset comes up once per round");
+
+            // The preset showing is never picked, even when it was chosen by hand mid-round.
+            int hits = 0;
+            for (int k = 0; k < 4 * numFactory; ++k)
+            {
+                const int current = (k * 7) % numFactory;
+                p->setCurrentProgram(current);
+                hits += dice.rollPreset() == current ? 1 : 0;
+            }
+            check(hits == 0, "the preset die picked the preset showing");
+
+            // One undo step puts the previous preset back, unedited.
+            p->setCurrentProgram(presetIndex("Kaiju"));
+            const auto before = normalisedState(*p);
+            dice.rollPreset();
+            check(dice.undo(), "a preset roll can be undone");
+            check(normalisedState(*p) == before && pm.getCurrentName() == "Kaiju" && !pm.isModified(), "undoing a preset roll restores Kaiju exactly");
+        }
+
+        // 2. ROLL ALL: every control inside its range, 3-7 modules on, the order, IN and OUTPUT kept,
+        //    the preset edited, one undo step restoring everything exactly, the same seed rolling the same.
+        {
+            auto p = makeProcessor(48000.0, 512);
+            auto& dice = p->getDice();
+            auto& pm = p->getPresetManager();
+            const int seeds = g_quick ? 60 : 200;
+            int outOfRange = 0, badCount = 0, fewCharacter = 0, orderMoved = 0, keptChanged = 0, notModified = 0, undoWrong = 0, redoWrong = 0, narrowed = 0;
+            std::array<int, Params::numModules> onCount {};
+            std::array<int, Params::Random::maxModulesOn + 1> countHist {};
+            for (int seed = 1; seed <= seeds; ++seed)
+            {
+                p->setCurrentProgram(seed % numFactory);   // from many starting points
+                const auto before = normalisedState(*p);
+                const auto plainBefore = snapshot(*p);
+                const auto orderBefore = Params::resolveOrder(p->readSettings().positions);
+                const auto nameBefore = pm.getCurrentName();
+                dice.setSeed(static_cast<std::uint32_t>(seed));
+                dice.rollAll();
+                const auto plain = snapshot(*p);
+
+                int on = 0, character = 0;
+                for (int m = 0; m < Params::numModules; ++m)
+                {
+                    const auto& mod = Params::modules[static_cast<size_t>(m)];
+                    if (getParam(*p, mod.onId) > 0.5f)
+                    {
+                        ++on;
+                        ++onCount[static_cast<size_t>(m)];
+                        character += Params::Random::isUtility(m) ? 0 : 1;
+                    }
+                }
+                badCount += on < Params::Random::minModulesOn || on > Params::Random::maxModulesOn ? 1 : 0;
+                fewCharacter += character < Params::Random::minCharacterModules ? 1 : 0;
+                ++countHist[static_cast<size_t>(std::clamp(on, 0, Params::Random::maxModulesOn))];
+
+                for (size_t i = 0; i < Params::all.size(); ++i)
+                {
+                    const auto& s = Params::all[i];
+                    if (const auto* r = Params::Random::find(s.id))
+                    {
+                        const float tol = std::max(s.step * 0.5f, 1.0e-4f * (s.maxValue - s.minValue));
+                        if (!Params::Random::allows(s.id, plain[i], tol))
+                        {
+                            ++outOfRange;
+                            if (outOfRange <= 5)
+                                std::printf("    out of range: %s = %.4f (%.4f..%.4f)\n", s.id, plain[i], r->lo, r->hi);
+                        }
+                    }
+                    else
+                    {
+                        // Not a module control: only the On switches may change.
+                        bool isOn = false;
+                        for (const auto& mod : Params::modules)
+                            isOn = isOn || std::string_view(mod.onId) == s.id;
+                        if (!isOn && !juce::exactlyEqual(plain[i], plainBefore[i]))
+                        {
+                            ++keptChanged;
+                            std::printf("    changed: %s\n", s.id);
+                        }
+                    }
+                }
+                orderMoved += Params::resolveOrder(p->readSettings().positions) != orderBefore ? 1 : 0;
+                notModified += pm.isModified() ? 0 : 1;
+
+                // Where a mode changes what a knob does: SWIRL Deep 6 to 30 %, RING Follow from x1,
+                // PITCH Mono on a whole note.
+                const auto at = [&](const char* id) { return plain[static_cast<size_t>(Params::indexOf(id))]; };
+                narrowed += static_cast<int>(at(Params::swirlCircuit) + 0.5f) == Params::Random::swirlDeep6 && at(Params::swirl) > Params::Random::swirlDeep6Max + 0.01f ? 1 : 0;
+                narrowed += static_cast<int>(at(Params::ringTrack) + 0.5f) == Params::Random::ringFollow && at(Params::ringRatio) < Params::Random::ringFollowMinRatio - 0.01f ? 1 : 0;
+                narrowed += static_cast<int>(at(Params::pitchMode) + 0.5f) == Params::Random::pitchMono && std::abs(at(Params::pitch) - std::round(at(Params::pitch))) > 0.006f ? 1 : 0;
+
+                const auto after = normalisedState(*p);
+                dice.undo();
+                undoWrong += normalisedState(*p) != before || pm.getCurrentName() != nameBefore || pm.isModified() ? 1 : 0;
+                dice.redo();
+                redoWrong += normalisedState(*p) != after || !pm.isModified() ? 1 : 0;
+                dice.undo();
+            }
+            juce::String hist, perModule;
+            for (int c = Params::Random::minModulesOn; c <= Params::Random::maxModulesOn; ++c)
+                hist << c << ":" << countHist[static_cast<size_t>(c)] << " ";
+            for (int m = 0; m < Params::numModules; ++m)
+                perModule << Params::modules[static_cast<size_t>(m)].code << " " << onCount[static_cast<size_t>(m)] << "  ";
+            std::printf("  ROLL ALL x%d: modules on %s\n    on per module: %s\n", seeds, hist.toRawUTF8(), perModule.toRawUTF8());
+            check(outOfRange == 0, juce::String(outOfRange) + " rolled controls outside their random range");
+            check(badCount == 0, "ROLL ALL turns 3 to 7 modules on");
+            check(fewCharacter == 0, "ROLL ALL turns on at least two modules that change the voice");
+            check(keptChanged == 0, "ROLL ALL leaves IN, OUTPUT and the positions alone");
+            check(orderMoved == 0, "ROLL ALL keeps the module order");
+            check(narrowed == 0, juce::String(narrowed) + " rolls outside the narrowed ranges (SWIRL Deep 6, RING Follow, PITCH Mono)");
+            check(notModified == 0, "a roll shows the preset as edited");
+            check(undoWrong == 0, juce::String(undoWrong) + " ROLL ALL undos did not restore the exact state and preset");
+            check(redoWrong == 0, juce::String(redoWrong) + " ROLL ALL redos did not restore the roll");
+
+            // The same seed rolls the same values (the batch renders rely on it).
+            p->setCurrentProgram(0);
+            dice.setSeed(1234);
+            dice.rollAll();
+            const auto a = normalisedState(*p);
+            p->setCurrentProgram(0);
+            dice.setSeed(1234);
+            dice.rollAll();
+            check(normalisedState(*p) == a, "a seed rolls the same values");
+
+            // One undo step per roll, however many rolls.
+            p->setCurrentProgram(0);
+            const auto init = normalisedState(*p);
+            dice.rollAll();
+            const auto first = normalisedState(*p);
+            dice.rollModule(static_cast<int>(Params::ModuleId::growl));
+            dice.rollAll();
+            dice.undo();
+            dice.undo();
+            check(normalisedState(*p) == first, "two undos take back exactly two rolls");
+            dice.undo();
+            check(normalisedState(*p) == init && !pm.isModified() && pm.getCurrentName() == "Init", "three undos are back at Init");
+
+            // An edit by hand after a roll stays through the roll's undo, and keeps the preset edited.
+            dice.rollModule(static_cast<int>(Params::ModuleId::growl));
+            setParam(*p, Params::outPush, 12.0f);
+            dice.undo();
+            check(std::abs(getParam(*p, Params::outPush) - 12.0f) < 0.05f && juce::exactlyEqual(getParam(*p, Params::growl), Params::defaultOf(Params::growl))
+                      && pm.isModified(), "undo keeps a later edit by hand and the edited mark");
+
+            // Loading another preset ends the history: undo must not mix the roll into it.
+            p->setCurrentProgram(0);
+            dice.rollAll();
+            p->setCurrentProgram(presetIndex("Kaiju"));
+            const auto kaiju = normalisedState(*p);
+            check(!dice.canUndo() && !dice.undo() && normalisedState(*p) == kaiju, "a preset loaded after a roll is not undone into");
+
+            // An edit by hand to a knob the roll changed also stays through undo and redo; the
+            // roll's other knobs go back.
+            {
+                p->setCurrentProgram(0);
+                dice.setSeed(5);
+                dice.rollModule(static_cast<int>(Params::ModuleId::growl));
+                const float rolledRate = getParam(*p, Params::growlRate);
+                setParam(*p, Params::growl, 33.0f);
+                dice.undo();
+                const bool undoKept = std::abs(getParam(*p, Params::growl) - 33.0f) < 0.05f
+                                   && juce::exactlyEqual(getParam(*p, Params::growlRate), Params::defaultOf(Params::growlRate)) && pm.isModified();
+                dice.redo();
+                const bool redoKept = std::abs(getParam(*p, Params::growl) - 33.0f) < 0.05f && std::abs(getParam(*p, Params::growlRate) - rolledRate) < 1.0e-3f;
+                check(undoKept && redoKept, "undo and redo keep a hand edit to a knob the roll changed");
+            }
+
+            // Loading the same preset again, or a session with the same preset, also ends the history.
+            {
+                p->setCurrentProgram(0);
+                dice.rollAll();
+                dice.rollAll();
+                p->setCurrentProgram(0);
+                const auto reloaded = normalisedState(*p);
+                check(!dice.canUndo() && !dice.undo() && normalisedState(*p) == reloaded, "the same preset loaded again ends the roll history");
+
+                dice.rollAll();
+                pm.loadPreset(0);
+                const auto menuLoaded = normalisedState(*p);
+                check(!dice.canUndo() && !dice.undo() && normalisedState(*p) == menuLoaded, "the same preset picked from the menu ends the roll history");
+
+                p->setCurrentProgram(presetIndex("Kaiju"));
+                dice.rollAll();
+                p->setCurrentProgram(presetIndex("Init"));
+                p->setCurrentProgram(presetIndex("Kaiju"));
+                const auto backAgain = normalisedState(*p);
+                check(!dice.canUndo() && !dice.undo() && normalisedState(*p) == backAgain, "A, roll, B, A ends the roll history");
+
+                juce::MemoryBlock session;
+                p->getStateInformation(session);
+                dice.rollModule(static_cast<int>(Params::ModuleId::ring));
+                p->setStateInformation(session.getData(), static_cast<int>(session.getSize()));
+                const auto recalled = normalisedState(*p);
+                check(!dice.canUndo() && !dice.undo() && normalisedState(*p) == recalled, "a session with the same preset name ends the roll history");
+
+                // A roll after a load starts a new history that works.
+                dice.rollAll();
+                dice.undo();
+                check(normalisedState(*p) == recalled, "a roll after a load undoes");
+            }
+
+            // The host hears of a program change only when the program changed.
+            {
+                std::vector<juce::AudioProcessorListener::ChangeDetails> sent;
+                DiceRoller roller(p->getValueTreeState(), pm, [&sent](const juce::AudioProcessorListener::ChangeDetails& d) { sent.push_back(d); });
+                roller.setSeed(9);
+                p->setCurrentProgram(presetIndex("Kaiju"));
+                roller.rollAll();
+                roller.undo();
+                roller.redo();
+                const bool allQuiet = sent.size() == 2 && !sent[0].programChanged && !sent[1].programChanged && sent[0].nonParameterStateChanged;
+                p->setCurrentProgram(0);
+                sent.clear();
+                roller.rollPreset();
+                roller.undo();
+                check(allQuiet && sent.size() == 1 && sent[0].programChanged, "a dice undo reports a program change only when the program changed");
+            }
+        }
+
+        // 3. A module's die: that module's knobs and choices only, inside their ranges.
+        {
+            auto p = makeProcessor(48000.0, 512);
+            auto& dice = p->getDice();
+            int stray = 0, outOfRange = 0, untouched = 0, undoWrong = 0;
+            for (int m = 0; m < Params::numModules; ++m)
+                for (int seed = 1; seed <= (g_quick ? 4 : 12); ++seed)
+                {
+                    p->setCurrentProgram((m * 5 + seed) % numFactory);
+                    const auto before = normalisedState(*p);
+                    const auto plainBefore = snapshot(*p);
+                    dice.setSeed(static_cast<std::uint32_t>(1000 * m + seed));
+                    dice.rollModule(m);
+                    const auto plain = snapshot(*p);
+                    bool changed = false;
+                    for (size_t i = 0; i < Params::all.size(); ++i)
+                    {
+                        const auto* id = Params::all[i].id;
+                        if (isModuleControl(m, id))
+                        {
+                            changed = changed || !juce::exactlyEqual(plain[i], plainBefore[i]);
+                            const float tol = std::max(Params::all[i].step * 0.5f, 1.0e-4f * (Params::all[i].maxValue - Params::all[i].minValue));
+                            outOfRange += Params::Random::allows(id, plain[i], tol) ? 0 : 1;
+                        }
+                        else if (!juce::exactlyEqual(plain[i], plainBefore[i]))
+                        {
+                            ++stray;
+                            std::printf("    %s's die changed %s\n", Params::modules[static_cast<size_t>(m)].uiName, id);
+                        }
+                    }
+                    untouched += changed ? 0 : 1;
+                    dice.undo();
+                    undoWrong += normalisedState(*p) != before ? 1 : 0;
+                }
+            check(stray == 0, juce::String(stray) + " parameters outside the module changed by its die");
+            check(outOfRange == 0, juce::String(outOfRange) + " module-die values outside their range");
+            check(untouched == 0, "a module's die changes something");
+            check(undoWrong == 0, "a module roll undoes exactly");
+        }
+
+        // 4. Gestures: every parameter a roll changes gets one begin and one end, and no other does.
+        {
+            auto p = makeProcessor(48000.0, 512);
+            GestureCounter counter;
+            p->addListener(&counter);
+            const auto before = normalisedState(*p);
+            p->getDice().setSeed(77);
+            p->getDice().rollAll();
+            const auto after = normalisedState(*p);
+            int bad = 0, changedCount = 0;
+            for (size_t i = 0; i < before.size(); ++i)
+            {
+                const bool changed = !juce::exactlyEqual(before[i], after[i]);
+                changedCount += changed ? 1 : 0;
+                const int b = counter.begins[static_cast<int>(i)], e = counter.ends[static_cast<int>(i)];
+                bad += changed ? (b != 1 || e != 1) : (b != 0 || e != 0);
+            }
+            counter.begins.clear();
+            counter.ends.clear();
+            p->getDice().undo();
+            for (size_t i = 0; i < before.size(); ++i)
+            {
+                const bool changed = !juce::exactlyEqual(before[i], after[i]);
+                const int b = counter.begins[static_cast<int>(i)], e = counter.ends[static_cast<int>(i)];
+                bad += changed ? (b != 1 || e != 1) : (b != 0 || e != 0);
+            }
+            p->removeListener(&counter);
+            std::printf("  gestures: a roll changed %d parameters, one begin/end each (and the same for its undo)\n", changedCount);
+            check(bad == 0, juce::String(bad) + " parameters with the wrong gestures for a roll or its undo");
+        }
+
+        // 5. Loudness after a roll, against Init (the reference voice; the real takes are in the batch
+        //    renders, see docs/parameter-audit.md), and no runaway: finite, under the ceiling, no clamps.
+        {
+            const double sr = 48000.0;
+            const int block = 512;
+            const auto in = dual(makeVoice(sr, g_quick ? 3.0 : 5.0));
+            const int skip = static_cast<int>(1.0 * sr);
+            auto ref = makeProcessor(sr, block);
+            const double initLufs = integratedLufs(render(*ref, in, block), sr, skip);
+            const int rolls = g_quick ? 8 : 40;
+            std::vector<double> deltas;
+            int broken = 0;
+            for (int seed = 1; seed <= rolls; ++seed)
+            {
+                auto p = makeProcessor(sr, block);
+                p->getDice().setSeed(static_cast<std::uint32_t>(seed));
+                p->getDice().rollAll();
+                restart(*p, sr, block);
+                const auto out = render(*p, in, block);
+                const auto st = stats(out);
+                broken += !st.finite || st.peak > ceilingGain(-1.0f) || p->getChain().getClampCount() > 0 ? 1 : 0;
+                deltas.push_back(integratedLufs(out, sr, skip) - initLufs);
+            }
+            std::sort(deltas.begin(), deltas.end());
+            std::printf("  ROLL ALL x%d on the reference voice: loudness against Init %.2f / %.2f / %.2f LU (min / median / max), %d broken\n",
+                        rolls, deltas.front(), deltas[deltas.size() / 2], deltas.back(), broken);
+            check(broken == 0, "a roll ran away (non-finite, over the ceiling or clamped)");
+            check(deltas.front() >= -3.0 && deltas.back() <= 3.0, "ROLL ALL stays within 3 LU of Init");
+        }
+
+        // 6. A roll mid-stream: the settings glide (no clicks or zips), at most one chain crossfade, and
+        //    none when the stereo split stays where it is. The click measure is gated. The 5 ms level
+        //    dips against the two settled renders are only reported: a roll changes PITCH, GROWL,
+        //    SHIMMER and ENSEMBLE, whose grains and LFOs are not in phase with fresh renders, so those
+        //    frames differ by several dB without any zip (turning PITCH off by hand reads -8 dB too).
+        {
+            const double sr = 48000.0;
+            const int block = 480;
+            const auto in = dual(makeVoice(sr, 2.0));
+            const int at = static_cast<int>(1.0 * sr) / block * block;
+            double worstRatio = 0.0, worstPercentile = 0.0, worstDip = 0.0;
+            int extraFades = 0, fadesWithoutSplitChange = 0;
+            const int rolls = g_quick ? 3 : 10;
+            for (int seed = 1; seed <= rolls; ++seed)
+            {
+                auto p = makeProcessor(sr, block);
+                p->getDice().setSeed(static_cast<std::uint32_t>(500 + seed));
+                const auto topologyBefore = roar::CreatureChain::topologyFor(p->readSettings());
+                roar::Topology topologyAfter;
+                const int latency = p->getLatencySamples();
+                const auto r = transitionTest(*p, in, sr, block,
+                    [&](int start)
+                    {
+                        if (start != at)
+                            return false;
+                        p->getDice().rollAll();
+                        topologyAfter = roar::CreatureChain::topologyFor(p->readSettings());
+                        return true;
+                    },
+                    [&](int start) { return std::pair<int, int> { start, start + latency + static_cast<int>(0.12 * sr) }; }, true);
+                const int fades = p->getChain().getReorderCount();
+                extraFades += fades > 1 ? 1 : 0;
+                fadesWithoutSplitChange += topologyAfter == topologyBefore && fades > 0 ? 1 : 0;
+                worstRatio = std::max(worstRatio, r.worstSecondDiffRatio);
+                worstPercentile = std::max(worstPercentile, r.percentileRatio);
+                std::printf("    roll %d: 2nd difference %.2fx, dip %.2f dB, %s, %d crossfade(s)\n", 500 + seed, r.worstSecondDiffRatio, r.worstDipDb,
+                            topologyAfter == topologyBefore ? "same split" : "split moved", fades);
+                worstDip = std::min(worstDip, r.worstDipDb);
+                check(r.peak <= ceilingGain(-1.0f), "a roll mid-stream went over the ceiling");
+            }
+            std::printf("  %d rolls mid-stream: worst 2nd difference %.2fx the steady renders', %.2fx the 99.9th percentile outside; worst 5 ms dip %.2f dB\n",
+                        rolls, worstRatio, worstPercentile, worstDip);
+            check(extraFades == 0, "a roll started more than one chain crossfade");
+            check(fadesWithoutSplitChange == 0, "a roll that keeps the stereo split started a chain crossfade");
+            check(worstRatio <= 2.0, "a roll mid-stream clicks (2nd difference " + juce::String(worstRatio, 2) + "x the steady renders')");
+        }
+
+        // 7. The editor: every die is there, fits its tile or slot, rolls through the processor, and
+        //    Cmd+Z / Ctrl+Z takes the roll back.
+        {
+            auto p = makeProcessor(48000.0, 512);
+            std::unique_ptr<juce::AudioProcessorEditor> editorBase(p->createEditor());
+            auto& editor = *dynamic_cast<RoarschachAudioProcessorEditor*>(editorBase.get());
+            editor.setSize(RoarschachAudioProcessorEditor::c_baseWidth, RoarschachAudioProcessorEditor::c_baseHeight);
+            auto& strip = RoarschachEditorInspector::strip(editor);
+            strip.refresh();
+            int overlaps = 0, outside = 0, tooSmall = 0, tooClose = 0;
+            for (int m = 0; m < Params::numModules; ++m)
+            {
+                auto* die = strip.getModuleDice(m);
+                auto* tile = strip.getModuleTile(m);
+                if (die == nullptr || tile == nullptr)
+                {
+                    ++outside;
+                    continue;
+                }
+                const auto d = die->getBounds();
+                outside += tile->getLocalBounds().contains(d) ? 0 : 1;
+                tooSmall += d.getWidth() < 22 || d.getHeight() < 22 || die->getPillSize() < 18 ? 1 : 0;
+                for (auto* child : tile->getChildren())
+                    if (child != die && child->isVisible() && child->getBounds().intersects(d))
+                        ++overlaps;
+                // The mode chip: at least 6 px from the die's pill, and not touching its clickable area.
+                if (auto* chip = strip.getModeChip(m))
+                {
+                    const float pillLeft = static_cast<float>(d.getX()) + die->getPillBounds().getX() - 0.5f;
+                    tooClose += pillLeft - static_cast<float>(chip->getRight()) < 6.0f || chip->getRight() >= d.getX() ? 1 : 0;
+                }
+            }
+            auto* all = strip.getRollAllDice();
+            const auto slot = strip.getSlotBounds(Params::numModules);
+            outside += all != nullptr && slot.contains(all->getBounds()) ? 0 : 1;
+            for (int m = 0; m < Params::numModules; ++m)
+                overlaps += strip.getModuleTile(m)->getBounds().intersects(all->getBounds()) ? 1 : 0;
+            check(outside == 0, "every die sits inside its tile, and ROLL ALL in the empty slot");
+            check(overlaps == 0, juce::String(overlaps) + " dice overlap another control");
+            check(tooSmall == 0, "the module dice click over at least 22 px, with an 18 px pill");
+            check(tooClose == 0, juce::String(tooClose) + " module dice too close to their mode chip");
+
+            // The drawn die at the editor's opening scale on a 1x display: large enough to read, and a
+            // small die shows at most four pips.
+            {
+                const float defaultScale = 0.8f;
+                const float moduleDie = DiceButton::dieSideFor(18.0f) * defaultScale;
+                const float minScaleDie = DiceButton::dieSideFor(18.0f) * 0.5f;
+                check(moduleDie >= 10.0f, "a module die is drawn " + juce::String(moduleDie, 1) + " px at the default scale on a 1x display (10 px or more)");
+                bool fewPips = true;
+                for (int face = 1; face <= 6; ++face)
+                    fewPips = fewPips && DiceButton::drawnFace(face, minScaleDie) <= 4 && DiceButton::drawnFace(face, moduleDie) <= 4
+                                      && DiceButton::drawnFace(face, moduleDie * 2.0f) == face;
+                check(fewPips, "small dice show at most four pips, a 2x die every face");
+            }
+
+            // RANDOMISE ALL's caption is part of its button: a click under the die still rolls.
+            {
+                const auto b = all->getLocalBounds();
+                check(all->getHeight() > all->getPillSize() + 10 && all->getWidth() >= 60
+                          && all->hitTest(b.getCentreX(), b.getBottom() - 4), "RANDOMISE ALL's caption is part of its button");
+            }
+
+            // Every die has a "show menu" action for screen readers, and Shift+F10 opens the menu.
+            {
+                int menus = 0;
+                std::vector<DiceButton*> dice { all, &RoarschachEditorInspector::presetDice(editor) };
+                for (int m = 0; m < Params::numModules; ++m)
+                    dice.push_back(strip.getModuleDice(m));
+                for (auto* die : dice)
+                {
+                    // (getAccessibilityHandler needs a window on screen: the handler the die makes for it.)
+                    const auto handler = die->createAccessibilityHandler();
+                    const bool hasMenu = handler != nullptr && handler->getActions().contains(juce::AccessibilityActionType::showMenu);
+                    int opened = 0;
+                    auto keep = die->onSecondaryClick;
+                    die->onSecondaryClick = [&opened] { ++opened; };
+                    die->keyPressed(juce::KeyPress(juce::KeyPress::F10Key, juce::ModifierKeys::shiftModifier, 0));
+                    if (hasMenu)
+                        handler->getActions().invoke(juce::AccessibilityActionType::showMenu);
+                    die->onSecondaryClick = keep;
+                    menus += hasMenu && opened == 2 ? 1 : 0;
+                }
+                check(menus == static_cast<int>(dice.size()), "every die opens its undo menu from the keyboard and for screen readers");
+            }
+
+            // Off modules dim their die with the rest of the tile.
+            {
+                const auto ring = static_cast<int>(Params::ModuleId::ring);
+                setParam(*p, Params::modules[static_cast<size_t>(ring)].onId, 0.0f);
+                strip.refresh();
+                const float offAlpha = strip.getModuleDice(ring)->getAlpha();
+                setParam(*p, Params::modules[static_cast<size_t>(ring)].onId, 1.0f);
+                strip.refresh();
+                check(offAlpha < 0.6f && strip.getModuleDice(ring)->getAlpha() > 0.99f, "an Off module's die is dimmed");
+            }
+
+            // Cmd+Z / Shift+Cmd+Z on the die that has the focus; anywhere else they are the host's.
+            const auto undoKey = juce::KeyPress('z', juce::ModifierKeys::commandModifier, 0);
+            const auto redoKey = juce::KeyPress('z', juce::ModifierKeys::commandModifier | juce::ModifierKeys::shiftModifier, 0);
+            p->setCurrentProgram(0);
+            const auto init = normalisedState(*p);
+            all->onClick();
+            check(normalisedState(*p) != init && p->getPresetManager().isModified(), "ROLL ALL in the editor rolls");
+            check(!editor.keyPressed(undoKey) && !strip.keyPressed(undoKey) && normalisedState(*p) != init,
+                  "Cmd+Z away from a die is left to the host");
+            all->keyPressed(undoKey);
+            check(normalisedState(*p) == init && !p->getPresetManager().isModified(), "Cmd+Z on the die undoes ROLL ALL");
+            all->keyPressed(redoKey);
+            check(normalisedState(*p) != init, "Shift+Cmd+Z redoes it");
+            auto* growlDie = strip.getModuleDice(static_cast<int>(Params::ModuleId::growl));
+            growlDie->onClick();
+            growlDie->keyPressed(undoKey);
+            growlDie->keyPressed(undoKey);
+            check(normalisedState(*p) == init, "Cmd+Z twice undoes a module roll and ROLL ALL");
+            check(!growlDie->keyPressed(undoKey), "Cmd+Z with nothing to undo is left to the host");
         }
     }
 
@@ -2371,6 +2995,9 @@ namespace
                 tiles.push_back(strip.getModuleTile(m));
             for (auto* tile : tiles)
             {
+                // CHAMBER's tile holds four knobs side by side in the same width as the others'
+                // two or three, so its knobs are smaller (still at least 28 px).
+                const float minimumKnob = strip.getKnobs(tile).size() >= 4 ? 28.0f : 36.0f;
                 for (const auto& [slider, id] : strip.getKnobs(tile))
                 {
                     juce::Label* box = nullptr;
@@ -2395,12 +3022,24 @@ namespace
                         }
                     }
                     const float knob = static_cast<float>(std::min(slider->getWidth(), slider->getHeight() - 20)) - 8.0f;
-                    if (knob < 36.0f)
+                    if (knob < minimumKnob)
                     {
                         ++failures;
                         std::printf("    knob %s is only %.0f px\n", id, knob);
                     }
                 }
+                // The captions above the knobs show their whole word (no "AMO...").
+                for (auto* c : tile->getChildren())
+                    if (auto* caption = dynamic_cast<juce::Label*>(c); caption != nullptr && caption->isVisible() && caption->getText().isNotEmpty())
+                    {
+                        const auto area = caption->getBorderSize().subtractedFrom(caption->getLocalBounds());
+                        const float w = juce::GlyphArrangement::getStringWidth(caption->getFont(), caption->getText());
+                        if (w > static_cast<float>(area.getWidth()))
+                        {
+                            ++failures;
+                            std::printf("    caption \"%s\" is %.0f px in %d px\n", caption->getText().toRawUTF8(), w, area.getWidth());
+                        }
+                    }
             }
             check(failures == 0, juce::String(failures) + " value boxes or knobs too small");
         }
@@ -2506,9 +3145,10 @@ namespace
         // A stage window holds the editor (and the menus and tooltips, so they are in the pictures).
         juce::Component stage;
         stage.setOpaque(true);
-        stage.setSize(1600, 1000);
+        const int baseW = RoarschachAudioProcessorEditor::c_baseWidth, baseH = RoarschachAudioProcessorEditor::c_baseHeight;
+        stage.setSize(baseW, baseH + 100);
         stage.addAndMakeVisible(editor);
-        editor.setBounds(0, 0, 1600, 900);
+        editor.setBounds(0, 0, baseW, baseH);
         stage.addToDesktop(juce::ComponentPeer::windowHasDropShadow);
         stage.setTopLeftPosition(40, 40);
         stage.setVisible(true);
@@ -2583,6 +3223,48 @@ namespace
             save(picture.getClippedImage(face), "03-face-" + slug + "@2x.png");
         }
         save(stage.createComponentSnapshot(stripArea(), true, 2.0f), "04-strip-last-preset@2x.png");
+        // The preset bar with its die (Kaiju showing), and ROLL ALL in the slot after the last module.
+        save(stage.createComponentSnapshot({ baseW - 500, 0, 500, 56 }, true, 2.0f), "header@2x.png");
+        save(stage.createComponentSnapshot(stage.getLocalArea(&strip, strip.getSlotBounds(Params::numModules)), true, 2.0f), "panel-roll-all@2x.png");
+
+        // The README's close-ups, one per tile: Kaiju (the last preset above) for most, RING and
+        // OUTPUT from Cyber Commander, CHAMBER from Iron Tyrant. The values shown are printed.
+        {
+            const auto tilePicture = [&](juce::Component* tile, const juce::String& name)
+            {
+                if (tile == nullptr)
+                    return;
+                save(stage.createComponentSnapshot(stage.getLocalArea(tile, tile->getLocalBounds()), true, 2.0f), name);
+                juce::String values;
+                for (const auto& [knob, id] : strip.getKnobs(tile))
+                    if (knob->isVisible())
+                        values << "  " << id << "=" << p->getValueTreeState().getParameter(id)->getCurrentValueAsText();
+                std::printf("  %s:%s\n", name.toRawUTF8(), values.toRawUTF8());
+            };
+            const auto choices = [&](std::initializer_list<const char*> ids)
+            {
+                juce::String values;
+                for (const char* id : ids)
+                    values << "  " << id << "=" << p->getValueTreeState().getParameter(id)->getCurrentValueAsText();
+                std::printf("   %s\n", values.toRawUTF8());
+            };
+            tilePicture(strip.getInTile(), "panel-in@2x.png");
+            for (int m = 0; m < Params::numModules; ++m)
+                if (m != static_cast<int>(Params::ModuleId::ring) && m != static_cast<int>(Params::ModuleId::chamber))
+                    tilePicture(strip.getModuleTile(m), juce::String("panel-") + juce::String(Params::modules[static_cast<size_t>(m)].uiName).toLowerCase().removeCharacters("- ") + "@2x.png");
+            p->setCurrentProgram(presetIndex("Cyber Commander"));
+            play(1.5);
+            strip.finishAnimations();
+            tilePicture(strip.getModuleTile(static_cast<int>(Params::ModuleId::ring)), "panel-ring@2x.png");
+            choices({ Params::ringCarrier, Params::ringTrack, Params::ringMode, Params::ringBody });
+            tilePicture(strip.getOutputTile(), "panel-out@2x.png");
+            choices({ Params::outAuto });
+            p->setCurrentProgram(presetIndex("Iron Tyrant"));
+            play(1.5);
+            strip.finishAnimations();
+            tilePicture(strip.getModuleTile(static_cast<int>(Params::ModuleId::chamber)), "panel-chamber@2x.png");
+            choices({ Params::chamberRoom, Params::chamberSpeaker, Params::chamberBoom });
+        }
         p->setCurrentProgram(presetIndex("Cyber Commander"));
         play(0.5);
         strip.finishAnimations();
@@ -2689,6 +3371,667 @@ namespace
         stage.removeChildComponent(&editor);
         editorBase.reset();
         return failures == 0 ? 0 : 1;
+    }
+
+    //==========================================================================
+    // CHAMBER: the crypto that protects its room data, the convolver, the rooms and the module.
+
+    std::vector<std::uint8_t> hexBytes(const char* hex)
+    {
+        std::vector<std::uint8_t> out;
+        int nibble = -1;
+        for (const char* c = hex; *c != 0; ++c)
+        {
+            int v = -1;
+            if (*c >= '0' && *c <= '9') v = *c - '0';
+            else if (*c >= 'a' && *c <= 'f') v = *c - 'a' + 10;
+            else if (*c >= 'A' && *c <= 'F') v = *c - 'A' + 10;
+            if (v < 0)
+                continue;
+            if (nibble < 0)
+                nibble = v;
+            else
+            {
+                out.push_back(static_cast<std::uint8_t>(nibble * 16 + v));
+                nibble = -1;
+            }
+        }
+        return out;
+    }
+
+    template <typename A>
+    bool sameBytes(const A& a, const std::vector<std::uint8_t>& b)
+    {
+        return a.size() == b.size() && std::equal(a.begin(), a.end(), b.begin());
+    }
+
+    /** Runs a ChamberModule over a stereo signal in host blocks of `block` (or a block pattern). */
+    Stereo runChamber(roar::ChamberModule& m, const Stereo& in, const std::vector<int>& blocks, bool stereo,
+                      const std::function<void(int)>& onBlock = {})
+    {
+        Stereo out = in;
+        size_t b = 0;
+        for (int start = 0; start < in.size();)
+        {
+            if (onBlock)
+                onBlock(start);
+            const int n = std::min(blocks[b++ % blocks.size()], in.size() - start);
+            m.process(out.l.data() + start, out.r.data() + start, n, stereo, roar::VoiceFrameView {});
+            start += n;
+        }
+        return out;
+    }
+
+    double rmsOf(const Signal& s, size_t from = 0, size_t to = std::numeric_limits<size_t>::max())
+    {
+        to = std::min(to, s.size());
+        double acc = 0.0;
+        for (size_t i = from; i < to; ++i)
+            acc += static_cast<double>(s[i]) * s[i];
+        return to > from ? std::sqrt(acc / static_cast<double>(to - from)) : 0.0;
+    }
+
+    void testChamber()
+    {
+        std::printf("[chamber] crypto test vectors, sealed rooms, convolver, modelled rooms, module, chain\n");
+        using namespace roar;
+
+        // --- RFC 8439 test vectors (ChaCha20 block 2.3.2, encryption 2.4.2, Poly1305 2.5.2, AEAD 2.8.2).
+        {
+            crypto::Key key {};
+            for (size_t i = 0; i < key.size(); ++i)
+                key[i] = static_cast<std::uint8_t>(i);
+            crypto::Nonce nonce {};
+            const auto n = hexBytes("000000090000004a00000000");
+            std::copy(n.begin(), n.end(), nonce.begin());
+            std::array<std::uint8_t, 64> block {};
+            crypto::chacha20Block(key, 1, nonce, block.data());
+            check(sameBytes(block, hexBytes("10f1e7e4d13b5915500fdd1fa32071c4c7d1f4c733c068030422aa9ac3d46c4e"
+                                            "d2826446079faa0914c2d705d98b02a2b5129cd1de164eb9cbd083e8a2503c4e")),
+                  "ChaCha20 block function (RFC 8439 2.3.2)");
+
+            const char* sunscreen = "Ladies and Gentlemen of the class of '99: If I could offer you only one tip for the future, sunscreen would be it.";
+            std::vector<std::uint8_t> text(sunscreen, sunscreen + std::strlen(sunscreen));
+            const auto n2 = hexBytes("000000000000004a00000000");
+            std::copy(n2.begin(), n2.end(), nonce.begin());
+            auto enc = text;
+            crypto::chacha20Xor(key, 1, nonce, enc.data(), enc.size());
+            check(sameBytes(std::vector<std::uint8_t>(enc.begin(), enc.begin() + 16), hexBytes("6e2e359a2568f98041ba0728dd0d6981"))
+                      && sameBytes(std::vector<std::uint8_t>(enc.end() - 2, enc.end()), hexBytes("874d")),
+                  "ChaCha20 encryption (RFC 8439 2.4.2)");
+            crypto::chacha20Xor(key, 1, nonce, enc.data(), enc.size());
+            check(enc == text, "ChaCha20 decrypts what it encrypted");
+
+            const auto polyKey = hexBytes("85d6be7857556d337f4452fe42d506a80103808afb0db2fd4abff6af4149f51b");
+            const char* msg = "Cryptographic Forum Research Group";
+            const auto tag = crypto::poly1305(polyKey.data(), reinterpret_cast<const std::uint8_t*>(msg), std::strlen(msg));
+            check(sameBytes(tag, hexBytes("a8061dc1305136c6c22b8baf0c0127a9")), "Poly1305 (RFC 8439 2.5.2)");
+            // The same, fed in uneven pieces.
+            crypto::Poly1305 pieces(polyKey.data());
+            for (size_t at = 0, step = 1; at < std::strlen(msg); at += step, step = step % 7 + 3)
+                pieces.update(reinterpret_cast<const std::uint8_t*>(msg) + at, std::min(step, std::strlen(msg) - at));
+            check(sameBytes(pieces.finish(), hexBytes("a8061dc1305136c6c22b8baf0c0127a9")), "Poly1305 streamed in pieces");
+
+            crypto::Key aeadKey {};
+            for (size_t i = 0; i < aeadKey.size(); ++i)
+                aeadKey[i] = static_cast<std::uint8_t>(0x80 + i);
+            const auto n3 = hexBytes("070000004041424344454647");
+            std::copy(n3.begin(), n3.end(), nonce.begin());
+            const auto aad = hexBytes("50515253c0c1c2c3c4c5c6c7");
+            auto sealed = text;
+            const auto aeadTag = crypto::aeadEncrypt(aeadKey, nonce, aad.data(), aad.size(), sealed.data(), sealed.size());
+            check(sameBytes(sealed, hexBytes("d31a8d34648e60db7b86afbc53ef7ec2a4aded51296e08fea9e2b5a736ee62d6"
+                                             "3dbea45e8ca9671282fafb69da92728b1a71de0a9e060b2905d6a5b67ecd3b36"
+                                             "92ddbd7f2d778b8c9803aee328091b58fab324e4fad675945585808b4831d7bc"
+                                             "3ff4def08e4b7a9de576d26586cec64b6116")),
+                  "AEAD ciphertext (RFC 8439 2.8.2)");
+            check(sameBytes(aeadTag, hexBytes("1ae10b594f09e26a7e902ecbd0600691")), "AEAD tag (RFC 8439 2.8.2)");
+            auto opened = sealed;
+            check(crypto::aeadDecrypt(aeadKey, nonce, aad.data(), aad.size(), opened.data(), opened.size(), aeadTag) && opened == text,
+                  "AEAD opens its own message");
+            opened = sealed;
+            opened[40] ^= 1;
+            const auto before = opened;
+            check(!crypto::aeadDecrypt(aeadKey, nonce, aad.data(), aad.size(), opened.data(), opened.size(), aeadTag) && opened == before,
+                  "AEAD rejects a changed message and leaves it untouched");
+        }
+
+        // --- The sealed room container: round trip with a test key; any change or another key is rejected.
+        {
+            const auto rooms = ChamberBank::modelledRooms();
+            crypto::Key key {};
+            for (size_t i = 0; i < key.size(); ++i)
+                key[i] = static_cast<std::uint8_t>(0xa5 ^ (i * 29));
+            crypto::Nonce nonce {};
+            for (size_t i = 0; i < nonce.size(); ++i)
+                nonce[i] = static_cast<std::uint8_t>(i * 7 + 1);
+            const auto plain = irpack::serialise(rooms);
+            const auto blob = irpack::seal(plain, key, nonce);
+            size_t same = 0;
+            for (size_t i = 0; i < plain.size(); ++i)
+                same += blob[irpack::c_headerSize + i] == plain[i] ? 1 : 0;
+            check(blob.size() == plain.size() + irpack::c_headerSize + 16 && same < plain.size() / 100, "the sealed rooms are not stored in the clear");
+
+            std::vector<std::uint8_t> payload;
+            check(irpack::open(blob.data(), blob.size(), key, payload) && payload == plain, "sealed rooms open with their key");
+            std::vector<irpack::Ir> back;
+            const bool parsed = irpack::parse(payload.data(), payload.size(), back);
+            check(parsed && back.size() == rooms.size(), "the opened rooms parse");
+            double worst = 0.0;
+            for (size_t r = 0; parsed && r < std::min(back.size(), rooms.size()); ++r)
+            {
+                float peak = 0.0f;
+                for (float x : rooms[r].left) peak = std::max(peak, std::abs(x));
+                for (float x : rooms[r].right) peak = std::max(peak, std::abs(x));
+                for (size_t i = 0; i < rooms[r].left.size(); ++i)
+                    worst = std::max(worst, std::max(std::abs(static_cast<double>(back[r].left[i]) - rooms[r].left[i]),
+                                                     std::abs(static_cast<double>(back[r].right[i]) - rooms[r].right[i])) / peak);
+            }
+            check(worst <= 0.6 / 32767.0, "rooms survive the 16-bit container (worst error " + juce::String(worst * 32767.0, 2) + " LSB)");
+
+            auto other = key;
+            other[5] ^= 0x10;
+            check(!irpack::open(blob.data(), blob.size(), other, payload) && payload.empty(), "another key is rejected");
+            for (const size_t at : { size_t { 2 }, size_t { 10 }, size_t { 21 }, irpack::c_headerSize + 100, blob.size() - 3 })
+            {
+                auto damaged = blob;
+                damaged[at] ^= 0x01;
+                check(!irpack::open(damaged.data(), damaged.size(), key, payload), "a changed byte at " + juce::String(static_cast<int>(at)) + " is rejected");
+            }
+            check(!irpack::open(blob.data(), blob.size() - 1, key, payload), "a truncated blob is rejected");
+            crypto::Key parsedKey {};
+            check(irpack::parseHexKey("000102030405060708090a0b0c0d0e0f101112131415161718191A1B1C1D1E1F", parsedKey) && parsedKey[31] == 0x1f
+                      && !irpack::parseHexKey("0011", parsedKey) && !irpack::parseHexKey(std::string(64, 'g'), parsedKey),
+                  "hex keys");
+        }
+
+        // --- The convolver: exact against direct convolution, at every partition boundary, at any block size.
+        {
+            std::mt19937 rng(11);
+            std::uniform_real_distribution<float> u(-1.0f, 1.0f);
+            std::uniform_int_distribution<int> blockDist(1, 300);
+            const std::vector<double> rates = g_quick ? std::vector<double> { 48000.0 } : std::vector<double> { 48000.0, 96000.0, 192000.0 };
+            for (double fs : rates)
+                for (int len : { 1, 63, 64, 65, 511, 512, 513, 1023, 8192, 36000 })
+                {
+                    std::vector<float> h0(static_cast<size_t>(len)), h1(static_cast<size_t>(len));
+                    for (int i = 0; i < len; ++i)
+                    {
+                        const float env = std::exp(-3.0f * static_cast<float>(i) / static_cast<float>(len));
+                        h0[static_cast<size_t>(i)] = u(rng) * env;
+                        h1[static_cast<size_t>(i)] = u(rng) * env;
+                    }
+                    const auto layout = ConvolverLayout::forRate(fs, len);
+                    ConvolverIr ir;
+                    ir.build(layout, { h0.data(), h1.data() }, len);
+                    const int n = std::min(len, 9000) + 3000;
+                    std::vector<float> x(static_cast<size_t>(n));
+                    for (auto& v : x)
+                        v = u(rng);
+
+                    ZeroLatencyConvolver c;
+                    c.prepare(layout);
+                    c.bind(0, &ir, 2);
+                    std::vector<float> y0(static_cast<size_t>(n)), y1(static_cast<size_t>(n));
+                    for (int at = 0; at < n;)
+                    {
+                        int want = std::min(blockDist(rng), n - at);
+                        while (want > 0)
+                        {
+                            const int m = std::min(want, c.samplesToGrid());
+                            float* const outs[2][2] { { y0.data() + at, y1.data() + at }, { nullptr, nullptr } };
+                            c.process(x.data() + at, m, outs);
+                            at += m;
+                            want -= m;
+                        }
+                    }
+
+                    double err = 0.0, ref = 0.0;
+                    for (int o = 0; o < 2; ++o)
+                    {
+                        const auto& h = o == 0 ? h0 : h1;
+                        const auto& y = o == 0 ? y0 : y1;
+                        for (int t = 0; t < n; ++t)
+                        {
+                            double acc = 0.0;
+                            for (int k = 0; k < len && k <= t; ++k)
+                                acc += static_cast<double>(h[static_cast<size_t>(k)]) * x[static_cast<size_t>(t - k)];
+                            const double e = y[static_cast<size_t>(t)] - acc;
+                            err += e * e;
+                            ref += acc * acc;
+                        }
+                    }
+                    const double db = 10.0 * std::log10(std::max(err, 1.0e-300) / std::max(ref, 1.0e-300));
+                    check(db < -100.0, "convolver at " + juce::String(fs / 1000.0, 1) + " kHz, " + juce::String(len) + " taps: error "
+                                           + juce::String(db, 1) + " dB re direct convolution (<= -100)");
+                }
+        }
+
+        const double sr = 48000.0;
+        const int seconds = g_quick ? 1 : 2;
+        const auto voice = makeVoice(sr, seconds);
+        const Stereo voiceStereo = dual(voice);
+        const auto prepared = [sr](const ChamberSettings& s)
+        {
+            auto m = std::make_unique<ChamberModule>();
+            m->setParams(s);
+            m->prepare(sr, 512);
+            return m;
+        };
+        ChamberSettings on;
+        on.on = true;
+
+        // --- The modelled rooms (what a build without the bundled rooms uses): eight rooms close to
+        //     the measured decay of the captures they stand in for, and all at the same level.
+        {
+            ChamberBank::setForceModelled(false);
+            std::printf("  this build %s\n", ChamberBank::hasBundledRooms() ? "carries the bundled rooms (encrypted)" : "has no bundled rooms: modelled rooms");
+           #if ROARSCHACH_EXPECT_BUNDLED_ROOMS
+            check(ChamberBank::hasBundledRooms(), "the embedded rooms decrypt and parse (a build with the captures must not fall back to the modelled rooms)");
+           #endif
+            const auto modelled = ChamberBank::build(sr, ChamberBank::Source::modelled);
+            check(modelled->getSource() == ChamberBank::Source::modelled, "the modelled bank");
+            const std::array<double, 8> measured { 0.42, 0.71, 0.61, 0.55, 0.37, 0.58, 0.54, 0.20 };
+            const auto bundled = ChamberBank::hasBundledRooms() ? ChamberBank::build(sr, ChamberBank::Source::bundled) : nullptr;
+            for (int r = 0; r < ChamberBank::numRooms; ++r)
+            {
+                const double rt = modelled->room(r).rt60;
+                std::printf("  %-17s modelled RT60 %.2f s%s", Params::chamberRoomNames[static_cast<size_t>(r)], rt, bundled != nullptr ? "" : "\n");
+                check(rt > 0.55 * measured[static_cast<size_t>(r)] && rt < 1.6 * measured[static_cast<size_t>(r)],
+                      juce::String(Params::chamberRoomNames[static_cast<size_t>(r)]) + " modelled RT60 near the capture's");
+                if (bundled != nullptr)
+                {
+                    const double brt = bundled->room(r).rt60;
+                    std::printf(", bundled %.2f s (capture %.2f s), %.1f ms\n", brt, measured[static_cast<size_t>(r)],
+                                1000.0 * bundled->room(r).ir.getLength() / sr);
+                    check(bundled->room(r).ir.getLength() <= static_cast<int>(irpack::c_maxSeconds * sr) + 1, "bundled rooms end by 0.75 s");
+                }
+            }
+
+            // Every room at the same level: loudness-matched on a voice-band pink spectrum (what the
+            // packer and the modelled rooms match on), so switching rooms keeps the level. A single
+            // sung pitch lands on or between a room's modes, so it varies more (printed).
+            auto pinkVoiceBand = makePink(sr, seconds, 0.3f);
+            for (const auto& c : { Biquad::highpass(sr, 150.0, Biquad::c_bw4Q1), Biquad::highpass(sr, 150.0, Biquad::c_bw4Q2),
+                                   Biquad::lowpass(sr, 5000.0, Biquad::c_bw4Q1), Biquad::lowpass(sr, 5000.0, Biquad::c_bw4Q2) })
+            {
+                Biquad f;
+                f.setCoeffs(c);
+                f.process(pinkVoiceBand.data(), static_cast<int>(pinkVoiceBand.size()));
+            }
+            const auto pink = dual(pinkVoiceBand);
+            for (int signal = 0; signal < 2; ++signal)
+            {
+                std::vector<double> levels;
+                for (int r = 0; r < ChamberBank::numRooms; ++r)
+                {
+                    auto s = on;
+                    s.amount = 1.0f;
+                    s.edge = 0.0f;
+                    s.width = 0.0f;
+                    s.room = r;
+                    auto m = prepared(s);
+                    const auto& x = signal == 0 ? pink : voiceStereo;
+                    auto out = runChamber(*m, x, { 512 }, false);
+                    // The wet alone (the dry is the input times its gain, exactly).
+                    double gd = 1.0, gw = 0.0;
+                    ChamberModule::blendGains(1.0, gd, gw);
+                    for (size_t i = 0; i < out.l.size(); ++i)
+                        out.l[i] = static_cast<float>((out.l[i] - gd * x.l[i]) / gw);
+                    levels.push_back(toDb(rmsOf(out.l, out.l.size() / 4) / rmsOf(x.l, x.l.size() / 4)));
+                }
+                const auto [lo, hi] = std::minmax_element(levels.begin(), levels.end());
+                std::printf("  room levels (Chamber 100 %%, %s): %.1f .. %.1f dB re the input\n", signal == 0 ? "pink, 150 Hz - 5 kHz" : "voice at 110 Hz", *lo, *hi);
+                if (signal == 0)
+                    check(*hi - *lo < 2.0, "the rooms are loudness-matched (spread " + juce::String(*hi - *lo, 1) + " dB, < 2)");
+            }
+
+            // The wet alone at Chamber 100 % for a setting.
+            const auto wetOf = [&](const ChamberSettings& s, const Stereo& x)
+            {
+                auto m = prepared(s);
+                auto out = runChamber(*m, x, { 512 }, false);
+                double gd = 1.0, gw = 0.0;
+                ChamberModule::blendGains(1.0, gd, gw);
+                for (size_t i = 0; i < out.l.size(); ++i)
+                    out.l[i] = static_cast<float>((out.l[i] - gd * x.l[i]) / gw);
+                return out.l;
+            };
+
+            // Each speaker has its own response (audit: their filters once kept the identity
+            // coefficients, so all three sounded alike): the Small box keeps the lows the Tiny
+            // speaker and the horn cut.
+            {
+                std::array<double, 3> lowShare {};
+                for (int t = 0; t < 3; ++t)
+                {
+                    auto s = on;
+                    s.amount = 1.0f;
+                    s.edge = 0.0f;
+                    s.width = 0.0f;
+                    s.speaker = t;
+                    auto wet = wetOf(s, pink);
+                    auto low = wet;
+                    for (const auto& c : { Biquad::lowpass(sr, 220.0, Biquad::c_bw4Q1), Biquad::lowpass(sr, 220.0, Biquad::c_bw4Q2) })
+                    {
+                        Biquad f;
+                        f.setCoeffs(c);
+                        f.process(low.data(), static_cast<int>(low.size()));
+                    }
+                    lowShare[static_cast<size_t>(t)] = toDb(rmsOf(low, low.size() / 4) / rmsOf(wet, wet.size() / 4));
+                }
+                std::printf("  energy under 220 Hz: Tiny %.1f, Small %.1f, Horn %.1f dB\n", lowShare[0], lowShare[1], lowShare[2]);
+                check(lowShare[1] - lowShare[0] > 6.0 && lowShare[1] - lowShare[2] > 6.0, "each speaker has its own response");
+            }
+
+            // Resonance holds the wet's level in every room (audit: a room that swells in late once
+            // jumped 9 dB at 100 %), and a room's longest decay still fits its IR.
+            for (int r = 0; r < ChamberBank::numRooms; ++r)
+            {
+                const auto bank = ChamberBank::get(sr);
+                const auto& room = bank->room(r);
+                check(room.maxDecayScale >= 1.0 && room.maxDecayScale <= ChamberBank::maxResonanceScale + 1.0e-9
+                          && room.decayStart >= 0.0 && room.decayStart < 0.25,
+                      juce::String(Params::chamberRoomNames[static_cast<size_t>(r)]) + ": decay start and longest decay in range");
+                std::vector<double> levels;
+                for (const float u : { 0.0f, 0.4f, 1.0f })
+                {
+                    auto s = on;
+                    s.amount = 1.0f;
+                    s.edge = 0.0f;
+                    s.width = 0.0f;
+                    s.room = r;
+                    s.resonance = u;
+                    const auto wet = wetOf(s, pink);
+                    levels.push_back(toDb(rmsOf(wet, wet.size() / 4)));
+                }
+                const auto [lo, hi] = std::minmax_element(levels.begin(), levels.end());
+                check(*hi - *lo < 1.5, juce::String(Params::chamberRoomNames[static_cast<size_t>(r)]) + ": Resonance holds the level (spread "
+                                           + juce::String(*hi - *lo, 1) + " dB, < 1.5)");
+                std::printf("  %-17s decay starts %3.0f ms, longest x%.2f, Resonance 0/40/100 %%: %+.1f / %+.1f / %+.1f dB\n",
+                            Params::chamberRoomNames[static_cast<size_t>(r)], 1000.0 * room.decayStart, room.maxDecayScale,
+                            levels[0] - levels[1], 0.0, levels[2] - levels[1]);
+            }
+        }
+
+        // --- Off: the dry, bit for bit, and the Boom hook passes untouched.
+        {
+            ChamberSettings off;
+            auto m = prepared(off);
+            const auto out = runChamber(*m, voiceStereo, { 480 }, true);
+            check(out.l == voiceStereo.l && out.r == voiceStereo.r, "Off is a bit-exact pass");
+            auto l = voiceStereo.l, r = voiceStereo.r;
+            m->processReturn(l.data(), r.data(), static_cast<int>(l.size()));
+            check(l == voiceStereo.l && r == voiceStereo.r, "the Boom hook is a bit-exact pass while Off");
+            check(m->getLatencySamples() == 0, "CHAMBER has no latency");
+        }
+
+        // --- Block-size independence (with changes of every control on the way) and clone exactness.
+        {
+            auto s = on;
+            s.width = 0.6f;
+            s.edge = 0.5f;
+            const auto changes = [&](ChamberModule& m)
+            {
+                return [&m, s](int start) mutable
+                {
+                    // Every change lands on a boundary every block pattern below shares.
+                    if (start == 7680)  { s.room = 0; s.resonance = 0.9f; m.setParams(s); }
+                    if (start == 15360) { s.speaker = 2; s.amount = 0.8f; s.width = 0.0f; m.setParams(s); }
+                    if (start == 23040) { s.boom = 3; s.edge = 0.0f; s.width = 1.0f; s.room = 6; m.setParams(s); }
+                };
+            };
+            Stereo reference;
+            bool same = true;
+            for (const auto& blocks : std::vector<std::vector<int>> { { 512 }, { 1 }, { 64 }, { 480 }, { 7680 }, { 32, 160, 96, 192 } })
+            {
+                auto m = prepared(s);
+                const auto out = runChamber(*m, voiceStereo, blocks, true, changes(*m));
+                if (reference.l.empty())
+                    reference = out;
+                else
+                    same = same && out.l == reference.l && out.r == reference.r;
+            }
+            check(same, "bit-identical at host blocks of 1, 64, 480, 512, 7680 and mixed");
+
+            // A clone mid-ring, during a room change and a Resonance glide, continues bit for bit.
+            auto a = prepared(s);
+            const int cut = 7680 + 700;
+            const Stereo first { Signal(voiceStereo.l.begin(), voiceStereo.l.begin() + cut), Signal(voiceStereo.r.begin(), voiceStereo.r.begin() + cut) };
+            const Stereo rest { Signal(voiceStereo.l.begin() + cut, voiceStereo.l.end()), Signal(voiceStereo.r.begin() + cut, voiceStereo.r.end()) };
+            runChamber(*a, first, { 128 }, true, changes(*a));
+            auto b = prepared(on);   // other settings: the clone takes the source's
+            b->copyStateFrom(*a);
+            const auto ya = runChamber(*a, rest, { 77 }, true);
+            const auto yb = runChamber(*b, rest, { 77 }, true);
+            check(ya.l == yb.l && ya.r == yb.r, "copyStateFrom mid-ring (room change and Resonance glide running) is bit-exact");
+            std::printf("  clone state: %.0f KB at 48 kHz\n", static_cast<double>(a->getConvolver().getStateBytes()) / 1024.0);
+        }
+
+        // --- Width: the mono fold-down is the same at every Width; the room's own stereo at 100 %.
+        {
+            std::array<Stereo, 2> outs;
+            for (int k = 0; k < 2; ++k)
+            {
+                auto s = on;
+                s.amount = 1.0f;
+                s.width = k == 0 ? 0.0f : 1.0f;
+                auto m = prepared(s);
+                outs[static_cast<size_t>(k)] = runChamber(*m, voiceStereo, { 512 }, true);
+            }
+            const auto mono = [](const Stereo& s)
+            {
+                Signal m(s.l.size());
+                for (size_t i = 0; i < m.size(); ++i)
+                    m[i] = 0.5f * (s.l[i] + s.r[i]);
+                return m;
+            };
+            const double m0 = toDb(rmsOf(mono(outs[0]))), m1 = toDb(rmsOf(mono(outs[1])));
+            double ll = 0.0, rr = 0.0, lr = 0.0;
+            for (size_t i = 0; i < outs[1].l.size(); ++i)
+            {
+                ll += static_cast<double>(outs[1].l[i]) * outs[1].l[i];
+                rr += static_cast<double>(outs[1].r[i]) * outs[1].r[i];
+                lr += static_cast<double>(outs[1].l[i]) * outs[1].r[i];
+            }
+            const double corr = lr / std::sqrt(std::max(ll * rr, 1.0e-30));
+            std::printf("  Width: mono fold-down %.2f dB (0 %%) vs %.2f dB (100 %%); L/R correlation at 100 %%: %.2f (dry at -6 dB included)\n",
+                        m0, m1, corr);
+            check(std::abs(m1 - m0) < 1.0, "Width's mono fold-down within 1 dB of Width 0");
+            check(outs[0].l == outs[0].r, "Width 0 is mono");
+            check(corr < 0.95, "Width 100 % is stereo");
+        }
+
+        // --- Resonance changes the ring, not the level; a longer ring after the voice stops.
+        {
+            const Stereo burst { Signal(voice.begin(), voice.begin() + voice.size() / 2), {} };
+            Stereo padded = burst;
+            padded.l.resize(voice.size(), 0.0f);
+            padded.r = padded.l;
+            std::array<double, 3> level {}, tail {};
+            const std::array<float, 3> settings { 0.0f, 0.4f, 1.0f };
+            for (size_t k = 0; k < settings.size(); ++k)
+            {
+                auto s = on;
+                s.amount = 1.0f;
+                s.width = 0.0f;
+                s.room = 1;
+                s.resonance = settings[k];
+                auto m = prepared(s);
+                const auto out = runChamber(*m, padded, { 512 }, false);
+                level[k] = toDb(rmsOf(out.l, voice.size() / 8, voice.size() / 2));
+                const size_t stop = voice.size() / 2;
+                tail[k] = toDb(rmsOf(out.l, stop + static_cast<size_t>(0.15 * sr), stop + static_cast<size_t>(0.45 * sr)));
+            }
+            std::printf("  Resonance 0 / 40 / 100 %%: level %.1f / %.1f / %.1f dB, tail 150-450 ms %.1f / %.1f / %.1f dB\n",
+                        level[0], level[1], level[2], tail[0], tail[1], tail[2]);
+            // One sung pitch (110 Hz harmonics) can sit on a room's modes, which ring louder as the
+            // decay lengthens; on broadband voice material the level holds within 1.5 dB (checked per
+            // room above, and measured on real takes in the parameter audit).
+            check(std::abs(level[0] - level[1]) < 2.0 && std::abs(level[2] - level[1]) < 2.0, "Resonance holds the level on one pitch (+-2 dB)");
+            check(tail[2] > tail[0] + 6.0, "Resonance lengthens the ring");
+        }
+
+        // --- Boom: the shelf after the whole chain, as designed, once it has glided in.
+        {
+            for (int boom = 1; boom <= 3; ++boom)
+            {
+                auto s = on;
+                s.boom = boom;
+                auto m = prepared(s);
+                for (const double hz : { 40.0, 1000.0 })
+                {
+                    auto l = makeSine(sr, 1.0, hz, 0.1);
+                    auto r = l;
+                    m->processReturn(l.data(), r.data(), static_cast<int>(l.size()));
+                    const auto ref = makeSine(sr, 1.0, hz, 0.1);
+                    const double got = toDb(rmsOf(l, l.size() / 2) / rmsOf(ref, ref.size() / 2));
+                    const double want = Biquad::lowShelf(sr, ChamberModule::c_boomHz, ChamberModule::c_boomQ,
+                                                         ChamberModule::c_boomDb[static_cast<size_t>(boom)]).magnitudeDb(hz, sr);
+                    check(std::abs(got - want) < 0.2, "Boom " + juce::String(Params::chamberBoomNames[static_cast<size_t>(boom)]) + " at "
+                                                          + juce::String(hz, 0) + " Hz: " + juce::String(got, 2) + " dB (design "
+                                                          + juce::String(want, 2) + ")");
+                    check(r == l, "Boom is the same on both channels");
+                }
+            }
+        }
+
+        // --- Through the plug-in: latency unchanged with CHAMBER On anywhere; Off anywhere renders the
+        //     same bit for bit; a 1.0 state (no CHAMBER rows) loads with CHAMBER Off after PITCH.
+        {
+            auto p = makeProcessor(sr, 512);
+            const int base = p->getLatencySamples();
+            bool constant = true;
+            for (int slot : { 0, 1, 7, 14 })
+            {
+                setParam(*p, Params::chamberOn, 1.0f);
+                setParam(*p, Params::chamberPos, static_cast<float>(slot));
+                setParam(*p, Params::chamberWidth, 80.0f);
+                render(*p, dual(makeVoice(sr, 0.1)), 512);
+                constant = constant && p->getLatencySamples() == base;
+            }
+            check(constant, "plug-in latency is the same with CHAMBER On in any slot");
+
+            const auto renderAt = [&](int slot)
+            {
+                auto q = makeProcessor(sr, 512);
+                setParam(*q, Params::chamberPos, static_cast<float>(slot));
+                restart(*q, sr, 512);
+                return render(*q, voiceStereo, 512);
+            };
+            const auto a = renderAt(1), b = renderAt(14), c = renderAt(0);
+            check(a.l == b.l && a.r == b.r && a.l == c.l && a.r == c.r, "CHAMBER Off: the same output in every slot, bit for bit");
+
+            // A 1.0 state: no CHAMBER rows, a reordered chain.
+            auto src = makeProcessor(sr, 512);
+            setOrder(*src, orderFromCodes("PI CL DS RO SH GR SW DT VO RM EN TA SU OV"));
+            juce::MemoryBlock full;
+            src->getStateInformation(full);
+            auto xml = juce::AudioProcessor::getXmlFromBinary(full.getData(), static_cast<int>(full.getSize()));
+            for (auto* e = xml->getFirstChildElement(); e != nullptr;)
+            {
+                auto* next = e->getNextElement();
+                if (e->getStringAttribute("id").startsWith("chamber"))
+                    xml->removeChildElement(e, true);
+                e = next;
+            }
+            juce::MemoryBlock old;
+            juce::AudioProcessor::copyXmlToBinary(*xml, old);
+            auto dst = makeProcessor(sr, 512);
+            setParam(*dst, Params::chamberOn, 1.0f);
+            setParam(*dst, Params::chamberPos, 9.0f);
+            dst->setStateInformation(old.getData(), static_cast<int>(old.getSize()));
+            check(getParam(*dst, Params::chamberOn) < 0.5f && juce::roundToInt(getParam(*dst, Params::chamberPos)) == 1,
+                  "a 1.0 state loads with CHAMBER Off, right after PITCH");
+            render(*dst, dual(makeVoice(sr, 0.2)), 512);
+            check(dst->getChain().getTopology().order == orderFromCodes("PI CL DS RO SH GR SW DT VO RM EN TA SU OV"), "a 1.0 state keeps its order");
+            check(dst->getLatencySamples() == base, "a 1.0 state keeps its latency");
+        }
+
+        // --- CPU (one instance, steady state, block 512).
+        {
+            for (double fs : { 48000.0, 192000.0 })
+            {
+                const double secs = g_quick ? 2.0 : 5.0;
+                const auto x = dual(makeVoice(fs, secs));
+                for (const float width : { 0.0f, 1.0f })
+                {
+                    auto s = on;
+                    s.width = width;
+                    ChamberModule m;
+                    m.setParams(s);
+                    m.prepare(fs, 512);
+                    runChamber(m, dual(makeVoice(fs, 0.3)), { 512 }, width > 0.0f);
+                    const auto t0 = std::chrono::steady_clock::now();
+                    runChamber(m, x, { 512 }, width > 0.0f);
+                    const double pct = 100.0 * std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count() / secs;
+                    std::printf("  CPU at %.0f kHz, Width %.0f %%: %.2f %% of a core\n", fs / 1000.0, 100.0 * width, pct);
+                    static const bool onSharedRunner = std::getenv("CI") != nullptr;
+                    if (!onSharedRunner)
+                        check(pct < (fs > 100000.0 ? 12.0 : 3.0), "CHAMBER CPU " + juce::String(pct, 2) + " %");
+                }
+            }
+        }
+
+        // --- The worst block: a Room change (or Width turning on) primes the new room's current
+        //     partition block at once, on the audio thread, and the 50 ms crossfade runs both
+        //     rooms. 192 kHz, block 256, Width 0.7, a room change every 0.25 s.
+        {
+            const double fs = 192000.0;
+            const int block = 256;
+            const double secs = g_quick ? 2.0 : 4.0;
+            const auto x = dual(makeVoice(fs, secs));
+            auto s = on;
+            s.width = 0.7f;
+            ChamberModule m;
+            m.setParams(s);
+            m.prepare(fs, block);
+            runChamber(m, dual(makeVoice(fs, 0.3)), { block }, true);
+            const int changeEvery = static_cast<int>(0.25 * fs) / block * block;
+            std::vector<double> times;
+            std::vector<bool> isChange;
+            auto last = std::chrono::steady_clock::now();
+            int sinceChange = 1 << 20;   // blocks since the last change (the change block and the next count)
+            int room = s.room;
+            runChamber(m, x, { block }, true, [&](int start)
+            {
+                const auto now = std::chrono::steady_clock::now();
+                if (start > 0)
+                {
+                    times.push_back(std::chrono::duration<double>(now - last).count());
+                    isChange.push_back(sinceChange <= 1);
+                }
+                ++sinceChange;
+                if (start > 0 && start % changeEvery == 0)
+                {
+                    sinceChange = 0;
+                    room = (room + 3) % ChamberBank::numRooms;
+                    auto t = s;
+                    t.room = room;
+                    m.setParams(t);
+                }
+                last = std::chrono::steady_clock::now();
+            });
+            double steady = 0.0, worstChange = 0.0;
+            int steadyCount = 0;
+            for (size_t i = 0; i < times.size(); ++i)
+            {
+                if (isChange[i])
+                    worstChange = std::max(worstChange, times[i]);
+                else
+                {
+                    steady += times[i];
+                    ++steadyCount;
+                }
+            }
+            steady /= std::max(1, steadyCount);
+            const double blockSecs = block / fs;
+            std::printf("  worst block at 192 kHz, block 256, Width 70 %%: other blocks (crossfades included) mean %.0f us, on a room change %.0f us (%.1f %% of the block, %.1fx)\n",
+                        1.0e6 * steady, 1.0e6 * worstChange, 100.0 * worstChange / blockSecs, worstChange / std::max(1.0e-9, steady));
+            static const bool onSharedRunner = std::getenv("CI") != nullptr;
+            if (!onSharedRunner)
+                check(worstChange < 0.5 * blockSecs, "CHAMBER worst block on a room change " + juce::String(100.0 * worstChange / blockSecs, 1) + " % of the block");
+        }
     }
 
     void testCpu()
@@ -4086,6 +5429,8 @@ namespace
         int sweepSteps = 0;
         bool sweepNorm = false;    // --norm: the sweep's from/to are knob positions 0..1
         bool writeWav = true;      // --no-wav
+        bool rawOutput = false;    // --raw-out: OUTPUT's filters, auto gain and Ride off (module-level measurements)
+        int rollFrom = 0, rollTo = -1;   // --roll from to: one render per seed, ROLL ALL (seeded) after the sets
     };
 
     /** Sets id from "value", "@knob" (0..1) or a choice name; false (and a message) when it cannot. */
@@ -4159,9 +5504,21 @@ namespace
         std::printf("input %s: %.2f s @ %.0f Hz (rendered at this rate), %d ch, rms %.1f dBFS, peak %.1f dBFS\n",
                     input.getFileName().toRawUTF8(), length / sr, sr, file.getNumChannels(), toDb(inStats.rms), toDb(inStats.peak));
 
-        // The sweep's values (or one pass without a sweep).
+        // The sweep's values (or one pass without a sweep), or the seeds of --roll.
         const Params::Spec* sweepSpec = nullptr;
         std::vector<double> sweepValues { std::numeric_limits<double>::quiet_NaN() };
+        const bool rolling = opt.rollTo >= opt.rollFrom;
+        if (rolling)
+        {
+            if (opt.sweepId.isNotEmpty())
+            {
+                std::printf("--roll and --sweep cannot be combined\n");
+                return 1;
+            }
+            sweepValues.clear();
+            for (int seed = opt.rollFrom; seed <= opt.rollTo; ++seed)
+                sweepValues.push_back(seed);
+        }
         if (opt.sweepId.isNotEmpty())
         {
             for (const auto& spec : Params::all)
@@ -4271,6 +5628,20 @@ namespace
                     suffix << "-" << opt.sweepId << "-" << juce::String(getParam(*p, opt.sweepId.toRawUTF8()), 3);
                 }
 
+                int rollSeed = -1;
+                if (rolling)
+                {
+                    rollSeed = static_cast<int>(sweepValue);
+                    p->getDice().setSeed(static_cast<std::uint32_t>(rollSeed));
+                    p->getDice().rollAll();
+                    suffix << "-roll-" << rollSeed;
+                }
+
+                if (opt.rawOutput)
+                {
+                    p->getChainForTests().setOutputTestOptions(false, false, false);
+                    suffix << "-raw";
+                }
                 restart(*p, sr, 512);
                 const int latency = p->getLatencySamples();
 
@@ -4335,6 +5706,19 @@ namespace
                         rec->setProperty("norm", swept->getValue());
                         rec->setProperty("text", swept->getCurrentValueAsText());
                     }
+                    if (rollSeed >= 0)
+                    {
+                        rec->setProperty("roll", rollSeed);
+                        juce::String on;
+                        for (const auto& mod : Params::modules)
+                            if (getParam(*p, mod.onId) > 0.5f)
+                                on << (on.isEmpty() ? "" : " ") << mod.code;
+                        rec->setProperty("on", on);
+                        auto* rolled = new juce::DynamicObject();
+                        for (const auto& r : Params::Random::ranges)
+                            rolled->setProperty(r.id, p->getValueTreeState().getParameter(r.id)->getCurrentValueAsText());
+                        rec->setProperty("rolled", juce::var(rolled));
+                    }
                     rec->setProperty("latency", latency);
                     rec->setProperty("wav", opt.writeWav ? juce::var(target.getFullPathName()) : juce::var());
                     rec->setProperty("broken", broken);
@@ -4392,6 +5776,54 @@ namespace
         // roarTone, tame, sub, subDrive, overtone, push, ceiling, clip, clipShape, attack
         std::array<float, 22> v;
     };
+
+    // PITCH Drive per factory preset in the first release (its knob was the drive amount itself).
+    const std::map<std::string, float>& v1PitchDrive()
+    {
+        static const std::map<std::string, float> t {
+            { "Init", 5.0f },
+            { "Symbiote", 20.0f },
+            { "Liquid Beast", 25.0f },
+            { "Gravel Throat", 45.0f },
+            { "Cave Troll", 25.0f },
+            { "Kaiju", 50.0f },
+            { "Gargoyle", 25.0f },
+            { "Hellhound", 60.0f },
+            { "Golem", 25.0f },
+            { "Kraken", 25.0f },
+            { "Throat Singer", 25.0f },
+            { "Big Bad Narrator", 30.0f },
+            { "Demon Whisper", 25.0f },
+            { "Giant", 25.0f },
+            { "Possessed", 25.0f },
+            { "Ogre Radio", 25.0f },
+            { "Cyber Commander", 40.0f },
+            { "Respirator Rasp", 30.0f },
+            { "Rasp Machine", 55.0f },
+            { "Robot Ogre", 25.0f },
+            { "Scorched Swirl", 5.0f },
+            { "Molten Chorus", 5.0f },
+            { "Sub Furnace", 5.0f },
+            { "Ribcage", 5.0f },
+            { "Tar Pit", 25.0f },
+            { "Breathing Walls", 5.0f },
+            { "Chopped Space", 5.0f },
+            { "Vocoded Fire", 5.0f },
+            { "Clanking Choir", 5.0f },
+            { "Pulse Choir", 5.0f },
+            { "Two Octaves Down", 5.0f },
+            { "Gravel Pit", 5.0f },
+            { "Iron Lung", 5.0f },
+            { "Detail Only", 25.0f },
+            { "Subtle Size", 15.0f },
+            { "Clean Lift", 25.0f },
+            { "Loud & Contained", 5.0f },
+            { "Crunch Lift", 5.0f },
+            { "Smashed", 5.0f },
+            { "Phone Monster", 5.0f }
+        };
+        return t;
+    }
 
     const std::vector<V1Preset>& v1Presets()
     {
@@ -4514,7 +5946,8 @@ namespace
             { "contain", laws::containCurve, 0.0, 1.0 },
             { "gate depth", [](double u) { return -laws::gateDepthDb(u); }, 0.0, 30.0 },
             { "gate ratio", laws::gateRatio, 1.5, 5.0 },
-            { "de-ess range", [](double u) { return -laws::deessRangeDb(u); }, 0.0, 15.0 },
+            { "de-ess range", [](double u) { return -laws::deessRangeDb(u); }, 0.0, 24.0 },
+            { "de-ess threshold shift", laws::deessThresholdShiftDb, 0.0, 12.0 },
             { "detail depth", laws::detailDepthDb, 0.0, 34.0 },
             { "gravel", laws::gravelAmount, 0.0, 1.0 },
             { "ring AM", laws::ringAmAmount, 0.0, 1.0 },
@@ -4526,7 +5959,10 @@ namespace
             { "ensemble", laws::ensembleAmount, 0.0, 0.7 },
             { "vibrato", [](double u) { return laws::ensembleVibratoAmount(laws::ensembleAmount(u)); }, 0.0, std::sqrt(0.7) },
             { "width", [](double u) { return laws::ensembleSideGain(1.5 * u); }, 0.0, 0.85914057 },
-            { "tame", laws::tameT, 0.0, 5.0 / 3.0 },
+            { "tame", laws::tameT, 0.0, 2.2 },
+            { "pitch drive (gain dB)", [](double u) { const double d = laws::pitchDriveAmount(u); return 24.0 * d * std::sqrt(d); }, 0.0, 24.0 },
+            { "gate threshold offset", laws::gateThresholdOffsetDb, 6.0, 18.0 },
+            { "overtone add (gain)", laws::overtoneAddGain, 0.0, std::pow(10.0, 14.8 / 20.0) },
             { "sub level", laws::subLevelDb, -14.0, 10.0 },
             { "overtone", laws::overtoneLevelDb, -10.0, 10.0 },
             { "overtone low cut", laws::overtoneLowCut, 0.0, 1.0 },
@@ -4538,10 +5974,11 @@ namespace
         {
             juce::String why;
             // The roar scoop and the overtone low cut reach their end early on purpose (flat from
-            // 60 % and 25 %), and the equal-power mix flattens at 100 % by design (sin): only their
+            // 60 % and 25 %), the equal-power mix flattens at 100 % by design (sin), and the de-ess
+            // threshold shift starts at 40 % (the range alone does the first part): only their
             // monotonic ends are checked.
             const juce::String n(law.name);
-            const bool flatTop = n == "roar scoop" || n == "overtone low cut" || n == "mix wet";
+            const bool flatTop = n == "roar scoop" || n == "overtone low cut" || n == "mix wet" || n == "de-ess threshold shift";
             bool ok = true;
             if (flatTop)
             {
@@ -4558,7 +5995,7 @@ namespace
                 ok = lawShape(law.f, law.at0, law.at1, 1e-6, why);
             check(ok, juce::String("law ") + law.name + " " + why);
         }
-        // The scoop is C1 (no kink at 40 % or 60 %) and matches the old -14 a up to 40 %.
+        // The scoop is C1 (no kink at 40 % or 60 %) and matches the previous -14 a up to 40 %.
         {
             const double h = 1e-6;
             const auto slope = [h](double a) { return (laws::roarScoopDb(a + h) - laws::roarScoopDb(a - h)) / (2.0 * h); };
@@ -4579,7 +6016,7 @@ namespace
                   && std::abs(laws::autoFastReleaseMs(400.0) - 100.0) < 1e-9 && laws::autoFastReleaseMs(3.0) > laws::autoFastReleaseMs(2.0) + 0.3,
               "Auto fast release: 3 ms at 1 ms, 15 ms at 60 ms, a step for every Release");
 
-        // Conversions: the new law at the converted value gives the old law's value.
+        // Conversions: the new law at the converted value gives the previous law's value.
         {
             int bad = 0;
             const auto near = [&bad](double a, double b, double tol, const char* what, double old)
@@ -4603,6 +6040,7 @@ namespace
                 near(laws::swirlMix(cv::swirl(old) / 100.0), laws::v1::swirlMix(u), 1e-6, "swirl", old);
                 near(laws::ensembleAmount(cv::ensemble(old, false) / 100.0), std::min(laws::v1::ensembleAmount(u), 0.7), 1e-6, "ensemble", old);
                 near(laws::tameT(cv::tame(old) / 100.0), laws::v1::tameT(u), 1e-6, "tame", old);
+                near(laws::pitchDriveAmount(cv::pitchDrive(old) / 100.0), u, 1e-6, "pitch drive", old);
                 if (i > 0)
                     near(laws::subLevelDb(cv::sub(old) / 100.0), std::min(laws::v1::subLevelDb(u), 10.0), 1e-6, "sub", old);
                 // Overtone (with the 2 % fade-ins), as linear gains.
@@ -4613,16 +6051,24 @@ namespace
                             return 0.0;
                         return x < 0.02 ? std::pow(10.0, law(0.02) / 20.0) * x / 0.02 : std::pow(10.0, law(x) / 20.0);
                     };
-                    near(gainFor(laws::overtoneLevelDb, cv::overtone(old) / 100.0), gainFor(laws::v1::overtoneLevelDb, u), 1e-6, "overtone", old);
+                    near(gainFor(laws::overtoneLevelDb, cv::overtone(old, false) / 100.0), gainFor(laws::v1::overtoneLevelDb, u), 1e-6, "overtone", old);
+                    near(laws::overtoneAddGain(cv::overtone(old, true) / 100.0), gainFor(laws::v1::overtoneLevelDb, u), 1e-6, "overtone (add)", old);
                 }
-                // Gate: the room-tone cut matches up to the 15 dB the old law could reach.
+                // Gate: the room-tone cut matches up to the 15 dB the previous law could reach.
                 near(laws::gateDepthDb(cv::gate(old) / 100.0), -std::min(-laws::v1::gateDepthDb(u), 15.0), 1e-6, "gate", old);
-                // De-ess: the old range (with the ROAR link) up to the new 15 dB.
+                // De-ess: the previous range (with the ROAR link) where the laws agree (up to 6 dB, 40 %);
+                // beyond, a measured map that never goes past the previous reduction's ceiling.
                 for (const double drive : { 0.0, 50.0, 100.0 })
-                    near(laws::deessRangeDb(cv::deess(old, true, drive) / 100.0), std::max(laws::v1::deessRangeDb(u, true, drive / 100.0), -15.0), 1e-6, "de-ess", old);
-                // Roar: the first stage's drive matches (up to the old top).
+                {
+                    const double r = laws::v1::deessRangeDb(u, true, drive / 100.0), v = cv::deess(old, true, drive);
+                    if (r >= -6.0)
+                        near(laws::deessRangeDb(v / 100.0), r, 1e-6, "de-ess", old);
+                    else if (! (v > 40.0 && v <= 55.61))
+                        near(v, 48.0, 7.6, "de-ess (measured map)", old);
+                }
+                // Roar: the first stage's drive matches (up to the previous top).
                 near(laws::roarDrive1Db(cv::roarDrive(old) / 100.0), laws::v1::roarDrive1Db(u), 1e-6, "roar drive", old);
-                // Width (up to the new 150 %, which is the old 105 %).
+                // Width (up to the new 150 %, which is the previous 105 %).
                 if (old <= 105.0)
                     near(laws::ensembleSideGain(cv::width(old) / 100.0), laws::v1::ensembleSideGain(u), 1e-6, "width", old);
             }
@@ -4640,7 +6086,7 @@ namespace
                     near(laws::clipKnee(laws::convert::clipShape(s, clipDb) / 100.0, cap), laws::v1::clipKnee(s / 100.0, cap), 1e-6, "clip shape", s);
                 }
             near(laws::pushGainDb(laws::convert::push(8.0, -2.0), -2.0), 8.0, 1e-9, "push", 8.0);
-            check(bad == 0, juce::String(bad) + " conversions do not reproduce the old law");
+            check(bad == 0, juce::String(bad) + " conversions do not reproduce the previous law");
         }
 
         // State migration: a first-release state (stateVersion 2) loads converted; a current one is untouched.
@@ -4679,7 +6125,7 @@ namespace
             expect(Params::roar, cv::roarDrive(70.0), 0.06);
             expect(Params::roarTone, cv::roarTone(20.0, 70.0, cv::roarDrive(70.0)), 0.06);
             expect(Params::ring, 25.0, 0.06);                             // AM: old^2
-            expect(Params::ensemble, 70.0, 0.06);                         // Vibrato: the old 70 % wet
+            expect(Params::ensemble, cv::ensemble(18.0, true), 0.06);     // Vibrato: the previous 70 % wet
             expect(Params::inTrim, 0.0, 0.06);                            // inside Auto Level's old dead window
             expect(Params::cleanGate, cv::gate(Params::defaultOf(Params::cleanGate)), 0.06);   // a default that was written too
         }
@@ -4689,13 +6135,14 @@ namespace
         {
             std::map<std::string, double> v { { "growl", 48.0 }, { "tame", 50.0 }, { "pitch", -7.0 }, { "ring", 50.0 } };
             laws::migrateFromV1(v);
-            check(std::abs(v["growl"] - laws::convert::growl(48.0)) < 1e-9 && std::abs(v["tame"] - 30.0) < 1e-9 && std::abs(v["pitch"] + 7.0) < 1e-9
+            check(std::abs(v["growl"] - laws::convert::growl(48.0)) < 1e-9 && std::abs(v["tame"] - laws::convert::tame(50.0)) < 1e-9 && std::abs(v["pitch"] + 7.0) < 1e-9
                       && v["ring"] == 50.0 && v.count("subDrive") == 0,
                   "migrateFromV1 converts only what it has rules for");
         }
 
-        // Factory presets: every remapped value is the conversion of the first release's value,
-        // except the deliberate changes (listed here).
+        // Factory presets: 1.1 redesigns them on the new laws (see docs/parameter-audit.md), so only
+        // Init (whose values are the parameter defaults) is still the conversion of the first
+        // release's. Every first-release preset keeps its name.
         {
             const auto& presets = PresetManager::getFactoryPresets();
             int bad = 0;
@@ -4703,12 +6150,11 @@ namespace
             for (const auto& old : v1Presets())
             {
                 const int i = presetIndex(old.name);
-                check(i >= 0, juce::String("v1 preset table: unknown preset ") + old.name);
-                if (i < 0)
+                check(i >= 0, juce::String("a first-release preset is missing: ") + old.name);
+                if (i < 0 || juce::String(old.name) != "Init")
                     continue;
                 const auto& values = presets[static_cast<size_t>(i)].values;
                 const auto get = [&values](const char* id) { return static_cast<double>(values.at(id)); };
-                const juce::String name(old.name);
                 const auto& o = old.v;
                 const auto expect = [&](const char* id, double value)
                 {
@@ -4721,7 +6167,7 @@ namespace
                 expect(Params::cleanContain, cv::contain(o[0]));
                 expect(Params::cleanGate, cv::gate(o[1]));
                 expect(Params::deess, cv::deess(o[2], old.roarOn, o[11]));
-                expect(Params::detailLow, name == "Respirator Rasp" ? 100.0 : cv::detail(o[3]));   // deliberate: the old 80
+                expect(Params::detailLow, cv::detail(o[3]));
                 expect(Params::detailHigh, cv::detail(o[4]));
                 expect(Params::gravel, cv::gravel(o[5]));
                 expect(Params::shimmer, cv::shimmer(o[6]));
@@ -4734,26 +6180,22 @@ namespace
                 expect(Params::roarTone, cv::roarTone(o[12], o[11], std::round(drive)));
                 expect(Params::tame, cv::tame(o[13]));
                 expect(Params::sub, cv::sub(o[14]));
-                // Deliberate: Sub Drive 20 (clean) except the presets that chose a growlier sub.
-                const bool growlySub = name == "Kaiju" || name == "Hellhound" || name == "Sub Furnace";
-                expect(Params::subDrive, growlySub ? o[15] : laws::subDriveNeutral);
-                // Deliberate: the old Overtone values in the dead zone (40 or less) become 10.
-                expect(Params::overtone, o[16] <= 40.0f ? 10.0 : cv::overtone(o[16]));
-                if (name == "Crunch Lift")
+                expect(Params::subDrive, laws::subDriveNeutral);
+                // The previous Overtone value sat in the dead zone: it became 10 on the Lean / Replace
+                // law (-5 dB), the same level at about 2-4 % on Add's law.
+                expect(Params::overtone, cv::overtoneForGain(std::pow(10.0, laws::overtoneLevelDb(0.1) / 20.0), get(Params::overtoneMode) < 0.5));
                 {
-                    // Deliberate re-tune: Clip 1 dB, Mix and Push set by render.
-                    expect(Params::outClip, 1.0);
-                    expect(Params::outClipShape, cv::clipShape(o[20], o[19]));
+                    const auto it = v1PitchDrive().find(old.name);
+                    check(it != v1PitchDrive().end(), juce::String("v1 pitch drive table: no ") + old.name);
+                    if (it != v1PitchDrive().end())
+                        expect(Params::pitchDrive, cv::pitchDrive(it->second));
                 }
-                else
-                {
-                    expect(Params::outPush, cv::push(o[17], o[18]));
-                    expect(Params::outClipShape, cv::clipShape(o[20], o[19]));
-                }
+                expect(Params::outPush, cv::push(o[17], o[18]));
+                expect(Params::outClipShape, cv::clipShape(o[20], o[19]));
                 expect(Params::outAttack, std::max(0.2, static_cast<double>(o[21])));
             }
-            check(bad == 0, juce::String(bad) + " factory preset values are not the conversion of the first release's");
-            check(v1Presets().size() == presets.size(), "the v1 preset table covers every factory preset");
+            check(bad == 0, juce::String(bad) + " Init values are not the conversion of the first release's");
+            check(v1Presets().size() == 40 && presets.size() == 43, "40 first-release presets plus Simple Size, Iron Tyrant and Tin Can Drone");
             // The parameter defaults are Init's values.
             int defaults = 0;
             for (const auto& [id, value] : presets[0].values)
@@ -4809,6 +6251,11 @@ namespace
             b.push_back({ Params::ensemble, 60.0f });
             const double d = differenceDb(renderWith(a), renderWith(b));
             check(d > -30.0, "Vibrato at 20 % and 60 % differ by " + juce::String(d, 1) + " dB");
+        }
+        // The top of De-ess keeps taking more (it stopped at the detector's slope near 70 %).
+        {
+            const double d = differenceDb(renderWith({ { Params::deess, 75.0f } }), renderWith({ { Params::deess, 100.0f } }));
+            check(d > -40.0, "De-ess at 75 % and 100 % differ by " + juce::String(d, 1) + " dB");
         }
         // Rattle rattles at the reference level (it was identical to Sine).
         {
@@ -4892,8 +6339,15 @@ int main(int argc, char* argv[])
             }
             else if (a == "--norm")
                 opt.sweepNorm = true;
+            else if (a == "--roll" && i + 2 < argc)
+            {
+                opt.rollFrom = std::atoi(argv[++i]);
+                opt.rollTo = std::atoi(argv[++i]);
+            }
             else if (a == "--no-wav")
                 opt.writeWav = false;
+            else if (a == "--raw-out")
+                opt.rawOutput = true;
             else if (a.rfind("--", 0) == 0)
             {
                 std::printf("unknown or incomplete option %s\n", a.c_str());
@@ -4906,7 +6360,7 @@ int main(int argc, char* argv[])
             for (const auto& code : *codes)
                 if (Params::moduleIndexForCode(code.toStdString()) < 0)
                 {
-                    std::printf("unknown module code %s (one of PI CL DS DT VO RM SH GR SW RO EN TA SU OV)\n", code.toRawUTF8());
+                    std::printf("unknown module code %s (one of PI CL DS DT VO RM SH GR SW RO EN TA SU OV CH)\n", code.toRawUTF8());
                     return 1;
                 }
         if (opt.sweepId.isNotEmpty() && opt.metrics == juce::File())
@@ -4939,7 +6393,9 @@ int main(int argc, char* argv[])
         { "blocks", testBlockSizes },
         { "pitch", testNativeRatePitch },
         { "ring", testRingAndOvertone },
+        { "chamber", testChamber },
         { "editor", testEditor },
+        { "dice", testDice },
         { "creature", testCreature },
         { "logo", testLogoSdf },
         { "motion", testMotion },

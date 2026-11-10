@@ -50,6 +50,13 @@ namespace roar
         std::atomic<int> ringBody { 0 };           // RING: 0 Off, 1 Box, 2 Can
         std::atomic<float> ringBodyMix { 0.0f };   // RING: body mix in effect, 0..1 (On fade scaled)
         std::atomic<float> pitchSt { 0.0f };       // PITCH: applied shift in semitones (0 when Off)
+        std::atomic<float> chamberWet { 0.0f };    // CHAMBER: the wet weight in effect, 0..1 (On fade scaled)
+        std::atomic<float> chamberRing { 0.0f };   // CHAMBER: how strongly the room rings right now, 0..1
+        std::atomic<float> chamberEdge { 0.0f };   // CHAMBER: the speaker's breakup re its input, 0..1
+        std::atomic<float> chamberBoom { 0.0f };   // CHAMBER: the Boom shelf in effect / 9 dB, 0..1
+        std::atomic<float> chamberResonance { 0.0f }; // CHAMBER: the Resonance knob in effect, 0..1 (On fade scaled)
+        std::atomic<float> chamberDecay { 0.0f };  // CHAMBER: the decay in effect, seconds (0 when Off)
+        std::atomic<int> chamberRoom { 0 };        // CHAMBER: the room (Params::ChamberRoom)
 
         // OUTPUT
         std::atomic<float> limiterGrDb { 0.0f };   // maximizer gain reduction, dB (<= 0)

@@ -389,6 +389,17 @@ void MonsterView::updateAnimation (float dt)
     m_strainPhase = std::fmod (m_strainPhase + dt * (1.1f + 1.6f * std::min (m_strain, 1.0f)), 1.0f);
     follow (m_clip, std::abs (safe (load (f.clipDb), -48.0f, 48.0f)) / 4.0f, dt, 0.01f, 0.25f);
 
+    // CHAMBER (kept subtle): while the room rings the head leaves a faint after-image, its wings and
+    // tendrils trailing each movement for about as long as the room's decay (more with Resonance);
+    // Boom adds a slow chest pulse that swells with the level.
+    {
+        const float decay = safe (load (f.chamberDecay), 0.0f, 2.0f);
+        const float ring = safe (load (f.chamberRing), 0.0f, 1.0f) * (0.3f + 0.7f * safe (load (f.chamberResonance), 0.0f, 1.0f));
+        follow (m_chamberEcho, ring, dt, 0.05f, std::max (0.15f, decay));
+        follow (m_chamberBoom, safe (load (f.chamberBoom), 0.0f, 1.0f), dt, 0.30f, 0.60f);
+        m_chamberPhase = std::fmod (m_chamberPhase + dt * 0.7f, 1.0f);
+    }
+
     // Rings travel faster while the sub is loud.
     m_subPhase = std::fmod (m_subPhase + dt * (0.30f + 0.9f * m_subLevel), 1.0f);
 
@@ -468,6 +479,10 @@ void MonsterView::updateAnimation (float dt)
 
         m_head.step (dt, m_jawMotion.y, m_jawMotion.P, m_jawMotion.justEngaged, m_jawMotion.dPdt, m_jawMotion.roarHold,
                      m_audioForces.growl, m_sleep);
+        // The after-image: a slower copy of the wings' trail (the head's 0.35 s follow through a
+        // further 0.1 s, up to 0.5 s with a long decay), so blending towards it always lengthens the trail.
+        const float lag = 0.1f + 0.25f * safe (m_features.chamberDecay.load (std::memory_order_relaxed) * live, 0.0f, 1.6f);
+        follow (m_chamberLagY, m_head.follow, dt, lag, lag);
 
         const float F = m_formation.formation;
         m_formationRate = (m_prevFormation < 0.0f || dt <= 0.0f) ? 0.0f
@@ -527,7 +542,14 @@ void MonsterView::renderOpenGL()
     fr.set (U::uJawVel, m_jawMotion.v);
     fr.set (U::uLip, m_jawMotion.lip);
     fr.set (U::uRoarHold, m_jawMotion.roarHold);
-    fr.set (U::uHead, m_head.offY, m_head.scaleAdd, m_head.follow, m_head.breath);
+    {
+        // CHAMBER: the wings trail towards the after-image; Boom's pulse in the chest (scale and breath).
+        const float echo = juce::jlimit (0.0f, 1.0f, m_chamberEcho) * 0.6f;
+        const float pulse = 0.5f - 0.5f * std::cos (m_chamberPhase * juce::MathConstants<float>::twoPi);
+        const float boom = juce::jlimit (0.0f, 1.0f, m_chamberBoom) * juce::jlimit (0.0f, 1.0f, m_level * 2.0f) * (1.0f - m_sleep);
+        fr.set (U::uHead, m_head.offY, m_head.scaleAdd + 0.008f * boom * pulse,
+                m_head.follow + echo * (m_chamberLagY - m_head.follow), m_head.breath + 0.6f * boom * pulse);
+    }
     fr.set (U::uGrowl, m_knobs.growl);
     fr.set (U::uGrowlMod, juce::jlimit (0.0f, 1.0f, m_audioForces.growl));   // rectified and slow: a shiver, never a 20-80 Hz flicker
     fr.set (U::uLiquid, m_knobs.liquid);

@@ -84,9 +84,12 @@ namespace roar
      *             smoothed over 20 ms (breaths and consonants generate >= 9 dB less)
      *   floor expander: 1:2 below A_env = -60 dBFS, 1 ms / 50 ms
      *
-     * Gain law: L(u) = -10 + 20 u^0.6 dB (laws::overtoneLevelDb; 10 % -> -5 dB, 100 % -> +10 dB), faded linearly to
-     * nothing below u = 0.02 (0 is a bit-exact null in Add), plus +1.5 dB (Lean) or +3 dB
-     * (Replace). Smoothed over 20 ms.
+     * Gain law. Add: g(u) = 1.83 sqrt (10^u - 1) (laws::overtoneAddGain), so the layer's share of
+     * the bands it lands in grows by about the same number of dB per step and is clearly heard
+     * from the middle of the travel (10 % -> -0.6 dB, 50 % -> +8.6 dB, 100 % -> +14.8 dB; 0 is a
+     * bit-exact null). Lean / Replace: L(u) = -10 + 20 u^0.6 dB (laws::overtoneLevelDb), faded
+     * linearly to nothing below u = 0.02, plus +1.5 dB (Lean) or +3 dB (Replace): there the dry
+     * lows make room, so the layer is heard at lower levels. Smoothed over 20 ms.
      *
      * Tracked: A at f0 / 2, B at f0 from the VoiceStream (confidence >= 0.4, otherwise held;
      * 140 Hz before any pitch; octave jumps must persist 40 ms; 30 ms log glide). Frequency then
@@ -142,6 +145,9 @@ namespace roar
         static double amountLawDb (double u);
         static double amountLawGain (double u);
         static double modeMakeupDb (OvertoneMode m);
+        /** The generated layer's gain for Amount u in mode m (Add: laws::overtoneAddGain; Lean /
+            Replace: amountLawGain x the mode's makeup). */
+        static double amountGain (double u, OvertoneMode m);
 
     private:
         struct Band

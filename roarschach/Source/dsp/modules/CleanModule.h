@@ -26,9 +26,10 @@ namespace roar
      *   HPF -> Tone EQ -> expander (gate) -> leveller (Avg) + static makeup -> peak catcher (Peak + 10 ms hold)
      *
      *   - Tone (chip) picks the HPF and EQ: Flat / Voice / Heavy / Radio. A tone change crossfades
-     *     the old and the new filter bank over 20 ms.
+     *     the previous and the new filter bank over 20 ms.
      *   - Gate: depth -30 u dB, ratio 1:(1.5 + 3.5 u) (so the depth is reached), knee 6 dB, hysteresis 4 dB (opens above T + 4, closes
-     *     below T after a 60 ms hold), open 1 ms, close 150 ms. T = floor + 10 dB in [-62, -40] dBFS;
+     *     below T after a 60 ms hold), open 1 ms, close 150 ms. T = floor + O dB in [-72 + O, -50 + O] dBFS,
+     *     O = 6 + 12 u (laws::gateThresholdOffsetDb): higher settings also close on the shorter, louder gaps;
      *     the floor (the mean room level) is learnt only while the gate is closed. A voiced frame
      *     with confidence > 0.6 holds the gate open. Closing moves at |depth| per 150 ms. A gate
      *     held open by a steady room (its quietest level of the last 3 s above T) keeps learning
@@ -113,7 +114,7 @@ namespace roar
         double m_contain = 0.5, m_gateU = 0.45;
         double m_knobCoeff = 0.0;    // one-pole per control block
         int m_ctrlCountdown = 0;
-        double m_gateDepthDb = -18.0, m_gateRatio = 2.5;
+        double m_gateDepthDb = -18.0, m_gateRatio = 2.5, m_gateOffsetDb = 10.0;
         double m_levThreshold = -28.0, m_levSlope = -0.5;
         double m_peakThreshold = -12.0;
         double m_makeupDb = 0.0;

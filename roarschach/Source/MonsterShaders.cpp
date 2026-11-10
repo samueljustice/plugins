@@ -177,19 +177,47 @@ vec3 mistField (vec2 p, vec2 warp)
     vec2 mq = p + uAtmo.yz + warp;
     float mA = texture2D (uNoise, mq * 0.21 + vec2 (0.13, 0.71)).r;
     float mB = texture2D (uNoise, mat2 (0.8, 0.6, -0.6, 0.8) * mq * 0.53 + vec2 (0.57, 0.29)).r;
-    vec2 sq = mat2 (0.98, 0.20, -0.20, 0.98) * (mq - 0.4 * uAtmo.yz) + vec2 (0.0, 0.35 * (mA - 0.5));
-    float mS = texture2D (uNoise, vec2 (sq.x * 0.35, sq.y * 1.6) + vec2 (0.41, 0.83)).r;
+    // the long strokes: bent by a slow layer of their own and by the soft one, so their slant wanders
+    // across the view (never a set of parallel diagonals), and only in patches (they fade where the
+    // soft layer is thin, so none runs the whole width)
+    // (the bending layer varies mostly across the view: varying up it would squeeze the strokes into threads)
+    float mC = texture2D (uNoise, mq * vec2 (0.16, 0.05) + vec2 (0.37, 0.19)).r;
+    vec2 sq = mat2 (0.98, 0.20, -0.20, 0.98) * (mq - 0.4 * uAtmo.yz) + vec2 (0.4 * (mB - 0.5), 0.35 * (mA - 0.5) + 1.6 * (mC - 0.5));
+    float mS = texture2D (uNoise, vec2 (sq.x * 0.5, sq.y * 1.35) + vec2 (0.41, 0.83)).r;
+    mS = mix (0.5, mS, 0.3 + 0.7 * smoothstep (0.3, 0.68, mB));
     float mN = clamp ((0.5 * mA + 0.3 * mB + 0.2 * mS - 0.5) * 3.0, -1.0, 1.0);
     return vec3 (mN, mS, smoothstep (0.2, 0.9, mB));
 }
 
 // The mist's value before the creature's shadow: high-key, lighter towards the top, a little lighter
-// where the cloud under it is dense and lit. y: view height (-0.5..0.5); sun 0..1.2
-float mistValue (vec3 m, float y, float cloud, float sun)
+// where the cloud under it is dense and lit. y: view height (-0.5..0.5); sun 0..1.2. early (0..1):
+// before the body is big and dense enough to shadow much of the mist, its own darker masses go
+// deeper (the lightest values stay where they are), so the view keeps the same spread of values
+// from the first wisps to the full creature
+float mistValue (vec3 m, float y, float cloud, float sun, float early)
 {
-    return 0.785 + 0.13 * m.x + 0.12 * min (m.x, 0.0) + 0.30 * smoothstep (-0.15, 0.8, m.x) + 0.10 * smoothstep (0.5, 0.78, m.y)
-         + 0.10 * (cloud - 0.5) + 0.14 * y + 0.05 * (sun - 0.6);
+    float v = 0.785 + 0.13 * m.x + 0.12 * min (m.x, 0.0) + 0.30 * smoothstep (-0.15, 0.8, m.x) + 0.10 * smoothstep (0.5, 0.78, m.y)
+            + 0.10 * (cloud - 0.5) + 0.14 * y + 0.05 * (sun - 0.6);
+    float dk = max (0.95 - v, 0.0);
+    return v - early * (0.008 + 0.18 * smoothstep (0.0, 0.45, dk));
 }
+
+// How early the stage is, for the mist (1 until the body is large, 0 once it is)
+float mistEarly() { return 1.0 - smoothstep (0.60, 0.86, clamp (uSeedB.w, 0.0, 1.0)); }
+
+// Asleep, the creature is a low, darker hump under the mist: a soft dome rising from the bottom of
+// the view behind where it lies (a value shape with no edge; the field it leaves while it sleeps is
+// too faint and too ragged to cast it). As a share of the body's shadow in the mist.
+float sleepHump (vec2 p)
+{
+    float r = length (vec2 (p.x / 0.62, (p.y + 0.52) / 0.60));
+    return uSleep * 0.55 * (1.0 - smoothstep (0.60, 1.0, r));
+}
+
+// The late stages' lift: the large dense body shadows much of the mist, so the rest is a step lighter.
+// Not while asleep: the sleeping body's shadow is lifted (shadowM x (1 - 0.45 uSleep)), so the lift
+// would only brighten the scene past the awake stages.
+float mistLate() { return 0.045 * smoothstep (0.60, 0.86, clamp (uSeedB.w, 0.0, 1.0)) * (1.0 - clamp (uSleep, 0.0, 1.0)); }
 
 // About one 8-bit step of triangular dither (interleaved gradient plus a hash): the pale, smooth mist
 // bands into contours on an 8-bit target without it
@@ -669,9 +697,11 @@ const char* const c_body = R"GLSL(
     // capillary feathering for the wettest blots
     dInk += (vnoise (h * 45.0) - 0.5) * 0.010 * max (bleedK - 1.0, 0.0);
     // the noisy parts are not true distances: rescale by the gradient so edges and halos keep their width
-    // (only near the edge: inside, the per-quad gradient would show as steps in the shading)
+    // (only near the edge: inside, the per-quad gradient would show as steps in the shading; and not on
+    // a crease, where the gradient folds over inside a pixel quad (a thin spine's axis, the line between
+    // two parts): there it reads near zero, and the rescale stamps a dotted line along the crease)
     float grad = length (vec2 (dFdx (dInk), dFdy (dInk))) * scale / px;
-    float dEdge = dInk / mix (1.0, clamp (grad, 0.25, 1.5), smoothstep (-0.04, -0.01, dInk));
+    float dEdge = dInk / mix (1.0, clamp (grad, 0.25, 1.5), smoothstep (-0.04, -0.01, dInk) * smoothstep (0.3, 0.7, grad));
     float bleed = aa + 0.002 * edgeN;
 )GLSL";
 
@@ -2103,23 +2133,34 @@ const char* const c_compPost = R"GLSL(
     // as soft value shapes: the mist is shadowed by a wide blur of the body (never its outline, its
     // eyespots or its maw's edge, which would be drawn back into the mist), and carries the medium's
     // swirl in its own value; the glows and the deepest shadows come through a little.
+    // (a ring of taps whose orientation turns slowly across the view, mirrored with the blot: a fixed
+    // ring lays eight straight-edged copies of the head into the mist, which read as a soft polygon)
     float bodyW = 0.0;
     {
-        vec2 bo = vec2 (0.07 / uAspect, 0.07);
-        bodyW += cfAt (vUv + vec2 (bo.x, 0.0)).y + cfAt (vUv - vec2 (bo.x, 0.0)).y;
-        bodyW += cfAt (vUv + vec2 (0.0, bo.y)).y + cfAt (vUv - vec2 (0.0, bo.y)).y;
-        bodyW += cfAt (vUv + 0.7 * bo).y + cfAt (vUv - 0.7 * bo).y;
-        bodyW += cfAt (vUv + 0.7 * vec2 (bo.x, -bo.y)).y + cfAt (vUv + 0.7 * vec2 (-bo.x, bo.y)).y;
+        float ra = sign (p.x) * 1.4 * (vnoise (vec2 (abs (p.x), p.y) * 2.7 + vec2 (3.3, 7.1)) - 0.5);
+        vec2 a = vec2 (cos (ra), sin (ra)) * 0.07;
+        vec2 b = vec2 (a.x - a.y, a.x + a.y) * 0.7071 * 0.7;
+        vec2 iv = vec2 (1.0 / uAspect, 1.0);
+        a *= iv;
+        b *= iv;
+        vec2 a2 = vec2 (-a.y / uAspect, a.x * uAspect);
+        vec2 b2 = vec2 (-b.y / uAspect, b.x * uAspect);
+        bodyW += cfAt (vUv + a).y + cfAt (vUv - a).y + cfAt (vUv + a2).y + cfAt (vUv - a2).y;
+        bodyW += cfAt (vUv + b).y + cfAt (vUv - b).y + cfAt (vUv + b2).y + cfAt (vUv - b2).y;
         bodyW *= 0.125;
     }
-    // (with a very soft silhouette, so the eyes and the maw, holes in the density, stay in its shadow)
-    float silS = 1.0 - smoothstep (-0.10, 0.10, d);
-    float shadowM = clamp (0.4 * bodyW + 0.6 * silS, 0.0, 1.0) * smoothstep (0.02, 0.5, F) * (1.0 - 0.7 * gl) * (1.0 - 0.45 * uSleep);
+    // (with a very soft silhouette, so the eyes and the maw, holes in the density, stay in its shadow;
+    // only where there is body round it: spread out, the thin parts (spines, horns, the crown) would
+    // lay a fan of straight-sided rays and a soft trapezoid over the head)
+    float bodyS = smoothstep (0.12, 0.65, bodyW);
+    float silS = (1.0 - smoothstep (-0.10, 0.10, d)) * smoothstep (0.15, 0.50, bodyW);
+    float shadowM = clamp (0.4 * bodyS + 0.6 * silS, 0.0, 1.0) * smoothstep (0.02, 0.5, F) * (1.0 - 0.7 * gl) * (1.0 - 0.45 * uSleep);
+    shadowM = max (shadowM, sleepHump (p) * keep);
     // the egg reads as a soft darker shape in the mist, as the creature does
     shadowM = max (shadowM, 0.85 * (1.0 - smoothstep (-0.08, 0.10, d)) * smoothstep (0.1, 0.5, egg));
     float softMaw = (1.0 - smoothstep (-0.015, 0.04, dMouth)) * Fm * keep;
     vec3 mf = mistField (p, 0.05 * vec2 (D.g - 0.5, D.r - 0.5));
-    float mistV = mistValue (mf, p.y, clamp (D.r, 0.0, 1.2), clamp (sun, 0.0, 1.2)) - 0.28 * shadowM - 0.10 * softMaw;
+    float mistV = mistValue (mf, p.y, clamp (D.r, 0.0, 1.2), clamp (sun, 0.0, 1.2), mistEarly() * (1.0 - 0.8 * shadowM) * (1.0 - 0.35 * uSleep)) + mistLate() - 0.28 * shadowM - 0.10 * softMaw;
     vec3 mistCol = atmoMistCol (mistV, mf.z);
     // its opacity: eased (uAtmo.x), a little uneven, a little thinner round the eyes, over the maw (so
     // the teeth read against its dark inside) and where the scene is deepest; never clear
@@ -2781,12 +2822,13 @@ const char* const c_q0Rest = R"GLSL(
         float bodyW = (1.0 - smoothstep (-0.16, 0.08, dEdge)) * (0.55 + 0.45 * ink);
         float silS = 1.0 - smoothstep (-0.10, 0.10, dEdge);
         float shadowM = clamp (0.4 * bodyW + 0.6 * silS, 0.0, 1.0) * smoothstep (0.02, 0.5, F) * (1.0 - 0.7 * gl) * (1.0 - 0.45 * uSleep);
+        shadowM = max (shadowM, sleepHump (p) * keep);
         shadowM = max (shadowM, 0.85 * (1.0 - smoothstep (-0.08, 0.10, dEdge)) * smoothstep (0.1, 0.5, egg));
         float softMaw = (1.0 - smoothstep (-0.015, 0.04, dMouth)) * Fm * keep;
         vec3 mf = mistField (p, 0.05 * (warp - 0.5));
         // (+0.03: its body-shadow from the widened distance covers more of the wings than the blurred
         // density does, and this tier would sit a step darker than the others)
-        float mistV = mistValue (mf, p.y, cloud, 0.6) + 0.03 - 0.28 * shadowM - 0.10 * softMaw;
+        float mistV = mistValue (mf, p.y, cloud, 0.6, mistEarly() * (1.0 - 0.8 * shadowM) * (1.0 - 0.35 * uSleep)) + mistLate() + 0.03 - 0.28 * shadowM - 0.10 * softMaw;
         vec3 mistCol = atmoMistCol (mistV, mf.z);
         vec2 eRelM = (h - ec) / 0.14;
         float eyeGlowM = clamp (eI * 0.5, 0.0, 1.0) * Fe * keep;

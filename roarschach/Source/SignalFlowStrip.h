@@ -7,15 +7,17 @@
 #include "dsp/MonsterFeatures.h"
 
 #include <array>
+#include <functional>
 #include <memory>
 #include <vector>
 
 /**
- * The signal chain: IN, the 14 movable modules in the order the audio takes them (two rows of
- * seven, joined by a return connector), and OUTPUT.
+ * The signal chain: IN, the 15 movable modules in the order the audio takes them (two rows of
+ * eight slots, joined by a return connector), and OUTPUT. The last slot holds ROLL ALL's die.
  *
  * Every module tile has a header (its On LED, its place in the chain, its name and a move chip),
- * its knobs, a mode chip (a menu of its choice parameters) and a footer readout. A tile is moved
+ * its knobs, a mode chip (a menu of its choice parameters) with the module's die beside it, and a
+ * footer readout. A tile is moved
  * by dragging its header across both rows, from the move chip's menu, or with Alt+Left/Right while
  * one of its controls has the keyboard focus. Every move writes the whole permutation as one host
  * gesture. Position changes from the host or a preset animate the tiles into place: the strip polls
@@ -24,6 +26,8 @@
  * Message thread only. A timer polls the positions and the readouts (MonsterFeatures: relaxed
  * atomics written by the audio thread).
  */
+class DiceButton;
+
 class SignalFlowStrip : public juce::Component, private juce::Timer
 {
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(SignalFlowStrip)
@@ -66,6 +70,23 @@ public:
 
     void showMoveMenu(int module);
     void showModeMenu(int module);
+
+    //==============================================================================
+    // The dice: ROLL ALL (in the empty slot after the last module) and one per module tile. The
+    // editor connects them to the processor's DiceRoller.
+    std::function<void()> onRollAll;
+    std::function<void(int module)> onRollModule;
+    /** A right-click on any die (the undo menu), with the die it came from. */
+    std::function<void(juce::Component& die)> onDiceMenu;
+    /** Cmd+Z (redo false) or Shift+Cmd+Z (redo true) on a die that has the keyboard focus. True if
+        it undid or redid a roll. */
+    std::function<bool(bool redo)> onDiceUndoKey;
+    /** How to take a roll back, for the dice's tooltips. */
+    static juce::String diceUndoHint();
+    /** The face every die shows. */
+    void setDiceFace(int face);
+    DiceButton* getRollAllDice() const { return m_rollAll.get(); }
+    DiceButton* getModuleDice(int module) const;
 
     /** Menus open inside this component instead of on the desktop (a headless snapshot). */
     void setMenuParentForSnapshots(juce::Component* parent) { m_menuParent = parent; }
@@ -129,6 +150,7 @@ private:
     std::unique_ptr<OutputTile> m_outTile;
     std::array<std::unique_ptr<ModuleTile>, Params::numModules> m_tiles;
     std::unique_ptr<DragShadow> m_shadow;
+    std::unique_ptr<DiceButton> m_rollAll;
 
     Params::Order m_order {};          // the order the parameters ask for (last poll)
     Params::Order m_shown {};          // the order the tiles show (m_order, or the drag preview)

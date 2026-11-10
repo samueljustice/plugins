@@ -1,0 +1,61 @@
+name: Roarschach rooms
+description: >
+  Fetches CHAMBER's room captures from the private samueljustice/roarschach-irs repository into a
+  temporary folder outside the source tree. The build processes and encrypts them into the plug-in;
+  they are never committed to this (public) repository and are deleted after the build. Without the
+  deploy key or the encryption key it outputs an empty path and prints a warning, and the build
+  uses CHAMBER's modelled rooms instead (the release workflow fails on a tag run in that case).
+
+inputs:
+  deploy-key:
+    description: Read-only deploy key for samueljustice/roarschach-irs (secrets.ROARSCHACH_IRS_DEPLOY_KEY)
+    required: false
+    default: ''
+  have-ir-key:
+    description: "'true' when secrets.ROARSCHACH_IR_KEY is set (the key itself is never passed to this action)"
+    required: false
+    default: 'false'
+
+outputs:
+  path:
+    description: The folder holding the captures (forward slashes, for CMake), or empty to build the modelled rooms
+    value: ${{ steps.place.outputs.path }}
+
+runs:
+  using: composite
+  steps:
+    - name: Check out the room captures
+      if: inputs.deploy-key != '' && inputs.have-ir-key == 'true'
+      uses: actions/checkout@v5
+      with:
+        repository: samueljustice/roarschach-irs
+        ssh-key: ${{ inputs.deploy-key }}
+        path: .roarschach-irs-download
+        persist-credentials: false
+
+    - name: Move the captures out of the source tree
+      id: place
+      shell: bash
+      env:
+        HAVE_DEPLOY_KEY: ${{ inputs.deploy-key != '' }}
+        HAVE_IR_KEY: ${{ inputs.have-ir-key }}
+      run: |
+        if [[ "$HAVE_DEPLOY_KEY" != "true" || "$HAVE_IR_KEY" != "true" ]]; then
+          echo "::warning title=CHAMBER rooms::ROARSCHACH_IRS_DEPLOY_KEY or ROARSCHACH_IR_KEY is not set: building CHAMBER with its modelled rooms"
+          echo "path=" >> "$GITHUB_OUTPUT"
+          exit 0
+        fi
+        dest="$RUNNER_TEMP/roarschach-irs"
+        rm -rf "$dest"
+        mv "$GITHUB_WORKSPACE/.roarschach-irs-download" "$dest"
+        rm -rf "$dest/.git"
+        count=$(find "$dest" -maxdepth 2 -iname '*.wav' | wc -l | tr -d ' ')
+        if [[ "$count" -lt 8 ]]; then
+          echo "::warning title=CHAMBER rooms::Expected 8 room captures in roarschach-irs, found $count: building CHAMBER with its modelled rooms"
+          rm -rf "$dest"
+          echo "path=" >> "$GITHUB_OUTPUT"
+          exit 0
+        fi
+        if command -v cygpath >/dev/null; then dest=$(cygpath -m "$dest"); fi
+        echo "CHAMBER rooms: $count captures"
+        echo "path=$dest" >> "$GITHUB_OUTPUT"

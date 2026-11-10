@@ -240,6 +240,7 @@ namespace roar
 
         m_gateDepthDb = laws::gateDepthDb (m_gateU);
         m_gateRatio = laws::gateRatio (m_gateU);
+        m_gateOffsetDb = laws::gateThresholdOffsetDb (m_gateU);
         const double c = laws::containCurve (m_contain);
         m_levThreshold = levThresholdFor (c);
         m_levSlope = levSlopeFor (c);
@@ -355,7 +356,10 @@ namespace roar
                 }
                 m_floorPower = std::max (m_floorPower, c_tinyPower);
                 m_floorDb = powerToDb (m_floorPower);
-                m_gateThresholdDb = std::clamp (m_floorDb + c_gateFloorOffsetDb, c_gateThresholdMinDb, c_gateThresholdMaxDb);
+                // The threshold sits laws::gateThresholdOffsetDb above the floor (10 dB at the
+                // reference), and its limits move with it.
+                const double offsetShift = m_gateOffsetDb - c_gateFloorOffsetDb;
+                m_gateThresholdDb = std::clamp (m_floorDb + m_gateOffsetDb, c_gateThresholdMinDb + offsetShift, c_gateThresholdMaxDb + offsetShift);
 
                 if (voicedHint || gateLevel > m_gateThresholdDb + c_gateHysteresisDb)
                 {
@@ -455,6 +459,7 @@ namespace roar
         m_gateU = o.m_gateU;
         m_ctrlCountdown = o.m_ctrlCountdown;
         m_gateDepthDb = o.m_gateDepthDb;
+        m_gateOffsetDb = o.m_gateOffsetDb;
         m_levThreshold = o.m_levThreshold;
         m_levSlope = o.m_levSlope;
         m_peakThreshold = o.m_peakThreshold;

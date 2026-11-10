@@ -41,10 +41,17 @@ namespace roar
         virtual void prepare (double fs, int maxBlock) = 0;   // allocate here only
         virtual void reset() = 0;
         virtual int  getLatencySamples() const = 0;           // constant after prepare
-        virtual bool makesStereo() const { return false; }    // from current settings (ENSEMBLE, SHIMMER Stereo)
+        virtual bool makesStereo() const { return false; }    // from current settings (ENSEMBLE, SHIMMER Stereo, CHAMBER Width > 0)
         virtual void process (float* l, float* r, int n, bool stereo, const VoiceFrameView& voice) = 0;
         virtual void copyStateFrom (const Module& other) = 0; // same concrete type, no allocation
         virtual void copyLeftStateToRight() = 0;
+
+        /**
+         * The post-chain hook: called on the stereo buffers after the last module (and after the
+         * chain's R = L copy), before OUTPUT, once per chunk, in every order. Only CHAMBER uses
+         * it (its Boom shelf); the default does nothing. Zero latency; bit-exact when inactive.
+         */
+        virtual void processReturn (float* /*l*/, float* /*r*/, int /*n*/) {}
 
         /** PITCH returns itself here (it rewrites f0 of the stream it passes on); others nullptr. */
         virtual VoiceRewriter* getVoiceRewriter() { return nullptr; }

@@ -30,7 +30,8 @@ namespace roar
      *   tap_v = cubic Hermite read of one shared line at tau_v
      *   Lw, Rw = equal-power pans per voice (v0 left, v1 right, v2 centre; 6 voices repeat it)
      *   mid_w = (Lw + Rw) / 2,  side_w = (Lw - Rw) / 2 . k_N w(W),  w(W) = 0.859 (W / 1.5)^1.3
-     *   out_L,R = c(m) ((1 - m) x_L,R + m g_N (mid_w +- side_w)),  m = 0.7 Amount
+     *   out_L,R = c(m) ((1 - m) x_L,R + m g_N (mid_w +- side_w)),  m = 0.7 Amount^0.6 (below m = 0.2 the
+     *   chorus is masked in a full chain, so the bottom of the travel gets there quickly)
      *   (laws::ensembleAmount, laws::ensembleSideGain: past m = 0.7 and w = 0.859 the chorus turns
      *   seasick and out of phase, so the travel ends there)
      *

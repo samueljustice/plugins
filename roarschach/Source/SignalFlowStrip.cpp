@@ -1,5 +1,6 @@
 #include "SignalFlowStrip.h"
 
+#include "DiceButton.h"
 #include "RoarschachLookAndFeel.h"
 
 #include <algorithm>
@@ -11,13 +12,14 @@ namespace
 {
     using namespace Theme::Colours;
 
-    // Design-size layout of the strip (1568 x 336 in the editor).
+    // Design-size layout of the strip (1728 x 336 in the editor): IN, two rows of eight module
+    // slots (the last one an empty end-of-row drop target), OUTPUT.
     constexpr int c_inWidth = 112;
     constexpr int c_outWidth = 292;
     constexpr int c_endGap = 16;      // between IN, the module grid and OUTPUT (the connectors run here)
     constexpr int c_gap = 10;         // between two tiles in a row
     constexpr int c_rowGap = 12;      // between the rows (the return connector runs here)
-    constexpr int c_columns = 7;
+    constexpr int c_columns = 8;
     constexpr int c_footerHeight = 16;
     constexpr int c_chipHeight = 18;
     constexpr int c_pad = 8;
@@ -25,6 +27,12 @@ namespace
     constexpr float c_radius = 8.0f;
     constexpr float c_offAlpha = 0.45f;
     constexpr float c_tileValueFont = 11.0f;
+    constexpr int c_diceSize = 18;    // a module's die (its pill, as large as the On button), at the right end of its chip row
+    constexpr int c_diceHit = 22;     // ... and its clickable area, a little larger than the pill
+    constexpr int c_diceGap = 6;      // between the mode chip and the die's pill
+    constexpr int c_rollAllSize = 34; // ROLL ALL's die, in the empty slot at the end of row 2
+    constexpr const char* c_rollAllCaption = "RANDOMISE ALL";
+
 
     constexpr double c_slideMs = 120.0;    // tiles making room for a dragged tile, a drop, a menu move
     constexpr double c_settleMs = 220.0;   // an order changed by the host or a preset
@@ -43,7 +51,7 @@ namespace
         { Params::inAuto, "AUTO", "Brings any voice to the same working level, so every module reacts the same way to a quiet or a loud take." },
         { Params::pitch, "PITCH", "How far the voice is shifted, in semitones. -2 to -4: a bigger human; -5 to -9: a creature; -10 to -14: a monster (add Size, or Formant Keep to hold the words). Below -15 the words blur with Follow; above +6 the throat stops following. In Mono mode it sets the note held (0 st = C3)." },
         { Params::pitchSize, "SIZE", "Makes the throat bigger: lowers the formants and adds body. With Pitch below -18 st and Follow, the throat is already at its lowest, so Size only adds body." },
-        { Params::pitchDrive, "DRIVE", "Tube drive after the shift: up to about 40 % warmth, 50-80 % grit, 100 % heavy." },
+        { Params::pitchDrive, "DRIVE", "Tube drive after the shift: up to about 25 % warmth, 35-70 % grit, 100 % heavy." },
         { Params::pitchMode, "MODE", "Shift moves the voice by the set interval. Snap also lands each note on the nearest semitone. Mono holds the voice on one note, set by Pitch (0 st = C3)." },
         { Params::pitchFormant, "FORMANT", "Follow moves the throat with the pitch, for a bigger or smaller creature. Keep leaves the throat where it is, so only the pitch changes." },
         { Params::cleanContain, "CONTAIN", "Evens out the level and catches peaks before the creature stages. It starts working at the bottom of the travel." },
@@ -98,6 +106,13 @@ namespace
         { Params::outRelease, "RELEASE", "How fast the limiter recovers. With Auto off: 2-10 ms crunch, 25-60 ms grit, 200 ms and up clean." },
         { Params::outAuto, "AUTO", "Auto release: adapts the recovery to the material and keeps the low end clean. Release sets how quickly it breathes." },
         { Params::mix, "MIX", "Blends the processed voice with the dry voice at the same loudness, so only the character changes." },
+        { Params::chamber, "AMOUNT", "How much of the voice played into the room is blended under the dry voice. 15-35 % adds a subtle edge, 45-65 % is a clear chamber; around 80 % the two are equal; at 100 % the room leads." },
+        { Params::chamberResonance, "RESON", "How much the room rings after each sound. Lower is tight and boxy; higher lets its resonances sustain longer. The level stays the same." },
+        { Params::chamberDrive, "EDGE", "Drives the small speaker into breakup: grit at 15-35 %, a cranked speaker at 50-70 %, torn and buzzing towards 100 %. Heard once Amount is about 60 % or more." },
+        { Params::chamberWidth, "WIDTH", "How far the room spreads to the sides. 0 % keeps it centred; 100 % is the room's full stereo. Summed to mono it sounds the same at any Width." },
+        { Params::chamberRoom, "ROOM", "The room the speaker plays into. Steel Box: bright and metallic. Resonant Chamber: long and ringing. Concrete Room: hard and dense. Tin Booth: thin, with a sharp ring. Padded Cell: dark and short. Wood Chamber: warm. Timber Room: sparse and soft. Soft Bloom: a diffuse swell." },
+        { Params::chamberSpeaker, "SPEAKER", "The speaker the voice is played through. Tiny is thin and nasal, Small a compact full-range box, Horn a narrow, honking paging horn." },
+        { Params::chamberBoom, "BOOM", "Low-end weight added after the whole chain, a shelf at 110 Hz: Light +3 dB, Medium +6 dB, Heavy +9 dB." },
     };
 
     const Control* findControl(std::string_view id)
@@ -122,11 +137,27 @@ namespace
             { "LFO+LEVEL", "LFO+LVL" }, { "UP+DOWN", "UP+DN" }, { "RESONANT", "RESON" }, { "REPLACE", "REPL" },
             { "SPEAKER", "SPKR" }, { "TRACKED", "TRACK" }, { "NATURAL", "NATUR" }, { "MEDIUM", "MED" },
             { "VIBRATO", "VIB" }, { "SMOOTH 4", "SMTH 4" },
+            { "STEEL BOX", "STEEL" }, { "RESONANT CHAMBER", "RESONANT" }, { "CONCRETE ROOM", "CONCRETE" }, { "TIN BOOTH", "TIN" },
+            { "PADDED CELL", "PADDED" }, { "WOOD CHAMBER", "WOOD" }, { "TIMBER ROOM", "TIMBER" }, { "SOFT BLOOM", "BLOOM" },
+            { "HEAVY", "HVY" },
         };
         for (const auto& [full, abbreviation] : table)
             if (name == full)
                 return abbreviation;
         return name;
+    }
+
+    /** A still shorter form of a short choice name, for a chip that cannot fit the short ones. */
+    juce::String compactChoice(const juce::String& shortName)
+    {
+        static const std::pair<const char*, const char*> table[] {
+            { "RESONANT", "RESO" }, { "CONCRETE", "CONC" }, { "PADDED", "PAD" }, { "TIMBER", "TIMB" },
+            { "SMALL", "SML" }, { "LIGHT", "LGT" }, { "BLOOM", "BLM" }, { "STEEL", "STL" },
+        };
+        for (const auto& [from, to] : table)
+            if (shortName == from)
+                return to;
+        return shortName;
     }
 
     float textWidth(const juce::Font& font, const juce::String& text)
@@ -307,6 +338,7 @@ public:
         knob->caption.setColour(juce::Label::textColourId, textDim);
         knob->caption.setInterceptsMouseClicks(false, false);
         knob->caption.setMinimumHorizontalScale(1.0f);
+        knob->caption.setBorderSize({ 1, 0, 1, 0 });
         addAndMakeVisible(knob->caption);
 
         m_knobs.push_back(std::move(knob));
@@ -384,11 +416,22 @@ public:
         }
 
         m_moveChip.setTooltip("Moves " + name + " in the chain, or turns it off. You can also drag the tile by its header, "
-                              "or press Alt+Left or Alt+Right.");
+                              "or press Alt+Left or Alt+Right. The tile numbers count all fifteen modules; a host's "
+                              "position parameters count the fourteen other than CHAMBER, so after CHAMBER they read one lower.");
         m_moveChip.setTitle("Move " + name);
         m_moveChip.setColour(juce::PopupMenu::highlightedBackgroundColourId, m_accent);
         m_moveChip.onClick = [this] { m_owner.showMoveMenu(m_module); };
         addAndMakeVisible(m_moveChip);
+
+        m_dice.setTooltip("Rolls new settings for " + name + ": its knobs and modes, each inside its useful range. "
+                          "Its On switch and its place in the chain stay as they are. " + diceUndoHint());
+        m_dice.setTitle("Randomise " + name);
+        m_dice.setAccent(m_accent);
+        m_dice.setPillSize(c_diceSize);
+        m_dice.onClick = [this] { if (m_owner.onRollModule) m_owner.onRollModule(m_module); };
+        m_dice.onSecondaryClick = [this] { if (m_owner.onDiceMenu) m_owner.onDiceMenu(m_dice); };
+        m_dice.onUndoKey = [this](bool redo) { return m_owner.onDiceUndoKey != nullptr && m_owner.onDiceUndoKey(redo); };
+        addAndMakeVisible(m_dice);
 
         m_dragTip = "Drag the header to move " + name + " in the chain.";
         m_footerTip = footerTooltip(static_cast<Params::ModuleId>(m_module));
@@ -423,6 +466,7 @@ public:
             case Params::ModuleId::ensemble: return "WIDTH: how wide the ensemble makes the sound right now.";
             case Params::ModuleId::sub:      return "SUB: the level and frequency of the octave below right now.";
             case Params::ModuleId::overtone: return "BANDS: the centre and level of the two overtone bands right now (TRACK when they follow the voice). R: Replace, the original low end is taken out.";
+            case Params::ModuleId::chamber:  return "The room in use and how long it rings (its decay with Resonance). The bar shows how strongly it is ringing right now.";
         }
         return {};
     }
@@ -476,6 +520,7 @@ public:
             m_knobs[i]->caption.setAlpha(a);
         }
         m_modeChip.setAlpha(alpha);
+        m_dice.setAlpha(alpha);   // still clickable, like the chip
     }
 
     void setSlot(int slot)
@@ -497,10 +542,14 @@ public:
     }
 
     juce::Rectangle<int> footerBounds() const { return { 10, getHeight() - 6 - c_footerHeight, getWidth() - 20, c_footerHeight }; }
-    juce::Rectangle<int> chipBounds() const
+    /** The row above the footer: the mode chip, then the module's die at its right end. */
+    juce::Rectangle<int> chipRowBounds() const
     {
-        return footerBounds().translated(0, -(c_chipHeight + 4)).withHeight(c_chipHeight).reduced(2, 0);
+        return footerBounds().translated(0, -(c_chipHeight + 4)).withHeight(c_chipHeight);
     }
+    juce::Rectangle<int> chipBounds() const { return chipRowBounds().withTrimmedRight(c_diceSize + c_diceGap); }
+    /** The die's clickable area: its pill at the right end of the chip row, and a margin around it. */
+    juce::Rectangle<int> diceBounds() const { return chipRowBounds().removeFromRight(c_diceSize).withSizeKeepingCentre(c_diceHit, c_diceHit); }
 
     void resized() override
     {
@@ -510,12 +559,32 @@ public:
 
         const auto chip = chipBounds();
         m_modeChip.setBounds(chip);
+        m_dice.setBounds(diceBounds());
 
         auto body = getLocalBounds().withTop(c_headerHeight + 4).withBottom(chip.getY() - 2).reduced(6, 0);
         const int count = isRing() ? 2 : static_cast<int>(m_knobs.size());
         if (count == 1)
         {
             placeKnob(*m_knobs[0], body.withSizeKeepingCentre(body.getWidth() / 2, body.getHeight()));
+            return;
+        }
+
+        if (count == 4)
+        {
+            // CHAMBER: four equal knobs.
+            body = body.expanded(3, 0);
+            const int w = body.getWidth() / 4;
+            for (int k = 0; k < 4; ++k)
+                placeKnob(*m_knobs[static_cast<size_t>(k)], k < 3 ? body.removeFromLeft(w) : body);
+            // The narrower cells take a smaller caption where the full word would not fit.
+            for (auto& knob : m_knobs)
+            {
+                float height = 9.0f;
+                while (height > 7.5f && juce::GlyphArrangement::getStringWidth(m_owner.m_fonts.label(height), knob->caption.getText())
+                                            > static_cast<float>(knob->caption.getWidth()) - 1.0f)
+                    height -= 0.25f;
+                knob->caption.setFont(m_owner.m_fonts.label(height));
+            }
             return;
         }
 
@@ -741,6 +810,15 @@ public:
                 }
                 break;
             }
+            case Params::ModuleId::chamber:
+            {
+                // The room (first word of its name), its decay, and a bar for the ring right now.
+                const int room = juce::jlimit(0, static_cast<int>(Params::chamberRoomNames.size()) - 1, juce::roundToInt(v[2]));
+                caption(juce::String(Params::chamberRoomNames[static_cast<size_t>(room)]).upToFirstOccurrenceOf(" ", false, false).toUpperCase());
+                value(juce::String(v[1], 2) + " s");
+                drawBar(g, bar(), v[0], m_accent);
+                break;
+            }
         }
     }
 
@@ -800,7 +878,7 @@ public:
     const Params::ModuleSpec& m_spec;
     int m_slot = -1;
     bool m_on = true, m_lifted = false, m_pressInHeader = false;
-    std::array<bool, 3> m_knobDimmed {};
+    std::array<bool, 4> m_knobDimmed {};
     juce::String m_dragTip, m_footerTip;
     float m_blinkPhase = 0.0f;
 
@@ -808,6 +886,7 @@ public:
     std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> m_onAttachment;
     juce::TextButton m_modeChip;
     MoveChip m_moveChip;
+    DiceButton m_dice { "Randomise" };
     std::array<float, 34> m_values {};
 };
 
@@ -1026,6 +1105,21 @@ SignalFlowStrip::SignalFlowStrip(juce::AudioProcessorValueTreeState& parameters,
     m_inTile = std::make_unique<InTile>(*this);
     addAndMakeVisible(*m_inTile);
 
+    // ROLL ALL, before the tiles so a dragged tile passes over it.
+    m_rollAll = std::make_unique<DiceButton>("Randomise All");
+    m_rollAll->setTitle("Randomise All");
+    m_rollAll->setTooltip("Rolls a new creature: turns three to seven modules on (the rest off) and gives every module's knobs "
+                          "and modes new settings, each inside its useful range. The module order, IN and OUTPUT stay as they are, "
+                          "so the level stays safe. " + diceUndoHint());
+    m_rollAll->setAccent(output);
+    m_rollAll->onClick = [this] { if (onRollAll) onRollAll(); };
+    m_rollAll->onSecondaryClick = [this] { if (onDiceMenu) onDiceMenu(*m_rollAll); };
+    m_rollAll->onUndoKey = [this](bool redo) { return onDiceUndoKey != nullptr && onDiceUndoKey(redo); };
+    // The caption is part of the button: it clicks, hovers and shows the tooltip with the die.
+    m_rollAll->setPillSize(c_rollAllSize);
+    m_rollAll->setCaption(c_rollAllCaption, m_fonts.label(9.0f), c_captionHeight);
+    addAndMakeVisible(*m_rollAll);
+
     for (int m = 0; m < Params::numModules; ++m)
     {
         m_tiles[static_cast<size_t>(m)] = std::make_unique<ModuleTile>(*this, m);
@@ -1117,9 +1211,8 @@ Params::Order SignalFlowStrip::getOrder() const
 
 void SignalFlowStrip::setOrder(const Params::Order& order)
 {
-    std::array<int, Params::numModules> slotOf {};
-    for (int slot = 0; slot < Params::numModules; ++slot)
-        slotOf[static_cast<size_t>(order[static_cast<size_t>(slot)])] = slot;
+    // 1.0's modules: their place among those 14; CHAMBER: its slot (see Params::resolveOrder).
+    const auto slotOf = Params::positionsFor(order);
 
     std::array<juce::RangedAudioParameter*, Params::numModules> changed {};
     for (int m = 0; m < Params::numModules; ++m)
@@ -1128,7 +1221,7 @@ void SignalFlowStrip::setOrder(const Params::Order& order)
         if (p != nullptr && juce::roundToInt(p->convertFrom0to1(p->getValue())) != slotOf[static_cast<size_t>(m)])
             changed[static_cast<size_t>(m)] = p;
     }
-    // The whole permutation is one write: the audio thread keeps the old order until it is done.
+    // The whole permutation is one write: the audio thread keeps the previous order until it is done.
     const roar::PositionWrites::Scope positionScope(m_positionWrites);
     for (auto* p : changed)
         if (p != nullptr)
@@ -1144,12 +1237,7 @@ void SignalFlowStrip::setOrder(const Params::Order& order)
 Params::Order SignalFlowStrip::orderAfterMove(const Params::Order& order, int module, int item)
 {
     if (item == resetOrder)
-    {
-        Params::Order reference {};
-        for (int k = 0; k < Params::numModules; ++k)
-            reference[static_cast<size_t>(k)] = k;
-        return reference;
-    }
+        return Params::referenceOrder();
 
     std::vector<int> list(order.begin(), order.end());
     const auto it = std::find(list.begin(), list.end(), module);
@@ -1195,9 +1283,7 @@ juce::PopupMenu SignalFlowStrip::buildMoveMenu(int module) const
         after.addItem(moveAfterBase + m, name, m != before, m == before);
     }
 
-    bool isReference = true;
-    for (int k = 0; k < Params::numModules; ++k)
-        isReference = isReference && order[static_cast<size_t>(k)] == k;
+    const bool isReference = order == Params::referenceOrder();
 
     juce::PopupMenu menu;
     menu.setLookAndFeel(&getLookAndFeel());
@@ -1289,7 +1375,7 @@ juce::PopupMenu SignalFlowStrip::buildModeMenu(int module, std::vector<std::pair
 juce::String SignalFlowStrip::modeChipText(int module, float maxWidth) const
 {
     const auto& spec = Params::modules[static_cast<size_t>(module)];
-    juce::StringArray full, shortened;
+    juce::StringArray full, shortened, compact;
     for (const char* id : spec.chipIds)
     {
         if (id == nullptr)
@@ -1297,20 +1383,23 @@ juce::String SignalFlowStrip::modeChipText(int module, float maxWidth) const
         const auto& s = Params::spec(id);
         const int c = juce::jlimit(0, s.numChoices - 1, juce::roundToInt(rawValue(id)));
         const auto name = juce::String(s.choices[c]).toUpperCase();
-        // RING's Body says nothing while it is Off.
-        if (std::string_view(id) == Params::ringBody && c == 0)
+        // RING's Body and CHAMBER's Boom say nothing while they are Off.
+        if ((std::string_view(id) == Params::ringBody || std::string_view(id) == Params::chamberBoom) && c == 0)
             continue;
         full.add(name);
         shortened.add(shortChoice(name));
+        compact.add(compactChoice(shortChoice(name)));
     }
 
     const auto separator = juce::String::fromUTF8(" \xc2\xb7 ");
     const auto font = m_fonts.label(9.0f);
-    // Full names, then short ones, then short ones packed tight (the button cuts anything longer).
-    for (const auto& candidate : { full.joinIntoString(separator), shortened.joinIntoString(separator) })
+    // Full names, then short ones, then short ones packed tight, then shorter ones packed tight (the
+    // button cuts anything longer).
+    const auto tight = juce::String::fromUTF8("\xc2\xb7");
+    for (const auto& candidate : { full.joinIntoString(separator), shortened.joinIntoString(separator), shortened.joinIntoString(tight) })
         if (textWidth(font, candidate) <= maxWidth)
             return candidate;
-    return shortened.joinIntoString(juce::String::fromUTF8("\xc2\xb7"));
+    return compact.joinIntoString(tight);
 }
 
 juce::PopupMenu::Options SignalFlowStrip::menuOptions(juce::Component& target) const
@@ -1351,13 +1440,15 @@ void SignalFlowStrip::showModeMenu(int module)
 //==============================================================================
 int SignalFlowStrip::stereoSplitSlot(const Params::Order& order) const
 {
-    // The same rule as the chain: the first ENSEMBLE that is On, or SHIMMER On in Stereo mode.
+    // The same rule as the chain: the first ENSEMBLE that is On, SHIMMER On in Stereo mode, or
+    // CHAMBER On with some Width.
     for (int k = 0; k < Params::numModules; ++k)
     {
         const auto m = static_cast<Params::ModuleId>(order[static_cast<size_t>(k)]);
         if ((m == Params::ModuleId::ensemble && isModuleOn(static_cast<int>(m)))
             || (m == Params::ModuleId::shimmer && isModuleOn(static_cast<int>(m))
-                && juce::roundToInt(rawValue(Params::shimmerMode)) == static_cast<int>(Params::ShimmerMode::stereo)))
+                && juce::roundToInt(rawValue(Params::shimmerMode)) == static_cast<int>(Params::ShimmerMode::stereo))
+            || (m == Params::ModuleId::chamber && isModuleOn(static_cast<int>(m)) && rawValue(Params::chamberWidth) > 0.0f))
             return k;
     }
     return Params::numModules;
@@ -1388,10 +1479,39 @@ int SignalFlowStrip::nearestSlot(juce::Point<float> centre) const
     return best;
 }
 
+juce::String SignalFlowStrip::diceUndoHint()
+{
+   #if JUCE_MAC
+    return "Right-click any die to undo a roll (or press Cmd+Z straight after clicking it).";
+   #else
+    return "Right-click any die to undo a roll (or press Ctrl+Z straight after clicking it).";
+   #endif
+}
+
+DiceButton* SignalFlowStrip::getModuleDice(int module) const
+{
+    return juce::isPositiveAndBelow(module, Params::numModules) ? &m_tiles[static_cast<size_t>(module)]->m_dice : nullptr;
+}
+
+void SignalFlowStrip::setDiceFace(int face)
+{
+    m_rollAll->setFace(face);
+    for (auto& tile : m_tiles)
+        tile->m_dice.setFace(face);
+}
+
 void SignalFlowStrip::resized()
 {
     m_inTile->setBounds(getLocalBounds().removeFromLeft(c_inWidth));
     m_outTile->setBounds(getLocalBounds().removeFromRight(c_outWidth));
+    {
+        // The empty slot after the last module: the die above the wire into OUTPUT, its caption under it.
+        const auto slot = getSlotBounds(Params::numModules);
+        const int captionWidth = juce::roundToInt(std::ceil(juce::GlyphArrangement::getStringWidth(m_fonts.label(9.0f), c_rollAllCaption))) + 8;
+        const int width = std::max(c_rollAllSize, captionWidth);
+        m_rollAll->setBounds(slot.getCentreX() - width / 2, slot.getY() + 22, width,
+                             c_rollAllSize + DiceButton::c_captionGap + c_captionHeight);
+    }
     for (auto& a : m_animations)
         a.active = false;
     layoutTiles(false, 0.0);
@@ -1718,7 +1838,8 @@ void SignalFlowStrip::timerCallback()
 
         if (tile.m_modeChip.isVisible())
         {
-            const auto t = modeChipText(m, static_cast<float>(tile.m_modeChip.getWidth() - 16));
+            // The LookAndFeel narrows its padding for a label that needs the room: keep 5 px each side.
+            const auto t = modeChipText(m, static_cast<float>(tile.m_modeChip.getWidth() - 10));
             if (t != tile.m_modeChip.getButtonText())
                 tile.m_modeChip.setButtonText(t);
         }
@@ -1767,6 +1888,11 @@ void SignalFlowStrip::timerCallback()
                 v[3] = std::round(load(f.overtoneBandLevel[1]) * 24.0f) / 24.0f;
                 v[4] = juce::roundToInt(rawValue(Params::overtonePattern)) == 5 ? 1.0f : 0.0f;
                 v[5] = juce::roundToInt(rawValue(Params::overtoneMode)) == 2 ? 1.0f : 0.0f;
+                break;
+            case Params::ModuleId::chamber:
+                v[0] = std::round(juce::jlimit(0.0f, 1.0f, load(f.chamberRing)) * 50.0f) / 50.0f;
+                v[1] = std::round(load(f.chamberDecay) * 100.0f) / 100.0f;
+                v[2] = static_cast<float>(juce::roundToInt(rawValue(Params::chamberRoom)));
                 break;
         }
         tile.setValues(v);

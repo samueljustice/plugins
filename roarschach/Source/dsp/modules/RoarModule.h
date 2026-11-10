@@ -30,7 +30,7 @@ namespace roar
      *                     -7 dB at 0.6, flat above; laws::roarScoopDb),
      *                     treble boost (1st-order high shelf 2.5 kHz + 2nd-order 10 kHz shelf, 35/65),
      *                     bass = 6 (a - s t) dB, treble = 7 (a + s t) dB, Tone t, tilt strength
-     *                     s = 1.5 max (a, 0.5) (laws::roarToneStrength: Tone works at low Drive too),
+     *                     s = 1.5 at every Drive (laws::roarToneStrength: Tone works at low Drive too),
      *                     fixed +1.5 dB top lift
      *      -> x Drive2 -> Miller LPF 2 (16 kHz) -> TRIODE 2 (lighter bias shift) -> / Drive2
      *      -> 2x down -> output transformer (1-pole LPF 18 kHz * 0.75^a, HPF 25 Hz Q 0.9)

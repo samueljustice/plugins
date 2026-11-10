@@ -145,9 +145,10 @@ namespace
     const std::array<juce::Identifier, 4> c_creatureFamily { juce::Identifier { "viewCreatureFluid" }, juce::Identifier { "viewCreatureBeast" },
                                                              juce::Identifier { "viewCreatureEldritch" }, juce::Identifier { "viewCreatureDeep" } };
 
-    // The chain holds a little sound after the input stops (the ensemble lines, the body combs,
-    // the release times); this covers it with room to spare.
-    constexpr double c_tailSeconds = 0.5;
+    // The chain holds sound after the input stops (CHAMBER's rooms ring for up to 0.75 s, with
+    // Resonance up to about 1.1 s; the ensemble lines, the body combs, the release times); this
+    // covers it with room to spare.
+    constexpr double c_tailSeconds = 1.5;
 }
 
 juce::AudioProcessor* JUCE_CALLTYPE createPluginFilter()
@@ -161,6 +162,7 @@ RoarschachAudioProcessor::RoarschachAudioProcessor()
                        .withOutput("Output", juce::AudioChannelSet::stereo(), true))
       , m_parameters(*this, nullptr, juce::Identifier("RoarschachParameters"), createParameterLayout())
       , m_presetManager(m_parameters, [this](const juce::AudioProcessorListener::ChangeDetails& details) { m_hostDisplay.post(details); }, &m_positionWrites)
+      , m_dice(m_parameters, m_presetManager, [this](const juce::AudioProcessorListener::ChangeDetails& details) { m_hostDisplay.post(details); })
 {
     for (int i = 0; i < Params::numParameters; ++i)
     {
@@ -180,13 +182,13 @@ juce::AudioProcessorValueTreeState::ParameterLayout RoarschachAudioProcessor::cr
 {
     // The order of Params::all is the AU index order: it never changes once released, so saved
     // sessions and automation keep mapping to the same parameters (Logic addresses AU
-    // parameters by index).
-    constexpr int v = Params::versionHint;
+    // parameters by index). Each row carries its own version hint: 1 for 1.0's, 2 for the rows
+    // appended in 1.1.
     juce::AudioProcessorValueTreeState::ParameterLayout layout;
 
     for (const auto& spec : Params::all)
     {
-        const juce::ParameterID id(spec.id, v);
+        const juce::ParameterID id(spec.id, spec.version);
         switch (spec.kind)
         {
             case Params::Kind::toggle:
@@ -199,6 +201,26 @@ juce::AudioProcessorValueTreeState::ParameterLayout RoarschachAudioProcessor::cr
                 break;
 
             case Params::Kind::position:
+                if (std::string_view(spec.id) == Params::chamberPos)
+                {
+                    // CHAMBER's insertion slot: how many of the other 14 modules come before it
+                    // (their positions count those 14 only, as in 1.0).
+                    layout.add(std::make_unique<juce::AudioParameterInt>(
+                        id, spec.name, juce::roundToInt(spec.minValue), juce::roundToInt(spec.maxValue), juce::roundToInt(spec.defaultValue),
+                        juce::AudioParameterIntAttributes()
+                            .withStringFromValueFunction([](int p, int)
+                            {
+                                const int slot = juce::jlimit(0, Params::numLegacyModules, p);
+                                return slot == 0 ? juce::String("before 1st")
+                                                 : "after " + juce::String(Params::positionNames[static_cast<size_t>(slot - 1)]);
+                            })
+                            .withValueFromStringFunction([max = juce::roundToInt(spec.maxValue)](const juce::String& text)
+                            {
+                                return text.trim().startsWithIgnoreCase("before") ? 0
+                                                                                  : juce::jlimit(0, max, text.retainCharacters("0123456789").getIntValue());
+                            })));
+                    break;
+                }
                 layout.add(std::make_unique<juce::AudioParameterInt>(
                     id, spec.name, juce::roundToInt(spec.minValue), juce::roundToInt(spec.maxValue), juce::roundToInt(spec.defaultValue),
                     juce::AudioParameterIntAttributes()
@@ -206,9 +228,9 @@ juce::AudioProcessorValueTreeState::ParameterLayout RoarschachAudioProcessor::cr
                         {
                             return juce::String(Params::positionNames[static_cast<size_t>(juce::jlimit(0, Params::numModules - 1, p))]);
                         })
-                        .withValueFromStringFunction([](const juce::String& text)
+                        .withValueFromStringFunction([max = juce::roundToInt(spec.maxValue)](const juce::String& text)
                         {
-                            return juce::jlimit(0, Params::numModules - 1, text.getIntValue() - 1);
+                            return juce::jlimit(0, max, text.getIntValue() - 1);
                         })));
                 break;
 
@@ -572,7 +594,8 @@ void RoarschachAudioProcessor::setStateInformation(const void* data, int sizeInB
         if (child.hasProperty("value") && !std::isfinite(static_cast<double>(child.getProperty("value"))))
             child.removeProperty("value", nullptr);
 
-    // A state saved with the first release's knob laws: convert its values so it sounds the same.
+    // A state saved with the first release's knob laws: convert its values to the nearest setting under
+    // the new laws (close, not identical: see migrateFromV1 for what cannot be carried over).
     if (xmlState->getIntAttribute(c_stateVersion.toString(), 0) < c_currentStateVersion)
     {
         std::map<std::string, double> values;
@@ -789,6 +812,15 @@ roar::ChainSettings RoarschachAudioProcessor::readSettings() const
     s.overtone.freqOct = value(overtoneFreq);
     s.overtone.pattern = static_cast<::roar::OvertonePattern>(choice(overtonePattern));
     s.overtone.mode = static_cast<::roar::OvertoneMode>(choice(overtoneMode));
+
+    s.chamber.on = toggle(chamberOn);
+    s.chamber.amount = percent(chamber);
+    s.chamber.resonance = percent(chamberResonance);
+    s.chamber.edge = percent(chamberDrive);
+    s.chamber.width = percent(chamberWidth);
+    s.chamber.room = choice(chamberRoom);
+    s.chamber.speaker = choice(chamberSpeaker);
+    s.chamber.boom = choice(chamberBoom);
 
     s.output.pushDb = value(outPush);
     s.output.ceilingDb = value(outCeiling);

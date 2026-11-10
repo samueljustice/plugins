@@ -105,8 +105,12 @@ namespace roar
     {
         if (! (k0 > 0.0))
             return 0.0;
-        const double k = k0 * (0.6 + 0.4 * std::max (0.0, amount) / c_defaultAmount);
-        return std::min ({ k, 1.3 * k0, c_maxK });
+        // The resonance rises with the mix over the whole travel (1.74 k0 at full wet; it used to stop
+        // at 1.3 k0 from a = 0.61), so the top of the travel deepens the swirl, not only the blend.
+        // Below a = 0.3 it holds 0.94 k0, so a small mix is already a resonant swirl (it used to
+        // fall to 0.6 k0, and the first steps were lost under the rest of a chain).
+        const double k = k0 * std::max (0.94, 0.6 + 0.4 * std::max (0.0, amount) / c_defaultAmount);
+        return std::min (k, c_maxK);
     }
 
     double SwirlModule::makeupFor (double k)
