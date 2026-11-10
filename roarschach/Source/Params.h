@@ -155,8 +155,9 @@ namespace Params
     inline constexpr std::array<const char*, 2> ringModeNames { "Ring", "AM" };
     inline constexpr std::array<const char*, 3> ringBodyNames { "Off", "Box", "Can" };
     // Frozen once released: appending a choice changes the VST3 normalised values and the AU range.
-    inline constexpr std::array<const char*, 8> chamberRoomNames { "Steel Box", "Resonant Chamber", "Concrete Room", "Tin Booth",
-                                                                  "Padded Cell", "Wood Chamber", "Timber Room", "Soft Bloom" };
+    inline constexpr std::array<const char*, 10> chamberRoomNames { "Steel Box", "Resonant Chamber", "Concrete Room", "Tin Booth",
+                                                                   "Padded Cell", "Wood Chamber", "Timber Room", "Soft Bloom",
+                                                                   "Party Wall", "Tower Block" };
     inline constexpr std::array<const char*, 3> chamberSpeakerNames { "Tiny", "Small", "Horn" };
     inline constexpr std::array<const char*, 4> chamberBoomNames { "Off", "Light", "Medium", "Heavy" };
 
@@ -179,7 +180,7 @@ namespace Params
     enum class EnsembleMotion : int { slow, medium, fast, vibrato };
     enum class SubRegister : int { follow, tight, deep };
     enum class SubCharacter : int { clean, resonant, thick };
-    enum class ChamberRoom : int { steelBox, resonantChamber, concreteRoom, tinBooth, paddedCell, woodChamber, timberRoom, softBloom };
+    enum class ChamberRoom : int { steelBox, resonantChamber, concreteRoom, tinBooth, paddedCell, woodChamber, timberRoom, softBloom, partyWall, towerBlock };
     enum class ChamberSpeaker : int { tiny, small, horn };
     enum class ChamberBoom : int { off, light, medium, heavy };
 

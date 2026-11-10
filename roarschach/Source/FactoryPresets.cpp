@@ -35,7 +35,7 @@ namespace
     namespace pat { [[maybe_unused]] constexpr int chest = 0, throat = 1, beast = 2, speaker = 3, broad = 4, tracked = 5; }   // Overtone Pattern
     namespace om { [[maybe_unused]] constexpr int add = 0, lean = 1, replace = 2; }                      // Overtone Mode
     namespace room { [[maybe_unused]] constexpr int steelBox = 0, resonantChamber = 1, concreteRoom = 2, tinBooth = 3, paddedCell = 4,
-                     woodChamber = 5, timberRoom = 6, softBloom = 7; }                                   // Chamber Room
+                     woodChamber = 5, timberRoom = 6, softBloom = 7, partyWall = 8, towerBlock = 9; }    // Chamber Room
     namespace spk { [[maybe_unused]] constexpr int tiny = 0, small = 1, horn = 2; }                      // Chamber Speaker
     namespace boom { [[maybe_unused]] constexpr int off = 0, light = 1, medium = 2, heavy = 3; }         // Chamber Boom
 
@@ -524,6 +524,53 @@ const std::vector<PresetManager::FactoryPreset>& PresetManager::getFactoryPreset
             .ov(on, 35.0f, 0.0f, pat::chest, om::add)
             .ch(on, 55.0f, 75.0f, 0.0f, 100.0f, room::resonantChamber, spk::small, boom::off)
             .out(8.0f, -1.0f, 0.0f, 0.0f, 2.0f, 60.0f, on, 100.0f)),
+
+        // Something big on the other side of the wall: a slow, low creature (nine semitones down
+        // with a lower throat, a heavy opto chop, a dark snarl and a deep octave) heard mostly
+        // through the wall of the next room, dark and booming, with only a little of it in the
+        // room with you.
+        preset("Thing Next Door", "Creatures", Sound()
+            .order("PI CL DS DT VO RM SH GR SW RO EN TA SU OV CH")
+            .in(0.0f, on)
+            .pi(on, -9.0f, 45.0f, 12.0f, pm::shift, fm::follow)
+            .cl(on, 25.0f, 35.0f, tone::voice)
+            .ds(on, 45.0f, ds::split)
+            .dt(on, 35.0f, 25.0f, spd::natural)
+            .vo(off, 41.0f, oct::down1)
+            .rm(off, 40.0f, 150.0f, 1.0f, car::sine, trk::fixed, rmode::ring, body::off)
+            .sh(on, 15.0f, 9.0f, sh::up)
+            .gr(on, 30.0f, 14.0f, shape::opto, chr::warm)
+            .sw(off, 21.0f, 0.35f, circ::liquid4, mot::lfoLevel)
+            .ro(on, 50.0f, -30.0f, vc::line)
+            .en(on, 15.0f, 30.0f, voices::three, emot::slow)
+            .ta(on, 8.0f)
+            .su(on, 55.0f, 20.0f, reg::deep, sc::clean)
+            .ov(on, 15.0f, 0.0f, pat::beast, om::add)
+            .ch(on, 85.0f, 45.0f, 0.0f, 60.0f, room::partyWall, spk::small, boom::light)
+            .out(7.0f, -1.0f, 0.0f, 0.0f, 2.0f, 60.0f, on, 100.0f)),
+
+        // A hissing stalker far down the hall: barely lower, the throat kept, breaths and mouth
+        // noises lifted, a quick rattle, a dark slow phaser and a wide crowd of six voices, all
+        // ringing down a long, dark concrete corridor at full width.
+        preset("Stairwell Stalker", "Creatures", Sound()
+            .order("PI CL DS DT VO RM SH GR SW RO EN TA SU OV CH")
+            .in(0.0f, on)
+            .pi(on, -4.0f, 30.0f, 8.0f, pm::shift, fm::keep)
+            .cl(on, 30.0f, 30.0f, tone::voice)
+            .ds(on, 30.0f, ds::split)
+            .dt(on, 60.0f, 45.0f, spd::natural)
+            .vo(off, 41.0f, oct::down1)
+            .rm(off, 40.0f, 150.0f, 1.0f, car::sine, trk::fixed, rmode::ring, body::off)
+            .sh(on, 22.0f, 6.0f, sh::down)
+            .gr(on, 18.0f, 32.0f, shape::rattle, chr::warm)
+            .sw(on, 25.0f, 0.2f, circ::dark5, mot::lfo)
+            .ro(on, 30.0f, -20.0f, vc::line)
+            .en(on, 30.0f, 70.0f, voices::six, emot::slow)
+            .ta(on, 10.0f)
+            .su(on, 30.0f, 20.0f, reg::tight, sc::clean)
+            .ov(off, 4.0f, 0.0f, pat::chest, om::add)
+            .ch(on, 50.0f, 80.0f, 0.0f, 100.0f, room::towerBlock, spk::small, boom::off)
+            .out(7.0f, -1.0f, 0.0f, 0.0f, 2.0f, 60.0f, on, 100.0f)),
 
         // VOICES (intelligibility first) ----------------------------------------------------------
         // A huge but clear storyteller in a warm wooden room.

@@ -622,7 +622,7 @@ Nothing clamped, produced non-finite samples or turned BROKEN in any sweep. The 
 | Resonance | 0–100 %, 40 | 0–100 %. Steel Box T20 0.26 / 0.42 / 0.63 s at 0 / 40 / 100 %, EDT 0.26 / 0.57 / 0.80 s; the late part's level −9 / 0 / +9 dB | None on decay. The loudness and 1/3-octave metrics read it dead, as designed | Only the defects above | Late level linear in dB with a knee at 40 %; decay ×0.55 → ×1 over 0–40 %, then ×1 → the room's longest. T20 grows 0.04–0.05 s per 10 % | **Laws kept** and moved to `laws::chamberLateLevelDb` / `chamberDecayScale`. The decay start and the per-room limit are new (defects 2 and 3). The wet's level holds within ±1 dB of its 40 % value on real voices in every room (Resonant Chamber −0.9 / +1.2 dB at the ends, the widest; it was −3.5 / +9.1 dB in Soft Bloom) |
 | Edge | 0–100 %, 30 | 10–100 % at IN's working level. The distortion residual on the voice before the room (Small) is −27 / −24 / −20 / −15 / −11 / −9 dB at 10 / 30 / 50 / 70 / 90 / 100 %, about 2 dB per 10 %. THD on 110 Hz at −12 dBFS: 3.5 % at 10 %, 10 % at 50 %, 16–18 % from 70 % (Small); Tiny and Horn reach 25–29 % | Heard only where the wet is: at Chamber 50 % the residual is 9 dB further down, under the rest of Init. At Chamber 80 % in Init, Edge 30 % already changes the 0.5–2 kHz band by −24 dB, more than a 10 % step of ROAR Drive (−29 dB) | None. Aliasing is −66 dB at worst (Horn, 997 Hz at −6 dBFS, 48 kHz, Edge 90–100 %) and under −75 dB everywhere else | Linear in dB of drive (`laws::chamberEdgeDriveDb`, 24 u dB). Even at the working level. Without Auto Level, on a quiet take, the bottom 40 % does little | **No change.** The audit's even feel holds where the plug-in runs: IN puts the voice at the working level |
 | Width | 0–100 %, 35 | 0–100 %. At Chamber 100 % the L/R correlation is 1 / 0.89 / 0.71 / 0.53 / 0.35 / 0.20 at 0 / 20 / 40 / 60 / 80 / 100 % (it was 1 / 0.95 / 0.81 / 0.61 / 0.40 / 0.20) | Linear gain: the bottom 20 % was nearly mono (correlation 0.993 at 20 % with Chamber 50 %) | None. The mono fold-down is the same at every Width, bit for bit (0.00 LU with CHAMBER on its own). In Init it moves by at most 0.45 LU, through OUTPUT's limiter | Side gain w^0.75 (`laws::chamberSideGain`) | **Remapped.** At Chamber 50 % the correlation steps are now 0.005–0.022 per 10 %, spread evenly (they were 0.002–0.028 and back-loaded) |
-| Room | 8 rooms, Concrete Room | All. See the room table | – | – | – | Level-matched (defect 4): on voice-band pink the eight rooms sit within 0.7 dB (captures) and 1.8 dB (modelled). A single sung pitch still lands on or between a room's modes (−3.2 to +2.9 dB at 110 Hz) |
+| Room | 10 rooms, Concrete Room | All. See the room table | – | – | – | Level-matched (defect 4): on voice-band pink the first eight rooms sit within 0.7 dB (captures) and 1.8 dB (modelled). A single sung pitch still lands on or between a room's modes (−3.2 to +2.9 dB at 110 Hz) |
 | Speaker | Tiny / Small / Horn, Small | All (after defect 1) | – | – | – | Small is the fullest (energy under 220 Hz −10 dB of its wet). Tiny thins to a phone-sized speaker (−25 dB). Horn is a narrow paging band (−34 dB), the most "PA" |
 | Boom | Off / Light / Medium / Heavy, Light | Off to Heavy in Init: 40–100 Hz +1.9 / +3.6 / +5.1 dB, loudness +0.27 / +0.52 / +0.78 LU, 1–4 kHz −0.4 / −1.0 / −1.7 dB | – | Medium and Heavy on a preset that already drives OUTPUT's limiter with lows. On Kaiju, 40–100 Hz gains only +1.0 / +1.7 / +2.3 dB while 1–4 kHz drops 1.6 / 3.5 / 5.5 dB and pumping rises 2.6 → 3.1 LU | The shelf is within 0.2 dB of +3 / +6 / +9 dB at 30 Hz | **No change.** Boom works after the whole chain, as designed, so it also lifts SUB and the pitched voice. The guide says to keep it at Off or Light on dense, low presets |
 | Position | Insertion slot 0–14, 1 | All slots | – | – | – | Moving CHAMBER changes the loudness by at most 0.3 LU and keeps the latency (as the tests check). The slot decides what processes the room: see the interactions |
@@ -649,6 +649,84 @@ The modelled rooms match the captures' T20 and modes well. They differ in three 
 - **Discrete early reflections.** These comb more against the dry.
 
 A build without the captures still loads every preset with the same room names, at the same levels within about 1 dB.
+
+### Party Wall and Tower Block (added in 1.1.0)
+
+The last two rooms are recordings, not designed impulse responses: a single loud, impulsive sound in a resonant concrete space, heard from the next room at two distances (one spaced pair, one mid/side pair). The excitation is part of the recording, so they were audited for peaks before being added, and the first eight were audited the same way alongside them.
+
+- **Processing** (the packer's per-room steps, `irpack::c_captures`): the mid/side pair is decoded with the side at −1.3 dB, which puts the side at the mid's level as in the other rooms (L/R correlation 0.00); both are high-passed at 90 Hz (4th order), removing the pre-roll rumble and the low thump under the voice; their 2–3 s ring is steepened from 50 ms on (+36 and +48 dB/s) so it reaches −60 dB inside the 0.75 s every room keeps to, instead of being cut off at −22 / −29 dB. They are trimmed from their first sample above −40 dB (less 0.25 ms, faded in) rather than from the onset the first eight use: the arrival through the wall builds up over about 1.4 ms, and trimming at the onset dropped it and started Party Wall mid-waveform (its first sample 13 dB under its peak, a step that let back the low end under the high-pass: DC 18 dB under its 1 kHz level). Both now start more than 90 dB under their peak, with DC at least 45 dB under 1 kHz, and `chamber` checks it (under −30 dB and −40 dB). Longer rooms would cost more than the first eight: at 192 kHz a 1.5 s room makes the block with a Room change about 1.5 times as long, and at 2 s it passes the tests' limit of half the block.
+- **Result:** T20 0.78 and 0.79 s (the longest rooms; Resonant Chamber is 0.70 s), EDT 0.87 / 0.94 s, C50 +0.6 / +0.9 dB. They are dark (wet centroid well under the others) with a low-mid body 5–9 dB over their 500 Hz–2 kHz level.
+- **Peaks:** CHAMBER alone at IN's working level (three takes, −20 dBFS voiced RMS), Chamber 80–100 %, Resonance 40–100 %, Edge 0–100 %, Width 100 %, every speaker. The worst peak gain on the voice is +4.6 dB for both (the first eight: +3.9 to +8.5 dB); the worst true peak at Chamber and Resonance 100 % is +3.6 / +3.1 dBFS (+2.7 to +8.0 dBFS), +4.6 / +3.2 with Boom Heavy (+2.7 to +8.1); on a slow 50 Hz–2 kHz sweep, a sustained pitch on every mode, +17.6 / +17.0 dB (+18.9 to +22.9 dB). On a click the wet's peak is 15 dB under the first eight's: once loudness-matched, a recording heard through a wall is far less impulsive than a designed impulse response. Through the plug-in (Init and Kaiju, CHAMBER last, Chamber, Resonance, Edge and Width 100 %, Boom Heavy, all ten rooms) nothing clamped, the true peak stayed at the ceiling and the loudness within 0.6 LU across the rooms.
+- **Bounds:** no per-room limits on the knobs were needed. The packer bounds each recorded room's transient peak to the loudest designed room's, and a test checks that both new rooms peak no higher than the first eight on a click (within 0.5 dB), on the sweep (within 1 dB: on the full run's 8 s sweep Party Wall, the longest ring, builds up to +0.5 dB over the first eight) and on a dense, low, shouted vowel at Resonance 0 and 100 % (within 1.5 dB: a pitched voice lands on or between a room's modes), at Chamber 100 % with every speaker, in the build with the captures and the one with the modelled rooms. Whether anything clips is checked through the whole plug-in: see the next section.
+- **Resonance's level hold:** measured flat across 150 Hz–5 kHz, it over-weighted the top octaves, and Party Wall (whose late part is darker than its start) lost 1.4 dB at Resonance 0 %. The energy it holds now has a pink tilt (−3 dB per octave). On voice-band pink every room now holds within ±0.4 dB at 0 / 40 / 100 % (the first eight were within −0.6 / +0.9 dB before); the real-voice figures in the Resonance row above were measured before this change.
+
+### Clipping and headroom (all ten rooms)
+
+The earlier sweeps checked for clamps and broken renders only. This audit measured what OUTPUT has to do with CHAMBER's peaks: 70,408 renders through the plug-in at 48 and 96 kHz (presets also at 192 kHz), reading the signal before OUTPUT, the maximizer's gain reduction (GR), the clip meter and the clamp count per block.
+
+- **Material:** the five takes at their own level; 0 dBFS excerpts, shouts and plosives with IN Auto on and off; a 0 dBFS 40 Hz–5 kHz sweep; pink-noise bursts; clicks.
+- **What was varied:** every room and speaker, Amount 50/80/100 %, Resonance 0/40/70/100 %, Edge 0/100 %, every Boom setting; CHAMBER early, mid and last in Init, Kaiju and Iron Tyrant; every preset that uses CHAMBER, with each room swapped in; 1,070 dice rolls that turn CHAMBER on.
+
+- **Nothing clips.** No render clamped, and the output true peak stayed at −1.3 dBTP. CHAMBER has no hard limit on its signal path (Edge's soft clip comes before the room), and no module limits below +80 dBFS. CHAMBER's output reaches +9.3 dBFS from a voice at IN's working level and +17 dBFS from a 0 dBFS shout with IN off; the chain carries it.
+- **What CHAMBER costs is limiter work.** At Amount 100 % it adds up to +5.0 dB to the maximizer's 95th-percentile GR on dense voice (Tin Booth, Soft Bloom). Party Wall adds +4.9 dB and Tower Block +4.0 dB. The worst corner in every room is Amount 100 %, Resonance 0 % and the Tiny or Horn speaker.
+  - With the Small speaker no room passes +4.1 dB.
+  - At Amount 50 % or below no room passes +3.5 dB.
+  - Boom changes the added GR by at most 0.4 dB.
+- **The new rooms sit inside the first eight** on GR, output peak and loudness, at every placement, in every preset and on the dice.
+  - CHAMBER alone at Resonance 0 % with the Tiny speaker, Party Wall's peak gain on a 0 dBFS shout is 0.3 dB over the first eight's.
+  - Early in the chain on the shouts, CHAMBER's output with Party Wall is up to 2 dB hotter than with the first eight. That does not show in the GR.
+  - From Resonance 40 % up, both new rooms peak lower than every one of the first eight.
+- **Presets:** every preset that uses CHAMBER passes. On voice, CHAMBER adds at most +1.7 dB of GR (Ball Bearing), and swapping in any room gives at most +3.5 dB. On a 0 dBFS 40 Hz–5 kHz sweep (every preset, re-measured at 48, 96 and 192 kHz) CHAMBER adds at most +2.0 dB as shipped (Simple Size; Ball Bearing +1.7, Iron Tyrant +1.6) and +3.1 dB with any room swapped in (Ball Bearing in Timber Room).
+- **Dice** (this audit's 1,070 rolls, on the takes, shouts and plosives): against the same roll with CHAMBER off, the rolls that land on Party Wall or Tower Block add at most +2.4 dB of GR and move loudness by −0.7 to +2.1 LU. The smaller seeded batch on the takes after the audit (below) reads lower: +1.4 dB and −0.50 to +1.10 LU.
+- **Placement:** CHAMBER early costs the least GR, because the modules after it round its peaks off, but it hands them a hotter signal. CHAMBER mid or last costs the most: up to +4.3 dB in the first eight, +2.0 dB in the new rooms.
+- **Loudness between rooms** at the same settings, through the plug-in: median 0.5 LU, worst 1.3 LU on the real takes and 1.9 LU on shouts.
+- **No knob limits were added for any room.**
+
+#### Per-room safe ranges
+
+Every room is safe over the whole travel of every CHAMBER control (Chamber, Resonance, Edge and Width 0–100 %, every speaker, Boom Off to Heavy, any slot). The table gives what each costs OUTPUT at the edges, as the added GR (95th percentile, dB, worst over the takes, shouts and plosives, CHAMBER alone in Init): a guide for presets, not a limit.
+
+| Room | Amount 50 % | Amount 100 % | Small speaker | Worst corner | CHAMBER alone, 0 dBFS shout: true-peak gain |
+|---|---|---|---|---|---|
+| Steel Box | +2.0 | +4.3 | +3.7 | Horn, Resonance 0 % | +15.9 dB |
+| Resonant Chamber | +2.9 | +3.7 | +3.6 | Tiny, Resonance 0 % | +16.5 dB |
+| Concrete Room | +2.7 | +3.6 | +2.9 | Tiny, Resonance 0 % | +15.9 dB |
+| Tin Booth | +3.5 | +5.0 | +3.8 | Horn, Resonance 0 % | +15.2 dB |
+| Padded Cell | +2.6 | +4.1 | +3.3 | Horn, Resonance 100 % | +15.2 dB |
+| Wood Chamber | +3.1 | +3.9 | +3.1 | Tiny, Resonance 40 % | +14.9 dB |
+| Timber Room | +2.5 | +4.1 | +3.9 | Tiny, Resonance 0 % | +16.7 dB |
+| Soft Bloom | +2.4 | +5.0 | +4.1 | Horn, Resonance 0 % | +15.8 dB |
+| Party Wall | +2.3 | +4.9 | +3.1 | Tiny, Resonance 0 % | +17.0 dB |
+| Tower Block | +2.3 | +4.0 | +3.9 | Horn, Resonance 0 % | +14.5 dB |
+
+The shipped presets keep CHAMBER's added GR on voice under 2 dB, and the dice ranges (Chamber 15–65 %, Resonance up to 80 %, Edge up to 60 %, Boom up to Medium) keep a roll under +2.4 dB in every room (the 1,070 rolls above).
+
+#### The checks that keep it so
+
+`RoarschachTests chamberclip` runs every room through the whole plug-in, with the captures and with the modelled rooms (in a build with the captures, both): finite, under the ceiling (true peak within 0.2 dB), and OUTPUT's clamp never engaged.
+
+- **Worst corners:** every room at Chamber, Edge and Width 100 % and Boom Heavy, at Resonance 0 and 100 %, with the Tiny and the Horn speaker. CHAMBER is placed last and right after PITCH, and the material is the reference voice, the same voice at 0 dBFS, and a dense, low shouted vowel at 0 dBFS. CHAMBER may add at most 6.8 dB of GR against the same chain with it off (the +5.8 dB measured below plus 1 dB of margin, so ordinary changes to Resonance, the speakers or the limiter do not trip it; a change that does is a deliberate re-baseline, recorded here), and Party Wall and Tower Block no more than the first eight plus 0.5 dB.
+- **Presets:** every preset with CHAMBER on, as shipped and with each room swapped in, on the voice and the 0 dBFS voice. As shipped, CHAMBER may add at most 4 dB of GR; with any room, 6 dB.
+- **Dice:** 16 rolls that turn CHAMBER on (4 in `--quick`), against the same roll with it off: at most 4 dB.
+- **In `chamber`:** Party Wall and Tower Block peak no higher than the first eight (above), and Resonance's level hold stays 0.25 dB clear of its 12 dB limit in every room. Tower Block at Resonance 100 % asks for the most: a 10.6 dB cut with the captures.
+
+The test signals are synthetic, so they read differently from the takes. In the full run with the captures, at the worst corners Resonant Chamber adds the most (+5.8 dB, on the dense vowel with CHAMBER right after PITCH) and Party Wall the least (+2.2 dB; Tower Block +3.6 dB); as shipped, Iron Tyrant costs the most (+2.2 dB on the 0 dBFS voice), and with a room swapped in Ball Bearing in Concrete Room (+3.3 dB); the test's 16 rolls add at most +1.2 dB. These are the baselines the limits are set from. With the modelled rooms every room adds +2.4 to +4.0 dB at its worst corners, the presets at most +2.4 dB as shipped and +2.8 dB with any room, and the rolls +1.5 dB.
+
+#### The presets and the dice after the audit
+
+No preset needed a change: each one's CHAMBER is inside the ranges above. Thing Next Door (Party Wall) and Stairwell Stalker (Tower Block) were added to show the new rooms, tuned by measurement on the five takes. Through the plug-in at 48 kHz (606 renders with the captures, 606 with the modelled rooms; no clamps, output true peak −1.30 dBTP throughout), with the added GR against the same preset with CHAMBER off:
+
+| Preset | Loudness re Init (median of the takes) | Added GR, takes and 0 dBFS voice | Added GR, shouts | Any room swapped in |
+|---|---|---|---|---|
+| Thing Next Door | +0.03 LU | +0.2 dB | −0.1 dB | +0.3 dB |
+| Stairwell Stalker | −0.33 LU | +0.1 dB | −0.1 dB | +0.5 dB |
+| Ball Bearing (the most) | +1.04 LU | +0.2 dB | +1.7 dB | +3.5 dB (Tin Booth) |
+| Iron Tyrant | +0.07 LU | +0.0 dB | +1.3 dB | +1.7 dB |
+| The other nine | −1.42 to +1.07 LU | at most +0.7 dB | at most +0.5 dB | at most +0.7 dB |
+
+On the 0 dBFS sweep, as shipped: Simple Size +2.0 dB, Ball Bearing +1.7, Iron Tyrant +1.6, Tin Can Drone and Upside Down +1.5, Stairwell Stalker +1.1, every other preset +0.4 dB or less; with any room swapped in, at most +3.1 dB (Ball Bearing in Timber Room). With the modelled rooms: at most +1.4 dB on the takes and +2.0 dB on the shouts (both Ball Bearing), +3.7 dB with a room swapped in (Ball Bearing; Iron Tyrant +2.3 dB).
+
+The dice ranges are unchanged. A seeded batch of 300 rolls (seeds 1–300) on three of the takes, 1,233 renders (each of the 111 rolls that turn CHAMBER on was also rendered with it off): no clamps, output true peak −1.30 dBTP, and CHAMBER added at most +1.4 dB of GR (Soft Bloom); +0.9 dB for the 9 rolls in Party Wall and +0.4 dB for the 8 in Tower Block. CHAMBER moved a roll's loudness by −0.50 to +1.10 LU.
 
 ### Interactions
 
@@ -677,7 +755,7 @@ CHAMBER on its own, one core, steady state: 0.60 % (Width 0 %) and 0.83 % (Width
 | Resonance | 0–25 % tight and dry (T20 ×0.55–0.85); 40 % the room as captured; 60–100 % a ringing room (the late part +3 to +9 dB, decay up to ×1.6 where the room allows) |
 | Edge | Needs Chamber 60 % or more to be heard. 15–35 % speaker grit; 50–70 % a cranked loudspeaker; 85–100 % blown. Tiny and Horn break up sooner than Small |
 | Width | 20–40 % a room just off mono; 50–70 % a clearly stereo room; 100 % the room's full stereo. Mono-safe at every setting |
-| Room | Steel Box and Tin Booth for metal and machines; Resonant Chamber and Concrete Room for a hard, ringing chamber; Wood Chamber and Timber Room for warm creatures; Padded Cell for a tight, dead box; Soft Bloom for a soft swell with almost no ring |
+| Room | Party Wall and Tower Block for a big, dark concrete space heard through the wall, the longest rings; Steel Box and Tin Booth for metal and machines; Resonant Chamber and Concrete Room for a hard, ringing chamber; Wood Chamber and Timber Room for warm creatures; Padded Cell for a tight, dead box; Soft Bloom for a soft swell with almost no ring |
 | Speaker | Small for full creatures; Tiny for radio, intercom and phone voices; Horn for PA, megaphone and robot voices |
 | Boom | Light by default; Medium only on presets that are not already low and dense; Heavy for a deliberate thump with a lighter SUB |
 | Position | After PITCH for a pitched voice in a room; after ROAR for an amp into a cabinet (the "villain" order); at the end to put the whole creature in the room |

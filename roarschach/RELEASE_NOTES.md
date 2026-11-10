@@ -1,6 +1,6 @@
 ## Roarschach 1.1.0
 
-Roarschach 1.1.0 adds a fifteenth module, **CHAMBER**: the voice played through a small speaker into a tight, resonant room and blended back under it, with eight bundled rooms and a Width control. The creature has a new renderer, every knob was measured and remapped so its whole travel does something, the factory presets have been redesigned, with ten new ones, and three kinds of die roll new sounds.
+Roarschach 1.1.0 adds a fifteenth module, **CHAMBER**: the voice played through a small speaker into a tight, resonant room and blended back under it, with ten bundled rooms and a Width control. The creature has a new renderer, every knob was measured and remapped so its whole travel does something, the factory presets have been redesigned, with twelve new ones, and three kinds of die roll new sounds.
 
 Parameter IDs, their order and their types are unchanged, so sessions, presets and hosts keep finding every control. CHAMBER's nine parameters are new, and are added after the existing ones.
 
@@ -14,13 +14,15 @@ CHAMBER plays the voice through a small speaker into a tight, resonant room, the
 | **Resonance** | 0 to 100% | 40% | How much the room rings after each sound. Lower is tight and boxy; higher lets its resonances sustain longer. The level stays the same. |
 | **Edge** | 0 to 100% | 30% | Drives the small speaker into breakup: grit at 15–35%, a cranked speaker at 50–70%, torn and buzzing towards 100%. Heard once Chamber is about 60% or more. |
 | **Width** | 0 to 100% | 35% | How far the room spreads to the sides. 0% keeps it centred; 100% is the room's full stereo. Summed to mono it sounds the same at any Width. |
-| **Room** | 8 rooms | Concrete Room | Steel Box, Resonant Chamber, Concrete Room, Tin Booth, Padded Cell, Wood Chamber, Timber Room, Soft Bloom. |
+| **Room** | 10 rooms | Concrete Room | Steel Box, Resonant Chamber, Concrete Room, Tin Booth, Padded Cell, Wood Chamber, Timber Room, Soft Bloom, Party Wall, Tower Block. |
 | **Speaker** | Tiny / Small / Horn | Small | Tiny is thin and nasal, Small a compact full-range box, Horn a narrow, honking paging horn. |
 | **Boom** | Off / Light / Medium / Heavy | Light | Low-end weight added after the whole chain: a shelf at 110 Hz of +3, +6 or +9 dB. |
 
 - **It moves like any other module.** By default it sits right after PITCH, so the pitched voice is in the room. After ROAR it becomes an amp into a cabinet; at the end of the chain it puts the whole creature in the room.
 - **It is Off in Init and in every 1.0.0 session**, so it changes nothing in a 1.0.0 session until you turn it on.
 - **Latency is unchanged.** CHAMBER adds none, at any setting or position, and it runs at the host's sample rate. With Width above 0% the chain is stereo from CHAMBER on (the ST badge marks it).
+- **Two rooms heard through the wall.** Party Wall and Tower Block are big, dark concrete spaces heard from the next room, near and further away. They ring the longest of the ten, with a low body that booms.
+- **Every room has headroom at every setting.** Each room was measured at the extremes of every CHAMBER control, in every position in the chain, in every preset that uses it and in the dice rolls that turn it on: nothing clipped, and the output ceiling held. A room at its loudest settings makes OUTPUT's limiter work a few dB harder, as any loud module does.
 - **The rooms are bundled.** They are licensed for use only within Roarschach; see [LICENSE-IRS](https://github.com/samueljustice/plugins/blob/main/roarschach/LICENSE-IRS). The code stays MIT.
 - **The creature hears the room.** While CHAMBER rings, its wings and tendrils trail each movement for longer, and Boom adds a slow swell to its breathing.
 
@@ -107,7 +109,7 @@ The factory presets have been redesigned on the new mappings. Each keeps its nam
 
 Every preset except Loud & Contained, Crunch Lift and Smashed plays within about 1.5 LU of Init. Those three are louder on purpose (about +3, +1.5 and +5 LU).
 
-Ten new presets:
+Twelve new presets:
 
 - **Simple Size** (Voices): a subtly bigger, wider voice with a touch of chamber and low-end weight, and no creature effects.
 - **Iron Tyrant** (Machines): a low, driven voice through a horn speaker into a steel box, with metal modes ringing and a heavy low end.
@@ -119,6 +121,8 @@ Ten new presets:
 - **Hoarse Hoarder** (Creatures): an enormous beast that still speaks clearly: eight semitones down with a lower throat, over a gravelly vocoder bed and a light rumble, in a wide, ringing chamber.
 - **Angry Pepper Pot** (Machines): a furious voice in a metal shell, chopped by a low ring modulator into a staccato electronic stutter. Shout, and pitch your delivery up.
 - **Ball Bearing** (Machines): a small, chirpy machine: an octave up, stepped to semitones, with a faint synthetic buzz, a quick warble and a tiny speaker. Coo and chirp short syllables.
+- **Thing Next Door** (Creatures): something big on the other side of the wall: a slow, low creature with a heavy chop and a deep octave, heard mostly through the wall of the next room in Party Wall.
+- **Stairwell Stalker** (Creatures): a hissing stalker far down the hall: barely lower, breaths lifted, a quick rattle and a wide crowd of voices, ringing down a long, dark corridor in Tower Block.
 
 **Cyber Commander** (Machines) is the 1.0.0 cyborg preset under a new name. It keeps its chain (tone shaping, then a ring modulator in a small resonant box, then a slight pitch drop), and the gravel on its peaks is now audible.
 

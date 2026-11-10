@@ -50,8 +50,8 @@ runs:
         mv "$GITHUB_WORKSPACE/.roarschach-irs-download" "$dest"
         rm -rf "$dest/.git"
         count=$(find "$dest" -maxdepth 2 -iname '*.wav' | wc -l | tr -d ' ')
-        if [[ "$count" -lt 8 ]]; then
-          echo "::warning title=CHAMBER rooms::Expected 8 room captures in roarschach-irs, found $count: building CHAMBER with its modelled rooms"
+        if [[ "$count" -lt 10 ]]; then
+          echo "::warning title=CHAMBER rooms::Expected 10 room captures in roarschach-irs, found $count: building CHAMBER with its modelled rooms"
           rm -rf "$dest"
           echo "path=" >> "$GITHUB_OUTPUT"
           exit 0

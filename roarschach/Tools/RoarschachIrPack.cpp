@@ -8,7 +8,8 @@
 // The captures are never committed to this repository and never written anywhere by this tool
 // except, processed and encrypted, into <blob> in the build folder. Each room goes through
 // irpack::processRoom (onset trim, polarity, one resample to 48 kHz, fade by -60 dB within 0.75 s,
-// loudness match); the payload is sealed with ChaCha20-Poly1305 under the build's key and a fresh
+// loudness match) with its room's irpack::c_captures entry (a mid/side decode, a high-pass, a
+// steeper decay and a peak bound for the rooms that need them); the payload is sealed with ChaCha20-Poly1305 under the build's key and a fresh
 // random nonce. The key is read from a file so it never appears on a command line or in a log.
 //
 // Which file is which room: <dir>/manifest.txt (or <dir>/irs/manifest.txt) if present, one line
@@ -65,10 +66,12 @@ namespace
 
     // FNV-1a 64 of each room's capture file (the bytes the factory presets were voiced with), in
     // the plug-in's room order: identifies the captures whatever their file names are.
-    constexpr std::array<std::uint64_t, 8> c_captureFingerprints {
+    constexpr std::array<std::uint64_t, roar::irpack::c_numRooms> c_captureFingerprints {
         0x594d506c7477f76eull, 0xad1d528ebe2f7607ull, 0x40b3f0091e9822c3ull, 0x4176bf686d66c646ull,
         0x6affd4d495cdc361ull, 0xa3a6a86e6ca50e87ull, 0x72b0df9e2c6a0d3bull, 0x4c70791ab4258092ull,
+        0xaaeafac80796a62cull, 0x62600b27466916b1ull,
     };
+    static_assert (Params::chamberRoomNames.size() == roar::irpack::c_numRooms, "one capture per room");
 
     std::uint64_t fingerprint (const fs::path& path)
     {
@@ -164,9 +167,9 @@ namespace
     }
 
     /** The capture for each room, in the plug-in's order (empty paths where none was found). */
-    std::array<fs::path, 8> findRooms (const fs::path& base, std::string& error)
+    std::array<fs::path, roar::irpack::c_numRooms> findRooms (const fs::path& base, std::string& error)
     {
-        std::array<fs::path, 8> rooms {};
+        std::array<fs::path, roar::irpack::c_numRooms> rooms {};
         fs::path dir = base;
         if (wavsIn (dir).empty() && fs::is_directory (base / "irs"))
             dir = base / "irs";
@@ -181,7 +184,7 @@ namespace
             {
                 std::istringstream ls (line);
                 int index = -1;
-                if (! (ls >> index) || index < 0 || index >= 8)
+                if (! (ls >> index) || index < 0 || index >= roar::irpack::c_numRooms)
                     continue;
                 std::string name;
                 std::getline (ls >> std::ws, name);
@@ -248,7 +251,7 @@ int main (int argc, char** argv)
         Wav wav;
         if (! readWav (paths[r], wav, error))
             return fail (paths[r].filename().string() + ": " + error);
-        rooms.push_back (roar::irpack::processRoom (std::move (wav.left), std::move (wav.right), wav.rate));
+        rooms.push_back (roar::irpack::processRoom (std::move (wav.left), std::move (wav.right), wav.rate, roar::irpack::c_captures[r]));
         const auto& ir = rooms.back();
         std::printf ("RoarschachIrPack: %-17s %5.0f ms at 48 kHz, RT60 %.2f s\n", Params::chamberRoomNames[r],
                      1000.0 * static_cast<double> (ir.left.size()) / ir.rate, static_cast<double> (ir.rt60));
@@ -262,7 +265,7 @@ int main (int argc, char** argv)
     const auto blob = roar::irpack::seal (roar::irpack::serialise (rooms), key, nonce);
 
     // Check the blob the way the plug-in will read it: same key (rebuilt from the masked header
-    // when given), open, parse, eight rooms of the lengths just packed.
+    // when given), open, parse, every room at the length just packed.
     {
         roar::crypto::Key readKey = key;
         if (! maskedKeyArg.empty())

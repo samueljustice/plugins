@@ -12,14 +12,14 @@ A VST3/AU modular voice processor by **Samuel Justice**, built for exploration a
 - **Pitch and size, separately**: PITCH shifts the voice from two octaves down to one octave up, with Shift, Snap and Mono modes, and SIZE gives it a bigger throat.
 - **Full bandwidth at any sample rate**: the audio is never resampled. At 96 or 192 kHz a two-octave drop brings the recording's ultrasonic content down into the audible band.
 - **Texture**: GROWL chops the voice into a growl, SHIMMER adds a liquid wobble, SWIRL a sweeping phaser, ROAR two-stage tube saturation, ENSEMBLE a chorus of voices that makes the chain stereo.
-- **A room**: CHAMBER plays the voice through a small speaker into a tight, resonant room and blends it back under the voice, with eight bundled rooms, three speakers, speaker breakup, stereo width and a low-end Boom.
+- **A room**: CHAMBER plays the voice through a small speaker into a tight, resonant room and blends it back under the voice, with ten bundled rooms, three speakers, speaker breakup, stereo width and a low-end Boom.
 - **Machines**: a 32-band VOCODER on a pulse carrier one or two octaves below the voice, and a RING modulator with a fixed or pitch-tracking carrier and a small resonant body.
 - **Weight**: SUB adds a tracked octave below the voice; OVERTONE turns the low end into overtones so the weight carries on small speakers.
 - **Control**: CLEAN (tone EQ, gate and a leveller), DE-ESS, DETAIL (lifts the quiet parts and pushes the loud parts into a soft ceiling) and TAME (holds back harsh top end).
 - **A finished output**: OUTPUT matches the level to the input, then Push drives a true-peak-safe limiter with a clipper after it. Attack and Release set how clean or crunchy the limiting is, and Auto release keeps it clean. MIX blends in the dry voice, phase-matched to the processed one.
 - **A creature that reacts**: an OpenGL creature that forms out of drifting cloud, whose jaw, eyes, skin and throat follow the voice and every module. It softens back into fog when the input goes quiet, and slowly evolves with sustained intensity.
 - **Dice**: one die loads a random factory preset, one rolls a whole new creature, and one on each module rolls just that module, always inside each knob's useful range. Every roll can be undone.
-- **Presets**: 49 factory presets (Init plus six groups: Creatures, Voices, Machines, Signal Flow, Vocoder, Utility). Save your own with SAVE. They are plain files, easy to back up and share.
+- **Presets**: 51 factory presets (Init plus six groups: Creatures, Voices, Machines, Signal Flow, Vocoder, Utility). Save your own with SAVE. They are plain files, easy to back up and share.
 - **Full recall**: every parameter, the module order, the preset name and the window size are saved with your session, and the factory presets are exposed to the host as programs.
 - **Resizable interface**: drag the corner to scale the whole window from 50% to 125% (never larger than the screen).
 - **Constant latency** of about 46 ms (2192 samples at 48 kHz), the same for every setting and every module order, reported to the host so it is compensated. Host bypass stays in time and switches without clicks. Mono or stereo, full DAW automation.
@@ -294,7 +294,7 @@ CHAMBER plays the voice through a small speaker into a tight, resonant room, the
 | **Reson** (Resonance) | 0 to 100% | 40% | How much the room rings after each sound. Lower is tight and boxy; higher lets its resonances sustain longer. The level stays the same. |
 | **Edge** | 0 to 100% | 30% | Drives the small speaker into breakup: grit at 15–35%, a cranked speaker at 50–70%, torn and buzzing towards 100%. Heard once Amount is about 60% or more. |
 | **Width** | 0 to 100% | 35% | How far the room spreads to the sides. 0% keeps it centred; 100% is the room's full stereo. Summed to mono it sounds the same at any Width. |
-| **Room** | 8 rooms (below) | Concrete Room | The room the speaker plays into. |
+| **Room** | 10 rooms (below) | Concrete Room | The room the speaker plays into. |
 | **Speaker** | Tiny / Small / Horn | Small | The speaker the voice is played through. Tiny is thin and nasal, Small a compact full-range box, Horn a narrow, honking paging horn. |
 | **Boom** | Off / Light / Medium / Heavy | Light | Low-end weight added after the whole chain, a shelf at 110 Hz: Light +3 dB, Medium +6 dB, Heavy +9 dB. |
 
@@ -302,7 +302,7 @@ The mode chip shows the room, the speaker and the Boom, shortened to fit (CONC �
 
 <img src="docs/chamber-off.png" alt="CHAMBER Off, as in Init: dimmed knobs at Amount 50%, Reson 40%, Edge 30% and Width 35%, the chip reading CONC · SML · LGT and the footer OFF" width="152"> <img src="docs/chamber-simple-size.png" alt="CHAMBER in Simple Size: Amount 30%, Reson 30%, Edge 15%, Width 70%, Resonant Chamber with the Small speaker and Medium Boom, the footer showing the room ringing for 0.62 s" width="152"> <img src="docs/chamber-tin-can-drone.png" alt="CHAMBER in Tin Can Drone: Amount 75%, Reson 90%, Edge 40%, Width 30%, Tin Booth with the Tiny speaker and Boom Off, the footer showing 0.82 s" width="152"> <img src="docs/panel-chamber.png" alt="CHAMBER in Iron Tyrant: Amount 60%, Reson 65%, Edge 60%, Width 50%, Steel Box with the Horn speaker and Heavy Boom, the footer showing the room's decay" width="152">
 
-<img src="docs/chamber-menu-room.png" alt="CHAMBER's mode menu with its Room list open: Steel Box, Resonant Chamber (ticked), Concrete Room, Tin Booth, Padded Cell, Wood Chamber, Timber Room and Soft Bloom; the main menu lists Room (Resonant Chamber), Speaker (Small) and Boom (Medium)" width="441">
+<img src="docs/chamber-menu-room.png" alt="CHAMBER's mode menu with its Room list open: Steel Box, Resonant Chamber (ticked), Concrete Room, Tin Booth, Padded Cell, Wood Chamber, Timber Room, Soft Bloom, Party Wall and Tower Block; the main menu lists Room (Resonant Chamber), Speaker (Small) and Boom (Medium)" width="441">
 
 <img src="docs/chamber-menu-speaker.png" alt="CHAMBER's Speaker list: Tiny, Small (ticked) and Horn" width="363"> <img src="docs/chamber-menu-boom.png" alt="CHAMBER's Boom list: Off, Light, Medium (ticked) and Heavy" width="369">
 
@@ -318,8 +318,12 @@ The mode chip shows the room, the speaker and the Boom, shortened to fit (CONC �
 | **Wood Chamber** | Warm | 0.55 s |
 | **Timber Room** | Sparse and soft | 0.55 s |
 | **Soft Bloom** | A diffuse swell, with almost no ring | 0.2 s |
+| **Party Wall** | A big concrete room heard through the wall: dark and booming | 0.8 s |
+| **Tower Block** | Further down the hall: darker still, a low body that hangs | 0.8 s |
 
 The decays are at Resonance 40%, which plays each room as captured; Resonance stretches them to about half or up to 1.6 times (as far as each room allows).
+
+Every room has headroom at every setting: each was measured at the extremes of every CHAMBER control, in every position in the chain and in every preset that uses it, and none clips or gets past OUTPUT's ceiling. Party Wall and Tower Block peak within about 0.5 dB of the other rooms, and from Resonance 40% up they peak lower than any of them. At Chamber 100% a room gives OUTPUT's limiter a few dB more to do, most with Resonance low and the Tiny or Horn speaker.
 
 - **Where it sits** decides what goes into the room. After PITCH (the default) the pitched voice is in the room, and CLEAN's gate then trims its tail. After ROAR it is an amp into a cabinet: the speaker tames ROAR's fizz. Last, it puts the whole creature, SUB included, in the room.
 - **Boom** works after the whole chain wherever CHAMBER sits, so it also lifts SUB and the pitched voice. On presets that are already low and dense, keep it at Off or Light: Medium and Heavy make OUTPUT's limiter duck the voice's presence.
@@ -378,12 +382,12 @@ The list opens with Init, then one submenu per group, with the current preset ti
 
 <img src="docs/preset-menu-machines.png" alt="The preset list open from the preset name, with Cyber Commander loaded: FACTORY with Init and the Creatures, Voices, Machines, Signal Flow, Vocoder and Utility groups, then USER, Save As, Delete and Show Presets Folder; the Machines group is open, listing Cyber Commander (ticked), Respirator Rasp, Rasp Machine, Robot Ogre, Iron Tyrant, Tin Can Drone, Angry Pepper Pot and Ball Bearing" width="467">
 
-<img src="docs/preset-menu-creatures.png" alt="The Creatures group open with Symbiote ticked: Symbiote, Liquid Beast, Gravel Throat, Cave Troll, Kaiju, Gargoyle, Hellhound, Golem, Kraken, Throat Singer, Spore Throat and Hoarse Hoarder" width="452"> <img src="docs/preset-menu-voices.png" alt="The Voices group open with Simple Size ticked: Big Bad Narrator, Demon Whisper, Giant, Possessed, Ogre Radio, Simple Size, Upside Down and Use Your Words" width="474">
+<img src="docs/preset-menu-creatures.png" alt="The Creatures group open with Symbiote ticked: Symbiote, Liquid Beast, Gravel Throat, Cave Troll, Kaiju, Gargoyle, Hellhound, Golem, Kraken, Throat Singer, Spore Throat, Hoarse Hoarder, Thing Next Door and Stairwell Stalker" width="482"> <img src="docs/preset-menu-voices.png" alt="The Voices group open with Simple Size ticked: Big Bad Narrator, Demon Whisper, Giant, Possessed, Ogre Radio, Simple Size, Upside Down and Use Your Words" width="474">
 
 | Group | Presets |
 |---|---|
 | | Init (every control at its default: a slightly lower, bigger voice with a light wobble, growl, tube edge, sub and overtones) |
-| **Creatures** | Symbiote, Liquid Beast, Gravel Throat, Cave Troll, Kaiju, Gargoyle, Hellhound, Golem, Kraken, Throat Singer, Spore Throat, Hoarse Hoarder |
+| **Creatures** | Symbiote, Liquid Beast, Gravel Throat, Cave Troll, Kaiju, Gargoyle, Hellhound, Golem, Kraken, Throat Singer, Spore Throat, Hoarse Hoarder, Thing Next Door, Stairwell Stalker |
 | **Voices** | Big Bad Narrator, Demon Whisper, Giant, Possessed, Ogre Radio, Simple Size, Upside Down, Use Your Words |
 | **Machines** | Cyber Commander, Respirator Rasp, Rasp Machine, Robot Ogre, Iron Tyrant, Tin Can Drone, Angry Pepper Pot, Ball Bearing |
 | **Signal Flow** | Scorched Swirl, Molten Chorus, Sub Furnace, Ribcage, Tar Pit, Breathing Walls, Chopped Space, Vocoded Fire, Clanking Choir |
@@ -406,17 +410,19 @@ A few contrasting presets, each playing the same voice (the creature is shown at
 <img src="docs/preset-simple-size.jpg" alt="Simple Size: PITCH at -1 st, CLEAN, DE-ESS, TAME and CHAMBER on and everything else off; a faint early creature in the mist" width="440"> <img src="docs/preset-cyber-commander.jpg" alt="Cyber Commander: CLEAN, RING, PITCH, ROAR, DE-ESS, DETAIL, GROWL and TAME on, with CLEAN and RING moved ahead of PITCH; the creature has RING's faint dark metal muzzle round its mouth" width="440">
 <img src="docs/preset-symbiote.jpg" alt="Symbiote: PITCH, CLEAN, DE-ESS, SHIMMER, GROWL, SWIRL, ROAR, ENSEMBLE, TAME and SUB on; a dark smoky head with spreading wings and a wide maw of teeth" width="440"> <img src="docs/preset-iron-tyrant.jpg" alt="Iron Tyrant: CHAMBER after ROAR in Steel Box with the Horn speaker, and PITCH, CLEAN, DE-ESS, DETAIL, GROWL, TAME and SUB on; a horned head with broad wings and a glowing maw" width="440">
 <img src="docs/preset-upside-down.jpg" alt="Upside Down: CLEAN, DE-ESS, DETAIL, PITCH at 0 st, ROAR, TAME, SUB at Tight, ENSEMBLE and CHAMBER last in Concrete Room; a broad grey head in the mist with amber eyes and an open, glowing maw" width="440"> <img src="docs/preset-spore-throat.jpg" alt="Spore Throat: no pitch change and no room, with CLEAN on Radio, DE-ESS, DETAIL, GROWL on Rattle, ROAR on Mic and OVERTONE on Speaker, Lean; a horned head with wide wings and a toothed maw" width="440">
-<img src="docs/preset-ball-bearing.jpg" alt="Ball Bearing: PITCH at +12 st on Snap, CLEAN, VOCODER, RING, SHIMMER, DE-ESS, DETAIL, CHAMBER in Padded Cell with the Tiny speaker and OVERTONE on; a faint early creature with amber eyes and a small open mouth" width="440">
+<img src="docs/preset-ball-bearing.jpg" alt="Ball Bearing: PITCH at +12 st on Snap, CLEAN, VOCODER, RING, SHIMMER, DE-ESS, DETAIL, CHAMBER in Padded Cell with the Tiny speaker and OVERTONE on; a faint early creature with amber eyes and a small open mouth" width="440"> <img src="docs/preset-stairwell-stalker.jpg" alt="Stairwell Stalker: PITCH at -4 st, CLEAN, DE-ESS, DETAIL, SHIMMER, GROWL on Rattle, SWIRL, ROAR, ENSEMBLE, TAME, SUB and CHAMBER last in Tower Block at full width; a grey head in the mist with pale eyes and a long row of teeth" width="440">
 
 Each preset's settings sit in the useful part of every knob's travel, as measured in [docs/parameter-audit.md](docs/parameter-audit.md), and every preset except the deliberately loud Utility ones (Loud & Contained, Crunch Lift and Smashed) plays within about 1.5 LU of Init.
 
-Eleven presets use CHAMBER:
+Thirteen presets use CHAMBER:
 
 - **Simple Size**: a subtly bigger, wider voice with a touch of chamber and low-end weight. The voice is lowered a semitone and lightly cleaned, and a little of a hard, resonant room is blended under it, with no creature effects.
 - **Iron Tyrant**: a low, driven voice fed from ROAR into a horn speaker in a steel box, like an amp into a cabinet. Metal modes ring on every syllable, over a heavy low end.
 - **Tin Can Drone**: talking down a pipe. A tiny speaker in a ringing tin booth, through CLEAN's Radio tone.
 - **Use Your Words**: the octave-down voice played through a small speaker into a rattling concrete room with Heavy Boom, right after PITCH.
 - **Ball Bearing**: the raised voice played through a tiny speaker in a padded cell, a dead box at the end of its chain.
+- **Thing Next Door**: a slow, low creature with a heavy chop and a deep octave, heard mostly through the wall of the next room: Party Wall at Chamber 85%, so the room leads.
+- **Stairwell Stalker**: a hissing stalker, barely lower, with breaths lifted, a quick rattle and a wide crowd of voices, ringing far down the hall in Tower Block at full width and a long Resonance.
 - **Big Bad Narrator** sits in a warm wooden room. **Cave Troll**, **Gargoyle** and **Demon Whisper** put the whole creature in a room, with CHAMBER last: concrete, hard stone and a soft bloom. **Upside Down** and **Hoarse Hoarder** do the same in a concrete room and a resonant chamber, so the octave and the rumble ring in the room too.
 
 User presets are kept in:
@@ -473,7 +479,7 @@ Options:
 - `-DROARSCHACH_FORMATS=Standalone` builds a standalone app instead (handy for UI work), or `-DROARSCHACH_FORMATS="AU;VST3;Standalone"` for all three.
 - `-DROARSCHACH_IR_DIR=<folder>`, with the `ROARSCHACH_IR_KEY` environment variable set to 64 hex digits, packs CHAMBER's room captures from that folder into the build, encrypted. The captures are not in this repository; without them CHAMBER uses its modelled rooms.
 - `-DROARSCHACH_TESTS=ON` builds `RoarschachTests`, an offline test runner that drives the real processor at several sample rates and block sizes:
-  - `RoarschachTests` runs every test: parameters, constant latency, exact dry and bypass nulls, the dry's phase match, stereo, click-free module moves in any order, the output ceiling, state round-trip, every factory preset, non-finite input, block sizes, native-rate pitch at 192 kHz, RING, OVERTONE and CHAMBER, the editor, the dice, and CPU use. `--quick` runs shorter versions, and test names (for example `RoarschachTests latency presets`) run only those. It exits non-zero on a failure.
+  - `RoarschachTests` runs every test: parameters, constant latency, exact dry and bypass nulls, the dry's phase match, stereo, click-free module moves in any order, the output ceiling, state round-trip, every factory preset, non-finite input, block sizes, native-rate pitch at 192 kHz, RING, OVERTONE and CHAMBER, CHAMBER's headroom in every room (`chamberclip`), the editor, the dice, and CPU use. `--quick` runs shorter versions, and test names (for example `RoarschachTests latency presets`) run only those. It exits non-zero on a failure.
   - `RoarschachTests --render in.wav outdir [--preset NAME]...` renders a file through factory presets at the file's own sample rate. `--only`, `--without` (module codes such as `GR` or `RM`) and `--order` change the chain for the render, and `--roll FROM TO` renders one Randomise All roll per seed (with `--metrics out.json`, the loudness of each).
   - `RoarschachTests --snapshot out.png` writes a picture of the editor, and `RoarschachTests --snapshots folder` writes the window, the chain, menus, a tooltip and a drag, with the creature.
 

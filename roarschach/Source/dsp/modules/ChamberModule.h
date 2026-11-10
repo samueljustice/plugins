@@ -42,7 +42,7 @@ namespace roar
      * - Speaker: Tiny / Small / Horn, minimum-phase biquads (box high-pass, breakup peaks and dips,
      *   top roll-off), with a static makeup weighted by speech's long-term spectrum and K weighting
      *   (so the three read the same on a loudness meter with a voice; the rooms are matched the same way).
-     * - Room: one of ChamberBank's eight rooms through the ZeroLatencyConvolver. Resonance shapes
+     * - Room: one of ChamberBank's ten rooms through the ZeroLatencyConvolver. Resonance shapes
      *   the late part (from ~10.7 ms): its level (-9 dB at 0 %, nominal at 40 %, +9 dB at 100 %)
      *   and its decay (x0.55 .. x the room's longest, at most 1.6, of the room's own; the decay
      *   change starts where the room's late energy peaks), with the wet's energy held (k_cal), so the
@@ -72,6 +72,8 @@ namespace roar
         static constexpr std::array<double, 4> c_boomDb { 0.0, 3.0, 6.0, 9.0 };
         static constexpr double c_edgeFadeIn = 0.05;
         static constexpr double c_blendCorrelation = 0.0;
+        /** The most Resonance's level hold may correct the wet by, either way (dB). */
+        static constexpr double c_maxLevelHoldDb = 12.0;
 
         ChamberModule();
 
@@ -104,6 +106,9 @@ namespace roar
         void setBankForTest (std::shared_ptr<const ChamberBank> bank);
         const ZeroLatencyConvolver& getConvolver() const { return m_conv; }
         double getBoomDb() const { return m_boomDb; }
+        /** The correction Resonance's level hold asks for in the room in use, dB, before it is
+            limited to +-c_maxLevelHoldDb (tests: a room must stay clear of that limit). */
+        double getLevelHoldDb() const { return m_levelHoldDb[static_cast<size_t> (m_roomSlot)]; }
 
     private:
         struct SpeakerDesign
@@ -167,6 +172,7 @@ namespace roar
         float m_dryGain = 1.0f, m_wetGain = 0.0f, m_widthGain = 0.0f;
         float m_dryFrom = 1.0f, m_wetFrom = 0.0f, m_widthFrom = 0.0f;
         std::array<float, 2> m_kcal { { 1.0f, 1.0f } }, m_kcalFrom { { 1.0f, 1.0f } };
+        std::array<double, 2> m_levelHoldDb { { 0.0, 0.0 } };
         bool m_snapControls = true;
 
         // Boom (post chain).

@@ -12,7 +12,7 @@
 namespace roar
 {
     /**
-     * CHAMBER's eight rooms (Params::chamberRoomNames, in that order), ready for the convolver at
+     * CHAMBER's ten rooms (Params::chamberRoomNames, in that order), ready for the convolver at
      * one sample rate.
      *
      * Two sources, the same list:
@@ -22,8 +22,8 @@ namespace roar
      *     from the measurements of its capture (decay, clarity, brightness, modes, reflection
      *     density), so presets and sessions still load and sound close.
      *
-     * Each room is stored as mid (L + R) / 2 and side (L - R) / 2 (the captures are true stereo:
-     * CHAMBER's Width scales the room's own side), resampled once from 48 kHz to the host rate
+     * Each room is stored as mid (L + R) / 2 and side (L - R) / 2 (the captures are true stereo, or
+     * decoded from mid / side by the packer: CHAMBER's Width scales the room's own side), resampled once from 48 kHz to the host rate
      * (windowed sinc), and partitioned for the convolver. Built at prepare, off the audio thread,
      * synchronously, and cached per sample rate: every instance and both twin chains share one
      * immutable bank.
@@ -31,7 +31,7 @@ namespace roar
     class ChamberBank
     {
     public:
-        static constexpr int numRooms = 8;
+        static constexpr int numRooms = irpack::c_numRooms;
         enum class Source { bundled, modelled };
 
         struct Room

@@ -110,7 +110,7 @@ namespace
         { Params::chamberResonance, "RESON", "How much the room rings after each sound. Lower is tight and boxy; higher lets its resonances sustain longer. The level stays the same." },
         { Params::chamberDrive, "EDGE", "Drives the small speaker into breakup: grit at 15-35 %, a cranked speaker at 50-70 %, torn and buzzing towards 100 %. Heard once Amount is about 60 % or more." },
         { Params::chamberWidth, "WIDTH", "How far the room spreads to the sides. 0 % keeps it centred; 100 % is the room's full stereo. Summed to mono it sounds the same at any Width." },
-        { Params::chamberRoom, "ROOM", "The room the speaker plays into. Steel Box: bright and metallic. Resonant Chamber: long and ringing. Concrete Room: hard and dense. Tin Booth: thin, with a sharp ring. Padded Cell: dark and short. Wood Chamber: warm. Timber Room: sparse and soft. Soft Bloom: a diffuse swell." },
+        { Params::chamberRoom, "ROOM", "The room the speaker plays into. Steel Box: bright and metallic. Resonant Chamber: long and ringing. Concrete Room: hard and dense. Tin Booth: thin, with a sharp ring. Padded Cell: dark and short. Wood Chamber: warm. Timber Room: sparse and soft. Soft Bloom: a diffuse swell. Party Wall: a big concrete room through the wall, dark and booming. Tower Block: further down the hall, darker still." },
         { Params::chamberSpeaker, "SPEAKER", "The speaker the voice is played through. Tiny is thin and nasal, Small a compact full-range box, Horn a narrow, honking paging horn." },
         { Params::chamberBoom, "BOOM", "Low-end weight added after the whole chain, a shelf at 110 Hz: Light +3 dB, Medium +6 dB, Heavy +9 dB." },
     };
@@ -139,6 +139,7 @@ namespace
             { "VIBRATO", "VIB" }, { "SMOOTH 4", "SMTH 4" },
             { "STEEL BOX", "STEEL" }, { "RESONANT CHAMBER", "RESONANT" }, { "CONCRETE ROOM", "CONCRETE" }, { "TIN BOOTH", "TIN" },
             { "PADDED CELL", "PADDED" }, { "WOOD CHAMBER", "WOOD" }, { "TIMBER ROOM", "TIMBER" }, { "SOFT BLOOM", "BLOOM" },
+            { "PARTY WALL", "PARTY" }, { "TOWER BLOCK", "TOWER" },
             { "HEAVY", "HVY" },
         };
         for (const auto& [full, abbreviation] : table)
@@ -153,6 +154,7 @@ namespace
         static const std::pair<const char*, const char*> table[] {
             { "RESONANT", "RESO" }, { "CONCRETE", "CONC" }, { "PADDED", "PAD" }, { "TIMBER", "TIMB" },
             { "SMALL", "SML" }, { "LIGHT", "LGT" }, { "BLOOM", "BLM" }, { "STEEL", "STL" },
+            { "PARTY", "PRTY" }, { "TOWER", "TOWR" },
         };
         for (const auto& [from, to] : table)
             if (shortName == from)

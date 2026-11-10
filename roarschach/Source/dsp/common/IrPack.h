@@ -1,10 +1,12 @@
 #pragma once
 
+#include "Biquad.h"
 #include "ChaCha20Poly1305.h"
 #include "RealFft.h"
 #include "SincResampler.h"
 
 #include <algorithm>
+#include <array>
 #include <cctype>
 #include <cmath>
 #include <cstdint>
@@ -34,6 +36,51 @@ namespace roar::irpack
     constexpr double c_fadeSeconds = 0.150;
     constexpr std::uint32_t c_format = 1;
     constexpr size_t c_headerSize = 24;
+
+    /** CHAMBER's rooms (Params::chamberRoomNames, in that order). */
+    constexpr int c_numRooms = 10;
+
+    /**
+     * What a room's capture needs beyond the common processing (processRoom), by room. The first
+     * eight are designed impulse responses and need nothing more; the last two are recordings of
+     * a single loud, impulsive excitation in a resonant concrete space, heard from the next room:
+     *   - midSide: the file holds mid (channel 1) and side (channel 2), decoded to
+     *     L = M + sideGain S, R = M - sideGain S (sideGain puts the side at the mid's level, as
+     *     in the other rooms, so Width means the same in every room);
+     *   - highPassHz: a 4th-order Butterworth high-pass on the capture (the excitation's thump
+     *     and the building's rumble sit under the voice and would only add peaks);
+     *   - fitDecay: the capture rings for 2-3 s, past c_maxSeconds (the length every room keeps to,
+     *     for CPU); its late decay is steepened from c_fitFromSeconds so it reaches -60 dB by then
+     *     instead of being cut off;
+     *   - peakCeiling: the most the processed room's mid may reach on a full-scale click (its
+     *     largest |sample|, after the loudness match), re the loudness-matched level; a room over
+     *     it is turned down to it (the loudness match then gives way to the peak bound);
+     *   - keepArrival: trim from the first sample above -40 dB (less the pre-roll) instead of from
+     *     the onset, and fade in over the pre-roll (raised cosine). A recorded arrival through a
+     *     wall builds up over a millisecond or more; trimming at the onset would drop it and start
+     *     the room mid-waveform, a step that lets back the low end the high-pass removed.
+     */
+    struct Capture
+    {
+        bool midSide = false;
+        double sideGain = 1.0;
+        double highPassHz = 0.0;
+        bool fitDecay = false;
+        double peakCeiling = 0.0;   // 0 = no bound
+        bool keepArrival = false;
+    };
+
+    constexpr double c_fitFromSeconds = 0.050;
+    /** The largest |sample| of the loudest designed room's mid after the loudness match (-18 dB):
+        the recorded rooms may not be more impulsive than that (they measure -35 to -37 dB, so the
+        bound does not act on them today; it holds for any re-recording). */
+    constexpr double c_designedPeak = 0.125;
+
+    inline constexpr std::array<Capture, c_numRooms> c_captures { {
+        {}, {}, {}, {}, {}, {}, {}, {},
+        { false, 1.0, 90.0, true, c_designedPeak, true },    // Party Wall: a spaced pair
+        { true, 0.86, 90.0, true, c_designedPeak, true },    // Tower Block: mid / side
+    } };
 
     struct Ir
     {
@@ -113,7 +160,7 @@ namespace roar::irpack
      *   1. onset: the first sample within 6 dB of the peak of the 30 ms after the first sample
      *      above -40 dB (re the whole IR's peak), on the mid; trimmed to 0.25 ms before it (the
      *      captures' pre-delays differ from 0.6 to 87 ms, so every room starts together and
-     *      CHAMBER adds no delay);
+     *      CHAMBER adds no delay; a Capture with keepArrival trims from the -40 dB sample instead);
      *   2. polarity: the mid's strongest sample in the 5 ms after the onset is made positive (the
      *      wet then sums with the dry instead of cancelling);
      *   3. resampled once to c_storeRate (windowed sinc, level kept: gain in / out);
@@ -121,8 +168,10 @@ namespace roar::irpack
      *      reaches -60 dB, and at the latest by c_maxSeconds;
      *   5. loudness-matched: voice-weighted power gain 1 (the wet sits at the dry's level), on the
      *      mid, the same gain on both channels.
+     * A Capture adds, by room: a mid/side decode and a high-pass before step 1, a steeper late
+     * decay before step 4, and a peak bound after step 5 (see Capture). The default does nothing.
      */
-    inline Ir processRoom (std::vector<float> left, std::vector<float> right, double rate)
+    inline Ir processRoom (std::vector<float> left, std::vector<float> right, double rate, const Capture& capture = {})
     {
         Ir out;
         const size_t n = std::min (left.size(), right.size());
@@ -130,6 +179,22 @@ namespace roar::irpack
         right.resize (n);
         if (n == 0)
             return out;
+
+        if (capture.midSide)
+            for (size_t i = 0; i < n; ++i)
+            {
+                const float m = left[i], s = static_cast<float> (capture.sideGain * right[i]);
+                left[i] = m + s;
+                right[i] = m - s;
+            }
+        if (capture.highPassHz > 0.0)
+            for (auto* channel : { &left, &right })
+                for (const double q : { Biquad::c_bw4Q1, Biquad::c_bw4Q2 })
+                {
+                    Biquad f;
+                    f.setCoeffs (Biquad::highpass (rate, capture.highPassHz, q));
+                    f.process (channel->data(), static_cast<int> (n));
+                }
 
         std::vector<float> mid (n);
         float peak = 0.0f;
@@ -149,7 +214,8 @@ namespace roar::irpack
         while (onset < window && std::abs (mid[onset]) < 0.5f * localPeak)
             ++onset;
         const size_t preRoll = static_cast<size_t> (std::lround (c_preRollSeconds * rate));
-        const size_t start = onset > preRoll ? onset - preRoll : 0;
+        const size_t trimFrom = capture.keepArrival ? first : onset;
+        const size_t start = trimFrom > preRoll ? trimFrom - preRoll : 0;
 
         size_t strongest = onset;
         const size_t polarityEnd = std::min (n, onset + static_cast<size_t> (0.005 * rate));
@@ -162,6 +228,16 @@ namespace roar::irpack
         std::vector<float> r (right.begin() + static_cast<std::ptrdiff_t> (start), right.end());
         for (auto& x : l) x *= sign;
         for (auto& x : r) x *= sign;
+        if (capture.keepArrival)
+        {
+            const size_t fade = std::min (l.size(), trimFrom - start);
+            for (size_t i = 0; i < fade; ++i)
+            {
+                const auto g = static_cast<float> (0.5 - 0.5 * std::cos (3.14159265358979 * static_cast<double> (i) / static_cast<double> (fade)));
+                l[i] *= g;
+                r[i] *= g;
+            }
+        }
 
         out.rate = c_storeRate;
         out.left = SincResampler::resample (l.data(), static_cast<int> (l.size()), rate, c_storeRate, rate / c_storeRate);
@@ -171,8 +247,41 @@ namespace roar::irpack
         std::vector<float> m (out.left.size());
         for (size_t i = 0; i < m.size(); ++i)
             m[i] = 0.5f * (out.left[i] + out.right[i]);
+        const size_t limit = std::min (m.size(), static_cast<size_t> (c_maxSeconds * c_storeRate));
+        if (capture.fitDecay && limit > 64)
+        {
+            // A ring longer than the limit: an extra exponential decay from c_fitFromSeconds, the
+            // gentlest (bisection on its rate) that puts the energy decay at -60 dB by 95 % of the limit.
+            const auto from = static_cast<size_t> (c_fitFromSeconds * c_storeRate);
+            const auto target = static_cast<size_t> (0.95 * static_cast<double> (limit));
+            const auto shaped = [&] (double rate60, std::vector<float>& y)   // rate60: dB per second
+            {
+                y.assign (m.begin(), m.begin() + static_cast<std::ptrdiff_t> (limit));
+                for (size_t i = from; i < y.size(); ++i)
+                    y[i] = static_cast<float> (y[i] * std::pow (10.0, -rate60 * static_cast<double> (i - from) / c_storeRate / 20.0));
+                return energyDecayDb (y)[target];
+            };
+            std::vector<float> y;
+            if (shaped (0.0, y) > -60.0)
+            {
+                double lo = 0.0, hi = 400.0;
+                for (int it = 0; it < 40; ++it)
+                {
+                    const double trial = 0.5 * (lo + hi);
+                    (shaped (trial, y) > -60.0 ? lo : hi) = trial;
+                }
+                for (size_t i = from; i < out.left.size(); ++i)
+                {
+                    const auto g = static_cast<float> (std::pow (10.0, -hi * static_cast<double> (i - from) / c_storeRate / 20.0));
+                    out.left[i] *= g;
+                    out.right[i] *= g;
+                }
+                for (size_t i = 0; i < m.size(); ++i)
+                    m[i] = 0.5f * (out.left[i] + out.right[i]);
+            }
+        }
         const auto edc = energyDecayDb (m);
-        size_t end = std::min (m.size(), static_cast<size_t> (c_maxSeconds * c_storeRate));
+        size_t end = limit;
         for (size_t i = 0; i < end; ++i)
             if (edc[i] <= -60.0)
             {
@@ -197,7 +306,15 @@ namespace roar::irpack
         for (size_t i = 0; i < end; ++i)
             m[i] = 0.5f * (out.left[i] + out.right[i]);
         const double g = voicePowerGain (m, c_storeRate);
-        const double scale = g > 0.0 ? 1.0 / std::sqrt (g) : 1.0;
+        double scale = g > 0.0 ? 1.0 / std::sqrt (g) : 1.0;
+        if (capture.peakCeiling > 0.0)
+        {
+            float top = 0.0f;
+            for (const float x : m)
+                top = std::max (top, std::abs (x));
+            if (top * scale > capture.peakCeiling)
+                scale = capture.peakCeiling / top;
+        }
         for (auto& x : out.left) x = static_cast<float> (x * scale);
         for (auto& x : out.right) x = static_cast<float> (x * scale);
         for (size_t i = 0; i < end; ++i)

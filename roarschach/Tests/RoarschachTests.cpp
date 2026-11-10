@@ -13,7 +13,8 @@
 //                                          latency-trimmed, 24-bit, through factory presets
 //                   [--set id=value]...    after the preset: a real value, a choice name, On/Off,
 //                                          or @0.75 for a knob position (0..1)
-//                   [--metrics out.json]   measurements per render (Tests/RenderMetrics.h)
+//                   [--metrics out.json]   measurements per render (Tests/RenderMetrics.h, and
+//                                          grP95Db: OUTPUT's gain reduction, 95th percentile)
 //                   [--sweep id from to steps [--norm]] [--no-wav] [--raw-out]
 //                                          the same input at each value of one parameter (real
 //                                          values, or knob positions with --norm); metrics go to
@@ -1710,14 +1711,14 @@ namespace
         check(presetIndex("Init") == 0, "Init is the first preset");
         for (const char* required : { "Phone Monster", "Throat Singer", "Ribcage", "Cyber Commander", "Respirator Rasp", "Rasp Machine",
                                       "Simple Size", "Iron Tyrant", "Tin Can Drone", "Upside Down", "Spore Throat", "Hoarse Hoarder",
-                                      "Angry Pepper Pot", "Ball Bearing", "Use Your Words" })
+                                      "Angry Pepper Pot", "Ball Bearing", "Use Your Words", "Thing Next Door", "Stairwell Stalker" })
             check(presetIndex(required) >= 0, juce::String("missing preset ") + required);
         // The presets that use CHAMBER, and its slot in each (an insertion slot among the 14).
         {
             int chamberPresets = 0;
             for (const auto& preset : presets)
                 chamberPresets += preset.values.at(Params::chamberOn) > 0.5f ? 1 : 0;
-            check(chamberPresets == 11, juce::String(chamberPresets) + " presets use CHAMBER (expected 11)");
+            check(chamberPresets == 13, juce::String(chamberPresets) + " presets use CHAMBER (expected 13)");
             const auto slot = [&](const char* name)
             {
                 const int i = presetIndex(name);
@@ -1727,6 +1728,16 @@ namespace
             check(slot("Iron Tyrant") == 5, "Iron Tyrant: CHAMBER right after ROAR");
             check(slot("Cave Troll") == 14 && slot("Gargoyle") == 14 && slot("Demon Whisper") == 14, "the creature in the room: CHAMBER last");
             check(slot("Upside Down") == 14 && slot("Hoarse Hoarder") == 14, "Upside Down and Hoarse Hoarder: the octave and rumble in the room, CHAMBER last");
+            check(slot("Thing Next Door") == 14 && slot("Stairwell Stalker") == 14, "Thing Next Door and Stairwell Stalker: the whole creature in the room, CHAMBER last");
+            // The two presets that show off the recorded rooms use them.
+            const auto roomOf = [&](const char* name)
+            {
+                const int i = presetIndex(name);
+                return i < 0 ? -1 : static_cast<int>(presets[static_cast<size_t>(i)].values.at(Params::chamberRoom));
+            };
+            check(roomOf("Thing Next Door") == static_cast<int>(Params::ChamberRoom::partyWall)
+                      && roomOf("Stairwell Stalker") == static_cast<int>(Params::ChamberRoom::towerBlock),
+                  "Thing Next Door plays in Party Wall, Stairwell Stalker in Tower Block");
             check(slot("Use Your Words") == 1, "Use Your Words: the pitched voice played into the room, CHAMBER right after PITCH");
             check(slot("Ball Bearing") == 8, "Ball Bearing: CHAMBER after TAME, the tiny speaker at the end of the sounding chain");
             // Spore Throat and Angry Pepper Pot are dry: CHAMBER off in its default slot.
@@ -3629,7 +3640,7 @@ namespace
         ChamberSettings on;
         on.on = true;
 
-        // --- The modelled rooms (what a build without the bundled rooms uses): eight rooms close to
+        // --- The modelled rooms (what a build without the bundled rooms uses): ten rooms close to
         //     the measured decay of the captures they stand in for, and all at the same level.
         {
             ChamberBank::setForceModelled(false);
@@ -3639,7 +3650,8 @@ namespace
            #endif
             const auto modelled = ChamberBank::build(sr, ChamberBank::Source::modelled);
             check(modelled->getSource() == ChamberBank::Source::modelled, "the modelled bank");
-            const std::array<double, 8> measured { 0.42, 0.71, 0.61, 0.55, 0.37, 0.58, 0.54, 0.20 };
+            // The captures' RT60 (Party Wall and Tower Block: after the packer steepens their 2-3 s ring to fit 0.75 s).
+            const std::array<double, ChamberBank::numRooms> measured { 0.42, 0.71, 0.61, 0.55, 0.37, 0.58, 0.54, 0.20, 0.78, 0.79 };
             const auto bundled = ChamberBank::hasBundledRooms() ? ChamberBank::build(sr, ChamberBank::Source::bundled) : nullptr;
             for (int r = 0; r < ChamberBank::numRooms; ++r)
             {
@@ -3653,6 +3665,40 @@ namespace
                     std::printf(", bundled %.2f s (capture %.2f s), %.1f ms\n", brt, measured[static_cast<size_t>(r)],
                                 1000.0 * bundled->room(r).ir.getLength() / sr);
                     check(bundled->room(r).ir.getLength() <= static_cast<int>(irpack::c_maxSeconds * sr) + 1, "bundled rooms end by 0.75 s");
+                }
+            }
+
+            // The recorded rooms start from (near) silence and keep their high-pass: a room that
+            // starts mid-waveform (an onset trim that cut a slow arrival) is a step at sample 0,
+            // which lets back the low end the packer's high-pass removed.
+            if (bundled != nullptr)
+            {
+                const auto rooms = ChamberBank::bundledRooms();
+                for (size_t r = 0; r < rooms.size(); ++r)
+                {
+                    const auto& ir = rooms[r];
+                    double peak = 0.0, dc = 0.0, re1k = 0.0, im1k = 0.0;
+                    for (size_t i = 0; i < ir.left.size(); ++i)
+                    {
+                        const double m = 0.5 * (ir.left[i] + ir.right[i]);
+                        peak = std::max(peak, std::abs(m));
+                        dc += m;
+                        const double ph = 2.0 * juce::MathConstants<double>::pi * 1000.0 * static_cast<double>(i) / ir.rate;
+                        re1k += m * std::cos(ph);
+                        im1k -= m * std::sin(ph);
+                    }
+                    const double m0 = ir.left.empty() ? 0.0 : 0.5 * (ir.left[0] + ir.right[0]);
+                    const double startDb = toDb(std::abs(m0) / std::max(peak, 1e-12));
+                    const double dcDb = toDb(std::abs(dc) / std::max(std::hypot(re1k, im1k), 1e-12));
+                    std::printf("  %-17s bundled: first sample %6.1f dB re peak, DC %6.1f dB re 1 kHz\n",
+                                Params::chamberRoomNames[r], startDb, dcDb);
+                    // (The first eight are designed responses whose first sample and low end are
+                    // part of their sound; only the recordings, high-passed, are held to this.)
+                    if (irpack::c_captures[r].keepArrival)
+                    {
+                        check(startDb < -30.0, juce::String(Params::chamberRoomNames[r]) + " starts from near silence (no step at sample 0)");
+                        check(dcDb < -40.0, juce::String(Params::chamberRoomNames[r]) + " keeps its high-pass (no DC let back by the trim)");
+                    }
                 }
             }
 
@@ -3759,6 +3805,101 @@ namespace
                 std::printf("  %-17s decay starts %3.0f ms, longest x%.2f, Resonance 0/40/100 %%: %+.1f / %+.1f / %+.1f dB\n",
                             Params::chamberRoomNames[static_cast<size_t>(r)], 1000.0 * room.decayStart, room.maxDecayScale,
                             levels[0] - levels[1], 0.0, levels[2] - levels[1]);
+            }
+            // Peaks (audit: Party Wall and Tower Block are recordings of a loud impulsive sound, not
+            // designed impulse responses, with a low-mid body 6-9 dB over the other rooms'): neither
+            // may reach higher than the loudest of the first eight, on a click (the wet's transient
+            // peak) or on a slow 50 Hz - 2 kHz sweep (a sustained sung pitch on every mode), at
+            // Chamber 100 %, Resonance 100 %, each speaker; and on a dense, low, shouted vowel at
+            // Resonance 0 and 100 % (the clip audit: Party Wall's closest case is Resonance 0 %
+            // with the Tiny speaker on a 0 dBFS shout). A pitched voice's harmonics land on or
+            // between a room's modes, so its peak varies with the pitch by more than the click's
+            // or the sweep's (as the room levels at 110 Hz above): it is allowed 1.5 dB, not 0.5.
+            // The sweep is allowed 1 dB: the full run's slower sweep (8 s) holds each mode long
+            // enough for the longest rooms to build up almost fully (Party Wall, the longest ring,
+            // reads +0.6 dB over the first eight there and -2 dB on the quick 4 s sweep).
+            // Whether a peak clips is checked through the whole plug-in in testChamberClip.
+            {
+                Signal click(static_cast<size_t>(0.8 * sr), 0.0f);
+                click[1000] = 0.5f;
+                Signal sweep(static_cast<size_t>((g_quick ? 4.0 : 8.0) * sr));
+                double phase = 0.0;
+                for (size_t i = 0; i < sweep.size(); ++i)
+                {
+                    const double t = static_cast<double>(i) / static_cast<double>(sweep.size());
+                    phase += roar::dsp::c_twoPi * 50.0 * std::pow(40.0, t) / sr;
+                    sweep[i] = static_cast<float>(0.1 * std::sqrt(2.0) * std::sin(phase));
+                }
+                auto shout = makeVoice(sr, g_quick ? 1.5 : 3.0, 82.0, 11);
+                for (auto& v : shout)
+                    v = std::tanh(4.0f * v);
+                normalisePeak(shout, 0.5f);
+                struct PeakCase { const char* name; const Signal* x; float resonance; double inputPeak, allowDb; };
+                const std::array<PeakCase, 4> cases { { { "click", &click, 1.0f, 0.5, 0.5 },
+                                                        { "sweep 50 Hz - 2 kHz", &sweep, 1.0f, 0.1 * std::sqrt(2.0), 1.0 },
+                                                        { "shout, Resonance 0 %", &shout, 0.0f, 0.5, 1.5 },
+                                                        { "shout, Resonance 100 %", &shout, 1.0f, 0.5, 1.5 } } };
+                std::array<std::array<double, cases.size()>, ChamberBank::numRooms> peaks {};
+                for (int r = 0; r < ChamberBank::numRooms; ++r)
+                    for (size_t k = 0; k < cases.size(); ++k)
+                    {
+                        double worst = -200.0;
+                        for (int speaker = 0; speaker < 3; ++speaker)
+                        {
+                            auto s = on;
+                            s.amount = 1.0f;
+                            s.resonance = cases[k].resonance;
+                            s.edge = 0.0f;
+                            s.width = 0.0f;
+                            s.room = r;
+                            s.speaker = speaker;
+                            const auto wet = wetOf(s, dual(*cases[k].x));
+                            float top = 0.0f;
+                            for (const float v : wet)
+                                top = std::max(top, std::abs(v));
+                            worst = std::max(worst, toDb(top / cases[k].inputPeak));
+                        }
+                        peaks[static_cast<size_t>(r)][k] = worst;
+                    }
+                for (size_t k = 0; k < cases.size(); ++k)
+                {
+                    double designed = -200.0;
+                    for (int r = 0; r < 8; ++r)
+                        designed = std::max(designed, peaks[static_cast<size_t>(r)][k]);
+                    std::printf("  wet peak re the input (%s): first eight up to %+.1f dB; Party Wall %+.1f, Tower Block %+.1f dB\n",
+                                cases[k].name, designed, peaks[8][k], peaks[9][k]);
+                    for (int r = 8; r < ChamberBank::numRooms; ++r)
+                        check(peaks[static_cast<size_t>(r)][k] <= designed + cases[k].allowDb,
+                              juce::String(Params::chamberRoomNames[static_cast<size_t>(r)]) + " peaks no higher than the other rooms ("
+                                  + cases[k].name + ")");
+                }
+            }
+
+            // Resonance's level hold stays clear of its limit in every room (the clip audit: Tower
+            // Block at Resonance 100 % asks for the most, about 11 of the 12 dB). A room that needed
+            // more would change level at the ends of the knob instead of holding it.
+            {
+                double worstHold = 0.0;
+                int worstRoom = 0;
+                for (int r = 0; r < ChamberBank::numRooms; ++r)
+                    for (const float u : { 0.0f, 1.0f })
+                    {
+                        auto s = on;
+                        s.amount = 1.0f;
+                        s.room = r;
+                        s.resonance = u;
+                        auto m = prepared(s);
+                        runChamber(*m, dual(Signal(2048, 0.0f)), { 512 }, false);
+                        if (std::abs(m->getLevelHoldDb()) > std::abs(worstHold))
+                        {
+                            worstHold = m->getLevelHoldDb();
+                            worstRoom = r;
+                        }
+                    }
+                std::printf("  Resonance's level hold: at most %+.1f dB (%s), limit +-%.0f dB\n", worstHold,
+                            Params::chamberRoomNames[static_cast<size_t>(worstRoom)], ChamberModule::c_maxLevelHoldDb);
+                check(std::abs(worstHold) <= ChamberModule::c_maxLevelHoldDb - 0.25,
+                      "Resonance's level hold stays 0.25 dB clear of its limit (" + juce::String(worstHold, 2) + " dB)");
             }
         }
 
@@ -4040,6 +4181,233 @@ namespace
             if (!onSharedRunner)
                 check(worstChange < 0.5 * blockSecs, "CHAMBER worst block on a room change " + juce::String(100.0 * worstChange / blockSecs, 1) + " % of the block");
         }
+    }
+
+    // The audit's limits for CHAMBER's cost to OUTPUT's maximizer (gain reduction it adds, 95th
+    // percentile, against the same chain with CHAMBER off): any room at the worst corner of its
+    // legal settings, and a preset or a roll as it plays. These are not what keeps the output from
+    // clipping (that is the clamp and true-peak pass mark); they catch a change that makes a room
+    // cost the limiter much more than it did when audited. Each is the baseline measured here on
+    // these test signals plus a stated margin, so ordinary changes (Resonance's level hold, the
+    // speaker makeup, the limiter, another compiler) do not trip them; a change that does is a
+    // deliberate re-baseline, recorded in docs/parameter-audit.md ("Clipping and headroom").
+    //   worst corner: +5.8 dB measured (Resonant Chamber, bundled rooms; modelled rooms +4.0), + 1 dB;
+    //   a preset as shipped or a roll: +2.2 dB measured (Iron Tyrant; rolls +1.5), + 1.8 dB.
+    constexpr double c_chamberCornerBaselineDb = 5.8;
+    constexpr double c_chamberMaxAddedGrDb = c_chamberCornerBaselineDb + 1.0;
+    constexpr double c_chamberPresetMaxAddedGrDb = 4.0;
+
+    // CHAMBER through the whole plug-in (docs/parameter-audit.md, "Clipping and headroom"): every
+    // room at the worst corners of its legal settings, every preset that uses CHAMBER (with every
+    // room swapped in) and the dice rolls that land on CHAMBER. The pass mark is the plug-in's own:
+    // finite, under the ceiling (true peak included), OUTPUT's safety clamp never engaged, and
+    // CHAMBER costs the maximizer no more gain reduction than the audit allows. Run once with the
+    // bundled rooms (when the build has them) and once with the modelled rooms.
+    struct ChamberClipRender
+    {
+        bool ok = true;
+        double truePeakDb = -200.0;   // re the ceiling
+        double grP95 = 0.0;           // the maximizer's gain reduction, 95th percentile over active blocks, dB
+        std::uint64_t clamps = 0;
+    };
+
+    ChamberClipRender chamberClipRender(RoarschachAudioProcessor& p, const Stereo& in, double sr, int block)
+    {
+        restart(p, sr, block);
+        std::vector<double> gr;
+        const auto out = render(p, in, block, false, [&](int start)
+        {
+            // (the reduction of the block before this one; the first blocks are the limiter settling)
+            if (start >= 4 * block)
+                gr.push_back(-static_cast<double>(p.getChain().getOutput().getReductionDb()));
+        });
+        ChamberClipRender r;
+        const float ceiling = getParam(p, Params::outCeiling);
+        const auto st = stats(out);
+        r.clamps = p.getChain().getClampCount();
+        r.truePeakDb = toDb(std::max(truePeak(out.l), truePeak(out.r))) - ceiling;
+        r.ok = st.finite && st.peak <= ceilingGain(ceiling) && r.truePeakDb <= 0.2 && r.clamps == 0;
+        std::sort(gr.begin(), gr.end());
+        r.grP95 = gr.empty() ? 0.0 : gr[std::min(gr.size() - 1, static_cast<size_t>(0.95 * static_cast<double>(gr.size())))];
+        return r;
+    }
+
+    void testChamberClip()
+    {
+        using roar::ChamberBank;
+        std::printf("[chamberclip] CHAMBER through the plug-in: every room at its worst legal corners, the presets that use it, the dice\n");
+        const double sr = 48000.0;
+        const int block = 512;
+        const double seconds = g_quick ? 1.5 : 2.5;
+        // The reference voice at its own level (IN levels it), the same voice at 0 dBFS, and a
+        // dense, low, 0 dBFS voice (a shouted, sustained vowel on a low pitch: every room's low-mid
+        // modes at once).
+        auto voice = makeVoice(sr, seconds);
+        auto hot = voice;
+        normalisePeak(hot, 0.98f);
+        auto dense = makeVoice(sr, seconds, 82.0, 11);
+        for (size_t i = 0; i < dense.size(); ++i)
+            dense[i] = std::tanh(4.0f * dense[i]);
+        normalisePeak(dense, 0.98f);
+        const std::vector<std::pair<const char*, Stereo>> signals { { "voice", dual(voice) }, { "hot", dual(hot) }, { "dense", dual(dense) } };
+        const auto roomName = [](int r) { return juce::String(Params::chamberRoomNames[static_cast<size_t>(r)]); };
+        constexpr int numFirstRooms = 8;   // the designed rooms; the rest are recordings (Party Wall, Tower Block)
+
+        std::vector<ChamberBank::Source> sources { ChamberBank::Source::modelled };
+        if (ChamberBank::hasBundledRooms())
+            sources.insert(sources.begin(), ChamberBank::Source::bundled);
+        for (const auto source : sources)
+        {
+            ChamberBank::setForceModelled(source == ChamberBank::Source::modelled);
+            const char* sourceName = source == ChamberBank::Source::bundled ? "bundled" : "modelled";
+
+            // 1. Every room at the corners of its legal settings: Chamber 100 %, Edge 100 %, Width
+            //    100 %, Boom Heavy, Resonance 0 and 100 %, the Tiny and Horn speakers (the audit's
+            //    worst), CHAMBER last in Init (the most gain reduction) and right after PITCH (the
+            //    hottest CHAMBER output). Against the same chain with CHAMBER off.
+            {
+                std::array<double, ChamberBank::numRooms> addedGr {}, worstTp {};
+                worstTp.fill(-200.0);
+                int bad = 0, renders = 0;
+                const std::vector<const char*> orders = g_quick ? std::vector<const char*> { "PI CL DS DT VO RM SH GR SW RO EN TA SU OV CH" }
+                                                                : std::vector<const char*> { "PI CL DS DT VO RM SH GR SW RO EN TA SU OV CH",
+                                                                                             "PI CH CL DS DT VO RM SH GR SW RO EN TA SU OV" };
+                const std::vector<int> speakers = g_quick ? std::vector<int> { 0 } : std::vector<int> { 0, 2 };
+                for (const char* order : orders)
+                    for (const auto& [name, x] : signals)
+                    {
+                        if (g_quick && juce::String(name) == "voice")
+                            continue;
+                        auto ref = makeProcessor(sr, block);
+                        setOrder(*ref, orderFromCodes(order));
+                        setParam(*ref, Params::chamberOn, 0.0f);
+                        const auto off = chamberClipRender(*ref, x, sr, block);
+                        bad += off.ok ? 0 : 1;
+                        for (int r = 0; r < ChamberBank::numRooms; ++r)
+                            for (const float resonance : { 0.0f, 100.0f })
+                                for (const int speaker : speakers)
+                                {
+                                    auto p = makeProcessor(sr, block);
+                                    setOrder(*p, orderFromCodes(order));
+                                    setValues(*p, { { Params::chamberOn, 1.0f }, { Params::chamber, 100.0f }, { Params::chamberResonance, resonance },
+                                                    { Params::chamberDrive, 100.0f }, { Params::chamberWidth, 100.0f },
+                                                    { Params::chamberRoom, static_cast<float>(r) }, { Params::chamberSpeaker, static_cast<float>(speaker) },
+                                                    { Params::chamberBoom, 3.0f } });
+                                    const auto res = chamberClipRender(*p, x, sr, block);
+                                    ++renders;
+                                    if (!res.ok)
+                                    {
+                                        ++bad;
+                                        std::printf("    BROKEN %s, %s, %s, Resonance %.0f, speaker %d: true peak %+.2f dB re ceiling, %llu clamps\n",
+                                                    roomName(r).toRawUTF8(), name, order, resonance, speaker, res.truePeakDb,
+                                                    static_cast<unsigned long long>(res.clamps));
+                                    }
+                                    addedGr[static_cast<size_t>(r)] = std::max(addedGr[static_cast<size_t>(r)], res.grP95 - off.grP95);
+                                    worstTp[static_cast<size_t>(r)] = std::max(worstTp[static_cast<size_t>(r)], res.truePeakDb);
+                                }
+                    }
+                double firstEight = 0.0;
+                for (int r = 0; r < numFirstRooms; ++r)
+                    firstEight = std::max(firstEight, addedGr[static_cast<size_t>(r)]);
+                std::printf("  %s rooms, worst corners (%d renders): GR CHAMBER adds (p95)", sourceName, renders);
+                for (int r = 0; r < ChamberBank::numRooms; ++r)
+                    std::printf("%s %s %+.1f", r == 0 ? "" : ",", roomName(r).toRawUTF8(), addedGr[static_cast<size_t>(r)]);
+                std::printf(" dB; worst true peak %+.2f dB re ceiling\n", *std::max_element(worstTp.begin(), worstTp.end()));
+                check(bad == 0, juce::String(sourceName) + " rooms at their worst corners: " + juce::String(bad) + " renders over the ceiling or clamped");
+                for (int r = 0; r < ChamberBank::numRooms; ++r)
+                    check(addedGr[static_cast<size_t>(r)] <= c_chamberMaxAddedGrDb,
+                          juce::String(sourceName) + " " + roomName(r) + ": CHAMBER at its worst corner adds "
+                              + juce::String(addedGr[static_cast<size_t>(r)], 1) + " dB of limiting (<= " + juce::String(c_chamberMaxAddedGrDb, 1) + ")");
+                for (int r = numFirstRooms; r < ChamberBank::numRooms; ++r)
+                    check(addedGr[static_cast<size_t>(r)] <= firstEight + 0.5,
+                          juce::String(sourceName) + " " + roomName(r) + " costs the limiter no more than the first eight rooms");
+            }
+
+            // 2. Every preset that uses CHAMBER, as shipped and with every room swapped in (the
+            //    shipped room only in --quick), on the voice and the hot voice.
+            {
+                const auto& presets = PresetManager::getFactoryPresets();
+                int bad = 0, count = 0;
+                double worstShipped = 0.0, worstSwapped = 0.0;
+                juce::String worstShippedName, worstSwappedName;
+                for (size_t i = 0; i < presets.size(); ++i)
+                {
+                    if (presets[i].values.at(Params::chamberOn) < 0.5f)
+                        continue;
+                    ++count;
+                    const int shippedRoom = static_cast<int>(presets[i].values.at(Params::chamberRoom));
+                    for (size_t s = 0; s < 2; ++s)
+                    {
+                        const auto& x = signals[s].second;
+                        auto ref = makeProcessor(sr, block);
+                        ref->setCurrentProgram(static_cast<int>(i));
+                        setParam(*ref, Params::chamberOn, 0.0f);
+                        const auto off = chamberClipRender(*ref, x, sr, block);
+                        for (int r = 0; r < ChamberBank::numRooms; ++r)
+                        {
+                            if (g_quick && r != shippedRoom)
+                                continue;
+                            auto p = makeProcessor(sr, block);
+                            p->setCurrentProgram(static_cast<int>(i));
+                            setParam(*p, Params::chamberRoom, static_cast<float>(r));
+                            const auto res = chamberClipRender(*p, x, sr, block);
+                            if (!res.ok)
+                            {
+                                ++bad;
+                                std::printf("    BROKEN %s in %s (%s): true peak %+.2f dB re ceiling, %llu clamps\n", presets[i].name,
+                                            roomName(r).toRawUTF8(), signals[s].first, res.truePeakDb, static_cast<unsigned long long>(res.clamps));
+                            }
+                            const double added = res.grP95 - off.grP95;
+                            if (r == shippedRoom && added > worstShipped)
+                            {
+                                worstShipped = added;
+                                worstShippedName = juce::String(presets[i].name) + " (" + signals[s].first + ")";
+                            }
+                            if (added > worstSwapped)
+                            {
+                                worstSwapped = added;
+                                worstSwappedName = juce::String(presets[i].name) + " in " + roomName(r) + " (" + signals[s].first + ")";
+                            }
+                        }
+                    }
+                }
+                std::printf("  %s rooms, %d presets with CHAMBER: GR CHAMBER adds (p95) at most %+.1f dB as shipped (%s), %+.1f dB with any room (%s)\n",
+                            sourceName, count, worstShipped, worstShippedName.toRawUTF8(), worstSwapped, worstSwappedName.toRawUTF8());
+                check(bad == 0, juce::String(sourceName) + " rooms: " + juce::String(bad) + " CHAMBER preset renders over the ceiling or clamped");
+                check(worstShipped <= c_chamberPresetMaxAddedGrDb, juce::String(sourceName) + " rooms: a preset's CHAMBER adds "
+                          + juce::String(worstShipped, 1) + " dB of limiting (<= " + juce::String(c_chamberPresetMaxAddedGrDb, 1) + ")");
+                check(worstSwapped <= c_chamberMaxAddedGrDb, juce::String(sourceName) + " rooms: a preset with another room adds "
+                          + juce::String(worstSwapped, 1) + " dB of limiting (<= " + juce::String(c_chamberMaxAddedGrDb, 1) + ")");
+            }
+
+            // 3. ROLL ALL: the rolls that turn CHAMBER on, against the same roll with CHAMBER off.
+            {
+                const int wanted = g_quick ? 4 : 16;
+                int found = 0, bad = 0;
+                double worst = 0.0;
+                std::array<int, ChamberBank::numRooms> rooms {};
+                for (std::uint32_t seed = 1; found < wanted && seed < 400; ++seed)
+                {
+                    auto p = makeProcessor(sr, block);
+                    p->getDice().setSeed(seed);
+                    p->getDice().rollAll();
+                    if (getParam(*p, Params::chamberOn) < 0.5f)
+                        continue;
+                    ++found;
+                    ++rooms[static_cast<size_t>(std::lround(getParam(*p, Params::chamberRoom)))];
+                    const auto res = chamberClipRender(*p, signals[1].second, sr, block);
+                    setParam(*p, Params::chamberOn, 0.0f);
+                    const auto off = chamberClipRender(*p, signals[1].second, sr, block);
+                    bad += res.ok ? 0 : 1;
+                    worst = std::max(worst, res.grP95 - off.grP95);
+                }
+                std::printf("  %s rooms, %d rolls with CHAMBER on (hot voice): GR CHAMBER adds (p95) at most %+.1f dB\n", sourceName, found, worst);
+                check(found == wanted && bad == 0, juce::String(sourceName) + " rooms: " + juce::String(bad) + " rolls with CHAMBER over the ceiling or clamped");
+                check(worst <= c_chamberPresetMaxAddedGrDb, juce::String(sourceName) + " rooms: a roll's CHAMBER adds "
+                          + juce::String(worst, 1) + " dB of limiting (<= " + juce::String(c_chamberPresetMaxAddedGrDb, 1) + ")");
+            }
+        }
+        ChamberBank::setForceModelled(false);
     }
 
     void testCpu()
@@ -5764,7 +6132,16 @@ namespace
                 const int extra = latency + static_cast<int>(0.5 * sr);
                 padded.l.resize(static_cast<size_t>(length + extra), 0.0f);
                 padded.r.resize(static_cast<size_t>(length + extra), 0.0f);
-                auto out = render(*p, padded, 512);
+                // OUTPUT's maximizer gain reduction per block (95th percentile over the input's
+                // length, after the first blocks of the limiter settling): what the render costs it.
+                std::vector<double> gr;
+                auto out = render(*p, padded, 512, false, [&](int start)
+                {
+                    if (start >= 4 * 512 && start < length + latency)
+                        gr.push_back(-static_cast<double>(p->getChain().getOutput().getReductionDb()));
+                });
+                std::sort(gr.begin(), gr.end());
+                const double grP95 = gr.empty() ? 0.0 : gr[std::min(gr.size() - 1, static_cast<size_t>(0.95 * static_cast<double>(gr.size())))];
                 out.l.erase(out.l.begin(), out.l.begin() + latency);
                 out.r.erase(out.r.begin(), out.r.begin() + latency);
 
@@ -5837,15 +6214,16 @@ namespace
                     rec->setProperty("wav", opt.writeWav ? juce::var(target.getFullPathName()) : juce::var());
                     rec->setProperty("broken", broken);
                     rec->setProperty("metrics", m);
+                    rec->setProperty("grP95Db", grP95);
                     records.add(juce::var(rec));
                     metricLine << juce::String::formatted("  %6.1f LUFS  HNR %5.1f dB  env r %.2f",
                                                           static_cast<double>(m["lufs"]), static_cast<double>(m["hnrDb"]),
                                                           static_cast<double>(m["envCorr1to4k"]));
                 }
 
-                std::printf("%-18s%s rms %6.1f dBFS  peak %6.2f dBFS  true peak %6.2f dBTP  side/mid %5.1f dB  clamps %llu  latency %d  %s%s%s%s\n",
+                std::printf("%-18s%s rms %6.1f dBFS  peak %6.2f dBFS  true peak %6.2f dBTP  side/mid %5.1f dB  GR p95 %4.1f dB  clamps %llu  latency %d  %s%s%s%s\n",
                             name.toRawUTF8(), suffix.toRawUTF8(), toDb(st.rms), toDb(st.peak), tpDb,
-                            toDb(std::sqrt(sideSq / std::max(midSq, 1.0e-20))), static_cast<unsigned long long>(clamps),
+                            toDb(std::sqrt(sideSq / std::max(midSq, 1.0e-20))), grP95, static_cast<unsigned long long>(clamps),
                             latency, broken ? "BROKEN" : "ok", metricLine.toRawUTF8(),
                             opt.writeWav ? " -> " : "", opt.writeWav ? target.getFullPathName().toRawUTF8() : "");
             }
@@ -6309,8 +6687,9 @@ namespace
                 expect(Params::outAttack, std::max(0.2, static_cast<double>(o[21])));
             }
             check(bad == 0, juce::String(bad) + " Init values are not the conversion of the first release's");
-            check(v1Presets().size() == 40 && presets.size() == 49, "40 first-release presets plus Simple Size, Iron Tyrant, Tin Can Drone, "
-                                                                   "Upside Down, Spore Throat, Hoarse Hoarder, Angry Pepper Pot, Ball Bearing and Use Your Words");
+            check(v1Presets().size() == 40 && presets.size() == 51, "40 first-release presets plus Simple Size, Iron Tyrant, Tin Can Drone, "
+                                                                   "Upside Down, Spore Throat, Hoarse Hoarder, Angry Pepper Pot, Ball Bearing, Use Your Words, "
+                                                                   "Thing Next Door and Stairwell Stalker");
             // The parameter defaults are Init's values.
             int defaults = 0;
             for (const auto& [id, value] : presets[0].values)
@@ -6509,6 +6888,7 @@ int main(int argc, char* argv[])
         { "pitch", testNativeRatePitch },
         { "ring", testRingAndOvertone },
         { "chamber", testChamber },
+        { "chamberclip", testChamberClip },
         { "editor", testEditor },
         { "dice", testDice },
         { "creature", testCreature },

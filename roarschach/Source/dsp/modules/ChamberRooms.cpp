@@ -1,10 +1,12 @@
 #include "ChamberRooms.h"
 
+#include "../../Params.h"
 #include "../common/Biquad.h"
 
 #include <atomic>
 #include <cmath>
 #include <cstdint>
+#include <initializer_list>
 #include <mutex>
 #include <utility>
 
@@ -53,7 +55,14 @@ namespace roar
             { 0.54, -10.9, 13300.0, 0.0, 0.0, 6, 8.0, { { { 1300.0, 5.0, 8.0 }, { 1850.0, 5.0, 10.0 }, { 609.0, 5.0, 10.0 }, { 3000.0, 1.0, 6.0 } } } },
             // Soft Bloom: diffuse, no distinct reflections; it swells in, then fades fast.
             { 0.25, -11.0, 15800.0, 1.0, 0.0, 3, 30.0, { { { 2850.0, 4.0, 8.0 }, { 293.0, 3.0, 6.0 }, { 1180.0, 3.0, 6.0 }, { 5000.0, 0.0, 6.0 } } } },
+            // Party Wall: a hard concrete space heard through the wall; dark, with a boomy low-mid
+            // body (+6-9 dB at 125-500 Hz), modes at 470 Hz and 2.7-3 kHz, the longest decay.
+            { 0.78, 0.6, 12000.0, -5.0, 90.0, 30, 2.0, { { { 250.0, 7.0, 1.2 }, { 470.0, 6.0, 10.0 }, { 3030.0, 7.0, 14.0 }, { 2660.0, 5.0, 12.0 } } } },
+            // Tower Block: further away, darker still (little above 2 kHz), a low-mid body with
+            // modes at 118 and 267 Hz, and as long.
+            { 0.79, 0.9, 8000.0, -8.0, 90.0, 28, 2.0, { { { 200.0, 7.0, 1.0 }, { 267.0, 6.0, 10.0 }, { 118.0, 5.0, 8.0 }, { 608.0, 5.0, 10.0 } } } },
         } };
+        static_assert (Params::chamberRoomNames.size() == ChamberBank::numRooms, "a model per room");
 
         /** xorshift64*: the same numbers on every platform (std's distributions are not). */
         class Random
@@ -157,7 +166,21 @@ namespace roar
                     f.process (channel->data(), static_cast<int> (channel->size()));
                 }
 
-            return irpack::processRoom (std::move (left), std::move (right), fs);
+            return irpack::processRoom (std::move (left), std::move (right), fs);   // no Capture: the models need none
+        }
+
+        /** A first-order pole at poleHz and zero at zeroHz (bilinear): three of them, an octave each and
+            two octaves apart, tilt 150 Hz - 5 kHz by -3 dB per octave on average (within 0.6 dB). */
+        Biquad::Coeffs pinkSection (double fs, double poleHz, double zeroHz)
+        {
+            const double k = 2.0 * fs, wp = 6.283185307179586 * poleHz, wz = 6.283185307179586 * zeroHz;
+            Biquad::Coeffs c;
+            c.b0 = (k + wz) / (k + wp);
+            c.b1 = (wz - k) / (k + wp);
+            c.b2 = 0.0;
+            c.a1 = (wp - k) / (k + wp);
+            c.a2 = 0.0;
+            return c;
         }
 
         std::atomic<bool> g_forceModelled { false };
@@ -256,27 +279,41 @@ namespace roar
             room.rt60 = k < static_cast<int> (rooms.size()) && rooms[static_cast<size_t> (k)].rt60 > 0.0f
                           ? static_cast<double> (rooms[static_cast<size_t> (k)].rt60) : irpack::measureRt60 (mid, bank->m_fs);
             // Energy bookkeeping for Resonance (which scales the late partitions): measured in the
-            // voice band (150 Hz - 5 kHz, 4th-order edges), so holding it holds a voice's level.
+            // voice band (150 Hz - 5 kHz, 4th-order edges) with a pink tilt (-3 dB per octave, as a
+            // voice's long-term spectrum falls), so holding it holds a voice's level. (Flat in the
+            // band, the top octaves outweighed the low mids: a room whose late part is darker than
+            // its start, like Party Wall, lost 1.4 dB at Resonance 0 %.) Where the late part peaks
+            // and the longest decay are read from the flat band, as before.
             {
-                std::vector<float> band = mid;
-                for (const auto& c : { Biquad::highpass (bank->m_fs, 150.0, Biquad::c_bw4Q1), Biquad::highpass (bank->m_fs, 150.0, Biquad::c_bw4Q2),
-                                       Biquad::lowpass (bank->m_fs, 5000.0, Biquad::c_bw4Q1), Biquad::lowpass (bank->m_fs, 5000.0, Biquad::c_bw4Q2) })
+                const auto filtered = [&] (std::vector<float> x, std::initializer_list<Biquad::Coeffs> chain)
                 {
-                    Biquad f;
-                    f.setCoeffs (c);
-                    f.process (band.data(), static_cast<int> (band.size()));
-                }
+                    for (const auto& c : chain)
+                    {
+                        Biquad f;
+                        f.setCoeffs (c);
+                        f.process (x.data(), static_cast<int> (x.size()));
+                    }
+                    return x;
+                };
+                const auto band = filtered (mid, { Biquad::highpass (bank->m_fs, 150.0, Biquad::c_bw4Q1), Biquad::highpass (bank->m_fs, 150.0, Biquad::c_bw4Q2),
+                                                   Biquad::lowpass (bank->m_fs, 5000.0, Biquad::c_bw4Q1), Biquad::lowpass (bank->m_fs, 5000.0, Biquad::c_bw4Q2) });
+                const auto pink = filtered (band, { pinkSection (bank->m_fs, 150.0, 300.0), pinkSection (bank->m_fs, 600.0, 1200.0),
+                                                    pinkSection (bank->m_fs, 2400.0, 4800.0) });
                 const auto& late = bank->m_layout.levels[1];
                 room.earlyEnergy = 0.0;
                 room.lateEnergy.assign (static_cast<size_t> (std::max (1, late.count)), 0.0);
+                std::vector<double> flatLate (room.lateEnergy.size(), 0.0);
                 for (size_t i = 0; i < band.size(); ++i)
                 {
-                    const double e = static_cast<double> (band[i]) * band[i];
+                    const double e = static_cast<double> (pink[i]) * pink[i];
                     const int at = static_cast<int> (i);
                     if (at < late.start)
                         room.earlyEnergy += e;
                     else if (const int part = (at - late.start) / late.partition; part < late.count)
+                    {
                         room.lateEnergy[static_cast<size_t> (part)] += e;
+                        flatLate[static_cast<size_t> (part)] += static_cast<double> (band[i]) * band[i];
+                    }
                 }
 
                 // Where the late part peaks, and how far Resonance can lengthen the decay before
@@ -284,7 +321,7 @@ namespace roar
                 const int used = std::clamp ((static_cast<int> (mid.size()) - late.start + late.partition - 1) / late.partition, 1, std::max (1, late.count));
                 int peak = 0;
                 for (int j = 1; j < used; ++j)
-                    if (room.lateEnergy[static_cast<size_t> (j)] > room.lateEnergy[static_cast<size_t> (peak)])
+                    if (flatLate[static_cast<size_t> (j)] > flatLate[static_cast<size_t> (peak)])
                         peak = j;
                 room.decayStart = (static_cast<double> (late.start) + (peak + 0.5) * late.partition) / bank->m_fs;
                 room.maxDecayScale = 1.0;
@@ -296,7 +333,7 @@ namespace roar
                     for (int j = 0; j < used; ++j)
                     {
                         const double t = (static_cast<double> (late.start) + (j + 0.5) * late.partition) / bank->m_fs;
-                        const double db = 10.0 * std::log10 (room.lateEnergy[static_cast<size_t> (j)] + 1.0e-30) + lateGainDb (room, t, 0.0, s);
+                        const double db = 10.0 * std::log10 (flatLate[static_cast<size_t> (j)] + 1.0e-30) + lateGainDb (room, t, 0.0, s);
                         top = std::max (top, db);
                         if (j == tailFrom || j == tailFrom + 1)
                             tail += 0.5 * std::pow (10.0, db / 10.0);

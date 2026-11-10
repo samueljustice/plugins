@@ -118,12 +118,16 @@ namespace Params::Random
         // CHAMBER: a hint of a box to a clear chamber (the voice inside the can from 75 % is left to
         // the knob); tight to ringing; speaker grit to a cranked speaker; just off mono to clearly
         // stereo. Boom Heavy is left out: it is a deliberate thump for a lighter SUB, and it ducks
-        // the voice on a low, dense chain.
+        // the voice on a low, dense chain. Every room rolls with the same ranges: the clip audit
+        // (docs/parameter-audit.md) found no room that clips anywhere in its legal settings, and
+        // inside these ranges a roll's CHAMBER adds at most about 2.4 dB of limiting in any room
+        // (the audit's 1,070 rolls on the takes, shouts and plosives; +1.4 dB in the later seeded
+        // batch on the takes).
         Range { chamber, 15.0f, 65.0f, 0 },
         Range { chamberResonance, 0.0f, 80.0f, 0 },
         Range { chamberDrive, 0.0f, 60.0f, 0 },
         Range { chamberWidth, 20.0f, 70.0f, 0 },
-        Range { chamberRoom, 0, 0, all (8) },
+        Range { chamberRoom, 0, 0, all (10) },
         Range { chamberSpeaker, 0, 0, all (3) },
         Range { chamberBoom, 0, 0, 0b0111u },
     };

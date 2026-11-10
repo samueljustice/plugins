@@ -12,7 +12,7 @@ namespace roar
         constexpr double c_beta = 0.15;              // the breakup curve's bias (H2 next to H3)
         constexpr double c_clipKnee = 2.0;           // the amp's soft clip, 6 dB above the speaker's knee
         constexpr double c_referenceRms = 0.1;       // -20 dBFS: IN's working level
-        constexpr double c_maxCalDb = 12.0;
+        constexpr double c_maxCalDb = ChamberModule::c_maxLevelHoldDb;
         constexpr double c_ringFloorDb = -40.0, c_ringRangeDb = 30.0;
         constexpr int c_boomTick = 32;
 
@@ -414,6 +414,7 @@ namespace roar
             }
         }
         const double cal = shaped > 0.0 ? std::sqrt (nominal / shaped) : 1.0;
+        m_levelHoldDb[static_cast<size_t> (slot)] = 20.0 * std::log10 (cal);
         m_kcal[static_cast<size_t> (slot)] = static_cast<float> (std::clamp (cal, dsp::dbToGain (-c_maxCalDb), dsp::dbToGain (c_maxCalDb))
                                                                  * m_roomTrim[static_cast<size_t> (m_roomOf[static_cast<size_t> (slot)])]);
     }
@@ -690,6 +691,7 @@ namespace roar
         m_wetFrom = o.m_wetFrom;
         m_widthFrom = o.m_widthFrom;
         m_kcal = o.m_kcal;
+        m_levelHoldDb = o.m_levelHoldDb;
         m_kcalFrom = o.m_kcalFrom;
         m_snapControls = o.m_snapControls;
         for (size_t i = 0; i < m_boom.size(); ++i)
