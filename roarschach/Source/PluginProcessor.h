@@ -11,6 +11,7 @@
 
 #include <array>
 #include <atomic>
+#include <optional>
 #include <vector>
 
 class RoarschachAudioProcessor : public juce::AudioProcessor
@@ -83,6 +84,10 @@ public:
     void setCreatureFrozen(bool frozen);
     /** Eases the creature home over a few seconds and grows a new one (message thread). */
     void resetCreature();
+    /** The colour a Frozen creature holds (its colour mood's four axes), saved with the session so it
+        survives the editor closing and the project reloading; nullopt when none is kept (message thread). */
+    std::optional<std::array<float, 4>> getCreatureColour() const;
+    void setCreatureColour(std::optional<std::array<float, 4>> colour);
 
     /** Tests: one evolution step with the features as they are now (what the timer does). */
     void stepCreatureForTests(float dt) { stepCreature(dt); }

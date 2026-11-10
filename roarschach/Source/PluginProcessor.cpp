@@ -139,6 +139,7 @@ namespace
     // Seed and mode are user-visible changes; the growth values are only written when the host saves.
     const juce::Identifier c_creatureSeed       { "viewCreatureSeed" };
     const juce::Identifier c_creatureMode       { "viewCreatureMode" };
+    const juce::Identifier c_creatureColour     { "viewCreatureColour" };   // Frozen: the colour mood held, four numbers
     const juce::Identifier c_creatureEnergy     { "viewCreatureEnergy" };
     const juce::Identifier c_creatureExperience { "viewCreatureExperience" };
     const juce::Identifier c_creatureStage      { "viewCreatureStage" };
@@ -444,6 +445,36 @@ void RoarschachAudioProcessor::resetCreature()
         m_creatureShared.publish(m_creature.evaluate());
     }
     setViewValue(c_creatureSeed, static_cast<int>(seed));
+}
+
+std::optional<std::array<float, 4>> RoarschachAudioProcessor::getCreatureColour() const
+{
+    const auto text = getViewValue(c_creatureColour, {}).toString();
+    juce::StringArray parts;
+    parts.addTokens(text, " ", "");
+    parts.removeEmptyStrings();
+    if (parts.size() != 4)
+        return std::nullopt;
+    std::array<float, 4> colour {};
+    for (int i = 0; i < 4; ++i)
+    {
+        const auto v = parts[i].getDoubleValue();
+        if (!std::isfinite(v))
+            return std::nullopt;
+        colour[static_cast<size_t>(i)] = juce::jlimit(0.0f, 1.0f, static_cast<float>(v));
+    }
+    return colour;
+}
+
+void RoarschachAudioProcessor::setCreatureColour(std::optional<std::array<float, 4>> colour)
+{
+    juce::String text;
+    if (colour.has_value())
+        for (const float v : *colour)
+            text << (text.isEmpty() ? "" : " ") << juce::String(std::isfinite(v) ? juce::jlimit(0.0f, 1.0f, v) : 0.0f, 4);
+    if (text.isEmpty() && getViewValue(c_creatureColour, {}).toString().isEmpty())
+        return;   // (nothing kept, nothing to clear: the session has not changed)
+    setViewValue(c_creatureColour, text);
 }
 
 void RoarschachAudioProcessor::changeProgramName(int index, const juce::String& newName)

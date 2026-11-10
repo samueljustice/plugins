@@ -4555,6 +4555,22 @@ namespace
             q->getStateInformation(again);
             check(again == state, "state round trip is stable");
 
+            // Frozen keeps its colour with the session (the colour mood's axes), and a reload brings it back.
+            {
+                check(!q->getCreatureColour().has_value(), "no frozen colour is kept until one is set");
+                q->setCreatureColour(std::array<float, 4> { 0.8f, 0.25f, 0.0f, 0.5f });
+                juce::MemoryBlock withColour;
+                q->getStateInformation(withColour);
+                auto c = makeProcessor(48000.0, 512);
+                c->setStateInformation(withColour.getData(), static_cast<int>(withColour.getSize()));
+                const auto kept = c->getCreatureColour();
+                check(kept.has_value() && std::abs((*kept)[0] - 0.8f) < 1.0e-3f && std::abs((*kept)[1] - 0.25f) < 1.0e-3f
+                          && std::abs((*kept)[2]) < 1.0e-3f && std::abs((*kept)[3] - 0.5f) < 1.0e-3f && c->isCreatureFrozen(),
+                      "state round trip: the frozen colour comes back with the session");
+                q->setCreatureColour(std::nullopt);
+                check(!q->getCreatureColour().has_value(), "Live clears the kept colour");
+            }
+
             // An older session without a creature keeps this instance's one (and saves it from now on).
             auto r = makeProcessor(48000.0, 512);
             std::unique_ptr<juce::XmlElement> xml(juce::AudioProcessor::getXmlFromBinary(state.getData(), static_cast<int>(state.getSize())));
@@ -4576,7 +4592,10 @@ namespace
             {
                 std::unique_ptr<juce::AudioProcessorEditor> editorBase(q->createEditor());
                 auto& view = RoarschachEditorInspector::monster(*dynamic_cast<RoarschachAudioProcessorEditor*>(editorBase.get()));
-                check(view.isCreatureFrozen && view.setCreatureFrozen && view.resetCreature, "the creature menu is wired");
+                check(view.isCreatureFrozen && view.setCreatureFrozen && view.resetCreature && view.keepCreatureColour, "the creature menu is wired");
+                view.keepCreatureColour(std::array<float, 4> { 0.5f, 0.0f, 0.0f, 0.0f });
+                check(q->getCreatureColour().has_value(), "the menu keeps the frozen colour with the session");
+                view.keepCreatureColour(std::nullopt);
                 check(view.isCreatureFrozen(), "the menu reads the mode");
                 view.setCreatureFrozen(false);
                 check(!q->isCreatureFrozen(), "the menu sets the mode");
@@ -5243,32 +5262,128 @@ namespace
             check(wet > 0.3f && dry[0] == 0.0f && dry[1] == 0.0f, "mood: Mix at 0 (dry) is neutral");
         }
 
-        // the colours: full aggression is ember red, full machine cold electric blue, eerie violet,
-        // room green-grey; aggression with machine meets at magenta; all keep the reference's value
+        // the colours: full aggression is ember red, full machine an electric blue clearly bluer than
+        // the reference, eerie violet, room green-grey; aggression with machine is a rust (never the
+        // eerie violet); all keep the reference's value
+        const auto okHueGap = [](float a, float b) { const float d = std::fmod(std::abs(a - b), 360.0f); return std::min(d, 360.0f - d); };
+        const M::Tone ref = M::reference();
+        const float eerieHue = M::tone({ 0, 0, 1, 0 }).hue;
         {
             const auto lumaOf = [](const std::array<float, 3>& c) { return 0.3f * c[0] + 0.59f * c[1] + 0.11f * c[2]; };
             const float l0 = lumaOf({ 0.580f, 0.690f, 0.757f });
+            float h0 = 0.0f, s0 = 0.0f;
+            hsv({ 0.580f, 0.690f, 0.757f }, h0, s0);
             struct Case { const char* name; M::Axes m; float hLo, hHi, sMin; };
             const std::vector<Case> cases {
-                { "aggression: ember red", { 1, 0, 0, 0 }, -15.0f, 20.0f, 0.24f },
-                { "machine: electric blue", { 0, 1, 0, 0 }, 196.0f, 215.0f, 0.32f },
-                { "eerie: violet", { 0, 0, 1, 0 }, 255.0f, 290.0f, 0.15f },
-                { "room: green-grey", { 0, 0, 0, 1 }, 110.0f, 175.0f, 0.08f },
-                { "aggression + machine: magenta", { 1, 1, 0, 0 }, 285.0f, 340.0f, 0.12f },
+                { "aggression: ember red", { 1, 0, 0, 0 }, -15.0f, 20.0f, 0.30f },
+                { "machine: electric blue", { 0, 1, 0, 0 }, h0 + 10.0f, 235.0f, 0.32f },
+                { "eerie: violet", { 0, 0, 1, 0 }, 260.0f, 300.0f, 0.20f },
+                { "room: green-grey", { 0, 0, 0, 1 }, 110.0f, 175.0f, 0.12f },
+                { "aggression + machine: rust", { 1, 1, 0, 0 }, -10.0f, 30.0f, 0.25f },
+                { "aggression + room: warm stone", { 0.6f, 0, 0, 1 }, -20.0f, 45.0f, 0.15f },
+                { "machine + room: teal", { 0, 1, 0, 1 }, 175.0f, 200.0f, 0.20f },
             };
             for (const auto& cs : cases)
             {
                 const auto c = M::referenceColour(cs.m);
                 float h = 0.0f, s = 0.0f;
                 hsv(c, h, s);
-                const float hs = h > 345.0f ? h - 360.0f : h;   // (reds either side of 0)
+                const float hs = h > 300.0f ? h - 360.0f : h;   // (reds either side of 0)
                 check(hs >= cs.hLo && hs <= cs.hHi && s >= cs.sMin && s <= 0.45f && std::abs(lumaOf(c) - l0) < 0.03f,
                       juce::String("mood: ") + cs.name + " (hue " + juce::String(h, 1) + ", saturation " + juce::String(s, 2) + ", luma " + juce::String(lumaOf(c), 3) + ")");
             }
-            // a half mood is between the reference and the full one (it moves, it does not jump)
-            float h = 0.0f, s = 0.0f;
-            hsv(M::referenceColour({ 0.5f, 0, 0, 0 }), h, s);
-            check(s < 0.30f, "mood: half aggression is a partial lean (saturation " + juce::String(s, 2) + ")");
+        }
+        // aggression with machine, at any balance, stays well away from the eerie violet (they sit
+        // across the wheel from each other: the stronger keeps its hue, the weaker mutes it)
+        {
+            float nearest = 360.0f, lowest = 1.0f;
+            for (int i = 1; i <= 10; ++i)
+                for (int j = 1; j <= 10; ++j)
+                {
+                    const auto t = M::tone({ i / 10.0f, j / 10.0f, 0, 0 });
+                    if (i >= 4 && j >= 4)   // (both clearly there: lighter moods are on their way from the reference)
+                        nearest = std::min(nearest, okHueGap(t.hue, eerieHue));
+                    lowest = std::min(lowest, t.chroma / ref.chroma);
+                }
+            check(nearest >= 40.0f && lowest >= 0.99f, "mood: aggression with machine stays at least 40 degrees from the eerie violet (nearest "
+                      + juce::String(nearest, 1) + "), and never greyer than the reference (" + juce::String(lowest, 2) + ")");
+            check(okHueGap(M::tone({ 1.0f, 0.79f, 0, 0 }).hue, M::tone({ 1, 0, 0, 0 }).hue) < 15.0f, "mood: strong aggression with some machine stays ember");
+        }
+        // each mood, from none to full: the chroma never drops below the reference's (no grey on the
+        // way) and the hue moves steadily from the reference's to the mood's
+        {
+            for (int axis = 0; axis < 3; ++axis)
+            {
+                float lowest = 10.0f, prevGap = 0.0f;
+                bool steady = true;
+                const float full = M::tone([axis] { M::Axes m {}; m[static_cast<size_t>(axis)] = 1.0f; return m; }()).hue;
+                for (int i = 0; i <= 40; ++i)
+                {
+                    M::Axes m {};
+                    m[static_cast<size_t>(axis)] = i / 40.0f;
+                    const auto t = M::tone(m);
+                    lowest = std::min(lowest, t.chroma / ref.chroma);
+                    // (the turn's distance from the reference along its way, which never goes back)
+                    const float left = okHueGap(t.hue, full);
+                    const float gap = 1000.0f - left;
+                    steady = steady && gap >= prevGap - 0.01f;
+                    prevGap = gap;
+                }
+                static const char* names[] = { "aggression", "machine", "eerie" };
+                check(lowest >= 0.99f && steady, juce::String("mood: ") + names[axis] + " from none to full keeps the reference's chroma (lowest "
+                          + juce::String(lowest, 2) + " of it) and turns steadily");
+            }
+            // a light room keeps the reference; a strong one leans it
+            check(okHueGap(M::tone({ 0, 0, 0, 0.4f }).hue, ref.hue) < 0.5f && okHueGap(M::tone({ 0, 0, 0, 1.0f }).hue, ref.hue) > 50.0f,
+                  "mood: a light room keeps the reference blue-grey, a strong one leans it");
+            // a half mood is part of the way: the hue mostly turned, the chroma between
+            const auto half = M::tone({ 0.5f, 0, 0, 0 }), full = M::tone({ 1, 0, 0, 0 });
+            check(okHueGap(half.hue, full.hue) < 40.0f && half.chroma > ref.chroma && half.chroma < full.chroma,
+                  "mood: half aggression is a partial lean (hue " + juce::String(half.hue, 1) + ", chroma " + juce::String(half.chroma, 3) + ")");
+            // the muddy hues (khaki, olive) are never on the way: aggression with room, any mix
+            bool clean = true;
+            for (int i = 0; i <= 10; ++i)
+                for (int j = 0; j <= 10; ++j)
+                    for (int k = 0; k <= 4; ++k)
+                    {
+                        const auto t = M::tone({ i / 10.0f, k / 8.0f, j % 3 == 0 ? 0.0f : 0.3f, j / 10.0f });
+                        clean = clean && (t.hue < 75.0f || t.hue > 135.0f || t.chroma < 0.05f);
+                    }
+            check(clean, "mood: no blend lands on a muddy khaki or olive");
+        }
+        // the factory presets: a clear mood is never greyer than the reference, and none is muddy
+        {
+            int grey = 0, muddy = 0;
+            juce::String which;
+            for (const auto& fp : PresetManager::getFactoryPresets())
+            {
+                const auto in = M::Inputs::read([&fp](const char* id)
+                {
+                    const auto it = fp.values.find(id);
+                    return it != fp.values.end() ? it->second : Params::defaultOf(id);
+                });
+                const auto m = M::evaluate(in);
+                const auto t = M::tone(m);
+                const float strength = 1.0f - (1.0f - m[0]) * (1.0f - m[1]) * (1.0f - m[2]) * (1.0f - m[3]);
+                if (strength > 0.3f && t.chroma < 0.99f * ref.chroma)
+                {
+                    ++grey;
+                    which << fp.name << " ";
+                }
+                if (t.hue > 75.0f && t.hue < 135.0f)
+                {
+                    ++muddy;
+                    which << fp.name << " ";
+                }
+            }
+            check(grey == 0 && muddy == 0, "mood: no factory preset settles greyer than the reference or muddy " + which);
+        }
+        // the shader turn: none for the reference, warm only for warm tones
+        {
+            const auto k0 = M::shaderMood(ref);
+            const auto ka = M::shaderMood(M::tone({ 1, 0, 0, 0 })), km = M::shaderMood(M::tone({ 0, 1, 0, 0 })), ke = M::shaderMood(M::tone({ 0, 0, 1, 0 }));
+            check(k0[0] == 0.0f && k0[1] == 0.0f && k0[2] == 0.0f && ka[2] > 0.9f && km[2] < 0.05f && ke[2] < 0.15f,
+                  "mood: the accents' warmth is the mood's (" + juce::String(ka[2], 2) + ", " + juce::String(km[2], 2) + ", " + juce::String(ke[2], 2) + ")");
         }
 
         // the spring: slow (no snap), settles, the same at any frame rate, gentle overshoot, frozen holds
@@ -5328,6 +5443,18 @@ namespace
             for (int i = 0; i < 30 * 15; ++i)
                 f.step(1.0f / 30.0f, zero, false, false);
             check(std::abs(f.value[0]) < 0.02f, "mood spring: live again, it follows the settings");
+            // a kept colour (saved with the session): a frozen view opens on it and holds it
+            {
+                S k;
+                const M::Axes kept { 0.0f, 0.9f, 0.0f, 0.0f };
+                k.snap(one, true, &kept);
+                for (int i = 0; i < 30 * 5; ++i)
+                    k.step(1.0f / 30.0f, one, true, false, &kept);
+                check(std::abs(k.value[1] - 0.9f) < 1.0e-3f && std::abs(k.value[0]) < 1.0e-3f, "mood spring: a frozen view opens on the kept colour and holds it");
+                S live;
+                live.snap(one, false, &kept);
+                check(std::abs(live.value[0] - 1.0f) < 1.0e-6f, "mood spring: a live view ignores a kept colour");
+            }
             // nonsense in, nothing out
             S n;
             n.snap(zero);
@@ -5335,6 +5462,63 @@ namespace
             M::Axes bad { std::numeric_limits<float>::quiet_NaN(), 0, 0, 0 };
             n.step(1.0f / 30.0f, bad, false, false);
             check(std::isfinite(n.value[0]) && std::isfinite(n.velocity[0]), "mood spring: non-finite input is ignored");
+        }
+
+        // the colour on screen: from one preset's mood to another's, the hue turns at a bounded speed,
+        // never through grey, and arrives; the same at any frame rate
+        {
+            struct Change { const char* name; M::Axes from, to; };
+            const std::vector<Change> changes {
+                { "none to aggression", { 0, 0, 0, 0 }, { 1, 0, 0, 0 } },
+                { "aggression to machine", { 1, 0, 0, 0 }, { 0, 1, 0, 0 } },
+                { "machine to eerie", { 0, 1, 0, 0 }, { 0.04f, 0.26f, 0.95f, 0 } },
+                { "aggression to room", { 1, 0, 0, 0 }, { 0, 0, 0, 1 } },
+            };
+            for (const auto& ch : changes)
+            {
+                const auto run = [&](float fps, float& fastest, float& lowest, float& at)
+                {
+                    roar::MoodSpring sp;
+                    roar::ToneFollower f;
+                    sp.snap(ch.from);
+                    f.snap(M::tone(ch.from));
+                    fastest = 0.0f;
+                    lowest = 10.0f;
+                    const float dt = 1.0f / fps;
+                    const int n = static_cast<int>(std::lround(16.0f * fps));
+                    for (int i = 0; i < n; ++i)
+                    {
+                        const float before = f.value.hue;
+                        sp.step(dt, ch.to, false, false);
+                        f.step(dt, M::tone(sp.value));
+                        fastest = std::max(fastest, okHueGap(f.value.hue, before) / dt);
+                        lowest = std::min(lowest, f.value.chroma / ref.chroma);
+                        if (i == static_cast<int>(std::lround(4.0f * fps)))
+                            at = f.value.hue;
+                    }
+                    return f.value;
+                };
+                float fast60 = 0, low60 = 0, at60 = 0, fast24 = 0, low24 = 0, at24 = 0, fast144 = 0, low144 = 0, at144 = 0;
+                const auto end60 = run(60.0f, fast60, low60, at60);
+                run(24.0f, fast24, low24, at24);
+                run(144.0f, fast144, low144, at144);
+                const auto goal = M::tone(ch.to);
+                std::printf("  colour %-22s fastest turn %.1f deg/s, lowest chroma %.2f of the reference, ends at hue %.1f (goal %.1f)\n",
+                            ch.name, fast60, low60, end60.hue, goal.hue);
+                check(std::max(fast60, std::max(fast24, fast144)) <= roar::ToneFollower::c_maxTurn + 0.5f,
+                      juce::String("mood colour: ") + ch.name + " turns at most " + juce::String(roar::ToneFollower::c_maxTurn, 0) + " degrees a second ("
+                          + juce::String(std::max(fast60, std::max(fast24, fast144)), 1) + ")");
+                check(std::min(low60, std::min(low24, low144)) >= 0.8f, juce::String("mood colour: ") + ch.name + " never passes through grey (lowest chroma "
+                          + juce::String(std::min(low60, std::min(low24, low144)), 2) + " of the reference)");
+                check(okHueGap(end60.hue, goal.hue) < 1.0f && std::abs(end60.chroma - goal.chroma) < 0.002f, juce::String("mood colour: ") + ch.name + " arrives");
+                check(okHueGap(at24, at60) < 3.0f && okHueGap(at144, at60) < 3.0f, juce::String("mood colour: ") + ch.name + " is the same at 24, 60 and 144 fps ("
+                          + juce::String(at24, 1) + ", " + juce::String(at60, 1) + ", " + juce::String(at144, 1) + ")");
+            }
+            roar::ToneFollower f;
+            f.snap(M::tone({ 1, 0, 0, 0 }));
+            f.step(std::numeric_limits<float>::quiet_NaN(), ref);
+            f.step(1.0f / 30.0f, M::Tone { std::numeric_limits<float>::quiet_NaN(), 0.05f });
+            check(std::isfinite(f.value.hue) && std::isfinite(f.value.chroma), "mood colour: non-finite input is ignored");
         }
     }
 
@@ -5505,7 +5689,7 @@ namespace
                         check(h50 > 196.0f && h50 < 212.0f, "renderer: tier " + juce::String(tier) + " keeps the reference's blue-grey hue (median " + juce::String(h50, 1) + " degrees)" + tag);
                     }
                     // The colour mood: full aggression leans the drawn clouds and mist to ember red, full
-                    // machine to a colder, stronger blue, each keeping the high-key values and a bounded
+                    // machine to a clearly bluer, stronger blue, each keeping the high-key values and a bounded
                     // saturation (and no mood leaves the frame as above).
                     {
                         const auto measure = [&](float& l50, float& s50, float& h50, float& redShare)
@@ -5552,12 +5736,12 @@ namespace
                             draw(r, 6);
                             measure(l0, s0, h0, r0);
                             const auto k = M::shaderMood({ 1.0f, 0.0f, 0.0f, 0.0f });
-                            frame.set(U::uMood, k[0], k[1], 0.0f, 0.0f);
+                            frame.set(U::uMood, k[0], k[1], k[2], 0.0f);
                             draw(r, 6);
                             float la = 0, sa = 0, ha = 0, ra = 0;
                             measure(la, sa, ha, ra);
                             const auto km = M::shaderMood({ 0.0f, 1.0f, 0.0f, 0.0f });
-                            frame.set(U::uMood, km[0], km[1], 0.0f, 0.0f);
+                            frame.set(U::uMood, km[0], km[1], km[2], 0.0f);
                             draw(r, 6);
                             float lm = 0, sm = 0, hm = 0, rm = 0;
                             measure(lm, sm, hm, rm);
@@ -5567,11 +5751,11 @@ namespace
                                         tier, h0, s0, l0, ha, sa, la, ra, hm, sm, lm);
                             check((ha < 40.0f || ha > 340.0f) && ra > 0.6f && r0 < 0.1f,
                                   t + "full aggression leans the clouds ember red (hue " + juce::String(ha, 0) + ", " + juce::String(ra * 100.0f, 0) + " % warm)" + tag);
-                            check(hm > 190.0f && hm < 225.0f && sm > s0 + 0.06f,
-                                  t + "full machine is a colder, stronger blue (hue " + juce::String(hm, 0) + ", saturation " + juce::String(s0, 2) + " -> " + juce::String(sm, 2) + ")" + tag);
+                            check(hm > h0 + 8.0f && hm < 240.0f && sm > s0 + 0.06f,
+                                  t + "full machine is a clearly bluer, stronger blue (hue " + juce::String(h0, 0) + " -> " + juce::String(hm, 0) + ", saturation " + juce::String(s0, 2) + " -> " + juce::String(sm, 2) + ")" + tag);
                             check(la > 0.55f && la < 0.80f && lm > 0.55f && lm < 0.80f && std::abs(la - l0) < 0.04f && std::abs(lm - l0) < 0.04f,
                                   t + "the mood keeps the high-key values (luma " + juce::String(l0, 3) + ", " + juce::String(la, 3) + ", " + juce::String(lm, 3) + ")" + tag);
-                            check(sa <= 0.41f && sm <= 0.41f, t + "the mood's saturation stays bounded (" + juce::String(sa, 2) + ", " + juce::String(sm, 2) + ")" + tag);
+                            check(sa <= 0.45f && sm <= 0.45f, t + "the mood's saturation stays bounded (" + juce::String(sa, 2) + ", " + juce::String(sm, 2) + ")" + tag);
                         }
                     }
                     // Roaring: the warm accents are veiled, not removed (some pixels stay warm), and the

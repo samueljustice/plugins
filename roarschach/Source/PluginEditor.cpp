@@ -45,6 +45,7 @@ RoarschachAudioProcessorEditor::RoarschachAudioProcessorEditor(RoarschachAudioPr
     m_monsterView.isCreatureFrozen = [&audioProcessor] { return audioProcessor.isCreatureFrozen(); };
     m_monsterView.setCreatureFrozen = [&audioProcessor](bool frozen) { audioProcessor.setCreatureFrozen(frozen); };
     m_monsterView.resetCreature = [&audioProcessor] { audioProcessor.resetCreature(); };
+    m_monsterView.keepCreatureColour = [&audioProcessor](std::optional<roar::CreatureMood::Axes> colour) { audioProcessor.setCreatureColour(colour); };
     updateMonsterParams();
     m_content.addAndMakeVisible(m_monsterView);
     m_content.addAndMakeVisible(m_strip);
@@ -247,6 +248,8 @@ void RoarschachAudioProcessorEditor::updateMonsterParams()
     // the creature is Frozen.
     params.mood = roar::CreatureMood::evaluate(roar::CreatureMood::Inputs::read(value));
     params.moodFrozen = m_audioProcessor.isCreatureFrozen();
+    if (params.moodFrozen)
+        params.moodKept = m_audioProcessor.getCreatureColour();
     m_monsterView.setParams(params);
 }
 

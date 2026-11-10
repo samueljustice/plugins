@@ -106,6 +106,10 @@ void MonsterView::setParams (const Params& params)
     for (size_t i = 0; i < m_moodTarget.size(); ++i)
         m_moodTarget[i].store (params.mood[i], std::memory_order_relaxed);
     m_moodFrozen.store (params.moodFrozen, std::memory_order_relaxed);
+    if (params.moodKept.has_value())
+        for (size_t i = 0; i < m_moodKept.size(); ++i)
+            m_moodKept[i].store ((*params.moodKept)[i], std::memory_order_relaxed);
+    m_moodHasKept.store (params.moodKept.has_value(), std::memory_order_release);
 }
 
 void MonsterView::mouseDown (const juce::MouseEvent& event)
@@ -132,12 +136,31 @@ void MonsterView::showCreatureMenu()
                         {
                             if (safe == nullptr || item == 0)
                                 return;
+                            // (a Frozen creature keeps its colour with the session: the colour on screen
+                            // when it is frozen, the settings' colour after a reset)
+                            const auto keep = [&safe] (const std::array<std::atomic<float>, roar::CreatureMood::numAxes>& from)
+                            {
+                                roar::CreatureMood::Axes axes {};
+                                for (size_t i = 0; i < axes.size(); ++i)
+                                    axes[i] = from[i].load (std::memory_order_relaxed);
+                                if (safe->keepCreatureColour)
+                                    safe->keepCreatureColour (axes);
+                            };
                             if (item == live || item == frozen)
+                            {
+                                const bool wasFrozen = safe->isCreatureFrozen();
                                 safe->setCreatureFrozen (item == frozen);
+                                if (item == frozen && ! wasFrozen)
+                                    keep (safe->m_moodShown);
+                                else if (item == live && safe->keepCreatureColour)
+                                    safe->keepCreatureColour (std::nullopt);
+                            }
                             else if (item == reset)
                             {
                                 safe->resetCreature();
                                 safe->m_moodResets.fetch_add (1, std::memory_order_relaxed);
+                                if (safe->isCreatureFrozen())
+                                    keep (safe->m_moodTarget);
                             }
                         });
 }
@@ -418,9 +441,22 @@ void MonsterView::updateAnimation (float dt)
         const int resets = m_moodResets.load (std::memory_order_relaxed);
         const bool reset = resets != m_moodResetsSeen;
         m_moodResetsSeen = resets;
+        const bool frozen = m_moodFrozen.load (std::memory_order_relaxed);
+        roar::CreatureMood::Axes kept {};
+        const bool hasKept = m_moodHasKept.load (std::memory_order_acquire);
+        for (size_t i = 0; i < kept.size(); ++i)
+            kept[i] = safe (m_moodKept[i].load (std::memory_order_relaxed), 0.0f, 1.0f);
         if (m_moodSnap)
-            m_mood.snap (target);
-        m_mood.step (m_moodSnap ? 0.0f : dt, target, m_moodFrozen.load (std::memory_order_relaxed), reset);
+            m_mood.snap (target, frozen, hasKept ? &kept : nullptr);
+        m_mood.step (m_moodSnap ? 0.0f : dt, target, frozen, reset, hasKept ? &kept : nullptr);
+        for (size_t i = 0; i < m_moodShown.size(); ++i)
+            m_moodShown[i].store (m_mood.value[i], std::memory_order_relaxed);
+        // the colour on screen: follows the mood's tone, its hue turning at a bounded speed
+        const auto tone = roar::CreatureMood::tone (m_mood.value);
+        if (m_moodSnap)
+            m_tone.snap (tone);
+        else
+            m_tone.step (dt, tone);
         m_moodSnap = false;
     }
 
@@ -676,8 +712,8 @@ void MonsterView::renderOpenGL()
     }
 
     {
-        const auto turn = roar::CreatureMood::shaderMood (m_mood.value);
-        fr.set (U::uMood, turn[0], turn[1], 0.0f, 0.0f);
+        const auto turn = roar::CreatureMood::shaderMood (m_tone.value);
+        fr.set (U::uMood, turn[0], turn[1], turn[2], 0.0f);
     }
 
     const bool idle = m_idle.load (std::memory_order_relaxed);
