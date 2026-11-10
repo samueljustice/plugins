@@ -36,7 +36,7 @@ CHAMBER plays the voice through a small speaker into a tight, resonant room, the
 
 ### New: the creature
 
-The creature is drawn by a new renderer. Its clouds swirl as a moving fluid, and the creature is lit ink smoke instead of outlines, with its eyes and throat glowing through it. A top layer of pale, cool blue-grey mist veils everything: it thins a little on loud roars and around the eyes, and thickens when the creature sleeps. Its jaw now follows each phrase, with weight, instead of snapping open on every syllable. On slower graphics cards it lowers its own detail to stay smooth.
+The creature is drawn by a new renderer. Its clouds swirl as a moving fluid, and the creature is lit ink smoke instead of outlines, with its eyes and throat glowing through it. A top layer of pale, cool blue-grey mist veils everything: it thins a little on loud roars and around the eyes, and thickens when the creature sleeps. Its jaw now follows each phrase, with weight, instead of snapping open on every syllable. Its colour follows your settings: the clouds drift slowly towards ember red as the drive and growl get heavier, a colder electric blue with the vocoder, ring and shimmer, violet with swirl, ensemble and overtone, and a lichen green-grey in CHAMBER's room, and stay pale blue-grey at Init. On slower graphics cards it lowers its own detail to stay smooth.
 
 ### Your sessions and presets
 

@@ -37,7 +37,7 @@ namespace roar
         X (uFrill, 4, 1) X (uEns, 4, 1) X (uDiv, 4, 3) X (uGatherD, 4, 1) X (uInk, 4, 1) X (uFogD, 4, 1) \
         X (uEyeP, 4, 1) X (uLightDir, 4, 1) X (uEmit, 4, 4) X (uThroat, 4, 1) X (uEyeCol, 3, 1) X (uThroatCol, 3, 1) \
         X (uEmitCol, 3, 1) X (uBloomK, 4, 1) X (uComp, 4, 1) X (uGrain, 4, 1) X (uSpark, 4, 1) X (uFormK, 1, 1) \
-        X (uAtmo, 4, 1) X (uAtmoTint, 3, 1)
+        X (uAtmo, 4, 1) X (uAtmoTint, 3, 1) X (uMood, 4, 1)
 
     enum class U : int
     {

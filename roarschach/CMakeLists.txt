@@ -98,6 +98,7 @@ target_sources(Roarschach
     Source/CreatureMotion.cpp
     Source/NoiseTexture.cpp
     Source/CreatureEvolution.cpp
+    Source/CreatureMood.cpp
     Source/LogoSdf.cpp
     Source/dsp/PitchDetector.cpp
     Source/dsp/CreatureChain.cpp
