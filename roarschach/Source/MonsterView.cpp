@@ -379,7 +379,7 @@ void MonsterView::updateAnimation (float dt)
     follow (m_ring, safe (load (f.ringAmount), 0.0f, 1.0f), dt, 0.1f, 0.2f);
     follow (m_ringBody, safe (load (f.ringBodyMix), 0.0f, 1.0f), dt, 0.1f, 0.2f);
     {
-        // The plates flicker at the carrier, halved until it is slow enough to watch (8 Hz or slower).
+        // The muzzle flickers at the carrier, halved until it is slow enough to watch (8 Hz or slower).
         float rate = safe (load (f.ringHz), 0.0f, 20000.0f);
         while (rate > 8.0f)
             rate *= 0.5f;

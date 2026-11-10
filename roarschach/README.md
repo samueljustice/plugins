@@ -110,11 +110,11 @@ Each roll is one step you can take back: right-click any die for **Undo** and **
 
 <img src="docs/dice-undo-menu.png" alt="The menu from right-clicking RANDOMISE ALL straight after a roll: Undo Roll All, and Redo Roll greyed out" width="200">
 
-One RANDOMISE ALL roll from the Big Bad Narrator preset. Before, PITCH, CLEAN, DE-ESS, DETAIL, ROAR, TAME, SUB, OVERTONE and CHAMBER are on; after, CLEAN, VOCODER, RING, SHIMMER and ENSEMBLE are, every module has new settings, the preset name shows `*`, and the creature has metal plates over its mouth from RING. The module order, IN and OUTPUT are as they were.
+One RANDOMISE ALL roll from the Big Bad Narrator preset. Before, PITCH, CLEAN, DE-ESS, DETAIL, ROAR, TAME, SUB, OVERTONE and CHAMBER are on; after, CLEAN, VOCODER, RING, SHIMMER and ENSEMBLE are, every module has new settings, the preset name shows `*`, and the creature has a faint dark metal muzzle round its mouth from RING. The module order, IN and OUTPUT are as they were.
 
 <img src="docs/roll-before.jpg" alt="The whole window with the Big Bad Narrator preset playing a voice: PITCH, CLEAN, DE-ESS, DETAIL, ROAR, TAME, SUB, OVERTONE and CHAMBER switched on" width="880">
 
-<img src="docs/roll-after.jpg" alt="The same window after one RANDOMISE ALL roll: the preset name reads Big Bad Narrator *, and CLEAN, VOCODER, RING, SHIMMER and ENSEMBLE are on with new settings while the other modules are off; the creature has grey metal plates over its mouth" width="880">
+<img src="docs/roll-after.jpg" alt="The same window after one RANDOMISE ALL roll: the preset name reads Big Bad Narrator *, and CLEAN, VOCODER, RING, SHIMMER and ENSEMBLE are on with new settings while the other modules are off; the creature has a faint dark metal muzzle round its mouth" width="880">
 
 A roll only lands where a knob is useful: each knob rolls inside the range the [parameter audit](docs/parameter-audit.md) found usable, never into its dead or harmful ends (PITCH −14 to −2 st, Swirl up to 50% and its Deep 6 circuit up to 30%, Ring Freq 60–450 Hz, Chamber 15–65%, and so on), and each mode is picked evenly from its options (Boom leaves out Heavy). The dice never move a module or touch IN or OUTPUT, so the level stays safe: on five real voice takes, 200 rolls each, 998 of the 1,000 rolls played within 3 LU of Init (the other two 3.0 and 3.8 LU quieter), and none went over the ceiling. Knobs glide to their new values and modules fade in and out, so a roll does not click while audio plays.
 
@@ -362,7 +362,7 @@ On top of whatever form it has taken, every module still shows on it:
 - Its jaw opens with the voice; PITCH and SIZE make its head and jaw bigger.
 - GROWL stirs the smoke and shivers its lips, SHIMMER ripples its skin and drips ink, SWIRL spins a pair of eddies through the smoke and sweeps a sheen up and down its face, and ENSEMBLE stretches the smoke out to the sides.
 - ROAR heats its eyes and throat, SUB sends rings out of its throat, the VOCODER lights a fan of 32 ridges under its jaw (one per band), and OVERTONE lights one rib per overtone under its chin (hollow in Replace).
-- RING puts flickering metal plates over its mouth, DE-ESS glints on its teeth, TAME dims its crown, and CLEAN's gate closes its lips between words.
+- RING puts a flickering dark metal muzzle round its mouth, DE-ESS glints on its teeth, TAME dims its crown, and CLEAN's gate closes its lips between words.
 - CHAMBER leaves an after-image: while the room rings, its wings and tendrils trail each movement for longer, and Boom adds a slow swell to its breathing.
 - At the output, the limiter throbs at its temples and the clipper throws sparks off its edges.
 
@@ -394,7 +394,7 @@ Every preset sets every control, including the module order. The Signal Flow pre
 
 A few contrasting presets, each playing the same voice (the creature is shown at a different stage of growth in each):
 
-<img src="docs/preset-simple-size.jpg" alt="Simple Size: PITCH at -1 st, CLEAN, DE-ESS, TAME and CHAMBER on and everything else off; a faint early creature in the mist" width="440"> <img src="docs/preset-cyber-commander.jpg" alt="Cyber Commander: CLEAN, RING, PITCH, ROAR, DE-ESS, DETAIL, GROWL and TAME on, with CLEAN and RING moved ahead of PITCH; the creature has RING's metal plates over its mouth" width="440">
+<img src="docs/preset-simple-size.jpg" alt="Simple Size: PITCH at -1 st, CLEAN, DE-ESS, TAME and CHAMBER on and everything else off; a faint early creature in the mist" width="440"> <img src="docs/preset-cyber-commander.jpg" alt="Cyber Commander: CLEAN, RING, PITCH, ROAR, DE-ESS, DETAIL, GROWL and TAME on, with CLEAN and RING moved ahead of PITCH; the creature has RING's faint dark metal muzzle round its mouth" width="440">
 <img src="docs/preset-symbiote.jpg" alt="Symbiote: PITCH, CLEAN, DE-ESS, SHIMMER, GROWL, SWIRL, ROAR, ENSEMBLE, TAME and SUB on; a dark smoky head with spreading wings and a wide maw of teeth" width="440"> <img src="docs/preset-iron-tyrant.jpg" alt="Iron Tyrant: CHAMBER after ROAR in Steel Box with the Horn speaker, and PITCH, CLEAN, DE-ESS, DETAIL, GROWL, TAME and SUB on; a horned head with broad wings and a glowing maw" width="440">
 
 Each preset's settings sit in the useful part of every knob's travel, as measured in [docs/parameter-audit.md](docs/parameter-audit.md), and every preset except the deliberately loud Utility ones (Loud & Contained, Crunch Lift and Smashed) plays within about 1.5 LU of Init.

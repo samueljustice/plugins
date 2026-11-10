@@ -21,7 +21,7 @@
  * mirrored pair of vortices at the phaser's notch; ensemble stretches the smoke sideways; roar
  * jets heat from the mouth corners and the eyes and throat glow through the ink; sub onsets push
  * rings through the fog; the vocoder lights 32 ridges under the jaw; overtone lights one rib per
- * harmonic (hollow in Replace); ring puts dark plates over the mouth; de-ess glints on the teeth;
+ * harmonic (hollow in Replace); ring puts a dark metal muzzle round the mouth; de-ess glints on the teeth;
  * tame dims the crown; a shut gate closes the lips; the limiter throbs at the temples and the
  * clipper throws sparks of heat off the edges. After 1.5 s of silence it falls asleep.
  *
@@ -54,7 +54,7 @@ public:
         float swirl = 0.0f;        // SWIRL amount (the sheen band's strength)
         float ensemble = 0.0f;     // ENSEMBLE amount (the tendrils' strength)
         float overtone = 0.0f;     // OVERTONE amount (the ribs' strength)
-        float ring = 0.0f;         // RING amount (the plates over the mouth)
+        float ring = 0.0f;         // RING amount (the muzzle round the mouth)
         float cleanOn = 1.0f;      // CLEAN is On: its gate may close the lips
     };
 

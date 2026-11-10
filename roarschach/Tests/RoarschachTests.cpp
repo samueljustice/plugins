@@ -5330,6 +5330,97 @@ namespace
                     frame.set(U::uJaw, 0.4f);
                     frame.set(U::uLevel, 0.0f);
                 }
+                // RING's muzzle blends into the face: no step in value across where the old
+                // rectangular plate's sides were (a feathered oval now). The luma step across that
+                // line, against the step just beside it on either side; a hard edge measured 3-18x.
+                // (Twice the size, so the muzzle's feather spans enough pixels to tell from an edge.)
+                {
+                    const int W2 = W * 2, H2 = H * 2;
+                    GLuint fbo2 = 0, rb2 = 0;
+                    glGenFramebuffers(1, &fbo2);
+                    glBindFramebuffer(GL_FRAMEBUFFER, fbo2);
+                    glGenRenderbuffers(1, &rb2);
+                    glBindRenderbuffer(GL_RENDERBUFFER, rb2);
+                    glRenderbufferStorage(GL_RENDERBUFFER, GL_RGBA8, W2, H2);
+                    glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_RENDERBUFFER, rb2);
+                    const int vp2[4] = { 0, 0, W2, H2 };
+                    frame.set(U::uRes, static_cast<float>(W2), static_cast<float>(H2));
+                    frame.set(U::uPxScale, 1.0f);
+                    frame.set(U::uRadius, 8.0f);
+                    frame.set(U::uRing, 1.0f);
+                    frame.set(U::uRingBody, 0.6f);
+                    frame.set(U::uRingFlicker, 1.0f);
+                    {
+                        const juce::Colour accent(Params::module(Params::ModuleId::ring).accent);   // (as the view sets it)
+                        frame.set(U::uColRing, accent.getFloatRed(), accent.getFloatGreen(), accent.getFloatBlue());
+                    }
+                    for (const int tier : { 3, 0 })
+                        for (const float jaw : { 0.35f, 1.0f })
+                        {
+                            r.setForcedTier(tier);
+                            frame.set(U::uJaw, jaw);
+                            for (int i = 0; i < 8; ++i)
+                            {
+                                frame.clock += 1.0 / 30.0;
+                                r.prepare(frame);
+                                glBindFramebuffer(GL_FRAMEBUFFER, fbo2);
+                                glClearColor(0, 0, 0, 1);
+                                glClear(GL_COLOR_BUFFER_BIT);
+                                r.render(frame, fbo2, vp2);
+                            }
+                            std::vector<unsigned char> px(static_cast<size_t>(W2 * H2 * 4));
+                            glBindFramebuffer(GL_FRAMEBUFFER, fbo2);
+                            glReadPixels(0, 0, W2, H2, GL_RGBA, GL_UNSIGNED_BYTE, px.data());
+                            const auto L = [&](double x, double yUp)
+                            {
+                                const int xi = juce::jlimit(0, W2 - 1, static_cast<int>(std::lround(x)));
+                                const int yi = juce::jlimit(0, H2 - 1, static_cast<int>(std::lround(yUp)));
+                                const unsigned char* q = &px[(static_cast<size_t>(yi) * static_cast<size_t>(W2) + static_cast<size_t>(xi)) * 4];
+                                return (0.3 * q[0] + 0.59 * q[1] + 0.11 * q[2]) / 255.0;
+                            };
+                            // the head transform and the mouth, as the shader has them (GL rows run bottom up)
+                            const float* hd = frame.at(U::uHead);
+                            const float* cl = frame.at(U::uCloud);
+                            const float sizeV = frame.get(U::uSize);
+                            const float scale = 1.0f + juce::jlimit(-1.0f, 2.0f, -frame.get(U::uPitch) / 12.0f) * 0.065f + 0.014f * hd[3] * 0.35f + jaw * 0.025f + hd[1];
+                            const float offY = 0.025f + hd[0];
+                            const float eyeOuter = 0.135f * cl[1] + 0.056f * (1.0f + (frame.get(U::uEvoEyes, 3) - 1.0f) * 0.5f);
+                            const float mw = std::min((0.15f + 0.08f * sizeV) * frame.get(U::uEvoMaw, 0), eyeOuter * 0.92f) * (1.0f - 0.10f * jaw);
+                            const float open = 0.006f + std::pow(jaw, 1.6f) * (0.12f + 0.05f * (sizeV + frame.get(U::uEvoHead, 2)));
+                            const float mY = -0.075f, pw = mw * (1.12f + 0.08f * 0.6f), top = mY + 0.032f + 0.22f * open;
+                            double stepSum = 0.0, baseSum = 0.0;
+                            for (int k = 0; k < 30; ++k)
+                            {
+                                const float hy = (mY - 0.5f * open) + (top - (mY - 0.5f * open)) * (0.1f + 0.8f * k / 30.0f);
+                                const double y = H2 * 0.5 + (hy * scale + offY) * H2;
+                                for (const int sgn : { -1, 1 })
+                                {
+                                    const double x = W2 * 0.5 + sgn * pw * scale * H2;
+                                    const auto band = [&](double o0, double o1)
+                                    {
+                                        double s = 0.0;
+                                        for (double o = o0; o <= o1; o += 1.0)
+                                            s += L(x + sgn * o, y);
+                                        return s / (o1 - o0 + 1.0);
+                                    };
+                                    stepSum += std::abs(band(1, 3) - band(-3, -1));
+                                    baseSum += 0.5 * (std::abs(band(9, 11) - band(5, 7)) + std::abs(band(-7, -5) - band(-11, -9)));
+                                }
+                            }
+                            const double ratio = stepSum / std::max(baseSum, 1.0e-6);
+                            std::printf("  tier %d, jaw %.2f: RING muzzle, step across the old plate's side %.2fx the step beside it%s\n", tier, jaw, ratio, tag.toRawUTF8());
+                            check(ratio < 2.0, "renderer: tier " + juce::String(tier) + " RING's muzzle has no straight edge at jaw " + juce::String(jaw, 2)
+                                                   + " (step across the old plate's side " + juce::String(ratio, 2) + "x the step beside it)" + tag);
+                        }
+                    frame.set(U::uRing, 0.0f);
+                    frame.set(U::uRingBody, 0.0f);
+                    frame.set(U::uJaw, 0.4f);
+                    frame.set(U::uRes, static_cast<float>(W), static_cast<float>(H));
+                    frame.set(U::uPxScale, 0.5f);
+                    frame.set(U::uRadius, 4.0f);
+                    glDeleteRenderbuffers(1, &rb2);
+                    glDeleteFramebuffers(1, &fbo2);
+                }
                 r.setForcedTier(3);
                 draw(r, 6);
                 std::vector<float> v;

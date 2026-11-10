@@ -327,6 +327,35 @@ float sdEllipse (vec2 p, vec2 r)
     return (k0 - 1.0) * ratio;
 }
 
+// RING's muzzle over the mouth: bands of dark metal in an oval round the lips, its outline feathered
+// into the skin (never a box: a straight-sided plate reads as a tile pasted over the face through
+// the mist). h is mirrored (x >= 0); body is the ring's body mix; feather in head units.
+// x: coverage (0..1), y: the band coordinate (0 at the top, 1 at the bottom, curving with the
+// outline), z: the distance to the outline (outside > 0).
+vec3 ringMuzzle (vec2 h, float mw, float mY, float open, float body, float feather)
+{
+    float top = mY + 0.032 + 0.22 * open;
+    float bot = mY - 0.045 - open - 0.01 * body;
+    float cy = 0.5 * (top + bot);
+    vec2 r = vec2 (mw * (1.12 + 0.08 * body), 0.5 * (top - bot));
+    float dz = sdEllipse (h - vec2 (0.0, cy), r);
+    float cov = 1.0 - smoothstep (-feather, 0.3 * feather, dz);
+    float halfH = r.y * sqrt (max (1.0 - (h.x * h.x) / (r.x * r.x), 0.04));
+    float sv = clamp (0.5 - 0.5 * (h.y - cy) / halfH, 0.0, 1.0);
+    return vec3 (cov, sv, dz);
+}
+
+// A rivet along the muzzle's upper band (i = 0, 1, 2 from the middle out): 0..1, inside the outline.
+float ringRivet (vec2 h, float mw, float mY, float open, float body, float i)
+{
+    float top = mY + 0.032 + 0.22 * open;
+    float bot = mY - 0.045 - open - 0.01 * body;
+    vec2 r = vec2 (mw * (1.12 + 0.08 * body), 0.5 * (top - bot));
+    float rx = r.x * (0.15 + 0.3 * i);
+    float ry = 0.5 * (top + bot) + r.y * sqrt (max (1.0 - (rx * rx) / (r.x * r.x), 0.0)) - 0.012;
+    return 1.0 - smoothstep (0.0035, 0.0065, length (h - vec2 (rx, ry)));
+}
+
 // One frill spike: the k-th fan sector's ridge (k may be -1, the mirror image of spike 0),
 // as long as its band is loud. fs is the angle in sectors (0 at the bottom, 16 at the last ridge).
 float frillSpike (float fr, float fs, float k, float band, float r0, float gravelOn)
@@ -1982,9 +2011,11 @@ const char* const c_compPost = R"GLSL(
         }
     }
 
-    // the maw: a hot throat at the back, the teeth, the plates
+    // the maw: a hot throat at the back, the teeth, the muzzle
+    // (a bounding box for speed only: everything drawn inside it, the muzzle's feathered outline
+    // included, has faded to nothing well before its edges, at every opening)
     float toothCov = 0.0;   // (the teeth stay dark against the glow: later glows and bloom skip them)
-    if (h.x < mw * 1.25 + 0.02 && h.y < mY + 0.07 && h.y > mY - open - 0.07)
+    if (h.x < mw * 1.25 + 0.02 && h.y < mY + 0.07 + 0.25 * open && h.y > mY - 1.1 * open - 0.09)
     {
         float aaM = aaC + 0.006 * sigma;
         float mouthShape = 1.0 - smoothstep (-aaM, aaM, dMouth);
@@ -2082,31 +2113,27 @@ const char* const c_compPost = R"GLSL(
         toothCov = max (toothCov, upA);
         col += uColDeess * upA * pow (tc1, 3.0) * (0.4 + 0.6 * upShade) * deessGlint;
 
-        // ring: dark metal plates over the mouth, their flicker as light (small and slow)
+        // ring: a muzzle of dark metal bands over the mouth, their flicker as light (small and slow).
+        // Its value is the skin's own, darkened, and its oval outline is feathered into the skin, so
+        // the mist veils it as it veils the body (an absolute metal colour inside a hard-edged
+        // rectangle read as a pale tile pasted over the face)
         if (uRing > 0.001)
         {
-            float top = mY + 0.032 + 0.22 * open;
-            float bot = yL - 0.016 - 0.01 * uRingBody;
-            float pw = mw * (1.12 + 0.08 * uRingBody);
-            float edge = min (pw - h.x, min (top - h.y, h.y - bot));
-            float plate = smoothstep (-aaC, aaC, edge);
+            vec3 mz = ringMuzzle (h, mw, mY, open, uRingBody, 0.012 + 0.016 * sigma);
             float slats = 3.0 + 2.0 * uRingBody;
-            float sv = fract ((top - h.y) / max (top - bot, 0.01) * slats);
-            float slat = smoothstep (0.04, 0.16, sv) * smoothstep (0.96, 0.84, sv);
+            float sv = fract (mz.y * slats);
+            float slat = smoothstep (0.04, 0.2, sv) * smoothstep (0.96, 0.8, sv);
             float flk = 0.85 + 0.15 * uRingFlicker;
-            vec3 metal = mix (vec3 (0.06, 0.065, 0.08), uColRing * 0.6, 0.25 + 0.5 * (1.0 - sv));
-            metal *= 0.5 + 0.7 * clamp (sun, 0.0, 1.2);
-            metal += uColRing * 0.12 * flk * (1.0 - sv);
-            vec3 gap = uColRing * 0.20 * flk + vec3 (0.015);
+            float lit = 0.5 + 0.5 * clamp (sun, 0.0, 1.2);
+            vec3 metal = col * (0.5 + 0.2 * (1.0 - sv)) * mix (vec3 (1.0), uColRing, 0.15);
+            metal += uColRing * 0.05 * flk * (1.0 - sv) * lit;
+            vec3 gap = col * 0.35 + uColRing * 0.03 * flk;
             float rivet = 0.0;
             for (int i = 0; i < 3; i++)
-            {
-                float rx = pw * (0.2 + 0.35 * float (i));
-                rivet += (1.0 - smoothstep (0.0035, 0.0055, length (h - vec2 (rx, top - 0.007)))) * uRingBody;
-            }
-            vec3 plateCol = mix (gap, metal, slat) + vec3 (0.6) * rivet * (0.5 + 0.5 * clamp (sun, 0.0, 1.0));
-            float plateA = clamp (0.3 + 1.4 * uRing, 0.0, 1.0) * smoothstep (0.0, 0.03, uRing) * Fm * keep;
-            col = mix (col, plateCol, plate * plateA);
+                rivet += ringRivet (h, mw, mY, open, uRingBody, float (i)) * uRingBody;
+            vec3 plateCol = mix (gap, metal, slat) + vec3 (0.2) * rivet * lit;
+            float plateA = min (clamp (0.3 + 1.4 * uRing, 0.0, 1.0), 0.85) * smoothstep (0.0, 0.03, uRing) * Fm * keep;
+            col = mix (col, plateCol, mz.x * plateA);
         }
     }
 
@@ -2719,32 +2746,27 @@ const char* const c_q0Rest = R"GLSL(
     // de-ess: a cold glint runs along the teeth on each S
     col += uColDeess * upA * pow (tc1, 3.0) * (0.4 + 0.6 * upShade) * deessGlint;
 
-    // ring: metal plates over the mouth, flickering at a slowed copy of the carrier
+    // ring: a muzzle of dark metal bands over the mouth, flickering at a slowed copy of the carrier
+    // (as in the fluid tiers: the skin's own value darkened, in a feathered oval, never a box)
     if (uRing > 0.001)
     {
-        float top = mY + 0.032 + 0.22 * open;
-        float bot = yL - 0.016 - 0.01 * uRingBody;
-        float pw = mw * (1.12 + 0.08 * uRingBody);
-        float edge = min (pw - h.x, min (top - h.y, h.y - bot));
-        float plate = smoothstep (0.0, 0.003, edge);
+        vec3 mz = ringMuzzle (h, mw, mY, open, uRingBody, 0.012 + 0.016 * sigma);
         float slats = 3.0 + 2.0 * uRingBody;
-        float sv = fract ((top - h.y) / max (top - bot, 0.01) * slats);
-        float slat = smoothstep (0.04, 0.16, sv) * smoothstep (0.96, 0.84, sv);
+        float sv = fract (mz.y * slats);
+        float slat = smoothstep (0.04, 0.2, sv) * smoothstep (0.96, 0.8, sv);
         float flk = 0.55 + 0.45 * uRingFlicker;
-        vec3 metal = mix (vec3 (0.10, 0.11, 0.13), uColRing, 0.25 + 0.6 * (1.0 - sv));
-        metal += vec3 (1.0) * pow (1.0 - abs (sv - 0.3) * 2.0, 8.0) * 0.35;          // a bright line on each slat
-        metal *= 0.45 + 0.55 * flk;
+        vec3 metal = col * (0.5 + 0.2 * (1.0 - sv)) * mix (vec3 (1.0), uColRing, 0.15);
+        metal += uColRing * pow (1.0 - abs (sv - 0.3) * 2.0, 8.0) * 0.06 * flk;   // a faint line of light on each band
+        metal += uColRing * 0.05 * flk * (1.0 - sv);
         float rivet = 0.0;
         for (int i = 0; i < 3; i++)
-        {
-            float rx = pw * (0.2 + 0.35 * float (i));
-            rivet += (1.0 - smoothstep (0.0035, 0.0055, length (h - vec2 (rx, top - 0.007)))) * uRingBody;
-        }
-        vec3 gap = uColRing * 0.35 * uRingFlicker + vec3 (0.02);
-        vec3 plateCol = mix (gap, metal, slat) + vec3 (0.9) * rivet;
-        float plateA = clamp (0.3 + 1.4 * uRing, 0.0, 1.0) * smoothstep (0.0, 0.03, uRing) * Fm * keep;
-        col = mix (col, plateCol, plate * plateA);
-        col += uColRing * exp (-max (-edge, 0.0) * 120.0) * (1.0 - plate) * uRing * 0.25 * flk * Fm * keep;
+            rivet += ringRivet (h, mw, mY, open, uRingBody, float (i)) * uRingBody;
+        vec3 gap = col * 0.35 + uColRing * 0.04 * uRingFlicker;
+        vec3 plateCol = mix (gap, metal, slat) + vec3 (0.25) * rivet;
+        float plateA = min (clamp (0.3 + 1.4 * uRing, 0.0, 1.0), 0.85) * smoothstep (0.0, 0.03, uRing) * Fm * keep;
+        col = mix (col, plateCol, mz.x * plateA);
+        // its flicker, a soft glow just outside the outline
+        col += uColRing * exp (-max (mz.z, 0.0) / 0.02) * (1.0 - mz.x) * uRing * 0.08 * flk * Fm * keep;
     }
 
     // rings and embers also play faintly over the creature
