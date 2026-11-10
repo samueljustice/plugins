@@ -34,6 +34,7 @@
 #endif
 
 #include "CreatureEvolution.h"
+#include "CreatureMood.h"
 #include "CreatureMotion.h"
 #include "MonsterRenderer.h"
 #include "NoiseTexture.h"
@@ -5152,6 +5153,191 @@ namespace
         }
     }
 
+    // The clouds' colour mood: read from the settings, 0 at the defaults, rising across each
+    // module's knob; its colour per axis; the slow spring that carries the view to it.
+    void testMood()
+    {
+        std::printf("[mood] colour mood from the settings, its colours, the spring\n");
+        using M = roar::CreatureMood;
+        const auto hsv = [](const std::array<float, 3>& c, float& h, float& s)
+        {
+            const float mx = std::max(c[0], std::max(c[1], c[2])), mn = std::min(c[0], std::min(c[1], c[2])), d = mx - mn;
+            s = mx > 1.0e-6f ? d / mx : 0.0f;
+            h = 0.0f;
+            if (d > 1.0e-6f)
+            {
+                const int top = c[0] >= c[1] && c[0] >= c[2] ? 0 : (c[1] >= c[2] ? 1 : 2);
+                h = 60.0f * (top == 0 ? std::fmod((c[1] - c[2]) / d + 6.0f, 6.0f) : top == 1 ? (c[2] - c[0]) / d + 2.0f : (c[0] - c[1]) / d + 4.0f);
+            }
+        };
+
+        // the defaults are neutral, and so is the reference colour for them
+        {
+            const auto m = M::evaluate(M::Inputs::defaults());
+            check(m[0] == 0.0f && m[1] == 0.0f && m[2] == 0.0f && m[3] == 0.0f, "mood: the defaults are neutral");
+            const auto k = M::shaderMood(m);
+            check(std::abs(k[0]) < 1.0e-4f && std::abs(k[1]) < 1.0e-4f, "mood: neutral leaves the palette as it is");
+        }
+        // the preset table (and the defaults' preset, Init, is neutral)
+        for (const auto& fp : PresetManager::getFactoryPresets())
+        {
+            const auto in = M::Inputs::read([&fp](const char* id)
+            {
+                const auto it = fp.values.find(id);
+                return it != fp.values.end() ? it->second : Params::defaultOf(id);
+            });
+            const auto m = M::evaluate(in);
+            const auto c = M::referenceColour(m);
+            float h = 0.0f, s = 0.0f;
+            hsv(c, h, s);
+            std::printf("  %-18s aggr %.2f  mach %.2f  eerie %.2f  room %.2f  -> hue %5.1f sat %.2f\n", fp.name, m[0], m[1], m[2], m[3], h, s);
+            if (juce::String(fp.name) == "Init")
+                check(m[0] + m[1] + m[2] + m[3] < 1.0e-4f, "mood: Init is neutral");
+        }
+
+        // each axis rises across its modules' knobs (from the default up), each step a little
+        struct Sweep { const char* name; int axis; std::function<void(M::Inputs&, float)> set; };
+        const std::vector<Sweep> sweeps {
+            { "ROAR drive", M::aggression, [](M::Inputs& in, float x) { in.roar = 45.0f + 55.0f * x; } },
+            { "GROWL depth", M::aggression, [](M::Inputs& in, float x) { in.growl = 25.0f + 75.0f * x; } },
+            { "PITCH drive", M::aggression, [](M::Inputs& in, float x) { in.pitchDrive = 1.0f + 99.0f * x; } },
+            { "PITCH down", M::aggression, [](M::Inputs& in, float x) { in.pitch = -2.0f - 22.0f * x; } },
+            { "SUB drive", M::aggression, [](M::Inputs& in, float x) { in.subDrive = 20.0f + 80.0f * x; } },
+            { "OUTPUT clip", M::aggression, [](M::Inputs& in, float x) { in.outClip = 18.0f * x; } },
+            { "VOCODER gravel", M::machine, [](M::Inputs& in, float x) { in.vocoderOn = 1.0f; in.gravel = 100.0f * x; } },
+            { "RING amount", M::machine, [](M::Inputs& in, float x) { in.ringOn = 1.0f; in.ring = 100.0f * x; } },
+            { "SHIMMER", M::machine, [](M::Inputs& in, float x) { in.shimmer = 18.0f + 82.0f * x; } },
+            { "SWIRL", M::eerie, [](M::Inputs& in, float x) { in.swirl = 21.0f + 79.0f * x; } },
+            { "ENSEMBLE", M::eerie, [](M::Inputs& in, float x) { in.ensemble = 10.0f + 90.0f * x; } },
+            { "OVERTONE", M::eerie, [](M::Inputs& in, float x) { in.overtone = 4.0f + 96.0f * x; } },
+            { "CHAMBER", M::room, [](M::Inputs& in, float x) { in.chamberOn = 1.0f; in.chamber = 100.0f * x; in.chamberResonance = 40.0f; } },
+        };
+        for (const auto& sw : sweeps)
+        {
+            float prev = -1.0f, top = 0.0f;
+            int rises = 0;
+            const int steps = 10;
+            bool monotonic = true;
+            for (int i = 0; i <= steps; ++i)
+            {
+                auto in = M::Inputs::defaults();
+                sw.set(in, static_cast<float>(i) / steps);
+                const float v = M::evaluate(in)[static_cast<size_t>(sw.axis)];
+                monotonic = monotonic && v >= prev - 1.0e-6f;
+                rises += i > 0 && v > prev + 0.01f ? 1 : 0;
+                prev = v;
+                top = v;
+            }
+            // (a single knob reaches a clear share of its axis on its own; the strong moods take several)
+            check(monotonic && rises >= steps / 2 && top > 0.25f,
+                  juce::String("mood: ") + sw.name + " raises its axis across its travel (to " + juce::String(top, 2) + ", " + juce::String(rises) + " steps)");
+        }
+        // Mix: a dry signal is neutral
+        {
+            auto in = M::Inputs::defaults();
+            in.roar = 100.0f;
+            in.vocoderOn = 1.0f;
+            const float wet = M::evaluate(in)[0];
+            in.mix = 0.0f;
+            const auto dry = M::evaluate(in);
+            check(wet > 0.3f && dry[0] == 0.0f && dry[1] == 0.0f, "mood: Mix at 0 (dry) is neutral");
+        }
+
+        // the colours: full aggression is ember red, full machine cold electric blue, eerie violet,
+        // room green-grey; aggression with machine meets at magenta; all keep the reference's value
+        {
+            const auto lumaOf = [](const std::array<float, 3>& c) { return 0.3f * c[0] + 0.59f * c[1] + 0.11f * c[2]; };
+            const float l0 = lumaOf({ 0.580f, 0.690f, 0.757f });
+            struct Case { const char* name; M::Axes m; float hLo, hHi, sMin; };
+            const std::vector<Case> cases {
+                { "aggression: ember red", { 1, 0, 0, 0 }, -15.0f, 20.0f, 0.24f },
+                { "machine: electric blue", { 0, 1, 0, 0 }, 196.0f, 215.0f, 0.32f },
+                { "eerie: violet", { 0, 0, 1, 0 }, 255.0f, 290.0f, 0.15f },
+                { "room: green-grey", { 0, 0, 0, 1 }, 110.0f, 175.0f, 0.08f },
+                { "aggression + machine: magenta", { 1, 1, 0, 0 }, 285.0f, 340.0f, 0.12f },
+            };
+            for (const auto& cs : cases)
+            {
+                const auto c = M::referenceColour(cs.m);
+                float h = 0.0f, s = 0.0f;
+                hsv(c, h, s);
+                const float hs = h > 345.0f ? h - 360.0f : h;   // (reds either side of 0)
+                check(hs >= cs.hLo && hs <= cs.hHi && s >= cs.sMin && s <= 0.45f && std::abs(lumaOf(c) - l0) < 0.03f,
+                      juce::String("mood: ") + cs.name + " (hue " + juce::String(h, 1) + ", saturation " + juce::String(s, 2) + ", luma " + juce::String(lumaOf(c), 3) + ")");
+            }
+            // a half mood is between the reference and the full one (it moves, it does not jump)
+            float h = 0.0f, s = 0.0f;
+            hsv(M::referenceColour({ 0.5f, 0, 0, 0 }), h, s);
+            check(s < 0.30f, "mood: half aggression is a partial lean (saturation " + juce::String(s, 2) + ")");
+        }
+
+        // the spring: slow (no snap), settles, the same at any frame rate, gentle overshoot, frozen holds
+        {
+            using S = roar::MoodSpring;
+            const M::Axes zero {}, one { 1.0f, 0.5f, 0.0f, 0.25f };
+            const auto run = [&](float fps, float seconds, S sp)
+            {
+                const int n = static_cast<int>(std::lround(seconds * fps));
+                for (int i = 0; i < n; ++i)
+                    sp.step(1.0f / fps, one, false, false);
+                return sp;
+            };
+            S sp;
+            sp.snap(zero);
+            float maxStep = 0.0f, peak = 0.0f, prev = 0.0f;
+            float at1 = 0.0f, at3 = 0.0f, at12 = 0.0f;
+            for (int i = 1; i <= 30 * 20; ++i)
+            {
+                sp.step(1.0f / 30.0f, one, false, false);
+                maxStep = std::max(maxStep, std::abs(sp.value[0] - prev));
+                prev = sp.value[0];
+                peak = std::max(peak, sp.value[0]);
+                if (i == 30) at1 = sp.value[0];
+                if (i == 90) at3 = sp.value[0];
+                if (i == 360) at12 = sp.value[0];
+            }
+            std::printf("  spring 0 -> 1: %.2f after 1 s, %.2f after 3 s, %.3f after 12 s, peak %.3f, largest frame step %.4f\n", at1, at3, at12, peak, maxStep);
+            check(at1 < 0.25f && at3 > 0.3f && at3 < 0.85f, "mood spring: a slow skew, not a snap (" + juce::String(at1, 2) + " after 1 s, " + juce::String(at3, 2) + " after 3 s)");
+            check(std::abs(at12 - 1.0f) < 0.02f && std::abs(sp.value[0] - 1.0f) < 1.0e-3f, "mood spring: settles within ~10 s");
+            check(peak < 1.04f, "mood spring: a gentle overshoot at most (" + juce::String(peak, 3) + ")");
+            check(maxStep < 0.02f, "mood spring: no frame jumps (largest step " + juce::String(maxStep, 4) + " at 30 fps)");
+            S a, b, c;
+            a.snap(zero);
+            b.snap(zero);
+            c.snap(zero);
+            const auto a2 = run(24.0f, 2.5f, a), b2 = run(60.0f, 2.5f, b), c2 = run(144.0f, 2.5f, c);
+            float diff = 0.0f;
+            for (size_t i = 0; i < 4; ++i)
+                diff = std::max(diff, std::max(std::abs(a2.value[i] - b2.value[i]), std::abs(c2.value[i] - b2.value[i])));
+            check(diff < 1.0e-4f, "mood spring: the same at 24, 60 and 144 fps (" + juce::String(diff, 6) + ")");
+            // frozen: eases to a stop where it is and holds while the target moves
+            S f;
+            f.snap(zero);
+            for (int i = 0; i < 45; ++i)
+                f.step(1.0f / 30.0f, one, false, false);
+            const float atFreeze = f.value[0];
+            for (int i = 0; i < 30 * 15; ++i)
+                f.step(1.0f / 30.0f, one, true, false);
+            check(std::abs(f.value[0] - atFreeze) < 0.12f && f.value[0] < 0.9f, "mood spring: frozen holds the colour (" + juce::String(atFreeze, 3) + " -> " + juce::String(f.value[0], 3) + ")");
+            // a reset while frozen takes the settings' colour once, then holds it
+            f.step(1.0f / 30.0f, one, true, true);
+            for (int i = 0; i < 30 * 15; ++i)
+                f.step(1.0f / 30.0f, zero, true, false);
+            check(std::abs(f.value[0] - 1.0f) < 0.02f, "mood spring: a reset while frozen takes the current colour and holds it (" + juce::String(f.value[0], 3) + ")");
+            // live again: follows
+            for (int i = 0; i < 30 * 15; ++i)
+                f.step(1.0f / 30.0f, zero, false, false);
+            check(std::abs(f.value[0]) < 0.02f, "mood spring: live again, it follows the settings");
+            // nonsense in, nothing out
+            S n;
+            n.snap(zero);
+            n.step(std::numeric_limits<float>::quiet_NaN(), one, false, false);
+            M::Axes bad { std::numeric_limits<float>::quiet_NaN(), 0, 0, 0 };
+            n.step(1.0f / 30.0f, bad, false, false);
+            check(std::isfinite(n.value[0]) && std::isfinite(n.velocity[0]), "mood spring: non-finite input is ignored");
+        }
+    }
+
    #if defined(__APPLE__)
     // The renderer in a real (offscreen) GL context: every program builds, frames draw on every
     // tier, a tier change and a context loss leave nothing behind and nothing empty.
@@ -5317,6 +5503,76 @@ namespace
                         std::sort(hues.begin(), hues.end());
                         const float h50 = hues.empty() ? 0.0f : hues[hues.size() / 2];
                         check(h50 > 196.0f && h50 < 212.0f, "renderer: tier " + juce::String(tier) + " keeps the reference's blue-grey hue (median " + juce::String(h50, 1) + " degrees)" + tag);
+                    }
+                    // The colour mood: full aggression leans the drawn clouds and mist to ember red, full
+                    // machine to a colder, stronger blue, each keeping the high-key values and a bounded
+                    // saturation (and no mood leaves the frame as above).
+                    {
+                        const auto measure = [&](float& l50, float& s50, float& h50, float& redShare)
+                        {
+                            std::vector<unsigned char> px(static_cast<size_t>(W * H * 4));
+                            glBindFramebuffer(GL_FRAMEBUFFER, fbo);
+                            glReadPixels(0, 0, W, H, GL_RGBA, GL_UNSIGNED_BYTE, px.data());
+                            std::vector<float> lum, sat;
+                            double hx = 0.0, hy = 0.0;
+                            int red = 0, n = 0;
+                            for (int y = H / 10; y < H - H / 10; ++y)
+                                for (int x = W / 20; x < W - W / 20; ++x)
+                                {
+                                    const unsigned char* q = &px[(static_cast<size_t>(y) * static_cast<size_t>(W) + static_cast<size_t>(x)) * 4];
+                                    const float rr = q[0] / 255.0f, gg = q[1] / 255.0f, bb = q[2] / 255.0f;
+                                    const float mx = std::max(rr, std::max(gg, bb)), mn = std::min(rr, std::min(gg, bb));
+                                    lum.push_back(0.3f * rr + 0.59f * gg + 0.11f * bb);
+                                    sat.push_back(mx > 1.0e-4f ? (mx - mn) / mx : 0.0f);
+                                    ++n;
+                                    red += rr > bb ? 1 : 0;
+                                    if (mx > 1.0e-4f && (mx - mn) / mx > 0.05f)
+                                    {
+                                        const float d = mx - mn;
+                                        const int top = rr >= gg && rr >= bb ? 0 : (gg >= bb ? 1 : 2);
+                                        const float hh = 60.0f * (top == 0 ? std::fmod((gg - bb) / d + 6.0f, 6.0f) : top == 1 ? (bb - rr) / d + 2.0f : (rr - gg) / d + 4.0f);
+                                        hx += std::cos(hh * 0.0174533f);
+                                        hy += std::sin(hh * 0.0174533f);
+                                    }
+                                }
+                            std::sort(lum.begin(), lum.end());
+                            std::sort(sat.begin(), sat.end());
+                            l50 = lum[lum.size() / 2];
+                            s50 = sat[sat.size() / 2];
+                            h50 = static_cast<float>(std::fmod(std::atan2(hy, hx) * 57.29578 + 360.0, 360.0));   // (the circular mean)
+                            redShare = static_cast<float>(red) / static_cast<float>(std::max(1, n));
+                        };
+                        using M = roar::CreatureMood;
+                        frame.set(U::uRadius, 4.0f);
+                        for (const int tier : { 3, 0 })
+                        {
+                            r.setForcedTier(tier);
+                            float l0 = 0, s0 = 0, h0 = 0, r0 = 0;
+                            frame.set(U::uMood, 0.0f, 0.0f, 0.0f, 0.0f);
+                            draw(r, 6);
+                            measure(l0, s0, h0, r0);
+                            const auto k = M::shaderMood({ 1.0f, 0.0f, 0.0f, 0.0f });
+                            frame.set(U::uMood, k[0], k[1], 0.0f, 0.0f);
+                            draw(r, 6);
+                            float la = 0, sa = 0, ha = 0, ra = 0;
+                            measure(la, sa, ha, ra);
+                            const auto km = M::shaderMood({ 0.0f, 1.0f, 0.0f, 0.0f });
+                            frame.set(U::uMood, km[0], km[1], 0.0f, 0.0f);
+                            draw(r, 6);
+                            float lm = 0, sm = 0, hm = 0, rm = 0;
+                            measure(lm, sm, hm, rm);
+                            frame.set(U::uMood, 0.0f, 0.0f, 0.0f, 0.0f);
+                            const juce::String t = "renderer: tier " + juce::String(tier) + " ";
+                            std::printf("  tier %d mood: none hue %.0f sat %.2f luma %.2f | ember hue %.0f sat %.2f luma %.2f red %.2f | electric hue %.0f sat %.2f luma %.2f\n",
+                                        tier, h0, s0, l0, ha, sa, la, ra, hm, sm, lm);
+                            check((ha < 40.0f || ha > 340.0f) && ra > 0.6f && r0 < 0.1f,
+                                  t + "full aggression leans the clouds ember red (hue " + juce::String(ha, 0) + ", " + juce::String(ra * 100.0f, 0) + " % warm)" + tag);
+                            check(hm > 190.0f && hm < 225.0f && sm > s0 + 0.06f,
+                                  t + "full machine is a colder, stronger blue (hue " + juce::String(hm, 0) + ", saturation " + juce::String(s0, 2) + " -> " + juce::String(sm, 2) + ")" + tag);
+                            check(la > 0.55f && la < 0.80f && lm > 0.55f && lm < 0.80f && std::abs(la - l0) < 0.04f && std::abs(lm - l0) < 0.04f,
+                                  t + "the mood keeps the high-key values (luma " + juce::String(l0, 3) + ", " + juce::String(la, 3) + ", " + juce::String(lm, 3) + ")" + tag);
+                            check(sa <= 0.41f && sm <= 0.41f, t + "the mood's saturation stays bounded (" + juce::String(sa, 2) + ", " + juce::String(sm, 2) + ")" + tag);
+                        }
                     }
                     // Roaring: the warm accents are veiled, not removed (some pixels stay warm), and the
                     // throat's glow sits in a dark cavity (the warmest pixel is below the frame's median value).
@@ -6514,6 +6770,7 @@ int main(int argc, char* argv[])
         { "creature", testCreature },
         { "logo", testLogoSdf },
         { "motion", testMotion },
+        { "mood", testMood },
        #if defined(__APPLE__)
         { "renderer", testRenderer },
        #endif

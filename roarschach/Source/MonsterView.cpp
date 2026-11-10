@@ -103,6 +103,9 @@ void MonsterView::setParams (const Params& params)
     m_overtoneKnob.store (params.overtone, std::memory_order_relaxed);
     m_ringKnob.store (params.ring, std::memory_order_relaxed);
     m_cleanOn.store (params.cleanOn, std::memory_order_relaxed);
+    for (size_t i = 0; i < m_moodTarget.size(); ++i)
+        m_moodTarget[i].store (params.mood[i], std::memory_order_relaxed);
+    m_moodFrozen.store (params.moodFrozen, std::memory_order_relaxed);
 }
 
 void MonsterView::mouseDown (const juce::MouseEvent& event)
@@ -132,7 +135,10 @@ void MonsterView::showCreatureMenu()
                             if (item == live || item == frozen)
                                 safe->setCreatureFrozen (item == frozen);
                             else if (item == reset)
+                            {
                                 safe->resetCreature();
+                                safe->m_moodResets.fetch_add (1, std::memory_order_relaxed);
+                            }
                         });
 }
 
@@ -403,6 +409,21 @@ void MonsterView::updateAnimation (float dt)
     // Rings travel faster while the sub is loud.
     m_subPhase = std::fmod (m_subPhase + dt * (0.30f + 0.9f * m_subLevel), 1.0f);
 
+    // The colour mood: drifts slowly to the settings' (a spring of several seconds), from where it
+    // is when the view opens; held while the creature is Frozen.
+    {
+        roar::CreatureMood::Axes target {};
+        for (size_t i = 0; i < target.size(); ++i)
+            target[i] = safe (m_moodTarget[i].load (std::memory_order_relaxed), 0.0f, 1.0f);
+        const int resets = m_moodResets.load (std::memory_order_relaxed);
+        const bool reset = resets != m_moodResetsSeen;
+        m_moodResetsSeen = resets;
+        if (m_moodSnap)
+            m_mood.snap (target);
+        m_mood.step (m_moodSnap ? 0.0f : dt, target, m_moodFrozen.load (std::memory_order_relaxed), reset);
+        m_moodSnap = false;
+    }
+
     // The evolved form: the processor publishes it ten times a second; smooth it so it never steps.
     {
         using E = roar::CreatureEvolution;
@@ -652,6 +673,11 @@ void MonsterView::renderOpenGL()
         // No texture, no logo (the egg is skipped rather than drawn against an empty field).
         fr.set (U::uEgg, m_renderer.hasLogo() ? u.egg : 0.0f);
         fr.set (U::uLogoBox, 0.0f, 0.0f, c_logoBoxSize, 0.0f);
+    }
+
+    {
+        const auto turn = roar::CreatureMood::shaderMood (m_mood.value);
+        fr.set (U::uMood, turn[0], turn[1], 0.0f, 0.0f);
     }
 
     const bool idle = m_idle.load (std::memory_order_relaxed);

@@ -113,6 +113,7 @@ uniform float uAspect;   // width / height
 uniform vec4 uVort[8];   // vortices: view x, y, core radius, signed peak speed (view heights per second)
 uniform vec4 uAtmo;      // the top mist: opacity (eased), drift xy (view heights), on
 uniform vec3 uAtmoTint;  // the stage's hue lean within the cool palette (near white)
+uniform vec4 uMood;      // the colour mood: the palette's hue turn on the YIQ chroma plane, (s cos a - 1, s sin a); 0 = none
 )GLSL";
 
 const char* const c_atmo = R"GLSL(
@@ -131,6 +132,22 @@ vec3 atmoRamp (float v)
     return c;
 }
 
+// The colour mood (from the settings): the palette's chroma turned and scaled on the YIQ chroma plane,
+// its luma kept, so the ramp keeps its values and only leans towards ember, electric blue, violet or
+// lichen. Exactly the input at uMood = 0.
+vec3 moodTurn (vec3 c)
+{
+    vec2 iq = vec2 (dot (c, vec3 (0.596, -0.274, -0.322)), dot (c, vec3 (0.211, -0.523, 0.312)));
+    vec2 d = vec2 (uMood.x * iq.x - uMood.y * iq.y, uMood.y * iq.x + uMood.x * iq.y);
+    return c + d.x * vec3 (0.956, -0.272, -1.106) + d.y * vec3 (0.621, -0.647, 1.703);
+}
+
+// A value on the ramp, with the stage's lean and the mood
+vec3 atmoTone (float v)
+{
+    return moodTurn (atmoRamp (v) * uAtmoTint);
+}
+
 // The scene (tone-mapped, 0..1) re-graded onto the ramp: its values lifted high-key, its colour
 // replaced by the ramp's, except a softened share kept by the warm accents (eyes, throat, red ink)
 vec3 atmoGrade (vec3 col, float l)
@@ -139,7 +156,7 @@ vec3 atmoGrade (vec3 col, float l)
     float warm = clamp ((col.r - col.b) * 3.0, 0.0, 1.0);
     // (warm light is lifted less: a glow keeps its colour and never turns into a pale disc)
     float v = 0.16 + mix (1.25 - 0.30 * l, 0.95 - 0.10 * l, 0.6 * warm) * l;
-    vec3 g = atmoRamp (v) * uAtmoTint;
+    vec3 g = atmoTone (v);
     g += chroma * (0.10 + 0.40 * warm);
     return max (g, vec3 (0.0));
 }
@@ -162,7 +179,7 @@ vec3 warmVeil (vec3 col, vec3 light, float w)
 // The mist's own colour for a value: the ramp, the stage's lean, a faint mauve in some mid-tones
 vec3 atmoMistCol (float v, float mauve)
 {
-    vec3 c = atmoRamp (v) * uAtmoTint;
+    vec3 c = atmoTone (v);
     c += vec3 (0.018, -0.010, 0.012) * mauve * exp (-((v - 0.55) * (v - 0.55)) / 0.03);
     return c;
 }
@@ -2154,7 +2171,7 @@ const char* const c_compPost = R"GLSL(
     // the maw is a cavity: graded, its inside would lift to the mid-tones and read as a pale lens, so
     // it goes to the dark end of the ramp, its glow a small core low at the back (its warmth is laid
     // on over the mist, below); the teeth keep their own value over it
-    col = mix (col, atmoRamp (0.10 + 0.22 * mawCore) * uAtmoTint, mawM * (1.0 - toothCov));
+    col = mix (col, atmoTone (0.10 + 0.22 * mawCore), mawM * (1.0 - toothCov));
 
     // ---- the top mist, over everything (normal blend). The creature and the swirl read through it
     // as soft value shapes: the mist is shadowed by a wide blur of the body (never its outline, its
@@ -2839,7 +2856,7 @@ const char* const c_q0Rest = R"GLSL(
         float lumS = dot (col, vec3 (0.3, 0.59, 0.11));
         col = atmoGrade (col, lumS);
         float mawCore = clamp (core * throatI * cavity, 0.0, 1.0) * mouth;
-        col = mix (col, atmoRamp (0.10 + 0.22 * mawCore) * uAtmoTint, mouth * (1.0 - toothCov));
+        col = mix (col, atmoTone (0.10 + 0.22 * mawCore), mouth * (1.0 - toothCov));
 
         float bodyW = (1.0 - smoothstep (-0.16, 0.08, dEdge)) * (0.55 + 0.45 * ink);
         float silS = 1.0 - smoothstep (-0.10, 0.10, dEdge);

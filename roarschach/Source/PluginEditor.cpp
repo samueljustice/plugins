@@ -243,6 +243,10 @@ void RoarschachAudioProcessorEditor::updateMonsterParams()
     params.gravel = on(Params::vocoderOn) * effect(view::gravel, Params::gravel);
     params.detailLow = on(Params::detailOn) * effect(view::detail, Params::detailLow);
     params.detailHigh = on(Params::detailOn) * effect(view::detail, Params::detailHigh);
+    // The clouds' colour mood follows the settings (the view drifts to it slowly) and holds while
+    // the creature is Frozen.
+    params.mood = roar::CreatureMood::evaluate(roar::CreatureMood::Inputs::read(value));
+    params.moodFrozen = m_audioProcessor.isCreatureFrozen();
     m_monsterView.setParams(params);
 }
 

@@ -2,6 +2,7 @@
 
 #include <JuceHeader.h>
 #include "CreatureEvolution.h"
+#include "CreatureMood.h"
 #include "CreatureMotion.h"
 #include "LogoSdf.h"
 #include "MonsterRenderer.h"
@@ -56,6 +57,8 @@ public:
         float overtone = 0.0f;     // OVERTONE amount (the ribs' strength)
         float ring = 0.0f;         // RING amount (the muzzle round the mouth)
         float cleanOn = 1.0f;      // CLEAN is On: its gate may close the lips
+        roar::CreatureMood::Axes mood {};   // the colour mood of the settings (CreatureMood::evaluate)
+        bool moodFrozen = false;   // the creature's evolution is Frozen: the colour holds too
     };
 
     /** creature: the evolved form published by the processor (nullptr: a fixed, fully formed one). */
@@ -123,6 +126,9 @@ private:
                        m_detailLow { 0.30f }, m_detailHigh { 0.20f },
                        m_swirlKnob { 0.0f }, m_ensembleKnob { 0.0f }, m_overtoneKnob { 0.0f }, m_ringKnob { 0.0f },
                        m_cleanOn { 1.0f };
+    std::array<std::atomic<float>, roar::CreatureMood::numAxes> m_moodTarget {};
+    std::atomic<bool> m_moodFrozen { false };
+    std::atomic<int> m_moodResets { 0 };     // bumped by the menu's reset (message thread)
     std::atomic<int> m_width { 0 }, m_height { 0 };
     std::atomic<float> m_cornerRadius { 8.0f };
     std::atomic<juce::uint32> m_outsideArgb { Theme::Colours::background.getARGB() };
@@ -170,6 +176,9 @@ private:
     int m_lastGeneration = -1;
     float m_blinkClock = 0.0f, m_nextBlink = 3.0f;
     Params m_knobs;  // the knob values, smoothed so turning one animates instead of jumping
+    roar::MoodSpring m_mood;                    // the clouds' colour mood, drifting to the settings'
+    int m_moodResetsSeen = 0;
+    bool m_moodSnap = true;                     // the first frame takes the colour as it is
     std::array<float, c_numBands> m_bands {};
     roar::CreatureEvolution::Params m_evo {};   // the evolved form, smoothed per frame
     roar::CreatureFormation m_formation;
