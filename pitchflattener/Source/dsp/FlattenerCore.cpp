@@ -103,7 +103,8 @@ namespace pf
 
         tracker.prepare ((double) hop / analysisRate);
         guide.prepare (analysisRate, hop);
-        tracker.setGuide (&guide);
+        learned.prepare (analysisRate, hop);
+        tracker.setGuide (&guideMux);
 
         // Shifter: chunk of ~5 ms, power of two
         shifterChunk = nextPow2 ((int) std::lround (128.0 * fs / 48000.0));
@@ -146,6 +147,7 @@ namespace pf
         const std::lock_guard<std::mutex> lock (structMutex);
         prepared.store (false);
         guide.release();
+        learned.release();
         if (auto* p = pendingDetector.exchange (nullptr)) delete p;
         if (auto* p = retiredDetector.exchange (nullptr)) delete p;
         if (auto* p = pendingShifter.exchange (nullptr)) delete p;
@@ -172,6 +174,7 @@ namespace pf
         framesDone = 0;
         tracker.reset();
         guide.reset();
+        learned.reset();
 
         for (auto& ch : inRing)  std::fill (ch.begin(), ch.end(), 0.0f);
         for (auto& ch : wetRing) std::fill (ch.begin(), ch.end(), 0.0f);
@@ -373,6 +376,7 @@ namespace pf
             // The hindsight guide is for engine-like sounds, which the Harmonic Sum detector is chosen for.
             const auto& cfg = detector->getConfig();
             guide.setActive (hindsightAllowed && cfg.type == DetectorType::HarmonicSum, cfg.minHz, cfg.maxHz);
+            learned.setGateDb (live.gateDb);
         }
         if (relatchRequested.exchange (false))
             tracker.requestRelatch();
@@ -439,6 +443,7 @@ namespace pf
                 anaRing[(size_t) a] = lpFilter.process (hpFilter.process (y));
                 ++anaWritten;
                 guide.push (y);
+                learned.push (y);
 
                 if (uiAudioFifo.getFreeSpace() > 0)
                 {
@@ -452,6 +457,7 @@ namespace pf
 
         // 2. analyse every complete frame
         guide.service();
+        learned.service();
         runAnalysis();
 
         // 3. feed the shifter with audio whose correction is now final

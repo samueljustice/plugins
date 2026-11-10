@@ -1,5 +1,4 @@
 #include "PitchTracker.h"
-#include "HindsightGuide.h"
 #include <algorithm>
 #include <cmath>
 
@@ -54,6 +53,9 @@ namespace pf
         lastRatio = 0.0f;
         guideOffsetSet = false;
         guideUsable = false;
+        ownJumped = guideJumped = false;
+        lastOwnVoiced = lastGuideCents = 0.0f;
+        std::fill (ownHistory.begin(), ownHistory.end(), 0.0f);
         guideOffset = 0.0f;
         lastGuideFrame = -1000000;
         telemetry = TelemetryFrame {};
@@ -348,12 +350,21 @@ namespace pf
         return std::abs (ownMinusGuide - best) < 150.0f;   // no simple ratio: the guide stays out of this stretch
     }
 
+    bool PitchTracker::guideMayLead (const Filled& own, float guideCents) const
+    {
+        if (! guideOverrides (own, guideCents))
+            return false;               // same line: keep the own track's detail
+        if (guideJumped)
+            return false;               // the guide left the line: trust the own track
+        return own.flag == None || ownJumped;
+    }
+
     bool PitchTracker::targetTrack (int64_t f, float& cents, float& weight) const
     {
         const auto& v = smoothed[(size_t) idx (f)];
         float g = 0.0f;
         if (guide != nullptr && guideOffsetSet && guideUsable && lattice[(size_t) idx (f)].rmsDb >= settings.gateDb
-            && guide->lookup (f, g) && guideOverrides (v, g + guideOffset))
+            && guide->lookup (f, g) && guideMayLead (v, g + guideOffset))
         {
             cents = g + guideOffset;
             weight = 1.0f;
@@ -379,9 +390,16 @@ namespace pf
             // A guided stretch takes its register from the plugin's own track at its first voiced frame, and
             // ends after a second without the guide (also for the lookahead reads in targetTrack).
             if (t - lastGuideFrame > (int64_t) (1.0 / hopSec))
+            {
                 guideOffsetSet = false;
+                ownJumped = guideJumped = false;
+            }
             float g = 0.0f;
-            if (guide->lookup (t, g))
+            const bool haveGuide = guide->lookup (t, g);
+            ownHistory[(size_t) idx (t)] = tr.flag != None ? tr.cents : 0.0f;
+            if (! haveGuide)
+                lastGuideCents = 0.0f;
+            if (haveGuide)
             {
                 lastGuideFrame = t;
                 if (! guideOffsetSet && tr.flag == Voiced)
@@ -389,9 +407,31 @@ namespace pf
                     guideUsable = registerOffset (tr.cents - g, guideOffset);
                     guideOffsetSet = true;
                 }
-                // Never past the Gate: a frame the user gated out stays uncorrected, whatever the guide says.
-                guided = guideOffsetSet && guideUsable && L.rmsDb >= settings.gateDb && guideOverrides (tr, g + guideOffset);
+                if (guideOffsetSet && guideUsable)
+                {
+                    const float gc = g + guideOffset;
+                    if (tr.flag != None && std::abs (gc - tr.cents) <= 150.0f)
+                        ownJumped = guideJumped = false;   // back on the same line
+                    else
+                    {
+                        // Which of the two left the line? The own track is smoothed, so a hop shows over ~30 ms (or
+                        // across a gap, against its last voiced value); the guide is not, so a hop of its own is a
+                        // step from one frame to the next, which a fast glide never makes.
+                        const int64_t back = t - 6;
+                        const float ownBefore = back >= 0 && ownHistory[(size_t) idx (back)] != 0.0f ? ownHistory[(size_t) idx (back)]
+                                                                                                      : lastOwnVoiced;
+                        if (tr.flag != None && ownBefore != 0.0f && std::abs (tr.cents - ownBefore) > 150.0f)
+                            ownJumped = true;
+                        if (lastGuideCents != 0.0f && std::abs (gc - lastGuideCents) > 60.0f)
+                            guideJumped = true;
+                    }
+                    lastGuideCents = gc;
+                    // Never past the Gate: a frame the user gated out stays uncorrected, whatever the guide says.
+                    guided = L.rmsDb >= settings.gateDb && guideMayLead (tr, gc);
+                }
             }
+            if (tr.flag == Voiced || tr.flag == Interp)
+                lastOwnVoiced = tr.cents;
             if (guided)
                 trackCents = g + guideOffset;
             active = active || guided;

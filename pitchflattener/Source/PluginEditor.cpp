@@ -263,6 +263,9 @@ private:
     PitchDisplay m_display;
     PresetBar m_presetBar;
     juce::TextButton m_aboutButton { "?" };
+    juce::TextButton m_analyseButton { "ANALYSE" };
+    void analyseClicked();
+    void updateAnalyseButton();
 
     // Source strip
     ResetComboBox m_sourceCombo, m_detectorCombo;
@@ -335,6 +338,12 @@ PitchFlattenerAudioProcessorEditor::Content::Content (PitchFlattenerAudioProcess
 
     // The wobble warning's "Try ..." button picks a Source Type exactly as the Source menu does.
     m_display.onTrySourceType = [this] (int type) { userPickedSourceType (type); };
+
+    m_analyseButton.onClick = [this] { analyseClicked(); };
+    addAndMakeVisible (m_analyseButton);
+    setHelp (m_analyseButton, "Analyse: press, then play the sound once. Pitch Flattener learns it as a whole: it picks the Source Type "
+                              "and range for it and works out its pitch line in hindsight. On every later play it recognises the "
+                              "sound and follows the learned line where the live tracker slips. Press again while listening to stop early.");
 
     m_aboutButton.onClick = [this] { showAbout(); };
     m_aboutButton.setTooltip ("About SammyJs Pitch Flattener");
@@ -581,8 +590,53 @@ void PitchFlattenerAudioProcessorEditor::Content::updateEnablement()
     }
 }
 
+void PitchFlattenerAudioProcessorEditor::Content::analyseClicked()
+{
+    if (m_processor.getAnalyseState() != pf::LearnedLine::State::Ready)
+    {
+        m_processor.analysePressed();
+        updateAnalyseButton();
+        return;
+    }
+    juce::PopupMenu menu;
+    menu.addItem (1, "Analyse again");
+    menu.addItem (2, "Forget what was learned");
+    menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&m_analyseButton),
+                        [safe = juce::Component::SafePointer<Content> (this)] (int result)
+                        {
+                            if (safe == nullptr)
+                                return;
+                            if (result == 1)
+                                safe->m_processor.analysePressed();
+                            else if (result == 2)
+                                safe->m_processor.forgetLearned();
+                            safe->updateAnalyseButton();
+                        });
+}
+
+void PitchFlattenerAudioProcessorEditor::Content::updateAnalyseButton()
+{
+    using State = pf::LearnedLine::State;
+    juce::String text;
+    switch (m_processor.getAnalyseState())
+    {
+        case State::Empty:     text = "ANALYSE"; break;
+        case State::Armed:     text = "PLAY THE SOUND"; break;
+        case State::Recording: text = "LISTENING " + juce::String (m_processor.getLearnedSeconds(), 1) + " s"; break;
+        case State::Analysing: text = "ANALYSING " + juce::String (juce::roundToInt (100.0f * m_processor.getAnalyseProgress())) + "%"; break;
+        case State::Ready:     text = m_processor.isLearnedMatched() ? "LEARNED: MATCHED" : "LEARNED " + juce::String (m_processor.getLearnedSeconds(), 1) + " s"; break;
+        case State::Failed:    text = "ANALYSE: TRY AGAIN"; break;
+    }
+    if (m_analyseButton.getButtonText() != text)
+        m_analyseButton.setButtonText (text);
+    const bool busy = m_processor.getAnalyseState() == State::Armed || m_processor.getAnalyseState() == State::Recording
+                      || m_processor.getAnalyseState() == State::Analysing;
+    m_analyseButton.setToggleState (busy || m_processor.getAnalyseState() == State::Ready, juce::dontSendNotification);
+}
+
 void PitchFlattenerAudioProcessorEditor::Content::timerCallback()
 {
+    updateAnalyseButton();
     updateEnablement();
     m_presetBar.refreshIfNameChanged();
 
@@ -675,7 +729,9 @@ void PitchFlattenerAudioProcessorEditor::Content::resized()
     {
         auto r = m_sourceStrip.reduced (12, 0);
         r.removeFromLeft (84); // "SOURCE" caption (painted)
-        m_sourceCombo.setBounds (r.removeFromLeft (190).withSizeKeepingCentre (190, 26));
+        m_sourceCombo.setBounds (r.removeFromLeft (180).withSizeKeepingCentre (180, 26));
+        r.removeFromLeft (10);
+        m_analyseButton.setBounds (r.removeFromLeft (140).withSizeKeepingCentre (140, 26));
         r.removeFromLeft (14);
 
         m_activeArea = r.removeFromRight (104);

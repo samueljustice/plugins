@@ -178,6 +178,7 @@ namespace
     int gAlign = INT32_MIN;
     bool gDump = false;
     bool gRealtime = false;
+    bool gLearn = false;      // --learn: file mode plays the file once with ANALYSE armed, applies what it learned, then again
     bool gGuide = true;       // --guide 0: file mode without the hindsight guide
     float gSplit = -1.0f;     // --split Hz: file mode overrides Shift Below (0 = off)
     int gFormant = -1;        // --formant 0|1: file mode overrides the Source Type's formant preservation   // --realtime: file mode runs at the pace of real time, the hindsight guide on its worker
@@ -576,6 +577,55 @@ namespace
         core.setLiveSettings (ls);
         core.setFilters (p.highpassHz, p.lowpassHz);
 
+        const char* sourceName = p.name;
+        if (gLearn)
+        {
+            // Pass 1: ANALYSE armed, the file played once (plus a second of quiet so the take ends).
+            auto& learned = core.getLearned();
+            ProcessingSettings ps;
+            ps.live = ls; ps.detector = dc.type; ps.minHz = dc.minHz; ps.maxHz = dc.maxHz;
+            ps.quality = p.quality; ps.highpassHz = p.highpassHz; ps.lowpassHz = p.lowpassHz;
+            learned.arm (ps, (int) source);
+            const int n1 = len + (int) (2.0 * fs);
+            std::vector<float> a ((size_t) n1, 0.0f);
+            std::copy (in.getReadPointer (0), in.getReadPointer (0) + len, a.begin());
+            auto b = a;
+            for (int pos = 0; pos < n1; pos += 512)
+            {
+                float* ch[2] = { a.data() + pos, b.data() + pos };
+                core.process (ch, 2, std::min (512, n1 - pos));
+            }
+            learned.finish();
+            learned.analyseNow();
+            LearnedLine::Suggestion sg;
+            if (learned.getState() == LearnedLine::State::Ready && learned.popSuggestion (sg))
+            {
+                const auto& np = getSourcePreset ((SourceType) sg.sourceType);
+                std::printf ("learned %.1f s: line %.0f-%.0f Hz%s -> %s, %.0f-%.0f Hz, Max Shift %.0f st, Shift Below %s\n",
+                             learned.getTakeSeconds(), sg.lineLowHz, sg.lineHighHz, sg.lineTrusted ? "" : " (not trusted)", np.name, sg.minHz, sg.maxHz, sg.maxShiftSemitones,
+                             sg.shiftBelowHz > 0.0f ? juce::String (sg.shiftBelowHz, 0).toRawUTF8() : "Off");
+                sourceName = np.name;
+                if (sg.sourceType != (int) SourceType::Custom)
+                {
+                    dc.type = np.detector;
+                    Case c2 { c.name, (SourceType) sg.sourceType, TargetMode::Latch, 0.0f, nullptr, 0, 0, 0 };
+                    const float gate = ls.gateDb;
+                    ls = settingsFor (c2);
+                    ls.gateDb = gate;
+                    core.setFilters (np.highpassHz, np.lowpassHz);
+                }
+                dc.minHz = sg.minHz;
+                dc.maxHz = sg.maxHz;
+                ls.maxShiftSemitones = sg.maxShiftSemitones;
+                ls.shiftBelowHz = sg.shiftBelowHz;
+                core.applyStructuralNow (dc.type, dc.minHz, dc.maxHz, p.quality);
+                core.setLiveSettings (ls);
+            }
+            else
+                std::printf ("learning failed (state %d)\n", (int) learned.getState());
+            core.reset();   // pass 2 starts the stream again, as a host does on the next play
+        }
+
         const int lat = core.getLatencySamples(), n = lat + len;
         std::vector<float> l ((size_t) n, 0.0f);
         std::copy (in.getReadPointer (0), in.getReadPointer (0) + len, l.begin());
@@ -597,9 +647,13 @@ namespace
                 frames.push_back (tf);
         }
 
-        std::printf ("%s: %s, detector %s, %.0f-%.0f Hz, Max Shift %.0f st, latency %.2f s\n", file.getFileName().toRawUTF8(), p.name,
+        std::printf ("%s: %s, detector %s, %.0f-%.0f Hz, Max Shift %.0f st, latency %.2f s\n", file.getFileName().toRawUTF8(), sourceName,
                      getDetectorName (dc.type), dc.minHz, dc.maxHz, ls.maxShiftSemitones, lat / fs);
-        std::printf ("hindsight windows: %d analysed, %d guided\n", core.getHindsightWindows (false), core.getHindsightWindows (true));
+        std::printf ("hindsight windows: %d analysed, %d guided%s\n", core.getHindsightWindows (false), core.getHindsightWindows (true),
+                     gLearn ? (core.getLearned().isLocked()
+                         ? juce::String ("; learned take matched, offset ") + juce::String (core.getLearned().getLockedOffset())
+                               + " (recorded from frame " + juce::String (core.getLearned().getTakeStartFrame()) + ")"
+                         : juce::String ("; learned take NOT matched")).toRawUTF8() : "");
         std::printf ("   t(s)   track  target  corr(ct)  out(Hz)  off(ct)  conf  level(dB)\n");
 
         // Telemetry frame -> time of the audio it describes (frame k is centred on input sample k * hop).
@@ -859,6 +913,64 @@ namespace
         return ok;
     }
 
+    /** ANALYSE: learn a take, save and reload it, and match it on the next play (but not a different sound). */
+    bool testAnalyse (double fs)
+    {
+        auto sweep = [fs] (double baseHz, double rateHz)
+        {
+            auto sig = harmonicTone (fs, 5.0, [=] (double t) { return baseHz * (1.0 + 0.4 * std::sin (twoPi * rateHz * t)); }, 6, 1.2, -60.0);
+            sig.l.resize (sig.l.size() + (size_t) (2.5 * fs), 0.0f);   // quiet after it, so a take ends
+            return sig.l;
+        };
+        auto play = [] (FlattenerCore& core, std::vector<float> x)
+        {
+            for (size_t pos = 0; pos < x.size(); pos += 512)
+            {
+                float* ch[1] = { x.data() + pos };
+                core.process (ch, 1, (int) std::min<size_t> (512, x.size() - pos));
+            }
+        };
+        const auto& p = getSourcePreset (SourceType::Siren);
+        DetectorConfig dc;
+        dc.type = p.detector; dc.minHz = p.minHz; dc.maxHz = p.maxHz;
+        Case c { "analyse", SourceType::Siren, TargetMode::Latch, 0.0f, nullptr, 0, 0, 0 };
+        ProcessingSettings ps;
+        ps.live = settingsFor (c); ps.detector = dc.type; ps.minHz = dc.minHz; ps.maxHz = dc.maxHz;
+        ps.quality = p.quality; ps.highpassHz = p.highpassHz; ps.lowpassHz = p.lowpassHz;
+
+        const auto take = sweep (900.0, 0.4);
+        juce::String saved;
+        bool learnedOk = false;
+        {
+            FlattenerCore core;
+            core.prepare (fs, 512, 1, dc, p.quality);
+            core.setNonRealtime (true);
+            core.setLiveSettings (ps.live);
+            core.getLearned().arm (ps, (int) SourceType::Siren);
+            play (core, take);
+            core.getLearned().finish();
+            core.getLearned().analyseNow();
+            learnedOk = core.getLearned().getState() == LearnedLine::State::Ready;
+            saved = core.getLearned().saveState();
+        }
+        auto replay = [&] (const std::vector<float>& x)
+        {
+            FlattenerCore core;
+            core.prepare (fs, 512, 1, dc, p.quality);
+            core.setNonRealtime (true);
+            core.setLiveSettings (ps.live);
+            core.getLearned().loadState (saved);
+            play (core, x);
+            return core.getLearned().isLocked();
+        };
+        const bool sameMatches = replay (take);
+        const bool otherMatches = replay (sweep (600.0, 1.1));
+        const bool ok = learnedOk && saved.isNotEmpty() && sameMatches && ! otherMatches;
+        std::printf ("  analyse: learned %s, saved %d chars, same sound matched %s, another sound matched %s -> %s\n",
+                     learnedOk ? "yes" : "no", saved.length(), sameMatches ? "yes" : "no", otherMatches ? "yes" : "no", ok ? "OK" : "FAIL");
+        return ok;
+    }
+
     bool testMonitorAlignment (double fs)
     {
         FlattenerCore core;
@@ -991,6 +1103,7 @@ int main (int argc, char** argv)
         else if (a == "--align" && i + 1 < argc) gAlign = juce::String (argv[++i]).getIntValue();
         else if (a == "--dump") gDump = true;
         else if (a == "--realtime") gRealtime = true;
+        else if (a == "--learn") gLearn = true;
         else if (a == "--split" && i + 1 < argc) gSplit = juce::String (argv[++i]).getFloatValue();
         else if (a == "--guide" && i + 1 < argc) gGuide = juce::String (argv[++i]).getIntValue() != 0;
         else if (a == "--formant" && i + 1 < argc) gFormant = juce::String (argv[++i]).getIntValue();
@@ -1031,6 +1144,7 @@ int main (int argc, char** argv)
     ok &= testMonitorAlignment (fs);
     ok &= testEngineResonanceStaysPut (fs);
     ok &= testShiftBelowLevel (fs);
+    ok &= testAnalyse (fs);
     ok &= testSourceAdvisor (fs);
 
     const double c = 343.0;

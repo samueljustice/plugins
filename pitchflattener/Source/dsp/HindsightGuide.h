@@ -6,6 +6,7 @@
 #include <memory>
 #include <mutex>
 #include <vector>
+#include "FlattenerTypes.h"
 
 namespace pf
 {
@@ -31,7 +32,7 @@ namespace pf
      * Threading: prepare/release on the message thread; everything else on the audio thread except the
      * worker, which only reads the audio ring and writes the guide slots.
      */
-    class HindsightGuide
+    class HindsightGuide : public TrackGuide
     {
     public:
         static constexpr double historySeconds = 6.0;
@@ -39,7 +40,7 @@ namespace pf
         static constexpr double stepSeconds = 1.0;
 
         HindsightGuide();
-        ~HindsightGuide();
+        ~HindsightGuide() override;
 
         /** Allocates and starts the worker. hop = analysis samples per frame. Message thread. */
         void prepare (double analysisRate, int hop);
@@ -58,9 +59,9 @@ namespace pf
         void service();
 
         /** True, with the guide's pitch in cents, when frame f is guided. False: use the plugin's own track. */
-        bool lookup (int64_t frame, float& cents) const;
+        bool lookup (int64_t frame, float& cents) const override;
         /** The plugin has used frame f: later windows leave it (and earlier frames) as they are. */
-        void markUsed (int64_t frame) { used.store (frame, std::memory_order_release); }
+        void markUsed (int64_t frame) override { used.store (frame, std::memory_order_release); }
 
         /** For tests and telemetry: windows analysed, and how many of them guided. */
         int getWindowsAnalysed() const { return windowsAnalysed.load(); }

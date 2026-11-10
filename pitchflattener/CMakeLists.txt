@@ -40,6 +40,7 @@ set(PF_DSP_SOURCES
     Source/dsp/SourceAdvisor.cpp
     Source/dsp/HindsightGuide.cpp
     Source/dsp/HindsightTracker.cpp
+    Source/dsp/LearnedLine.cpp
 )
 
 option(PITCHFLATTENER_COPY_AFTER_BUILD "Copy plugins to the system folders after building" ON)

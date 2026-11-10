@@ -7,7 +7,6 @@
 
 namespace pf
 {
-    class HindsightGuide;
 
     /**
      * Turns frame-wise candidates into a correction curve, using lookahead.
@@ -41,7 +40,7 @@ namespace pf
         void setSettings (const LiveSettings& s, DetectorType detector);
         void requestRelatch() { relatchPending = true; }
         /** The hindsight guide consulted in stage 5 (may be null). Frames are numbered as pushed here. */
-        void setGuide (HindsightGuide* g) { guide = g; }
+        void setGuide (TrackGuide* g) { guide = g; }
 
         /** Pushes frame number (numPushed) and advances every stage by one frame. */
         void push (const FrameObservation& obs);
@@ -85,11 +84,18 @@ namespace pf
         bool harmonicDetector = false;
 
         int64_t numPushed = 0;
-        HindsightGuide* guide = nullptr;
+        TrackGuide* guide = nullptr;
         bool guideOffsetSet = false;   // a guided stretch is under way, with its register fixed
         bool guideUsable = false;      // the guide is a simple ratio (octave, fifth) from the own track
         float guideOffset = 0.0f;      // cents added to the guide to put it in the own track's register
         int64_t lastGuideFrame = -1000000;
+        // Who jumped: when the guide and the own track part, the guide takes over only if the own track hopped away
+        // and the guide stayed on its line, until the two agree again.
+        bool ownJumped = false, guideJumped = false;
+        float lastOwnVoiced = 0.0f;     // the own track's latest voiced value (kept across its gaps)
+        float lastGuideCents = 0.0f;    // the guide's value on the previous frame (0 = none)
+        std::vector<float> ownHistory = std::vector<float> (ringSize, 0.0f);     // 0 = none
+        bool guideMayLead (const Filled& own, float guideCents) const;
 
         // Raw observations (for telemetry) and Viterbi lattice
         struct Lattice

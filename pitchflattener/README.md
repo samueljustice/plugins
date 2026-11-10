@@ -126,6 +126,7 @@ Presets saved with 1.x lived in `Documents/PitchFlattener Presets`. To use them,
 From left to right:
 
 - **SOURCE**: what you're flattening. Picking a Source Type loads tuned settings for that kind of sound. The Flatten and Range controls stay adjustable; the Detector and the Advanced settings can be changed after switching to Custom, which keeps the current values.
+- **ANALYSE**: learns a sound so it flattens better on the next play. See [Analyse](#analyse) below.
 - **The description**: a short note on the chosen Source Type: which detector it uses and the sounds it suits.
 - **DETECTOR** (*set by source*): the pitch detection algorithm. Each Source Type picks one. It can be changed on Custom, as a rescue for a sound no Source Type handles.
 - **RUNNING**: the detector that is actually running. After a change it can lag for a moment while the new detector is set up.
@@ -136,6 +137,27 @@ From left to right:
 </p>
 
 See [Source Types and detectors](#source-types-and-detectors) for which to pick and how each detector works.
+
+#### Analyse
+
+Press **ANALYSE**, then play the sound once. The button follows along: **PLAY THE SOUND** while it waits, **LISTENING** while it records, then **ANALYSING** for a few seconds.
+
+1. **Recording:** it records the sound from a quarter of a second before it starts until 1.5 s of quiet, up to 60 s. Press the button again to stop early.
+2. **Analysis:** the whole take is analysed at once:
+   - The Source Type that flattens it best is chosen, as the wobble warning would choose it. An engine climbing or falling steadily by more than an octave becomes Engine Run-up.
+   - The take's pitch line is worked out in hindsight, with the same tracker as the [hindsight guide](#hindsight-guide-harmonic-sum).
+   - The Source Type is set. If the line lies outside the range, Min and Max Freq are widened to make room for it. The range is never narrowed and Max Shift is not changed: both measured worse.
+3. **Later plays:** the sound is recognised within about a second of starting. Its fingerprint, the level in 12 bands every 5 ms, is matched against the take. That is well inside the 2.6 s lookahead, so the whole sound is covered.
+   - The button reads **LEARNED: MATCHED**.
+   - Where the live tracker hops onto another partial and the learned line doesn't, the learned line is followed.
+   - Where they agree, or the learned line is the one that jumps, the live track is kept.
+   - A different sound doesn't match, and the plugin carries on as usual.
+
+What was learned is saved with the session. Click the button when it shows **LEARNED** to analyse again or forget it.
+
+In Soundminer, audition the file once with ANALYSE pressed, then render: the render recognises the file and uses what was learned.
+
+A line that rests on the edge of the search range or jumps about isn't trusted. Then only the Source Type is set, and the take guides nothing.
 
 ### 3. Pitch display
 
@@ -356,7 +378,7 @@ cmake --build build-tests --target PitchFlattenerTests
 
 `--wav` writes each test's input and output so you can listen to them.
 
-To see how a real recording fares, `--file sound.wav` plays it through a Source Type's settings (`--source 2`, Siren, by default) and prints the track, target, correction and output pitch every 100 ms, with how far the output lands from the target. `--detector n`, `--minfreq`, `--maxfreq` and `--maxshift` override those settings, `--step` changes the reporting interval (use 0.01 for short sounds) and `--out processed.wav` writes the result, lined up with the input. `--advise sound.wav` runs the wobble warning's Source Type check on a whole recording (starting from `--source n`) and prints how flat each Source Type comes out. `--realtime` plays the file at real-time pace, as a live host would, so the hindsight guide runs on its own thread. `--split hz` (0 = off) and `--formant 0|1` override Shift Below and formant preservation, and `--guide 0` turns the hindsight guide off. `--sweep param v1,v2,... --file sound.wav --source n` changes one parameter across those values and prints the flatness for each (how the [parameter audit](docs/parameter-audit.md) was measured).
+To see how a real recording fares, `--file sound.wav` plays it through a Source Type's settings (`--source 2`, Siren, by default) and prints the track, target, correction and output pitch every 100 ms, with how far the output lands from the target. `--detector n`, `--minfreq`, `--maxfreq` and `--maxshift` override those settings, `--step` changes the reporting interval (use 0.01 for short sounds) and `--out processed.wav` writes the result, lined up with the input. `--advise sound.wav` runs the wobble warning's Source Type check on a whole recording (starting from `--source n`) and prints how flat each Source Type comes out. `--learn` plays the file once with ANALYSE pressed, applies what it learned and prints it, then plays it again and reports whether the take was matched. `--realtime` plays the file at real-time pace, as a live host would, so the hindsight guide runs on its own thread. `--split hz` (0 = off) and `--formant 0|1` override Shift Below and formant preservation, and `--guide 0` turns the hindsight guide off. `--sweep param v1,v2,... --file sound.wav --source n` changes one parameter across those values and prints the flatness for each (how the [parameter audit](docs/parameter-audit.md) was measured).
 
 ## Tips
 
