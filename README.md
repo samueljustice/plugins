@@ -141,7 +141,7 @@ Pitch Flattener takes the pitch movement out of a sound and keeps its energy and
 </details>
 
 **VST3** (macOS, Windows) · **AU** (macOS) &nbsp;&nbsp;
-[![Download Pitch Flattener](https://img.shields.io/badge/download-v2.3.1-d00a35?style=flat-square)](https://github.com/samueljustice/plugins/releases/tag/pitchflattener-v2.3.1) &nbsp;
+[![Download Pitch Flattener](https://img.shields.io/badge/download-v2.4.0-d00a35?style=flat-square)](https://github.com/samueljustice/plugins/releases/tag/pitchflattener-v2.4.0) &nbsp;
 [Read the manual →](pitchflattener/README.md)
 
 ---
