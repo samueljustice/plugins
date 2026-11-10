@@ -7,6 +7,8 @@
     an independent NSDF estimator and reports how flat it is.
 
     Usage: PitchFlattenerTests [--wav <dir>] [--rate <hz>] [--block <n>] [--only <name>]
+           PitchFlattenerTests --file <wav> [--source <n>] [--realtime] ...   (one recording; --realtime paces it
+           like a live host, so the hindsight guide runs on its worker thread instead of in step)
     Exit code is non-zero if any case fails its thresholds.
 */
 
@@ -167,6 +169,7 @@ namespace
         s.gateDb = -60.0f;
         s.mix = 1.0f;
         s.formantPreserve = p.formant;
+        s.shiftBelowHz = p.shiftBelowHz;
         return s;
     }
 
@@ -174,6 +177,10 @@ namespace
 
     int gAlign = INT32_MIN;
     bool gDump = false;
+    bool gRealtime = false;
+    bool gGuide = true;       // --guide 0: file mode without the hindsight guide
+    float gSplit = -1.0f;     // --split Hz: file mode overrides Shift Below (0 = off)
+    int gFormant = -1;        // --formant 0|1: file mode overrides the Source Type's formant preservation   // --realtime: file mode runs at the pace of real time, the hindsight guide on its worker
 
     Result runCase (const Case& c, double fs, int block, const juce::File& wavDir)
     {
@@ -184,6 +191,7 @@ namespace
         DetectorConfig dc;
         dc.type = p.detector; dc.minHz = p.minHz; dc.maxHz = p.maxHz;
         core.prepare (fs, block > 0 ? block : 2048, 2, dc, p.quality);
+        core.setNonRealtime (true);   // offline render: the hindsight guide analyses in step
         core.setLiveSettings (settingsFor (c));
         core.setFilters (p.highpassHz, p.lowpassHz);
         if (gAlign != INT32_MIN) core.setAlignmentOffset (gAlign);
@@ -299,6 +307,7 @@ namespace
         FlattenerCore core;
         DetectorConfig dc;
         core.prepare (fs, block, 2, dc, 0);
+        core.setNonRealtime (true);   // offline render: the hindsight guide analyses in step
         auto s = LiveSettings {};
         s.mix = 0.0f;
         core.setLiveSettings (s);
@@ -327,6 +336,7 @@ namespace
         FlattenerCore core;
         DetectorConfig dc;
         core.prepare (fs, 512, 2, dc, 0);
+        core.setNonRealtime (true);   // offline render: the hindsight guide analyses in step
         core.setLiveSettings (LiveSettings {});
         const int lat = core.getLatencySamples();
         std::vector<float> l (512), r (512);
@@ -355,6 +365,7 @@ namespace
         FlattenerCore core;
         DetectorConfig dc;
         core.prepare (fs, 256, 1, dc, 1);
+        core.setNonRealtime (true);   // offline render: the hindsight guide analyses in step
         auto s = LiveSettings {};
         s.targetMode = TargetMode::Fixed; s.targetHz = 1000.0f;
         core.setLiveSettings (s);
@@ -382,6 +393,7 @@ namespace
         DetectorConfig dc;
         dc.type = p.detector; dc.minHz = p.minHz; dc.maxHz = p.maxHz;
         core.prepare (fs, 512, 2, dc, p.quality);
+        core.setNonRealtime (true);   // offline render: the hindsight guide analyses in step
         Case c { "noise_tail", SourceType::Siren, TargetMode::Latch, 0.0f, nullptr, 0, 0, 0 };
         auto ls = settingsFor (c);
         ls.gateDb = -60.0f;
@@ -427,6 +439,7 @@ namespace
         DetectorConfig dc;
         dc.type = p.detector; dc.minHz = p.minHz; dc.maxHz = p.maxHz;
         core.prepare (fs, 512, 2, dc, p.quality);
+        core.setNonRealtime (true);   // offline render: the hindsight guide analyses in step
         Case c { "latch_first_frame", SourceType::Vocal, TargetMode::Latch, 0.0f, nullptr, 0, 0, 0 };
         auto ls = settingsFor (c);
         ls.gateDb = -60.0f;
@@ -485,6 +498,7 @@ namespace
             FlattenerCore core;
             DetectorConfig dc;
             core.prepare (fs, 512, 2, dc, 1);
+            core.setNonRealtime (true);   // offline render: the hindsight guide analyses in step
             auto s = LiveSettings {};
             s.targetMode = mode;
             s.targetHz = 700.0f;        // must be ignored while Override is on
@@ -548,11 +562,17 @@ namespace
         dc.minHz = minFreqOverride > 0.0f ? minFreqOverride : p.minHz;
         dc.maxHz = maxFreqOverride > 0.0f ? maxFreqOverride : p.maxHz;
         core.prepare (fs, 512, 2, dc, p.quality);
+        core.setNonRealtime (! gRealtime);
+        core.setHindsightAllowed (gGuide);
         Case c { file.getFileName().toStdString(), source, TargetMode::Latch, 0.0f, nullptr, 0, 0, 0 };
         auto ls = settingsFor (c);
         ls.gateDb = -60.0f;   // the plugin's default
         if (maxShiftOverride > 0.0f)
             ls.maxShiftSemitones = maxShiftOverride;
+        if (gFormant >= 0)
+            ls.formantPreserve = gFormant > 0;
+        if (gSplit >= 0.0f)
+            ls.shiftBelowHz = gSplit;
         core.setLiveSettings (ls);
         core.setFilters (p.highpassHz, p.lowpassHz);
 
@@ -561,8 +581,15 @@ namespace
         std::copy (in.getReadPointer (0), in.getReadPointer (0) + len, l.begin());
         auto r = l;
         std::vector<TelemetryFrame> frames;
+        const double started = juce::Time::getMillisecondCounterHiRes();
         for (int pos = 0; pos < n; pos += 512)
         {
+            if (gRealtime)
+            {
+                const double due = started + 1000.0 * pos / fs, now = juce::Time::getMillisecondCounterHiRes();
+                if (due > now)
+                    juce::Thread::sleep ((int) (due - now));
+            }
             float* ch[2] = { l.data() + pos, r.data() + pos };
             core.process (ch, 2, std::min (512, n - pos));
             TelemetryFrame tf;
@@ -572,6 +599,7 @@ namespace
 
         std::printf ("%s: %s, detector %s, %.0f-%.0f Hz, Max Shift %.0f st, latency %.2f s\n", file.getFileName().toRawUTF8(), p.name,
                      getDetectorName (dc.type), dc.minHz, dc.maxHz, ls.maxShiftSemitones, lat / fs);
+        std::printf ("hindsight windows: %d analysed, %d guided\n", core.getHindsightWindows (false), core.getHindsightWindows (true));
         std::printf ("   t(s)   track  target  corr(ct)  out(Hz)  off(ct)  conf  level(dB)\n");
 
         // Telemetry frame -> time of the audio it describes (frame k is centred on input sample k * hop).
@@ -651,8 +679,8 @@ namespace
                          100.0f * r.metered, r.medianOffCents, r.flatness);
         };
         row ("(current)", advice.current);
-        for (int i = 0; i < (int) SourceType::Custom; ++i)
-            row (getSourcePreset ((SourceType) i).name, advice.bySource[(size_t) i]);
+        for (int i = 0; i < (int) SourceType::NumSourceTypes; ++i)
+            if (i != (int) SourceType::Custom) row (getSourcePreset ((SourceType) i).name, advice.bySource[(size_t) i]);
         std::printf ("  recommend: %s\n", advice.recommended >= 0 ? getSourcePreset ((SourceType) advice.recommended).name : "nothing");
         return 0;
     }
@@ -731,11 +759,112 @@ namespace
     }
 
     /** The output monitor ring is lined up with the input: monitored output around input sample k is k, flattened. */
+    /** Engine Run-up: a run-up is flattened, but a fixed resonance above Shift Below stays where it is. */
+    bool testEngineResonanceStaysPut (double fs)
+    {
+        // Harmonics 100 -> 200 Hz over 3 s (up to ~1 kHz), plus a steady 2.5 kHz tone, like an exhaust's fixed whine.
+        auto sig = harmonicTone (fs, 4.0, [] (double t) { return 100.0 * std::exp2 (std::min (t, 3.0) / 3.0); }, 5, 1.0, -70.0);
+        for (size_t i = 0; i < sig.l.size(); ++i)
+            sig.l[i] += (float) (0.1 * std::sin (twoPi * 2500.0 * (double) i / fs));
+        sig.r = sig.l;
+
+        const auto& p = getSourcePreset (SourceType::EngineRunup);
+        FlattenerCore core;
+        DetectorConfig dc;
+        dc.type = p.detector; dc.minHz = p.minHz; dc.maxHz = p.maxHz;
+        core.prepare (fs, 512, 2, dc, p.quality);
+        core.setNonRealtime (true);
+        Case c { "engine_resonance", SourceType::EngineRunup, TargetMode::Latch, 0.0f, nullptr, 0, 0, 0 };
+        core.setLiveSettings (settingsFor (c));
+        core.setFilters (p.highpassHz, p.lowpassHz);
+        const int lat = core.getLatencySamples(), n = (int) sig.l.size() + lat;
+        std::vector<float> l ((size_t) n, 0.0f), r ((size_t) n, 0.0f);
+        std::copy (sig.l.begin(), sig.l.end(), l.begin());
+        std::copy (sig.r.begin(), sig.r.end(), r.begin());
+        for (int pos = 0; pos < n; pos += 512)
+        {
+            float* ch[2] = { l.data() + pos, r.data() + pos };
+            core.process (ch, 2, std::min (512, n - pos));
+        }
+
+        // Over 3-4 s (correction about -1200 cents): energy at 2.5 kHz vs where an octave-down shift would put it.
+        auto level = [&] (double hz)
+        {
+            const int a = lat + (int) (3.0 * fs), b = lat + (int) (4.0 * fs);
+            double re = 0.0, im = 0.0;
+            for (int i = a; i < b; ++i)
+            {
+                re += l[(size_t) i] * std::cos (twoPi * hz * i / fs);
+                im += l[(size_t) i] * std::sin (twoPi * hz * i / fs);
+            }
+            return 20.0 * std::log10 (std::sqrt (re * re + im * im) / (b - a) + 1.0e-12);
+        };
+        const double kept = level (2500.0), dragged = level (1250.0);
+        const bool ok = kept - dragged > 20.0;
+        std::printf ("  engine resonance above Shift Below: 2.5 kHz %.1f dB, 1.25 kHz %.1f dB -> %s\n", kept, dragged, ok ? "OK" : "FAIL");
+        return ok;
+    }
+
+    /** Shift Below keeps the level of the unshifted band: at partial Mix, and when it is switched on and off mid-stream. */
+    bool testShiftBelowLevel (double fs)
+    {
+        // mode 0: Shift Below off; 1: on; 2: on for 1-2 s and from 3 s of input, off otherwise. Returns 20 ms RMS levels (dB).
+        auto run = [fs] (double hz, float mix, int mode)
+        {
+            FlattenerCore core;
+            DetectorConfig dc;
+            core.prepare (fs, 512, 1, dc, 0);
+            core.setNonRealtime (true);
+            LiveSettings ls;
+            ls.amount = 0.0f;            // no correction: Shift Below should change nothing but the phase
+            ls.mix = mix;
+            const int lat = core.getLatencySamples(), n = lat + (int) (4 * fs);
+            std::vector<float> x ((size_t) n);
+            for (int i = 0; i < n; ++i)
+                x[(size_t) i] = (float) (0.3 * std::sin (twoPi * hz * i / fs));
+            for (int pos = 0; pos < n; pos += 512)
+            {
+                const double t = pos / fs;
+                const bool on = mode == 1 || (mode == 2 && ((t >= 1.0 && t < 2.0) || t >= 3.0));
+                ls.shiftBelowHz = on ? 1200.0f : 0.0f;
+                core.setLiveSettings (ls);
+                float* ch[1] = { x.data() + pos };
+                core.process (ch, 1, std::min (512, n - pos));
+            }
+            std::vector<double> levels;
+            const int w = (int) (0.02 * fs);
+            for (int a = lat + (int) (0.5 * fs); a + w < n; a += w / 2)
+            {
+                double e = 0.0;
+                for (int i = a; i < a + w; ++i) e += (double) x[(size_t) i] * x[(size_t) i];
+                levels.push_back (10.0 * std::log10 (e / w + 1.0e-20));
+            }
+            return levels;
+        };
+        auto worstDiff = [] (const std::vector<double>& a, const std::vector<double>& b)
+        {
+            double worst = 0.0;
+            for (size_t i = 0; i < std::min (a.size(), b.size()); ++i)
+                worst = std::max (worst, std::abs (a[i] - b[i]));
+            return worst;
+        };
+        double atMix = 0.0, toggled = 0.0;
+        for (double hz : { 900.0, 1200.0, 1700.0 })    // 50 % Mix, on vs off, around the crossover
+            atMix = std::max (atMix, worstDiff (run (hz, 0.5f, 1), run (hz, 0.5f, 0)));
+        for (double hz : { 500.0, 3000.0 })            // switching on and off mid-stream vs never on
+            toggled = std::max (toggled, worstDiff (run (hz, 1.0f, 2), run (hz, 1.0f, 0)));
+        const bool ok = atMix < 0.5 && toggled < 1.5;
+        std::printf ("  Shift Below level: worst %.2f dB at 50%% Mix around the crossover, %.2f dB while switching on/off -> %s\n",
+                     atMix, toggled, ok ? "OK" : "FAIL");
+        return ok;
+    }
+
     bool testMonitorAlignment (double fs)
     {
         FlattenerCore core;
         DetectorConfig dc;
         core.prepare (fs, 512, 1, dc, 1);
+        core.setNonRealtime (true);   // offline render: the hindsight guide analyses in step
         auto s = LiveSettings {};
         s.targetMode = TargetMode::Fixed; s.targetHz = 1000.0f;
         core.setLiveSettings (s);
@@ -768,6 +897,7 @@ namespace
         FlattenerCore core;
         DetectorConfig dc;
         core.prepare (fs, 512, 2, dc, 1);
+        core.setNonRealtime (true);   // offline render: the hindsight guide analyses in step
         auto s = LiveSettings {};
         s.targetMode = TargetMode::Fixed; s.targetHz = 1000.0f;
         core.setLiveSettings (s);
@@ -801,6 +931,7 @@ namespace
         FlattenerCore core;
         DetectorConfig dc;
         core.prepare (fs, block, 1, dc, 0);
+        core.setNonRealtime (true);   // offline render: the hindsight guide analyses in step
         auto s = LiveSettings {};
         s.amount = 0.0f;
         core.setLiveSettings (s);
@@ -859,6 +990,10 @@ int main (int argc, char** argv)
         else if (a == "--only" && i + 1 < argc) only = argv[++i];
         else if (a == "--align" && i + 1 < argc) gAlign = juce::String (argv[++i]).getIntValue();
         else if (a == "--dump") gDump = true;
+        else if (a == "--realtime") gRealtime = true;
+        else if (a == "--split" && i + 1 < argc) gSplit = juce::String (argv[++i]).getFloatValue();
+        else if (a == "--guide" && i + 1 < argc) gGuide = juce::String (argv[++i]).getIntValue() != 0;
+        else if (a == "--formant" && i + 1 < argc) gFormant = juce::String (argv[++i]).getIntValue();
         else if (a == "--file" && i + 1 < argc) analyse = juce::File (juce::String (argv[++i]));
         else if (a == "--source" && i + 1 < argc) analyseSource = juce::String (argv[++i]).getIntValue();
         else if (a == "--detector" && i + 1 < argc) analyseDetector = juce::String (argv[++i]).getIntValue();
@@ -894,6 +1029,8 @@ int main (int argc, char** argv)
     ok &= testNoiseTail (fs);
     ok &= testLatchFromFirstFrame (fs);
     ok &= testMonitorAlignment (fs);
+    ok &= testEngineResonanceStaysPut (fs);
+    ok &= testShiftBelowLevel (fs);
     ok &= testSourceAdvisor (fs);
 
     const double c = 343.0;

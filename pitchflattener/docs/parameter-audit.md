@@ -89,3 +89,21 @@ No parameter was deleted, because hosts save and automate parameters by ID or po
 3. **Whistle / Tone High-pass at 600–800 Hz**: check it doesn't upset low theremin notes.
 4. **Max Shift 24 for Engine / Doppler and Noisy Field**: listen for octave-error jumps.
 5. **Latching to the most confident stretch** instead of the first ~300 ms, for quiet Doppler approaches. Fixed covers that case for now.
+
+## Engine run-ups (follow-up)
+
+A run-up recording (an exhaust climbing about 28 semitones in 8 s) exposed what the pitch meter could not hear. The engine's own pitch was held flat, but its exhaust and body resonances, roar and steady whines (around 1.6, 2.6–3.1 and 5.5 kHz) stay at fixed frequencies in the recording. Shifting the whole sound dragged them down by the full correction: about an octave in the first 2 s, heard as a pitch dive. A meter that only follows the harmonics reads flat throughout, so this was measured as band movement instead: the log-spectrum shift of 40–700 Hz, 700–1500 Hz and 1.5–5 kHz against the input.
+
+| Setting on the run-up | 1–4 kHz band movement at 1.0 / 1.6 / 2.2 s |
+|---|---|
+| Original input | +31 / +63 / +198 cents |
+| Everything shifted (Engine / Doppler) | −586 / −867 / −1035 cents |
+| Formant preservation on | +87 / −74 / −136 cents, but heard as diving later on |
+| Shift Below 1.2 kHz (split before the shift) | stays with the input |
+
+- **Shift Below** is a new Advanced control: Off, or 200 Hz–20 kHz.
+- **Max Shift** now goes to 36 semitones.
+- **Engine Run-up** is a new Source Type with Max Shift 36 and Shift Below 1.2 kHz.
+- **Engine / Doppler is unchanged.** On real pass-bys, Max Shift 24–36 let tracking slips through as big jumps: one-semitone-plus correction jumps went 32 → 55 on the alien pass-by and 11 → 15 on the bus.
+
+Saved sessions keep their Source Type (Engine Run-up is stored after Custom). Sessions saved before Shift Below existed load with it Off.

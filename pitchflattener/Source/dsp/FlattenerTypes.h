@@ -39,6 +39,7 @@ namespace pf
         Drone,
         NoisyField,
         Custom,
+        EngineRunup,      // after Custom so saved sessions keep their index; menus list it after Engine (sourceTypeMenuOrder)
         NumSourceTypes
     };
 
@@ -147,6 +148,7 @@ namespace pf
         float overrideHz = 440.0f;
         float mix = 1.0f;
         bool formantPreserve = false;
+        float shiftBelowHz = 0.0f;       // > 0: only the band below this is shifted; above it the input passes unshifted
     };
 
     /** Per-frame telemetry published for the editor. */

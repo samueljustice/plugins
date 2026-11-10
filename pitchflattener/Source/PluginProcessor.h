@@ -111,6 +111,7 @@ private:
         std::atomic<float>* rbFormantPreserve = nullptr;
         std::atomic<float>* quality = nullptr;
         std::atomic<float>* mix = nullptr;
+        std::atomic<float>* shiftBelow = nullptr;
     } raw;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (PitchFlattenerAudioProcessor)

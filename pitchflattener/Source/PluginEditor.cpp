@@ -27,7 +27,7 @@ namespace
 
     const char* const c_defaultHelp = "Hover over a control for help.  Double-click a knob to reset it, Alt-click a menu to reset it.";
 
-    enum class Format { Percent, MixPercent, Hertz, HertzNote, Decibels, OctavesPerSecond, Milliseconds, Semitones };
+    enum class Format { Percent, MixPercent, Hertz, HertzNote, HertzOff, Decibels, OctavesPerSecond, Milliseconds, Semitones };
 
     /** "A4", "c#3", "Bb2" -> Hz, or 0 when the text is not a note name. */
     double parseNoteName (const juce::String& text)
@@ -59,7 +59,10 @@ namespace
     {
         const auto t = text.trim();
 
-        if (format == Format::Hertz || format == Format::HertzNote)
+        if (format == Format::HertzOff && t.startsWithIgnoreCase ("off"))
+            return pf::shiftBelowOffHz;
+
+        if (format == Format::Hertz || format == Format::HertzNote || format == Format::HertzOff)
             if (const double hz = parseNoteName (t); hz > 0.0)
                 return hz;
 
@@ -69,6 +72,7 @@ namespace
         {
             case Format::Hertz:
             case Format::HertzNote:
+            case Format::HertzOff:
                 if (t.containsIgnoreCase ("k"))
                     v *= 1000.0;
                 break;
@@ -96,6 +100,7 @@ namespace
             case Format::Percent:          return juce::String (juce::roundToInt (v)) + "%";
             case Format::MixPercent:       return juce::String (juce::roundToInt (v * 100.0)) + "%";
             case Format::Hertz:            return Theme::formatHertz (v);
+            case Format::HertzOff:         return v >= pf::shiftBelowOffHz - 1.0 ? juce::String ("Off") : Theme::formatHertz (v);
             case Format::HertzNote:        return Theme::formatHertz (v) + " " + Theme::noteName ((float) v);
             case Format::Decibels:         return Theme::signedText (v, " dB");
             case Format::OctavesPerSecond: return juce::String (v, v < 10.0 ? 1 : 0) + " oct/s";
@@ -209,7 +214,7 @@ private:
     {
         targetPitchKnob, autoWindowKnob, amountKnob, mixKnob,      // FLATTEN
         minFreqKnob, maxFreqKnob, gateKnob,                         // RANGE
-        sensitivityKnob, maxShiftKnob, highpassKnob, lowpassKnob,   // ADVANCED (Custom only)
+        sensitivityKnob, maxShiftKnob, highpassKnob, lowpassKnob, shiftBelowKnob,   // ADVANCED (Custom only)
         numKnobs
     };
 
@@ -382,6 +387,9 @@ PitchFlattenerAudioProcessorEditor::Content::Content (PitchFlattenerAudioProcess
                "Detection Highpass (Custom): filters rumble out of the signal the detector hears. The audio itself is not filtered.");
     setupKnob (lowpassKnob, ParamIDs::detectionLowpass, "Lowpass", correction, Format::Hertz,
                "Detection Lowpass (Custom): filters hiss and high harmonics out of the signal the detector hears. The audio itself is not filtered.");
+    setupKnob (shiftBelowKnob, ParamIDs::shiftBelow, "Shift Below", correction, Format::HertzOff,
+               "Shift Below (Custom): only the sound below this frequency is flattened; above it the audio passes through unshifted. "
+               "Keeps an engine's fixed resonances and roar from diving as the correction grows. Off shifts everything.");
 
     setupCaption (m_qualityLabel, "Quality");
     setupChoice (m_qualityCombo, ParamIDs::quality, correction,
@@ -496,8 +504,9 @@ void PitchFlattenerAudioProcessorEditor::Content::setupSourceType()
     auto* param = m_processor.parameters.getParameter (ParamIDs::sourceType);
     jassert (param != nullptr);
 
-    if (auto* choice = dynamic_cast<juce::AudioParameterChoice*> (param))
-        m_sourceCombo.addItemList (choice->choices, 1);
+    // Item ID = Source Type index + 1, listed in menu order (Engine Run-up is stored after Custom, shown after Engine).
+    for (const auto type : pf::sourceTypeMenuOrder)
+        m_sourceCombo.addItem (pf::getSourcePreset (type).name, (int) type + 1);
 
     m_sourceCombo.setColour (juce::ComboBox::arrowColourId, detect);
     m_sourceCombo.setColour (juce::ComboBox::focusedOutlineColourId, detect.withAlpha (0.6f));
@@ -514,11 +523,11 @@ void PitchFlattenerAudioProcessorEditor::Content::setupSourceType()
     // therefore only fires for the user's own menu selection.
     m_sourceAttachment = std::make_unique<juce::ParameterAttachment> (*param, [this] (float value)
     {
-        m_sourceCombo.setSelectedItemIndex (juce::roundToInt (value), juce::dontSendNotification);
+        m_sourceCombo.setSelectedId (juce::roundToInt (value) + 1, juce::dontSendNotification);
         updateSourceBlurb();
     });
 
-    m_sourceCombo.onChange = [this] { userPickedSourceType (m_sourceCombo.getSelectedItemIndex()); };
+    m_sourceCombo.onChange = [this] { userPickedSourceType (m_sourceCombo.getSelectedId() - 1); };
     m_sourceCombo.onResetRequest = [this, param]
     {
         userPickedSourceType (juce::roundToInt (param->convertFrom0to1 (param->getDefaultValue())));
@@ -539,7 +548,7 @@ void PitchFlattenerAudioProcessorEditor::Content::userPickedSourceType (int inde
 
 void PitchFlattenerAudioProcessorEditor::Content::updateSourceBlurb()
 {
-    const int index = m_sourceCombo.getSelectedItemIndex();
+    const int index = m_sourceCombo.getSelectedId() - 1;
     m_sourceBlurb = index >= 0 ? juce::String (pf::getSourcePreset ((pf::SourceType) index).blurb) : juce::String();
     repaint (m_blurbArea);
 }
@@ -560,7 +569,7 @@ void PitchFlattenerAudioProcessorEditor::Content::updateEnablement()
     enable (k[autoWindowKnob].slider, k[autoWindowKnob].label, mode == (int) pf::TargetMode::Auto);
 
     // The Source Type sets these; they are for rescuing a sound on Custom.
-    for (auto id : { sensitivityKnob, maxShiftKnob, highpassKnob, lowpassKnob })
+    for (auto id : { sensitivityKnob, maxShiftKnob, highpassKnob, lowpassKnob, shiftBelowKnob })
         enable (k[(size_t) id].slider, k[(size_t) id].label, custom);
     enable (m_qualityCombo, m_qualityLabel, custom);
     m_detectorCombo.setEnabled (custom);
@@ -740,6 +749,7 @@ void PitchFlattenerAudioProcessorEditor::Content::resized()
         placeInCell (cell (2, 0).reduced (6, 0), m_qualityCombo, m_qualityLabel, 26);
         placeKnob (highpassKnob, cell (0, 1));
         placeKnob (lowpassKnob, cell (1, 1));
+        placeKnob (shiftBelowKnob, cell (2, 1));
     }
 }
 

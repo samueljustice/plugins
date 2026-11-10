@@ -38,6 +38,8 @@ set(PF_DSP_SOURCES
     Source/dsp/RubberBandDriver.cpp
     Source/dsp/FlattenerCore.cpp
     Source/dsp/SourceAdvisor.cpp
+    Source/dsp/HindsightGuide.cpp
+    Source/dsp/HindsightTracker.cpp
 )
 
 option(PITCHFLATTENER_COPY_AFTER_BUILD "Copy plugins to the system folders after building" ON)
@@ -136,7 +138,7 @@ if(WIN32)
 endif()
 
 # Set C++ standard
-target_compile_features(PitchFlattener PRIVATE cxx_std_17)
+target_compile_features(PitchFlattener PRIVATE cxx_std_20)
 
 # Build universal binary on macOS
 if(APPLE)
@@ -155,7 +157,7 @@ if(PITCHFLATTENER_BUILD_TESTS)
     target_compile_definitions(PitchFlattenerTests PRIVATE JUCE_USE_CURL=0 JUCE_WEB_BROWSER=0 JUCE_STANDALONE_APPLICATION=1)
     target_link_libraries(PitchFlattenerTests PRIVATE juce::juce_core juce::juce_audio_basics juce::juce_audio_formats juce::juce_dsp ${RUBBERBAND_LIB}
         PUBLIC juce::juce_recommended_config_flags juce::juce_recommended_warning_flags)
-    target_compile_features(PitchFlattenerTests PRIVATE cxx_std_17)
+    target_compile_features(PitchFlattenerTests PRIVATE cxx_std_20)
     if(APPLE)
         target_link_libraries(PitchFlattenerTests PRIVATE "-framework Accelerate")
     endif()

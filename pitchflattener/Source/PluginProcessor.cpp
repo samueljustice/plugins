@@ -66,6 +66,7 @@ PitchFlattenerAudioProcessor::PitchFlattenerAudioProcessor()
     raw.rbFormantPreserve = get (ParamIDs::rbFormantPreserve);
     raw.quality           = get (ParamIDs::quality);
     raw.mix               = get (ParamIDs::mix);
+    raw.shiftBelow        = get (ParamIDs::shiftBelow);
 
     // Structural changes (detector, range, quality) are picked up by the timer on the
     // message thread, or synchronously in processBlock when rendering offline.
@@ -132,7 +133,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout PitchFlattenerAudioProcessor
     }
     p.push_back (std::make_unique<AudioParameterFloat> (pid (ParamIDs::flattenAmount), "Flatten Amount", NormalisableRange<float> (0.0f, 100.0f, 1.0f), 100.0f,
                                                         AudioParameterFloatAttributes().withLabel ("%").withStringFromValueFunction (pct)));
-    p.push_back (std::make_unique<AudioParameterFloat> (pid (ParamIDs::maxShift), "Max Shift", NormalisableRange<float> (6.0f, 24.0f, 0.5f), d.maxShiftSemitones,
+    p.push_back (std::make_unique<AudioParameterFloat> (pid (ParamIDs::maxShift), "Max Shift", NormalisableRange<float> (6.0f, 36.0f, 0.5f), d.maxShiftSemitones,
                                                         AudioParameterFloatAttributes().withLabel ("st")
                                                             .withStringFromValueFunction ([] (float v, int) { return String (v, 1) + " st"; })));
     // Retired: Manual Override did what Fixed + Target Pitch do. Kept (hidden, not automatable) so old sessions load; a
@@ -147,6 +148,12 @@ juce::AudioProcessorValueTreeState::ParameterLayout PitchFlattenerAudioProcessor
     p.push_back (std::make_unique<AudioParameterChoice> (pid (ParamIDs::quality), "Quality", StringArray { "Smooth", "Tight" }, d.quality));
     p.push_back (std::make_unique<AudioParameterFloat> (pid (ParamIDs::mix), "Mix", NormalisableRange<float> (0.0f, 1.0f, 0.01f), 1.0f,
                                                         AudioParameterFloatAttributes().withStringFromValueFunction ([] (float v, int) { return String (roundToInt (v * 100.0f)) + " %"; })));
+
+    // Shift Below: the top of the range means Off (the whole signal is shifted), which is also what sessions saved before it existed get.
+    p.push_back (std::make_unique<AudioParameterFloat> (pid (ParamIDs::shiftBelow), "Shift Below", hzRange (200.0f, pf::shiftBelowOffHz, 1500.0f),
+                                                        d.shiftBelowHz > 0.0f ? d.shiftBelowHz : pf::shiftBelowOffHz,
+                                                        AudioParameterFloatAttributes().withLabel ("Hz")
+                                                            .withStringFromValueFunction ([] (float v, int n) { return v >= pf::shiftBelowOffHz - 1.0f ? String ("Off") : hzText (v, n); })));
 
     return { p.begin(), p.end() };
 }
@@ -179,6 +186,7 @@ pf::LiveSettings PitchFlattenerAudioProcessor::readLiveSettings() const
     s.manualOverride = false;
     s.mix = raw.mix->load();
     s.formantPreserve = raw.rbFormantPreserve->load() > 0.5f;
+    s.shiftBelowHz = pf::shiftBelowFromParam (raw.shiftBelow->load());
     return s;
 }
 
@@ -252,6 +260,7 @@ void PitchFlattenerAudioProcessor::processBlock (juce::AudioBuffer<float>& buffe
         core.applyStructuralNow (c.type, c.minHz, c.maxHz, (int) raw.quality->load());
     }
 
+    core.setNonRealtime (isNonRealtime());
     core.setLiveSettings (readLiveSettings());
     core.setFilters (raw.detectionHighpass->load(), raw.detectionLowpass->load());
     core.process (buffer.getArrayOfWritePointers(), juce::jmin (2, buffer.getNumChannels()), buffer.getNumSamples());
@@ -318,6 +327,7 @@ void PitchFlattenerAudioProcessor::applySourceTypeDefaults (pf::SourceType type)
     set (ParamIDs::rbFormantPreserve, p.formant ? 1.0f : 0.0f);
     set (ParamIDs::quality, (float) p.quality);
     set (ParamIDs::maxShift, p.maxShiftSemitones);
+    set (ParamIDs::shiftBelow, p.shiftBelowHz > 0.0f ? p.shiftBelowHz : pf::shiftBelowOffHz);
 }
 
 //==============================================================================
