@@ -189,16 +189,22 @@ Roarschach is a modular voice processor built for exploration and fun. Fifteen m
 
 - 🗣️ **Pitch and size, separately**: shift the voice up to two octaves down, then give it a bigger throat. Native-rate processing brings a 96 or 192 kHz recording's ultrasonic detail down into the voice
 - 🐉 **Texture and weight**: a growling chop, a liquid wobble, a phaser, tube saturation, an ensemble, a tracked sub and overtones that carry the low end on small speakers
+- 📦 **A room**: CHAMBER plays the voice through a small speaker into a tight, resonant room and blends it back under the voice, with ten bundled rooms, three speakers, speaker breakup, Width and a low-end Boom
 - 🤖 **Machines**: a 32-band pulse-carrier vocoder and a ring modulator with a pitch-tracking carrier and a resonant body
 - 🧩 **Any order**: drag any module by its header, or use its ••• menu, to anywhere in the chain. Moves are click-free
 - 🔊 **A finished output**: Push into a true-peak-safe limiter and an oversampled clipper, with Attack, Release and Auto to choose between clean limiting and low-end crunch
-- 👁️ **A living creature** that forms out of drifting cloud, opens its jaw, glows, shakes and drips with the voice, softens back into fog in silence, and slowly evolves the harder you push it. Plus **40 factory presets** in six groups
+- 🎲 **Dice**: one die loads a random factory preset, one rolls a whole new creature, and one on each module rolls just that module, always inside each knob's useful range. Every roll can be undone
+- 👁️ **A living creature** that forms out of drifting cloud, opens its jaw, glows, shakes and drips with the voice, softens back into fog in silence, and slowly evolves the harder you push it. Its clouds drift towards a colour that suits your settings: ember red for drive and growl, electric blue for the vocoder and ring, violet for the phaser, chorus and overtones
+- 🎛️ **51 factory presets**: Init plus six groups (Creatures, Voices, Machines, Signal Flow, Vocoder and Utility), and your own saved as plain files
 
 <details>
 <summary>More screenshots</summary>
 <br>
 <p align="center">
-  <img src="roarschach/docs/view-forming.jpg" alt="Roarschach creature forming out of the fog" width="400"> <img src="roarschach/docs/view-crown.jpg" alt="Roarschach creature after a long, loud session" width="400">
+  <img src="roarschach/docs/view-forming.jpg" alt="Roarschach creature forming out of the fog" width="400"> <img src="roarschach/docs/view-crown.jpg" alt="Roarschach creature after a long, loud session, its clouds ember red" width="400">
+</p>
+<p align="center">
+  <img src="roarschach/docs/colour-moods.jpg" alt="Roarschach clouds settled in four colours: pale blue-grey at Init, ember red, electric blue and violet" width="604">
 </p>
 <p align="center">
   <img src="roarschach/docs/panel-out.png" alt="Roarschach output stage" width="300"> <img src="roarschach/docs/tooltip.png" alt="Roarschach tooltip" width="474">
