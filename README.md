@@ -17,6 +17,7 @@ Want just one? Each plug-in's own download is below, or browse all <a href="http
 ![VST3](https://img.shields.io/badge/VST3-222?style=flat-square)
 ![AU](https://img.shields.io/badge/AU-222?style=flat-square)
 ![Standalone](https://img.shields.io/badge/Standalone-222?style=flat-square)
+![AAX coming soon](https://img.shields.io/badge/AAX-coming_soon-555?style=flat-square)
 [![Built with JUCE](https://img.shields.io/badge/built%20with-JUCE-8DC63F?style=flat-square)](https://juce.com)
 ![Downloads](https://img.shields.io/github/downloads/samueljustice/plugins/total?style=flat-square&color=d00a35)
 
