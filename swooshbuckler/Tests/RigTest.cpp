@@ -657,6 +657,329 @@ int main(int argc, char* argv[])
         check(mods.getSourceValue(1) > 0.8f && mods.getSourceValue(2) < 0.05f, "mods: a follower follows the input it's set to");
     }
 
+    // ---- The bus engine: clicks, timing and small DSP fixes -------------------------------------------------------
+    {
+        const double twoPi = juce::MathConstants<double>::twoPi;
+        auto makeTone = [&](double hz, double length, float gain)
+        {
+            juce::AudioBuffer<float> b(1, static_cast<int>(length * c_rate));
+            for (int i = 0; i < b.getNumSamples(); ++i)
+                b.setSample(0, i, gain * static_cast<float>(std::sin(twoPi * hz * i / c_rate)));
+            return b;
+        };
+        auto renderRig = [&](RigEngine& e, juce::AudioBuffer<float>& o, int from, int to, int block)
+        {
+            for (int pos = from; pos < to; pos += block)
+                e.process(nullptr, nullptr, o.getWritePointer(0, pos), o.getWritePointer(1, pos), juce::jmin(block, to - pos));
+        };
+        // A bus on its own: nothing but the doppler passes unless a test turns something on.
+        auto bare = [&]()
+        {
+            auto q = p;
+            q.rideOn = false;
+            q.fill = 0.0f;
+            q.space = 0.0f;
+            q.chaos = 0.0f;
+            for (auto& b : q.buses) { b.doppler = 0.0f; b.bend = 0.0f; b.width = 0.0f; b.swirl = 0.0f; b.drive = 0.0f; b.low = 0.0f; b.filter = 0.0f; b.duck = 0.0f; b.key = 0.0f; }
+            return q;
+        };
+        auto start = [&](RigEngine& e, CargoHold& h, const RigEngine::Params& q)
+        {
+            e.setCargoHold(&h);
+            e.setParams(q);
+            e.prepare(c_rate, c_block);
+            e.setParams(q);
+        };
+        // Power of one frequency (Hann-windowed frames, summed), for telling which pitches a render holds.
+        auto powerAt = [&](const juce::AudioBuffer<float>& o, double hz, int from, int to)
+        {
+            const int n = 8192;
+            double sum = 0.0;
+            for (int at = from; at + n <= to; at += n / 2)
+            {
+                double re = 0.0, im = 0.0;
+                for (int i = 0; i < n; ++i)
+                {
+                    const double w = 0.5 - 0.5 * std::cos(twoPi * i / n);
+                    const double x = w * 0.5 * (o.getSample(0, at + i) + o.getSample(1, at + i));
+                    re += x * std::cos(twoPi * hz * i / c_rate);
+                    im += x * std::sin(twoPi * hz * i / c_rate);
+                }
+                sum += re * re + im * im;
+            }
+            return sum;
+        };
+
+        CargoHold toneHold;
+        juce::String err;
+        toneHold.loadFile(0, writeWav(folder, "rig_src_tone1320", makeTone(1320.0, 4.0, 0.5f)), err);
+        toneHold.setRoleOverride(0, static_cast<int>(CargoRole::Tonal)); // bus A
+        toneHold.setSkipSilence(0, false);
+
+        // Swirl doesn't click at the engine's 32-sample steps. A steady sine has a second difference that an
+        // "annihilating" filter removes exactly; what is left are the moments the sound changes. With the flanger
+        // delay and the phaser tuning ramped, those are spread evenly; stepped, they pile up on the step edges.
+        for (float swirl : { 0.3f, 1.0f })
+        {
+            RigEngine e;
+            auto q = bare();
+            q.rideOn = true; // the level has to move for Swirl to sweep
+            q.energy = 0.7f;
+            q.rate = 0.8f;
+            q.chaos = 0.4f;
+            q.buses[0].swirl = swirl;
+            start(e, toneHold, q);
+            juce::AudioBuffer<float> o(2, static_cast<int>(12.0 * c_rate) / c_block * c_block);
+            renderRig(e, o, 0, o.getNumSamples(), c_block);
+            const float c = 2.0f * std::cos(static_cast<float>(twoPi * 1320.0 / c_rate));
+            const int from = static_cast<int>(2.0 * c_rate);
+            std::vector<std::pair<float, int>> spikes;
+            spikes.reserve(static_cast<size_t>(o.getNumSamples()));
+            const float* x = o.getReadPointer(0);
+            for (int i = from; i < o.getNumSamples(); ++i)
+                spikes.push_back({ std::abs(x[i] - c * x[i - 1] + x[i - 2]), i });
+            std::partial_sort(spikes.begin(), spikes.begin() + 400, spikes.end(), [](const auto& a, const auto& b) { return a.first > b.first; });
+            std::array<int, 32> hist {};
+            for (int k = 0; k < 400; ++k)
+                ++hist[static_cast<size_t>(spikes[static_cast<size_t>(k)].second % 32)];
+            int most = 0;
+            for (int k = 0; k < 32; ++k)
+                most = std::max(most, hist[static_cast<size_t>(k)] + hist[static_cast<size_t>((k + 1) % 32)]);
+            std::cout << "  swirl " << swirl << ": " << most << " of the 400 sharpest changes fall on the same two samples of the 32-sample step" << std::endl;
+            check(most < 80, "swirl " + juce::String(static_cast<int>(swirl * 100.0f)) + "%: no click on every 32-sample step (the sweep is ramped)");
+        }
+
+        // The doppler pitch is a real pass-by: up by 1 / (1 - speed) on the way in and down by 1 / (1 + speed) on the
+        // way out (the rise is the bigger of the two). At Doppler 100%, Bend 100% the speed is 0.42 of sound, so a
+        // 330 Hz tone is heard at 569 Hz coming and 232 Hz going, not at 469 Hz and 191 Hz.
+        {
+            CargoHold h330;
+            h330.loadFile(0, writeWav(folder, "rig_src_tone330", makeTone(330.0, 4.0, 0.5f)), err);
+            h330.setRoleOverride(0, static_cast<int>(CargoRole::Tonal));
+            h330.setSkipSilence(0, false);
+            RigEngine e;
+            auto q = bare();
+            q.buses[0].doppler = 1.0f;
+            q.buses[0].bend = 1.0f;
+            start(e, h330, q);
+            juce::AudioBuffer<float> o(2, static_cast<int>(20.0 * c_rate) / c_block * c_block);
+            renderRig(e, o, 0, o.getNumSamples(), c_block);
+            const int from = static_cast<int>(1.0 * c_rate), to = o.getNumSamples();
+            const double rising = powerAt(o, 330.0 / (1.0 - 0.42), from, to), falling = powerAt(o, 330.0 / (1.0 + 0.42), from, to);
+            const double wrongIn = powerAt(o, 330.0 * 1.42, from, to), wrongOut = powerAt(o, 330.0 * 0.58, from, to);
+            std::cout << "  doppler pitch: power at 569 / 232 Hz " << juce::Decibels::gainToDecibels(std::sqrt(rising)) << " / " << juce::Decibels::gainToDecibels(std::sqrt(falling))
+                      << " dB, at 469 / 191 Hz " << juce::Decibels::gainToDecibels(std::sqrt(wrongIn)) << " / " << juce::Decibels::gainToDecibels(std::sqrt(wrongOut)) << " dB" << std::endl;
+            check(rising > 30.0 * wrongIn && falling > 30.0 * wrongOut, "doppler: the pitch rises by 1/(1 - speed) coming in and falls by 1/(1 + speed) going out");
+
+            // And the passes hand over without a step in the delay (the second head is at its loudest when the
+            // first one starts a new pass), at any Chaos. A smoothly bent sine never curves this sharply.
+            RigEngine wild;
+            q.chaos = 1.0f;
+            start(wild, h330, q);
+            renderRig(wild, o, 0, o.getNumSamples(), c_block);
+            float sharpest = 0.0f;
+            for (int ch = 0; ch < 2; ++ch)
+                for (int i = from + 2; i < to; ++i)
+                    sharpest = std::max(sharpest, std::abs(o.getSample(ch, i) - 2.0f * o.getSample(ch, i - 1) + o.getSample(ch, i - 2)));
+            std::cout << "  doppler passes at Chaos 100%: sharpest change " << sharpest << std::endl;
+            check(sharpest < 0.012f, "doppler: passes start and hand over without a click");
+        }
+
+        // The two passes of a bus stay exactly half a pass apart at any Chaos (so their power adds up to a steady level).
+        {
+            RigEngine e;
+            auto q = p;
+            q.chaos = 1.0f;
+            start(e, hold, q);
+            juce::AudioBuffer<float> o(2, c_block);
+            float worst = 0.0f;
+            for (int blk = 0; blk < static_cast<int>(40.0 * c_rate) / c_block; ++blk)
+            {
+                e.process(nullptr, nullptr, o.getWritePointer(0), o.getWritePointer(1), c_block);
+                for (int b = 0; b < 2; ++b)
+                {
+                    float gap = e.getFlightView(b * 2 + 1).age - e.getFlightView(b * 2).age;
+                    gap -= std::floor(gap);
+                    worst = std::max(worst, std::abs(gap - 0.5f));
+                }
+            }
+            std::cout << "  two passes at Chaos 100%: furthest from half a pass apart " << worst << std::endl;
+            check(worst < 1.0e-3f, "the two passes of a bus stay half a pass apart at any Chaos");
+        }
+
+        // Bend changes the pitch only: the swell (level over time) of a hiss is the same at Bend 0% and 100%.
+        {
+            juce::AudioBuffer<float> hiss(1, static_cast<int>(5.0 * c_rate));
+            juce::Random r(17);
+            for (int i = 0; i < hiss.getNumSamples(); ++i)
+                hiss.setSample(0, i, 0.3f * (r.nextFloat() * 2.0f - 1.0f));
+            CargoHold hissHold;
+            hissHold.loadFile(0, writeWav(folder, "rig_src_hiss", hiss), err);
+            hissHold.setRoleOverride(0, static_cast<int>(CargoRole::Tonal));
+            hissHold.setSkipSilence(0, false);
+            auto envelope = [&](float bend)
+            {
+                RigEngine e;
+                auto q = bare();
+                q.buses[0].doppler = 1.0f;
+                q.buses[0].bend = bend;
+                q.chaos = 0.4f;
+                start(e, hissHold, q);
+                juce::AudioBuffer<float> o(2, static_cast<int>(24.0 * c_rate) / c_block * c_block);
+                renderRig(e, o, 0, o.getNumSamples(), c_block);
+                std::vector<float> db;
+                const int w = static_cast<int>(0.1 * c_rate);
+                for (int at = static_cast<int>(2.0 * c_rate); at + w <= o.getNumSamples(); at += w)
+                    db.push_back(juce::Decibels::gainToDecibels(0.5f * (o.getRMSLevel(0, at, w) + o.getRMSLevel(1, at, w)), -100.0f));
+                return db;
+            };
+            const auto flat = envelope(0.0f), bent = envelope(1.0f);
+            double diff = 0.0;
+            for (size_t i = 0; i < flat.size(); ++i)
+                diff += std::abs(flat[i] - bent[i]);
+            diff /= static_cast<double>(flat.size());
+            std::cout << "  bend 0% vs 100%: the level over time differs by " << diff << " dB on average" << std::endl;
+            check(diff < 2.0, "bend changes the pitch, not the swell");
+        }
+
+        // Low End's sub octave doesn't rumble between sounds. Bursts of an 80 Hz tone over a quiet noise floor: when a
+        // burst stops, the noise alone must not flip the sub octave at random while its level is still falling (a
+        // trigger that needs a real swing each way holds still; one that flips on every zero crossing rumbles).
+        {
+            const double period = 0.75, on = 0.45, edge = 0.01;
+            juce::AudioBuffer<float> b(1, static_cast<int>(8.0 * period * c_rate));
+            juce::Random r(11);
+            float y = 0.0f;
+            for (int i = 0; i < b.getNumSamples(); ++i)
+            {
+                const double lt = std::fmod(i / c_rate, period);
+                const double env = lt < edge ? lt / edge : (lt < on - edge ? 1.0 : (lt < on ? (on - lt) / edge : 0.0));
+                y += 0.04f * ((r.nextFloat() * 2.0f - 1.0f) - y); // noise, most of it below about 300 Hz
+                b.setSample(0, i, 0.35f * static_cast<float>(env * std::sin(twoPi * 80.0 * i / c_rate)) + 0.1f * y);
+            }
+            CargoHold lowHold;
+            lowHold.loadFile(0, writeWav(folder, "rig_src_low80", b), err);
+            lowHold.setRoleOverride(0, static_cast<int>(CargoRole::Tonal));
+            lowHold.setSkipSilence(0, false);
+            RigEngine e;
+            auto q = bare();
+            q.buses[0].low = 1.0f;
+            start(e, lowHold, q);
+            juce::AudioBuffer<float> o(2, static_cast<int>(8.0 * period * c_rate) / c_block * c_block);
+            renderRig(e, o, 0, o.getNumSamples(), c_block);
+            // The level while each burst plays, and from 50 ms to 200 ms after it has stopped.
+            double note = 0.0, rumble = 0.0;
+            const double latency = 0.021; // the bus's pass delay at these settings
+            const int span = static_cast<int>(0.15 * c_rate);
+            for (int k = 1; k < 7; ++k) // the file's first time through (8 bursts)
+            {
+                const float playing = o.getRMSLevel(0, static_cast<int>((k * period + latency + 0.15) * c_rate), span);
+                const float after = o.getRMSLevel(0, static_cast<int>((k * period + latency + on + 0.05) * c_rate), span);
+                note += static_cast<double>(playing) * playing;
+                rumble += static_cast<double>(after) * after;
+            }
+            const double ratio = 10.0 * std::log10(std::max(rumble, 1.0e-30) / std::max(note, 1.0e-30));
+            std::cout << "  low end: after a sound stops the bus is at " << ratio << " dB against while it plays" << std::endl;
+            check(note > 0.0 && ratio < -23.0, "low end: the sub octave doesn't rumble on the noise between sounds");
+        }
+
+        // Fill: every track echoes at its own times. The same click on track 1 and on track 4: the first echo comes
+        // back after a different time on each.
+        {
+            juce::AudioBuffer<float> click(1, static_cast<int>(3.0 * c_rate));
+            click.clear();
+            for (int i = 0; i < 96; ++i)
+                click.setSample(0, static_cast<int>(0.1 * c_rate) + i, 0.8f * std::sin(static_cast<float>(twoPi * 2000.0 * i / c_rate)) * std::sin(juce::MathConstants<float>::pi * static_cast<float>(i) / 96.0f));
+            const auto file = writeWav(folder, "rig_src_click", click);
+            auto firstEcho = [&](int track)
+            {
+                CargoHold h;
+                h.loadFile(track, file, err);
+                h.setRoleOverride(track, static_cast<int>(CargoRole::Tonal));
+                h.setSkipSilence(track, false);
+                RigEngine e;
+                auto q = bare();
+                q.fill = 1.0f;
+                start(e, h, q);
+                juce::AudioBuffer<float> o(2, static_cast<int>(1.2 * c_rate) / c_block * c_block);
+                renderRig(e, o, 0, o.getNumSamples(), c_block);
+                auto loudest = [&](double fromS, double toS)
+                {
+                    int at = 0;
+                    float best = 0.0f;
+                    for (int i = static_cast<int>(fromS * c_rate); i < static_cast<int>(toS * c_rate); ++i)
+                        if (std::abs(o.getSample(0, i)) > best) { best = std::abs(o.getSample(0, i)); at = i; }
+                    return std::pair<double, float>(at / c_rate, best);
+                };
+                const auto dry = loudest(0.0, 0.3);
+                const auto echo = loudest(dry.first + 0.3, dry.first + 0.8);
+                return std::pair<double, float>(echo.first - dry.first, echo.second / std::max(dry.second, 1.0e-9f));
+            };
+            const auto a = firstEcho(0), b = firstEcho(3);
+            std::cout << "  fill: first echo after " << a.first << " s on track 1 and " << b.first << " s on track 4" << std::endl;
+            bool sized = true, apart = true;
+            for (int t = 0; t < RigEngine::c_tracks; ++t)
+            {
+                sized = sized && RigEngine::fillTapSeconds(t, 2) < 2.2f && RigEngine::fillTapSeconds(t, 0) > 0.4f;
+                for (int u = 0; u < t; ++u)
+                    apart = apart && std::abs(RigEngine::fillTapSeconds(t, 0) - RigEngine::fillTapSeconds(u, 0)) > 0.005f;
+            }
+            check(a.second > 0.05f && b.second > 0.05f && std::abs(a.first - RigEngine::fillTapSeconds(0, 0)) < 0.003 && std::abs(b.first - RigEngine::fillTapSeconds(3, 0)) < 0.003
+                      && std::abs(a.first - b.first) > 0.03,
+                  "fill: each track echoes at its own times");
+            check(sized && apart, "fill: every track's echo times differ and fit the echo lines");
+        }
+
+        // Space at 0% empties the echoes and the reverb: turning it up again later doesn't play back old sound.
+        {
+            RigEngine e;
+            auto q = bare();
+            q.space = 0.8f;
+            start(e, toneHold, q);
+            const int sec = static_cast<int>(c_rate) / c_block * c_block;
+            juce::AudioBuffer<float> o(2, 8 * sec);
+            renderRig(e, o, 0, 2 * sec, c_block);       // sound into the echoes and the reverb
+            q.space = 0.0f;
+            e.setParams(q);
+            renderRig(e, o, 2 * sec, 4 * sec, c_block); // Space off
+            q.levels.fill(0.0f);
+            e.setParams(q);
+            renderRig(e, o, 4 * sec, 6 * sec, c_block); // the track fades to silence
+            q.space = 0.8f;
+            e.setParams(q);
+            renderRig(e, o, 6 * sec, 8 * sec, c_block); // Space back up: nothing should come out
+            const float stale = std::max(o.getMagnitude(0, 6 * sec, 2 * sec), o.getMagnitude(1, 6 * sec, 2 * sec));
+            std::cout << "  space off, then on again in silence: peak " << juce::Decibels::gainToDecibels(stale, -200.0f) << " dBFS" << std::endl;
+            check(stale < juce::Decibels::decibelsToGain(-90.0f), "space at 0% empties the echoes and reverb (no old sound when it's turned up again)");
+        }
+
+        // The glides take the same time whatever the host's block size: a fader pulled down fades out as fast with
+        // 7-sample blocks (every chunk a short one) as with 256-sample blocks.
+        {
+            auto fadeSeconds = [&](int block)
+            {
+                RigEngine e;
+                auto q = bare();
+                start(e, toneHold, q);
+                const int pre = static_cast<int>(1.0 * c_rate) / block * block;
+                juce::AudioBuffer<float> o(2, pre + static_cast<int>(1.0 * c_rate));
+                renderRig(e, o, 0, pre, block);
+                q.levels.fill(0.0f);
+                e.setParams(q);
+                renderRig(e, o, pre, o.getNumSamples(), block);
+                const float before = o.getMagnitude(0, pre - 4800, 4800);
+                int last = pre;
+                for (int i = pre; i < o.getNumSamples(); ++i)
+                    if (std::abs(o.getSample(0, i)) > 0.1f * before)
+                        last = i;
+                return (last - pre) / c_rate;
+            };
+            const double big = fadeSeconds(256), small = fadeSeconds(7);
+            std::cout << "  fader glide: " << big << " s with 256-sample blocks, " << small << " s with 7-sample blocks" << std::endl;
+            check(big > 0.02 && std::abs(small - big) < 0.15 * big, "glides take the same time at any block size");
+        }
+    }
+
     std::cout << (g_failures == 0 ? "ALL PASSED" : juce::String(g_failures) + " FAILED") << std::endl;
     return g_failures == 0 ? 0 : 1;
 }

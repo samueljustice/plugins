@@ -46,12 +46,15 @@ namespace sj
 
         void snap(float v) { value = target = v; velocity = 0.0f; }
 
-        float step()
+        float step() { return step(dt); }
+
+        /** One step of `seconds` (for callers whose control period varies, e.g. a short last chunk of a block). */
+        float step(float seconds)
         {
             // Semi-implicit Euler: update velocity first, then position (symplectic, no energy gain).
             const float accel = omega * omega * (target - value) - 2.0f * damping * omega * velocity;
-            velocity += accel * dt;
-            value += velocity * dt;
+            velocity += accel * seconds;
+            value += velocity * seconds;
             return value;
         }
     };

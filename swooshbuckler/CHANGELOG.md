@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- **Swirl no longer clicks.** The phaser and flanger sweeps are now smooth from sample to sample. Before, they moved in small steps about 1,500 times a second, which put a faint grit on clean, tonal sounds at high Swirl.
+- **Doppler pitch like a real fly-by.** A pass now rises in pitch on the way in by more than it drops on the way out (at Doppler 100% and Bend 100%: about 9.4 semitones up, 6 down), the way a passing car or plane sounds. The total bend is the same size. High Bend settings sound more like a scream coming in and less like a dive.
+- **Bend changes the pitch only.** How a pass swells and brightens is set by Doppler alone; turning Bend down no longer flattens the swell or makes the bus louder.
+- **The two passes of a bus stay half a pass apart at any Chaos**, so a bus keeps a steady level (with Auto Ride off, a bed no longer dips and bumps at random as Chaos goes up). Chaos still varies each pass's length, speed, closeness and direction.
+- **Low End's sub octave is steadier.** It follows the lowest part of the sound (about 40 to 120 Hz) and no longer flips at random on the noise between sounds, which was heard as rumble after a sound stopped.
+- **Fill echoes are different on every track.** Each track has its own echo times (around 0.5, 1 and 2 s, in uneven ratios), so layered tracks no longer echo together on a half-second grid.
+- **Space at 0% is really empty.** Turning Space back up no longer plays back old echoes and reverb from before it was turned off.
+- **Filter, Swirl and Low End recover sooner after a big swell.** The recent peak they measure against now falls back over about one pass (it follows Rate), not over a fixed few seconds.
+- **The same feel at every sample rate and buffer size.** The glides behind the knobs, the ducking and the level matching are now timed in milliseconds, not in processing steps.
+- The doppler delay is worked out at full precision, which removes a trace of noise on long, slow passes at high sample rates.
+
 - **Cleaner pitched-up samples.** A track playing faster than it was recorded (Pitch or Semitones up, or a 96 kHz file in a 48 kHz session) no longer folds its high end back down as harsh, off-pitch tones: what would go above the top of the range is filtered out. Bright, hissy sounds pitched far up are quieter than they were, because that fold-back was most of their level. A sound playing at its own speed is sample-for-sample the file, and slightly brighter than before when it plays a little off speed.
 - **Start flags are saved.** A track's start flag now comes back with the session and with the plug-in's state in a project. Loading a new file onto a track, or removing the track, puts the flag back at the top, and Cmd+Z (Ctrl+Z on Windows) brings it back along with the sound.
 - **Auto gain respects peaks.** The automatic loudness trim no longer lifts peaky sounds (hits, clicks) over full scale: it stops when the loudest peak reaches 0 dBFS. Such tracks come in quieter than before; steadier sounds are levelled as they were.

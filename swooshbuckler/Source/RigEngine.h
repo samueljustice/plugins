@@ -17,10 +17,10 @@
  *   tracks (always playing, looped, silence skipped)
  *     -> ride: each track's fader is LFO'd at its own offset speed plus a random
  *        "hand on the fader" (Mondo-Mod style), scaled by Energy / Rate
- *     -> fill: long delays (0.5 / 1 / 2 s) fill the gaps of unsteady tracks
+ *     -> fill: long delays (about 0.5 / 1 / 2 s, a little different on every track) fill the gaps of unsteady tracks
  *     -> bus A (aggressive) | bus B (smooth) | hits      (routed automatically by detected type)
  *
- *   each bus:     doppler (two overlapping passes with randomly automated speed,
+ *   each bus:     doppler (two overlapping passes, always half a pass apart, with randomly automated speed,
  *                 distance and direction) -> low end (sub octave, overtones, lift at
  *                 the loudest point) -> swirl (phaser + flanger) -> envelope filter -> drive
  *   side-chains:  A ducks B, and A's level low-passes B
@@ -136,6 +136,9 @@ public:
     float getBusLevel(int bus) const { return m_busView[static_cast<size_t>(bus)].load(std::memory_order_relaxed); }
     /** A track's own VARI speed (1 = as the global Pitch plays it; 1 for VARI off), for the hit sync view. */
     float getTrackSpeed(int track) const { return m_trackSpeedView[static_cast<size_t>(track)].load(std::memory_order_relaxed); }
+    /** The fill echo times of a track, in seconds (tap 0..2). Every track has its own, so layered tracks don't
+        echo on one shared grid. */
+    static float fillTapSeconds(int track, int tap);
 
     /** Audio thread: RMS of bus A, bus B and the hits (what each adds to the mix) since the last call, for the
         Follower modulators. */
@@ -146,12 +149,25 @@ private:
 
     struct Head
     {
-        double time = 0.0;
-        float length = 3.0f, mach = 0.2f, closest = 0.02f, dir = 1.0f, closeness = 0.5f;
+        double time = 0.0;     // seconds since the pass started
+        // A pass approaches for lenIn seconds, is closest (and loudest) at lenIn, and recedes for lenOut seconds.
+        // The first head's halves are equal. The second head is kept exactly half a pass from the first, so its
+        // approach is half of one of the first head's passes and its way out is half of the next.
+        float lenIn = 1.5f, lenOut = 1.5f, length = 3.0f;
+        float mach = 0.2f, closest = 0.02f, dir = 1.0f, closeness = 0.5f;
         float machBase = 0.2f; // the pass's speed before Bend (a linked bus applies its own Bend to the shared pass)
+        float machRef = 0.2f;  // that speed within the limits: the swell and the air filter follow it, whatever Bend is
         bool aimed = false;    // AIM has decided about this pass's peak
         sj::OnePole airL, airR;
-        float view = 0.0f, x = 0.0f;
+        float view = 0.0f, x = 0.0f, age = 0.0f;
+
+        /** How far through the pass (0..1, 0.5 = closest). */
+        float progress() const
+        {
+            const double u = time < static_cast<double>(lenIn) ? 0.5 * time / static_cast<double>(lenIn)
+                                                               : 0.5 + 0.5 * (time - static_cast<double>(lenIn)) / static_cast<double>(lenOut);
+            return static_cast<float>(u < 0.0 ? 0.0 : (u > 1.0 ? 1.0 : u));
+        }
     };
 
     struct BusState
@@ -159,14 +175,19 @@ private:
         sj::DelayLine line;
         std::array<Head, 2> heads;
         // low end
-        sj::Svf lowA, lowB, subA, subB, harm, shelfL, shelfR;
+        sj::Svf lowA, lowB, lowHp, subA, subB, harm, shelfL, shelfR;
         sj::Follower lowFollower;
-        float flip = 1.0f, lastLow = 0.0f;
+        float flip = 1.0f;
+        bool subArmed = false; // the sub octave's trigger: armed below the low band's level, fires above it
         // swirl
         std::array<sj::Allpass1, 6> phL, phR;
         float phFbL = 0, phFbR = 0, lfo = 0;
         sj::DelayLine flL, flR;
         float flFbL = 0, flFbR = 0;
+        // What Swirl reached at the end of the last chunk (everything is ramped from there across the next one),
+        // and its own slower copy of the level-against-peak.
+        bool swirlOn = false;
+        float swPeak = 0.0f, swAL = 0.0f, swAR = 0.0f, swMsL = 0.3f, swMsR = 0.3f, swPhMix = 0.0f, swFlMix = 0.0f, swFb = 0.0f;
         // filter, and Filtered by A (its own low-pass)
         sj::Svf fL, fR, keyL, keyR;
         // level matching (slow mean squares) around Swirl and Drive, and the gains they set
@@ -190,7 +211,10 @@ private:
         std::array<float, c_chunk> l {}, r {}, in {};
     };
 
-    void startPass(Head& h, const BusParams& p);
+    /** lenIn: how long the approach is, or < 0 to draw a whole new pass length (the first head of a bus). */
+    void startPass(Head& h, const BusParams& p, float lenIn = -1.0f);
+    /** A pass's length before Chaos varies it: follows Rate (6 s .. 1.6 s). */
+    float nominalPassSeconds() const;
     void renderTracks(int frames);
     /** How strongly a bus keys the other one: its level against its own recent peak, faded out below -40 dBFS so a
         quiet bus with an old peak can't duck the other. */
@@ -217,6 +241,7 @@ private:
     // Tracks
     std::array<CargoPlayer, c_tracks> m_players;
     std::array<sj::DelayLine, c_tracks> m_fillLines;
+    std::array<std::array<float, 3>, c_tracks> m_fillTaps {}; // each track's echo times, in samples
     std::array<sj::OnePole, c_tracks> m_fillTone;
     std::array<float, c_tracks> m_fillAmount {}, m_coverage {};
     std::array<const CargoData*, c_tracks> m_coverageFor {};
@@ -229,9 +254,8 @@ private:
     // The modulator offsets, glided per chunk (the modulators update once per host block; a step would click).
     float m_energyModNow = 0.0f, m_pitchModNow = 0.0f, m_fillModNow = 0.0f, m_spaceModNow = 0.0f;
     std::array<std::array<float, 9>, c_maxBuses> m_busModNow {};
-    float m_modGlide = 0.5f;
     float m_morphMixNow = 0.0f; // how far the morph is in (B isn't ducked or filtered by A while morphing)
-    void glideMods();     // Chaos: how far this cycle of each track's ride dips (redrawn each cycle)
+    void glideMods(int frames);
     std::array<float, c_chunk> m_trackScratch {};
     SpectralMorph m_morph;
     sj::Spring m_morphMix;
@@ -274,6 +298,7 @@ private:
     sj::DelayLine m_echoL, m_echoR;
     sj::OnePole m_echoLpL, m_echoLpR, m_echoHpL, m_echoHpR;
     juce::Reverb m_reverb;
+    bool m_spaceOn = false; // the echoes and reverb hold sound (cleared once when Space reaches 0)
     sj::DcBlock m_dcL, m_dcR;
     sj::Follower m_mixFollower;
 
@@ -297,7 +322,6 @@ private:
     std::array<float, c_tracks> m_modeGain {};       // that fade, 0..1
     std::array<int, c_tracks> m_modeHold {};         // samples to stay silent after switching to the shifter
     std::array<bool, c_tracks> m_shifterUsed {};     // the shifter holds sound (flushed once when the track empties)
-    float m_trackPitchGlide = 0.1f;                  // per-chunk smoothing coefficient
     std::array<std::atomic<float>, c_tracks> m_trackSpeedView {};
     float trackSpeed(int track) const;               // VARI ratio of a track right now (1 when VARI is off)
     std::array<double, 3> m_sectionSquares {}; // sums for takeSectionLevels()
