@@ -77,6 +77,16 @@ public:
 
     void mouseDown (const juce::MouseEvent&) override;
 
+    /** One quiet line of help at the bottom of the view, shown while no audio has arrived yet and
+        the creature has slept through 1.5 s of silence. The first sound takes it away for good and
+        calls onAudioHeard (once). An empty text shows nothing. Message thread. */
+    void setHint (const juce::String& text);
+    std::function<void()> onAudioHeard;
+    bool isHintShowing() const noexcept { return m_hintShown; }
+    /** Refreshes the overlay (the readouts and the hint) after this much time; the view's timer
+        calls it on every tick. */
+    void refreshOverlay (float seconds);
+
     /** Tests and snapshots: a fixed 1/30 s sim step and a 120-step warm-up, so frames repeat. */
     void setFixedStepForTests (bool fixed) { m_testFixedStep.store (fixed, std::memory_order_relaxed); }
 
@@ -200,6 +210,9 @@ private:
     // Message thread only (overlay readouts).
     juce::String m_f0Text, m_detailText;
     bool m_gravelShown = false, m_sleepShown = false, m_failShown = false;
+    juce::String m_hintText;         // "" once audio has been heard (or when the editor set none)
+    float m_hintQuietSeconds = 0.0f; // silence since the view opened
+    bool m_hintShown = false;
     int m_timerHz = 30;        // the frame timer's current rate (30 awake, slower once asleep and settled)
     int m_ticksWithoutGL = 0;  // timer ticks spent on screen without a working GL context
 
