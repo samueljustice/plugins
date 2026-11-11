@@ -1917,7 +1917,7 @@ namespace
         }
 
         // The shifter itself (PitchModule alone, mono, Drive 0): how periodic a steady vowel stays
-        // through the grains.
+        // through the grains and through the resampling path.
         {
             const double fs = 48000.0;
             const int latency = roar::PitchModule::latencyFor(fs);
@@ -2001,6 +2001,25 @@ namespace
                             formant == Params::PitchFormant::keep ? "Keep" : "Follow", hnr, static_cast<int>(grains));
                 check(grains > 100, "the steady vowel is carried by voiced grains");
                 check(hnr >= 55.0, "shifted steady vowel harmonics-to-noise " + juce::String(hnr, 1) + " dB (>= 55)");
+            }
+
+            // The resampling path alone: the same vowel far below the level at which marks are made,
+            // so every grain is unvoiced. Its two read heads are joined where the waveform matches,
+            // so periodic sound does not comb (heads at unrelated places: 8 dB at -5 st, 14 dB at +3).
+            {
+                constexpr int upPeriod = 367;
+                const double upF0 = fs / (upPeriod * std::exp2(3.0 / 12.0));
+                const struct { float semitones; double f0; int period; } cases[] { { -5.0f, downF0, downPeriod }, { 3.0f, upF0, upPeriod } };
+                for (const auto& c : cases)
+                {
+                    const auto quiet = makeVowel(c.f0, 2.6, 2.0e-6);
+                    std::uint64_t grains = 1;
+                    const auto out = shift(quiet, c.semitones, 0.0f, Params::PitchFormant::follow, &grains);
+                    const double hnr = harmonicsToNoise(out, from, to, c.period);
+                    std::printf("  resampling path alone, %+.0f st Follow: harmonics-to-noise %.1f dB\n", static_cast<double>(c.semitones), hnr);
+                    check(grains == 0, "the quiet vowel makes no voiced grains");
+                    check(hnr >= 30.0, "resampling path on a steady vowel, harmonics-to-noise " + juce::String(hnr, 1) + " dB (>= 30)");
+                }
             }
         }
     }

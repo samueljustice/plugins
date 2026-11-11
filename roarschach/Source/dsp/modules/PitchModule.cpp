@@ -18,6 +18,19 @@ namespace roar
         constexpr double c_tapeFullDeviation = 0.1;          // |1 - phi| at which the sweep is full width
         constexpr double c_tapeCorrelationSeconds = 0.010;   // head-correlation estimate of the crossfade
         constexpr double c_tapeMinCorrelation = -0.5;
+        // A head that wraps is placed where the input best matches what the other head is reading
+        // (within c_tapeAlignBack..c_tapeAlignAhead of its nominal place, compared over
+        // +-c_tapeAlignWindow), so the two stay in step on anything that repeats. A match below
+        // c_tapeAlignMatch is no match (noise finds 0.3 somewhere almost every time): the head
+        // then takes its nominal place. So it does where the band-limited copy holds less than
+        // c_tapeAlignBandShare of the input's power: what repeats down there says too little
+        // about a sound that lives higher up (a whistle, a sibilant, an ultrasonic tone).
+        constexpr double c_tapeAlignBack = 0.009;
+        constexpr double c_tapeAlignAhead = 0.005;
+        constexpr double c_tapeAlignWindow = 0.004;
+        constexpr double c_tapeAlignMatch = 0.7;
+        constexpr double c_tapeAlignBandShare = 0.01;
+        constexpr double c_tapeAlignBias = 0.1;              // of a match, across the whole range, towards the nominal place
         constexpr double c_knobSmoothSeconds = 0.020;
         constexpr double c_slewSeconds = 0.005;              // ratio slew (Shift), Snap / Mono glide
         constexpr double c_wetFadeSeconds = 0.020;
@@ -1489,6 +1502,84 @@ namespace roar
         return l * norm;
     }
 
+    double PitchModule::alignTapeHead (double other, double nominal, double share, bool stereo) const
+    {
+        // The offset from `nominal` (samples, fractional) at which the band-limited input around
+        // the wrapping head best matches the input around `other`, the position of the head that
+        // is at full weight; 0 where nothing matches. Coarse grid, then single samples, then the
+        // vertex of a parabola, as for the marks.
+        const int step = std::max (1, static_cast<int> (m_fs / c_markLagGridHz));
+        const int half = static_cast<int> (c_tapeAlignWindow * m_fs) / step;
+        const auto a = static_cast<std::int64_t> (std::llround (other));
+        const auto b = static_cast<std::int64_t> (std::llround (nominal));
+        const std::int64_t newest = m_core.writePos - 1;
+        const std::int64_t reach = static_cast<std::int64_t> (half) * step;
+        const int lo = -static_cast<int> (c_tapeAlignBack * m_fs * share);
+        const int hi = static_cast<int> (std::min<std::int64_t> (static_cast<std::int64_t> (c_tapeAlignAhead * m_fs * share), newest - reach - b));
+        if (half < 2 || a + reach > newest || hi - lo < 2)
+            return 0.0;
+
+        double xx = 1.0e-20, full = 0.0;
+        for (int j = -half; j <= half; ++j)
+        {
+            const auto at = static_cast<size_t> ((a + j * step) & m_mask);
+            const auto u = static_cast<double> (m_band[at]);
+            const auto x = static_cast<double> (stereo ? 0.5f * (m_inL[at] + m_inR[at]) : m_inL[at]);
+            xx += u * u;
+            full += x * x;
+        }
+        if (xx < c_tapeAlignBandShare * full)
+            return 0.0;
+
+        const auto match = [&] (int d)
+        {
+            double xy = 0.0, yy = 1.0e-20;
+            for (int j = -half; j <= half; ++j)
+            {
+                const auto u = static_cast<double> (m_band[static_cast<size_t> ((a + j * step) & m_mask)]);
+                const auto v = static_cast<double> (m_band[static_cast<size_t> ((b + d + j * step) & m_mask)]);
+                xy += u * v;
+                yy += v * v;
+            }
+            return xy / std::sqrt (xx * yy);
+        };
+
+        const double bias = c_tapeAlignBias / static_cast<double> (hi - lo);
+        int best = 0;
+        double bestScore = -1.0e9, bestMatch = 0.0;
+        const auto consider = [&] (int d)
+        {
+            const double m = match (d);
+            const double score = m - bias * std::abs (static_cast<double> (d));
+            if (score > bestScore)
+            {
+                bestScore = score;
+                bestMatch = m;
+                best = d;
+            }
+        };
+
+        for (int d = lo; d <= hi; d += step)
+            consider (d);
+        const int coarse = best;
+        for (int d = std::max (lo, coarse - step + 1); d <= std::min (hi, coarse + step - 1); ++d)
+            if (d != coarse)
+                consider (d);
+
+        if (bestMatch < c_tapeAlignMatch)
+            return 0.0;
+
+        double offset = static_cast<double> (best);
+        if (best > lo && best < hi)
+        {
+            const double below = match (best - 1), above = match (best + 1);
+            const double curvature = below - 2.0 * bestMatch + above;
+            if (curvature < -1.0e-12)
+                offset += std::clamp (0.5 * (below - above) / curvature, -0.5, 0.5);
+        }
+        return offset;
+    }
+
     void PitchModule::readTape (double now, bool needed, float& left, float& right, bool stereo)
     {
         // The resampling path for everything the voiced grains do not cover (consonants, breaths,
@@ -1501,6 +1592,11 @@ namespace roar
         // is power-normalised (exact for wideband content); near phi = 1 they read the same
         // samples and the normalisation fades back to a plain amplitude crossfade. The
         // normalisation follows the correlation of the heads (see below).
+        // A head wraps at zero weight, while the other is at full weight: it is placed where the
+        // input best matches what the other head reads (alignTapeHead), so on periodic sound the
+        // crossfade joins like to like instead of combing, and a head that can start on the very
+        // samples the other is reading does so. The offset shrinks with the sweep, so the path
+        // is still the aligned input at phi = 1.
         Core& c = m_core;
         const double deviation = 1.0 - c.rate;
         const double share = std::min (1.0, std::abs (deviation) / c_tapeFullDeviation);
@@ -1508,16 +1604,37 @@ namespace roar
         if (share > 0.0)
             c.tapePhase += deviation / (sweep * share);
         c.tapePhase -= std::floor (c.tapePhase);
+
+        const double width = sweep * share;
+        const auto offsetOf = [&] (int head)
+        {
+            const double chosenAt = c.tapeOffsetShare[static_cast<size_t> (head)];
+            return chosenAt > 0.0 ? c.tapeOffset[static_cast<size_t> (head)] * std::min (1.0, share / chosenAt) : 0.0;
+        };
+
+        for (int head = 0; head < 2; ++head)
+        {
+            double phase = c.tapePhase + 0.5 * head;
+            phase -= std::floor (phase);
+            if (std::abs (phase - c.tapeLastPhase[static_cast<size_t> (head)]) > 0.5 && share > 0.0)
+            {
+                // Wrapped: the other head is half a cycle away, at the output time plus its offset.
+                const double other = now + offsetOf (1 - head);
+                c.tapeOffset[static_cast<size_t> (head)] = alignTapeHead (other, now + (0.5 - phase) * width, share, stereo);
+                c.tapeOffsetShare[static_cast<size_t> (head)] = share;
+            }
+            c.tapeLastPhase[static_cast<size_t> (head)] = phase;
+        }
+
         if (! needed)
             return;   // the heads keep moving, so the path is ready whenever it is needed
 
-        const double width = sweep * share;
         std::array<float, 2> hl {}, hr {}, w {};
         for (int head = 0; head < 2; ++head)
         {
             double phase = c.tapePhase + 0.5 * head;
             phase -= std::floor (phase);
-            const double pos = now + (0.5 - phase) * width;
+            const double pos = now + (0.5 - phase) * width + offsetOf (head);
             w[static_cast<size_t> (head)] = window (2.0 * phase - 1.0);
             hl[static_cast<size_t> (head)] = readRings (pos, c.rate, hr[static_cast<size_t> (head)], stereo);
         }

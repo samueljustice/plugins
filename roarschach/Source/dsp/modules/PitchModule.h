@@ -43,8 +43,9 @@ namespace roar
      *
      * Where no mark is convincing (consonants, breaths, an irregular or creaky voice), unvoiced
      * grains crossfade to a resampling path instead: two read heads sweeping 20 ms read the input
-     * continuously at phi (readTape). Long continuous reads keep the fine structure of the input;
-     * short grains cut at a foreign rate smear it. In Follow (phi = ratio) this path is itself a
+     * continuously at phi (readTape); a head that wraps starts where the waveform matches what the
+     * other head is reading, so periodic sound does not comb. Long continuous reads keep the fine
+     * structure of the input; short grains cut at a foreign rate smear it. In Follow (phi = ratio) this path is itself a
      * correct pitch and formant shift, so marks must correlate >= 0.85 there; where phi and the
      * ratio differ (Keep, Size) only the grains can shift the pitch and 0.5 is enough.
      *
@@ -191,6 +192,9 @@ namespace roar
             double nextSyn = 0.0, prevSyn = 0.0, prevHalfWidth = 0.0;
             bool prevVoiced = false;
             double tapePhase = 0.0;        // read-head phase of the resampling path (0..1)
+            std::array<double, 2> tapeLastPhase { 0.0, 0.5 };   // per head, to see it wrap
+            std::array<double, 2> tapeOffset {};                // per head: samples from its nominal place, set at its wrap
+            std::array<double, 2> tapeOffsetShare {};           // the sweep share that offset was chosen at
             double tapeXY = 0.0, tapeXX = 0.0, tapeYY = 0.0;   // running head correlation
             double voicedShare = 0.0;      // smoothed share of the output from voiced grains
 
@@ -256,6 +260,7 @@ namespace roar
         float window (double u) const;
         double markThreshold() const;
         void readTape (double now, bool needed, float& left, float& right, bool stereo);
+        double alignTapeHead (double other, double nominal, double share, bool stereo) const;
 
         void updateBodyCoeffs();
         void updateDriveCoeffs();
