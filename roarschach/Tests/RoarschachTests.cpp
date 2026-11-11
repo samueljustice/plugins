@@ -1917,15 +1917,18 @@ namespace
         }
 
         // The shifter itself (PitchModule alone, mono, Drive 0): how periodic a steady vowel stays
-        // through the grains and through the resampling path.
+        // through the grains and through the resampling path, and the level of Keep and Size.
         {
             const double fs = 48000.0;
             const int latency = roar::PitchModule::latencyFor(fs);
 
             // A steady vowel, exactly periodic: 40 harmonics of f0 with a 1 / k source through three
-            // formant resonances (amplitude and phase of the resonances at each harmonic).
-            const auto makeVowel = [&](double f0, double seconds, double peak)
+            // formant resonances (amplitude and phase of the resonances at each harmonic, or with
+            // `scatter` a random phase per harmonic).
+            const auto makeVowel = [&](double f0, double seconds, double peak, bool scatter = false)
             {
+                std::mt19937 rng(11);
+                std::uniform_real_distribution<double> anyPhase(0.0, 2.0 * c_pi);
                 const int n = static_cast<int>(fs * seconds);
                 Signal s(static_cast<size_t>(n), 0.0f);
                 const double formants[3][3] { { 700.0, 110.0, 1.0 }, { 1220.0, 120.0, 0.5 }, { 2600.0, 160.0, 0.25 } };
@@ -1938,7 +1941,7 @@ namespace
                         const double rad = std::exp(-c_pi * f[1] / fs);
                         h += f[2] * (1.0 - rad) / (1.0 - 2.0 * rad * std::cos(2.0 * c_pi * f[0] / fs) * z + rad * rad * z * z);
                     }
-                    const double amplitude = std::abs(h) / k, phase = std::arg(h);
+                    const double amplitude = std::abs(h) / k, phase = scatter ? anyPhase(rng) : std::arg(h);
                     for (int i = 0; i < n; ++i)
                         s[static_cast<size_t>(i)] += static_cast<float>(amplitude * std::cos(2.0 * c_pi * k * f0 * i / fs + phase));
                 }
@@ -1984,6 +1987,17 @@ namespace
                 return 10.0 * std::log10(std::max(r, 1.0e-9) / std::max(1.0 - r, 1.0e-12));
             };
 
+            const auto levelDb = [](const Signal& y, const Signal& x, int from, int to)
+            {
+                double py = 0.0, px = 0.0;
+                for (int i = from; i < to; ++i)
+                {
+                    py += static_cast<double>(y[static_cast<size_t>(i)]) * y[static_cast<size_t>(i)];
+                    px += static_cast<double>(x[static_cast<size_t>(i)]) * x[static_cast<size_t>(i)];
+                }
+                return 10.0 * std::log10(std::max(py, 1.0e-300) / std::max(px, 1.0e-300));
+            };
+
             // -5 st of a vowel whose shifted period is exactly 584 samples (f0 109.71 Hz, a period of 437.5 samples).
             constexpr int downPeriod = 584;
             const double downF0 = fs / (downPeriod * std::exp2(-5.0 / 12.0));
@@ -2019,6 +2033,40 @@ namespace
                     std::printf("  resampling path alone, %+.0f st Follow: harmonics-to-noise %.1f dB\n", static_cast<double>(c.semitones), hnr);
                     check(grains == 0, "the quiet vowel makes no voiced grains");
                     check(hnr >= 30.0, "resampling path on a steady vowel, harmonics-to-noise " + juce::String(hnr, 1) + " dB (>= 30)");
+                }
+            }
+
+            // Level: Keep and Size hold the loudness (against the same sound through Follow at
+            // Size 0, where the grains are the input resampled). How much overlapped grains lose
+            // depends on how the harmonics of the voice line up: a vowel whose harmonics have
+            // unrelated phases loses most (0.9 dB at Keep -5 st with the plain sqrt law), the
+            // reference voice least, and real voices lie between. Downwards in Keep both stay
+            // within 0.5 dB; upwards and with Size (whose body colours the sound) within 0.9 dB.
+            {
+                const struct { const char* name; Signal signal; int from, to; } sounds[] {
+                    { "reference voice", makeVoice(fs, 4.0), static_cast<int>(0.5 * fs), static_cast<int>(3.9 * fs) },
+                    { "scattered-phase vowel", makeVowel(downF0, 2.6, 0.25, true), from, to },
+                };
+                const struct { const char* name; float semitones; float size; Params::PitchFormant formant; double within; } cases[] {
+                    { "Keep -2 st", -2.0f, 0.0f, Params::PitchFormant::keep, 0.5 },
+                    { "Keep -5 st", -5.0f, 0.0f, Params::PitchFormant::keep, 0.5 },
+                    { "Keep -12 st", -12.0f, 0.0f, Params::PitchFormant::keep, 0.5 },
+                    { "Keep +3 st", 3.0f, 0.0f, Params::PitchFormant::keep, 0.9 },
+                    { "Size 30 %", -5.0f, 0.3f, Params::PitchFormant::follow, 0.9 },
+                    { "Size 100 %", -5.0f, 1.0f, Params::PitchFormant::follow, 0.9 },
+                };
+                for (const auto& sound : sounds)
+                {
+                    const double neutral = levelDb(shift(sound.signal, -5.0f, 0.0f, Params::PitchFormant::follow), sound.signal, sound.from, sound.to);
+                    std::printf("  level, %s: Follow -5 st %+.2f dB re input; re that:", sound.name, neutral);
+                    for (const auto& c : cases)
+                    {
+                        const double db = levelDb(shift(sound.signal, c.semitones, c.size, c.formant), sound.signal, sound.from, sound.to) - neutral;
+                        std::printf(" %s %+.2f dB;", c.name, db);
+                        check(std::abs(db) <= c.within, juce::String(c.name) + " changes the level of the " + sound.name + " by " + juce::String(db, 2)
+                                                            + " dB (within " + juce::String(c.within, 1) + ")");
+                    }
+                    std::printf("\n");
                 }
             }
         }

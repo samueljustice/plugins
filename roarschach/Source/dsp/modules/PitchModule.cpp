@@ -64,6 +64,21 @@ namespace roar
         // its centre, so a period that grows faster than the detector reports does not push the
         // grains late (a flat pitch at the end of a phrase).
         constexpr double c_grainLeadMargin = 1.1;
+
+        // Level of the overlapped voiced grains. With q = phi / ratio (the grain spacing over the
+        // grain's own period), sqrt (q) keeps the power of grains that add at random; a voice's
+        // grains do not quite, so on top of it comes a correction fitted to renders of speech,
+        // singing and growls (0 dB at q = 1). Grains further apart than their period (q > 1:
+        // Keep, downwards) lose a fixed amount once q passes about 1.15; grains closer than
+        // their period (q < 1: Size, Keep upwards) lose in proportion to log q at first. Past
+        // q = 2 / 3 what is lost depends on the voice (two grains per period add in step on a
+        // rich voice and cancel on a pure one), so the correction fades out again by q = 1 / 2.
+        constexpr double c_grainApartDb = 0.93;
+        constexpr double c_grainApartKnee = 0.075;           // in ln q
+        constexpr double c_grainCloseDb = 1.7;
+        constexpr double c_grainCloseSlope = 4.9;            // dB per unit of ln (1 / q), near q = 1
+        constexpr double c_grainCloseHold = 0.40546510810816438;   // ln (3 / 2): full correction up to here
+        constexpr double c_grainCloseEnd = 0.69314718055994531;    // ln 2: none from here
         // Adjacent periods must look alike to count as voiced. Where the resampling path already
         // gives the right pitch and formants (Follow, Size 0), a mark must be convincing: an
         // irregular (creaky) voice is better resampled than cut into misplaced grains. Where it
@@ -213,6 +228,23 @@ namespace roar
             if (std::abs (d) < 1.0e-5)
                 return shape (0.5 * (u + previous));
             return (shapeIntegral (u) - shapeIntegral (previous)) / d;
+        }
+
+        /** Gain of a voiced grain for q = phi / ratio (see c_grainApartDb): exactly 1 at q = 1. */
+        inline double grainGain (double q)
+        {
+            const double x = std::log (q);
+            double db = 0.0;
+            if (x >= 0.0)
+            {
+                db = c_grainApartDb * (1.0 - std::exp (-std::pow (x / c_grainApartKnee, 1.5)));
+            }
+            else
+            {
+                const double fade = std::clamp ((c_grainCloseEnd + x) / (c_grainCloseEnd - c_grainCloseHold), 0.0, 1.0);
+                db = c_grainCloseDb * std::tanh (-x * c_grainCloseSlope / c_grainCloseDb) * fade * fade * (3.0 - 2.0 * fade);
+            }
+            return std::sqrt (q) * std::exp (0.11512925464970229 * db);   // ln (10) / 20
         }
 
         inline double clampFinite (double x, double lo, double hi, double fallback)
@@ -1310,8 +1342,9 @@ namespace roar
             syn = voicedSyn;
             g.anaCentre = static_cast<double> (mark.pos) + static_cast<double> (mark.frac);
             // Grains placed ratio times as often, each 1 / phi times longer: power goes as
-            // ratio / phi, so the gain is sqrt (phi / ratio) (exactly 1 in Follow).
-            g.gain = static_cast<float> (std::sqrt (c.rate / c.ratio));
+            // ratio / phi, so the gain is sqrt (phi / ratio) and a small correction for how a
+            // voice's grains really add (exactly 1 in Follow).
+            g.gain = static_cast<float> (grainGain (c.rate / c.ratio));
             g.voiced = true;
             c.nextSyn = syn + period / c.ratio;
             ++c.voicedGrains;

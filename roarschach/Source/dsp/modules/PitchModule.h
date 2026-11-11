@@ -53,7 +53,8 @@ namespace roar
      * grain read rate is phi = 2^(F/12), clamped to [0.25, 1.414]. Follow with Size 0 reads every
      * grain at the pitch ratio, so the voiced output is the input resampled period by period: the
      * formants move exactly with the pitch and the harmonic ladder stays clean. Voiced gain is
-     * sqrt (phi / ratio), exactly 1 in Follow.
+     * sqrt (phi / ratio) times a correction of up to 1.4 dB for how a voice's overlapped grains
+     * add (fitted to renders), exactly 1 in Follow at Size 0, so Keep and Size hold the level.
      *
      * Native rate, full band: the audio is never resampled. Grains and the resampling path read
      * the input rings at the host rate through a 32-zero-crossing Kaiser-windowed sinc (table
