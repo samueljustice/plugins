@@ -2,7 +2,7 @@
 
 A VST3/AU modular voice processor by **Samuel Justice**, built for exploration and fun. One insert holds fifteen modules (pitch and size, a small speaker in a resonant room, clean-up, de-essing, detail, a vocoder, a ring modulator, shimmer, growl, a phaser, tube roar, an ensemble, a top-end tamer, a tracked sub and overtones) that run in any order, between an input stage and a level-matched output with a limiter and a clipper. Use a few lightly for a bigger, wider voice, or stack them into creatures, machines and anything in between.
 
-### 🎉 Latest Release v1.1.0 - [Download Here](https://github.com/samueljustice/plugins/releases/tag/roarschach-v1.1.0)
+### Latest Release v1.1.0 - [Download Here](https://github.com/samueljustice/plugins/releases/tag/roarschach-v1.1.0)
 
 <img src="docs/screenshot.jpg" alt="The Roarschach window with the Kaiju preset: the creature, a horned head of dark ink smoke with slit amber eyes and a maw of needle teeth, roaring through a pale mist tinted ember red by its drive and growl, and the chain of fifteen modules in two rows between IN and OUTPUT below, with a die beside the preset name, on every module and after the last module" width="880">
 
