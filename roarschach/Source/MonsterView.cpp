@@ -197,6 +197,46 @@ void MonsterView::timerCallback()
         startTimerHz (wantHz);
     }
     m_context.triggerRepaint();
+    refreshOverlay (1.0f / static_cast<float> (m_timerHz));
+}
+
+void MonsterView::setHint (const juce::String& text)
+{
+    m_hintText = text;
+    m_hintQuietSeconds = 0.0f;
+    if (m_hintShown)
+    {
+        m_hintShown = false;
+        repaint();
+    }
+}
+
+void MonsterView::refreshOverlay (float seconds)
+{
+    // The hint: up after the same 1.5 s of silence that puts the creature to sleep, gone for good
+    // with the first sound.
+    if (m_hintText.isNotEmpty())
+    {
+        const float input = m_features.inputLevel.load (std::memory_order_relaxed);
+        bool show = m_hintShown;
+        if (std::isfinite (input) && input >= c_quietLevel)
+        {
+            m_hintText.clear();
+            show = false;
+            if (onAudioHeard != nullptr)
+                onAudioHeard();
+        }
+        else
+        {
+            m_hintQuietSeconds = std::min (m_hintQuietSeconds + std::max (0.0f, seconds), 60.0f);
+            show = m_hintQuietSeconds >= c_sleepAfterSeconds;
+        }
+        if (show != m_hintShown)
+        {
+            m_hintShown = show;
+            repaint();
+        }
+    }
 
     const float f0 = m_features.f0Hz.load (std::memory_order_relaxed);
     const bool voiced = m_features.voiced.load (std::memory_order_relaxed) > 0.5f;
@@ -279,6 +319,18 @@ void MonsterView::paint (juce::Graphics& g)
     if (m_sleepShown)
     {
         readout ("ASLEEP", bottom, false, textDim);
+    }
+
+    if (m_hintShown && m_hintText.isNotEmpty())
+    {
+        // Centred on the bottom row, between the two readouts, on the same dark backing.
+        g.setFont (m_fonts->body (12.0f));
+        const float w = std::min (bottom.getWidth() - 360.0f, juce::GlyphArrangement::getStringWidth (g.getCurrentFont(), m_hintText) + 20.0f);
+        const auto pill = bottom.withSizeKeepingCentre (w, bottom.getHeight()).expanded (0.0f, 3.0f);
+        g.setColour (scope.withAlpha (0.6f));
+        g.fillRoundedRectangle (pill, 5.0f);
+        g.setColour (textDim);
+        g.drawText (m_hintText, pill.reduced (8.0f, 0.0f), juce::Justification::centred, true);
     }
 
     g.setColour (outlineSoft);
