@@ -48,8 +48,9 @@ namespace roar
      *
      * The carrier follows the VoiceStream at this module's position (read every 16 samples), so a
      * VOCODER after PITCH follows the shifted voice. Only voiced, confident frames at a real level
-     * move it (CarrierPitchGate); the first pitch of a new phrase is taken at once, later ones
-     * glide over 25 ms. Latency 0 (all filters IIR TPT sections).
+     * move it (CarrierPitchGate); in a pause it waits at the voice's usual pitch, the first pitch
+     * of a new phrase is taken at once, later ones glide over 25 ms. Latency 0 (all filters IIR
+     * TPT sections).
      *
      * Stereo (§3.3): one analysis of the mid and one synthesis bank; band b goes to the output
      * with gains (1 + p_b, 1 - p_b), p_b = +0.3 for even bands and -0.3 for odd ones, so the mid

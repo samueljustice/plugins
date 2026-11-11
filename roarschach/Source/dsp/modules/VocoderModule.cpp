@@ -378,6 +378,8 @@ namespace roar
         m_gatePeak = 0.0f;
         if (decision.accepted)
             m_heldF0 = voice.f0Hz;
+        else if (decision.restHz > 0.0f)
+            m_heldF0 = decision.restHz;   // in a pause: wait at the voice's usual pitch
         return decision.phraseStart;
     }
 

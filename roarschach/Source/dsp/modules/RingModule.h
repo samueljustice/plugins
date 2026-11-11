@@ -44,10 +44,10 @@ namespace roar
      *   Fixed   fc = Freq (smoothed in log2, 20 ms)
      *   Follow  fc = Ratio f0, f0 from the frames of the VoiceStream that are voiced, confident
      *           (>= 0.4) and loud enough (CarrierPitchGate: within 30 dB of the recent level),
-     *           otherwise held (140 Hz before any pitch). The first pitch, and the first pitch of
-     *           a new phrase, are taken at once; after that f0 glides in log2 with a 7 ms time
-     *           constant (settled within about 20 ms), and an octave jump must persist for 40 ms
-     *           before it is followed.
+     *           otherwise held (140 Hz before any pitch; in a pause it moves to the voice's usual
+     *           pitch). The first pitch, and the first pitch of a new phrase, are taken at once;
+     *           after that f0 glides in log2 with a 7 ms time constant (settled within about
+     *           20 ms), and an octave jump must persist for 40 ms before it is followed.
      *   A Track switch glides fc in log2 over 30 ms. fc is clamped to [10 Hz, 0.45 fs].
      *   The phase is a double accumulator, never reset by a parameter change, so fc moves without
      *   clicks; reset() sets it to 0.

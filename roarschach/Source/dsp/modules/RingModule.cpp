@@ -361,6 +361,8 @@ namespace roar
         else
         {
             m_s.candidateSamples = 0;
+            if (decision.restHz > 0.0f && m_s.hasPitch)
+                m_s.f0Target = std::log2 (static_cast<double> (decision.restHz));   // in a pause: wait at the voice's usual pitch
         }
 
         m_s.f0Log += m_f0Coeff * (m_s.f0Target - m_s.f0Log);
