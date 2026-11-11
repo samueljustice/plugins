@@ -2,7 +2,7 @@
 
 A VST3/AU real-time reverser for macOS and Windows. Reversinator is a faithful, modernised recreation of **Backwards Machine** (The Sound Guy, 2007), the classic plugin that "reverses continuous audio in real time". Its three effects, Reverse Playback, Forward Backwards and Reverse Repeat, were rebuilt from a study of the original's signal flow, so they behave and sound like it. They run inside a new interface that shows the reverser at work.
 
-### 🎉 Latest Release v2.0.4 - [Download Here](https://github.com/samueljustice/plugins/releases/tag/reversinator-v2.0.4)
+### Latest Release v2.0.4 - [Download Here](https://github.com/samueljustice/plugins/releases/tag/reversinator-v2.0.4)
 
 ![Reversinator](docs/screenshot.png)
 

@@ -5,7 +5,7 @@
 **Toys I've made for sound designers.**
 
 <!-- get-them-all:start (written by .github/workflows/build-release_bundle.yml; edits here are replaced) -->
-### ⬇️ Get them all (last built 10 Nov 2026, 18:14 UTC)
+### Get them all (last built 10 Nov 2026, 18:14 UTC)
 
 [![Get them all for macOS](https://img.shields.io/badge/Get_them_all-macOS-000000?style=for-the-badge&logo=apple&logoColor=white)](https://github.com/samueljustice/plugins/releases/download/bundle-v2026.11.10.105/SammyJ-Plugins-2026-11-10-1814-macOS.dmg)
 [![Get them all for Windows](https://img.shields.io/badge/Get_them_all-Windows-0078D6?style=for-the-badge&logo=windows&logoColor=white)](https://github.com/samueljustice/plugins/releases/download/bundle-v2026.11.10.105/SammyJ-Plugins-2026-11-10-1814-Windows-Installer.exe)
@@ -23,23 +23,23 @@ Want just one? Each plug-in's own download is below, or browse all <a href="http
 
 <br>
 
-| [<img src="swooshbuckler/docs/screenshot.png" width="400" alt="Swooshbuckler">](#-swooshbuckler) | [<img src="subbertone/docs/screenshot.jpg" width="400" alt="Subbertone">](#-subbertone) |
+| [<img src="swooshbuckler/docs/screenshot.png" width="400" alt="Swooshbuckler">](#swooshbuckler) | [<img src="subbertone/docs/screenshot.jpg" width="400" alt="Subbertone">](#subbertone) |
 |:---:|:---:|
-| **[Swooshbuckler](#-swooshbuckler)**<br>Generates whooshes from up to ten sounds | **[Subbertone](#-subbertone)**<br>Adds a pitch-tracked sub and harmonics to bass |
-| [<img src="pitchflattener/docs/screenshot.png" width="400" alt="Pitch Flattener">](#-pitch-flattener) | [<img src="reversinator/docs/screenshot.png" width="400" alt="Reversinator">](#-reversinator) |
-| **[Pitch Flattener](#-pitch-flattener)**<br>Removes pitch movement from Doppler passes, sirens and vibrato | **[Reversinator](#-reversinator)**<br>Real-time reverse effects, recreating Backwards Machine |
+| **[Swooshbuckler](#swooshbuckler)**<br>Generates whooshes from up to ten sounds | **[Subbertone](#subbertone)**<br>Adds a pitch-tracked sub and harmonics to bass |
+| [<img src="pitchflattener/docs/screenshot.png" width="400" alt="Pitch Flattener">](#pitch-flattener) | [<img src="reversinator/docs/screenshot.png" width="400" alt="Reversinator">](#reversinator) |
+| **[Pitch Flattener](#pitch-flattener)**<br>Removes pitch movement from Doppler passes, sirens and vibrato | **[Reversinator](#reversinator)**<br>Real-time reverse effects, recreating Backwards Machine |
 
-[<img src="roarschach/docs/screenshot.jpg" width="812" alt="Roarschach">](#-roarschach)<br>
-**[Roarschach](#-roarschach)**<br>A modular voice processor for exploration and fun
+[<img src="roarschach/docs/screenshot.jpg" width="812" alt="Roarschach">](#roarschach)<br>
+**[Roarschach](#roarschach)**<br>A modular voice processor for exploration and fun
 
-[<img src="soundadvice/docs/screenshot.png" width="812" alt="Sound Advice">](#-sound-advice)<br>
-**[Sound Advice](#-sound-advice)**<br>Advice from film, TV and game sound professionals and other creative people
+[<img src="soundadvice/docs/screenshot.png" width="812" alt="Sound Advice">](#sound-advice)<br>
+**[Sound Advice](#sound-advice)**<br>Advice from film, TV and game sound professionals and other creative people
 
 </div>
 
 ---
 
-## ⚔️ Swooshbuckler
+## Swooshbuckler
 
 > Generates whooshes from up to ten sounds, and records them.
 
@@ -49,13 +49,13 @@ Want just one? Each plug-in's own download is below, or browse all <a href="http
 
 Drop in up to ten sounds (cloth, air, engines, creatures, metal) and Swooshbuckler works out what each one is and sends it to Bus A, Bus B or the Hits. Then it rides every fader by itself, so the layers swell, fly past as Doppler passes and fall away. Hold **Swell** (the space bar, a MIDI note or a click on the sea) to push it all harder. Arm the tape and it records every whoosh into one file and skips the silence. Missed one? **LAST 60s** grabs the last minute anyway.
 
-- 🎚️ **Auto ride** across up to ten looping tracks, each fader on its own path, shaped by Energy, Rate, Fill, Chaos and Pitch
-- 🧠 **Smart loading** finds the separate sounds in each file, skips the gaps and guesses what each one is from the audio and the file name
-- 🎛️ **Per-track pitch** in semitones and cents, with **VARI** on for tape-style varispeed or off to change the pitch and keep the speed
-- 🌀 **Two Doppler buses** with Width, Bend, Low End, Swirl, an envelope filter and Drive. Bus A can duck and darken Bus B, or they **Take Turns**
-- 🧬 **Spectral morph pad** blends A into B (Blend, Glide or vocoder-style Cross), and can wander along a Lorenz loop, a rose or a figure eight
-- 💥 **Hit gate** fires your impacts at the biggest swells, and **Sync Hits** stacks their transients into one huge hit
-- 🔌 **Four drag-a-cable modulators** (LFO, Random, Follower, Macro), plus **7 factory presets** and a RANDOMISE button
+- **Auto ride** across up to ten looping tracks, each fader on its own path, shaped by Energy, Rate, Fill, Chaos and Pitch
+- **Smart loading** finds the separate sounds in each file, skips the gaps and guesses what each one is from the audio and the file name
+- **Per-track pitch** in semitones and cents, with **VARI** on for tape-style varispeed or off to change the pitch and keep the speed
+- **Two Doppler buses** with Width, Bend, Low End, Swirl, an envelope filter and Drive. Bus A can duck and darken Bus B, or they **Take Turns**
+- **Spectral morph pad** blends A into B (Blend, Glide or vocoder-style Cross), and can wander along a Lorenz loop, a rose or a figure eight
+- **Hit gate** fires your impacts at the biggest swells, and **Sync Hits** stacks their transients into one huge hit
+- **Four drag-a-cable modulators** (LFO, Random, Follower, Macro), plus **7 factory presets** and a RANDOMISE button
 
 <details>
 <summary>More screenshots</summary>
@@ -75,7 +75,7 @@ Drop in up to ten sounds (cloth, air, engines, creatures, metal) and Swooshbuckl
 
 ---
 
-## 🔊 Subbertone
+## Subbertone
 
 > Adds a pitch-tracked sub an octave down, plus harmonics, saturation, filtering and limiting.
 
@@ -85,12 +85,12 @@ Drop in up to ten sounds (cloth, air, engines, creatures, metal) and Swooshbuckl
 
 Subbertone follows the pitch of your bass, engine or drone and adds a clean sub one octave below. That's only the start: build its harmonics bar by bar, from pure sub reinforcement, to the trick that makes a bass audible on speakers that can't play a sub, to a growling, talking octave-down monster. Saturation, a resonant filter and a mastering stage finish it off, with about 2 ms of latency that your host compensates for.
 
-- 🧲 **Phase Align** lines the new harmonics up with your bass's own, so they add up instead of cancelling. Notes thin out far less, repeat hits land at the same level, and it adds no latency
-- 🎹 **16-bar harmonic editor** with a live meter on every bar: H1 is the sub, H2 to H16 its harmonics. Draw them, pick a pattern, or switch the **sub off** and keep only the harmonics for small speakers
-- 🔥 **Six saturation types** (Tape, Valve, Console, Transformer, Rectifier, Wavefolder) into a **resonant, envelope-swept filter** that makes the bass talk
-- 🧱 **Master stage**: Inflate with a Curve control, then a look-ahead brickwall limiter with a ceiling and a gain-reduction meter
-- 🎯 **Steady tracking**: octave jumps are confirmed before the sub follows, dropouts are held, Glide tames wandering engines, and a Lo Cut keeps a very low sub from eating your headroom
-- 🚗 **32 factory presets** in five groups, including engines from inline-4 to V12, V-twin and 2-stroke
+- **Phase Align** lines the new harmonics up with your bass's own, so they add up instead of cancelling. Notes thin out far less, repeat hits land at the same level, and it adds no latency
+- **16-bar harmonic editor** with a live meter on every bar: H1 is the sub, H2 to H16 its harmonics. Draw them, pick a pattern, or switch the **sub off** and keep only the harmonics for small speakers
+- **Six saturation types** (Tape, Valve, Console, Transformer, Rectifier, Wavefolder) into a **resonant, envelope-swept filter** that makes the bass talk
+- **Master stage**: Inflate with a Curve control, then a look-ahead brickwall limiter with a ceiling and a gain-reduction meter
+- **Steady tracking**: octave jumps are confirmed before the sub follows, dropouts are held, Glide tames wandering engines, and a Lo Cut keeps a very low sub from eating your headroom
+- **32 factory presets** in five groups, including engines from inline-4 to V12, V-twin and 2-stroke
 
 <details>
 <summary>More screenshots</summary>
@@ -113,7 +113,7 @@ Subbertone follows the pitch of your bass, engine or drone and adds a clean sub 
 
 ---
 
-## 🚨 Pitch Flattener
+## Pitch Flattener
 
 > Removes pitch movement from Doppler passes, sirens and vibrato.
 
@@ -123,13 +123,13 @@ Subbertone follows the pitch of your bass, engine or drone and adds a clean sub 
 
 Pitch Flattener takes the pitch movement out of a sound and keeps its energy and character: the Doppler sweep from a pass-by, the wail from a siren, the vibrato from a voice. Or lock a warbling tone to one note. Pick a Source Type and it loads a pitch detector built for that kind of sound, looks about 2.6 seconds ahead, and lines the correction up with the audio sample-accurately. Made for offline rendering: the Soundminer DSP rack, a DAW bounce or AudioSuite-style processing.
 
-- 🎯 **Nine Source Types** (Vocal, Instrument, Siren, Whistle, Engine / Doppler, Engine Run-up, Drone, Noisy Field, Custom), each with its own tuned detector; Siren runs two at once, so fast yelps and sirens in traffic both track
-- 🔭 **Lookahead tracking** fixes octave errors, bridges gaps and smooths with zero lag, so the very first syllable or rev is already flat
-- 🎚️ **Latch, Fixed or Auto**: hold each sound at the pitch it starts on, flatten everything to one note (type `A4`), or take out only the vibrato and keep the melody
-- 📈 **Live pitch display**: eight seconds of detection, track, target and corrected output over a spectrogram
-- 🚨 **Wobble warning**: a red warning when the output isn't coming out flat, suggesting the Source Type that would do better
-- 📏 **Measured, not guessed**: the test suite flattens a siren wail to within 2 cents and an engine pass-by to within 1 cent
-- 💾 **Amount** for half-flattened results, **Formant** for natural-sounding voices, and presets you can save
+- **Nine Source Types** (Vocal, Instrument, Siren, Whistle, Engine / Doppler, Engine Run-up, Drone, Noisy Field, Custom), each with its own tuned detector; Siren runs two at once, so fast yelps and sirens in traffic both track
+- **Lookahead tracking** fixes octave errors, bridges gaps and smooths with zero lag, so the very first syllable or rev is already flat
+- **Latch, Fixed or Auto**: hold each sound at the pitch it starts on, flatten everything to one note (type `A4`), or take out only the vibrato and keep the melody
+- **Live pitch display**: eight seconds of detection, track, target and corrected output over a spectrogram
+- **Wobble warning**: a red warning when the output isn't coming out flat, suggesting the Source Type that would do better
+- **Measured, not guessed**: the test suite flattens a siren wail to within 2 cents and an engine pass-by to within 1 cent
+- **Amount** for half-flattened results, **Formant** for natural-sounding voices, and presets you can save
 
 <details>
 <summary>More screenshots</summary>
@@ -146,7 +146,7 @@ Pitch Flattener takes the pitch movement out of a sound and keeps its energy and
 
 ---
 
-## ⏪ Reversinator
+## Reversinator
 
 > Real-time reverse effects, recreating Backwards Machine's three modes.
 
@@ -156,12 +156,12 @@ Pitch Flattener takes the pitch movement out of a sound and keeps its energy and
 
 A real-time reverser that faithfully recreates Backwards Machine's three effects, **Reverse Playback**, **Forward Backwards** and **Reverse Repeat**, rebuilt from a study of the original's signal flow. It lives in a new resizable interface with a live display of each read head sweeping backwards through your audio, and it fixes the original's glitches, so every change is click-free.
 
-- 🎯 **Checked against the real thing**: nulls against the original's own renders at 0.999+ correlation
-- ⏪ **Three classic effects**, with the original's sweeps, windows, vibrato and gain staging
-- 👀 **Live snippet display** that draws every read head as it sweeps backwards through your input
-- 🤫 **Click-free everywhere**: TIME sweeps, mode switches, the big REVERSER button and host bypass all crossfade, at any buffer size
-- ⏳ **Hourglass TIME** from 0.5 to 4 s, plus feedback that builds cascades of echoes, alternating direction
-- 🔍 **Resizable from 75% to 200%**, mono or stereo, any sample rate, zero latency
+- **Checked against the real thing**: nulls against the original's own renders at 0.999+ correlation
+- **Three classic effects**, with the original's sweeps, windows, vibrato and gain staging
+- **Live snippet display** that draws every read head as it sweeps backwards through your input
+- **Click-free everywhere**: TIME sweeps, mode switches, the big REVERSER button and host bypass all crossfade, at any buffer size
+- **Hourglass TIME** from 0.5 to 4 s, plus feedback that builds cascades of echoes, alternating direction
+- **Resizable from 75% to 200%**, mono or stereo, any sample rate, zero latency
 
 <details>
 <summary>More screenshots</summary>
@@ -178,7 +178,7 @@ A real-time reverser that faithfully recreates Backwards Machine's three effects
 
 ---
 
-## 👹 Roarschach
+## Roarschach
 
 > *Fifteen modules, any order. See where your voice ends up.*
 
@@ -188,15 +188,15 @@ A real-time reverser that faithfully recreates Backwards Machine's three effects
 
 Roarschach is a modular voice processor built for exploration and fun. Fifteen modules (PITCH, CHAMBER, CLEAN, DE-ESS, DETAIL, VOCODER, RING, SHIMMER, GROWL, SWIRL, ROAR, ENSEMBLE, TAME, SUB and OVERTONE) run between an input stage and a level-matched output, in any order. Use a few lightly for a bigger, wider voice, or stack them into creatures, machines and anything in between, and a creature drawn in OpenGL reacts to every sound and every knob.
 
-- 🗣️ **Pitch and size, separately**: shift the voice up to two octaves down, then give it a bigger throat. Native-rate processing brings a 96 or 192 kHz recording's ultrasonic detail down into the voice
-- 🐉 **Texture and weight**: a growling chop, a liquid wobble, a phaser, tube saturation, an ensemble, a tracked sub and overtones that carry the low end on small speakers
-- 📦 **A room**: CHAMBER plays the voice through a small speaker into a tight, resonant room and blends it back under the voice, with ten bundled rooms, three speakers, speaker breakup, Width and a low-end Boom
-- 🤖 **Machines**: a 32-band pulse-carrier vocoder and a ring modulator with a pitch-tracking carrier and a resonant body
-- 🧩 **Any order**: drag any module by its header, or use its ••• menu, to anywhere in the chain. Moves are click-free
-- 🔊 **A finished output**: Push into a true-peak-safe limiter and an oversampled clipper, with Attack, Release and Auto to choose between clean limiting and low-end crunch
-- 🎲 **Dice**: one die loads a random factory preset, one rolls a whole new creature, and one on each module rolls just that module, always inside each knob's useful range. Every roll can be undone
-- 👁️ **A living creature** that forms out of drifting cloud, opens its jaw, glows, shakes and drips with the voice, softens back into fog in silence, and slowly evolves the harder you push it. Its clouds drift towards a colour that suits your settings: ember red for drive and growl, electric blue for the vocoder and ring, violet for the phaser, chorus and overtones
-- 🎛️ **51 factory presets**: Init plus six groups (Creatures, Voices, Machines, Signal Flow, Vocoder and Utility), and your own saved as plain files
+- **Pitch and size, separately**: shift the voice up to two octaves down, then give it a bigger throat. Native-rate processing brings a 96 or 192 kHz recording's ultrasonic detail down into the voice
+- **Texture and weight**: a growling chop, a liquid wobble, a phaser, tube saturation, an ensemble, a tracked sub and overtones that carry the low end on small speakers
+- **A room**: CHAMBER plays the voice through a small speaker into a tight, resonant room and blends it back under the voice, with ten bundled rooms, three speakers, speaker breakup, Width and a low-end Boom
+- **Machines**: a 32-band pulse-carrier vocoder and a ring modulator with a pitch-tracking carrier and a resonant body
+- **Any order**: drag any module by its header, or use its ••• menu, to anywhere in the chain. Moves are click-free
+- **A finished output**: Push into a true-peak-safe limiter and an oversampled clipper, with Attack, Release and Auto to choose between clean limiting and low-end crunch
+- **Dice**: one die loads a random factory preset, one rolls a whole new creature, and one on each module rolls just that module, always inside each knob's useful range. Every roll can be undone
+- **A living creature** that forms out of drifting cloud, opens its jaw, glows, shakes and drips with the voice, softens back into fog in silence, and slowly evolves the harder you push it. Its clouds drift towards a colour that suits your settings: ember red for drive and growl, electric blue for the vocoder and ring, violet for the phaser, chorus and overtones
+- **51 factory presets**: Init plus six groups (Creatures, Voices, Machines, Signal Flow, Vocoder and Utility), and your own saved as plain files
 
 <details>
 <summary>More screenshots</summary>
@@ -218,7 +218,7 @@ Roarschach is a modular voice processor built for exploration and fun. Fifteen m
 
 ---
 
-## 🎲 Sound Advice
+## Sound Advice
 
 > Shows a random piece of advice from film, TV and game sound professionals and other creative people.
 
@@ -228,12 +228,12 @@ Roarschach is a modular voice processor built for exploration and fun. Fifteen m
 
 A page of advice from people who work on film, TV, game and trailer sound: re-recording mixers, sound designers, supervising editors, game audio directors and others, plus a Disney Imagineer on leading creative work. Pick what you're working on (mixing, creatures, dialogue, silence, running a creative team...) and roll the die. It deals you a field note on a real technique or decision, or a quote in their own words, tied to the production it came from.
 
-- 📚 **839 entries from 147 people**, each name linked to their credits
-- 🔗 **Every entry traced to its source**: click through to the original interview, article or SoundWorks Collection video
-- 🛠️ **Concrete, not fortune-cookie**: mostly field notes on real sources, recording methods and mix decisions
-- 🗂️ **17 categories**, from Mixing and Field Recording to Horror & Tension, Silence & Restraint and Creativity & Teams. Each is a shuffled deck, so nothing repeats until you've seen the lot
-- 🌗 **Paper by day, ink by night**, with keyboard shortcuts and right-click to copy
-- 🔇 **Audio passes straight through**, so it can sit on a mix bus, or run as an app on a second screen
+- **839 entries from 147 people**, each name linked to their credits
+- **Every entry traced to its source**: click through to the original interview, article or SoundWorks Collection video
+- **Concrete, not fortune-cookie**: mostly field notes on real sources, recording methods and mix decisions
+- **17 categories**, from Mixing and Field Recording to Horror & Tension, Silence & Restraint and Creativity & Teams. Each is a shuffled deck, so nothing repeats until you've seen the lot
+- **Paper by day, ink by night**, with keyboard shortcuts and right-click to copy
+- **Audio passes straight through**, so it can sit on a mix bus, or run as an app on a second screen
 
 **App** (macOS, Windows) · **VST3** · **AU** &nbsp;&nbsp;
 [![Download Sound Advice](https://img.shields.io/badge/download-v1.0.13-9a5a3a?style=flat-square)](https://github.com/samueljustice/plugins/releases/tag/soundadvice-v1.0.13) &nbsp;
@@ -241,7 +241,7 @@ A page of advice from people who work on film, TV, game and trailer sound: re-re
 
 ---
 
-## 🛠️ For developers
+## For developers
 
 <details>
 <summary><b>Building from source</b></summary>
@@ -291,7 +291,7 @@ When a plug-in's release finishes, `build-release_bundle.yml` rebuilds the combi
 
 <div align="center">
 
-### 👋 Made by Samuel Justice
+### Made by Samuel Justice
 
 Creative Sound Supervisor at **[Sweet Justice](https://www.sweetjusticesound.com)**
 

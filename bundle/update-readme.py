@@ -52,7 +52,7 @@ def main() -> int:
     base = f"https://github.com/{repo}/releases/download/{tag}"
     block = "\n".join([
         START,
-        f"### ⬇️ Get them all (last built {built})",
+        f"### Get them all (last built {built})",
         "",
         f"[![Get them all for macOS](https://img.shields.io/badge/Get_them_all-macOS-000000?style=for-the-badge&logo=apple&logoColor=white)]({base}/{mac})",
         f"[![Get them all for Windows](https://img.shields.io/badge/Get_them_all-Windows-0078D6?style=for-the-badge&logo=windows&logoColor=white)]({base}/{win})",
