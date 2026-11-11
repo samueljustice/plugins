@@ -7,6 +7,11 @@ namespace
     constexpr float c_maxPassDelay = 4.0f;
     constexpr float c_earOffset = 0.09f / 343.0f;
     constexpr float c_baseDelay = 0.002f;
+    // Space: the ping-pong echo's two times and how far and how fast each drifts.
+    constexpr float c_echoSecondsL = 0.337f, c_echoSecondsR = 0.523f;
+    constexpr float c_echoDriftSeconds = 0.004f, c_echoDriftHzL = 0.11f, c_echoDriftHzR = 0.17f;
+    // Space: the reverb's wet level at 100%, and how much of the dry is taken away there.
+    constexpr float c_spaceWet = 0.9f, c_spaceDryTrim = 0.45f;
     // Every track rides at its own speed (offset speeds keep the layers from moving together).
     constexpr std::array<float, RigEngine::c_tracks> c_rideOffsets { 1.0f, 1.37f, 0.71f, 1.62f, 0.87f, 1.19f, 0.79f, 1.48f, 0.93f, 1.27f };
 
@@ -171,7 +176,7 @@ void RigEngine::prepare(double sampleRate, int maxBlockSize)
     m_echoR.prepare(static_cast<int>(1.2f * m_fs));
     m_echoLpL.set(4500.0f, m_fs); m_echoLpR.set(4500.0f, m_fs);
     m_echoHpL.set(220.0f, m_fs);  m_echoHpR.set(220.0f, m_fs);
-    m_reverb.setSampleRate(sampleRate);
+    m_reverb.prepare(sampleRate);
     m_dcL.set(8.0f, m_fs);
     m_dcR.set(8.0f, m_fs);
 
@@ -1366,30 +1371,44 @@ void RigEngine::renderSpace(int frames)
         }
         return;
     }
+    const bool wasOn = m_spaceOn;
     m_spaceOn = true;
 
+    // Ping-pong echo. The two times are not a simple ratio of each other and each drifts by a few milliseconds,
+    // so the repeats never settle into a fixed pattern.
     const float fb = 0.25f + 0.4f * s;
     const float wet = 0.35f * s;
-    const float tL = 0.34f * m_fs, tR = 0.51f * m_fs;
+    const float driftStep = 2.0f / m_fs;
     for (int i = 0; i < frames; ++i)
     {
         auto& l = m_mixL[static_cast<size_t>(i)];
         auto& r = m_mixR[static_cast<size_t>(i)];
-        const float wl = m_echoL.read(tL), wr = m_echoR.read(tR);
+        m_echoDriftL += c_echoDriftHzL * driftStep;
+        m_echoDriftR += c_echoDriftHzR * driftStep;
+        if (m_echoDriftL >= 1.0f) m_echoDriftL -= 2.0f;
+        if (m_echoDriftR >= 1.0f) m_echoDriftR -= 2.0f;
+        const float tL = (c_echoSecondsL + c_echoDriftSeconds * 4.0f * m_echoDriftL * (1.0f - std::abs(m_echoDriftL))) * m_fs;
+        const float tR = (c_echoSecondsR + c_echoDriftSeconds * 4.0f * m_echoDriftR * (1.0f - std::abs(m_echoDriftR))) * m_fs;
+        const float wl = m_echoL.read(static_cast<double>(tL)), wr = m_echoR.read(static_cast<double>(tR));
         m_echoL.push(l + fb * m_echoLpR.lowpass(m_echoHpR.highpass(wr)));
         m_echoR.push(r + fb * m_echoLpL.lowpass(m_echoHpL.highpass(wl)));
         l += wet * wl;
         r += wet * wr;
     }
 
-    juce::Reverb::Parameters rp;
-    rp.roomSize = 0.6f + 0.35f * s;
-    rp.damping = 0.35f;
-    rp.wetLevel = 0.2f * s;
-    rp.dryLevel = 0.5f;
-    rp.width = 1.0f;
-    m_reverb.setParameters(rp);
-    m_reverb.processStereo(m_mixL.data(), m_mixR.data(), frames);
+    // Reverb, after the echoes (so they trail into it). Its tail grows with Space; the dry is eased down a little
+    // as the wet comes up, so more Space is more room and not more level into the limiter.
+    m_reverb.setDecay(SpaceReverb::decaySecondsFor(s));
+    const float dryGain = 1.0f - c_spaceDryTrim * s * s;
+    const float wetGain = c_spaceWet * s;
+    if (! wasOn)
+    {
+        m_spaceDry = dryGain;
+        m_spaceWet = wetGain;
+    }
+    m_reverb.process(m_mixL.data(), m_mixR.data(), frames, m_spaceDry, dryGain, m_spaceWet, wetGain);
+    m_spaceDry = dryGain;
+    m_spaceWet = wetGain;
 }
 
 //==============================================================================

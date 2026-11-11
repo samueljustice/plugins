@@ -78,6 +78,7 @@ set(SWOOSHBUCKLER_DSP_SOURCES
     Source/SpectralMorph.cpp
     Source/Modulators.cpp
     Source/PitchShifter.cpp
+    Source/SpaceReverb.cpp
 )
 
 target_sources(Swooshbuckler

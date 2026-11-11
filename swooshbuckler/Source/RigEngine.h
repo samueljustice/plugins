@@ -6,6 +6,7 @@
 #include "PitchShifter.h"
 #include "DspUtils.h"
 #include "SpectralMorph.h"
+#include "SpaceReverb.h"
 
 #include <array>
 #include <atomic>
@@ -318,7 +319,9 @@ private:
     std::array<float, c_chunk> m_mixL {}, m_mixR {};
     sj::DelayLine m_echoL, m_echoR;
     sj::OnePole m_echoLpL, m_echoLpR, m_echoHpL, m_echoHpR;
-    juce::Reverb m_reverb;
+    SpaceReverb m_reverb;
+    float m_echoDriftL = 0.0f, m_echoDriftR = 0.5f; // phases (-1..1) of the slow drift of the two echo times
+    float m_spaceDry = 1.0f, m_spaceWet = 0.0f;     // the reverb's dry and wet gains at the end of the last chunk
     bool m_spaceOn = false; // the echoes and reverb hold sound (cleared once when Space reaches 0)
     sj::DcBlock m_dcL, m_dcR;
     sj::Follower m_mixFollower;

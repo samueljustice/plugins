@@ -12,6 +12,7 @@
 #include "Cargo.h"
 #include "MasterProcessor.h"
 #include "RigEngine.h"
+#include "SpaceReverb.h"
 #include "DspUtils.h"
 #include "Modulators.h"
 #include "Parameters.h"
@@ -951,6 +952,169 @@ int main(int argc, char* argv[])
             const float stale = std::max(o.getMagnitude(0, 6 * sec, 2 * sec), o.getMagnitude(1, 6 * sec, 2 * sec));
             std::cout << "  space off, then on again in silence: peak " << juce::Decibels::gainToDecibels(stale, -200.0f) << " dBFS" << std::endl;
             check(stale < juce::Decibels::decibelsToGain(-90.0f), "space at 0% empties the echoes and reverb (no old sound when it's turned up again)");
+        }
+
+        // Space's reverb on its own, at 44.1 to 192 kHz: an impulse into the longest tail (Space 100%) comes out
+        // late (pre-delay), dense, wide but mono-safe, and it dies away without ever growing.
+        {
+            // How many samples of a stretch lie outside one standard deviation, against what dense (gaussian)
+            // reverb gives: about 1 is a smooth tail, well under 1 is separate echoes (heard as a metallic ring).
+            auto density = [](const std::vector<float>& x, int from, int to)
+            {
+                double sq = 0.0;
+                for (int i = from; i < to; ++i) sq += static_cast<double>(x[static_cast<size_t>(i)]) * x[static_cast<size_t>(i)];
+                const double sd = std::sqrt(sq / juce::jmax(1, to - from));
+                int outside = 0;
+                for (int i = from; i < to; ++i) outside += std::abs(x[static_cast<size_t>(i)]) > sd ? 1 : 0;
+                return static_cast<double>(outside) / juce::jmax(1, to - from) / 0.3173;
+            };
+            for (const double rate : { 44100.0, 48000.0, 96000.0, 192000.0 })
+            {
+                SpaceReverb rev;
+                rev.prepare(rate);
+                rev.setDecay(SpaceReverb::decaySecondsFor(1.0f));
+                const int n = static_cast<int>(rate * 9.0);
+                std::vector<float> l(static_cast<size_t>(n), 0.0f), r(static_cast<size_t>(n), 0.0f);
+                l[0] = 1.0f; r[0] = 1.0f;
+                for (int pos = 0; pos < n; pos += 32)
+                    rev.process(l.data() + pos, r.data() + pos, juce::jmin(32, n - pos), 0.0f, 0.0f, 1.0f, 1.0f);
+
+                bool finite = true;
+                for (int i = 0; i < n; ++i) finite = finite && std::isfinite(l[static_cast<size_t>(i)]) && std::isfinite(r[static_cast<size_t>(i)]);
+                int first = n;
+                for (int i = 0; i < n && first == n; ++i)
+                    if (std::abs(l[static_cast<size_t>(i)]) > 1.0e-6f || std::abs(r[static_cast<size_t>(i)]) > 1.0e-6f) first = i;
+                // Level in 250 ms steps: the loudest step, whether any later step is louder than the one before, and
+                // when the level has fallen 60 dB.
+                const int win = static_cast<int>(rate * 0.25);
+                std::vector<double> lev;
+                for (int at = 0; at + win <= n; at += win)
+                {
+                    double sq = 0.0;
+                    for (int i = at; i < at + win; ++i) sq += static_cast<double>(l[static_cast<size_t>(i)]) * l[static_cast<size_t>(i)] + static_cast<double>(r[static_cast<size_t>(i)]) * r[static_cast<size_t>(i)];
+                    lev.push_back(std::sqrt(sq / (2.0 * win)));
+                }
+                const double top = *std::max_element(lev.begin(), lev.end());
+                double worstRise = 0.0, t60 = -1.0;
+                for (size_t k = 1; k < lev.size(); ++k)
+                {
+                    if (lev[k] > top * 1.0e-4)
+                        worstRise = juce::jmax(worstRise, 20.0 * std::log10(lev[k] / juce::jmax(1.0e-30, lev[k - 1])));
+                    if (t60 < 0.0 && lev[k] < top * 1.0e-3)
+                        t60 = 0.25 * static_cast<double>(k);
+                }
+                const double dens = density(l, first + static_cast<int>(rate * 0.06), first + static_cast<int>(rate * 0.16));
+                std::cout << "  space reverb at " << rate << " Hz: first sound at " << 1000.0 * first / rate << " ms, density " << dens
+                          << ", -60 dB after " << t60 << " s, worst rise " << worstRise << " dB" << std::endl;
+                const juce::String at = " at " + juce::String(rate / 1000.0, 1) + " kHz";
+                check(finite, "space reverb: output is finite" + at);
+                check(1000.0 * first / rate >= 15.0 && 1000.0 * first / rate <= 60.0, "space reverb: the tail starts after a pre-delay" + at);
+                check(dens > 0.85, "space reverb: the tail is dense 60 ms in (no separate, ringing echoes)" + at);
+                check(worstRise < 0.5, "space reverb: the tail never grows" + at);
+                check(t60 > 1.5 && t60 <= 6.5, "space reverb: the longest tail is down 60 dB within 6.5 s" + at);
+            }
+
+            // What the reverb it replaced did on the same measure, for the record (not a check).
+            {
+                juce::Reverb old;
+                old.setSampleRate(c_rate);
+                juce::Reverb::Parameters rp;
+                rp.roomSize = 0.95f; rp.damping = 0.35f; rp.wetLevel = 0.2f; rp.dryLevel = 0.0f; rp.width = 1.0f;
+                old.setParameters(rp);
+                const int n = static_cast<int>(c_rate);
+                std::vector<float> l(static_cast<size_t>(n), 0.0f), r(static_cast<size_t>(n), 0.0f);
+                for (int i = 0; i < 2000; ++i) old.processStereo(l.data(), r.data(), 32); // let its parameter glide finish
+                l[0] = 1.0f; r[0] = 1.0f;
+                old.processStereo(l.data(), r.data(), n);
+                int first = 0;
+                while (first < n - 1 && std::abs(l[static_cast<size_t>(first)]) < 1.0e-6f) ++first;
+                std::cout << "  (a comb-filter reverb on the same measure: first sound at " << 1000.0 * first / c_rate << " ms, density "
+                          << density(l, first + static_cast<int>(c_rate * 0.06), first + static_cast<int>(c_rate * 0.16)) << ")" << std::endl;
+            }
+
+            // Noise through it, the same on both sides (the worst case for width): left and right come out
+            // different (wide) but not opposed, so a mono fold-down keeps the reverb.
+            {
+                SpaceReverb rev;
+                rev.prepare(c_rate);
+                rev.setDecay(SpaceReverb::decaySecondsFor(1.0f));
+                const int n = static_cast<int>(c_rate * 6.0);
+                std::vector<float> l(static_cast<size_t>(n)), r(static_cast<size_t>(n));
+                juce::Random rnd(11);
+                for (int i = 0; i < n; ++i) l[static_cast<size_t>(i)] = r[static_cast<size_t>(i)] = rnd.nextFloat() * 2.0f - 1.0f;
+                rev.process(l.data(), r.data(), n, 0.0f, 0.0f, 1.0f, 1.0f);
+                double ll = 0.0, rr = 0.0, lr = 0.0;
+                for (int i = n / 3; i < n; ++i)
+                {
+                    ll += static_cast<double>(l[static_cast<size_t>(i)]) * l[static_cast<size_t>(i)];
+                    rr += static_cast<double>(r[static_cast<size_t>(i)]) * r[static_cast<size_t>(i)];
+                    lr += static_cast<double>(l[static_cast<size_t>(i)]) * r[static_cast<size_t>(i)];
+                }
+                const double corr = lr / std::sqrt(juce::jmax(1.0e-30, ll * rr));
+                std::cout << "  space reverb, mono noise in: left/right correlation of the wet " << corr << std::endl;
+                check(corr > -0.1 && corr < 0.6, "space reverb: wide, and the mono sum doesn't cancel");
+            }
+        }
+
+        // Space in the rig, at 44.1 to 192 kHz: a held hiss at Space 100% stays finite, more Space doesn't mean much
+        // more level (the dry is eased down as the wet comes up), and once the sound stops the echoes and the
+        // reverb die away steadily.
+        juce::AudioBuffer<float> spaceHiss(1, static_cast<int>(5.0 * c_rate));
+        {
+            juce::Random r(23);
+            for (int i = 0; i < spaceHiss.getNumSamples(); ++i)
+                spaceHiss.setSample(0, i, 0.3f * (r.nextFloat() * 2.0f - 1.0f));
+        }
+        CargoHold spaceHold;
+        spaceHold.loadFile(0, writeWav(folder, "rig_src_space_hiss", spaceHiss), err);
+        spaceHold.setRoleOverride(0, static_cast<int>(CargoRole::Tonal));
+        spaceHold.setSkipSilence(0, false);
+        for (const double rate : { 44100.0, 48000.0, 96000.0, 192000.0 })
+        {
+            auto render = [&](float space, juce::AudioBuffer<float>& o)
+            {
+                RigEngine e;
+                auto q = bare();
+                q.space = space;
+                e.setCargoHold(&spaceHold);
+                e.setParams(q);
+                e.prepare(rate, c_block);
+                e.setParams(q);
+                const int sec = static_cast<int>(rate) / c_block * c_block;
+                o.setSize(2, 16 * sec);
+                o.clear();
+                renderRig(e, o, 0, 5 * sec, c_block);
+                q.levels.fill(0.0f);
+                e.setParams(q);
+                renderRig(e, o, 5 * sec, 16 * sec, c_block);
+                return sec;
+            };
+            juce::AudioBuffer<float> dry, wet;
+            render(0.0f, dry);
+            const int sec = render(1.0f, wet);
+            bool finite = true;
+            for (int ch = 0; ch < 2; ++ch)
+                for (int i = 0; i < wet.getNumSamples(); ++i)
+                    finite = finite && std::isfinite(wet.getSample(ch, i));
+            auto level = [&](const juce::AudioBuffer<float>& o, int from, int len) { return std::sqrt(0.5 * (std::pow(o.getRMSLevel(0, from, len), 2.0) + std::pow(o.getRMSLevel(1, from, len), 2.0))); };
+            const double held = level(wet, 3 * sec, 2 * sec), heldDry = level(dry, 3 * sec, 2 * sec);
+            const double lift = 20.0 * std::log10(held / juce::jmax(1.0e-30, heldDry));
+            double worstRise = 0.0, t60 = -1.0, last = level(wet, 5 * sec, sec);
+            for (int k = 6; k < 16; ++k)
+            {
+                const double now = level(wet, k * sec, sec);
+                if (now > held * 1.0e-4)
+                    worstRise = juce::jmax(worstRise, 20.0 * std::log10(now / juce::jmax(1.0e-30, last)));
+                if (t60 < 0.0 && now < held * 1.0e-3)
+                    t60 = static_cast<double>(k - 5);
+                last = now;
+            }
+            std::cout << "  rig at " << rate << " Hz, held hiss, Space 100% against 0%: level " << lift << " dB, after the sound stops: -60 dB within "
+                      << t60 << " s, worst rise " << worstRise << " dB" << std::endl;
+            const juce::String at = " at " + juce::String(rate / 1000.0, 1) + " kHz";
+            check(finite, "space 100%: the rig's output is finite" + at);
+            check(lift < 3.0, "space 100%: a held sound is not much louder than with Space off" + at);
+            check(worstRise < 0.5 && t60 > 0.0 && t60 <= 10.0, "space 100%: echoes and reverb die away steadily once the sound stops" + at);
         }
 
         // The glides take the same time whatever the host's block size: a fader pulled down fades out as fast with
