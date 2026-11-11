@@ -62,6 +62,12 @@ namespace roar
      * Kb = 0.3, 3 ms / 250 ms. In stereo each channel runs its own curve and both share one
      * envelope per stage (the max), so the image never wanders.
      *
+     * Top octave: the stage sounds the same at every rate. Below 88.2 kHz a +4.5 dB high shelf at
+     * the 2x rate (corner 0.36 fs, right after the upsampler, so the curves' own products are not
+     * lifted with it) makes up for the two ADAA averages, and the output low-pass is designed to
+     * the magnitude its bilinear form has at 96 kHz, so 15-18 kHz at 44.1 / 48 kHz sit within
+     * about 0.5 dB of a 96 kHz session (0.8 dB at 18 kHz at 44.1 kHz).
+     *
      * Level: there is no output-measuring level follower. A static makeup gain (a function of
      * Drive and Tone only) keeps the loudness of a voice at the reference level within +-1.5 dB
      * across Drive, so louder input still comes out louder and denser.
@@ -121,7 +127,8 @@ namespace roar
             Biquad scoop;            // plate scoop bell 200 Hz
             Biquad trebleTop;        // 2nd-order treble shelf 12 kHz
             Biquad fixedTop;         // fixed top lift
-            TptOnePole outLp;
+            Biquad droop;            // below 88.2 kHz: high shelf at the 2x rate for the ADAA droop
+            Biquad outLp;            // output transformer: matched one-pole low-pass
             Biquad outHp;
             double bypass1 = 0.0, bypass2 = 0.0;   // previous Miller bypass samples (2-tap average)
         };
@@ -141,6 +148,7 @@ namespace roar
         static const AdaaTable& table();
 
         double m_fs = 48000.0, m_fs2 = 96000.0;
+        bool m_droopShelf = true;   // below 88.2 kHz
         OnFade m_fade;
         std::array<Channel, 2> m_ch;
 
