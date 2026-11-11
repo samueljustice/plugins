@@ -1870,7 +1870,7 @@ void SignalFlowStrip::paintOverChildren(juce::Graphics& g)
 void SignalFlowStrip::updateKnobUse(int module)
 {
     // Knobs the current settings do not use are dimmed (they still turn). Each case here is an exact
-    // null in the DSP (the module's output does not change with the knob), except the two marked weak.
+    // null in the DSP (the module's output does not change with the knob), except those marked weak.
     using Use = Tile::KnobUse;
     auto& tile = *m_tiles[static_cast<size_t>(module)];
     const auto unusedAtZero = [&](const char* amountId, std::initializer_list<const char*> knobs)
@@ -1895,7 +1895,14 @@ void SignalFlowStrip::updateKnobUse(int module)
         case Params::ModuleId::ensemble: unusedAtZero(Params::ensemble, { Params::ensembleWidth }); break;
         case Params::ModuleId::ring:     unusedAtZero(Params::ring, { Params::ringFreq, Params::ringRatio }); break;
         case Params::ModuleId::sub:      unusedAtZero(Params::sub, { Params::subDrive }); break;
-        case Params::ModuleId::overtone: unusedAtZero(Params::overtone, { Params::overtoneFreq }); break;
+        case Params::ModuleId::overtone:
+        {
+            // At Amount 0 nothing is generated. In Lean and Replace the low end still passes through
+            // the split that Freq moves, which turns its phase a little and nothing else (weak).
+            const bool add = juce::roundToInt(rawValue(Params::overtoneMode)) == 0;   // Add, Lean, Replace
+            tile.setKnobUse(Params::overtoneFreq, rawValue(Params::overtone) > 0.0f ? Use::full : add ? Use::none : Use::weak);
+            break;
+        }
         case Params::ModuleId::chamber:
         {
             // With no room blended in, Reson and Edge have nothing to work on (Width still decides

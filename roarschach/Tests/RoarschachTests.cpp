@@ -3560,6 +3560,32 @@ namespace
             check(is(alphaOf(Params::outAttack), lit), "OUTPUT Attack is lit with Auto off");
             setParam(*p, Params::outAuto, 1.0f);
 
+            // OVERTONE Freq at Amount 0: an exact null in Add (above); in Lean and Replace the low end
+            // still passes through the split it moves, so the samples change (the level barely does)
+            // and the knob is half-dimmed, not dimmed.
+            setParam(*p, Params::overtone, 0.0f);
+            for (const float mode : { 1.0f, 2.0f })
+            {
+                setParam(*p, Params::overtoneMode, mode);
+                check(is(alphaOf(Params::overtoneFreq), weak), "OVERTONE Freq is half-dimmed at Amount 0 outside Add");
+                const auto renderMode = [&](float freq)
+                {
+                    auto q = makeProcessor(sr, 512);
+                    allOn(*q);
+                    setParam(*q, Params::overtone, 0.0f);
+                    setParam(*q, Params::overtoneMode, mode);
+                    q->getValueTreeState().getParameter(Params::overtoneFreq)->setValueNotifyingHost(freq);
+                    restart(*q, sr, 512);
+                    return render(*q, voice, 512);
+                };
+                const auto low = renderMode(0.0f), high = renderMode(1.0f);
+                const double levelChange = std::abs(toDb(stats(high).rms) - toDb(stats(low).rms));
+                check(differ(low, high) > 1.0e-4 && levelChange < 1.5, "there Freq turns the phase of the low end and little else");
+            }
+            setParam(*p, Params::overtoneMode, 0.0f);
+            check(is(alphaOf(Params::overtoneFreq), unused), "OVERTONE Freq is dimmed at Amount 0 in Add");
+            setParam(*p, Params::overtone, 4.0f);
+
             // CHAMBER Width stays lit at Amount 0: it still decides where the chain turns stereo.
             setParam(*p, Params::chamber, 0.0f);
             check(is(alphaOf(Params::chamberWidth), lit), "CHAMBER Width stays lit at Amount 0");
