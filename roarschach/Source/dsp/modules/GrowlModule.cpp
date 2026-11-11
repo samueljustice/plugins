@@ -347,7 +347,7 @@ namespace roar
             // the hold runs out up to four times sooner as the confidence falls to zero, and hiss
             // with no periodicity left ends it at once, so a sibilant is not modulated.
             const bool voicedNow = frame.voiced && frame.f0Hz > 0.0f;
-            st.levelPeak = std::max (st.env, st.levelPeak * m_levelPeakDecay);
+            st.levelPeak = dsp::flushTiny (std::max (st.env, st.levelPeak * m_levelPeakDecay));
             {
                 // Hiss: the part above c_hissSplitHz against the part below it (5 / 30 ms followers).
                 const float mono = stereo ? 0.5f * (x0 + x1) : x0;

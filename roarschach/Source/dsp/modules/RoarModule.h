@@ -66,7 +66,7 @@ namespace roar
      * the 2x rate (corner 0.36 fs, right after the upsampler, so the curves' own products are not
      * lifted with it) makes up for the two ADAA averages, and the output low-pass is designed to
      * the magnitude its bilinear form has at 96 kHz, so 15-18 kHz at 44.1 / 48 kHz sit within
-     * about 0.5 dB of a 96 kHz session (0.8 dB at 18 kHz at 44.1 kHz).
+     * about 0.5 dB of a 96 kHz session (1 dB at 18 kHz at 44.1 kHz).
      *
      * Level: there is no output-measuring level follower. A static makeup gain (a function of
      * Drive and Tone only) keeps the loudness of a voice at the reference level within +-1.5 dB
