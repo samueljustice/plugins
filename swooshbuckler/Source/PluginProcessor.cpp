@@ -130,7 +130,7 @@ void SwooshbucklerAudioProcessor::prepareInternal()
 
     // Latency: the engine and the limiter (in device samples), and when rendering high, the input the
     // downsampler needs ahead of its output plus the monitor limiter's look-ahead.
-    double latency = (m_engine.getLatencySamples() + m_master.getLatencySamples()) / ratio;
+    double latency = (static_cast<double>(m_engine.getLatencySamples()) + m_master.getLatencySamples()) / ratio;
     if (ratio > 1.0)
     {
         m_down.prepare(ratio, 2);
