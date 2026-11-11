@@ -23,10 +23,16 @@ namespace
     constexpr int c_footerHeight = 16;
     constexpr int c_chipHeight = 18;
     constexpr int c_pad = 8;
-    constexpr int c_captionHeight = 12;
+    constexpr int c_captionHeight = 13;
     constexpr float c_radius = 8.0f;
-    constexpr float c_offAlpha = 0.45f;
+    constexpr float c_offAlpha = 0.45f;       // an Off tile, and a knob the current settings do not use
+    constexpr float c_weakAlpha = 0.7f;       // a knob that does little at the current settings
     constexpr float c_tileValueFont = 11.0f;
+    // Type sizes (design px; the window opens at 80-100 % of them). Captions are 11 where the tile
+    // has the room and never under c_minCaptionFont; the small readout labels are 10.
+    constexpr float c_captionFont = 11.0f, c_minCaptionFont = 9.0f;
+    constexpr float c_smallFont = 10.0f;
+    constexpr float c_chamberEdgeFrom = 60.0f;   // CHAMBER Amount (%) from which Edge is clearly heard
     constexpr int c_diceSize = 18;    // a module's die (its pill, as large as the On button), at the right end of its chip row
     constexpr int c_diceHit = 22;     // ... and its clickable area, a little larger than the pill
     constexpr int c_diceGap = 6;      // between the mode chip and the die's pill
@@ -101,8 +107,8 @@ namespace
         { Params::outPush, "PUSH", "Drives the voice into the ceiling. Push 8-12 is clean and dense; for loud, Push 14-18 with Clip 6-9. The peaks never pass the ceiling." },
         { Params::outCeiling, "CEILING", "The highest level the output can reach, true-peak safe. It sets the output level only: Push decides how hard the limiter works." },
         { Params::outClip, "CLIP", "How many dB of each peak above the ceiling are clipped instead of limited. Raise Push to drive into it." },
-        { Params::outClipShape, "SHAPE", "Clip shape. Soft rounds the peaks gently; Hard clips them flat, which is brighter and more aggressive." },
-        { Params::outAttack, "ATTACK", "How early the limiter starts turning down before a peak. With Auto off and a short Release, 0.3-3 ms crunches the low end." },
+        { Params::outClipShape, "SHAPE", "Clip shape. Soft rounds the peaks gently; Hard clips them flat, which is brighter and more aggressive. It needs Clip above 0." },
+        { Params::outAttack, "ATTACK", "How early the limiter starts turning down before a peak. With Auto off and a short Release, 0.3-3 ms crunches the low end. With Auto on it changes little." },
         { Params::outRelease, "RELEASE", "How fast the limiter recovers. With Auto off: 2-10 ms crunch, 25-60 ms grit, 200 ms and up clean." },
         { Params::outAuto, "AUTO", "Auto release: adapts the recovery to the material and keeps the low end clean. Release sets how quickly it breathes." },
         { Params::mix, "MIX", "Blends the processed voice with the dry voice at the same loudness, so only the character changes." },
@@ -226,7 +232,7 @@ namespace
         const float x0 = r.getCentreX(), x1 = x0 + v * half;
         g.setColour(colour);
         g.fillRect(juce::Rectangle<float>(std::min(x0, x1), r.getY(), std::max(1.0f, std::abs(x1 - x0)), r.getHeight()));
-        g.setColour(textFaint);
+        g.setColour(mark);
         g.fillRect(juce::Rectangle<float>(x0 - 0.5f, r.getY() - 1.5f, 1.0f, r.getHeight() + 3.0f));
     }
 }
@@ -335,12 +341,12 @@ public:
         slider.setColour(juce::Slider::textBoxOutlineColourId, juce::Colours::transparentBlack);
 
         knob->caption.setText(captionFor(id), juce::dontSendNotification);
-        knob->caption.setFont(m_owner.m_fonts.label(9.0f));
+        knob->caption.setFont(m_owner.m_fonts.label(c_captionFont));
         knob->caption.setJustificationType(juce::Justification::centred);
         knob->caption.setColour(juce::Label::textColourId, textDim);
         knob->caption.setInterceptsMouseClicks(false, false);
         knob->caption.setMinimumHorizontalScale(1.0f);
-        knob->caption.setBorderSize({ 1, 0, 1, 0 });
+        knob->caption.setBorderSize({ 0, 0, 0, 0 });
         addAndMakeVisible(knob->caption);
 
         m_knobs.push_back(std::move(knob));
@@ -351,6 +357,75 @@ public:
     {
         knob.caption.setBounds(cell.removeFromTop(c_captionHeight));
         knob.slider.setBounds(cell);
+    }
+
+    /** After the knobs are placed: one caption size for the tile, the largest (up to c_captionFont)
+        at which every caption, centred over its knob, clears the captions beside it and the sides of the tile. A
+        caption may be wider than its knob's cell (CHAMBER's four knobs are narrower than their words). */
+    void fitCaptions()
+    {
+        const auto widthAt = [this](const Knob& knob, float height)
+        {
+            return juce::GlyphArrangement::getStringWidth(m_owner.m_fonts.label(height), knob.caption.getText()) + 2.0f;
+        };
+        const auto fits = [&](float height)
+        {
+            for (const auto& a : m_knobs)
+            {
+                const float ca = static_cast<float>(a->slider.getBounds().getCentreX()), wa = widthAt(*a, height);
+                if (ca - wa * 0.5f < 2.0f || ca + wa * 0.5f > static_cast<float>(getWidth()) - 2.0f)
+                    return false;
+                for (const auto& b : m_knobs)
+                {
+                    // (two knobs in one place, RING's Freq and Ratio, never show together)
+                    const float cb = static_cast<float>(b->slider.getBounds().getCentreX());
+                    const bool sameRow = a->slider.getY() == b->slider.getY();
+                    if (sameRow && cb > ca + 0.5f && ca + wa * 0.5f + 3.0f > cb - widthAt(*b, height) * 0.5f)
+                        return false;
+                }
+            }
+            return true;
+        };
+
+        float height = c_captionFont;
+        while (height > c_minCaptionFont && !fits(height))
+            height -= 0.25f;
+
+        for (auto& knob : m_knobs)
+        {
+            const int w = static_cast<int>(std::ceil(widthAt(*knob, height))) + 2;
+            knob->caption.setFont(m_owner.m_fonts.label(height));
+            knob->caption.setBounds(knob->slider.getBounds().getCentreX() - w / 2, knob->caption.getY(), w, c_captionHeight);
+        }
+    }
+
+    /** How much the current settings use a knob: fully, a little (it is half-dimmed), not at all
+        (dimmed like an Off tile). A dimmed knob still turns. */
+    enum class KnobUse { full, weak, none };
+
+    void setKnobUse(const char* paramId, KnobUse use)
+    {
+        for (size_t k = 0; k < m_knobs.size() && k < m_knobUse.size(); ++k)
+            if (std::string_view(m_knobs[k]->paramId) == paramId && m_knobUse[k] != use)
+            {
+                m_knobUse[k] = use;
+                applyAlpha();
+            }
+    }
+
+    /** The tile's own alpha (an Off module tile is dimmed as a whole). */
+    virtual float tileAlpha() const { return 1.0f; }
+
+    virtual void applyAlpha()
+    {
+        const float alpha = tileAlpha();
+        for (size_t i = 0; i < m_knobs.size(); ++i)
+        {
+            const auto use = i < m_knobUse.size() ? m_knobUse[i] : KnobUse::full;
+            const float a = std::min(alpha, use == KnobUse::none ? c_offAlpha : use == KnobUse::weak ? c_weakAlpha : 1.0f);
+            m_knobs[i]->slider.setAlpha(a);
+            m_knobs[i]->caption.setAlpha(a);
+        }
     }
 
     void paintPanel(juce::Graphics& g, bool lifted, float titleAlpha, bool dot)
@@ -380,6 +455,7 @@ public:
     const juce::String m_title;
     const juce::Colour m_accent;
     std::vector<std::unique_ptr<Knob>> m_knobs;
+    std::array<KnobUse, 8> m_knobUse {};
 };
 
 //==============================================================================
@@ -503,26 +579,13 @@ public:
         repaint();
     }
 
-    /** Dims knob k while the current settings do not use it (Growl Rate with the Throat shape). */
-    void setKnobDimmed(size_t k, bool dimmed)
-    {
-        if (k >= m_knobDimmed.size() || m_knobDimmed[k] == dimmed)
-            return;
-        m_knobDimmed[k] = dimmed;
-        applyAlpha();
-    }
+    float tileAlpha() const override { return m_on ? 1.0f : c_offAlpha; }
 
-    void applyAlpha()
+    void applyAlpha() override
     {
-        const float alpha = m_on ? 1.0f : c_offAlpha;
-        for (size_t i = 0; i < m_knobs.size(); ++i)
-        {
-            const float a = i < m_knobDimmed.size() && m_knobDimmed[i] ? c_offAlpha : alpha;
-            m_knobs[i]->slider.setAlpha(a);
-            m_knobs[i]->caption.setAlpha(a);
-        }
-        m_modeChip.setAlpha(alpha);
-        m_dice.setAlpha(alpha);   // still clickable, like the chip
+        Tile::applyAlpha();
+        m_modeChip.setAlpha(tileAlpha());
+        m_dice.setAlpha(tileAlpha());   // still clickable, like the chip
     }
 
     void setSlot(int slot)
@@ -555,6 +618,12 @@ public:
 
     void resized() override
     {
+        layoutControls();
+        fitCaptions();
+    }
+
+    void layoutControls()
+    {
         auto header = getLocalBounds().removeFromTop(c_headerHeight);
         m_onButton.setBounds(header.withX(7).withWidth(18).withSizeKeepingCentre(18, 18).withX(7));
         m_moveChip.setBounds(header.withTrimmedRight(c_pad).removeFromRight(26).withSizeKeepingCentre(26, 16));
@@ -578,15 +647,6 @@ public:
             const int w = body.getWidth() / 4;
             for (int k = 0; k < 4; ++k)
                 placeKnob(*m_knobs[static_cast<size_t>(k)], k < 3 ? body.removeFromLeft(w) : body);
-            // The narrower cells take a smaller caption where the full word would not fit.
-            for (auto& knob : m_knobs)
-            {
-                float height = 9.0f;
-                while (height > 7.5f && juce::GlyphArrangement::getStringWidth(m_owner.m_fonts.label(height), knob->caption.getText())
-                                            > static_cast<float>(knob->caption.getWidth()) - 1.0f)
-                    height -= 0.25f;
-                knob->caption.setFont(m_owner.m_fonts.label(height));
-            }
             return;
         }
 
@@ -614,18 +674,18 @@ public:
         paintPanel(g, m_lifted, 1.0f, false);
 
         auto header = getLocalBounds().removeFromTop(c_headerHeight).withTrimmedLeft(29).withTrimmedRight(c_pad + 30).toFloat();
-        g.setFont(m_owner.m_fonts.label(9.5f));
+        g.setFont(m_owner.m_fonts.label(c_smallFont));
         g.setColour(textFaint);
         g.drawText(juce::String(m_slot + 1).paddedLeft('0', 2), header.removeFromLeft(18.0f), juce::Justification::centredLeft, false);
         header.removeFromLeft(2.0f);
-        g.setFont(m_owner.m_fonts.heading(10.5f));
+        g.setFont(m_owner.m_fonts.heading(11.0f));
         g.setColour(m_on ? m_accent : textDim);
         g.drawText(m_title, header, juce::Justification::centredLeft, false);
 
         if (m_spec.chipIds[0] == nullptr)
         {
             // No modes: a quiet note where the chip would be, so the tiles line up.
-            g.setFont(m_owner.m_fonts.label(8.5f));
+            g.setFont(m_owner.m_fonts.label(c_smallFont));
             g.setColour(textFaint.withMultipliedAlpha(m_on ? 1.0f : c_offAlpha));
             g.drawText("NO MODES", chipBounds().toFloat(), juce::Justification::centred, false);
         }
@@ -635,8 +695,8 @@ public:
 
     void paintFooter(juce::Graphics& g, juce::Rectangle<float> area)
     {
-        const auto captionFont = m_owner.m_fonts.label(8.5f);
-        const auto valueFont = m_owner.m_fonts.body(9.5f);
+        const auto captionFont = m_owner.m_fonts.label(c_smallFont);
+        const auto valueFont = m_owner.m_fonts.body(c_smallFont);
         const auto& v = m_values;
 
         if (!m_on)
@@ -880,7 +940,6 @@ public:
     const Params::ModuleSpec& m_spec;
     int m_slot = -1;
     bool m_on = true, m_lifted = false, m_pressInHeader = false;
-    std::array<bool, 4> m_knobDimmed {};
     juce::String m_dragTip, m_footerTip;
     float m_blinkPhase = 0.0f;
 
@@ -919,6 +978,7 @@ public:
     {
         placeKnob(*m_knobs[0], { 6, c_headerHeight + 6, getWidth() - 12, c_captionHeight + 92 });
         m_auto.setBounds(juce::Rectangle<int>(getWidth() / 2 - 32, c_headerHeight + 6 + c_captionHeight + 92 + 6, 64, 22));
+        fitCaptions();
     }
 
     void paint(juce::Graphics& g) override
@@ -927,7 +987,7 @@ public:
 
         // Input meter, -48..0 dBFS, with a scale on its left.
         const auto m = meterBounds();
-        g.setFont(m_owner.m_fonts.label(8.0f));
+        g.setFont(m_owner.m_fonts.label(c_smallFont));
         for (const int db : { 0, -12, -24, -36, -48 })
         {
             const float y = m.getY() + m.getHeight() * static_cast<float>(-db) / 48.0f;
@@ -950,7 +1010,7 @@ public:
         auto f0 = juce::Rectangle<float>(10.0f, static_cast<float>(getHeight()) - 46.0f, static_cast<float>(getWidth()) - 20.0f, 36.0f);
         g.setColour(outlineSoft);
         g.fillRect(f0.removeFromTop(1.0f));
-        g.setFont(m_owner.m_fonts.label(8.5f));
+        g.setFont(m_owner.m_fonts.label(c_smallFont));
         g.setColour(textFaint);
         g.drawText("PITCH", f0.removeFromTop(16.0f), juce::Justification::centredLeft, false);
         g.setFont(m_owner.m_fonts.body(12.0f));
@@ -1018,6 +1078,7 @@ public:
         placeKnob(*m_knobs[6], { knobs.getX() + 3 * w, y2, w, c_rowHeight });
         const int knobCentreY = y2 + c_captionHeight + (c_rowHeight - c_captionHeight - 20) / 2;
         m_auto.setBounds(juce::Rectangle<int>(knobs.getX() + 2 * w + (w - 54) / 2, knobCentreY - 11, 54, 22));
+        fitCaptions();
     }
 
     void paint(juce::Graphics& g) override
@@ -1028,8 +1089,8 @@ public:
         g.setColour(outlineSoft);
         g.fillRect(juce::Rectangle<float>(12.0f, area.getY() - 8.0f, static_cast<float>(getWidth()) - 24.0f, 1.0f));
 
-        const auto captionFont = m_owner.m_fonts.label(8.5f);
-        const auto valueFont = m_owner.m_fonts.body(10.0f);
+        const auto captionFont = m_owner.m_fonts.label(c_smallFont);
+        const auto valueFont = m_owner.m_fonts.body(10.5f);
         const auto row = [&](const juce::String& caption, const juce::String& value, juce::Colour valueColour)
         {
             auto r = area.removeFromTop(24.0f);
@@ -1119,7 +1180,7 @@ SignalFlowStrip::SignalFlowStrip(juce::AudioProcessorValueTreeState& parameters,
     m_rollAll->onUndoKey = [this](bool redo) { return onDiceUndoKey != nullptr && onDiceUndoKey(redo); };
     // The caption is part of the button: it clicks, hovers and shows the tooltip with the die.
     m_rollAll->setPillSize(c_rollAllSize);
-    m_rollAll->setCaption(c_rollAllCaption, m_fonts.label(9.0f), c_captionHeight);
+    m_rollAll->setCaption(c_rollAllCaption, m_fonts.label(c_smallFont), c_captionHeight);
     addAndMakeVisible(*m_rollAll);
 
     for (int m = 0; m < Params::numModules; ++m)
@@ -1509,7 +1570,7 @@ void SignalFlowStrip::resized()
     {
         // The empty slot after the last module: the die above the wire into OUTPUT, its caption under it.
         const auto slot = getSlotBounds(Params::numModules);
-        const int captionWidth = juce::roundToInt(std::ceil(juce::GlyphArrangement::getStringWidth(m_fonts.label(9.0f), c_rollAllCaption))) + 8;
+        const int captionWidth = juce::roundToInt(std::ceil(juce::GlyphArrangement::getStringWidth(m_fonts.label(c_smallFont), c_rollAllCaption))) + 8;
         const int width = std::max(c_rollAllSize, captionWidth);
         m_rollAll->setBounds(slot.getCentreX() - width / 2, slot.getY() + 22, width,
                              c_rollAllSize + DiceButton::c_captionGap + c_captionHeight);
@@ -1726,15 +1787,15 @@ void SignalFlowStrip::paint(juce::Graphics& g)
     // While a tile is held the chevrons give way to the drop markers (below).
     if (!isDragging())
     {
-        chevron({ first.getX() - halfEnd + 1.0f, first.getCentreY() }, textFaint);
-        chevron({ rowStart.getX() - halfEnd + 4.0f, rowStart.getCentreY() }, textFaint);
-        chevron({ last.getRight() + halfEnd, last.getCentreY() }, textFaint);
+        chevron({ first.getX() - halfEnd + 1.0f, first.getCentreY() }, mark);
+        chevron({ rowStart.getX() - halfEnd + 4.0f, rowStart.getCentreY() }, mark);
+        chevron({ last.getRight() + halfEnd, last.getCentreY() }, mark);
         for (int k = 0; k + 1 < Params::numModules; ++k)
         {
             if (k % c_columns == c_columns - 1)
                 continue;
             const auto r = getSlotBounds(k).toFloat();
-            chevron({ r.getRight() + static_cast<float>(c_gap) * 0.5f, r.getCentreY() }, textFaint);
+            chevron({ r.getRight() + static_cast<float>(c_gap) * 0.5f, r.getCentreY() }, mark);
         }
     }
 
@@ -1751,7 +1812,7 @@ void SignalFlowStrip::paint(juce::Graphics& g)
             const float half = (rowEdge ? static_cast<float>(c_endGap) : static_cast<float>(c_gap)) * 0.5f;
             const float x = before ? r.getX() - half : r.getRight() + half;
             const auto tick = juce::Rectangle<float>(lit ? 3.0f : 2.0f, r.getHeight() * 0.56f).withCentre({ x, r.getCentreY() });
-            g.setColour(lit ? accent.withAlpha(0.9f) : textFaint.withAlpha(0.55f));
+            g.setColour(lit ? accent.withAlpha(0.9f) : mark.withAlpha(0.55f));
             g.fillRoundedRectangle(tick, 1.0f);
         };
         for (int k = 0; k < Params::numModules; ++k)
@@ -1806,6 +1867,57 @@ void SignalFlowStrip::paintOverChildren(juce::Graphics& g)
 }
 
 //==============================================================================
+void SignalFlowStrip::updateKnobUse(int module)
+{
+    // Knobs the current settings do not use are dimmed (they still turn). Each case here is an exact
+    // null in the DSP (the module's output does not change with the knob), except the two marked weak.
+    using Use = Tile::KnobUse;
+    auto& tile = *m_tiles[static_cast<size_t>(module)];
+    const auto unusedAtZero = [&](const char* amountId, std::initializer_list<const char*> knobs)
+    {
+        const auto use = rawValue(amountId) <= 0.0f ? Use::none : Use::full;
+        for (const char* id : knobs)
+            tile.setKnobUse(id, use);
+        return use;
+    };
+
+    switch (static_cast<Params::ModuleId>(module))
+    {
+        case Params::ModuleId::growl:
+        {
+            // Throat follows the voice, so Rate is not used; at Depth 0 nothing is chopped.
+            const bool throat = juce::roundToInt(rawValue(Params::growlShape)) == static_cast<int>(Params::GrowlShape::throat);
+            tile.setKnobUse(Params::growlRate, throat || rawValue(Params::growl) <= 0.0f ? Use::none : Use::full);
+            break;
+        }
+        case Params::ModuleId::shimmer:  unusedAtZero(Params::shimmer, { Params::shimmerRate }); break;
+        case Params::ModuleId::swirl:    unusedAtZero(Params::swirl, { Params::swirlRate }); break;
+        case Params::ModuleId::ensemble: unusedAtZero(Params::ensemble, { Params::ensembleWidth }); break;
+        case Params::ModuleId::ring:     unusedAtZero(Params::ring, { Params::ringFreq, Params::ringRatio }); break;
+        case Params::ModuleId::sub:      unusedAtZero(Params::sub, { Params::subDrive }); break;
+        case Params::ModuleId::overtone: unusedAtZero(Params::overtone, { Params::overtoneFreq }); break;
+        case Params::ModuleId::chamber:
+        {
+            // With no room blended in, Reson and Edge have nothing to work on (Width still decides
+            // where the chain turns stereo, so it stays lit). Edge is the speaker's breakup inside the
+            // room's share, so it does little until Amount is high (weak).
+            const auto use = unusedAtZero(Params::chamber, { Params::chamberResonance });
+            tile.setKnobUse(Params::chamberDrive, use == Use::none ? Use::none
+                                                 : rawValue(Params::chamber) < c_chamberEdgeFrom ? Use::weak : Use::full);
+            break;
+        }
+        case Params::ModuleId::pitch:
+        case Params::ModuleId::clean:
+        case Params::ModuleId::deess:
+        case Params::ModuleId::detail:
+        case Params::ModuleId::vocoder:
+        case Params::ModuleId::roar:
+        case Params::ModuleId::tame:
+            break;
+    }
+}
+
+//==============================================================================
 void SignalFlowStrip::timerCallback()
 {
     const double now = juce::Time::getMillisecondCounterHiRes();
@@ -1835,8 +1947,7 @@ void SignalFlowStrip::timerCallback()
     {
         auto& tile = *m_tiles[static_cast<size_t>(m)];
         tile.setOn(isModuleOn(m));
-        if (m == static_cast<int>(Params::ModuleId::growl))   // Throat follows the voice: Rate is not used
-            tile.setKnobDimmed(1, juce::roundToInt(rawValue(Params::growlShape)) == static_cast<int>(Params::GrowlShape::throat));
+        updateKnobUse(m);
 
         if (tile.m_modeChip.isVisible())
         {
@@ -1899,6 +2010,10 @@ void SignalFlowStrip::timerCallback()
         }
         tile.setValues(v);
     }
+
+    // OUTPUT: Shape shapes the clipper, which is out at Clip 0; with Auto on, Attack changes little.
+    m_outTile->setKnobUse(Params::outClipShape, rawValue(Params::outClip) <= 0.0f ? Tile::KnobUse::none : Tile::KnobUse::full);
+    m_outTile->setKnobUse(Params::outAttack, rawValue(Params::outAuto) >= 0.5f ? Tile::KnobUse::weak : Tile::KnobUse::full);
 
     const float f0 = load(f.f0Hz);
     m_inTile->update(juce::jlimit(0.0f, 4.0f, load(f.inputLevel)), load(f.voiced) > 0.5f && f0 > 0.0f && f0 < 20000.0f ? f0 : 0.0f);
