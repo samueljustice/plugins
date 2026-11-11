@@ -3453,6 +3453,20 @@ namespace
                     smallLicence += c->getHeight() < 120 ? 1 : 0;
             }
             check(children >= 5 && outside == 0 && smallLicence == 0, "the About window's parts fit inside it with the quick start added");
+
+            // On a short display the window is shorter (it must fit under a title bar) and the licence gives up the height.
+            check(AboutWindow::heightForDisplay(1040) == AboutWindow::c_height && AboutWindow::heightForDisplay(0) == AboutWindow::c_height
+                      && AboutWindow::heightForDisplay(728) == 668 && AboutWindow::heightForDisplay(500) == AboutWindow::c_minHeight,
+                  "the About window is as tall as a short display allows");
+            about->setSize(AboutWindow::c_width, AboutWindow::c_minHeight);
+            int outsideShort = 0, licenceShort = 0;
+            for (auto* c : about->getChildren())
+            {
+                outsideShort += about->getLocalBounds().contains(c->getBounds()) ? 0 : 1;
+                if (dynamic_cast<juce::TextEditor*>(c) != nullptr)
+                    licenceShort = c->getHeight();
+            }
+            check(outsideShort == 0 && licenceShort >= 70, "at its shortest the About window still shows every part, with " + juce::String(licenceShort) + " px of licence");
             about.reset();
         }
 

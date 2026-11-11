@@ -26,6 +26,10 @@ public:
     ~AboutWindow() override;
 
     static constexpr int c_width = 500, c_height = 760;
+    static constexpr int c_minHeight = 650, c_titleBarReserve = 60;
+    /** The content's height on a display with this work area: c_height where it fits under a title
+        bar, less on a short display (never under c_minHeight). */
+    static int heightForDisplay(int workAreaHeight) noexcept;
 
     /** The quick start: five short lines, first step first. */
     static juce::StringArray quickStartLines();

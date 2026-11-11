@@ -48,7 +48,10 @@ AboutWindow::AboutWindow(RoarschachLookAndFeel& editorLookAndFeel, std::function
     setUsingNativeTitleBar(true);
     setContentNonOwned(&m_content, false);
 
-    centreWithSize(c_width, c_height);
+    int height = c_height;
+    if (const auto* display = juce::Desktop::getInstance().getDisplays().getPrimaryDisplay())
+        height = heightForDisplay(display->userArea.getHeight());
+    centreWithSize(c_width, height);
     setVisible(true);
     setResizable(false, false);
     setAlwaysOnTop(true);
@@ -60,6 +63,12 @@ AboutWindow::~AboutWindow()
     m_content.stopUpdateCheck(); // aborts a request in flight and joins its thread
     clearContentComponent();
     setLookAndFeel(nullptr);
+}
+
+int AboutWindow::heightForDisplay(int workAreaHeight) noexcept
+{
+    // Room for the title bar. On a short display the licence panel gives up the height (it scrolls).
+    return workAreaHeight > 0 ? juce::jlimit(c_minHeight, c_height, workAreaHeight - c_titleBarReserve) : c_height;
 }
 
 juce::StringArray AboutWindow::quickStartLines()
@@ -397,8 +406,8 @@ void AboutWindow::AboutContent::paint(juce::Graphics& g)
                 g.fillRect(juce::Rectangle<float>(left, y, static_cast<float>(m_quickStartPanel.getRight() - 12) - left, 1.0f));
                 y += 3.0f + static_cast<float>(c_quickLineGap);
             }
-            const float x = i < steps ? left + static_cast<float>(c_quickNumberWidth) : left;
-            layout.draw(g, juce::Rectangle<float>(x, y, layout.getWidth(), layout.getHeight()));
+            const float textLeft = i < steps ? left + static_cast<float>(c_quickNumberWidth) : left;
+            layout.draw(g, juce::Rectangle<float>(textLeft, y, layout.getWidth(), layout.getHeight()));
             y += layout.getHeight() + static_cast<float>(c_quickLineGap);
         }
     }
