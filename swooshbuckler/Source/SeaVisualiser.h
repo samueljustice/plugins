@@ -12,8 +12,7 @@
  * The 3D view: the output spectrum rolls away from the camera as a moonlit sea
  * (a perspective waterfall, drawn back to front so near waves hide far ones),
  * and every doppler pass is a cannonball arcing across with a trail and a
- * reflection. When the sea is calm the Sweet Justice logo traces itself in the sky. When the ship is quiet the Sweet Justice logo traces itself in
- * the sky. Click anywhere to fire a whoosh.
+ * reflection. When the ship is quiet the logo traces itself in the sky. Click anywhere to fire a whoosh.
  *
  * Rendered with juce::Graphics; the editor attaches an OpenGLContext so it is
  * composited on the GPU.

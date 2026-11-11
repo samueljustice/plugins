@@ -55,7 +55,11 @@ public:
     const ScopeRing& getOutputScope() const { return m_outRing; }
 
     /** Fire a whoosh from the UI (any thread). */
-    /** Transport. The rig opens stopped; stopping fades out over 60 ms and then the engine rests. Any thread. */
+    /** Transport. The rig opens stopped. Stop lets go of the sources and lets the echoes and Space ring out, into
+        what you hear and into the tape, until they have fallen under c_tailFloorDb or c_tailMaxSeconds have passed;
+        then a quarter-second fade and the engine rests. Any thread. */
+    static constexpr float c_tailFloorDb = -70.0f;
+    static constexpr double c_tailMaxSeconds = 6.0;
     void setPlaying(bool on) { if (on && ! m_playing.load()) m_restartPending.store(true); m_playing.store(on); }
     bool isPlaying() const { return m_playing.load(); }
     /** New session: stops, empties every track and puts every parameter back to its default. Message thread. */
@@ -68,9 +72,8 @@ public:
     bool startRecording(juce::String& error);
     void stopRecording();
     bool isRecording() const { return m_recorder.isRecording(); }
-    /** Arm: a take is open and writes whenever there is sound (silence is skipped). */
+    /** Arm: a take is open. With Skip Silence it writes whenever there is sound; without, all the time. */
     bool arm(juce::String& error);
-    bool isArmed() const { return m_recorder.isRecording() && m_recorder.getSignalGate(); }
     bool isCapturing() const { return m_recorder.isCapturing(); }
     double getRecordedSeconds() const { return m_recorder.getRecordedSeconds(); }
     juce::File getLastRecording() const { return m_recorder.getLastFile(); }
@@ -96,6 +99,14 @@ public:
     void setMono(bool mono);
     bool getAutoRecord() const;
     void setAutoRecord(bool on);
+    /** Skip Silence (on unless switched off): the tape leaves the quiet stretches out. Off: one continuous take. */
+    bool getSkipSilence() const;
+    void setSkipSilence(bool on);
+
+    /** The settings file to use instead of opening our own: the standalone app shares its file (two objects on
+        one file would overwrite each other's values), and tests point it at a scratch file. Not owned; set it
+        before the processor is made and clear it after the processor is gone. Message thread. */
+    static void useSettings(juce::PropertiesFile* shared) { s_sharedSettings = shared; }
 
     // Metering / visuals -------------------------------------------------------
     float getGainReductionDb() const { return m_master.getGainReductionDb(); }
@@ -160,8 +171,14 @@ private:
     juce::SmoothedValue<float, juce::ValueSmoothingTypes::Multiplicative> m_trimGain { 1.0f }; // Master Trim, device rate
     int m_midiNotesHeld = 0;
     MasterProcessor m_master;
+    // Stop: the tail rings out (render-rate samples; audio thread)
+    std::int64_t m_tailElapsed = 0, m_tailQuiet = 0;
+    bool m_tailDone = false;
+    int m_drainLeft = 0; // device samples still to run after the fade, so the downsampler and limiters empty
     TapeRecorder m_recorder;
-    std::unique_ptr<juce::PropertiesFile> m_settings;
+    static juce::PropertiesFile* s_sharedSettings;
+    std::unique_ptr<juce::PropertiesFile> m_ownSettings;
+    juce::PropertiesFile* m_settings = nullptr;
 
     juce::AudioBuffer<float> m_work;
     double m_deviceRate = 0.0, m_renderRate = 48000.0;

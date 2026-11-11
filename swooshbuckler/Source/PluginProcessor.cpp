@@ -80,7 +80,13 @@ SwooshbucklerAudioProcessor::SwooshbucklerAudioProcessor()
 
 
     m_engine.setCargoHold(&m_cargo);
-    m_settings = openSettings();
+    if (s_sharedSettings != nullptr)
+        m_settings = s_sharedSettings;
+    else
+    {
+        m_ownSettings = openSettings();
+        m_settings = m_ownSettings.get();
+    }
     startTimerHz(4);
 }
 
@@ -144,11 +150,48 @@ void SwooshbucklerAudioProcessor::prepareInternal()
 
 void SwooshbucklerAudioProcessor::renderAtRenderRate(const float* inL, const float* inR, float* l, float* r, int n)
 {
+    const bool playing = m_playing.load();
+    m_engine.setReleased(! playing); // Stop: the sources let go, the echoes and Space ring out
     m_engine.process(inL, inR, l, r, n);
 
     // Inflate, then Push (drive into the limiter; the ceiling stays put), then the limiter.
     float* chans[2] = { l, r };
     m_master.process(chans, 2, n);
+
+    // Transport, ahead of the tape so a take starts and ends as cleanly as what you hear. Stopped, the tail rings
+    // until it has stayed under the floor for 100 ms (not before the sources have gone) or the time is up.
+    float target = 1.0f;
+    if (playing)
+    {
+        m_tailElapsed = m_tailQuiet = 0;
+        m_tailDone = false;
+    }
+    else if (! m_tailDone)
+    {
+        float peak = 0.0f;
+        for (int i = 0; i < n; ++i)
+            peak = juce::jmax(peak, std::abs(l[i]), std::abs(r[i]));
+        m_tailElapsed += n;
+        m_tailQuiet = peak < juce::Decibels::decibelsToGain(c_tailFloorDb) ? m_tailQuiet + n : 0;
+        m_tailDone = static_cast<double>(m_tailElapsed) > c_tailMaxSeconds * m_renderRate
+                  || (static_cast<double>(m_tailElapsed) > 0.15 * m_renderRate && static_cast<double>(m_tailQuiet) > 0.1 * m_renderRate);
+    }
+    if (m_tailDone)
+        target = 0.0f;
+    m_recorder.setGateHold(! playing && ! m_tailDone); // Skip Silence doesn't cut the tail short
+    if (m_transportGain != target || target < 1.0f)
+    {
+        // Up in 60 ms. Down in 250 ms: usually the tail is already inaudible, but one that outlasts the time
+        // limit is faded rather than chopped.
+        const float step = static_cast<float>(1.0 / ((target > 0.0f ? 0.06 : 0.25) * juce::jmax(1.0, m_renderRate)));
+        for (int i = 0; i < n; ++i)
+        {
+            m_transportGain = target > m_transportGain ? juce::jmin(target, m_transportGain + step)
+                                                       : juce::jmax(target, m_transportGain - step);
+            l[i] *= m_transportGain;
+            r[i] *= m_transportGain;
+        }
+    }
     m_recorder.process(chans, 2, n); // the tape gets the full-rate signal
 }
 
@@ -308,9 +351,13 @@ void SwooshbucklerAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
     if (n == 0)
         return;
 
-    // Stopped: fade out, then rest (the engine isn't run, so nothing starts blasting when the app opens).
+    // Stopped and rung out: rest (the engine isn't run, so nothing starts blasting when the app opens).
     const bool playing = m_playing.load();
-    if (! playing && m_transportGain <= 0.0f)
+    if (playing || m_transportGain > 0.0f)
+        m_drainLeft = getLatencySamples() + 64;
+    else if (m_drainLeft > 0)
+        m_drainLeft -= n;
+    if (! playing && m_transportGain <= 0.0f && m_drainLeft <= 0)
     {
         // Keep the modulator scopes, knob dots and pulled-wire glides moving while stopped (the output is silent).
         m_followerLevels = {};
@@ -392,21 +439,15 @@ void SwooshbucklerAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
             m_monitorLimiter.process(out, 2, len);
         }
 
-        // Transport fade, and Master Trim (what you hear; the tape above already has the full-level signal).
+        // Master Trim (what you hear; the tape above already has the full-level signal).
         double preTrimSquares = 0.0;
         float preTrimPeak = 0.0f;
         {
-            const float step = static_cast<float>(1.0 / (0.06 * juce::jmax(1.0, m_deviceRate)));
-            const float target = m_playing.load() ? 1.0f : 0.0f;
             const float trimDb = m_raw.masterTrim->load();
             m_trimGain.setTargetValue(trimDb <= -59.9f ? 1.0e-4f : juce::Decibels::decibelsToGain(trimDb));
             preTrimSquares = 0.0;
             for (int i = 0; i < len; ++i)
             {
-                m_transportGain = target > m_transportGain ? juce::jmin(target, m_transportGain + step)
-                                                           : juce::jmax(target, m_transportGain - step);
-                outL[i] *= m_transportGain;
-                outR[i] *= m_transportGain;
                 // The Output Follower hears the rig before the trim, so turning Trim down never changes the sound.
                 preTrimSquares += 0.5 * (static_cast<double>(outL[i]) * outL[i] + static_cast<double>(outR[i]) * outR[i]);
                 preTrimPeak = juce::jmax(preTrimPeak, std::abs(outL[i]), std::abs(outR[i])); // the OUT meter: what the tape gets
@@ -502,7 +543,7 @@ void SwooshbucklerAudioProcessor::newSession()
 
 bool SwooshbucklerAudioProcessor::arm(juce::String& error)
 {
-    m_recorder.setSignalGate(true);
+    m_recorder.setSignalGate(getSkipSilence());
     return startRecording(error);
 }
 
@@ -551,7 +592,13 @@ void SwooshbucklerAudioProcessor::stopRecording()
 
 bool SwooshbucklerAudioProcessor::saveRetro(juce::File& written, juce::String& error)
 {
-    return m_recorder.saveRetro(getRecordFolder(), getBitDepth(), written, error);
+    // The same file type, bit depth, sample rate and channels as the tape.
+    TapeRecorder::Options o;
+    o.bitDepth = getBitDepth();
+    o.fileRate = static_cast<double>(getRecordRate()); // 0 = the session rate
+    o.type = static_cast<TapeRecorder::FileType>(getFileType());
+    o.mono = getMono();
+    return m_recorder.saveRetro(getRecordFolder(), o, written, error);
 }
 
 juce::File SwooshbucklerAudioProcessor::getRecordFolder() const
@@ -590,6 +637,18 @@ void SwooshbucklerAudioProcessor::setAutoRecord(bool on)
     m_settings->saveIfNeeded();
 }
 
+bool SwooshbucklerAudioProcessor::getSkipSilence() const
+{
+    return m_settings->getBoolValue("skipSilence", true);
+}
+
+void SwooshbucklerAudioProcessor::setSkipSilence(bool on)
+{
+    m_settings->setValue("skipSilence", on);
+    m_settings->saveIfNeeded();
+    m_recorder.setSignalGate(on); // an open take follows at once
+}
+
 void SwooshbucklerAudioProcessor::timerCallback()
 {
     // Mirror the editor fields for host saves from other threads (they are message-thread objects).
@@ -614,8 +673,7 @@ void SwooshbucklerAudioProcessor::timerCallback()
 //==============================================================================
 double SwooshbucklerAudioProcessor::getRecordingDroppedSeconds() const
 {
-    const double rate = getSampleRate() > 0.0 ? getSampleRate() : 48000.0;
-    return static_cast<double>(m_recorder.getDroppedSamples()) / rate;
+    return m_recorder.getDroppedSeconds(); // by the rate the tape runs at (the render rate), not the device's
 }
 
 void SwooshbucklerAudioProcessor::getStateInformation(juce::MemoryBlock& destData)
@@ -766,6 +824,7 @@ void SwooshbucklerAudioProcessor::applyRestoredState(const juce::ValueTree& carg
 }
 
 std::function<void()> SwooshbucklerAudioProcessor::showAudioSettings;
+juce::PropertiesFile* SwooshbucklerAudioProcessor::s_sharedSettings = nullptr;
 
 juce::AudioProcessorEditor* SwooshbucklerAudioProcessor::createEditor()
 {

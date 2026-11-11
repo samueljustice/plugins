@@ -265,9 +265,9 @@ void MorphPad::setShape(int shape)
 void MorphPad::buildCurve()
 {
     constexpr double twoPi = juce::MathConstants<double>::twoPi;
-    if (m_shape == SweetJustice)
+    if (m_shape == Cherries)
     {
-        // The Sweet Justice mark (grenade + cherry) as one path, walked by arc length.
+        // The logo mark (grenade + cherry) as one path, walked by arc length.
         LogoOutline logo(BinaryData::sjlogo_svg, static_cast<size_t>(BinaryData::sjlogo_svgSize));
         auto path = logo.createOutlinePath();
         const float length = juce::jmax(1.0e-3f, path.getLength());

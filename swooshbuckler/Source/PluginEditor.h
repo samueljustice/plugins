@@ -113,6 +113,7 @@ private:
         std::array<juce::TextButton, 6> m_rates;
         std::array<juce::TextButton, 2> m_channels;
         juce::ToggleButton m_auto { "Arm the tape as soon as Swooshbuckler opens" };
+        juce::ToggleButton m_skip { "Skip Silence" };
         std::unique_ptr<juce::FileChooser> m_chooser;
         juce::Rectangle<int> m_panel;
         std::array<juce::Rectangle<int>, 6> m_captions;

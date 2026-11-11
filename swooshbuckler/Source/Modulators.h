@@ -62,6 +62,8 @@ public:
     juce::ValueTree toValueTree() const;          // any thread
     void fromValueTree(const juce::ValueTree&);   // any thread (notifies only when called on the message thread)
     void notifyChanged() { changed(); }           // message thread
+    /** Moves whenever the wires change (the session autosave watches it). Any thread. */
+    int changeCount() const { return m_changeCount.load(); }
 
     /** Called on every change (message thread), e.g. to redraw the wires. */
     std::function<void()> onChange;
@@ -112,6 +114,7 @@ private:
     std::array<Slot, c_maxRoutes> m_slots;
 
     std::atomic<int> m_generation { 0 };
+    std::atomic<int> m_changeCount { 0 };
     mutable std::mutex m_lock;                      // guards m_params (message thread / state save)
     std::array<juce::String, c_maxRoutes> m_params; // param ID per slot ("" = free)
     void changed();

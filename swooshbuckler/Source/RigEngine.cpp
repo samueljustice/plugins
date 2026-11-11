@@ -428,6 +428,8 @@ void RigEngine::renderTracks(int frames)
     // Everything that glides is stepped by the time this chunk really covers (a block's last chunk can be short).
     const float seconds = static_cast<float>(frames) / m_fs;
     glideMods(frames);
+    // Stop lets go of the sources (60 ms down); Play brings them back (10 ms up, under the transport fade).
+    m_releaseGain = m_released ? std::max(0.0f, m_releaseGain - seconds / 0.06f) : std::min(1.0f, m_releaseGain + seconds / 0.01f);
     const float energyKnob = sj::clamp(m_energySpring.step(seconds) + (m_params.rideOn ? m_energyModNow : 0.0f), 0.0f, 1.0f);
     const float energy = ::Params::energyDepth(energyKnob);
     const float swell = sj::clamp(m_swellSpring.step(seconds), 0.0f, 1.0f);
@@ -651,7 +653,7 @@ void RigEngine::renderTracks(int frames)
 
         const CargoData* data = m_cargo != nullptr ? m_cargo->getLive(t) : nullptr;
         const float laneGain = m_cargo != nullptr ? m_cargo->laneGain(CargoHold::c_numBuiltIns + t) : 1.0f;
-        const float target = data != nullptr ? level * ride * laneGain : 0.0f;
+        const float target = data != nullptr ? level * ride * laneGain * m_releaseGain : 0.0f;
 
         if (data == nullptr && m_gain[ti] < 1.0e-5f)
         {

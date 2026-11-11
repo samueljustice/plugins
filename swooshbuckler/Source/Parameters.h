@@ -214,7 +214,7 @@ namespace Params
         layout.add(std::make_unique<AudioParameterBool>(ParameterID { ParamIDs::morphWander, 2 }, "Morph Wander", false));
         layout.add(pct(ParamIDs::morphSpeed, "Morph Speed", 0.5f));
         layout.add(std::make_unique<AudioParameterChoice>(ParameterID { ParamIDs::morphShape, 2 }, "Morph Shape",
-                                                          StringArray { "Lorenz", "Sweet Justice", "Figure Eight", "Rose", "Circle" }, 0));
+                                                          StringArray { "Lorenz", "Cherries", "Figure Eight", "Rose", "Circle" }, 0));
 
         layout.add(pct(ParamIDs::space, "Space", 0.3f));
         layout.add(pct(ParamIDs::inflate, "Inflate", 0.3f));

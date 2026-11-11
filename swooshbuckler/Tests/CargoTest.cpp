@@ -749,6 +749,157 @@ int main(int argc, char* argv[])
         TapeRecorder empty;
         empty.prepare(c_rate, 2);
         check(! empty.saveRetro(tapeFolder, 24, written, error), "tape: saving an empty retro buffer is refused");
+
+        error.clear();
+        // Skip Silence: whooshes over a bed that never falls silent (1 s loud, 4 s of bed 40 dB under it, four
+        // times). The gate measures against the recent peak, so the bed between the whooshes is left out; each
+        // whoosh keeps three quarters of a second behind it and (after the first) a quarter second in front.
+        auto readAll = [&formats](const juce::File& f, juce::AudioBuffer<float>& into)
+        {
+            std::unique_ptr<juce::AudioFormatReader> r(formats.createReaderFor(f));
+            if (r == nullptr)
+                return 0.0;
+            into.setSize(static_cast<int>(r->numChannels), static_cast<int>(r->lengthInSamples));
+            r->read(&into, 0, static_cast<int>(r->lengthInSamples), 0, true, true);
+            return r->sampleRate;
+        };
+        auto whooshesOverBed = [&](TapeRecorder& t)
+        {
+            for (int pos = 0; pos < static_cast<int>(20.0 * c_rate); pos += c_block)
+            {
+                for (int i = 0; i < c_block; ++i)
+                {
+                    const int at = pos + i;
+                    const bool loud = (at % static_cast<int>(5.0 * c_rate)) < static_cast<int>(c_rate);
+                    const float v = (loud ? 0.5f : 0.005f) * static_cast<float>(std::sin(0.03 * at));
+                    block.setSample(0, i, v);
+                    block.setSample(1, i, v);
+                }
+                t.process(block.getArrayOfReadPointers(), 2, c_block);
+                if ((pos / c_block) % 64 == 63)
+                    juce::Thread::sleep(2); // let the writer thread keep up
+            }
+        };
+        {
+            TapeRecorder gated;
+            gated.prepare(c_rate, 2);
+            gated.setSignalGate(true);
+            check(gated.start(tapeFolder, 24, error), "tape: starts a take with Skip Silence " + error);
+            whooshesOverBed(gated);
+            gated.stop();
+            juce::AudioBuffer<float> audio;
+            readAll(gated.getLastFile(), audio);
+            const double seconds = audio.getNumSamples() / c_rate;
+            check(seconds > 7.0 && seconds < 8.6,
+                  "tape: Skip Silence leaves out the bed between whooshes (" + juce::String(seconds, 2) + " s kept of 20 s)");
+            // The first join (1.75 s in: 1 s of whoosh and 0.75 s behind it) is faded, not a cut in the middle of the bed.
+            float quietest = 1.0f;
+            const int window = static_cast<int>(0.002 * c_rate);
+            for (int start = static_cast<int>(1.65 * c_rate); start + window < juce::jmin(audio.getNumSamples(), static_cast<int>(1.85 * c_rate)); start += window / 2)
+                quietest = std::min(quietest, audio.getMagnitude(0, start, window));
+            check(quietest < 0.0006f, "tape: the tape fades out and in around a skipped stretch (level at the join "
+                                          + juce::String(juce::Decibels::gainToDecibels(quietest), 1) + " dB, the bed is -46 dB)");
+
+            // Held open (the rig ringing out after Stop), the gate keeps rolling through the quiet.
+            TapeRecorder held;
+            held.prepare(c_rate, 2);
+            held.setSignalGate(true);
+            held.setGateHold(true);
+            check(held.start(tapeFolder, 24, error), "tape: starts a held take " + error);
+            whooshesOverBed(held);
+            held.stop();
+            readAll(held.getLastFile(), audio);
+            check(std::abs(audio.getNumSamples() / c_rate - 20.0) < 0.1, "tape: a held gate keeps the quiet tail ("
+                                                                             + juce::String(audio.getNumSamples() / c_rate, 2) + " s of 20 s)");
+
+            TapeRecorder continuous;
+            continuous.prepare(c_rate, 2);
+            continuous.setSignalGate(false);
+            check(continuous.start(tapeFolder, 24, error), "tape: starts a continuous take " + error);
+            whooshesOverBed(continuous);
+            continuous.stop();
+            std::unique_ptr<juce::AudioFormatReader> all(formats.createReaderFor(continuous.getLastFile()));
+            check(all != nullptr && std::abs(static_cast<double>(all->lengthInSamples) - 20.0 * c_rate) < 2.0 * c_block,
+                  "tape: with Skip Silence off the take is continuous (20 s)");
+            check(all != nullptr && all->metadataValues[juce::WavAudioFormat::bwavOriginatorRef] == "Samuel Justice",
+                  "tape: the file names its author (" + (all != nullptr ? all->metadataValues[juce::WavAudioFormat::bwavOriginatorRef] : juce::String()) + ")");
+        }
+
+        // 16-bit takes are dithered: a tone of 0.4 of a 16-bit step survives (without dither the file is flat),
+        // and the dither adds no offset.
+        {
+            TapeRecorder dithered;
+            dithered.prepare(c_rate, 2);
+            check(dithered.start(tapeFolder, 16, error), "tape: starts a 16-bit take " + error);
+            const double amp = 0.4 / 32768.0, w = juce::MathConstants<double>::twoPi * 1000.0 / c_rate;
+            for (int pos = 0; pos < static_cast<int>(4.0 * c_rate); pos += c_block)
+            {
+                for (int i = 0; i < c_block; ++i)
+                    for (int ch = 0; ch < 2; ++ch)
+                        block.setSample(ch, i, static_cast<float>(amp * std::sin(w * (pos + i))));
+                dithered.process(block.getArrayOfReadPointers(), 2, c_block);
+                if ((pos / c_block) % 64 == 63)
+                    juce::Thread::sleep(2); // let the writer thread keep up
+            }
+            dithered.stop();
+            juce::AudioBuffer<float> audio;
+            readAll(dithered.getLastFile(), audio);
+            double inPhase = 0.0, mean = 0.0;
+            for (int i = 0; i < audio.getNumSamples(); ++i)
+            {
+                inPhase += audio.getSample(0, i) * std::sin(w * i);
+                mean += audio.getSample(0, i);
+            }
+            const double found = 2.0 * inPhase / juce::jmax(1, audio.getNumSamples()) * 32768.0;
+            mean = mean / juce::jmax(1, audio.getNumSamples()) * 32768.0;
+            check(dithered.getDroppedSamples() == 0 && found > 0.3 && found < 0.5,
+                  "tape: 16-bit dither keeps a tone smaller than one step (" + juce::String(found, 3) + " of a step, 0.4 sent)");
+            check(std::abs(mean) < 0.05, "tape: 16-bit dither adds no offset (" + juce::String(mean, 3) + " of a step)");
+        }
+
+        // The writer's FIFO is sized by time (3 s at any rate), and lost audio is counted in seconds of the take.
+        {
+            TapeRecorder fast;
+            fast.prepare(192000.0, 2);
+            check(fast.getFifoSamples() >= 3 * 192000, "tape: the writer FIFO holds 3 s at 192 kHz (" + juce::String(fast.getFifoSamples()) + " samples)");
+            check(fast.start(tapeFolder, 24, error), "tape: starts a 192 kHz take " + error);
+            for (int i = 0; i < c_block; ++i)
+                for (int ch = 0; ch < 2; ++ch)
+                    block.setSample(ch, i, 0.1f * static_cast<float>(std::sin(0.01 * i)));
+            // 2.5 s arriving all at once (a stalled disk catching up): it must all fit.
+            for (int pos = 0; pos < static_cast<int>(2.5 * 192000.0); pos += c_block)
+                fast.process(block.getArrayOfReadPointers(), 2, c_block);
+            check(fast.getDroppedSamples() == 0, "tape: 2.5 s of 192 kHz audio in one burst is not dropped ("
+                                                     + juce::String(fast.getDroppedSamples()) + " samples lost)");
+            // 30 s more at once does overflow: the loss is reported in seconds at the take's own rate.
+            for (int pos = 0; pos < static_cast<int>(30.0 * 192000.0); pos += c_block)
+                fast.process(block.getArrayOfReadPointers(), 2, c_block);
+            const auto dropped = fast.getDroppedSamples();
+            check(dropped > 0 && std::abs(fast.getDroppedSeconds() - static_cast<double>(dropped) / 192000.0) < 1.0e-6,
+                  "tape: dropped audio is counted in seconds at the take's rate (" + juce::String(fast.getDroppedSeconds(), 2) + " s)");
+            fast.stop();
+        }
+
+        // LAST 60s is written with the options it is given (file type, bit depth, mono).
+        {
+            TapeRecorder retro;
+            retro.prepare(c_rate, 2);
+            for (int pos = 0; pos < static_cast<int>(3.0 * c_rate); pos += c_block)
+            {
+                for (int i = 0; i < c_block; ++i)
+                    for (int ch = 0; ch < 2; ++ch)
+                        block.setSample(ch, i, 0.25f * static_cast<float>(std::sin(0.05 * (pos + i))));
+                retro.process(block.getArrayOfReadPointers(), 2, c_block);
+            }
+            TapeRecorder::Options o;
+            o.bitDepth = 16;
+            o.type = TapeRecorder::FileType::Flac;
+            o.mono = true;
+            check(retro.saveRetro(tapeFolder, o, written, error), "tape: LAST 60s saves " + error);
+            std::unique_ptr<juce::AudioFormatReader> r(formats.createReaderFor(written));
+            check(written.hasFileExtension("flac") && r != nullptr && r->bitsPerSample == 16 && r->numChannels == 1,
+                  "tape: LAST 60s uses the chosen file type, bit depth and channels");
+        }
     }
 
     // Presets: every sample-track level is a session parameter; Cargo Run still exists.

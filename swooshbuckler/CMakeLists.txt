@@ -183,6 +183,14 @@ if(SWOOSHBUCKLER_TESTS)
     target_compile_features(SwooshbucklerMaster PRIVATE cxx_std_20)
     set_target_properties(SwooshbucklerMaster PROPERTIES
         RUNTIME_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/SwooshbucklerMaster_artefacts/$<CONFIG>")
+
+    # Session test: the whole plug-in offline. Stop lets the tail ring out into the output and the tape, Skip
+    # Silence on the real rig, LAST 60s in the chosen format, the settings, and the app's session autosave.
+    juce_add_console_app(SwooshbucklerSession PRODUCT_NAME "SwooshbucklerSession")
+    target_sources(SwooshbucklerSession PRIVATE Tests/SessionTest.cpp)
+    target_include_directories(SwooshbucklerSession PRIVATE Source ${CMAKE_CURRENT_BINARY_DIR}/Swooshbuckler_artefacts/JuceLibraryCode $<TARGET_PROPERTY:Swooshbuckler,INCLUDE_DIRECTORIES>)
+    target_compile_definitions(SwooshbucklerSession PRIVATE $<TARGET_PROPERTY:Swooshbuckler,COMPILE_DEFINITIONS>)
+    target_link_libraries(SwooshbucklerSession PRIVATE Swooshbuckler)
 endif()
 
 # Artwork tools (off by default): renders Resources/icon.png. See tools/IconRender.cpp.

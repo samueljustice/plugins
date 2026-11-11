@@ -258,6 +258,13 @@ SwooshbucklerAudioProcessorEditor::SettingsPanel::SettingsPanel(SwooshbucklerAud
     m_auto.setColour(juce::ToggleButton::tickColourId, TC::flight);
     m_auto.onClick = [this] { m_owner.m_processor.setAutoRecord(m_auto.getToggleState()); };
     addAndMakeVisible(m_auto);
+    m_skip.setTooltip("Skip Silence\nOn: the armed tape leaves the quiet stretches out. It stops rolling once the level has sat about 25 dB under "
+                      "the recent peaks for most of a second, and starts again, a quarter of a second early, when the sound comes back, "
+                      "so the gaps between whooshes are closed up. After Stop it keeps the whole tail. "
+                      "Off: the tape rolls all the time, for one continuous take.");
+    m_skip.setColour(juce::ToggleButton::tickColourId, TC::flight);
+    m_skip.onClick = [this] { m_owner.m_processor.setSkipSilence(m_skip.getToggleState()); repaint(); };
+    addAndMakeVisible(m_skip);
 
     m_audio.setVisible(static_cast<bool>(SwooshbucklerAudioProcessor::showAudioSettings));
     m_audio.onClick = [] { if (SwooshbucklerAudioProcessor::showAudioSettings) SwooshbucklerAudioProcessor::showAudioSettings(); };
@@ -295,6 +302,7 @@ void SwooshbucklerAudioProcessorEditor::SettingsPanel::refresh()
     m_channels[0].setToggleState(! p.getMono(), juce::dontSendNotification);
     m_channels[1].setToggleState(p.getMono(), juce::dontSendNotification);
     m_auto.setToggleState(p.getAutoRecord(), juce::dontSendNotification);
+    m_skip.setToggleState(p.getSkipSilence(), juce::dontSendNotification);
     m_audio.setVisible(static_cast<bool>(SwooshbucklerAudioProcessor::showAudioSettings)); // standalone only
     repaint();
 }
@@ -341,7 +349,11 @@ void SwooshbucklerAudioProcessorEditor::SettingsPanel::resized()
     juce::TextButton* channels[] = { &m_channels[0], &m_channels[1] };
     buttons(section(4, 28), channels, 2, 100);
 
-    m_auto.setBounds(r.removeFromTop(26));
+    {
+        auto toggles = r.removeFromTop(26);
+        m_skip.setBounds(toggles.removeFromRight(150));
+        m_auto.setBounds(toggles);
+    }
     r.removeFromTop(8);
     m_captions[5] = r.removeFromTop(44);
 
@@ -370,7 +382,9 @@ void SwooshbucklerAudioProcessorEditor::SettingsPanel::paint(juce::Graphics& g)
 
     // What the sample rate means in practice
     auto& p = m_owner.m_processor;
-    juce::String note = "Armed, the tape writes whenever there is sound and skips the silence. It also keeps the last 60 s for LAST 60s.";
+    juce::String note = p.getSkipSilence()
+        ? "Armed, the tape writes whenever there is sound and skips the quiet stretches. LAST 60s saves the last minute in the same format."
+        : "Armed, the tape rolls all the time. LAST 60s saves the last minute in the same format.";
     if (p.getRecordRate() > 0 && p.getDeviceRate() > 0.0)
     {
         if (p.getRecordRate() > p.getDeviceRate() + 0.5)
@@ -547,7 +561,7 @@ SwooshbucklerAudioProcessorEditor::SwooshbucklerAudioProcessorEditor(Swooshbuckl
         m_processor.currentPresetName = "Randomised";
     };
     m_content.addAndMakeVisible(m_tape);
-    m_tape.setTooltip("Tape\nArm it and it records whenever there is sound, skipping the silence, into one long file of usable whooshes. Click again to stop and close the file. Where it saves and in which format is in SETTINGS.");
+    m_tape.setTooltip("Tape\nArm it and it records whenever there is sound, skipping the quiet stretches, into one long file of usable whooshes. Click again to stop and close the file. Where it saves, in which format, and Skip Silence (off for one continuous take) are in SETTINGS.");
     m_tape.onClick = [this] { toggleLog(); };
     m_retroButton.setTooltip("Last 60 Seconds\nThe rig always remembers the last minute. Click to save it to a file, even if the tape wasn't armed: for the happy accident you didn't record.");
     m_playButton.setColour(juce::TextButton::buttonOnColourId, TC::good);
@@ -1245,15 +1259,19 @@ void SwooshbucklerAudioProcessorEditor::toggleLog()
 {
     if (m_processor.isRecording())
     {
+        const double dropped = m_processor.getRecordingDroppedSeconds(); // read before the take closes
         m_processor.stopRecording();
         const auto file = m_processor.getLastRecording();
-        toast("Saved " + file.getFileName(), file);
+        toast("Saved " + file.getFileName()
+                  + (dropped > 0.005 ? " (the disk fell behind: " + juce::String(dropped, 2) + " s are missing)" : juce::String()),
+              file);
     }
     else
     {
         juce::String error;
         if (m_processor.arm(error))
-            toast("Armed: recording whenever there is sound, into " + m_processor.getCurrentRecording().getFileName());
+            toast((m_processor.getSkipSilence() ? "Armed: recording whenever there is sound, into " : "Armed: recording all the time, into ")
+                  + m_processor.getCurrentRecording().getFileName());
         else
             toast("Couldn't arm the tape: " + error);
     }

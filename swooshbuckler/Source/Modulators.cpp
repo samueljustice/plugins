@@ -211,6 +211,7 @@ void ModMatrix::fromValueTree(const juce::ValueTree& tree)
 
 void ModMatrix::changed()
 {
+    m_changeCount.fetch_add(1);
     if (onChange)
         onChange();
 }

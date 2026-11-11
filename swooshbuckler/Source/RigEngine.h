@@ -121,6 +121,9 @@ public:
     void setParams(const Params& p);
     /** Start every track again from its start marker (audio thread; the processor calls it on Play). */
     void restart();
+    /** Stop pressed: the sources fade out over 60 ms and stay silent while the Fill echoes, the passes in flight
+        and Space ring out. Play lets them back in. Audio thread (the processor sets it before each process()). */
+    void setReleased(bool released) { m_released = released; }
     void process(const float* inL, const float* inR, float* outL, float* outR, int numSamples);
     float getLatencySamples() const;
 
@@ -263,6 +266,8 @@ private:
     std::array<double, c_tracks> m_ridePhase {};
     std::array<sj::Drift, c_tracks> m_rideDrift;
     std::array<float, c_tracks> m_gain {};          // gain applied at the end of the previous chunk
+    bool m_released = false;                        // see setReleased
+    float m_releaseGain = 1.0f;                     // 1 = the sources play, 0 = released
     std::array<sj::Spring, c_tracks> m_levelSprings;
     sj::Spring m_swellSpring, m_energySpring, m_pitchSpring, m_fillSpring, m_spaceSpring;
     // How still the faders are (0 = the ride at full depth .. 1 = not moving): the stiller, the more Low End, Swirl

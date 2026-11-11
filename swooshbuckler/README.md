@@ -55,7 +55,7 @@ What's changed in each version is in the [changelog](CHANGELOG.md).
 1. **Drop sounds into Tracks**, or click the drop zone to browse. Anything works: cloth, air, engines, animals, metal, voices. Each file gets its own looping track. Swooshbuckler finds the separate sounds in it, guesses what type of sound it is, and sends it to bus A, bus B or the hits.
 2. **Press PLAY.** With **AUTO RIDE** on (it is by default), every track's fader moves by itself at its own speed. When the layers swell together you get a whoosh.
 3. **Shape it** with Energy, Rate and Chaos, or try a preset or **RANDOMISE**.
-4. **Arm the tape** (ARM). It records whenever there's sound and skips the silence. Click again to stop and close the file.
+4. **Arm the tape** (ARM). It records whenever there's sound and skips the quiet stretches. Click again to stop and close the file.
 5. Missed a good one? **LAST 60s** saves the last minute, even if the tape wasn't armed.
 
 Hold **SWELL**, the space bar or any MIDI note to push every fader up at once.
@@ -92,7 +92,7 @@ From left to right:
 | Control | What it does |
 |---|---|
 | **Swooshbuckler** title | Click it, or the version number beside the website link under it, to open [About](#about). |
-| **PLAY / STOP** | Starts and stops the whole rig. It turns green and reads STOP while running. PLAY starts every track from its start flag and the ride from the top. Starting and stopping fade over about 60 ms, so there are no clicks. Swooshbuckler always opens stopped. |
+| **PLAY / STOP** | Starts and stops the whole rig. It turns green and reads STOP while running. PLAY starts every track from its start flag and the ride from the top. PLAY fades in over about 60 ms. STOP lets go of the sounds and lets the Fill echoes, the passes in flight and Space ring out, in your speakers and on the tape, until they have died away (6 seconds at most, then a short fade), so a take ends with its tail and not a cut. Press PLAY during the tail to start again at once. Swooshbuckler always opens stopped. |
 | **NEW** | A new session. It stops the rig and the tape, empties all ten tracks, turns off every mute and solo, puts every control back to its default, and removes every modulation wire. |
 | **<** and **>** | Step through the factory presets, wrapping round at either end. |
 | Preset name | Shows the current preset (or "Randomised"). Click it for the list, with **Back to Defaults** at the bottom. See [Presets and RANDOMISE](#presets-and-randomise). |
@@ -304,7 +304,7 @@ The morph blends bus A into bus B spectrally, so the two sounds trade tone and p
   - The **speed slider**, along the bottom between the Bus A and Bus B labels, sets how fast it goes, from a slow drift to busy.
   - The **shape menu**, beside it, picks the path:
     - **Lorenz** (the default): a chaotic loop that swaps between two wings and never repeats.
-    - **Sweet Justice**: the outline of the Sweet Justice Sound logo.
+    - **Cherries**: the outline of the logo in the sky, a grenade with a pair of cherries.
     - **Figure Eight**, **Rose** and **Circle**: these turn slowly, one degree per lap, so they never repeat exactly.
 - The **Bus A** and **Bus B** labels under the pad show the two sources. The morph always runs between the two buses.
 
@@ -356,19 +356,26 @@ Click **SETTINGS** to open. Close it with CLOSE, Esc, or a click outside the pan
 |---|---|---|
 | **Recordings Are Saved To** | (your Desktop) | **CHOOSE...** picks a folder, **DESKTOP** goes back to the default, and **SHOW** opens the folder. |
 | **File Type** | WAV / AIFF / FLAC (WAV) | WAV files also carry broadcast-wave details. FLAC is lossless and about half the size. |
-| **Bit Depth** | 16-Bit / 24-Bit / 32-Bit Float (24-Bit) | 32-Bit Float can't clip in the file, and is WAV only. |
+| **Bit Depth** | 16-Bit / 24-Bit / 32-Bit Float (24-Bit) | 32-Bit Float can't clip in the file, and is WAV only. 16-Bit files are dithered, so quiet fades end in a faint steady hiss and not in grit. |
 | **Sample Rate** | Session / 44.1 / 48 / 88.2 / 96 / 192 kHz (Session) | Session records at the audio device's or host's rate. Pick a higher rate and the whole rig runs at that rate, so the recording keeps the extra high end, which is good for pitching down later; you still hear it at the device rate, filtered so the extra high end is taken out cleanly and held to the Ceiling again. A note in the panel says which is happening. It can't be changed while the tape is armed. |
 | **Channels** | Stereo / Mono (Stereo) | Mono folds the output to one channel, for sounds you'll pan yourself. |
 | **Arm the tape as soon as Swooshbuckler opens** | (off) | So you never miss the first good take. |
+| **Skip Silence** | (on) | On: the armed tape leaves the quiet stretches out (see [Recording](#recording)). Off: the tape rolls all the time, for one continuous take. You can switch it during a take. |
 | **AUDIO DEVICE...** | | The app only: the audio output, sample rate and buffer size. |
 
 #### Recording
 
-- **The tape (ARM).** Click to arm. While armed, the tape writes whenever the output is above about −56 dBFS. It keeps a quarter second before each sound and 2 seconds after it, so attacks and tails survive, and leaves the silence out. Everything goes into one file until you click the tape again, press NEW or close Swooshbuckler. The REC timer counts only what's been written.
-- **LAST 60s.** Swooshbuckler always keeps the last minute of output while it plays. Click LAST 60s to save it, even if the tape wasn't armed and even while a take is going. Silence at the start is trimmed. It's always written as a stereo WAV at the rig's rate, in the bit depth you've chosen.
+- **The tape (ARM).** Click to arm. Everything goes into one file until you click the tape again, press NEW or close Swooshbuckler. The REC timer counts only what's been written.
+- **Skip Silence** (on by default, in Settings). The tape judges quiet against the recent peaks, not against a fixed level, because a rig with a bed in it never falls truly silent. It stops rolling once the output has sat about 25 dB under the recent peaks (or under about −56 dBFS) for three quarters of a second, and starts again when the sound comes back, keeping the quarter second before it so attacks survive. Each join is faded over 30 ms. The recent peak is remembered for about 10 seconds and then follows the level down, so a quieter passage is recorded once it is the new normal. After STOP the tape keeps the whole tail. How much is left out depends on the sound: deep, slow swells (a high Energy, few layers) leave gaps to skip, while a busy rig with a steady bed is recorded almost whole. Switch Skip Silence off for one continuous take.
+- **If the disk can't keep up**, the tape buffers about 3 seconds of audio at any sample rate before anything is lost, and the message that names the saved file says how much is missing.
+- **LAST 60s.** Swooshbuckler always keeps the last minute of output while it plays. Click LAST 60s to save it, even if the tape wasn't armed and even while a take is going. Silence at the start is trimmed. It's written the way the tape is set: the same File Type, Bit Depth, Sample Rate and Channels.
 - **What's recorded** is the final output, after Space and the limiter: exactly what you hear.
 - **File names** look like `Swooshbuckler_2026-11-07_16-32-10_48213.wav`. The number on the end keeps two takes in the same second apart. LAST 60s files end in `_retro`.
 - File Type, Bit Depth, Sample Rate and Channels are fixed when you arm, so changes apply to the next take.
+
+#### Your session in the app
+
+The app reopens with the sounds, settings and wires you had when you quit. While it runs it also keeps a safety copy: about once a minute when something has changed, and a few seconds after a track is loaded, edited or removed. The copy is written in the background, so the interface never waits for it (with about 20 MB of audio in the session a save takes around a fifth of a second). If the app doesn't get to quit properly (a crash, a power cut), the next launch opens that copy, so you lose a minute at most. In a DAW, the project keeps the plug-in's state as usual.
 
 ### About
 
@@ -420,6 +427,7 @@ Anything else a preset doesn't set goes back to its default. **Back to Defaults*
 - **If the buses fight**, turn on TAKE TURNS, or raise Ducked and Filtered on bus B.
 - **Record at 96 or 192 kHz** if you plan to pitch the whooshes down later.
 - **Leave the tape armed** while you play with the controls. It only writes when there's sound, so you just need to listen back for the good ones.
+- **Press STOP and wait for the tail** before you close a take: the echoes and Space ring out onto the tape.
 
 ## Building
 

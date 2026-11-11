@@ -57,8 +57,8 @@ public:
     void setWander(bool on, float speed);
 
     /** The path the dot wanders along. */
-    enum Shape { Lorenz = 0, SweetJustice, FigureEight, Rose, Circle, NumShapes };
-    static juce::StringArray shapeNames() { return { "Lorenz", "Sweet Justice", "Figure Eight", "Rose", "Circle" }; }
+    enum Shape { Lorenz = 0, Cherries, FigureEight, Rose, Circle, NumShapes };
+    static juce::StringArray shapeNames() { return { "Lorenz", "Cherries", "Figure Eight", "Rose", "Circle" }; }
     void setShape(int shape);
     /** lane -1 = unassigned. */
     void setSources(int laneA, int laneB, juce::String nameA, juce::String nameB);
