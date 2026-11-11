@@ -28,6 +28,29 @@ namespace roar
         constexpr double c_markTolerance = 0.25;             // search +-25 % of a period around the prediction
         constexpr float c_markPenalty = 0.5f;
         constexpr float c_minMarkLevel = 1.0e-5f;
+        // A mark is placed one best-matching lag after the previous one, so the chain follows the
+        // waveform, not whichever ripple of the pulse happens to be tallest. The lag is found in
+        // two passes on the band-limited copy (a ~6 kHz grid, then single samples, then a
+        // fraction of a sample): the whole cycle before the previous mark, searched +-20 % around
+        // the period, says which lag repeats; the stretch around the pulse itself, searched close
+        // to that lag, says where the next pulse sits (the cycle-long match alone answers with
+        // the length of the cycle before, a cycle late on a moving pitch). The chain leans a
+        // little towards the peak each cycle so it stays on the pulse, and returns to the peak
+        // outright if the two ever come apart by more than c_markChainReach of a period.
+        constexpr double c_markLagRange = 0.2;
+        constexpr double c_markLagGridHz = 6000.0;
+        constexpr double c_markPulseBefore = 0.3, c_markPulseAfter = 0.05;   // periods around the mark
+        constexpr double c_markPulseRange = 0.06;
+        constexpr double c_markPeakLeak = 0.03;
+        constexpr double c_markChainReach = 0.3;
+        // A run also continues where the cycles at the chain's own lag correlate this well, even
+        // if the peak hopped to another ripple and the peak-to-peak test failed (never below the
+        // mode's threshold).
+        constexpr double c_markChainCorrelation = 0.8;
+        // A voiced grain is created at least this many half-widths of the previous one ahead of
+        // its centre, so a period that grows faster than the detector reports does not push the
+        // grains late (a flat pitch at the end of a phrase).
+        constexpr double c_grainLeadMargin = 1.1;
         // Adjacent periods must look alike to count as voiced. Where the resampling path already
         // gives the right pitch and formants (Follow, Size 0), a mark must be convincing: an
         // irregular (creaky) voice is better resampled than cut into misplaced grains. Where it
@@ -858,16 +881,93 @@ namespace roar
         return norm > 1.0e-20 ? xy / norm : 0.0;
     }
 
-    void PitchModule::pushMark (std::int64_t pos, float period)
+    double PitchModule::similarityLag (double anchor, double period, double before, double after, double centre, double range, bool& found) const
+    {
+        // The lag, within +-range periods of `centre`, at which the stretch from `before` periods
+        // ahead of `anchor` to `after` periods past it best matches the band-limited signal that
+        // many samples later (normalised cross-correlation: a coarse pass on a sparse grid,
+        // single samples around its best, then the vertex of a parabola through the top three).
+        // `found` is false when the best lag sits on the edge of the range, i.e. no match was
+        // bracketed; the answer is then `centre`.
+        found = false;
+        const int step = std::max (1, static_cast<int> (m_fs / c_markLagGridHz));
+        const int length = std::max (8, static_cast<int> (std::lround ((before + after) * period))) / step;
+        const std::int64_t end = static_cast<std::int64_t> (std::llround (anchor + after * period)) - 2;
+        const std::int64_t newest = m_core.writePos - 1;
+        const int lo = static_cast<int> (std::floor (centre - range * period));
+        const int hi = static_cast<int> (std::min<std::int64_t> (static_cast<std::int64_t> (std::ceil (centre + range * period)), newest - end));
+        if (length < 2 || lo < 1 || hi - lo < 2)
+            return centre;
+
+        double xx = 1.0e-20;
+        for (int k = 0; k < length; ++k)
+        {
+            const auto u = static_cast<double> (m_band[static_cast<size_t> ((end - static_cast<std::int64_t> (k) * step) & m_mask)]);
+            xx += u * u;
+        }
+
+        const auto similarity = [&] (int lag)
+        {
+            double xy = 0.0, yy = 1.0e-20;
+            for (int k = 0; k < length; ++k)
+            {
+                const std::int64_t at = end - static_cast<std::int64_t> (k) * step;
+                const auto u = static_cast<double> (m_band[static_cast<size_t> (at & m_mask)]);
+                const auto v = static_cast<double> (m_band[static_cast<size_t> ((at + lag) & m_mask)]);
+                xy += u * v;
+                yy += v * v;
+            }
+            return xy / std::sqrt (xx * yy);
+        };
+
+        int best = lo;
+        double bestValue = -2.0;
+        for (int lag = lo; lag <= hi; lag += step)
+        {
+            const double value = similarity (lag);
+            if (value > bestValue)
+            {
+                bestValue = value;
+                best = lag;
+            }
+        }
+
+        const int coarse = best;
+        for (int lag = std::max (lo, coarse - step + 1); lag <= std::min (hi, coarse + step - 1); ++lag)
+        {
+            if (lag == coarse)
+                continue;
+            const double value = similarity (lag);
+            if (value > bestValue)
+            {
+                bestValue = value;
+                best = lag;
+            }
+        }
+
+        if (best <= lo || best >= hi)
+            return centre;
+
+        found = true;
+        const double below = similarity (best - 1), above = similarity (best + 1);
+        const double curvature = below - 2.0 * bestValue + above;
+        double lag = static_cast<double> (best);
+        if (curvature < -1.0e-12)
+            lag += std::clamp (0.5 * (below - above) / curvature, -0.5, 0.5);
+        return lag;
+    }
+
+    void PitchModule::pushMark (double position, float period)
     {
         Core& c = m_core;
+        const auto pos = static_cast<std::int64_t> (std::llround (position));
         if (c.markCount == c_maxMarks)
         {
             c.markHead = (c.markHead + 1) % c_maxMarks;
             --c.markCount;
         }
 
-        c.marks[static_cast<size_t> ((c.markHead + c.markCount) % c_maxMarks)] = { pos, period };
+        c.marks[static_cast<size_t> ((c.markHead + c.markCount) % c_maxMarks)] = { pos, period, static_cast<float> (position - static_cast<double> (pos)) };
         ++c.markCount;
     }
 
@@ -928,8 +1028,18 @@ namespace roar
                 // well into a following fricative. A mark only counts if the period it closes
                 // resembles the one before; otherwise the run ends and that noise goes to the
                 // resampling path, not a buzz.
-                if (! searchPeak (from, to, predicted, runTolerance, best, value)
-                    || markCorrelation (best, c.lastMark) < threshold)
+                const bool peakFound = searchPeak (from, to, predicted, runTolerance, best, value);
+                bool locked = false;
+                const double cycleLag = peakFound ? similarityLag (c.lastFine, runPeriod, 1.0, 0.0, runPeriod, c_markLagRange, locked) : 0.0;
+                bool accept = peakFound && markCorrelation (best, c.lastMark) >= threshold;
+                if (! accept && locked)
+                {
+                    const auto previous = static_cast<std::int64_t> (std::llround (c.lastFine));
+                    const auto chained = static_cast<std::int64_t> (std::llround (c.lastFine + cycleLag));
+                    accept = markCorrelation (chained, previous) >= std::max (threshold, c_markChainCorrelation);
+                }
+
+                if (! accept)
                 {
                     if (tryShort)
                     {
@@ -940,9 +1050,24 @@ namespace roar
                     return;
                 }
 
+                // The peak proposes the cycle; the mark itself goes one best-matching lag after
+                // the previous mark, so consecutive grains are cut at the same place in the
+                // waveform to a fraction of a sample.
+                double fine = static_cast<double> (best);
+                if (locked)
+                {
+                    bool bracketed = false;
+                    const double pulseLag = similarityLag (c.lastFine, runPeriod, c_markPulseBefore, c_markPulseAfter, cycleLag, c_markPulseRange, bracketed);
+                    const double chained = c.lastFine + (bracketed ? pulseLag : cycleLag);
+                    const double apart = static_cast<double> (best) - chained;
+                    if (std::abs (apart) <= c_markChainReach * runPeriod)
+                        fine = chained + c_markPeakLeak * apart;
+                }
+
                 c.markPeriod = static_cast<double> (best - c.lastMark);
-                pushMark (best, static_cast<float> (runPeriod));
+                pushMark (fine, static_cast<float> (runPeriod));
                 c.lastMark = best;
+                c.lastFine = fine;
                 return;
             }
         }
@@ -1020,11 +1145,12 @@ namespace roar
         }
 
         for (int i = numBack - 1; i >= 0; --i)
-            pushMark (back[static_cast<size_t> (i)], static_cast<float> (period));
+            pushMark (static_cast<double> (back[static_cast<size_t> (i)]), static_cast<float> (period));
 
-        pushMark (first, static_cast<float> (period));
+        pushMark (static_cast<double> (first), static_cast<float> (period));
         c.markPeriod = numBack > 0 ? static_cast<double> (first - back[0]) : period;
         c.lastMark = first;
+        c.lastFine = static_cast<double> (first);
         c.haveLastMark = true;
     }
 
@@ -1036,6 +1162,8 @@ namespace roar
         double lead = m_unvoicedHalfWidth;
         if (v.voiced && v.f0Hz > 0.0f)
             lead = std::max (lead, std::min (static_cast<double> (m_maxPeriod), m_fs / static_cast<double> (v.f0Hz)) / c.rate);
+        if (c.prevVoiced)
+            lead = std::max (lead, c_grainLeadMargin * c.prevHalfWidth);
 
         // Create each grain a little before its window starts.
         int guard = 0;
@@ -1167,7 +1295,7 @@ namespace roar
         {
             g.halfWidth = halfWidth;
             syn = voicedSyn;
-            g.anaCentre = static_cast<double> (mark.pos);
+            g.anaCentre = static_cast<double> (mark.pos) + static_cast<double> (mark.frac);
             // Grains placed ratio times as often, each 1 / phi times longer: power goes as
             // ratio / phi, so the gain is sqrt (phi / ratio) (exactly 1 in Follow).
             g.gain = static_cast<float> (std::sqrt (c.rate / c.ratio));
@@ -1228,8 +1356,9 @@ namespace roar
         if (hi == lo)
             return nominal;
 
-        const double span = static_cast<double> (c.marks[static_cast<size_t> ((c.markHead + hi) % c_maxMarks)].pos
-                                                 - c.marks[static_cast<size_t> ((c.markHead + lo) % c_maxMarks)].pos);
+        const Mark& last = c.marks[static_cast<size_t> ((c.markHead + hi) % c_maxMarks)];
+        const Mark& first = c.marks[static_cast<size_t> ((c.markHead + lo) % c_maxMarks)];
+        const double span = static_cast<double> (last.pos - first.pos) + static_cast<double> (last.frac) - static_cast<double> (first.frac);
         return span / (hi - lo);
     }
 

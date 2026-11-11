@@ -31,10 +31,15 @@ namespace roar
      *
      *   in --> ring buffers (L, R) ------------------------------------------------+--> aligned dry
      *     \--> mid --> PitchDetector (YIN) --> period, voicing                     |    (OnFade)
-     *     \--> mid --> band-limited copy --> pitch marks on the waveform peaks     |
+     *     \--> mid --> band-limited copy --> pitch marks, one per cycle            |
      *                                                                              v
      *   synthesis marks every period / ratio --> nearest analysis mark --> 2-period Hann grain read
      *   at the formant rate phi --> overlap-add (L and R on the same marks) --> Size body --> drive
+     *
+     * Marks: the tallest peak of the band-limited copy proposes each cycle, but the mark itself is
+     * placed one best-matching lag after the previous mark, to a fraction of a sample (similarityLag),
+     * so consecutive grains are cut at the same place in the waveform and a steady voice comes out
+     * as periodic as it went in.
      *
      * Where no mark is convincing (consonants, breaths, an irregular or creaky voice), unvoiced
      * grains crossfade to a resampling path instead: two read heads sweeping 20 ms read the input
@@ -142,8 +147,9 @@ namespace roar
 
         struct Mark
         {
-            std::int64_t pos = 0;
+            std::int64_t pos = 0;     // nearest sample
             float period = 0.0f;
+            float frac = 0.0f;        // the mark sits at pos + frac (-0.5..0.5)
         };
 
         static constexpr int c_maxMarks = 256;
@@ -171,7 +177,8 @@ namespace roar
             std::array<Mark, c_maxMarks> marks {};
             int markHead = 0;
             int markCount = 0;
-            std::int64_t lastMark = -1;
+            std::int64_t lastMark = -1;    // the peak that proposed the newest mark of the run
+            double lastFine = 0.0;         // where that mark was placed (fractional samples)
             bool haveLastMark = false;
             double markPeriod = 0.0;       // spacing of the last two marks of the current run
             std::int64_t shortTriedFor = -1;
@@ -235,7 +242,8 @@ namespace roar
         void findMarks();
         bool searchPeak (std::int64_t from, std::int64_t to, double predicted, double tolerance, std::int64_t& best, float& bestValue);
         double markCorrelation (std::int64_t mark, std::int64_t previous) const;
-        void pushMark (std::int64_t pos, float period);
+        double similarityLag (double anchor, double period, double before, double after, double centre, double range, bool& found) const;
+        void pushMark (double position, float period);
         void pruneMarks (std::int64_t outPos);
         void scheduleGrains (std::int64_t outPos);
         void createGrain (std::int64_t outPos);
