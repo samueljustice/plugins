@@ -246,6 +246,8 @@ void RigEngine::reset()
     m_echoLpL.reset(); m_echoLpR.reset(); m_echoHpL.reset(); m_echoHpR.reset();
     m_reverb.reset();
     m_spaceOn = false;
+    m_echoDriftL = 0.0f; m_echoDriftR = 0.5f; // the same start every time, so a bounce repeats
+    m_spaceDry = 1.0f; m_spaceWet = 0.0f;
     m_dcL.reset(); m_dcR.reset();
     m_gate = m_hold = 0.0f;
     m_peakRef = 1.0e-3f;

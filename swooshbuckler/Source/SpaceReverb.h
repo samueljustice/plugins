@@ -31,7 +31,7 @@ public:
     void prepare(double sampleRate);
     void reset();
 
-    /** Tail length in seconds (to -60 dB) for the body; the top end falls about three times as fast. */
+    /** Tail length in seconds (to -60 dB) for the body; the top end falls about twice as fast. */
     void setDecay(float seconds);
 
     /**

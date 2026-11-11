@@ -1032,6 +1032,18 @@ int main(int argc, char* argv[])
                           << density(l, first + static_cast<int>(c_rate * 0.06), first + static_cast<int>(c_rate * 0.16)) << ")" << std::endl;
             }
 
+            // A moving Space knob: the dry and wet gains glide across the chunk, they don't step at its start.
+            {
+                SpaceReverb rev;
+                rev.prepare(c_rate);
+                std::vector<float> l(64, 1.0f), r(64, 1.0f);
+                rev.process(l.data(), r.data(), 64, 1.0f, 0.5f, 0.0f, 0.0f);
+                float worstStep = std::abs(l[0] - 1.0f);
+                for (size_t i = 1; i < l.size(); ++i) worstStep = juce::jmax(worstStep, std::abs(l[i] - l[i - 1]));
+                check(worstStep < 0.01f && std::abs(l[63] - 0.5f) < 1.0e-6f && std::abs(r[63] - 0.5f) < 1.0e-6f,
+                      "space reverb: a change of level is spread over the chunk (no step)");
+            }
+
             // Noise through it, the same on both sides (the worst case for width): left and right come out
             // different (wide) but not opposed, so a mono fold-down keeps the reverb.
             {
@@ -1115,6 +1127,32 @@ int main(int argc, char* argv[])
             check(finite, "space 100%: the rig's output is finite" + at);
             check(lift < 3.0, "space 100%: a held sound is not much louder than with Space off" + at);
             check(worstRise < 0.5 && t60 > 0.0 && t60 <= 10.0, "space 100%: echoes and reverb die away steadily once the sound stops" + at);
+        }
+
+        // A reset puts Space back where it started (the echo drift too), so the same render twice is the same sound.
+        // (The rest of the rig differs by a few thousandths between two runs; echoes at another point of their drift
+        // differ by a few tenths.)
+        {
+            RigEngine e;
+            auto q = bare();
+            q.space = 1.0f;
+            e.setCargoHold(&spaceHold);
+            e.setParams(q);
+            e.prepare(c_rate, c_block);
+            e.setParams(q);
+            const int len = static_cast<int>(c_rate) / c_block * c_block * 3;
+            juce::AudioBuffer<float> first(2, len), second(2, len);
+            first.clear(); second.clear();
+            renderRig(e, first, 0, len, c_block);
+            e.prepare(c_rate, c_block);
+            e.setParams(q);
+            renderRig(e, second, 0, len, c_block);
+            float worst = 0.0f;
+            for (int ch = 0; ch < 2; ++ch)
+                for (int i = 0; i < len; ++i)
+                    worst = juce::jmax(worst, std::abs(first.getSample(ch, i) - second.getSample(ch, i)));
+            std::cout << "  space 100%, the same render twice: largest difference " << worst << std::endl;
+            check(worst < 0.03f, "space: the same render after a reset is the same sound (echo drift starts from the same place)");
         }
 
         // The glides take the same time whatever the host's block size: a fader pulled down fades out as fast with
