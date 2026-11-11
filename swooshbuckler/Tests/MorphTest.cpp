@@ -310,6 +310,22 @@ namespace
             inStep = std::max(inStep, std::abs(a[i] - a[i - 1]));
         check(step < 1.5f * inStep, "no click anywhere in the switch (largest sample step " + juce::String(step, 3) + ", the input's own " + juce::String(inStep, 3) + ")");
 
+        // Switched in again while the splice back to the live sound is still under way (5 ms after the mix reached
+        // 0): the morph must still be lined up with the delayed copy, not a few ms behind it.
+        {
+            MorphInsert quick;
+            quick.prepare(c_rate, 256);
+            quick.setParams(p);
+            quick.reset(true);
+            Signal qa = a, qb = b;
+            const size_t offAt = at(1.0) / 256 * 256, onAt = offAt + 512;
+            for (size_t i = 0; i + 256 <= at(2.0); i += 256)
+                quick.process(qa.data() + i, qb.data() + i, 256, (i >= offAt && i < onAt) ? 0.0f : 1.0f);
+            const float again = residual(qa, onAt + at(0.012), onAt + lat, lat);
+            std::cout << "  switched in again 5 ms after switching out: bus A against its input one latency late " << again << " dB" << std::endl;
+            check(again < -25.0f, "switched in again during the splice back, the morph is still lined up (under -25 dB)");
+        }
+
         // Nothing old comes back: loud sound while the morph is in, then out, silence, and in again.
         {
             MorphInsert again;

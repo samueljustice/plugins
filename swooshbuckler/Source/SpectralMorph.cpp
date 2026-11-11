@@ -688,12 +688,15 @@ void MorphInsert::process(float* a, float* b, int numSamples, float mix)
 void MorphInsert::processBlock(float* a, float* b, int n, float mixFrom, float mixTo)
 {
     const bool on = mixFrom > 1.0e-4f || mixTo > 1.0e-4f;
-    if (on)
+    // The morph is also kept fed through the splice back to the live sound: if it is switched in again before
+    // that splice is over it carries on without a gap, still lined up with the delayed copy.
+    const bool feed = on || (m_running && m_align > 0.0f);
+    if (feed)
     {
         m_running = true;
         m_morph.process(a, b, m_wet.data(), n); // reads the live buses; its output is one latency late
     }
-    else if (m_running && m_align <= 0.0f)
+    else if (m_running)
     {
         // Fully out and back on the live sound: clear the morph, so the next time starts from nothing.
         m_morph.reset();
@@ -752,6 +755,6 @@ void MorphInsert::processBlock(float* a, float* b, int n, float mixFrom, float m
         b[i] = dryB;
     }
 
-    if (on)
+    if (feed)
         m_filled = std::min(m_filled + n, 2 * m_latency);
 }
