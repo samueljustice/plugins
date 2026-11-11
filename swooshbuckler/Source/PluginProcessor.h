@@ -171,6 +171,7 @@ private:
         std::atomic<float>* space = nullptr, *inflate = nullptr, *push = nullptr, *ceiling = nullptr;
         std::atomic<float>* morphOn = nullptr, *morphMode = nullptr, *morphX = nullptr, *morphY = nullptr;
         std::atomic<float>* linkBuses = nullptr, *hitAim = nullptr;
+        std::atomic<float>* passMode[ParamIDs::numBuses] {};
         std::atomic<float>* tremOn = nullptr, *tremDepth = nullptr, *tremRate = nullptr, *tremThreshold = nullptr, *tremShape = nullptr, *tremTarget = nullptr;
         std::atomic<float>* masterTrim = nullptr;
         std::atomic<float>* modType[ParamIDs::numMods] {}, *modShape[ParamIDs::numMods] {}, *modKnob[ParamIDs::numMods] {},

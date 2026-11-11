@@ -20,9 +20,11 @@
  *     -> fill: long delays (about 0.5 / 1 / 2 s, a little different on every track) fill the gaps of unsteady tracks
  *     -> bus A (aggressive) | bus B (smooth) | hits      (routed automatically by detected type)
  *
- *   each bus:     doppler (two overlapping passes, always half a pass apart, with randomly automated speed,
- *                 distance and direction) -> low end (sub octave, overtones, lift at
- *                 the loudest point) -> swirl (phaser + flanger) -> envelope filter -> drive
+ *   each bus:     doppler (two passes, always half a pass apart, with randomly automated speed, distance and
+ *                 direction; Pass Mode Bed overlaps them into a steady level, Fly-By plays them one after the
+ *                 other) -> low end (sub octave, overtones, lift at the loudest point) -> swirl (phaser + flanger)
+ *                 -> envelope filter -> drive. Low end, swirl and filter follow the bus's level and, the stiller
+ *                 the faders are, how near the pass is.
  *   side-chains:  A ducks B, and A's level low-passes B
  *   hit sync:     optional: every hit track fires its next sound on a shared beat, transients aligned
  *                 (the beat is as long as the longest hit, so none is cut short).
@@ -31,7 +33,9 @@
  *                 The detector listens before the ducking, so there is no feedback loop.
  *   morph:        optional: what feeds bus A and bus B goes through a Zynaptiq-style spectral morph
  *                 (SpectralMorph); the result is handed back to the two buses in proportion to X.
- *   -> space (echoes, reverb, width) -> out (the processor adds inflate + limiter)
+ *   -> ride make-up (the mix is eased down as the ride gets shallower, so Auto Ride off or a held Swell reaches
+ *      the output stage about as loud as the ridden rig) -> space (echoes, reverb, width)
+ *   -> out (the processor adds inflate + limiter)
  *
  * Every continuous control is chased by a damped spring (rubber banding).
  * No allocation, locks or I/O on the audio thread.
@@ -51,6 +55,7 @@ public:
         float low = 0.3f, swirl = 0.2f, filter = 0.3f, drive = 0.1f;
         float duck = 0.4f;  // ducked by bus A (ignored on bus A)
         float key = 0.3f;   // low-passed by bus A (ignored on bus A)
+        int passMode = 0;   // 0 Bed (two overlapped passes, a steady level), 1 Fly-By (one pass at a time). Linked: bus A's.
     };
 
     struct Params
@@ -139,6 +144,13 @@ public:
     /** The fill echo times of a track, in seconds (tap 0..2). Every track has its own, so layered tracks don't
         echo on one shared grid. */
     static float fillTapSeconds(int track, int tap);
+    /** A pass's loudness window over its progress (0..1, 0.5 = closest). shape 0 = Bed: a sine, so two passes half
+        a pass apart add up to a steady level. shape 1 = Fly-By: a long approach, the peak at the closest point and
+        a shorter tail that is gone by the time the next pass is half-way in. In between: a blend (mode changes glide). */
+    static float passWindow(float progress, float shape);
+    /** The gain the mix is eased down by for a ride of this depth (0 = faders still .. 1 = full dips) at this
+        Chaos: 1 from the default ride depth up, lower as the faders move less (they then sit at full level). */
+    static float rideMakeup(float depth, float chaos);
 
     /** Audio thread: RMS of bus A, bus B and the hits (what each adds to the mix) since the last call, for the
         Follower modulators. */
@@ -198,6 +210,8 @@ private:
         sj::OnePole toneL, toneR;
         // level tracking
         float env = 0.0f, peakRef = 1.0e-3f;
+        float passShape = 0.0f; // Pass Mode in use: 0 Bed .. 1 Fly-By (glides, so a change mid-pass doesn't step the level)
+        float prox = 1.0f;      // how near the nearer pass is right now (its window x nearness), smoothed
         std::array<sj::Spring, 9> springs; // doppler width bend low swirl filter drive duck key
         float duck = 0.0f;
         // Ducking state (one for being ducked by the other bus, one for being ducked by the hits).
@@ -250,6 +264,13 @@ private:
     std::array<float, c_tracks> m_gain {};          // gain applied at the end of the previous chunk
     std::array<sj::Spring, c_tracks> m_levelSprings;
     sj::Spring m_swellSpring, m_energySpring, m_pitchSpring, m_fillSpring, m_spaceSpring;
+    // How still the faders are (0 = the ride at full depth .. 1 = not moving): the stiller, the more Low End, Swirl
+    // and Filter go by how near the pass is, not by the level alone.
+    float m_proxBlend = 0.0f;
+    // Ride make-up: the gain on the mix, and the slow copy of Swell it follows (a Swell is a push at first, and
+    // settles to the ridden level if it is held).
+    float m_makeup = 1.0f, m_makeupTarget = 1.0f, m_makeupSwell = 0.0f;
+    float m_makeupDepth = -1.0f, m_makeupChaos = -1.0f; // what m_makeupTarget was worked out for
     std::array<float, c_tracks> m_rideDepth {};
     // The modulator offsets, glided per chunk (the modulators update once per host block; a step would click).
     float m_energyModNow = 0.0f, m_pitchModNow = 0.0f, m_fillModNow = 0.0f, m_spaceModNow = 0.0f;

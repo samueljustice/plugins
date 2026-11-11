@@ -615,10 +615,10 @@ SwooshbucklerAudioProcessorEditor::SwooshbucklerAudioProcessorEditor(Swooshbuckl
     m_aimAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment>(p.getState(), ParamIDs::hitAim, m_aimHits);
 
     m_content.addAndMakeVisible(m_swell);
-    m_swell.setTooltip("Swell\nHold it to push every fader up at once, for a big whoosh on demand. The space bar or any MIDI note does the same.");
+    m_swell.setTooltip("Swell\nHold it to push every fader up at once, for a big whoosh on demand. Held for longer than a couple of seconds, the mix eases back to its usual level with every fader still up. The space bar or any MIDI note does the same.");
     m_rideButton.setClickingTogglesState(true);
     m_rideButton.setColour(juce::TextButton::buttonOnColourId, TC::flight);
-    m_rideButton.setTooltip("Auto Ride\nThe heart of the rig: every track's fader moves by itself, each at its own speed, so overlapping swells make whooshes for you. Energy, Rate, Fill, Chaos and Pitch shape how it moves. Off: the faders stay where you set them.");
+    m_rideButton.setTooltip("Auto Ride\nThe heart of the rig: every track's fader moves by itself, each at its own speed, so overlapping swells make whooshes for you. Energy, Rate, Fill, Chaos and Pitch shape how it moves. Off: the faders stay where you set them, the doppler passes do the moving, and the mix is eased down to about the level it has with the ride on.");
     m_rideButton.setWantsKeyboardFocus(false);
     m_content.addAndMakeVisible(m_rideButton);
     m_rideAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment>(p.getState(), ParamIDs::rideOn, m_rideButton);
@@ -635,11 +635,11 @@ SwooshbucklerAudioProcessorEditor::SwooshbucklerAudioProcessorEditor(Swooshbuckl
         const char* names[] = { "Doppler", "Width", "Bend", "Low End", "Swirl", "Filter", "Drive", "Ducked", "Filtered" };
         const char* tips[] = {
             "How dramatic each pass of the moving source is: how close it comes, how much it swells and brightens on the way by. Speed, distance and direction change by themselves with every pass.",
-            "How far each pass travels across the stereo field. 0: in the middle. High: a full side-to-side fly-by. With LINK on, bus B uses bus A's Width.",
+            "How far each pass travels across the stereo field. 0: in the middle. High: a full side-to-side fly-by, and the ear turned away from the pass hears it a little duller, as a head in the way would make it. With LINK on, bus B uses bus A's Width.",
             "How much the pitch bends as a pass goes by (the doppler bend), together with Doppler: it rises on the way in and drops as the pass goes by. It changes the pitch only, not how the pass swells. Low: passes go by without the bend. High: a big race-car scream and drop.",
-            "Weight: a sub octave, low overtones, and an extra low lift at the loudest moments.",
-            "Movement inside the sound: a phaser, then (from about a third of the way) a flanger that sweeps along with each pass. The level stays put; only the colour moves. High settings narrow and darken a bed.",
-            "A filter that opens as each pass swells and closes in its tail, so the tails are dark and the peaks bright, like air rushing past. More: more of it, closing further at the peak, and over the top 40% a resonant edge.",
+            "Weight: a sub octave, low overtones, and an extra low lift at the loudest moments. With the faders still (Auto Ride off, or Swell held) the lift follows each pass: up as it comes close, down as it leaves.",
+            "Movement inside the sound: a phaser, then (from about a third of the way) a flanger that sweeps along with each pass. The level stays put; only the colour moves. High settings narrow and darken a bed. With the faders still (Auto Ride off, or Swell held) the passes alone drive the sweep.",
+            "A filter that opens as each pass swells and closes in its tail, so the tails are dark and the peaks bright, like air rushing past. More: more of it, closing further at the peak, and over the top 40% a resonant edge. With the faders still (Auto Ride off, or Swell held) it follows how close each pass is.",
             "Saturation: grit and density, from a gentle thickening to a hard, flattened growl. The level is kept roughly steady, so it adds character rather than just loudness.",
             "How much bus A pushes this bus down at A's peaks (side-chain ducking, up to -20 dB in Volume mode), so the two buses don't pile up. DUCK sets how (Volume, Darken or Mids). With TAKE TURNS on, also how far the quieter bus goes down: at 0, Take Turns does nothing.",
             "How far bus A closes a low-pass filter on this bus at A's peaks (down to about 280 Hz at 100%): B goes dark under A instead of quieter.",
@@ -689,6 +689,20 @@ SwooshbucklerAudioProcessorEditor::SwooshbucklerAudioProcessorEditor(Swooshbuckl
                            "Off (the default): each bus does its own passes, which keeps energy beds on B moving independently. "
                            "B's own Doppler and Width, and any modulator wires on them, come back when you unlink.");
     m_content.addAndMakeVisible(m_linkBuses);
+    for (size_t b = 0; b < m_passMode.size(); ++b)
+    {
+        auto& menu = m_passMode[b];
+        menu.addItemList({ "Bed", "Fly-By" }, 1);
+        menu.setTooltip(juce::String("Pass Mode\nHow this bus's doppler passes follow each other. "
+                                     "Bed: two passes overlap, one coming in as the other goes out, so the level stays steady. Good for beds, air and long energy files. "
+                                     "Fly-By: one pass at a time, with a long approach, the peak as it goes by and a shorter tail, so each sound is heard once, at one pitch. "
+                                     "Good for a single clear whoosh, tones and anything with a sharp start. "
+                                     "The passes peak at the same moments either way, so AIM and LINK work the same.")
+                        + (b == 1 ? "\nWhile LINK is on, bus B uses bus A's Pass Mode." : ""));
+        menu.setWantsKeyboardFocus(false);
+        m_content.addAndMakeVisible(menu);
+        m_passModeAttachment[b] = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment>(p.getState(), ParamIDs::passMode[b], menu);
+    }
 
     {
         const auto& engine = p.getEngine();
@@ -945,11 +959,18 @@ void SwooshbucklerAudioProcessorEditor::layoutContent()
         m_takeTurns.setBounds(busB.getRight() - 14 - 96, busB.getY() + 9, 96, 22);
         m_linkBuses.setBounds(m_takeTurns.getX() - 6 - 56, busB.getY() + 9, 56, 22);
 
-        // The little waveforms, at the right of each title bar (left of any buttons there).
+        // PASS (the Pass Mode menu) in each bus's title bar: at the right end of A's, left of LINK in B's.
         const auto& busA = m_sections[0].bounds;
+        const int passWidth = 76, passLabel = 32;
+        m_passMode[0].setBounds(busA.getRight() - 14 - passWidth, busA.getY() + 9, passWidth, 22);
+        m_passMode[1].setBounds(m_linkBuses.getX() - 6 - passWidth, busB.getY() + 9, passWidth, 22);
+        for (size_t b = 0; b < m_passMode.size(); ++b)
+            m_passModeLabel[b] = { m_passMode[b].getX() - passLabel - 2, m_passMode[b].getY(), passLabel, 22 };
+
+        // The little waveforms, at the right of each title bar (left of any buttons and menus there).
         const auto& out = m_sections[3].bounds;
-        m_sectionScopes[0]->setBounds(busA.getRight() - 14 - 180, busA.getY() + 9, 180, 22);
-        m_sectionScopes[1]->setBounds(m_linkBuses.getX() - 8 - 120, busB.getY() + 9, 120, 22);
+        m_sectionScopes[0]->setBounds(m_passModeLabel[0].getX() - 6 - 120, busA.getY() + 9, 120, 22);
+        m_sectionScopes[1]->setBounds(m_passModeLabel[1].getX() - 6 - 64, busB.getY() + 9, 64, 22);
         m_sectionScopes[2]->setBounds(m_gateModeLabel.getX() - 6 - 120, hits.getY() + 9, 120, 22);
         m_sectionScopes[3]->setBounds(out.getRight() - 14 - 120, out.getY() + 9, 120, 22);
     }
@@ -1028,6 +1049,8 @@ void SwooshbucklerAudioProcessorEditor::paintContent(juce::Graphics& g)
     g.setColour(TC::textDim);
     g.drawText("GATE", m_gateModeLabel, juce::Justification::centredRight);
     g.drawText("DUCK", m_duckModeLabel, juce::Justification::centredRight);
+    for (const auto& label : m_passModeLabel)
+        g.drawText("PASS", label, juce::Justification::centredRight);
 
     auto arrow = [&g](juce::Point<float> c, bool down)
     {
@@ -1239,7 +1262,7 @@ void SwooshbucklerAudioProcessorEditor::stepPreset(int delta)
     m_processor.currentPresetName = preset.name;
 }
 
-void SwooshbucklerAudioProcessorEditor::applyPreset(const Presets::Preset& preset, bool)
+void SwooshbucklerAudioProcessorEditor::applyPreset(const Presets::Preset& preset, bool includeMode)
 {
     m_morph.finish();
     for (auto* p : m_processor.getParameters())
@@ -1251,6 +1274,9 @@ void SwooshbucklerAudioProcessorEditor::applyPreset(const Presets::Preset& prese
         if (Presets::isSessionParameter(id))
             continue;
         const auto it = preset.values.find(id);
+        // Randomise leaves each bus's Pass Mode as it is set (a factory preset picks it).
+        if (! includeMode && it == preset.values.end() && (id == ParamIDs::passMode[0] || id == ParamIDs::passMode[1]))
+            continue;
         const float target = it != preset.values.end() ? param->convertTo0to1(it->second) : param->getDefaultValue();
         if (std::abs(param->getValue() - target) < 1.0e-5f)
             continue;
@@ -1337,6 +1363,9 @@ void SwooshbucklerAudioProcessorEditor::showLinkedKnobs()
         it->second->setEnabled(! linked);
         it->second->setAlpha(linked ? 0.35f : 1.0f);
     }
+    // And B flies A's passes in A's Pass Mode.
+    m_passMode[1].setEnabled(! linked);
+    m_passMode[1].setAlpha(linked ? 0.35f : 1.0f);
 }
 
 void SwooshbucklerAudioProcessorEditor::timerCallback()

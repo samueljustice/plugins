@@ -35,6 +35,8 @@ namespace ParamIDs
         { "bDoppler", "bWidth", "bBend", "bLow", "bSwirl", "bFilter", "bDrive", "bDuck", "bKey" },
     };
     inline constexpr const char* busNames[numBuses] = { "A", "B" };
+    // Pass Mode: Bed (two overlapped passes, a steady level) / Fly-By (one pass at a time). Linked: B uses A's.
+    inline constexpr const char* passMode[numBuses] = { "aPassMode", "bPassMode" };
 
     // Hits
     inline constexpr const char* hitSense   = "hitSense";
@@ -258,6 +260,11 @@ namespace Params
             layout.add(std::make_unique<AudioParameterChoice>(ParameterID { ParamIDs::modFollow[m], 2 }, name + " Follows",
                                                               StringArray { "Bus A", "Bus B", "Hits", "Output" }, 0));
         }
+
+        // Added later: kept at the end, so every parameter before them keeps its place in the host's list.
+        for (int b = 0; b < ParamIDs::numBuses; ++b)
+            layout.add(std::make_unique<AudioParameterChoice>(ParameterID { ParamIDs::passMode[b], 4 }, String("Bus ") + ParamIDs::busNames[b] + " Pass Mode",
+                                                              StringArray { "Bed", "Fly-By" }, 0));
         return layout;
     }
 }

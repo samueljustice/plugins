@@ -211,6 +211,10 @@ private:
     std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> m_gateModeAttachment, m_duckModeAttachment;
     std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> m_takeTurnsAttachment;
     juce::Rectangle<int> m_gateModeLabel, m_duckModeLabel;
+    // Pass Mode, one menu in each bus's title bar (bus B's rests while LINK is on: it uses bus A's).
+    std::array<juce::ComboBox, ParamIDs::numBuses> m_passMode;
+    std::array<std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment>, ParamIDs::numBuses> m_passModeAttachment;
+    std::array<juce::Rectangle<int>, ParamIDs::numBuses> m_passModeLabel;
     // A little waveform in each section's title bar: bus A, bus B, hits, output.
     std::array<std::unique_ptr<SectionScope>, 4> m_sectionScopes;
     void syncMorphPad();

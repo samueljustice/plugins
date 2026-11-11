@@ -978,6 +978,328 @@ int main(int argc, char* argv[])
             std::cout << "  fader glide: " << big << " s with 256-sample blocks, " << small << " s with 7-sample blocks" << std::endl;
             check(big > 0.02 && std::abs(small - big) < 0.15 * big, "glides take the same time at any block size");
         }
+
+        // ---- Pass Mode, the passes moving the colours, ride make-up and head shadow ---------------------------------
+        {
+            juce::AudioBuffer<float> hissB(1, static_cast<int>(5.0 * c_rate));
+            {
+                juce::Random r(23);
+                for (int i = 0; i < hissB.getNumSamples(); ++i)
+                    hissB.setSample(0, i, 0.3f * (r.nextFloat() * 2.0f - 1.0f));
+            }
+            const auto hissFile = writeWav(folder, "rig_src_hiss2", hissB);
+            CargoHold hissA, hissOnB, tone330;
+            hissA.loadFile(0, hissFile, err);
+            hissA.setRoleOverride(0, static_cast<int>(CargoRole::Tonal)); // bus A
+            hissA.setSkipSilence(0, false);
+            hissOnB.loadFile(0, hissFile, err);
+            hissOnB.setRoleOverride(0, static_cast<int>(CargoRole::Bed)); // bus B
+            hissOnB.setSkipSilence(0, false);
+            tone330.loadFile(0, writeWav(folder, "rig_src_tone330b", makeTone(330.0, 4.0, 0.5f)), err);
+            tone330.setRoleOverride(0, static_cast<int>(CargoRole::Tonal));
+            tone330.setSkipSilence(0, false);
+
+            auto render = [&](CargoHold& h, const RigEngine::Params& q, double seconds)
+            {
+                RigEngine e;
+                start(e, h, q);
+                juce::AudioBuffer<float> o(2, static_cast<int>(seconds * c_rate) / c_block * c_block);
+                renderRig(e, o, 0, o.getNumSamples(), c_block);
+                return o;
+            };
+            // The level over time, in dB, in windows of `window` seconds from `from` seconds on.
+            auto levels = [&](const juce::AudioBuffer<float>& o, double from, double window)
+            {
+                std::vector<float> db;
+                const int w = static_cast<int>(window * c_rate);
+                for (int at = static_cast<int>(from * c_rate); at + w <= o.getNumSamples(); at += w)
+                    db.push_back(juce::Decibels::gainToDecibels(std::sqrt(0.5f * (o.getRMSLevel(0, at, w) * o.getRMSLevel(0, at, w)
+                                                                                  + o.getRMSLevel(1, at, w) * o.getRMSLevel(1, at, w))), -120.0f));
+                return db;
+            };
+            auto spread = [](std::vector<float> v, double lo, double hi)
+            {
+                std::sort(v.begin(), v.end());
+                const auto at = [&v](double q) { return v[static_cast<size_t>(q * static_cast<double>(v.size() - 1))]; };
+                return at(hi) - at(lo);
+            };
+            auto meanDb = [&](const juce::AudioBuffer<float>& o, double from, double to)
+            {
+                const int a = static_cast<int>(from * c_rate), n = static_cast<int>((to - from) * c_rate);
+                return juce::Decibels::gainToDecibels(std::sqrt(0.5f * (o.getRMSLevel(0, a, n) * o.getRMSLevel(0, a, n) + o.getRMSLevel(1, a, n) * o.getRMSLevel(1, a, n))), -120.0f);
+            };
+
+            // Fly-By plays one pass at a time. A 330 Hz tone at Doppler 100%, Bend 100% is heard at 569 Hz coming in
+            // and 232 Hz going out. In Bed both pitches sound together much of the time (the two passes overlap); in
+            // Fly-By the pass coming in is still far off while the one going out is heard.
+            {
+                auto together = [&](int mode)
+                {
+                    auto q = bare();
+                    q.buses[0].doppler = 1.0f;
+                    q.buses[0].bend = 1.0f;
+                    q.buses[0].passMode = mode;
+                    const auto o = render(tone330, q, 24.0);
+                    const int n = 4096;
+                    std::vector<std::pair<double, double>> frames;
+                    double loudest = 0.0;
+                    for (int at = static_cast<int>(1.0 * c_rate); at + n <= o.getNumSamples(); at += n / 2)
+                    {
+                        double p2[2] {};
+                        const double hz[2] = { 330.0 / (1.0 - 0.42), 330.0 / (1.0 + 0.42) };
+                        for (int k = 0; k < 2; ++k)
+                        {
+                            double re = 0.0, im = 0.0;
+                            for (int i = 0; i < n; ++i)
+                            {
+                                const double w = 0.5 - 0.5 * std::cos(twoPi * i / n);
+                                const double x = w * 0.5 * (o.getSample(0, at + i) + o.getSample(1, at + i));
+                                re += x * std::cos(twoPi * hz[k] * i / c_rate);
+                                im += x * std::sin(twoPi * hz[k] * i / c_rate);
+                            }
+                            p2[k] = re * re + im * im;
+                        }
+                        frames.push_back({ p2[0], p2[1] });
+                        loudest = std::max({ loudest, p2[0], p2[1] });
+                    }
+                    int both = 0;
+                    for (const auto& f : frames) // both pitches within 6 dB of each other, and not in the quiet between
+                        if (std::max(f.first, f.second) > 1.0e-3 * loudest && std::min(f.first, f.second) > 0.25 * std::max(f.first, f.second))
+                            ++both;
+                    return static_cast<double>(both) / static_cast<double>(frames.size());
+                };
+                const double bed = together(0), fly = together(1);
+                std::cout << "  pass mode: the rising and the falling pitch sound together " << 100.0 * bed << "% of the time in Bed, "
+                          << 100.0 * fly << "% in Fly-By" << std::endl;
+                check(bed > 0.2 && fly < 0.4 * bed && fly < 0.12, "pass mode Fly-By: one pass (one pitch) at a time, where Bed overlaps two");
+            }
+
+            // Fly-By's shape on a steady hiss (a slow, far pass, so the level is the window's): it dips between passes
+            // but never goes silent, and Bed stays steady. The approach is longer than the tail.
+            auto slowPass = [&]()
+            {
+                auto q = bare();
+                for (auto& b : q.buses) { b.doppler = 0.2f; b.bend = 1.0f; } // just enough speed that the two passes don't read the same sample
+                return q;
+            };
+            {
+                auto q = slowPass();
+                q.buses[0].passMode = 1;
+                const auto fly = render(hissA, q, 26.0);
+                q.buses[0].passMode = 0;
+                const auto bed = render(hissA, q, 26.0);
+                const float flyRange = spread(levels(fly, 2.0, 0.05), 0.02, 0.98), bedRange = spread(levels(bed, 2.0, 0.05), 0.02, 0.98);
+                // How much of the way in, and of the way out, a pass is within 9 dB of its peak.
+                int in = 0, out = 0;
+                for (int i = 0; i < 1000; ++i)
+                    if (RigEngine::passWindow(static_cast<float>(i) / 1000.0f, 1.0f) > 0.355f)
+                        (i < 500 ? in : out) += 1;
+                std::cout << "  pass mode on a hiss: Fly-By's level spans " << flyRange << " dB (Bed " << bedRange << " dB); a Fly-By is within 9 dB of its peak for "
+                          << in / 5 << "% of the way in and " << out / 5 << "% of the way out" << std::endl;
+                check(bedRange < 3.0f, "pass mode Bed: the two passes add up to a steady level");
+                check(flyRange > 7.0f && flyRange < 16.0f, "pass mode Fly-By: the level dips between passes without going silent");
+                check(in > out * 13 / 10 && out > 100, "pass mode Fly-By: a long approach and a shorter tail");
+            }
+
+            // Fly-By's loudest moment is the pass's closest point (which AIM aims at): the hits still land on it.
+            {
+                RigEngine e;
+                auto q = p;
+                q.hitAim = true;
+                q.hitSense = 1.0f;
+                q.buses[0].passMode = q.buses[1].passMode = 1;
+                start(e, hold, q);
+                juce::AudioBuffer<float> o(2, c_block);
+                int beats = 0, onPeak = 0, last = e.getHitBeats();
+                for (int blk = 0; blk < static_cast<int>(40.0 * c_rate) / c_block; ++blk)
+                {
+                    e.process(nullptr, nullptr, o.getWritePointer(0), o.getWritePointer(1), c_block);
+                    if (e.getHitBeats() == last)
+                        continue;
+                    last = e.getHitBeats();
+                    ++beats;
+                    for (int fl = 0; fl < RigEngine::c_maxFlights; ++fl)
+                        if (std::abs(e.getFlightView(fl).age - 0.5f) < 0.02f)
+                        {
+                            ++onPeak;
+                            break;
+                        }
+                }
+                // And the window itself peaks there, in both modes and in between.
+                bool peakAtClosest = true;
+                for (float shape : { 0.0f, 0.5f, 1.0f })
+                    for (float u = 0.0f; u <= 1.0f; u += 0.01f)
+                        peakAtClosest = peakAtClosest && RigEngine::passWindow(u, shape) <= RigEngine::passWindow(0.5f, shape) + 1.0e-6f;
+                std::cout << "  aim in Fly-By: " << beats << " hits, " << onPeak << " on a pass's closest point" << std::endl;
+                check(beats >= 8 && onPeak >= beats * 9 / 10, "pass mode Fly-By: AIM's hits land on the passes' closest points");
+                check(peakAtClosest && std::abs(RigEngine::passWindow(0.5f, 1.0f) - 1.0f) < 1.0e-6f && RigEngine::passWindow(0.0f, 1.0f) < 1.0e-6f
+                          && RigEngine::passWindow(1.0f, 1.0f) < 1.0e-6f,
+                      "pass mode: the window is loudest at the closest point and silent at both ends");
+            }
+
+            // Linked, bus B flies in bus A's Pass Mode (its own menu rests).
+            {
+                auto range = [&](bool link)
+                {
+                    auto q = slowPass();
+                    q.linkBuses = link;
+                    q.buses[0].passMode = 1;
+                    q.buses[1].passMode = 0;
+                    return spread(levels(render(hissOnB, q, 20.0), 2.0, 0.05), 0.02, 0.98);
+                };
+                const float linked = range(true), own = range(false);
+                std::cout << "  pass mode and LINK: bus B's level spans " << linked << " dB linked to a Fly-By bus A, " << own << " dB on its own (Bed)" << std::endl;
+                check(linked > 7.0f && own < 3.0f, "pass mode: a linked bus B uses bus A's Pass Mode");
+            }
+
+            // Changing Pass Mode mid-pass doesn't click: the window glides from one shape to the other.
+            {
+                RigEngine e;
+                auto q = bare();
+                start(e, toneHold, q);
+                juce::AudioBuffer<float> o(2, static_cast<int>(8.0 * c_rate) / c_block * c_block);
+                int mode = 0;
+                const int every = static_cast<int>(0.37 * c_rate) / c_block * c_block;
+                for (int pos = 0; pos < o.getNumSamples(); pos += c_block)
+                {
+                    if (pos > 0 && pos % every == 0)
+                    {
+                        mode = 1 - mode;
+                        q.buses[0].passMode = mode;
+                        e.setParams(q);
+                    }
+                    e.process(nullptr, nullptr, o.getWritePointer(0, pos), o.getWritePointer(1, pos), c_block);
+                }
+                // A steady sine is removed exactly by this filter; what is left is how sharply the level changes.
+                const float c = 2.0f * std::cos(static_cast<float>(twoPi * 1320.0 / c_rate));
+                float sharpest = 0.0f;
+                const float* x = o.getReadPointer(0);
+                for (int i = static_cast<int>(1.0 * c_rate); i < o.getNumSamples(); ++i)
+                    sharpest = std::max(sharpest, std::abs(x[i] - c * x[i - 1] + x[i - 2]));
+                std::cout << "  pass mode switched every 0.37 s: sharpest change " << sharpest << std::endl;
+                check(sharpest < 2.0e-4f, "pass mode: switching mid-pass doesn't click");
+            }
+
+            // With the faders still (Auto Ride off) the passes move the colours. Two steady tones (100 Hz and 1200 Hz,
+            // no pitch bend): the Filter lets more of the high one through as a pass comes close and less as it leaves,
+            // at least as much as when the ride moves the level.
+            {
+                juce::AudioBuffer<float> pair(1, static_cast<int>(4.0 * c_rate));
+                for (int i = 0; i < pair.getNumSamples(); ++i)
+                    pair.setSample(0, i, 0.2f * static_cast<float>(std::sin(twoPi * 100.0 * i / c_rate) + std::sin(twoPi * 1200.0 * i / c_rate)));
+                CargoHold pairHold;
+                pairHold.loadFile(0, writeWav(folder, "rig_src_pair", pair), err);
+                pairHold.setRoleOverride(0, static_cast<int>(CargoRole::Tonal));
+                pairHold.setSkipSilence(0, false);
+                auto filterMove = [&](bool ride)
+                {
+                    auto q = bare();
+                    q.rideOn = ride;
+                    q.energy = 0.35f;
+                    q.buses[0].doppler = 0.55f;
+                    q.buses[0].filter = 0.5f;
+                    const auto o = render(pairHold, q, 32.0);
+                    // The high tone against the low one, in 100 ms windows.
+                    std::vector<float> ratio;
+                    const int w = static_cast<int>(0.1 * c_rate);
+                    for (int at = static_cast<int>(2.0 * c_rate); at + w <= o.getNumSamples(); at += w)
+                    {
+                        double power[2] {};
+                        const double hz[2] = { 100.0, 1200.0 };
+                        for (int k = 0; k < 2; ++k)
+                        {
+                            double re = 0.0, im = 0.0;
+                            for (int i = 0; i < w; ++i)
+                            {
+                                const double x = (0.5 - 0.5 * std::cos(twoPi * i / w)) * 0.5 * (o.getSample(0, at + i) + o.getSample(1, at + i));
+                                re += x * std::cos(twoPi * hz[k] * (at + i) / c_rate);
+                                im += x * std::sin(twoPi * hz[k] * (at + i) / c_rate);
+                            }
+                            power[k] = re * re + im * im;
+                        }
+                        if (power[0] > 1.0e-3 && power[1] > 1.0e-9) // skip the ride's silences
+                            ratio.push_back(static_cast<float>(10.0 * std::log10(power[1] / power[0])));
+                    }
+                    return spread(ratio, 0.1, 0.9);
+                };
+                const float still = filterMove(false), ridden = filterMove(true);
+                std::cout << "  the Filter over time on two tones (P10 to P90): " << still << " dB with Auto Ride off, " << ridden << " dB with it on" << std::endl;
+                check(still > 0.8f * ridden && still > 3.0f, "with the faders still, the passes move the Filter");
+            }
+
+            // Ride make-up: the rig is about as loud into the output stage with Auto Ride off as with the default ride;
+            // a Swell is a push at first and settles to that level when it is held.
+            {
+                const float atDefault = RigEngine::rideMakeup(::Params::energyDepth(0.35f), 0.4f), deeper = RigEngine::rideMakeup(1.0f, 0.4f);
+                const float still = juce::Decibels::gainToDecibels(RigEngine::rideMakeup(0.0f, 0.4f));
+                bool falls = true;
+                for (float k = 0.0f; k < 0.35f; k += 0.05f)
+                    falls = falls && RigEngine::rideMakeup(::Params::energyDepth(k), 0.4f) <= RigEngine::rideMakeup(::Params::energyDepth(k + 0.05f), 0.4f) + 1.0e-6f;
+                check(atDefault == 1.0f && deeper == 1.0f && still < -3.5f && still > -6.5f && falls,
+                      "ride make-up: nothing at the default ride or deeper, easing down to about -5 dB with the faders still");
+
+                auto q = p;
+                q.energy = 0.35f; // the default Energy
+                const auto ridden = render(hold, q, 40.0);
+                q.rideOn = false;
+                const auto steady = render(hold, q, 40.0);
+                const float on = meanDb(ridden, 4.0, 40.0), off = meanDb(steady, 4.0, 40.0);
+
+                RigEngine e;
+                q.rideOn = true;
+                start(e, hold, q);
+                juce::AudioBuffer<float> o(2, static_cast<int>(34.0 * c_rate) / c_block * c_block);
+                const int press = static_cast<int>(4.0 * c_rate) / c_block * c_block;
+                renderRig(e, o, 0, press, c_block);
+                q.swell = true;
+                e.setParams(q);
+                renderRig(e, o, press, o.getNumSamples(), c_block);
+                const float pushed = meanDb(o, 4.3, 5.3), held = meanDb(o, 14.0, 34.0);
+                std::cout << "  ride make-up: level with Auto Ride on " << on << " dB, off " << off << " dB; Swell " << pushed << " dB in its first second, "
+                          << held << " dB held" << std::endl;
+                check(std::abs(off - on) < 2.0f, "ride make-up: Auto Ride off is about as loud as the default ride");
+                check(pushed > held + 1.5f && std::abs(held - on) < 2.0f, "ride make-up: a Swell pushes at first, and settles when held");
+            }
+
+            // Head shadow: when a pass is off to one side, the far ear hears it duller than the near ear.
+            {
+                auto q = bare();
+                q.buses[0].width = 1.0f;
+                q.buses[0].passMode = 1; // one pass at a time, so each moment has one place
+                const auto o = render(hissA, q, 24.0);
+                float x1[2] {}, x2[2] {};
+                double all[2] {}, top[2] {};
+                double duller = 0.0;
+                int sides = 0;
+                const int w = static_cast<int>(0.05 * c_rate);
+                for (int i = 0; i < o.getNumSamples(); ++i)
+                {
+                    for (int ch = 0; ch < 2; ++ch)
+                    {
+                        // The top: what changes fastest from sample to sample (mostly above 12 kHz).
+                        const float x = o.getSample(ch, i), d = x - 2.0f * x1[ch] + x2[ch];
+                        x2[ch] = x1[ch];
+                        x1[ch] = x;
+                        all[ch] += x * x;
+                        top[ch] += d * d;
+                    }
+                    if ((i + 1) % w == 0)
+                    {
+                        const int nearEar = all[0] > all[1] ? 0 : 1, farEar = 1 - nearEar;
+                        // Clearly to one side (the far ear 6 to 20 dB down), and loud enough to measure.
+                        if (i > static_cast<int>(2.0 * c_rate) && all[farEar] > 1.0e-5 * w && all[nearEar] > 4.0 * all[farEar] && all[nearEar] < 100.0 * all[farEar])
+                        {
+                            duller += 10.0 * std::log10((top[nearEar] / all[nearEar]) / (top[farEar] / all[farEar]));
+                            ++sides;
+                        }
+                        all[0] = all[1] = top[0] = top[1] = 0.0;
+                    }
+                }
+                duller /= std::max(1, sides);
+                std::cout << "  head shadow: off to a side, the far ear has " << duller << " dB less top (above 12 kHz) than the near ear (" << sides << " moments)" << std::endl;
+                check(sides > 40 && duller > 1.4, "head shadow: the ear turned away from a pass hears it duller");
+            }
+        }
     }
 
     std::cout << (g_failures == 0 ? "ALL PASSED" : juce::String(g_failures) + " FAILED") << std::endl;

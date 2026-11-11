@@ -19,6 +19,20 @@ namespace
     constexpr float c_matchSeconds = 0.003f;  // the Swirl and Drive level-match gains
     constexpr float c_duckSeconds = 0.0019f;  // Ducked by A
     constexpr float c_peakPasses = 0.72f;     // the recent peak's fall-back time constant, in pass lengths (-12 dB per pass)
+    constexpr float c_shapeSeconds = 0.06f;   // Pass Mode: how fast one window shape turns into the other
+    constexpr float c_proxSeconds = 0.02f;    // how fast the pass's nearness reaches Low End, Swirl and Filter
+    // Fly-By: the tail is over after this much of the way out, and the approach rises late (a higher power = later).
+    constexpr float c_flyTail = 0.6f;
+    constexpr float c_flyApproach = 1.3f;
+    // Head shadow: at full azimuth the far ear's air filter is this many octaves lower, but never under the floor (Hz).
+    constexpr float c_shadowOctaves = 2.0f;
+    constexpr float c_shadowFloor = 2500.0f;
+    // Ride make-up: the ride depth the output stage is set up for (Energy at its default, 35%), how much of the
+    // ride's average power the make-up takes back (the rest is the peaks, which the ride doesn't lower), and how
+    // slowly a held Swell is followed (it lets go quickly).
+    constexpr float c_makeupEnergy = 0.35f;
+    constexpr float c_makeupSlope = 0.85f;
+    constexpr float c_makeupSwellSeconds = 2.5f, c_makeupReleaseSeconds = 0.3f;
 
     float coef(float ms, float fs) { return 1.0f - std::exp(-1.0f / (0.001f * ms * fs)); }
     /** A one-pole smoothing coefficient for a step of `frames` samples: the same glide at every rate and chunk size. */
@@ -28,6 +42,49 @@ namespace
 float RigEngine::fillTapSeconds(int track, int tap)
 {
     return c_fillTap[static_cast<size_t>(juce::jlimit(0, c_tracks - 1, track))] * c_fillRatios[static_cast<size_t>(juce::jlimit(0, 2, tap))];
+}
+
+float RigEngine::passWindow(float progress, float shape)
+{
+    const float u = sj::clamp(progress, 0.0f, 1.0f);
+    const float bed = shape < 1.0f ? std::sin(sj::c_pi * u) : 0.0f;
+    if (shape <= 0.0f)
+        return bed;
+    // Fly-By: raised cosines either side of the closest point (no step and no corner anywhere). The approach takes
+    // the whole way in and rises late; the tail is over c_flyTail of the way out. The other pass of the bus is half
+    // a pass away, so it is still far off (more than 20 dB down) while this one is at its loudest, and has taken
+    // over by the time this one has gone: the bus dips between passes without going silent.
+    float fly = 0.0f;
+    if (u < 0.5f)
+        fly = 0.5f - 0.5f * std::cos(sj::c_pi * std::pow(2.0f * u, c_flyApproach));
+    else if (const float out = (2.0f * u - 1.0f) / c_flyTail; out < 1.0f)
+        fly = 0.5f + 0.5f * std::cos(sj::c_pi * out);
+    return bed + shape * (fly - bed);
+}
+
+float RigEngine::rideMakeup(float depth, float chaos)
+{
+    // The average power the ride leaves a fader at, over one swell (the same shape renderTracks rides with, at the
+    // average swell size Chaos gives), against the same at the default depth. With the faders still, every track
+    // sits at full level all the time, and the mix is that much hotter into the output stage.
+    auto power = [chaos](float e)
+    {
+        float sum = 0.0f;
+        const int points = 16;
+        for (int j = 0; j < points; ++j)
+        {
+            const float lfo = 0.5f - 0.5f * std::cos(sj::c_twoPi * (static_cast<float>(j) + 0.5f) / static_cast<float>(points));
+            const float r = std::pow(lfo, 1.0f + 1.85f * e) * (1.0f - 0.3f * chaos);
+            const float g = 1.0f - e * (1.0f - r);
+            sum += g * g;
+        }
+        return sum / static_cast<float>(points);
+    };
+    const float e = sj::clamp(depth, 0.0f, 1.0f);
+    const float reference = ::Params::energyDepth(c_makeupEnergy);
+    if (e >= reference)
+        return 1.0f;
+    return std::pow(power(reference) / power(e), 0.5f * c_makeupSlope);
 }
 
 //==============================================================================
@@ -160,6 +217,8 @@ void RigEngine::reset()
         bus.peakRef = 1.0e-3f;
         bus.swirlOn = false;
         bus.subArmed = false;
+        bus.passShape = m_params.buses[(m_params.linkBuses && i > 0) ? 0 : i].passMode == 1 ? 1.0f : 0.0f;
+        bus.prox = 1.0f;
         // The second pass starts half a pass from the first (at its closest point), and stays there.
         startPass(bus.heads[0], m_params.buses[i]);
         startPass(bus.heads[1], m_params.buses[i], bus.heads[0].lenIn);
@@ -205,7 +264,15 @@ void RigEngine::reset()
     for (size_t t = 0; t < m_levelSprings.size(); ++t)
         m_levelSprings[t].snap(m_params.levels[t]);
     m_swellSpring.snap(m_params.swell ? 1.0f : 0.0f);
-    m_energySpring.snap(m_params.energy);
+    m_energySpring.snap(m_params.rideOn ? m_params.energy : 0.0f);
+    {
+        const float depth = ::Params::energyDepth(sj::clamp(m_energySpring.value + (m_params.rideOn ? m_params.energyMod : 0.0f), 0.0f, 1.0f));
+        m_makeupSwell = m_params.swell ? 1.0f : 0.0f;
+        m_proxBlend = (1.0f - depth * (1.0f - m_makeupSwell)) * (1.0f - depth * (1.0f - m_makeupSwell));
+        m_makeupDepth = depth * (1.0f - m_makeupSwell);
+        m_makeupChaos = m_params.chaos;
+        m_makeup = m_makeupTarget = rideMakeup(m_makeupDepth, m_makeupChaos);
+    }
     m_pitchSpring.snap(m_params.pitch);
     m_fillSpring.snap(m_params.fill);
     m_spaceSpring.snap(m_params.space);
@@ -357,6 +424,20 @@ void RigEngine::renderTracks(int frames)
     const float energyKnob = sj::clamp(m_energySpring.step(seconds) + (m_params.rideOn ? m_energyModNow : 0.0f), 0.0f, 1.0f);
     const float energy = ::Params::energyDepth(energyKnob);
     const float swell = sj::clamp(m_swellSpring.step(seconds), 0.0f, 1.0f);
+    {
+        // How still the faders are, for the buses (see m_proxBlend), and the ride make-up for the mix. The make-up
+        // follows Energy and Auto Ride as they glide, and a held Swell slowly (it lets go quickly).
+        const float still = 1.0f - energy * (1.0f - swell);
+        m_proxBlend = still * still;
+        m_makeupSwell += (swell - m_makeupSwell) * glide(frames, swell > m_makeupSwell ? c_makeupSwellSeconds : c_makeupReleaseSeconds, m_fs);
+        const float depth = energy * (1.0f - m_makeupSwell);
+        if (std::abs(depth - m_makeupDepth) > 1.0e-4f || std::abs(m_params.chaos - m_makeupChaos) > 1.0e-4f)
+        {
+            m_makeupDepth = depth;
+            m_makeupChaos = m_params.chaos;
+            m_makeupTarget = rideMakeup(depth, m_makeupChaos);
+        }
+    }
     const float pitchRatio = std::exp2(sj::clamp(m_pitchSpring.step(seconds) + m_pitchModNow, -24.0f, 24.0f) / 12.0f);
     // Fill: echoes after the fader (so they hang into the ride's dips), up to about +6 dB of echo send.
     const float fillKnob = sj::clamp(m_fillSpring.step(seconds) + m_fillModNow, 0.0f, 1.0f);
@@ -713,6 +794,28 @@ void RigEngine::renderBus(BusState& bus, int frames, float key, bool isKeyBus,
     const float fs = m_fs;
     const double dt = 1.0 / m_sampleRate;
 
+    // Pass Mode (linked: bus A's). The window glides from one shape to the other, ramped across the chunk.
+    const int passMode = m_params.buses[(m_linkNow && busIndex > 0) ? 0 : busIndex].passMode;
+    const float shape0 = bus.passShape;
+    {
+        const float want = passMode == 1 ? 1.0f : 0.0f;
+        bus.passShape += (want - bus.passShape) * glide(frames, c_shapeSeconds, fs);
+        if (std::abs(want - bus.passShape) < 1.0e-4f)
+            bus.passShape = want;
+    }
+    const float shape1 = bus.passShape;
+    const float shapeStep = (shape1 - shape0) / static_cast<float>(frames);
+    // Where a pass is across the field (-1 left .. 1 right), scaled by Width: it pans the pass and sets the time
+    // difference between the ears (so Width, not the amount of bend, sets how wide a pass is; Width 0 is centred).
+    const float widthLaw = std::pow(p.width, 0.8f);
+    auto azimuth = [widthLaw](float u, float dir)
+    {
+        const float lateral = 2.0f * u - 1.0f;
+        const float side = std::copysign(std::pow(std::abs(lateral), 0.6f), lateral);
+        return widthLaw * sj::clamp(dir * side, -1.0f, 1.0f);
+    };
+    float proximity = 0.0f; // of the nearer pass, at the end of this chunk
+
     for (int i = 0; i < frames; ++i)
         bus.line.push(bus.in[static_cast<size_t>(i)]);
 
@@ -724,9 +827,9 @@ void RigEngine::renderBus(BusState& bus, int frames, float key, bool isKeyBus,
         for (size_t k = 0; k < bus.heads.size(); ++k)
             followPass(bus.heads[k], (*leadStart)[k], p.bend, false);
 
-    // Doppler: two overlapping passes. Their sine windows are always exactly half a pass apart (the second head has no
-    // clock of its own: it is placed from the first head's), so their power adds up to a steady level whatever
-    // lengths Chaos draws.
+    // Doppler: two passes, always exactly half a pass apart (the second head has no clock of its own: it is placed
+    // from the first head's). Bed: their sine windows overlap, and their power adds up to a steady level whatever
+    // lengths Chaos draws. Fly-By: each is heard on its own, a long approach and a shorter tail (see passWindow).
     const double leadTime = bus.heads[0].time;                              // the first head before this chunk,
     const double leadLength = static_cast<double>(bus.heads[0].length);     // for placing the second
     for (size_t k = 0; k < bus.heads.size(); ++k)
@@ -740,8 +843,13 @@ void RigEngine::renderBus(BusState& bus, int frames, float key, bool isKeyBus,
             const float u = h.progress();
             const float near = std::pow(sj::clamp(0.006f / dist, 0.0f, 1.0f), 0.6f);
             const float cutoff = sj::clamp(19000.0f * sj::lerp(1.0f, near * (0.3f + 0.7f * std::sin(sj::c_pi * u)), p.doppler), 600.0f, 20000.0f);
-            h.airL.set(cutoff, fs);
-            h.airR.set(cutoff, fs);
+            // Head shadow: the ear turned away from the pass hears it duller, the further to the side it is. Only the
+            // top goes (never under c_shadowFloor), so the two ears stay in step lower down and a mono sum is as
+            // solid as without it.
+            const float az = azimuth(u, h.dir);
+            auto shadowed = [cutoff](float away) { return std::max(std::min(cutoff, c_shadowFloor), cutoff * std::exp2(-c_shadowOctaves * std::max(0.0f, away))); };
+            h.airL.set(shadowed(az), fs);
+            h.airR.set(shadowed(-az), fs);
         }
 
         double t0 = leadTime, len0 = leadLength; // the first head's clock again, sample by sample (second head only)
@@ -800,11 +908,7 @@ void RigEngine::renderBus(BusState& bus, int frames, float key, bool isKeyBus,
             const double k2 = 1.0 - v * v;
             const double vs = v * s;
             const double delay = (std::sqrt(vs * vs + k2 * c2) - v * vs) / k2;
-            // Where the pass is across the field, scaled by Width: it pans the pass and sets the time difference
-            // between the ears (so Width, not the amount of bend, sets how wide a pass is; Width 0 is centred).
-            const float lateral = 2.0f * u - 1.0f;
-            const float side = std::copysign(std::pow(std::abs(lateral), 0.6f), lateral);
-            const float az = std::pow(p.width, 0.8f) * sj::clamp(h.dir * side, -1.0f, 1.0f);
+            const float az = azimuth(u, h.dir);
             const double ear = static_cast<double>(c_earOffset * az);
             const double base = static_cast<double>(c_baseDelay) + delay;
             const double back = static_cast<double>(frames - 1 - i);
@@ -815,9 +919,11 @@ void RigEngine::renderBus(BusState& bus, int frames, float key, bool isKeyBus,
             // The swell: by the pass's own speed, so Bend changes the pitch and leaves the level alone.
             const float xRef = h.machRef * static_cast<float>(s);
             const float distRef = std::sqrt(xRef * xRef + h.closest * h.closest);
-            const float window = std::sin(sj::c_pi * u);
+            const float window = passWindow(u, shape0 + shapeStep * static_cast<float>(i + 1));
             const float nearness = h.closest / std::max(distRef, 1.0e-6f);
             const float gain = window * (1.0f + 0.8f * p.doppler * (nearness - 0.35f));
+            if (i == frames - 1)
+                proximity = std::max(proximity, window * (0.1f + 0.9f * std::sqrt(std::min(nearness, 1.0f))));
             const float theta = (0.95f * az + 1.0f) * (sj::c_pi * 0.25f);
 
             bus.l[static_cast<size_t>(i)] += h.airL.lowpass(l) * gain * std::cos(theta) * 1.41421356f;
@@ -830,7 +936,7 @@ void RigEngine::renderBus(BusState& bus, int frames, float key, bool isKeyBus,
         if (k != 0)
             h.time += dt;
         h.age = h.progress();
-        h.view = std::sin(sj::c_pi * h.age);
+        h.view = passWindow(h.age, shape1);
         h.x = h.dir * std::tanh(5.0f * (h.age - 0.5f));
     }
 
@@ -842,12 +948,19 @@ void RigEngine::renderBus(BusState& bus, int frames, float key, bool isKeyBus,
     // The recent peak falls back by 12 dB per pass length (it follows Rate), so one big swell doesn't hold the Filter,
     // Swirl and Low End back for several passes after it.
     bus.peakRef = std::max(bus.env, bus.peakRef * std::exp(-static_cast<float>(frames) / (c_peakPasses * nominalPassSeconds() * fs)));
-    const float peakness = sj::clamp(bus.env / std::max(bus.peakRef, 1.0e-6f), 0.0f, 1.0f);
+    // What Low End, Swirl and Filter follow: the level against the recent peak and, the stiller the faders are, how
+    // near the nearer pass is. With the ride at its default depth or deeper it is all but the level alone (the ride
+    // makes the swells); with Auto Ride off or Swell held the level hardly moves, and the passes move the colours.
+    bus.prox += (proximity - bus.prox) * glide(frames, c_proxSeconds, fs);
+    const float levelNow = sj::clamp(bus.env / std::max(bus.peakRef, 1.0e-6f), 0.0f, 1.0f);
+    const float nearNow = 1.0f - m_proxBlend * (1.0f - bus.prox);
+    const float peakness = levelNow * nearNow;
 
     // Low end: sub octave, overtones, and a lift at the loudest point (a multiband-dynamics style lift).
     if (p.low > 1.0e-4f)
     {
-        const float shelf = sj::dbToGain(p.low * (2.0f + 9.0f * peakness * peakness * peakness)) - 1.0f;
+        // The lift is steep in the level (it belongs to the very loudest moments) and even in how near the pass is.
+        const float shelf = sj::dbToGain(p.low * (2.0f + 9.0f * levelNow * levelNow * levelNow * nearNow)) - 1.0f;
         for (int i = 0; i < frames; ++i)
         {
             auto& l = bus.l[static_cast<size_t>(i)];
@@ -1416,6 +1529,20 @@ void RigEngine::process(const float* inL, const float* inR, float* outL, float* 
             ++m_sectionSamples;
             m_mixL[ii] = l;
             m_mixR[ii] = r;
+        }
+        // Ride make-up (see rideMakeup): ramped across the chunk.
+        {
+            const float g0 = m_makeup;
+            m_makeup += (m_makeupTarget - m_makeup) * glide(frames, 0.05f, m_fs);
+            if (g0 < 0.9999f || m_makeupTarget < 0.9999f)
+                for (int i = 0; i < frames; ++i)
+                {
+                    const float g = g0 + (m_makeup - g0) * static_cast<float>(i + 1) / static_cast<float>(frames);
+                    m_mixL[static_cast<size_t>(i)] *= g;
+                    m_mixR[static_cast<size_t>(i)] *= g;
+                }
+            else
+                m_makeup = 1.0f;
         }
         // Peak tremolo on everything (by the mix's level), before Space so the echoes and reverb carry it.
         applyTremolo(m_trem[0], m_mixL.data(), m_mixR.data(), frames, m_params.tremTarget == 0);

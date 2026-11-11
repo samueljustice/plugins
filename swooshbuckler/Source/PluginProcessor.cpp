@@ -38,6 +38,8 @@ SwooshbucklerAudioProcessor::SwooshbucklerAudioProcessor()
     for (int b = 0; b < ParamIDs::numBuses; ++b)
         for (int k = 0; k < ParamIDs::numBusControls; ++k)
             m_raw.bus[b][k] = ParamIDs::bus[b][k] != nullptr ? raw(ParamIDs::bus[b][k]) : nullptr;
+    for (int b = 0; b < ParamIDs::numBuses; ++b)
+        m_raw.passMode[b] = raw(ParamIDs::passMode[b]);
     m_raw.hitSense = raw(ParamIDs::hitSense);
     m_raw.hitBoost = raw(ParamIDs::hitBoost);
     m_raw.hitRelease = raw(ParamIDs::hitRelease);
@@ -247,6 +249,7 @@ void SwooshbucklerAudioProcessor::updateEngineParams()
         d.drive = get(ParamIDs::Drive);
         d.duck = get(ParamIDs::Duck);
         d.key = get(ParamIDs::Key);
+        d.passMode = juce::jlimit(0, 1, juce::roundToInt(m_raw.passMode[b]->load()));
     }
     p.hitSense = modValue(m_raw.hitSense);
     p.hitBoost = modValue(m_raw.hitBoost);

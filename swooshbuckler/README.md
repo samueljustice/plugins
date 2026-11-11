@@ -169,8 +169,8 @@ This is where the whooshes come from. With AUTO RIDE on, each track's fader rise
 
 | Control | Range (default) | What it does |
 |---|---|---|
-| **Swell** | button | Hold it to push every track's fader up to its full level, over the ride. Let go and the ride takes over again. It glides rather than jumps. The space bar and any MIDI note do the same. |
-| **AUTO RIDE** | on / off (on) | The faders move by themselves. Off: the movement glides to a stop and each fader stays where you set it. |
+| **Swell** | button | Hold it to push every track's fader up to its full level, over the ride. Let go and the ride takes over again. It glides rather than jumps. It is a push: held for longer than a couple of seconds, the mix eases back to its usual level with every fader still up (see the note under the table). The space bar and any MIDI note do the same. |
+| **AUTO RIDE** | on / off (on) | The faders move by themselves. Off: the movement glides to a stop and each fader stays where you set it. The doppler passes then do the moving: Low End, Swirl and Filter follow how close each pass is. |
 | **Energy** | 0–100% (35%) | How deep the ride dips the faders between swells, evenly in dB: 4 dB more for every 10%, to −36 dB at 90% and silence at 100%. Dimmed with AUTO RIDE off, when it does nothing. |
 | **Rate** | 25 s to 1.9 s (6.4 s) | How fast the faders move: the readout is the time of one rise and fall. It also sets how long each doppler pass lasts, from about 6 s down to about 1.6 s. |
 | **Fill** | 0–100% (15%) | Long, softened echoes at about 0.5, 1 and 2 s (each track has its own times, so layered tracks don't echo in step), after each track's fader, so they hang on into the dips of the ride and the gaps of gappy sounds. |
@@ -181,6 +181,8 @@ Pitch moves every track at once. To pitch one track on its own, with or without 
 
 Swell only lifts the faders up to the ride's ceiling, so with AUTO RIDE off (or Energy at 0%) the faders are already there and Swell does nothing you'll hear.
 
+**The level stays put when the ride changes.** With every fader up all the time (AUTO RIDE off, Energy below its default, or Swell held) the tracks add up to more than they do while the ride dips them. Swooshbuckler eases the mix down to match, by up to about 5 dB with the faders fully still, so the rig reaches Inflate and the limiter about as loud as with the default ride, and switching AUTO RIDE on and off compares the movement, not the loudness. It follows Energy and AUTO RIDE as they glide, and a held Swell over about 2.5 seconds, so a short Swell is still a push. From the default Energy (35%) up, nothing is changed.
+
 How far each knob goes, and why, is measured in the [knob audit](docs/knob-audit.md).
 
 ### Bus A and Bus B
@@ -189,14 +191,16 @@ How far each knob goes, and why, is measured in the [knob audit](docs/knob-audit
 
 ![Bus B](docs/images/bus-b.png)
 
-Each bus turns its tracks into a moving source: it always runs two overlapping doppler passes, half a pass apart (as one fades out the other is at its loudest, so the bus keeps a steady level), and each one flies across the stereo field. In order, the chain is: doppler passes (with Width and Bend), then Low End, Swirl, Filter and Drive, then the ducking.
+Each bus turns its tracks into a moving source: it runs two doppler passes, half a pass apart, and each one flies across the stereo field. **PASS**, the menu in each bus's title bar, sets how the two follow each other: overlapped into a steady level (Bed) or one at a time (Fly-By). In order, the chain is: doppler passes (with Width and Bend), then Low End, Swirl, Filter and Drive, then the ducking.
+
+Low End, Swirl and Filter move with the sound: they follow the bus's level against its own recent peak, which with AUTO RIDE on is mostly the ride's swells. The stiller the faders are (AUTO RIDE off, a low Energy, or Swell held), the more they follow how close the nearer pass is instead, so the colours keep moving with the passes you see on the sea when the level doesn't.
 
 Bus A ("growls, tones, crackle, rumble - and the key for B") is the aggressive bus. Bus B ("air and beds, ducked and filtered by A") sits under it.
 
 | Control | Default (A / B) | What it does |
 |---|---|---|
 | **Doppler** | 55% / 40% | How dramatic each pass is: how close it comes, how much it swells and brightens as it goes by, and (with Bend) how far its pitch bends. |
-| **Width** | 70% / 70% | How far each pass travels across the stereo field: at 0% it stays in the middle, at 100% it flies fully from side to side. |
+| **Width** | 70% / 70% | How far each pass travels across the stereo field: at 0% it stays in the middle, at 100% it flies fully from side to side. When a pass is off to one side, the ear turned away from it hears it a little duller (only the top end, so a mono fold-down is as solid as without it). |
 | **Bend** | 70% / 60% | How much the pitch bends as a pass goes by: it rises on the way in and drops as the pass goes by, like a real fly-by (the rise is the bigger of the two), up to a race-car scream and drop. It changes the pitch only: how the pass swells and brightens is set by Doppler. |
 | **Low End** | 35% / 30% | Weight: a sub octave and low overtones, plus a low lift that grows at the bus's loudest moments. The sub octave follows the lowest part of the sound (about 40 to 120 Hz) and holds still on noise, so it stays a note and not a rumble. |
 | **Swirl** | 30% / 30% | Movement inside the sound: a phaser, then (from about a third of the way) a flanger that sweeps as the passes come and go. Its level is matched, so it changes the colour, not the loudness. |
@@ -204,7 +208,8 @@ Bus A ("growls, tones, crackle, rumble - and the key for B") is the aggressive b
 | **Drive** | 12% / 0% | Saturation, from gentle thickening to a hard, flattened growl. The drive rises evenly in dB and the level stays roughly steady, so it adds character rather than just loudness. |
 | **Ducked** (B only) | 35% | How far bus A pushes bus B down at A's peaks, up to −20 dB, judged against A's own recent peak so it works the same on quiet and loud material. |
 | **Filtered** (B only) | 30% | How far bus A closes a low-pass filter on bus B at A's peaks, down to about 280 Hz at 100%, so B goes dark under A rather than just quieter. |
-| **LINK** (in B's title bar) | off | Bus B flies the same doppler passes as bus A: at the same moment, as close, in the same direction, with A's Doppler and Width. The two buses move as one source, for one consistent whoosh. B keeps its own Bend, so its pitch can bend more or less. While linked, B's own Doppler and Width are dimmed, and they come back as you set them when you unlink. Leave it off to keep energy beds on B moving on their own. |
+| **PASS** (in each title bar) | Bed / Bed | How the bus's two doppler passes follow each other. **Bed**: they overlap, one coming in as the other goes out, so the bus keeps a steady level. Best for beds, air and long energy files. The two are at different pitches while they overlap, which thickens noise and can sound like two notes on a tone. **Fly-By**: one pass at a time, with a long approach, the peak at its closest point and a shorter tail, so each sound is heard once and at one pitch. The level dips between passes (by about 10 dB) without going silent. Best for a single clear whoosh, for tones, and for sounds with a sharp start. The passes peak at the same moments in both, so AIM, LINK and the sea work the same, and switching mid-pass glides. With LINK on, bus B uses bus A's PASS and its own menu is dimmed. |
+| **LINK** (in B's title bar) | off | Bus B flies the same doppler passes as bus A: at the same moment, as close, in the same direction, with A's Doppler, Width and PASS. The two buses move as one source, for one consistent whoosh. B keeps its own Bend, so its pitch can bend more or less. While linked, B's own Doppler, Width and PASS are dimmed, and they come back as you set them when you unlink. Leave it off to keep energy beds on B moving on their own. |
 | **TAKE TURNS** (in B's title bar) | off | Only the louder bus plays at full level and the other ducks under it by the Ducked amount (at 0% Ducked it does nothing), so they trade places. The other bus has to be clearly louder (about 2 dB) for 30 ms before the turn passes. Off: A always ducks B. |
 
 All the knobs run from 0 to 100%. How bus B gets out of the way (turned down, darkened or just its mids) follows the **DUCK** box in the Hits section, and how fast it comes back follows the Hits **Return** knob.
@@ -373,7 +378,9 @@ Click the **Swooshbuckler** title or the version number to open it. It shows the
 
 The factory presets are **Steady Energy**, **Jet Passes**, **Monster Swells**, **Gentle Breeze**, **Fast and Furious**, **Magic Dust** and **Heavy Hits**. Pick one from the preset name, or step through them with **<** and **>**. Every control glides to its new setting while it plays, so you can switch mid-whoosh. Grab a knob during the glide and your move wins.
 
-**RANDOMISE** rolls Energy, Rate, Fill, Chaos and Pitch (whole semitones from −7 to +7), the bus knobs (Doppler, Low End, Swirl, Filter and Drive, plus Ducked and Filtered on B), the hit knobs (Sensitivity, Boost, Release and Duck) and Space.
+**RANDOMISE** rolls Energy, Rate, Fill, Chaos and Pitch (whole semitones from −7 to +7), the bus knobs (Doppler, Low End, Swirl, Filter and Drive, plus Ducked and Filtered on B), the hit knobs (Sensitivity, Boost, Release and Duck) and Space. It leaves each bus's PASS menu as you set it.
+
+The presets set PASS too: **Jet Passes**, **Monster Swells** and **Fast and Furious** put bus A on Fly-By, and the others use Bed on both buses.
 
 Presets and RANDOMISE set the sound, not your session. They leave these alone:
 
@@ -407,6 +414,7 @@ Anything else a preset doesn't set goes back to its default. **Back to Defaults*
 - **Two takes of one sound**: load the same file on two tracks and detune one by 10 to 20 cents with VARI off, for a thicker, chorused layer.
 - **Keep a hit's timing but change its size**: pitch an impact down with VARI off and it lands on the same beat, just heavier.
 - **For one clean pass instead of two layers flying about**, turn on LINK so bus B follows bus A's passes. Turn it off when B carries a bed that should keep moving on its own.
+- **For a single object going by** (a jet, a car, a creature's call), set that bus's PASS to Fly-By: each sound is heard once, at one pitch. Keep Bed for wind, air and long energy beds.
 - **If the buses fight**, turn on TAKE TURNS, or raise Ducked and Filtered on bus B.
 - **Record at 96 or 192 kHz** if you plan to pitch the whooshes down later.
 - **Leave the tape armed** while you play with the controls. It only writes when there's sound, so you just need to listen back for the good ones.
