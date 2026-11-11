@@ -69,7 +69,7 @@ namespace roar
      *               rate. The linear part is the input delayed by the same 49 samples, so material
      *               below the knee passes bit-exactly. Clip 0 is a pure delay (crossing 0 fades the
      *               residual over 20 ms).
-     *   DC blockers one-pole 10 Hz high-passes on the maximizer's reduction ((g - 1) x) and on
+     *   DC blockers one-pole 2.5 Hz high-passes on the maximizer's reduction ((g - 1) x) and on
      *               the clipper's residual (the safety stage after them catches what the filtering
      *               moves): a gain that follows an asymmetric wave (a driven preset at
      *               a high Push, a short Release) leaves no DC offset, and material neither stage
@@ -181,8 +181,8 @@ namespace roar
         struct Channel
         {
             Biquad hp1, hp2, lp;
-            Biquad dcBlock;                          // 10 Hz one-pole on the clipper's residual
-            Biquad gainDcBlock;                      // 10 Hz one-pole on the maximizer's reduction
+            Biquad dcBlock;                          // 2.5 Hz one-pole on the clipper's residual
+            Biquad gainDcBlock;                      // 2.5 Hz one-pole on the maximizer's reduction
             Biquad wetHp, wetLowShelf, wetShelf;     // wet loudness weighting
             Biquad dryHp, dryShelf;                  // raw input loudness weighting
             TruePeakHistory mainPeak, safetyPeak;
