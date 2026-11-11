@@ -17,6 +17,9 @@ namespace
     constexpr int c_easeFrames = 16;        // frames at ratio 1 spent easing the rotations back to zero
     constexpr float c_easeFactor = 0.7f;    // per-frame rotation decay while easing
     constexpr int c_cleanFrames = 4;        // then frames with zero rotation (fills the overlap-add) before the bypass
+    constexpr float c_onsetStart = 0.2f;    // an onset starts at the first sample over this much of its loudest one
+    constexpr float c_windowSum = 1.5f;     // Hann^2 at 75 % overlap
+    constexpr float c_minWindowSum = c_windowSum / 4.0f; // the overlap-add make-up before an onset stops at 12 dB
 }
 
 //==============================================================================
@@ -44,6 +47,7 @@ void PitchShifter::prepare(double sampleRate)
 
     m_in.assign(n, 0.0f);
     m_outAcc.assign(n, 0.0f);
+    m_normAcc.assign(n, 0.0f);
     m_outFifo.assign(static_cast<size_t>(m_hop), 0.0f);
     m_work.assign(2 * n, 0.0f);
     m_delay.assign(n, 0.0f);
@@ -61,6 +65,8 @@ void PitchShifter::prepare(double sampleRate)
     const double frameSeconds = static_cast<double>(m_hop) / m_sampleRate;
     m_ratioCoeff = static_cast<float>(1.0 - std::exp(-frameSeconds / 0.03)); // ~30 ms glide
     m_mixStep = 1.0f / static_cast<float>(m_hop);
+    m_trimCoeff = static_cast<float>(1.0 - std::exp(-frameSeconds / 0.3)); // ~300 ms
+    m_gateFade = std::max(8, static_cast<int>(0.001 * m_sampleRate));
 
     reset();
 }
@@ -76,6 +82,22 @@ void PitchShifter::reset()
     m_pos = 0;
     m_delayPos = 0;
     m_transientPos = -1;
+    m_gatePos = 0;
+    std::fill(std::begin(m_targetHistory), std::end(m_targetHistory), 0.0f);
+    m_historyPos = 0;
+    m_powTarget = m_powOut = 0.0f;
+    m_trim = 1.0f;
+
+    // The window sum as three earlier (silent) frames would have left it, so the first frames are divided by the
+    // full sum, as in the steady state.
+    const int size = static_cast<int>(std::min(m_normAcc.size(), m_window.size())); // 0 before prepare()
+    for (int i = 0; i < size; ++i)
+    {
+        float sum = 0.0f;
+        for (int j = 1; j <= 3 && i + j * m_hop < size; ++j)
+            sum += m_window[static_cast<size_t>(i + j * m_hop)] * m_window[static_cast<size_t>(i + j * m_hop)];
+        m_normAcc[static_cast<size_t>(i)] = sum;
+    }
 
     // Start in bypass at the current target, so a fresh track at 0 st is a pure delay from sample one.
     const bool unity = std::abs(m_targetRatio - 1.0f) <= c_unityTolerance;
@@ -185,6 +207,7 @@ void PitchShifter::processFrame()
     if (m_transientPos >= 0)
     {
         m_transientPos -= hop;
+        m_gatePos -= hop;
         if (m_transientPos < 0)
             m_transientPos = -1;
     }
@@ -199,6 +222,11 @@ void PitchShifter::processFrame()
             if (a > bestAbs) { bestAbs = a; best = i; }
         }
         m_transientPos = best;
+
+        // Where it starts: the first sample there that reaches a fifth of the loudest one.
+        m_gatePos = best;
+        for (int i = n - 2 * hop; i < best; ++i)
+            if (std::abs(m_in[static_cast<size_t>(i)]) >= c_onsetStart * bestAbs) { m_gatePos = i; break; }
     }
 
     // Slide the analysis buffer for the next frame.
@@ -206,6 +234,13 @@ void PitchShifter::processFrame()
 
     std::fill(m_out.begin(), m_out.end(), Cpx {});
     std::fill(m_owner.begin(), m_owner.end(), -1);
+
+    // Level trim: back to exactly 1 on the way to the bypass.
+    if (unity)
+        m_trim = m_settle >= c_easeFrames ? 1.0f : 1.0f + (m_trim - 1.0f) * c_easeFactor;
+
+    float inBandPower = 0.0f; // what this frame should sound like: the power of the input bins that stay in band
+    const bool resetting = m_transientPos >= 0;
 
     if (maxMag > 1.0e-9f)
     {
@@ -246,8 +281,8 @@ void PitchShifter::processFrame()
             lo = hi + 1;
         }
 
-        const bool resetting = m_transientPos >= 0;
         const float n0 = static_cast<float>(m_transientPos);
+        float eIn = 0.0f;
 
         for (int p = 0; p < numPeaks; ++p)
         {
@@ -290,6 +325,8 @@ void PitchShifter::processFrame()
             const int jhi = std::min(rhi, bins - 1 - shift);
             for (int k = rlo; k <= rhi; ++k)
                 m_owner[static_cast<size_t>(k)] = pk;
+            for (int k = jlo; k <= jhi; ++k)
+                eIn += m_mag[static_cast<size_t>(k)] * m_mag[static_cast<size_t>(k)];
             if (juce::exactlyEqual(theta, 0.0f))
             {
                 for (int k = jlo; k <= jhi; ++k)
@@ -302,29 +339,91 @@ void PitchShifter::processFrame()
             }
         }
 
+        // Level: the frame gets the energy of the input bins that stayed in band (regions that land on each
+        // other, or part-moved lobes, would otherwise change it), times the slow trim. Exactly 1 at ratio 1.
+        float gain = 1.0f;
+        if (! unity)
+        {
+            float eOut = 0.0f;
+            for (size_t k = 0; k < static_cast<size_t>(bins); ++k)
+                eOut += std::norm(m_out[k]);
+            if (eOut > 1.0e-30f)
+                gain = juce::jlimit(0.5f, 2.0f, std::sqrt(eIn / eOut));
+        }
+        if (! resetting)
+            gain *= m_trim; // an onset is rebuilt in phase and loses nothing, so it is left alone
+        // One-sided spectrum sum to the power of the signal under the window (sum of hann^2 = 3N/8).
+        inBandPower = eIn * 2.0f / (0.375f * static_cast<float>(n) * static_cast<float>(n));
+
         // Synthesis: inverse FFT, Hann synthesis window, overlap-add (Hann^2 at 75 % overlap sums to 1.5).
         for (size_t k = 0; k < static_cast<size_t>(bins); ++k)
         {
-            m_work[2 * k] = m_out[k].real();
-            m_work[2 * k + 1] = m_out[k].imag();
+            m_work[2 * k] = m_out[k].real() * gain;
+            m_work[2 * k + 1] = m_out[k].imag() * gain;
         }
         m_work[1] = 0.0f;
         m_work[2 * static_cast<size_t>(bins) - 1] = 0.0f;
         std::fill(m_work.begin() + 2 * bins, m_work.end(), 0.0f);
         m_fft->performRealOnlyInverseTransform(m_work.data());
 
-        constexpr float olaGain = 1.0f / 1.5f;
-        for (int i = 0; i < n; ++i)
+        // Nothing of an onset is written before it: the frames that hold it start with a short fade just ahead
+        // of it. The window sum each output sample really got is kept alongside, and divides the output.
+        const int gateEnd = (resetting && ! unity) ? juce::jlimit(0, n, m_gatePos) : 0;
+        const int gateStart = std::max(0, gateEnd - m_gateFade);
+        for (int i = gateStart; i < gateEnd; ++i)
         {
             const auto is = static_cast<size_t>(i);
-            const float v = m_work[is] * m_window[is] * olaGain;
+            const float w = m_window[is] * (0.5f - 0.5f * std::cos(c_pi * static_cast<float>(i - (gateEnd - m_gateFade)) / static_cast<float>(m_gateFade)));
+            const float v = m_work[is] * w;
             m_outAcc[is] += std::isfinite(v) ? v : 0.0f;
+            m_normAcc[is] += m_window[is] * w;
+        }
+        for (int i = gateEnd; i < n; ++i)
+        {
+            const auto is = static_cast<size_t>(i);
+            const float v = m_work[is] * m_window[is];
+            m_outAcc[is] += std::isfinite(v) ? v : 0.0f;
+            m_normAcc[is] += m_window[is] * m_window[is];
         }
     }
+    else
+    {
+        // A silent frame still takes its place in the window sum.
+        for (int i = 0; i < n; ++i)
+            m_normAcc[static_cast<size_t>(i)] += m_window[static_cast<size_t>(i)] * m_window[static_cast<size_t>(i)];
+    }
 
-    std::copy(m_outAcc.begin(), m_outAcc.begin() + hop, m_outFifo.begin());
-    std::memmove(m_outAcc.data(), m_outAcc.data() + hop, sizeof(float) * static_cast<size_t>(n - hop));
-    std::fill(m_outAcc.begin() + (n - hop), m_outAcc.end(), 0.0f);
+    for (int i = 0; i < hop; ++i)
+        m_outFifo[static_cast<size_t>(i)] = m_outAcc[static_cast<size_t>(i)] / std::max(c_minWindowSum, m_normAcc[static_cast<size_t>(i)]);
+    for (auto* acc : { &m_outAcc, &m_normAcc })
+    {
+        std::memmove(acc->data(), acc->data() + hop, sizeof(float) * static_cast<size_t>(n - hop));
+        std::fill(acc->begin() + (n - hop), acc->end(), 0.0f);
+    }
+
+    // Level trim. Frames of noise do not line up after a shift, so their overlap-add comes out 1 to 3 dB low.
+    // This frame is heard one latency (4 hops) later: compare the output with the target from 4 frames ago,
+    // and only learn on steady sound (not on onsets, tails or silence, nor at ratio 1).
+    {
+        const float heardTarget = m_targetHistory[m_historyPos];
+        m_targetHistory[m_historyPos] = (resetting || unity) ? 0.0f : inBandPower;
+        m_historyPos = (m_historyPos + 1) & 3;
+
+        if (! unity && ! resetting && heardTarget > 1.0e-8f && inBandPower > 1.0e-8f)
+        {
+            float outPow = 0.0f;
+            for (int i = 0; i < hop; ++i)
+                outPow += m_outFifo[static_cast<size_t>(i)] * m_outFifo[static_cast<size_t>(i)];
+            outPow /= static_cast<float>(hop);
+            if (outPow > 1.0e-9f)
+            {
+                m_powTarget += (heardTarget - m_powTarget) * m_trimCoeff;
+                m_powOut += (outPow / (m_trim * m_trim) - m_powOut) * m_trimCoeff; // untrimmed output power
+                if (m_powOut > 1.0e-12f)
+                    m_trim += (juce::jlimit(0.7f, 1.6f, std::sqrt(m_powTarget / m_powOut)) - m_trim) * m_trimCoeff;
+            }
+        }
+    }
 
     // This frame becomes the previous one (swaps: no allocation).
     m_spec.swap(m_prevSpec);

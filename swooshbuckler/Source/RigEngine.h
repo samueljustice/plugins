@@ -284,9 +284,8 @@ private:
     float m_morphMixNow = 0.0f; // how far the morph is in (B isn't ducked or filtered by A while morphing)
     void glideMods(int frames);
     std::array<float, c_chunk> m_trackScratch {};
-    SpectralMorph m_morph;
+    MorphInsert m_morph;
     sj::Spring m_morphMix;
-    std::array<float, c_chunk> m_morphA {}, m_morphB {}, m_morphOut {};
 
     // Buses
     std::array<BusState, c_maxBuses> m_buses;

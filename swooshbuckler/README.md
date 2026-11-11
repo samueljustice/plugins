@@ -132,7 +132,7 @@ This is where your sounds live: up to ten files, each on its own looping lane.
 | **SKIP SILENCE** | On (the default): only the sounds play and the gaps between them are skipped, so a recording full of pauses becomes a steady source. The sounds are drawn bright and the gaps faint. Off: the whole file loops, silence and all, and the lane reads "silence kept". |
 | **Fader** | The track's level, in dB: 30 dB of travel (each 10% is 3 dB), with the last 5% fading to silence; default −2.1 dB. With AUTO RIDE on, it sets how high the ride can take the track. Double-click to reset. Each one is also a host parameter, "Track 1" to "Track 10". |
 | **Semitones / Cents** | The track's own pitch: up to 24 semitones either way, plus up to 100 cents for fine tuning. It adds to the Ride's Pitch knob and glides to a new setting. **Drag up or down** on a box to change it, and **double-click** to reset. Each one is also a host parameter ("Track 1 Semitones", "Track 1 Cents" and so on). Drag a MOD jack onto the Semitones box to modulate the track's pitch; its plugs sit in a row under the box. |
-| **VARI** | On (the default): varispeed, like tape. The pitch and the speed change together, so up an octave also plays twice as fast. Off: the pitch changes and the speed stays the same, through a pitch shifter, which delays that track by about 43 ms. Synced hits allow for both. |
+| **VARI** | On (the default): varispeed, like tape. The pitch and the speed change together, so up an octave also plays twice as fast. Off: the pitch changes and the speed stays the same, through a pitch shifter, which delays that track by about 43 ms. The shifter holds the level of the sound (shifting up only loses what goes above the top of the audible range) and keeps the front of a hit clean. Synced hits allow for both. |
 | **M / S / x** | Mute, solo and remove. A muted track keeps its place in the ride, so it comes straight back in when you unmute it. |
 | **Waveform** | The yellow **flag** marks where the track starts playing. It loops from there, and the part before the flag is dimmed. **Click or drag** on the waveform to move it, and **double-click** to put it back at the top. The flag is saved with the session; loading a new sound onto the track puts it back at the top. |
 | **Ride line** | The line across the waveform traces the track's actual level over the last 8 seconds, like an automation lane scrolling past, with a dot at the right for right now. The thin strip left of the waveform shows the level now. Both include the fader, the ride, and mute and solo. |
@@ -289,7 +289,7 @@ The OUTPUT view at the top right pictures what the rig is sending out:
 
 The morph blends bus A into bus B spectrally, so the two sounds trade tone and pitch rather than just crossfading. Click **MORPH** over the sea to show the pad, then switch the morph on with **ON**. The MORPH button only shows and hides the pad; the morph keeps running when the pad is hidden.
 
-- **ON / OFF** switches the morph itself, with a fade rather than a hard switch. While it's off the pad is veiled and dimmed, but everything still works, so you can set it up first.
+- **ON / OFF** switches the morph itself, with a fade rather than a hard switch. The morph takes about 43 ms to do its work, so while it is on, buses A and B run that much later; the fade is lined up with that, so you never hear the sound doubled while switching. While it's off the pad is veiled and dimmed, but everything still works, so you can set it up first.
 - **Blend / Glide / Cross** pick the mode. Changing mode crossfades, so it doesn't click.
 - **The dot**: left is bus A and right is bus B in every mode. Up and down depends on the mode:
 
@@ -443,7 +443,7 @@ cmake -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build --config Release
 ```
 
-This builds the app, the VST3 and the AU (macOS) into `build/Swooshbuckler_artefacts/Release/`, along with the offline test programs: `SwooshbucklerRig`, `SwooshbucklerCargo`, `SwooshbucklerClassify`, `SwooshbucklerPitch` and `SwooshbucklerMaster`. Pass `-DSWOOSHBUCKLER_TESTS=OFF` to skip the tests, or `-DSWOOSHBUCKLER_FORMATS="Standalone;VST3"` to choose the formats.
+This builds the app, the VST3 and the AU (macOS) into `build/Swooshbuckler_artefacts/Release/`, along with the offline test programs: `SwooshbucklerRig`, `SwooshbucklerCargo`, `SwooshbucklerClassify`, `SwooshbucklerPitch`, `SwooshbucklerMorph`, `SwooshbucklerMaster` and `SwooshbucklerSession`. Pass `-DSWOOSHBUCKLER_TESTS=OFF` to skip the tests, or `-DSWOOSHBUCKLER_FORMATS="Standalone;VST3"` to choose the formats.
 
 ### Version
 

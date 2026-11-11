@@ -16,6 +16,8 @@ namespace
     constexpr float c_magFloor = 1.0e-6f;
     constexpr int c_envIterations = 3;   // true-envelope iterations (cepstrum, max with the spectrum, again)
     constexpr int c_modeFadeFrames = 6;
+    constexpr float c_onsetFlux = 0.5f;  // positive spectral flux / total magnitude that marks an onset (as in PitchShifter)
+    constexpr int c_onsetFrames = 3;     // frames for which an onset sits late enough in the frame to be smeared ahead of itself
 }
 
 const char* SpectralMorph::modeName(int mode)
@@ -79,10 +81,11 @@ void SpectralMorph::prepare(double sampleRate, int maxBlock)
 
 void SpectralMorph::reset()
 {
-    for (auto* v : { &m_inA, &m_inB, &m_outAcc, &m_outFifo, &m_work, &m_prevPhA, &m_prevPhB, &m_outPhase })
+    for (auto* v : { &m_inA, &m_inB, &m_outAcc, &m_outFifo, &m_work, &m_prevPhA, &m_prevPhB, &m_outPhase, &m_magA, &m_magB })
         std::fill(v->begin(), v->end(), 0.0f);
     m_pos = 0;
     m_gateA = m_gateB = 0.0f;
+    m_onsetLeft = 0;
     m_first = true;
     std::fill(std::begin(m_targetHistory), std::end(m_targetHistory), 0.0f);
     m_historyPos = 0;
@@ -121,7 +124,8 @@ void SpectralMorph::process(const float* a, const float* b, float* out, int n)
 
 //==============================================================================
 void SpectralMorph::analyse(const std::vector<float>& in, std::vector<Cpx>& spec, std::vector<float>& mag,
-                            std::vector<float>& phase, std::vector<float>& logMag, float& energy, float& rms)
+                            std::vector<float>& phase, std::vector<float>& logMag, float& energy, float& rms,
+                            float& total, float& flux)
 {
     const int n = m_fftSize;
     float sumSq = 0.0f;
@@ -136,7 +140,7 @@ void SpectralMorph::analyse(const std::vector<float>& in, std::vector<Cpx>& spec
 
     m_fft->performRealOnlyForwardTransform(m_work.data(), true);
 
-    energy = 0.0f;
+    energy = total = flux = 0.0f;
     for (int k = 0; k < m_bins; ++k)
     {
         const Cpx z(m_work[static_cast<size_t>(2 * k)], m_work[static_cast<size_t>(2 * k + 1)]);
@@ -144,7 +148,10 @@ void SpectralMorph::analyse(const std::vector<float>& in, std::vector<Cpx>& spec
         spec[ks] = z;
         const float m2 = std::norm(z);
         energy += m2;
-        mag[ks] = std::sqrt(m2);
+        const float m = std::sqrt(m2);
+        total += m;
+        flux += std::max(0.0f, m - mag[ks]); // mag still holds the last frame
+        mag[ks] = m;
         phase[ks] = std::atan2(z.imag(), z.real());
         logMag[ks] = std::log(mag[ks] + c_magFloor);
     }
@@ -193,9 +200,9 @@ void SpectralMorph::trueEnvelope(const float* logMag, float* env, int iterations
 //==============================================================================
 void SpectralMorph::processFrame()
 {
-    float eA = 0, eB = 0, rmsA = 0, rmsB = 0;
-    analyse(m_inA, m_specA, m_magA, m_phA, m_logA, eA, rmsA);
-    analyse(m_inB, m_specB, m_magB, m_phB, m_logB, eB, rmsB);
+    float eA = 0, eB = 0, rmsA = 0, rmsB = 0, totA = 0, totB = 0, fluxA = 0, fluxB = 0;
+    analyse(m_inA, m_specA, m_magA, m_phA, m_logA, eA, rmsA, totA, fluxA);
+    analyse(m_inB, m_specB, m_magB, m_phB, m_logB, eB, rmsB, totB, fluxB);
 
     // Presence gates (-75 dBFS = absent, -60 dBFS = present), fast attack, slower release.
     auto gateTarget = [](float rms)
@@ -237,11 +244,32 @@ void SpectralMorph::processFrame()
     const float advance = c_twoPi * static_cast<float>(m_hop) / static_cast<float>(m_fftSize);
     bool silent = (m_gateA + m_gateB) < 1.0e-3f;
 
+    // Effective x: pulled towards whichever input is present.
+    const float gateSum = m_x * m_gateB + (1.0f - m_x) * m_gateA;
+    const float xe = gateSum < 1.0e-6f ? (m_gateB >= m_gateA ? 1.0f : 0.0f) : clampf(m_x * m_gateB / gateSum, 0.0f, 1.0f);
+
+    // Level law. With both inputs there the target is the mix of their powers, (1 - x) A + x B, so a swell in one
+    // input comes through as a swell (the geometric mean would halve it in dB). The geometric mean only takes
+    // over while an input is fading out through its gate, where x is on its way to the other input anyway.
+    const float both = m_gateA * m_gateB;
+    auto levelTarget = [xe, both](float pa, float pb)
+    {
+        const float geometric = std::exp(lerpf(std::log(pa + 1.0e-20f), std::log(pb + 1.0e-20f), xe));
+        return geometric + both * (lerpf(pa, pb, xe) - geometric);
+    };
+
+    // Onsets (for Glide): a jump in spectral flux in what is heard of the two inputs. For the next few frames the
+    // onset has most of the frame ahead of it; Glide takes its phases from the analysis for those frames.
+    if (m_onsetLeft > 0)
+        --m_onsetLeft;
+    {
+        const float heard = (1.0f - xe) * totA + xe * totB;
+        if (heard > 1.0e-9f && (1.0f - xe) * fluxA + xe * fluxB > c_onsetFlux * heard)
+            m_onsetLeft = c_onsetFrames;
+    }
+
     if (! silent)
     {
-        // Effective x: pulled towards whichever input is present.
-        const float d = m_x * m_gateB + (1.0f - m_x) * m_gateA;
-        const float xe = d < 1.0e-6f ? (m_gateB >= m_gateA ? 1.0f : 0.0f) : clampf(m_x * m_gateB / d, 0.0f, 1.0f);
 
         const bool fading = m_modeFade < 1.0f;
         auto usesEnvelope = [this](int mode) { return mode != Glide || m_y > 0.01f; };
@@ -265,11 +293,11 @@ void SpectralMorph::processFrame()
             m_modeFade = std::min(1.0f, m_modeFade + 1.0f / static_cast<float>(c_modeFadeFrames));
         }
 
-        // Level matching: the frame gets the log-interpolated energy of the two inputs.
+        // Level matching: the frame gets the interpolated energy of the two inputs.
         float eOut = 0.0f;
         for (size_t k = 0; k < bins; ++k)
             eOut += std::norm(m_out[k]);
-        const float eTarget = std::exp(lerpf(std::log(eA + 1.0e-20f), std::log(eB + 1.0e-20f), xe));
+        const float eTarget = levelTarget(eA, eB);
         const float g = (eOut > 1.0e-30f ? std::min(100.0f, std::sqrt(eTarget / eOut)) : 0.0f) * m_trim;
 
         // Amount: blend with a plain equal-power crossfade (automation only, default 1).
@@ -318,16 +346,10 @@ void SpectralMorph::processFrame()
 
     std::copy(m_outAcc.begin(), m_outAcc.begin() + hop, m_outFifo.begin());
 
-    // Loudness trim. The target is what this frame should sound like (log-interpolated input
+    // Loudness trim. The target is what this frame should sound like (the interpolated input
     // power); it is heard one latency (4 hops) later, so compare it with the output 4 frames on.
     {
-        float target = 0.0f;
-        if (! silent)
-        {
-            const float d = m_x * m_gateB + (1.0f - m_x) * m_gateA;
-            const float xe = d < 1.0e-6f ? (m_gateB >= m_gateA ? 1.0f : 0.0f) : clampf(m_x * m_gateB / d, 0.0f, 1.0f);
-            target = std::exp(lerpf(std::log(rmsA * rmsA + 1.0e-20f), std::log(rmsB * rmsB + 1.0e-20f), xe));
-        }
+        const float target = silent ? 0.0f : levelTarget(rmsA * rmsA, rmsB * rmsB);
         const float heardTarget = m_targetHistory[m_historyPos];
         m_targetHistory[m_historyPos] = target;
         m_historyPos = (m_historyPos + 1) & 3;
@@ -577,6 +599,20 @@ void SpectralMorph::renderGlide(float xe, float y, std::vector<Cpx>& dest)
     for (size_t k = 0; k < binsS; ++k)
         dest[k] *= scale;
 
+    // An onset is inside the frame: the accumulated phases would smear it over the whole frame (a pre-echo), so
+    // the moved magnitudes take their phases from the weighted sum of the two analysis frames (as Blend does),
+    // which puts the attack where it is in the inputs. The phase memory below restarts from there.
+    if (m_onsetLeft > 0)
+    {
+        for (size_t k = 0; k < binsS; ++k)
+        {
+            const Cpx z = m_specA[k] * (1.0f - t) + m_specB[k] * t;
+            const float az = std::abs(z);
+            if (az > 1.0e-12f)
+                dest[k] = z * (std::abs(dest[k]) / az);
+        }
+    }
+
     // Phase memory for the next frame.
     for (size_t k = 0; k < binsS; ++k)
     {
@@ -602,4 +638,120 @@ void SpectralMorph::renderGlide(float xe, float y, std::vector<Cpx>& dest)
         for (size_t k = 0; k < binsS; ++k)
             dest[k] *= std::exp(clampf(0.18f * y * (m_scratch2[k] - mean), -1.5f, 1.5f)); // Y spans the even part of the correction
     }
+}
+
+//==============================================================================
+void MorphInsert::prepare(double sampleRate, int maxBlock)
+{
+    m_morph.prepare(sampleRate, maxBlock);
+    m_latency = m_morph.getLatencySamples();
+    m_maxBlock = std::max(1, maxBlock);
+    m_delayA.assign(static_cast<size_t>(m_latency), 0.0f);
+    m_delayB.assign(static_cast<size_t>(m_latency), 0.0f);
+    m_wet.assign(static_cast<size_t>(m_maxBlock), 0.0f);
+    m_alignStep = 1.0f / std::max(1.0f, 0.01f * static_cast<float>(sampleRate > 0.0 ? sampleRate : 48000.0)); // 10 ms splice
+    reset(false);
+}
+
+void MorphInsert::reset(bool on)
+{
+    m_morph.reset();
+    std::fill(m_delayA.begin(), m_delayA.end(), 0.0f);
+    std::fill(m_delayB.begin(), m_delayB.end(), 0.0f);
+    m_delayPos = 0;
+    m_mix = on ? 1.0f : 0.0f;
+    m_align = on ? 1.0f : 0.0f;
+    m_running = on;
+    m_filled = on ? 2 * m_latency : 0; // starting switched in: everything before now is silence, nothing to wait for
+    const float x = clampf(m_morph.getParams().x, 0.0f, 1.0f);
+    m_toA = std::cos(0.5f * c_pi * x);
+    m_toB = std::sin(0.5f * c_pi * x);
+}
+
+void MorphInsert::process(float* a, float* b, int numSamples, float mix)
+{
+    if (m_wet.empty() || numSamples <= 0)
+        return;
+
+    mix = clampf(mix, 0.0f, 1.0f);
+    const float from = m_mix;
+    for (int done = 0; done < numSamples; done += m_maxBlock)
+    {
+        const int n = std::min(m_maxBlock, numSamples - done);
+        processBlock(a + done, b + done, n,
+                     from + (mix - from) * static_cast<float>(done) / static_cast<float>(numSamples),
+                     from + (mix - from) * static_cast<float>(done + n) / static_cast<float>(numSamples));
+    }
+    m_mix = mix;
+}
+
+void MorphInsert::processBlock(float* a, float* b, int n, float mixFrom, float mixTo)
+{
+    const bool on = mixFrom > 1.0e-4f || mixTo > 1.0e-4f;
+    if (on)
+    {
+        m_running = true;
+        m_morph.process(a, b, m_wet.data(), n); // reads the live buses; its output is one latency late
+    }
+    else if (m_running && m_align <= 0.0f)
+    {
+        // Fully out and back on the live sound: clear the morph, so the next time starts from nothing.
+        m_morph.reset();
+        m_running = false;
+        m_filled = 0;
+    }
+
+    // Equal power between the buses, so the middle of the pad isn't a dip in level.
+    const float x = clampf(m_morph.getParams().x, 0.0f, 1.0f);
+    const float toA1 = std::cos(0.5f * c_pi * x), toB1 = std::sin(0.5f * c_pi * x);
+    const float toA0 = m_toA, toB0 = m_toB;
+    m_toA = toA1;
+    m_toB = toB1;
+
+    const float alignTarget = on ? 1.0f : 0.0f;
+    const float inv = 1.0f / static_cast<float>(n);
+    const int hop = std::max(1, m_latency / 4);
+
+    for (int i = 0; i < n; ++i)
+    {
+        const auto ps = static_cast<size_t>(m_delayPos);
+        const float liveA = a[i], liveB = b[i];
+        const float lateA = m_delayA[ps], lateB = m_delayB[ps];
+        m_delayA[ps] = liveA;
+        m_delayB[ps] = liveB;
+        if (++m_delayPos == m_latency)
+            m_delayPos = 0;
+
+        if (! juce::exactlyEqual(m_align, alignTarget))
+            m_align = alignTarget > m_align ? std::min(1.0f, m_align + m_alignStep) : std::max(0.0f, m_align - m_alignStep);
+        if (m_align <= 0.0f)
+            continue; // live: the buses are untouched
+
+        float dryA = lateA, dryB = lateB;
+        if (m_align < 1.0f)
+        {
+            // The splice between the live sound and its late copy (two different moments: equal power).
+            const float gl = std::cos(0.5f * c_pi * m_align), gd = std::sin(0.5f * c_pi * m_align);
+            dryA = gl * liveA + gd * lateA;
+            dryB = gl * liveB + gd * lateB;
+        }
+
+        float w = 0.0f;
+        if (on)
+        {
+            // The morph's output only holds the whole sound once it has been fed for one latency: let it in over
+            // the hop after that.
+            const float t = static_cast<float>(i) * inv;
+            const float filled = clampf(static_cast<float>(m_filled + i - m_latency) / static_cast<float>(hop), 0.0f, 1.0f);
+            w = (mixFrom + (mixTo - mixFrom) * t) * filled;
+            const float wet = m_wet[static_cast<size_t>(i)];
+            dryA += w * ((toA0 + (toA1 - toA0) * t) * wet - dryA);
+            dryB += w * ((toB0 + (toB1 - toB0) * t) * wet - dryB);
+        }
+        a[i] = dryA;
+        b[i] = dryB;
+    }
+
+    if (on)
+        m_filled = std::min(m_filled + n, 2 * m_latency);
 }

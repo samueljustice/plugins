@@ -283,7 +283,14 @@ void RigEngine::reset()
     m_pitchSpring.snap(m_params.pitch);
     m_fillSpring.snap(m_params.fill);
     m_spaceSpring.snap(m_params.space);
-    m_morph.reset();
+    {
+        SpectralMorph::Params mp;
+        mp.x = m_params.morphX;
+        mp.y = m_params.morphY;
+        mp.mode = juce::jlimit(0, SpectralMorph::NumModes - 1, m_params.morphMode);
+        m_morph.setParams(mp);
+    }
+    m_morph.reset(m_params.morphOn);
     m_morphMix.snap(m_params.morphOn ? 1.0f : 0.0f);
 }
 
@@ -456,7 +463,6 @@ void RigEngine::renderTracks(int frames)
     const float invFrames = 1.0f / static_cast<float>(frames);
     const float morphMix = sj::clamp(m_morphMix.step(seconds), 0.0f, 1.0f);
     m_morphMixNow = morphMix;
-    const bool morphing = morphMix > 1.0e-4f;
 
     // Each track's own pitch, settled before the hit window below (which depends on every track's speed and mode).
     // The pitch glides to a new setting. A VARI switch fades the track out (~15 ms) and swaps the mode; switching to
@@ -745,29 +751,16 @@ void RigEngine::renderTracks(int frames)
         for (int t = 0; t < c_tracks; ++t)
             m_cargo->markInUse(t, m_players[static_cast<size_t>(t)].getData(), m_players[static_cast<size_t>(t)].getPending());
 
-    if (morphing)
     {
+        // Morph between what feeds bus A and bus B, then hand the result back to the two buses in proportion to
+        // X, so it still moves with A's or B's doppler and colour. The insert keeps the switch clean: the dry
+        // sound it fades against is delayed to line up with the morph, and it clears the morph when it is out.
         SpectralMorph::Params mp;
         mp.x = m_params.morphX;
         mp.y = m_params.morphY;
         mp.mode = juce::jlimit(0, SpectralMorph::NumModes - 1, m_params.morphMode);
         m_morph.setParams(mp);
-        // Morph between what feeds bus A and bus B, then hand the result back to the two buses in
-        // proportion to X, so it still moves with A's or B's doppler and colour.
-        auto& a = m_buses[0].in;
-        auto& b = m_buses[1].in;
-        std::copy(a.begin(), a.begin() + frames, m_morphA.begin());
-        std::copy(b.begin(), b.begin() + frames, m_morphB.begin());
-        m_morph.process(m_morphA.data(), m_morphB.data(), m_morphOut.data(), frames);
-        // Equal power, so the middle of the pad isn't a dip in level.
-        const float x = sj::clamp(m_params.morphX, 0.0f, 1.0f);
-        const float toA = std::cos(0.5f * sj::c_pi * x), toB = std::sin(0.5f * sj::c_pi * x);
-        for (int i = 0; i < frames; ++i)
-        {
-            const auto ii = static_cast<size_t>(i);
-            a[ii] += morphMix * (toA * m_morphOut[ii] - a[ii]);
-            b[ii] += morphMix * (toB * m_morphOut[ii] - b[ii]);
-        }
+        m_morph.process(m_buses[0].in.data(), m_buses[1].in.data(), frames, morphMix);
     }
 
 }

@@ -176,6 +176,17 @@ if(SWOOSHBUCKLER_TESTS)
         PRIVATE juce::juce_dsp juce::juce_audio_formats
         PUBLIC juce::juce_recommended_config_flags juce::juce_recommended_warning_flags)
 
+    # Morph test: the spectral morph (level across X, the level law, Glide's partials and attacks) and the way
+    # it is switched in between the buses (aligned fades, nothing old left inside), plus its speed.
+    juce_add_console_app(SwooshbucklerMorph PRODUCT_NAME "SwooshbucklerMorph")
+    juce_generate_juce_header(SwooshbucklerMorph)
+    target_sources(SwooshbucklerMorph PRIVATE Tests/MorphTest.cpp Source/SpectralMorph.cpp)
+    target_include_directories(SwooshbucklerMorph PRIVATE Source)
+    target_compile_definitions(SwooshbucklerMorph PRIVATE JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0)
+    target_link_libraries(SwooshbucklerMorph
+        PRIVATE juce::juce_dsp
+        PUBLIC juce::juce_recommended_config_flags juce::juce_recommended_warning_flags)
+
     # Master test: the output stage (Inflate, Push, the true-peak limiter and its release, the gain reduction
     # hold) and the downsampler of the monitor path. Plain C++: neither class uses JUCE.
     add_executable(SwooshbucklerMaster Tests/MasterTest.cpp Source/MasterProcessor.cpp)
