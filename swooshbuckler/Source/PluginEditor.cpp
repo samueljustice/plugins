@@ -725,9 +725,9 @@ SwooshbucklerAudioProcessorEditor::SwooshbucklerAudioProcessorEditor(Swooshbuckl
     m_linkBusesAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment>(p.getState(), ParamIDs::linkBuses, m_linkBuses);
 
     addKnob(ParamIDs::space, "Space", TC::space, "Echoes and reverb around the whole mix. Low: close and dry. High: a big open wash for the whooshes to fly through (it smooths out the swells).");
-    addKnob(ParamIDs::inflate, "Inflate", TC::master, "Makes the mix louder and denser without adding new peaks, so quieter detail comes forward. Up to 70% it blends in; the last 30% makes its curve harder and grittier. Good for thin sources.");
-    addKnob(ParamIDs::push, "Push", TC::master, "How hard the mix drives into the limiter (up to +15 dB). More is louder and denser, then squashed; the ceiling stays where it is, so it can't clip.");
-    addKnob(ParamIDs::ceiling, "Ceiling", TC::master, "The limiter's ceiling: nothing gets out louder than this (0 to -6 dBFS, finer near the top). The default, -0.3 dB, leaves a little headroom for file conversion.");
+    addKnob(ParamIDs::inflate, "Inflate", TC::master, "Makes the mix louder and denser without adding new peaks, so quieter detail comes forward. Up to 70% it blends in; the last 30% makes its curve harder and grittier. Good for thin sources. It comes before Push, so it does the same wherever Push is.");
+    addKnob(ParamIDs::push, "Push", TC::master, "How hard the mix drives into the limiter, after Inflate (up to +15 dB). More is louder and denser, then squashed; the ceiling stays where it is, so it can't clip. A hit that goes over is let go at once; loud stretches are held steadily, so a swell keeps its shape.");
+    addKnob(ParamIDs::ceiling, "Ceiling", TC::master, "The limiter's ceiling: nothing gets out louder than this (0 to -6 dBFS, finer near the top). It is a true-peak ceiling: the limiter also reads the waveform between the samples, so a take stays under it when it is converted or played back. The default, -0.3 dB, leaves a little headroom for file conversion.");
 
     // Peak tremolo: a framed group at the left of Output (before Space in the signal): On/Off, wave and Shakes menus
     // over its Depth, Rate and Threshold knobs.
@@ -1082,9 +1082,14 @@ void SwooshbucklerAudioProcessorEditor::paintContent(juce::Graphics& g)
     // Output meters
     {
         auto m = m_meterArea.toFloat();
-        const auto readout = m.removeFromTop(16.0f); // the gain reduction in dB, across the top
-        auto grBar = m.removeFromLeft(36.0f).reduced(7.0f, 2.0f).withTrimmedBottom(20.0f);
-        auto outBar = m.removeFromLeft(36.0f).reduced(7.0f, 2.0f).withTrimmedBottom(20.0f);
+        const auto readout = m.removeFromTop(16.0f); // the deepest recent gain reduction in dB, across the top
+        // Left to right: the GR scale, the GR bar, the OUT bar, the OUT scale.
+        auto bars = m.withTrimmedBottom(20.0f).reduced(0.0f, 2.0f);
+        const auto grScale = bars.removeFromLeft(15.0f);
+        const auto grBar = bars.removeFromLeft(22.0f);
+        bars.removeFromLeft(10.0f);
+        const auto outBar = bars.removeFromLeft(22.0f);
+        const auto outScale = bars.removeFromLeft(24.0f);
         for (auto bar : { grBar, outBar })
         {
             g.setColour(TC::scope);
@@ -1092,13 +1097,52 @@ void SwooshbucklerAudioProcessorEditor::paintContent(juce::Graphics& g)
             g.setColour(TC::outline);
             g.drawRoundedRectangle(bar, 3.0f, 1.0f);
         }
-        const float gr = juce::jlimit(0.0f, 1.0f, -m_grDb / 12.0f);
+
+        // GR grows down from the top, 12 dB at the bottom; OUT grows up from the bottom, 0 dBFS at the top.
+        auto grY = [&grBar](float db) { return grBar.getY() + grBar.getHeight() * juce::jlimit(0.0f, 1.0f, -db / 12.0f); };
+        auto outY = [&outBar](float db) { return outBar.getBottom() - outBar.getHeight() * outMeterPosition(db); };
+
         g.setColour(TC::movement);
-        g.fillRoundedRectangle(grBar.withHeight(grBar.getHeight() * gr), 3.0f);
+        g.fillRoundedRectangle(grBar.withBottom(grY(m_grDb)), 3.0f);
         const float outDb = juce::Decibels::gainToDecibels(m_outLevel, -60.0f);
-        const float out = juce::jlimit(0.0f, 1.0f, (outDb + 60.0f) / 60.0f);
         g.setColour(TC::master);
-        g.fillRoundedRectangle(outBar.withTrimmedTop(outBar.getHeight() * (1.0f - out)), 3.0f);
+        g.fillRoundedRectangle(outBar.withTop(outY(outDb)), 3.0f);
+
+        // Peak holds: the deepest reduction and the highest level of the last moments stay as a line.
+        if (m_grHoldDb < -0.05f)
+        {
+            g.setColour(TC::movement.brighter(0.5f));
+            g.fillRect(juce::Rectangle<float>(grBar.getX() + 1.0f, juce::jmin(grY(m_grHoldDb), grBar.getBottom() - 1.5f), grBar.getWidth() - 2.0f, 1.5f));
+        }
+        if (m_outHold > 0.001f)
+        {
+            const float holdDb = juce::Decibels::gainToDecibels(m_outHold, -60.0f);
+            g.setColour(TC::text);
+            g.fillRect(juce::Rectangle<float>(outBar.getX() + 1.0f, juce::jmax(outY(holdDb) - 0.75f, outBar.getY()), outBar.getWidth() - 2.0f, 1.5f));
+        }
+
+        // Scales in dB: a tick against each bar and its number beside it.
+        g.setFont(f.label(8.0f));
+        for (const int db : { 3, 6, 12 })
+        {
+            const float y = juce::jmin(grY(static_cast<float>(-db)), grBar.getBottom() - 0.5f);
+            g.setColour(TC::outline);
+            g.fillRect(juce::Rectangle<float>(grBar.getX() - 3.0f, y - 0.5f, 3.0f, 1.0f));
+            g.setColour(TC::textFaint);
+            g.drawText(juce::String(db), juce::Rectangle<float>(grScale.getX(), juce::jmin(y - 5.0f, grBar.getBottom() - 9.0f), grScale.getWidth() - 4.0f, 10.0f),
+                       juce::Justification::centredRight);
+        }
+        for (const int db : { 0, 6, 12, 24, 48 })
+        {
+            const float y = juce::jmax(outY(static_cast<float>(-db)), outBar.getY() + 0.5f);
+            g.setColour(TC::outline);
+            g.fillRect(juce::Rectangle<float>(outBar.getRight(), y - 0.5f, 3.0f, 1.0f));
+            g.setColour(TC::textFaint);
+            g.drawText(db == 0 ? juce::String("0") : "-" + juce::String(db),
+                       juce::Rectangle<float>(outScale.getX() + 4.0f, juce::jmax(y - 5.0f, outBar.getY() - 1.0f), outScale.getWidth() - 4.0f, 10.0f),
+                       juce::Justification::centredLeft);
+        }
+
         g.setFont(f.label(10.0f));
         g.setColour(TC::textDim);
         g.drawText("GR", grBar.withY(grBar.getBottom() + 3.0f).withHeight(14.0f).expanded(10.0f, 0.0f), juce::Justification::centred);
@@ -1119,8 +1163,8 @@ void SwooshbucklerAudioProcessorEditor::paintContent(juce::Graphics& g)
         g.drawText(name, tag, juce::Justification::centred);
 
         g.setFont(f.label(10.0f));
-        g.setColour(m_grDb < -0.05f ? TC::movement : TC::textFaint);
-        g.drawText("GR " + juce::String(m_grDb, 1) + " dB", readout, juce::Justification::centred);
+        g.setColour(m_grHoldDb < -0.05f ? TC::movement : TC::textFaint);
+        g.drawText("GR " + juce::String(m_grHoldDb, 1) + " dB", readout.withWidth(84.0f), juce::Justification::centred);
     }
 
     g.setFont(f.body(11.0f));
@@ -1410,13 +1454,44 @@ void SwooshbucklerAudioProcessorEditor::timerCallback()
     }
 
 
-    const float gr = m_processor.getGainReductionDb();
-    const float out = m_processor.getOutputPeak();
-    if (std::abs(gr - m_grDb) > 0.05f || std::abs(out - m_outLevel) > 0.002f)
+    // Meters. The processor hands over the deepest reduction and the highest level since the last look, so nothing
+    // between two frames is missed; the fall-back and the peak holds run on the clock, not on frames or buffers.
     {
-        m_grDb = gr;
-        m_outLevel = out;
-        m_content.repaint(m_meterArea);
+        const double now = juce::Time::getMillisecondCounterHiRes() * 0.001;
+        const float dt = static_cast<float>(juce::jlimit(0.0, 0.25, now - m_meterTime));
+        m_meterTime = now;
+
+        const float grNow = juce::jmin(0.0f, m_processor.takeGainReductionDb());
+        const float gr = juce::jmin(grNow, juce::jmin(0.0f, m_grDb + c_grFallDbPerSecond * dt));
+        float grHold = m_grHoldDb;
+        if (grNow <= grHold)
+        {
+            grHold = grNow;
+            m_grHoldTime = now;
+        }
+        else if (now - m_grHoldTime > c_meterHoldSeconds)
+            grHold = juce::jmin(gr, grHold + 2.0f * c_grFallDbPerSecond * dt);
+
+        const float outNow = m_processor.takeOutputPeak();
+        const float out = juce::jmax(outNow, m_processor.getOutputPeak());
+        float outHold = m_outHold;
+        if (outNow >= outHold)
+        {
+            outHold = outNow;
+            m_outHoldTime = now;
+        }
+        else if (now - m_outHoldTime > c_meterHoldSeconds)
+            outHold = juce::jmax(out, outHold * std::exp(-dt / 0.15f));
+
+        if (std::abs(gr - m_grDb) > 0.05f || std::abs(out - m_outLevel) > 0.002f
+            || std::abs(grHold - m_grHoldDb) > 0.05f || std::abs(outHold - m_outHold) > 0.002f)
+        {
+            m_grDb = gr;
+            m_outLevel = out;
+            m_grHoldDb = grHold;
+            m_outHold = outHold;
+            m_content.repaint(m_meterArea);
+        }
     }
 
     if (m_toast.isNotEmpty())

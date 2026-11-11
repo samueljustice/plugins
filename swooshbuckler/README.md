@@ -259,14 +259,16 @@ The last stage before your speakers and the tape. At its left is the **Peak Trem
 | **Rate** | 1.5–30 Hz (6.7 Hz) | From a slow throb to a buzzing flutter. |
 | **Threshold** | All, or −17 to −0.2 dB under the peak (−4.7 dB) | How near its recent peak the level has to be before it starts. Low: it shakes most of the time. High: only right at the top. A steady bed sits at its own peak, so it shakes all the time. |
 | **Space** | 0–100% (30%) | Echoes and reverb around the whole mix: a ping-pong echo whose repeats drift a little, and a smooth, wide reverb whose tail grows from about 1 to about 5 seconds as you turn it up. The reverb starts a moment after the sound and leaves the low end dry, so the whoosh stays clear in front of it; the dry sound is eased down as the room comes up, so more Space means more room, not more level into the limiter. At 0% it's off (and its echoes and reverb are emptied, so nothing old comes back when you turn it up again); at the top it's a big wash that smooths out the swells. |
-| **Inflate** | 0–100% (30%) | Louder and denser without new peaks, so quieter detail comes forward. Up to 70% it blends in; the last 30% makes it harder and grittier. At 0% the sound passes through untouched. |
-| **Push** | 0 to +15 dB (+3 dB) | How hard the mix drives into the limiter. The ceiling stays put, so it can't clip. |
-| **Ceiling** | −6 to 0 dB (−0.3 dB) | The limiter's ceiling, finer near the top. The limiter is always on. |
-| **GR** | meter | How much the limiter is turning the sound down right now (a full bar is 12 dB). The number above the meters is the same thing in dB, and turns coral while the limiter is working. |
-| **OUT** | meter | The output peak level, after the limiter and the trim. |
+| **Inflate** | 0–100% (30%) | Louder and denser without new peaks, so quieter detail comes forward. Up to 70% it blends in; the last 30% makes it harder and grittier. At 0% the sound passes through untouched. It comes before Push, so it does the same wherever Push is. |
+| **Push** | 0 to +15 dB (+3 dB) | How hard the mix drives into the limiter, after Inflate. The ceiling stays put, so it can't clip. |
+| **Ceiling** | −6 to 0 dB (−0.3 dB) | The limiter's ceiling, finer near the top. It is a true-peak ceiling: the limiter reads the waveform between the samples as well as at them, so a take stays under the ceiling when it is converted to another sample rate or format, or played through a converter. The limiter is always on. |
+| **GR** | meter | How much the limiter is turning the sound down (a full bar is 12 dB, with marks at 3, 6 and 12). The bar falls back steadily and a line stays at the deepest recent reduction for a moment, so a short hit is easy to see. The number above the meters is that deepest recent reduction in dB, and turns coral while the limiter is working. |
+| **OUT** | meter | The peak level going to tape, after the limiter and before TRIM, with marks at 0, −6, −12, −24 and −48 dB. A line stays at the highest recent peak for a moment. Turning TRIM down doesn't move it, because it doesn't change the take. |
 | **TRIM** | silence to 0 dB (0 dB) | How loud you hear it (and what your DAW gets from the plug-in), after the limiter. The tape and LAST 60s record before it, at full level, so turning it down never makes a quieter take. Double-click to reset. |
 
 If the gain reduction number is coral all the time, back off Push or raise Ceiling.
+
+**How the limiter lets go.** A short over, such as a hit, is let go within a few hundredths of a second, so it doesn't leave a dip in the sound behind it. Reduction that lasts, such as a long loud swell or a heavy low end, is held steadily and let go over about a second, so the swell keeps its shape and the bass stays clean.
 
 ### The sea
 
@@ -355,7 +357,7 @@ Click **SETTINGS** to open. Close it with CLOSE, Esc, or a click outside the pan
 | **Recordings Are Saved To** | (your Desktop) | **CHOOSE...** picks a folder, **DESKTOP** goes back to the default, and **SHOW** opens the folder. |
 | **File Type** | WAV / AIFF / FLAC (WAV) | WAV files also carry broadcast-wave details. FLAC is lossless and about half the size. |
 | **Bit Depth** | 16-Bit / 24-Bit / 32-Bit Float (24-Bit) | 32-Bit Float can't clip in the file, and is WAV only. |
-| **Sample Rate** | Session / 44.1 / 48 / 88.2 / 96 / 192 kHz (Session) | Session records at the audio device's or host's rate. Pick a higher rate and the whole rig runs at that rate, so the recording keeps the extra high end, which is good for pitching down later; you still hear it at the device rate. A note in the panel says which is happening. It can't be changed while the tape is armed. |
+| **Sample Rate** | Session / 44.1 / 48 / 88.2 / 96 / 192 kHz (Session) | Session records at the audio device's or host's rate. Pick a higher rate and the whole rig runs at that rate, so the recording keeps the extra high end, which is good for pitching down later; you still hear it at the device rate, filtered so the extra high end is taken out cleanly and held to the Ceiling again. A note in the panel says which is happening. It can't be changed while the tape is armed. |
 | **Channels** | Stereo / Mono (Stereo) | Mono folds the output to one channel, for sounds you'll pan yourself. |
 | **Arm the tape as soon as Swooshbuckler opens** | (off) | So you never miss the first good take. |
 | **AUDIO DEVICE...** | | The app only: the audio output, sample rate and buffer size. |
@@ -433,7 +435,7 @@ cmake -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build --config Release
 ```
 
-This builds the app, the VST3 and the AU (macOS) into `build/Swooshbuckler_artefacts/Release/`, along with three offline test programs: `SwooshbucklerRig`, `SwooshbucklerCargo` and `SwooshbucklerClassify`. Pass `-DSWOOSHBUCKLER_TESTS=OFF` to skip the tests, or `-DSWOOSHBUCKLER_FORMATS="Standalone;VST3"` to choose the formats.
+This builds the app, the VST3 and the AU (macOS) into `build/Swooshbuckler_artefacts/Release/`, along with the offline test programs: `SwooshbucklerRig`, `SwooshbucklerCargo`, `SwooshbucklerClassify`, `SwooshbucklerPitch` and `SwooshbucklerMaster`. Pass `-DSWOOSHBUCKLER_TESTS=OFF` to skip the tests, or `-DSWOOSHBUCKLER_FORMATS="Standalone;VST3"` to choose the formats.
 
 ### Version
 

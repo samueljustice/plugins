@@ -116,7 +116,8 @@ void SwooshbucklerAudioProcessor::prepareInternal()
 {
     // The rig renders at the recording rate when that is higher than the device rate, so a 96 kHz
     // recording really has content up to 48 kHz (and 96 kHz samples keep their top end, like a
-    // 96 kHz Reaper project). What you hear is a clean windowed-sinc downsample of it.
+    // 96 kHz Reaper project). What you hear is that render low-passed under the device's Nyquist
+    // frequency and downsampled, then held to the Ceiling again.
     const double recordRate = static_cast<double>(getRecordRate());
     m_renderRate = recordRate > m_deviceRate + 0.5 ? recordRate : m_deviceRate;
     const double ratio = m_renderRate / m_deviceRate;
@@ -126,30 +127,26 @@ void SwooshbucklerAudioProcessor::prepareInternal()
     m_master.prepare(m_renderRate, 2);
     m_recorder.prepare(m_renderRate, 2);
     m_work.setSize(2, m_blockSize);
-    m_fifo.setSize(2, static_cast<int>(std::ceil(m_blockSize * ratio)) + 1024);
-    m_fifo.clear();
-    m_fifoCount = 0;
-    for (auto& d : m_down)
-        d.reset();
-    m_pushGain.reset(m_renderRate, 0.02); // short: a wire on Push must come through (retargeted every section)
-    m_pushGain.setCurrentAndTargetValue(juce::Decibels::decibelsToGain(m_pushDb));
 
-    const int resampleLatency = ratio > 1.0 ? juce::roundToInt(juce::WindowedSincInterpolator::getBaseLatency() / ratio) : 0;
-    setLatencySamples(juce::roundToInt((m_engine.getLatencySamples() + m_master.getLatencySamples()) / ratio) + resampleLatency);
+    // Latency: the engine and the limiter (in device samples), and when rendering high, the input the
+    // downsampler needs ahead of its output plus the monitor limiter's look-ahead.
+    double latency = (m_engine.getLatencySamples() + m_master.getLatencySamples()) / ratio;
+    if (ratio > 1.0)
+    {
+        m_down.prepare(ratio, 2);
+        m_highRate.setSize(2, m_down.maxInputsFor(c_maxSection));
+        m_highRate.clear();
+        m_monitorLimiter.prepare(m_deviceRate, 2);
+        latency += m_down.getLatencySamples() + m_monitorLimiter.getLatencySamples();
+    }
+    setLatencySamples(juce::roundToInt(latency));
 }
 
 void SwooshbucklerAudioProcessor::renderAtRenderRate(const float* inL, const float* inR, float* l, float* r, int n)
 {
     m_engine.process(inL, inR, l, r, n);
 
-    // Push (drive into the limiter; the ceiling stays put)
-    m_pushGain.setTargetValue(juce::Decibels::decibelsToGain(m_pushDb));
-    for (int i = 0; i < n; ++i)
-    {
-        const float g = m_pushGain.getNextValue();
-        l[i] *= g;
-        r[i] *= g;
-    }
+    // Inflate, then Push (drive into the limiter; the ceiling stays put), then the limiter.
     float* chans[2] = { l, r };
     m_master.process(chans, 2, n);
     m_recorder.process(chans, 2, n); // the tape gets the full-rate signal
@@ -288,9 +285,20 @@ void SwooshbucklerAudioProcessor::updateEngineParams()
     mp.inflateCurve = juce::jlimit(0.0f, 1.0f, (inflate - 0.7f) / 0.3f);
     mp.limiterOn = true;
     mp.ceilingDb = modValue(m_raw.ceiling);
-    m_pushDb = modValue(m_raw.push);
-    mp.releaseMs = 80.0f;
+    mp.pushDb = modValue(m_raw.push);
+    // Programme-dependent release: a short over (a hit) is let go in a few tens of milliseconds, so it leaves no
+    // hole; reduction that lasts is held steadily and let go over a second, so a loud swell keeps its shape
+    // instead of being levelled and bass is not modulated cycle by cycle.
+    mp.releaseMs = 20.0f;
+    mp.sustainReleaseMs = 1000.0f;
     m_master.setParameters(mp);
+
+    // The limiter after the downsampler (only run when rendering above the device rate): the Ceiling, nothing else.
+    MasterProcessor::Parameters monitor;
+    monitor.limiterOn = true;
+    monitor.ceilingDb = mp.ceilingDb;
+    monitor.releaseMs = 50.0f;
+    m_monitorLimiter.setParameters(monitor);
 }
 
 void SwooshbucklerAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midi)
@@ -318,7 +326,7 @@ void SwooshbucklerAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
                 m_midiNotesHeld = 0;
         }
         buffer.clear();
-        m_outputPeak.store(m_outputPeak.load(std::memory_order_relaxed) * 0.9f, std::memory_order_relaxed);
+        publishOutputPeak(0.0f, n);
         return;
     }
 
@@ -329,7 +337,7 @@ void SwooshbucklerAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
     // sections of the prepared size instead.
     // Sections are also capped so the modulators (and the parameters they move) update at least every 512 samples,
     // so an offline bounce with huge blocks sounds like realtime playback.
-    const int maxSection = juce::jmin(m_work.getNumSamples(), 512);
+    const int maxSection = juce::jmin(m_work.getNumSamples(), c_maxSection);
     if (maxSection <= 0)
     {
         buffer.clear();
@@ -369,32 +377,24 @@ void SwooshbucklerAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
         }
         else
         {
-            // Render ahead at the high rate into a FIFO, then downsample exactly `len` samples for the device.
+            // Render exactly what the downsampler needs for `len` device samples at the high rate (always the
+            // same amount ahead, so the latency is constant), low-pass and downsample it, and hold the Ceiling.
             // (The audio input is at the device rate, so it isn't used as a source while rendering high.)
-            const double ratio = m_renderRate / m_deviceRate;
-            const int needed = static_cast<int>(std::ceil(len * ratio)) + 8;
-            while (m_fifoCount < needed)
-            {
-                const int chunk = juce::jmin(256, m_fifo.getNumSamples() - m_fifoCount);
-                if (chunk <= 0)
-                    break;
-                renderAtRenderRate(nullptr, nullptr, m_fifo.getWritePointer(0, m_fifoCount), m_fifo.getWritePointer(1, m_fifoCount), chunk);
-                m_fifoCount += chunk;
-            }
-            int used = 0;
-            for (int ch = 0; ch < 2; ++ch)
-                used = m_down[static_cast<size_t>(ch)].process(ratio, m_fifo.getReadPointer(ch), ch == 0 ? outL : outR, len);
-            used = juce::jlimit(0, m_fifoCount, used);
-            for (int ch = 0; ch < 2; ++ch)
-            {
-                float* d = m_fifo.getWritePointer(ch);
-                std::memmove(d, d + used, sizeof(float) * static_cast<size_t>(m_fifoCount - used));
-            }
-            m_fifoCount -= used;
+            const int needed = m_down.inputsNeeded(len);
+            jassert(needed <= m_highRate.getNumSamples()); // sized for a whole section in prepareInternal
+            float* hiL = m_highRate.getWritePointer(0);
+            float* hiR = m_highRate.getWritePointer(1);
+            for (int pos = 0; pos < needed; pos += 256)
+                renderAtRenderRate(nullptr, nullptr, hiL + pos, hiR + pos, juce::jmin(256, needed - pos));
+            const float* in[2] = { hiL, hiR };
+            float* out[2] = { outL, outR };
+            m_down.process(in, out, len);
+            m_monitorLimiter.process(out, 2, len);
         }
 
         // Transport fade, and Master Trim (what you hear; the tape above already has the full-level signal).
         double preTrimSquares = 0.0;
+        float preTrimPeak = 0.0f;
         {
             const float step = static_cast<float>(1.0 / (0.06 * juce::jmax(1.0, m_deviceRate)));
             const float target = m_playing.load() ? 1.0f : 0.0f;
@@ -409,6 +409,7 @@ void SwooshbucklerAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
                 outR[i] *= m_transportGain;
                 // The Output Follower hears the rig before the trim, so turning Trim down never changes the sound.
                 preTrimSquares += 0.5 * (static_cast<double>(outL[i]) * outL[i] + static_cast<double>(outR[i]) * outR[i]);
+                preTrimPeak = juce::jmax(preTrimPeak, std::abs(outL[i]), std::abs(outR[i])); // the OUT meter: what the tape gets
                 const float trim = m_trimGain.getNextValue();
                 const float g = trim <= 1.0e-4f ? 0.0f : trim;
                 outL[i] *= g;
@@ -433,26 +434,33 @@ void SwooshbucklerAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
 
         // Scope + meter
         int w = m_scopeWrite.load(std::memory_order_relaxed);
-        float peak = 0.0f;
-        double sumSquares = 0.0;
         for (int i = 0; i < len; ++i)
         {
             const float v = 0.5f * (outL[i] + outR[i]);
             m_outRing.push(v);
-            sumSquares += 0.5 * (static_cast<double>(outL[i]) * outL[i] + static_cast<double>(outR[i]) * outR[i]);
             m_scope[static_cast<size_t>(w)] = v;
             w = (w + 1) & (c_scopeSize - 1);
-            peak = juce::jmax(peak, std::abs(outL[i]), std::abs(outR[i]));
         }
         m_scopeWrite.store(w, std::memory_order_release);
-        juce::ignoreUnused(sumSquares);
         m_followerLevels[ModMatrix::FollowOutput] = static_cast<float>(std::sqrt(preTrimSquares / juce::jmax(1, len)));
         const auto sections = m_engine.takeSectionLevels();
         m_followerLevels[ModMatrix::FollowBusA] = sections[0];
         m_followerLevels[ModMatrix::FollowBusB] = sections[1];
         m_followerLevels[ModMatrix::FollowHits] = sections[2];
-        m_outputPeak.store(juce::jmax(peak, m_outputPeak.load(std::memory_order_relaxed) * 0.9f), std::memory_order_relaxed);
+        publishOutputPeak(preTrimPeak, len);
     }
+}
+
+void SwooshbucklerAudioProcessor::publishOutputPeak(float peak, int numSamples)
+{
+    // The meter falls back by time (20 dB in about 0.7 s), not by block, so it moves the same at any buffer size.
+    const float decay = std::exp(-static_cast<float>(numSamples) / (0.3f * static_cast<float>(juce::jmax(1.0, m_deviceRate))));
+    m_outputPeak.store(juce::jmax(peak, m_outputPeak.load(std::memory_order_relaxed) * decay), std::memory_order_relaxed);
+
+    // The peak-hold's maximum since the meter last read it. The reader may reset it between this load and store;
+    // the worst that does is show one peak for one more reading.
+    if (peak > m_outputPeakHold.load(std::memory_order_relaxed))
+        m_outputPeakHold.store(peak, std::memory_order_relaxed);
 }
 
 void SwooshbucklerAudioProcessor::copyScope(float* dest, int count) const
@@ -510,7 +518,7 @@ bool SwooshbucklerAudioProcessor::startRecording(juce::String& error)
 
 int SwooshbucklerAudioProcessor::getRecordRate() const
 {
-    const int rate = m_settings->getIntValue("recordRate", 0);
+    const int rate = m_recordRateOverride >= 0 ? m_recordRateOverride : m_settings->getIntValue("recordRate", 0);
     switch (rate)
     {
         case 44100: case 48000: case 88200: case 96000: case 176400: case 192000: return rate;

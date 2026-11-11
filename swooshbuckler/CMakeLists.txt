@@ -175,6 +175,14 @@ if(SWOOSHBUCKLER_TESTS)
     target_link_libraries(SwooshbucklerPitch
         PRIVATE juce::juce_dsp juce::juce_audio_formats
         PUBLIC juce::juce_recommended_config_flags juce::juce_recommended_warning_flags)
+
+    # Master test: the output stage (Inflate, Push, the true-peak limiter and its release, the gain reduction
+    # hold) and the downsampler of the monitor path. Plain C++: neither class uses JUCE.
+    add_executable(SwooshbucklerMaster Tests/MasterTest.cpp Source/MasterProcessor.cpp)
+    target_include_directories(SwooshbucklerMaster PRIVATE Source)
+    target_compile_features(SwooshbucklerMaster PRIVATE cxx_std_20)
+    set_target_properties(SwooshbucklerMaster PROPERTIES
+        RUNTIME_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/SwooshbucklerMaster_artefacts/$<CONFIG>")
 endif()
 
 # Artwork tools (off by default): renders Resources/icon.png. See tools/IconRender.cpp.

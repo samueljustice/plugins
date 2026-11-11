@@ -4,6 +4,11 @@
 //   SwooshbucklerAudit --param aDoppler [--steps 11 | --norms 0,0.25,1 | --plains -12,0,12]
 //                      [--set id=plain ...] [--setn id=normalised ...] [--wire source:paramId:depth ...]
 //                      [--src growl,wind,hits] [--seconds 20] [--reps 3] [--swell] [--wav dir] [--json file]
+//                      [--record-rate 96000]
+//
+// --record-rate renders with the Record Rate setting at that rate (the device stays at 48 kHz), so what is
+// measured is the monitor / host output: the high-rate render low-passed, downsampled and held to the Ceiling.
+// The reported latency is printed with the table.
 //
 // Sources (synthetic, mono, routed by their type): growl = gappy tonal growls (Bus A), wind = an energy bed
 // (Bus B), hits = impacts (the hit gate), tone = a steady 330 Hz sine on Bus A (for pitch and distortion),
@@ -440,6 +445,7 @@ namespace
         double seconds = 20.0;
         int reps = 3;
         bool swell = false;
+        int recordRate = 0; // 0 = the device rate
         juce::File work;
     };
 
@@ -478,6 +484,7 @@ namespace
         std::unique_ptr<juce::AudioProcessor> base(createPluginFilter());
         auto& proc = *dynamic_cast<SwooshbucklerAudioProcessor*>(base.get());
         proc.setPlayConfigDetails(0, 2, c_fs, c_block);
+        proc.overrideRecordRate(setup.recordRate); // never the saved setting: the measurements must not depend on it
         loadSources(proc, setup);
 
         for (const auto& [id, v] : setup.plains)
@@ -571,6 +578,7 @@ int main(int argc, char* argv[])
         else if (a == "--seconds") setup.seconds = next().getDoubleValue();
         else if (a == "--reps") setup.reps = std::max(1, next().getIntValue());
         else if (a == "--swell") setup.swell = true;
+        else if (a == "--record-rate") setup.recordRate = next().getIntValue();
         else if (a == "--wav") wavDir = juce::File(next());
         else if (a == "--json") jsonFile = juce::File(next());
         else if (a == "--work") setup.work = juce::File(next());
@@ -588,6 +596,15 @@ int main(int argc, char* argv[])
 
     // The values to sweep, as knob positions (normalised).
     std::unique_ptr<juce::AudioProcessor> probeProc(createPluginFilter());
+    {
+        auto& probe = *dynamic_cast<SwooshbucklerAudioProcessor*>(probeProc.get());
+        probe.setPlayConfigDetails(0, 2, c_fs, c_block);
+        probe.overrideRecordRate(setup.recordRate);
+        probe.prepareToPlay(c_fs, c_block);
+        std::cout << "render rate " << probe.getRenderRate() << " Hz, device rate " << c_fs << " Hz, reported latency "
+                  << probe.getLatencySamples() << " samples" << std::endl;
+        probe.releaseResources();
+    }
     juce::RangedAudioParameter* prm = paramId.isNotEmpty() ? findParam(*probeProc, paramId) : nullptr;
     if (paramId.isNotEmpty() && prm == nullptr) { std::cerr << "unknown parameter " << paramId << std::endl; return 2; }
     if (prm != nullptr && ! plains.empty())

@@ -247,7 +247,17 @@ private:
     juce::String m_toast;
     juce::File m_toastFile;
     double m_toastTime = 0.0;
-    float m_grDb = 0.0f, m_outLevel = 0.0f;
+    // Output meters: the bars, and the peak holds (the deepest reduction / highest level of the last moments).
+    float m_grDb = 0.0f, m_outLevel = 0.0f, m_grHoldDb = 0.0f, m_outHold = 0.0f;
+    double m_meterTime = 0.0, m_grHoldTime = 0.0, m_outHoldTime = 0.0;
+    static constexpr float c_grFallDbPerSecond = 12.0f;
+    static constexpr double c_meterHoldSeconds = 1.5;
+    /** Where a level sits on the OUT meter, 0 (-60 dB) to 1 (0 dBFS): the top of the range gets the most room. */
+    static float outMeterPosition(float db)
+    {
+        const float t = juce::jlimit(0.0f, 1.0f, 1.0f + db / 60.0f);
+        return t * t;
+    }
 
     juce::Rectangle<int> m_performPanel, m_meterArea, m_gateLamp, m_footer, m_toastArea, m_busKnobArea;
     std::array<Section, 4> m_sections; // ride, buses, hits, output

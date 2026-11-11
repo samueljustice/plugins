@@ -2,6 +2,7 @@
 
 #include <JuceHeader.h>
 #include "Cargo.h"
+#include "Downsampler.h"
 #include "MasterProcessor.h"
 #include "Parameters.h"
 #include "TapeRecorder.h"
@@ -13,7 +14,7 @@
  * machine. Runs as a standalone app, or as an AU/VST3 (MIDI notes trigger
  * whooshes; audio on the input can be used as a source).
  *
- *   engine (sources -> flights -> rigging) -> push -> inflate -> limiter -> out
+ *   engine (sources -> flights -> rigging) -> inflate -> push -> limiter -> out
  *                                                                        \-> Captain's Log (tape)
  */
 class SwooshbucklerAudioProcessor : public juce::AudioProcessor, private juce::Timer
@@ -84,6 +85,9 @@ public:
     /** Recording sample rate in Hz, 0 = the session rate. Above the device rate the rig renders at this rate. */
     int getRecordRate() const;
     void setRecordRate(int rate);
+    /** Uses this recording rate without saving it in the settings (offline tools and tests); -1 goes back to
+        the saved setting. Call before prepareToPlay. */
+    void overrideRecordRate(int rate) { m_recordRateOverride = rate; }
     double getRenderRate() const { return m_renderRate; }
     double getDeviceRate() const { return m_deviceRate; }
     int getFileType() const;          // 0 WAV, 1 AIFF, 2 FLAC
@@ -95,9 +99,16 @@ public:
 
     // Metering / visuals -------------------------------------------------------
     float getGainReductionDb() const { return m_master.getGainReductionDb(); }
+    /** The deepest gain reduction since the last call (dB, <= 0), then starts again: for the one meter that polls. */
+    float takeGainReductionDb() { return m_master.takeGainReductionDb(); }
+    /** The level going to tape (after the limiter, before Master Trim), falling back at the same speed whatever
+        the buffer size. */
     float getOutputPeak() const { return m_outputPeak.load(std::memory_order_relaxed); }
+    /** The highest such level since the last call, then starts again: for the meter's peak-hold line. */
+    float takeOutputPeak() { return m_outputPeakHold.exchange(0.0f, std::memory_order_relaxed); }
 
     static constexpr int c_scopeSize = 1 << 13;
+    static constexpr int c_maxSection = 512; // the most samples processed between parameter and modulator updates
     /** Copies the most recent count mono output samples (count <= c_scopeSize). */
     void copyScope(float* dest, int count) const;
 
@@ -155,9 +166,12 @@ private:
     juce::AudioBuffer<float> m_work;
     double m_deviceRate = 0.0, m_renderRate = 48000.0;
     int m_blockSize = 512;
-    juce::AudioBuffer<float> m_fifo;   // high-rate render ahead of the downsampler
-    int m_fifoCount = 0;
-    std::array<juce::WindowedSincInterpolator, 2> m_down;
+    // Rendering above the device rate: the render, the band-limited downsampler that makes what you hear from
+    // it, and a limiter after that (removing the top of the spectrum moves the peaks, so the ceiling is held again).
+    juce::AudioBuffer<float> m_highRate;
+    Downsampler m_down;
+    MasterProcessor m_monitorLimiter;
+    int m_recordRateOverride = -1;
 
     struct Raw
     {
@@ -188,17 +202,16 @@ private:
     };
     std::vector<ModTarget> m_modTargets;   // aligned with ModMatrix::targets()
     ModMatrix::FollowerInputs m_followerLevels {}; // RMS of the output, bus A, bus B and the hits (the Followers' inputs)
-    float m_pushDb = 0.0f;                 // Push after modulation
     std::array<int, ParamIDs::numCargoTracks> m_trackPitchTarget {}; // each track's pitch as a modulation target index
     /** A parameter's value with its wires applied (audio thread, no allocation). */
     float modValue(std::atomic<float>* raw);
     void runModulators(int numSamples);
     void publishModViews(); // the knobs' live dots while stopped
 
-    juce::SmoothedValue<float> m_pushGain;
     std::array<float, c_scopeSize> m_scope {};
     std::atomic<int> m_scopeWrite { 0 };
-    std::atomic<float> m_outputPeak { 0.0f };
+    std::atomic<float> m_outputPeak { 0.0f }, m_outputPeakHold { 0.0f };
+    void publishOutputPeak(float peak, int numSamples);
     bool m_autoRecordDone = false;
 
     JUCE_DECLARE_WEAK_REFERENCEABLE(SwooshbucklerAudioProcessor)
