@@ -33,7 +33,7 @@ namespace roar
         constexpr double c_lookaheadSeconds = 0.010;
         constexpr double c_minAttackMs = 0.2, c_maxAttackMs = 10.0;
         constexpr double c_minReleaseMs = 1.0, c_maxReleaseMs = 1000.0;
-        constexpr double c_dcBlockHz = 10.0;
+        constexpr double c_dcBlockHz = 2.5;
         constexpr double c_autoSlowSeconds = 0.400;
         constexpr double c_attackFadeSeconds = 0.020;
         constexpr double c_truePeakBeta = 5.0;

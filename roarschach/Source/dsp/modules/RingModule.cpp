@@ -19,6 +19,15 @@ namespace roar
 
         // Non-finite or absurd input (|x| >= 1e4, +80 dBFS) becomes silence on the wet path, so no
         // filter state is left holding a huge value.
+        inline float sanitizeInput (float x);
+
+        // The level the carrier-pitch gate sees: the louder channel of the input.
+        inline float inputPeak (const float* l, const float* r, int i, bool stereo)
+        {
+            const float a = std::abs (sanitizeInput (l[i]));
+            return stereo ? std::max (a, std::abs (sanitizeInput (r[i]))) : a;
+        }
+
         inline float sanitizeInput (float x)
         {
             return std::abs (x) < 1.0e4f ? x : 0.0f;   // also false for NaN
@@ -76,6 +85,7 @@ namespace roar
         m_f0Coeff = 1.0 - std::exp (-interval / (c_f0GlideTau * m_fs));
         m_trackStep = interval / (c_trackGlideSeconds * m_fs);
         m_octaveConfirmSamples = dsp::samplesFor (c_octaveConfirmSeconds, m_fs, 1);
+        m_pitchGate.prepare (m_fs, c_controlInterval);
         m_shapeStep = 1.0f / static_cast<float> (dsp::samplesFor (c_shapeFadeSeconds, m_fs, 1));
         m_modeStep = 1.0f / static_cast<float> (dsp::samplesFor (c_modeFadeSeconds, m_fs, 1));
         m_bodyStep = 1.0f / static_cast<float> (dsp::samplesFor (c_bodyFadeSeconds, m_fs, 1));
@@ -230,6 +240,7 @@ namespace roar
         s.bodyMix = 1.0f;
         s.tickCountdown = 0;
         m_s = s;
+        m_pitchGate.reset();
         m_s.logNow = targetLog();
         m_s.logStep = 0.0;
         m_s.fcNow = std::exp2 (m_s.logNow);
@@ -306,15 +317,17 @@ namespace roar
 
     void RingModule::updateTracker (const VoiceFrame& frame)
     {
-        const double f0 = static_cast<double> (frame.f0Hz);
-        const bool usable = std::isfinite (f0) && f0 >= c_minF0Hz && f0 <= c_maxF0Hz
-                            && static_cast<double> (frame.confidence) >= c_minConfidence;
+        // Only voiced, confident frames at a real level move the followed pitch (CarrierPitchGate):
+        // the noise floor between phrases and the quiet tail of a word leave it where it was.
+        const auto decision = m_pitchGate.tick (m_s.gatePeak, frame, static_cast<float> (c_minF0Hz), static_cast<float> (c_maxF0Hz));
+        m_s.gatePeak = 0.0f;
 
-        if (usable)
+        if (decision.accepted)
         {
-            const double lg = std::log2 (f0);
-            if (! m_s.hasPitch)
+            const double lg = std::log2 (static_cast<double> (frame.f0Hz));
+            if (! m_s.hasPitch || decision.phraseStart)
             {
+                // The first pitch, and the first pitch of a new phrase, are taken at once.
                 m_s.f0Target = m_s.f0Log = lg;
                 m_s.hasPitch = true;
                 m_s.candidateSamples = 0;
@@ -348,6 +361,8 @@ namespace roar
         else
         {
             m_s.candidateSamples = 0;
+            if (decision.restHz > 0.0f && m_s.hasPitch)
+                m_s.f0Target = std::log2 (static_cast<double> (decision.restHz));   // in a pause: wait at the voice's usual pitch
         }
 
         m_s.f0Log += m_f0Coeff * (m_s.f0Target - m_s.f0Log);
@@ -367,7 +382,7 @@ namespace roar
         m_s.logStep = (targetLog() - m_s.logNow) / static_cast<double> (c_controlInterval);
     }
 
-    void RingModule::advanceControl (int i, const VoiceFrameView& voice)
+    void RingModule::advanceControl (int i, const VoiceFrameView& voice, float peak)
     {
         if (m_s.tickCountdown <= 0)
         {
@@ -375,6 +390,7 @@ namespace roar
             m_s.tickCountdown = c_controlInterval;
         }
         --m_s.tickCountdown;
+        m_s.gatePeak = std::max (m_s.gatePeak, peak);
         m_s.logNow += m_s.logStep;
         m_s.fcNow = std::exp2 (m_s.logNow);
     }
@@ -454,7 +470,7 @@ namespace roar
             snapMixState();
             for (int i = 0; i < n; ++i)
             {
-                advanceControl (i, voice);
+                advanceControl (i, voice, inputPeak (l, r, i, stereo));
                 const double inc = m_s.fcNow * m_invFsOs;
                 m_s.phase = wrapPhase (m_s.phase + inc);
                 if (m_oversample)
@@ -480,7 +496,7 @@ namespace roar
 
         for (int i = 0; i < n; ++i)
         {
-            advanceControl (i, voice);
+            advanceControl (i, voice, inputPeak (l, r, i, stereo));
 
             const double inc = m_s.fcNow * m_invFsOs;
             const double lp = m_s.logNow - m_logBase;
@@ -598,6 +614,7 @@ namespace roar
         }
         m_settings = o.m_settings;
         m_s = o.m_s;
+        m_pitchGate = o.m_pitchGate;
         m_fade.copyStateFrom (o.m_fade);
     }
 

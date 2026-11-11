@@ -1,5 +1,6 @@
 #pragma once
 
+#include "../common/CarrierPitchGate.h"
 #include "../common/Module.h"
 #include "../../Params.h"
 
@@ -41,8 +42,15 @@ namespace roar
      *   - the carrier sits one or two octaves below the voice, and consonants are rebuilt from
      *     noise in the upper bands so the words stay readable.
      *
+     * The analysis bands sit on the synthesis centres but are never narrower than 1.45 ERB (and
+     * never reach below 70 Hz), so the low bands answer within about 20 ms: the weight of a
+     * syllable lands with its consonant. The synthesis bands stay constant-Q.
+     *
      * The carrier follows the VoiceStream at this module's position (read every 16 samples), so a
-     * VOCODER after PITCH follows the shifted voice. Latency 0 (all filters IIR TPT sections).
+     * VOCODER after PITCH follows the shifted voice. Only voiced, confident frames at a real level
+     * move it (CarrierPitchGate); in a pause it waits at the voice's usual pitch, the first pitch
+     * of a new phrase is taken at once, later ones glide over 25 ms. Latency 0 (all filters IIR
+     * TPT sections).
      *
      * Stereo (§3.3): one analysis of the mid and one synthesis bank; band b goes to the output
      * with gains (1 + p_b, 1 - p_b), p_b = +0.3 for even bands and -0.3 for odd ones, so the mid
@@ -94,6 +102,8 @@ namespace roar
 
             void prepare (double sampleRate);
             void clearState();
+            /** Forgets the level history of the carrier-pitch gate (a transport restart). */
+            void resetPitchGate() { m_pitchGate.reset(); m_gatePeak = 0.0f; }
             void setParams (float gravel01, int octaveIndex, float formantShiftBands);   // gravel01: g (after the law)
 
             /** Restart from cleared state with the wet already at its target (the OnFade fades it). */
@@ -102,7 +112,7 @@ namespace roar
             void process (float* left, float* right, int numSamples, bool stereo, const VoiceFrameView& voice);
 
             /** While idle: keep the held pitch current, so the carrier starts on the latest note. */
-            void holdPitch (const VoiceFrameView& voice, int numSamples);
+            void holdPitch (const float* left, const float* right, int numSamples, const VoiceFrameView& voice);
 
             bool isActive() const { return m_active; }
             float getWet() const { return m_wet; }
@@ -120,10 +130,11 @@ namespace roar
             };
 
             void activate (const VoiceFrame& voice);
+            bool followPitch (const VoiceFrame& voice);   // true at a phrase start
             void updateVoice (const VoiceFrame& voice);
             void updateSubBlock();
             void updateCharacter();
-            void runBank (Bank& bank, float* lanes) const;
+            void runBank (Bank& bank, float* lanes, bool analysis) const;
             void synthesise (const float* carrierIn);
             float renderMono (const float* carrierIn);
             void renderStereo (const float* carrierIn, float& outL, float& outR);
@@ -146,12 +157,16 @@ namespace roar
             float m_wet = 0.0f;
             float m_wetStep = 0.0f;
 
-            // Filter coefficients (shared by the analysis and synthesis banks).
+            // Filter coefficients: the synthesis bank (constant-Q), and the analysis bank on the
+            // same centres with a minimum bandwidth at the low end.
             alignas (16) float m_a1[c_numSections][c_numBands] {};
             alignas (16) float m_a2[c_numSections][c_numBands] {};
             alignas (16) float m_a3[c_numSections][c_numBands] {};
+            alignas (16) float m_an1[c_numSections][c_numBands] {};
+            alignas (16) float m_an2[c_numSections][c_numBands] {};
+            alignas (16) float m_an3[c_numSections][c_numBands] {};
             Lanes m_centreHz {};
-            Lanes m_bankGain {};       // makes each 8-pole band unity gain at its centre
+            Lanes m_analysisGain {};   // makes each 8-pole analysis band unity gain at its centre, times its level trim
             Lanes m_pulseGainBase {};  // pulse into band ~ unit RMS (divide by sqrt (carrier Hz))
             Lanes m_noiseGainBase {};  // noise into band ~ unit RMS
             Lanes m_breathNoise {};    // constant noise share of the top (breath) bands
@@ -193,6 +208,8 @@ namespace roar
             float m_detectorConfidence = 0.0f;
 
             // Carrier.
+            CarrierPitchGate m_pitchGate;
+            float m_gatePeak = 0.0f;   // peak |modulator| since the last control tick
             float m_heldF0 = 110.0f;
             float m_carrierHz = 55.0f;
             float m_carrierTargetHz = 55.0f;

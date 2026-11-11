@@ -56,6 +56,16 @@ namespace roar
         constexpr double c_fixedTopHz = 13000.0, c_fixedTopDb = 1.5;
         constexpr double c_outLpHz = 18000.0, c_outLpPerDrive = 0.75;
         constexpr double c_outHpHz = 25.0, c_outHpQ = 0.9;
+        // From this rate up the stage's top octave is the reference; lower rates are corrected
+        // towards it. Two things lose the top octave at 44.1 / 48 kHz: the two-tap averages of the
+        // two ADAA steps (cos^2 (pi f / 2 fs) at the 2x rate: 2.4 dB more at 18 kHz at 48 kHz than
+        // at 96 kHz), answered by a fixed high shelf at the 2x rate ahead of the first stage
+        // (corner c_droopShelfRatio fs, fitted to the measured difference: within 0.15 dB up to
+        // 16 kHz, 0.3 dB short at 18 kHz at 48 kHz), and the output low-pass, answered by
+        // outputLowpass().
+        constexpr double c_referenceRate = 96000.0;
+        constexpr double c_droopShelfBelowRate = 0.9 * c_referenceRate;   // 88.2 kHz and up: no shelf
+        constexpr double c_droopShelfRatio = 0.36, c_droopShelfDb = 4.5;
         constexpr double c_micBellHz = 70.0, c_micBellQ = 0.35, c_micBellDb = -3.8;
         constexpr double c_micShelfHz = 15000.0, c_micShelfDb = -2.0;
 
@@ -103,6 +113,38 @@ namespace roar
         }
 
         double finiteOr (double x, double fallback) { return std::isfinite (x) ? x : fallback; }
+
+        // The output low-pass. At c_referenceRate and above it is the plain bilinear one-pole. Below,
+        // a bilinear one-pole would put its zero at a Nyquist close to the corner and lose the top
+        // octave much faster (18 kHz corner: 1 dB more at 18 kHz at 48 kHz than at 96 kHz), so the
+        // section gets a pole and a zero that give the reference rate's magnitude at DC, at the
+        // corner (-3 dB) and at this rate's Nyquist.
+        Biquad::Coeffs outputLowpass (double fs, double hz)
+        {
+            if (fs >= c_referenceRate)
+                return Biquad::lowpass1 (fs, hz);
+
+            constexpr double pi = 3.14159265358979323846;
+            const double fc = std::clamp (hz, 1.0, 0.45 * fs);
+            const double ratio = std::tan (pi * 0.5 * fs / c_referenceRate) / std::tan (pi * fc / c_referenceRate);
+            const double nyquistGain = 1.0 / std::sqrt (1.0 + ratio * ratio);
+            // H(z) = (b0 + b1 / z) / (1 - p / z), b0 + b1 = 1 - p, b0 - b1 = nyquistGain (1 + p);
+            // |H(fc)|^2 = 1/2 is a quadratic in p: (c + 2B) p^2 + (4B - 2) p + (c + 2B) = 0.
+            const double cosW = std::cos (2.0 * pi * fc / fs);
+            const double B = 0.5 * nyquistGain * nyquistGain * (1.0 - cosW);
+            const double k = cosW + 2.0 * B;
+            const double h = 1.0 - 2.0 * B;
+            double pole = 0.0;
+            if (std::abs (k) > 1.0e-9)
+                pole = (h - std::sqrt (std::max (0.0, h * h - k * k))) / k;
+            pole = std::clamp (pole, -0.99, 0.99);
+
+            Biquad::Coeffs c;
+            c.b0 = 0.5 * ((1.0 - pole) + nyquistGain * (1.0 + pole));
+            c.b1 = 0.5 * ((1.0 - pole) - nyquistGain * (1.0 + pole));
+            c.a1 = -pole;
+            return c;
+        }
     }
 
     RoarModule::RoarModule() = default;
@@ -148,6 +190,7 @@ namespace roar
         (void) table();   // build the shared curve table here, never on the audio thread
 
         m_fade.prepare (m_fs, maxBlock, getLatencySamples());
+        m_droopShelf = m_fs < c_droopShelfBelowRate;
 
         m_env1Attack = dsp::onePoleCoeff (c_env1AttackSeconds, m_fs2);
         m_env1Release = dsp::onePoleCoeff (c_env1ReleaseSeconds, m_fs2);
@@ -163,8 +206,9 @@ namespace roar
             c.miller1.prepare (m_fs2);
             c.miller2.prepare (m_fs2);
             c.miller2.setCutoff (c_miller2Hz);
-            c.outLp.prepare (m_fs);
             c.fixedTop.setCoeffs (Biquad::highShelf (m_fs2, c_fixedTopHz, Biquad::c_butterworthQ, c_fixedTopDb));
+            c.droop.setCoeffs (m_droopShelf ? Biquad::highShelf (m_fs2, c_droopShelfRatio * m_fs, Biquad::c_butterworthQ, c_droopShelfDb)
+                                            : Biquad::Coeffs {});
             c.outHp.setCoeffs (Biquad::highpass (m_fs, c_outHpHz, c_outHpQ));
         }
 
@@ -199,6 +243,7 @@ namespace roar
             c.scoop.reset();
             c.trebleTop.reset();
             c.fixedTop.reset();
+            c.droop.reset();
             c.outLp.reset();
             c.outHp.reset();
             c.bypass1 = c.bypass2 = 0.0;
@@ -236,7 +281,7 @@ namespace roar
             const auto scoop = Biquad::peaking (m_fs2, c_scoopHz, c_scoopQ, scoopDb);
             const auto trebleTop = Biquad::highShelf (m_fs2, c_trebleHighHz, Biquad::c_butterworthQ, (1.0 - c_trebleLowShare) * trebleDb);
             const double miller1Hz = c_miller1Hz * std::pow (0.5, a);
-            const double outLpHz = c_outLpHz * std::pow (c_outLpPerDrive, a);
+            const auto outLp = outputLowpass (m_fs, c_outLpHz * std::pow (c_outLpPerDrive, a));
 
             for (auto& c : m_ch)
             {
@@ -245,7 +290,7 @@ namespace roar
                 c.scoop.setCoeffs (scoop);
                 c.trebleTop.setCoeffs (trebleTop);
                 c.miller1.setCutoff (miller1Hz);
-                c.outLp.setCutoff (outLpHz);
+                c.outLp.setCoeffs (outLp);
             }
             m_designedA = a;
             m_designedTone = t;
@@ -382,7 +427,8 @@ namespace roar
                 for (int c = 0; c < numCh; ++c)
                 {
                     auto& ch = m_ch[static_cast<size_t> (c)];
-                    const float driven = up[c][k] * fd1;
+                    // The droop shelf sits ahead of the curves: what they generate is not lifted with it.
+                    const float driven = (m_droopShelf ? ch.droop.process (up[c][k]) : up[c][k]) * fd1;
                     const double s = static_cast<double> (ch.miller1.processLowpass (driven));
                     m_swingPeak = std::max (m_swingPeak, std::abs (s));
                     const double g = std::clamp (s - b1, -c_gridLimit, c_gridLimit);
@@ -433,8 +479,7 @@ namespace roar
             {
                 auto& ch = m_ch[static_cast<size_t> (c)];
                 float y = ch.os.downsample (up[c][0], up[c][1]);
-                y = ch.outLp.processLowpass (y);
-                const double out = ch.outHp.process (static_cast<double> (y)) * makeup;
+                const double out = ch.outHp.process (ch.outLp.process (static_cast<double> (y))) * makeup;
                 if (! std::isfinite (out))
                     broken = true;
                 io[c][i] = static_cast<float> (out);
