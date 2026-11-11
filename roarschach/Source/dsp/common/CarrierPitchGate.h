@@ -20,7 +20,9 @@ namespace roar
      *   - the audio at the module is loud enough: its level (the peak of the last
      *     c_levelWindowSeconds, long enough to span a period of the lowest voice) is within
      *     c_rangeDb of the recent level (that peak with a release of c_referenceDbPerSecond) and
-     *     above c_floorDb.
+     *     above c_floorDb. The release is quick enough that a murmur after a roar is followed
+     *     within a second (a phrase 40 dB under the last one: 10 dB to fall), and slow enough
+     *     that the tail of a word, which falls far faster, stays out.
      * The first accepted frame after c_phraseSeconds without one is flagged as a phrase start:
      * the caller takes that pitch at once, without its glide or octave check.
      *
@@ -41,7 +43,7 @@ namespace roar
         static constexpr double c_rangeDb = 30.0;
         static constexpr double c_floorDb = -50.0;
         static constexpr double c_levelWindowSeconds = 0.025;
-        static constexpr double c_referenceDbPerSecond = 1.5;
+        static constexpr double c_referenceDbPerSecond = 12.0;
         static constexpr double c_phraseSeconds = 0.080;
         static constexpr double c_restSeconds = 0.150;
         static constexpr double c_usualStepSeconds = 0.050;

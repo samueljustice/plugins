@@ -2121,7 +2121,7 @@ namespace
         // phrase's last one, and takes the new pitch at once.
         {
             auto in = makeBuzz(sr, 2.4, 110.0);
-            const int pauseFrom = at(0.6), tailFrom = at(1.2), phraseFrom = at(1.6), pitchFrom = at(1.64);
+            const int pauseFrom = at(0.6), tailFrom = at(0.9), phraseFrom = at(1.0), pitchFrom = at(1.04);
             const auto next = makeBuzz(sr, 2.4, 147.0);
             const auto floorNoise = makeWhite(sr, 2.4, 0.001f, 11);
             for (int i = pauseFrom; i < static_cast<int>(in.size()); ++i)
@@ -2189,6 +2189,56 @@ namespace
             check(std::abs(followPause - 110.0f) < 1.0f, "RING Follow does not wait at the usual pitch in a pause (or takes the noise floor)");
             check(std::abs(followTail - 110.0f) < 1.0f, "RING Follow takes a pitch reported 36 dB below the phrase");
             check(std::abs(followPitch - 147.0f) < 2.0f, "RING Follow is late on the first pitch of a new phrase");
+        }
+
+        // ---- Carrier pitch, a murmur after a roar: a loud phrase at 110 Hz, 0.4 s of silence, then
+        // a phrase 33 dB quieter at 147 Hz with a steady, confident pitch. The level gate lets go
+        // of the loud phrase in time: both carriers are on the quiet phrase's pitch 0.3 s into it.
+        {
+            auto in = makeBuzz(sr, 2.0, 110.0);
+            const int silenceFrom = at(0.6), quietFrom = at(1.0);
+            const auto quiet = makeBuzz(sr, 2.0, 147.0);
+            for (int i = silenceFrom; i < static_cast<int>(in.size()); ++i)
+                in[static_cast<size_t>(i)] = i < quietFrom ? 0.0f : 0.0224f * quiet[static_cast<size_t>(i)];
+            const auto frame = [=](int i)
+            {
+                if (i < silenceFrom)
+                    return roar::VoiceFrame { 110.0f, 0.9f, true };
+                if (i < quietFrom + 1920)
+                    return roar::VoiceFrame { 110.0f, 0.2f, false };
+                return roar::VoiceFrame { 147.0f, 0.9f, true };
+            };
+
+            roar::VocoderModule vocoder;
+            roar::VocoderSettings vs;
+            vs.on = true;
+            vs.gravel = 0.5f;
+            vocoder.setParams(vs);
+            vocoder.prepare(sr, block);
+            vocoder.setParams(vs);
+            vocoder.reset();
+            float carrierQuiet = 0.0f;
+            runModuleMono(vocoder, in, block, frame, [&](int end)
+            {
+                if (end <= quietFrom + at(0.3)) carrierQuiet = vocoder.getCarrierHz();
+            });
+
+            roar::RingModule ring;
+            roar::RingSettings rs;
+            rs.on = true;
+            rs.track = roar::RingTrack::follow;
+            ring.setParams(rs);
+            ring.prepare(sr, block);
+            ring.setParams(rs);
+            ring.reset();
+            float followQuiet = 0.0f;
+            runModuleMono(ring, in, block, frame, [&](int end)
+            {
+                if (end <= quietFrom + at(0.3)) followQuiet = ring.getFollowedF0Hz();
+            });
+            std::printf("  A phrase 33 dB under the last one, 0.3 s in: VOCODER carrier %.1f Hz (73.5), RING Follow %.1f Hz (147)\n", carrierQuiet, followQuiet);
+            check(std::abs(carrierQuiet - 73.5f) < 1.5f, "VOCODER does not follow a quiet phrase after a loud one: " + juce::String(carrierQuiet, 1) + " Hz (73.5)");
+            check(std::abs(followQuiet - 147.0f) < 2.0f, "RING Follow does not follow a quiet phrase after a loud one: " + juce::String(followQuiet, 1) + " Hz (147)");
         }
 
         // ---- GROWL Throat: the rasp holds through a short loss of pitch inside a word, lets go
