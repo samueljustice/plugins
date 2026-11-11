@@ -684,10 +684,10 @@ SwooshbucklerAudioProcessorEditor::SwooshbucklerAudioProcessorEditor(Swooshbuckl
     m_linkBuses.setColour(juce::TextButton::buttonOnColourId, TC::movement);
     m_linkBuses.setWantsKeyboardFocus(false);
     m_linkBuses.setTooltip("Link\nOn: bus B flies the same doppler passes as bus A, at the same moment, as close and in the same direction, "
-                           "with A's Doppler and Width, so the two buses move as one source: one consistent whoosh. "
+                           "with A's Doppler, Width and Pass Mode, so the two buses move as one source: one consistent whoosh. "
                            "B keeps its own Bend, so its pitch can bend more or less.\n"
                            "Off (the default): each bus does its own passes, which keeps energy beds on B moving independently. "
-                           "B's own Doppler and Width, and any modulator wires on them, come back when you unlink.");
+                           "B's own Doppler, Width and Pass Mode, and any modulator wires on its knobs, come back when you unlink.");
     m_content.addAndMakeVisible(m_linkBuses);
     for (size_t b = 0; b < m_passMode.size(); ++b)
     {
