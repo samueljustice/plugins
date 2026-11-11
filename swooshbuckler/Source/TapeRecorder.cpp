@@ -303,6 +303,7 @@ void TapeRecorder::process(const float* const* channels, int numChannels, int nu
                 m_gatePeak = 0.0f;
                 m_gatePeakHold = 0;
                 m_hangLeft = 0;
+                m_fadeInLeft = 0;
                 m_prerollFill = 0;
                 m_capturing = false;
             }
@@ -312,6 +313,7 @@ void TapeRecorder::process(const float* const* channels, int numChannels, int nu
                 writeBlock(channels, numSamples);
                 m_capturing = false; // Skip Silence switched on mid-take starts from the next sound
                 m_prerollFill = 0;
+                m_fadeInLeft = 0;
             }
             else
             {
@@ -375,6 +377,9 @@ void TapeRecorder::process(const float* const* channels, int numChannels, int nu
                 }
                 if (loud || (m_capturing.load() && m_gateHold.load(std::memory_order_relaxed)))
                 {
+                    // Sound again while the closing fade was under way: come back up from where it had got to.
+                    if (m_capturing.load() && m_hangLeft < fadeLen)
+                        m_fadeInLeft = juce::jmax(m_fadeInLeft, fadeLen - m_hangLeft);
                     m_capturing = true;
                     m_hangLeft = static_cast<int>((c_gateQuietSeconds + c_gateHangSeconds) * m_sampleRate);
                 }
@@ -385,8 +390,29 @@ void TapeRecorder::process(const float* const* channels, int numChannels, int nu
                     // gate has closed is the start of the next pre-roll.
                     const int count = juce::jmin(numSamples, m_hangLeft);
                     const int plain = juce::jlimit(0, count, m_hangLeft - fadeLen);
-                    if (plain > 0)
-                        writeBlock(channels, plain);
+                    // (the hang is far longer than two fades, so a fade back in is over before the next fade out)
+                    const int rising = juce::jmin(plain, m_fadeInLeft);
+                    if (rising > 0)
+                    {
+                        const float* seg[8] {};
+                        for (int ch = 0; ch < juce::jmin(8, m_fade.getNumChannels()); ++ch)
+                        {
+                            const float* in = channels[juce::jmin(ch, numChannels - 1)];
+                            float* out = m_fade.getWritePointer(ch);
+                            for (int i = 0; i < rising; ++i)
+                                out[i] = in[i] * static_cast<float>(fadeLen - m_fadeInLeft + i) / static_cast<float>(fadeLen);
+                            seg[ch] = out;
+                        }
+                        writeBlock(seg, rising);
+                        m_fadeInLeft -= rising;
+                    }
+                    if (plain > rising)
+                    {
+                        const float* seg[8] {};
+                        for (int ch = 0; ch < juce::jmin(8, numChannels); ++ch)
+                            seg[ch] = channels[ch] + rising;
+                        writeBlock(seg, plain - rising);
+                    }
                     if (count > plain)
                     {
                         const float* seg[8] {};
@@ -404,6 +430,7 @@ void TapeRecorder::process(const float* const* channels, int numChannels, int nu
                     if (m_hangLeft <= 0)
                     {
                         m_capturing = false;
+                        m_fadeInLeft = 0;
                         m_prerollFill = 0;
                         keepForPreroll(count, numSamples - count);
                     }

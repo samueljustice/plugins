@@ -812,6 +812,48 @@ int main(int argc, char* argv[])
             check(std::abs(audio.getNumSamples() / c_rate - 20.0) < 0.1, "tape: a held gate keeps the quiet tail ("
                                                                              + juce::String(audio.getNumSamples() / c_rate, 2) + " s of 20 s)");
 
+            // A sound that comes back while the gate is fading out: the tape comes back up from where the fade had
+            // got to, without a step. A steady level shows it: 1 s loud, then a bed 34 dB under it, and one loud
+            // sample at the end of the 10 ms block that starts two thirds of the way through the 30 ms fade.
+            {
+                constexpr int c_piece = 480;
+                const int lastLoud = static_cast<int>(c_rate) / c_piece - 1;                      // the last loud block
+                const int closes = lastLoud * c_piece + static_cast<int>(0.75 * c_rate);          // where the fade would end
+                const int back = (closes - static_cast<int>(0.02 * c_rate)) / c_piece * c_piece; // start of the block that reopens
+                TapeRecorder reopened;
+                reopened.prepare(c_rate, 2);
+                reopened.setSignalGate(true);
+                TapeRecorder::Options floatFile;
+                floatFile.bitDepth = 32;
+                check(reopened.start(tapeFolder, floatFile, error), "tape: starts a take for the reopening gate " + error);
+                juce::AudioBuffer<float> piece(2, c_piece);
+                for (int pos = 0; pos < back + 4 * c_piece; pos += c_piece)
+                {
+                    for (int i = 0; i < c_piece; ++i)
+                    {
+                        const int at = pos + i;
+                        const float v = (at < static_cast<int>(c_rate) || at == back + c_piece - 1) ? 0.5f : 0.01f;
+                        piece.setSample(0, i, v);
+                        piece.setSample(1, i, v);
+                    }
+                    reopened.process(piece.getArrayOfReadPointers(), 2, c_piece);
+                }
+                reopened.stop();
+                readAll(reopened.getLastFile(), audio);
+                float biggestStep = 0.0f, lowest = 1.0f;
+                for (int i = closes - static_cast<int>(0.03 * c_rate); i < back + c_piece - 2 && i + 1 < audio.getNumSamples(); ++i)
+                {
+                    biggestStep = std::max(biggestStep, std::abs(audio.getSample(0, i + 1) - audio.getSample(0, i)));
+                    lowest = std::min(lowest, audio.getSample(0, i));
+                }
+                check(audio.getNumSamples() == back + 4 * c_piece && lowest < 0.008f && lowest > 0.001f,
+                      "tape: a sound that returns during the fade reopens the gate (the bed had faded to "
+                          + juce::String(lowest / 0.01f, 2) + " of its level)");
+                check(biggestStep < 3.0f * 0.01f / static_cast<float>(0.03 * c_rate),
+                      "tape: the reopened gate comes back up without a step (biggest step in the bed "
+                          + juce::String(biggestStep / 0.01f, 4) + " of its level)");
+            }
+
             TapeRecorder continuous;
             continuous.prepare(c_rate, 2);
             continuous.setSignalGate(false);

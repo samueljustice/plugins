@@ -56,7 +56,8 @@ public:
      * peak: the gate closes once the level has sat c_gateDepthDb under it (or under c_gateFloor, whichever is
      * higher) for c_gateQuietSeconds, plus a hang of c_gateHangSeconds for the tails, and opens again, with
      * c_gatePrerollSeconds of pre-roll for the attack, as soon as the level comes back over that line. The file is
-     * faded out and in over c_gateFadeSeconds at each join. Off: the take is continuous. Any thread; it can be
+     * faded out and in over c_gateFadeSeconds at each join (sound that returns during the fade out fades back in
+     * from there). Off: the take is continuous. Any thread; it can be
      * changed while a take is open.
      */
     static constexpr float c_gateDepthDb = 25.0f;        // how far under the recent peak counts as quiet
@@ -105,6 +106,7 @@ private:
     std::atomic<bool> m_signalGate { false }, m_capturing { false };
     // The gate (audio thread only; sized in prepare)
     int m_hangLeft = 0;
+    int m_fadeInLeft = 0;                 // samples left of a fade back in (sound returned during the closing fade)
     juce::AudioBuffer<float> m_preroll, m_fade;
     int m_prerollWrite = 0, m_prerollFill = 0;
     float m_gatePeak = 0.0f;              // the recent peak the gate measures against
