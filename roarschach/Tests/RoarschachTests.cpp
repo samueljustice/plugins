@@ -3088,6 +3088,504 @@ namespace
     }
 
     //==========================================================================
+    // The editor's usability: type size and contrast, the window size, undo for preset loads, the
+    // first-run hint, the quick start, knobs the current settings do not use, the latency note.
+
+    /** WCAG contrast ratio of two opaque colours. */
+    double contrastRatio(juce::Colour a, juce::Colour b)
+    {
+        const auto luminance = [](juce::Colour c)
+        {
+            const auto channel = [](float v) { return v <= 0.03928f ? v / 12.92f : std::pow((v + 0.055f) / 1.055f, 2.4f); };
+            return 0.2126 * channel(c.getFloatRed()) + 0.7152 * channel(c.getFloatGreen()) + 0.0722 * channel(c.getFloatBlue());
+        };
+        const double la = luminance(a), lb = luminance(b);
+        return (std::max(la, lb) + 0.05) / (std::min(la, lb) + 0.05);
+    }
+
+    void writePng(const juce::Image& image, const juce::File& file)
+    {
+        file.deleteFile();
+        juce::FileOutputStream stream(file);
+        juce::PNGImageFormat png;
+        if (stream.openedOk() && png.writeImageToStream(image, stream))
+            std::printf("  wrote %s\n", file.getFullPathName().toRawUTF8());
+    }
+
+    /** Pictures of the editor at several window scales, the creature view's hint and the About
+        window's content into the folder ROARSCHACH_UI_SHOTS names (for looking at the layout;
+        nothing is written without it). */
+    void writeUiShots()
+    {
+        const auto dirName = juce::SystemStats::getEnvironmentVariable("ROARSCHACH_UI_SHOTS", {});
+        if (dirName.isEmpty())
+            return;
+        const juce::File dir(dirName);
+        dir.createDirectory();
+        for (const float scale : { 0.65f, 0.8f, 1.0f })
+        {
+            auto p = makeProcessor(48000.0, 512);
+            std::unique_ptr<juce::AudioProcessorEditor> editorBase(p->createEditor());
+            auto& editor = *dynamic_cast<RoarschachAudioProcessorEditor*>(editorBase.get());
+            editor.setSize(juce::roundToInt(RoarschachAudioProcessorEditor::c_baseWidth * scale),
+                           juce::roundToInt(RoarschachAudioProcessorEditor::c_baseHeight * scale));
+            // The second module on with its room blended in, so its four narrow knobs show lit.
+            setParam(*p, Params::chamberOn, 1.0f);
+            RoarschachEditorInspector::strip(editor).refresh();
+            RoarschachEditorInspector::monster(editor).refreshOverlay(2.0f);
+            const auto name = "editor-" + juce::String(juce::roundToInt(scale * 100.0f));
+            writePng(editor.createComponentSnapshot(editor.getLocalBounds(), true, 1.0f), dir.getChildFile(name + ".png"));
+            writePng(editor.createComponentSnapshot(editor.getLocalBounds(), true, 2.0f), dir.getChildFile(name + "@2x.png"));
+
+            if (scale == 1.0f)
+            {
+                auto& look = dynamic_cast<RoarschachLookAndFeel&>(RoarschachEditorInspector::lookAndFeel(editor));
+                const auto note = RoarschachAudioProcessorEditor::latencyNote(p->getLatencySamples(), p->getSampleRate());
+                auto about = AboutWindow::createContent(look, note);
+                writePng(about->createComponentSnapshot(about->getLocalBounds(), true, 2.0f), dir.getChildFile("about@2x.png"));
+            }
+        }
+    }
+
+    void testUi()
+    {
+        std::printf("[ui] window size, type and contrast, preset undo, hint, quick start, unused knobs, latency note\n");
+        using Editor = RoarschachAudioProcessorEditor;
+        const int baseW = Editor::c_baseWidth, baseH = Editor::c_baseHeight;
+        const auto near = [](float a, float b) { return std::abs(a - b) < 0.011f; };
+
+        // 1. The size a first window opens at: the largest of 80-100 % that leaves room on the display.
+        {
+            struct Case { int w, h; float want; };
+            int wrong = 0;
+            for (const auto& c : { Case { 1280, 720, 0.8f }, Case { 1440, 847, 0.8f }, Case { 1728, 1079, 0.9f }, Case { 1920, 1040, 1.0f },
+                                   Case { 2560, 1400, 1.0f }, Case { 5120, 2800, 1.0f }, Case { 0, 0, 0.8f }, Case { 3000, 100, 0.8f } })
+            {
+                const float got = Editor::defaultScaleForDisplay(c.w, c.h);
+                if (!near(got, c.want))
+                {
+                    ++wrong;
+                    std::printf("    a %d x %d display opens at %.2f, expected %.2f\n", c.w, c.h, got, c.want);
+                }
+                // The window it gives fits the display, unless the display is smaller than the smallest default.
+                if (got > Editor::c_smallestDefaultScale + 0.001f && (static_cast<float>(baseW) * got > static_cast<float>(c.w) || static_cast<float>(baseH) * got > static_cast<float>(c.h)))
+                    ++wrong;
+            }
+            float previous = 0.0f;
+            bool monotone = true, inRange = true;
+            for (int w = 800; w <= 4000; w += 40)
+            {
+                const float s = Editor::defaultScaleForDisplay(w, w * 10 / 16);
+                monotone = monotone && s >= previous;
+                inRange = inRange && s >= Editor::c_smallestDefaultScale && s <= Editor::c_largestDefaultScale;
+                previous = s;
+            }
+            check(wrong == 0, "the default window scale is the largest of 80-100 % that fits the display");
+            check(monotone && inRange, "the default window scale grows with the display and stays within 80-100 %");
+            check(near(Editor::c_minScale, 0.65f), "the smallest window scale is 65 %");
+        }
+
+        // 2. The size last chosen is kept in a settings file and read back (clamped; a damaged or
+        //    missing file gives none).
+        {
+            const auto file = juce::File::getSpecialLocation(juce::File::tempDirectory)
+                                  .getChildFile("roarschach-ui-test-" + juce::String::toHexString(juce::Random::getSystemRandom().nextInt()) + ".settings");
+            file.deleteFile();
+            check(Editor::readRememberedScale(file) == 0.0f, "no remembered size without a settings file");
+            check(Editor::rememberScale(file, 0.9f) && near(Editor::readRememberedScale(file), 0.9f), "the chosen size is remembered");
+            check(Editor::rememberScale(file, 3.0f) && near(Editor::readRememberedScale(file), Editor::c_maxScale), "a remembered size above the largest is clamped");
+            check(Editor::rememberScale(file, 0.1f) && near(Editor::readRememberedScale(file), Editor::c_minScale), "a remembered size below the smallest is clamped");
+            check(!Editor::rememberScale(file, std::numeric_limits<float>::quiet_NaN()) && near(Editor::readRememberedScale(file), Editor::c_minScale),
+                  "a non-finite size is not remembered");
+            file.replaceWithText("not a settings file");
+            check(Editor::readRememberedScale(file) == 0.0f, "a damaged settings file gives no remembered size");
+            file.deleteFile();
+            check(Editor::getSettingsFile().getFileName() == "Roarschach.settings"
+                      && Editor::getSettingsFile().getParentDirectory().getFileName() == "Sammy J",
+                  "the settings file is Roarschach's own, beside the update check's");
+        }
+
+        // 3. A new editor opens within the default range (or as large as the display allows); a size
+        //    saved with the instance wins; the window cannot go under 65 %.
+        {
+            auto p = makeProcessor(48000.0, 512);
+            {
+                std::unique_ptr<juce::AudioProcessorEditor> editor(p->createEditor());
+                const float scale = static_cast<float>(editor->getWidth()) / static_cast<float>(baseW);
+                std::printf("  a new editor opens at %.0f %% here (%d x %d)\n", scale * 100.0f, editor->getWidth(), editor->getHeight());
+                check(scale >= Editor::c_minScale - 0.001f && scale <= Editor::c_largestDefaultScale + 0.001f, "a new editor opens at 100 % or less");
+                check(std::abs(static_cast<float>(editor->getHeight()) / static_cast<float>(baseH) - scale) < 0.002f, "the editor keeps its shape");
+                auto* limits = editor->getConstrainer();
+                check(limits != nullptr && limits->getMinimumWidth() == juce::roundToInt(baseW * Editor::c_minScale)
+                          && limits->getMinimumHeight() == juce::roundToInt(baseH * Editor::c_minScale),
+                      "the window's smallest size is 65 %");
+                editor->setSize(juce::roundToInt(baseW * 0.7f), juce::roundToInt(baseH * 0.7f));
+            }
+            std::unique_ptr<juce::AudioProcessorEditor> again(p->createEditor());
+            check(again->getWidth() == juce::roundToInt(baseW * 0.7f), "the size saved with the instance is the size its editor opens at");
+        }
+
+        // 4. Contrast: every rank of text reads on every panel colour (WCAG AA is 4.5 to 1).
+        {
+            namespace C = Theme::Colours;
+            const double faintPanel = contrastRatio(C::textFaint, C::panel), faintBack = contrastRatio(C::textFaint, C::background),
+                         faintRaised = contrastRatio(C::textFaint, C::panelRaised), dimRaised = contrastRatio(C::textDim, C::panelRaised);
+            std::printf("  contrast: faint text %.2f on a panel, %.2f on the background, %.2f on a raised panel; dim text %.2f on a raised panel\n",
+                        faintPanel, faintBack, faintRaised, dimRaised);
+            check(faintPanel >= 4.5 && faintBack >= 4.5, "the faintest text is at least 4.5 to 1 on the panel and the background");
+            check(faintRaised >= 4.0, "the faintest text is at least 4 to 1 on a raised panel");
+            check(dimRaised >= 4.5 && contrastRatio(C::textDim, C::panel) > faintPanel + 1.5
+                      && contrastRatio(C::text, C::panel) > contrastRatio(C::textDim, C::panel) + 3.0,
+                  "the three ranks of text stay apart");
+        }
+
+        // 5. Captions: 11 design px wherever the tile has the room (8.8 px at the smallest default
+        //    window), never under 9, each whole word shown, clear of the captions beside it and of the sides of its tile.
+        {
+            auto p = makeProcessor(48000.0, 512);
+            std::unique_ptr<juce::AudioProcessorEditor> editorBase(p->createEditor());
+            auto& editor = *dynamic_cast<Editor*>(editorBase.get());
+            editor.setSize(baseW, baseH);
+            auto& strip = RoarschachEditorInspector::strip(editor);
+            strip.refresh();
+            int captions = 0, small = 0, tiny = 0, cut = 0, outside = 0, touching = 0;
+            float smallest = 100.0f;
+            std::vector<juce::Component*> tiles { strip.getInTile(), strip.getOutputTile() };
+            for (int m = 0; m < Params::numModules; ++m)
+                tiles.push_back(strip.getModuleTile(m));
+            const auto* chamberTile = strip.getModuleTile(static_cast<int>(Params::ModuleId::chamber));
+            for (auto* tile : tiles)
+            {
+                std::vector<juce::Label*> labels;
+                for (auto* c : tile->getChildren())
+                    if (auto* label = dynamic_cast<juce::Label*>(c); label != nullptr && label->isVisible() && label->getText().isNotEmpty())
+                        labels.push_back(label);
+                for (auto* label : labels)
+                {
+                    ++captions;
+                    const float height = label->getFont().getHeight();
+                    smallest = std::min(smallest, height);
+                    tiny += height < 9.0f - 0.01f ? 1 : 0;
+                    small += tile != chamberTile && height < 11.0f - 0.01f ? 1 : 0;
+                    cut += juce::GlyphArrangement::getStringWidth(label->getFont(), label->getText()) > static_cast<float>(label->getWidth()) ? 1 : 0;
+                    cut += height > static_cast<float>(label->getHeight()) ? 1 : 0;
+                    outside += tile->getLocalBounds().contains(label->getBounds()) ? 0 : 1;
+                    for (auto* other : labels)
+                        touching += other != label && other->getBounds().intersects(label->getBounds()) ? 1 : 0;
+                }
+            }
+            std::printf("  %d knob captions, the smallest %.2f design px (%.1f px in an 80 %% window)\n", captions, smallest, smallest * 0.8f);
+            check(captions >= 30, "the knob captions were found");
+            check(small == 0, juce::String(small) + " captions under 11 design px outside CHAMBER");
+            check(tiny == 0, juce::String(tiny) + " captions under 9 design px");
+            check(cut == 0, juce::String(cut) + " captions cut short");
+            check(outside == 0 && touching == 0, "captions overlap each other or leave their tile");
+        }
+
+        // 6. A preset load from the preset bar is one step in the dice's history: undo brings back the
+        //    sound that was showing (edits and all), redo loads the preset again; a hand edit made
+        //    after the load survives the undo; a load by the host ends the history.
+        {
+            auto p = makeProcessor(48000.0, 512);
+            auto& dice = p->getDice();
+            auto& pm = p->getPresetManager();
+            dice.setSeed(5);
+            const int face = dice.getFace();
+            check(!dice.canUndo() && !dice.undo(), "nothing to undo before anything is loaded");
+
+            setParam(*p, Params::pitch, -7.0f);
+            setParam(*p, Params::roar, 83.0f);
+            const auto edited = normalisedState(*p);
+            const auto editedName = pm.getCurrentName();
+            check(pm.isModified(), "an edit marks the preset as edited");
+
+            check(dice.loadNext(), "the next preset loads");
+            const auto loaded = normalisedState(*p);
+            const auto loadedName = pm.getCurrentName();
+            check(loadedName != editedName && !pm.isModified() && loaded != edited, "the load changed the sound and the name");
+            check(dice.canUndo() && dice.getUndoManager().getUndoDescription() == "Load", "the load is a step called Load");
+            check(dice.getFace() == face, "a load leaves the dice's faces alone");
+
+            check(dice.undo(), "the load is undone");
+            check(normalisedState(*p) == edited && pm.getCurrentName() == editedName && pm.isModified(), "undo brings back the edited sound, its name and its edited mark");
+            check(dice.canRedo() && dice.getUndoManager().getRedoDescription() == "Load" && dice.redo(), "the load is redone");
+            check(normalisedState(*p) == loaded && pm.getCurrentName() == loadedName && !pm.isModified(), "redo loads the preset again, unedited");
+
+            // Menu loads, the arrows and the preset die share one history, newest first.
+            const int third = std::min(7, PresetManager::getNumFactory() - 1);
+            check(dice.loadPreset(third), "a preset loads by its place in the list");
+            const auto thirdState = normalisedState(*p);
+            check(dice.loadPrevious(), "the previous preset loads");
+            check(dice.rollPreset() >= 0, "the preset die rolls");
+            check(dice.undo() && dice.undo() && normalisedState(*p) == thirdState && pm.getCurrentIndex() == third, "two undos go back past the die and the arrow");
+            check(dice.undo() && normalisedState(*p) == loaded && dice.undo() && normalisedState(*p) == edited && !dice.canUndo(), "and on back to the first sound");
+            check(dice.redo() && dice.redo() && normalisedState(*p) == thirdState, "redo goes forward again");
+
+            // A knob turned after the load keeps its value through the undo; the rest goes back.
+            const float handPitch = getParam(*p, Params::pitch) > -15.0f ? -20.0f : -3.0f;
+            setParam(*p, Params::pitch, handPitch);
+            check(dice.undo(), "undo after a hand edit");
+            auto expected = loaded;
+            const auto afterHand = normalisedState(*p);
+            int differing = 0;
+            for (size_t i = 0; i < expected.size() && i < afterHand.size(); ++i)
+                differing += juce::exactlyEqual(expected[i], afterHand[i]) ? 0 : 1;
+            check(std::abs(getParam(*p, Params::pitch) - handPitch) < 0.01f && differing <= 1 && pm.isModified(),
+                  "the hand edit survives the undo and the preset shows as edited");
+
+            // A load that does not come from the preset bar (the host's program list) ends the history.
+            check(dice.loadNext() && dice.canUndo(), "a load to undo");
+            check(pm.loadPreset(0), "the host loads a preset");
+            const auto hostState = normalisedState(*p);
+            check(!dice.canUndo() && !dice.undo() && normalisedState(*p) == hostState, "a load from outside the preset bar ends the history");
+            check(dice.loadNext() && dice.undo() && normalisedState(*p) == hostState && !dice.canUndo(), "the next load starts a new history on that sound");
+            check(!dice.loadPreset(100000) && !dice.canUndo(), "a load that fails adds no step");
+        }
+
+        // 7. The editor: Cmd+Z / Ctrl+Z takes a load back and Shift redoes it; other keys, and Cmd+Z
+        //    with nothing to take back, are left for the host.
+        {
+            auto p = makeProcessor(48000.0, 512);
+            std::unique_ptr<juce::AudioProcessorEditor> editorBase(p->createEditor());
+            auto& editor = *dynamic_cast<Editor*>(editorBase.get());
+            const juce::KeyPress undoKey('z', juce::ModifierKeys::commandModifier, 0);
+            const juce::KeyPress redoKey('z', juce::ModifierKeys::commandModifier | juce::ModifierKeys::shiftModifier, 0);
+            check(!editor.undoKeyPressed(undoKey) && !editor.undoKeyPressed(redoKey), "with nothing to undo the key is not taken");
+            setParam(*p, Params::growl, 61.0f);
+            const auto before = normalisedState(*p);
+            check(p->getDice().loadNext(), "a preset loads");
+            const auto after = normalisedState(*p);
+            check(!editor.undoKeyPressed(juce::KeyPress('z')) && !editor.undoKeyPressed(juce::KeyPress('y', juce::ModifierKeys::commandModifier, 0))
+                      && normalisedState(*p) == after, "other keys are not taken");
+            check(editor.undoKeyPressed(undoKey) && normalisedState(*p) == before, "Cmd+Z takes the load back");
+            check(editor.undoKeyPressed(redoKey) && normalisedState(*p) == after, "Shift+Cmd+Z loads it again");
+            // Without the keyboard focus on the preset bar (nothing has it here) the editor leaves the key alone.
+            check(!editor.keyPressed(undoKey) && normalisedState(*p) == after, "the key is only taken while the preset bar has the focus");
+        }
+
+        // 8. The hint: up after 1.5 s of silence in a new instance, gone for good with the first sound.
+        {
+            const double sr = 48000.0;
+            auto p = makeProcessor(sr, 512);
+            {
+                std::unique_ptr<juce::AudioProcessorEditor> editorBase(p->createEditor());
+                auto& view = RoarschachEditorInspector::monster(*dynamic_cast<Editor*>(editorBase.get()));
+                view.refreshOverlay(0.5f);
+                check(!view.isHintShowing(), "no hint in the first moments");
+                view.refreshOverlay(1.2f);
+                check(view.isHintShowing(), "the hint shows once the creature has slept through 1.5 s of silence");
+
+                Stereo silence;
+                silence.l.assign(4096, 0.0f);
+                silence.r = silence.l;
+                render(*p, silence, 512);
+                view.refreshOverlay(0.1f);
+                check(view.isHintShowing(), "silence through the plug-in keeps the hint");
+
+                Stereo voice;
+                voice.l = makeVoice(sr, 0.5);
+                voice.r = voice.l;
+                render(*p, voice, 512);
+                view.refreshOverlay(0.1f);
+                check(!view.isHintShowing(), "the first sound takes the hint away");
+                render(*p, silence, 512);
+                render(*p, silence, 512);
+                view.refreshOverlay(30.0f);
+                check(!view.isHintShowing(), "it stays away when the sound stops");
+            }
+            std::unique_ptr<juce::AudioProcessorEditor> again(p->createEditor());
+            auto& view = RoarschachEditorInspector::monster(*dynamic_cast<Editor*>(again.get()));
+            view.refreshOverlay(30.0f);
+            check(!view.isHintShowing(), "and when the editor is opened again");
+
+            // The same through a saved session.
+            juce::MemoryBlock state;
+            p->getStateInformation(state);
+            auto q = makeProcessor(sr, 512);
+            q->setStateInformation(state.getData(), static_cast<int>(state.getSize()));
+            std::unique_ptr<juce::AudioProcessorEditor> recalled(q->createEditor());
+            auto& recalledView = RoarschachEditorInspector::monster(*dynamic_cast<Editor*>(recalled.get()));
+            recalledView.refreshOverlay(30.0f);
+            check(!recalledView.isHintShowing(), "and in the session when it is opened again");
+        }
+
+        // 9. The quick start (five short lines) and the latency note, which states what the processor reports.
+        {
+            const auto forbidden = forbiddenWords();
+            const auto lines = AboutWindow::quickStartLines();
+            int bad = 0, longLines = 0;
+            for (const auto& line : lines)
+            {
+                longLines += line.length() > 110 ? 1 : 0;
+                for (const auto& w : forbidden)
+                    bad += line.contains(w) ? 1 : 0;
+            }
+            check(lines.size() == 5 && longLines == 0, "the quick start is five short lines");
+            check(bad == 0, "the quick start names nothing it must not");
+
+            int wrong = 0;
+            for (const double sr : c_rates)
+            {
+                auto p = makeProcessor(sr, 512);
+                const int latency = p->getLatencySamples();
+                const auto note = Editor::latencyNote(latency, p->getSampleRate());
+                const auto ms = juce::String(1000.0 * latency / sr, 1) + " ms";
+                const bool ok = latency > 0 && note.startsWith(ms) && note.contains(juce::String(latency) + " samples")
+                             && AboutWindow::latencyLine(note).contains(note);
+                wrong += ok ? 0 : 1;
+                std::printf("  latency note at %.0f Hz: %s\n", sr, note.toRawUTF8());
+            }
+            check(wrong == 0, "the latency note states the latency the processor reports, in ms and samples");
+            check(Editor::latencyNote(0, 48000.0).isEmpty() && Editor::latencyNote(2192, 0.0).isEmpty(), "no figure before the host has prepared the plug-in");
+            check(AboutWindow::latencyLine({}).isNotEmpty() && !AboutWindow::latencyLine({}).containsAnyOf("0123456789"), "and then the line gives no number");
+
+            // The About window's content lays out inside its window.
+            auto p = makeProcessor(48000.0, 512);
+            std::unique_ptr<juce::AudioProcessorEditor> editorBase(p->createEditor());
+            auto& look = dynamic_cast<RoarschachLookAndFeel&>(RoarschachEditorInspector::lookAndFeel(*dynamic_cast<Editor*>(editorBase.get())));
+            auto about = AboutWindow::createContent(look, Editor::latencyNote(p->getLatencySamples(), p->getSampleRate()));
+            int outside = 0, children = 0, smallLicence = 0;
+            for (auto* c : about->getChildren())
+            {
+                ++children;
+                outside += about->getLocalBounds().contains(c->getBounds()) ? 0 : 1;
+                if (dynamic_cast<juce::TextEditor*>(c) != nullptr)
+                    smallLicence += c->getHeight() < 120 ? 1 : 0;
+            }
+            check(children >= 5 && outside == 0 && smallLicence == 0, "the About window's parts fit inside it with the quick start added");
+            about.reset();
+        }
+
+        // 10. Knobs the current settings do not use are dimmed and still turn; each "not used" case is
+        //     an exact null in the audio, and the knob is lit again when it is.
+        {
+            const double sr = 48000.0;
+            auto p = makeProcessor(sr, 512);
+            std::unique_ptr<juce::AudioProcessorEditor> editorBase(p->createEditor());
+            auto& editor = *dynamic_cast<Editor*>(editorBase.get());
+            auto& strip = RoarschachEditorInspector::strip(editor);
+
+            const auto knobFor = [&](const char* id) -> juce::Slider*
+            {
+                std::vector<juce::Component*> tiles { strip.getInTile(), strip.getOutputTile() };
+                for (int m = 0; m < Params::numModules; ++m)
+                    tiles.push_back(strip.getModuleTile(m));
+                for (auto* tile : tiles)
+                    for (const auto& [slider, knobId] : strip.getKnobs(tile))
+                        if (std::string_view(knobId) == id)
+                            return slider;
+                return nullptr;
+            };
+            const auto alphaOf = [&](const char* id)
+            {
+                strip.refresh();
+                auto* knob = knobFor(id);
+                return knob != nullptr && knob->isEnabled() ? knob->getAlpha() : -1.0f;
+            };
+            const auto is = [](float alpha, float want) { return std::abs(alpha - want) < 0.01f; };
+            const float lit = 1.0f, weak = 0.7f, unused = 0.45f;
+
+            // Every module On, so only the knob's own state dims it.
+            const auto allOn = [](RoarschachAudioProcessor& processor)
+            {
+                for (const auto& m : Params::modules)
+                    setParam(processor, m.onId, 1.0f);
+            };
+            allOn(*p);
+
+            struct Case { const char* knob; const char* condition; float deadValue, liveValue; const char* what; };
+            const Case cases[] {
+                { Params::outClipShape, Params::outClip, 0.0f, 6.0f, "OUTPUT Shape at Clip 0" },
+                { Params::growlRate, Params::growl, 0.0f, 25.0f, "GROWL Rate at Depth 0" },
+                { Params::growlRate, Params::growlShape, static_cast<float>(Params::GrowlShape::throat), 0.0f, "GROWL Rate with Throat" },
+                { Params::shimmerRate, Params::shimmer, 0.0f, 18.0f, "SHIMMER Rate at Amount 0" },
+                { Params::swirlRate, Params::swirl, 0.0f, 21.0f, "SWIRL Rate at Amount 0" },
+                { Params::ensembleWidth, Params::ensemble, 0.0f, 10.0f, "ENSEMBLE Width at Amount 0" },
+                { Params::ringFreq, Params::ring, 0.0f, 40.0f, "RING Freq at Amount 0" },
+                { Params::subDrive, Params::sub, 0.0f, 49.0f, "SUB Drive at Level 0" },
+                { Params::overtoneFreq, Params::overtone, 0.0f, 4.0f, "OVERTONE Freq at Amount 0" },
+                { Params::chamberResonance, Params::chamber, 0.0f, 50.0f, "CHAMBER Reson at Amount 0" },
+                { Params::chamberDrive, Params::chamber, 0.0f, 80.0f, "CHAMBER Edge at Amount 0" },
+            };
+
+            Stereo voice;
+            voice.l = makeVoice(sr, g_quick ? 0.8 : 1.5);
+            voice.r = voice.l;
+            // (a new processor per render: nothing is left fading from the settings before)
+            const auto renderAt = [&](const char* condition, float conditionValue, const char* id, float normalised)
+            {
+                auto q = makeProcessor(sr, 512);
+                allOn(*q);
+                setParam(*q, condition, conditionValue);
+                q->getValueTreeState().getParameter(id)->setValueNotifyingHost(normalised);
+                restart(*q, sr, 512);
+                return render(*q, voice, 512);
+            };
+            const auto differ = [](const Stereo& a, const Stereo& b)
+            {
+                double worst = 0.0;
+                for (size_t i = 0; i < a.l.size(); ++i)
+                    worst = std::max({ worst, static_cast<double>(std::abs(a.l[i] - b.l[i])), static_cast<double>(std::abs(a.r[i] - b.r[i])) });
+                return worst;
+            };
+
+            int wrongDim = 0, notNull = 0, notLive = 0;
+            for (const auto& c : cases)
+            {
+                setParam(*p, c.condition, c.deadValue);
+                const bool dimmed = is(alphaOf(c.knob), unused);
+                const double deadDiff = differ(renderAt(c.condition, c.deadValue, c.knob, 0.0f), renderAt(c.condition, c.deadValue, c.knob, 1.0f));
+                setParam(*p, c.condition, c.liveValue);
+                const bool relit = is(alphaOf(c.knob), lit);
+                const double liveDiff = differ(renderAt(c.condition, c.liveValue, c.knob, 0.0f), renderAt(c.condition, c.liveValue, c.knob, 1.0f));
+                wrongDim += dimmed && relit ? 0 : 1;
+                notNull += deadDiff == 0.0 ? 0 : 1;
+                notLive += liveDiff > 1.0e-4 ? 0 : 1;
+                if (!(dimmed && relit) || deadDiff != 0.0 || liveDiff <= 1.0e-4)
+                    std::printf("    %s: dimmed %d, lit again %d, difference %.2e dimmed and %.2e lit\n", c.what, dimmed, relit, deadDiff, liveDiff);
+            }
+            check(wrongDim == 0, juce::String(wrongDim) + " unused knobs not dimmed, or not lit again when used");
+            check(notNull == 0, juce::String(notNull) + " dimmed knobs still change the sound");
+            check(notLive == 0, juce::String(notLive) + " lit knobs do not change the sound");
+
+            // The two half-dimmed knobs do a little, not nothing: CHAMBER Edge under 60 % Amount, and
+            // OUTPUT Attack while Auto is on.
+            setParam(*p, Params::chamber, 50.0f);
+            check(is(alphaOf(Params::chamberDrive), weak), "CHAMBER Edge is half-dimmed at Amount 50");
+            setParam(*p, Params::chamber, 60.0f);
+            check(is(alphaOf(Params::chamberDrive), lit), "CHAMBER Edge is lit from Amount 60");
+            setParam(*p, Params::outAuto, 1.0f);
+            check(is(alphaOf(Params::outAttack), weak), "OUTPUT Attack is half-dimmed with Auto on");
+            setParam(*p, Params::outAuto, 0.0f);
+            check(is(alphaOf(Params::outAttack), lit), "OUTPUT Attack is lit with Auto off");
+            setParam(*p, Params::outAuto, 1.0f);
+
+            // CHAMBER Width stays lit at Amount 0: it still decides where the chain turns stereo.
+            setParam(*p, Params::chamber, 0.0f);
+            check(is(alphaOf(Params::chamberWidth), lit), "CHAMBER Width stays lit at Amount 0");
+            setParam(*p, Params::chamber, 50.0f);
+
+            // A dimmed knob on an Off tile is no dimmer than the tile, and every knob still takes a value.
+            setParam(*p, Params::growl, 0.0f);
+            setParam(*p, Params::growlOn, 0.0f);
+            check(is(alphaOf(Params::growlRate), unused) && is(alphaOf(Params::growl), unused), "an Off tile dims all its knobs alike");
+            setParam(*p, Params::growlOn, 1.0f);
+            auto* rate = knobFor(Params::growlRate);
+            rate->setValue(40.0, juce::sendNotificationSync);
+            check(std::abs(getParam(*p, Params::growlRate) - 40.0f) < 0.5f, "a dimmed knob still turns");
+
+            // Dimming a knob and its caption together.
+            int captionsApart = 0;
+            for (auto* c : strip.getOutputTile()->getChildren())
+                if (auto* label = dynamic_cast<juce::Label*>(c); label != nullptr && label->getText() == "SHAPE")
+                    captionsApart += is(label->getAlpha(), alphaOf(Params::outClipShape)) ? 0 : 1;
+            check(captionsApart == 0, "a dimmed knob's caption dims with it");
+        }
+
+        writeUiShots();
+    }
+
+    //==========================================================================
     // Snapshot harness: the editor on screen (so the creature's OpenGL view renders), fed with the
     // reference voice, then pictures of the whole editor, the strip, menus, a tooltip and a drag.
 
@@ -7330,6 +7828,7 @@ int main(int argc, char* argv[])
         { "chamber", testChamber },
         { "chamberclip", testChamberClip },
         { "editor", testEditor },
+        { "ui", testUi },
         { "dice", testDice },
         { "creature", testCreature },
         { "logo", testLogoSdf },
