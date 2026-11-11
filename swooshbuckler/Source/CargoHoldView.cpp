@@ -179,7 +179,7 @@ public:
         const int lane = CargoHold::c_numBuiltIns + track;
         m_mute.onClick = [this, lane] { m_owner.m_hold.setMute(lane, ! m_owner.m_hold.getMute(lane)); };
         m_solo.onClick = [this, lane] { m_owner.m_hold.setSolo(lane, ! m_owner.m_hold.getSolo(lane)); };
-        m_remove.onClick = [this] { m_owner.m_hold.clear(m_track); m_owner.status("Overboard! Cmd+Z fishes it back out."); };
+        m_remove.onClick = [this] { m_owner.m_hold.clear(m_track); m_owner.status("Removed. Cmd+Z brings it back."); };
 
         m_skip.setClickingTogglesState(true);
         m_skip.setColour(juce::TextButton::buttonOnColourId, colour);
@@ -1029,38 +1029,17 @@ void CargoHoldView::chooseFiles()
 
 juce::String CargoHoldView::loadFiles(const juce::StringArray& files, int track)
 {
-    juce::StringArray names;
-    juce::String lastError;
-    int next = track;
-    for (const auto& path : files)
+    // Every file is accounted for in the status line: added, no track left for it, couldn't be read, or cut short.
+    const auto report = m_hold.loadFiles(files, track);
+    for (const int target : report.tracks)
     {
-        if (! isAudioFile(path))
-            continue;
-        const int target = next >= 0 ? next : m_hold.firstEmptyTrack();
-        if (target < 0 || target >= CargoHold::c_numTracks)
-        {
-            lastError = "The hold is full (" + juce::String(CargoHold::c_numTracks) + " tracks). Throw one overboard first.";
-            break;
-        }
-        juce::String error;
-        if (m_hold.loadFile(target, juce::File(path), error))
-        {
-            m_lanes[static_cast<size_t>(target)]->select(0, 0);
-            m_active = target;
-            names.add(m_hold.getDisplayName(target));
-            next = (next >= 0) ? -1 : -1; // after the first explicit target, fill empty tracks
-        }
-        else
-        {
-            lastError = error;
-        }
+        m_lanes[static_cast<size_t>(target)]->select(0, 0);
+        m_active = target;
     }
 
-    juce::String text;
-    if (! names.isEmpty())
-        text = "Stowed " + names.joinIntoString(", ");
-    else if (lastError.isNotEmpty())
-        text = "!" + lastError;
+    juce::String text = report.summary();
+    if (text.isNotEmpty() && report.hasProblems())
+        text = "!" + text;
     if (text.isNotEmpty())
         status(text);
     resized();

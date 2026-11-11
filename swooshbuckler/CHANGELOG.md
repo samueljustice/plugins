@@ -1,5 +1,14 @@
 # Swooshbuckler changelog
 
+## Unreleased
+
+- **Cleaner pitched-up samples.** A track playing faster than it was recorded (Pitch or Semitones up, or a 96 kHz file in a 48 kHz session) no longer folds its high end back down as harsh, off-pitch tones: what would go above the top of the range is filtered out. Bright, hissy sounds pitched far up are quieter than they were, because that fold-back was most of their level. A sound playing at its own speed is sample-for-sample the file, and slightly brighter than before when it plays a little off speed.
+- **Start flags are saved.** A track's start flag now comes back with the session and with the plug-in's state in a project. Loading a new file onto a track, or removing the track, puts the flag back at the top, and Cmd+Z (Ctrl+Z on Windows) brings it back along with the sound.
+- **Auto gain respects peaks.** The automatic loudness trim no longer lifts peaky sounds (hits, clicks) over full scale: it stops when the loudest peak reaches 0 dBFS. Such tracks come in quieter than before; steadier sounds are levelled as they were.
+- **Every added file is accounted for.** The status line says how many files went in, how many didn't fit ("2 didn't fit (ten tracks at most)") and which couldn't be read, and tells you when only the first 10 minutes of a long file were loaded ("Loaded the first 10:00 of 23:41"). Status messages use plain words throughout ("Added", "Removed").
+- **Pasting between sample rates is clean.** Copying from a file at one sample rate and pasting into a track at another converts the audio with the same filtered resampler the tracks play through.
+- **Safer sample swaps.** Sample data that has been replaced is kept until playback has really let go of it, even if the audio engine is paused or bypassed at that moment.
+
 ## 1.4.2
 
 - **New-version notice.** Swooshbuckler tells you when a new version is out: when you open it and a newer release has been published, a small window offers Download (the release page), Later or Skip this version. It checks in the background at most once a day, and says nothing when you're offline. The sound, the parameters and saved sessions are unchanged from 1.4.1.

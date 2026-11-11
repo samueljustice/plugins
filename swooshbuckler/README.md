@@ -114,8 +114,10 @@ This is where your sounds live: up to ten files, each on its own looping lane.
 - Drag audio files onto the drop zone, or anywhere in the window, or click the drop zone to browse. You can pick several files at once.
 - Each file takes the next empty track. Drop a file onto a lane that already has a sound to replace it.
 - Swooshbuckler reads WAV, AIFF, FLAC, OGG and MP3, and on macOS also CAF and M4A.
-- Files are folded to mono and play at their own sample rate. Only the first 10 minutes of a file are loaded.
-- Each track gets an automatic loudness trim, so quiet and loud files sit at similar levels before the fader.
+- Files are folded to mono and play at their own sample rate. Only the first 10 minutes of a file are loaded; when a longer file is cut, the status line says so ("Loaded the first 10:00 of 23:41").
+- The status line accounts for every file you add: how many went in, how many didn't fit (ten tracks at most), and any that couldn't be read.
+- Each track gets an automatic loudness trim, so quiet and loud files sit at similar levels before the fader. A peaky sound, such as a hit or a click, is only lifted until its peak reaches full scale, never past it.
+- Sounds stay clean when they play faster than they were recorded: pitched up (by Pitch or a track's Semitones), or a 96 kHz file in a 48 kHz session. Anything pushed above the top of the audible range is filtered out instead of folding back down as harsh, off-pitch tones. A sound playing at its own speed is untouched.
 - When you load a file, Swooshbuckler finds the separate sounds in it, keeping their natural tails, and guesses what type of sound it is. The guess uses the audio and words in the file name: "hit", "boom" and "slam" suggest an Impact, "wind", "drone" and "rain" an Energy Bed, "whoosh", "cloth" and "sword" Air / Swish, and so on. Naming your files well gets better guesses.
 
 **A track lane**
@@ -132,7 +134,7 @@ This is where your sounds live: up to ten files, each on its own looping lane.
 | **Semitones / Cents** | The track's own pitch: up to 24 semitones either way, plus up to 100 cents for fine tuning. It adds to the Ride's Pitch knob and glides to a new setting. **Drag up or down** on a box to change it, and **double-click** to reset. Each one is also a host parameter ("Track 1 Semitones", "Track 1 Cents" and so on). Drag a MOD jack onto the Semitones box to modulate the track's pitch; its plugs sit in a row under the box. |
 | **VARI** | On (the default): varispeed, like tape. The pitch and the speed change together, so up an octave also plays twice as fast. Off: the pitch changes and the speed stays the same, through a pitch shifter, which delays that track by about 43 ms. Synced hits allow for both. |
 | **M / S / x** | Mute, solo and remove. A muted track keeps its place in the ride, so it comes straight back in when you unmute it. |
-| **Waveform** | The yellow **flag** marks where the track starts playing. It loops from there, and the part before the flag is dimmed. **Click or drag** on the waveform to move it, and **double-click** to put it back at the top. |
+| **Waveform** | The yellow **flag** marks where the track starts playing. It loops from there, and the part before the flag is dimmed. **Click or drag** on the waveform to move it, and **double-click** to put it back at the top. The flag is saved with the session; loading a new sound onto the track puts it back at the top. |
 | **Ride line** | The line across the waveform traces the track's actual level over the last 8 seconds, like an automation lane scrolling past, with a dot at the right for right now. The thin strip left of the waveform shows the level now. Both include the fader, the ride, and mute and solo. |
 | **Playheads** | Thin white lines show where in the file the track is playing (two while it crossfades from one sound to the next). |
 | Top left of the waveform | The file length and how many sounds were found in it. |

@@ -64,10 +64,24 @@ struct CargoData
     float roleConfidence = 0.0f;    // 0..1
     juce::String autoLabel;         // e.g. "Pig Squeal" (from file name / features); empty = use name
 
+    /** Length of the file this was loaded from, in seconds, when only its beginning fitted (0 = all of it is here).
+        Set by loadFile only; an edit makes new data without it. Not saved with the session. */
+    double sourceSeconds = 0.0;
+
+    /**
+     * Band-limited octave copies for playing faster than the source (pitch up, or a 96 kHz file in a 48 kHz
+     * session): mips[k] is the audio low-passed and decimated by 2^(k+1), sample n sitting at source sample
+     * n * 2^(k+1). Built by analyse() on the message thread, never saved (the session stores `audio` only).
+     * Empty for data that was never analysed; the player then reads `audio` for every speed.
+     */
+    static constexpr int c_numMips = 4;
+    std::array<std::vector<float>, c_numMips> mips;
+
     int length() const { return audio.getNumSamples(); }
 
-    /** Fills regions and autoGain from the audio. */
+    /** Fills regions, autoGain and the octave copies from the audio. */
     void analyse();
+    void buildMips();
     static std::vector<CargoRegion> detectRegions(const float* data, int numSamples, double sampleRate);
 };
 
@@ -92,6 +106,10 @@ public:
      * never resume on freed data.
      */
     void markInUse(int track, const CargoData* current, const CargoData* pending);
+
+    /** Message thread: frees retired data that is at least minAgeMs old and that no player marks any more (the
+        timer calls this). Returns how many retired entries are still kept. */
+    int purgeRetired(juce::uint32 minAgeMs);
 
     // Mixer state for every lane on the timeline (lane 0..5 built-ins, 6..11 sample tracks).
     // Safe from any thread. laneGain() = 0 when muted, or when any lane is soloed and this one isn't.
@@ -133,6 +151,32 @@ public:
 
     bool loadFile(int track, const juce::File& file, juce::String& error);
 
+    /** The longest file that is loaded whole; a longer one keeps its beginning (see CargoData::sourceSeconds). */
+    static constexpr double c_maxLoadSeconds = 600.0;
+
+    /** "Loaded the first 10:00 of 23:41" when only the beginning of the track's file fitted, else empty. */
+    juce::String getLoadNote(int track) const;
+
+    /** What a batch load did, for the status line. */
+    struct LoadReport
+    {
+        std::vector<int> tracks;        // the tracks that were filled, in order
+        juce::StringArray names;        // their display names
+        juce::StringArray failed;       // file names that could not be loaded
+        juce::StringArray reasons;      // why, parallel to `failed` (a full sentence each)
+        juce::StringArray notes;        // one per file that was cut short ("Loaded the first 10:00 of 23:41")
+        int noRoom = 0;                 // files left out because every track is in use
+
+        bool hasProblems() const { return noRoom > 0 || ! failed.isEmpty(); }
+        /** One plain line: "Added 10. 2 didn't fit (ten tracks at most)." / "Couldn't read x.mp4 ..." /
+            "Loaded the first 10:00 of 23:41". Empty when nothing happened. */
+        juce::String summary() const;
+    };
+
+    /** Loads files into `firstTrack` (replacing it; -1 = none) and then into the empty tracks, one file each.
+        Files that fail, and files there is no track left for, are collected in the report, never dropped. */
+    LoadReport loadFiles(const juce::StringArray& paths, int firstTrack = -1);
+
     /** Any channel layout (mono .. 7.1.4) to the mono carrier: BS.775 stereo downmix, gain safe, phase safe. */
     static juce::AudioBuffer<float> foldToMono(const juce::AudioBuffer<float>& multi, const juce::AudioChannelSet& layout);
     void clear(int track);
@@ -170,12 +214,13 @@ public:
     void fromValueTree(const juce::ValueTree& tree);
 
 private:
-    /** Name / role saved with undo entries of actions that reset them (load, clear). */
+    /** Name / role / start marker saved with undo entries of actions that reset them (load, clear). */
     struct Meta
     {
         bool valid = false;
         int roleOverride = -1;
         juce::String userName;
+        float start = 0.0f;
     };
 
     struct Track
@@ -301,7 +346,32 @@ private:
     };
 
     void startHead(Head& h, const CargoData& d, bool skipSilence, float chaos, sj::Random& rng, bool first, bool advance);
-    static float readCubic(const float* data, int length, double pos);
+
+    /**
+     * Band-limited read. A voice (the loop, each one-shot) keeps a MipState: the octave copy it reads from follows
+     * its speed, and when that changes the old and new copies are crossfaded over the start of the chunk.
+     */
+    struct MipState
+    {
+        int level = -1;   // -1 = not chosen yet
+    };
+    struct MipRead
+    {
+        int level = 0, from = 0;   // this chunk's level, and the level being faded out (== level when steady)
+        int fade = 0;              // samples of crossfade at the start of the chunk
+        double inc = 1.0;          // source samples (level 0) per output sample
+    };
+    static MipRead beginRead(MipState& state, const CargoData& d, double inc, int frames);
+    static float readAt(const CargoData& d, const MipRead& r, double pos, int sampleInChunk);
+
+public:
+    /** One band-limited sample of `d` at source position `pos`, for a read speed of `inc` source samples per
+        output sample, from octave copy `level` (0 = the audio itself). Any thread. */
+    static float readBandLimited(const CargoData& d, int level, double pos, double inc);
+    /** The octave copy a steady read at this speed uses. */
+    static int levelFor(const CargoData& d, double inc);
+
+private:
     CargoRegion regionFor(const CargoData& d, bool skipSilence, int index) const;
     int numRegions(const CargoData& d, bool skipSilence) const;
 
@@ -330,6 +400,7 @@ private:
         bool fadingOut = false;
         int age = 0;             // cue counter when started (oldest is stolen first)
         float tail = 1.0f;       // output samples of the fade to silence before the region end
+        MipState mip;            // which octave copy it reads
     };
     static constexpr int c_numShots = 4;
 
@@ -348,5 +419,6 @@ private:
     float m_loopLevel = 0.0f;   // crossfade between the loop and one-shot behaviours when the role changes
     int m_jumpLeft = 0;         // Crackle: samples until the next random jump
     int m_lastSkip = -1;        // skipSilence seen last block (-1 = unknown): a change re-seats the loop heads
+    MipState m_loopMip;         // which octave copy the loop heads read
     void reseatHeads(const CargoData& d, bool skipSilence); //
 };

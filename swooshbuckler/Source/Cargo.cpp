@@ -3,7 +3,6 @@
 
 namespace
 {
-    constexpr double c_maxLoadSeconds = 600.0;
     constexpr int c_maxUndo = 40;
     constexpr juce::uint32 c_graveyardMs = 2500;
     constexpr float c_targetRms = 0.22f;
@@ -31,7 +30,110 @@ namespace
         d.autoLabel = a.label;
     }
 
-    /** Linear resample of a mono buffer (message thread). */
+    //==========================================================================
+    // Band-limited reading. One Kaiser-windowed sinc, eight zero crossings a side, tabulated finely and read with
+    // linear interpolation. Played at the source's own speed or slower it is a plain 16-point interpolator (and
+    // returns the sample itself on a whole position, so unpitched playback is bit-exact). Played faster, the
+    // same curve is stretched in time by the speed, which lowers its cutoff to the new Nyquist: what would fold
+    // back is filtered out instead. The octave copies (CargoData::mips) keep that stretch under about 2.5, so
+    // the cost per sample stays bounded however far the pitch goes.
+    constexpr int c_sincZeros = 8;
+    constexpr int c_sincRes = 256;
+    constexpr int c_sincSize = c_sincZeros * c_sincRes;
+    // The stretched filter's -6 dB point sits at this fraction of the output Nyquist, so its stopband (about
+    // 70 dB down) starts just above Nyquist and what little folds lands above 21 kHz.
+    constexpr double c_sincGuard = 0.87;
+    constexpr double c_maxStretch = 8.0;
+
+    double besselI0(double x)
+    {
+        double sum = 1.0, term = 1.0;
+        for (int k = 1; k < 40; ++k)
+        {
+            term *= (x / (2.0 * k)) * (x / (2.0 * k));
+            sum += term;
+        }
+        return sum;
+    }
+
+    struct SincTable
+    {
+        std::array<float, static_cast<size_t>(c_sincSize + 2)> v {};
+        SincTable()
+        {
+            const double beta = 6.76; // about 70 dB
+            const double norm = besselI0(beta);
+            for (int n = 0; n <= c_sincSize; ++n)
+            {
+                const double x = static_cast<double>(n) / c_sincRes;
+                const double px = juce::MathConstants<double>::pi * x;
+                const double sinc = n == 0 ? 1.0 : std::sin(px) / px;
+                const double r = x / c_sincZeros;
+                const double window = besselI0(beta * std::sqrt(juce::jmax(0.0, 1.0 - r * r))) / norm;
+                // Exactly zero on the other whole samples: a read on a whole position returns that sample.
+                v[static_cast<size_t>(n)] = (n > 0 && n % c_sincRes == 0) ? 0.0f : static_cast<float>(sinc * window);
+            }
+            v[static_cast<size_t>(c_sincSize)] = 0.0f;
+            v[static_cast<size_t>(c_sincSize + 1)] = 0.0f;
+        }
+    };
+    const SincTable g_sinc; // built when the library loads, never on the audio thread
+
+    /** How far the kernel is stretched for a read speed of `inc` samples of this buffer per output sample. */
+    double stretchFor(double inc)
+    {
+        if (inc <= 1.0)
+            return 1.0;
+        // Ease the guard band in over the first 15% so the filter never steps as the speed passes 1.
+        const double guard = 1.0 + (1.0 / c_sincGuard - 1.0) * juce::jmin(1.0, (inc - 1.0) / 0.15);
+        return juce::jmin(c_maxStretch, inc * guard);
+    }
+
+    /** One sample of data at pos through the sinc stretched by `stretch` (>= 1). Edges repeat the end samples. */
+    float sincRead(const float* data, int length, double pos, double stretch)
+    {
+        const double whole = std::floor(pos);
+        const int i = static_cast<int>(whole);
+        const double frac = pos - whole;
+        if (stretch <= 1.0 && frac == 0.0)
+            return data[juce::jlimit(0, length - 1, i)];
+
+        const double s = juce::jmax(1.0, stretch);
+        const double half = c_sincZeros * s;
+        const int lo = static_cast<int>(std::ceil(frac - half));
+        const int hi = static_cast<int>(std::floor(frac + half));
+        const float step = static_cast<float>(c_sincRes / s);
+        const float origin = static_cast<float>(frac * c_sincRes / s);
+        const float* table = g_sinc.v.data();
+
+        float sum = 0.0f, weight = 0.0f;
+        if (i + lo >= 0 && i + hi < length)
+        {
+            const float* p = data + i;
+            for (int j = lo; j <= hi; ++j)
+            {
+                const float a = std::abs(static_cast<float>(j) * step - origin);
+                const int n = juce::jmin(c_sincSize, static_cast<int>(a));
+                const float w = table[n] + (a - static_cast<float>(n)) * (table[n + 1] - table[n]);
+                sum += w * p[j];
+                weight += w;
+            }
+        }
+        else
+        {
+            for (int j = lo; j <= hi; ++j)
+            {
+                const float a = std::abs(static_cast<float>(j) * step - origin);
+                const int n = juce::jmin(c_sincSize, static_cast<int>(a));
+                const float w = table[n] + (a - static_cast<float>(n)) * (table[n + 1] - table[n]);
+                sum += w * data[juce::jlimit(0, length - 1, i + j)];
+                weight += w;
+            }
+        }
+        return weight > 1.0e-6f ? sum / weight : 0.0f;
+    }
+
+    /** Band-limited resample of a mono buffer (message thread): the same kernel the players read with. */
     juce::AudioBuffer<float> resampled(const juce::AudioBuffer<float>& in, double fromRate, double toRate)
     {
         if (fromRate <= 0.0 || toRate <= 0.0 || std::abs(fromRate - toRate) < 0.5 || in.getNumSamples() < 2)
@@ -41,15 +143,76 @@ namespace
         juce::AudioBuffer<float> out(1, outLen);
         const float* src = in.getReadPointer(0);
         float* dst = out.getWritePointer(0);
-        const int last = in.getNumSamples() - 1;
+        // Offline, so the kernel may be as long as the ratio asks for (no octave copies needed).
+        const double stretch = ratio > 1.0 ? ratio / c_sincGuard : 1.0;
         for (int i = 0; i < outLen; ++i)
+            dst[i] = sincRead(src, in.getNumSamples(), i * ratio, stretch);
+        return out;
+    }
+
+    /** The low-pass in front of each halving: flat to 0.197 of the rate, 80 dB down from a quarter of it (the new
+        Nyquist), so nothing folds into the copy. 95 taps, Kaiser. */
+    constexpr int c_mipTaps = 95;
+    const std::array<float, c_mipTaps>& mipKernel()
+    {
+        static const std::array<float, c_mipTaps> kernel = []
         {
-            const double pos = i * ratio;
-            const int k = juce::jmin(last, static_cast<int>(pos));
-            const float t = static_cast<float>(pos - k);
-            dst[i] = src[k] + t * (src[juce::jmin(last, k + 1)] - src[k]);
+            std::array<float, c_mipTaps> h {};
+            const double beta = 7.857, norm = besselI0(beta), fc = 0.2236;
+            const int mid = c_mipTaps / 2;
+            double sum = 0.0;
+            std::array<double, c_mipTaps> d {};
+            for (int k = 0; k < c_mipTaps; ++k)
+            {
+                const double x = k - mid;
+                const double px = juce::MathConstants<double>::twoPi * fc * x;
+                const double sinc = k == mid ? 2.0 * fc : std::sin(px) / (juce::MathConstants<double>::pi * x);
+                const double r = x / (mid + 1);
+                d[static_cast<size_t>(k)] = sinc * besselI0(beta * std::sqrt(juce::jmax(0.0, 1.0 - r * r))) / norm;
+                sum += d[static_cast<size_t>(k)];
+            }
+            for (int k = 0; k < c_mipTaps; ++k)
+                h[static_cast<size_t>(k)] = static_cast<float>(d[static_cast<size_t>(k)] / sum);
+            return h;
+        }();
+        return kernel;
+    }
+
+    /** src low-passed and decimated by two (out[m] sits at src[2m]); the ends repeat the edge samples. */
+    std::vector<float> halved(const float* src, int length)
+    {
+        const auto& h = mipKernel();
+        const int mid = c_mipTaps / 2;
+        std::vector<float> padded(static_cast<size_t>(length + 2 * mid + 1));
+        std::fill(padded.begin(), padded.begin() + mid, src[0]);
+        std::copy(src, src + length, padded.begin() + mid);
+        std::fill(padded.begin() + mid + length, padded.end(), src[length - 1]);
+
+        const int outLength = (length + 1) / 2;
+        std::vector<float> out(static_cast<size_t>(outLength));
+        for (int m = 0; m < outLength; ++m)
+        {
+            const float* p = padded.data() + 2 * m; // p[mid] is src[2m]
+            float a0 = 0.0f, a1 = 0.0f, a2 = 0.0f, a3 = 0.0f;
+            int k = 0;
+            for (; k + 4 <= c_mipTaps; k += 4)
+            {
+                a0 += h[static_cast<size_t>(k)] * p[k];
+                a1 += h[static_cast<size_t>(k + 1)] * p[k + 1];
+                a2 += h[static_cast<size_t>(k + 2)] * p[k + 2];
+                a3 += h[static_cast<size_t>(k + 3)] * p[k + 3];
+            }
+            for (; k < c_mipTaps; ++k)
+                a0 += h[static_cast<size_t>(k)] * p[k];
+            out[static_cast<size_t>(m)] = (a0 + a1) + (a2 + a3);
         }
         return out;
+    }
+
+    juce::String clockTime(double seconds)
+    {
+        const int total = juce::jmax(0, static_cast<int>(seconds));
+        return juce::String(total / 60) + ":" + juce::String(total % 60).paddedLeft('0', 2);
     }
 }
 
@@ -151,14 +314,40 @@ void CargoData::analyse()
 
     double sum = 0.0;
     std::int64_t count = 0;
+    float peak = 0.0f;
     for (const auto& r : regions)
     {
         for (int i = r.start; i < r.end; ++i)
+        {
             sum += static_cast<double>(data[i]) * data[i];
+            peak = juce::jmax(peak, std::abs(data[i]));
+        }
         count += r.end - r.start;
     }
     const float rms = count > 0 ? static_cast<float>(std::sqrt(sum / static_cast<double>(count))) : 0.0f;
-    autoGain = rms > 1.0e-6f ? juce::jlimit(0.1f, 16.0f, c_targetRms / rms) : 1.0f;
+    // Level every track to the same RMS, but never lift a peaky sound (a hit, a click) over full scale.
+    float gain = rms > 1.0e-6f ? c_targetRms / rms : 1.0f;
+    if (peak > 1.0e-6f)
+        gain = juce::jmin(gain, 1.0f / peak);
+    autoGain = rms > 1.0e-6f ? juce::jlimit(0.1f, 16.0f, gain) : 1.0f;
+
+    buildMips();
+}
+
+void CargoData::buildMips()
+{
+    for (auto& m : mips)
+        m.clear();
+    const float* src = audio.getNumSamples() > 0 ? audio.getReadPointer(0) : nullptr;
+    int length = audio.getNumSamples();
+    for (auto& m : mips)
+    {
+        if (src == nullptr || length < 2)
+            break;
+        m = halved(src, length);
+        src = m.data();
+        length = static_cast<int>(m.size());
+    }
 }
 
 //==============================================================================
@@ -183,12 +372,18 @@ CargoHold::~CargoHold()
 
 void CargoHold::timerCallback()
 {
+    purgeRetired(c_graveyardMs);
+}
+
+int CargoHold::purgeRetired(juce::uint32 minAgeMs)
+{
     const auto now = juce::Time::getMillisecondCounter();
     // Old enough AND no player still reads it (a stalled / bypassed audio thread keeps its pointer marked).
     m_graveyard.erase(std::remove_if(m_graveyard.begin(), m_graveyard.end(),
-                                     [this, now](const Retired& r)
-                                     { return now - r.time > c_graveyardMs && ! isInUse(r.data.get()); }),
+                                     [this, now, minAgeMs](const Retired& r)
+                                     { return now - r.time >= minAgeMs && ! isInUse(r.data.get()); }),
                       m_graveyard.end());
+    return static_cast<int>(m_graveyard.size());
 }
 
 void CargoHold::markInUse(int track, const CargoData* current, const CargoData* pending)
@@ -335,6 +530,7 @@ CargoHold::Meta CargoHold::metaOf(const Track& t) const
     m.valid = true;
     m.roleOverride = t.roleOverride.load();
     m.userName = t.userName;
+    m.start = m_start[static_cast<size_t>(&t - m_tracks.data())].load();
     return m;
 }
 
@@ -344,6 +540,7 @@ void CargoHold::applyMeta(Track& t, const Meta& m)
         return;
     t.roleOverride = m.roleOverride;
     t.userName = m.userName;
+    m_start[static_cast<size_t>(&t - m_tracks.data())] = m.start;
 }
 
 void CargoHold::publish(int track, std::shared_ptr<CargoData> data, bool recordUndo)
@@ -503,8 +700,9 @@ bool CargoHold::loadFile(int track, const juce::File& file, juce::String& error)
         return false;
     }
 
+    const double fileRate = reader->sampleRate > 0 ? reader->sampleRate : 48000.0;
     const auto length = static_cast<int>(juce::jmin<juce::int64>(reader->lengthInSamples,
-                                                                static_cast<juce::int64>(reader->sampleRate * c_maxLoadSeconds)));
+                                                                static_cast<juce::int64>(fileRate * c_maxLoadSeconds)));
     if (length <= 0)
     {
         error = file.getFileName() + " is empty.";
@@ -516,14 +714,17 @@ bool CargoHold::loadFile(int track, const juce::File& file, juce::String& error)
     reader->read(&multi, 0, length, 0, true, true);
 
     auto d = std::make_shared<CargoData>();
-    d->sampleRate = reader->sampleRate > 0 ? reader->sampleRate : 48000.0; // kept: played at its own rate
+    d->sampleRate = fileRate; // kept: played at its own rate
     d->name = file.getFileNameWithoutExtension();
     d->audio = foldToMono(multi, reader->getChannelLayout());
+    if (reader->lengthInSamples > static_cast<juce::int64>(length)) // only the beginning fitted: say so
+        d->sourceSeconds = static_cast<double>(reader->lengthInSamples) / fileRate;
 
     d->analyse();
     classify(*d, d->name);
 
-    // A new sample: back to the automatic role and name (undo brings the old ones back).
+    // A new sample: back to the automatic role and name, and the start marker back to the beginning (undo brings
+    // the old ones back).
     auto& t = m_tracks[static_cast<size_t>(track)];
     const Meta before = metaOf(t);
     {
@@ -531,9 +732,84 @@ bool CargoHold::loadFile(int track, const juce::File& file, juce::String& error)
         t.roleOverride = -1;
         t.userName = {};
     }
+    m_start[static_cast<size_t>(track)] = 0.0f;
 
     publish(track, std::move(d), true, before);
     return true;
+}
+
+juce::String CargoHold::getLoadNote(int track) const
+{
+    if (track < 0 || track >= c_numTracks)
+        return {};
+    const auto& cur = m_tracks[static_cast<size_t>(track)].current;
+    if (cur == nullptr || cur->sourceSeconds <= 0.0 || cur->sampleRate <= 0.0)
+        return {};
+    return "Loaded the first " + clockTime(cur->length() / cur->sampleRate) + " of " + clockTime(cur->sourceSeconds);
+}
+
+CargoHold::LoadReport CargoHold::loadFiles(const juce::StringArray& paths, int firstTrack)
+{
+    LoadReport report;
+    int next = firstTrack;
+    for (const auto& path : paths)
+    {
+        const juce::File file(path);
+        const int target = (next >= 0 && next < c_numTracks) ? next : firstEmptyTrack();
+        if (target < 0)
+        {
+            ++report.noRoom; // counted, not dropped
+            continue;
+        }
+        juce::String error;
+        if (loadFile(target, file, error))
+        {
+            report.tracks.push_back(target);
+            report.names.add(getDisplayName(target));
+            const auto note = getLoadNote(target);
+            if (note.isNotEmpty())
+                report.notes.add(paths.size() > 1 ? note + " (" + file.getFileName() + ")" : note);
+            next = -1; // after the first explicit target, fill empty tracks
+        }
+        else
+        {
+            report.failed.add(file.getFileName());
+            report.reasons.add(error);
+        }
+    }
+    return report;
+}
+
+juce::String CargoHold::LoadReport::summary() const
+{
+    juce::StringArray parts;
+    if (names.size() > 3)
+        parts.add("Added " + juce::String(names.size()) + ".");
+    else if (! names.isEmpty())
+        parts.add("Added " + names.joinIntoString(", ") + ".");
+
+    if (noRoom > 0)
+    {
+        const juce::String most = c_numTracks == 10 ? juce::String("ten") : juce::String(c_numTracks);
+        parts.add(juce::String(noRoom) + " didn't fit (" + most + " tracks at most).");
+    }
+
+    if (failed.size() == 1)
+        parts.add(reasons[0]);
+    else if (failed.size() > 1)
+    {
+        juce::StringArray shown;
+        for (int i = 0; i < juce::jmin(3, failed.size()); ++i)
+            shown.add(failed[i]);
+        juce::String text = "Couldn't read " + shown.joinIntoString(", ");
+        if (failed.size() > shown.size())
+            text << " and " << (failed.size() - shown.size()) << " more";
+        parts.add(text + ".");
+    }
+
+    for (const auto& note : notes)
+        parts.add(note + ".");
+    return parts.joinIntoString(" ");
 }
 
 void CargoHold::clear(int track)
@@ -545,6 +821,7 @@ void CargoHold::clear(int track)
         t.roleOverride = -1;
         t.userName = {};
     }
+    m_start[static_cast<size_t>(track)] = 0.0f;
     if (t.current != nullptr)
         publish(track, nullptr, true, before);
     else
@@ -779,6 +1056,14 @@ juce::ValueTree CargoHold::toValueTree() const
         mixer.setProperty("mute", mute, nullptr);
         mixer.setProperty("solo", solo, nullptr);
         tree.appendChild(mixer, nullptr);
+    }
+
+    // Start markers, one per track (fromValueTree reads them back).
+    {
+        juce::StringArray starts;
+        for (const auto& s : m_start)
+            starts.add(juce::String(s.load(), 6));
+        tree.setProperty("starts", starts.joinIntoString(","), nullptr);
     }
 
     // Snapshot under the lock (hosts may save from a background thread while the UI edits). The local
@@ -1031,6 +1316,7 @@ void CargoPlayer::reset()
     m_loopLevel = 0.0f;
     m_jumpLeft = 0;
     m_lastSkip = -1;
+    m_loopMip = MipState {};
     resetShots();
     m_lastPlayhead[0] = m_lastPlayhead[1] = -1.0f;
 }
@@ -1160,16 +1446,60 @@ void CargoPlayer::startHead(Head& h, const CargoData& d, bool skipSilence, float
     h.active = true;
 }
 
-float CargoPlayer::readCubic(const float* data, int length, double pos)
+float CargoPlayer::readBandLimited(const CargoData& d, int level, double pos, double inc)
 {
-    const int i = static_cast<int>(pos);
-    const float t = static_cast<float>(pos - i);
-    auto at = [data, length](int k) { return data[juce::jlimit(0, length - 1, k)]; };
-    const float xm1 = at(i - 1), x0 = at(i), x1 = at(i + 1), x2 = at(i + 2);
-    const float c1 = 0.5f * (x1 - xm1);
-    const float c2 = xm1 - 2.5f * x0 + 2.0f * x1 - 0.5f * x2;
-    const float c3 = 0.5f * (x2 - xm1) + 1.5f * (x0 - x1);
-    return ((c3 * t + c2) * t + c1) * t + x0;
+    if (level <= 0 || level > CargoData::c_numMips || d.mips[static_cast<size_t>(level - 1)].empty())
+        return sincRead(d.audio.getReadPointer(0), d.length(), pos, stretchFor(inc));
+    const auto& mip = d.mips[static_cast<size_t>(level - 1)];
+    const double scale = 1.0 / static_cast<double>(1 << level);
+    return sincRead(mip.data(), static_cast<int>(mip.size()), pos * scale, stretchFor(inc * scale));
+}
+
+int CargoPlayer::levelFor(const CargoData& d, double inc)
+{
+    // The copy whose own speed is between 1 and 2: nothing above the output's Nyquist is left in it to speak of,
+    // and nothing below is missing.
+    int level = 0;
+    while (level < CargoData::c_numMips && ! d.mips[static_cast<size_t>(level)].empty() && inc >= 2.0)
+    {
+        inc *= 0.5;
+        ++level;
+    }
+    return level;
+}
+
+CargoPlayer::MipRead CargoPlayer::beginRead(MipState& state, const CargoData& d, double inc, int frames)
+{
+    MipRead r;
+    r.inc = inc;
+    r.level = levelFor(d, inc);
+    r.from = r.level;
+    const int current = state.level;
+    const bool usable = current == 0
+                        || (current > 0 && current <= CargoData::c_numMips && ! d.mips[static_cast<size_t>(current - 1)].empty());
+    if (usable && current != r.level)
+    {
+        // A little slack either side, so a pitch hovering on an octave doesn't flip copies every chunk.
+        const double own = inc / static_cast<double>(1 << current);
+        if (own >= 0.9 && own < 2.2)
+            r.level = r.from = current;
+        else
+        {
+            r.from = current;                 // crossfade from the copy the last chunk used
+            r.fade = juce::jmin(frames, 96);
+        }
+    }
+    state.level = r.level;
+    return r;
+}
+
+float CargoPlayer::readAt(const CargoData& d, const MipRead& r, double pos, int sampleInChunk)
+{
+    const float now = readBandLimited(d, r.level, pos, r.inc);
+    if (sampleInChunk >= r.fade)
+        return now;
+    const float before = readBandLimited(d, r.from, pos, r.inc);
+    return before + (now - before) * (static_cast<float>(sampleInChunk + 1) / static_cast<float>(r.fade));
 }
 
 float CargoPlayer::getPlayhead(int head) const
@@ -1314,9 +1644,9 @@ void CargoPlayer::renderLoop(const CargoData& d, CargoRole role, bool skipSilenc
         }
     }
 
-    const float* src = d.audio.getReadPointer(0);
     const int length = d.length();
     const double inc = static_cast<double>(juce::jmax(0.01f, rate)) * d.sampleRate / m_sampleRate;
+    const MipRead mip = beginRead(m_loopMip, d, inc, frames);
     const int xfadeLen = juce::jmax(64, static_cast<int>(fadeSeconds * m_sampleRate));
     const float levelStep = 1.0f / static_cast<float>(0.02 * m_sampleRate);
     const float levelTarget = loopRole ? 1.0f : 0.0f;
@@ -1410,14 +1740,14 @@ void CargoPlayer::renderLoop(const CargoData& d, CargoRole role, bool skipSilenc
             const float t = 1.0f - static_cast<float>(m_xfadeLeft) / static_cast<float>(m_xfadeTotal);
             const float gNew = std::sin(0.5f * sj::c_pi * t);
             const float gOld = std::cos(0.5f * sj::c_pi * t);
-            value = gNew * readCubic(src, length, now.pos) + gOld * readCubic(src, length, old.pos);
+            value = gNew * readAt(d, mip, now.pos, i) + gOld * readAt(d, mip, old.pos, i);
             old.pos += inc;
             if (--m_xfadeLeft == 0)
                 old.active = false;
         }
         else
         {
-            value = readCubic(src, length, now.pos);
+            value = readAt(d, mip, now.pos, i);
         }
         now.pos += inc;
 
@@ -1539,8 +1869,6 @@ void CargoPlayer::renderShots(const CargoData& d, CargoRole role, bool skipSilen
         }
     }
 
-    const float* src = d.audio.getReadPointer(0);
-    const int length = d.length();
     const double baseInc = static_cast<double>(juce::jmax(0.01f, rate)) * d.sampleRate / m_sampleRate;
 
     for (auto& s : m_shots)
@@ -1548,6 +1876,7 @@ void CargoPlayer::renderShots(const CargoData& d, CargoRole role, bool skipSilen
         if (s.state == 0)
             continue;
         const double inc = baseInc * static_cast<double>(s.rateScale);
+        const MipRead mip = beginRead(s.mip, d, inc, frames);
         for (int i = 0; i < frames; ++i)
         {
             if (s.state == 1)
@@ -1570,7 +1899,7 @@ void CargoPlayer::renderShots(const CargoData& d, CargoRole role, bool skipSilen
                 break;
             }
 
-            out[i] += smooth(s.level) * smooth(endGain) * readCubic(src, length, s.pos);
+            out[i] += smooth(s.level) * smooth(endGain) * readAt(d, mip, s.pos, i);
             s.pos += inc;
         }
     }

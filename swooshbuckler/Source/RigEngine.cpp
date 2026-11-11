@@ -594,6 +594,12 @@ void RigEngine::renderTracks(int frames)
         m_gain[ti] = target;
     }
 
+    // Tell the hold which sample data the players still read, so data replaced by an edit is never freed while a
+    // paused or bypassed engine could come back to it.
+    if (m_cargo != nullptr)
+        for (int t = 0; t < c_tracks; ++t)
+            m_cargo->markInUse(t, m_players[static_cast<size_t>(t)].getData(), m_players[static_cast<size_t>(t)].getPending());
+
     if (morphing)
     {
         SpectralMorph::Params mp;
