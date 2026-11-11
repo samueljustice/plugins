@@ -279,7 +279,15 @@ int main(int argc, char* argv[])
         const auto after = rig.run(10.0);
         const double rest = lastSound(after);
         const double taped = p.getRecordedSeconds();
+        const bool armedAtRest = p.isRecording(), capturingAtRest = p.isCapturing();
+        // Play again: the gate opens with the new sound (nothing left over from before the rest in front of it).
+        p.setPlaying(true);
+        rig.run(1.0);
+        const bool capturingAgain = p.isCapturing();
+        p.setPlaying(false);
         p.stopRecording();
+        check(armedAtRest && ! capturingAtRest, "stop, Skip Silence: at rest the tape is armed but no longer capturing");
+        check(capturingAgain, "stop, Skip Silence: Play starts the tape capturing again");
         check(taped - atStop > rest - 0.3 && taped - atStop < rest + 0.1,
               "stop, Skip Silence: the take keeps the whole tail (" + juce::String(taped - atStop, 2) + " s on tape, the rig rang for "
                   + juce::String(rest, 2) + " s)");
@@ -359,7 +367,8 @@ int main(int argc, char* argv[])
         SessionAutosave::Timing timing;
         timing.intervalMs = 400;
         timing.afterTrackMs = 100;
-        auto autosave = std::make_unique<SessionAutosave>(p, &p.getCargo(), [&p] { return p.getMods().changeCount(); }, file, timing);
+        auto autosave = std::make_unique<SessionAutosave>(p, &p.getCargo(), [&p] { return p.getMods().changeCount(); }, file, timing,
+                                                          [&p] (int index) { return p.isUserEdit(index); });
 
         auto waitForSave = [&](int count, int timeoutMs)
         {
@@ -399,6 +408,59 @@ int main(int argc, char* argv[])
         autosave->tick();
         juce::Thread::sleep(100);
         check(autosave->getSaveCount() == 3, "autosave: no more saves once everything is on disk");
+
+        // Only edits count. Wander moves the morph dot by itself for as long as it is on: switching it on is saved
+        // once, the moving dot is not saved over and over. A new audio device (a latency change) is no edit either.
+        {
+            auto idle = [&](int ms, const std::function<void()>& during)
+            {
+                const auto start = juce::Time::getMillisecondCounter();
+                while (juce::Time::getMillisecondCounter() - start < static_cast<juce::uint32>(ms))
+                {
+                    if (during) during();
+                    autosave->tick();
+                    juce::Thread::sleep(20);
+                }
+            };
+            auto moveDot = [&](float x)
+            {
+                for (const char* id : { ParamIDs::morphX, ParamIDs::morphY })
+                    if (auto* prm = param(p, id))
+                    {
+                        prm->beginChangeGesture();
+                        prm->setValueNotifyingHost(x);
+                        prm->endChangeGesture();
+                    }
+            };
+            setNorm(p, ParamIDs::morphWander, 1.0f);
+            check(waitForSave(4, 60000), "autosave: switching Wander on is saved");
+            idle(500, {});
+            float x = 0.1f;
+            const int before = autosave->getSaveCount();
+            idle(1500, [&] { x = x > 0.9f ? 0.1f : x + 0.01f; moveDot(x); });
+            check(autosave->getSaveCount() == before, "autosave: the dot wandering by itself is not saved again and again ("
+                                                          + juce::String(autosave->getSaveCount() - before) + " saves in 1.5 s, one was allowed every 0.4 s)");
+            p.setLatencySamples(p.getLatencySamples() + 16);
+            p.setLatencySamples(p.getLatencySamples() - 16);
+            idle(700, {});
+            check(autosave->getSaveCount() == before, "autosave: a latency change is not an edit");
+            setNorm(p, ParamIDs::morphWander, 0.0f);
+            check(waitForSave(before + 1, 60000), "autosave: switching Wander off is saved");
+            idle(500, {});
+            moveDot(0.3f);
+            check(waitForSave(before + 2, 60000), "autosave: the dot moved by hand is saved");
+            // A wire's depth dragged: saved (the wire itself was there already).
+            idle(1200, {}); // everything so far is on disk
+            const int settled = autosave->getSaveCount();
+            idle(600, {});
+            check(autosave->getSaveCount() == settled, "autosave: nothing more to save");
+            const auto routes = p.getMods().getRoutes();
+            check(! routes.empty() && p.getMods().setDepth(routes.front().slot, -0.6f), "autosave: a wire's depth changes");
+            check(waitForSave(settled + 1, 5000), "autosave: a dragged wire depth is saved");
+            idle(600, {});
+            check(! routes.empty() && p.getMods().setDepth(routes.front().slot, -0.6f) && (idle(600, {}), autosave->getSaveCount() == settled + 1),
+                  "autosave: the same depth again is not a change");
+        }
 
         // A run that did not end cleanly leaves the file behind: the next run loads it.
         autosave.reset();

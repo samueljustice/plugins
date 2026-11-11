@@ -388,9 +388,82 @@ int CargoHold::purgeRetired(juce::uint32 minAgeMs)
     // Old enough AND no player still reads it (a stalled / bypassed audio thread keeps its pointer marked).
     m_graveyard.erase(std::remove_if(m_graveyard.begin(), m_graveyard.end(),
                                      [this, now, minAgeMs](const Retired& r)
-                                     { return now - r.time >= minAgeMs && ! isInUse(r.data.get()); }),
+                                     {
+                                         if (now - r.time < minAgeMs || isInUse(r.data.get()))
+                                             return false;
+                                         // Still held by an undo / redo step: it keeps the audio, and gives up its
+                                         // octave copies (nearly as big again) until that step is used. Safe here
+                                         // and only here: the audio thread has let go of it, and it can't pick it
+                                         // up again unless undo / redo publish it (they rebuild the copies first).
+                                         if (r.data.use_count() > 1 && ! isLive(r.data.get()))
+                                             dropMips(r.data);
+                                         return true;
+                                     }),
                       m_graveyard.end());
     return static_cast<int>(m_graveyard.size());
+}
+
+bool CargoHold::isLive(const CargoData* data) const
+{
+    for (const auto& t : m_tracks)
+        if (t.live.load(std::memory_order_acquire) == data)
+            return true;
+    return false;
+}
+
+void CargoHold::dropMips(const std::shared_ptr<const CargoData>& data)
+{
+    // Every CargoData is made non-const (std::make_shared<CargoData>); the const is how the rest of the program
+    // sees published data. The caller has made sure no thread reads this one.
+    for (auto& m : const_cast<CargoData&>(*data).mips)
+        std::vector<float>().swap(m);
+}
+
+void CargoHold::restoreMips(const std::shared_ptr<const CargoData>& data)
+{
+    if (data != nullptr && data->length() >= 2 && data->mips[0].empty())
+        const_cast<CargoData&>(*data).buildMips();
+}
+
+std::int64_t CargoHold::bytesOf(const CargoData* data)
+{
+    if (data == nullptr)
+        return 0;
+    std::int64_t samples = data->length();
+    for (const auto& m : data->mips)
+        samples += static_cast<std::int64_t>(m.size());
+    return samples * static_cast<std::int64_t>(sizeof(float));
+}
+
+std::int64_t CargoHold::getUndoBytes() const
+{
+    std::vector<const CargoData*> seen;
+    std::int64_t bytes = 0;
+    for (const auto& t : m_tracks)
+        for (const auto* list : { &t.undo, &t.redo })
+            for (const auto& d : *list)
+                if (d != nullptr && std::find(seen.begin(), seen.end(), d.get()) == seen.end())
+                {
+                    seen.push_back(d.get());
+                    bytes += bytesOf(d.get());
+                }
+    return bytes;
+}
+
+void CargoHold::trimUndoToBytes()
+{
+    // Over the limit: the oldest edits go first, across every track. The newest edit can always be undone.
+    while (m_undoOrder.size() > 1 && getUndoBytes() > m_undoByteLimit)
+    {
+        auto& t = m_tracks[static_cast<size_t>(m_undoOrder.front())];
+        m_undoOrder.erase(m_undoOrder.begin());
+        if (t.undo.empty())
+            continue; // that edit's step had gone already
+        retire(t.undo.front());
+        t.undo.erase(t.undo.begin());
+        if (! t.undoMeta.empty())
+            t.undoMeta.erase(t.undoMeta.begin());
+    }
 }
 
 void CargoHold::markInUse(int track, const CargoData* current, const CargoData* pending)
@@ -581,6 +654,7 @@ void CargoHold::publish(int track, std::shared_ptr<CargoData> data, bool recordU
             if (m_undoOrder.size() > static_cast<size_t>(c_maxUndo * c_numTracks))
                 m_undoOrder.erase(m_undoOrder.begin());
             m_redoOrder.clear(); // a new edit ends the redo chain, as in any editor
+            trimUndoToBytes();
         }
 
         // Keep the old data alive a while even if no undo entry holds it (and while a player still reads it).
@@ -1015,6 +1089,7 @@ void CargoHold::undo(int track)
         t.redo.push_back(t.current);
         t.redoMeta.push_back(entry.valid ? metaOf(t) : Meta {});
         retire(t.current);
+        restoreMips(t.undo.back()); // an old step keeps only its audio (see purgeRetired)
         t.current = t.undo.back();
         t.undo.pop_back();
         if (! t.undoMeta.empty())
@@ -1036,6 +1111,7 @@ void CargoHold::redo(int track)
         t.undo.push_back(t.current);
         t.undoMeta.push_back(entry.valid ? metaOf(t) : Meta {});
         retire(t.current);
+        restoreMips(t.redo.back());
         t.current = t.redo.back();
         t.redo.pop_back();
         if (! t.redoMeta.empty())

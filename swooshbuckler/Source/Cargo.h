@@ -72,7 +72,8 @@ struct CargoData
      * Band-limited octave copies for playing faster than the source (pitch up, or a 96 kHz file in a 48 kHz
      * session): mips[k] is the audio low-passed and decimated by 2^(k+1), sample n sitting at source sample
      * n * 2^(k+1). Built by analyse() on the message thread, never saved (the session stores `audio` only).
-     * Empty for data that was never analysed; the player then reads `audio` for every speed.
+     * Empty for data that was never analysed; the player then reads `audio` for every speed. An undo step the
+     * engine has let go of gives its copies up (CargoHold::purgeRetired) and gets them back when it is used.
      */
     static constexpr int c_numMips = 4;
     std::array<std::vector<float>, c_numMips> mips;
@@ -201,6 +202,11 @@ public:
     int redoLatest();
     bool canUndoLatest() const;
     bool canRedoLatest() const;
+    /** How much audio the undo and redo steps of every track hold, in bytes, and the most they may hold (the
+        oldest edits are forgotten first; the newest one always stays). Message thread. */
+    std::int64_t getUndoBytes() const;
+    static constexpr std::int64_t c_undoByteLimit = 512ll * 1024 * 1024;
+    void setUndoByteLimit(std::int64_t bytes) { m_undoByteLimit = bytes; }
     bool hasClipboard() const { return m_clipboard.getNumSamples() > 0; }
 
     juce::AudioFormatManager& getFormatManager() { return m_formats; }
@@ -241,6 +247,11 @@ private:
     bool isInUse(const CargoData* data) const;                                                      //
     std::shared_ptr<CargoData> makeEdited(int track, const juce::AudioBuffer<float>& audio) const;
     void retire(std::shared_ptr<const CargoData> data);
+    bool isLive(const CargoData* data) const;
+    static void dropMips(const std::shared_ptr<const CargoData>& data);     // see purgeRetired
+    static void restoreMips(const std::shared_ptr<const CargoData>& data);  //
+    static std::int64_t bytesOf(const CargoData* data);
+    void trimUndoToBytes();
     void timerCallback() override;
     bool validRange(int track, int& start, int& end) const;
 
@@ -249,6 +260,7 @@ private:
     // m_undoOrder and empties m_redoOrder; undoLatest / redoLatest move tracks between the two. Entries whose
     // track has nothing left to undo (history trimmed at c_maxUndo) are skipped.
     std::vector<int> m_undoOrder, m_redoOrder;
+    std::int64_t m_undoByteLimit = c_undoByteLimit;
     std::array<std::atomic<bool>, c_numLanes> m_mute {}, m_solo {};   //
     std::atomic<int> m_soloCount { 0 };
     std::array<std::atomic<float>, c_numTracks> m_start {};

@@ -9,8 +9,9 @@
  * Keeps a copy of the session on disk while the standalone app runs, so a crash or a power cut costs a minute
  * of work at most (the app itself only saves on a clean quit).
  *
- *  - Something changed (a parameter, a track, a wire): the session is written about once a minute, and a few
- *    seconds after a track is loaded, edited or removed.
+ *  - Something was edited (a parameter, a track, a wire): the session is written about once a minute, and a few
+ *    seconds after a track is loaded, edited or removed. Parameter moves the app makes by itself (the morph dot
+ *    while Wander is on) are not edits, so a session that only plays is not written again and again.
  *  - The work happens on a background thread: the state embeds the audio (FLAC, encoded once per track and then
  *    reused), so a save can take a moment and must not stall the interface. The file is written beside its
  *    final name and swapped in, so a crash mid-save leaves the previous copy intact.
@@ -33,13 +34,16 @@ public:
     };
 
     /** tracks: told about loads, edits and removals (may be null). revision: a number that moves when something
-        outside the parameters changed, polled once a second (may be empty). */
+        outside the parameters changed, polled once a second (may be empty). isEdit: given a parameter's index,
+        whether a change of it right now is an edit to save (may be empty: every change is); called on whichever
+        thread the change arrives on, so it must not lock or allocate. */
     SessionAutosave(juce::AudioProcessor& processor, juce::ChangeBroadcaster* tracks, std::function<int()> revision,
-                    const juce::File& file, Timing timing)
+                    const juce::File& file, Timing timing, std::function<bool(int)> isEdit = {})
         : juce::Thread("Session autosave")
         , m_processor(processor)
         , m_tracks(tracks)
         , m_revision(std::move(revision))
+        , m_isEdit(std::move(isEdit))
         , m_file(file)
         , m_timing(timing)
     {
@@ -143,8 +147,17 @@ private:
     }
 
     void timerCallback() override { tick(); }
-    void audioProcessorParameterChanged(juce::AudioProcessor*, int, float) override { m_dirty.store(true); }
-    void audioProcessorChanged(juce::AudioProcessor*, const ChangeDetails&) override { m_dirty.store(true); }
+    void audioProcessorParameterChanged(juce::AudioProcessor*, int index, float) override
+    {
+        if (! m_isEdit || m_isEdit(index))
+            m_dirty.store(true);
+    }
+    void audioProcessorChanged(juce::AudioProcessor*, const ChangeDetails& details) override
+    {
+        // A new latency (the audio device changed) is not an edit; a loaded preset or program is.
+        if (details.programChanged || details.nonParameterStateChanged || details.parameterInfoChanged)
+            m_dirty.store(true);
+    }
     void changeListenerCallback(juce::ChangeBroadcaster*) override { noteTracksChanged(); }
 
     void run() override
@@ -178,6 +191,7 @@ private:
     juce::AudioProcessor& m_processor;
     juce::ChangeBroadcaster* m_tracks = nullptr;
     std::function<int()> m_revision;
+    std::function<bool(int)> m_isEdit;
     juce::File m_file;
     Timing m_timing;
 

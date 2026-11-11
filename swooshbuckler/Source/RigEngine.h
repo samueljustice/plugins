@@ -118,8 +118,12 @@ public:
     void prepare(double sampleRate, int maxBlockSize);
     void reset();
     void setCargoHold(CargoHold* hold) { m_cargo = hold; }
+    /** The audio has stopped (reset() does this too): the players drop their sample data and tell the hold, so
+        data replaced since is freed without waiting for the engine to run again. Not while process() may run. */
+    void letGoOfCargo();
     void setParams(const Params& p);
-    /** Start every track again from its start marker (audio thread; the processor calls it on Play). */
+    /** Start every track again from its start marker (audio thread; the processor calls it on Play). If the
+        sources are still sounding they fade out first (5 ms), so the restart never cuts a wave short. */
     void restart();
     /** Stop pressed: the sources fade out over 60 ms and stay silent while the Fill echoes, the passes in flight
         and Space ring out. Play lets them back in. Audio thread (the processor sets it before each process()). */
@@ -267,6 +271,8 @@ private:
     std::array<sj::Drift, c_tracks> m_rideDrift;
     std::array<float, c_tracks> m_gain {};          // gain applied at the end of the previous chunk
     bool m_released = false;                        // see setReleased
+    bool m_restartPending = false;                  // restart() asked: done once the sources are silent
+    void restartNow();
     float m_releaseGain = 1.0f;                     // 1 = the sources play, 0 = released
     std::array<sj::Spring, c_tracks> m_levelSprings;
     sj::Spring m_swellSpring, m_energySpring, m_pitchSpring, m_fillSpring, m_spaceSpring;

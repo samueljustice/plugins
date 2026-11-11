@@ -73,6 +73,10 @@ public:
     /** While set, a gate that is open stays open whatever the level (the rig ringing out after Stop: the take
         keeps the whole tail). It never opens a closed gate. Any thread. */
     void setGateHold(bool hold) { m_gateHold.store(hold, std::memory_order_relaxed); }
+    /** Audio thread: the output is silent and process() won't be called until there is sound again (the rig is at
+        rest). An open gate closes now, and nothing from before the rest is kept as pre-roll. Returns false if it
+        could not look this time (a take is being opened or closed): call it again on the next block. */
+    bool rest();
     bool getSignalGate() const { return m_signalGate.load(); }
     /** True while audio is actually being written (always true when the gate is off and a take is open). */
     bool isCapturing() const { return m_recording.load() && (! m_signalGate.load() || m_capturing.load()); }

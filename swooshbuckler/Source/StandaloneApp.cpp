@@ -56,7 +56,9 @@ namespace
                 const auto file = m_properties.getUserSettings()->getFile().getSiblingFile("Swooshbuckler.autosave");
                 const bool recovered = SessionAutosave::recover(*processor, file);
                 m_autosave = std::make_unique<SessionAutosave>(*processor, &processor->getCargo(),
-                                                               [processor] { return processor->getMods().changeCount(); }, file);
+                                                               [processor] { return processor->getMods().changeCount(); }, file,
+                                                               SessionAutosave::Timing {},
+                                                               [processor] (int index) { return processor->isUserEdit(index); });
                 if (recovered)
                     m_autosave->markChanged(); // keep the recovered session on disk until the next clean quit
             }

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdint>
 #include <vector>
@@ -191,7 +192,70 @@ namespace sj
     };
 
     //==============================================================================
-    /** Mono delay line with a power-of-two ring and 4-point Hermite interpolation. */
+    /**
+     * One Kaiser-windowed sinc (eight zero crossings a side, about 70 dB), tabulated finely and read with linear
+     * interpolation: the kernel of DelayLine::readSinc. Built when the library loads, never on the audio thread.
+     */
+    struct SincKernel
+    {
+        static constexpr int c_zeros = 8;
+        static constexpr int c_res = 256;
+        static constexpr int c_size = c_zeros * c_res;
+        // The widest the kernel is ever stretched (a read at 2.5 times the speed the line was written at).
+        static constexpr double c_maxStretch = 2.9;
+        // A stretched kernel's -6 dB point sits at this fraction of the new Nyquist, so its stopband starts just
+        // above it.
+        static constexpr double c_guard = 0.87;
+
+        std::array<float, static_cast<size_t>(c_size + 2)> v {};
+
+        SincKernel()
+        {
+            auto besselI0 = [](double x)
+            {
+                double sum = 1.0, term = 1.0;
+                for (int k = 1; k < 40; ++k)
+                {
+                    term *= (x / (2.0 * k)) * (x / (2.0 * k));
+                    sum += term;
+                }
+                return sum;
+            };
+            const double beta = 6.76;
+            const double norm = besselI0(beta);
+            for (int n = 0; n <= c_size; ++n)
+            {
+                const double x = static_cast<double>(n) / c_res;
+                const double px = 3.14159265358979323846 * x;
+                const double sinc = n == 0 ? 1.0 : std::sin(px) / px;
+                const double r = x / c_zeros;
+                const double window = besselI0(beta * std::sqrt(std::max(0.0, 1.0 - r * r))) / norm;
+                // Exactly zero on the other whole samples: a read on a whole position returns that sample.
+                v[static_cast<size_t>(n)] = (n > 0 && n % c_res == 0) ? 0.0f : static_cast<float>(sinc * window);
+            }
+            v[static_cast<size_t>(c_size)] = 0.0f;
+            v[static_cast<size_t>(c_size + 1)] = 0.0f;
+        }
+
+        /** How far to stretch the kernel for a read that moves `speed` samples of the line per output sample: not
+            at all up to 1, then by the speed (with the guard band eased in over the first 15%, so the filter never
+            steps as the speed passes 1). */
+        static double stretchFor(double speed)
+        {
+            if (speed <= 1.0)
+                return 1.0;
+            const double guard = 1.0 + (1.0 / c_guard - 1.0) * std::min(1.0, (speed - 1.0) / 0.15);
+            return std::min(c_maxStretch, speed * guard);
+        }
+
+        static const SincKernel& get()
+        {
+            static const SincKernel kernel;
+            return kernel;
+        }
+    };
+
+    /** Mono delay line with a power-of-two ring; reads by 4-point Hermite, linear, or a band-limited sinc. */
     struct DelayLine
     {
         std::vector<float> buffer;
@@ -234,6 +298,44 @@ namespace sj
             const float c2 = xm1 - 2.5f * x0 + 2.0f * x1 - 0.5f * x2;
             const float c3 = 0.5f * (x2 - xm1) + 1.5f * (x0 - x1);
             return ((c3 * t + c2) * t + c1) * t + x0;
+        }
+
+        /** The reach of readSinc either side of the read point, in samples, at the widest stretch. */
+        static constexpr int c_sincReach = static_cast<int>(SincKernel::c_zeros * SincKernel::c_maxStretch) + 2;
+
+        /**
+         * Band-limited read for a delay that moves (a doppler read): a 16-point windowed sinc at stretch 1, and
+         * the same curve stretched in time when the line is read faster than it was written (stretch =
+         * SincKernel::stretchFor(read speed)), which lowers its cutoff to the new Nyquist, so what would fold back
+         * is filtered out instead. `kernel` is SincKernel::get(), fetched once outside the audio loop. The delay
+         * must leave c_sincReach samples either side (it is clamped to that).
+         */
+        float readSinc(double delaySamples, double stretch, const SincKernel& kernel) const
+        {
+            delaySamples = std::clamp(delaySamples, static_cast<double>(c_sincReach + 1), static_cast<double>(maxDelay() - c_sincReach));
+            const int whole = static_cast<int>(delaySamples);
+            const double back = delaySamples - static_cast<double>(whole); // 0..1 behind sample (write - 1 - whole)
+            const int i = back > 0.0 ? write - 2 - whole : write - 1 - whole;
+            const double frac = back > 0.0 ? 1.0 - back : 0.0;             // read position = i + frac
+            const double s = std::clamp(stretch, 1.0, SincKernel::c_maxStretch);
+            const double half = SincKernel::c_zeros * s;
+            const int lo = static_cast<int>(std::ceil(frac - half));
+            const int hi = static_cast<int>(std::floor(frac + half));
+            const float step = static_cast<float>(SincKernel::c_res / s);
+            const float origin = static_cast<float>(frac * SincKernel::c_res / s);
+            const float* table = kernel.v.data();
+            const float* data = buffer.data();
+
+            float sum = 0.0f, weight = 0.0f;
+            for (int j = lo; j <= hi; ++j)
+            {
+                const float a = std::abs(static_cast<float>(j) * step - origin);
+                const int n = std::min(SincKernel::c_size, static_cast<int>(a));
+                const float w = table[n] + (a - static_cast<float>(n)) * (table[n + 1] - table[n]);
+                sum += w * data[static_cast<size_t>((i + j) & mask)];
+                weight += w;
+            }
+            return weight > 1.0e-6f ? sum / weight : 0.0f;
         }
 
         float readLinear(double delaySamples) const

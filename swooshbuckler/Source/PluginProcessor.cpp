@@ -21,6 +21,11 @@ SwooshbucklerAudioProcessor::SwooshbucklerAudioProcessor()
     , m_state(*this, nullptr, "Swooshbuckler", Params::createLayout())
 {
     auto raw = [this](const char* id) { return m_state.getRawParameterValue(id); };
+    if (auto* x = m_state.getParameter(ParamIDs::morphX))
+        m_morphXIndex = x->getParameterIndex();
+    if (auto* y = m_state.getParameter(ParamIDs::morphY))
+        m_morphYIndex = y->getParameterIndex();
+    m_morphWanderRaw = raw(ParamIDs::morphWander);
     for (int i = 0; i < ParamIDs::numCargoTracks; ++i)
     {
         m_raw.tracks[static_cast<size_t>(i)] = raw(ParamIDs::cargoTrack[i]);
@@ -195,7 +200,10 @@ void SwooshbucklerAudioProcessor::renderAtRenderRate(const float* inL, const flo
     m_recorder.process(chans, 2, n); // the tape gets the full-rate signal
 }
 
-void SwooshbucklerAudioProcessor::releaseResources() {}
+void SwooshbucklerAudioProcessor::releaseResources()
+{
+    m_engine.letGoOfCargo(); // the audio has stopped: nothing reads the tracks' sample data now
+}
 
 float SwooshbucklerAudioProcessor::modValue(std::atomic<float>* raw)
 {
@@ -359,6 +367,9 @@ void SwooshbucklerAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
         m_drainLeft -= n;
     if (! playing && m_transportGain <= 0.0f && m_drainLeft <= 0)
     {
+        // The tape isn't fed while the rig rests: Skip Silence's gate closes here, not at the next Play.
+        if (! m_tapeRested)
+            m_tapeRested = m_recorder.rest();
         // Keep the modulator scopes, knob dots and pulled-wire glides moving while stopped (the output is silent).
         m_followerLevels = {};
         runModulators(n);
@@ -377,6 +388,7 @@ void SwooshbucklerAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
         return;
     }
 
+    m_tapeRested = false;
     if (m_restartPending.exchange(false))
         m_engine.restart();
 
@@ -539,6 +551,12 @@ void SwooshbucklerAudioProcessor::newSession()
         }
     m_mods.clear();
     currentPresetName = "Default";
+}
+
+bool SwooshbucklerAudioProcessor::isUserEdit(int parameterIndex) const
+{
+    const bool wandering = m_morphWanderRaw != nullptr && m_morphWanderRaw->load(std::memory_order_relaxed) > 0.5f;
+    return ! (wandering && (parameterIndex == m_morphXIndex || parameterIndex == m_morphYIndex));
 }
 
 bool SwooshbucklerAudioProcessor::arm(juce::String& error)

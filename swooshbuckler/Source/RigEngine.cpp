@@ -25,10 +25,13 @@ namespace
     constexpr float c_duckSeconds = 0.0019f;  // Ducked by A
     constexpr float c_peakPasses = 0.72f;     // the recent peak's fall-back time constant, in pass lengths (-12 dB per pass)
     constexpr float c_shapeSeconds = 0.06f;   // Pass Mode: how fast one window shape turns into the other
+    constexpr float c_variUpDbPerOctave = 1.0f;    // VARI on: make-up per octave of a track's own upward pitch
+    constexpr float c_restartFadeSeconds = 0.005f; // Play while the sources still sound: they fade this fast first
     constexpr float c_proxSeconds = 0.02f;    // how fast the pass's nearness reaches Low End, Swirl and Filter
     // Fly-By: the tail is over after this much of the way out, and the approach rises late (a higher power = later).
     constexpr float c_flyTail = 0.6f;
     constexpr float c_flyApproach = 1.3f;
+    constexpr float c_flyMakeup = 1.23f; // +1.8 dB: Fly-By measured against Bed (integrated loudness, steady and gappy sources)
     // Head shadow: at full azimuth the far ear's air filter is this many octaves lower, but never under the floor (Hz).
     constexpr float c_shadowOctaves = 2.0f;
     constexpr float c_shadowFloor = 2500.0f;
@@ -115,6 +118,7 @@ void RigEngine::prepare(double sampleRate, int maxBlockSize)
     juce::ignoreUnused(maxBlockSize);
     m_sampleRate = sampleRate;
     m_fs = static_cast<float>(sampleRate);
+    juce::ignoreUnused(sj::SincKernel::get()); // the doppler read's table is built here, not on the audio thread
     for (auto& scope : m_scopes)
         scope.prepare(sampleRate);
     const float controlRate = m_fs / static_cast<float>(c_chunk);
@@ -205,6 +209,7 @@ void RigEngine::reset()
     m_sectionLevels = {};
     for (auto& l : m_fillLines) l.reset();
     m_gain.fill(0.0f);
+    m_restartPending = false;
     m_coverageFor.fill(nullptr);
     m_ridePhase.fill(0.0);
     m_rideDepth.fill(0.0f);
@@ -292,6 +297,19 @@ void RigEngine::reset()
     }
     m_morph.reset(m_params.morphOn);
     m_morphMix.snap(m_params.morphOn ? 1.0f : 0.0f);
+    letGoOfCargo();
+}
+
+void RigEngine::letGoOfCargo()
+{
+    // The players hold no sample data now. Say so, or the marks of the last block would keep replaced data alive
+    // for as long as the engine isn't run again.
+    for (auto& p : m_players)
+        p.reset();
+    m_gain.fill(0.0f);
+    if (m_cargo != nullptr)
+        for (int t = 0; t < c_tracks; ++t)
+            m_cargo->markInUse(t, nullptr, nullptr);
 }
 
 void RigEngine::setParams(const Params& p)
@@ -340,12 +358,21 @@ void RigEngine::glideMods(int frames)
 
 void RigEngine::restart()
 {
-    // Play pressed: every track starts again from its start marker, the rides from the top.
+    // Play pressed: every track starts again from its start marker, the rides from the top. Done by renderTracks
+    // once the sources are silent: straight away from rest, after a few milliseconds' fade if they are still
+    // sounding (Play again within Stop's 60 ms let-go, or a restart while playing), so nothing is cut mid-wave.
+    m_restartPending = true;
+}
+
+void RigEngine::restartNow()
+{
     for (auto& p : m_players)
         p.reset();
     for (size_t t = 0; t < m_ridePhase.size(); ++t)
         m_ridePhase[t] = 0.17 * static_cast<double>(t);
     m_gain.fill(0.0f);
+    m_releaseGain = 0.0f;
+    m_restartPending = false;
 }
 
 RigEngine::FlightView RigEngine::getFlightView(int index) const
@@ -436,7 +463,16 @@ void RigEngine::renderTracks(int frames)
     const float seconds = static_cast<float>(frames) / m_fs;
     glideMods(frames);
     // Stop lets go of the sources (60 ms down); Play brings them back (10 ms up, under the transport fade).
-    m_releaseGain = m_released ? std::max(0.0f, m_releaseGain - seconds / 0.06f) : std::min(1.0f, m_releaseGain + seconds / 0.01f);
+    if (m_restartPending)
+    {
+        bool silent = true;
+        for (const float g : m_gain)
+            silent = silent && g <= 0.0f;
+        if (silent)
+            restartNow();
+    }
+    m_releaseGain = m_restartPending ? std::max(0.0f, m_releaseGain - seconds / c_restartFadeSeconds)
+                  : m_released ? std::max(0.0f, m_releaseGain - seconds / 0.06f) : std::min(1.0f, m_releaseGain + seconds / 0.01f);
     const float energyKnob = sj::clamp(m_energySpring.step(seconds) + (m_params.rideOn ? m_energyModNow : 0.0f), 0.0f, 1.0f);
     const float energy = ::Params::energyDepth(energyKnob);
     const float swell = sj::clamp(m_swellSpring.step(seconds), 0.0f, 1.0f);
@@ -693,6 +729,9 @@ void RigEngine::renderTracks(int frames)
         const float modeGain0 = modeFrom[ti], modeGain1 = modeTo[ti];
         const bool vari = m_variNow[ti];
         const float ownRatio = std::exp2(m_trackPitchNow[ti] / 12.0f);
+        // VARI on, pitched up: the faster read filters a little under the new top of the band (so nothing folds
+        // back), which costs a hissy sound some level against the same pitch with VARI off. A small make-up.
+        const float variGain = vari ? sj::dbToGain(c_variUpDbPerOctave * sj::clamp(m_trackPitchNow[ti] / 12.0f, 0.0f, 2.0f)) : 1.0f;
 
         const bool skip = m_cargo == nullptr || m_cargo->getSkipSilence(t);
         m_players[ti].setStart(m_cargo != nullptr ? m_cargo->getStart(t) : 0.0f);
@@ -738,7 +777,7 @@ void RigEngine::renderTracks(int frames)
                                                        + 0.25f * line.readLinear(taps[2]));
             const float frac = static_cast<float>(i + 1) * invFrames;
             const float g = g0 + (target - g0) * frac;
-            const float dry = x * (modeGain0 + (modeGain1 - modeGain0) * frac) * g;
+            const float dry = x * (modeGain0 + (modeGain1 - modeGain0) * frac) * g * variGain;
             line.push(dry + 0.3f * delayed);
             dest[i] += dry + fillAmount * delayed;
         }
@@ -832,6 +871,7 @@ void RigEngine::renderBus(BusState& bus, int frames, float key, bool isKeyBus,
     // Doppler: two passes, always exactly half a pass apart (the second head has no clock of its own: it is placed
     // from the first head's). Bed: their sine windows overlap, and their power adds up to a steady level whatever
     // lengths Chaos draws. Fly-By: each is heard on its own, a long approach and a shorter tail (see passWindow).
+    const auto& kernel = sj::SincKernel::get();
     const double leadTime = bus.heads[0].time;                              // the first head before this chunk,
     const double leadLength = static_cast<double>(bus.heads[0].length);     // for placing the second
     for (size_t k = 0; k < bus.heads.size(); ++k)
@@ -909,21 +949,30 @@ void RigEngine::renderBus(BusState& bus, int frames, float key, bool isKeyBus,
             const double c2 = static_cast<double>(h.closest) * static_cast<double>(h.closest);
             const double k2 = 1.0 - v * v;
             const double vs = v * s;
-            const double delay = (std::sqrt(vs * vs + k2 * c2) - v * vs) / k2;
+            const double root = std::sqrt(vs * vs + k2 * c2);
+            const double delay = (root - v * vs) / k2;
             const float az = azimuth(u, h.dir);
             const double ear = static_cast<double>(c_earOffset * az);
             const double base = static_cast<double>(c_baseDelay) + delay;
             const double back = static_cast<double>(frames - 1 - i);
 
-            const float l = bus.line.read((base + ear) * m_sampleRate + back);
-            const float r = bus.line.read((base - ear) * m_sampleRate + back);
+            // Band-limited read: the delay shrinks on the way in, so the line is read faster than it was written
+            // (by 1 / (1 - speed), up to twice as fast). The read's filter comes down with that speed, so the top
+            // of the sound is filtered out instead of folding back as whistles that sweep the wrong way.
+            const double readSpeed = 1.0 - (v * vs / std::max(root, 1.0e-12) - v * v) / k2;
+            const double stretch = sj::SincKernel::stretchFor(readSpeed);
+            const float l = bus.line.readSinc((base + ear) * m_sampleRate + back, stretch, kernel);
+            const float r = bus.line.readSinc((base - ear) * m_sampleRate + back, stretch, kernel);
 
             // The swell: by the pass's own speed, so Bend changes the pitch and leaves the level alone.
             const float xRef = h.machRef * static_cast<float>(s);
             const float distRef = std::sqrt(xRef * xRef + h.closest * h.closest);
-            const float window = passWindow(u, shape0 + shapeStep * static_cast<float>(i + 1));
+            const float shapeNow = shape0 + shapeStep * static_cast<float>(i + 1);
+            const float window = passWindow(u, shapeNow);
             const float nearness = h.closest / std::max(distRef, 1.0e-6f);
-            const float gain = window * (1.0f + 0.8f * p.doppler * (nearness - 0.35f));
+            // Fly-By's passes don't overlap, so the bus is quieter between them: a little make-up keeps it as loud
+            // as Bed on the same material.
+            const float gain = window * (1.0f + (c_flyMakeup - 1.0f) * shapeNow) * (1.0f + 0.8f * p.doppler * (nearness - 0.35f));
             if (i == frames - 1)
                 proximity = std::max(proximity, window * (0.1f + 0.9f * std::sqrt(std::min(nearness, 1.0f))));
             const float theta = (0.95f * az + 1.0f) * (sj::c_pi * 0.25f);

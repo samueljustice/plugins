@@ -786,6 +786,154 @@ int main(int argc, char* argv[])
             check(sharpest < 0.012f, "doppler: passes start and hand over without a click");
         }
 
+        // The doppler read is band-limited. On the way in the bus's delay line is read faster than it was written
+        // (up to twice as fast), so the top of the sound would land above half the sample rate; a plain
+        // interpolator folds it back as whistles that sweep downwards. First the read on its own.
+        {
+            const auto& kernel = sj::SincKernel::get();
+            auto sweepRead = [&](double hz, double speed, bool sinc)
+            {
+                sj::DelayLine line;
+                line.prepare(8192);
+                const int n = 6000;
+                double sum = 0.0;
+                double delay = 7000.0;
+                for (int i = 0; i < 7200 + n; ++i)
+                {
+                    line.push(static_cast<float>(std::sin(twoPi * hz * i / c_rate)));
+                    if (i < 7200)
+                        continue;
+                    delay -= speed - 1.0; // the read point moves `speed` samples per sample
+                    const float y = sinc ? line.readSinc(delay, sj::SincKernel::stretchFor(speed), kernel) : line.read(delay);
+                    sum += static_cast<double>(y) * y;
+                }
+                return juce::Decibels::gainToDecibels(static_cast<float>(std::sqrt(2.0 * sum / n)), -150.0f);
+            };
+            const float foldSinc = sweepRead(15000.0, 2.0, true), foldPlain = sweepRead(15000.0, 2.0, false);
+            const float foldMid = sweepRead(17000.0, 1.5, true), foldMidPlain = sweepRead(17000.0, 1.5, false);
+            const float passFast = sweepRead(3000.0, 2.0, true), passSlow = sweepRead(10000.0, 0.7, true), passStill = sweepRead(12000.0, 1.0, true);
+            std::cout << "  doppler read: 15 kHz at 2x speed (30 kHz, cannot be played) comes out at " << foldSinc << " dB (a 4-point read: " << foldPlain
+                      << " dB); 17 kHz at 1.5x " << foldMid << " dB (" << foldMidPlain << " dB); kept: 3 kHz at 2x " << passFast
+                      << " dB, 10 kHz at 0.7x " << passSlow << " dB, 12 kHz at 1x " << passStill << " dB" << std::endl;
+            check(foldSinc < -55.0f && foldMid < -40.0f, "doppler read: what a fast read pushes above half the sample rate is filtered out, not folded back");
+            check(std::abs(passFast) < 0.3f && std::abs(passSlow) < 0.3f && std::abs(passStill) < 0.3f, "doppler read: what fits is kept at full level");
+            sj::DelayLine exact;
+            exact.prepare(1024);
+            for (int i = 0; i < 600; ++i)
+                exact.push(static_cast<float>(i));
+            check(exact.readSinc(100.0, 1.0, kernel) == 499.0f && std::abs(exact.readSinc(100.5, 1.0, kernel) - 498.5f) < 1.0e-2f,
+                  "doppler read: a whole-sample delay returns the sample itself, and a half-way one sits between its neighbours");
+        }
+        // And in the engine: a 20 kHz tone through the fastest pass (Doppler and Bend 100%). Going away it falls to
+        // 14 kHz; coming in it rises out of hearing. Nothing real is below 10 kHz: anything there is fold-back.
+        {
+            CargoHold h20k;
+            h20k.loadFile(0, writeWav(folder, "rig_src_tone20k", makeTone(20000.0, 4.0, 0.5f)), err);
+            h20k.setRoleOverride(0, static_cast<int>(CargoRole::Tonal));
+            h20k.setSkipSilence(0, false);
+            RigEngine e;
+            auto q = bare();
+            q.buses[0].doppler = 1.0f;
+            q.buses[0].bend = 1.0f;
+            start(e, h20k, q);
+            juce::AudioBuffer<float> o(2, static_cast<int>(20.0 * c_rate) / c_block * c_block);
+            renderRig(e, o, 0, o.getNumSamples(), c_block);
+            std::array<sj::Svf, 6> lp;
+            for (auto& f : lp)
+                f.set(7000.0f, 0.7071f, static_cast<float>(c_rate));
+            double low = 0.0, all = 0.0;
+            for (int i = static_cast<int>(1.0 * c_rate); i < o.getNumSamples(); ++i)
+            {
+                float x = o.getSample(0, i);
+                all += static_cast<double>(x) * x;
+                for (auto& f : lp)
+                    x = f.lowpass(x);
+                low += static_cast<double>(x) * x;
+            }
+            const float ratio = juce::Decibels::gainToDecibels(static_cast<float>(std::sqrt(low / std::max(all, 1.0e-30))), -150.0f);
+            std::cout << "  doppler fold-back: a 20 kHz tone through the fastest pass leaves " << ratio << " dB below 7 kHz (against everything)" << std::endl;
+            check(ratio < -45.0f, "doppler: a fast pass doesn't fold the top of the sound back down as whistles");
+        }
+
+        // A pitched track plays about as loud with VARI on (faster / slower) as with VARI off (the shifter). The hard
+        // case is a bright hiss pitched up: most of it sits at the very top, where the faster read has to filter, so
+        // VARI on carries a small make-up there. (The tone is printed only: its loop point adds a level of its own.)
+        {
+            juce::AudioBuffer<float> bright(1, static_cast<int>(6.0 * c_rate));
+            juce::Random r(11);
+            float prev = 0.0f;
+            for (int i = 0; i < bright.getNumSamples(); ++i)
+            {
+                const float w = r.nextFloat() * 2.0f - 1.0f;
+                bright.setSample(0, i, 0.35f * (w - 0.7f * prev));
+                prev = w;
+            }
+            CargoHold hHiss, hTone;
+            hHiss.loadFile(0, writeWav(folder, "rig_src_bright", bright), err);
+            hTone.loadFile(0, writeWav(folder, "rig_src_tone660", makeTone(660.0, 4.0, 0.5f)), err);
+            float worst = 0.0f;
+            for (auto* h : { &hHiss, &hTone })
+            {
+                h->setRoleOverride(0, static_cast<int>(CargoRole::Tonal));
+                h->setSkipSilence(0, false);
+                for (float semis : { -12.0f, 7.0f, 12.0f })
+                {
+                    float db[2] {};
+                    for (int vari = 0; vari < 2; ++vari)
+                    {
+                        RigEngine e;
+                        auto q = bare();
+                        q.trackPitch[0] = semis;
+                        q.trackVari[0] = vari == 1;
+                        start(e, *h, q);
+                        juce::AudioBuffer<float> o(2, static_cast<int>(6.0 * c_rate) / c_block * c_block);
+                        renderRig(e, o, 0, o.getNumSamples(), c_block);
+                        const int from = static_cast<int>(2.0 * c_rate);
+                        db[vari] = juce::Decibels::gainToDecibels(o.getRMSLevel(0, from, o.getNumSamples() - from));
+                    }
+                    std::cout << "  track pitch " << semis << " st on " << (h == &hHiss ? "a bright hiss" : "a tone") << ": VARI on " << db[1] << " dB, VARI off " << db[0] << " dB" << std::endl;
+                    if (h == &hHiss)
+                        worst = std::max(worst, std::abs(db[1] - db[0]));
+                }
+            }
+            check(worst < 1.0f, "track pitch: a hiss is within 1 dB with VARI on and off, an octave down, a fifth up and an octave up (worst " + juce::String(worst, 2) + " dB)");
+        }
+
+        // Stop, then Play again before the sources have let go (60 ms): the restart waits for a short fade, so the
+        // sound is never cut mid-wave. Also a restart while playing. A smooth 330 Hz tone never curves this sharply.
+        {
+            CargoHold h330;
+            h330.loadFile(0, writeWav(folder, "rig_src_tone330b", makeTone(330.0, 4.0, 0.5f)), err);
+            h330.setRoleOverride(0, static_cast<int>(CargoRole::Tonal));
+            h330.setSkipSilence(0, false);
+            auto sharpestAfter = [&](int stopSamples)
+            {
+                RigEngine e;
+                start(e, h330, bare());
+                juce::AudioBuffer<float> o(2, static_cast<int>(2.0 * c_rate) / 64 * 64);
+                const int stopAt = static_cast<int>(1.0 * c_rate) / 64 * 64;
+                renderRig(e, o, 0, stopAt, 64);
+                if (stopSamples > 0)
+                {
+                    e.setReleased(true);
+                    renderRig(e, o, stopAt, stopAt + stopSamples, 64);
+                    e.setReleased(false);
+                }
+                e.restart();
+                renderRig(e, o, stopAt + stopSamples, o.getNumSamples(), 64);
+                float sharpest = 0.0f;
+                for (int i = stopAt - 4800; i < o.getNumSamples(); ++i)
+                    sharpest = std::max(sharpest, std::abs(o.getSample(0, i) - 2.0f * o.getSample(0, i - 1) + o.getSample(0, i - 2)));
+                const float after = o.getRMSLevel(0, o.getNumSamples() - 9600, 9600);
+                return std::pair<float, float> { sharpest, after };
+            };
+            const auto quick = sharpestAfter(960), live = sharpestAfter(0), late = sharpestAfter(9600);
+            std::cout << "  restart: sharpest change, Play 20 ms after Stop " << quick.first << ", restart while playing " << live.first
+                      << ", Play 200 ms after Stop " << late.first << " (level afterwards " << quick.second << " / " << live.second << " / " << late.second << ")" << std::endl;
+            check(quick.first < 0.01f && live.first < 0.01f && late.first < 0.01f, "restart: Play just after Stop (or a restart while playing) doesn't click");
+            check(quick.second > 0.1f && live.second > 0.1f && late.second > 0.1f, "restart: the sources come back at full level");
+        }
+
         // The two passes of a bus stay exactly half a pass apart at any Chaos (so their power adds up to a steady level).
         {
             RigEngine e;
@@ -1301,6 +1449,13 @@ int main(int argc, char* argv[])
                 check(bedRange < 3.0f, "pass mode Bed: the two passes add up to a steady level");
                 check(flyRange > 7.0f && flyRange < 16.0f, "pass mode Fly-By: the level dips between passes without going silent");
                 check(in > out * 13 / 10 && out > 100, "pass mode Fly-By: a long approach and a shorter tail");
+                // And the two modes are about as loud as each other on the same sound (Fly-By's passes don't overlap,
+                // so it carries a make-up).
+                const int skip = static_cast<int>(2.0 * c_rate);
+                const float flyDb = juce::Decibels::gainToDecibels(fly.getRMSLevel(0, skip, fly.getNumSamples() - skip));
+                const float bedDb = juce::Decibels::gainToDecibels(bed.getRMSLevel(0, skip, bed.getNumSamples() - skip));
+                std::cout << "  pass mode level on a hiss: Fly-By " << flyDb << " dB, Bed " << bedDb << " dB (average power)" << std::endl;
+                check(std::abs(flyDb - bedDb) < 1.5f, "pass mode: Fly-By is about as loud as Bed on the same sound");
             }
 
             // Fly-By's loudest moment is the pass's closest point (which AIM aims at): the hits still land on it.

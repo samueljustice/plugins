@@ -112,7 +112,9 @@ bool ModMatrix::setDepth(int slot, float depth, int expectedGeneration)
     const std::lock_guard<std::mutex> lock(m_lock);
     if ((expectedGeneration >= 0 && expectedGeneration != m_generation.load()) || m_params[static_cast<size_t>(slot)].isEmpty())
         return false;
-    m_slots[static_cast<size_t>(slot)].depth.store(juce::jlimit(-1.0f, 1.0f, depth));
+    const float limited = juce::jlimit(-1.0f, 1.0f, depth);
+    if (! juce::exactlyEqual(m_slots[static_cast<size_t>(slot)].depth.exchange(limited), limited))
+        m_changeCount.fetch_add(1); // the session changed (no onChange: see the header)
     return true;
 }
 

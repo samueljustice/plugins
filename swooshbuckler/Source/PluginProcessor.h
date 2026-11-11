@@ -62,6 +62,9 @@ public:
     static constexpr double c_tailMaxSeconds = 6.0;
     void setPlaying(bool on) { if (on && ! m_playing.load()) m_restartPending.store(true); m_playing.store(on); }
     bool isPlaying() const { return m_playing.load(); }
+    /** Whether a change of this parameter (its index in getParameters()) right now is something the user did, to
+        be saved, and not the app moving it by itself: false for the morph dot while Wander is on. Any thread. */
+    bool isUserEdit(int parameterIndex) const;
     /** New session: stops, empties every track and puts every parameter back to its default. Message thread. */
     void newSession();
 
@@ -168,6 +171,9 @@ private:
     std::atomic<bool> m_uiSwell { false };
     std::atomic<bool> m_playing { false }, m_restartPending { false };
     float m_transportGain = 0.0f;
+    int m_morphXIndex = -1, m_morphYIndex = -1;          // for isUserEdit
+    std::atomic<float>* m_morphWanderRaw = nullptr;      //
+    bool m_tapeRested = false; // the tape has been told the rig is at rest (audio thread)
     juce::SmoothedValue<float, juce::ValueSmoothingTypes::Multiplicative> m_trimGain { 1.0f }; // Master Trim, device rate
     int m_midiNotesHeld = 0;
     MasterProcessor m_master;

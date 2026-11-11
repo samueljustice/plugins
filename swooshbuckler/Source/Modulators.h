@@ -50,7 +50,8 @@ public:
     int connect(int source, const juce::String& paramId, float depth = 0.5f);
     /** expectedGeneration (from generation()) guards against a restore having renumbered the slots meanwhile. */
     void disconnect(int slot, int expectedGeneration = -1);
-    /** Doesn't call onChange (it fires on every mouse move of a depth drag); the caller updates its own view. */
+    /** Doesn't call onChange (it fires on every mouse move of a depth drag); the caller updates its own view.
+        A new depth moves changeCount(), so the session autosave knows about it. */
     bool setDepth(int slot, float depth, int expectedGeneration = -1);
     /** Bumped whenever slots are renumbered (restore, clear). */
     int generation() const { return m_generation.load(); }

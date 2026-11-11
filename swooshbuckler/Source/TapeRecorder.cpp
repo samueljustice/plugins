@@ -283,6 +283,19 @@ void TapeRecorder::prepare(double sampleRate, int numChannels)
     m_retroTotal = 0;
 }
 
+bool TapeRecorder::rest()
+{
+    const juce::ScopedTryLock lock(m_writerLock);
+    if (! lock.isLocked())
+        return false;
+    // What reached the tape last was already silent (the transport had faded out), so there is nothing to fade.
+    m_capturing = false;
+    m_hangLeft = 0;
+    m_fadeInLeft = 0;
+    m_prerollFill = 0;
+    return true;
+}
+
 void TapeRecorder::process(const float* const* channels, int numChannels, int numSamples)
 {
     // Rolling tape

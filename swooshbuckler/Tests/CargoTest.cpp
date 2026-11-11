@@ -445,6 +445,100 @@ int main(int argc, char* argv[])
         check(old.expired(), "lifetime: it is freed once the engine has moved on");
     }
 
+    // Lifetime: an engine that is reset (or whose audio has stopped) lets go of the data it was reading, so it is
+    // freed without the engine having to run again.
+    {
+        const auto wav = writeMono(folder, "lifetime2.wav", sines(c_rate, 2.0, { 330.0 }, 0.4f), c_rate);
+        juce::String err;
+        CargoHold hold;
+        hold.loadFile(0, wav, err);
+        RigEngine engine;
+        engine.setCargoHold(&hold);
+        RigEngine::Params p;
+        engine.setParams(p);
+        engine.prepare(c_rate, c_block);
+        std::vector<float> l(c_block), r(c_block);
+        for (int k = 0; k < 2; ++k)
+        {
+            for (int i = 0; i < 40; ++i)
+                engine.process(nullptr, nullptr, l.data(), r.data(), c_block);
+            std::weak_ptr<const CargoData> old = hold.get(0);
+            hold.fromValueTree(juce::ValueTree("Cargo"));
+            hold.purgeRetired(0);
+            const bool heldWhileRead = ! old.expired();
+            if (k == 0) engine.reset(); else engine.letGoOfCargo();
+            hold.purgeRetired(0);
+            check(heldWhileRead && old.expired(), k == 0 ? "lifetime: a reset engine lets go of the data it was reading"
+                                                         : "lifetime: so does an engine whose audio has stopped");
+            hold.loadFile(0, wav, err);
+        }
+    }
+
+    // Undo steps keep the audio but not the octave copies (nearly as much memory again), once the engine can no
+    // longer be reading them; undo builds the copies again. And the undo history is capped by how much it holds.
+    {
+        const auto wav = writeMono(folder, "undomem.wav", sines(c_rate, 4.0, { 330.0, 5000.0 }, 0.3f), c_rate);
+        juce::String err;
+        CargoHold hold;
+        hold.loadFile(0, wav, err);
+        const auto original = hold.get(0);
+        const std::vector<float> mip0 = original->mips[0];
+        const std::int64_t audioBytes = static_cast<std::int64_t>(original->length()) * 4;
+
+        RigEngine engine;
+        engine.setCargoHold(&hold);
+        RigEngine::Params p;
+        engine.setParams(p);
+        engine.prepare(c_rate, c_block);
+        std::vector<float> l(c_block), r(c_block);
+        for (int i = 0; i < 40; ++i)
+            engine.process(nullptr, nullptr, l.data(), r.data(), c_block);
+
+        hold.reverse(0, 0, original->length());
+        const std::int64_t withCopies = hold.getUndoBytes();
+        hold.purgeRetired(0); // the engine hasn't run since the edit: it still reads the old data
+        check(! original->mips[0].empty() && hold.getUndoBytes() == withCopies,
+              "undo memory: a step the engine may still be reading keeps its octave copies");
+        for (int i = 0; i < 200; ++i)
+            engine.process(nullptr, nullptr, l.data(), r.data(), c_block);
+        hold.purgeRetired(0);
+        const std::int64_t without = hold.getUndoBytes();
+        std::cout << "         one undo step of a 4 s sound: " << withCopies / 1024 << " KB with its octave copies, " << without / 1024
+                  << " KB once the engine has let go (the audio alone is " << audioBytes / 1024 << " KB)" << std::endl;
+        check(original->mips[0].empty() && without == audioBytes && withCopies > audioBytes * 18 / 10,
+              "undo memory: once the engine has let go, the step keeps only the audio");
+        check(! hold.get(0)->mips[0].empty(), "undo memory: the sound in use keeps its octave copies");
+
+        hold.undo(0);
+        check(hold.get(0) == original && original->mips[0] == mip0, "undo memory: undo brings the octave copies back, the same as before");
+        for (int i = 0; i < 200; ++i)
+            engine.process(nullptr, nullptr, l.data(), r.data(), c_block);
+        hold.purgeRetired(0);
+        check(! original->mips[0].empty(), "undo memory: they stay while the sound is the one in use");
+        hold.redo(0);
+        check(! hold.get(0)->mips[0].empty(), "undo memory: redo brings them back too");
+
+        // The cap: about two and a half steps' worth. The oldest edits are forgotten, the newest always stays.
+        hold.setUndoByteLimit(audioBytes * 5);
+        for (int k = 0; k < 8; ++k)
+        {
+            hold.reverse(0, 0, hold.get(0)->length());
+            hold.purgeRetired(0);
+        }
+        int steps = 0;
+        const std::int64_t capped = hold.getUndoBytes();
+        while (hold.canUndoLatest() && steps < 100)
+        {
+            hold.undoLatest();
+            ++steps;
+        }
+        std::cout << "         undo cap: " << capped / 1024 << " KB held under a " << audioBytes * 5 / 1024 << " KB limit, " << steps << " steps left to undo" << std::endl;
+        check(capped <= audioBytes * 5 && steps >= 2 && steps <= 5, "undo memory: the history is capped by size, oldest edits first");
+        hold.setUndoByteLimit(1);
+        hold.reverse(0, 0, hold.get(0)->length());
+        check(hold.canUndoLatest() && hold.undoLatest() == 0, "undo memory: however small the limit, the latest edit can be undone");
+    }
+
     // Band-limited playback: what a faster read pushes over Nyquist is filtered out, not folded back.
     {
         const auto level = [](const std::vector<float>& v) { return rmsOf(v.data() + 9600, static_cast<int>(v.size()) - 9600 - c_block); };
