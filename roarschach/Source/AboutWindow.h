@@ -5,9 +5,12 @@
 #include "Theme.h"
 
 #include <functional>
+#include <memory>
+#include <vector>
 
 /**
- * The About window. Its owner (the editor) creates at most one, and deletes it when the
+ * The About window: who made it, a five-line quick start with the plug-in's latency, the update
+ * check and the licence. Its owner (the editor) creates at most one, and deletes it when the
  * user closes it (onClose) or when the editor itself goes, so it never outlives the plugin.
  * It is drawn with the owner's LookAndFeel, which outlives it.
  */
@@ -17,9 +20,19 @@ class AboutWindow : public juce::DocumentWindow
 
 public:
     /** onClose is called when the user closes the window; it should delete the window.
-        editorLookAndFeel (the editor's) must outlive the window. */
-    AboutWindow(RoarschachLookAndFeel& editorLookAndFeel, std::function<void()> onClose);
+        editorLookAndFeel (the editor's) must outlive the window. latencyNote is the latency the
+        processor reports, in words ("45.7 ms (...)"; empty if it is not known yet). */
+    AboutWindow(RoarschachLookAndFeel& editorLookAndFeel, std::function<void()> onClose, const juce::String& latencyNote = {});
     ~AboutWindow() override;
+
+    static constexpr int c_width = 500, c_height = 760;
+
+    /** The quick start: five short lines, first step first. */
+    static juce::StringArray quickStartLines();
+    /** The line under them about the plug-in's latency (latencyNote as for the constructor). */
+    static juce::String latencyLine(const juce::String& latencyNote);
+    /** The window's content on its own (the tests and pictures; the window makes its own). */
+    static std::unique_ptr<juce::Component> createContent(RoarschachLookAndFeel& editorLookAndFeel, const juce::String& latencyNote);
 
     void closeButtonPressed() override;
 
@@ -72,7 +85,7 @@ private:
         JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(AboutContent)
 
     public:
-        explicit AboutContent(RoarschachLookAndFeel& editorLookAndFeel);
+        AboutContent(RoarschachLookAndFeel& editorLookAndFeel, const juce::String& latencyNote);
         ~AboutContent() override;
 
         void paint(juce::Graphics& g) override;
@@ -82,9 +95,13 @@ private:
 
     private:
         void checkForUpdates();
+        /** Lays out the quick start for this width; returns the height it takes. */
+        int layoutQuickStart(int width);
 
         RoarschachLookAndFeel& m_lookAndFeel;
-        juce::Rectangle<int> m_creditsPanel, m_updatesPanel, m_licencePanel; // panels like the editor's sections
+        juce::Rectangle<int> m_creditsPanel, m_quickStartPanel, m_updatesPanel, m_licencePanel; // panels like the editor's sections
+        const juce::String m_latencyLine;
+        std::vector<juce::TextLayout> m_quickStart;   // one per line, then the latency line
 
         juce::TextButton m_websiteButton;
         juce::TextButton m_emailButton;
