@@ -178,33 +178,40 @@ namespace
         return kernel;
     }
 
-    /** src low-passed and decimated by two (out[m] sits at src[2m]); the ends repeat the edge samples. */
+    /** src low-passed and decimated by two (out[m] sits at src[2m]); the ends repeat the edge samples. Reads the
+        source in place: a long file needs no padded second copy of itself while its octave copies are built. */
     std::vector<float> halved(const float* src, int length)
     {
         const auto& h = mipKernel();
         const int mid = c_mipTaps / 2;
-        std::vector<float> padded(static_cast<size_t>(length + 2 * mid + 1));
-        std::fill(padded.begin(), padded.begin() + mid, src[0]);
-        std::copy(src, src + length, padded.begin() + mid);
-        std::fill(padded.begin() + mid + length, padded.end(), src[length - 1]);
-
         const int outLength = (length + 1) / 2;
         std::vector<float> out(static_cast<size_t>(outLength));
         for (int m = 0; m < outLength; ++m)
         {
-            const float* p = padded.data() + 2 * m; // p[mid] is src[2m]
-            float a0 = 0.0f, a1 = 0.0f, a2 = 0.0f, a3 = 0.0f;
-            int k = 0;
-            for (; k + 4 <= c_mipTaps; k += 4)
+            const int first = 2 * m - mid; // the kernel covers src[first .. first + c_mipTaps - 1]
+            if (first >= 0 && first + c_mipTaps <= length)
             {
-                a0 += h[static_cast<size_t>(k)] * p[k];
-                a1 += h[static_cast<size_t>(k + 1)] * p[k + 1];
-                a2 += h[static_cast<size_t>(k + 2)] * p[k + 2];
-                a3 += h[static_cast<size_t>(k + 3)] * p[k + 3];
+                const float* p = src + first;
+                float a0 = 0.0f, a1 = 0.0f, a2 = 0.0f, a3 = 0.0f;
+                int k = 0;
+                for (; k + 4 <= c_mipTaps; k += 4)
+                {
+                    a0 += h[static_cast<size_t>(k)] * p[k];
+                    a1 += h[static_cast<size_t>(k + 1)] * p[k + 1];
+                    a2 += h[static_cast<size_t>(k + 2)] * p[k + 2];
+                    a3 += h[static_cast<size_t>(k + 3)] * p[k + 3];
+                }
+                for (; k < c_mipTaps; ++k)
+                    a0 += h[static_cast<size_t>(k)] * p[k];
+                out[static_cast<size_t>(m)] = (a0 + a1) + (a2 + a3);
             }
-            for (; k < c_mipTaps; ++k)
-                a0 += h[static_cast<size_t>(k)] * p[k];
-            out[static_cast<size_t>(m)] = (a0 + a1) + (a2 + a3);
+            else
+            {
+                float a = 0.0f;
+                for (int k = 0; k < c_mipTaps; ++k)
+                    a += h[static_cast<size_t>(k)] * src[juce::jlimit(0, length - 1, first + k)];
+                out[static_cast<size_t>(m)] = a;
+            }
         }
         return out;
     }

@@ -542,6 +542,37 @@ int main(int argc, char* argv[])
         }
     }
 
+    // A hiss pitched up loses exactly the part that no longer fits under Nyquist, no more and no less: up an octave
+    // half of white noise is left (-3 dB and a little for the filter's slope), up two octaves a quarter. Folding
+    // back would keep all of it (0 dB); filtering too hard would lose more.
+    {
+        CargoData d;
+        d.sampleRate = c_rate;
+        d.audio.setSize(1, static_cast<int>(6.0 * c_rate));
+        juce::uint32 seed = 12345u;
+        for (int i = 0; i < d.audio.getNumSamples(); ++i)
+        {
+            seed = seed * 1664525u + 1013904223u;
+            d.audio.setSample(0, i, 0.3f * (static_cast<float>(seed >> 8) / 8388608.0f - 1.0f));
+        }
+        d.analyse();
+        const auto play = [&d](float rate)
+        {
+            CargoPlayer player;
+            player.prepare(c_rate);
+            sj::Random rng;
+            std::vector<float> out(static_cast<size_t>(c_rate), 0.0f);
+            for (int pos = 0; pos + c_block <= static_cast<int>(out.size()); pos += c_block)
+                player.render(&d, CargoRole::Bed, false, rate, 0.0f, rng, 0.1f, CargoCue {}, out.data() + pos, c_block);
+            return rmsOf(out.data() + 9600, static_cast<int>(out.size()) - 9600 - c_block);
+        };
+        const double unity = play(1.0f);
+        const double up1 = dbOf(play(2.0f) / unity), up2 = dbOf(play(4.0f) / unity), up19 = dbOf(play(2.9966f) / unity);
+        check(up1 < -2.6 && up1 > -4.6, "playback: white noise up an octave keeps the half that fits (" + juce::String(up1, 2) + " dB)");
+        check(up19 < -4.4 && up19 > -6.4, "playback: white noise up 19 semitones keeps the third that fits (" + juce::String(up19, 2) + " dB)");
+        check(up2 < -5.6 && up2 > -7.6, "playback: white noise up two octaves keeps the quarter that fits (" + juce::String(up2, 2) + " dB)");
+    }
+
     // The band-limited read stays cheap: ten tracks pitched up 21 semitones (the longest kernel in normal use).
     {
         CargoData d;
