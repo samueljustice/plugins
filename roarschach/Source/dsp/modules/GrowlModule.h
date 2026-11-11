@@ -46,6 +46,11 @@ namespace roar
      *            two time constants add up to 0.35 * 0.25 / f (at least 0.3 ms)
      *   Throat   Sine at f0 / 2 of the voice stream: alternate glottal periods get different gains.
      *            Depth fades in and out with voicing over 15 ms, so noise and unvoiced parts get no AM.
+     *            Voicing has a hangover: when the tracker lets go inside a word the line runs on
+     *            at the held pitch for up to 110 ms while the level stays within 30 dB of its recent
+     *            peak (a quarter of that when the confidence is at zero), and a pitch that returns
+     *            within the hold carries on in phase. Hiss ends the hold at once (more level above
+     *            3 kHz than below and a confidence under 0.3), so a sibilant is not modulated.
      *   Rattle   Sine at f 2^(1.5 r_env): louder lines rattle faster,
      *            r_env = clamp ((e_dB - (R - 12)) / 24, 0, 1), so a voice at the reference level
      *            already moves the rate
@@ -108,6 +113,15 @@ namespace roar
         static constexpr double c_optoTauOn = 0.003, c_optoTauOff = 0.025, c_optoReferenceHz = 8.0;
         static constexpr double c_squareSmooth = 0.35 * 0.25, c_squareMinTau = 0.0003;
         static constexpr double c_voicingTau = 0.015;
+        static constexpr double c_voicingHold = 0.110;             // hangover after the tracker lets go
+        static constexpr double c_voicingHoldConfidence = 0.25;    // below this the hold runs out sooner ...
+        static constexpr double c_voicingHoldFast = 3.0;           // ... up to (1 + this) times as fast at 0
+        static constexpr double c_voicingHoldRangeDb = 30.0;       // the hold needs the level within this of its recent peak
+        static constexpr double c_voicingHoldFloorDb = -50.0;      // and above this
+        static constexpr double c_levelPeakDbPerSecond = 1.5;      // release of that recent peak
+        static constexpr double c_hissSplitHz = 3000.0;            // more above this than below ...
+        static constexpr double c_hissConfidence = 0.3;            // ... and less confidence than this: hiss, no hold
+        static constexpr double c_hissAttack = 0.005, c_hissRelease = 0.030;
         static constexpr double c_fadeSeconds = 0.020;
 
         void prepare (double fs, int maxBlock) override;
@@ -162,6 +176,9 @@ namespace roar
             float humanize = 0.0f;       // h for this cycle
             float env = 0.0f;            // peak follower
             float voicing = 0.0f;        // Throat voicing gate, 0..1
+            float voicingHold = 0.0f;    // samples of hangover left
+            float levelPeak = 0.0f;      // recent peak of env (slow release)
+            float lowEnv = 0.0f, highEnv = 0.0f;   // hiss detector: level below / above the split
             float makeup = 1.0f;         // applied
             float makeupTarget = 1.0f;   // Opto / Square: from the last cycle
             float makeupMeasured = 1.0f; // Opto / Square: smoothed
@@ -197,6 +214,8 @@ namespace roar
         float m_makeupCoeff = 0.0f;     // 50 ms one-pole
         float m_envAttack = 0.0f, m_envRelease = 0.0f;
         float m_voicingCoeff = 0.0f;
+        float m_voicingHoldSamples = 5280.0f;
+        float m_levelPeakDecay = 1.0f;
         float m_f0Coeff = 0.0f;         // 10 ms
         float m_fadeStep = 1.0f / 960.0f;
         int m_maxCycleSamples = 48000;
@@ -208,6 +227,8 @@ namespace roar
         State m_state;
         std::array<Channel, 2> m_channels;
         LampLfo m_lamp;
+        TptOnePole m_hissSplit;         // hiss detector split (mono)
+        float m_hissAttack = 0.0f, m_hissRelease = 0.0f;
         SmoothRandom m_drift;
         OnFade m_fade;
     };

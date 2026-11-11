@@ -76,6 +76,12 @@ namespace roar
         m_envAttack = static_cast<float> (dsp::onePoleCoeff (c_envAttack, m_fs));
         m_envRelease = static_cast<float> (dsp::onePoleCoeff (c_envRelease, m_fs));
         m_voicingCoeff = static_cast<float> (dsp::onePoleCoeff (c_voicingTau, m_fs));
+        m_voicingHoldSamples = static_cast<float> (c_voicingHold * m_fs);
+        m_levelPeakDecay = static_cast<float> (std::pow (10.0, -c_levelPeakDbPerSecond / (20.0 * m_fs)));
+        m_hissSplit.prepare (m_fs);
+        m_hissSplit.setCutoff (c_hissSplitHz);
+        m_hissAttack = static_cast<float> (dsp::onePoleCoeff (c_hissAttack, m_fs));
+        m_hissRelease = static_cast<float> (dsp::onePoleCoeff (c_hissRelease, m_fs));
         m_f0Coeff = static_cast<float> (dsp::onePoleCoeff (0.010, m_fs));
         m_fadeStep = 1.0f / static_cast<float> (std::max (1, dsp::samplesFor (c_fadeSeconds, m_fs)));
         m_maxCycleSamples = static_cast<int> (1.1 * m_fs);   // the slowest cycle is 1 Hz (-0.5 % drift)
@@ -128,6 +134,7 @@ namespace roar
     {
         m_state = State {};
         m_state.gRing.fill (1.0f);
+        m_hissSplit.reset();
         m_lamp.reset (0.0f);
         m_drift.seed (0x5bd1e995u);
         snapToTargets();
@@ -306,6 +313,11 @@ namespace roar
         const float maxDepth = static_cast<float> (c_maxDepth);
         const float makeupCap = static_cast<float> (dsp::dbToGain (c_makeupCapDb));
         const double invFs = 1.0 / m_fs;
+        const float holdFast = static_cast<float> (c_voicingHoldFast);
+        const float invHoldConfidence = static_cast<float> (1.0 / c_voicingHoldConfidence);
+        const float holdRange = static_cast<float> (dsp::dbToGain (-c_voicingHoldRangeDb));
+        const float holdFloor = static_cast<float> (dsp::dbToGain (c_voicingHoldFloorDb));
+        const float hissConfidence = static_cast<float> (c_hissConfidence);
         const int numChannels = stereo ? 2 : 1;
         float* const io[2] = { l, r };
 
@@ -329,7 +341,32 @@ namespace roar
             const VoiceFrame& frame = voice.atSample (i);
             if (frame.f0Hz > 0.0f && std::isfinite (frame.f0Hz))
                 st.f0 += static_cast<double> (m_f0Coeff) * (std::clamp (static_cast<double> (frame.f0Hz), 20.0, 2000.0) - st.f0);
-            const float voicedTarget = (frame.voiced && frame.f0Hz > 0.0f) ? 1.0f : 0.0f;
+            // Throat's voicing gate, with a hangover: the tracker drops out for a few tens of
+            // milliseconds inside rough or breathy words, and a rasp that switched off there would
+            // flicker. The f0 / 2 line keeps running at the held pitch while the level stays up;
+            // the hold runs out up to four times sooner as the confidence falls to zero, and hiss
+            // with no periodicity left ends it at once, so a sibilant is not modulated.
+            const bool voicedNow = frame.voiced && frame.f0Hz > 0.0f;
+            st.levelPeak = std::max (st.env, st.levelPeak * m_levelPeakDecay);
+            {
+                // Hiss: the part above c_hissSplitHz against the part below it (5 / 30 ms followers).
+                const float mono = stereo ? 0.5f * (x0 + x1) : x0;
+                const float low = m_hissSplit.processLowpass (mono);
+                const float lowAbs = std::abs (low), highAbs = std::abs (mono - low);
+                st.lowEnv += (lowAbs > st.lowEnv ? m_hissAttack : m_hissRelease) * (lowAbs - st.lowEnv);
+                st.highEnv += (highAbs > st.highEnv ? m_hissAttack : m_hissRelease) * (highAbs - st.highEnv);
+                st.lowEnv = dsp::flushTiny (st.lowEnv);
+                st.highEnv = dsp::flushTiny (st.highEnv);
+            }
+            const bool hiss = st.highEnv > st.lowEnv && frame.confidence < hissConfidence;
+            if (voicedNow)
+                st.voicingHold = m_voicingHoldSamples;
+            else if (hiss)
+                st.voicingHold = 0.0f;
+            else if (st.voicingHold > 0.0f)
+                st.voicingHold -= 1.0f + holdFast * (1.0f - std::clamp (frame.confidence * invHoldConfidence, 0.0f, 1.0f));
+            const bool held = st.voicingHold > 0.0f && st.env > std::max (st.levelPeak * holdRange, holdFloor);
+            const float voicedTarget = (voicedNow || held) ? 1.0f : 0.0f;
             if (voicedTarget > 0.0f && st.voicing < 1.0e-3f)
                 st.throatPhase = 0.0;   // lock the f0 / 2 phase to the voicing onset
             st.voicing += m_voicingCoeff * (voicedTarget - st.voicing);
@@ -476,6 +513,7 @@ namespace roar
         }
         m_lamp.setRate (m_state.lampRate);
         m_lamp.copyStateFrom (o.m_lamp);
+        m_hissSplit.copyStateFrom (o.m_hissSplit);
         m_drift.copyStateFrom (o.m_drift);
         m_fade.copyStateFrom (o.m_fade);
     }
