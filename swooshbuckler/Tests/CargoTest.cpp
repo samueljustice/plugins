@@ -537,6 +537,20 @@ int main(int argc, char* argv[])
         hold.setUndoByteLimit(1);
         hold.reverse(0, 0, hold.get(0)->length());
         check(hold.canUndoLatest() && hold.undoLatest() == 0, "undo memory: however small the limit, the latest edit can be undone");
+
+        // The same after more edits on one track than its history keeps (the per-track count trims first).
+        hold.setUndoByteLimit(CargoHold::c_undoByteLimit);
+        for (int k = 0; k < 45; ++k)
+        {
+            hold.reverse(0, 0, hold.get(0)->length());
+            hold.purgeRetired(0);
+        }
+        hold.setUndoByteLimit(1);
+        hold.reverse(0, 0, hold.get(0)->length());
+        const auto latest = hold.get(0);
+        check(hold.canUndo(0) && hold.canUndoLatest() && hold.undoLatest() == 0 && hold.get(0) != latest,
+              "undo memory: the latest edit can still be undone after a long run of edits on one track");
+        hold.setUndoByteLimit(CargoHold::c_undoByteLimit);
     }
 
     // Band-limited playback: what a faster read pushes over Nyquist is filtered out, not folded back.

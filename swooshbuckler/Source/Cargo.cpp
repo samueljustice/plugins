@@ -453,12 +453,15 @@ std::int64_t CargoHold::getUndoBytes() const
 void CargoHold::trimUndoToBytes()
 {
     // Over the limit: the oldest edits go first, across every track. The newest edit can always be undone.
+    // (m_undoOrder can name a track more often than the track has steps left, so the newest step is guarded by
+    // its own track as well: the last entry of m_undoOrder is the edit just made.)
     while (m_undoOrder.size() > 1 && getUndoBytes() > m_undoByteLimit)
     {
-        auto& t = m_tracks[static_cast<size_t>(m_undoOrder.front())];
+        const int track = m_undoOrder.front();
+        auto& t = m_tracks[static_cast<size_t>(track)];
         m_undoOrder.erase(m_undoOrder.begin());
-        if (t.undo.empty())
-            continue; // that edit's step had gone already
+        if (t.undo.empty() || (track == m_undoOrder.back() && t.undo.size() == 1))
+            continue; // that edit's step had gone already, or it is the newest one
         retire(t.undo.front());
         t.undo.erase(t.undo.begin());
         if (! t.undoMeta.empty())
@@ -645,6 +648,10 @@ void CargoHold::publish(int track, std::shared_ptr<CargoData> data, bool recordU
                 retire(t.undo.front());
                 t.undo.erase(t.undo.begin());
                 t.undoMeta.erase(t.undoMeta.begin());
+                // Its place in the order of edits goes with it, so the order never names steps that are gone.
+                const auto oldest = std::find(m_undoOrder.begin(), m_undoOrder.end(), track);
+                if (oldest != m_undoOrder.end())
+                    m_undoOrder.erase(oldest);
             }
             for (auto& r : t.redo)
                 retire(r);
