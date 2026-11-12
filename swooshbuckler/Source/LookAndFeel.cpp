@@ -589,7 +589,7 @@ void SwooshLookAndFeel::drawWell(juce::Graphics& g, juce::Rectangle<float> area,
 
 int SwooshLookAndFeel::titleEnd(const Theme::Fonts& fonts, const juce::String& title)
 {
-    return c_titleX + juce::roundToInt(std::ceil(juce::GlyphArrangement::getStringWidth(fonts.display(), title)));
+    return c_titleX + juce::roundToInt(std::ceil(Theme::textWidth(fonts.display(), title)));
 }
 
 void SwooshLookAndFeel::drawPanel(juce::Graphics& g, juce::Rectangle<float> area, const juce::String& title,

@@ -13,6 +13,7 @@
 - **The tape's time moved** to the left of the sea, beside its name, so it no longer sits under the Morph button; the names over the comets step aside while the morph pad is open.
 - **The scrollbar in Tracks, the Trim fader and the corner you resize by** are drawn in the same style as everything else.
 - **Tooltips**: every one now starts with the control's name.
+- **The line over each waveform** (its length, its sounds, its file, or which hit is aimed) sits on a dark plate, so it reads over a loud sound and over the hit marks.
 
 - **New: Load Demo Sounds.** A button in the empty Tracks panel fills four tracks with sounds made on the spot: a growl (bus A), a stereo wind bed and air swishes (bus B) and four hits. Press Play and you have a whoosh to shape before you have loaded anything of your own. One Undo takes them out again.
 - **New: keyboard shortcuts.** Return is Play / Stop, R is Randomise, T arms and stops the tape and L saves the last minute, alongside F for Throw, the space bar for Swell and Cmd+Z / Shift+Cmd+Z for Undo and Redo. They never fire while you are typing in a text box or while a panel is open.

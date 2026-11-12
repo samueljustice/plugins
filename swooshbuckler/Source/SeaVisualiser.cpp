@@ -314,7 +314,7 @@ void SeaVisualiser::paint(juce::Graphics& g)
             if (label.alpha <= 0.01f)
                 continue;
             const auto& text = busLabels[b];
-            const float textW = juce::jmin(w - 8.0f, juce::GlyphArrangement::getStringWidth(labelFont, text) + 4.0f);
+            const float textW = juce::jmin(w - 8.0f, Theme::textWidth(labelFont, text) + 4.0f);
             auto area = juce::Rectangle<float>(textW, 14.0f).withCentre(label.at);
             area = area.withX(juce::jlimit(4.0f, juce::jmax(4.0f, w - textW - 4.0f), area.getX())).withY(juce::jmax(4.0f, area.getY()));
             for (size_t k = 0; k < numPlaced; ++k)

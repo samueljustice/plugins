@@ -3,7 +3,8 @@
 //   - Tokens: every text colour reaches 4.5:1 on the surfaces it is drawn on; the modulators' colours are none of
 //     the sections' colours or the brass; the radii and the type scale are what the design says.
 //   - Fitted text: a text that fits is left alone, one that does not is set smaller but never under the floor, and
-//     only then cut; a name is cut in its middle, a label at its end; nothing comes out wider than its box.
+//     only then cut; a name is cut in its middle, a label at its end; nothing comes out wider than its box; a text
+//     is laid out once and kept, and lands where JUCE's own justification would put it.
 //   - Capitals: the rule itself, then every parameter name and every choice of every parameter.
 //   - The editor, with the demo sounds playing, at 0.6, 1.0 and 1.5 times its size and in each of its states (the
 //     first run, wires and linked buses, Settings, Takes, Render Variations, About, the update card): every text it
@@ -169,6 +170,57 @@ int main(int argc, char* argv[])
         check(neverWider, "fit: whatever the width and the kind of text, what comes out is never wider than the box");
         check(Theme::mayBeCut(Theme::Fit::Name) && Theme::mayBeCut(Theme::Fit::Message) && ! Theme::mayBeCut(Theme::Fit::Whole) && ! Theme::mayBeCut(Theme::Fit::Sentence),
               "fit: names and messages may be cut; labels and hints may not (the checker reports one that was)");
+
+        // A text is laid out once and kept: measuring and drawing it again is a lookup, not another layout (laying
+        // text out is what costs, and the interface redraws the same labels many times a second).
+        {
+            auto& cache = Theme::detail::TextCache::slot();
+            bool sameWidths = true;
+            for (const auto* text : { "Follow Master", "Throw Length", "14.82 s   8 sounds", "A", "Drop More Sounds Here" })
+                for (const auto& f : { fonts->caption(), fonts->control(), fonts->title(), fonts->display() })
+                    sameWidths = sameWidths && std::abs(Theme::textWidth(f, text) - juce::GlyphArrangement::getStringWidth(f, text)) < 1.0e-3f;
+            check(sameWidths, "kept text: a kept width is the width JUCE measures");
+
+            const juce::String once = "Laid Out Once";
+            Theme::textWidth(font, once);
+            const auto before = cache != nullptr ? cache->map.size() : 0;
+            juce::Image image(juce::Image::ARGB, 200, 40, true);
+            juce::Graphics g(image);
+            for (int i = 0; i < 50; ++i)
+            {
+                Theme::fitToWidth(once, font, 180.0f);
+                Theme::fitText(g, once, juce::Rectangle<float>(4.0f, 4.0f, 180.0f, 20.0f), font, juce::Justification::centred);
+            }
+            check(cache != nullptr && cache->map.size() == before, "kept text: fifty measurements and drawings of one label lay it out once");
+
+            // It lands where JUCE's own justification puts it.
+            struct Catch : Theme::TextProbe
+            {
+                juce::Rectangle<float> ink;
+                void textDrawn(juce::Graphics&, const juce::String&, juce::Rectangle<float>, juce::Rectangle<float> i, float, Theme::Fit, bool, bool) override { ink = i; }
+            } caught;
+            Theme::textProbe() = &caught;
+            bool samePlace = true;
+            const juce::Rectangle<float> box(12.0f, 6.0f, 170.0f, 26.0f);
+            for (const auto j : { juce::Justification::centredLeft, juce::Justification::centred, juce::Justification::centredRight,
+                                  juce::Justification::topLeft, juce::Justification::bottomRight, juce::Justification::centredTop })
+            {
+                Theme::fitText(g, " Auto Ride ", box, font, j);
+                juce::GlyphArrangement reference;
+                reference.addLineOfText(font, " Auto Ride ", 0.0f, 0.0f);
+                reference.justifyGlyphs(0, reference.getNumGlyphs(), box.getX(), box.getY(), box.getWidth(), box.getHeight(), j);
+                const auto want = reference.getBoundingBox(0, -1, true);
+                samePlace = samePlace && std::abs(want.getX() - caught.ink.getX()) < 0.01f && std::abs(want.getY() - caught.ink.getY()) < 0.01f
+                            && std::abs(want.getWidth() - caught.ink.getWidth()) < 0.01f;
+            }
+            Theme::textProbe() = nullptr;
+            check(samePlace, "kept text: it is placed in its box where JUCE's justification places it (left, centre, right, top, bottom)");
+
+            for (int i = 0; i < 3000; ++i)
+                Theme::textWidth(font, "Rec " + juce::String(i));
+            check(cache != nullptr && cache->map.size() <= Theme::detail::TextCache::c_most,
+                  "kept text: readouts that keep changing do not pile up (at most " + juce::String(static_cast<int>(Theme::detail::TextCache::c_most)) + " kept)");
+        }
 
         // The checker sees a cut label, a text under the floor, two texts on top of each other and capitals.
         struct Canvas : juce::Component

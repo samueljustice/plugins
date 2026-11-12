@@ -338,7 +338,7 @@ public:
             // A chip: a pill tinted in the section's colour, with the chevron of a menu.
             const auto tagFont = fonts.caption();
             const int arrowW = 11;
-            const int tagW = juce::roundToInt(std::ceil(juce::GlyphArrangement::getStringWidth(tagFont, tagText))) + 14 + arrowW;
+            const int tagW = juce::roundToInt(std::ceil(Theme::textWidth(tagFont, tagText))) + 14 + arrowW;
             const auto tag = nameRow.removeFromRight(tagW).reduced(0, 1).toFloat();
             nameRow.removeFromRight(6);
             m_busTagArea = tag.toNearestInt();
@@ -459,29 +459,37 @@ public:
 
         const auto& d = *m_data;
         const auto infoFont = fonts.caption();
+        // The line over the waveform sits on a dark plate, so it reads over the sound, the hit marks and the ride.
+        const auto infoLine = wave.reduced(16, 4).withHeight(14).toFloat();
+        auto drawInfo = [&](const juce::String& text, juce::Colour textColour, Theme::Fit fit)
+        {
+            const float width = juce::jmin(infoLine.getWidth(), Theme::fitToWidth(text, infoFont, infoLine.getWidth(), fit).width);
+            g.setColour(TC::well.withAlpha(0.62f));
+            g.fillRoundedRectangle(infoLine.withWidth(width).expanded(5.0f, 0.0f), 7.0f);
+            g.setColour(textColour);
+            Theme::fitText(g, text, infoLine, infoFont, juce::Justification::centredLeft, fit);
+        };
         if (m_align > 0.5f)
         {
-            g.setColour(TC::record.brighter(0.3f).withAlpha(m_align));
             const bool aimed = m_owner.m_processor.getState().getRawParameterValue(ParamIDs::hitAim)->load() > 0.5f;
             const juce::String mode = aimed ? "Aimed" : "Synced";
-            Theme::fitText(g, m_syncCount == 0 ? mode + ": no hits found (try Skip Silence off)"
-                                               : mode + ": hit " + juce::String(m_syncIndex + 1) + " of " + juce::String(m_syncCount)
-                                                     + (m_owner.m_hold.getSkipSilence(m_track) ? "" : " (whole file)"),
-                           wave.reduced(16, 4).withHeight(14), infoFont, juce::Justification::centredLeft, Theme::Fit::Message);
+            drawInfo(m_syncCount == 0 ? mode + ": no hits found (try Skip Silence off)"
+                                      : mode + ": hit " + juce::String(m_syncIndex + 1) + " of " + juce::String(m_syncCount)
+                                            + (m_owner.m_hold.getSkipSilence(m_track) ? "" : " (whole file)"),
+                     TC::record.brighter(0.3f).withAlpha(m_align), Theme::Fit::Message);
         }
         else
         {
             // The length, the sounds found, and the file it came from (cut in the middle to fit the lane).
-            g.setColour(TC::textDim);
             const auto line = wave.reduced(16, 4);
             juce::String info = juce::String(d.length() / d.sampleRate, 2) + " s   " + juce::String(static_cast<int>(d.regions.size()))
                                 + (d.regions.size() == 1 ? " sound" : " sounds")
                                 + (m_owner.m_hold.getSkipSilence(m_track) ? "" : "   silence kept");
-            const float room = static_cast<float>(line.getWidth()) - juce::GlyphArrangement::getStringWidth(infoFont, info + "      ");
+            const float room = static_cast<float>(line.getWidth()) - Theme::textWidth(infoFont, info + "      ");
             const auto file = Theme::fitMiddle(d.name, infoFont, room);
             if (file.isNotEmpty())
                 info << "   " << file;
-            Theme::fitText(g, info, line.withHeight(14), infoFont, juce::Justification::centredLeft, Theme::Fit::Name);
+            drawInfo(info, TC::textDim, Theme::Fit::Name);
         }
     }
 

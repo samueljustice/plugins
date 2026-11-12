@@ -3,6 +3,8 @@
 #include <JuceHeader.h>
 #include "BinaryData.h"
 
+#include <unordered_map>
+
 /**
  * The design tokens: every colour, radius, gap and text size the interface uses is named here, once.
  *
@@ -131,6 +133,72 @@ namespace Theme
        #endif
     }
 
+    //==============================================================================
+    // Measured text. Laying a line of text out (shaping it) is by far the dearest part of drawing it, and the
+    // interface draws the same few hundred labels over and over, many of them thirty times a second. So a text
+    // is laid out once for each font it is drawn in and kept: measuring it and drawing it again cost a lookup.
+    // Readouts that change (a time, a level) are laid out once per value. Message thread only, like all painting.
+
+    /** A line of text laid out from the origin (the left end of its baseline). */
+    struct ShapedText
+    {
+        juce::GlyphArrangement glyphs;
+        juce::Rectangle<float> bounds, ink; // with and without the white space at its ends
+    };
+
+    namespace detail
+    {
+        struct TextCache final : public juce::DeletedAtShutdown
+        {
+            struct Key
+            {
+                juce::Font font;
+                juce::String text;
+                bool operator==(const Key& other) const noexcept { return text == other.text && font == other.font; }
+            };
+            struct Hash
+            {
+                size_t operator()(const Key& k) const noexcept
+                {
+                    return static_cast<size_t>(k.text.hashCode64()) ^ (std::hash<float>()(k.font.getHeight()) * 31u);
+                }
+            };
+            static constexpr size_t c_most = 1024; // more than the window ever shows at once; emptied when full
+
+            ~TextCache() override { slot() = nullptr; }
+            static TextCache*& slot()
+            {
+                static TextCache* cache = nullptr;
+                return cache;
+            }
+            std::unordered_map<Key, ShapedText, Hash> map;
+        };
+    }
+
+    /** The text laid out in the font, from the cache. The reference is good until the next call. */
+    inline const ShapedText& shaped(const juce::Font& font, const juce::String& text)
+    {
+        auto*& cache = detail::TextCache::slot();
+        if (cache == nullptr)
+            cache = new detail::TextCache(); // deleted with JUCE (DeletedAtShutdown), so it holds no font past it
+        detail::TextCache::Key key { font, text };
+        if (const auto found = cache->map.find(key); found != cache->map.end())
+            return found->second;
+        if (cache->map.size() >= detail::TextCache::c_most)
+            cache->map.clear();
+        auto& made = cache->map[std::move(key)];
+        made.glyphs.addLineOfText(font, text, 0.0f, 0.0f);
+        made.bounds = made.glyphs.getBoundingBox(0, -1, true);
+        made.ink = made.glyphs.getBoundingBox(0, -1, false);
+        return made;
+    }
+
+    /** How wide a line of text is in a font (what juce::GlyphArrangement::getStringWidth says, kept). */
+    inline float textWidth(const juce::Font& font, const juce::String& text)
+    {
+        return text.isEmpty() ? 0.0f : shaped(font, text).bounds.getWidth();
+    }
+
     /** A long name cut in the middle to at most maxChars characters, keeping its start and its end (where file
         names carry their take numbers): "ANMLFarm_Pig...al_Close_01". Short names come back as they are. */
     inline juce::String middleTruncated(const juce::String& text, int maxChars)
@@ -174,7 +242,7 @@ namespace Theme
     /** fitMiddleBy, measured in a font. */
     inline juce::String fitMiddle(const juce::String& text, const juce::Font& font, float maxWidth)
     {
-        return fitMiddleBy(text, [&font](const juce::String& t) { return juce::GlyphArrangement::getStringWidth(font, t); }, maxWidth);
+        return fitMiddleBy(text, [&font](const juce::String& t) { return textWidth(font, t); }, maxWidth);
     }
 
     /** Colours for the tracks: lagoon, coral, gold, sea glass, sky, hibiscus, harbour, rope, lilac, palm. */
@@ -272,7 +340,7 @@ namespace Theme
     /** The text cut at its end with three dots to fit maxWidth (empty when not even a few characters do). */
     inline juce::String fitEnd(const juce::String& text, const juce::Font& font, float maxWidth)
     {
-        if (juce::GlyphArrangement::getStringWidth(font, text) <= maxWidth)
+        if (textWidth(font, text) <= maxWidth)
             return text;
         int lo = 1, hi = text.length() - 1;
         juce::String best;
@@ -280,7 +348,7 @@ namespace Theme
         {
             const int mid = (lo + hi) / 2;
             const auto cut = text.substring(0, mid).trimEnd() + "...";
-            if (juce::GlyphArrangement::getStringWidth(font, cut) <= maxWidth)
+            if (textWidth(font, cut) <= maxWidth)
             {
                 best = cut;
                 lo = mid + 1;
@@ -303,19 +371,19 @@ namespace Theme
     /** Fits one line of text to a width: as it is, else smaller (down to the floor), else cut. */
     inline Fitted fitToWidth(const juce::String& text, const juce::Font& font, float maxWidth, Fit fit = Fit::Whole)
     {
-        Fitted result { text, font, juce::GlyphArrangement::getStringWidth(font, text), false, false };
+        Fitted result { text, font, textWidth(font, text), false, false };
         if (result.width <= maxWidth || text.isEmpty() || maxWidth <= 0.0f)
             return result;
         result.shrunk = true;
         result.font = font.withHeight(juce::jmax(c_minFontHeight, juce::jmin(font.getHeight(), font.getHeight() * maxWidth / result.width * 0.985f)));
-        result.width = juce::GlyphArrangement::getStringWidth(result.font, text);
+        result.width = textWidth(result.font, text);
         if (result.width <= maxWidth)
             return result;
         result.cut = true;
         result.text = fit == Fit::Name ? fitMiddle(text, result.font, maxWidth) : juce::String();
         if (result.text.isEmpty())
             result.text = fitEnd(text, result.font, maxWidth);
-        result.width = juce::GlyphArrangement::getStringWidth(result.font, result.text);
+        result.width = textWidth(result.font, result.text);
         return result;
     }
 
@@ -326,12 +394,22 @@ namespace Theme
         if (text.isEmpty() || box.getWidth() <= 0.0f || box.getHeight() <= 0.0f)
             return 0.0f;
         const auto fitted = fitToWidth(text, font, box.getWidth(), fit);
-        juce::GlyphArrangement glyphs;
-        glyphs.addLineOfText(fitted.font, fitted.text, 0.0f, 0.0f);
-        glyphs.justifyGlyphs(0, glyphs.getNumGlyphs(), box.getX(), box.getY(), box.getWidth(), box.getHeight(), justification);
-        glyphs.draw(g);
+        if (fitted.text.isEmpty())
+            return 0.0f;
+        // Placed in the box as juce::GlyphArrangement::justifyGlyphs places it (centred text is centred by its
+        // ink, the rest by its whole width), by moving the kept layout rather than laying it out again.
+        const auto& shape = shaped(fitted.font, fitted.text);
+        const auto& bb = justification.testFlags(juce::Justification::horizontallyCentred) ? shape.ink : shape.bounds;
+        float dx = box.getX(), dy = box.getY();
+        if (justification.testFlags(juce::Justification::horizontallyCentred))  dx += (box.getWidth() - bb.getWidth()) * 0.5f - bb.getX();
+        else if (justification.testFlags(juce::Justification::right))           dx += box.getWidth() - bb.getRight();
+        else                                                                    dx -= bb.getX();
+        if (justification.testFlags(juce::Justification::top))                  dy -= bb.getY();
+        else if (justification.testFlags(juce::Justification::bottom))          dy += box.getHeight() - bb.getBottom();
+        else                                                                    dy += (box.getHeight() - bb.getHeight()) * 0.5f - bb.getY();
+        shape.glyphs.draw(g, juce::AffineTransform::translation(dx, dy));
         if (auto* probe = textProbe())
-            probe->textDrawn(g, text, box, glyphs.getBoundingBox(0, -1, true), fitted.font.getHeight(), fit, fitted.shrunk, fitted.cut);
+            probe->textDrawn(g, text, box, shape.bounds.translated(dx, dy), fitted.font.getHeight(), fit, fitted.shrunk, fitted.cut);
         return fitted.width;
     }
     inline float fitText(juce::Graphics& g, const juce::String& text, juce::Rectangle<int> box, const juce::Font& font,
