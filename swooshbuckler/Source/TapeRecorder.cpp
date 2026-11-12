@@ -819,11 +819,33 @@ void TapeRecorder::prepare(double sampleRate, int numChannels)
     m_retroTotal = 0;
 }
 
+void TapeRecorder::beginTakeIfNew()
+{
+    // A take opened since the last look: its stream starts at 0, and the last take's levels are forgotten.
+    if (m_streamRestart.exchange(false))
+    {
+        m_streamPos = 0;
+        m_whooshLoud = 0;
+    }
+    if (m_gateRestart.exchange(false))
+    {
+        m_gatePeak = 0.0f;
+        m_gatePeakHold = 0;
+        m_hangLeft = 0;
+        m_fadeInLeft = 0;
+        m_prerollFill = 0;
+        m_capturing = false;
+    }
+}
+
 bool TapeRecorder::rest()
 {
     const juce::ScopedTryLock lock(m_writerLock);
     if (! lock.isLocked())
         return false;
+    // A take opened while the last one was still sounding, and the rig came to rest before any of it was fed:
+    // there is no whoosh of this take to close (a split queued here would carry the last take's position).
+    beginTakeIfNew();
     // What reached the tape last was already silent (the transport had faded out), so there is nothing to fade.
     if (m_capturing.load())
         closeWhoosh();
@@ -843,6 +865,7 @@ void TapeRecorder::process(const float* const* channels, int numChannels, int nu
         // samples, from the first on, were written.
         std::int64_t blockBase = 0;
         int blockCount = 0;
+        bool whooshEnded = false; // the gate closed in this block: the file ends after the block's markers
         const juce::ScopedTryLock lock(m_writerLock);
         if (lock.isLocked() && m_activeWriter != nullptr)
         {
@@ -857,20 +880,7 @@ void TapeRecorder::process(const float* const* channels, int numChannels, int nu
                     m_droppedSamples += n; // FIFO full (disk too slow): reported to the UI
             };
 
-            if (m_streamRestart.exchange(false))
-            {
-                m_streamPos = 0;
-                m_whooshLoud = 0;
-            }
-            if (m_gateRestart.exchange(false))
-            {
-                m_gatePeak = 0.0f;
-                m_gatePeakHold = 0;
-                m_hangLeft = 0;
-                m_fadeInLeft = 0;
-                m_prerollFill = 0;
-                m_capturing = false;
-            }
+            beginTakeIfNew();
 
             if (! m_signalGate.load() && ! m_perWhoosh.load())
             {
@@ -1001,7 +1011,7 @@ void TapeRecorder::process(const float* const* channels, int numChannels, int nu
                     m_hangLeft -= count;
                     if (m_hangLeft <= 0)
                     {
-                        closeWhoosh();
+                        whooshEnded = true;
                         m_capturing = false;
                         m_fadeInLeft = 0;
                         m_prerollFill = 0;
@@ -1028,6 +1038,10 @@ void TapeRecorder::process(const float* const* channels, int numChannels, int nu
                 pushCommand({ blockBase + marker.due, Command::Marker, marker.kind });
         }
         m_numPendingMarkers = kept;
+        // After the markers, so the commands stay in the order of their place in the stream and a marker in the
+        // last block of a whoosh goes into its file.
+        if (whooshEnded)
+            closeWhoosh();
     }
 
     // Retro ring

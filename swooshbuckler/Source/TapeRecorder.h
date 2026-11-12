@@ -192,6 +192,7 @@ private:
     bool peekCommand(Command& command);         // writer thread
     void popCommand();                          //
     void closeWhoosh();                         // audio thread: the gate has closed
+    void beginTakeIfNew();                      // audio thread, with the writer in hand: a new take starts clean
     std::int64_t m_streamPos = 0;               // audio thread: samples handed to the writer in this take
     std::atomic<std::int64_t> m_whooshLoud { 0 }; // samples of sound since the gate opened
     struct PendingMarker

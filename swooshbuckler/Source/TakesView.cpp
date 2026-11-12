@@ -14,7 +14,7 @@ TakesView::TakesView(SwooshbucklerAudioProcessor& processor, const Theme::Fonts&
         addAndMakeVisible(*b);
     }
     m_close.onClick = [this] { setVisible(false); };
-    m_folder.setTooltip("Show Folder\nShows the folder recordings are saved to in the Finder / Explorer.");
+    m_folder.setTooltip(Theme::localiseShortcuts("Show Folder\nShows the folder recordings are saved to in the Finder / Explorer."));
     m_folder.onClick = [this] { m_processor.getRecordFolder().revealToUser(); };
     setMouseCursor(juce::MouseCursor::NormalCursor);
 }

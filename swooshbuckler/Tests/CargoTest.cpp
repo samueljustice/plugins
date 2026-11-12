@@ -1315,6 +1315,68 @@ int main(int argc, char* argv[])
             check(t.getDroppedSamples() == 0, "one file per whoosh: no audio dropped");
         }
 
+        // One File Per Whoosh: a marker in the very last block of a whoosh (the end of its fade out) is in its file.
+        {
+            auto edge = folder.getChildFile("whoosh-edge");
+            edge.deleteRecursively();
+            edge.createDirectory();
+            TapeRecorder t;
+            t.prepare(c_rate, 2);
+            TapeRecorder::Options o;
+            o.perWhoosh = true;
+            check(t.start(edge, o, error), "whoosh edge: starts " + error);
+            tone(t, 1.0, 0.5f); // 188 blocks of sound; the 0.75 s hang then ends 160 samples into the 140th quiet block
+            const int soundBlocks = (static_cast<int>(1.0 * c_rate) + c_block - 1) / c_block;
+            const int hang = static_cast<int>((TapeRecorder::c_gateQuietSeconds + TapeRecorder::c_gateHangSeconds) * c_rate);
+            const int lastBlock = (hang - c_block) / c_block; // the quiet block the gate closes in
+            block.clear();
+            for (int k = 0; k < lastBlock + 40; ++k)
+            {
+                if (k == lastBlock)
+                    t.addMarker(10, TapeRecorder::MarkHit);
+                t.process(block.getArrayOfReadPointers(), 2, c_block);
+            }
+            std::vector<TapeRecorder::FinishedTake> done;
+            waitForFiles(t, done, 1);
+            t.stop();
+            const auto cues = done.empty() ? std::vector<TapeRecorder::Cue>() : TapeRecorder::readCues(done[0].file);
+            const double expected = static_cast<double>((soundBlocks + lastBlock) * c_block + 10) / c_rate;
+            check(done.size() == 1 && cues.size() == 1 && cues[0].label == "Hit" && std::abs(static_cast<double>(cues[0].frame) / c_rate - expected) < 0.001
+                      && std::abs(done[0].seconds - expected) < 0.01,
+                  "whoosh edge: a marker in a whoosh's last block is written (" + juce::String(cues.size()) + " cues, file "
+                      + juce::String(done.empty() ? 0.0 : done[0].seconds, 3) + " s, marker due at " + juce::String(expected, 3) + " s)");
+        }
+
+        // One File Per Whoosh: a take opened while the last one was still sounding, with the rig coming to rest
+        // before any of it is fed, starts clean: the last take's whoosh is not "closed" in the new one.
+        {
+            auto again = folder.getChildFile("whoosh-rearm");
+            again.deleteRecursively();
+            again.createDirectory();
+            TapeRecorder t;
+            t.prepare(c_rate, 2);
+            TapeRecorder::Options o;
+            o.perWhoosh = true;
+            check(t.start(again, o, error), "whoosh re-arm: starts " + error);
+            tone(t, 1.0, 0.5f); // still sounding
+            t.stop();
+            check(t.start(again, o, error), "whoosh re-arm: starts again " + error);
+            check(t.rest(), "whoosh re-arm: the rig rests before the new take gets any sound");
+            tone(t, 2.0, 0.5f);
+            tone(t, 1.5, 0.0f);
+            tone(t, 1.0, 0.5f);
+            t.stop();
+            std::vector<TapeRecorder::FinishedTake> done;
+            waitForFiles(t, done, 3);
+            juce::StringArray lengths;
+            for (const auto& f : done)
+                lengths.add(juce::String(f.seconds, 2));
+            // 1 s (cut by the stop), 2 s with its 0.75 s tail, 1 s with 0.25 s of pre-roll.
+            check(done.size() == 3 && again.getNumberOfChildFiles(juce::File::findFiles) == 3
+                      && std::abs(done[0].seconds - 1.0) < 0.06 && std::abs(done[1].seconds - 2.75) < 0.06 && std::abs(done[2].seconds - 1.25) < 0.06,
+                  "whoosh re-arm: the new take's whooshes are whole (" + lengths.joinIntoString(", ") + " s)");
+        }
+
         // LAST 60s can keep more: three minutes hold 100 s of sound, one minute holds the last 60.
         {
             TapeRecorder t;

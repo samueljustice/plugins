@@ -74,6 +74,30 @@ void TakeAudition::stop()
         m_stream->stopping = true; // the audio thread fades it out; if no audio is running it just stays silent
 }
 
+void TakeAudition::close()
+{
+    stop();
+    // The fade out takes a few milliseconds of audio; without audio running there is nothing to wait for.
+    for (int tries = 0; tries < 20; ++tries)
+    {
+        {
+            const juce::ScopedLock sl(m_streamLock);
+            if (m_stream == nullptr || m_stream->finished.load())
+                break;
+        }
+        juce::Thread::sleep(2);
+    }
+    std::shared_ptr<Stream> old;
+    {
+        const juce::ScopedLock sl(m_streamLock);
+        {
+            const juce::SpinLock::ScopedLockType live(m_liveLock);
+            m_live = nullptr;
+        }
+        old = std::move(m_stream); // the audio thread has let go of it: the reader closes here
+    }
+}
+
 bool TakeAudition::isPlaying() const
 {
     const juce::ScopedLock sl(m_streamLock);

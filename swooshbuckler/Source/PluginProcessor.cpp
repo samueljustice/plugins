@@ -945,7 +945,7 @@ bool SwooshbucklerAudioProcessor::deleteTake(int id, bool toTrash)
         if (it->id == id)
         {
             if (m_audition.getFile() == it->file)
-                m_audition.stop();
+                m_audition.close(); // it holds the file open, and an open file can't be moved everywhere
             if (it->file.existsAsFile() && ! (toTrash ? it->file.moveToTrash() : it->file.deleteFile()))
                 return false;
             m_takes.erase(it);

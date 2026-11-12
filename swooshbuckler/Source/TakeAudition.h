@@ -24,6 +24,8 @@ public:
     /** Message thread. play() replaces whatever was playing. */
     bool play(const juce::File& file, juce::String& error);
     void stop();
+    /** Stops and lets go of the file (after the short fade if audio is running), so it can be moved or deleted. */
+    void close();
     bool isPlaying() const;
     juce::File getFile() const;
     /** How far through the file it is, 0..1. */
