@@ -1,5 +1,7 @@
 #include "CreatureEvolution.h"
 
+#include "CreatureAnatomy.h"
+
 #include <algorithm>
 #include <cmath>
 
@@ -279,8 +281,14 @@ namespace roar
             return p;
         }
 
-        void applySeed (CreatureEvolution::Params& p, std::uint32_t from, std::uint32_t to, float glide)
+        void applySeed (CreatureEvolution::Params& p, std::uint32_t from, std::uint32_t to, float glide,
+                        std::uint32_t hashFrom = 0, std::uint32_t hashTo = 0)
         {
+            const std::uint32_t anatomyA = CreatureAnatomy::combine (from, hashFrom), anatomyB = CreatureAnatomy::combine (to, hashTo);
+            p[P::anatomyALo] = (float) (anatomyA & 0xffffu);
+            p[P::anatomyAHi] = (float) (anatomyA >> 16);
+            p[P::anatomyBLo] = (float) (anatomyB & 0xffffu);
+            p[P::anatomyBHi] = (float) (anatomyB >> 16);
             const auto a = lookOf (from), b = lookOf (to);
             const float g = smoothstep (0.0f, 1.0f, glide);
             const auto lerp = [g] (float x, float y) { return x + (y - x) * g; };
@@ -374,7 +382,9 @@ namespace roar
         if (m_seedGlide >= 1.0f && m_hasQueuedSeed)
         {
             m_seedFrom = m_seedTo;
+            m_hashFrom = m_hashTo;
             m_seedTo = m_queuedSeed;
+            m_hashTo = m_queuedHash;
             m_seedGlide = 0.0f;
             m_hasQueuedSeed = false;
         }
@@ -575,7 +585,7 @@ namespace roar
         const bool pinned = m_pinnedStage >= 0.0f;
         const std::array<float, 4> neutral { 0.25f, 0.25f, 0.25f, 0.25f };
         auto p = blend (pinned ? m_pinnedStage : m_stage, pinned ? neutral : getCharacterWeights());
-        applySeed (p, m_seedFrom, m_seedTo, m_seedGlide);
+        applySeed (p, m_seedFrom, m_seedTo, m_seedGlide, m_hashFrom, m_hashTo);
 
         const float energy = pinned ? 1.0f : m_energy;
         p[P::formBase] = p[P::formFloor] + (p[P::formCeiling] - p[P::formFloor]) * smoothstep (0.0f, 1.0f, energy);
@@ -598,20 +608,56 @@ namespace roar
         // A glide already running finishes first; the new blot follows on from where it ends.
         if (m_seedGlide < 1.0f)
         {
+            if (! m_hasQueuedSeed)
+                m_queuedHash = m_hashTo;
             m_queuedSeed = newSeed;
             m_hasQueuedSeed = true;
         }
         else
         {
             m_seedFrom = m_seedTo;
+            m_hashFrom = m_hashTo;
             m_seedTo = newSeed;
             m_seedGlide = 0.0f;
         }
     }
 
+    void CreatureEvolution::setPresetHash (std::uint32_t hash, bool glide)
+    {
+        if (! glide)
+        {
+            // at once: the blot on screen is this preset's (a glide under way keeps its seeds)
+            m_hashFrom = m_hashTo = m_queuedHash = hash;
+            return;
+        }
+        if (hash == getPresetHash())
+            return;
+        if (m_seedGlide < 1.0f)
+        {
+            // a glide already running finishes first; this preset's blot follows on
+            if (! m_hasQueuedSeed)
+                m_queuedSeed = m_seedTo;
+            m_queuedHash = hash;
+            m_hasQueuedSeed = true;
+        }
+        else
+        {
+            m_seedFrom = m_seedTo;
+            m_hashFrom = m_hashTo;
+            m_hashTo = hash;
+            m_seedGlide = 0.0f;
+        }
+    }
+
+    std::uint32_t CreatureEvolution::getAnatomySeed() const
+    {
+        return CreatureAnatomy::combine (getSeed(), getPresetHash());
+    }
+
     void CreatureEvolution::setSeed (std::uint32_t seed)
     {
         m_seedFrom = m_seedTo = seed;
+        m_hashFrom = m_hashTo;
         m_seedGlide = 1.0f;
         m_hasQueuedSeed = false;
     }
@@ -695,8 +741,15 @@ namespace roar
         // the logo is formed of the same cloud, held condensed while it shows
         target = std::max (target, 0.85f * finite (egg, 0.0f, 1.0f) * (1.0f - s));
         follow (formation, target, dt, 1.2f, 4.0f);
+        follow (ink, 1.0f - s, dt, 0.9f, 2.0f);
+        ink = clamp01 (ink);
         fast = clamp01 (fast);
         formation = clamp01 (formation);
+    }
+
+    float CreatureFormation::inkFormation() const
+    {
+        return smoothstep (0.03f, 0.97f, finite (ink, 0.0f, 1.0f));
     }
 
     float CreatureFormation::fogOpacity (float stageFog, float fast, float sleep)

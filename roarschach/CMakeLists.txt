@@ -42,6 +42,8 @@ endif()
 # Plugin formats; pass -DROARSCHACH_FORMATS="AU;VST3;Standalone" for a standalone app.
 set(ROARSCHACH_FORMATS "AU;VST3" CACHE STRING "Plugin formats to build")
 option(ROARSCHACH_TESTS "Build the offline tests" OFF)
+# The creature view draws the ink creature; OFF builds the creature before it (kept until it is retired).
+option(ROARSCHACH_INK_CREATURE "The creature view draws the ink creature" ON)
 
 add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/../SDK/JUCE ${CMAKE_CURRENT_BINARY_DIR}/SDK/JUCE)
 
@@ -98,6 +100,8 @@ target_sources(Roarschach
     Source/CreatureMotion.cpp
     Source/NoiseTexture.cpp
     Source/CreatureEvolution.cpp
+    Source/CreatureFlow.cpp
+    Source/CreatureAnatomy.cpp
     Source/CreatureMood.cpp
     Source/LogoSdf.cpp
     Source/UpdatePopup.cpp
@@ -142,6 +146,7 @@ target_compile_definitions(Roarschach
     PUBLIC
     JUCE_WEB_BROWSER=0
     JUCE_USE_CURL=0
+    ROARSCHACH_INK_CREATURE=$<BOOL:${ROARSCHACH_INK_CREATURE}>
 )
 
 # The licence text for the About panel, the typeface and the logo.

@@ -2,6 +2,8 @@
 
 #include <JuceHeader.h>
 
+#include "CreatureAnatomy.h"
+#include "CreatureFlow.h"
 #include "CreatureMotion.h"
 #include "MonsterShaders.h"
 
@@ -13,7 +15,8 @@ namespace roar
 {
     // The per-frame uniforms every program may read: name, components (1..4), array length.
     // The creature's own uniforms first (as the single-pass shader always had them), then the head
-    // and jaw motion, then the medium's forces, light and post (filled by MonsterRenderer::prepare).
+    // and jaw motion, then the medium's forces, light and post (filled by MonsterRenderer::prepare),
+    // then the ink creature's: its anatomy, flow, carry, cloud and breath (prepare fills those too).
     #define ROAR_FRAME_UNIFORMS(X) \
         X (uRes, 2, 1) X (uPxScale, 1, 1) X (uRadius, 1, 1) X (uTime, 1, 1) X (uJaw, 1, 1) X (uGrowl, 1, 1) \
         X (uGrowlMod, 1, 1) X (uLiquid, 1, 1) X (uLiquidPhase, 1, 1) X (uRoar, 1, 1) X (uRoarDrive, 1, 1) \
@@ -37,7 +40,10 @@ namespace roar
         X (uFrill, 4, 1) X (uEns, 4, 1) X (uDiv, 4, 3) X (uGatherD, 4, 1) X (uInk, 4, 1) X (uFogD, 4, 1) \
         X (uEyeP, 4, 1) X (uLightDir, 4, 1) X (uEmit, 4, 4) X (uThroat, 4, 1) X (uEyeCol, 3, 1) X (uThroatCol, 3, 1) \
         X (uEmitCol, 3, 1) X (uBloomK, 4, 1) X (uComp, 4, 1) X (uGrain, 4, 1) X (uSpark, 4, 1) X (uFormK, 1, 1) \
-        X (uAtmo, 4, 1) X (uAtmoTint, 3, 1) X (uMood, 4, 1)
+        X (uAtmo, 4, 1) X (uAtmoTint, 3, 1) X (uMood, 4, 1) \
+        X (uBlob, 4, 8) X (uBlobR, 4, 8) X (uLimbA, 4, 6) X (uLimbB, 4, 6) X (uMaw, 4, 1) X (uBay, 4, 2) \
+        X (uFlowK, 4, 1) X (uFlowO, 4, 1) X (uFlowC, 4, 1) X (uCarry, 4, 1) X (uInkF, 4, 1) X (uInkO, 4, 1) \
+        X (uCloudK, 4, 1) X (uCloudO, 4, 1) X (uBreath, 4, 1)
 
     enum class U : int
     {
@@ -94,6 +100,11 @@ namespace roar
         float roarKnob = 0.35f;
         float swirlKnob = 0.0f;
         AudioForces forces;                 // the force envelopes (stepped by the view)
+        // the ink creature: the blot's seed (and the one it is gliding to), and its own formation
+        std::uint32_t seedFrom = 1, seedTo = 1;
+        float seedGlide = 1.0f;             // 0..1 between them
+        float inkFormation = 1.0f;          // 0 cloud .. 1 formed (InkFormation, from the view)
+        float inputLoud = 0.0f;             // how loud the voice coming in is, 0..1
     };
 
     /**
@@ -138,7 +149,25 @@ namespace roar
                      const std::vector<std::uint8_t>& noiseRgba, int noiseSize);
         void release();
         bool isCreated() const { return m_created; }
-        bool hasLogo() const { return m_logoTex != 0; }
+        bool hasLogo() const { return m_logoTex != 0 && ! m_ink; }
+
+        /** Which creature is drawn: the ink creature (the build's default, ROARSCHACH_INK_CREATURE)
+            or the one before it. Takes effect at the next create(). */
+        void setInkCreature (bool ink) { m_ink = ink; }
+        /** The ink creature's single pass at the view's own size (1) or at half size and upscaled
+            (0); -1: by the GPU (full size on one that is known to be fast). */
+        void setInkFullSize (int full) { m_inkFullForced = full; }
+        /** Tests: the cloud in front of the ink at this share of its opacity (0: the ink bare). */
+        void setInkFrontCloud (float share) { m_inkFrontCloud = share; }
+        bool isInkFullSize() const { return m_inkFullForced >= 0 ? m_inkFullForced != 0 : m_inkFull; }
+        bool isInkCreature() const { return m_ink; }
+        /** The ink creature as the last prepare() posed it (tests: the shader's inputs, for the C++ twins). */
+        const CreatureAnatomy::Pose& getInkPose() const { return m_inkPose; }
+        const CreatureFlow::Params& getInkFlow() const { return m_inkFlow; }
+        const CreatureAnatomy::Genome& getInkGenome() const { return m_genomes[(size_t) m_genomeNow]; }
+        /** What drove the ink creature's last frame (tests and the screenshot tool's log). */
+        struct InkState { float formation = 0.0f, opening = 0.0f, heat = 0.0f, level = 0.0f, light = 0.0f, carry = 0.0f; };
+        const InkState& getInkState() const { return m_inkState; }
 
         /** Fills the medium's uniforms (forces, light, emitters) from the creature's ones and the forces. */
         void prepare (MonsterFrame&);
@@ -197,6 +226,8 @@ namespace roar
 
         static const TierSpec& spec (int tier);
         bool buildProgram (shaders::Program, Prog&);
+        void prepareInk (MonsterFrame&);
+        const CreatureAnatomy::Genome& genomeFor (std::uint32_t seed, std::uint32_t keep);
         bool makeTex (Tex&, int w, int h, bool halfFloat, bool repeat = false, const void* rgba8 = nullptr);
         void freeTex (Tex&);
         bool probeFloat();
@@ -224,6 +255,26 @@ namespace roar
         void sizesFor (int tier, int& simW, int& simH, int& dyeW, int& dyeH) const;
 
         bool m_created = false, m_core = true, m_simOk = false;
+       #if defined (ROARSCHACH_INK_CREATURE) && ! ROARSCHACH_INK_CREATURE
+        bool m_ink = false;
+       #else
+        bool m_ink = true;
+       #endif
+        bool m_textureLod = true;    // the noise can be read at an explicit level of detail
+        bool m_inkFull = false;      // this GPU draws the ink creature's single pass at full size
+        int m_inkFullForced = -1;
+        float m_inkFrontCloud = 1.0f;
+        // the ink creature (GL thread; fixed storage: a new seed never allocates)
+        std::array<CreatureAnatomy::Genome, 2> m_genomes {};
+        std::array<bool, 2> m_genomeValid {};
+        int m_genomeNow = 0;
+        CreatureAnatomy::Pose m_inkPose;
+        CreatureFlow::Params m_inkFlow;
+        InkState m_inkState;
+        double m_inkPhase[10] {};    // the eddies', the clouds' and the breath's slow scrolls (wrapped)
+        double m_inkClock = 0.0;
+        float m_inkJet = 0.0f;       // the breath's jet, smoothed
+        float m_inkLevel = 0.0f;     // the level the eddies follow, smoothed
         float m_aspect = 3.27f;
         int m_simH = 78;       // rows of the Q3 sim
         std::array<Prog, (size_t) shaders::Program::numPrograms> m_progs {};

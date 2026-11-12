@@ -82,6 +82,9 @@ namespace roar
             cloudX, cloudY,    // offset of the (unmirrored) cloud field
             stageOut, energyOut,
             charFluid, charBeast, charEldritch, charDeep,   // how far each character leans, -1/3..1 (0 neutral)
+            // the seed the ink creature's anatomy is grown from (the session's seed and the preset's
+            // hash), as two 16-bit halves each (exact in a float): the current blot, the one glided to
+            anatomyALo, anatomyAHi, anatomyBLo, anatomyBHi,
             numParams
         };
 
@@ -118,6 +121,12 @@ namespace roar
         float getSeedGlide() const { return m_seedGlide; }
         /** Instant (a session load): no glide. */
         void setSeed (std::uint32_t seed);
+        /** The preset's hash (CreatureAnatomy::hashName; 0 none): each preset has its own blot on an
+            instance's seed. glide: over the seed glide's 8 s (a preset change); false: at once (a load). */
+        void setPresetHash (std::uint32_t hash, bool glide);
+        std::uint32_t getPresetHash() const { return m_hasQueuedSeed ? m_queuedHash : m_hashTo; }
+        /** The seed the blot's anatomy is grown from (the one being glided to, during a glide). */
+        std::uint32_t getAnatomySeed() const;
 
         /** What a save stores: the current growth, or the dormant end state while a reset runs. */
         Persisted getPersisted() const;
@@ -182,6 +191,7 @@ namespace roar
         float m_seedGlide = 1.0f;
         std::uint32_t m_queuedSeed = 0;
         bool m_hasQueuedSeed = false;
+        std::uint32_t m_hashFrom = 0, m_hashTo = 0, m_queuedHash = 0;   // the preset's hash, glided with the seed
 
         // Egg
         EggState m_eggState = EggState::idle;
@@ -217,6 +227,11 @@ namespace roar
         void step (float dt, float jaw, float loud, float heat, float sleep, float formBase, float egg);
         /** Front fog opacity: the stage's veil, pushed back by loud moments, closing in when quiet. */
         static float fogOpacity (float stageFog, float fast, float sleep);
+        /** The ink creature's gathering: 0 asleep (only cloud) .. 1 awake, at any stage (the stage
+            adds structure, never opacity). It follows waking in about a second and sleep in a few. */
+        float ink = 0.0f;
+        /** The ink creature's formation, 0 cloud .. 1 formed, eased at both ends. */
+        float inkFormation() const;
     };
 
     /** The shader's uniform block, packed from the parameters (shared by the view and the harness). */

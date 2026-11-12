@@ -100,6 +100,13 @@ public:
         m_testFog.store (fog, std::memory_order_relaxed);
     }
 
+    /** Tests: hold the drawn jaw (0..1; < 0 = live). */
+    void setJawForTests (float jaw) { m_testJaw.store (jaw, std::memory_order_relaxed); }
+    /** Tests and snapshots: the ink creature's pass at full size (1), half size (0) or by the GPU (-1). */
+    void setInkFullSizeForTests (int full) { m_renderer.setInkFullSize (full); }
+    /** Tests: the cloud in front of the ink creature at this share of its opacity (0: the ink bare). */
+    void setInkFrontCloudForTests (float share) { m_renderer.setInkFrontCloud (share); }
+
     /** Message thread. Stores into atomics read by the GL thread. */
     void setParams (const Params& params);
 
@@ -114,6 +121,16 @@ public:
     void requestCapture() { m_captureRequested.store (true, std::memory_order_relaxed); }
     juce::Image takeCapture();
 
+    /** Tests and snapshots: one frame of this view (the same animation, frame and renderer) into the
+        framebuffer bound in a GL context the caller has made current; the view's own context is not
+        used. dt: seconds since the frame before. Follow with requestCapture() / takeCapture(), and
+        call releaseOffline() with that context current before the view goes. */
+    void renderOffline (float dt, int width, int height, bool coreProfile = true);
+    void releaseOffline();
+    /** Tests: which creature the next context draws (see MonsterRenderer::setInkCreature). */
+    void setInkCreatureForTests (bool ink) { m_renderer.setInkCreature (ink); }
+    const roar::MonsterRenderer& getRendererForTests() const { return m_renderer; }
+
     void newOpenGLContextCreated() override;
     void renderOpenGL() override;
     void openGLContextClosing() override;
@@ -121,6 +138,8 @@ public:
 private:
     void timerCallback() override;
     void releaseGL();
+    void createRenderer (bool coreProfile);
+    void drawFrame (float dt, double seconds, float scale, int width, int height);
     void updateAnimation (float dt);
     void showCreatureMenu();
 
@@ -130,7 +149,7 @@ private:
     std::unique_ptr<roar::CreatureShared> m_ownCreature;   // when no processor publishes one
     const roar::CreatureShared& m_creature;
     const LogoSdf& m_logo { LogoSdf::shared() };            // built once per process (on the first editor)
-    std::atomic<float> m_testFormation { -1.0f }, m_testFog { -1.0f };
+    std::atomic<float> m_testFormation { -1.0f }, m_testFog { -1.0f }, m_testJaw { -1.0f };
     std::atomic<bool> m_testFixedStep { false };
     juce::OpenGLContext m_context;
     juce::SharedResourcePointer<Theme::Fonts> m_fonts;
@@ -174,6 +193,8 @@ private:
     float m_lastInterval = 1.0f / 30.0f;
     bool m_lastClamped = false;
     double m_clock = 0.0;
+    double m_offlineSeconds = 0.0;   // renderOffline's clock
+    float m_inputLoud = 0.0f;        // the input's loudness, 0 (-30 dB) .. 1 (-8 dB), smoothed
 
     using Clock = std::chrono::steady_clock;
     Clock::time_point m_startTime { Clock::now() };

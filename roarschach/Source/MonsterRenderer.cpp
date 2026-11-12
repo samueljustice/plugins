@@ -211,7 +211,10 @@ namespace roar
         };
 
         const auto vs = compileOne (GL_VERTEX_SHADER, juce::OpenGLHelpers::translateVertexShaderToV3 (shaders::vertex()));
-        const auto fs = compileOne (GL_FRAGMENT_SHADER, juce::OpenGLHelpers::translateFragmentShaderToV3 (juce::String (shaders::fragment (which))));
+        auto source = shaders::fragment (which, m_textureLod);
+        if (which == P::inkSinglePass && ! m_core && m_textureLod)
+            source = "#extension GL_ARB_shader_texture_lod : enable\n" + source;
+        const auto fs = compileOne (GL_FRAGMENT_SHADER, juce::OpenGLHelpers::translateFragmentShaderToV3 (juce::String (source)));
         if (vs == 0 || fs == 0)
         {
             if (vs != 0) glDeleteShader (vs);
@@ -307,7 +310,9 @@ namespace roar
         glBindBuffer (GL_ARRAY_BUFFER, 0);
 
         // The single pass first: without it nothing draws.
-        if (! buildProgram (P::singlePass, m_progs[(size_t) P::singlePass]))
+        m_textureLod = m_core || hasExtension ("GL_ARB_shader_texture_lod");
+        const P single = m_ink ? P::inkSinglePass : P::singlePass;
+        if (! buildProgram (single, m_progs[(size_t) single]))
         {
             release();
             return false;
@@ -320,9 +325,13 @@ namespace roar
         const bool floats = m_core || (hasExtension ("GL_ARB_texture_float")
                                        && (hasExtension ("GL_ARB_color_buffer_float") || hasExtension ("GL_ARB_half_float_pixel")));
         bool ok = floats && units >= 8 && glActiveTexture != nullptr && glGenFramebuffers != nullptr && glCheckFramebufferStatus != nullptr;
+        // (the ink creature has its single pass only so far: every machine draws it, and none of the
+        // programs or targets of the one before it are made)
+        if (m_ink)
+            ok = false;
 
         for (int i = 0; ok && i < (int) P::numPrograms; ++i)
-            if (i != (int) P::singlePass)
+            if (i != (int) P::singlePass && i != (int) P::inkSinglePass)
                 ok = buildProgram ((P) i, m_progs[(size_t) i]);
         // (the single pass upscales its half-resolution frame with the copy program: built even when
         // the fluid tiers are not available)
@@ -344,6 +353,8 @@ namespace roar
         const auto* renderer = reinterpret_cast<const char*> (glGetString (GL_RENDERER));
         const auto* vendor = reinterpret_cast<const char*> (glGetString (GL_VENDOR));
         m_capTier = ok ? QualityGovernor::startTierFor (renderer, vendor) : 0;
+        // (the ink creature's one pass is light enough for a fast GPU at the view's own size)
+        m_inkFull = m_ink && QualityGovernor::startTierFor (renderer, vendor) >= 2;
 
         if (ok)
             ok = allocSim();
@@ -352,8 +363,16 @@ namespace roar
             Tex n;
             makeTex (n, noiseSize, noiseSize, false, true, noiseRgba.data());
             m_noiseTex = n.tex;
+            if (m_ink && m_noiseTex != 0 && glGenerateMipmap != nullptr)
+            {
+                // the ink creature reads the noise at coarse levels (large eddies, cloud banks)
+                glBindTexture (GL_TEXTURE_2D, m_noiseTex);
+                glGenerateMipmap (GL_TEXTURE_2D);
+                glTexParameteri (GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+                glBindTexture (GL_TEXTURE_2D, 0);
+            }
         }
-        if (! logoRgba.empty() && logoSize > 0)
+        if (! logoRgba.empty() && logoSize > 0 && ! m_ink)
         {
             Tex l;
             makeTex (l, logoSize, logoSize, false, false, logoRgba.data());
@@ -699,6 +718,147 @@ namespace roar
             limitAtmoTint (tint);
             f.set (U::uAtmoTint, tint[0], tint[1], tint[2]);
         }
+
+        if (m_ink)
+            prepareInk (f);
+    }
+
+    // A seed's genome, from the two kept (the blot and the one it glides to); made when a new seed
+    // arrives (about a millisecond, no allocation).
+    const CreatureAnatomy::Genome& MonsterRenderer::genomeFor (std::uint32_t seed, std::uint32_t keep)
+    {
+        for (size_t i = 0; i < m_genomes.size(); ++i)
+            if (m_genomeValid[i] && m_genomes[i].seed == seed)
+                return m_genomes[i];
+        const size_t slot = m_genomeValid[0] && m_genomes[0].seed == keep ? 1 : 0;
+        m_genomes[slot] = CreatureAnatomy::generate (seed);
+        m_genomeValid[slot] = true;
+        return m_genomes[slot];
+    }
+
+    // The ink creature's uniforms: the anatomy posed for the stage, the characters and the jaw; the
+    // flow's gain and slow scrolls; the carry and erosion from the formation; the cloud; the breath.
+    void MonsterRenderer::prepareInk (MonsterFrame& f)
+    {
+        const float dt = std::isfinite (f.frameDt) ? std::min (0.1f, std::max (0.0f, f.frameDt)) : 0.0f;
+        const float sleep = clamp01 (f.get (U::uSleep)), awake = 1.0f - sleep;
+        const float stage = clamp01 (f.get (U::uSeedB, 3));
+        const float* chr = f.at (U::uEvoChar);
+        const std::array<float, 4> chars { clamp01 (chr[0]), clamp01 (chr[1]), clamp01 (chr[2]), clamp01 (chr[3]) };
+        // the roar's heat: the ROAR module working, or simply a loud voice
+        const float heat = 1.0f - (1.0f - clamp01 (f.get (U::uRoarDrive) * (0.4f + 0.6f * f.get (U::uRoar))))
+                                * (1.0f - 0.8f * clamp01 (f.inputLoud) * awake);
+        const float level = clamp01 (f.get (U::uLevel));
+        const float glide = clamp01 (f.seedGlide);
+
+        // ---- the anatomy
+        const auto& from = genomeFor (f.seedFrom, f.seedTo);
+        auto pose = CreatureAnatomy::evaluate (from, stage, chars, f.get (U::uPitch), f.get (U::uSize));
+        m_genomeNow = (int) (&from - m_genomes.data());
+        if (f.seedTo != f.seedFrom)
+        {
+            const auto& to = genomeFor (f.seedTo, f.seedFrom);
+            const auto b = CreatureAnatomy::evaluate (to, stage, chars, f.get (U::uPitch), f.get (U::uSize));
+            pose = CreatureAnatomy::mix (pose, b, glide);
+            if (glide >= 0.5f)
+                m_genomeNow = (int) (&to - m_genomes.data());
+        }
+        // the head's motion: up and down, and a breath of scale about the body's centre (mirror-safe)
+        {
+            const float* head = f.at (U::uHead);
+            const float offY = std::min (0.06f, std::max (-0.06f, head[0]));
+            const float k = 1.0f + std::min (0.05f, std::max (-0.05f, head[1] + 0.012f * head[3] * (0.35f + sleep)));
+            const float cy = pose.centreY;
+            const auto moveY = [=] (float y) { return cy + (y - cy) * k + offY; };
+            for (auto& b : pose.blob)
+                b = { b[0] * k, moveY (b[1]), b[2] * k, b[3] * k };
+            for (auto& a : pose.limbA)
+                a = { a[0] * k, moveY (a[1]), a[2] * k, moveY (a[3]) };
+            for (auto& b : pose.limbB)
+                b = { b[0] * k, moveY (b[1]), b[2] * k, b[3] * k };
+            for (auto& b : pose.bay)
+                b = { b[0] * k, moveY (b[1]), b[2] * k, b[3] };
+            pose.maw[0] = moveY (pose.maw[0]);
+            pose.centreY = moveY (cy);
+        }
+        // the weighted jaw opens the rift; the lips' syllables wobble the strands; a shut gate closes it
+        const float jaw = std::min (1.0f, std::max (0.0f, f.get (U::uJaw)));
+        pose.maw[2] = CreatureAnatomy::opening (jaw, stage) * awake * (1.0f - 0.85f * clamp01 (f.get (U::uGateClosed)));
+        pose.maw[3] = clamp01 (pose.maw[3] + 0.35f * std::min (1.0f, std::max (-1.0f, f.get (U::uLip))));
+        m_inkPose = pose;
+        for (int i = 0; i < CreatureAnatomy::maxLobes; ++i)
+        {
+            f.setAt (U::uBlob, i, pose.blob[(size_t) i][0], pose.blob[(size_t) i][1], pose.blob[(size_t) i][2], pose.blob[(size_t) i][3]);
+            f.setAt (U::uBlobR, i, pose.blobR[(size_t) i][0], pose.blobR[(size_t) i][1], pose.blobR[(size_t) i][2], pose.blobR[(size_t) i][3]);
+        }
+        for (int i = 0; i < CreatureAnatomy::maxLimbs; ++i)
+        {
+            f.setAt (U::uLimbA, i, pose.limbA[(size_t) i][0], pose.limbA[(size_t) i][1], pose.limbA[(size_t) i][2], pose.limbA[(size_t) i][3]);
+            f.setAt (U::uLimbB, i, pose.limbB[(size_t) i][0], pose.limbB[(size_t) i][1], pose.limbB[(size_t) i][2], pose.limbB[(size_t) i][3]);
+        }
+        for (int i = 0; i < CreatureAnatomy::maxBays; ++i)
+            f.setAt (U::uBay, i, pose.bay[(size_t) i][0], pose.bay[(size_t) i][1], pose.bay[(size_t) i][2], pose.bay[(size_t) i][3]);
+        f.set (U::uMaw, pose.maw[0], pose.maw[1], pose.maw[2], pose.maw[3]);
+
+        // ---- formation: the blot being glided to forms out of the smoke of the one before
+        const float F = clamp01 (f.inkFormation) * (1.0f - 0.75f * std::sin (3.14159265f * glide) * (f.seedTo != f.seedFrom ? 1.0f : 0.0f));
+        const float un = 1.0f - F;
+
+        // ---- the flow: gain from the level and the roar; the characters change how it moves
+        const float cFluid = chars[0], cBeast = chars[1], cEld = chars[2], cDeep = chars[3];
+        auto& fl = m_inkFlow;
+        // (the level moves with every syllable; the eddies follow it over a third of a second, so
+        // a long carry does not shake)
+        m_inkLevel += (level * awake - m_inkLevel) * (1.0f - std::exp (-dt / 0.35f));
+        fl.gain = CreatureFlow::gainFor (m_inkLevel, heat) * pose.look.flow * (1.0f - 0.3f * cDeep);
+        fl.smallGain = 1.0f + 0.4f * cBeast - 0.3f * cFluid;
+        const float swirl = clamp01 (f.get (U::uSwirlAmt));
+        // (half gathered, the bound pair turns hardest: the ink arrives wound along it)
+        fl.vortex = F * (0.02f + 0.03f * heat + 0.02f * cEld) + 0.12f * swirl * awake + 0.8f * F * un;
+        fl.vortexRadius = 0.24f;
+        fl.vortexX = 0.22f + 0.2f * clamp01 (f.get (U::uSwirlNotch));
+        fl.vortexY = pose.centreY;
+        const double k = 0.42 + 0.10 * (double) fl.gain / (double) (CreatureFlow::c_restGain * std::max (0.5f, pose.look.flow));
+        const auto scroll = [dt] (double& phase, double rate) { phase = phase + rate * (double) dt; phase -= std::floor (phase); };
+        scroll (m_inkPhase[0], 0.011 * k);
+        scroll (m_inkPhase[1], 0.017 * k);
+        scroll (m_inkPhase[2], -0.016 * k);
+        scroll (m_inkPhase[3], 0.009 * k);
+        scroll (m_inkPhase[4], 0.006);     // the far cloud's drift
+        scroll (m_inkPhase[5], 0.002);
+        scroll (m_inkPhase[6], -0.009);    // the near cloud's
+        scroll (m_inkPhase[7], 0.004);
+        scroll (m_inkPhase[8], 0.004);     // the carry's patches
+        // (the jaw's speed is uneven frame to frame: the breath follows it over a fifth of a second)
+        m_inkJet += (clamp01 (0.7f * heat + 0.5f * std::abs (f.get (U::uJawVel))) - m_inkJet) * (1.0f - std::exp (-dt / 0.2f));
+        const float jet = clamp01 (m_inkJet);
+        scroll (m_inkPhase[9], 0.05 + 0.25 * (double) jet);   // the breath rises
+        m_inkClock = std::fmod (m_inkClock + (double) dt, 4096.0);
+        fl.o1x = (float) m_inkPhase[0] + pose.look.ox;
+        fl.o1y = (float) m_inkPhase[1] + pose.look.oy;
+        fl.o2x = (float) m_inkPhase[2] + pose.look.oy + 0.37f;
+        fl.o2y = (float) m_inkPhase[3] + pose.look.ox + 0.37f;
+        const float r = std::max (1.0e-2f, fl.vortexRadius);
+        f.set (U::uFlowK, fl.gain * CreatureFlow::c_scale, fl.smallGain, fl.vortex * 2.3316f / r, 1.0f / (r * r));
+        f.set (U::uFlowO, fl.o1x, fl.o1y, fl.o2x, fl.o2y);
+        f.set (U::uFlowC, fl.vortexX, fl.vortexY, pose.look.strandGap, pose.centreY);
+
+        // ---- the carry: a distance the flow has carried the shape, as a time at the flow's speed
+        const float speed = 0.035f * fl.gain / CreatureFlow::c_restGain;
+        const float reach = (0.045f + 0.02f * stage + 0.05f * heat) * pose.look.carry;
+        f.set (U::uCarry, reach / speed, un * CreatureFlow::c_restGain / fl.gain, un, (2.0f + 2.0f * heat) * CreatureFlow::c_restGain / fl.gain);
+        f.set (U::uInkF, F, heat, pose.look.feather, pose.look.density * (1.0f + 0.25f * heat));
+        f.set (U::uInkO, pose.look.ox, pose.look.oy, (float) m_inkPhase[8], pose.look.ribbon);
+
+        // ---- the cloud: its own picture asleep, folding with the blot as it forms; banks and gaps
+        f.set (U::uCloudK, 0.10f + 0.55f * F, pose.look.bank * m_inkFrontCloud, 0.10f * m_inkFrontCloud, 0.45f * heat);
+        f.set (U::uCloudO, (float) m_inkPhase[4], (float) m_inkPhase[5], (float) m_inkPhase[6] + 0.61f, (float) m_inkPhase[7] + 0.61f);
+
+        // ---- the rift's light: by seed and by moment, from a dark tear to drifting lit breath
+        const float t = (float) m_inkClock, ph = pose.look.ox * 40.0f;
+        const float moment = smooth (-0.35f, 0.55f, std::sin (t * 0.31f + ph) * std::cos (t * 0.17f + 1.3f * ph));
+        f.set (U::uBreath, pose.look.glow * moment * (0.45f + 0.55f * heat) * awake, jet, (float) m_inkPhase[9], level);
+        m_inkState = { F, pose.maw[2], heat, level, f.get (U::uBreath), reach / speed };
     }
 
     //==============================================================================================
@@ -998,15 +1158,16 @@ namespace roar
     // Without a framebuffer object it draws straight to the host at full size.
     void MonsterRenderer::drawSinglePass (const MonsterFrame& f, unsigned int hostFbo, const int vp[4], float alpha)
     {
-        const bool half = ensureQ0Target (vp[2], vp[3]);
+        const bool half = ! (m_ink && isInkFullSize()) && ensureQ0Target (vp[2], vp[3]);
         const int hw = std::max (8, (vp[2] + 1) / 2), hh = std::max (8, (vp[3] + 1) / 2);
-        use (P::singlePass, f);
+        const P single = m_ink ? P::inkSinglePass : P::singlePass;
+        use (single, f);
         bindRaw (S::logo, m_logoTex);
         bindRaw (S::noise, m_noiseTex);
         if (half)
         {
             // its pixel-sized measures follow the target's size (use() uploads the frame's own each frame)
-            auto& prog = m_progs[(size_t) P::singlePass];
+            auto& prog = m_progs[(size_t) single];
             const float k = (float) hh / (float) std::max (1, vp[3]);
             if (const int loc = prog.frameLoc[(size_t) U::uRes]; loc >= 0) glUniform2f (loc, (float) hw, (float) hh);
             if (const int loc = prog.frameLoc[(size_t) U::uPxScale]; loc >= 0) glUniform1f (loc, f.get (U::uPxScale) * k);

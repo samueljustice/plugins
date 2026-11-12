@@ -339,12 +339,17 @@ void MonsterView::paint (juce::Graphics& g)
 
 void MonsterView::newOpenGLContextCreated()
 {
+    createRenderer (m_context.isCoreProfile());
+}
+
+void MonsterView::createRenderer (bool coreProfile)
+{
     m_firstFrame = true;
     const int w = m_width.load (std::memory_order_relaxed), h = m_height.load (std::memory_order_relaxed);
     const float aspect = w > 0 && h > 0 ? (float) w / (float) h : 3.27f;
     const auto& noise = roar::NoiseTexture::shared();
 
-    if (! m_renderer.create (m_context.isCoreProfile(), aspect, m_logo.rgba, LogoSdf::c_size, noise.rgba, noise.size))
+    if (! m_renderer.create (coreProfile, aspect, m_logo.rgba, LogoSdf::c_size, noise.rgba, noise.size))
     {
         m_shaderFailed.store (true, std::memory_order_relaxed);
         return;
@@ -419,6 +424,11 @@ void MonsterView::updateAnimation (float dt)
     follow (m_roarDrive, safe (load (f.roarHeat), 0.0f, 1.0f), dt, 0.060f, 0.25f);
     follow (m_subLevel, safe (load (f.subLevel), 0.0f, 1.0f), dt, 0.030f, 0.20f);
     follow (m_level, safe (load (f.outputLevel), 0.0f, 1.0f), dt, 0.030f, 0.20f);
+    {
+        // how loud the voice coming in is (the ink creature swells and darkens with it)
+        const float t = juce::jlimit (0.0f, 1.0f, (juce::Decibels::gainToDecibels (input, -100.0f) + 30.0f) / 22.0f);
+        follow (m_inputLoud, t * t * (3.0f - 2.0f * t), dt, 0.12f, 0.9f);
+    }
     // Either sign convention for the cut works: only the amount is drawn.
     follow (m_boost, std::abs (safe (load (f.detailBoostDb), -c_detailBoostRangeDb, c_detailBoostRangeDb)) / c_detailBoostRangeDb, dt, 0.08f, 0.25f);
     follow (m_cut, std::abs (safe (load (f.detailCutDb), -c_detailCutRangeDb, c_detailCutRangeDb)) / c_detailCutRangeDb, dt, 0.08f, 0.25f);
@@ -522,10 +532,12 @@ void MonsterView::updateAnimation (float dt)
         // the published glide already moves smoothly, and an old glide value with new endpoints
         // would show the new blot for a moment and swing back.
         const auto moved = [&target, this] (int i) { return std::abs (target[(size_t) i] - m_evo[(size_t) i]) > 1.0e-6f; };
-        const bool endpointsMoved = moved (E::seedAX) || moved (E::seedAY) || moved (E::seedBX) || moved (E::seedBY);
+        const bool endpointsMoved = moved (E::seedAX) || moved (E::seedAY) || moved (E::seedBX) || moved (E::seedBY)
+                                 || moved (E::anatomyALo) || moved (E::anatomyAHi) || moved (E::anatomyBLo) || moved (E::anatomyBHi);
         for (size_t i = 0; i < m_evo.size(); ++i)
         {
-            const bool offset = i == (size_t) E::seedAX || i == (size_t) E::seedAY || i == (size_t) E::seedBX || i == (size_t) E::seedBY;
+            const bool offset = i == (size_t) E::seedAX || i == (size_t) E::seedAY || i == (size_t) E::seedBX || i == (size_t) E::seedBY
+                             || (i >= (size_t) E::anatomyALo && i <= (size_t) E::anatomyBHi);   // (seeds: never smoothed)
             const bool snap = offset || (endpointsMoved && i == (size_t) E::seedGlide);
             m_evo[i] = snap ? target[i] : m_evo[i] + (target[i] - m_evo[i]) * k;
         }
@@ -535,8 +547,15 @@ void MonsterView::updateAnimation (float dt)
         const float loudS = loud * loud * (3.0f - 2.0f * loud);
         if (m_evoSnap)
         {
+            // (the ink creature opens on silence as it sleeps: cloud, not a blot that then dissolves)
+            if (m_renderer.isInkCreature() && input < c_quietLevel)
+            {
+                m_quietSeconds = c_sleepAfterSeconds;
+                m_sleep = 1.0f;
+            }
             m_formation.formation = m_evo[roar::CreatureEvolution::formBase] * (1.0f - 0.85f * m_sleep);
             m_formation.fast = 0.0f;
+            m_formation.ink = 1.0f - m_sleep;
         }
         m_formation.step (dt, m_jaw, loudS, m_roarDrive, m_sleep, m_evo[roar::CreatureEvolution::formBase],
                           m_evo[roar::CreatureEvolution::egg]);
@@ -634,9 +653,36 @@ void MonsterView::renderOpenGL()
     if (! m_renderer.isCreated() || width <= 0 || height <= 0)
         return;
 
+    drawFrame (dt, std::fmod (std::chrono::duration<double> (now - m_startTime).count(), c_timeWrapSeconds), scale, width, height);
+}
+
+void MonsterView::renderOffline (float dt, int width, int height, bool coreProfile)
+{
+    m_width.store (width, std::memory_order_relaxed);
+    m_height.store (height, std::memory_order_relaxed);
+    if (! m_renderer.isCreated())
+        createRenderer (coreProfile);
+    if (! m_renderer.isCreated() || width <= 0 || height <= 0)
+        return;
+    m_lastInterval = dt;
+    m_lastClamped = false;
+    m_offlineSeconds = std::fmod (m_offlineSeconds + (double) dt, c_timeWrapSeconds);
+    drawFrame (dt, m_offlineSeconds, 1.0f, width, height);
+}
+
+void MonsterView::releaseOffline()
+{
+    openGLContextClosing();
+}
+
+// One frame: the animation stepped by dt, the frame's uniforms, the renderer, the capture.
+void MonsterView::drawFrame (float dt, double seconds, float scale, int width, int height)
+{
+    using namespace juce::gl;
+    using roar::U;
+
     updateAnimation (dt);
 
-    const double seconds = std::fmod (std::chrono::duration<double> (now - m_startTime).count(), c_timeWrapSeconds);
     const float blinkPos = (m_blinkClock - m_nextBlink) / 0.18f;
     const float blink = (blinkPos > 0.0f && blinkPos < 1.0f) ? 1.0f - std::abs (2.0f * blinkPos - 1.0f) : 0.0f;
 
@@ -647,7 +693,8 @@ void MonsterView::renderOpenGL()
     fr.set (U::uPxScale, scale);
     fr.set (U::uRadius, m_cornerRadius.load (std::memory_order_relaxed) * scale);
     fr.set (U::uTime, (float) seconds);
-    fr.set (U::uJaw, m_jawMotion.y);
+    const float testJaw = m_testJaw.load (std::memory_order_relaxed);
+    fr.set (U::uJaw, testJaw >= 0.0f ? testJaw : m_jawMotion.y);
     fr.set (U::uJawVel, m_jawMotion.v);
     fr.set (U::uLip, m_jawMotion.lip);
     fr.set (U::uRoarHold, m_jawMotion.roarHold);
@@ -779,6 +826,21 @@ void MonsterView::renderOpenGL()
     fr.roarKnob = m_knobs.roar;
     fr.swirlKnob = m_knobs.swirl;
     fr.forces = m_audioForces;
+    {
+        // the ink creature: the seeds its anatomy grows from, and its own formation
+        using E = roar::CreatureEvolution;
+        const auto seedOf = [this] (int lo, int hi)
+        {
+            return (std::uint32_t) juce::jlimit (0.0f, 65535.0f, m_evo[(size_t) lo]) | ((std::uint32_t) juce::jlimit (0.0f, 65535.0f, m_evo[(size_t) hi]) << 16);
+        };
+        fr.seedFrom = seedOf (E::anatomyALo, E::anatomyAHi);
+        fr.seedTo = seedOf (E::anatomyBLo, E::anatomyBHi);
+        fr.seedGlide = juce::jlimit (0.0f, 1.0f, m_evo[E::seedGlide]);
+        const float testFormation = m_testFormation.load (std::memory_order_relaxed);
+        fr.inputLoud = m_inputLoud;
+        fr.inkFormation = testFormation >= 0.0f ? juce::jlimit (0.0f, 1.0f, testFormation)
+                                                : m_formation.inkFormation();
+    }
 
     m_renderer.setFixedStep (m_testFixedStep.load (std::memory_order_relaxed));
     m_renderer.prepare (fr);

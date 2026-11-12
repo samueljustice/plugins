@@ -34,7 +34,9 @@
  #include <OpenGL/OpenGL.h>   // an offscreen context for the renderer test (after JUCE: it declares the GL types)
 #endif
 
+#include "CreatureAnatomy.h"
 #include "CreatureEvolution.h"
+#include "CreatureFlow.h"
 #include "CreatureMood.h"
 #include "CreatureMotion.h"
 #include "MonsterRenderer.h"
@@ -79,6 +81,7 @@ struct RoarschachEditorInspector
     static juce::Component& content(RoarschachAudioProcessorEditor& e) { return e.m_content; }
     static juce::LookAndFeel& lookAndFeel(RoarschachAudioProcessorEditor& e) { return e.m_lookAndFeel; }
     static DiceButton& presetDice(RoarschachAudioProcessorEditor& e) { return e.m_presetDice; }
+    static void updateMonster(RoarschachAudioProcessorEditor& e) { e.updateMonsterParams(); }
 };
 
 namespace
@@ -6961,6 +6964,9 @@ namespace
         }
     }
 
+    // The ink creature: its rig, measures, checks and screenshot tool (a section of this file).
+    #include "InkCreatureTests.h"
+
    #if defined(__APPLE__)
     // The renderer in a real (offscreen) GL context: every program builds, frames draw on every
     // tier, a tier change and a context loss leave nothing behind and nothing empty.
@@ -7050,6 +7056,7 @@ namespace
             };
 
             roar::MonsterRenderer r;
+            r.setInkCreature(false);   // (these checks are of the creature before the ink one; the ink creature has its own)
             r.setFixedStep(true, 30);
             const bool created = r.create(core, static_cast<float>(W) / H, logo.rgba, LogoSdf::c_size, noise.rgba, noise.size);
             check(created, "renderer: created" + tag);
@@ -8316,6 +8323,38 @@ int main(int argc, char* argv[])
     if (argc >= 3 && std::string(argv[1]) == "--snapshots")
         return runSnapshots(juce::File(argv[2]));
 
+    if (argc >= 3 && std::string(argv[1]) == "--ink-ascii")
+    {
+        // The anatomy of a seed as text (the CPU mask): a quick look at what the generator made.
+        const auto seed = static_cast<std::uint32_t>(std::atoll(argv[2]));
+        const float stage = argc >= 4 ? static_cast<float>(std::atof(argv[3])) : 0.6f;
+        const auto g = roar::CreatureAnatomy::generate(seed);
+        auto pose = roar::CreatureAnatomy::evaluate(g, stage);
+        pose.maw[2] = argc >= 5 ? roar::CreatureAnatomy::opening(static_cast<float>(std::atof(argv[4])), stage) : 0.0f;
+        const int w = 120, h = 34;
+        const auto m = inkmask::ofPose(pose, w, h, 3.6f);
+        for (int y = h - 1; y >= 0; --y)
+        {
+            for (int x = 0; x < w; ++x)
+                std::putchar(m[static_cast<size_t>(y * w + x)] != 0 ? '#' : '.');
+            std::putchar('\n');
+        }
+        const auto rep = roar::CreatureAnatomy::inspect(pose);
+        std::printf("seed %u stage %.2f: build %d, %d lobes, %d limbs, %d bays, rift at %.2f half %.2f; re-rolls %d (%d face), valid %d\n"
+                    "  area %.3f, largest part %.2f, enclosed %d, extent %.2f x %.2f, negative %.2f, limbs %d, face layout %d\n",
+                    seed, static_cast<double>(stage), static_cast<int>(g.build), g.numLobes, g.numLimbs, g.numBays, static_cast<double>(pose.maw[0]),
+                    static_cast<double>(pose.maw[1]), g.rerolls, g.faceRerolls, g.valid ? 1 : 0, static_cast<double>(rep.area),
+                    static_cast<double>(rep.largestShare), rep.enclosed, static_cast<double>(rep.maxX), static_cast<double>(rep.maxY),
+                    static_cast<double>(rep.negative), rep.limbs, rep.faceLayout ? 1 : 0);
+        return 0;
+    }
+
+   #if defined(__APPLE__)
+    if (argc >= 3 && std::string(argv[1]) == "--ink-shots")
+        return runInkShots(juce::File::getCurrentWorkingDirectory().getChildFile(argv[2]),
+                           argc >= 4 ? juce::File::getCurrentWorkingDirectory().getChildFile(argv[3]) : juce::File());
+   #endif
+
     if (argc >= 4 && std::string(argv[1]) == "--render")
     {
         RenderOptions opt;
@@ -8408,6 +8447,7 @@ int main(int argc, char* argv[])
         { "logo", testLogoSdf },
         { "motion", testMotion },
         { "mood", testMood },
+        { "ink", testInk },
        #if defined(__APPLE__)
         { "renderer", testRenderer },
        #endif

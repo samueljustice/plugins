@@ -10,14 +10,16 @@ namespace roar::shaders
     {
         creatureField, emitter, advect, curl, forces, divergence, jacobi, gradient, dye, light,
         bright, down, up, composite, copy, probe, singlePass,
+        inkSinglePass,   // the ink creature without any buffer (see c_inkCommon)
         numPrograms
     };
 
     /** The shared vertex shader (a full-screen quad, attribute aPosition at location 0), GLSL 1.10. */
     const char* vertex();
 
-    /** A program's fragment shader, GLSL 1.10 (concatenated from the shared chunks; setup only). */
-    std::string fragment (Program);
+    /** A program's fragment shader, GLSL 1.10 (concatenated from the shared chunks; setup only).
+        textureLod: the context can read a texture at an explicit level of detail. */
+    std::string fragment (Program, bool textureLod = true);
 
     const char* name (Program);
 }

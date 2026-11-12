@@ -2911,13 +2911,365 @@ const char* const c_q0Rest = R"GLSL(
 }
 )GLSL";
 
+// ---- The ink creature: one block shared by every program that draws or steps it, so the tiers
+// cannot drift apart. A seeded, mirrored anatomy carried by an analytic flow that is odd across the
+// fold; the ink may fill the anatomy as the flow carried it. Nothing here draws an eye, a tooth or
+// any part of a face.
+const char* const c_inkCommon = R"GLSL(
+uniform vec2 uRes;
+uniform float uPxScale;
+uniform float uRadius;
+uniform vec3 uColOuter;
+uniform vec4 uMood;      // the colour mood: the palette's hue turn on the YIQ chroma plane, how warm it is
+uniform vec3 uAtmoTint;  // the stage's hue lean (near white)
+uniform sampler2D uNoise;   // R value, GB its gradient (0.5 = none), A ridged
+uniform vec4 uBlob[8];   // lobes: centre xy, radii
+uniform vec4 uBlobR[8];  // ... cos, sin of the turn, weight, core
+uniform vec4 uLimbA[6];  // limbs: root xy, bend xy
+uniform vec4 uLimbB[6];  // ... tip xy, root radius, tip radius
+uniform vec4 uMaw;       // the rift: height on the fold, half width, opening, strand amount
+uniform vec4 uBay[2];    // bays: centre xy, radius, direction
+uniform vec4 uFlowK;     // eddy gain, small-eddy share, bound pair strength, 1 / its radius squared
+uniform vec4 uFlowO;     // where the large eddies are read xy, the small ones xy
+uniform vec4 uFlowC;     // the bound pair's centre xy, the strands' gap, the body's centre height
+uniform vec4 uCarry;     // carry time formed, extra carry unformed, how unformed (0 formed .. 1 cloud), the smoke's further carry
+uniform vec4 uInkF;      // formation, roar (capacity), feather, density
+uniform vec4 uInkO;      // the blot's noise offset xy, a slow scroll, ribbon
+uniform vec4 uCloudK;    // mirror share, bank opacity, gap opacity, roar thinning
+uniform vec4 uCloudO;    // far layer drift xy, near layer drift xy
+uniform vec4 uBreath;    // the rift's light now, the breath's jet, its rise (a scroll), level
+
+// The coarsest level of the noise a lookup of this many noise tiles per view height may read at
+// this size of target without skipping texels (the pattern is the same at any size, never grit).
+#define PXL(s) (log2 ((s) * 256.0 / uRes.y) + 0.5)
+
+float hash12 (vec2 p)
+{
+    vec3 p3 = fract (vec3 (p.xyx) * 0.1031);
+    p3 += dot (p3, p3.yzx + 33.33);
+    return fract ((p3.x + p3.y) * p3.z);
+}
+
+// the noise's value stretched to use most of 0..1, and its gradient per unit of noise coordinate
+float sv (vec4 n) { return (n.r - 0.5) * 1.45 + 0.5; }
+vec2 gv (vec4 n) { return (n.gb - vec2 (0.5)) * 46.4; }
+
+// The flow at a point of the half plane (x >= 0), view heights per second. Its stream function is
+// odd across the fold, so the fold is a streamline: the large eddies are the noise minus its mirror
+// image, the small ones fade out at the fold, and one mirrored pair of vortices is bound to the body.
+vec2 flow (vec2 m)
+{
+    vec4 a = NZ (m * 0.19 + uFlowO.xy, 2.5);
+    vec4 a2 = NZ (vec2 (-m.x, m.y) * 0.19 + uFlowO.xy, 2.5);
+    vec2 ga = (a.gb - vec2 (0.5)) * 32.0, ga2 = (a2.gb - vec2 (0.5)) * 32.0;
+    vec2 g = 0.19 * vec2 (ga.x + ga2.x, ga.y - ga2.y);
+    vec4 b = NZ (m * 0.47 + uFlowO.zw, 1.5);
+    vec2 gb = (b.gb - vec2 (0.5)) * 32.0;
+    float s = clamp (m.x / 0.25, 0.0, 1.0);
+    float r = s * s * (3.0 - 2.0 * s), dr = 6.0 * s * (1.0 - s) / 0.25;
+    g += uFlowK.y * 0.55 * vec2 (r * gb.x * 0.47 + dr * (b.r - 0.5), r * gb.y * 0.47);
+    vec2 v = vec2 (g.y, -g.x) * uFlowK.x;
+    vec2 d1 = m - uFlowC.xy, d2 = vec2 (m.x + uFlowC.x, m.y - uFlowC.y);
+    float e1 = exp (-dot (d1, d1) * uFlowK.w), e2 = exp (-dot (d2, d2) * uFlowK.w);
+    v += uFlowK.z * vec2 (-d1.y * e1 + d2.y * e2, d1.x * e1 - d2.x * e2);
+    // the ceiling: nothing carries ink faster than 0.6 view heights a second
+    return v * inversesqrt (1.0 + dot (v, v) / 0.36);
+}
+
+// Where the ink at m was tau seconds ago (four backward steps through the flow).
+vec2 backtrace (vec2 m, float tau)
+{
+    vec2 q = m;
+    float h = tau * 0.25;
+    for (int i = 0; i < 4; ++i)
+    {
+        q -= flow (q) * h;
+        q.x = abs (q.x);
+    }
+    return q;
+}
+
+float smin (float a, float b, float k) { float h = max (k - abs (a - b), 0.0) / k; return min (a, b) - h * h * k * 0.25; }
+float smax (float a, float b, float k) { return -smin (-a, -b, k); }
+float sdSeg (vec2 p, vec2 a, vec2 b, float ra, float rb)
+{
+    vec2 pa = p - a, ba = b - a;
+    float h = clamp (dot (pa, ba) / max (dot (ba, ba), 1.0e-6), 0.0, 1.0);
+    return length (pa - ba * h) - mix (ra, rb, h);
+}
+
+// The seeded anatomy in the half plane: lobes, bent tapered limbs, the rift on the fold, bays.
+float anatomySdf (vec2 q)
+{
+    float open = uMaw.z;
+    // the weighted jaw: everything under the rift hangs lower (the ink between stretches), and what
+    // is above it lifts by a third as much, so the blot opens about its middle and stays in view
+    float below = 1.0 - smoothstep (uMaw.x - 0.14, uMaw.x + 0.03, q.y);
+    vec2 p = vec2 (q.x, q.y + open * (below - 0.35));
+    float d = 9.0;
+    for (int i = 0; i < 8; ++i)
+    {
+        vec4 b = uBlob[i];
+        vec4 r = uBlobR[i];
+        vec2 l = p - b.xy;
+        l = vec2 (r.x * l.x + r.y * l.y, -r.y * l.x + r.x * l.y);
+        vec2 rad = b.zw * r.z + 1.0e-4;
+        float e = (length (l / rad) - 1.0) * min (rad.x, rad.y) + (1.0 - r.z) * 0.6;
+        d = smin (d, e, 0.055);
+    }
+    for (int i = 0; i < 6; ++i)
+    {
+        vec4 A = uLimbA[i];
+        vec4 B = uLimbB[i];
+        float rm = mix (B.z, B.w, 0.45);
+        float e = min (sdSeg (p, A.xy, A.zw, B.z, rm), sdSeg (p, A.zw, B.xy, rm, B.w));
+        d = smin (d, e, 0.045);
+    }
+    // the rift: a tear on the fold, taller than wide when open and shut when the jaw is; its outline
+    // is eroded by noise that travels with the ink
+    vec2 mc = vec2 (q.x, q.y - (uMaw.x - open * 0.15));
+    vec2 mr = vec2 (uMaw.y * (0.6 + 1.0 * smoothstep (0.0, 0.12, open)), 0.004 + open * 0.60);
+    float rift = (length (mc / mr) - 1.0) * min (mr.x, mr.y) + (1.0 - smoothstep (0.0, 0.02, open)) * 0.25;
+    rift += (NZ (q * 1.6 + uInkO.yx, max (0.5, PXL (1.6))).r - 0.5) * 1.2 * mr.x * smoothstep (0.0, 0.05, open);
+    // strands of ink left across the rift, thinning as it opens: unevenly spaced, leaning and
+    // wandering, each swelling and pinching along its length (stretched ink, never a row of pegs)
+    float sy = q.y - uMaw.x;
+    float sx = q.x * (1.0 + 1.6 * sy) + (NZ (vec2 (q.y * 1.3, 0.37) + uInkO.xy, 1.0).r - 0.5) * 0.09;
+    float gap = max (0.01, mr.x * (0.6 + uFlowC.z));
+    float su = sx / gap;
+    su += 0.33 * sin (su * 2.1 + uInkO.x * 50.0);
+    float swell = NZ (vec2 (floor (su) * 0.173 + uInkO.y, q.y * 2.3 + uInkO.x), max (0.0, PXL (2.3))).r;
+    float thread = (0.002 + (0.004 + 0.008 * uMaw.w) * smoothstep (0.25, 0.75, swell)) * (1.0 - open * 3.2) - abs (fract (su) - 0.5) * gap;
+    d = smax (d, -max (rift, thread), 0.03);
+    // the bays: tapered cuts that widen towards the outside, so the cloud they let in is never enclosed
+    for (int i = 0; i < 2; ++i)
+    {
+        vec4 b = uBay[i];
+        float e = sdSeg (p, b.xy, b.xy + 1.5 * vec2 (cos (b.w), sin (b.w)), b.z, b.z * 3.0);
+        d = smax (d, -e, 0.03);
+    }
+    return d;
+}
+
+// What inkTarget leaves behind for the passes that draw.
+vec2 gCarried;      // where this point's ink came from
+float gHaloD;       // the unfeathered distance, eroded while unformed
+float gFringe;      // the same field carried further, wider and more eroded (smoke)
+
+// The shape the ink may fill at a point of the (soft) half plane: the anatomy as the flow carried
+// it. 0.5 on the edge, more inside. Forming and dissolving never scale an opacity: the carry gets
+// longer and the shape erodes in patches, so the ink arrives and leaves as shreds.
+float inkTarget (vec2 m)
+{
+    float un = uCarry.z;
+    vec4 nA = NZ (m * 0.7 + uInkO.xy * 1.7 + vec2 (0.0, uInkO.z), 1.5);
+    float patch = clamp (sv (nA), 0.0, 1.0);
+    // a short, ever-changing carry while formed (longer in patches: ribbons); a long one unformed
+    float tau = uCarry.x * (1.0 + 2.2 * uInkO.w * smoothstep (0.45, 0.85, patch)) + uCarry.y * (9.0 + 14.0 * patch);
+    // near the rift the carry is weak: the rift stays where the jaw puts it
+    float ry = clamp (m.y, uMaw.x - 0.75 * uMaw.z, uMaw.x + 0.45 * uMaw.z);
+    float nearRift = 1.0 - smoothstep (0.0, 0.12, length (vec2 (m.x, m.y - ry)));
+    tau *= 1.0 - 0.7 * nearRift * (1.0 - un) * (1.0 - un);
+    vec2 q = backtrace (m, tau);
+    // unformed, each patch is also drawn aside its own way: the shreds gather from all round
+    q += un * 0.9 * (nA.gb - vec2 (0.5));
+    q.x = abs (q.x);
+    gCarried = q;
+    float d0 = anatomySdf (q);
+    // feathering that travels with the ink (read in the carried frame)
+    vec4 n1 = NZ (q * 0.6 + uInkO.xy, 1.0);
+    vec4 n2 = NZ (q * 2.7 - uInkO.xy, max (0.0, PXL (3.8)));
+    float feather = ((sv (n1) - 0.5) * (0.09 + 0.10 * un) + (sv (n2) - 0.5) * 0.03) * uInkF.z * (1.0 - 0.6 * nearRift);
+    // erosion while unformed: the outside goes first, in patches the noise picks
+    // (the floor takes what is thin first, everywhere: the limbs go before the core)
+    float erosion = un * (0.10 + 1.4 * patch * patch) * (0.4 + un) + smoothstep (0.65, 1.0, un) * 0.5;
+    float d = d0 + feather + erosion;
+    gHaloD = d0 + erosion;
+    // the smoke fringe: the same anatomy carried further down the flow (two more steps)
+    vec2 q2 = q - flow (q) * uCarry.w;
+    q2.x = abs (q2.x);
+    q2 -= flow (q2) * uCarry.w;
+    q2.x = abs (q2.x);
+    float dF = anatomySdf (q2) + (sv (n1) - 0.5) * 0.22 * uInkF.z + (patch - 0.5) * 0.16 + erosion * 1.3 - 0.035;
+    gFringe = clamp (0.5 - dF / 0.25, 0.0, 1.5);
+    return clamp (0.5 - d / 0.20, 0.0, 1.5) * (1.0 + 0.4 * uInkF.y);
+}
+
+// ---- palette: every colour is built from one tone, turned by the mood
+vec3 moodTurnBy (vec3 c, float k)
+{
+    vec2 iq = vec2 (dot (c, vec3 (0.596, -0.274, -0.322)), dot (c, vec3 (0.211, -0.523, 0.312)));
+    vec2 d = k * vec2 (uMood.x * iq.x - uMood.y * iq.y, uMood.y * iq.x + uMood.x * iq.y);
+    return c + d.x * vec3 (0.956, -0.272, -1.106) + d.y * vec3 (0.621, -0.647, 1.703);
+}
+
+// About one 8-bit step of triangular dither: the pale, smooth cloud bands on an 8-bit target without it
+vec3 outDither (vec2 frag)
+{
+    float ign = fract (52.9829189 * fract (dot (frag, vec2 (0.06711056, 0.00583715))));
+    return vec3 ((ign + hash12 (frag + 7.7) - 1.0) / 255.0);
+}
+)GLSL";
+
+// ---- The single pass: the whole creature without any buffer. The held ink is the target itself,
+// per pixel; a halo and a smoke fringe stand in for the free pigment; two cloud layers.
+const char* const c_inkSingle = R"GLSL(
+void main()
+{
+    vec2 frag = gl_FragCoord.xy;
+    vec2 p = (frag - 0.5 * uRes) / uRes.y;               // view heights, the centre at 0
+    float sgn = p.x < 0.0 ? -1.0 : 1.0;
+    vec2 m = vec2 (abs (p.x), p.y);
+    vec2 ms = vec2 (sqrt (p.x * p.x + 0.0004), p.y);     // the soft fold: no crease down the middle
+    vec2 v = flow (m);
+    vec2 vw = vec2 (v.x * sgn, v.y);
+    float F = uInkF.x, un = uCarry.z, roar = uInkF.y, open = uMaw.z;
+
+    float body = inkTarget (ms);
+    float halo = clamp (0.5 - gHaloD / 0.5, 0.0, 1.0);
+    vec2 grad = vec2 (dFdx (body), dFdy (body)) * (uRes.y * 0.0114);
+
+    // detail carried by the flow (a single phase, the carry capped)
+    vec2 cap = v * 3.0;
+    cap *= 0.1 / max (0.1, length (cap));
+    vec2 capw = vec2 (cap.x * sgn, cap.y);
+    vec4 det = NZ ((m - cap) * 0.9 + uInkO.xy, max (0.5, PXL (0.9)));
+    vec4 fine = NZ (m * 1.7 + det.r * 0.04 + 0.3 - v * 1.5 + uInkO.yx, max (0.7, PXL (1.7)));
+    float detV = sv (det), fineV = sv (fine);
+
+    // the body's edge: a smooth field thresholded, so it is crisp at any size; the threshold is
+    // feathered by the carried noise at the edge only (the deep ink stays whole)
+    float edgeW = 1.0 - smoothstep (0.60, 0.95, body);
+    float f = body + edgeW * ((detV - 0.5) * 0.24 + (fineV - 0.5) * 0.12);
+    float soft = smoothstep (0.35, 0.75, fine.a * 0.6 + 0.5 * (1.0 - detV));
+    // (never crisper than the target's own pixels: the edge is the same at half size)
+    float aa = max (0.008 + 0.045 * soft * soft + 0.05 * un, 0.75 * (abs (dFdx (f)) + abs (dFdy (f))));
+    float ink = smoothstep (0.5 - aa, 0.5 + aa, f);
+    float thick = smoothstep (0.5, 0.85, f);
+    float rim = ink * (1.0 - smoothstep (0.5, 0.60, f));            // pigment pooled at the edge
+    float veil = smoothstep (0.22, 0.52, f) * (1.0 - ink);          // the wet bleed outside the edge
+    float fs = gFringe + (detV - 0.5) * 0.45 + (fineV - 0.5) * 0.2;
+    float aaS = max (0.05, 0.75 * (abs (dFdx (fs)) + abs (dFdy (fs))));
+    float smoke = smoothstep (0.52 - aaS, 0.52 + aaS, fs) * (1.0 - ink) * (0.45 + 1.1 * detV * (0.4 + fine.a));
+
+    // ---- the cloud behind: lit billows, carried by the flow; its own picture asleep, folding
+    // towards the blot's symmetry near the creature as it forms
+    vec3 tone = moodTurnBy (vec3 (0.580, 0.690, 0.757) * uAtmoTint, 1.0);
+    vec3 shadow = tone * 0.50, mid = tone, light = mix (tone, vec3 (1.0), 0.82);
+    vec2 L = normalize (vec2 (-0.45, 0.89));
+    float share = mix (0.10, uCloudK.x, 1.0 - smoothstep (0.5, 1.3, length (p - vec2 (0.0, uFlowC.w))));
+    vec2 pm = vec2 (-p.x, p.y), capm = vec2 (-capw.x, capw.y);
+    vec4 c1o = NZ ((p - capw * 0.6) * 0.13 + uCloudO.xy, 3.5);
+    vec4 c1m = NZ ((pm - capm * 0.6) * 0.13 + uCloudO.xy, 3.5);
+    c1m.g = 1.0 - c1m.g;
+    vec4 c1 = mix (c1o, c1m, share);
+    vec4 c2o = NZ ((p - capw * 0.3) * 0.34 + c1o.r * 0.08 - uCloudO.xy * 0.7, 2.5);
+    vec4 c2m = NZ ((pm - capm * 0.3) * 0.34 + c1m.r * 0.08 - uCloudO.xy * 0.7, 2.5);
+    c2m.g = 1.0 - c2m.g;
+    vec4 c2 = mix (c2o, c2m, share);
+    vec4 c3 = NZ (p * 0.9 - capw * 0.3 + c2.r * 0.05 + uCloudO.xy, 1.5);
+    float dens = sv (c1) * 0.62 + sv (c2) * 0.32 + sv (c3) * 0.10;
+    vec2 cg = gv (c1) * 0.13 + gv (c2) * 0.34 * 0.30;
+    float lit = clamp (0.5 + dot (cg, L) * 0.42, 0.0, 1.0);
+    float cv = clamp (0.10 + 0.60 * lit + 0.95 * (dens - 0.5), 0.0, 1.0);
+    cv = cv * cv * (3.0 - 2.0 * cv);
+    // the halo: the cloud round the body is paler (its pigment was taken), the ink shades what is close
+    cv = mix (cv, 0.5 + 0.5 * cv, 0.35 * smoothstep (0.0, 0.5, halo) * (1.0 - smoothstep (0.5, 1.0, halo)));
+    cv *= 1.0 - 0.38 * smoothstep (0.45, 1.0, halo);
+    vec3 col = cv < 0.5 ? mix (shadow, mid, cv * 2.0) : mix (mid, light, cv * 2.0 - 1.0);
+
+    // ---- the rift's light: lit vapour seen through the tear and carried out of it by the flow.
+    // A noise-eroded gradient with dark strands across it, never a filled oval; some seeds and some
+    // moments have none at all.
+    vec2 mc = vec2 (p.x, p.y - (uMaw.x - open * 0.15));
+    vec2 mr = vec2 (uMaw.y * 1.6, 0.03 + open * 0.70);
+    vec2 ms2 = mc / mr;
+    // (only where the ink stands round it: no tear and no light hang in the open cloud)
+    float mOpen = smoothstep (0.015, 0.10, open) * smoothstep (0.15, 0.35, halo);
+    vec3 accent = mix (vec3 (1.0, 0.74, 0.48), vec3 (1.0, 0.93, 0.78), 0.6 * uMood.z);
+    vec4 bn = NZ (vec2 (m.x * 1.3, m.y * 0.8) - v * 1.2 + vec2 (0.0, -uBreath.z) + uInkO.yx, max (1.0, PXL (1.3)));
+    float vap = smoothstep (0.30, 0.80, sv (bn) + 0.25 * bn.a - 0.35 * dot (ms2, ms2));
+    float deep = 1.0 - smoothstep (-0.6, 0.9, ms2.y);                     // brighter low in the tear
+    float glow = uBreath.x * mOpen * vap * (0.35 + 0.65 * deep) * exp (-0.8 * dot (ms2, ms2));
+    // the breath outside it: a plume rising and drifting with the flow, ragged
+    vec2 pc = vec2 (p.x, p.y - (uMaw.x + 0.35 * open + 0.06));
+    float plume = exp (-(pc.x * pc.x) / 0.035 - (pc.y * pc.y) / 0.06) * smoothstep (0.35, 0.75, sv (bn) + 0.3 * bn.a);
+    glow += uBreath.x * uBreath.y * plume * 0.55 * F * smoothstep (0.015, 0.10, open);
+    // (inside the tear no smoke hangs: what shows is the cloud deep behind, shaded, lit or not)
+    float tear = mOpen * (1.0 - smoothstep (0.6, 1.0, length (ms2 * vec2 (1.2, 1.2))));
+    col *= 1.0 - 0.22 * tear;
+    col = mix (col, light * mix (vec3 (1.0), accent, 0.55), clamp (glow, 0.0, 1.0) * (1.0 - ink));
+    float clear = clamp (max (glow * 1.5, tear), 0.0, 1.0);
+    smoke *= 1.0 - 0.9 * clear;
+    veil *= 1.0 - 0.9 * clear;
+
+    // ---- pigment: subtractive, so overlaps deepen; thin ink splits towards a second hue. The
+    // inside is marbled by where the ink came from.
+    vec3 sigma = moodTurnBy (vec3 (1.05, 0.92, 0.74), 0.25);
+    vec3 sigThin = sigma.zxy * 0.6 + 0.35;
+    float marble = sv (NZ (gCarried * 0.45 + uInkO.yx, 2.0)) * 2.0 - 1.0;
+    float A = (ink * (2.0 + 2.6 * thick) * (1.0 + 0.55 * marble * thick) + rim * 0.8) * uInkF.w;
+    col *= exp (-sigma * A) * exp (-sigThin * (veil * 0.75 + smoke * 0.9));
+
+    // ---- wet sheen on the thick ink (the light is above and to the left): one broad soft band
+    vec2 n2 = grad * 5.0 + gv (det) * 0.9 * 0.004;
+    float nl2 = length (n2);
+    float spec = pow (clamp (0.5 - 0.5 * dot (n2 / (nl2 + 1.0e-4), L), 0.0, 1.0), 4.0) * smoothstep (0.12, 0.6, nl2);
+    col += light * spec * ink * (0.10 + 0.08 * roar);
+    col += light * thick * 0.035 * smoothstep (0.45, 0.75, detV);
+
+    // ---- the cloud in front: an optical depth with banks and gaps, not a flat layer; the body
+    // parts it where it is densest, the roar thins it, the ink behind shades it
+    vec4 f1o = NZ ((p - capw * 1.45) * 0.20 + uCloudO.zw, 3.0);
+    vec4 f1m = NZ ((pm - capm * 1.45) * 0.20 + uCloudO.zw, 3.0);
+    f1m.g = 1.0 - f1m.g;
+    vec4 f1 = mix (f1o, f1m, share);
+    vec4 f2 = NZ ((p - capw * 0.45) * 0.55 + f1.r * 0.12 + uCloudO.zw * 1.3 + 0.37, 2.0);
+    float fx = sv (f1) * 1.5 + sv (f2) * 0.5 - 1.02;
+    float fd = 0.5 * (fx + sqrt (fx * fx + 0.02));
+    float part = clamp (max (0.92 * smoothstep (0.30, 0.75, halo), 0.85 * ink * smoothstep (0.0, 0.5, thick)) + 0.5 * clear, 0.0, 1.0);
+    float tauN = (uCloudK.y * 6.0 * fd * (1.0 - uCloudK.w) * (1.15 - 0.3 * F) + uCloudK.z) * (1.0 - part);
+    float aN = 1.0 - exp (-tauN);
+    float ml = clamp (0.62 + dot (gv (f1) * 0.20 + gv (f2) * 0.55 * 0.3, L) * 0.30, 0.0, 1.0);
+    vec3 mistCol = mix (mid, light, ml) * (1.0 - 0.25 * smoothstep (0.2, 0.9, halo));
+    col = mix (col, mistCol, aN);
+    // the breath scattered in the near cloud
+    vec2 sc = mc / vec2 (0.24, 0.17);
+    col += accent * exp (-dot (sc, sc)) * uBreath.x * mOpen * (0.04 + 0.12 * uBreath.y) * (1.0 - 0.5 * ink);
+
+    // vignette, grain, dither
+    vec2 uvq = frag / uRes;
+    col *= 0.90 + 0.10 * smoothstep (0.0, 0.25, uvq.x * (1.0 - uvq.x) * 4.0) * smoothstep (0.0, 0.3, uvq.y * (1.0 - uvq.y) * 4.0);
+    col += (hash12 (frag + 3.1) - 0.5) * 0.010;
+    col += outDither (frag);
+    col = clamp (col, 0.0, 1.0);
+
+    // rounded corners, filled with what is around the view
+    vec2 cq2 = abs (frag - 0.5 * uRes) - (0.5 * uRes - vec2 (uRadius));
+    float dc = length (max (cq2, 0.0)) - uRadius;
+    col = mix (col, uColOuter, smoothstep (-0.75, 0.75, dc));
+
+    gl_FragColor = vec4 (col, 1.0);
+}
+)GLSL";
+
 }
 
 const char* vertex() { return c_vertex; }
 
-std::string fragment (Program program)
+std::string fragment (Program program, bool textureLod)
 {
     std::string s;
+    if (program == Program::inkSinglePass)
+    {
+        // the noise is read at an explicit level of detail where the context can (every core
+        // context; older ones through the extension the caller enables), so a jump in the lookup
+        // position never picks a wrong mip
+        s += textureLod ? "#define NZ(uv, lod) texture2DLod (uNoise, uv, lod)\n" : "#define NZ(uv, lod) texture2D (uNoise, uv)\n";
+        s += c_inkCommon;
+        s += c_inkSingle;
+        return s;
+    }
     const auto creature = [&s] (const char* smk)
     {
         s += "#define SMK ";
@@ -2982,6 +3334,7 @@ std::string fragment (Program program)
             s += c_q0H;
             s += c_q0Rest;
             break;
+        case Program::inkSinglePass: break;   // (above)
         case Program::numPrograms: break;
     }
     return s;
@@ -2991,7 +3344,7 @@ const char* name (Program program)
 {
     static const char* const names[] = { "creature field", "emitter", "advect", "curl", "forces", "divergence", "jacobi",
                                          "gradient", "dye", "light", "bright", "down", "up", "composite", "copy", "probe",
-                                         "single pass" };
+                                         "single pass", "ink single pass" };
     const auto i = static_cast<int> (program);
     return i >= 0 && i < static_cast<int> (Program::numPrograms) ? names[i] : "?";
 }

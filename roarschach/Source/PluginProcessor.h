@@ -208,6 +208,7 @@ private:
     roar::CreatureEvolution m_creature;
     roar::CreatureShared m_creatureShared;
     int m_creatureGeneration = -1;
+    std::atomic<bool> m_creaturePresetSnap { true };   // the next step takes the preset's blot at once (a new instance, a load)
     float m_creatureStaleSeconds = 0.0f;
 
     struct CreatureClock final : private juce::Timer

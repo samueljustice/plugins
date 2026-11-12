@@ -1,4 +1,5 @@
 #include "PluginProcessor.h"
+#include "CreatureAnatomy.h"
 
 #include "PluginEditor.h"
 #include "dsp/KnobLaws.h"
@@ -406,9 +407,15 @@ void RoarschachAudioProcessor::stepCreature(float dt)
     m_creatureStaleSeconds = std::min(m_creatureStaleSeconds + dt, 60.0f);
     in.stale = in.stale || wasStale;
 
+    // Each preset has its own blot on this instance's seed: a preset change glides to it, a new
+    // instance or a loaded session shows it at once.
+    const auto presetHash = roar::CreatureAnatomy::hashName(m_presetManager.getCurrentName().toRawUTF8());
+    const bool snapPreset = m_creaturePresetSnap.exchange(false);
+
     // Published under the lock, like every other publish: a state loaded on another thread between
     // the evaluate and the publish can never be overwritten by these older values.
     const juce::ScopedLock sl(m_creatureLock);
+    m_creature.setPresetHash(presetHash, !snapPreset);
     m_creature.step(dt, in);
     m_creatureShared.publish(m_creature.evaluate());
 }
@@ -609,6 +616,7 @@ void RoarschachAudioProcessor::setStateInformation(const void* data, int sizeInB
         if (const auto* mode = viewOptions.getVarPointer(c_creatureMode))
             m_creature.setMode(mode->toString() == "frozen" ? roar::CreatureEvolution::Mode::frozen : roar::CreatureEvolution::Mode::live);
         m_creatureShared.publish(m_creature.evaluate());
+        m_creaturePresetSnap.store(true);
     }
 
     {
