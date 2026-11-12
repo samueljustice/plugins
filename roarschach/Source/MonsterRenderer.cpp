@@ -847,7 +847,7 @@ namespace roar
         const float swirl = clamp01 (f.get (U::uSwirlAmt));
         // (half gathered, the bound pair turns harder: the ink arrives turning, but never wound into
         // an arc round the pair, which is a drawn curve under whatever is above it)
-        fl.vortex = F * (0.02f + 0.03f * heat + 0.02f * cEld) + 0.12f * swirl * awake + 0.25f * F * un;
+        fl.vortex = F * (0.02f + 0.03f * heat + 0.02f * cEld) + 0.12f * swirl * awake + 0.08f * F * un;
         fl.vortexRadius = 0.24f;
         fl.vortexX = 0.22f + 0.2f * clamp01 (f.get (U::uSwirlNotch));
         fl.vortexY = pose.centreY;

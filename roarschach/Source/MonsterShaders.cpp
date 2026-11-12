@@ -3194,7 +3194,7 @@ void main()
         // (the pull eases off over a wide band as it reaches the body, so the pigment gathers as a
         // soft hull of smoke round where the body will be, never as its outline or its skeleton)
         float pull = uHold.z > 0.0 ? (1.0 - smoothstep (0.5 * uHold.w, uHold.w, dA)) * mix (0.3 * smoothstep (0.5, 0.9, uInkF.x), 1.0, smoothstep (-0.05, 0.25, dA))
-                                   : 1.0 - smoothstep (0.0, 0.5, dA);
+                                   : smoothstep (-0.12, 0.0, dA) * (1.0 - smoothstep (0.0, 0.5, dA));
         // (no pull across the fold: pigment drawn onto it from both sides would pile into a line)
         vec2 drift = -dir * uHold.z * pull * vec2 (smoothstep (0.0, 0.12, m.x), 1.0);
         // the kick: small eddies that take only the free pigment (none of it crosses the fold)
@@ -3300,13 +3300,15 @@ void main()
     // a moment late and is too coarse for the strands. The ink thins away into the tear over a
     // width picked by fine noise that rises with the breath, a smoky edge and never a cut-out's;
     // the strands across it stay whole and sharp.
-    vec4 rn = NZ (vec2 (m.x * 5.1, m.y * 3.7) + vec2 (0.0, -2.0 * uBreath.z) + uInkO.yx, max (0.5, PXL (5.1)));
-    riftField (ms);
+    vec4 rn = NZ (vec2 (p.x * 5.1, m.y * 3.7) + vec2 (0.0, -2.0 * uBreath.z) + uInkO.yx, max (0.5, PXL (5.1)));
+    // (its torn edge and its strands are the view's own picture, not folded: a tear mirrored about
+    // the fold is a pair of slits, or a small figure)
+    riftField (vec2 (p.x, p.y));
     // (only where the ink stands round it: no tear hangs in the open cloud)
-    float tearSoft = (1.0 - smoothstep (-0.006 - 0.040 * clamp (sv (rn), 0.0, 1.0), 0.012, gRift)) * smoothstep (0.15, 0.35, halo);
-    float hole = tearSoft * (1.0 - smoothstep (-0.0025, 0.0015, gStrand));
+    float tearSoft = (1.0 - smoothstep (-0.010 - 0.050 * clamp (sv (rn), 0.0, 1.0), 0.012, gRift)) * smoothstep (0.30, 0.55, halo);
+    float hole = tearSoft * (1.0 - smoothstep (-0.006, 0.003, gStrand));
     // (the buffer's own late, coarse tear is filled in first: only this one is drawn)
-    body = max (body, (1.0 - smoothstep (0.0, 0.035, gRift)) * smoothstep (0.3, 0.6, halo));
+    body = max (body, (1.0 - smoothstep (0.03, 0.10, gRift)) * smoothstep (0.55, 0.8, halo) * smoothstep (0.8, 1.0, uInkF.x));
     float pigment = inkRead (m, 0.7).g;
     float loose = 2.0 * max (pigment - uPig.x * max (1.0, uPig.y), 0.0);
     float paled = smoothstep (0.15, 0.9, 1.0 - inkRead (m, 2.5).g / (uPig.x * min (1.0, uPig.y)));
@@ -3365,6 +3367,8 @@ void main()
     float rim = ink * (1.0 - smoothstep (0.5, 0.60, f));            // pigment pooled at the edge
     float veil = smoothstep (0.22, 0.52, f) * (1.0 - ink);          // the wet bleed outside the edge
 #ifdef INK_BUFFER
+    // (the ink as it stands with the tear not yet cut: the haze in front is behind neither)
+    float inkWhole = ink * smoothstep (0.0, 0.5, thick);
     ink *= 1.0 - hole;
     thick *= 1.0 - hole;
     rim *= 1.0 - hole;
@@ -3529,7 +3533,7 @@ void main()
     deepInk = max (deepInk, 0.8 * smoothstep (0.15, 0.7, loose));
     // (the tear is in the body's shade and behind the same parted cloud as the ink round it)
     float behind = max (clamp (inkRead (m, 2.5).r, 0.0, 1.0), hole);
-    float inkHere = max (ink * smoothstep (0.0, 0.5, thick), hole);
+    float inkHere = max (inkWhole, hole);
     float holeN = hole;
     if (uInkTier.x > 2.5)
     {
