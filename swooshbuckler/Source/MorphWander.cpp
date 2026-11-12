@@ -132,6 +132,19 @@ juce::Rectangle<float> MorphWander::bounds(int shape, float rotation)
     return { x0, y0, std::max(1.0e-3f, x1 - x0), std::max(1.0e-3f, y1 - y0) };
 }
 
+juce::Rectangle<float> MorphWander::boxFor(int shape, float rotation)
+{
+    const bool cherries = tables().cherriesReady.load(); // the Cherries artwork arriving changes that shape's points
+    if (shape != m_boxShape || cherries != m_boxCherries || std::abs(rotation - m_boxRotation) > 1.75e-4f)
+    {
+        m_box = bounds(shape, rotation);
+        m_boxShape = shape;
+        m_boxRotation = rotation;
+        m_boxCherries = cherries;
+    }
+    return m_box;
+}
+
 juce::Point<float> MorphWander::toPad(juce::Point<float> raw, float rotation, juce::Rectangle<float> box)
 {
     const float c = std::cos(rotation), s = std::sin(rotation);
@@ -196,7 +209,7 @@ void MorphWander::step(float seconds, int shape, float speed)
     {
         // Constant speed across the pad: step the live system by distance / (speed on the pad) in small RK4 steps.
         // It is integrated, not looped, so the dot switches wings chaotically and never repeats.
-        const auto box = bounds(shape, 0.0f);
+        const auto box = boxFor(shape, 0.0f);
         for (int i = 0; i < 64 && remaining > 1.0e-6f; ++i)
         {
             const auto d = lorenzDeriv(m_lorenz);
@@ -214,7 +227,7 @@ void MorphWander::step(float seconds, int shape, float speed)
     }
 
     m_rotation = static_cast<float>((m_laps + m_t / c_lapT) * c_precessionPerLap);
-    const auto box = bounds(shape, m_rotation);
+    const auto box = boxFor(shape, m_rotation);
 
     // Constant speed across the pad: advance t by distance / |dP/dt| in small steps (the curve would rush through
     // its outer loops and crawl near the cusps if t were advanced evenly).

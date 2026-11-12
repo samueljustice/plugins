@@ -438,6 +438,17 @@ int main(int argc, char* argv[])
             std::cout << "         follow host: a start 0.2 s after a stop (the tail still ringing) differs from the first by at most "
                       << juce::String(db(differsMid), 1) << " dB after its first 250 ms" << std::endl;
             check(differsMid < 0.02f, "follow host: a start over a ringing tail is the same ride too");
+            // A host that prepares again and carries straight on playing (a bounce after live playback, with no
+            // stopped block in between) gets the same ride from the top too.
+            p.prepareToPlay(c_fs, c_block);
+            const auto bounced = render(p, 4.0);
+            float differsBounce = 0.0f;
+            for (int ch = 0; ch < 2; ++ch)
+                for (int i = static_cast<int>(0.25 * c_fs); i < bounced.getNumSamples(); ++i)
+                    differsBounce = std::max(differsBounce, std::abs(first.getSample(ch, i) - bounced.getSample(ch, i)));
+            std::cout << "         follow host: prepared again while the transport plays, the ride differs from the first by at most "
+                      << juce::String(db(differsBounce), 1) << " dB after its first 250 ms" << std::endl;
+            check(p.isPlaying() && differsBounce < 0.02f, "follow host: preparing again with the transport playing starts the same ride");
             // Play still works by hand while the transport runs or rests.
             p.setPlaying(false);
             render(p, 8.0);

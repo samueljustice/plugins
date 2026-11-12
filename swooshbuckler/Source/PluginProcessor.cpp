@@ -123,6 +123,10 @@ void SwooshbucklerAudioProcessor::prepareToPlay(double sampleRate, int samplesPe
     m_blockSize = juce::jmax(256, samplesPerBlock);
     m_mods.prepare(sampleRate); // the modulators run once per device block
     m_outRing.prepare(sampleRate);
+    // A host that prepares again and plays straight on (a bounce) is a transport start too: the ride begins from its
+    // seed. No key is held across it either (its note-off may never come).
+    m_hostWasPlaying = false;
+    m_keysDown = {};
     prepareInternal();
 }
 

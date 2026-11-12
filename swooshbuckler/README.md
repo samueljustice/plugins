@@ -198,6 +198,8 @@ How far each knob goes, and why, is measured in the [knob audit](docs/knob-audit
 - **With the rig stopped**, you hear just that one whoosh, its tail rings out, and it is silent again. So you can make single whooshes one at a time without the endless ride: arm the tape, press Throw, and each whoosh is recorded with the quiet between them skipped.
 - **The peak is heard half a Throw Length after you throw.** While a throw is on its way in, the top of the Ride panel counts down to it ("Peak in 1.2 s"), so you can place it against picture. In the sea a thrown whoosh is drawn as a comet in its own colour.
 - Up to four throws can be in flight at once. More than that are dropped until one has finished.
+- A throw's hit is as loud with the rig playing as from rest: the hit track plays once, at its fader level.
+- A throw takes its own path into the buses: Fill's echoes and the Morph work on the ride, not on a throw.
 - Throw from the button, the **F** key, or a MIDI note with Keys set to Throw.
 
 #### Keys

@@ -52,6 +52,13 @@ public:
 
 private:
     juce::Point<float> shapeNorm(int shape, double t, juce::Rectangle<float> box) const;
+    /** bounds(), remembered: it walks every point of the shape, and step() runs up to a thousand times a second.
+        Worked out again only when the shape changes or has turned far enough to matter (0.01 degrees). */
+    juce::Rectangle<float> boxFor(int shape, float rotation);
+    juce::Rectangle<float> m_box;
+    int m_boxShape = -1;
+    float m_boxRotation = 0.0f;
+    bool m_boxCherries = false;
 
     int m_shape = -1;
     double m_t = 0.0, m_laps = 0.0;

@@ -1686,6 +1686,7 @@ int main(int argc, char* argv[])
         // Thrown after 6 s of rest (an engine that starts stopped lets its sources go over its first 60 ms, and the
         // passes carry that for a few seconds), 1000 samples into a block.
         constexpr int throwAt = static_cast<int>(6.0 * c_rate) + 1000;
+        bool stillFaders = false; // Energy and Chaos at 0: the ride leaves every fader up, the same every run
         auto throwRun = [&](CargoHold& from, float length, float velocity, bool playing, int& throwsSeen, bool& stillThrowing)
         {
             RigEngine e;
@@ -1695,6 +1696,8 @@ int main(int argc, char* argv[])
             q.fill = 0.0f;
             q.hitDuck = 0.0f;
             q.throwSeconds = length;
+            if (stillFaders)
+                q.energy = q.chaos = 0.0f;
             for (auto& b : q.buses)
                 b.low = b.swirl = b.filter = b.drive = b.duck = b.key = 0.0f; // the swell alone
             e.setParams(q);
@@ -1783,6 +1786,43 @@ int main(int argc, char* argv[])
             check(top > 0.05f, "throw: AIM fires the hits for a throw from rest");
             check(std::abs(offMs) <= 10.0, "throw: the hits land on the throw's peak (within 10 ms)");
             check(last - expected < static_cast<int>(1.0 * c_rate), "throw: the hits fire once");
+        }
+        {
+            // The throw's hit is as loud with the rig playing as from rest. The faders are still and all the way
+            // up here, so a playing rig already has the hit track at its fader level: the throw must not add the
+            // same hit a second time (it would come out 6 dB hotter).
+            // One hit in the file, so every cue plays the same sound.
+            juce::AudioBuffer<float> oneHit(1, static_cast<int>(c_rate * 2.0));
+            oneHit.clear();
+            for (int i = 0; i < static_cast<int>(c_rate * 0.3); ++i)
+                oneHit.setSample(0, i, static_cast<float>(0.8 * std::exp(-(i / c_rate) / 0.08) * std::sin(juce::MathConstants<double>::twoPi * 55.0 * i / c_rate)));
+            CargoHold tonesAndOneHit;
+            tonesAndOneHit.loadFile(0, writeWav(folder, "rig_src_tone1000", steadyTone(1000.0)), error);
+            tonesAndOneHit.loadFile(1, writeWav(folder, "rig_src_tone1500", steadyTone(1500.0)), error);
+            tonesAndOneHit.setRoleOverride(0, static_cast<int>(CargoRole::Tonal));
+            tonesAndOneHit.setRoleOverride(1, static_cast<int>(CargoRole::Bed));
+            tonesAndOneHit.setSkipSilence(0, false);
+            tonesAndOneHit.setSkipSilence(1, false);
+            tonesAndOneHit.loadFile(2, writeWav(folder, "rig_src_onehit", oneHit), error);
+            tonesAndOneHit.setRoleOverride(2, static_cast<int>(CargoRole::Impact));
+            stillFaders = true;
+            int count = 0;
+            bool still = false;
+            const int expected = throwAt + static_cast<int>(c_rate), span = static_cast<int>(0.25 * c_rate);
+            auto hitPeak = [&](bool playing)
+            {
+                const auto with = throwRun(tonesAndOneHit, 2.0f, 0.8f, playing, count, still), without = throwRun(tones, 2.0f, 0.8f, playing, count, still);
+                float top = 0.0f;
+                for (int i = expected - span / 5; i < expected + span; ++i)
+                    top = std::max(top, std::abs(with.getSample(0, i) - without.getSample(0, i)));
+                return top;
+            };
+            const float rest = hitPeak(false), riding = hitPeak(true);
+            stillFaders = false;
+            const float diff = juce::Decibels::gainToDecibels(riding / std::max(rest, 1.0e-9f));
+            std::cout << "  throw + hits: the hit peaks at " << juce::Decibels::gainToDecibels(rest, -200.0f) << " dB from rest and "
+                      << juce::Decibels::gainToDecibels(riding, -200.0f) << " dB with the rig playing (" << diff << " dB apart)" << std::endl;
+            check(rest > 0.05f && std::abs(diff) < 1.5f, "throw: its hit is as loud with the rig playing as from rest");
         }
 
         // Keys: held keys add their distance from middle C to the tracks' pitches, dealt out over the loaded tracks.

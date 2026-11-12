@@ -943,17 +943,23 @@ void RigEngine::renderTracks(int frames)
                                                   : m_buses[static_cast<size_t>(juce::jlimit(0, numBuses - 1, bus))].in.data();
         const float g0 = m_gain[ti];
         const auto& taps = m_fillTaps[ti];
-        // A throw in flight: the track also feeds its bus's throw line (or the hits), at its fader level.
+        // A throw in flight: the track also feeds its bus's throw line, at its fader level. A hit track has no
+        // line of its own (the hits are one sound, heard once): the throw only lifts it to its fader level, so
+        // a throw's hit is as loud with the rig playing as from rest (not the ridden hit and the thrown one summed).
         const float throw0 = m_throwGain[ti];
         if (throw0 > 0.0f || throwTarget > 0.0f)
         {
-            float* throwDest = bus == CargoHold::c_hitsBus ? m_hitsIn.data()
-                                                           : m_buses[static_cast<size_t>(juce::jlimit(0, numBuses - 1, bus))].throwIn.data();
+            const bool toHits = bus == CargoHold::c_hitsBus;
+            float* throwDest = toHits ? m_hitsIn.data()
+                                      : m_buses[static_cast<size_t>(juce::jlimit(0, numBuses - 1, bus))].throwIn.data();
             for (int i = 0; i < frames; ++i)
             {
                 const float frac = static_cast<float>(i + 1) * invFrames;
+                float throwGain = throw0 + (throwTarget - throw0) * frac;
+                if (toHits)
+                    throwGain = std::max(0.0f, throwGain - (g0 + (target - g0) * frac));
                 throwDest[i] += m_trackScratch[static_cast<size_t>(i)] * (modeGain0 + (modeGain1 - modeGain0) * frac)
-                                * (throw0 + (throwTarget - throw0) * frac) * variGain;
+                                * throwGain * variGain;
             }
         }
         m_throwGain[ti] = throwTarget;
