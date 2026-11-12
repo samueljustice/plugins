@@ -25,9 +25,9 @@ Want just one? Each plug-in's own download is below, or browse all <a href="http
 
 | [<img src="swooshbuckler/docs/screenshot.png" width="400" alt="Swooshbuckler">](#swooshbuckler) | [<img src="subbertone/docs/screenshot.jpg" width="400" alt="Subbertone">](#subbertone) |
 |:---:|:---:|
-| **[Swooshbuckler](#swooshbuckler)**<br>Generates whooshes from up to ten sounds | **[Subbertone](#subbertone)**<br>Adds a pitch-tracked sub and harmonics to bass |
+| **[Swooshbuckler](#swooshbuckler)**<br>Generates whooshes from up to ten sounds | **[Subbertone](#subbertone)**<br>![Work in progress](https://img.shields.io/badge/WORK_IN_PROGRESS-D00000?style=for-the-badge)<br>Adds a pitch-tracked sub and harmonics to bass |
 | [<img src="pitchflattener/docs/screenshot.png" width="400" alt="Pitch Flattener">](#pitch-flattener) | [<img src="reversinator/docs/screenshot.png" width="400" alt="Reversinator">](#reversinator) |
-| **[Pitch Flattener](#pitch-flattener)**<br>Removes pitch movement from Doppler passes, sirens and vibrato | **[Reversinator](#reversinator)**<br>Real-time reverse effects, recreating Backwards Machine |
+| **[Pitch Flattener](#pitch-flattener)**<br>![Work in progress](https://img.shields.io/badge/WORK_IN_PROGRESS-D00000?style=for-the-badge)<br>Removes pitch movement from Doppler passes, sirens and vibrato | **[Reversinator](#reversinator)**<br>Real-time reverse effects, recreating Backwards Machine |
 
 [<img src="roarschach/docs/screenshot.jpg" width="812" alt="Roarschach">](#roarschach)<br>
 **[Roarschach](#roarschach)**<br>A modular voice processor for exploration and fun
@@ -77,6 +77,8 @@ Drop in up to ten sounds (cloth, air, engines, creatures, metal) and Swooshbuckl
 
 ## Subbertone
 
+![Work in progress](https://img.shields.io/badge/WORK_IN_PROGRESS-D00000?style=for-the-badge)
+
 > Adds a pitch-tracked sub an octave down, plus harmonics, saturation, filtering and limiting.
 
 <p align="center">
@@ -114,6 +116,8 @@ Subbertone follows the pitch of your bass, engine or drone and adds a clean sub 
 ---
 
 ## Pitch Flattener
+
+![Work in progress](https://img.shields.io/badge/WORK_IN_PROGRESS-D00000?style=for-the-badge)
 
 > Removes pitch movement from Doppler passes, sirens and vibrato.
 

@@ -1,5 +1,7 @@
 # SammyJs Subbertone
 
+![Work in progress](https://img.shields.io/badge/WORK_IN_PROGRESS-D00000?style=for-the-badge)
+
 A VST3/AU subharmonic generator by **Samuel Justice**. Subbertone tracks the pitch of your bass, engine or drone, synthesises a clean sub one octave below it, and lets you build its harmonics bar by bar: from a pure sub reinforcement, to the small-speaker "hear the bass on a phone" trick, to a growling, talking octave-down bass. A mastering stage (Inflate and a brickwall limiter) finishes the output.
 
 ### Latest Release v1.3.2 - [Download Here](https://github.com/samueljustice/plugins/releases/tag/subbertone-v1.3.2)
