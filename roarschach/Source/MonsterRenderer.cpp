@@ -813,8 +813,9 @@ namespace roar
         fl.gain = CreatureFlow::gainFor (m_inkLevel, heat) * pose.look.flow * (1.0f - 0.3f * cDeep);
         fl.smallGain = 1.0f + 0.4f * cBeast - 0.3f * cFluid;
         const float swirl = clamp01 (f.get (U::uSwirlAmt));
-        // (half gathered, the bound pair turns hardest: the ink arrives wound along it)
-        fl.vortex = F * (0.02f + 0.03f * heat + 0.02f * cEld) + 0.12f * swirl * awake + 0.8f * F * un;
+        // (half gathered, the bound pair turns harder: the ink arrives turning, but never wound into
+        // an arc round the pair, which is a drawn curve under whatever is above it)
+        fl.vortex = F * (0.02f + 0.03f * heat + 0.02f * cEld) + 0.12f * swirl * awake + 0.25f * F * un;
         fl.vortexRadius = 0.24f;
         fl.vortexX = 0.22f + 0.2f * clamp01 (f.get (U::uSwirlNotch));
         fl.vortexY = pose.centreY;

@@ -408,9 +408,17 @@ namespace roar
         // the rift: a tear on the fold, taller than wide when open, shut when the jaw is
         {
             const float mcx = x, mcy = y - (P.maw[0] - open * 0.15f);
-            const float mrx = P.maw[1] * (0.6f + 1.0f * smooth (0.0f, 0.12f, open)), mry = 0.004f + open * 0.60f;
-            float rift = (std::sqrt ((mcx / mrx) * (mcx / mrx) + (mcy / mry) * (mcy / mry)) - 1.0f) * std::min (mrx, mry)
-                       + (1.0f - smooth (0.0f, 0.02f, open)) * 0.25f;
+            const float mrx = P.maw[1] * (0.6f + 1.1f * smooth (0.0f, 0.12f, open)), mry = 0.004f + open * 0.75f;
+            // (a crack, not an oval: pointed at both ends, its width uneven along its length)
+            const float ty = std::min (1.0f, std::max (-1.0f, mcy / mry));
+            float uneven = 0.5f;
+            if (ragged)
+                uneven = clamp01 ((NoiseSampler::shared().sample (0.61f + P.look.ox, y * 1.3f + P.look.oy, 1.0f)[0] - 0.5f) * 1.45f + 0.5f);
+            float torn = 0.5f;
+            if (ragged)
+                torn = clamp01 ((NoiseSampler::shared().sample (x * 4.5f + P.look.oy, y * 4.5f + P.look.ox, 0.5f)[0] - 0.5f) * 1.45f + 0.5f);
+            const float rw = mrx * std::pow (1.0f - ty * ty, 0.75f) * (0.35f + 1.5f * uneven) * (0.55f + 0.9f * torn);
+            float rift = std::max (std::abs (mcx) - rw, std::abs (mcy) - mry) + (1.0f - smooth (0.0f, 0.02f, open)) * 0.25f;
             // strands of ink left across the rift, thinning as it opens: unevenly spaced and leaning
             float sx = x * (1.0f + 1.6f * (y - P.maw[0]));
             float swell = 0.5f;
@@ -418,7 +426,6 @@ namespace roar
             if (ragged)
             {
                 const auto& n = NoiseSampler::shared();
-                rift += (n.sample (x * 1.6f + P.look.oy, y * 1.6f + P.look.ox, 0.5f)[0] - 0.5f) * 1.2f * mrx * smooth (0.0f, 0.05f, open);
                 sx += (n.sample (y * 1.3f + P.look.ox, 0.37f + P.look.oy, 1.0f)[0] - 0.5f) * 0.09f;
             }
             float f = sx / gap;
@@ -536,7 +543,7 @@ namespace roar
                 if (cj < c_ny - 1) push (ci, cj + 1);
             }
             // (the rift is the one enclosed opening there may be: its own span is not counted)
-            const float riftX = p.maw[1] * 1.6f + 0.02f, riftTop = p.maw[0] + 0.45f * p.maw[2] + 0.03f, riftBottom = p.maw[0] - 0.75f * p.maw[2] - 0.03f;
+            const float riftX = p.maw[1] * 1.6f + 0.02f, riftTop = p.maw[0] + 0.60f * p.maw[2] + 0.03f, riftBottom = p.maw[0] - 0.90f * p.maw[2] - 0.03f;
             for (int k = 0; k < c_nx * c_ny; ++k)
                 if (g.ink[(size_t) k] == 0 && seen[(size_t) k] == 0)
                 {
