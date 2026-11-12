@@ -89,6 +89,7 @@ void VariationRenderer::releaseCopy()
 {
     if (isThreadRunning())
         return;
+    m_take.setSize(0, 0); // the render buffer (seconds of audio) is only held while a batch runs
     if (m_copy != nullptr)
     {
         m_copy.reset();

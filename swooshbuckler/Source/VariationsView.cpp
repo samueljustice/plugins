@@ -117,7 +117,9 @@ VariationsView::VariationsView(SwooshbucklerAudioProcessor& processor, const The
     m_amount.setDoubleClickReturnValue(true, 0.3);
     m_amount.setWantsKeyboardFocus(false);
     m_amount.setTooltip("Amount\nHow far Small Changes may move each control: at 100%, up to half of its travel either way, and up to four semitones of Pitch.");
-    m_amount.onValueChange = [this] { m_processor.setVariationAmount(static_cast<float>(m_amount.getValue())); repaint(); };
+    // The batch reads the slider itself; the settings file is written once the drag is over, not at every step of it.
+    m_amount.onValueChange = [this] { repaint(); };
+    m_amount.onDragEnd = [this] { m_processor.setVariationAmount(static_cast<float>(m_amount.getValue())); };
     addAndMakeVisible(m_amount);
 
     m_choose.setTooltip("Choose Folder\nPick the folder the files go to. Numbers carry on after the files already there, so nothing is ever written over.");
@@ -164,7 +166,10 @@ void VariationsView::visibilityChanged()
         startTimerHz(15);
     }
     else
+    {
         stopTimer();
+        m_processor.setVariationAmount(static_cast<float>(m_amount.getValue())); // a wheel or key move has no drag end
+    }
 }
 
 void VariationsView::readSettings()
@@ -248,6 +253,7 @@ void VariationsView::startBatch()
     m_length.setText(juce::String(j.seconds, 1), false);
     m_seed.setText(juce::String(j.batchSeed), false);
     m_error.clear();
+    m_processor.setVariationAmount(j.amount);
     juce::String error;
     if (! m_processor.getVariations().start(j, error))
         m_error = error;
