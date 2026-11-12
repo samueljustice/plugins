@@ -18,7 +18,7 @@
 #include "SammyJUpdateCheck.h"
 
 /**
- * The ship. Laid out once at a fixed design size inside a content component
+ * The window. Laid out once at a fixed design size inside a content component
  * that is scaled uniformly, so the window can be resized without reflowing.
  *
  * Keys (never while a text box is being typed in): Return = Play / Stop, R = Randomise, T = arm / stop the tape,
@@ -48,8 +48,11 @@ public:
     bool isInterestedInFileDrag(const juce::StringArray& files) override;
     void filesDropped(const juce::StringArray& files, int x, int y) override;
 
-    /** A newer release is out: dims the ship and offers DOWNLOAD / LATER / SKIP THIS VERSION. */
+    /** A newer release is out: dims the window and offers Download, Later and Skip This Version. */
     void showUpdatePopup(const sammyj::UpdateInfo& info);
+
+    /** Whether an editor looks for a newer release when it opens. Tools and tests switch it off before making one. */
+    static inline bool checkForUpdates = true;
 
     static constexpr int c_width = 1280;
     static constexpr int c_height = 1024;
@@ -114,14 +117,14 @@ private:
         void refresh();
     private:
         SwooshbucklerAudioProcessorEditor& m_owner;
-        juce::TextButton m_choose { "CHOOSE..." }, m_reveal { "SHOW" }, m_close { "CLOSE" }, m_desktop { "DESKTOP" }, m_audio { "AUDIO DEVICE..." };
+        juce::TextButton m_choose { "Choose..." }, m_reveal { "Show" }, m_close { "Close" }, m_desktop { "Desktop" }, m_audio { "Audio Device..." };
         std::array<juce::TextButton, 3> m_types, m_bits;
         std::array<juce::TextButton, 6> m_rates;
         std::array<juce::TextButton, 2> m_channels;
-        juce::ToggleButton m_auto { "Arm the tape as soon as Swooshbuckler opens" };
+        juce::ToggleButton m_auto { "Auto-Arm on Opening" };
         juce::ToggleButton m_skip { "Skip Silence" };
-        // Harvesting: one file per whoosh, how files are named and who made them, and how much LAST 60s keeps.
-        juce::ToggleButton m_perWhoosh { "One File Per Whoosh" };
+        // Harvesting: one file per whoosh, how files are named and who made them, and how much Last 60 s keeps.
+        juce::ToggleButton m_perWhoosh { "One File per Whoosh" };
         juce::TextEditor m_name, m_creator;
         std::array<juce::TextButton, 2> m_nameStyles;
         std::array<juce::TextButton, 3> m_retroLengths;
@@ -144,7 +147,7 @@ private:
         void timerCallback() override { repaint(m_logoArea); }
         SwooshbucklerAudioProcessorEditor& m_owner;
         void showNotices(bool show);
-        juce::TextButton m_close { "CLOSE" }, m_website { "WEBSITE" }, m_copy { "COPY VERSION" }, m_licences { "Licences" };
+        juce::TextButton m_close { "Close" }, m_website { "Website" }, m_copy { "Copy Version" }, m_licences { "Licences" };
         juce::TextEditor m_notices; // the third-party notices, shown in place of the About text
         std::unique_ptr<LogoOutline> m_logo;
         double m_shownAt = 0.0;
@@ -171,6 +174,8 @@ private:
         juce::String title, subtitle;
         juce::Colour accent;
         juce::Rectangle<int> bounds;
+        Icons::Icon roundel = Icons::Icon::None;
+        int subtitleRight = 0; // where the subtitle has to stop: the first control in the title bar
     };
 
     void paintContent(juce::Graphics&);
@@ -227,52 +232,54 @@ private:
     Content m_content;
 
     // Header
-    juce::TextButton m_presetPrev { "<" }, m_presetName, m_presetNext { ">" }, m_dice { "RANDOMISE" };
+    IconButton m_presetPrev { IconButton::Icon::Previous, Theme::Colours::brass }, m_presetNext { IconButton::Icon::Next, Theme::Colours::brass };
+    juce::TextButton m_presetName, m_dice { "Randomise" };
     IconButton m_undoButton { IconButton::Icon::Undo, Theme::Colours::flight }, m_redoButton { IconButton::Icon::Redo, Theme::Colours::flight };
     IconButton m_rollBack { IconButton::Icon::Back, Theme::Colours::movement }, m_rollForward { IconButton::Icon::Forward, Theme::Colours::movement };
     IconButton m_keepRoll { IconButton::Icon::Star, Theme::Colours::movement };
     juce::TextButton m_abButton { "A" };
     // A die and a lock in each section's title bar: Ride, Bus A, Bus B, Hits, Output.
     std::array<std::unique_ptr<IconButton>, Presets::numSections> m_sectionDice, m_sectionLocks;
-    juce::TextButton m_retroButton { "LAST 60s" }, m_settingsButton { "SETTINGS" }, m_takesButton { "Takes" };
+    juce::TextButton m_retroButton { "Last 60 s" }, m_settingsButton { "Settings" }, m_takesButton { "Takes" };
     int m_retroShown = 0, m_takesShown = -1, m_takesSeen = -1, m_slowTick = 0; // what those two buttons last showed
     void showTakes();
     // Render Variations: the button opens the panel, and shows how far a batch is while one renders.
     juce::TextButton m_variationsButton { "Variations" };
     int m_variationsShown = -2; // the percentage the button last showed (-1 = no batch rendering)
     void showVariations();
-    juce::TextButton m_playButton { "PLAY" }, m_newButton { "NEW" };
+    juce::TextButton m_playButton { "Play" }, m_newButton { "New" };
     TapeButton m_tape;
     juce::HyperlinkButton m_websiteLink { "www.sweetjusticesound.com", juce::URL("https://www.sweetjusticesound.com") };
 
     SeaVisualiser m_sea;
     MorphPad m_morphPad;
-    juce::TextButton m_morphButton { "MORPH" }, m_syncHits { "SYNC HITS" }, m_aimHits { "AIM" };
+    juce::TextButton m_morphButton { "Morph" }, m_syncHits { "Sync Hits" }, m_aimHits { "Aim" };
     std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> m_aimAttachment;
-    int m_aimShown = -1;   // the AIM state the gate controls were last dimmed for
+    int m_aimShown = -1;   // the Aim state the gate controls were last dimmed for
     int m_tremShown = -1;  // the tremolo on / off state its controls were last dimmed for
     void showAimControls();
-    // The PEAK TREMOLO group's menus (in its frame at the left of Output) and the Master Trim fader (by the OUT meter).
+    // The Peak Tremolo group (a tinted inset at the left of Output): its switch and two menus over its three knobs;
+    // and the Master Trim fader (by the Out meter).
     juce::ComboBox m_tremShape, m_tremTarget;
-    juce::ComboBox m_tremOn;    // Off / On
-    std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> m_tremOnAttachment;
-    juce::Rectangle<int> m_tremGroup; // the framed PEAK TREMOLO group at the left of the Output panel
+    juce::ToggleButton m_tremOn; // a switch: the tremolo is on or off
+    std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> m_tremOnAttachment;
+    juce::Rectangle<int> m_tremGroup, m_tremCaption;
     std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> m_tremShapeAttachment, m_tremTargetAttachment;
     ValueSlider m_trim;
     std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> m_trimAttachment;
     juce::Rectangle<int> m_trimLabel;
     std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> m_syncAttachment;
-    // Gate and ducking options (defaults = the original rig)
+    // Gate and ducking options
     juce::ComboBox m_gateMode, m_duckMode;
-    juce::TextButton m_takeTurns { "TAKE TURNS" };
-    juce::TextButton m_linkBuses { "LINK" };
+    juce::TextButton m_takeTurns { "Take Turns" };
+    juce::TextButton m_linkBuses { "Link" };
     std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> m_linkBusesAttachment;
-    int m_linkShown = -1; // the LINK state the bus B knobs were last dimmed for
+    int m_linkShown = -1; // the Link state the bus B knobs were last shown for
     void showLinkedKnobs();
     std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> m_gateModeAttachment, m_duckModeAttachment;
     std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> m_takeTurnsAttachment;
     juce::Rectangle<int> m_gateModeLabel, m_duckModeLabel;
-    // Pass Mode, one menu in each bus's title bar (bus B's rests while LINK is on: it uses bus A's).
+    // Pass Mode, one menu in each bus's title bar (bus B's is linked while Link is on: it uses bus A's).
     std::array<juce::ComboBox, ParamIDs::numBuses> m_passMode;
     std::array<std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment>, ParamIDs::numBuses> m_passModeAttachment;
     std::array<juce::Rectangle<int>, ParamIDs::numBuses> m_passModeLabel;
@@ -281,7 +288,7 @@ private:
     void syncMorphPad();
     int m_morphSyncTick = 0;
     SwellButton m_swell;
-    juce::TextButton m_rideButton { "AUTO RIDE" };
+    juce::TextButton m_rideButton { "Auto Ride" };
     juce::TextButton m_followMasterButton { "Follow Master" };
     std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> m_followMasterAttachment;
     int m_followMasterShown = -1; // what the Follow Master button's dimming was last set for
@@ -303,7 +310,7 @@ private:
     CargoHoldView m_hold;
     ModWires m_wires;    // the cables, over everything
     ModPanel m_modPanel; // the modulators at the bottom
-    juce::TextButton m_cablesButton { "CABLES" };
+    juce::TextButton m_cablesButton { "Cables" };
     juce::Rectangle<int> m_modSection;
     SettingsPanel m_settings;
     TakesView m_takes;

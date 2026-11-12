@@ -1,16 +1,33 @@
 #pragma once
 
 #include <JuceHeader.h>
+#include "Icons.h"
 #include "Theme.h"
 
 /**
- * Sweet Justice house style with a bit of salt: brass ship's-wheel knobs,
- * rope dividers, riveted panels, on a deep Caribbean sea palette.
+ * How every stock control is drawn, from the tokens in Theme.h. One look for each kind of thing:
+ *
+ *   button   a raised, rounded plate with no outline. Hovered it lightens and gains a stroke; a button that
+ *            switches something shows a lamp at its left, lit (with a tinted plate and a stroke) when on.
+ *            Primary (Play) is filled brass. An icon can sit left of the text (Icons::set).
+ *   chip     a pill: a state or a tag, never an action. Dark and quiet when off, filled in its colour when on.
+ *   menu     a raised plate with a drawn chevron at its right; a button that opens a menu gets the same chevron.
+ *   switch   a two-state choice: a pill with a thumb that sits right, in its colour, when on.
+ *
+ * And three looks for a control that is not simply usable (Theme::Look): Disabled is drained and flat, Resting
+ * is drawn hollow (usable, waiting for something else to be on), Linked shows a chain link.
  */
 class SwooshLookAndFeel : public juce::LookAndFeel_V4
 {
 public:
     explicit SwooshLookAndFeel(const Theme::Fonts& fonts);
+
+    /** How a text button is drawn (see above). Menu is a button that opens a menu. */
+    enum class ButtonStyle { Button = 0, Primary, Chip, Menu };
+    static void setStyle(juce::Button& b, ButtonStyle style) { b.getProperties().set("style", static_cast<int>(style)); }
+    static ButtonStyle getStyle(const juce::Button& b) { return static_cast<ButtonStyle>(static_cast<int>(b.getProperties().getWithDefault("style", 0))); }
+    /** A button whose text is a name of the user's (a preset): it may be cut in the middle to fit. */
+    static void setShowsName(juce::Button& b) { b.getProperties().set("name", true); }
 
     void drawLinearSlider(juce::Graphics&, int x, int y, int width, int height, float sliderPos, float minSliderPos,
                           float maxSliderPos, juce::Slider::SliderStyle, juce::Slider&) override;
@@ -29,21 +46,45 @@ public:
     void positionComboBoxText(juce::ComboBox&, juce::Label&) override;
     juce::Font getPopupMenuFont() override;
     juce::Font getLabelFont(juce::Label&) override;
+    void drawLabel(juce::Graphics&, juce::Label&) override;
     void drawPopupMenuBackground(juce::Graphics&, int width, int height) override;
+    int getPopupMenuBorderSize() override { return 6; }
+    void drawPopupMenuUpDownArrow(juce::Graphics&, int width, int height, bool isScrollUpArrow) override;
     void drawPopupMenuSectionHeader(juce::Graphics&, const juce::Rectangle<int>& area, const juce::String& sectionName) override;
     void drawPopupMenuItem(juce::Graphics&, const juce::Rectangle<int>& area, bool isSeparator, bool isActive, bool isHighlighted,
                            bool isTicked, bool hasSubMenu, const juce::String& text, const juce::String& shortcutKeyText,
                            const juce::Drawable* icon, const juce::Colour* textColour) override;
     void getIdealPopupMenuItemSize(const juce::String& text, bool isSeparator, int standardMenuItemHeight, int& idealWidth, int& idealHeight) override;
+    void drawScrollbar(juce::Graphics&, juce::ScrollBar&, int x, int y, int width, int height, bool isScrollbarVertical,
+                       int thumbStartPosition, int thumbSize, bool isMouseOver, bool isMouseDown) override;
+    void drawCornerResizer(juce::Graphics&, int w, int h, bool isMouseOver, bool isMouseDragging) override;
+    juce::Font getAlertWindowTitleFont() override { return m_fonts.title(); }
+    juce::Font getAlertWindowMessageFont() override { return m_fonts.body(); }
+    juce::Font getAlertWindowFont() override { return m_fonts.control(); }
+    void fillTextEditorBackground(juce::Graphics&, int width, int height, juce::TextEditor&) override;
+    void drawTextEditorOutline(juce::Graphics&, int width, int height, juce::TextEditor&) override;
 
     void drawTooltip(juce::Graphics&, const juce::String& text, int width, int height) override;
     juce::Rectangle<int> getTooltipBounds(const juce::String& tipText, juce::Point<int> screenPos, juce::Rectangle<int> parentArea) override;
 
-    /** A panel with a title plate, rivets and a rope rule under the title. */
+    /** A surface floating on what is under it: a soft shadow below and around it, then the fill. No outline.
+        Costs a handful of fills, and nothing at all when the area is outside what is being repainted. */
+    static void drawSurface(juce::Graphics&, juce::Rectangle<float> area, float radius = Theme::Radius::panel,
+                            juce::Colour fill = Theme::Colours::panel, float elevation = 1.0f);
+    /** A surface cut into what is around it (a scope, a meter, a text box): the well colour, darker at its top edge. */
+    static void drawWell(juce::Graphics&, juce::Rectangle<float> area, float radius = Theme::Radius::control);
+    /** A panel: a surface with a roundel, its title and a one-line subtitle in the title bar. The subtitle is kept
+        left of subtitleRight (0 = the panel's own edge). */
     static void drawPanel(juce::Graphics&, juce::Rectangle<float> area, const juce::String& title,
-                          const juce::String& subtitle, juce::Colour accent, const Theme::Fonts& fonts);
-    /** A twisted-rope line between two points. */
+                          const juce::String& subtitle, juce::Colour accent, const Theme::Fonts& fonts,
+                          Icons::Icon roundel = Icons::Icon::None, float subtitleRight = 0.0f);
+    /** Where a panel's title starts and ends, from the panel's left edge (for laying things out after it). */
+    static constexpr int c_titleX = 46;
+    static int titleEnd(const Theme::Fonts& fonts, const juce::String& title);
+    /** A twisted rope between two points: two strands, thick enough to read as rope. Under the header only. */
     static void drawRope(juce::Graphics&, juce::Point<float> a, juce::Point<float> b, juce::Colour colour);
+    /** A thin quiet rule (menu separators, dividers inside a panel). */
+    static void drawRule(juce::Graphics&, juce::Point<float> a, juce::Point<float> b);
     /** Two crossed cutlasses (the Swooshbuckler mark). */
     static void drawCutlasses(juce::Graphics&, juce::Rectangle<float> area, juce::Colour blade, juce::Colour hilt);
 
@@ -142,9 +183,9 @@ public:
     /** A wire is being dragged over this control. */
     void setWireHover(juce::Colour c) { m_wireHover = c; repaint(); }
     /** Can a wire land on (and a plug be shown at) this control now: showing, enabled, not scrolled out of view. */
-    virtual bool isReachable() const { return isShowing() && isEnabled(); }
+    virtual bool isReachable() const { return Theme::isShownInWindow(*this) && isEnabled(); }
 
-    /** Its name, as wires describe it ("MOD 1 -> Doppler"); a knob also draws it under the dial. */
+    /** Its name, as wires describe it ("Mod 1 -> Doppler"); a knob also draws it under the dial. */
     juce::String caption;
 
     /** Cmd-drag (Ctrl on Windows) on a modulated control: phase 0 = start, 1 = drag, 2 = end, 3 = Cmd-double-click
@@ -175,6 +216,8 @@ public:
     WheelKnob(const Theme::Fonts& fonts, juce::Colour accent);
 
     void setAccent(juce::Colour c) { m_accent = c; repaint(); }
+    /** The colour of what this knob follows while it is Linked (Theme::Look). */
+    void setLinkColour(juce::Colour c) { m_linkColour = c; repaint(); }
     void paint(juce::Graphics&) override;
     void valueChanged() override;
     void mouseEnter(const juce::MouseEvent&) override;
@@ -191,7 +234,7 @@ private:
     void timerCallback() override;
 
     const Theme::Fonts& m_fonts;
-    juce::Colour m_accent;
+    juce::Colour m_accent, m_linkColour { Theme::Colours::textDim };
     float m_shown = 0.0f, m_velocity = 0.0f;
     bool m_hover = false;
 };

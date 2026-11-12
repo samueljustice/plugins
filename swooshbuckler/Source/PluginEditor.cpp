@@ -49,12 +49,13 @@ void SwooshbucklerAudioProcessorEditor::SwellButton::paint(juce::Graphics& g)
     g.setColour(TC::brass.brighter(0.3f));
     g.drawEllipse(juce::Rectangle<float>(radius * 2.0f, radius * 2.0f).withCentre(centre), 2.5f);
 
-    g.setColour(TC::background);
-    g.setFont(m_fonts.display(radius * 0.5f));
-    g.drawText("Swell", juce::Rectangle<float>(radius * 2.0f, radius * 0.6f).withCentre(centre.translated(0.0f, -radius * 0.08f)), juce::Justification::centred);
-    g.setFont(m_fonts.label(radius * 0.13f));
-    g.setColour(TC::background.withAlpha(0.7f));
-    g.drawText("HOLD / SPACE / MIDI", juce::Rectangle<float>(radius * 2.0f, radius * 0.3f).withCentre(centre.translated(0.0f, radius * 0.36f)), juce::Justification::centred);
+    // The word is part of the drawing: it grows and shrinks with the button. The hint under it is ordinary text.
+    g.setColour(TC::window);
+    Theme::fitText(g, "Swell", juce::Rectangle<float>(radius * 1.8f, radius * 0.7f).withCentre(centre.translated(0.0f, -radius * 0.1f)),
+                   m_fonts.art(radius * 0.56f), juce::Justification::centred);
+    g.setColour(TC::window.withAlpha(0.8f));
+    Theme::fitText(g, "Hold or Space", juce::Rectangle<float>(radius * 1.7f, 14.0f).withCentre(centre.translated(0.0f, radius * 0.42f)),
+                   m_fonts.caption(), juce::Justification::centred);
 }
 
 //==============================================================================
@@ -76,10 +77,22 @@ void SwooshbucklerAudioProcessorEditor::TapeButton::paint(juce::Graphics& g)
     const bool armed = m_processor.isRecording();
     const bool capturing = m_processor.isCapturing();
 
-    g.setColour(armed ? TC::record.withAlpha(0.16f) : TC::panelRaised.brighter(isMouseOver() ? 0.1f : 0.0f));
-    g.fillRoundedRectangle(b, 5.0f);
-    g.setColour(armed ? TC::record.withAlpha(0.9f) : TC::outline);
-    g.drawRoundedRectangle(b, 5.0f, 1.0f);
+    // A raised plate like the buttons beside it; a stroke only while it is armed or under the mouse.
+    g.setColour(TC::shadow.withAlpha(0.55f));
+    g.fillRoundedRectangle(b.withTrimmedTop(2.0f), Theme::Radius::control);
+    b = b.withTrimmedBottom(1.5f);
+    g.setColour(isMouseOver() && ! armed ? TC::hover : TC::raised);
+    g.fillRoundedRectangle(b, Theme::Radius::control);
+    if (armed)
+    {
+        g.setColour(TC::record.withAlpha(0.2f));
+        g.fillRoundedRectangle(b, Theme::Radius::control);
+    }
+    if (armed || isMouseOver())
+    {
+        g.setColour(armed ? TC::record.withAlpha(0.9f) : TC::stroke);
+        g.drawRoundedRectangle(b, Theme::Radius::control, 1.0f);
+    }
 
     // Cassette body with two reels and the tape between them
     auto icon = b.removeFromLeft(b.getHeight() * 1.6f).reduced(5.0f, 5.0f);
@@ -104,12 +117,12 @@ void SwooshbucklerAudioProcessorEditor::TapeButton::paint(juce::Graphics& g)
     g.drawLine(c1.x, c1.y + r, c2.x, c2.y + r, 1.0f);
 
     // State
-    juce::String text = "ARM";
+    juce::String text = "Arm";
     if (armed && capturing)
-        text = "REC " + juce::String::formatted("%02d:%02d", static_cast<int>(m_processor.getRecordedSeconds()) / 60,
+        text = "Rec " + juce::String::formatted("%02d:%02d", static_cast<int>(m_processor.getRecordedSeconds()) / 60,
                                                 static_cast<int>(m_processor.getRecordedSeconds()) % 60);
     else if (armed)
-        text = "ARMED";
+        text = "Armed";
     if (armed)
     {
         const bool on = capturing || std::fmod(m_blink, 1.0f) < 0.6f;
@@ -117,9 +130,8 @@ void SwooshbucklerAudioProcessorEditor::TapeButton::paint(juce::Graphics& g)
         g.fillEllipse(juce::Rectangle<float>(7.0f, 7.0f).withCentre({ b.getX() + 6.0f, b.getCentreY() }));
         b.removeFromLeft(12.0f);
     }
-    g.setFont(m_fonts.label(12.0f));
-    g.setColour(armed ? TC::text : TC::textDim);
-    g.drawFittedText(text, b.toNearestInt(), juce::Justification::centredLeft, 1);
+    g.setColour(TC::text);
+    Theme::fitText(g, text, b.withTrimmedRight(5.0f), m_fonts.control(), juce::Justification::centredLeft);
 }
 
 //==============================================================================
@@ -176,7 +188,7 @@ void SwooshbucklerAudioProcessorEditor::Morph::finish()
 namespace
 {
     constexpr int c_rateValues[6] = { 0, 44100, 48000, 88200, 96000, 192000 };
-    const char* c_rateNames[6] = { "SESSION", "44.1 kHz", "48 kHz", "88.2 kHz", "96 kHz", "192 kHz" };
+    const char* c_rateNames[6] = { "Session", "44.1 kHz", "48 kHz", "88.2 kHz", "96 kHz", "192 kHz" };
 }
 
 SwooshbucklerAudioProcessorEditor::SettingsPanel::SettingsPanel(SwooshbucklerAudioProcessorEditor& owner) : m_owner(owner)
@@ -198,7 +210,7 @@ SwooshbucklerAudioProcessorEditor::SettingsPanel::SettingsPanel(SwooshbucklerAud
         m_types[static_cast<size_t>(i)].onClick = [this, i] { m_owner.m_processor.setFileType(i); refresh(); };
     }
     const int bits[] = { 16, 24, 32 };
-    const char* bitNames[] = { "16-BIT", "24-BIT", "32-BIT FLOAT" };
+    const char* bitNames[] = { "16-Bit", "24-Bit", "32-Bit Float" };
     for (int i = 0; i < 3; ++i)
     {
         setup(m_bits[static_cast<size_t>(i)]);
@@ -222,7 +234,7 @@ SwooshbucklerAudioProcessorEditor::SettingsPanel::SettingsPanel(SwooshbucklerAud
             refresh();
         };
     }
-    const char* chNames[] = { "STEREO", "MONO" };
+    const char* chNames[] = { "Stereo", "Mono" };
     for (int i = 0; i < 2; ++i)
     {
         setup(m_channels[static_cast<size_t>(i)]);
@@ -248,10 +260,10 @@ SwooshbucklerAudioProcessorEditor::SettingsPanel::SettingsPanel(SwooshbucklerAud
                                   "so the recording keeps the extra high end (good for pitching it down later).");
         m_channels[0].setTooltip("Stereo\nRecords both channels, with all the movement across the field.");
         m_channels[1].setTooltip("Mono\nFolds the output to one channel: half the size, for sounds you'll pan yourself.");
-        m_auto.setTooltip("Auto-Arm\nArms the tape every time Swooshbuckler opens, so you never miss the first good take.");
-        m_choose.setTooltip("Choose the folder recordings are saved to");
-        m_desktop.setTooltip("Save recordings to the default folder again");
-        m_reveal.setTooltip("Show the recordings folder in the Finder / Explorer");
+        m_auto.setTooltip("Auto-Arm on Opening\nArms the tape every time Swooshbuckler opens, so you never miss the first good take.");
+        m_choose.setTooltip("Choose\nChoose the folder recordings are saved to.");
+        m_desktop.setTooltip("Desktop\nSave recordings to the default folder again.");
+        m_reveal.setTooltip("Show\nShow the recordings folder in the Finder / Explorer.");
         m_audio.setTooltip("Audio Device\nPick the audio output, its sample rate and buffer size.");
     }
 
@@ -266,7 +278,7 @@ SwooshbucklerAudioProcessorEditor::SettingsPanel::SettingsPanel(SwooshbucklerAud
     m_skip.onClick = [this] { m_owner.m_processor.setSkipSilence(m_skip.getToggleState()); repaint(); };
     addAndMakeVisible(m_skip);
 
-    m_perWhoosh.setTooltip("One File Per Whoosh\nOn: the armed tape closes its file each time a whoosh has ended and opens the next one for the next "
+    m_perWhoosh.setTooltip("One File per Whoosh\nOn: the armed tape closes its file each time a whoosh has ended and opens the next one for the next "
                            "whoosh, so a session of riding leaves a folder of separate, numbered files. A whoosh has ended when the level "
                            "has sat about 25 dB under its peak for most of a second, or when a thrown whoosh has rung out with the rig stopped. "
                            "Sounds shorter than a fifth of a second are not kept, and the quiet between whooshes is always left out. "
@@ -277,8 +289,7 @@ SwooshbucklerAudioProcessorEditor::SettingsPanel::SettingsPanel(SwooshbucklerAud
 
     for (auto* editor : { &m_name, &m_creator })
     {
-        editor->setFont(m_owner.m_fonts->body(13.0f));
-        editor->setColour(juce::TextEditor::backgroundColourId, TC::scope);
+        editor->setFont(m_owner.m_fonts->body());
         editor->setInputRestrictions(60);
         editor->setSelectAllWhenFocused(true);
         // Return and Escape hand the keyboard back to the rig (space for Swell, F for Throw).
@@ -314,7 +325,7 @@ SwooshbucklerAudioProcessorEditor::SettingsPanel::SettingsPanel(SwooshbucklerAud
         b.setButtonText(lengthNames[i]);
         const int value = minutes[i];
         // Two channels of 32-bit float: 23 MB a minute at 48 kHz, four times that at 192 kHz.
-        b.setTooltip(juce::String(lengthNames[i]) + "\nHow much the LAST button can save after the fact. The sound is held in memory all the time: about "
+        b.setTooltip(juce::String(lengthNames[i]) + "\nHow much the Last button can save after the fact. The sound is held in memory all the time: about "
                      + juce::String(23 * value) + " MB at a 48 kHz recording rate, " + juce::String(46 * value) + " MB at 96 kHz and "
                      + juce::String(92 * value) + " MB at 192 kHz. Changing it empties what is held.");
         b.onClick = [this, value] { m_owner.m_processor.setRetroMinutes(value); refresh(); };
@@ -457,29 +468,25 @@ void SwooshbucklerAudioProcessorEditor::SettingsPanel::resized()
 
 void SwooshbucklerAudioProcessorEditor::SettingsPanel::paint(juce::Graphics& g)
 {
-    g.fillAll(TC::background.withAlpha(0.8f));
-    SwooshLookAndFeel::drawPanel(g, m_panel.toFloat(), "Settings", "the tape and the audio device", TC::flight, *m_owner.m_fonts);
+    g.fillAll(TC::window.withAlpha(0.8f));
+    SwooshLookAndFeel::drawPanel(g, m_panel.toFloat(), "Settings", "The tape and the audio device", TC::brass, *m_owner.m_fonts, Icons::Icon::Settings);
 
     const auto& f = *m_owner.m_fonts;
-    const char* captions[] = { "RECORDINGS ARE SAVED TO", "FILE TYPE", "BIT DEPTH", "SAMPLE RATE", "CHANNELS" };
+    const char* captions[] = { "Recordings Folder", "File Type", "Bit Depth", "Sample Rate", "Channels" };
+    g.setColour(TC::textDim);
     for (int i = 0; i < 5; ++i)
-    {
-        g.setFont(f.label(10.5f));
-        g.setColour(TC::textDim);
-        g.drawText(captions[i], m_captions[static_cast<size_t>(i)], juce::Justification::centredLeft);
-    }
+        Theme::fitText(g, captions[i], m_captions[static_cast<size_t>(i)], f.caption(), juce::Justification::centredLeft);
     const char* moreCaptions[] = { "Take Name", "Creator", "File Names", "Keep the Last" };
     for (size_t i = 0; i < m_moreCaptions.size(); ++i)
-        g.drawText(moreCaptions[i], m_moreCaptions[i], juce::Justification::centredLeft);
-    g.setFont(f.body(12.0f));
+        Theme::fitText(g, moreCaptions[i], m_moreCaptions[i], f.caption(), juce::Justification::centredLeft);
     g.setColour(TC::text);
-    g.drawText(m_owner.m_processor.getRecordFolder().getFullPathName(),
-               m_captions[0].withY(m_captions[0].getBottom()).withHeight(22), juce::Justification::centredLeft, true);
+    Theme::fitText(g, m_owner.m_processor.getRecordFolder().getFullPathName(),
+                   m_captions[0].withY(m_captions[0].getBottom()).withHeight(22), f.body(), juce::Justification::centredLeft, Theme::Fit::Name);
 
     // What the sample rate means in practice
     auto& p = m_owner.m_processor;
-    const juce::String last = p.getRetroMinutes() == 1 ? juce::String("LAST 60s saves the last minute in the same format.")
-                                                       : "LAST " + juce::String(p.getRetroMinutes()) + " MIN saves the last " + juce::String(p.getRetroMinutes()) + " minutes in the same format.";
+    const juce::String last = p.getRetroMinutes() == 1 ? juce::String("Last 60 s saves the last minute in the same format.")
+                                                       : "Last " + juce::String(p.getRetroMinutes()) + " Min saves the last " + juce::String(p.getRetroMinutes()) + " minutes in the same format.";
     juce::String note = (p.getOneFilePerWhoosh() ? "Armed, the tape writes a new file for every whoosh and leaves the quiet between them out. "
                          : p.getSkipSilence() ? "Armed, the tape writes whenever there is sound and skips the quiet stretches. "
                                               : "Armed, the tape rolls all the time. ") + last;
@@ -492,9 +499,7 @@ void SwooshbucklerAudioProcessorEditor::SettingsPanel::paint(juce::Graphics& g)
         else if (p.getRecordRate() < p.getDeviceRate() - 0.5)
             note << "  Recordings are converted down from the device's " << juce::String(p.getDeviceRate() / 1000.0, 1) << " kHz.";
     }
-    g.setFont(f.body(11.5f));
-    g.setColour(TC::textFaint);
-    g.drawFittedText(note, m_captions[5], juce::Justification::topLeft, 3);
+    Theme::fitLines(g, note, m_captions[5], f.body(), TC::textFaint);
 }
 
 //==============================================================================
@@ -508,9 +513,9 @@ SwooshbucklerAudioProcessorEditor::AboutPanel::AboutPanel(SwooshbucklerAudioProc
         addAndMakeVisible(*b);
     }
     m_close.onClick = [this] { setVisible(false); };
-    m_website.setTooltip("Open sweetjusticesound.com");
+    m_website.setTooltip("Website\nOpens sweetjusticesound.com in your browser.");
     m_website.onClick = [] { juce::URL("https://www.sweetjusticesound.com").launchInDefaultBrowser(); };
-    m_copy.setTooltip("Copy the version and build to the clipboard, for a bug report");
+    m_copy.setTooltip("Copy Version\nCopies the version and build to the clipboard, for a bug report.");
     m_copy.onClick = [this]
     {
         juce::SystemClipboard::copyTextToClipboard(m_owner.versionLine() + ", built " + Version::builtOn()
@@ -531,11 +536,7 @@ SwooshbucklerAudioProcessorEditor::AboutPanel::AboutPanel(SwooshbucklerAudioProc
     m_notices.setReadOnly(true);
     m_notices.setScrollbarsShown(true);
     m_notices.setCaretVisible(false);
-    m_notices.setFont(m_owner.m_fonts->body(12.5f));
-    m_notices.setColour(juce::TextEditor::backgroundColourId, TC::scope);
-    m_notices.setColour(juce::TextEditor::textColourId, TC::text);
-    m_notices.setColour(juce::TextEditor::outlineColourId, TC::outline);
-    m_notices.setColour(juce::TextEditor::focusedOutlineColourId, TC::outline);
+    m_notices.setFont(m_owner.m_fonts->body());
     // The file is Markdown: shown as plain text, without the heading marks.
     auto lines = juce::StringArray::fromLines(juce::String::fromUTF8(BinaryData::THIRDPARTYNOTICES_md, BinaryData::THIRDPARTYNOTICES_mdSize));
     for (auto& line : lines)
@@ -595,51 +596,45 @@ void SwooshbucklerAudioProcessorEditor::AboutPanel::resized()
 void SwooshbucklerAudioProcessorEditor::AboutPanel::paint(juce::Graphics& g)
 {
     const auto& f = *m_owner.m_fonts;
-    g.fillAll(TC::background.withAlpha(0.8f));
-    SwooshLookAndFeel::drawPanel(g, m_panel.toFloat(), "About", "the rig, its makers and its version", TC::flight, f);
+    g.fillAll(TC::window.withAlpha(0.8f));
+    SwooshLookAndFeel::drawPanel(g, m_panel.toFloat(), "About", "What it is, who made it and which version this is", TC::brass, f);
     if (m_notices.isVisible())
         return; // the licences cover the rest
 
     // The Sweet Justice logo, traced by its comets.
     if (m_logo != nullptr && m_logo->isLoaded())
     {
-        g.setColour(TC::scope);
-        g.fillRoundedRectangle(m_logoArea.toFloat(), 8.0f);
-        g.setColour(TC::outline);
-        g.drawRoundedRectangle(m_logoArea.toFloat().reduced(0.5f), 8.0f, 1.0f);
+        SwooshLookAndFeel::drawWell(g, m_logoArea.toFloat(), Theme::Radius::panel);
         const float t = static_cast<float>(juce::Time::getMillisecondCounterHiRes() * 0.001 - m_shownAt);
         m_logo->renderPreview(g, m_logoArea.toFloat().reduced(18.0f), t, 1.0f);
     }
 
     auto r = m_textArea;
     SwooshLookAndFeel::drawCutlasses(g, juce::Rectangle<float>(static_cast<float>(r.getX()), static_cast<float>(r.getY()) + 8.0f, 34.0f, 30.0f), TC::master, TC::brass);
-    g.setFont(f.display(40.0f));
     g.setColour(TC::text);
-    g.drawText("Swooshbuckler", r.removeFromTop(46).withTrimmedLeft(44), juce::Justification::centredLeft);
+    Theme::fitText(g, "Swooshbuckler", r.removeFromTop(46).withTrimmedLeft(44), f.wordmark(), juce::Justification::centredLeft);
 
     auto line = [&](const juce::String& text, const juce::Font& font, juce::Colour colour, int height)
     {
-        g.setFont(font);
-        g.setColour(colour);
-        g.drawFittedText(text, r.removeFromTop(height), juce::Justification::topLeft, juce::jmax(1, height / 16));
+        Theme::fitLines(g, text, r.removeFromTop(height), font, colour);
     };
     line("Version " + Version::number() + "   " + juce::AudioProcessor::getWrapperTypeDescription(m_owner.m_processor.wrapperType),
-         f.heading(14.0f), TC::flight, 20);
+         f.title(), TC::brass, 22);
     line("Built " + Version::builtOn() + (Version::commit().isNotEmpty() ? "   commit " + Version::commit() : juce::String()),
-         f.body(12.0f), TC::textDim, 22);
+         f.body(), TC::textDim, 20);
     r.removeFromTop(8);
     line("A whoosh-making rig. Drop in up to ten sounds and it rides the faders across them, making doppler passes, "
          "swells, hits and tails. Shape them with two effect buses, a hit gate, a spectral morph and four modulators, "
-         "and arm the tape to keep every one.", f.body(13.0f), TC::text, 58);
-    r.removeFromTop(8);
-    line("Made by Samuel Justice at Sweet Justice Sound.", f.heading(13.0f), TC::text, 22);
+         "and arm the tape to keep every one.", f.body(), TC::text, 54);
     r.removeFromTop(6);
+    line("Made by Samuel Justice at Sweet Justice Sound.", f.title(), TC::text, 22);
+    r.removeFromTop(4);
     line("Fonts: Pirata One by Rodrigo Fuenzalida and Nicolas Massi; IBM Plex Sans Condensed by IBM. "
-         "Both under the SIL Open Font License 1.1.  Built with JUCE " + Version::juce() + ".  "
-         "VST is a registered trademark of Steinberg Media Technologies GmbH.", f.body(11.5f), TC::textFaint, 50);
+         "Both under the SIL Open Font License 1.1. Built with JUCE " + Version::juce() + ". "
+         "VST is a registered trademark of Steinberg Media Technologies GmbH.", f.body(), TC::textFaint, 50);
     // The build year, so the notice never needs editing.
     line(juce::String(juce::CharPointer_UTF8("\xc2\xa9 ")) + Version::year() + " Samuel Justice. MIT License.",
-         f.body(11.5f), TC::textFaint, 18);
+         f.body(), TC::textFaint, 18);
 }
 
 //==============================================================================
@@ -679,32 +674,41 @@ SwooshbucklerAudioProcessorEditor::SwooshbucklerAudioProcessorEditor(Swooshbuckl
     };
 
     // Header ------------------------------------------------------------------
-    for (auto* b : { &m_presetPrev, &m_presetName, &m_presetNext, &m_dice, &m_retroButton, &m_settingsButton, &m_playButton, &m_newButton, &m_takesButton,
+    for (auto* b : { &m_presetName, &m_dice, &m_retroButton, &m_settingsButton, &m_playButton, &m_newButton, &m_takesButton,
                      &m_variationsButton, &m_abButton })
     {
-        b->setColour(juce::TextButton::buttonOnColourId, TC::flight);
+        b->setColour(juce::TextButton::buttonOnColourId, TC::brass);
         b->setWantsKeyboardFocus(false);
         m_content.addAndMakeVisible(*b);
     }
+    // One look for each kind of thing: Play is the one filled button, the preset box is a menu, A | B is a chip,
+    // and the buttons that are best known by their picture carry it.
+    SwooshLookAndFeel::setStyle(m_playButton, SwooshLookAndFeel::ButtonStyle::Primary);
+    Icons::set(m_playButton, Icons::Icon::Play);
+    SwooshLookAndFeel::setStyle(m_presetName, SwooshLookAndFeel::ButtonStyle::Menu);
+    SwooshLookAndFeel::setShowsName(m_presetName);
+    m_abButton.getProperties().set("plain", true); // its letter says which set: no lamp
+    Icons::set(m_dice, Icons::Icon::Die);
+    Icons::set(m_settingsButton, Icons::Icon::Settings);
+    Icons::set(m_newButton, Icons::Icon::New);
     m_presetName.setButtonText(p.currentPresetName);
     m_presetName.setTooltip("Presets\nClick for the list: the factory presets, then your own. Picking one glides every control to its new setting over a moment, "
                             "so you can switch while it plays. A preset is a complete look: every knob it doesn't set goes back to its default. "
                             "Your tracks, their levels, the output section and the modulators are left alone (a preset of your own can carry its "
                             "modulators and wires, if you saved it with them). The list also saves, renames and deletes your presets, switches "
-                            "A / B and saves and opens sessions. Use < and > to step through the presets.");
+                            "A / B and saves and opens sessions. The arrows either side step through the presets.");
     m_presetName.onClick = [this] { showPresetMenu(); };
-    m_presetPrev.setTooltip("Previous Preset");
-    m_presetNext.setTooltip("Next Preset");
+    m_presetPrev.setTooltip("Previous Preset\nLoads the preset before this one in the list.");
+    m_presetNext.setTooltip("Next Preset\nLoads the preset after this one in the list.");
     m_presetPrev.onClick = [this] { stepPreset(-1); };
     m_presetNext.onClick = [this] { stepPreset(1); };
-    m_dice.setColour(juce::TextButton::buttonOnColourId, TC::movement);
     m_dice.setTooltip("Randomise\nRolls a random but musical setting for the ride, the buses, the hits and the space, and glides to it. "
                       "Only the knobs it rolls move: every other control stays where you set it, and so do your tracks, their levels and the output. "
                       "A section with its lock on is left out. Keep rolling until you hear something you like; the arrows beside it go back "
                       "through the last 20 rolls, and the star keeps one as a preset. The R key rolls too.");
     m_dice.onClick = [this] { rollDice(-1); };
 
-    for (auto* b : { &m_undoButton, &m_redoButton, &m_rollBack, &m_rollForward, &m_keepRoll })
+    for (auto* b : { &m_undoButton, &m_redoButton, &m_rollBack, &m_rollForward, &m_keepRoll, &m_presetPrev, &m_presetNext })
         m_content.addAndMakeVisible(*b);
     m_undoButton.setTooltip("Undo\nTakes back the last thing you changed: a knob move, a preset, a Randomise roll, a section's die, A / B, New Session "
                             "or a track edit, in the order they happened. A preset or a roll is one step, however many knobs it moved. Cmd+Z does the same.");
@@ -731,7 +735,7 @@ SwooshbucklerAudioProcessorEditor::SwooshbucklerAudioProcessorEditor(Swooshbuckl
 
     // A die and a lock for each section, in its title bar.
     {
-        const juce::Colour colours[Presets::numSections] = { TC::flight, TC::movement, TC::sources, TC::record, TC::master };
+        const juce::Colour colours[Presets::numSections] = { TC::brass, TC::busA, TC::busB, TC::hits, TC::output };
         const char* rolls[Presets::numSections] = {
             "Energy, Rate, Fill, Chaos and Pitch",
             "bus A's Doppler, Width, Bend, Low End, Swirl, Filter and Drive",
@@ -743,33 +747,32 @@ SwooshbucklerAudioProcessorEditor::SwooshbucklerAudioProcessorEditor(Swooshbuckl
         {
             const juce::String name = Presets::sectionName(section);
             auto& die = m_sectionDice[static_cast<size_t>(section)];
-            die = std::make_unique<IconButton>(IconButton::Icon::Die, colours[section]);
+            die = std::make_unique<IconButton>(IconButton::Icon::Die, colours[section], true);
             die->setTooltip("Roll " + name + "\nRolls just this section: " + rolls[section] + ". Everything else stays where it is. "
-                            "The roll joins the Randomise history, so the arrows by RANDOMISE step back over it.");
+                            "The roll joins the Randomise history, so the arrows by Randomise step back over it.");
             die->onClick = [this, section] { rollDice(section); };
             m_content.addAndMakeVisible(*die);
             auto& lock = m_sectionLocks[static_cast<size_t>(section)];
-            lock = std::make_unique<IconButton>(IconButton::Icon::Lock, colours[section]);
+            lock = std::make_unique<IconButton>(IconButton::Icon::Lock, colours[section], true);
             lock->setClickingTogglesState(true);
             lock->setToggleState(m_processor.isSectionLocked(section), juce::dontSendNotification);
-            lock->setTooltip("Lock " + name + "\nOn: the header's RANDOMISE (and Randomise Everything in Render Variations) leaves this section "
+            lock->setTooltip("Lock " + name + "\nOn: the header's Randomise (and Randomise Everything in Render Variations) leaves this section "
                              "as it is. The section's own die still rolls it. The locks are saved with the session.");
             lock->onClick = [this, section] { m_processor.setSectionLocked(section, m_sectionLocks[static_cast<size_t>(section)]->getToggleState()); };
             m_content.addAndMakeVisible(*lock);
         }
     }
     m_content.addAndMakeVisible(m_tape);
-    m_tape.setTooltip("Tape\nArm it and it records whenever there is sound, skipping the quiet stretches, into one long file of usable whooshes. Click again to stop and close the file. Pass peaks and hits are marked in WAV files, so a take arrives ready to spot. Where it saves, in which format, Skip Silence (off for one continuous take) and One File Per Whoosh (a separate file for each) are in SETTINGS; what it has saved is in Takes. The T key arms and stops it too.");
+    m_tape.setTooltip("Tape\nArm it and it records whenever there is sound, skipping the quiet stretches, into one long file of usable whooshes. Click again to stop and close the file. Pass peaks and hits are marked in WAV files, so a take arrives ready to spot. Where it saves, in which format, Skip Silence (off for one continuous take) and One File per Whoosh (a separate file for each) are in Settings; what it has saved is in Takes. The T key arms and stops it too.");
     m_tape.onClick = [this] { toggleLog(); };
-    m_retroButton.setTooltip("Last 60 Seconds\nThe rig always remembers the last minute. Click to save it to a file, even if the tape wasn't armed: for the happy accident you didn't record. Keep the Last in SETTINGS makes it 3 or 5 minutes. The L key saves it too.");
-    m_takesButton.setTooltip("Takes\nThe recordings of this run, newest first, with how many there are: tape takes, whoosh files and LAST 60s saves. "
+    m_retroButton.setTooltip("Last 60 Seconds\nThe rig always remembers the last minute. Click to save it to a file, even if the tape wasn't armed: for the happy accident you didn't record. Keep the Last in Settings makes it 3 or 5 minutes. The L key saves it too.");
+    m_takesButton.setTooltip("Takes\nThe recordings of this run, newest first, with how many there are: tape takes, whoosh files and Last 60 s saves. "
                              "Open it to hear them, drag them out to the Finder / Explorer or into your DAW, keep or delete them.");
     m_takesButton.onClick = [this] { showTakes(); };
     m_variationsButton.setTooltip("Render Variations\nRenders a batch of whooshes straight to files, in the background and faster than real time: "
                                   "choose how many (100 unless you say otherwise), how long, and what changes from one to the next. "
                                   "While a batch renders, this button shows how far it is.");
     m_variationsButton.onClick = [this] { showVariations(); };
-    m_playButton.setColour(juce::TextButton::buttonOnColourId, TC::good);
     m_playButton.setTooltip("Play / Stop\nStarts and stops the whole rig; the Return key does the same. Stop lets the tail ring out. The app always opens stopped, so nothing blasts out when you load a session. In a DAW it can be automated, and with Follow Host on the transport starts and stops it too.");
     m_playButton.onClick = [this] { m_processor.setPlaying(! m_processor.isPlaying()); };
     m_newButton.setTooltip("New Session\nStops, empties every track and puts every control back to its default. Undo (Cmd+Z) brings all of it back in one step: the tracks, the settings and the wires.");
@@ -803,7 +806,7 @@ SwooshbucklerAudioProcessorEditor::SwooshbucklerAudioProcessorEditor(Swooshbuckl
     {
         m_processor.setMorphSource(side, track);
         const juce::String name = side == 0 ? "A" : "B";
-        toast(track >= 0 ? "Morph side " + name + " is roped to \"" + m_processor.getCargo().getDisplayName(track) + "\"."
+        toast(track >= 0 ? "Morph side " + name + " is the track \"" + m_processor.getCargo().getDisplayName(track) + "\"."
                          : "Morph side " + name + " is bus " + name + " again.");
         syncMorphPad();
     };
@@ -841,7 +844,8 @@ SwooshbucklerAudioProcessorEditor::SwooshbucklerAudioProcessorEditor(Swooshbuckl
     m_morphButton.setClickingTogglesState(true);
     m_morphButton.setColour(juce::TextButton::buttonOnColourId, TC::filter);
     m_morphButton.setWantsKeyboardFocus(false);
-    m_morphButton.setTooltip("Morph\nShows the morph pad over the sea. It blends bus A into bus B spectrally, not just a crossfade: the two sounds trade their tone and pitch. To morph two single sounds, drag the rope from the A or B handle under the pad onto a track. Switch it on with ON on the pad, then drag the dot or press play to let it wander.");
+    m_morphButton.getProperties().set("plain", true); // its text says the state: no lamp
+    m_morphButton.setTooltip("Morph\nShows the morph pad over the sea. It blends bus A into bus B spectrally, not just a crossfade: the two sounds trade their tone and pitch. To morph two single sounds, drag the rope from the A or B handle under the pad onto a track. Switch it on with the On / Off button on the pad, then drag the dot or press its Play button to let it wander.");
     m_morphButton.onClick = [this] { syncMorphPad(); };
     m_content.addAndMakeVisible(m_morphButton);
 
@@ -858,8 +862,8 @@ SwooshbucklerAudioProcessorEditor::SwooshbucklerAudioProcessorEditor(Swooshbuckl
                          "at its middle, which is known as soon as it starts, so Swooshbuckler looks ahead: when a peak is coming, it "
                          "picks every hit track's next sound and starts it early by that sound's own lead-in, so all the transients land "
                          "right on the peak. Sensitivity sets which peaks get a hit (closer passes on a louder bus win). "
-                         "The gate isn't needed, so GATE, Release, Hold, Floor and SYNC HITS rest.\n"
-                         "Off: the classic hit gate (and SYNC HITS if it's on).");
+                         "The gate isn't needed, so Gate, Release, Hold, Floor and Sync Hits rest.\n"
+                         "Off: the hit gate fires them (and Sync Hits lines them up, if it's on).");
     m_content.addAndMakeVisible(m_aimHits);
     m_aimAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment>(p.getState(), ParamIDs::hitAim, m_aimHits);
 
@@ -881,10 +885,10 @@ SwooshbucklerAudioProcessorEditor::SwooshbucklerAudioProcessorEditor(Swooshbuckl
     m_content.addAndMakeVisible(m_followMasterButton);
     m_followMasterAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment>(p.getState(), ParamIDs::rideFollowMaster, m_followMasterButton);
 
-    m_throwButton.setColour(juce::TextButton::buttonColourId, TC::flight.withAlpha(0.25f));
+    m_throwButton.setColour(juce::TextButton::buttonColourId, TC::brass.withAlpha(0.25f));
     m_throwButton.setWantsKeyboardFocus(false);
     m_throwButton.setTooltip("Throw\nThrows one whoosh now: a single pass on both buses, with a long approach, the peak as it goes by and a shorter tail. "
-                             "With AIM on, the hits land on its peak. While the rig plays it goes on top of the ride; with the rig stopped you get "
+                             "With Aim on, the hits land on its peak. While the rig plays it goes on top of the ride; with the rig stopped you get "
                              "just that one whoosh and then silence, so single whooshes can be made one at a time. The peak is heard half a Throw "
                              "Length after you throw, and the Ride panel counts down to it. The F key does the same, and so does a MIDI note with Keys set to Throw.");
     m_throwButton.onClick = [this] { m_processor.throwWhoosh(); };
@@ -929,13 +933,13 @@ SwooshbucklerAudioProcessorEditor::SwooshbucklerAudioProcessorEditor(Swooshbuckl
         const char* names[] = { "Doppler", "Width", "Bend", "Low End", "Swirl", "Filter", "Drive", "Ducked", "Filtered" };
         const char* tips[] = {
             "How dramatic each pass of the moving source is: how close it comes, how much it swells and brightens on the way by. Speed, distance and direction change by themselves with every pass.",
-            "How far each pass travels across the stereo field. 0: in the middle. High: a full side-to-side fly-by, and the ear turned away from the pass hears it a little duller, as a head in the way would make it. With LINK on, bus B uses bus A's Width.",
+            "How far each pass travels across the stereo field. 0: in the middle. High: a full side-to-side fly-by, and the ear turned away from the pass hears it a little duller, as a head in the way would make it. With Link on, bus B uses bus A's Width.",
             "How much the pitch bends as a pass goes by (the doppler bend), together with Doppler: it rises on the way in and drops as the pass goes by. It changes the pitch only, not how the pass swells. Low: passes go by without the bend. High: a big race-car scream and drop.",
             "Weight: a sub octave, low overtones, and an extra low lift at the loudest moments. With the faders still (Auto Ride off, or Swell held) the lift follows each pass: up as it comes close, down as it leaves.",
             "Movement inside the sound: a phaser, then (from about a third of the way) a flanger that sweeps along with each pass. The level stays put; only the colour moves. High settings narrow and darken a bed. With the faders still (Auto Ride off, or Swell held) the passes alone drive the sweep.",
             "A filter that opens as each pass swells and closes in its tail, so the tails are dark and the peaks bright, like air rushing past. More: more of it, closing further at the peak, and over the top 40% a resonant edge. With the faders still (Auto Ride off, or Swell held) it follows how close each pass is.",
             "Saturation: grit and density, from a gentle thickening to a hard, flattened growl. The level is kept roughly steady, so it adds character rather than just loudness.",
-            "How much bus A pushes this bus down at A's peaks (side-chain ducking, up to -20 dB in Volume mode), so the two buses don't pile up. DUCK sets how (Volume, Darken or Mids). With TAKE TURNS on, also how far the quieter bus goes down: at 0, Take Turns does nothing.",
+            "How much bus A pushes this bus down at A's peaks (side-chain ducking, up to -20 dB in Volume mode), so the two buses don't pile up. Duck sets how (Volume, Darken or Mids). With Take Turns on, also how far the quieter bus goes down: at 0, Take Turns does nothing.",
             "How far bus A closes a low-pass filter on this bus at A's peaks (down to about 280 Hz at 100%): B goes dark under A instead of quieter.",
         };
         for (int b = 0; b < ParamIDs::numBuses; ++b)
@@ -949,19 +953,19 @@ SwooshbucklerAudioProcessorEditor::SwooshbucklerAudioProcessorEditor(Swooshbuckl
     }
 
     // Hits + output --------------------------------------------------------------
-    addKnob(ParamIDs::hitSense, "Sensitivity", TC::record, "How easily the hits fire. With AIM on: which pass peaks get a hit (closer passes on a louder bus score higher). With AIM off: how easily the hit gate opens, by the GATE mode. Low: only the biggest moments fire the hits. High: they fire often.");
+    addKnob(ParamIDs::hitSense, "Sensitivity", TC::record, "How easily the hits fire. With Aim on: which pass peaks get a hit (closer passes on a louder bus score higher). With Aim off: how easily the hit gate opens, by the Gate mode. Low: only the biggest moments fire the hits. High: they fire often.");
     addKnob(ParamIDs::hitBoost, "Boost", TC::record, "How loud the hit tracks come in when they fire, from 3 dB under their own level to 12 dB over it. More makes the hits punch out of the whoosh (the top end leans on the limiter).");
     addKnob(ParamIDs::hitRelease, "Release", TC::record, "How long the hits tail out after the gate opens. Short: tight, dry impacts. Long: the hits ring on into the next swell.");
     addKnob(ParamIDs::hitHold, "Hold", TC::record, "How long the gate stays open once it opens. Longer stops it chattering open and shut, so each hit reads as one event.");
     addKnob(ParamIDs::hitFloor, "Floor", TC::record, "How far the gate closes between hits. Closed (fully left): the hits vanish completely between peaks. Turn it up and they stay under the mix instead, from -22 dB to just under their full level.");
-    addKnob(ParamIDs::hitDuck, "Duck", TC::record, "How far buses A and B get out of the way when the hits fire (up to -12 dB at the hits' peaks), so the impact punches through the wall of whoosh. DUCK sets how they get out of the way.");
+    addKnob(ParamIDs::hitDuck, "Duck", TC::record, "How far buses A and B get out of the way when the hits fire (up to -12 dB at the hits' peaks), so the impact punches through the wall of whoosh. Duck sets how they get out of the way.");
     addKnob(ParamIDs::duckReturn, "Return", TC::record, "How fast ducked buses come back up afterwards, for the hits' duck and for bus B ducked by A. Fast (fully left) follows straight away. Slower is smoother; at the top it pumps.");
 
-    // Gate and duck modes: the first entry of each is the original rig.
+    // Gate and duck modes: the first entry of each is the default.
     m_gateMode.addItemList({ "Peaks", "Level", "Jumps", "Open" }, 1);
-    m_gateMode.setTooltip("Gate Mode\nWhat opens the hit gate. Peaks: only at the loudest moments of buses A and B together (the original rig). Level: whenever the mix is louder than a level, set by Sensitivity. Jumps: on sudden rises, however loud or quiet. Open: no gate, the hits always play.");
+    m_gateMode.setTooltip("Gate Mode\nWhat opens the hit gate. Peaks: only at the loudest moments of buses A and B together. Level: whenever the mix is louder than a level, set by Sensitivity. Jumps: on sudden rises, however loud or quiet. Open: no gate, the hits always play.");
     m_duckMode.addItemList({ "Volume", "Darken", "Mids" }, 1);
-    m_duckMode.setTooltip("Duck Mode\nHow a ducked bus gets out of the way, both when the hits duck A and B and when A ducks B. Volume: it is turned down (the original rig). Darken: it is low-passed instead, so it stays but gets out of the way. Mids: only the crowded middle (250 Hz to 4 kHz) goes down, so the sub and air stay.");
+    m_duckMode.setTooltip("Duck Mode\nHow a ducked bus gets out of the way, both when the hits duck A and B and when A ducks B. Volume: it is turned down. Darken: it is low-passed instead, so it stays but gets out of the way. Mids: only the crowded middle (250 Hz to 4 kHz) goes down, so the sub and air stay.");
     for (auto* c : { &m_gateMode, &m_duckMode })
     {
         c->setWantsKeyboardFocus(false);
@@ -972,7 +976,7 @@ SwooshbucklerAudioProcessorEditor::SwooshbucklerAudioProcessorEditor(Swooshbuckl
     m_takeTurns.setClickingTogglesState(true);
     m_takeTurns.setColour(juce::TextButton::buttonOnColourId, TC::sources);
     m_takeTurns.setWantsKeyboardFocus(false);
-    m_takeTurns.setTooltip("Take Turns\nOn: only the louder of bus A and bus B speaks at a time and the other ducks under it (by as much as Ducked), so they trade places instead of piling up. Off: A always ducks B (the original rig). Good for taming the everything-at-once wall of sound.");
+    m_takeTurns.setTooltip("Take Turns\nOn: only the louder of bus A and bus B speaks at a time and the other ducks under it (by as much as Ducked), so they trade places instead of piling up. Off: A always ducks B. Good for taming the everything-at-once wall of sound.");
     m_content.addAndMakeVisible(m_takeTurns);
     m_linkBuses.setClickingTogglesState(true);
     m_linkBuses.setColour(juce::TextButton::buttonOnColourId, TC::movement);
@@ -991,8 +995,8 @@ SwooshbucklerAudioProcessorEditor::SwooshbucklerAudioProcessorEditor(Swooshbuckl
                                      "Bed: two passes overlap, one coming in as the other goes out, so the level stays steady. Good for beds, air and long energy files. "
                                      "Fly-By: one pass at a time, with a long approach, the peak as it goes by and a shorter tail, so each sound is heard once, at one pitch. "
                                      "Good for a single clear whoosh, tones and anything with a sharp start. "
-                                     "The passes peak at the same moments either way, so AIM and LINK work the same.")
-                        + (b == 1 ? "\nWhile LINK is on, bus B uses bus A's Pass Mode." : ""));
+                                     "The passes peak at the same moments either way, so Aim and Link work the same.")
+                        + (b == 1 ? "\nWhile Link is on, bus B uses bus A's Pass Mode." : ""));
         menu.setWantsKeyboardFocus(false);
         m_content.addAndMakeVisible(menu);
         m_passModeAttachment[b] = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment>(p.getState(), ParamIDs::passMode[b], menu);
@@ -1023,17 +1027,17 @@ SwooshbucklerAudioProcessorEditor::SwooshbucklerAudioProcessorEditor(Swooshbuckl
     addKnob(ParamIDs::push, "Push", TC::master, "How hard the mix drives into the limiter, after Inflate (up to +15 dB). More is louder and denser, then squashed; the ceiling stays where it is, so it can't clip. A hit that goes over is let go at once; loud stretches are held steadily, so a swell keeps its shape.");
     addKnob(ParamIDs::ceiling, "Ceiling", TC::master, "The limiter's ceiling: nothing gets out louder than this (0 to -6 dBFS, finer near the top). It is a true-peak ceiling: the limiter also reads the waveform between the samples, so a take stays under it when it is converted or played back. The default, -0.3 dB, leaves a little headroom for file conversion.");
 
-    // Peak tremolo: a framed group at the left of Output (before Space in the signal): On/Off, wave and Shakes menus
-    // over its Depth, Rate and Threshold knobs.
+    // Peak Tremolo: a tinted group at the left of Output (before Space in the signal): its switch and its wave and
+    // Shakes menus over its Depth, Rate and Threshold knobs.
     addKnob(ParamIDs::tremDepth, "Depth", TC::movement, "Tremolo Depth\nHow far the level dips at the very peak (the readout), up to a full chop at 100%. It only shakes the loudest moments: past Threshold it eases in, "
             "deepest at the peak, and lets go as the level falls, so the dynamics flutter where the whoosh is biggest.");
-    m_tremOn.addItemList({ "Off", "On" }, 1);
+    m_tremOn.setColour(juce::ToggleButton::tickColourId, TC::busA);
     m_tremOn.setWantsKeyboardFocus(false);
     m_tremOn.setTooltip("Peak Tremolo\nOn: a tremolo that shakes only the loudest moments. As the level climbs past Threshold towards its recent "
                         "peak, the tremolo deepens (up to Depth, at Rate, in the chosen wave) and it lets go as the level falls, so the "
                         "dynamics flutter where the whoosh is biggest. Off (the default): no tremolo. Switching fades it in or out.");
     m_content.addAndMakeVisible(m_tremOn);
-    m_tremOnAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment>(p.getState(), ParamIDs::tremOn, m_tremOn);
+    m_tremOnAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment>(p.getState(), ParamIDs::tremOn, m_tremOn);
     addKnob(ParamIDs::tremRate, "Rate", TC::movement, "Tremolo Rate\nHow fast it shakes, from 1.5 Hz (a slow throb) to 30 Hz (a buzzing flutter).");
     addKnob(ParamIDs::tremThreshold, "Threshold", TC::movement, "Tremolo Threshold\nHow near its recent peak the level has to be before the tremolo starts (the readout, in dB under the peak). "
             "Low: it shakes most of the time. High: only right at the top of each swell. A steady bed sits at its own peak, so it shakes all the time.");
@@ -1057,7 +1061,7 @@ SwooshbucklerAudioProcessorEditor::SwooshbucklerAudioProcessorEditor(Swooshbuckl
     m_trim.setDoubleClickReturnValue(true, 0.0);
     m_trim.setWantsKeyboardFocus(false);
     m_trim.setTooltip("Master Trim\nHow loud you hear it (and what your DAW gets from the plug-in), from silence up to the limiter's level, after the limiter. "
-                      "The tape and LAST 60s record before it, at full level, so turning it down never makes a quieter take.\n"
+                      "The tape and Last 60 s record before it, at full level, so turning it down never makes a quieter take.\n"
                       "Drag it. Double-click to reset it to 0 dB. Right-click (or Alt-double-click) to type a value.");
     m_trim.setTypedParameter(p.getState().getParameter(ParamIDs::masterTrim), *m_fonts);
     m_trim.minTypingWidth = 54; // the fader is narrower than "-12.0 dB"
@@ -1097,15 +1101,16 @@ SwooshbucklerAudioProcessorEditor::SwooshbucklerAudioProcessorEditor(Swooshbuckl
     // Version: next to the website, and the title itself, both open About.
     m_versionLink.setButtonText(versionLine());
     m_versionLink.setURL({});
-    m_versionLink.setFont(m_fonts->label(10.0f), false, juce::Justification::centredLeft);
+    m_versionLink.setFont(m_fonts->caption(), false, juce::Justification::centredLeft);
     m_versionLink.setColour(juce::HyperlinkButton::textColourId, TC::textDim);
-    m_versionLink.setTooltip("About Swooshbuckler: version, build and credits");
+    m_versionLink.setTooltip("About Swooshbuckler\nThe version, the build and the credits.");
     m_versionLink.onClick = [this] { m_about.setVisible(true); m_about.toFront(false); };
     m_content.addAndMakeVisible(m_versionLink);
 
     m_content.addAndMakeVisible(m_websiteLink);
-    m_websiteLink.setFont(m_fonts->label(10.0f), false, juce::Justification::centredLeft);
-    m_websiteLink.setColour(juce::HyperlinkButton::textColourId, TC::flight);
+    m_websiteLink.setFont(m_fonts->caption(), false, juce::Justification::centredLeft);
+    m_websiteLink.setColour(juce::HyperlinkButton::textColourId, TC::brass);
+    m_websiteLink.setTooltip("Website\nOpens sweetjusticesound.com in your browser.");
 
     setResizable(true, true);
     setResizeLimits(c_width * 6 / 10, c_height * 6 / 10, c_width * 2, c_height * 2);
@@ -1126,8 +1131,9 @@ SwooshbucklerAudioProcessorEditor::SwooshbucklerAudioProcessorEditor(Swooshbuckl
     startTimerHz(60);
 
     // Checks GitHub at most once a day in the background, silently; only an editor ever asks.
-    m_updateCheck = std::make_unique<sammyj::UpdateCheck>("swooshbuckler", "swooshbuckler-v", JucePlugin_VersionString,
-                                                          [this](const sammyj::UpdateInfo& info) { showUpdatePopup(info); });
+    if (checkForUpdates)
+        m_updateCheck = std::make_unique<sammyj::UpdateCheck>("swooshbuckler", "swooshbuckler-v", JucePlugin_VersionString,
+                                                              [this](const sammyj::UpdateInfo& info) { showUpdatePopup(info); });
 }
 
 void SwooshbucklerAudioProcessorEditor::showUpdatePopup(const sammyj::UpdateInfo& info)
@@ -1164,7 +1170,7 @@ WheelKnob& SwooshbucklerAudioProcessorEditor::addKnob(const char* paramId, const
                      + "\nDouble-click to reset it. "
                      + (learnable ? "Right-click to type a value or to choose Learn MIDI CC, so a knob on a MIDI controller moves it; Alt-double-click types a value too. "
                                   : "Right-click (or Alt-double-click) to type a value. ")
-                     + "Drag a MOD jack onto it to modulate it.");
+                     + "Drag a Mod jack onto it to modulate it.");
     m_content.addAndMakeVisible(*knob);
     m_attachments.push_back(std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(m_processor.getState(), paramId, *knob));
     if (auto* param = m_processor.getState().getParameter(paramId))
@@ -1184,7 +1190,7 @@ WheelKnob& SwooshbucklerAudioProcessorEditor::addKnob(const char* paramId, const
 //==============================================================================
 void SwooshbucklerAudioProcessorEditor::paint(juce::Graphics& g)
 {
-    g.fillAll(TC::background);
+    g.fillAll(TC::window);
 }
 
 void SwooshbucklerAudioProcessorEditor::resized()
@@ -1200,10 +1206,10 @@ void SwooshbucklerAudioProcessorEditor::layoutContent()
 {
     // Header: transport and session on the left, presets in the middle, tape and settings on the right
     {
-        const int linkWidth = juce::GlyphArrangement::getStringWidthInt(m_fonts->label(10.0f), m_websiteLink.getButtonText()) + 8;
+        const int linkWidth = juce::GlyphArrangement::getStringWidthInt(m_fonts->caption(), m_websiteLink.getButtonText()) + 8;
         m_websiteLink.setBounds(66, 38, linkWidth, 16);
         m_versionLink.setBounds(m_websiteLink.getRight() + 6, 38,
-                                juce::GlyphArrangement::getStringWidthInt(m_fonts->label(10.0f), m_versionLink.getButtonText()) + 8, 16);
+                                juce::GlyphArrangement::getStringWidthInt(m_fonts->caption(), m_versionLink.getButtonText()) + 8, 16);
         m_titleArea = { 16, 4, 290, 34 };
     }
     // Left to right: Play, New, Undo, Redo | < preset > A/B | Randomise, its history, Keep | tape | Last | Variations | Takes | Settings.
@@ -1214,22 +1220,22 @@ void SwooshbucklerAudioProcessorEditor::layoutContent()
             c.setBounds(x, y, width, height);
             x += width + gap;
         };
-        place(m_playButton, 60, 3);
-        place(m_newButton, 44, 3);
+        place(m_playButton, 64, 4, 14, 32);
+        place(m_newButton, 52, 4);
         place(m_undoButton, 22, 2);
-        place(m_redoButton, 22, 5);
-        place(m_presetPrev, 22, 2);
-        place(m_presetName, 116, 2);
-        place(m_presetNext, 22, 2);
-        place(m_abButton, 24, 5);
-        place(m_dice, 86, 2);
+        place(m_redoButton, 22, 6);
+        place(m_presetPrev, 20, 2);
+        place(m_presetName, 112, 2);
+        place(m_presetNext, 20, 3);
+        place(m_abButton, 22, 6);
+        place(m_dice, 90, 2);
         place(m_rollBack, 20, 2);
         place(m_rollForward, 20, 2);
-        place(m_keepRoll, 22, 5);
-        place(m_tape, 120, 3, 13, 34);
-        place(m_retroButton, 76, 3);
-        place(m_variationsButton, 80, 3);
-        place(m_takesButton, 64, 3);
+        place(m_keepRoll, 22, 6);
+        place(m_tape, 110, 4, 13, 34);
+        place(m_retroButton, 66, 4);
+        place(m_variationsButton, 76, 4);
+        place(m_takesButton, 60, 4);
         place(m_settingsButton, 1264 - x, 0);
     }
 
@@ -1253,19 +1259,19 @@ void SwooshbucklerAudioProcessorEditor::layoutContent()
     }
     {
         // Keys (what MIDI notes do) at the right of the Ride title bar; the panel's subtitle line is between the two.
-        const int keysWidth = 70, keysLabel = 30;
+        const int keysWidth = 62, keysLabel = 28;
         m_keysMode.setBounds(m_performPanel.getRight() - 14 - keysWidth, m_performPanel.getY() + 9, keysWidth, 22);
         m_keysLabel = { m_keysMode.getX() - keysLabel - 2, m_keysMode.getY(), keysLabel, 22 };
-        const int titleEnd = m_performPanel.getX() + 30 + juce::GlyphArrangement::getStringWidthInt(m_fonts->display(21.0f), "Ride") + 12;
+        const int titleEnd = m_performPanel.getX() + SwooshLookAndFeel::titleEnd(*m_fonts, "Ride") + 12;
         m_rideStatusArea = { titleEnd, m_performPanel.getY() + 9, m_keysLabel.getX() - 2 - 42 - 4 - titleEnd, 22 }; // the die and lock sit between it and Keys
     }
-    m_followHost.setBounds(250, 15, 76, 30); // left of Play (in a host only)
+    m_followHost.setBounds(240, 15, 84, 30); // left of Play (in a host only)
 
     // Rows 2 and 3, in signal order
-    m_sections[0] = { 1, "Bus A", "growls, tones, crackle, rumble - and the key for B", TC::movement, { 16, 458, 616, 168 } };
-    m_sections[1] = { 2, "Bus B", "air and beds, ducked and filtered by A", TC::sources, { 648, 458, 616, 168 } };
-    m_sections[2] = { 3, "Hits", "at the loudest moments", TC::record, { 16, 638, 616, 158 } };
-    m_sections[3] = { 4, "Output", "space, loudness, limiter", TC::master, { 648, 638, 616, 158 } };
+    m_sections[0] = { 1, "Bus A", "Growls and tones, and the key for B", TC::busA, { 16, 458, 616, 168 }, Icons::Icon::LetterA };
+    m_sections[1] = { 2, "Bus B", "Air and beds", TC::busB, { 648, 458, 616, 168 }, Icons::Icon::LetterB };
+    m_sections[2] = { 3, "Hits", "At the loudest moments", TC::hits, { 16, 638, 616, 158 }, Icons::Icon::Hits };
+    m_sections[3] = { 4, "Output", "Space, loudness, limiter", TC::output, { 648, 638, 616, 158 }, Icons::Icon::Output };
 
     auto row = [this](juce::Rectangle<int> panel, std::vector<const char*> ids, int rightReserve)
     {
@@ -1285,18 +1291,18 @@ void SwooshbucklerAudioProcessorEditor::layoutContent()
     row(m_sections[2].bounds, { ParamIDs::hitSense, ParamIDs::hitBoost, ParamIDs::hitRelease, ParamIDs::hitHold, ParamIDs::hitFloor,
                                 ParamIDs::hitDuck, ParamIDs::duckReturn }, 120);
     {
-        // Modes in the Hits title bar, TAKE TURNS in bus B's.
+        // Modes in the Hits title bar, Take Turns in bus B's.
         const auto& hits = m_sections[2].bounds;
         const int y = hits.getY() + 9;
-        m_duckMode.setBounds(hits.getRight() - 14 - 92, y, 92, 22);
-        m_duckModeLabel = { m_duckMode.getX() - 40, y, 38, 22 };
-        m_gateMode.setBounds(m_duckModeLabel.getX() - 10 - 92, y, 92, 22);
-        m_gateModeLabel = { m_gateMode.getX() - 40, y, 38, 22 };
+        m_duckMode.setBounds(hits.getRight() - 14 - 80, y, 80, 22);
+        m_duckModeLabel = { m_duckMode.getX() - 32, y, 28, 22 };
+        m_gateMode.setBounds(m_duckModeLabel.getX() - 8 - 72, y, 72, 22);
+        m_gateModeLabel = { m_gateMode.getX() - 32, y, 28, 22 };
         const auto& busB = m_sections[1].bounds;
         m_takeTurns.setBounds(busB.getRight() - 14 - 96, busB.getY() + 9, 96, 22);
         m_linkBuses.setBounds(m_takeTurns.getX() - 6 - 56, busB.getY() + 9, 56, 22);
 
-        // PASS (the Pass Mode menu) in each bus's title bar: at the right end of A's, left of LINK in B's.
+        // Pass (the Pass Mode menu) in each bus's title bar: at the right end of A's, left of Link in B's.
         const auto& busA = m_sections[0].bounds;
         const int passWidth = 76, passLabel = 32;
         m_passMode[0].setBounds(busA.getRight() - 14 - passWidth, busA.getY() + 9, passWidth, 22);
@@ -1322,22 +1328,26 @@ void SwooshbucklerAudioProcessorEditor::layoutContent()
         diceAt(Presets::BusB, m_sectionScopes[1]->getX() - 6, busB.getY() + 9);
         diceAt(Presets::Hits, m_sectionScopes[2]->getX() - 6, hits.getY() + 9);
         diceAt(Presets::Output, m_sectionScopes[3]->getX() - 6, out.getY() + 9);
+        // Each subtitle stops short of its title bar's first control.
+        for (size_t i = 0; i < m_sections.size(); ++i)
+            m_sections[i].subtitleRight = m_sectionDice[i + 1]->getX() - 8;
     }
     m_gateLamp = { m_sections[2].bounds.getRight() - 120, m_sections[2].bounds.getY() + 38, 100, 52 };
     m_aimHits.setBounds(m_gateLamp.getX() + 4, m_gateLamp.getBottom() + 2, 92, 24);
     m_syncHits.setBounds(m_gateLamp.getX() + 4, m_aimHits.getBottom() + 4, 92, 24);
-    // Output, left to right: the framed PEAK TREMOLO group (it comes before Space in the signal) with its three menus
-    // over its three knobs; then Space, Inflate, Push and Ceiling; then the meters and the trim fader.
+    // Output, left to right: the Peak Tremolo group (it comes before Space in the signal) with its name, its switch
+    // and its two menus over its three knobs; then Space, Inflate, Push and Ceiling; then the meters and the trim fader.
     {
         const auto& out = m_sections[3].bounds;
         m_tremGroup = { out.getX() + 12, out.getY() + 38, 240, out.getHeight() - 44 };
-        auto menus = m_tremGroup.reduced(6, 0).withTrimmedTop(12).withHeight(20);
-        m_tremOn.setBounds(menus.removeFromLeft(58));
-        menus.removeFromLeft(4);
-        m_tremShape.setBounds(menus.removeFromLeft(72));
+        m_tremCaption = m_tremGroup.reduced(10, 0).withTrimmedTop(2).withHeight(13);
+        auto menus = m_tremGroup.reduced(8, 0).withTrimmedTop(16).withHeight(20);
+        m_tremOn.setBounds(menus.removeFromLeft(30));
+        menus.removeFromLeft(6);
+        m_tremShape.setBounds(menus.removeFromLeft(76));
         menus.removeFromLeft(4);
         m_tremTarget.setBounds(menus);
-        auto knobs = m_tremGroup.reduced(4, 0).withTrimmedTop(36).withTrimmedBottom(2);
+        auto knobs = m_tremGroup.reduced(4, 0).withTrimmedTop(38).withTrimmedBottom(1);
         const int tw = knobs.getWidth() / 3;
         for (const auto* id : { ParamIDs::tremDepth, ParamIDs::tremRate, ParamIDs::tremThreshold })
             m_controls[id]->setBounds(knobs.removeFromLeft(tw).reduced(2, 0));
@@ -1384,40 +1394,43 @@ void SwooshbucklerAudioProcessorEditor::layoutContent()
 
 void SwooshbucklerAudioProcessorEditor::paintContent(juce::Graphics& g)
 {
-    g.fillAll(TC::background);
+    g.fillAll(TC::window);
     const auto& f = *m_fonts;
 
-    SwooshLookAndFeel::drawCutlasses(g, { 18.0f, 12.0f, 38.0f, 34.0f }, TC::master, TC::brass);
-    g.setFont(f.display(36.0f));
-    g.setColour(TC::text);
-    g.drawText("Swooshbuckler", juce::Rectangle<float>(66.0f, 2.0f, 300.0f, 38.0f), juce::Justification::centredLeft);
+    // The header: the mark, the name, and the one rope rule in the window.
+    if (g.clipRegionIntersects({ 0, 0, c_width, 60 }))
+    {
+        SwooshLookAndFeel::drawCutlasses(g, { 18.0f, 12.0f, 38.0f, 34.0f }, TC::output, TC::brass);
+        g.setColour(TC::text);
+        Theme::fitText(g, "Swooshbuckler", juce::Rectangle<float>(66.0f, 2.0f, 180.0f, 38.0f), f.wordmark(), juce::Justification::centredLeft);
+        SwooshLookAndFeel::drawRope(g, { 16.0f, 56.0f }, { 1264.0f, 56.0f }, TC::brass);
+    }
 
-    SwooshLookAndFeel::drawRope(g, { 16.0f, 56.0f }, { 1264.0f, 56.0f }, TC::outlineSoft);
-
-    SwooshLookAndFeel::drawPanel(g, m_performPanel.toFloat(), "Ride", {}, TC::flight, f);
+    SwooshLookAndFeel::drawPanel(g, m_performPanel.toFloat(), "Ride", {}, TC::brass, f, Icons::Icon::Ride);
     {
         // The subtitle line doubles as the readout: the time to a throw's peak, or the keys that are held.
         const bool readout = m_rideStatus.isNotEmpty();
-        g.setFont(readout ? f.label(12.0f) : f.body(11.0f));
-        g.setColour(readout ? TC::flight : TC::textDim);
-        g.drawText(readout ? m_rideStatus : juce::String("the faders move by themselves"), m_rideStatusArea, juce::Justification::centredLeft, false);
+        g.setColour(readout ? TC::brass : TC::textFaint);
+        Theme::fitText(g, readout ? m_rideStatus : juce::String("Rides the faders for you"), m_rideStatusArea, readout ? f.control() : f.body(),
+                       juce::Justification::centredLeft, readout ? Theme::Fit::Message : Theme::Fit::Sentence);
     }
     for (const auto& sec : m_sections)
-        SwooshLookAndFeel::drawPanel(g, sec.bounds.toFloat(), sec.title, sec.subtitle, sec.accent, f);
-    SwooshLookAndFeel::drawPanel(g, m_modSection.toFloat(), "Modulation", "drag a jack onto any knob to wire it", TC::brass, f);
-    g.setFont(f.label(10.5f));
+        SwooshLookAndFeel::drawPanel(g, sec.bounds.toFloat(), sec.title, sec.subtitle, sec.accent, f, sec.roundel, static_cast<float>(sec.subtitleRight));
+    SwooshLookAndFeel::drawPanel(g, m_modSection.toFloat(), "Modulation", "Drag a jack onto any knob to wire it", TC::brass, f, Icons::Icon::Modulation,
+                                 static_cast<float>(m_cablesButton.getX() - 8));
     g.setColour(TC::textDim);
-    g.drawText("Keys", m_keysLabel, juce::Justification::centredRight);
-    g.drawText("GATE", m_gateModeLabel, juce::Justification::centredRight);
-    g.drawText("DUCK", m_duckModeLabel, juce::Justification::centredRight);
+    Theme::fitText(g, "Keys", m_keysLabel, f.caption(), juce::Justification::centredRight);
+    Theme::fitText(g, "Gate", m_gateModeLabel, f.caption(), juce::Justification::centredRight);
+    Theme::fitText(g, "Duck", m_duckModeLabel, f.caption(), juce::Justification::centredRight);
     for (const auto& label : m_passModeLabel)
-        g.drawText("PASS", label, juce::Justification::centredRight);
+        Theme::fitText(g, "Pass", label, f.caption(), juce::Justification::centredRight);
 
+    // The signal's way through the panels: small brass arrows in the gutters.
     auto arrow = [&g](juce::Point<float> c, bool down)
     {
         juce::Path p;
-        if (down) { p.startNewSubPath(c.x - 6.0f, c.y - 3.0f); p.lineTo(c.x, c.y + 3.0f); p.lineTo(c.x + 6.0f, c.y - 3.0f); }
-        else      { p.startNewSubPath(c.x - 3.0f, c.y - 6.0f); p.lineTo(c.x + 3.0f, c.y); p.lineTo(c.x - 3.0f, c.y + 6.0f); }
+        if (down) { p.startNewSubPath(c.x - 5.0f, c.y - 2.5f); p.lineTo(c.x, c.y + 2.5f); p.lineTo(c.x + 5.0f, c.y - 2.5f); }
+        else      { p.startNewSubPath(c.x - 2.5f, c.y - 5.0f); p.lineTo(c.x + 2.5f, c.y); p.lineTo(c.x - 2.5f, c.y + 5.0f); }
         g.setColour(TC::brass.withAlpha(0.8f));
         g.strokePath(p, juce::PathStrokeType(2.0f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
     };
@@ -1426,53 +1439,59 @@ void SwooshbucklerAudioProcessorEditor::paintContent(juce::Graphics& g)
     arrow({ 324.0f, 632.0f }, true);   // buses -> hits
     arrow({ 640.0f, 716.0f }, false);  // hits -> output
 
-    // Hit gate lamp
+    // Hit gate lamp: a cherry light in a dark socket.
+    if (g.clipRegionIntersects(m_gateLamp.expanded(10)))
     {
         const auto lamp = juce::Rectangle<float>(26.0f, 26.0f).withCentre(m_gateLamp.toFloat().getCentre().translated(0.0f, -8.0f));
-        g.setColour(TC::record.withAlpha(0.15f + 0.85f * m_gate));
-        g.fillEllipse(lamp);
-        g.setColour(TC::record.withAlpha(0.15f + 0.35f * m_gate));
+        g.setColour(TC::well);
+        g.fillEllipse(lamp.expanded(3.0f));
+        g.setColour(TC::hits.withAlpha(0.15f + 0.35f * m_gate));
         g.fillEllipse(lamp.expanded(8.0f * m_gate));
-        g.setColour(TC::outline);
-        g.drawEllipse(lamp, 1.0f);
-        g.setFont(f.label(10.0f));
+        g.setColour(TC::hits.withAlpha(0.18f + 0.82f * m_gate));
+        g.fillEllipse(lamp);
         g.setColour(TC::textDim);
-        g.drawText(m_aimHits.getToggleState() ? "AIMED HITS" : "HIT GATE", m_gateLamp.withTop(m_gateLamp.getBottom() - 16), juce::Justification::centred);
+        Theme::fitText(g, m_aimHits.getToggleState() ? "Aimed Hits" : "Hit Gate", m_gateLamp.withTop(m_gateLamp.getBottom() - 16), f.caption(),
+                       juce::Justification::centred);
+    }
+
+    // The Peak Tremolo group: a tinted inset with its name at the top, over its switch, menus and knobs.
+    if (g.clipRegionIntersects(m_tremGroup))
+    {
+        g.setColour(TC::window.withAlpha(0.45f));
+        g.fillRoundedRectangle(m_tremGroup.toFloat(), Theme::Radius::control + 2.0f);
+        g.setColour(m_tremShown == 1 ? TC::busA : TC::textDim);
+        Theme::fitText(g, "Peak Tremolo", m_tremCaption, f.caption(), juce::Justification::centredLeft);
     }
 
     // Output meters
+    if (g.clipRegionIntersects(m_meterArea.getUnion(m_trimLabel)))
     {
         auto m = m_meterArea.toFloat();
         const auto readout = m.removeFromTop(16.0f); // the deepest recent gain reduction in dB, across the top
-        // Left to right: the GR scale, the GR bar, the OUT bar, the OUT scale.
+        // Left to right: the GR scale, the GR bar, the Out bar, the Out scale.
         auto bars = m.withTrimmedBottom(20.0f).reduced(0.0f, 2.0f);
-        const auto grScale = bars.removeFromLeft(15.0f);
-        const auto grBar = bars.removeFromLeft(22.0f);
-        bars.removeFromLeft(10.0f);
-        const auto outBar = bars.removeFromLeft(22.0f);
-        const auto outScale = bars.removeFromLeft(24.0f);
+        const auto grScale = bars.removeFromLeft(17.0f);
+        const auto grBar = bars.removeFromLeft(20.0f);
+        bars.removeFromLeft(8.0f);
+        const auto outBar = bars.removeFromLeft(20.0f);
+        const auto outScale = bars.removeFromLeft(28.0f);
         for (auto bar : { grBar, outBar })
-        {
-            g.setColour(TC::scope);
-            g.fillRoundedRectangle(bar, 3.0f);
-            g.setColour(TC::outline);
-            g.drawRoundedRectangle(bar, 3.0f, 1.0f);
-        }
+            SwooshLookAndFeel::drawWell(g, bar, 4.0f);
 
-        // GR grows down from the top, 12 dB at the bottom; OUT grows up from the bottom, 0 dBFS at the top.
+        // GR grows down from the top, 12 dB at the bottom; Out grows up from the bottom, 0 dBFS at the top.
         auto grY = [&grBar](float db) { return grBar.getY() + grBar.getHeight() * juce::jlimit(0.0f, 1.0f, -db / 12.0f); };
         auto outY = [&outBar](float db) { return outBar.getBottom() - outBar.getHeight() * outMeterPosition(db); };
 
-        g.setColour(TC::movement);
-        g.fillRoundedRectangle(grBar.withBottom(grY(m_grDb)), 3.0f);
+        g.setColour(TC::busA);
+        g.fillRoundedRectangle(grBar.withBottom(grY(m_grDb)), 4.0f);
         const float outDb = juce::Decibels::gainToDecibels(m_outLevel, -60.0f);
-        g.setColour(TC::master);
-        g.fillRoundedRectangle(outBar.withTop(outY(outDb)), 3.0f);
+        g.setColour(TC::output);
+        g.fillRoundedRectangle(outBar.withTop(outY(outDb)), 4.0f);
 
         // Peak holds: the deepest reduction and the highest level of the last moments stay as a line.
         if (m_grHoldDb < -0.05f)
         {
-            g.setColour(TC::movement.brighter(0.5f));
+            g.setColour(TC::busA.brighter(0.5f));
             g.fillRect(juce::Rectangle<float>(grBar.getX() + 1.0f, juce::jmin(grY(m_grHoldDb), grBar.getBottom() - 1.5f), grBar.getWidth() - 2.0f, 1.5f));
         }
         if (m_outHold > 0.001f)
@@ -1482,61 +1501,51 @@ void SwooshbucklerAudioProcessorEditor::paintContent(juce::Graphics& g)
             g.fillRect(juce::Rectangle<float>(outBar.getX() + 1.0f, juce::jmax(outY(holdDb) - 0.75f, outBar.getY()), outBar.getWidth() - 2.0f, 1.5f));
         }
 
-        // Scales in dB: a tick against each bar and its number beside it.
-        g.setFont(f.label(8.0f));
+        // Scales in dB: a tick against each bar, and a number beside the ticks that have room for one.
+        const float row = 12.0f;
         for (const int db : { 3, 6, 12 })
         {
             const float y = juce::jmin(grY(static_cast<float>(-db)), grBar.getBottom() - 0.5f);
-            g.setColour(TC::outline);
+            g.setColour(TC::stroke);
             g.fillRect(juce::Rectangle<float>(grBar.getX() - 3.0f, y - 0.5f, 3.0f, 1.0f));
             g.setColour(TC::textFaint);
-            g.drawText(juce::String(db), juce::Rectangle<float>(grScale.getX(), juce::jmin(y - 5.0f, grBar.getBottom() - 9.0f), grScale.getWidth() - 4.0f, 10.0f),
-                       juce::Justification::centredRight);
+            Theme::fitText(g, juce::String(db), juce::Rectangle<float>(grScale.getX(), juce::jmin(y - row * 0.5f, grBar.getBottom() - row + 1.0f), grScale.getWidth() - 4.0f, row),
+                           f.caption(), juce::Justification::centredRight);
         }
         for (const int db : { 0, 6, 12, 24, 48 })
         {
             const float y = juce::jmax(outY(static_cast<float>(-db)), outBar.getY() + 0.5f);
-            g.setColour(TC::outline);
+            g.setColour(TC::stroke);
             g.fillRect(juce::Rectangle<float>(outBar.getRight(), y - 0.5f, 3.0f, 1.0f));
+            if (db == 6)
+                continue; // a tick only: its number would sit on the 0 above it
             g.setColour(TC::textFaint);
-            g.drawText(db == 0 ? juce::String("0") : "-" + juce::String(db),
-                       juce::Rectangle<float>(outScale.getX() + 4.0f, juce::jmax(y - 5.0f, outBar.getY() - 1.0f), outScale.getWidth() - 4.0f, 10.0f),
-                       juce::Justification::centredLeft);
+            Theme::fitText(g, db == 0 ? juce::String("0") : "-" + juce::String(db),
+                           juce::Rectangle<float>(outScale.getX() + 5.0f, juce::jlimit(outBar.getY() - 1.0f, outBar.getBottom() - row + 1.0f, y - row * 0.5f), outScale.getWidth() - 5.0f, row),
+                           f.caption(), juce::Justification::centredLeft);
         }
 
-        g.setFont(f.label(10.0f));
         g.setColour(TC::textDim);
-        g.drawText("GR", grBar.withY(grBar.getBottom() + 3.0f).withHeight(14.0f).expanded(10.0f, 0.0f), juce::Justification::centred);
-        g.drawText("OUT", outBar.withY(outBar.getBottom() + 3.0f).withHeight(14.0f).expanded(10.0f, 0.0f), juce::Justification::centred);
-        g.drawText("TRIM", m_trimLabel, juce::Justification::centred);
+        Theme::fitText(g, "GR", grBar.withY(grBar.getBottom() + 3.0f).withHeight(14.0f).expanded(10.0f, 0.0f), f.caption(), juce::Justification::centred);
+        Theme::fitText(g, "Out", outBar.withY(outBar.getBottom() + 3.0f).withHeight(14.0f).expanded(10.0f, 0.0f), f.caption(), juce::Justification::centred);
+        Theme::fitText(g, "Trim", m_trimLabel, f.caption(), juce::Justification::centred);
 
-        // The PEAK TREMOLO group: a thin frame with its name in the top edge.
-        const auto frame = m_tremGroup.toFloat().reduced(0.5f);
-        g.setColour(TC::movement.withAlpha(0.45f));
-        g.drawRoundedRectangle(frame, 5.0f, 1.0f);
-        g.setFont(f.label(9.5f));
-        const juce::String name = "PEAK TREMOLO";
-        const float nw = juce::GlyphArrangement::getStringWidth(g.getCurrentFont(), name) + 10.0f;
-        const auto tag = juce::Rectangle<float>(frame.getX() + 10.0f, frame.getY() - 6.0f, nw, 12.0f);
-        g.setColour(TC::panel);
-        g.fillRect(tag);
-        g.setColour(TC::movement);
-        g.drawText(name, tag, juce::Justification::centred);
-
-        g.setFont(f.label(10.0f));
-        g.setColour(m_grHoldDb < -0.05f ? TC::movement : TC::textFaint);
-        g.drawText("GR " + juce::String(m_grHoldDb, 1) + " dB", readout.withWidth(84.0f), juce::Justification::centred);
+        g.setColour(m_grHoldDb < -0.05f ? TC::busA : TC::textFaint);
+        Theme::fitText(g, juce::String(m_grHoldDb, 1) + " dB", readout.withWidth(grScale.getWidth() + grBar.getWidth() + 28.0f), f.caption(), juce::Justification::centred);
     }
 
-    g.setFont(f.body(11.0f));
-    g.setColour(TC::textFaint);
-    g.drawText("Drop sounds into Tracks, press PLAY, ARM the tape and let it ride.  Hold SWELL (or space) to push.",
-               m_footer.withWidth(620), juce::Justification::centredLeft, true);
-    if (m_toast.isNotEmpty())
+    if (g.clipRegionIntersects(m_footer))
     {
-        const float age = static_cast<float>(juce::Time::getMillisecondCounterHiRes() * 0.001 - m_toastTime);
-        g.setColour(TC::flight.withAlpha(juce::jlimit(0.0f, 1.0f, 8.0f - age)));
-        g.drawText(m_toast + (m_toastFile != juce::File() ? "  (click for Takes)" : ""), m_toastArea, juce::Justification::centredRight, true);
+        g.setColour(TC::textFaint);
+        Theme::fitText(g, "Drop sounds into Tracks, press Play, arm the tape and let it ride. Hold Swell (or Space) to push.",
+                       m_footer.withWidth(600), f.body(), juce::Justification::centredLeft, Theme::Fit::Sentence);
+        if (m_toast.isNotEmpty())
+        {
+            const float age = static_cast<float>(juce::Time::getMillisecondCounterHiRes() * 0.001 - m_toastTime);
+            g.setColour(TC::brass.withAlpha(juce::jlimit(0.0f, 1.0f, 8.0f - age)));
+            Theme::fitText(g, m_toast + (m_toastFile != juce::File() ? "  (click for Takes)" : ""), m_toastArea, f.body(), juce::Justification::centredRight,
+                           Theme::Fit::Message);
+        }
     }
 }
 
@@ -1900,7 +1909,7 @@ void SwooshbucklerAudioProcessorEditor::askForName(const juce::String& title, co
     {
         m_dialogToggle = std::make_unique<juce::ToggleButton>("Include Modulators and Wires");
         m_dialogToggle->setName({}); // or the window prints the name above it as a caption
-        m_dialogToggle->setColour(juce::ToggleButton::tickColourId, TC::flight);
+        m_dialogToggle->setColour(juce::ToggleButton::tickColourId, TC::brass);
         m_dialogToggle->setTooltip("Include Modulators and Wires\nOn: the preset also holds the four modulators' settings and every wire, and loading it "
                                    "replaces yours. Off: the preset leaves your modulators and wires alone.");
         m_dialogToggle->setSize(280, 26);
@@ -2098,10 +2107,11 @@ void SwooshbucklerAudioProcessorEditor::syncMorphPad()
     // The MORPH button shows the pad; ON on the pad switches the morph itself.
     const bool shown = m_morphButton.getToggleState();
     const bool on = value(ParamIDs::morphOn) > 0.5f;
-    m_morphButton.setButtonText(on ? "MORPH ON" : "MORPH");
+    m_morphButton.setButtonText(on ? "Morph On" : "Morph");
     m_morphButton.setColour(juce::TextButton::buttonOnColourId, on ? TC::go : TC::filter);
     if (on) m_morphButton.setColour(juce::TextButton::textColourOffId, TC::go);
     else    m_morphButton.removeColour(juce::TextButton::textColourOffId);
+    m_sea.setLabelsShown(! shown);
     if (m_morphPad.isVisible() != shown)
     {
         m_morphPad.setVisible(shown);
@@ -2163,10 +2173,8 @@ void SwooshbucklerAudioProcessorEditor::showAimControls()
     };
     auto dim = [](juce::Component* c, bool off)
     {
-        if (c == nullptr)
-            return;
-        c->setEnabled(! off);
-        c->setAlpha(off ? 0.35f : 1.0f);
+        if (c != nullptr)
+            Theme::setLook(*c, off ? Theme::Look::Disabled : Theme::Look::Normal);
     };
     dim(&m_gateMode, aim);
     dim(&m_syncHits, aim);
@@ -2174,13 +2182,14 @@ void SwooshbucklerAudioProcessorEditor::showAimControls()
         dim(control(id), aim || open);
     dim(control(ParamIDs::hitSense), open);
     if (auto* energy = control(ParamIDs::energy))
-        energy->setAlpha(ride ? 1.0f : 0.45f); // still usable, so it can be set before switching the ride on
+        Theme::setLook(*energy, ride ? Theme::Look::Normal : Theme::Look::Resting); // still usable, so it can be set before switching the ride on
     m_content.repaint(m_gateLamp.expanded(10));
 }
 
 void SwooshbucklerAudioProcessorEditor::showLinkedKnobs()
 {
-    // Linked, bus B's Doppler and Width follow bus A: dim them (they keep their own values for when it's unlinked).
+    // Linked, bus B's Doppler and Width follow bus A: they show a chain link in A's colour (and keep their own
+    // values for when it's unlinked).
     const bool linked = m_processor.getState().getRawParameterValue(ParamIDs::linkBuses)->load() > 0.5f;
     if (m_linkShown == (linked ? 1 : 0))
         return;
@@ -2190,12 +2199,12 @@ void SwooshbucklerAudioProcessorEditor::showLinkedKnobs()
         const auto it = m_controls.find(juce::String(ParamIDs::bus[1][k]));
         if (it == m_controls.end() || it->second == nullptr)
             continue;
-        it->second->setEnabled(! linked);
-        it->second->setAlpha(linked ? 0.35f : 1.0f);
+        if (auto* knob = dynamic_cast<WheelKnob*>(it->second))
+            knob->setLinkColour(TC::busA);
+        Theme::setLook(*it->second, linked ? Theme::Look::Linked : Theme::Look::Normal);
     }
     // And B flies A's passes in A's Pass Mode.
-    m_passMode[1].setEnabled(! linked);
-    m_passMode[1].setAlpha(linked ? 0.35f : 1.0f);
+    Theme::setLook(m_passMode[1], linked ? Theme::Look::Linked : Theme::Look::Normal);
 }
 
 void SwooshbucklerAudioProcessorEditor::timerCallback()
@@ -2203,7 +2212,7 @@ void SwooshbucklerAudioProcessorEditor::timerCallback()
     showLinkedKnobs();
     showAimControls();
     {
-        // Peak tremolo off: its knobs and menus dim, but stay usable so it can be set up before switching it on.
+        // Peak Tremolo off: its knobs and menus rest (hollow), but stay usable so it can be set up before switching it on.
         const bool on = m_processor.getState().getRawParameterValue(ParamIDs::tremOn)->load() > 0.5f;
         if (m_tremShown != (on ? 1 : 0))
         {
@@ -2212,18 +2221,19 @@ void SwooshbucklerAudioProcessorEditor::timerCallback()
             for (const auto* id : { ParamIDs::tremDepth, ParamIDs::tremRate, ParamIDs::tremThreshold })
                 parts.push_back(m_controls[id]);
             for (auto* c : parts)
-                c->setAlpha(on ? 1.0f : 0.45f);
+                Theme::setLook(*c, on ? Theme::Look::Normal : Theme::Look::Resting);
+            m_content.repaint(m_tremGroup);
         }
     }
     if ((++m_morphSyncTick % 6) == 0)
         syncMorphPad();
     {
-        // Follow Master waits (dimmed, still usable) until Auto Ride is on and a track is the Master.
+        // Follow Master rests (hollow, still usable) until Auto Ride is on and a track is the Master.
         const bool ready = m_processor.getState().getRawParameterValue(ParamIDs::rideOn)->load() > 0.5f && m_processor.getCargo().getMaster() >= 0;
         if (m_followMasterShown != (ready ? 1 : 0))
         {
             m_followMasterShown = ready ? 1 : 0;
-            m_followMasterButton.setAlpha(ready ? 1.0f : 0.45f);
+            Theme::setLook(m_followMasterButton, ready ? Theme::Look::Normal : Theme::Look::Resting);
         }
     }
 
@@ -2235,7 +2245,8 @@ void SwooshbucklerAudioProcessorEditor::timerCallback()
     if (m_playButton.getToggleState() != playing)
     {
         m_playButton.setToggleState(playing, juce::dontSendNotification);
-        m_playButton.setButtonText(playing ? "STOP" : "PLAY");
+        m_playButton.setButtonText(playing ? "Stop" : "Play");
+        Icons::set(m_playButton, playing ? Icons::Icon::Stop : Icons::Icon::Play);
     }
 
     if (m_presetName.getButtonText() != m_processor.currentPresetName)
@@ -2262,7 +2273,7 @@ void SwooshbucklerAudioProcessorEditor::timerCallback()
     if (const int minutes = m_processor.getRetroMinutes(); minutes != m_retroShown)
     {
         m_retroShown = minutes;
-        m_retroButton.setButtonText(minutes == 1 ? juce::String("LAST 60s") : "LAST " + juce::String(minutes) + " MIN");
+        m_retroButton.setButtonText(minutes == 1 ? juce::String("Last 60 s") : "Last " + juce::String(minutes) + " Min");
     }
     if (const int generation = m_processor.getTakesGeneration(); generation != m_takesShown)
     {

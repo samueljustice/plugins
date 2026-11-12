@@ -8,13 +8,14 @@ UpdatePopup::UpdatePopup(const Theme::Fonts& fonts) : m_fonts(fonts)
     setWantsKeyboardFocus(true);
     for (auto* b : { &m_download, &m_later, &m_skip })
     {
-        b->setColour(juce::TextButton::buttonOnColourId, TC::flight);
+        b->setColour(juce::TextButton::buttonOnColourId, TC::brass);
         b->setWantsKeyboardFocus(false);
         addAndMakeVisible(*b);
     }
-    m_download.setToggleState(true, juce::dontSendNotification); // lit in gold: the main action
-    m_download.setTooltip("Open the download page in your browser");
-    m_skip.setTooltip("Don't remind me about this version again");
+    SwooshLookAndFeel::setStyle(m_download, SwooshLookAndFeel::ButtonStyle::Primary); // the main action
+    m_download.setTooltip("Download\nOpens the download page in your browser.");
+    m_later.setTooltip("Later\nCloses this. It comes back the next time Swooshbuckler opens.");
+    m_skip.setTooltip("Skip This Version\nStops reminding you about this version. A newer one is still offered.");
 
     m_download.onClick = [this] { m_info.openDownloadPage(); close(); };
     m_later.onClick = [this] { close(); };
@@ -52,16 +53,15 @@ void UpdatePopup::resized()
 
 void UpdatePopup::paint(juce::Graphics& g)
 {
-    g.fillAll(TC::background.withAlpha(0.8f));
-    SwooshLookAndFeel::drawPanel(g, m_panel.toFloat(), "Swooshbuckler " + m_info.latestVersion + " is available", {},
-                                 TC::flight, m_fonts);
+    g.fillAll(TC::window.withAlpha(0.8f));
+    SwooshLookAndFeel::drawPanel(g, m_panel.toFloat(), "Swooshbuckler " + m_info.latestVersion + " Is Available", {},
+                                 TC::brass, m_fonts);
 
     auto r = m_textArea;
     SwooshLookAndFeel::drawCutlasses(g, juce::Rectangle<float>(static_cast<float>(r.getX()), static_cast<float>(r.getY()) + 6.0f, 28.0f, 25.0f),
                                      TC::master, TC::brass);
-    g.setFont(m_fonts.body(13.0f));
     g.setColour(TC::text);
-    g.drawText("You have " + m_info.currentVersion + ".", r.removeFromTop(38).withTrimmedLeft(40), juce::Justification::centredLeft, true);
+    Theme::fitText(g, "You have " + m_info.currentVersion + ".", r.removeFromTop(38).withTrimmedLeft(40), m_fonts.body(), juce::Justification::centredLeft, Theme::Fit::Sentence);
 }
 
 void UpdatePopup::mouseDown(const juce::MouseEvent& e)

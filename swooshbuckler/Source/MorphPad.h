@@ -117,7 +117,7 @@ private:
     std::unique_ptr<WanderButton> m_wanderButton;
     juce::Slider m_speed;
     juce::ComboBox m_shapeBox;
-    juce::TextButton m_enable { "OFF" };
+    juce::TextButton m_enable { "Off" };
     bool m_enabled = false;
     void applyEnabledLook(bool on);
     int m_shape = MorphWander::Lorenz;

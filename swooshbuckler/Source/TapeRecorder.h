@@ -13,7 +13,7 @@
  *  - Retro capture: the last c_retroSeconds are always kept in RAM, so a happy
  *    accident can be saved after the fact even if the tape was not rolling.
  *
- *  - One File Per Whoosh: the take is cut into one file for each stretch of sound (the Skip Silence gate finds
+ *  - One File per Whoosh: the take is cut into one file for each stretch of sound (the Skip Silence gate finds
  *    them), each opened and closed on the writer thread; stretches shorter than c_minWhooshSeconds are thrown away.
  *  - Markers: the audio thread tells the tape where the pass peaks and the hits are (addMarker); they are handed
  *    to the writer thread through a lock-free queue and written into WAV files as cue points with labels.
@@ -28,7 +28,7 @@ class TapeRecorder
 public:
     static constexpr int c_retroSeconds = 60;         // how much the retro buffer keeps unless setRetroSeconds says more
     static constexpr int c_maxRetroSeconds = 300;
-    static constexpr double c_minWhooshSeconds = 0.2; // One File Per Whoosh: less sound than this is not kept
+    static constexpr double c_minWhooshSeconds = 0.2; // One File per Whoosh: less sound than this is not kept
 
     enum class FileType { Wav = 0, Aiff, Flac };
 
@@ -39,7 +39,7 @@ public:
         double fileRate = 0.0;        // 0 = session rate; otherwise windowed-sinc conversion, e.g. 96000
         FileType type = FileType::Wav;
         bool mono = false;            // fold the stereo output down to one channel
-        bool perWhoosh = false;       // One File Per Whoosh (the gate is on whatever setSignalGate says)
+        bool perWhoosh = false;       // One File per Whoosh (the gate is on whatever setSignalGate says)
     };
 
     /** How files are named and described. Message thread; it can change while a take is open (the next file uses it). */
@@ -70,10 +70,10 @@ public:
         juce::File file;
         double seconds = 0.0;
         int markers = 0;
-        bool whoosh = false; // one of One File Per Whoosh's files
+        bool whoosh = false; // one of One File per Whoosh's files
     };
     std::vector<FinishedTake> takeFinishedTakes();
-    /** A file could not be opened while the tape was rolling (One File Per Whoosh opens them as it goes): the
+    /** A file could not be opened while the tape was rolling (One File per Whoosh opens them as it goes): the
         message, once. */
     juce::String takeWriteError();
 

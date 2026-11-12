@@ -23,9 +23,12 @@ public:
     ~SeaVisualiser() override;
 
     void paint(juce::Graphics&) override;
+    void resized() override;
     void mouseDown(const juce::MouseEvent&) override;
 
     std::function<void()> onClick;
+    /** The names over the comets are left out while something sits over the sea (the morph pad, with labels of its own). */
+    void setLabelsShown(bool shown) { m_labelsShown = shown; }
 
 private:
     static constexpr int c_fftOrder = 11;
@@ -65,6 +68,8 @@ private:
     int m_skyLogoAge = 0;
     float m_quietSeconds = 0.0f, m_logoTime = 0.0f, m_logoOpacity = 0.0f;
     double m_time = 0.0;
+    bool m_labelsShown = true;
+    juce::Path m_corners; // what is outside the panel's round corners (built in resized)
 
     // Projection, refreshed in paint
     float m_focal = 1.0f, m_horizon = 0.0f, m_cx = 0.0f, m_zNear = 0.85f, m_zStep = 0.12f;

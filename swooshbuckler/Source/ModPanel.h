@@ -26,7 +26,7 @@ public:
     /** Centre of a modulator's jack, in this panel's coordinates. */
     juce::Point<float> getJackCentre(int source) const;
     static juce::Colour sourceColour(int source);
-    static juce::String sourceName(int source) { return "MOD " + juce::String(source + 1); }
+    static juce::String sourceName(int source) { return "Mod " + juce::String(source + 1); }
 
 private:
     class Card;

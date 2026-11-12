@@ -35,13 +35,8 @@ namespace
 
 juce::Colour ModPanel::sourceColour(int source)
 {
-    static const juce::Colour colours[ModMatrix::c_numSources] = {
-        juce::Colour(0xffffd166), // sun yellow
-        juce::Colour(0xffff6b9a), // hibiscus pink
-        juce::Colour(0xff5ee0a8), // palm green
-        juce::Colour(0xffa78bff), // twilight violet
-    };
-    return colours[juce::jlimit(0, ModMatrix::c_numSources - 1, source)];
+    // The modulators' own family (Theme::modColour): none is a section's colour or the brass.
+    return Theme::modColour(juce::jlimit(0, ModMatrix::c_numSources - 1, source));
 }
 
 //==============================================================================
@@ -154,11 +149,12 @@ public:
     {
         const auto colour = sourceColour(m_source);
         const auto& fonts = m_owner.m_fonts;
-        auto bounds = getLocalBounds().toFloat().reduced(0.5f);
-        g.setColour(TC::panelRaised);
-        g.fillRoundedRectangle(bounds, 6.0f);
-        g.setColour(colour.withAlpha(0.45f));
-        g.drawRoundedRectangle(bounds, 6.0f, 1.0f);
+        // A raised card, owned by its colour: a bar down its left edge (no outline).
+        const auto bounds = getLocalBounds().toFloat();
+        g.setColour(TC::raised.withAlpha(0.6f));
+        g.fillRoundedRectangle(bounds, Theme::Radius::control + 2.0f);
+        g.setColour(colour);
+        g.fillRoundedRectangle(bounds.getX() + 3.0f, bounds.getY() + 36.0f, 3.0f, bounds.getHeight() - 46.0f, 1.5f);
 
         // The jack: a brass socket in the modulator's colour. Drag it onto a knob.
         const auto jack = jackArea();
@@ -173,14 +169,12 @@ public:
             g.fillEllipse(jack.expanded(4.0f));
         }
 
-        g.setFont(fonts.display(19.0f));
         g.setColour(colour);
-        g.drawText(sourceName(m_source), juce::Rectangle<float>(jack.getRight() + 8.0f, 7.0f, 70.0f, 24.0f), juce::Justification::centredLeft);
+        Theme::fitText(g, sourceName(m_source), juce::Rectangle<float>(jack.getRight() + 8.0f, 7.0f, 60.0f, 24.0f), fonts.display(), juce::Justification::centredLeft);
 
         // Scope: what the modulator is doing (the last 4 s)
         const auto sa = m_scopeArea.toFloat();
-        g.setColour(TC::scope);
-        g.fillRoundedRectangle(sa, 4.0f);
+        SwooshLookAndFeel::drawWell(g, sa);
         const bool bipolar = type() == ModMatrix::Type::Lfo || type() == ModMatrix::Type::Random;
         if (bipolar)
         {
@@ -202,12 +196,13 @@ public:
         g.strokePath(p, juce::PathStrokeType(1.6f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
 
         const int wires = m_owner.m_processor.getMods().numRoutes(m_source);
-        g.setFont(fonts.label(10.5f));
         g.setColour(wires > 0 ? TC::text : TC::textFaint);
-        const int infoX = m_shape.isVisible() || m_follow.isVisible() ? m_shape.getRight() + 8 : 10;
+        const int infoX = m_shape.isVisible() || m_follow.isVisible() ? m_shape.getRight() + 8 : 12;
         const auto infoArea = juce::Rectangle<int>(infoX, m_clear.getY(), m_clear.getX() - infoX - 4, m_clear.getHeight());
-        g.drawText(wires == 0 ? juce::String("drag the jack to a knob") : juce::String(wires) + (wires == 1 ? " wire" : " wires"),
-                   infoArea, juce::Justification::centredLeft, true);
+        // "No wires" always fits; the longer hint is shown where there is room for it (a Macro's card).
+        const juce::String none = infoArea.getWidth() > 130 ? "Drag the jack to a knob" : "No wires";
+        Theme::fitText(g, wires == 0 ? none : juce::String(wires) + (wires == 1 ? " wire" : " wires"), infoArea, fonts.caption(),
+                       juce::Justification::centredLeft, Theme::Fit::Sentence);
     }
 
     void push()
@@ -259,7 +254,7 @@ private:
     int m_source;
     juce::ComboBox m_type, m_shape, m_follow;
     WheelKnob m_knob;
-    juce::TextButton m_clear { "CLEAR" };
+    juce::TextButton m_clear { "Clear" };
     juce::AudioProcessorValueTreeState::ComboBoxAttachment m_typeAttachment, m_shapeAttachment, m_followAttachment;
     juce::AudioProcessorValueTreeState::SliderAttachment m_knobAttachment;
     juce::Rectangle<int> m_scopeArea;
@@ -391,7 +386,7 @@ void ModWires::rebuild()
         auto* knob = it->second;
         const bool bipolar = isSourceBipolar ? isSourceBipolar(r.source) : m_matrix.isBipolar(r.source);
         arcs[knob].push_back({ ModPanel::sourceColour(r.source), r.depth, bipolar });
-        if (! knob->isShowing() || ! isTargetInView(knob))
+        if (! Theme::isShownInWindow(*knob) || ! isTargetInView(knob))
             continue; // scrolled out of view (a track lane): no plug or cable until it scrolls back
         // Plugs sit on the dial's upper right, one per wire, around the rim.
         const int k = plugCount[knob]++;
@@ -546,8 +541,7 @@ void ModWires::paint(juce::Graphics& g)
             g.fillRoundedRectangle(bubble, 4.0f);
             g.setColour(c);
             g.drawRoundedRectangle(bubble, 4.0f, 1.0f);
-            g.setFont(m_fonts.label(11.0f));
-            g.drawText(text, bubble, juce::Justification::centred);
+            Theme::fitText(g, text, bubble, m_fonts.caption(), juce::Justification::centred);
         }
     }
 
@@ -668,7 +662,7 @@ void ModWires::showPlugMenu(const Plug& plug)
 {
     const auto route = plug.route;
     juce::PopupMenu menu;
-    menu.addSectionHeader(describe(route).toUpperCase());
+    menu.addSectionHeader(describe(route));
     menu.addItem(1, "Invert");
     menu.addItem(2, "Depth 25%");
     menu.addItem(3, "Depth 50%");

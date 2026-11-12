@@ -29,7 +29,7 @@ public:
     /** A text box has finished with the keyboard (Return / Escape): hand it back to the rig. */
     std::function<void()> onKeyboardDone;
 
-    /** "Show In Finder" on a Mac, "Show In Explorer" on Windows, "Show Folder" elsewhere. */
+    /** "Show in Finder" on a Mac, "Show in Explorer" on Windows, "Show Folder" elsewhere. */
     static juce::String showButtonText();
 
 private:

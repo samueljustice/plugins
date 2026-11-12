@@ -7,9 +7,9 @@ namespace TC = Theme::Colours;
 namespace
 {
     constexpr int c_peakBlock = 256;
-    constexpr int c_headerWidth = 282; // room for the pitch boxes and VARI next to the fader
+    constexpr int c_headerWidth = 282; // room for the pitch boxes and Vari next to the fader
     constexpr int c_skipWidth = 96;
-    constexpr int c_buttonsWidth = 112; // the star, M, S and x at the right of a lane's name row
+    constexpr int c_buttonsWidth = 112; // the star, M, S and the cross at the right of a lane's name row
     // CAF and M4A are read through Core Audio, so only on macOS.
    #if JUCE_MAC
     const juce::String c_audioExtensions = "wav;wave;aif;aiff;flac;ogg;mp3;caf;m4a";
@@ -63,13 +63,15 @@ public:
         auto r = getLocalBounds().toFloat().reduced(0.5f);
         const bool zero = std::abs(getValue()) < 0.5;
         const bool hot = isMouseOverOrDragging();
-        g.setColour(TC::scope);
-        g.fillRoundedRectangle(r, 3.0f);
-        g.setColour(zero ? (hot ? TC::outline.brighter(0.5f) : TC::outline) : m_colour.withAlpha(hot ? 1.0f : 0.8f));
-        g.drawRoundedRectangle(r, 3.0f, 1.0f);
-        g.setFont(m_fonts.label(10.5f));
+        // A well; a stroke only when it is under the mouse or holds something other than zero.
+        SwooshLookAndFeel::drawWell(g, r, Theme::Radius::small);
+        if (hot || ! zero)
+        {
+            g.setColour(zero ? TC::stroke : m_colour.withAlpha(hot ? 1.0f : 0.8f));
+            g.drawRoundedRectangle(r, Theme::Radius::small, 1.0f);
+        }
         g.setColour(zero ? TC::textDim : TC::text);
-        g.drawFittedText(getTextFromValue(getValue()), getLocalBounds().reduced(2, 0), juce::Justification::centred, 1, 0.8f);
+        Theme::fitText(g, getTextFromValue(getValue()), getLocalBounds().reduced(2, 0), m_fonts.caption(), juce::Justification::centred);
 
         // Modulation: each wire's reach along the bottom edge, from the set pitch (both ways for LFO / Random,
         // one way for Follower / Macro), dashed when negative; the live pitch as a dot.
@@ -140,8 +142,8 @@ public:
         // This track's own pitch, on top of the Ride's Pitch knob.
         m_semis.caption = "Track " + juce::String(track + 1) + " Pitch";
         m_semis.setTooltip("Semitones\nThis track's own pitch, up to two octaves up or down, on top of the Ride's Pitch knob. "
-                           "With VARI on it works like tape, so higher is also faster; with VARI off the speed stays the same. "
-                           "Drag a MOD jack onto it to modulate the track's pitch (smoothly, not in steps); a 100% wire swings two octaves.\n"
+                           "With Vari on it works like tape, so higher is also faster; with Vari off the speed stays the same. "
+                           "Drag a Mod jack onto it to modulate the track's pitch (smoothly, not in steps); a 100% wire swings two octaves.\n"
                            "Drag up or down. Double-click to reset. Right-click (or Alt-double-click) to type a value. "
                            "Cmd-drag (Ctrl on Windows) when it's modulated to set the wire's depth, up or down.");
         m_cents.setTooltip("Cents\nFine tuning for this track, up to a semitone either way (100 cents), on top of the semitones.\n"
@@ -168,8 +170,8 @@ public:
         addAndMakeVisible(m_level);
 
         m_type.setColour(juce::TextButton::buttonOnColourId, colour);
+        SwooshLookAndFeel::setStyle(m_type, SwooshLookAndFeel::ButtonStyle::Menu);
         m_type.setClickingTogglesState(false);
-        m_type.setToggleState(true, juce::dontSendNotification);
         m_type.onClick = [this] { showTypeMenu(); };
         addAndMakeVisible(m_type);
 
@@ -178,7 +180,7 @@ public:
         m_master.setTooltip("Master Track\nMakes this track the Master: the one sound the others can follow. Only one track is the Master at a time. "
                             "A Follower modulator set to Master, Master Pitch or Master Brightness then moves with this sound's loudness, pitch or brightness "
                             "as it plays, and Follow Master in the Ride panel makes every other track swell with it.\n"
-                            "Click to choose it, click again to have no Master. Right-click another lane for Match Pitch To Master.");
+                            "Click to choose it, click again to have no Master. Right-click another lane for Match Pitch to Master.");
         m_master.onClick = [this]
         {
             const bool was = m_owner.m_hold.getMaster() == m_track;
@@ -187,12 +189,15 @@ public:
         };
         addAndMakeVisible(m_master);
 
-        for (auto* b : { &m_mute, &m_solo, &m_remove })
+        // M and S are chips (states); the cross is an action, drawn, with no plate until the mouse is over it.
+        for (auto* b : { &m_mute, &m_solo })
         {
-            b->setColour(juce::TextButton::buttonOnColourId, b == &m_solo ? TC::flight : (b == &m_mute ? TC::record : TC::textDim));
+            b->setColour(juce::TextButton::buttonOnColourId, b == &m_solo ? TC::brass : TC::hits);
+            SwooshLookAndFeel::setStyle(*b, SwooshLookAndFeel::ButtonStyle::Chip);
             b->setWantsKeyboardFocus(false);
             addAndMakeVisible(*b);
         }
+        addAndMakeVisible(m_remove);
         m_mute.setTooltip("Mute\nSilences this track. It keeps its place in the ride, so it comes straight back in when you unmute it.");
         m_solo.setTooltip("Solo\nPlays only this track (and any others soloed), to hear what it brings to the whoosh.");
         m_remove.setTooltip("Remove\nRemoves this track and frees its slot. Cmd+Z brings it back.");
@@ -206,12 +211,11 @@ public:
         m_skip.setWantsKeyboardFocus(false);
         m_skip.setTooltip("Skip Silence\nOn: only the sounds play and the gaps between them are skipped, so a recording full of pauses "
                           "becomes a steady source. Off: the whole file loops as it is, silence and all. "
-                          "With SYNC HITS on, off fires the whole file as one hit, lined up on its first transient.");
+                          "With Sync Hits on, off fires the whole file as one hit, lined up on its first transient.");
         m_skip.onClick = [this] { m_owner.m_hold.setSkipSilence(m_track, m_skip.getToggleState()); };
         addAndMakeVisible(m_skip);
 
-        m_nameEditor.setFont(owner.m_fonts.label(12.0f));
-        m_nameEditor.setColour(juce::TextEditor::backgroundColourId, TC::scope);
+        m_nameEditor.setFont(owner.m_fonts.control());
         m_nameEditor.onReturnKey = [this] { commitRename(); };
         m_nameEditor.onFocusLost = [this] { commitRename(); };
         m_nameEditor.onEscapeKey = [this] { m_nameEditor.setVisible(false); };
@@ -245,7 +249,7 @@ public:
         m_solo.setToggleState(hold.getSolo(lane), juce::dontSendNotification);
         m_skip.setToggleState(hold.getSkipSilence(m_track), juce::dontSendNotification);
         m_master.setToggleState(hold.getMaster() == m_track, juce::dontSendNotification);
-        m_type.setButtonText(CargoHold::typeName(hold.getRole(m_track)).toUpperCase() + (hold.getRoleOverride(m_track) < 0 ? "" : " *"));
+        m_type.setButtonText(CargoHold::typeName(hold.getRole(m_track)) + (hold.getRoleOverride(m_track) < 0 ? "" : " *"));
         m_type.setTooltip("Sound Type: " + CargoHold::typeName(hold.getRole(m_track)) + "\n" + roleTip(hold.getRole(m_track))
                           + " Plays on " + busLabel(hold.getBus(m_track)) + (hold.getBusOverride(m_track) < 0 ? "." : " (chosen by hand on the bus tag).")
                           + (hold.getRoleOverride(m_track) < 0 ? " Guessed from the sound." : " Set by you (marked *).")
@@ -291,13 +295,13 @@ public:
         row.removeFromRight(4);
         m_type.setBounds(row);
         header.removeFromTop(4);
-        // The fader, then this track's pitch: semitones, cents and VARI.
+        // The fader, then this track's pitch: semitones, cents and Vari.
         auto bottom = header.removeFromTop(juce::jlimit(12, 16, header.getHeight()));
-        m_vari.setBounds(bottom.removeFromRight(36));
+        m_vari.setBounds(bottom.removeFromRight(44));
         bottom.removeFromRight(3);
-        m_cents.setBounds(bottom.removeFromRight(40));
+        m_cents.setBounds(bottom.removeFromRight(38));
         bottom.removeFromRight(3);
-        m_semis.setBounds(bottom.removeFromRight(40));
+        m_semis.setBounds(bottom.removeFromRight(38));
         bottom.removeFromRight(6);
         m_level.setBounds(bottom);
     }
@@ -311,12 +315,16 @@ public:
         const auto colour = Theme::trackColour(m_track);
         auto bounds = getLocalBounds().toFloat().reduced(0.0f, 3.0f);
 
-        g.setColour(active ? TC::panelRaised : TC::panel);
-        g.fillRoundedRectangle(bounds, 6.0f);
-        g.setColour(active ? colour.withAlpha(0.7f) : TC::outline);
-        g.drawRoundedRectangle(bounds.reduced(0.5f), 6.0f, 1.0f);
+        // A lane is a raised strip; the one in hand is lighter and carries a stroke in its colour.
+        g.setColour(active ? TC::raised : TC::raised.withAlpha(0.45f));
+        g.fillRoundedRectangle(bounds, Theme::Radius::control + 2.0f);
+        if (active)
+        {
+            g.setColour(colour.withAlpha(0.75f));
+            g.drawRoundedRectangle(bounds.reduced(0.5f), Theme::Radius::control + 2.0f, 1.0f);
+        }
         g.setColour(colour);
-        g.fillRoundedRectangle(bounds.getX() + 6.0f, bounds.getY() + 8.0f, 3.0f, bounds.getHeight() - 16.0f, 1.5f);
+        g.fillRoundedRectangle(bounds.getX() + 6.0f, bounds.getY() + 8.0f, 4.0f, bounds.getHeight() - 16.0f, 2.0f);
 
         auto header = headerArea(getLocalBounds());
         auto nameRow = header.removeFromTop(18).withTrimmedLeft(10).withTrimmedRight(c_buttonsWidth);
@@ -327,37 +335,41 @@ public:
             const int bus = m_owner.m_hold.getBus(m_track);
             const auto tagColour = busColour(bus);
             const auto tagText = busTag(bus) + (m_owner.m_hold.getBusOverride(m_track) < 0 ? "" : " *");
-            g.setFont(fonts.label(10.0f));
-            const int arrowW = 9;
-            const int tagW = juce::roundToInt(std::ceil(juce::GlyphArrangement::getStringWidth(g.getCurrentFont(), tagText))) + 10 + arrowW;
-            const auto tag = nameRow.removeFromRight(tagW).reduced(0, 2).toFloat();
+            // A chip: a pill tinted in the section's colour, with the chevron of a menu.
+            const auto tagFont = fonts.caption();
+            const int arrowW = 11;
+            const int tagW = juce::roundToInt(std::ceil(juce::GlyphArrangement::getStringWidth(tagFont, tagText))) + 14 + arrowW;
+            const auto tag = nameRow.removeFromRight(tagW).reduced(0, 1).toFloat();
             nameRow.removeFromRight(6);
             m_busTagArea = tag.toNearestInt();
-            g.setColour(tagColour.withAlpha(m_busTagHover ? 0.3f : 0.16f));
-            g.fillRoundedRectangle(tag, 3.0f);
-            g.setColour(tagColour.withAlpha(0.8f));
-            g.drawRoundedRectangle(tag.reduced(0.5f), 3.0f, 1.0f);
-            g.setColour(tagColour);
-            g.drawText(tagText, tag.withTrimmedRight(static_cast<float>(arrowW)), juce::Justification::centred, false);
+            g.setColour(tagColour.withAlpha(m_busTagHover ? 0.34f : 0.18f));
+            g.fillRoundedRectangle(tag, tag.getHeight() * 0.5f);
+            if (m_busTagHover)
+            {
+                g.setColour(tagColour.withAlpha(0.8f));
+                g.drawRoundedRectangle(tag.reduced(0.5f), tag.getHeight() * 0.5f, 1.0f);
+            }
+            g.setColour(tagColour.brighter(0.15f));
+            Theme::fitText(g, tagText, tag.withTrimmedLeft(7.0f).withTrimmedRight(static_cast<float>(arrowW) + 3.0f), tagFont, juce::Justification::centredLeft);
             juce::Path arrow;
-            const float ax = tag.getRight() - 9.0f, ay = tag.getCentreY() - 1.5f;
-            arrow.addTriangle(ax, ay, ax + 5.0f, ay, ax + 2.5f, ay + 3.5f);
-            g.fillPath(arrow);
+            const float ax = tag.getRight() - 9.5f, ay = tag.getCentreY();
+            arrow.startNewSubPath(ax - 3.0f, ay - 1.5f);
+            arrow.lineTo(ax, ay + 1.5f);
+            arrow.lineTo(ax + 3.0f, ay - 1.5f);
+            g.strokePath(arrow, juce::PathStrokeType(1.4f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
         }
         else
         {
             m_busTagArea = {};
         }
-        g.setFont(fonts.heading(12.0f));
         g.setColour(TC::text);
-        g.drawText(m_owner.m_hold.getDisplayName(m_track), nameRow, juce::Justification::centredLeft, true);
+        Theme::fitText(g, m_owner.m_hold.getDisplayName(m_track), nameRow, fonts.title(), juce::Justification::centredLeft, Theme::Fit::Name);
 
         const auto wave = waveArea();
         const auto wf = wave.toFloat();
         if (! hasData())
         {
-            g.setColour(TC::scope);
-            g.fillRoundedRectangle(wf, 4.0f);
+            SwooshLookAndFeel::drawWell(g, wf);
             return;
         }
 
@@ -374,7 +386,7 @@ public:
         const float gainNow = m_history[static_cast<size_t>((m_historyHead + c_history - 1) % c_history)];
         // The waveform brightens and dims with the fader as the ride moves it.
         g.setColour(TC::scope.withAlpha(0.55f * (1.0f - juce::jlimit(0.0f, 1.0f, gainNow))));
-        g.fillRoundedRectangle(wf, 4.0f);
+        g.fillRoundedRectangle(wf, Theme::Radius::control);
 
         // Ride meter beside the waveform
         {
@@ -446,16 +458,16 @@ public:
         }
 
         const auto& d = *m_data;
-        g.setFont(fonts.body(10.5f));
+        const auto infoFont = fonts.caption();
         if (m_align > 0.5f)
         {
             g.setColour(TC::record.brighter(0.3f).withAlpha(m_align));
             const bool aimed = m_owner.m_processor.getState().getRawParameterValue(ParamIDs::hitAim)->load() > 0.5f;
-            const juce::String mode = aimed ? "AIMED" : "SYNCED";
-            g.drawText(m_syncCount == 0 ? mode + "   no hits found (try Skip Silence off)"
-                                        : mode + "   hit " + juce::String(m_syncIndex + 1) + " of " + juce::String(m_syncCount)
-                                              + (m_owner.m_hold.getSkipSilence(m_track) ? "" : "  (whole file)"),
-                       wave.reduced(16, 4), juce::Justification::topLeft);
+            const juce::String mode = aimed ? "Aimed" : "Synced";
+            Theme::fitText(g, m_syncCount == 0 ? mode + ": no hits found (try Skip Silence off)"
+                                               : mode + ": hit " + juce::String(m_syncIndex + 1) + " of " + juce::String(m_syncCount)
+                                                     + (m_owner.m_hold.getSkipSilence(m_track) ? "" : " (whole file)"),
+                           wave.reduced(16, 4).withHeight(14), infoFont, juce::Justification::centredLeft, Theme::Fit::Message);
         }
         else
         {
@@ -465,11 +477,11 @@ public:
             juce::String info = juce::String(d.length() / d.sampleRate, 2) + " s   " + juce::String(static_cast<int>(d.regions.size()))
                                 + (d.regions.size() == 1 ? " sound" : " sounds")
                                 + (m_owner.m_hold.getSkipSilence(m_track) ? "" : "   silence kept");
-            const float room = static_cast<float>(line.getWidth()) - juce::GlyphArrangement::getStringWidth(g.getCurrentFont(), info + "      ");
-            const auto file = Theme::fitMiddle(d.name, g.getCurrentFont(), room);
+            const float room = static_cast<float>(line.getWidth()) - juce::GlyphArrangement::getStringWidth(infoFont, info + "      ");
+            const auto file = Theme::fitMiddle(d.name, infoFont, room);
             if (file.isNotEmpty())
                 info << "   " << file;
-            g.drawText(info, line, juce::Justification::topLeft, false);
+            Theme::fitText(g, info, line.withHeight(14), infoFont, juce::Justification::centredLeft, Theme::Fit::Name);
         }
     }
 
@@ -490,7 +502,7 @@ public:
         const float w = static_cast<float>(iw), h = static_cast<float>(ih);
 
         g.setColour(TC::scope);
-        g.fillRoundedRectangle(0.0f, 0.0f, w, h, 4.0f * scale);
+        g.fillRoundedRectangle(0.0f, 0.0f, w, h, Theme::Radius::control * scale);
 
         const auto& d = *m_data;
         const int len = d.length();
@@ -562,7 +574,7 @@ public:
         if (header.removeFromTop(18).contains(pos))
             return "Track Name\nNamed after its sound type, until you rename it."
                    + (hasData() && m_data->name.isNotEmpty() ? " The sound is \"" + Theme::middleTruncated(m_data->name, 60) + "\"." : juce::String())
-                   + "\nDouble-click to rename it. Right-click for the track's menu: Master Track, Match Pitch To Master and the bus.";
+                   + "\nDouble-click to rename it. Right-click for the track's menu: Master Track, Match Pitch to Master and the bus.";
         if (hasData() && waveArea().contains(pos))
             return "Waveform\nThe flag marks where this track starts playing; it loops from there and the part before it is dimmed. "
                    "With Skip Silence on, the bright parts are the sounds it plays and the faint parts are the gaps it skips.\n"
@@ -707,8 +719,8 @@ private:
 
     static juce::String busTag(int bus)
     {
-        if (bus == CargoHold::c_hitsBus) return "HITS";
-        return juce::String("BUS ") + ParamIDs::busNames[juce::jlimit(0, CargoHold::c_maxBuses - 1, bus)];
+        if (bus == CargoHold::c_hitsBus) return "Hits";
+        return juce::String("Bus ") + ParamIDs::busNames[juce::jlimit(0, CargoHold::c_maxBuses - 1, bus)];
     }
 
     static juce::Colour busColour(int bus)
@@ -736,7 +748,7 @@ private:
     {
         auto& hold = m_owner.m_hold;
         const int chosen = hold.getBusOverride(m_track);
-        menu.addItem(100, "Auto (" + busTitle(CargoHold::busForRole(hold.getRole(m_track))) + ", By Type)", true, chosen < 0);
+        menu.addItem(100, "Auto (" + busTitle(CargoHold::busForRole(hold.getRole(m_track))) + ", by Type)", true, chosen < 0);
         for (int bus = 0; bus <= CargoHold::c_hitsBus; ++bus)
             menu.addItem(101 + bus, busTitle(bus), true, chosen == bus);
     }
@@ -767,7 +779,7 @@ private:
         const int master = hold.getMaster();
         juce::PopupMenu menu;
         menu.addItem(1, "Master Track", true, master == m_track);
-        menu.addItem(2, "Match Pitch To Master", master >= 0 && master != m_track);
+        menu.addItem(2, "Match Pitch to Master", master >= 0 && master != m_track);
         menu.addSeparator();
         juce::PopupMenu buses;
         addBusItems(buses);
@@ -795,13 +807,13 @@ private:
         juce::PopupMenu menu;
         // The type picks the bus too, unless the bus was chosen by hand on the bus tag.
         const bool busByHand = hold.getBusOverride(m_track) >= 0;
-        menu.addSectionHeader(busByHand ? "WHAT IS IT?  (the bus stays where you put it)" : "WHAT IS IT?  (this also decides where it plays)");
+        menu.addSectionHeader(busByHand ? "Sound Type" : "Sound Type and Bus");
         menu.addItem(1, "Auto (Heard as " + CargoHold::typeName(detected) + ")", true, hold.getRoleOverride(m_track) < 0);
         menu.addSeparator();
         for (int r = 1; r < c_numCargoRoles; ++r)
-            menu.addItem(10 + r, CargoHold::typeName(static_cast<CargoRole>(r)) + (busByHand ? juce::String() : "   -> " + busLabel(CargoHold::busForRole(static_cast<CargoRole>(r)))),
+            menu.addItem(10 + r, CargoHold::typeName(static_cast<CargoRole>(r)) + (busByHand ? juce::String() : "   -> " + busTitle(CargoHold::busForRole(static_cast<CargoRole>(r)))),
                          true, hold.getRoleOverride(m_track) == r);
-        menu.addItem(10, CargoHold::typeName(CargoRole::Generic) + (busByHand ? juce::String() : "   -> " + busLabel(CargoHold::busForRole(CargoRole::Generic))),
+        menu.addItem(10, CargoHold::typeName(CargoRole::Generic) + (busByHand ? juce::String() : "   -> " + busTitle(CargoHold::busForRole(CargoRole::Generic))),
                      true, hold.getRoleOverride(m_track) == 0);
         menu.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(m_type), [this](int result)
         {
@@ -851,9 +863,10 @@ private:
 
     ValueSlider m_level;
     PitchBox m_semis, m_cents;
-    juce::TextButton m_vari { "VARI" };
-    juce::TextButton m_type, m_mute { "M" }, m_solo { "S" }, m_remove { "x" }, m_skip { "SKIP SILENCE" };
-    IconButton m_master { IconButton::Icon::Star, TC::flight }; // lit on the Master track
+    juce::TextButton m_vari { "Vari" };
+    juce::TextButton m_type, m_mute { "M" }, m_solo { "S" }, m_skip { "Skip Silence" };
+    IconButton m_remove { IconButton::Icon::Remove, TC::hits, true };
+    IconButton m_master { IconButton::Icon::Star, TC::brass, true }; // lit on the Master track
     juce::TextEditor m_nameEditor;
     juce::Rectangle<int> m_busTagArea; // set in paint(), for the tooltip and the bus menu
     bool m_busTagHover = false;
@@ -868,21 +881,12 @@ CargoHoldView::CargoHoldView(SwooshbucklerAudioProcessor& processor, const Theme
     setWantsKeyboardFocus(true);
 
     // No tools: tracks are drag and drop, they loop, and a click on a waveform sets where it starts.
-    const std::pair<Action, const char*> buttons[] = { { Action::Undo, "UNDO" } };
-    const char* tips[] = {
-        "Load sounds into new tracks (or drop them anywhere here)", "Cut the selection (Cmd+X)", "Copy the selection (Cmd+C)",
-        "Paste at the cursor (Cmd+V)", "Duplicate the selection right after itself (Cmd+D)",
-        "Keep only the selection (T)", "Delete the selection (Backspace)", "Reverse the selection (or the whole track)",
-        "Normalise the selection (or the whole track) to -1 dBFS", "Fade the selection in", "Fade the selection out",
-        "Undo (Cmd+Z)", "Redo (Shift+Cmd+Z)",
-    };
-
-    int i = 0;
+    const std::pair<Action, const char*> buttons[] = { { Action::Undo, "Undo" } };
     for (const auto& [action, name] : buttons)
     {
         auto b = std::make_unique<juce::TextButton>(name);
         b->setColour(juce::TextButton::buttonOnColourId, TC::sources);
-        b->setTooltip(tips[i++]);
+        b->setTooltip("Undo\nTakes back the last change (Cmd+Z).");
         const auto a = action;
         b->onClick = [this, a] { perform(a); };
         b->setWantsKeyboardFocus(false);
@@ -933,38 +937,40 @@ void CargoHoldView::status(const juce::String& text)
 void CargoHoldView::paint(juce::Graphics& g)
 {
     SwooshLookAndFeel::drawPanel(g, getLocalBounds().toFloat(), "Tracks",
-                                 "every track loops; click a waveform to set where it starts", TC::sources, m_fonts);
+                                 "Every track loops. Click a waveform to set where it starts.", TC::busB, m_fonts, Icons::Icon::Tracks,
+                                 static_cast<float>(m_statusArea.getX() - 8));
 
-    g.setFont(m_fonts.body(11.0f));
-    g.setColour(m_status.startsWith("!") ? TC::record : TC::textDim);
-    g.drawText(m_status.startsWith("!") ? m_status.substring(1) : m_status, m_statusArea, juce::Justification::centredRight, true);
+    g.setColour(m_status.startsWith("!") ? TC::hits.brighter(0.2f) : TC::textDim);
+    Theme::fitText(g, m_status.startsWith("!") ? m_status.substring(1) : m_status, m_statusArea, m_fonts.body(), juce::Justification::centredRight,
+                   Theme::Fit::Message);
 
     if (! m_dropZone.isEmpty())
     {
         const auto r = m_dropZone.toFloat();
-        g.setColour(m_dragOver ? TC::sources.withAlpha(0.12f) : TC::scope.withAlpha(0.6f));
-        g.fillRoundedRectangle(r, 6.0f);
+        // The one dashed edge in the window: it says "drop here".
+        g.setColour(m_dragOver ? TC::sources.withAlpha(0.12f) : TC::well.withAlpha(0.45f));
+        g.fillRoundedRectangle(r, Theme::Radius::control + 2.0f);
         juce::Path p;
-        p.addRoundedRectangle(r.reduced(1.0f), 6.0f);
+        p.addRoundedRectangle(r.reduced(1.0f), Theme::Radius::control + 2.0f);
         juce::Path dashed;
         const float dashes[] = { 6.0f, 5.0f };
         juce::PathStrokeType(1.2f).createDashedStroke(dashed, p, dashes, 2);
-        g.setColour(m_dragOver ? TC::sources : TC::outline.brighter(0.2f));
+        g.setColour(m_dragOver ? TC::sources : TC::stroke);
         g.fillPath(dashed);
 
         const int loaded = static_cast<int>(std::count_if(m_lanes.begin(), m_lanes.end(), [](const auto& l) { return l->hasData(); }));
-        g.setFont(m_fonts.label(13.0f));
-        g.setColour(m_dragOver ? TC::sources : TC::textDim);
+        g.setColour(m_dragOver ? TC::sources : TC::text);
         // Empty: the two lines sit a little higher, with Load Demo Sounds under them.
         const int lift = loaded == 0 ? 22 : 0;
-        g.drawText(loaded == 0 ? "DROP SOUNDS HERE" : "DROP MORE SOUNDS HERE", m_dropZone.withTrimmedBottom(m_dropZone.getHeight() / 2 - 6 + lift),
-                   juce::Justification::centredBottom);
-        g.setFont(m_fonts.body(11.0f));
+        const int middle = m_dropZone.getCentreY() - lift;
+        Theme::fitText(g, loaded == 0 ? "Drop Sounds Here" : "Drop More Sounds Here", juce::Rectangle<int>(m_dropZone.getX() + 8, middle - 18, m_dropZone.getWidth() - 16, 18),
+                       m_fonts.title(), juce::Justification::centred);
         g.setColour(TC::textFaint);
-        g.drawText(loaded == 0 ? "growls, tones, wind, engines, cloth, hits... or click to browse. Each sound is named by type and routed"
-                               : juce::String(CargoHold::c_numTracks - loaded) + (CargoHold::c_numTracks - loaded == 1 ? " more track fits" : " more tracks fit")
-                                     + " (or click to browse)",
-                   m_dropZone.withTrimmedTop(m_dropZone.getHeight() / 2 + 4 - lift).reduced(8, 0), juce::Justification::centredTop);
+        Theme::fitText(g, loaded == 0 ? juce::String("Growls, tones, wind, engines, cloth, hits. Or click to browse. Each sound is named and routed by its type.")
+                                      : juce::String(CargoHold::c_numTracks - loaded) + (CargoHold::c_numTracks - loaded == 1 ? " more track fits" : " more tracks fit")
+                                            + ", or click to browse.",
+                       juce::Rectangle<int>(m_dropZone.getX() + 8, middle + 1, m_dropZone.getWidth() - 16, 16), m_fonts.body(), juce::Justification::centred,
+                       Theme::Fit::Sentence);
     }
 }
 
@@ -984,7 +990,7 @@ void CargoHoldView::resized()
     auto bar = m_toolbar;
     for (auto& [action, b] : m_buttons)
     {
-        const int w = juce::GlyphArrangement::getStringWidthInt(m_fonts.label(10.0f), b->getButtonText()) + 12;
+        const int w = juce::GlyphArrangement::getStringWidthInt(m_fonts.caption(), b->getButtonText()) + 12;
         b->setBounds(bar.removeFromLeft(w).reduced(1, 0));
         if (action == Action::Load || action == Action::Delete || action == Action::FadeOut)
             bar.removeFromLeft(6);
@@ -1266,7 +1272,7 @@ bool CargoHoldView::laneAnchorScreen(int track, juce::Point<int>& screenPos) con
     if (track < 0 || track >= CargoHold::c_numTracks)
         return false;
     const auto& lane = *m_lanes[static_cast<size_t>(track)];
-    if (! lane.isVisible() || ! lane.hasData() || ! isShowing())
+    if (! lane.isVisible() || ! lane.hasData() || ! Theme::isShownInWindow(*this))
         return false;
     const auto wave = lane.waveArea();
     auto point = m_viewport.getLocalPoint(&lane, juce::Point<int>(wave.getRight() - 14, wave.getCentreY()));

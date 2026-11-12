@@ -1,12 +1,13 @@
 #include "MorphPad.h"
+#include "Icons.h"
 
 #include <cmath>
 
 namespace
 {
     const char* const c_modeNames[MorphPad::c_numModes] = { "Blend", "Glide", "Cross" };
-    const char* const c_topLabels[MorphPad::c_numModes] = { "Fuse", "Shape", "A thru B" };
-    const char* const c_bottomLabels[MorphPad::c_numModes] = { "Mix", "Move", "B thru A" };
+    const char* const c_topLabels[MorphPad::c_numModes] = { "Fuse", "Shape", "A Through B" };
+    const char* const c_bottomLabels[MorphPad::c_numModes] = { "Mix", "Move", "B Through A" };
     const char* const c_modeTips[MorphPad::c_numModes] = {
         "Blend\nMorphs the tone of side A into side B's: left is A, right is B. Higher up the pad fuses the two into one texture.",
         "Glide\nThe pitches inside the sound slide from A's to B's as you move across. Higher up keeps the character (formants) in place while the pitch moves.",
@@ -51,7 +52,7 @@ public:
     {
         const int lane = owner.m_lanes[static_cast<size_t>(slot)];
         juce::Point<int> anchor;
-        if (lane < 0 || slot == owner.m_ropeSlot || ! owner.isShowing() || ! owner.laneAnchor || ! owner.laneAnchor(lane, anchor))
+        if (lane < 0 || slot == owner.m_ropeSlot || ! Theme::isShownInWindow(owner) || ! owner.laneAnchor || ! owner.laneAnchor(lane, anchor))
             return false;
         const auto start = handlePoint(slot);
         end = getLocalPoint(nullptr, anchor.toFloat());
@@ -78,7 +79,7 @@ public:
 
     void drawRope(juce::Graphics& g, const juce::Path& rope, juce::Colour colour) const
     {
-        g.setColour(Theme::Colours::shadow);
+        g.setColour(Theme::Colours::shadow.withAlpha(0.5f));
         g.strokePath(rope, juce::PathStrokeType(5.0f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded),
                      juce::AffineTransform::translation(0.0f, 2.0f));
         g.setColour(colour.darker(0.35f));
@@ -100,9 +101,8 @@ public:
         g.fillEllipse(ring);
         g.setColour(colour);
         g.drawEllipse(ring, 2.0f);
-        g.setColour(lane >= 0 ? Theme::Colours::background : Theme::Colours::text);
-        g.setFont(owner.m_fonts.heading(11.0f));
-        g.drawText(slot == 0 ? "A" : "B", ring, juce::Justification::centred, false);
+        g.setColour(lane >= 0 ? Theme::Colours::window : Theme::Colours::text);
+        Theme::fitText(g, slot == 0 ? "A" : "B", ring, owner.m_fonts.caption(), juce::Justification::centred);
     }
 
     void paint(juce::Graphics& g) override
@@ -142,33 +142,21 @@ public:
     WanderButton() : juce::Button("Wander")
     {
         setClickingTogglesState(true);
+        setColour(juce::TextButton::buttonOnColourId, Theme::Colours::brass);
         setTooltip("Wander\nPlay: the dot wanders along the chosen shape by itself, so the morph keeps moving, with this window closed and in a bounce too. Stop: it stays where the wander left it.");
     }
 
     void paintButton(juce::Graphics& g, bool over, bool down) override
     {
-        auto b = getLocalBounds().toFloat().reduced(0.5f);
+        // The buttons' own plate, with the play or stop glyph the header's Play button uses.
         const bool on = getToggleState();
-        const auto accent = Theme::Colours::accent;
-
-        g.setColour(on ? accent.withAlpha(0.3f) : (over || down ? Theme::Colours::hover : Theme::Colours::panelRaised));
-        g.fillRoundedRectangle(b, 4.0f);
-        g.setColour(on ? accent : Theme::Colours::outline);
-        g.drawRoundedRectangle(b, 4.0f, 1.0f);
-
-        const auto c = b.getCentre();
-        const float r = juce::jmin(b.getWidth(), b.getHeight()) * 0.26f;
-        g.setColour(on ? accent : Theme::Colours::textDim);
-        if (on)
-        {
-            g.fillRect(juce::Rectangle<float>(r * 1.7f, r * 1.7f).withCentre(c)); // stop
-        }
-        else
-        {
-            juce::Path play;
-            play.addTriangle(c.x - r * 0.75f, c.y - r, c.x - r * 0.75f, c.y + r, c.x + r, c.y);
-            g.fillPath(play);
-        }
+        const auto accent = Theme::Colours::brass;
+        getLookAndFeel().drawButtonBackground(g, *this, Theme::Colours::raised, over, down);
+        const auto b = getLocalBounds().toFloat();
+        const float side = juce::jmin(b.getWidth(), b.getHeight()) * 0.5f;
+        const bool resting = Theme::getLook(*this) == Theme::Look::Resting;
+        Icons::draw(g, on ? Icons::Icon::Stop : Icons::Icon::Play, juce::Rectangle<float>(side, side).withCentre(b.getCentre().translated(0.0f, -0.75f)),
+                    on ? accent.brighter(0.4f) : (resting ? Theme::Colours::textDim : Theme::Colours::text));
     }
 };
 
@@ -249,15 +237,16 @@ void MorphPad::setMorphEnabled(bool on)
 
 void MorphPad::applyEnabledLook(bool on)
 {
-    m_enable.setButtonText(on ? "ON" : "OFF");
+    m_enable.setButtonText(on ? "On" : "Off");
     if (on == m_enabled)
         return;
     m_enabled = on;
-    // Off: everything but the switch greys back (still usable, so you can set it up before switching on).
-    for (auto& mb : m_modeButtons) mb.setAlpha(on ? 1.0f : 0.45f);
-    m_wanderButton->setAlpha(on ? 1.0f : 0.45f);
-    m_speed.setAlpha(on ? 1.0f : 0.45f);
-    m_shapeBox.setAlpha(on ? 1.0f : 0.45f);
+    // Off: everything but the switch rests (hollow, still usable, so you can set it up before switching on).
+    const auto look = on ? Theme::Look::Normal : Theme::Look::Resting;
+    for (auto& mb : m_modeButtons) Theme::setLook(mb, look);
+    Theme::setLook(*m_wanderButton, look);
+    m_speed.setAlpha(on ? 1.0f : 0.5f);
+    Theme::setLook(m_shapeBox, look);
     repaint();
 }
 
@@ -267,13 +256,12 @@ void MorphPad::paintOverChildren(juce::Graphics& g)
         return;
     // A grey veil over the pad and the bus labels while the morph is off.
     // The pad and each label on their own, so the wander controls between the labels only get their usual dimming.
-    g.setColour(Theme::Colours::background.withAlpha(0.5f));
-    g.fillRoundedRectangle(m_pad.expanded(2.0f), 4.0f);
+    g.setColour(Theme::Colours::window.withAlpha(0.5f));
+    g.fillRoundedRectangle(m_pad.expanded(2.0f), Theme::Radius::control);
     for (const auto& h : m_handles)
-        g.fillRoundedRectangle(h.expanded(2.0f), 4.0f);
-    g.setFont(m_fonts.label(11.0f));
-    g.setColour(Theme::Colours::textDim);
-    g.drawText("MORPH OFF", m_pad.withTrimmedTop(m_pad.getHeight() * 0.62f), juce::Justification::centredTop);
+        g.fillRoundedRectangle(h.expanded(2.0f), h.getHeight() * 0.5f);
+    g.setColour(Theme::Colours::text);
+    Theme::fitText(g, "Morph Off", m_pad.withTrimmedTop(m_pad.getHeight() * 0.62f).withHeight(16.0f), m_fonts.control(), juce::Justification::centred);
 }
 
 void MorphPad::setShape(int shape)
@@ -343,7 +331,7 @@ void MorphPad::setSources(int laneA, int laneB, juce::String nameA, juce::String
 
 bool MorphPad::anyRopeShown() const
 {
-    return m_ropeSlot >= 0 || (isShowing() && (m_lanes[0] >= 0 || m_lanes[1] >= 0));
+    return m_ropeSlot >= 0 || (Theme::isShownInWindow(*this) && (m_lanes[0] >= 0 || m_lanes[1] >= 0));
 }
 
 void MorphPad::updateOverlay()
@@ -469,8 +457,8 @@ juce::Point<float> MorphPad::padToLocal(float x, float y) const
 void MorphPad::paint(juce::Graphics& g)
 {
     // Pad
-    g.setColour(Theme::Colours::scope.withAlpha(0.45f)); // the waves show through
-    g.fillRoundedRectangle(m_pad, 4.0f);
+    g.setColour(Theme::Colours::well.withAlpha(0.5f)); // the waves show through
+    g.fillRoundedRectangle(m_pad, Theme::Radius::control);
 
     g.setColour(Theme::Colours::grid);
     for (int i = 1; i < 4; ++i)
@@ -482,16 +470,14 @@ void MorphPad::paint(juce::Graphics& g)
     }
 
     // Axis labels: y per mode (top / bottom), x is A (left) to B (right).
-    g.setFont(m_fonts.label(11.0f));
-    g.setColour(Theme::Colours::textFaint);
+    g.setColour(Theme::Colours::textDim);
     const auto labels = m_pad.reduced(6.0f, 3.0f);
-    g.drawText(c_topLabels[m_mode], labels, juce::Justification::centredTop, false);
-    g.drawText(c_bottomLabels[m_mode], labels, juce::Justification::centredBottom, false);
-    g.setFont(m_fonts.heading(12.0f));
+    Theme::fitText(g, c_topLabels[m_mode], labels.withHeight(14.0f), m_fonts.caption(), juce::Justification::centred);
+    Theme::fitText(g, c_bottomLabels[m_mode], labels.withTop(labels.getBottom() - 14.0f), m_fonts.caption(), juce::Justification::centred);
     g.setColour(laneColour(0));
-    g.drawText("A", labels, juce::Justification::centredLeft, false);
+    Theme::fitText(g, "A", labels.withWidth(14.0f).withSizeKeepingCentre(14.0f, 16.0f), m_fonts.title(), juce::Justification::centredLeft);
     g.setColour(laneColour(1));
-    g.drawText("B", labels, juce::Justification::centredRight, false);
+    Theme::fitText(g, "B", labels.withLeft(labels.getRight() - 14.0f).withSizeKeepingCentre(14.0f, 16.0f), m_fonts.title(), juce::Justification::centredRight);
 
     const auto dot = padToLocal(m_x, m_y);
     const auto accent = Theme::Colours::accent;
@@ -529,13 +515,11 @@ void MorphPad::paint(juce::Graphics& g)
         }
 
         // Crosshair
-        g.setColour(Theme::Colours::outline);
+        g.setColour(Theme::Colours::stroke.withAlpha(0.8f));
         g.drawVerticalLine(juce::roundToInt(dot.x), m_pad.getY(), m_pad.getBottom());
         g.drawHorizontalLine(juce::roundToInt(dot.y), m_pad.getX(), m_pad.getRight());
     }
 
-    g.setColour(Theme::Colours::outline);
-    g.drawRoundedRectangle(m_pad.reduced(0.5f), 4.0f, 1.0f);
 
     // Dot, coloured between the two sources.
     const auto dotColour = laneColour(0).interpolatedWith(laneColour(1), m_x);
@@ -553,26 +537,28 @@ void MorphPad::paint(juce::Graphics& g)
         const bool active = m_ropeSlot == slot;
         const bool hover = m_hoverHandle == slot;
 
-        g.setColour(hover || active ? Theme::Colours::hover : Theme::Colours::panelRaised);
+        // A chip: a stroke only while the mouse is over it or its rope is in hand.
+        g.setColour(hover || active ? Theme::Colours::hover : Theme::Colours::raised);
         g.fillRoundedRectangle(r, r.getHeight() * 0.5f);
-        g.setColour(active ? accent : colour.withAlpha(0.8f));
-        g.drawRoundedRectangle(r.reduced(0.5f), r.getHeight() * 0.5f, 1.0f);
+        if (hover || active)
+        {
+            g.setColour(active ? accent : colour.withAlpha(0.8f));
+            g.drawRoundedRectangle(r.reduced(0.5f), r.getHeight() * 0.5f, 1.0f);
+        }
 
         auto inner = r.reduced(3.0f, 2.0f);
         const auto knot = slot == 0 ? inner.removeFromLeft(inner.getHeight()) : inner.removeFromRight(inner.getHeight());
         g.setColour(colour);
         g.fillEllipse(knot);
-        g.setColour(Theme::Colours::background);
-        g.setFont(m_fonts.heading(11.0f));
-        g.drawText(slot == 0 ? "A" : "B", knot, juce::Justification::centred, false);
+        g.setColour(Theme::Colours::window);
+        Theme::fitText(g, slot == 0 ? "A" : "B", knot, m_fonts.caption(), juce::Justification::centred);
 
         inner.reduce(5.0f, 0.0f);
         // The bus, or the roped track's name (squeezed a little, then cut short, if it is long).
         const bool roped = m_lanes[static_cast<size_t>(slot)] >= 0;
-        g.setFont(m_fonts.label(12.0f));
         g.setColour(Theme::Colours::text);
-        g.drawFittedText(roped ? m_names[static_cast<size_t>(slot)] : m_busNames[static_cast<size_t>(slot)], inner.toNearestInt(),
-                         slot == 0 ? juce::Justification::centredLeft : juce::Justification::centredRight, 1, 0.75f);
+        Theme::fitText(g, roped ? m_names[static_cast<size_t>(slot)] : m_busNames[static_cast<size_t>(slot)], inner, m_fonts.caption(),
+                       slot == 0 ? juce::Justification::centredLeft : juce::Justification::centredRight, Theme::Fit::Name);
     }
 }
 

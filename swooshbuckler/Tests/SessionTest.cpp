@@ -365,7 +365,7 @@ int main(int argc, char* argv[])
         Rig rig(sources, 0);
         auto& p = rig.proc;
         check(! p.getOneFilePerWhoosh() && p.getTakeName().isEmpty() && p.getCreator().isEmpty() && p.getNameStyle() == 0 && p.getRetroMinutes() == 1,
-              "harvest: One File Per Whoosh is off, names follow the preset with a counter, LAST 60s keeps a minute, unless set otherwise");
+              "harvest: One File per Whoosh is off, names follow the preset with a counter, LAST 60s keeps a minute, unless set otherwise");
         p.setRecordFolder(harvest);
         p.setOneFilePerWhoosh(true);
         p.setTakeName("Fly By");
@@ -508,7 +508,7 @@ int main(int argc, char* argv[])
             rig.run(3.0);
             juce::File written;
             check(p.saveRetro(written, error) && written.getFileName() == "Fly By_0004_retro.wav" && p.getTakes().front().file == written
-                      && p.getTakes().front().kind == "Last 60s",
+                      && p.getTakes().front().kind == "Last 60 s",
                   "harvest: LAST 60s is named by the same counter and listed (" + written.getFileName() + ") " + error);
             p.setRetroMinutes(3);
             juce::PropertiesFile reread(settingsFile, options);

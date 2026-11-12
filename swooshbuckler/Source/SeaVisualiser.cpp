@@ -20,7 +20,7 @@ SeaVisualiser::SeaVisualiser(SwooshbucklerAudioProcessor& processor, const Theme
 {
     setOpaque(true);
     setMouseCursor(juce::MouseCursor::PointingHandCursor);
-    setTooltip("Click the sea to fire a whoosh (or press space).");
+    setTooltip("The Sea\nClick it (or press Space) to swell every track up.");
 
     juce::Random r(42);
     for (int i = 0; i < 90; ++i)
@@ -250,7 +250,7 @@ void SeaVisualiser::paint(juce::Graphics& g)
                     ++count;
                     only = t;
                 }
-            busLabels[static_cast<size_t>(b)] = juce::String("BUS ") + (b == 0 ? "A" : "B")
+            busLabels[static_cast<size_t>(b)] = juce::String("Bus ") + (b == 0 ? "A" : "B")
                                                 + (count == 1 ? (" " + juce::String::charToString(0x00b7) + " ") + cargo.getDisplayName(only) : juce::String());
         }
     }
@@ -303,47 +303,63 @@ void SeaVisualiser::paint(juce::Graphics& g)
     }
 
     // Bus labels, fading in and out with the passes, kept apart when they meet.
+    if (m_labelsShown)
     {
-        g.setFont(m_fonts.label(10.5f));
-        std::vector<juce::Rectangle<float>> placed;
+        const auto labelFont = m_fonts.caption();
+        std::array<juce::Rectangle<float>, 2> placed;
+        size_t numPlaced = 0;
         for (size_t b = 0; b < labels.size(); ++b)
         {
             const auto& label = labels[b];
             if (label.alpha <= 0.01f)
                 continue;
             const auto& text = busLabels[b];
-            const float textW = juce::GlyphArrangement::getStringWidth(g.getCurrentFont(), text) + 4.0f;
+            const float textW = juce::jmin(w - 8.0f, juce::GlyphArrangement::getStringWidth(labelFont, text) + 4.0f);
             auto area = juce::Rectangle<float>(textW, 14.0f).withCentre(label.at);
             area = area.withX(juce::jlimit(4.0f, juce::jmax(4.0f, w - textW - 4.0f), area.getX())).withY(juce::jmax(4.0f, area.getY()));
-            for (const auto& other : placed)
-                if (area.intersects(other))
-                    area = area.withY(other.getY() - area.getHeight() - 1.0f);
-            placed.push_back(area);
-            const juce::Colour colour = b == 0 ? Theme::Colours::movement : Theme::Colours::sources;
-            g.setColour(juce::Colour(0xff061219).withAlpha(0.55f * label.alpha));
-            g.drawText(text, area.translated(1.0f, 1.0f), juce::Justification::centred, false);
-            g.setColour(colour.withAlpha(0.95f * label.alpha));
-            g.drawText(text, area, juce::Justification::centred, false);
+            for (size_t k = 0; k < numPlaced; ++k)
+                if (area.intersects(placed[k]))
+                    area = area.withY(placed[k].getY() - area.getHeight() - 1.0f);
+            if (area.getY() < 26.0f) // never up into the row of the panel's own name and the Morph button
+                area = area.withY(numPlaced > 0 ? placed[0].getBottom() + 1.0f : 26.0f);
+            if (numPlaced < placed.size())
+                placed[numPlaced++] = area;
+            const juce::Colour colour = b == 0 ? Theme::Colours::busA : Theme::Colours::busB;
+            // A dark plate behind it, so it reads over the stars and the waves.
+            g.setColour(Theme::Colours::well.withAlpha(0.6f * label.alpha));
+            g.fillRoundedRectangle(area.expanded(4.0f, 0.0f), 7.0f);
+            g.setColour(colour.brighter(0.15f).withAlpha(label.alpha));
+            Theme::fitText(g, text, area, labelFont, juce::Justification::centred, Theme::Fit::Name);
         }
     }
 
-    // HUD
-    g.setFont(m_fonts.label(12.0f));
-    g.setColour(Theme::Colours::textFaint);
-    g.drawText("OUTPUT", juce::Rectangle<float>(14.0f, 10.0f, 200.0f, 16.0f), juce::Justification::centredLeft);
+    // The panel's name, and the tape's time while it is armed.
+    g.setColour(Theme::Colours::textDim);
+    Theme::fitText(g, "Output", juce::Rectangle<float>(14.0f, 8.0f, 80.0f, 16.0f), m_fonts.control(), juce::Justification::centredLeft);
 
     if (m_processor.isRecording())
     {
         const bool blink = std::fmod(m_time, 1.0) < 0.6;
-        const auto dot = juce::Rectangle<float>(9.0f, 9.0f).withCentre({ w - 112.0f, 18.0f });
+        const auto dot = juce::Rectangle<float>(8.0f, 8.0f).withCentre({ 72.0f, 16.0f });
         g.setColour(Theme::Colours::record.withAlpha(blink ? 1.0f : 0.35f));
         g.fillEllipse(dot);
         const int secs = static_cast<int>(m_processor.getRecordedSeconds());
         g.setColour(Theme::Colours::text);
-        g.drawText("Rec " + juce::String::formatted("%02d:%02d:%02d", secs / 3600, (secs / 60) % 60, secs % 60),
-                   juce::Rectangle<float>(w - 102.0f, 10.0f, 96.0f, 16.0f), juce::Justification::centredLeft);
+        Theme::fitText(g, "Rec " + juce::String::formatted("%02d:%02d:%02d", secs / 3600, (secs / 60) % 60, secs % 60),
+                       juce::Rectangle<float>(80.0f, 8.0f, 80.0f, 16.0f), m_fonts.control(), juce::Justification::centredLeft);
     }
 
-    g.setColour(Theme::Colours::outline);
-    g.drawRect(bounds, 1.0f);
+    // Round corners: the sea is painted as one opaque rectangle (cheap to repaint), then its four corners are
+    // given back to the window behind it. No outline.
+    g.setColour(Theme::Colours::window);
+    g.fillPath(m_corners);
+}
+
+void SeaVisualiser::resized()
+{
+    const auto bounds = getLocalBounds().toFloat();
+    m_corners.clear();
+    m_corners.addRectangle(bounds);
+    m_corners.addRoundedRectangle(bounds, Theme::Radius::panel);
+    m_corners.setUsingNonZeroWinding(false);
 }

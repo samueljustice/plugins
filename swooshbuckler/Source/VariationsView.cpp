@@ -37,9 +37,9 @@ namespace
 juce::String VariationsView::showButtonText()
 {
    #if JUCE_MAC
-    return "Show In Finder";
+    return "Show in Finder";
    #elif JUCE_WINDOWS
-    return "Show In Explorer";
+    return "Show in Explorer";
    #else
     return "Show Folder";
    #endif
@@ -55,7 +55,7 @@ VariationsView::VariationsView(SwooshbucklerAudioProcessor& processor, const The
         b->setWantsKeyboardFocus(false);
         addAndMakeVisible(*b);
     }
-    m_render.setColour(juce::TextButton::buttonOnColourId, TC::go);
+    SwooshLookAndFeel::setStyle(m_render, SwooshLookAndFeel::ButtonStyle::Primary); // the main action
 
     const char* restrictions[] = { "0123456789", "0123456789.", "0123456789" };
     const int lengths[] = { 4, 4, 10 };
@@ -63,8 +63,7 @@ VariationsView::VariationsView(SwooshbucklerAudioProcessor& processor, const The
     for (int i = 0; i < 3; ++i)
     {
         auto& e = *editors[i];
-        e.setFont(m_fonts.body(13.0f));
-        e.setColour(juce::TextEditor::backgroundColourId, TC::scope);
+        e.setFont(m_fonts.body());
         e.setInputRestrictions(lengths[i], restrictions[i]);
         e.setSelectAllWhenFocused(true);
         e.setJustification(juce::Justification::centredLeft);
@@ -96,7 +95,7 @@ VariationsView::VariationsView(SwooshbucklerAudioProcessor& processor, const The
     };
 
     const char* modeTips[] = {
-        "Randomise Everything\nA fresh Randomise roll for every file: the ride, the buses, the hits and the space all change, the way the RANDOMISE button "
+        "Randomise Everything\nA fresh Randomise roll for every file: the ride, the buses, the hits and the space all change, the way the Randomise button "
         "changes them. Your tracks, their levels and the output stay as they are.",
         "Small Changes\nEvery file starts from the settings as they are now, nudges each of those controls by up to Amount, and starts each track a little "
         "further into its sample. For a family of whooshes around one you like.",
@@ -223,7 +222,7 @@ juce::String VariationsView::formatLine() const
     if (j.count > 1)
         line << " to " << VariationRenderer::fileNameOf(j.name, j.count, j.count) << extension;
     line << ": " << types[juce::jlimit(0, 2, static_cast<int>(j.options.type))] << ", " << bits << "-bit" << (bits == 32 ? " float" : "") << ", " << rate
-         << " kHz, " << (j.options.mono ? "mono" : "stereo") << ". The name and the format are the tape's, from SETTINGS.";
+         << " kHz, " << (j.options.mono ? "mono" : "stereo") << ". The name and the format are the tape's, from Settings.";
     return line;
 }
 
@@ -358,35 +357,32 @@ void VariationsView::resized()
 
 void VariationsView::paint(juce::Graphics& g)
 {
-    g.fillAll(TC::background.withAlpha(0.8f));
-    SwooshLookAndFeel::drawPanel(g, m_panel.toFloat(), "Render Variations", "a batch of thrown whooshes, straight to files", TC::flight, m_fonts);
+    g.fillAll(TC::window.withAlpha(0.8f));
+    SwooshLookAndFeel::drawPanel(g, m_panel.toFloat(), "Render Variations", "A batch of thrown whooshes, straight to files", TC::brass, m_fonts,
+                                 Icons::Icon::Variations);
 
     const char* captions[] = { "Count", "Length", "Batch Seed", "What Varies", "Amount", "Folder" };
-    g.setFont(m_fonts.label(10.5f));
     g.setColour(TC::textDim);
     for (size_t i = 0; i < m_captions.size(); ++i)
-        g.drawText(captions[i], m_captions[i], juce::Justification::centredLeft);
+        Theme::fitText(g, captions[i], m_captions[i], m_fonts.caption(), juce::Justification::centredLeft);
 
     const bool small = m_processor.getVariationMode() == static_cast<int>(Mode::SmallChanges);
-    g.setFont(m_fonts.body(12.5f));
+    const auto body = m_fonts.body();
     g.setColour(TC::textDim);
-    g.drawText("s", m_lengthUnit, juce::Justification::centredLeft);
+    Theme::fitText(g, "s", m_lengthUnit, body, juce::Justification::centredLeft);
     g.setColour(small ? TC::text : TC::textFaint);
-    g.drawText(juce::String(juce::roundToInt(100.0 * m_amount.getValue())) + "%", m_amountValue, juce::Justification::centredRight);
+    Theme::fitText(g, juce::String(juce::roundToInt(100.0 * m_amount.getValue())) + "%", m_amountValue, body, juce::Justification::centredRight);
 
     // Where the files go, and what they are.
     {
-        const auto font = m_fonts.body(12.0f);
         const bool dated = m_processor.getVariationFolder().isEmpty();
-        g.setFont(font);
         g.setColour(TC::text);
         const auto path = dated ? folder().getParentDirectory().getFullPathName() + juce::File::getSeparatorString()
                                       + m_processor.getEffectiveTakeName() + " Variations, with the date and time"
                                 : folder().getFullPathName();
-        g.drawText(fitPath(font, path, m_folderText.getWidth()), m_folderText, juce::Justification::centredLeft, false);
-        g.setFont(m_fonts.body(11.5f));
+        Theme::fitText(g, fitPath(body, path, m_folderText.getWidth()), m_folderText, body, juce::Justification::centredLeft, Theme::Fit::Name);
         g.setColour(TC::textFaint);
-        g.drawFittedText(formatLine(), m_formatText, juce::Justification::centredLeft, 1);
+        Theme::fitText(g, formatLine(), m_formatText, body, juce::Justification::centredLeft, Theme::Fit::Message);
     }
 
     // Progress: the bar with its percentage, then what is happening in words.
@@ -396,86 +392,76 @@ void VariationsView::paint(juce::Graphics& g)
     const float fraction = p.total > 0 ? juce::jlimit(0.0f, 1.0f, static_cast<float>(handled) / static_cast<float>(p.total)) : 0.0f;
     {
         const auto bar = m_bar.toFloat();
-        g.setColour(TC::scope);
-        g.fillRoundedRectangle(bar, 4.0f);
+        SwooshLookAndFeel::drawWell(g, bar);
         if (p.state != State::Idle && fraction > 0.0f)
         {
             g.saveState();
             g.reduceClipRegion(bar.withWidth(bar.getWidth() * fraction).toNearestInt());
-            g.setColour(p.state == State::Failed ? TC::record.withAlpha(0.75f)
+            g.setColour(p.state == State::Failed ? TC::hits.withAlpha(0.75f)
                         : p.state == State::Cancelled ? TC::textFaint
-                        : p.state == State::Finished ? TC::go.withAlpha(0.85f) : TC::flight.withAlpha(0.9f));
-            g.fillRoundedRectangle(bar, 4.0f);
+                        : p.state == State::Finished ? TC::go.withAlpha(0.85f) : TC::brass.withAlpha(0.9f));
+            g.fillRoundedRectangle(bar, Theme::Radius::control);
             g.restoreState();
         }
-        g.setColour(TC::outline);
-        g.drawRoundedRectangle(bar.reduced(0.5f), 4.0f, 1.0f);
         if (p.state != State::Idle)
         {
             const auto text = juce::String(juce::roundToInt(100.0f * fraction)) + "%";
-            g.setFont(m_fonts.heading(11.5f));
             // Dark on the filled part, light on the empty part, so the number reads wherever the edge is.
             g.setColour(TC::text);
-            g.drawText(text, m_bar, juce::Justification::centred, false);
+            Theme::fitText(g, text, m_bar, m_fonts.control(), juce::Justification::centred);
             g.saveState();
             g.reduceClipRegion(bar.withWidth(bar.getWidth() * fraction).toNearestInt());
-            g.setColour(TC::background);
-            g.drawText(text, m_bar, juce::Justification::centred, false);
+            g.setColour(TC::window);
+            Theme::fitText(g, text, m_bar, m_fonts.control(), juce::Justification::centred);
             g.restoreState();
         }
     }
 
     auto status = m_status;
     auto top = status.removeFromTop(18);
-    g.setFont(m_fonts.body(12.5f));
     const auto folderName = p.folder.getFileName();
     const juce::String filesWord = p.done == 1 ? " file" : " files";
     const juce::String silentNote = p.silent > 0 ? " (" + juce::String(p.silent) + (p.silent == 1 ? " render" : " renders") + " had no sound and left no file)" : juce::String();
+    const auto left = juce::Justification::centredLeft;
     if (m_error.isNotEmpty())
     {
-        g.setColour(TC::record);
-        g.drawFittedText(m_error, m_status, juce::Justification::topLeft, 2);
+        Theme::fitLines(g, m_error, m_status, body, TC::hits.brighter(0.2f));
     }
     else if (rendering)
     {
         g.setColour(TC::text);
-        g.drawText(juce::String(juce::jmin(p.total, handled + 1)) + " of " + juce::String(p.total), top.removeFromLeft(110), juce::Justification::centredLeft, false);
+        Theme::fitText(g, juce::String(juce::jmin(p.total, handled + 1)) + " of " + juce::String(p.total), top.removeFromLeft(110), body, left);
         g.setColour(TC::textDim);
-        g.drawText(timeLeft(p.secondsLeft), top.removeFromRight(190), juce::Justification::centredRight, false);
-        g.drawText(p.currentFile, top, juce::Justification::centred, true);
-        g.setFont(m_fonts.body(11.5f));
+        Theme::fitText(g, timeLeft(p.secondsLeft), top.removeFromRight(190), body, juce::Justification::centredRight, Theme::Fit::Sentence);
+        Theme::fitText(g, p.currentFile, top, body, juce::Justification::centred, Theme::Fit::Name);
         g.setColour(TC::textFaint);
-        g.drawText("The rig keeps playing. You can close this panel: the button in the header shows how far the batch is.", status, juce::Justification::centredLeft, true);
+        Theme::fitText(g, "The rig keeps playing. You can close this panel: the button in the header shows how far the batch is.", status, body, left,
+                       Theme::Fit::Sentence);
     }
     else if (p.state == State::Finished)
     {
         g.setColour(TC::text);
-        g.drawText(fitPath(g.getCurrentFont(), juce::String(p.done) + filesWord + " in " + folderName, top.getWidth()), top, juce::Justification::centredLeft, false);
-        g.setFont(m_fonts.body(11.5f));
+        Theme::fitText(g, fitPath(body, juce::String(p.done) + filesWord + " in " + folderName, top.getWidth()), top, body, left, Theme::Fit::Name);
         g.setColour(TC::textFaint);
-        g.drawText("Batch Seed " + juce::String(p.batchSeed) + ", rendered in " + juce::String(p.elapsedSeconds, 1) + " s" + silentNote + ".", status,
-                   juce::Justification::centredLeft, true);
+        Theme::fitText(g, "Batch Seed " + juce::String(p.batchSeed) + ", rendered in " + juce::String(p.elapsedSeconds, 1) + " s" + silentNote + ".", status,
+                       body, left, Theme::Fit::Message);
     }
     else if (p.state == State::Cancelled)
     {
         g.setColour(TC::text);
-        g.drawText(fitPath(g.getCurrentFont(), "Cancelled. " + juce::String(p.done) + filesWord + " kept in " + folderName, top.getWidth()), top,
-                   juce::Justification::centredLeft, false);
-        g.setFont(m_fonts.body(11.5f));
+        Theme::fitText(g, fitPath(body, "Cancelled. " + juce::String(p.done) + filesWord + " kept in " + folderName, top.getWidth()), top, body, left,
+                       Theme::Fit::Name);
         g.setColour(TC::textFaint);
-        g.drawText("Batch Seed " + juce::String(p.batchSeed) + silentNote + ".", status, juce::Justification::centredLeft, true);
+        Theme::fitText(g, "Batch Seed " + juce::String(p.batchSeed) + silentNote + ".", status, body, left, Theme::Fit::Message);
     }
     else if (p.state == State::Failed)
     {
-        g.setColour(TC::record);
-        g.drawFittedText(p.error + (p.done > 0 ? " " + juce::String(p.done) + filesWord + " kept in " + folderName + "." : juce::String()), m_status,
-                         juce::Justification::topLeft, 2);
+        Theme::fitLines(g, p.error + (p.done > 0 ? " " + juce::String(p.done) + filesWord + " kept in " + folderName + "." : juce::String()), m_status,
+                        body, TC::hits.brighter(0.2f));
     }
     else
     {
-        g.setFont(m_fonts.body(11.5f));
-        g.setColour(TC::textFaint);
-        g.drawFittedText("Each file is one thrown whoosh, rendered from silence until its echoes and Space have rung out, with the same output stage "
-                         "as the tape. Rendering runs in the background, faster than real time.", m_status, juce::Justification::topLeft, 2);
+        Theme::fitLines(g, "Each file is one thrown whoosh, rendered from silence until its echoes and Space have rung out, with the same output stage "
+                           "as the tape. Rendering runs in the background, faster than real time.", m_status, body, TC::textFaint);
     }
 }

@@ -1379,7 +1379,7 @@ bool SwooshbucklerAudioProcessor::saveRetro(juce::File& written, juce::String& e
     updateTapeNaming();
     if (! m_recorder.saveRetro(getRecordFolder(), o, written, error))
         return false;
-    registerTake(written, getRetroMinutes() == 1 ? juce::String("Last 60s") : "Last " + juce::String(getRetroMinutes()) + "m");
+    registerTake(written, getRetroMinutes() == 1 ? juce::String("Last 60 s") : "Last " + juce::String(getRetroMinutes()) + " Min");
     return true;
 }
 

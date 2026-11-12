@@ -220,22 +220,18 @@ void TakesView::mouseUp(const juce::MouseEvent& e)
 
 void TakesView::paint(juce::Graphics& g)
 {
-    g.fillAll(TC::background.withAlpha(0.8f));
+    g.fillAll(TC::window.withAlpha(0.8f));
     const auto& takes = m_processor.getTakes();
     SwooshLookAndFeel::drawPanel(g, m_panel.toFloat(), "Takes",
-                                 "the last " + juce::String(SwooshbucklerAudioProcessor::c_maxTakes) + " recordings of this run, newest first",
-                                 TC::flight, m_fonts);
+                                 "The last " + juce::String(SwooshbucklerAudioProcessor::c_maxTakes) + " recordings of this run, newest first",
+                                 TC::brass, m_fonts, Icons::Icon::Takes);
 
-    g.setColour(TC::scope.withAlpha(0.6f));
-    g.fillRoundedRectangle(m_list.toFloat().expanded(4.0f, 2.0f), 5.0f);
+    g.setColour(TC::well.withAlpha(0.6f));
+    g.fillRoundedRectangle(m_list.toFloat().expanded(4.0f, 2.0f), Theme::Radius::control);
 
     if (takes.empty())
-    {
-        g.setFont(m_fonts.body(13.0f));
-        g.setColour(TC::textDim);
-        g.drawFittedText("Nothing recorded yet. Arm the tape or press LAST 60s, and the files appear here.",
-                         m_list.reduced(40, 0).withHeight(120), juce::Justification::centred, 2);
-    }
+        Theme::fitLines(g, "Nothing recorded yet. Arm the tape or press Last 60 s, and the files appear here.",
+                        m_list.reduced(40, 0).withHeight(120), m_fonts.body(), TC::textDim, juce::Justification::centred);
 
     const int playing = m_processor.getAuditionTake();
     const double progress = m_processor.getAuditionProgress();
@@ -247,8 +243,8 @@ void TakesView::paint(juce::Graphics& g)
         const bool missing = ! take.file.existsAsFile();
         if (isPlaying || hover)
         {
-            g.setColour(isPlaying ? TC::flight.withAlpha(0.14f) : TC::hover.withAlpha(0.7f));
-            g.fillRoundedRectangle(r.all.toFloat().reduced(0.0f, 1.0f), 3.0f);
+            g.setColour(isPlaying ? TC::brass.withAlpha(0.14f) : TC::hover.withAlpha(0.7f));
+            g.fillRoundedRectangle(r.all.toFloat().reduced(0.0f, 1.0f), Theme::Radius::small);
         }
 
         // Star
@@ -268,8 +264,7 @@ void TakesView::paint(juce::Graphics& g)
         // Waveform, with the playhead while it plays
         {
             const auto w = r.wave.toFloat();
-            g.setColour(TC::scope);
-            g.fillRoundedRectangle(w, 3.0f);
+            SwooshLookAndFeel::drawWell(g, w, Theme::Radius::small);
             const auto it = m_thumbs.find(take.id);
             if (it != m_thumbs.end() && it->second->getTotalLength() > 0.0)
             {
@@ -281,33 +276,30 @@ void TakesView::paint(juce::Graphics& g)
                 g.setColour(TC::text);
                 g.fillRect(juce::Rectangle<float>(w.getX() + 2.0f + (w.getWidth() - 4.0f) * static_cast<float>(progress), w.getY() + 1.0f, 1.5f, w.getHeight() - 2.0f));
             }
-            g.setColour(TC::outline);
-            g.drawRoundedRectangle(w.reduced(0.5f), 3.0f, 1.0f);
         }
 
         // Name, what it is, how long
-        g.setFont(m_fonts.body(12.5f));
         g.setColour(missing ? TC::textFaint : TC::text);
-        g.drawText(take.file.getFileName(), r.name, juce::Justification::centredLeft, true);
-        g.setFont(m_fonts.label(9.5f));
+        Theme::fitText(g, take.file.getFileName(), r.name, m_fonts.body(), juce::Justification::centredLeft, Theme::Fit::Name);
         g.setColour(TC::textDim);
-        g.drawText(missing ? juce::String("Missing") : take.kind, r.kind, juce::Justification::centredLeft, true);
+        Theme::fitText(g, missing ? juce::String("Missing") : take.kind, r.kind, m_fonts.caption(), juce::Justification::centredLeft);
         const int whole = static_cast<int>(take.seconds);
-        g.setFont(m_fonts.body(12.0f));
-        g.drawText(take.seconds < 60.0 ? juce::String(take.seconds, 1) + " s" : juce::String::formatted("%d:%02d", whole / 60, whole % 60),
-                   r.length, juce::Justification::centredRight, true);
+        Theme::fitText(g, take.seconds < 60.0 ? juce::String(take.seconds, 1) + " s" : juce::String::formatted("%d:%02d", whole / 60, whole % 60),
+                       r.length, m_fonts.body(), juce::Justification::centredRight);
 
         // Show
         {
             const bool over = hover && m_hoverZone == Zone::Show;
             const auto b = r.show.toFloat().reduced(0.0f, 1.0f);
-            g.setColour(over ? TC::panelRaised.brighter(0.1f) : TC::panelRaised);
-            g.fillRoundedRectangle(b, 3.0f);
-            g.setColour(TC::outline);
-            g.drawRoundedRectangle(b.reduced(0.5f), 3.0f, 1.0f);
-            g.setFont(m_fonts.label(10.0f));
-            g.setColour(over ? TC::text : TC::textDim);
-            g.drawText("Show", r.show, juce::Justification::centred, false);
+            g.setColour(over ? TC::hover : TC::raised);
+            g.fillRoundedRectangle(b, Theme::Radius::small + 2.0f);
+            if (over)
+            {
+                g.setColour(TC::stroke);
+                g.drawRoundedRectangle(b.reduced(0.5f), Theme::Radius::small + 2.0f, 1.0f);
+            }
+            g.setColour(TC::text);
+            Theme::fitText(g, "Show", r.show, m_fonts.caption(), juce::Justification::centred);
         }
 
         // Bin
@@ -325,8 +317,7 @@ void TakesView::paint(juce::Graphics& g)
         }
     }
 
-    g.setFont(m_fonts.body(11.5f));
     g.setColour(TC::textFaint);
-    g.drawFittedText(Theme::localiseShortcuts("Click a take to hear it. Drag it out to the Finder / Explorer or into a DAW."),
-                     m_hint, juce::Justification::centred, 1);
+    Theme::fitText(g, Theme::localiseShortcuts("Click a take to hear it. Drag it out to the Finder / Explorer or into a DAW."),
+                   m_hint, m_fonts.body(), juce::Justification::centred, Theme::Fit::Sentence);
 }

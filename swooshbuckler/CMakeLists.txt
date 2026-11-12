@@ -241,6 +241,16 @@ if(SWOOSHBUCKLER_TESTS)
     target_include_directories(SwooshbucklerFirstRun PRIVATE Source ${CMAKE_CURRENT_BINARY_DIR}/Swooshbuckler_artefacts/JuceLibraryCode $<TARGET_PROPERTY:Swooshbuckler,INCLUDE_DIRECTORIES>)
     target_compile_definitions(SwooshbucklerFirstRun PRIVATE $<TARGET_PROPERTY:Swooshbuckler,COMPILE_DEFINITIONS>)
     target_link_libraries(SwooshbucklerFirstRun PRIVATE Swooshbuckler)
+
+    # UI test: the design tokens (contrast, the modulators' colours), the fitted text helper, the one rule for
+    # capitals (every parameter name and choice, every tooltip heading), and the real editor drawn offline at
+    # three window scales and in each of its states, with every text checked: it fits its box, is big enough,
+    # sits on no other text and follows the rule. The checker is tools/UiProbe.h, shared with SwooshbucklerUiShot.
+    juce_add_console_app(SwooshbucklerUi PRODUCT_NAME "SwooshbucklerUi")
+    target_sources(SwooshbucklerUi PRIVATE Tests/UiTest.cpp)
+    target_include_directories(SwooshbucklerUi PRIVATE Source tools ${CMAKE_CURRENT_SOURCE_DIR}/../common ${CMAKE_CURRENT_BINARY_DIR}/Swooshbuckler_artefacts/JuceLibraryCode $<TARGET_PROPERTY:Swooshbuckler,INCLUDE_DIRECTORIES>)
+    target_compile_definitions(SwooshbucklerUi PRIVATE $<TARGET_PROPERTY:Swooshbuckler,COMPILE_DEFINITIONS>)
+    target_link_libraries(SwooshbucklerUi PRIVATE Swooshbuckler)
 endif()
 
 # Artwork tools (off by default): renders Resources/icon.png. See tools/IconRender.cpp.
@@ -260,4 +270,13 @@ if(SWOOSHBUCKLER_TOOLS)
     target_include_directories(SwooshbucklerAudit PRIVATE Source ${CMAKE_CURRENT_BINARY_DIR}/Swooshbuckler_artefacts/JuceLibraryCode $<TARGET_PROPERTY:Swooshbuckler,INCLUDE_DIRECTORIES>)
     target_compile_definitions(SwooshbucklerAudit PRIVATE $<TARGET_PROPERTY:Swooshbuckler,COMPILE_DEFINITIONS>)
     target_link_libraries(SwooshbucklerAudit PRIVATE Swooshbuckler)
+
+    # UI shots: renders the real editor offline to PNG files at any window scale, one picture per panel and per
+    # state, and checks that every text fits its box and is capitalised by the one rule (tools/UiShot.cpp,
+    # tools/UiProbe.h). Exits non-zero when a text does not fit.
+    juce_add_console_app(SwooshbucklerUiShot PRODUCT_NAME "SwooshbucklerUiShot")
+    target_sources(SwooshbucklerUiShot PRIVATE tools/UiShot.cpp)
+    target_include_directories(SwooshbucklerUiShot PRIVATE Source tools ${CMAKE_CURRENT_SOURCE_DIR}/../common ${CMAKE_CURRENT_BINARY_DIR}/Swooshbuckler_artefacts/JuceLibraryCode $<TARGET_PROPERTY:Swooshbuckler,INCLUDE_DIRECTORIES>)
+    target_compile_definitions(SwooshbucklerUiShot PRIVATE $<TARGET_PROPERTY:Swooshbuckler,COMPILE_DEFINITIONS>)
+    target_link_libraries(SwooshbucklerUiShot PRIVATE Swooshbuckler)
 endif()

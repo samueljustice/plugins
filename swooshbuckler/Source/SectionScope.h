@@ -22,10 +22,9 @@ public:
     {
         namespace TC = Theme::Colours;
         const auto r = getLocalBounds().toFloat();
-        g.setColour(TC::scope.withAlpha(0.85f));
-        g.fillRoundedRectangle(r, 4.0f);
-        g.setColour(TC::outline);
-        g.drawRoundedRectangle(r.reduced(0.5f), 4.0f, 1.0f);
+        // A well cut into the title bar: no outline.
+        g.setColour(TC::well.withAlpha(0.9f));
+        g.fillRoundedRectangle(r, Theme::Radius::control);
 
         const auto area = r.reduced(4.0f, 3.0f);
         const float mid = area.getCentreY(), half = area.getHeight() * 0.5f;
@@ -36,7 +35,8 @@ public:
         // Gentle compression so quiet passages still show (and loud ones don't just fill the box).
         auto shape = [](float v) { return std::copysign(std::pow(juce::jlimit(0.0f, 1.0f, std::abs(v)), 0.6f), v); };
         constexpr int n = ScopeRing::c_points;
-        juce::Path p;
+        auto& p = m_path; // kept between frames, so drawing it allocates nothing
+        p.clear();
         for (int k = 0; k < n; ++k)
         {
             const float x = area.getX() + area.getWidth() * static_cast<float>(k) / static_cast<float>(n - 1);
@@ -69,4 +69,5 @@ private:
     juce::Colour m_colour;
     int m_last = -1;
     std::array<float, ScopeRing::c_points> m_lo {}, m_hi {};
+    juce::Path m_path;
 };

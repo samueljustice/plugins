@@ -16,7 +16,7 @@
  *    "Mixed Content"), which also decides its bus. Click the type to change it,
  *    double-click the name to rename. Click the bus tag to send the track to a
  *    bus by hand. The star makes a track the Master (one at a time); a
- *    right-click on a lane opens its menu (Master Track, Match Pitch To Master,
+ *    right-click on a lane opens its menu (Master Track, Match Pitch to Master,
  *    the bus).
  *  - The waveform shows the sound regions that will be played and dims the
  *    silence that will be skipped. Drag the clip's edge handles to trim; drag

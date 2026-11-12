@@ -216,6 +216,7 @@ jobs:
           -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0 \
           -DSWOOSHBUCKLER_VERSION="$VERSION" \
           -DSAMMYJ_AAX=ON -DAAX_SDK_PATH="${{ steps.aax.outputs.path }}" \
+          -DSWOOSHBUCKLER_TOOLS=ON \
           -DBUILD_TIMESTAMP="$(date -u "+%Y-%m-%d %H:%M UTC")" \
           -DBUILD_COMMIT="$(git rev-parse --short HEAD)"
 
@@ -243,11 +244,28 @@ jobs:
     - name: Run tests
       run: |
         cd swooshbuckler
-        for t in SwooshbucklerRig SwooshbucklerCargo SwooshbucklerClassify SwooshbucklerPitch SwooshbucklerMorph SwooshbucklerMaster SwooshbucklerSession SwooshbucklerRender SwooshbucklerKeep SwooshbucklerRouting SwooshbucklerFirstRun; do
+        for t in SwooshbucklerRig SwooshbucklerCargo SwooshbucklerClassify SwooshbucklerPitch SwooshbucklerMorph SwooshbucklerMaster SwooshbucklerSession SwooshbucklerRender SwooshbucklerKeep SwooshbucklerRouting SwooshbucklerFirstRun SwooshbucklerUi; do
           exe=$(find build -name "$t" -type f -perm +111 | head -1)
           echo "== $t"
           "$exe"
         done
+
+    # Draws the real editor offline in every state and checks each text it draws: it fits its box, is big enough,
+    # sits on no other text and is capitalised by the rule. Fails the build when one does not (tools/UiShot.cpp).
+    # The pictures are kept as an artifact, to look at.
+    - name: Check the interface's text and draw it
+      run: |
+        cd swooshbuckler
+        exe=$(find build -name SwooshbucklerUiShot -type f -perm +111 | head -1)
+        "$exe" --out build/ui-shots --scale 1.0
+
+    - name: Upload the interface pictures
+      if: always()
+      uses: actions/upload-artifact@v6
+      with:
+        name: Swooshbuckler-ui-shots
+        path: swooshbuckler/build/ui-shots
+        if-no-files-found: ignore
 
     - name: Check for certificates
       id: check_certs

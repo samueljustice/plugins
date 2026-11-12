@@ -116,7 +116,7 @@ public:
     void setTrackBus(int track, int busOrMinusOne);
     /** Ropes one side of the morph (0 = A, 1 = B) to a track, or back to its whole bus (-1). */
     void setMorphSource(int side, int trackOrMinusOne);
-    /** Match Pitch To Master: sets the track's Semitones and Cents so the pitch its sound sits at is the Master's
+    /** Match Pitch to Master: sets the track's Semitones and Cents so the pitch its sound sits at is the Master's
         (as the Master is tuned), in the nearest octave the two-octave range reaches. One undo step. Returns a
         line for the status bar; `done` says whether anything was set. */
     juce::String matchPitchToMaster(int track, bool* done = nullptr);
@@ -219,7 +219,7 @@ public:
     juce::File getLastRecording() const { return m_recorder.getLastFile(); }
     juce::File getCurrentRecording() const { return m_recorder.getCurrentFile(); }
     bool saveRetro(juce::File& written, juce::String& error);
-    /** How many files the tape has kept since it was last armed (One File Per Whoosh makes many). Message thread. */
+    /** How many files the tape has kept since it was last armed (One File per Whoosh makes many). Message thread. */
     int getFilesThisTake() const { return m_filesThisTake; }
     /** A file the tape could not open while rolling: the message, once (empty = none). */
     juce::String takeRecordingError() { return m_recorder.takeWriteError(); }
@@ -230,7 +230,7 @@ public:
     {
         int id = 0;
         juce::File file;
-        juce::String kind;      // "Tape", "Whoosh", "Last 60s", ...
+        juce::String kind;      // "Tape", "Whoosh", "Last 60 s", ...
         double seconds = 0.0;
         int markers = 0;
         bool starred = false;   // kept: it stays in the list when newer takes push the others out
@@ -278,7 +278,7 @@ public:
     /** Skip Silence (on unless switched off): the tape leaves the quiet stretches out. Off: one continuous take. */
     bool getSkipSilence() const;
     void setSkipSilence(bool on);
-    /** One File Per Whoosh (off unless switched on): the armed tape closes its file when a whoosh has ended and
+    /** One File per Whoosh (off unless switched on): the armed tape closes its file when a whoosh has ended and
         opens the next for the next one. An open take is closed and armed again when this changes. */
     bool getOneFilePerWhoosh() const;
     void setOneFilePerWhoosh(bool on);

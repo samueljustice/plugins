@@ -433,7 +433,7 @@ namespace
 //==============================================================================
 /**
  * The open take, on the writer thread: gets the take's stream from the ThreadedWriter, opens and closes its files
- * (one for the whole take, or with One File Per Whoosh one per stretch of sound, opened when its first sound
+ * (one for the whole take, or with One File per Whoosh one per stretch of sound, opened when its first sound
  * arrives), and collects the markers of each. The audio thread's commands say where in the stream a marker is or
  * a file ends.
  */
@@ -779,7 +779,7 @@ void TapeRecorder::addMarker(int samplesFromNow, int kind)
 
 void TapeRecorder::closeWhoosh()
 {
-    // One File Per Whoosh: the file ends here, and is kept if there was enough sound in it.
+    // One File per Whoosh: the file ends here, and is kept if there was enough sound in it.
     if (m_perWhoosh.load() && m_activeWriter != nullptr)
         pushCommand({ m_streamPos, Command::Split,
                       static_cast<double>(m_whooshLoud.load()) >= c_minWhooshSeconds * m_recordRate.load() ? 1 : 0 });
@@ -1108,7 +1108,7 @@ bool TapeRecorder::start(const juce::File& folder, const Options& options, juce:
         m_currentFile = juce::File();
         m_lastFile = juce::File(); // until this take has kept a file
     }
-    // One take, one file: opened now, so a folder that can't be written says so at once. One File Per Whoosh
+    // One take, one file: opened now, so a folder that can't be written says so at once. One File per Whoosh
     // opens each file when its first sound arrives.
     auto writer = std::make_unique<Sink>(*this, folder, options, m_sampleRate, m_numChannels);
     if (! options.perWhoosh && ! writer->open(error))

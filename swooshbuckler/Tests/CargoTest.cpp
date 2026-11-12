@@ -1257,7 +1257,7 @@ int main(int argc, char* argv[])
             }
         }
 
-        // One File Per Whoosh: the four whooshes over a bed become four numbered files; a blip is not kept.
+        // One File per Whoosh: the four whooshes over a bed become four numbered files; a blip is not kept.
         {
             auto whooshes = folder.getChildFile("whooshes");
             whooshes.deleteRecursively();
@@ -1315,7 +1315,7 @@ int main(int argc, char* argv[])
             check(t.getDroppedSamples() == 0, "one file per whoosh: no audio dropped");
         }
 
-        // One File Per Whoosh: a marker in the very last block of a whoosh (the end of its fade out) is in its file.
+        // One File per Whoosh: a marker in the very last block of a whoosh (the end of its fade out) is in its file.
         {
             auto edge = folder.getChildFile("whoosh-edge");
             edge.deleteRecursively();
@@ -1347,7 +1347,7 @@ int main(int argc, char* argv[])
                       + juce::String(done.empty() ? 0.0 : done[0].seconds, 3) + " s, marker due at " + juce::String(expected, 3) + " s)");
         }
 
-        // One File Per Whoosh: a take opened while the last one was still sounding, with the rig coming to rest
+        // One File per Whoosh: a take opened while the last one was still sounding, with the rig coming to rest
         // before any of it is fed, starts clean: the last take's whoosh is not "closed" in the new one.
         {
             auto again = folder.getChildFile("whoosh-rearm");

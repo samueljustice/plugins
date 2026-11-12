@@ -5,7 +5,7 @@
 //   - Master: one track at a time; the Master follower reads the Master's loudness where it is playing; the Master
 //     Pitch and Master Brightness inputs move with the sound; a Follower set to Master takes the value as it is.
 //   - Follow Master: the other tracks' rides swell with the Master's loudness and the Master plays unridden.
-//   - Match Pitch To Master: lands within a few cents on tones, counts the Master's own tuning, leaves a sound
+//   - Match Pitch to Master: lands within a few cents on tones, counts the Master's own tuning, leaves a sound
 //     with no pitch alone, and is one undo step.
 //   - Bus: a track sent to a bus by hand plays there (and only there), keeps its type and name, and the choice
 //     survives undo, save and restore.
@@ -503,7 +503,7 @@ int main(int argc, char* argv[])
     }
 
     //==========================================================================
-    std::cout << "Match Pitch To Master" << std::endl;
+    std::cout << "Match Pitch to Master" << std::endl;
     {
         Plug plug;
         auto& cargo = plug.proc.getCargo();
