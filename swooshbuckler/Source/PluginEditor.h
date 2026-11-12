@@ -222,6 +222,13 @@ private:
     int m_morphSyncTick = 0;
     SwellButton m_swell;
     juce::TextButton m_rideButton { "AUTO RIDE" };
+    // Perform: Throw (one whoosh on demand), what MIDI keys do, and (in a host) Follow Host by the Play button.
+    juce::TextButton m_throwButton { "Throw" }, m_followHost { "Follow Host" };
+    juce::ComboBox m_keysMode;
+    std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> m_keysModeAttachment;
+    juce::Rectangle<int> m_keysLabel, m_rideStatusArea;
+    juce::String m_rideStatus; // the Ride panel's subtitle line: the time to a throw's peak, the held keys, or what the panel does
+    juce::String rideStatus() const;
 
     std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> m_rideAttachment;
     bool m_spaceHeld = false;

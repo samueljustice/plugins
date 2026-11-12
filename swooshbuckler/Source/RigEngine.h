@@ -32,6 +32,9 @@
  *   hits:         a gate on A + B opens only at the loudest moments (a boost with hold
  *                 and release, not on/off); the gated hits then duck A and B.
  *                 The detector listens before the ducking, so there is no feedback loop.
+ *   throw:        on demand: one more pass, the same on both buses, shaped like a Fly-By (approach, peak, tail).
+ *                 It plays the tracks at their fader levels (not ridden) through its own delay line, so it is
+ *                 the same whoosh whether the rig is playing or stopped, and AIM lands the hits on its peak.
  *   morph:        optional: what feeds bus A and bus B goes through a Zynaptiq-style spectral morph
  *                 (SpectralMorph); the result is handed back to the two buses in proportion to X.
  *   -> ride make-up (the mix is eased down as the ride gets shallower, so Auto Ride off or a held Swell reaches
@@ -46,7 +49,9 @@ class RigEngine
 public:
     static constexpr int c_tracks = CargoHold::c_numTracks;
     static constexpr int c_maxBuses = CargoHold::c_maxBuses;
-    static constexpr int c_maxFlights = c_maxBuses * 2; // two doppler passes per bus, shown by the visualiser
+    static constexpr int c_throws = 4;                  // thrown whooshes that can be in flight at once
+    static constexpr int c_maxFlights = c_maxBuses * 2 + c_throws; // two doppler passes per bus, then the throws (the visualiser's comets)
+    static constexpr int c_maxKeys = 16;                // held MIDI keys that set pitches
 
     struct BusParams
     {
@@ -67,6 +72,11 @@ public:
         float fill = 0.3f;     // long delays into the gaps
         float chaos = 0.4f;    // randomness of the rides and the passes
         float pitch = 0.0f;    // semitones, every track
+        // Held keys (semitones from middle C, lowest first): each is added to a track's own pitch. One key: every
+        // track. Several: spread over the loaded tracks in order (the first takes the lowest), wrapping round.
+        std::array<float, c_maxKeys> keys {};
+        int numKeys = 0;
+        float throwSeconds = 0.0f; // Throw Length (see ::Params::throwSeconds; under the minimum = follows Rate)
         // Modulator offsets for the knobs that glide on springs, in the knob's own units. They are added after the
         // spring, so a fast modulator isn't smoothed away by the glide meant for turning the knob.
         float energyMod = 0.0f, pitchMod = 0.0f, fillMod = 0.0f, spaceMod = 0.0f;
@@ -128,6 +138,19 @@ public:
     /** Stop pressed: the sources fade out over 60 ms and stay silent while the Fill echoes, the passes in flight
         and Space ring out. Play lets them back in. Audio thread (the processor sets it before each process()). */
     void setReleased(bool released) { m_released = released; }
+    /** The transport started: fade the output out (5 ms, whether anything sounds or not, so the timing is always
+        the same), then start everything again from the same seed and from empty delays and reverb, so the same
+        settings give the same ride every time. Throws asked for meanwhile start with the new run. Audio thread. */
+    void restartSeeded() { m_reseedPending = true; }
+    /** A seeded restart has been asked for and the old sound is still fading out. Audio thread. */
+    bool isRestarting() const { return m_reseedPending; }
+    /** Throw one whoosh: a single pass, the same on both buses, that starts delaySamples from the start of the
+        next process() call and peaks half a Throw Length later. velocity 0..1 sets how close and how loud it is;
+        below 0 the pass is as close as the bus would draw it (Doppler and Chaos). With every throw voice in
+        flight it is dropped. Audio thread, before process(). */
+    void throwWhoosh(int delaySamples, float velocity);
+    /** A throw is waiting, in flight, or its sources are still open. Audio thread. */
+    bool isThrowing() const;
     void process(const float* inL, const float* inR, float* outL, float* outR, int numSamples);
     float getLatencySamples() const;
 
@@ -136,6 +159,12 @@ public:
     float getEnergy() const { return m_energyView.load(std::memory_order_relaxed); }
     float getRide(int track) const { return m_rideView[static_cast<size_t>(track)].load(std::memory_order_relaxed); }
     float getHitGate() const { return m_gateView.load(std::memory_order_relaxed); }
+    /** Seconds until the last throw's peak is heard (counts down), or < 0 when none is on its way in. */
+    float getThrowPeakIn() const { return m_throwPeakView.load(std::memory_order_relaxed); }
+    /** Goes up by one with every throw that starts. */
+    int getThrowCount() const { return m_throwCountView.load(std::memory_order_relaxed); }
+    /** Each track's pitch from the held keys right now, in semitones (0 with none held). */
+    float getKeyPitch(int track) const { return m_keyPitchView[static_cast<size_t>(track)].load(std::memory_order_relaxed); }
     /** Hit sync, for the track view: which region (CargoPlayer::regionAt index) each synced hit track fired last
         (-1 = none / not synced), and a counter that goes up on every shared beat. */
     /** Published when the beat's transients are heard (not when it is cued, up to 1 s earlier). */
@@ -194,6 +223,10 @@ private:
     {
         sj::DelayLine line;
         std::array<Head, 2> heads;
+        // Throws: the tracks at their fader levels, and one pass per throw voice reading them.
+        sj::DelayLine throwLine;
+        std::array<Head, c_throws> throwHeads;
+        std::array<float, c_chunk> throwIn {};
         // low end
         sj::Svf lowA, lowB, lowHp, subA, subB, harm, shelfL, shelfR;
         sj::Follower lowFollower;
@@ -237,6 +270,8 @@ private:
     void startPass(Head& h, const BusParams& p, float lenIn = -1.0f);
     /** A pass's length before Chaos varies it: follows Rate (6 s .. 1.6 s). */
     float nominalPassSeconds() const;
+    void startThrows(int frames);
+    void reseedNow();
     void renderTracks(int frames);
     /** How strongly a bus keys the other one: its level against its own recent peak, faded out below -40 dBFS so a
         quiet bus with an old peak can't duck the other. */
@@ -271,6 +306,30 @@ private:
     std::array<sj::Drift, c_tracks> m_rideDrift;
     std::array<float, c_tracks> m_gain {};          // gain applied at the end of the previous chunk
     bool m_released = false;                        // see setReleased
+    bool m_reseedPending = false;                   // see restartSeeded
+    float m_outFade = 1.0f;                         // the output's gain around a seeded restart
+    // Throws. A voice is one thrown pass (its heads are in the buses); the queue holds throws that start later in
+    // the block. The tracks feed the throw lines through their own gain (m_throwGain), open while a voice needs it.
+    struct ThrowVoice
+    {
+        bool active = false, aimed = false;
+        float level = 1.0f;   // from the velocity
+        double gate = 0.0;    // seconds the sources stay open for it
+    };
+    struct QueuedThrow
+    {
+        bool pending = false;
+        int delay = 0;
+        float velocity = -1.0f;
+    };
+    std::array<ThrowVoice, c_throws> m_throws;
+    std::array<QueuedThrow, c_throws> m_throwQueue;
+    std::array<float, c_tracks> m_throwGain {};     // each track's gain into the throw lines at the end of the last chunk
+    float m_throwOpen = 0.0f;                       // 0..1: the throw's sources are open
+    float m_throwDoppler = 0.5f, m_throwWidthLaw = 0.7f; // bus A's Doppler and Width this chunk: a throw is one pass on both buses
+    std::atomic<float> m_throwPeakView { -1.0f };
+    std::atomic<int> m_throwCountView { 0 };
+    std::array<std::atomic<float>, c_tracks> m_keyPitchView {};
     bool m_restartPending = false;                  // restart() asked: done once the sources are silent
     void restartNow();
     float m_releaseGain = 1.0f;                     // 1 = the sources play, 0 = released

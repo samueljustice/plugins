@@ -21,6 +21,7 @@ Swooshbuckler is a standalone app for macOS and Windows, and also a VST3 plug-in
   - [Modulation](#modulation)
   - [Settings and recording](#settings-and-recording)
   - [About](#about)
+- [In a DAW](#in-a-daw)
 - [Presets and RANDOMISE](#presets-and-randomise)
 - [Keyboard, mouse and MIDI](#keyboard-mouse-and-midi)
 - [Tips](#tips)
@@ -58,7 +59,7 @@ What's changed in each version is in the [changelog](CHANGELOG.md).
 4. **Arm the tape** (ARM). It records whenever there's sound and skips the quiet stretches. Click again to stop and close the file.
 5. Missed a good one? **LAST 60s** saves the last minute, even if the tape wasn't armed.
 
-Hold **SWELL**, the space bar or any MIDI note to push every fader up at once.
+Hold **SWELL**, the space bar or any MIDI note to push every fader up at once. Press **Throw** (or the F key) for one whoosh on demand, with the rig playing or stopped.
 
 Every control has a tooltip: hover over it to see what it does and how to use it.
 
@@ -92,7 +93,8 @@ From left to right:
 | Control | What it does |
 |---|---|
 | **Swooshbuckler** title | Click it, or the version number beside the website link under it, to open [About](#about). |
-| **PLAY / STOP** | Starts and stops the whole rig. It turns green and reads STOP while running. PLAY starts every track from its start flag and the ride from the top. PLAY fades in over about 60 ms. STOP lets go of the sounds and lets the Fill echoes, the passes in flight and Space ring out, in your speakers and on the tape, until they have died away (6 seconds at most, then a short fade), so a take ends with its tail and not a cut. Press PLAY during the tail to start again at once (even straight after STOP: sounds that are still letting go fade out in a few milliseconds first, so the restart doesn't click). Swooshbuckler always opens stopped. |
+| **PLAY / STOP** | Starts and stops the whole rig. It turns green and reads STOP while running. PLAY starts every track from its start flag and the ride from the top. PLAY fades in over about 60 ms. STOP lets go of the sounds and lets the Fill echoes, the passes in flight and Space ring out, in your speakers and on the tape, until they have died away (6 seconds at most, then a short fade), so a take ends with its tail and not a cut. Press PLAY during the tail to start again at once (even straight after STOP: sounds that are still letting go fade out in a few milliseconds first, so the restart doesn't click). The app always opens stopped. In a DAW, Play is a parameter you can automate, and it is saved with the project, so a project saved while playing plays when it is opened. |
+| **Follow Host** (plug-in only) | On (the default): the rig plays while your DAW's transport plays and stops when it stops, letting the tail ring out. Every transport start begins the ride again from the same place, with the modulators and the morph's Wander starting over too, so the same settings bounce the same way every time. PLAY still starts and stops the rig by hand in between. Off: only PLAY, or its automation, starts and stops the rig. Saved with the project. See [In a DAW](#in-a-daw). |
 | **NEW** | A new session. It stops the rig and the tape, empties all ten tracks, turns off every mute and solo, puts every control back to its default, and removes every modulation wire. |
 | **<** and **>** | Step through the factory presets, wrapping round at either end. |
 | Preset name | Shows the current preset (or "Randomised"). Click it for the list, with **Back to Defaults** at the bottom. See [Presets and RANDOMISE](#presets-and-randomise). |
@@ -169,13 +171,16 @@ This is where the whooshes come from. With AUTO RIDE on, each track's fader rise
 
 | Control | Range (default) | What it does |
 |---|---|---|
-| **Swell** | button | Hold it to push every track's fader up to its full level, over the ride. Let go and the ride takes over again. It glides rather than jumps. It is a push: held for longer than a couple of seconds, the mix eases back to its usual level with every fader still up (see the note under the table). The space bar and any MIDI note do the same. |
+| **Swell** | button | Hold it to push every track's fader up to its full level, over the ride. Let go and the ride takes over again. It glides rather than jumps. It is a push: held for longer than a couple of seconds, the mix eases back to its usual level with every fader still up (see the note under the table). The space bar does the same, and so does any MIDI note while Keys is set to Swell. |
+| **Throw** | button | Throws one whoosh now. See [Throw](#throw) below. The F key does the same. |
 | **AUTO RIDE** | on / off (on) | The faders move by themselves. Off: the movement glides to a stop and each fader stays where you set it. The doppler passes then do the moving: Low End, Swirl and Filter follow how close each pass is. |
 | **Energy** | 0–100% (35%) | How deep the ride dips the faders between swells, evenly in dB: 4 dB more for every 10%, to −36 dB at 90% and silence at 100%. Dimmed with AUTO RIDE off, when it does nothing. |
 | **Rate** | 25 s to 1.9 s (6.4 s) | How fast the faders move: the readout is the time of one rise and fall. It also sets how long each doppler pass lasts, from about 6 s down to about 1.6 s. |
 | **Fill** | 0–100% (15%) | Long, softened echoes at about 0.5, 1 and 2 s (each track has its own times, so layered tracks don't echo in step), after each track's fader, so they hang on into the dips of the ride and the gaps of gappy sounds. |
 | **Chaos** | 0–100% (40%) | How unpredictable it all is. At 0% the rides and passes repeat in a steady pattern and every track plays its sounds in order from its start. Higher: each swell gets its own size and speed, every pass its own length, speed, closeness and direction, and tracks more often jump to a random sound, sometimes starting partway in. |
 | **Pitch** | ±24 semitones (0) | Finer near the middle. Plays every track higher or lower, like changing tape speed: lower is also slower and heavier. It glides to a new setting and isn't locked to whole semitones. |
+| **Throw Length** | Rate, or 0.3–6 s (Rate) | How long a thrown whoosh lasts. Its peak is halfway through. Fully left it reads **Rate**: a throw is as long as the ride's own passes, which Rate sets (6 s down to 1.6 s). |
+| **Keys** | Swell / Pitch / Throw (Swell) | What MIDI notes do. See [Keys](#keys) below. |
 
 Pitch moves every track at once. To pitch one track on its own, with or without changing its speed, use that track's Semitones, Cents and VARI controls in [Tracks](#tracks).
 
@@ -184,6 +189,28 @@ Swell only lifts the faders up to the ride's ceiling, so with AUTO RIDE off (or 
 **The level stays put when the ride changes.** With every fader up all the time (AUTO RIDE off, Energy below its default, or Swell held) the tracks add up to more than they do while the ride dips them. Swooshbuckler eases the mix down to match, by up to about 5 dB with the faders fully still, so the rig reaches Inflate and the limiter about as loud as with the default ride, and switching AUTO RIDE on and off compares the movement, not the loudness. It follows Energy and AUTO RIDE as they glide, and a held Swell over about 2.5 seconds, so a short Swell is still a push. From the default Energy (35%) up, nothing is changed.
 
 How far each knob goes, and why, is measured in the [knob audit](docs/knob-audit.md).
+
+#### Throw
+
+**Throw** fires exactly one whoosh: a single doppler pass, the same on both buses, with a long approach, the peak as it goes by and a shorter tail (the shape of a [Fly-By](#bus-a-and-bus-b) pass). It plays your tracks at their fader levels, through each bus's own Low End, Swirl, Filter and Drive, and with **AIM** on the hit tracks land on its peak.
+
+- **While the rig plays**, the throw goes on top of the ride.
+- **With the rig stopped**, you hear just that one whoosh, its tail rings out, and it is silent again. So you can make single whooshes one at a time without the endless ride: arm the tape, press Throw, and each whoosh is recorded with the quiet between them skipped.
+- **The peak is heard half a Throw Length after you throw.** While a throw is on its way in, the top of the Ride panel counts down to it ("Peak in 1.2 s"), so you can place it against picture. In the sea a thrown whoosh is drawn as a comet in its own colour.
+- Up to four throws can be in flight at once. More than that are dropped until one has finished.
+- Throw from the button, the **F** key, or a MIDI note with Keys set to Throw.
+
+#### Keys
+
+The **Keys** menu at the top right of the Ride panel sets what MIDI notes do. The notes you are holding are shown at the top of the panel ("C3 E3 G3"). In the app, every connected MIDI keyboard is listened to; in a DAW, send notes to the plug-in.
+
+| Keys | What notes do |
+|---|---|
+| **Swell** | Any held note holds Swell. |
+| **Pitch** | The held notes set the pitch. Each note counts as its distance from middle C (MIDI note 60) in semitones, added to the Pitch knob and each track's own Semitones. One note moves every track. Hold several and they are dealt out over your loaded tracks in order: the first track takes the lowest note, the next track the next note, going round again when there are more tracks than notes. So a chord gives each layer its own pitch. Let go of every note and the pitch glides back to the knob. |
+| **Throw** | Every note throws one whoosh at that note's pitch. How hard you play sets how close and how loud it passes. Notes played together (within 30 ms) make one whoosh, with their pitches dealt out over the tracks as in Pitch. The pitch stays where the last notes put it until you play again. |
+
+Notes glide from one pitch to the next, so playing never clicks. Each track follows its own VARI switch (on: pitch and speed move together; off: the pitch moves and the speed stays), and the total never goes past two octaves either way. In Swell and Pitch, notes act while the rig is playing; in Throw, a note wakes a stopped rig for its one whoosh.
 
 ### Bus A and Bus B
 
@@ -306,9 +333,10 @@ The morph blends bus A into bus B spectrally, so the two sounds trade tone and p
     - **Lorenz** (the default): a chaotic loop that swaps between two wings and never repeats.
     - **Cherries**: the outline of the logo in the sky, a grenade with a pair of cherries.
     - **Figure Eight**, **Rose** and **Circle**: these turn slowly, one degree per lap, so they never repeat exactly.
+    - **Butterfly**: the butterfly curve, two pairs of wings drawn in one closed line. It turns slowly like the others.
 - The **Bus A** and **Bus B** labels under the pad show the two sources. The morph always runs between the two buses.
 
-The wandering dot is sent to your host as Morph X / Morph Y changes, so the dot only wanders while the Swooshbuckler window is open, and a host recording automation will record it.
+The wander runs inside the rig, not in the window: the dot keeps flying with the Swooshbuckler window closed, and it is part of an offline bounce. It leaves the Morph X and Morph Y controls alone (so it writes no automation); when you stop it, the dot stays where the wander left it.
 
 ### Modulation
 
@@ -375,13 +403,21 @@ Click **SETTINGS** to open. Close it with CLOSE, Esc, or a click outside the pan
 
 #### Your session in the app
 
-The app reopens with the sounds, settings and wires you had when you quit. While it runs it also keeps a safety copy: about once a minute when you have changed something (a knob, a wire or how deep it reaches, a track), and a few seconds after a track is loaded, edited or removed. Movement the app makes by itself, such as the morph dot while Wander is on, doesn't count, so a session that is only playing isn't saved over and over. The copy is written in the background, so the interface never waits for it (with about 20 MB of audio in the session a save takes around a fifth of a second). If the app doesn't get to quit properly (a crash, a power cut), the next launch opens that copy, so you lose a minute at most. In a DAW, the project keeps the plug-in's state as usual.
+The app reopens with the sounds, settings and wires you had when you quit. While it runs it also keeps a safety copy: about once a minute when you have changed something (a knob, a wire or how deep it reaches, a track), and a few seconds after a track is loaded, edited or removed. Movement the rig makes by itself, such as the morph dot while Wander is on, doesn't count, so a session that is only playing isn't saved over and over. The copy is written in the background, so the interface never waits for it (with about 20 MB of audio in the session a save takes around a fifth of a second). If the app doesn't get to quit properly (a crash, a power cut), the next launch opens that copy, so you lose a minute at most. In a DAW, the project keeps the plug-in's state as usual.
 
 ### About
 
 ![About](docs/images/about.png)
 
 Click the **Swooshbuckler** title or the version number to open it. It shows the version, which format you're running (app, VST3 or AU), the build date and commit, and the credits. **COPY VERSION** copies the version, build date and commit, plus your operating system, for a bug report. **WEBSITE** opens sweetjusticesound.com.
+
+## In a DAW
+
+- **Follow Host** (in the header, on by default) starts and stops the rig with the transport. Every start begins the ride from the same place, so a bounce of the same project is the same every time, including the modulators and the morph's Wander.
+- **The tail is bounced too.** Swooshbuckler tells the host its tail can last up to 6.5 seconds, so a bounce or a freeze that respects plug-in tails keeps the ring-out after the transport stops.
+- **Play is a parameter.** Automate it to start and stop the rig at exact places, with Follow Host on or off.
+- **MIDI**: route a MIDI track to the plug-in and pick what notes do with [Keys](#keys). With Keys on Throw, a note throws a whoosh whose peak lands half a Throw Length later, so you can place whooshes on the timeline note by note.
+- Follow Host, the play state, Keys and Throw Length are saved with the project.
 
 ## Presets and RANDOMISE
 
@@ -397,6 +433,7 @@ Presets and RANDOMISE set the sound, not your session. They leave these alone:
 - Inflate, Push, Ceiling, TRIM and the Peak Tremolo
 - AUTO RIDE, AIM, SYNC HITS, the GATE and DUCK modes, TAKE TURNS and LINK
 - the morph's ON switch, wander, shape and speed
+- PLAY, the Keys menu and Throw Length
 - the modulators and their wires
 
 Anything else a preset doesn't set goes back to its default. **Back to Defaults** at the bottom of the preset list puts every one of those controls back to its default, and leaves the same things alone. It's much gentler than NEW, which also empties the tracks, resets everything else and pulls out the wires.
@@ -406,7 +443,8 @@ Anything else a preset doesn't set goes back to its default. **Back to Defaults*
 | Input | What it does |
 |---|---|
 | Space bar (hold) | Swell. With a track lane selected, it gives a short swell instead: click outside Tracks for a held one. |
-| Any MIDI note (hold) | Swell, for as long as any note is held. Notes only work while the rig is playing. |
+| F | Throw: one whoosh now, playing or stopped. See [Throw](#throw). |
+| MIDI notes | What the **Keys** menu in the Ride panel says: hold Swell (the default), set the pitch of the tracks, or throw one whoosh per note. See [Keys](#keys). |
 | Click the sea | A short swell. |
 | Cmd+Z / Shift+Cmd+Z (Ctrl+Z / Ctrl+Shift+Z on Windows) | Undo and redo the last load or removal in Tracks, newest first. Click the Tracks panel first. |
 | Esc | Closes Settings or About. |

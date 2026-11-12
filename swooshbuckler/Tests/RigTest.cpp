@@ -1659,6 +1659,247 @@ int main(int argc, char* argv[])
         }
     }
 
+    // Throw: one whoosh on demand. From silence (the rig stopped) a throw makes one swell whose peak is heard half a
+    // Throw Length after it was thrown, then it is silent again; AIM lands the hits on that peak.
+    {
+        auto steadyTone = [](double hz)
+        {
+            // Whole cycles, so the loop is seamless: a steady level to measure a swell on.
+            juce::AudioBuffer<float> b(1, static_cast<int>(c_rate * 2.0));
+            for (int i = 0; i < b.getNumSamples(); ++i)
+                b.setSample(0, i, 0.5f * static_cast<float>(std::sin(juce::MathConstants<double>::twoPi * hz * i / c_rate)));
+            return b;
+        };
+        CargoHold tones, tonesAndHits;
+        for (auto* h : { &tones, &tonesAndHits })
+        {
+            h->loadFile(0, writeWav(folder, "rig_src_tone1000", steadyTone(1000.0)), error);
+            h->loadFile(1, writeWav(folder, "rig_src_tone1500", steadyTone(1500.0)), error);
+            h->setRoleOverride(0, static_cast<int>(CargoRole::Tonal));
+            h->setRoleOverride(1, static_cast<int>(CargoRole::Bed));
+            h->setSkipSilence(0, false);
+            h->setSkipSilence(1, false);
+        }
+        tonesAndHits.loadFile(2, writeWav(folder, "rig_src_hits", hits()), error);
+        tonesAndHits.setRoleOverride(2, static_cast<int>(CargoRole::Impact));
+
+        // Thrown after 6 s of rest (an engine that starts stopped lets its sources go over its first 60 ms, and the
+        // passes carry that for a few seconds), 1000 samples into a block.
+        constexpr int throwAt = static_cast<int>(6.0 * c_rate) + 1000;
+        auto throwRun = [&](CargoHold& from, float length, float velocity, bool playing, int& throwsSeen, bool& stillThrowing)
+        {
+            RigEngine e;
+            e.setCargoHold(&from);
+            RigEngine::Params q;
+            q.space = 0.0f;
+            q.fill = 0.0f;
+            q.hitDuck = 0.0f;
+            q.throwSeconds = length;
+            for (auto& b : q.buses)
+                b.low = b.swirl = b.filter = b.drive = b.duck = b.key = 0.0f; // the swell alone
+            e.setParams(q);
+            e.prepare(c_rate, c_block);
+            e.setParams(q);
+            e.setReleased(! playing);
+            juce::AudioBuffer<float> o(2, static_cast<int>(11.0 * c_rate));
+            for (int pos = 0; pos < o.getNumSamples(); pos += c_block)
+            {
+                if (throwAt >= pos && throwAt < pos + c_block)
+                    e.throwWhoosh(throwAt - pos, velocity);
+                e.process(nullptr, nullptr, o.getWritePointer(0, pos), o.getWritePointer(1, pos), juce::jmin(c_block, o.getNumSamples() - pos));
+            }
+            throwsSeen = e.getThrowCount();
+            stillThrowing = e.isThrowing();
+            return o;
+        };
+        // The level over 20 ms around a sample (both channels).
+        auto levelAt = [](const juce::AudioBuffer<float>& o, int centre)
+        {
+            const int w = static_cast<int>(0.02 * c_rate), start = juce::jlimit(0, o.getNumSamples() - w, centre - w / 2);
+            return std::sqrt(0.5f * (o.getRMSLevel(0, start, w) * o.getRMSLevel(0, start, w) + o.getRMSLevel(1, start, w) * o.getRMSLevel(1, start, w)));
+        };
+        for (const float length : { 2.0f, 0.6f })
+        {
+            int count = 0;
+            bool still = true;
+            const auto o = throwRun(tones, length, 0.8f, false, count, still);
+            const int expected = throwAt + static_cast<int>(0.5 * length * c_rate);
+            int peakAt = 0;
+            float top = 0.0f;
+            for (int i = 0; i < o.getNumSamples(); i += 24)
+                if (const float l = levelAt(o, i); l > top) { top = l; peakAt = i; }
+            const float before = o.getMagnitude(throwAt - static_cast<int>(c_rate), static_cast<int>(c_rate)), after = o.getMagnitude(static_cast<int>(throwAt + (length + 0.5) * c_rate), static_cast<int>(1.0 * c_rate));
+            const double offMs = 1000.0 * (peakAt - expected) / c_rate;
+            std::cout << "  throw " << length << " s from rest: peak " << juce::Decibels::gainToDecibels(top) << " dB, " << offMs
+                      << " ms from the predicted time; before " << juce::Decibels::gainToDecibels(before, -200.0f) << " dB, after "
+                      << juce::Decibels::gainToDecibels(after, -200.0f) << " dB" << std::endl;
+            check(count == 1 && top > 0.05f, "throw: one whoosh is heard from rest");
+            check(std::abs(offMs) <= 5.0, "throw: the peak lands half a Throw Length after the throw (within 5 ms)");
+            check(before < 1.0e-6f, "throw: silent until it is thrown");
+            check(after < 1.0e-4f && ! still, "throw: back to silence after its tail");
+            // One swell: up to the peak and down again, nothing else.
+            bool oneSwell = true;
+            const int step = static_cast<int>(0.05 * c_rate);
+            for (int i = throwAt + step; i < peakAt - step; i += step)
+                oneSwell = oneSwell && levelAt(o, i) >= 0.7f * levelAt(o, i - step);
+            for (int i = peakAt + 2 * step; i < o.getNumSamples() - step; i += step)
+                oneSwell = oneSwell && levelAt(o, i) <= 1.4f * levelAt(o, i - step) + 1.0e-5f;
+            check(oneSwell, "throw: a single swell (approach, peak, tail)");
+        }
+        {
+            // Velocity: a soft throw is quieter than a hard one. With the rig playing, a throw goes on top.
+            int count = 0;
+            bool still = false;
+            const auto hard = throwRun(tones, 2.0f, 1.0f, false, count, still), soft = throwRun(tones, 2.0f, 0.1f, false, count, still);
+            const int at = throwAt + static_cast<int>(c_rate), span = static_cast<int>(0.2 * c_rate);
+            const float diff = juce::Decibels::gainToDecibels(soft.getRMSLevel(0, at - span / 2, span) + soft.getRMSLevel(1, at - span / 2, span))
+                             - juce::Decibels::gainToDecibels(hard.getRMSLevel(0, at - span / 2, span) + hard.getRMSLevel(1, at - span / 2, span));
+            std::cout << "  throw velocity: 10% is " << diff << " dB against 100% at the peak" << std::endl;
+            check(diff < -6.0f, "throw: velocity sets how close and loud the pass is");
+            const auto riding = throwRun(tones, 2.0f, 1.0f, true, count, still);
+            check(count == 1 && riding.getRMSLevel(0, at - span / 2, span) + riding.getRMSLevel(1, at - span / 2, span)
+                                    > 0.7f * (hard.getRMSLevel(0, at - span / 2, span) + hard.getRMSLevel(1, at - span / 2, span)),
+                  "throw: with the rig playing, the throw goes on top of the ride");
+        }
+        {
+            // The hits: the same throw with and without the hit track; what differs is the hit, and it starts on the peak.
+            int count = 0;
+            bool still = false;
+            const auto with = throwRun(tonesAndHits, 2.0f, 0.8f, false, count, still), without = throwRun(tones, 2.0f, 0.8f, false, count, still);
+            const int expected = throwAt + static_cast<int>(c_rate);
+            float top = 0.0f;
+            for (int i = 0; i < with.getNumSamples(); ++i)
+                top = std::max(top, std::abs(with.getSample(0, i) - without.getSample(0, i)));
+            int onset = -1, last = -1;
+            for (int i = 0; i < with.getNumSamples(); ++i)
+                if (std::abs(with.getSample(0, i) - without.getSample(0, i)) > 0.2f * top)
+                {
+                    if (onset < 0) onset = i;
+                    last = i;
+                }
+            const double offMs = 1000.0 * (onset - expected) / c_rate;
+            std::cout << "  throw + hits: the hit (" << juce::Decibels::gainToDecibels(top, -200.0f) << " dB) starts " << offMs
+                      << " ms from the peak and is over " << 1000.0 * (last - expected) / c_rate << " ms after it" << std::endl;
+            check(top > 0.05f, "throw: AIM fires the hits for a throw from rest");
+            check(std::abs(offMs) <= 10.0, "throw: the hits land on the throw's peak (within 10 ms)");
+            check(last - expected < static_cast<int>(1.0 * c_rate), "throw: the hits fire once");
+        }
+
+        // Keys: held keys add their distance from middle C to the tracks' pitches, dealt out over the loaded tracks.
+        {
+            CargoHold three;
+            for (int t = 0; t < 3; ++t)
+            {
+                three.loadFile(t * 2, writeWav(folder, "rig_src_tone400", steadyTone(400.0)), error); // tracks 1, 3 and 5: the empty ones are skipped
+                three.setRoleOverride(t * 2, static_cast<int>(CargoRole::Tonal));
+                three.setSkipSilence(t * 2, false);
+            }
+            RigEngine e;
+            e.setCargoHold(&three);
+            RigEngine::Params q;
+            q.rideOn = false;
+            q.space = 0.0f;
+            q.fill = 0.0f;
+            q.trackVari[4] = false; // the third tone goes through the pitch shifter
+            for (auto& b : q.buses)
+                b.bend = b.low = b.swirl = b.filter = b.drive = 0.0f; // no doppler bend: the pitches as played
+            e.setParams(q);
+            e.prepare(c_rate, c_block);
+            e.setParams(q);
+            auto run = [&](double length)
+            {
+                juce::AudioBuffer<float> o(2, static_cast<int>(length * c_rate));
+                for (int pos = 0; pos < o.getNumSamples(); pos += c_block)
+                    e.process(nullptr, nullptr, o.getWritePointer(0, pos), o.getWritePointer(1, pos), juce::jmin(c_block, o.getNumSamples() - pos));
+                return o;
+            };
+            // The level of one frequency over the last second of a render (dB).
+            auto tone = [](const juce::AudioBuffer<float>& o, double hz)
+            {
+                const int n = static_cast<int>(c_rate), start = o.getNumSamples() - n;
+                double re = 0.0, im = 0.0;
+                for (int i = 0; i < n; ++i)
+                {
+                    const double hann = 0.5 - 0.5 * std::cos(juce::MathConstants<double>::twoPi * i / n);
+                    const double x = hann * (o.getSample(0, start + i) + o.getSample(1, start + i));
+                    re += x * std::cos(juce::MathConstants<double>::twoPi * hz * i / c_rate);
+                    im += x * std::sin(juce::MathConstants<double>::twoPi * hz * i / c_rate);
+                }
+                return 10.0 * std::log10((re * re + im * im) / (static_cast<double>(n) * n) + 1.0e-20);
+            };
+            const double f0 = 400.0, f4 = 400.0 * std::pow(2.0, 4.0 / 12.0), f7 = 400.0 * std::pow(2.0, 7.0 / 12.0);
+            const auto none = run(3.0);
+            q.keys[0] = 0.0f; q.keys[1] = 4.0f; q.keys[2] = 7.0f; // C, E and G above middle C
+            q.numKeys = 3;
+            e.setParams(q);
+            const auto chord = run(3.0);
+            // The shifted track: where its tone is (the strongest frequency within a semitone of +7).
+            double shiftedHz = 0.0, shiftedDb = -200.0;
+            for (double hz = f7 / 1.06; hz < f7 * 1.06; hz += 0.5)
+                if (const double level = tone(chord, hz); level > shiftedDb) { shiftedDb = level; shiftedHz = hz; }
+            std::cout << "  keys: the pitch-shifted track is at " << shiftedHz << " Hz (" << 1200.0 * std::log2(shiftedHz / f7) << " cents from +7 st), " << shiftedDb << " dB" << std::endl;
+            std::cout << "  keys: no keys " << tone(none, f0) << " / " << tone(none, f4) << " / " << tone(none, f7) << " dB at 0 / +4 / +7 st; C E G held "
+                      << tone(chord, f0) << " / " << tone(chord, f4) << " / " << tone(chord, f7) << " dB" << std::endl;
+            check(tone(none, f0) > tone(none, f4) + 30.0 && tone(none, f0) > tone(none, f7) + 30.0, "keys: no keys held, every track at its own pitch");
+            check(std::abs(tone(chord, f4) - tone(chord, f0)) < 8.0 && std::abs(shiftedDb - tone(chord, f0)) < 12.0
+                      && std::abs(1200.0 * std::log2(shiftedHz / f7)) < 15.0
+                      && tone(chord, f4) > tone(none, f4) + 30.0 && tone(chord, f7) > tone(none, f7) + 30.0,
+                  "keys: C, E and G held: the three tracks play 0, +4 and +7 semitones (the third through the pitch shifter)");
+            check(e.getKeyPitch(0) == 0.0f && e.getKeyPitch(2) == 4.0f && e.getKeyPitch(4) == 7.0f && e.getKeyPitch(1) == 0.0f,
+                  "keys: dealt out over the loaded tracks in order");
+            // Released: glides back. A step in pitch would click; the level may not jump while it glides.
+            q.numKeys = 0;
+            e.setParams(q);
+            const auto glideBack = run(0.25);
+            float jump = 0.0f;
+            for (int i = 1; i < glideBack.getNumSamples(); ++i)
+                jump = std::max(jump, std::abs(glideBack.getSample(0, i) - glideBack.getSample(0, i - 1)));
+            const auto back = run(2.0);
+            std::cout << "  keys released: " << tone(back, f0) << " / " << tone(back, f4) << " / " << tone(back, f7) << " dB; largest step while gliding " << jump << std::endl;
+            check(tone(back, f0) > tone(back, f4) + 30.0 && tone(back, f0) > tone(back, f7) + 30.0, "keys: releasing the keys returns to the knobs");
+            check(jump < 0.25f, "keys: the pitch glides (no click)");
+            // One key moves every track; the limits hold.
+            q.keys[0] = 30.0f;
+            q.numKeys = 1;
+            e.setParams(q);
+            run(1.0);
+            check(std::abs(e.getTrackSpeed(0) - 4.0f) < 0.01f && std::abs(e.getTrackSpeed(2) - 4.0f) < 0.01f && e.getTrackSpeed(4) == 1.0f,
+                  "keys: one key moves every track, held to two octaves (VARI off keeps its speed)");
+        }
+
+        // Seeded restart: the same settings give the same ride again.
+        {
+            RigEngine e;
+            e.setCargoHold(&hold);
+            RigEngine::Params q;
+            e.setParams(q);
+            e.prepare(c_rate, c_block);
+            e.setParams(q);
+            auto take = [&](double playFirst)
+            {
+                juce::AudioBuffer<float> skip(2, c_block), o(2, static_cast<int>(4.0 * c_rate));
+                // (the first 32 samples are rendered again and again below until the new run starts)
+                for (int n = 0; n < static_cast<int>(playFirst * c_rate) / c_block; ++n)
+                    e.process(nullptr, nullptr, skip.getWritePointer(0), skip.getWritePointer(1), c_block);
+                e.restartSeeded();
+                int pos = 0;
+                do // 32 samples at a time until the old sound has faded and the new run has started
+                    e.process(nullptr, nullptr, o.getWritePointer(0), o.getWritePointer(1), 32);
+                while (e.isRestarting() && ++pos < 4000);
+                for (pos = 32; pos < o.getNumSamples(); pos += c_block)
+                    e.process(nullptr, nullptr, o.getWritePointer(0, pos), o.getWritePointer(1, pos), juce::jmin(c_block, o.getNumSamples() - pos));
+                return o;
+            };
+            const auto first = take(1.3), second = take(2.9);
+            float diff = 0.0f;
+            for (int i = 0; i < first.getNumSamples(); ++i)
+                diff = std::max(diff, std::abs(first.getSample(0, i) - second.getSample(0, i)));
+            std::cout << "  seeded restart: two starts differ by at most " << juce::Decibels::gainToDecibels(diff, -200.0f) << " dB (level "
+                      << juce::Decibels::gainToDecibels(first.getRMSLevel(0, 0, first.getNumSamples()), -200.0f) << " dB)" << std::endl;
+            check(first.getRMSLevel(0, 0, first.getNumSamples()) > 0.01f && diff < 1.0e-5f, "seeded restart: the ride repeats from the transport start");
+        }
+    }
+
     std::cout << (g_failures == 0 ? "ALL PASSED" : juce::String(g_failures) + " FAILED") << std::endl;
     return g_failures == 0 ? 0 : 1;
 }

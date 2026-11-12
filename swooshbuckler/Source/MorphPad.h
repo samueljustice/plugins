@@ -1,6 +1,7 @@
 #pragma once
 
 #include <JuceHeader.h>
+#include "MorphWander.h"
 #include "Theme.h"
 
 #include <array>
@@ -24,13 +25,10 @@
  *    rope across the editor, drop it on a lane to make that lane the source. The rope is drawn on a
  *    transparent, click-through overlay added to the component given to setRopeOverlayParent()
  *    (falls back to the top-level component).
- *  - Wander (play button): the dot flies along the chosen shape, normalised into the pad, at a
- *    constant visual speed set by the Speed slider. The default, Lorenz, is the Lorenz attractor
- *      dx/dt = 10 (y - x),  dy/dt = x (28 - z) - y,  dz/dt = x y - 8/3 z
- *    seen side on (x across, z up): integrated live, so the dot loops round one wing or the other
- *    chaotically and never repeats. The closed shapes precess slowly (1 degree per lap) so they
- *    never repeat exactly either. The whole shape is drawn faintly while wandering, with a short
- *    bright trail behind the dot. Dragging the pad stops wandering.
+ *  - Wander (play button): the dot flies along the chosen shape (see MorphWander) at the speed set by
+ *    the Speed slider. The flying is done by whoever owns the morph (the processor, so it carries on
+ *    with the window closed): the pad asks wanderPosition for the dot's place and draws it, with the
+ *    whole shape faintly behind it and a short bright trail. Dragging the pad stops wandering.
  *
  * Independent of the processor: wire it through the callbacks / setters below (message thread only).
  */
@@ -51,14 +49,16 @@ public:
     std::function<int(juce::Point<int> screenPos)> laneAtScreenPosition; // lane 0..11 or -1
     std::function<void(int slot /*0 = A, 1 = B*/, int lane)> onSourceAssigned;
 
-    /** Host -> UI. Ignored while the user drags the dot or while wandering (the pad is the source then). */
+    /** While wandering: where the dot is now (0..1 across and up) and how far its shape has turned (radians). */
+    std::function<void(float& x, float& y, float& rotation)> wanderPosition;
+
+    /** Host -> UI. Ignored while the user drags the dot or while wandering (the dot shows the wander then). */
     void setXY(float x, float y);
     void setMode(int mode);
     void setWander(bool on, float speed);
 
     /** The path the dot wanders along. */
-    enum Shape { Lorenz = 0, Cherries, FigureEight, Rose, Circle, NumShapes };
-    static juce::StringArray shapeNames() { return { "Lorenz", "Cherries", "Figure Eight", "Rose", "Circle" }; }
+    static juce::StringArray shapeNames() { return MorphWander::shapeNames(); }
     void setShape(int shape);
     /** lane -1 = unassigned. */
     void setSources(int laneA, int laneB, juce::String nameA, juce::String nameB);
@@ -95,15 +95,6 @@ private:
     juce::Point<float> padToLocal(float x, float y) const;
     juce::Colour laneColour(int slot) const;
 
-    // Wander curve (the shape's points, precomputed; for Lorenz, a long stretch of the attractor)
-    juce::Point<float> shapeRaw(double t) const;
-    void updateShapeTransform();
-    juce::Point<float> shapeNorm(double t) const; // 0..1 in pad space (y up)
-    void stepWander(float dt);
-    void stepLorenz(float distance);
-    juce::Point<float> lorenzNorm(const juce::Vector3D<double>& v) const;
-    float wanderUnitsPerSecond() const;
-
     // Rope
     void startRope(int slot, juce::Point<int> screenPos);
     void dragRope(juce::Point<int> screenPos);
@@ -118,8 +109,7 @@ private:
     juce::TextButton m_enable { "OFF" };
     bool m_enabled = false;
     void applyEnabledLook(bool on);
-    int m_shape = Lorenz;
-    void buildCurve();
+    int m_shape = MorphWander::Lorenz;
 
     juce::Rectangle<float> m_pad;
     std::array<juce::Rectangle<float>, 2> m_handles;
@@ -136,14 +126,7 @@ private:
 
     // Wander state
     bool m_wander = false;
-    double m_t = 0.0;
-    double m_laps = 0.0;
-    float m_rotation = 0.0f;                 // radians
-    juce::Rectangle<float> m_bbox;           // rotated raw-curve bounds
-    static constexpr int c_curvePoints = 2400;
-    std::array<juce::Point<float>, c_curvePoints> m_curve; // raw curve, precomputed
-    std::vector<juce::Vector3D<double>> m_lorenzStates;    // Lorenz only: the 3-D states behind m_curve
-    juce::Vector3D<double> m_lorenz { 1.0, 1.0, 20.0 };    // Lorenz only: the live state
+    float m_rotation = 0.0f;                 // radians: how far the shape has turned
     static constexpr int c_trail = 40;
     std::array<juce::Point<float>, c_trail> m_trail {};
     int m_trailCount = 0, m_trailHead = 0;

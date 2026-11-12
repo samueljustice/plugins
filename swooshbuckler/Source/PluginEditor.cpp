@@ -565,7 +565,7 @@ SwooshbucklerAudioProcessorEditor::SwooshbucklerAudioProcessorEditor(Swooshbuckl
     m_tape.onClick = [this] { toggleLog(); };
     m_retroButton.setTooltip("Last 60 Seconds\nThe rig always remembers the last minute. Click to save it to a file, even if the tape wasn't armed: for the happy accident you didn't record.");
     m_playButton.setColour(juce::TextButton::buttonOnColourId, TC::good);
-    m_playButton.setTooltip("Play / Stop\nStarts and stops the whole rig. It always opens stopped, so nothing blasts out when you load a session.");
+    m_playButton.setTooltip("Play / Stop\nStarts and stops the whole rig. Stop lets the tail ring out. The app always opens stopped, so nothing blasts out when you load a session. In a DAW it can be automated, and with Follow Host on the transport starts and stops it too.");
     m_playButton.onClick = [this] { m_processor.setPlaying(! m_processor.isPlaying()); };
     m_newButton.setTooltip("New Session\nStops, empties every track and puts every control back to its default. Cmd+Z can bring removed tracks back.");
     m_newButton.onClick = [this]
@@ -601,7 +601,24 @@ SwooshbucklerAudioProcessorEditor::SwooshbucklerAudioProcessorEditor(Swooshbuckl
     m_morphPad.onXYChanged = [setParam](float x, float y) { setParam(ParamIDs::morphX, x); setParam(ParamIDs::morphY, y); };
     m_morphPad.onModeChanged = [setParam](int mode) { setParam(ParamIDs::morphMode, static_cast<float>(mode)); };
     m_morphPad.onShapeChanged = [setParam](int shape) { setParam(ParamIDs::morphShape, static_cast<float>(shape)); };
-    m_morphPad.onWanderChanged = [setParam](bool on, float speed) { setParam(ParamIDs::morphWander, on ? 1.0f : 0.0f); setParam(ParamIDs::morphSpeed, speed); };
+    m_morphPad.onWanderChanged = [this, setParam](bool on, float speed)
+    {
+        const bool was = m_processor.getState().getRawParameterValue(ParamIDs::morphWander)->load() > 0.5f;
+        if (was && ! on)
+        {
+            // Stopped: the dot stays where the wander left it.
+            float x = 0.5f, y = 0.5f, rotation = 0.0f;
+            m_processor.getMorphPosition(x, y, rotation);
+            setParam(ParamIDs::morphX, x);
+            setParam(ParamIDs::morphY, y);
+        }
+        if (was != on)
+            setParam(ParamIDs::morphWander, on ? 1.0f : 0.0f);
+        if (std::abs(m_processor.getState().getRawParameterValue(ParamIDs::morphSpeed)->load() - speed) > 1.0e-6f)
+            setParam(ParamIDs::morphSpeed, speed);
+    };
+    // The processor flies the dot (so it wanders with the window closed and in a bounce); the pad shows where it is.
+    m_morphPad.wanderPosition = [this](float& x, float& y, float& rotation) { m_processor.getMorphPosition(x, y, rotation); };
     m_morphPad.onEnableChanged = [setParam](bool on) { setParam(ParamIDs::morphOn, on ? 1.0f : 0.0f); };
     m_morphButton.setClickingTogglesState(true);
     m_morphButton.setColour(juce::TextButton::buttonOnColourId, TC::filter);
@@ -629,7 +646,7 @@ SwooshbucklerAudioProcessorEditor::SwooshbucklerAudioProcessorEditor(Swooshbuckl
     m_aimAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment>(p.getState(), ParamIDs::hitAim, m_aimHits);
 
     m_content.addAndMakeVisible(m_swell);
-    m_swell.setTooltip("Swell\nHold it to push every fader up at once, for a big whoosh on demand. Held for longer than a couple of seconds, the mix eases back to its usual level with every fader still up. The space bar or any MIDI note does the same.");
+    m_swell.setTooltip("Swell\nHold it to push every fader up at once, for a big whoosh on demand. Held for longer than a couple of seconds, the mix eases back to its usual level with every fader still up. The space bar does the same, and so does any MIDI note while Keys is set to Swell.");
     m_rideButton.setClickingTogglesState(true);
     m_rideButton.setColour(juce::TextButton::buttonOnColourId, TC::flight);
     m_rideButton.setTooltip("Auto Ride\nThe heart of the rig: every track's fader moves by itself, each at its own speed, so overlapping swells make whooshes for you. Energy, Rate, Fill, Chaos and Pitch shape how it moves. Off: the faders stay where you set them, the doppler passes do the moving, and the mix is eased down to about the level it has with the ride on.");
@@ -637,11 +654,47 @@ SwooshbucklerAudioProcessorEditor::SwooshbucklerAudioProcessorEditor(Swooshbuckl
     m_content.addAndMakeVisible(m_rideButton);
     m_rideAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment>(p.getState(), ParamIDs::rideOn, m_rideButton);
 
+    m_throwButton.setColour(juce::TextButton::buttonColourId, TC::flight.withAlpha(0.25f));
+    m_throwButton.setWantsKeyboardFocus(false);
+    m_throwButton.setTooltip("Throw\nThrows one whoosh now: a single pass on both buses, with a long approach, the peak as it goes by and a shorter tail. "
+                             "With AIM on, the hits land on its peak. While the rig plays it goes on top of the ride; with the rig stopped you get "
+                             "just that one whoosh and then silence, so single whooshes can be made one at a time. The peak is heard half a Throw "
+                             "Length after you throw, and the Ride panel counts down to it. The F key does the same, and so does a MIDI note with Keys set to Throw.");
+    m_throwButton.onClick = [this] { m_processor.throwWhoosh(); };
+    m_content.addAndMakeVisible(m_throwButton);
+
+    m_keysMode.addItemList({ "Swell", "Pitch", "Throw" }, 1);
+    m_keysMode.setWantsKeyboardFocus(false);
+    m_keysMode.setTooltip("Keys\nWhat MIDI notes do. Swell: any held note holds Swell. "
+                          "Pitch: the held notes set the pitch. Each note is its distance from middle C (C4) in semitones, added to the Pitch knob and "
+                          "each track's own pitch. Hold several and they are dealt out over the loaded tracks in order, the lowest note to the first "
+                          "track, going round again when there are more tracks than notes, so a chord gives each layer its own pitch. Let go and the "
+                          "pitch glides back. Throw: every note throws one whoosh at that note's pitch; how hard you play sets how close and loud it "
+                          "passes, and notes played together make one whoosh with their pitches dealt out the same way. The held notes are shown in "
+                          "the Ride panel. Pitch never goes past two octaves either way.");
+    m_content.addAndMakeVisible(m_keysMode);
+    m_keysModeAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment>(p.getState(), ParamIDs::keysMode, m_keysMode);
+
+    m_followHost.setClickingTogglesState(true);
+    m_followHost.setColour(juce::TextButton::buttonOnColourId, TC::good);
+    m_followHost.setWantsKeyboardFocus(false);
+    m_followHost.setTooltip("Follow Host\nOn: the rig plays while your DAW's transport plays and stops when it stops, letting the tail ring out. "
+                            "Every start begins the ride again from the same place, so the same settings bounce the same way each time. "
+                            "Play still starts and stops it by hand while the transport is stopped. Off: only Play (or its automation) starts and stops the rig.");
+    m_followHost.setToggleState(p.getFollowHost(), juce::dontSendNotification);
+    m_followHost.onClick = [this] { m_processor.setFollowHost(m_followHost.getToggleState()); };
+    m_content.addChildComponent(m_followHost);
+    m_followHost.setVisible(p.canFollowHost());
+
     addKnob(ParamIDs::energy, "Energy", TC::flight, "How deep the auto ride dips the faders between swells, evenly in dB: 4 dB more for every 10%, to -36 dB at 90% and right down to silence at 100%, so each whoosh rises out of nothing and falls back. Low: gentle movement that stays fairly level. Does nothing with Auto Ride off.");
     addKnob(ParamIDs::rate, "Rate", TC::flight, "How fast the faders move, and so how long each whoosh and each doppler pass lasts. The readout is the time of one swell (each track rides a little faster or slower than it). Low: slow, long passes (25 s swells, 6 s passes). High: short ones (under 2 s swells, 1.6 s passes).");
     addKnob(ParamIDs::fill, "Fill", TC::flight, "Long echoes (about 0.5, 1 and 2 s, a little different on every track) after each track's fader, so they hang on into the dips of the ride and the gaps of unsteady sounds and keep the result going. Gappy sounds get more of it.");
     addKnob(ParamIDs::chaos, "Chaos", TC::flight, "How unpredictable it is. 0 is a steady pattern that repeats (every track plays in order from its start). Higher: every swell has a different size and speed, every pass a different speed, length and closeness, and crackle tracks jump around.");
     addKnob(ParamIDs::pitch, "Pitch", TC::flight, "Plays every track higher or lower, in semitones (up to two octaves either way), finer near the middle. Down makes everything bigger, heavier and slower; up makes it smaller and faster (the hits too).");
+    addKnob(ParamIDs::throwLength, "Throw Length", TC::flight, "")
+        .setTooltip("Throw Length\nHow long a thrown whoosh lasts, from 0.3 to 6 seconds. Its peak is heard halfway through, so half of this is the "
+                    "time from pressing Throw to the peak. Fully left (Rate): a throw is as long as the ride's own passes, set by Rate.\n"
+                    "Double-click to reset it.");
 
     // Buses: one set of controls per bus, shown one bus at a time (tabs) --------
     {
@@ -928,15 +981,25 @@ void SwooshbucklerAudioProcessorEditor::layoutContent()
     m_morphPad.setBounds(m_sea.getBounds().reduced(6).withTrimmedTop(18));
     m_morphButton.setBounds(m_sea.getRight() - 86, m_sea.getY() + 4, 80, 20);
     m_performPanel = { 912, 270, 352, 176 };
-    m_swell.setBounds(m_performPanel.getX() + 8, m_performPanel.getY() + 36, 100, 100);
-    m_rideButton.setBounds(m_performPanel.getX() + 14, m_performPanel.getY() + 140, 88, 26);
+    m_swell.setBounds(m_performPanel.getX() + 8, m_performPanel.getY() + 28, 100, 100);
+    m_throwButton.setBounds(m_performPanel.getX() + 14, m_performPanel.getY() + 126, 88, 22);
+    m_rideButton.setBounds(m_performPanel.getX() + 14, m_performPanel.getY() + 150, 88, 22);
     {
         constexpr int cw = 78, ch = 70;
         const int x0 = m_performPanel.getX() + 108, y0 = m_performPanel.getY() + 34;
-        const char* ids[] = { ParamIDs::energy, ParamIDs::rate, ParamIDs::fill, ParamIDs::chaos, ParamIDs::pitch };
-        for (int i = 0; i < 5; ++i)
+        const char* ids[] = { ParamIDs::energy, ParamIDs::rate, ParamIDs::fill, ParamIDs::chaos, ParamIDs::pitch, ParamIDs::throwLength };
+        for (int i = 0; i < 6; ++i)
             m_controls[ids[i]]->setBounds(x0 + (i % 3) * cw, y0 + (i / 3) * ch, cw, ch);
     }
+    {
+        // Keys (what MIDI notes do) at the right of the Ride title bar; the panel's subtitle line is between the two.
+        const int keysWidth = 70, keysLabel = 30;
+        m_keysMode.setBounds(m_performPanel.getRight() - 14 - keysWidth, m_performPanel.getY() + 9, keysWidth, 22);
+        m_keysLabel = { m_keysMode.getX() - keysLabel - 2, m_keysMode.getY(), keysLabel, 22 };
+        const int titleEnd = m_performPanel.getX() + 30 + juce::GlyphArrangement::getStringWidthInt(m_fonts->display(21.0f), "Ride") + 12;
+        m_rideStatusArea = { titleEnd, m_performPanel.getY() + 9, m_keysLabel.getX() - 4 - titleEnd, 22 };
+    }
+    m_followHost.setBounds(286, 15, 80, 30); // left of Play (in a host only)
 
     // Rows 2 and 3, in signal order
     m_sections[0] = { 1, "Bus A", "growls, tones, crackle, rumble - and the key for B", TC::movement, { 16, 458, 616, 168 } };
@@ -1055,12 +1118,20 @@ void SwooshbucklerAudioProcessorEditor::paintContent(juce::Graphics& g)
 
     SwooshLookAndFeel::drawRope(g, { 16.0f, 56.0f }, { 1264.0f, 56.0f }, TC::outlineSoft);
 
-    SwooshLookAndFeel::drawPanel(g, m_performPanel.toFloat(), "Ride", "the faders move by themselves", TC::flight, f);
+    SwooshLookAndFeel::drawPanel(g, m_performPanel.toFloat(), "Ride", {}, TC::flight, f);
+    {
+        // The subtitle line doubles as the readout: the time to a throw's peak, or the keys that are held.
+        const bool readout = m_rideStatus.isNotEmpty();
+        g.setFont(readout ? f.label(12.0f) : f.body(11.0f));
+        g.setColour(readout ? TC::flight : TC::textDim);
+        g.drawText(readout ? m_rideStatus : juce::String("the faders move by themselves"), m_rideStatusArea, juce::Justification::centredLeft, false);
+    }
     for (const auto& sec : m_sections)
         SwooshLookAndFeel::drawPanel(g, sec.bounds.toFloat(), sec.title, sec.subtitle, sec.accent, f);
     SwooshLookAndFeel::drawPanel(g, m_modSection.toFloat(), "Modulation", "drag a jack onto any knob to wire it", TC::brass, f);
     g.setFont(f.label(10.5f));
     g.setColour(TC::textDim);
+    g.drawText("Keys", m_keysLabel, juce::Justification::centredRight);
     g.drawText("GATE", m_gateModeLabel, juce::Justification::centredRight);
     g.drawText("DUCK", m_duckModeLabel, juce::Justification::centredRight);
     for (const auto& label : m_passModeLabel)
@@ -1204,6 +1275,11 @@ bool SwooshbucklerAudioProcessorEditor::keyPressed(const juce::KeyPress& key)
             m_processor.setSwell(true);
             m_swell.press(true);
         }
+        return true;
+    }
+    if ((key.getKeyCode() == 'f' || key.getKeyCode() == 'F') && ! key.getModifiers().isAnyModifierKeyDown())
+    {
+        m_processor.throwWhoosh(); // F: throw one whoosh
         return true;
     }
     if (key == juce::KeyPress::escapeKey && m_updatePopup.isVisible()) // when the popup didn't get the focus
@@ -1375,6 +1451,25 @@ void SwooshbucklerAudioProcessorEditor::syncMorphPad()
     m_morphPad.setXY(value(ParamIDs::morphX), value(ParamIDs::morphY));
 }
 
+juce::String SwooshbucklerAudioProcessorEditor::rideStatus() const
+{
+    // A throw on its way in: the time until its peak is heard, to place it against picture.
+    if (const float peakIn = m_processor.getEngine().getThrowPeakIn(); peakIn >= 0.0f)
+        return "Peak in " + juce::String(peakIn, 1) + " s";
+    // The held keys (the first few, then how many more).
+    juce::String names;
+    int shown = 0, more = 0;
+    for (int note = 0; note < 128; ++note)
+        if ((m_processor.getHeldKeys(note >> 6) >> (note & 63)) & 1u)
+        {
+            if (shown < 4)
+                names << (shown++ > 0 ? " " : "") << juce::MidiMessage::getMidiNoteName(note, true, true, 4);
+            else
+                ++more;
+        }
+    return more > 0 ? names + " +" + juce::String(more) : names;
+}
+
 void SwooshbucklerAudioProcessorEditor::showAimControls()
 {
     // AIM times the hits itself and holds the gate open: dim what only the gate (or the sync beat) uses. GATE Open
@@ -1463,6 +1558,13 @@ void SwooshbucklerAudioProcessorEditor::timerCallback()
 
     if (m_presetName.getButtonText() != m_processor.currentPresetName)
         m_presetName.setButtonText(m_processor.currentPresetName);
+    if (m_followHost.getToggleState() != m_processor.getFollowHost())
+        m_followHost.setToggleState(m_processor.getFollowHost(), juce::dontSendNotification);
+    if (const auto status = rideStatus(); status != m_rideStatus)
+    {
+        m_rideStatus = status;
+        m_content.repaint(m_rideStatusArea);
+    }
 
     const float gate = m_processor.getEngine().getHitGate();
     if (std::abs(gate - m_gate) > 0.01f)

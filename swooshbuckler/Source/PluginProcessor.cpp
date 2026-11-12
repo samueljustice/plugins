@@ -21,11 +21,6 @@ SwooshbucklerAudioProcessor::SwooshbucklerAudioProcessor()
     , m_state(*this, nullptr, "Swooshbuckler", Params::createLayout())
 {
     auto raw = [this](const char* id) { return m_state.getRawParameterValue(id); };
-    if (auto* x = m_state.getParameter(ParamIDs::morphX))
-        m_morphXIndex = x->getParameterIndex();
-    if (auto* y = m_state.getParameter(ParamIDs::morphY))
-        m_morphYIndex = y->getParameterIndex();
-    m_morphWanderRaw = raw(ParamIDs::morphWander);
     for (int i = 0; i < ParamIDs::numCargoTracks; ++i)
     {
         m_raw.tracks[static_cast<size_t>(i)] = raw(ParamIDs::cargoTrack[i]);
@@ -73,6 +68,14 @@ SwooshbucklerAudioProcessor::SwooshbucklerAudioProcessor()
     m_raw.morphMode = raw(ParamIDs::morphMode);
     m_raw.morphX = raw(ParamIDs::morphX);
     m_raw.morphY = raw(ParamIDs::morphY);
+    m_raw.morphWander = raw(ParamIDs::morphWander);
+    m_raw.morphSpeed = raw(ParamIDs::morphSpeed);
+    m_raw.morphShape = raw(ParamIDs::morphShape);
+    m_raw.throwLength = raw(ParamIDs::throwLength);
+    m_raw.play = raw(ParamIDs::play);
+    m_raw.keysMode = raw(ParamIDs::keysMode);
+    m_followHost.store(canFollowHost());
+    MorphWander::prepareTables(); // the wander shapes, before the audio thread reads them
     for (int m = 0; m < ParamIDs::numMods; ++m)
     {
         m_raw.modType[m] = raw(ParamIDs::modType[m]);
@@ -158,6 +161,7 @@ void SwooshbucklerAudioProcessor::renderAtRenderRate(const float* inL, const flo
     const bool playing = m_playing.load();
     m_engine.setReleased(! playing); // Stop: the sources let go, the echoes and Space ring out
     m_engine.process(inL, inR, l, r, n);
+    const bool throwing = m_engine.isThrowing(); // a throw with the rig stopped: its tail is waited for afterwards
 
     // Inflate, then Push (drive into the limiter; the ceiling stays put), then the limiter.
     float* chans[2] = { l, r };
@@ -166,7 +170,7 @@ void SwooshbucklerAudioProcessor::renderAtRenderRate(const float* inL, const flo
     // Transport, ahead of the tape so a take starts and ends as cleanly as what you hear. Stopped, the tail rings
     // until it has stayed under the floor for 100 ms (not before the sources have gone) or the time is up.
     float target = 1.0f;
-    if (playing)
+    if (playing || throwing)
     {
         m_tailElapsed = m_tailQuiet = 0;
         m_tailDone = false;
@@ -322,10 +326,21 @@ void SwooshbucklerAudioProcessor::updateEngineParams()
     p.spaceMod = modDelta(m_raw.space);
     p.morphOn = m_raw.morphOn->load() > 0.5f;
     p.morphMode = juce::roundToInt(m_raw.morphMode->load());
-    p.morphX = m_raw.morphX->load();
-    p.morphY = m_raw.morphY->load();
+    // The morph dot: the X / Y controls, or where the wander has flown it (see runWander).
+    p.morphX = m_morphX;
+    p.morphY = m_morphY;
+    p.throwSeconds = m_raw.throwLength->load();
 
-    p.swell = m_uiSwell.load() || m_midiNotesHeld > 0;
+    // MIDI keys. Swell: any held key holds Swell. Pitch: the held keys set pitches. Throw: the last chord's keys do.
+    const int keys = keysMode();
+    const auto& pitchKeys = keys == KeysThrow ? m_keysLatched : m_keysDown;
+    if (keys != KeysSwell)
+        for (int note = 0; note < 128 && p.numKeys < RigEngine::c_maxKeys; ++note)
+            if ((pitchKeys[static_cast<size_t>(note >> 6)] >> (note & 63)) & 1u)
+                p.keys[static_cast<size_t>(p.numKeys++)] = static_cast<float>(note - 60); // from middle C
+    for (size_t half = 0; half < 2; ++half)
+        m_keysView[half].store(keys == KeysSwell ? m_keysDown[half] : pitchKeys[half], std::memory_order_relaxed);
+    p.swell = m_uiSwell.load() || (keys == KeysSwell && (m_keysDown[0] | m_keysDown[1]) != 0);
 
     m_engine.setParams(p);
 
@@ -359,9 +374,57 @@ void SwooshbucklerAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
     if (n == 0)
         return;
 
+    // The Play parameter moved (host automation, or a restored session): start or stop.
+    {
+        // Only a change of the parameter acts, and only if the rig isn't there already (setPlaying moves the rig
+        // first and the parameter after it).
+        const bool wanted = m_raw.play->load() > 0.5f;
+        if (wanted != m_playParamWas)
+        {
+            m_playParamWas = wanted;
+            if (m_playing.load() != wanted)
+            {
+                if (wanted)
+                    m_restartPending.store(true);
+                m_playing.store(wanted);
+            }
+        }
+    }
+    // Follow Host: the rig starts with the host's transport (from the seed, so a bounce repeats) and stops with it.
+    // Only a change of the transport acts, so Play still starts and stops the rig by hand in between.
+    {
+        bool hostPlaying = false;
+        if (auto* playHead = getPlayHead())
+            if (const auto position = playHead->getPosition())
+                hostPlaying = position->getIsPlaying();
+        if (hostPlaying != m_hostWasPlaying)
+        {
+            m_hostWasPlaying = hostPlaying;
+            if (m_followHost.load())
+            {
+                m_playing.store(hostPlaying);
+                if (hostPlaying)
+                {
+                    m_reseedPending = true;
+                    m_restartPending.store(false);
+                }
+                else
+                    m_hostStopped.store(true); // the Play parameter is put back on the message thread
+            }
+        }
+    }
+
+    // A throw wakes a resting rig: from the button or the F key, or a key played with Keys set to Throw.
+    const int mode = keysMode();
+    bool throwWanted = m_uiThrows.load() > 0;
+    if (mode == KeysThrow && ! throwWanted)
+        for (const auto meta : midi)
+            throwWanted = throwWanted || meta.getMessage().isNoteOn();
+    m_sinceMidiThrow = juce::jmin(1 << 30, m_sinceMidiThrow + n);
+
     // Stopped and rung out: rest (the engine isn't run, so nothing starts blasting when the app opens).
     const bool playing = m_playing.load();
-    if (playing || m_transportGain > 0.0f)
+    if (playing || m_transportGain > 0.0f || throwWanted)
         m_drainLeft = getLatencySamples() + 64;
     else if (m_drainLeft > 0)
         m_drainLeft -= n;
@@ -374,23 +437,35 @@ void SwooshbucklerAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
         m_followerLevels = {};
         runModulators(n);
         publishModViews();
-        // Note-offs still count, so a key released while stopped can't leave Swell stuck on.
+        runWander(n);
+        // The keys still count while stopped: a key released can't leave Swell stuck on, and the keys held when
+        // Play is pressed already set the pitches.
         for (const auto meta : midi)
-        {
-            const auto msg = meta.getMessage();
-            if (msg.isNoteOff())
-                m_midiNotesHeld = juce::jmax(0, m_midiNotesHeld - 1);
-            else if (msg.isAllNotesOff() || msg.isAllSoundOff())
-                m_midiNotesHeld = 0;
-        }
+            handleMidi(meta.getMessage(), 0, false);
+        for (size_t half = 0; half < 2; ++half)
+            m_keysView[half].store(mode == KeysThrow ? m_keysLatched[half] : m_keysDown[half], std::memory_order_relaxed);
         buffer.clear();
         publishOutputPeak(0.0f, n);
         return;
     }
 
     m_tapeRested = false;
-    if (m_restartPending.exchange(false))
+    if (m_reseedPending)
+    {
+        // The transport started: the engine, the modulators and the wander all begin again from the same place.
+        m_reseedPending = false;
+        m_restartPending.store(false);
+        m_engine.restartSeeded();
+        m_mods.reset();
+        m_wanderOn = false; // the wander sets off again from where the X / Y controls are
+        m_wanderBlend = 0.0f;
+        m_morphX = m_raw.morphX->load();
+        m_morphY = m_raw.morphY->load();
+    }
+    else if (m_restartPending.exchange(false))
         m_engine.restart();
+    if (m_uiThrows.exchange(0) > 0)
+        m_engine.throwWhoosh(0, -1.0f); // as close as the bus draws it
 
     // Hosts may send more than the prepared block size (offline / freewheel). Never reallocate here: work in
     // sections of the prepared size instead.
@@ -411,21 +486,13 @@ void SwooshbucklerAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
     {
         const int len = juce::jmin(maxSection, n - start);
         runModulators(len);
-        updateEngineParams();
+        runWander(len);
 
-        // Note-ons start their whoosh at their own sample offset (to the engine's 32-sample chunk).
+        // The keys of this section (a thrown whoosh starts at its note's own sample).
         for (const auto meta : midi)
-        {
-            if (meta.samplePosition < start || meta.samplePosition >= start + len)
-                continue;
-            const auto msg = meta.getMessage();
-            if (msg.isNoteOn())
-                ++m_midiNotesHeld;
-            else if (msg.isNoteOff())
-                m_midiNotesHeld = juce::jmax(0, m_midiNotesHeld - 1);
-            else if (msg.isAllNotesOff() || msg.isAllSoundOff())
-                m_midiNotesHeld = 0;
-        }
+            if (meta.samplePosition >= start && meta.samplePosition < start + len)
+                handleMidi(meta.getMessage(), meta.samplePosition - start, true);
+        updateEngineParams();
 
         const float* inL = inputChannels > 0 ? buffer.getReadPointer(0, start) : nullptr;
         const float* inR = inputChannels > 1 ? buffer.getReadPointer(1, start) : nullptr;
@@ -504,6 +571,85 @@ void SwooshbucklerAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
     }
 }
 
+int SwooshbucklerAudioProcessor::keysMode() const
+{
+    return juce::jlimit(0, 2, juce::roundToInt(m_raw.keysMode->load()));
+}
+
+void SwooshbucklerAudioProcessor::handleMidi(const juce::MidiMessage& msg, int offsetSamples, bool mayThrow)
+{
+    auto bit = [](int note) { return std::uint64_t { 1 } << (note & 63); };
+    if (msg.isNoteOn())
+    {
+        const int note = juce::jlimit(0, 127, msg.getNoteNumber());
+        const auto half = static_cast<size_t>(note >> 6);
+        const bool first = (m_keysDown[0] | m_keysDown[1]) == 0;
+        m_keysDown[half] |= bit(note);
+        // Throw: a key played from nothing starts a new chord; keys added while others are held join it.
+        if (first)
+            m_keysLatched = {};
+        m_keysLatched[half] |= bit(note);
+        if (mayThrow && keysMode() == KeysThrow)
+        {
+            // Keys that land together (within 30 ms: a chord) are one whoosh, with their pitches dealt over the tracks.
+            if (static_cast<double>(m_sinceMidiThrow) > 0.03 * m_deviceRate)
+            {
+                const double toRender = m_renderRate / juce::jmax(1.0, m_deviceRate);
+                m_engine.throwWhoosh(juce::roundToInt(offsetSamples * toRender), msg.getFloatVelocity());
+            }
+            m_sinceMidiThrow = 0;
+        }
+    }
+    else if (msg.isNoteOff())
+    {
+        const int note = juce::jlimit(0, 127, msg.getNoteNumber());
+        m_keysDown[static_cast<size_t>(note >> 6)] &= ~bit(note);
+    }
+    else if (msg.isAllNotesOff() || msg.isAllSoundOff())
+        m_keysDown = {};
+}
+
+void SwooshbucklerAudioProcessor::runWander(int numSamples)
+{
+    // The dot's wander, at control rate (once per section, at most 512 samples): it flies with the window closed and
+    // in an offline bounce. The X / Y parameters are left alone; the wander's place is blended in over them (over
+    // about 50 ms each way, so switching it on or off never jumps) and published for the pad to draw.
+    const bool on = m_raw.morphWander->load() > 0.5f;
+    const int shape = juce::roundToInt(m_raw.morphShape->load());
+    const float x = m_raw.morphX->load(), y = m_raw.morphY->load();
+    const float seconds = static_cast<float>(numSamples) / static_cast<float>(juce::jmax(1.0, m_deviceRate));
+    if (on && ! m_wanderOn)
+        m_wander.join(shape, m_morphX, m_morphY); // from where the dot is
+    m_wanderOn = on;
+    if (on)
+        m_wander.step(seconds, shape, m_raw.morphSpeed->load());
+    m_wanderBlend += ((on ? 1.0f : 0.0f) - m_wanderBlend) * (1.0f - std::exp(-seconds / 0.05f));
+    if (std::abs((on ? 1.0f : 0.0f) - m_wanderBlend) < 1.0e-3f)
+        m_wanderBlend = on ? 1.0f : 0.0f;
+    m_morphX = x + m_wanderBlend * (m_wander.getX() - x);
+    m_morphY = y + m_wanderBlend * (m_wander.getY() - y);
+    m_morphViewX.store(m_morphX, std::memory_order_relaxed);
+    m_morphViewY.store(m_morphY, std::memory_order_relaxed);
+    m_morphViewRotation.store(on ? m_wander.getRotation() : 0.0f, std::memory_order_relaxed);
+}
+
+void SwooshbucklerAudioProcessor::setPlaying(bool on)
+{
+    if (on && ! m_playing.load())
+        m_restartPending.store(true);
+    m_playing.store(on);
+    // The Play parameter follows (so a host sees and saves it). The rig is already there, so the audio thread has
+    // nothing left to do when it sees the parameter move. Off the message thread the parameter is left alone: it
+    // only says what was asked last.
+    if (juce::MessageManager::existsAndIsCurrentThread())
+        if (auto* param = m_state.getParameter(ParamIDs::play); param != nullptr && (param->getValue() > 0.5f) != on)
+        {
+            param->beginChangeGesture();
+            param->setValueNotifyingHost(on ? 1.0f : 0.0f);
+            param->endChangeGesture();
+        }
+}
+
 void SwooshbucklerAudioProcessor::publishOutputPeak(float peak, int numSamples)
 {
     // The meter falls back by time (20 dB in about 0.7 s), not by block, so it moves the same at any buffer size.
@@ -553,10 +699,10 @@ void SwooshbucklerAudioProcessor::newSession()
     currentPresetName = "Default";
 }
 
-bool SwooshbucklerAudioProcessor::isUserEdit(int parameterIndex) const
+bool SwooshbucklerAudioProcessor::isUserEdit(int) const
 {
-    const bool wandering = m_morphWanderRaw != nullptr && m_morphWanderRaw->load(std::memory_order_relaxed) > 0.5f;
-    return ! (wandering && (parameterIndex == m_morphXIndex || parameterIndex == m_morphYIndex));
+    // Nothing moves a parameter by itself: the morph wander flies the dot inside the processor and leaves X and Y alone.
+    return true;
 }
 
 bool SwooshbucklerAudioProcessor::arm(juce::String& error)
@@ -676,6 +822,11 @@ void SwooshbucklerAudioProcessor::timerCallback()
         m_mirrorPreset = currentPresetName;
     }
 
+    // The host's transport stopped the rig: the Play parameter says so too (it would start the rig again when the
+    // session is opened otherwise).
+    if (m_hostStopped.exchange(false) && ! m_playing.load())
+        setPlaying(false);
+
     // Auto-roll the tape once audio is running (message thread, never the audio thread).
     if (! m_autoRecordDone && getSampleRate() > 0.0)
     {
@@ -732,6 +883,7 @@ void SwooshbucklerAudioProcessor::getStateInformation(juce::MemoryBlock& destDat
 
     state.setProperty("editorWidth", width, nullptr);
     state.setProperty("presetName", preset, nullptr);
+    state.setProperty("followHost", getFollowHost(), nullptr);
     state.removeProperty("throwPath", nullptr); // v2 sessions
     state.appendChild(cargo, nullptr);
 
@@ -752,6 +904,12 @@ void SwooshbucklerAudioProcessor::setStateInformation(const void* data, int size
     const int width = tree.getProperty("editorWidth", 0);
     const juce::String preset = tree.getProperty("presetName", "Default").toString();
     tree.removeProperty("throwPath", nullptr); // v2 sessions
+    m_followHost.store(canFollowHost() && static_cast<bool>(tree.getProperty("followHost", true)));
+    // The app always opens stopped, so nothing blasts out; in a host the session comes back as it was left (a
+    // bounce of a session left playing has sound).
+    if (! canFollowHost())
+        if (auto play = tree.getChildWithProperty("id", ParamIDs::play); play.isValid())
+            play.setProperty("value", 0.0f, nullptr);
 
     // Sessions saved before AIM existed keep the hit gate (and SYNC HITS) they were made with: AIM is on only for new
     // sessions. A parameter missing from a saved state would otherwise keep its default (on).

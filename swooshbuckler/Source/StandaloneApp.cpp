@@ -32,8 +32,10 @@ namespace
             // One settings object for the app and the rig: two on the same file would each write back the
             // values they read at launch, undoing the other's changes.
             SwooshbucklerAudioProcessor::useSettings(m_properties.getUserSettings());
+            // The last argument: every MIDI input is opened (and new ones as they are plugged in), so a keyboard
+            // plays the Keys modes without a visit to the audio settings.
             auto holder = std::make_unique<juce::StandalonePluginHolder>(m_properties.getUserSettings(), false, juce::String {}, nullptr,
-                                                                       juce::Array<juce::StandalonePluginHolder::PluginInOuts> {}, false);
+                                                                       juce::Array<juce::StandalonePluginHolder::PluginInOuts> {}, true);
             m_window = std::make_unique<juce::StandaloneFilterWindow>(getApplicationName(), juce::Colour(0xff0a1a22), std::move(holder));
             m_window->setUsingNativeTitleBar(true);
 

@@ -8,6 +8,7 @@
 #include "TapeRecorder.h"
 #include "RigEngine.h"
 #include "Modulators.h"
+#include "MorphWander.h"
 
 /**
  * Swooshbuckler: a whoosh generator / movement processor with a built-in tape
@@ -35,7 +36,8 @@ public:
     bool acceptsMidi() const override { return true; }
     bool producesMidi() const override { return false; }
     bool isMidiEffect() const override { return false; }
-    double getTailLengthSeconds() const override { return 8.0; }
+    /** What rings on after the sound stops: the tail after Stop (at most c_tailMaxSeconds) and its closing fade. */
+    double getTailLengthSeconds() const override { return c_tailMaxSeconds + 0.5; }
 
     int getNumPrograms() override { return 1; }
     int getCurrentProgram() override { return 0; }
@@ -60,10 +62,32 @@ public:
         then a quarter-second fade and the engine rests. Any thread. */
     static constexpr float c_tailFloorDb = -70.0f;
     static constexpr double c_tailMaxSeconds = 6.0;
-    void setPlaying(bool on) { if (on && ! m_playing.load()) m_restartPending.store(true); m_playing.store(on); }
+    void setPlaying(bool on);
     bool isPlaying() const { return m_playing.load(); }
+    /** Follow Host (plug-in only; on unless switched off): the rig plays while the host's transport plays and stops
+        (the tail rings out) when it stops, and every transport start begins the ride again from the same seed, so a
+        bounce repeats. Play still starts and stops it by hand in between. Saved with the session. Any thread. */
+    bool getFollowHost() const { return m_followHost.load(); }
+    void setFollowHost(bool on) { m_followHost.store(on); }
+    /** False in the standalone app (there is no host transport to follow). */
+    bool canFollowHost() const { return wrapperType != wrapperType_Standalone; }
+
+    /** Throw: fire one whoosh now (button, the F key; MIDI notes with Keys set to Throw do the same). Any thread. */
+    void throwWhoosh() { m_uiThrows.fetch_add(1); }
+    /** What MIDI keys do (the Keys parameter). */
+    enum KeysMode { KeysSwell = 0, KeysPitch, KeysThrow };
+    /** The keys that set the pitch right now: bit n of half 0 is MIDI note n, of half 1 note 64 + n. Any thread. */
+    std::uint64_t getHeldKeys(int half) const { return m_keysView[static_cast<size_t>(half & 1)].load(std::memory_order_relaxed); }
+    /** Where the morph dot is right now (0..1 across and up): the X / Y controls, or the wander's place while it
+        wanders. rotation: how far a closed wander shape has turned (radians). Any thread. */
+    void getMorphPosition(float& x, float& y, float& rotation) const
+    {
+        x = m_morphViewX.load(std::memory_order_relaxed);
+        y = m_morphViewY.load(std::memory_order_relaxed);
+        rotation = m_morphViewRotation.load(std::memory_order_relaxed);
+    }
     /** Whether a change of this parameter (its index in getParameters()) right now is something the user did, to
-        be saved, and not the app moving it by itself: false for the morph dot while Wander is on. Any thread. */
+        be saved. Always true: the morph wander flies the dot inside the processor and leaves X and Y alone. Any thread. */
     bool isUserEdit(int parameterIndex) const;
     /** New session: stops, empties every track and puts every parameter back to its default. Message thread. */
     void newSession();
@@ -170,12 +194,30 @@ private:
     RigEngine m_engine;
     std::atomic<bool> m_uiSwell { false };
     std::atomic<bool> m_playing { false }, m_restartPending { false };
+    // The Play parameter (host automation): a change of it starts or stops the rig. m_playParamWas is its value
+    // in the last block (audio thread).
+    bool m_playParamWas = false;
+    std::atomic<bool> m_followHost { true };
+    std::atomic<bool> m_hostStopped { false }; // the transport stopped the rig: the timer puts the Play parameter back
+    bool m_hostWasPlaying = false;   // audio thread
+    bool m_reseedPending = false;    // audio thread: the transport started, begin again from the seed
+    std::atomic<int> m_uiThrows { 0 };
+    // MIDI keys (audio thread): down right now, and for Throw the keys of the last chord (they keep its pitches
+    // after the keys are let go, until the next one starts).
+    std::array<std::uint64_t, 2> m_keysDown {}, m_keysLatched {};
+    std::array<std::atomic<std::uint64_t>, 2> m_keysView {};
+    int m_sinceMidiThrow = 1 << 30;  // device samples since the last throw from a key (a chord is one throw)
+    void handleMidi(const juce::MidiMessage&, int offsetSamples, bool mayThrow);
+    int keysMode() const;
+    // Morph wander (audio thread): the dot's own flight, blended in over the X / Y controls.
+    MorphWander m_wander;
+    bool m_wanderOn = false;
+    float m_wanderBlend = 0.0f, m_morphX = 0.5f, m_morphY = 0.5f;
+    std::atomic<float> m_morphViewX { 0.5f }, m_morphViewY { 0.5f }, m_morphViewRotation { 0.0f };
+    void runWander(int numSamples);
     float m_transportGain = 0.0f;
-    int m_morphXIndex = -1, m_morphYIndex = -1;          // for isUserEdit
-    std::atomic<float>* m_morphWanderRaw = nullptr;      //
     bool m_tapeRested = false; // the tape has been told the rig is at rest (audio thread)
     juce::SmoothedValue<float, juce::ValueSmoothingTypes::Multiplicative> m_trimGain { 1.0f }; // Master Trim, device rate
-    int m_midiNotesHeld = 0;
     MasterProcessor m_master;
     // Stop: the tail rings out (render-rate samples; audio thread)
     std::int64_t m_tailElapsed = 0, m_tailQuiet = 0;
@@ -207,6 +249,8 @@ private:
                           *takeTurns = nullptr;
         std::atomic<float>* space = nullptr, *inflate = nullptr, *push = nullptr, *ceiling = nullptr;
         std::atomic<float>* morphOn = nullptr, *morphMode = nullptr, *morphX = nullptr, *morphY = nullptr;
+        std::atomic<float>* morphWander = nullptr, *morphSpeed = nullptr, *morphShape = nullptr;
+        std::atomic<float>* throwLength = nullptr, *play = nullptr, *keysMode = nullptr;
         std::atomic<float>* linkBuses = nullptr, *hitAim = nullptr;
         std::atomic<float>* passMode[ParamIDs::numBuses] {};
         std::atomic<float>* tremOn = nullptr, *tremDepth = nullptr, *tremRate = nullptr, *tremThreshold = nullptr, *tremShape = nullptr, *tremTarget = nullptr;

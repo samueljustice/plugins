@@ -90,6 +90,7 @@ target_sources(Swooshbuckler
     Source/SeaVisualiser.cpp
     Source/CargoHoldView.cpp
     Source/MorphPad.cpp
+    Source/MorphWander.cpp
     Source/LogoOutline.cpp
     Source/ModPanel.cpp
     Source/UpdatePopup.cpp

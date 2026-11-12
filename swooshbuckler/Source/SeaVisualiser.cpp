@@ -262,8 +262,8 @@ void SeaVisualiser::paint(juce::Graphics& g)
         if (trail.size() < 2)
             continue;
 
-        const size_t bus = i / 2; // two passes per bus
-        const juce::Colour colour = bus == 0 ? Theme::Colours::movement : Theme::Colours::sources;
+        const size_t bus = i / 2; // two passes per bus, then the thrown whooshes
+        const juce::Colour colour = bus == 0 ? Theme::Colours::movement : (bus == 1 ? Theme::Colours::sources : Theme::Colours::flight);
         const float env = m_flightEnv[i];
         for (size_t j = 1; j < trail.size(); ++j)
         {

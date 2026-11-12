@@ -1,32 +1,9 @@
 #include "MorphPad.h"
-#include "LogoOutline.h"
 
 #include <cmath>
 
 namespace
 {
-    constexpr double c_lapT = 12.0 * juce::MathConstants<double>::pi; // the t range every closed shape is walked over
-    constexpr float c_margin = 0.06f;                                 // pad margin for the wander figure
-    constexpr float c_precessionPerLap = juce::MathConstants<float>::pi / 180.0f; // 1 degree per lap
-
-    // Lorenz attractor, the classic parameters.
-    constexpr double c_sigma = 10.0, c_rho = 28.0, c_beta = 8.0 / 3.0;
-    constexpr double c_lorenzDt = 0.01; // time step of the faint drawing (2400 steps, about 30 loops)
-
-    juce::Vector3D<double> lorenzDeriv(const juce::Vector3D<double>& v)
-    {
-        return { c_sigma * (v.y - v.x), v.x * (c_rho - v.z) - v.y, v.x * v.y - c_beta * v.z };
-    }
-
-    juce::Vector3D<double> lorenzStep(const juce::Vector3D<double>& v, double h) // RK4
-    {
-        const auto k1 = lorenzDeriv(v);
-        const auto k2 = lorenzDeriv(v + k1 * (h * 0.5));
-        const auto k3 = lorenzDeriv(v + k2 * (h * 0.5));
-        const auto k4 = lorenzDeriv(v + k3 * h);
-        return v + (k1 + k2 * 2.0 + k3 * 2.0 + k4) * (h / 6.0);
-    }
-
     const char* const c_modeNames[MorphPad::c_numModes] = { "Blend", "Glide", "Cross" };
     const char* const c_topLabels[MorphPad::c_numModes] = { "Fuse", "Shape", "A thru B" };
     const char* const c_bottomLabels[MorphPad::c_numModes] = { "Mix", "Move", "B thru A" };
@@ -117,7 +94,7 @@ public:
     WanderButton() : juce::Button("Wander")
     {
         setClickingTogglesState(true);
-        setTooltip("Wander\nPlay: the dot wanders along the chosen shape by itself, so the morph keeps moving. Stop: it stays where you put it.");
+        setTooltip("Wander\nPlay: the dot wanders along the chosen shape by itself, so the morph keeps moving, with this window closed and in a bounce too. Stop: it stays where the wander left it.");
     }
 
     void paintButton(juce::Graphics& g, bool over, bool down) override
@@ -211,7 +188,7 @@ MorphPad::MorphPad(const Theme::Fonts& fonts) : m_fonts(fonts)
     };
     addAndMakeVisible(m_shapeBox);
 
-    buildCurve();
+    MorphWander::prepareTables();
     m_enabled = true;
     applyEnabledLook(false); // starts off (greyed) until the parameter says otherwise
 }
@@ -253,76 +230,13 @@ void MorphPad::paintOverChildren(juce::Graphics& g)
 
 void MorphPad::setShape(int shape)
 {
-    shape = juce::jlimit(0, NumShapes - 1, shape);
+    shape = juce::jlimit(0, MorphWander::NumShapes - 1, shape);
     m_shapeBox.setSelectedItemIndex(shape, juce::dontSendNotification);
     if (shape == m_shape)
         return;
     m_shape = shape;
-    buildCurve();
+    m_trailCount = 0;
     repaint();
-}
-
-void MorphPad::buildCurve()
-{
-    constexpr double twoPi = juce::MathConstants<double>::twoPi;
-    if (m_shape == Cherries)
-    {
-        // The logo mark (grenade + cherry) as one path, walked by arc length.
-        LogoOutline logo(BinaryData::sjlogo_svg, static_cast<size_t>(BinaryData::sjlogo_svgSize));
-        auto path = logo.createOutlinePath();
-        const float length = juce::jmax(1.0e-3f, path.getLength());
-        for (int i = 0; i < c_curvePoints; ++i)
-        {
-            const auto p = path.getPointAlongPath(length * static_cast<float>(i) / static_cast<float>(c_curvePoints - 1));
-            m_curve[static_cast<size_t>(i)] = { p.x, p.y };
-        }
-    }
-    else
-    {
-        for (int i = 0; i < c_curvePoints; ++i)
-        {
-            const double u = static_cast<double>(i) / (c_curvePoints - 1);
-            switch (m_shape)
-            {
-                case FigureEight: m_curve[static_cast<size_t>(i)] = { static_cast<float>(std::sin(twoPi * u)), static_cast<float>(std::sin(twoPi * u) * std::cos(twoPi * u)) }; break;
-                case Rose:
-                {
-                    const double t = juce::MathConstants<double>::pi * u * 2.0, r = std::cos(3.0 * t);
-                    m_curve[static_cast<size_t>(i)] = { static_cast<float>(r * std::cos(t)), static_cast<float>(r * std::sin(t)) };
-                    break;
-                }
-                case Circle:      m_curve[static_cast<size_t>(i)] = { static_cast<float>(std::cos(twoPi * u)), static_cast<float>(std::sin(twoPi * u)) }; break;
-                default: break;
-            }
-        }
-    }
-    if (m_shape == Lorenz)
-    {
-        // Settle onto the attractor first, then record a long stretch of it.
-        juce::Vector3D<double> v { 1.0, 1.0, 20.0 };
-        for (int i = 0; i < 1500; ++i)
-            v = lorenzStep(v, c_lorenzDt);
-        m_lorenzStates.resize(static_cast<size_t>(c_curvePoints));
-        for (int i = 0; i < c_curvePoints; ++i)
-        {
-            m_lorenzStates[static_cast<size_t>(i)] = v;
-            m_curve[static_cast<size_t>(i)] = { static_cast<float>(v.x), static_cast<float>(v.z) };
-            v = lorenzStep(v, c_lorenzDt);
-        }
-        m_lorenz = m_lorenzStates.front();
-        m_rotation = 0.0f;
-    }
-    updateShapeTransform();
-}
-
-juce::Point<float> MorphPad::shapeRaw(double t) const
-{
-    // t runs over 0..c_lapT for every shape; read the precomputed points with linear interpolation.
-    const double u = std::fmod(std::max(0.0, t), c_lapT) / c_lapT * (c_curvePoints - 1);
-    const int i = juce::jlimit(0, c_curvePoints - 2, static_cast<int>(u));
-    const float f = static_cast<float>(u - i);
-    const auto a = m_curve[static_cast<size_t>(i)], b = m_curve[static_cast<size_t>(i + 1)];
-    return { a.x + (b.x - a.x) * f, a.y + (b.y - a.y) * f };
 }
 
 MorphPad::~MorphPad()
@@ -364,31 +278,7 @@ void MorphPad::setWander(bool on, float speed)
         return;
 
     m_wander = on;
-    if (on)
-    {
-        // Join the curve where it passes closest to the dot, so the dot doesn't jump.
-        updateShapeTransform();
-        double bestT = 0.0;
-        float best = 1.0e9f;
-        if (m_shape == Lorenz)
-        {
-            for (const auto& v : m_lorenzStates)
-            {
-                const float d = lorenzNorm(v).getDistanceSquaredFrom({ m_x, m_y });
-                if (d < best) { best = d; m_lorenz = v; }
-            }
-        }
-        else for (int i = 0; i < c_curvePoints; ++i)
-        {
-            const double t = c_lapT * i / (c_curvePoints - 1);
-            const auto p = shapeNorm(t);
-            const float d = p.getDistanceSquaredFrom({ m_x, m_y });
-            if (d < best) { best = d; bestT = t; }
-        }
-        m_t = bestT;
-        m_trailCount = 0;
-        m_lastTick = juce::Time::getMillisecondCounterHiRes();
-    }
+    m_trailCount = 0;
     updateTimer();
     repaint();
 }
@@ -510,14 +400,12 @@ void MorphPad::paint(juce::Graphics& g)
         {
             // The whole shape, faintly.
             juce::Path figure;
-            for (int i = 0; i < c_curvePoints; ++i)
+            const auto& points = MorphWander::curve(m_shape);
+            const auto box = MorphWander::bounds(m_shape, m_rotation);
+            for (int i = 0; i < MorphWander::c_curvePoints; ++i)
             {
-                const auto& r = m_curve[static_cast<size_t>(i)];
-                const float c = std::cos(m_rotation), s = std::sin(m_rotation);
-                const juce::Point<float> rot { r.x * c - r.y * s, r.x * s + r.y * c };
-                const float nx = c_margin + (rot.x - m_bbox.getX()) / m_bbox.getWidth() * (1.0f - 2.0f * c_margin);
-                const float ny = c_margin + (rot.y - m_bbox.getY()) / m_bbox.getHeight() * (1.0f - 2.0f * c_margin);
-                const auto p = padToLocal(nx, ny);
+                const auto n = MorphWander::toPad(points[static_cast<size_t>(i)], m_rotation, box);
+                const auto p = padToLocal(n.x, n.y);
                 if (i == 0) figure.startNewSubPath(p);
                 else        figure.lineTo(p);
             }
@@ -729,108 +617,6 @@ void MorphPad::endRope(juce::Point<int> screenPos)
 }
 
 //==============================================================================
-// Wander
-void MorphPad::updateShapeTransform()
-{
-    const float c = std::cos(m_rotation), s = std::sin(m_rotation);
-    float x0 = 1.0e9f, x1 = -1.0e9f, y0 = 1.0e9f, y1 = -1.0e9f;
-    for (const auto& r : m_curve)
-    {
-        const float x = r.x * c - r.y * s, y = r.x * s + r.y * c;
-        x0 = std::min(x0, x); x1 = std::max(x1, x);
-        y0 = std::min(y0, y); y1 = std::max(y1, y);
-    }
-    m_bbox = { x0, y0, std::max(1.0e-3f, x1 - x0), std::max(1.0e-3f, y1 - y0) };
-}
-
-juce::Point<float> MorphPad::shapeNorm(double t) const
-{
-    const auto r = shapeRaw(t);
-    const float c = std::cos(m_rotation), s = std::sin(m_rotation);
-    const float x = r.x * c - r.y * s, y = r.x * s + r.y * c;
-    return { juce::jlimit(0.0f, 1.0f, c_margin + (x - m_bbox.getX()) / m_bbox.getWidth() * (1.0f - 2.0f * c_margin)),
-             juce::jlimit(0.0f, 1.0f, c_margin + (y - m_bbox.getY()) / m_bbox.getHeight() * (1.0f - 2.0f * c_margin)) };
-}
-
-float MorphPad::wanderUnitsPerSecond() const
-{
-    // Pad widths per second: 0.05 (very slow drift) .. 1.5 (busy).
-    return 0.05f * std::pow(30.0f, static_cast<float>(m_speed.getValue()));
-}
-
-juce::Point<float> MorphPad::lorenzNorm(const juce::Vector3D<double>& v) const
-{
-    // Side on (x across, z up), in the bounds of the precomputed stretch (rotation is 0 for Lorenz).
-    const auto x = static_cast<float>(v.x), y = static_cast<float>(v.z);
-    return { juce::jlimit(0.0f, 1.0f, c_margin + (x - m_bbox.getX()) / m_bbox.getWidth() * (1.0f - 2.0f * c_margin)),
-             juce::jlimit(0.0f, 1.0f, c_margin + (y - m_bbox.getY()) / m_bbox.getHeight() * (1.0f - 2.0f * c_margin)) };
-}
-
-void MorphPad::stepLorenz(float distance)
-{
-    // Constant visual speed: step the live system by distance / (visual speed) in small RK4 steps.
-    // It's integrated, not looped, so the dot switches wings chaotically and never repeats.
-    for (int i = 0; i < 64 && distance > 1.0e-6f; ++i)
-    {
-        const auto d = lorenzDeriv(m_lorenz);
-        const float vx = static_cast<float>(d.x) / m_bbox.getWidth(), vy = static_cast<float>(d.z) / m_bbox.getHeight();
-        const float rate = std::max(1.0e-3f, std::sqrt(vx * vx + vy * vy) * (1.0f - 2.0f * c_margin));
-        const double h = std::min(static_cast<double>(distance / rate), 0.005);
-        m_lorenz = lorenzStep(m_lorenz, h);
-        distance -= static_cast<float>(h) * rate;
-    }
-}
-
-void MorphPad::stepWander(float dt)
-{
-    if (m_shape == Lorenz)
-    {
-        stepLorenz(wanderUnitsPerSecond() * dt);
-        const auto p = lorenzNorm(m_lorenz);
-        m_x = p.x;
-        m_y = p.y;
-        m_trail[static_cast<size_t>(m_trailHead)] = p;
-        m_trailHead = (m_trailHead + 1) % c_trail;
-        m_trailCount = std::min(m_trailCount + 1, c_trail);
-        if (onXYChanged)
-            onXYChanged(m_x, m_y);
-        return;
-    }
-
-    m_rotation = static_cast<float>((m_laps + m_t / c_lapT) * c_precessionPerLap);
-    updateShapeTransform();
-
-    // Constant visual speed: advance t by distance / |dP/dt| in small steps (the curve rushes
-    // through its outer loops and crawls near the cusps if t is advanced uniformly).
-    float remaining = wanderUnitsPerSecond() * dt;
-    for (int i = 0; i < 16 && remaining > 1.0e-6f; ++i)
-    {
-        constexpr double h = 1.0e-3;
-        const auto p0 = shapeNorm(m_t), p1 = shapeNorm(m_t + h);
-        const float rate = std::max(1.0e-3f, p0.getDistanceFrom(p1) / static_cast<float>(h));
-        const double step = std::min(static_cast<double>(remaining / rate), 0.04);
-        m_t += step;
-        remaining -= static_cast<float>(step) * rate;
-        if (m_t >= c_lapT)
-        {
-            m_t -= c_lapT;
-            m_laps += 1.0;
-        }
-    }
-
-    const auto p = shapeNorm(m_t);
-    m_x = p.x;
-    m_y = p.y;
-
-    m_trail[static_cast<size_t>(m_trailHead)] = p;
-    m_trailHead = (m_trailHead + 1) % c_trail;
-    m_trailCount = std::min(m_trailCount + 1, c_trail);
-
-    if (onXYChanged)
-        onXYChanged(m_x, m_y);
-}
-
-//==============================================================================
 void MorphPad::updateTimer()
 {
     const bool needed = m_wander || m_ropeSlot >= 0;
@@ -851,9 +637,17 @@ void MorphPad::timerCallback()
     const float dt = juce::jlimit(0.001f, 0.05f, static_cast<float>((now - m_lastTick) * 0.001));
     m_lastTick = now;
 
-    if (m_wander)
+    if (m_wander && wanderPosition)
     {
-        stepWander(dt);
+        // The dot is flown elsewhere: show where it is, with a short trail behind it.
+        float x = m_x, y = m_y, rotation = m_rotation;
+        wanderPosition(x, y, rotation);
+        m_x = juce::jlimit(0.0f, 1.0f, x);
+        m_y = juce::jlimit(0.0f, 1.0f, y);
+        m_rotation = rotation;
+        m_trail[static_cast<size_t>(m_trailHead)] = { m_x, m_y };
+        m_trailHead = (m_trailHead + 1) % c_trail;
+        m_trailCount = std::min(m_trailCount + 1, c_trail);
         repaint(m_pad.expanded(8.0f).getSmallestIntegerContainer());
     }
 

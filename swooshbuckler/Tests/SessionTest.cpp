@@ -4,6 +4,7 @@
 //   - Skip Silence on the real rig, and a continuous take with it off.
 //   - LAST 60s is written in the tape's format.
 //   - The settings (shared file, Skip Silence on unless switched off), the wander shape names.
+//   - Perform: Follow Host and the Play parameter, MIDI keys (Throw / Pitch / Swell), the morph wander in the processor.
 //   - The app's session autosave: saves when something changed, off the calling thread; a copy left behind is
 //     recovered; how long a save takes with about 20 MB of audio in the session.
 //
@@ -251,9 +252,20 @@ int main(int argc, char* argv[])
         rig.proc.setSkipSilence(true);
 
         auto* shape = dynamic_cast<juce::AudioParameterChoice*>(param(rig.proc, ParamIDs::morphShape));
-        check(shape != nullptr && shape->choices.size() == 5 && shape->choices[1] == "Cherries" && shape->choices[0] == "Lorenz"
-                  && MorphPad::shapeNames()[1] == "Cherries" && static_cast<int>(MorphPad::Cherries) == 1,
-              "morph: the second wander shape is Cherries (the others keep their places)");
+        check(shape != nullptr && shape->choices.size() == 6 && shape->choices[1] == "Cherries" && shape->choices[0] == "Lorenz"
+                  && shape->choices[4] == "Circle" && shape->choices[5] == "Butterfly"
+                  && MorphPad::shapeNames()[1] == "Cherries" && static_cast<int>(MorphWander::Cherries) == 1
+                  && MorphPad::shapeNames() == shape->choices && static_cast<int>(MorphWander::Butterfly) == 5,
+              "morph: the second wander shape is Cherries, Butterfly is added last (the others keep their places)");
+        // The last three host parameters are the newest, in this order (new ones only ever go on the end).
+        const auto& all = rig.proc.getParameters();
+        auto idAt = [&all](int fromEnd)
+        {
+            auto* ranged = dynamic_cast<juce::RangedAudioParameter*>(all[all.size() - fromEnd]);
+            return ranged != nullptr ? ranged->getParameterID() : juce::String();
+        };
+        check(idAt(3) == ParamIDs::throwLength && idAt(2) == ParamIDs::play && idAt(1) == ParamIDs::keysMode && idAt(4) == ParamIDs::passMode[1],
+              "parameters: Throw Length, Play and Keys are added after every older parameter");
     }
 
     // Stop: the tail rings out
@@ -344,6 +356,194 @@ int main(int argc, char* argv[])
         p.setMono(false);
     }
 
+    // Perform: Follow Host, the Play parameter, MIDI keys and the wander, on the real plug-in.
+    {
+        struct Transport final : juce::AudioPlayHead
+        {
+            bool playing = false;
+            juce::Optional<PositionInfo> getPosition() const override
+            {
+                PositionInfo info;
+                info.setIsPlaying(playing);
+                return info;
+            }
+        };
+        // Renders `seconds`; notes: (seconds from the start, note, velocity 0 = note off).
+        struct Note { double at; int note; float velocity; };
+        auto render = [](SwooshbucklerAudioProcessor& p, double seconds, const std::vector<Note>& notes = {})
+        {
+            const int total = static_cast<int>(seconds * c_fs) / c_block * c_block;
+            juce::AudioBuffer<float> out(2, total);
+            for (int pos = 0; pos < total; pos += c_block)
+            {
+                juce::MidiBuffer midi;
+                for (const auto& n : notes)
+                    if (const int at = static_cast<int>(n.at * c_fs); at >= pos && at < pos + c_block)
+                        midi.addEvent(n.velocity > 0.0f ? juce::MidiMessage::noteOn(1, n.note, n.velocity) : juce::MidiMessage::noteOff(1, n.note), at - pos);
+                juce::AudioBuffer<float> view(out.getArrayOfWritePointers(), 2, pos, c_block);
+                view.clear();
+                p.processBlock(view, midi);
+            }
+            return out;
+        };
+        auto maxDiff = [](const juce::AudioBuffer<float>& a, const juce::AudioBuffer<float>& b)
+        {
+            float d = 0.0f;
+            for (int ch = 0; ch < 2; ++ch)
+                for (int i = 0; i < juce::jmin(a.getNumSamples(), b.getNumSamples()); ++i)
+                    d = std::max(d, std::abs(a.getSample(ch, i) - b.getSample(ch, i)));
+            return d;
+        };
+
+        // Follow Host: plays with the transport, stops with a tail, and every start is the same ride (the morph
+        // wandering and a modulator running too: both are part of the bounce).
+        {
+            Rig rig(sources, 0);
+            auto& p = rig.proc;
+            Transport transport;
+            p.setPlayHead(&transport);
+            setNorm(p, ParamIDs::morphOn, 1.0f);
+            setNorm(p, ParamIDs::morphWander, 1.0f);
+            setNorm(p, ParamIDs::morphSpeed, 0.9f);
+            p.prepareToPlay(c_fs, c_block);
+            check(p.getFollowHost() && p.canFollowHost(), "follow host: on unless switched off (in a host)");
+            check(p.getTailLengthSeconds() >= SwooshbucklerAudioProcessor::c_tailMaxSeconds, "follow host: the host is told how long the tail can be");
+            const auto idle = render(p, 1.0);
+            check(peak(idle, 0.0, 1.0) == 0.0f && ! p.isPlaying(), "follow host: silent while the transport is stopped");
+            transport.playing = true;
+            const auto first = render(p, 4.0);
+            check(p.isPlaying() && peak(first, 0.5, 4.0) > 0.02f, "follow host: the rig plays when the transport starts");
+            transport.playing = false;
+            const auto tail = render(p, 9.0);
+            check(! p.isPlaying() && peak(tail, 0.0, 0.3) > 1.0e-4f && lastSound(tail) > 0.3 && lastSound(tail) < 8.0,
+                  "follow host: the transport stops the rig and the tail rings out (" + juce::String(lastSound(tail), 2) + " s)");
+            float x1 = 0.0f, y1 = 0.0f, rotation = 0.0f;
+            transport.playing = true;
+            const auto second = render(p, 4.0);
+            p.getMorphPosition(x1, y1, rotation);
+            const float differs = maxDiff(first, second);
+            std::cout << "         follow host: two transport starts differ by at most " << juce::String(db(differs), 1) << " dB (level "
+                      << juce::String(db(peak(first, 0.0, 4.0)), 1) << " dB peak)" << std::endl;
+            check(differs < 1.0e-4f, "follow host: every transport start gives the same ride (a bounce repeats)");
+            // Started in the middle of playing (not from rest): the same again.
+            transport.playing = false;
+            render(p, 0.2);
+            transport.playing = true;
+            const auto third = render(p, 4.0);
+            // (the old tail is faded out over the first 5 ms, and the output stage is still settling from it for a while)
+            float differsMid = 0.0f;
+            for (int ch = 0; ch < 2; ++ch)
+                for (int i = static_cast<int>(0.25 * c_fs); i < third.getNumSamples(); ++i)
+                    differsMid = std::max(differsMid, std::abs(first.getSample(ch, i) - third.getSample(ch, i)));
+            std::cout << "         follow host: a start 0.2 s after a stop (the tail still ringing) differs from the first by at most "
+                      << juce::String(db(differsMid), 1) << " dB after its first 250 ms" << std::endl;
+            check(differsMid < 0.02f, "follow host: a start over a ringing tail is the same ride too");
+            // Play still works by hand while the transport runs or rests.
+            p.setPlaying(false);
+            render(p, 8.0);
+            check(! p.isPlaying() && peak(render(p, 0.5), 0.0, 0.5) == 0.0f, "follow host: Play still stops the rig by hand while the transport runs");
+            // Off: the transport is ignored.
+            p.setFollowHost(false);
+            transport.playing = false;
+            render(p, 0.5);
+            transport.playing = true;
+            check(peak(render(p, 1.0), 0.0, 1.0) == 0.0f && ! p.isPlaying(), "follow host: off, the transport does not start the rig");
+
+            // The wander is heard in the bounce: the same start without it is a different sound.
+            p.setFollowHost(true);
+            setNorm(p, ParamIDs::morphWander, 0.0f);
+            transport.playing = false;
+            render(p, 8.0);
+            transport.playing = true;
+            const auto still = render(p, 4.0);
+            check(maxDiff(first, still) > 1.0e-3f, "wander: it moves the morph in an offline render (with no window)");
+
+            // The play state and Follow Host are saved with the plug-in's state.
+            p.setFollowHost(false);
+            p.setPlaying(true);
+            juce::MemoryBlock saved;
+            p.getStateInformation(saved);
+            Rig other(sources, 0);
+            other.proc.setStateInformation(saved.getData(), static_cast<int>(saved.getSize()));
+            other.proc.prepareToPlay(c_fs, c_block);
+            check(! other.proc.getFollowHost(), "state: Follow Host is saved");
+            check(param(other.proc, ParamIDs::play)->getValue() > 0.5f, "state: the play state is saved");
+            check(peak(render(other.proc, 2.0), 0.5, 2.0) > 0.02f && other.proc.isPlaying(), "state: a session saved playing plays when it is opened in a host");
+        }
+
+        // Play is a host parameter: automation starts and stops the rig, and the button moves the parameter.
+        {
+            Rig rig(sources, 0);
+            auto& p = rig.proc;
+            p.prepareToPlay(c_fs, c_block);
+            auto* play = param(p, ParamIDs::play);
+            check(play != nullptr && play->isAutomatable(), "play: an automatable host parameter");
+            setNorm(p, ParamIDs::play, 1.0f);
+            check(peak(render(p, 2.0), 0.5, 2.0) > 0.02f && p.isPlaying(), "play: the parameter starts the rig");
+            setNorm(p, ParamIDs::play, 0.0f);
+            render(p, 0.1);
+            check(! p.isPlaying(), "play: the parameter stops the rig");
+            p.setPlaying(true);
+            check(play->getValue() > 0.5f, "play: the Play button moves the parameter");
+            render(p, 0.5);
+            check(p.isPlaying(), "play: and the rig keeps playing");
+            p.setPlaying(false);
+        }
+
+        // Keys.
+        {
+            Rig rig(sources, 0);
+            auto& p = rig.proc;
+            setNorm(p, ParamIDs::space, 0.0f);
+            setNorm(p, ParamIDs::fill, 0.0f);
+            setNorm(p, ParamIDs::throwLength, param(p, ParamIDs::throwLength)->convertTo0to1(1.0f)); // 1 s throws
+            p.prepareToPlay(c_fs, c_block);
+
+            // Throw: one whoosh per note, from rest, and silence again afterwards.
+            setNorm(p, ParamIDs::keysMode, 1.0f);
+            const int count0 = p.getEngine().getThrowCount();
+            const auto thrown = render(p, 8.0, { { 0.5, 60, 0.9f }, { 0.6, 60, 0.0f }, { 1.5, 64, 0.9f }, { 1.6, 64, 0.0f }, { 2.5, 67, 0.9f }, { 2.6, 67, 0.0f } });
+            check(p.getEngine().getThrowCount() - count0 == 3, "keys, Throw: three notes throw three whooshes ("
+                                                                    + juce::String(p.getEngine().getThrowCount() - count0) + ")");
+            check(peak(thrown, 0.0, 0.45) == 0.0f && peak(thrown, 0.8, 1.2) > 0.01f && peak(thrown, 1.8, 2.2) > 0.01f && peak(thrown, 2.8, 3.2) > 0.01f,
+                  "keys, Throw: each is heard, peaking half a Throw Length after its note");
+            check(! p.isPlaying() && lastSound(thrown) < 7.5, "keys, Throw: with the rig stopped it is silent again afterwards (last sound at "
+                                                               + juce::String(lastSound(thrown), 2) + " s)");
+            // Three notes together are one whoosh with the three pitches dealt over the tracks.
+            const int count1 = p.getEngine().getThrowCount();
+            render(p, 0.5, { { 0.1, 60, 0.9f }, { 0.1, 64, 0.9f }, { 0.105, 67, 0.9f } });
+            check(p.getEngine().getThrowCount() - count1 == 1, "keys, Throw: a chord is one whoosh");
+            check(juce::exactlyEqual(p.getEngine().getKeyPitch(0), 0.0f) && juce::exactlyEqual(p.getEngine().getKeyPitch(1), 4.0f)
+                      && juce::exactlyEqual(p.getEngine().getKeyPitch(2), 7.0f),
+                  "keys, Throw: the chord's notes pitch the tracks in order");
+            check((p.getHeldKeys(0) >> 60 & 1u) != 0 && (p.getHeldKeys(1) >> (64 - 64) & 1u) != 0 && (p.getHeldKeys(1) >> (67 - 64) & 1u) != 0,
+                  "keys: the held notes are published for the display");
+            render(p, 8.0, { { 0.1, 60, 0.0f }, { 0.1, 64, 0.0f }, { 0.1, 67, 0.0f } });
+
+            // The Throw button (and the F key) from rest.
+            const int count2 = p.getEngine().getThrowCount();
+            p.throwWhoosh();
+            const auto button = render(p, 6.0);
+            check(p.getEngine().getThrowCount() - count2 == 1 && peak(button, 0.3, 0.7) > 0.01f && lastSound(button) < 5.5 && ! p.isPlaying(),
+                  "throw: the button throws one whoosh from rest, then silence");
+
+            // Pitch: held keys pitch the tracks while the rig plays; letting go returns to the knob.
+            setNorm(p, ParamIDs::keysMode, 0.5f);
+            p.setPlaying(true);
+            render(p, 1.0, { { 0.2, 55, 0.8f } });
+            check(juce::exactlyEqual(p.getEngine().getKeyPitch(0), -5.0f) && juce::exactlyEqual(p.getEngine().getKeyPitch(2), -5.0f),
+                  "keys, Pitch: one held key moves every track by its distance from middle C");
+            const int count3 = p.getEngine().getThrowCount();
+            render(p, 0.5, { { 0.1, 55, 0.0f } });
+            check(juce::exactlyEqual(p.getEngine().getKeyPitch(0), 0.0f) && p.getEngine().getThrowCount() == count3, "keys, Pitch: released, back to the knob (and nothing is thrown)");
+            // Swell: a held note holds Swell and pitches nothing.
+            setNorm(p, ParamIDs::keysMode, 0.0f);
+            render(p, 0.5, { { 0.1, 72, 0.8f } });
+            check(juce::exactlyEqual(p.getEngine().getKeyPitch(0), 0.0f) && (p.getHeldKeys(1) >> (72 - 64) & 1u) != 0, "keys, Swell: a held note pitches nothing");
+            p.setPlaying(false);
+        }
+    }
+
     // Session autosave
     {
         Rig rig(sources, 0);
@@ -432,12 +632,33 @@ int main(int argc, char* argv[])
                         prm->endChangeGesture();
                     }
             };
+            // The processor flies the dot itself and leaves the X / Y controls alone, so nothing is there to save.
+            p.prepareToPlay(c_fs, c_block);
+            const float xBefore = param(p, ParamIDs::morphX)->getValue(), yBefore = param(p, ParamIDs::morphY)->getValue();
             setNorm(p, ParamIDs::morphWander, 1.0f);
             check(waitForSave(4, 60000), "autosave: switching Wander on is saved");
             idle(500, {});
-            float x = 0.1f;
             const int before = autosave->getSaveCount();
-            idle(1500, [&] { x = x > 0.9f ? 0.1f : x + 0.01f; moveDot(x); });
+            float travelled = 0.0f, lastX = 0.0f, lastY = 0.0f, rotation = 0.0f;
+            p.getMorphPosition(lastX, lastY, rotation);
+            idle(1500, [&]
+            {
+                juce::AudioBuffer<float> block(2, c_block);
+                juce::MidiBuffer midi;
+                for (int n = 0; n < 8; ++n) // the rig stopped, as when the app has just opened: the dot still flies
+                {
+                    block.clear();
+                    p.processBlock(block, midi);
+                }
+                float x = 0.0f, y = 0.0f;
+                p.getMorphPosition(x, y, rotation);
+                travelled += std::hypot(x - lastX, y - lastY);
+                lastX = x;
+                lastY = y;
+            });
+            check(travelled > 0.2f, "wander: the processor flies the dot with no window open (it travelled " + juce::String(travelled, 2) + " pad widths)");
+            check(juce::exactlyEqual(param(p, ParamIDs::morphX)->getValue(), xBefore) && juce::exactlyEqual(param(p, ParamIDs::morphY)->getValue(), yBefore),
+                  "wander: the X and Y controls are left where they were");
             check(autosave->getSaveCount() == before, "autosave: the dot wandering by itself is not saved again and again ("
                                                           + juce::String(autosave->getSaveCount() - before) + " saves in 1.5 s, one was allowed every 0.4 s)");
             p.setLatencySamples(p.getLatencySamples() + 16);
