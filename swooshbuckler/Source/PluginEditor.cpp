@@ -617,6 +617,7 @@ SwooshbucklerAudioProcessorEditor::SwooshbucklerAudioProcessorEditor(Swooshbuckl
     , m_modPanel(p, *m_fonts, m_wires)
     , m_settings(*this)
     , m_takes(p, *m_fonts)
+    , m_variations(p, *m_fonts)
     , m_about(*this)
 {
     setLookAndFeel(&m_lnf);
@@ -639,7 +640,8 @@ SwooshbucklerAudioProcessorEditor::SwooshbucklerAudioProcessorEditor(Swooshbuckl
     };
 
     // Header ------------------------------------------------------------------
-    for (auto* b : { &m_presetPrev, &m_presetName, &m_presetNext, &m_dice, &m_retroButton, &m_settingsButton, &m_playButton, &m_newButton, &m_takesButton })
+    for (auto* b : { &m_presetPrev, &m_presetName, &m_presetNext, &m_dice, &m_retroButton, &m_settingsButton, &m_playButton, &m_newButton, &m_takesButton,
+                     &m_variationsButton })
     {
         b->setColour(juce::TextButton::buttonOnColourId, TC::flight);
         b->setWantsKeyboardFocus(false);
@@ -666,6 +668,10 @@ SwooshbucklerAudioProcessorEditor::SwooshbucklerAudioProcessorEditor(Swooshbuckl
     m_takesButton.setTooltip("Takes\nThe recordings of this run, newest first, with how many there are: tape takes, whoosh files and LAST 60s saves. "
                              "Open it to hear them, drag them out to the Finder / Explorer or into your DAW, keep or delete them.");
     m_takesButton.onClick = [this] { showTakes(); };
+    m_variationsButton.setTooltip("Render Variations\nRenders a batch of whooshes straight to files, in the background and faster than real time: "
+                                  "choose how many (100 unless you say otherwise), how long, and what changes from one to the next. "
+                                  "While a batch renders, this button shows how far it is.");
+    m_variationsButton.onClick = [this] { showVariations(); };
     m_playButton.setColour(juce::TextButton::buttonOnColourId, TC::good);
     m_playButton.setTooltip("Play / Stop\nStarts and stops the whole rig. Stop lets the tail ring out. The app always opens stopped, so nothing blasts out when you load a session. In a DAW it can be automated, and with Follow Host on the transport starts and stops it too.");
     m_playButton.onClick = [this] { m_processor.setPlaying(! m_processor.isPlaying()); };
@@ -961,6 +967,9 @@ SwooshbucklerAudioProcessorEditor::SwooshbucklerAudioProcessorEditor(Swooshbuckl
 
     m_content.addChildComponent(m_settings);
     m_content.addChildComponent(m_takes);
+    m_content.addChildComponent(m_variations);
+    m_variations.onOpenTakes = [this] { showTakes(); };
+    m_variations.onKeyboardDone = [this] { grabKeyboardFocus(); };
     m_takes.onStatus = [this](const juce::String& text) { toast(text); };
     m_content.addChildComponent(m_about);
 
@@ -1069,16 +1078,17 @@ void SwooshbucklerAudioProcessorEditor::layoutContent()
                                 juce::GlyphArrangement::getStringWidthInt(m_fonts->label(10.0f), m_versionLink.getButtonText()) + 8, 16);
         m_titleArea = { 16, 4, 290, 34 };
     }
-    m_playButton.setBounds(372, 15, 84, 30);
-    m_newButton.setBounds(462, 15, 60, 30);
-    m_presetPrev.setBounds(536, 15, 26, 30);
-    m_presetName.setBounds(566, 15, 172, 30);
-    m_presetNext.setBounds(742, 15, 26, 30);
-    m_dice.setBounds(774, 15, 100, 30);
-    m_tape.setBounds(888, 13, 124, 34);
-    m_retroButton.setBounds(1018, 15, 86, 30);
-    m_takesButton.setBounds(1110, 15, 70, 30);
-    m_settingsButton.setBounds(1186, 15, 78, 30);
+    m_playButton.setBounds(372, 15, 72, 30);
+    m_newButton.setBounds(450, 15, 52, 30);
+    m_presetPrev.setBounds(510, 15, 26, 30);
+    m_presetName.setBounds(540, 15, 132, 30);
+    m_presetNext.setBounds(676, 15, 26, 30);
+    m_dice.setBounds(708, 15, 92, 30);
+    m_tape.setBounds(808, 13, 124, 34);
+    m_retroButton.setBounds(938, 15, 80, 30);
+    m_variationsButton.setBounds(1024, 15, 86, 30);
+    m_takesButton.setBounds(1116, 15, 70, 30);
+    m_settingsButton.setBounds(1192, 15, 72, 30);
 
     // Row 1: the tracks, the output view, and the ride
     m_hold.setBounds(16, 62, 884, 384);
@@ -1208,6 +1218,8 @@ void SwooshbucklerAudioProcessorEditor::layoutContent()
     m_settings.setVisible(false);
     m_takes.setBounds(0, 0, c_width, c_height);
     m_takes.setVisible(false);
+    m_variations.setBounds(0, 0, c_width, c_height);
+    m_variations.setVisible(false);
     m_about.setBounds(0, 0, c_width, c_height);
     m_about.setVisible(false);
 
@@ -1394,11 +1406,12 @@ bool SwooshbucklerAudioProcessorEditor::keyPressed(const juce::KeyPress& key)
         m_updatePopup.setVisible(false);
         return true;
     }
-    if (key == juce::KeyPress::escapeKey && (m_settings.isVisible() || m_about.isVisible() || m_takes.isVisible()))
+    if (key == juce::KeyPress::escapeKey && (m_settings.isVisible() || m_about.isVisible() || m_takes.isVisible() || m_variations.isVisible()))
     {
         m_settings.setVisible(false);
         m_about.setVisible(false);
         m_takes.setVisible(false);
+        m_variations.setVisible(false); // a batch that is rendering carries on
         return true;
     }
     return false;
@@ -1443,8 +1456,19 @@ void SwooshbucklerAudioProcessorEditor::showTakes()
 {
     m_settings.setVisible(false);
     m_about.setVisible(false);
+    m_variations.setVisible(false);
+    m_processor.refreshTakes();
     m_takes.setVisible(true);
     m_takes.toFront(false);
+}
+
+void SwooshbucklerAudioProcessorEditor::showVariations()
+{
+    m_settings.setVisible(false);
+    m_about.setVisible(false);
+    m_takes.setVisible(false);
+    m_variations.setVisible(true);
+    m_variations.toFront(false);
 }
 
 void SwooshbucklerAudioProcessorEditor::toggleLog()
@@ -1526,19 +1550,9 @@ void SwooshbucklerAudioProcessorEditor::stepPreset(int delta)
 void SwooshbucklerAudioProcessorEditor::applyPreset(const Presets::Preset& preset, bool includeMode)
 {
     m_morph.finish();
-    for (auto* p : m_processor.getParameters())
+    // Randomise leaves each bus's Pass Mode as it is set (a factory preset picks it).
+    for (const auto& [param, target] : Presets::targets(m_processor.getParameters(), preset, includeMode))
     {
-        auto* param = dynamic_cast<juce::RangedAudioParameter*>(p);
-        if (param == nullptr)
-            continue;
-        const auto id = param->getParameterID();
-        if (Presets::isSessionParameter(id))
-            continue;
-        const auto it = preset.values.find(id);
-        // Randomise leaves each bus's Pass Mode as it is set (a factory preset picks it).
-        if (! includeMode && it == preset.values.end() && (id == ParamIDs::passMode[0] || id == ParamIDs::passMode[1]))
-            continue;
-        const float target = it != preset.values.end() ? param->convertTo0to1(it->second) : param->getDefaultValue();
         if (std::abs(param->getValue() - target) < 1.0e-5f)
             continue;
         param->beginChangeGesture();
@@ -1697,6 +1711,25 @@ void SwooshbucklerAudioProcessorEditor::timerCallback()
         if (m_takesSeen >= 0 && generation != m_takesSeen && m_processor.isRecording() && ! takes.empty() && takes.front().kind == "Whoosh")
             toast("Saved " + takes.front().file.getFileName(), takes.front().file);
         m_takesSeen = generation;
+    }
+    // Render Variations: the header button shows how far a batch is, and says so when it has ended with the panel closed.
+    {
+        const auto progress = m_processor.getVariations().getProgress();
+        const bool rendering = progress.state == VariationRenderer::State::Rendering;
+        const int percent = rendering ? juce::roundToInt(100.0f * static_cast<float>(progress.done + progress.silent) / static_cast<float>(juce::jmax(1, progress.total))) : -1;
+        if (percent != m_variationsShown)
+        {
+            if (m_variationsShown >= 0 && ! rendering && ! m_variations.isVisible())
+            {
+                if (progress.state == VariationRenderer::State::Finished)
+                    toast("Rendered " + juce::String(progress.done) + (progress.done == 1 ? " variation into " : " variations into ") + progress.folder.getFileName());
+                else if (progress.state == VariationRenderer::State::Failed)
+                    toast("Render Variations stopped: " + progress.error);
+            }
+            m_variationsShown = percent;
+            m_variationsButton.setButtonText(rendering ? "Render " + juce::String(percent) + "%" : juce::String("Variations"));
+            m_variationsButton.setToggleState(rendering, juce::dontSendNotification);
+        }
     }
     if ((++m_slowTick % 30) == 0)
         if (const auto error = m_processor.takeRecordingError(); error.isNotEmpty())

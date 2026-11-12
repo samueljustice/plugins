@@ -155,6 +155,14 @@ public:
 
     static juce::File defaultFolder();
 
+    /** Writes finished audio to `file` the way the tape writes its own: the same file types, bit depths, mono fold,
+        rate conversion (options.fileRate, 0 = `rate`) and description. Replaces a file that is already there; a
+        file that could not be written whole is deleted. Any thread but the audio thread. */
+    static bool writeFile(const juce::File& file, const juce::AudioBuffer<float>& audio, int startSample, int numSamples,
+                          double rate, const Options& options, const Naming& naming, juce::String& error);
+    /** ".wav", ".aif" or ".flac". */
+    static juce::String extensionOf(FileType type);
+
 private:
     class Sink;
     friend class Sink;

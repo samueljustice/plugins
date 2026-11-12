@@ -96,6 +96,8 @@ target_sources(Swooshbuckler
     Source/UpdatePopup.cpp
     Source/TakeAudition.cpp
     Source/TakesView.cpp
+    Source/VariationRenderer.cpp
+    Source/VariationsView.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/../common/SammyJUpdateCheck.cpp
 )
 
@@ -205,6 +207,14 @@ if(SWOOSHBUCKLER_TESTS)
     target_include_directories(SwooshbucklerSession PRIVATE Source ${CMAKE_CURRENT_BINARY_DIR}/Swooshbuckler_artefacts/JuceLibraryCode $<TARGET_PROPERTY:Swooshbuckler,INCLUDE_DIRECTORIES>)
     target_compile_definitions(SwooshbucklerSession PRIVATE $<TARGET_PROPERTY:Swooshbuckler,COMPILE_DEFINITIONS>)
     target_link_libraries(SwooshbucklerSession PRIVATE Swooshbuckler)
+
+    # Render test: Render Variations through the whole plug-in. A batch's files (names, lengths, peaks, each one
+    # different), cancelling, the same batch seed giving the same files, and how fast a batch renders.
+    juce_add_console_app(SwooshbucklerRender PRODUCT_NAME "SwooshbucklerRender")
+    target_sources(SwooshbucklerRender PRIVATE Tests/RenderTest.cpp)
+    target_include_directories(SwooshbucklerRender PRIVATE Source ${CMAKE_CURRENT_BINARY_DIR}/Swooshbuckler_artefacts/JuceLibraryCode $<TARGET_PROPERTY:Swooshbuckler,INCLUDE_DIRECTORIES>)
+    target_compile_definitions(SwooshbucklerRender PRIVATE $<TARGET_PROPERTY:Swooshbuckler,COMPILE_DEFINITIONS>)
+    target_link_libraries(SwooshbucklerRender PRIVATE Swooshbuckler)
 endif()
 
 # Artwork tools (off by default): renders Resources/icon.png. See tools/IconRender.cpp.

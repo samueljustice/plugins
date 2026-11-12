@@ -101,6 +101,7 @@ From left to right:
 | **RANDOMISE** | Rolls a random but musical setting and glides to it. |
 | Tape (**ARM**) | The tape machine. See [Recording](#recording). It reads **ARM**, **ARMED** (with a blinking red dot, waiting for sound) or **REC mm:ss** (recording, reels spinning). |
 | **LAST 60s** | Saves the last minute of output to a file, even if the tape wasn't armed. With **Keep the Last** in Settings at 3 or 5 minutes it reads LAST 3 MIN or LAST 5 MIN and saves that much. |
+| **Variations** | Opens [Render Variations](#render-variations): a batch of whooshes rendered straight to files. While a batch renders it lights up and reads **Render 37%**. |
 | **Takes** | Opens [Takes](#takes): the recordings of this run, to hear, drag out, keep or delete. The number beside it is how many there are. |
 | **SETTINGS** | Opens [Settings](#settings-and-recording): where recordings go and how they're written, and the audio device in the app. |
 
@@ -414,17 +415,42 @@ Click **SETTINGS** to open. Close it with CLOSE, Esc, or a click outside the pan
 
 #### Takes
 
-Click **Takes** in the header (or a "Saved ..." message) to open the list of this run's recordings, newest first: tape takes, whoosh files and LAST 60s saves, up to 20. Close it with Close, Esc, or a click outside the panel. The list starts empty each time Swooshbuckler opens; the files themselves stay in the recordings folder.
+Click **Takes** in the header (or a "Saved ..." message) to open the list of this run's recordings, newest first: tape takes, whoosh files, LAST 60s saves and rendered variations, up to 20. Close it with Close, Esc, or a click outside the panel. The list starts empty each time Swooshbuckler opens; the files themselves stay in the recordings folder.
 
 | Part of a row | What it does |
 |---|---|
 | Star | Keeps the take in the list. When the list is full the oldest take without a star leaves first. Leaving the list never deletes a file. |
 | Waveform and name | Click to hear the take; click again, or another take, to stop. It plays over whatever the rig is doing, after the tape, so it is never recorded. A line shows where it is. Drag the row out to the Finder or Explorer, or straight onto a track in your DAW, to copy the file there. |
-| Tag and length | What it is (Tape, Whoosh, Last 60s) and how long. A file that has been moved or deleted since reads Missing. |
+| Tag and length | What it is (Tape, Whoosh, Last 60s, Variation) and how long. A file that has been moved or deleted since reads Missing. |
 | **Show** | Shows the file in the Finder or Explorer. |
 | Bin | Moves the file to the system trash and takes it off the list. |
 
 **Show Folder** opens the recordings folder.
+
+#### Render Variations
+
+Click **Variations** in the header to render a batch of whooshes straight to files, without playing them. Each file is one thrown whoosh (the same [Throw](#throw) as the Ride panel's), rendered from silence until its echoes and Space have rung out, with the silence in front taken off and a short fade at the very end. The files go through the same output stage as the tape (Inflate, Push, the limiter and its Ceiling, the tremolo, Space) and are not affected by Master Trim.
+
+The batch renders in the background, much faster than real time (on the machine this was written on, 100 whooshes of 3 seconds take about 20 seconds), through a second copy of the rig made from your session at the moment you press Render. The rig you hear is never touched: it keeps playing, you can keep working, and nothing you change afterwards reaches the batch.
+
+| Control | What it does |
+|---|---|
+| **Count** | How many whooshes to render, from 1 to 1000. It starts at 100 and remembers what you set. |
+| **Length** | How long each thrown whoosh is, from 0.3 to 6 seconds; it peaks half-way through. It starts out as the Ride panel's Throw Length. Every file runs on after its whoosh until the tail has rung out (six seconds at the most), so the files are longer than this. |
+| **Batch Seed** | The number every file's random draws come from. The same seed, with the same settings and samples, renders the same batch again, sample for sample (16-bit files differ only in their dither); another seed renders another batch. **New Seed** draws a new one, and a new one is drawn after every batch unless you typed your own. |
+| **What Varies** | **Randomise Everything**: a fresh RANDOMISE roll for every file, so the ride, the buses, the hits and the space all change; your tracks, their levels and the output stay as they are. **Small Changes**: every file starts from the settings as they are, nudges each of those controls by up to Amount, and starts each track a little further into its sample: a family of whooshes around one you like. **Seed Only**: the settings stay exactly as they are and only the rig's own dice change: how each pass flies, how close it comes and which sound of each track it picks. |
+| **Amount** | How far Small Changes may move each control: at 100%, up to half of its travel either way, and up to four semitones of Pitch. |
+| **Folder** | Where the files go. **Dated Folder** (the default) gives every batch a new folder of its own inside the recordings folder, named after the take name and the date and time. **Choose...** picks a folder that stays; numbers carry on after the files already there, so nothing is ever written over. |
+| **Render** | Starts the batch. |
+| **Cancel** | Stops it. The files already rendered are kept; the one in hand is dropped, so nothing half-written is left. |
+| **Show In Finder** / **Show In Explorer** | Shows the batch's folder. |
+| **Open Takes** | Opens [Takes](#takes), where the newest 20 of the rendered files can be heard, starred and dragged out. |
+
+While a batch renders the panel shows a progress bar with the percentage, which file it is on ("37 of 100" and the file's name) and an estimate of the time left. You can close the panel; the header button keeps showing the percentage, and the status line says when the batch is done. When it has finished the panel reads "100 files in" and the folder's name, with the batch seed underneath.
+
+Files are named `<Name>_001`, `<Name>_002` and so on (four digits for a batch that reaches 1000), where the name is the Take Name from Settings, or the preset's. The file type, bit depth, sample rate and mono or stereo are the tape's, from Settings. Every file carries a description: which variation of which batch it is, the batch seed, and the value of every control it was made with, so a favourite can be dialled in again by hand or rendered again from its seed.
+
+If the rig has nothing to play (no samples loaded and every lane muted, say) the batch stops with a message and writes no files.
 
 #### Your session in the app
 
@@ -472,7 +498,7 @@ Anything else a preset doesn't set goes back to its default. **Back to Defaults*
 | MIDI notes | What the **Keys** menu in the Ride panel says: hold Swell (the default), set the pitch of the tracks, or throw one whoosh per note. See [Keys](#keys). |
 | Click the sea | A short swell. |
 | Cmd+Z / Shift+Cmd+Z (Ctrl+Z / Ctrl+Shift+Z on Windows) | Undo and redo the last load or removal in Tracks, newest first. Click the Tracks panel first. |
-| Esc | Closes Settings, Takes or About. |
+| Esc | Closes Settings, Takes, Render Variations or About. A batch that is rendering carries on. |
 | Double-click a knob | Resets it. |
 | Double-click a track name | Renames it. |
 | Double-click a waveform | Puts the start flag back at the top. |
@@ -506,7 +532,7 @@ cmake -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build --config Release
 ```
 
-This builds the app, the VST3 and the AU (macOS) into `build/Swooshbuckler_artefacts/Release/`, along with the offline test programs: `SwooshbucklerRig`, `SwooshbucklerCargo`, `SwooshbucklerClassify`, `SwooshbucklerPitch`, `SwooshbucklerMorph`, `SwooshbucklerMaster` and `SwooshbucklerSession`. Pass `-DSWOOSHBUCKLER_TESTS=OFF` to skip the tests, or `-DSWOOSHBUCKLER_FORMATS="Standalone;VST3"` to choose the formats.
+This builds the app, the VST3 and the AU (macOS) into `build/Swooshbuckler_artefacts/Release/`, along with the offline test programs: `SwooshbucklerRig`, `SwooshbucklerCargo`, `SwooshbucklerClassify`, `SwooshbucklerPitch`, `SwooshbucklerMorph`, `SwooshbucklerMaster`, `SwooshbucklerSession` and `SwooshbucklerRender`. Pass `-DSWOOSHBUCKLER_TESTS=OFF` to skip the tests, or `-DSWOOSHBUCKLER_FORMATS="Standalone;VST3"` to choose the formats.
 
 ### Version
 

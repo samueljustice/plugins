@@ -1,5 +1,6 @@
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
+#include "VariationRenderer.h"
 #include "Version.h"
 
 namespace
@@ -16,9 +17,12 @@ namespace
     }
 }
 
-SwooshbucklerAudioProcessor::SwooshbucklerAudioProcessor()
+SwooshbucklerAudioProcessor::SwooshbucklerAudioProcessor() : SwooshbucklerAudioProcessor(nullptr) {}
+
+SwooshbucklerAudioProcessor::SwooshbucklerAudioProcessor(juce::PropertiesFile* offlineSettings)
     // Sample-based instrument: no audio input (so no feedback loop, no microphone), MIDI in, stereo out.
     : AudioProcessor(BusesProperties().withOutput("Output", juce::AudioChannelSet::stereo(), true))
+    , m_offline(offlineSettings != nullptr)
     , m_state(*this, nullptr, "Swooshbuckler", Params::createLayout())
 {
     auto raw = [this](const char* id) { return m_state.getRawParameterValue(id); };
@@ -89,6 +93,13 @@ SwooshbucklerAudioProcessor::SwooshbucklerAudioProcessor()
 
 
     m_engine.setCargoHold(&m_cargo);
+    if (m_offline)
+    {
+        // An offline copy: its maker's settings (read only), no tape memory and no timer (so no auto-arming).
+        m_settings = offlineSettings;
+        m_followHost.store(false);
+        return;
+    }
     if (s_sharedSettings != nullptr)
         m_settings = s_sharedSettings;
     else
@@ -102,6 +113,7 @@ SwooshbucklerAudioProcessor::SwooshbucklerAudioProcessor()
 
 SwooshbucklerAudioProcessor::~SwooshbucklerAudioProcessor()
 {
+    m_variations.reset(); // stops its thread and lets go of its copy of this rig first
     stopTimer();
     m_recorder.stop();
 }
@@ -146,7 +158,8 @@ void SwooshbucklerAudioProcessor::prepareInternal()
     updateEngineParams();
     m_engine.prepare(m_renderRate, m_blockSize);
     m_master.prepare(m_renderRate, 2);
-    m_recorder.prepare(m_renderRate, 2);
+    if (! m_offline)
+        m_recorder.prepare(m_renderRate, 2);
     m_work.setSize(2, m_blockSize);
 
     // Latency: the engine and the limiter (in device samples), and when rendering high, the input the
@@ -171,7 +184,7 @@ void SwooshbucklerAudioProcessor::renderAtRenderRate(const float* inL, const flo
     // The pass peaks and hits of this block, for the take's markers: they reach the tape after the limiter's look-ahead.
     static_assert(static_cast<int>(RigEngine::MarkPassA) == static_cast<int>(TapeRecorder::MarkPassA)
                   && static_cast<int>(RigEngine::MarkHit) == static_cast<int>(TapeRecorder::MarkHit), "the same marker kinds");
-    for (int i = 0; i < m_engine.getNumMarkers(); ++i)
+    for (int i = 0; i < m_engine.getNumMarkers() && ! m_offline; ++i)
         m_recorder.addMarker(m_engine.getMarker(i).offset + m_master.getLatencySamples(), m_engine.getMarker(i).kind);
     const bool throwing = m_engine.isThrowing(); // a throw with the rig stopped: its tail is waited for afterwards
 
@@ -199,7 +212,8 @@ void SwooshbucklerAudioProcessor::renderAtRenderRate(const float* inL, const flo
     }
     if (m_tailDone)
         target = 0.0f;
-    m_recorder.setGateHold(! playing && ! m_tailDone); // Skip Silence doesn't cut the tail short
+    if (! m_offline)
+        m_recorder.setGateHold(! playing && ! m_tailDone); // Skip Silence doesn't cut the tail short
     if (m_transportGain != target || target < 1.0f)
     {
         // Up in 60 ms. Down in 250 ms: usually the tail is already inaudible, but one that outlasts the time
@@ -213,7 +227,8 @@ void SwooshbucklerAudioProcessor::renderAtRenderRate(const float* inL, const flo
             r[i] *= m_transportGain;
         }
     }
-    m_recorder.process(chans, 2, n); // the tape gets the full-rate signal
+    if (! m_offline)
+        m_recorder.process(chans, 2, n); // the tape gets the full-rate signal
 }
 
 void SwooshbucklerAudioProcessor::releaseResources()
@@ -444,7 +459,7 @@ void SwooshbucklerAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
     {
         // The tape isn't fed while the rig rests: Skip Silence's gate closes here, not at the next Play.
         if (! m_tapeRested)
-            m_tapeRested = m_recorder.rest();
+            m_tapeRested = m_offline || m_recorder.rest();
         // Keep the modulator scopes, knob dots and pulled-wire glides moving while stopped (the output is silent).
         m_followerLevels = {};
         runModulators(n);
@@ -799,6 +814,75 @@ bool SwooshbucklerAudioProcessor::saveRetro(juce::File& written, juce::String& e
 }
 
 //==============================================================================
+// Render Variations
+VariationRenderer& SwooshbucklerAudioProcessor::getVariations()
+{
+    jassert(! m_offline);
+    if (m_variations == nullptr)
+        m_variations = std::make_unique<VariationRenderer>(*this);
+    return *m_variations;
+}
+
+int SwooshbucklerAudioProcessor::getVariationCount() const { return juce::jlimit(1, VariationRenderer::c_maxCount, m_settings->getIntValue("variationCount", 100)); }
+void SwooshbucklerAudioProcessor::setVariationCount(int count) { m_settings->setValue("variationCount", juce::jlimit(1, VariationRenderer::c_maxCount, count)); m_settings->saveIfNeeded(); }
+int SwooshbucklerAudioProcessor::getVariationMode() const { return juce::jlimit(0, 2, m_settings->getIntValue("variationMode", 0)); }
+void SwooshbucklerAudioProcessor::setVariationMode(int mode) { m_settings->setValue("variationMode", juce::jlimit(0, 2, mode)); m_settings->saveIfNeeded(); }
+float SwooshbucklerAudioProcessor::getVariationAmount() const { return juce::jlimit(0.0f, 1.0f, static_cast<float>(m_settings->getDoubleValue("variationAmount", 0.3))); }
+void SwooshbucklerAudioProcessor::setVariationAmount(float amount) { m_settings->setValue("variationAmount", static_cast<double>(juce::jlimit(0.0f, 1.0f, amount))); m_settings->saveIfNeeded(); }
+juce::String SwooshbucklerAudioProcessor::getVariationFolder() const { return m_settings->getValue("variationFolder").trim(); }
+void SwooshbucklerAudioProcessor::setVariationFolder(const juce::String& path) { m_settings->setValue("variationFolder", path.trim()); m_settings->saveIfNeeded(); }
+
+std::unique_ptr<SwooshbucklerAudioProcessor> SwooshbucklerAudioProcessor::makeOfflineCopy()
+{
+    jassert(juce::MessageManager::existsAndIsCurrentThread());
+    std::unique_ptr<SwooshbucklerAudioProcessor> copy(new SwooshbucklerAudioProcessor(m_settings));
+    auto state = m_state.copyState();
+    state.removeChild(state.getChildWithName("Cargo"), nullptr);
+    state.removeChild(state.getChildWithName("Mods"), nullptr);
+    copy->m_state.replaceState(state);
+    copy->m_mods.fromValueTree(m_mods.toValueTree());
+    copy->currentPresetName = currentPresetName;
+    // Stopped, and Master Trim out of the way: what it renders is what the tape would get.
+    if (auto* play = copy->m_state.getParameter(ParamIDs::play))
+        play->setValueNotifyingHost(0.0f);
+    if (auto* trim = copy->m_state.getParameter(ParamIDs::masterTrim))
+        trim->setValueNotifyingHost(trim->getDefaultValue());
+    m_cargo.beginLending();
+    copy->m_cargo.shareFrom(m_cargo);
+    return copy;
+}
+
+void SwooshbucklerAudioProcessor::prepareOffline(double sampleRate, std::uint32_t seed)
+{
+    jassert(m_offline);
+    // Stopped, nothing held, nothing waiting.
+    m_playing.store(false);
+    m_restartPending.store(false);
+    m_uiThrows.store(0);
+    m_uiSwell.store(false);
+    m_reseedPending = false;
+    m_playParamWas = m_raw.play->load() > 0.5f; // the Play parameter as it was copied starts nothing here
+    m_keysLatched = {};
+    m_transportGain = 0.0f;
+    m_tailElapsed = m_tailQuiet = 0;
+    m_tailDone = false;
+    m_drainLeft = 0;
+    m_tapeRested = false;
+    m_followerLevels = {};
+    // Every random source from the seed: the engine's passes, sounds and rides, and the Random / Steps modulators.
+    m_engine.setSeed(seed);
+    m_mods.setSeed(static_cast<juce::int64>(seed));
+    m_recordRateOverride = 0; // the rig renders at the rate it is prepared at
+    setPlayConfigDetails(0, 2, sampleRate, c_maxSection);
+    prepareToPlay(sampleRate, c_maxSection); // empties the engine, the modulators and the output stage
+    // The morph wander sets off from where the X / Y controls are.
+    m_wanderOn = false;
+    m_wanderBlend = 0.0f;
+    m_morphX = m_raw.morphX->load();
+    m_morphY = m_raw.morphY->load();
+}
+
+//==============================================================================
 // Names, descriptions and the takes
 bool SwooshbucklerAudioProcessor::getOneFilePerWhoosh() const { return m_settings->getBoolValue("oneFilePerWhoosh", false); }
 
@@ -882,6 +966,9 @@ void SwooshbucklerAudioProcessor::refreshTakes()
         ++m_filesThisTake;
         registerTake(take.file, take.whoosh ? "Whoosh" : "Tape", take.seconds, take.markers);
     }
+    if (m_variations != nullptr)
+        for (const auto& written : m_variations->takeWritten())
+            registerTake(written.file, "Variation", written.seconds);
 }
 
 void SwooshbucklerAudioProcessor::registerTake(const juce::File& fileToAdd, const juce::String& kindToShow, double seconds, int markers)

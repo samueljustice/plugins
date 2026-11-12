@@ -391,6 +391,10 @@ int CargoHold::purgeRetired(juce::uint32 minAgeMs)
                                      {
                                          if (now - r.time < minAgeMs || isInUse(r.data.get()))
                                              return false;
+                                         // Lent to an offline render that may be reading it on its own thread:
+                                         // it waits here, whole, until the render has ended.
+                                         if (m_lending > 0 && r.data.use_count() > 1)
+                                             return false;
                                          // Still held by an undo / redo step: it keeps the audio, and gives up its
                                          // octave copies (nearly as big again) until that step is used. Safe here
                                          // and only here: the audio thread has let go of it, and it can't pick it
@@ -1275,6 +1279,38 @@ int CargoHold::busForRole(CargoRole role)
 int CargoHold::getBus(int track) const
 {
     return busForRole(getRole(track));
+}
+
+void CargoHold::shareFrom(const CargoHold& other)
+{
+    for (int lane = 0; lane < c_numLanes; ++lane)
+    {
+        setMute(lane, other.getMute(lane));
+        setSolo(lane, other.getSolo(lane));
+    }
+    for (int i = 0; i < c_numTracks; ++i)
+    {
+        const auto index = static_cast<size_t>(i);
+        auto& t = m_tracks[index];
+        const auto& from = other.m_tracks[index];
+        m_start[index] = other.m_start[index].load();
+        const juce::ScopedLock sl(m_lock);
+        for (auto& u : t.undo) retire(u);
+        for (auto& r : t.redo) retire(r);
+        t.undo.clear();
+        t.redo.clear();
+        t.undoMeta.clear();
+        t.redoMeta.clear();
+        t.skipSilence = from.skipSilence.load();
+        t.roleOverride = from.roleOverride.load();
+        t.userName = from.userName;
+        retire(t.current);
+        t.current = from.current;
+        t.live.store(t.current.get(), std::memory_order_release);
+    }
+    m_undoOrder.clear();
+    m_redoOrder.clear();
+    sendChangeMessage();
 }
 
 void CargoHold::fromValueTree(const juce::ValueTree& tree)

@@ -243,7 +243,7 @@ jobs:
     - name: Run tests
       run: |
         cd swooshbuckler
-        for t in SwooshbucklerRig SwooshbucklerCargo SwooshbucklerClassify SwooshbucklerPitch SwooshbucklerMorph SwooshbucklerMaster SwooshbucklerSession; do
+        for t in SwooshbucklerRig SwooshbucklerCargo SwooshbucklerClassify SwooshbucklerPitch SwooshbucklerMorph SwooshbucklerMaster SwooshbucklerSession SwooshbucklerRender; do
           exe=$(find build -name "$t" -type f -perm +111 | head -1)
           echo "== $t"
           "$exe"

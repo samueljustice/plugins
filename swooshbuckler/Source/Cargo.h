@@ -219,6 +219,16 @@ public:
     /** Message thread. Replaces EVERY track (tracks missing from the tree are cleared) and drops undo history. */
     void fromValueTree(const juce::ValueTree& tree);
 
+    /** Message thread. Makes this hold the same as `other` without copying any audio: both hold the same
+        (immutable) sample data, and this one gets its own start markers, types, names and mixer state to change
+        as it likes. For the offline renderer's second rig. Call other.beginLending() first and other.endLending()
+        once this hold has gone (or been emptied). */
+    void shareFrom(const CargoHold& other);
+    /** While something is lent out, sample data this hold has replaced keeps its octave copies (the borrower may
+        still be reading them); it gives them up as usual after endLending(). Message thread; calls nest. */
+    void beginLending() { ++m_lending; }
+    void endLending() { m_lending = juce::jmax(0, m_lending - 1); }
+
 private:
     /** Name / role / start marker saved with undo entries of actions that reset them (load, clear). */
     struct Meta
@@ -274,6 +284,7 @@ private:
         juce::uint32 time = 0;
     };
     std::vector<Retired> m_graveyard;
+    int m_lending = 0; // see beginLending
 
     // Pointers the audio thread still reads (see markInUse).
     std::array<std::array<std::atomic<const CargoData*>, 2>, c_numTracks> m_inUse {};

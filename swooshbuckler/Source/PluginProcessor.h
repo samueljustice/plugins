@@ -11,6 +11,8 @@
 #include "Modulators.h"
 #include "MorphWander.h"
 
+class VariationRenderer;
+
 /**
  * Swooshbuckler: a whoosh generator / movement processor with a built-in tape
  * machine. Runs as a standalone app, or as an AU/VST3 (MIDI notes trigger
@@ -128,8 +130,8 @@ public:
         tag shown beside it; seconds < 0 = read the length from the file. */
     void registerTake(const juce::File& file, const juce::String& kind, double seconds = -1.0, int markers = 0);
     const std::vector<Take>& getTakes() const { return m_takes; }
-    /** Puts the files the tape has closed since the last look into the takes. The processor does it by itself four
-        times a second and when the tape stops; this is for looking sooner. */
+    /** Puts the files the tape has closed (and Render Variations has written) since the last look into the takes.
+        The processor does it by itself four times a second and when the tape stops; this is for looking sooner. */
     void refreshTakes();
     /** Goes up whenever the list changes. */
     int getTakesGeneration() const { return m_takesGeneration; }
@@ -187,6 +189,35 @@ public:
     /** The description written into every recorded file: version, preset and the main settings. Message thread. */
     juce::String describeSettings() const;
 
+    // Render Variations ---------------------------------------------------------
+    /** Renders batches of thrown whooshes straight to files on its own thread, through a second rig (see
+        VariationRenderer). Made the first time it is asked for. Message thread. */
+    VariationRenderer& getVariations();
+    /** What the Render Variations panel was last set to (the settings file). */
+    int getVariationCount() const;                // 1 .. 1000, 100 unless changed
+    void setVariationCount(int count);
+    int getVariationMode() const;                 // VariationRenderer::Mode
+    void setVariationMode(int mode);
+    float getVariationAmount() const;             // Small Changes: 0 .. 1
+    void setVariationAmount(float amount);
+    /** The folder batches go to; empty (the default) = a new dated folder inside the recordings folder each time. */
+    juce::String getVariationFolder() const;
+    void setVariationFolder(const juce::String& path);
+
+    /** A second rig for rendering offline: the same parameters, wires, mixer and samples as this one right now
+        (the sample data is shared, not copied), stopped, with no tape, no timers and nothing saved to the
+        settings. It lends from this rig's Cargo Hold: call getCargo().endLending() once the copy has been
+        destroyed. Make and destroy it on the message thread; in between one other thread may drive it. */
+    std::unique_ptr<SwooshbucklerAudioProcessor> makeOfflineCopy();
+    bool isOffline() const { return m_offline; }
+    /** Offline copies only: everything starts again from silence at this sample rate (512-sample blocks), with
+        every random source drawn from `seed`, Master Trim out of the way (files get the level the tape gets) and
+        the rig stopped. The same seed and settings give the same samples. The thread that calls processBlock. */
+    void prepareOffline(double sampleRate, std::uint32_t seed);
+    /** The rig is stopped, has rung out and has faded: the next block would be silence. The thread that calls
+        processBlock, after a block. */
+    bool isAtRest() const { return ! m_playing.load() && m_uiThrows.load() == 0 && m_transportGain <= 0.0f && m_drainLeft <= 0; }
+
     /** The settings file to use instead of opening our own: the standalone app shares its file (two objects on
         one file would overwrite each other's values), and tests point it at a scratch file. Not owned; set it
         before the processor is made and clear it after the processor is gone. Message thread. */
@@ -223,6 +254,10 @@ public:
     double getRecordingDroppedSeconds() const;
 
 private:
+    /** offlineSettings: null for a real plug-in; the settings an offline copy reads (see makeOfflineCopy). */
+    explicit SwooshbucklerAudioProcessor(juce::PropertiesFile* offlineSettings);
+    const bool m_offline;
+    std::unique_ptr<VariationRenderer> m_variations;
     void timerCallback() override;
     void updateEngineParams();
     void prepareInternal();

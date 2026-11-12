@@ -84,6 +84,9 @@ public:
 
     void prepare(double sampleRate);
     void reset();
+    /** Starts the Random and Steps modulators' draws again from this seed (offline renders that must repeat).
+        Before prepare() or reset(), not while process() runs. */
+    void setSeed(juce::int64 seed) { m_rng.setSeed(seed); }
     /** Advances the modulators by numSamples and sums the offsets. */
     void process(const std::array<SourceSettings, c_numSources>& settings, int numSamples, const FollowerInputs& followerInputs);
     /** Normalised offset for a target (sum of its wires, smoothed). 0 when nothing is wired to it. */

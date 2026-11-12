@@ -152,7 +152,7 @@ void RigEngine::prepare(double sampleRate, int maxBlockSize)
         for (int tap = 0; tap < 3; ++tap)
             m_fillTaps[static_cast<size_t>(t)][static_cast<size_t>(tap)] = std::min(fillTapSeconds(t, tap), c_fillLineSeconds - 0.01f) * m_fs;
         m_fillTone[static_cast<size_t>(t)].set(6000.0f, m_fs);
-        m_rideDrift[static_cast<size_t>(t)].prepare(m_fs, 0.3f + 0.11f * static_cast<float>(t), static_cast<std::uint32_t>(4242 + 977 * t));
+        m_rideDrift[static_cast<size_t>(t)].prepare(m_fs, 0.3f + 0.11f * static_cast<float>(t), rideSeed(t));
     }
 
     for (auto& b : m_buses)
@@ -190,7 +190,7 @@ void RigEngine::prepare(double sampleRate, int maxBlockSize)
     m_dcL.set(8.0f, m_fs);
     m_dcR.set(8.0f, m_fs);
 
-    m_rng.seed(0x5EA5EAu);
+    m_rng.seed(m_seed);
     reset();
 }
 
@@ -329,9 +329,9 @@ void RigEngine::reseedNow()
 {
     // The same start every time: the random sources from their seeds, every delay and tail empty, every glide at
     // its target, the passes and the rides from the top.
-    m_rng.seed(0x5EA5EAu);
+    m_rng.seed(m_seed);
     for (int t = 0; t < c_tracks; ++t)
-        m_rideDrift[static_cast<size_t>(t)].prepare(m_fs, 0.3f + 0.11f * static_cast<float>(t), static_cast<std::uint32_t>(4242 + 977 * t));
+        m_rideDrift[static_cast<size_t>(t)].prepare(m_fs, 0.3f + 0.11f * static_cast<float>(t), rideSeed(t));
     const auto waitingThrows = m_throwQueue; // a throw asked for with the restart belongs to the new run
     reset();
     m_throwQueue = waitingThrows;

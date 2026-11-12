@@ -142,6 +142,12 @@ public:
         the same), then start everything again from the same seed and from empty delays and reverb, so the same
         settings give the same ride every time. Throws asked for meanwhile start with the new run. Audio thread. */
     void restartSeeded() { m_reseedPending = true; }
+    /** The seed every run starts from (prepare() and a seeded restart use it): another seed draws other passes,
+        other sounds from each track and other rides from the same settings. Before prepare(), or with a seeded
+        restart after it. */
+    static constexpr std::uint32_t c_defaultSeed = 0x5EA5EAu;
+    void setSeed(std::uint32_t seed) { m_seed = seed != 0 ? seed : c_defaultSeed; }
+    std::uint32_t getSeed() const { return m_seed; }
     /** A seeded restart has been asked for and the old sound is still fading out. Audio thread. */
     bool isRestarting() const { return m_reseedPending; }
     /** Throw one whoosh: a single pass, the same on both buses, that starts delaySamples from the start of the
@@ -306,6 +312,8 @@ private:
     float m_fs = 48000.0f;
     Params m_params;
     sj::Random m_rng;
+    std::uint32_t m_seed = c_defaultSeed;          // see setSeed
+    std::uint32_t rideSeed(int track) const { return static_cast<std::uint32_t>(4242 + 977 * track) + (m_seed - c_defaultSeed); }
     CargoHold* m_cargo = nullptr;
 
     // Tracks

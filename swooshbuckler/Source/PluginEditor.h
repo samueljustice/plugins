@@ -13,6 +13,7 @@
 #include "Theme.h"
 #include "LogoOutline.h"
 #include "UpdatePopup.h"
+#include "VariationsView.h"
 #include "SammyJUpdateCheck.h"
 
 /**
@@ -21,7 +22,7 @@
  *
  * One screen, in signal order (the whoosh rig):
  *
- *   header : title | presets | randomise | record | save last 60 s | settings
+ *   header : title | presets | randomise | record | save last 60 s | render variations | takes | settings
  *   row 1  : TRACKS (each loops; start markers; the ride drawn live)   | OUTPUT view (the sea) / RIDE
  *   row 2  : BUS A (aggressive)                                 ->     BUS B (smooth, ducked and filtered by A)
  *   row 3  : HITS (gated at the loudest moments)                ->     OUTPUT
@@ -190,6 +191,10 @@ private:
     juce::TextButton m_retroButton { "LAST 60s" }, m_settingsButton { "SETTINGS" }, m_takesButton { "Takes" };
     int m_retroShown = 0, m_takesShown = -1, m_takesSeen = -1, m_slowTick = 0; // what those two buttons last showed
     void showTakes();
+    // Render Variations: the button opens the panel, and shows how far a batch is while one renders.
+    juce::TextButton m_variationsButton { "Variations" };
+    int m_variationsShown = -2; // the percentage the button last showed (-1 = no batch rendering)
+    void showVariations();
     juce::TextButton m_playButton { "PLAY" }, m_newButton { "NEW" };
     TapeButton m_tape;
     juce::HyperlinkButton m_websiteLink { "www.sweetjusticesound.com", juce::URL("https://www.sweetjusticesound.com") };
@@ -253,6 +258,7 @@ private:
     juce::Rectangle<int> m_modSection;
     SettingsPanel m_settings;
     TakesView m_takes;
+    VariationsView m_variations;
     AboutPanel m_about;
     juce::HyperlinkButton m_versionLink;
     juce::Rectangle<int> m_titleArea;

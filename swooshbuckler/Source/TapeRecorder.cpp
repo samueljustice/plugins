@@ -611,6 +611,26 @@ juce::File TapeRecorder::defaultFolder()
     return juce::File::getSpecialLocation(juce::File::userDesktopDirectory);
 }
 
+juce::String TapeRecorder::extensionOf(FileType type) { return extensionFor(type); }
+
+bool TapeRecorder::writeFile(const juce::File& file, const juce::AudioBuffer<float>& audio, int startSample, int numSamples,
+                             double rate, const Options& options, const Naming& naming, juce::String& error)
+{
+    auto writer = createWriter(file, rate, audio.getNumChannels(), options, naming, error);
+    if (writer == nullptr)
+        return false;
+    const bool ok = writer->writeFromAudioSampleBuffer(audio, startSample, numSamples);
+    writer.reset(); // flushes the resampler and closes the file
+    if (! ok)
+    {
+        error = "Writing " + file.getFileName() + " failed.";
+        file.deleteFile();
+        return false;
+    }
+    finishFile(file, options.type, naming, {});
+    return true;
+}
+
 void TapeRecorder::setNaming(const Naming& naming)
 {
     const juce::ScopedLock sl(m_metaLock);

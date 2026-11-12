@@ -54,6 +54,29 @@ namespace Presets
             || id.startsWith("mod"); // the modulators and their wires belong to the session, not to a preset
     }
 
+    /** Where a preset puts each parameter it owns, as (parameter, normalised value): what it names goes there,
+        everything else of its own goes back to its default, and the session's parameters are left out.
+        includeMode false (Randomise): each bus's Pass Mode is left as it is set too. */
+    inline std::vector<std::pair<juce::RangedAudioParameter*, float>> targets(const juce::Array<juce::AudioProcessorParameter*>& parameters,
+                                                                               const Preset& preset, bool includeMode)
+    {
+        std::vector<std::pair<juce::RangedAudioParameter*, float>> out;
+        for (auto* p : parameters)
+        {
+            auto* param = dynamic_cast<juce::RangedAudioParameter*>(p);
+            if (param == nullptr)
+                continue;
+            const auto id = param->getParameterID();
+            if (isSessionParameter(id))
+                continue;
+            const auto it = preset.values.find(id);
+            if (! includeMode && it == preset.values.end() && (id == ParamIDs::passMode[0] || id == ParamIDs::passMode[1]))
+                continue;
+            out.emplace_back(param, it != preset.values.end() ? param->convertTo0to1(it->second) : param->getDefaultValue());
+        }
+        return out;
+    }
+
     /** A random but musical setting (wide where it's safe, narrow where it matters). */
     inline Preset roll(juce::Random& r)
     {
