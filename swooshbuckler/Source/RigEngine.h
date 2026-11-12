@@ -384,10 +384,13 @@ private:
     float m_morphMixNow = 0.0f; // how far the morph is in (B isn't ducked or filtered by A while morphing)
     // Morph ropes. A roped track is rendered into its side's tap instead of its bus; the morph works on the tap and
     // what it leaves of the dry sound goes back to the track's bus. A change of rope while the morph is in fades
-    // the side's sounds out (15 ms), swaps, and fades them back in.
+    // what the change moves out (15 ms), swaps, and fades it back in.
     std::array<std::array<float, c_chunk>, 2> m_morphTap {};
     std::array<int, 2> m_ropeNow { -1, -1 };     // the rope in use on each side
     std::array<float, 2> m_ropeFade { 1.0f, 1.0f };
+    // What the fade in progress applies to: a bit per track, and c_ropeFadesBus for the rest of the side's bus.
+    static constexpr std::uint32_t c_ropeFadesBus = 1u << 31;
+    std::array<std::uint32_t, 2> m_ropeFading { 0, 0 };
     std::array<std::atomic<int>, 2> m_ropeView { { { -1 }, { -1 } } };
     int wantedRope(int side) const;
     // The Master track (see getMasterFollow), the smoothed loudness the rides follow, and how far Follow Master is in.

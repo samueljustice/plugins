@@ -316,6 +316,7 @@ void RigEngine::reset()
     {
         m_ropeNow[static_cast<size_t>(side)] = wantedRope(side);
         m_ropeFade[static_cast<size_t>(side)] = 1.0f;
+        m_ropeFading[static_cast<size_t>(side)] = 0;
         m_ropeView[static_cast<size_t>(side)].store(m_ropeNow[static_cast<size_t>(side)], std::memory_order_relaxed);
         m_morphTap[static_cast<size_t>(side)].fill(0.0f);
     }
@@ -933,9 +934,10 @@ void RigEngine::renderTracks(int frames)
     if (m_followMix < 1.0e-4f) m_followMix = 0.0f;
     const float followRide = std::pow(sj::clamp(m_masterRide, 0.0f, 1.0f), 1.0f + 1.85f * energy);
 
-    // Morph ropes: the track each side listens to this chunk. A change while the morph is in fades the side out
-    // first (its bus's tracks, the old rope and the new one), swaps at silence, and fades back in; with the morph
-    // out the roped track plays through its bus just the same, so the swap is made at once.
+    // Morph ropes: the track each side listens to this chunk. A change while the morph is in fades what it moves
+    // out first (the old roped track and the new one, and the rest of the side's bus only when the bus itself goes
+    // into or comes out of the morph: rope to rope leaves the bus playing as it is), swaps at silence, and fades
+    // back in; with the morph out the roped track plays through its bus just the same, so the swap is made at once.
     std::array<int, 2> rope = m_ropeNow, ropeWanted { wantedRope(0), wantedRope(1) };
     std::array<float, 2> ropeFrom = m_ropeFade, ropeTo = m_ropeFade;
     {
@@ -943,12 +945,21 @@ void RigEngine::renderTracks(int frames)
         const float step = seconds / c_ropeFadeSeconds;
         for (size_t side = 0; side < 2; ++side)
         {
+            if (ropeFrom[side] >= 1.0f)
+                m_ropeFading[side] = 0; // the last change is done with
             if (ropeWanted[side] != m_ropeNow[side])
             {
                 if (! morphHeard)
+                {
                     rope[side] = m_ropeNow[side] = ropeWanted[side];
+                }
                 else
+                {
                     ropeTo[side] = std::max(0.0f, ropeFrom[side] - step);
+                    // Everything this change moves stays in the fade until it is back up.
+                    for (const int track : { m_ropeNow[side], ropeWanted[side] })
+                        m_ropeFading[side] |= track >= 0 ? (1u << track) : c_ropeFadesBus;
+                }
             }
             if (ropeWanted[side] == m_ropeNow[side])
                 ropeTo[side] = std::min(1.0f, ropeFrom[side] + step);
@@ -1069,7 +1080,8 @@ void RigEngine::renderTracks(int frames)
         {
             if (rope[side] == t)
                 dest = m_morphTap[side].data();
-            if (bus == static_cast<int>(side) || rope[side] == t || ropeWanted[side] == t)
+            const std::uint32_t fading = m_ropeFading[side];
+            if ((fading & (1u << t)) != 0 || (bus == static_cast<int>(side) && (fading & c_ropeFadesBus) != 0))
             {
                 rope0 *= ropeFrom[side];
                 rope1 *= ropeTo[side];

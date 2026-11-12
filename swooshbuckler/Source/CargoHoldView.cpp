@@ -780,13 +780,15 @@ private:
         const auto data = hold.get(m_track);
         const auto detected = data != nullptr ? data->detectedRole : CargoRole::Generic;
         juce::PopupMenu menu;
-        menu.addSectionHeader("WHAT IS IT?  (this also decides where it plays)");
+        // The type picks the bus too, unless the bus was chosen by hand on the bus tag.
+        const bool busByHand = hold.getBusOverride(m_track) >= 0;
+        menu.addSectionHeader(busByHand ? "WHAT IS IT?  (the bus stays where you put it)" : "WHAT IS IT?  (this also decides where it plays)");
         menu.addItem(1, "Auto (Heard as " + CargoHold::typeName(detected) + ")", true, hold.getRoleOverride(m_track) < 0);
         menu.addSeparator();
         for (int r = 1; r < c_numCargoRoles; ++r)
-            menu.addItem(10 + r, CargoHold::typeName(static_cast<CargoRole>(r)) + "   -> " + busLabel(CargoHold::busForRole(static_cast<CargoRole>(r))),
+            menu.addItem(10 + r, CargoHold::typeName(static_cast<CargoRole>(r)) + (busByHand ? juce::String() : "   -> " + busLabel(CargoHold::busForRole(static_cast<CargoRole>(r)))),
                          true, hold.getRoleOverride(m_track) == r);
-        menu.addItem(10, CargoHold::typeName(CargoRole::Generic) + "   -> " + busLabel(CargoHold::busForRole(CargoRole::Generic)),
+        menu.addItem(10, CargoHold::typeName(CargoRole::Generic) + (busByHand ? juce::String() : "   -> " + busLabel(CargoHold::busForRole(CargoRole::Generic))),
                      true, hold.getRoleOverride(m_track) == 0);
         menu.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(m_type), [this](int result)
         {

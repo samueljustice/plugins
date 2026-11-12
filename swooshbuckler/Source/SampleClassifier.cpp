@@ -807,15 +807,16 @@ CargoContours SampleClassifier::extractContours(const float* mono, int numSample
     std::vector<float> levelDb(count, -120.0f);
     float loudestDb = -120.0f;
     {
-        std::vector<double> prefix(static_cast<size_t>(numSamples) + 1, 0.0);
-        for (int i = 0; i < numSamples; ++i)
-            prefix[static_cast<size_t>(i) + 1] = prefix[static_cast<size_t>(i)] + static_cast<double>(mono[i]) * mono[i];
+        // Summed window by window (they overlap three deep): no table the size of the file, however long it is.
         const int half = juce::jmax(hop / 2, juce::roundToInt(0.015 * sampleRate));
         for (int f = 0; f < numFrames; ++f)
         {
             const int centre = f * hop + hop / 2;
             const int a = juce::jlimit(0, numSamples, centre - half), b = juce::jlimit(0, numSamples, centre + half);
-            const double ms = b > a ? (prefix[static_cast<size_t>(b)] - prefix[static_cast<size_t>(a)]) / static_cast<double>(b - a) : 0.0;
+            double sum = 0.0;
+            for (int i = a; i < b; ++i)
+                sum += static_cast<double>(mono[i]) * mono[i];
+            const double ms = b > a ? sum / static_cast<double>(b - a) : 0.0;
             levelDb[static_cast<size_t>(f)] = static_cast<float>(10.0 * std::log10(ms + 1.0e-12));
             loudestDb = juce::jmax(loudestDb, levelDb[static_cast<size_t>(f)]);
         }

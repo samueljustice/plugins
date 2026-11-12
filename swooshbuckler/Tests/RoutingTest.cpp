@@ -793,6 +793,44 @@ int main(int argc, char* argv[])
             std::cout << "  rope changes mid-morph: sharpest change " << around << " vs " << normal << " in steady play" << std::endl;
             check(allFinite(out) && around <= 2.0f * normal, "ropes: roping, re-roping and letting go mid-morph doesn't click");
             check(seenAfterOn == 0 && rig.getMorphSource(0) == -1, "ropes: the engine reports the rope in use");
+        }
+        // Moving a rope from one track to another leaves the rest of the side's bus alone: the unroped 1 kHz track
+        // on bus A plays straight through while side A's rope goes from the 300 Hz track to the (muted) hit track.
+        {
+            RigEngine rig;
+            rig.setCargoHold(&hold);
+            auto p = plainParams();
+            p.morphOn = true;
+            p.morphX = 0.3f;
+            rig.setParams(p);
+            rig.prepare(c_fs, c_block);
+            rig.setParams(p);
+            hold.setMorphSource(0, 0);
+            const int swap = static_cast<int>(3.0 * c_fs) / c_block * c_block;
+            const auto out = render(rig, 4.0, [&](int pos) { if (pos == swap) hold.setMorphSource(0, 3); });
+            // The 1 kHz level every 10 ms (a whole number of cycles of every tone here, so the others drop out).
+            auto lowest = [&](int from, int to)
+            {
+                constexpr int n = 480;
+                double low = 1.0e9;
+                for (int start = from; start + n <= to; start += n)
+                {
+                    double re = 0.0, im = 0.0;
+                    for (int i = 0; i < n; ++i)
+                    {
+                        const double x = out.getSample(0, start + i), ph = c_twoPi * 1000.0 * i / c_fs;
+                        re += x * std::cos(ph);
+                        im += x * std::sin(ph);
+                    }
+                    low = std::min(low, 2.0 * std::sqrt(re * re + im * im) / n);
+                }
+                return low;
+            };
+            const double steady = lowest(static_cast<int>(2.0 * c_fs), swap), around = lowest(swap, swap + static_cast<int>(0.2 * c_fs));
+            std::cout << "  rope moved to another track: the unroped 1 kHz track's lowest level " << around << " vs " << steady << " before" << std::endl;
+            check(allFinite(out) && steady > 1.0e-3 && around > 0.9 * steady, "ropes: moving a rope between tracks doesn't dip the rest of the side's bus");
+            check(rig.getMorphSource(0) == 3, "ropes: the engine has taken the new rope");
+            hold.setMorphSource(0, -1);
             hold.setMute(CargoHold::c_numBuiltIns + 2, false);
             hold.setMute(CargoHold::c_numBuiltIns + 3, false);
         }
