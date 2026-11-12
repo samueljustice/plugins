@@ -265,7 +265,7 @@ A wide ambience should stay wide. When a stereo sound plays on **Bus B** with **
 - **Width** scales it too: at 0% everything sits in the middle, mono. A pass that has travelled far to one side narrows on its way out, so the bed is never wider than its source.
 - Low End, Swirl, Filter and Drive work on the mono sum, as they do for every sound; the width is added back after them at a matching level.
 - Bus A, the hits, thrown whooshes and Fly-By passes always play the mono sum: a fly-by is one point going past. So do a track with **VARI** off and a sound that is being morphed.
-- Mono files, and sessions saved before, play exactly as they did. A session stores the extra stereo information only for the sounds that have it.
+- A mono file is not touched by any of this. A session stores the extra stereo information only for the sounds that have it.
 
 Bus A ("growls, tones, crackle, rumble - and the key for B") is the aggressive bus. Bus B ("air and beds, ducked and filtered by A") sits under it.
 

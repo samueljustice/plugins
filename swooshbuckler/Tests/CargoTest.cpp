@@ -1449,7 +1449,7 @@ int main(int argc, char* argv[])
             double worst = 0.0;
             for (int i = 0; same && i < n; ++i)
             {
-                same = folded.getSample(0, i) == carrier.getSample(0, i);
+                same = juce::exactlyEqual(folded.getSample(0, i), carrier.getSample(0, i));
                 worst = std::max({ worst, std::abs(static_cast<double>(folded.getSample(0, i) + folded.getSample(1, i) - wide.getSample(0, i))),
                                    std::abs(static_cast<double>(folded.getSample(0, i) - folded.getSample(1, i) - wide.getSample(1, i))) });
             }
@@ -1486,9 +1486,9 @@ int main(int argc, char* argv[])
               "stereo: a stereo file loads with its side signal, a mono file without");
         {
             bool sameMono = loaded != nullptr && hold.get(1) != nullptr && loaded->regions.size() == hold.get(1)->regions.size()
-                            && loaded->autoGain == hold.get(1)->autoGain;
+                            && juce::exactlyEqual(loaded->autoGain, hold.get(1)->autoGain);
             for (int i = 0; sameMono && i < n; i += 7)
-                sameMono = loaded->audio.getSample(0, i) == hold.get(1)->audio.getSample(0, i);
+                sameMono = juce::exactlyEqual(loaded->audio.getSample(0, i), hold.get(1)->audio.getSample(0, i));
             check(sameMono, "stereo: its mono sum, regions and level are those of the same sound loaded as a mono file");
         }
         {
@@ -1516,7 +1516,7 @@ int main(int argc, char* argv[])
             old.fromValueTree(older);
             bool sameMono = old.get(0) != nullptr && ! old.get(0)->hasSide() && old.get(0)->length() == n;
             for (int i = 0; sameMono && i < n; i += 5)
-                sameMono = old.get(0)->audio.getSample(0, i) == back.get(0)->audio.getSample(0, i);
+                sameMono = juce::exactlyEqual(old.get(0)->audio.getSample(0, i), back.get(0)->audio.getSample(0, i));
             check(sameMono, "stereo session: a session without side signals loads as mono, the same mono sum");
         }
         {
@@ -1524,13 +1524,13 @@ int main(int argc, char* argv[])
             edit.loadFile(0, wideFile, err);
             edit.trim(0, n / 4, n / 2);
             const bool trimmed = edit.get(0)->hasSide() && edit.get(0)->length() == n / 4
-                                 && edit.get(0)->audio.getSample(1, 10) == loaded->audio.getSample(1, n / 4 + 10);
+                                 && juce::exactlyEqual(edit.get(0)->audio.getSample(1, 10), loaded->audio.getSample(1, n / 4 + 10));
             edit.copy(0, 100, 600);
             edit.paste(0, 0);
             const bool pasted = edit.get(0)->hasSide() && edit.get(0)->length() == n / 4 + 500
-                                && edit.get(0)->audio.getSample(1, 20) == loaded->audio.getSample(1, n / 4 + 120);
+                                && juce::exactlyEqual(edit.get(0)->audio.getSample(1, 20), loaded->audio.getSample(1, n / 4 + 120));
             edit.reverse(0, 0, edit.get(0)->length());
-            const bool reversed = edit.get(0)->audio.getSample(1, edit.get(0)->length() - 21) == loaded->audio.getSample(1, n / 4 + 120);
+            const bool reversed = juce::exactlyEqual(edit.get(0)->audio.getSample(1, edit.get(0)->length() - 21), loaded->audio.getSample(1, n / 4 + 120));
             edit.loadFile(1, monoFile, err);
             edit.paste(1, 0); // a stereo cut into a mono sound: it becomes stereo, the old part in the middle
             const bool promoted = edit.get(1)->hasSide() && edit.get(1)->audio.getSample(1, 520) == 0.0f
@@ -1663,6 +1663,69 @@ int main(int argc, char* argv[])
         check(flyWide.l == flyMono.l && flyWide.r == flyMono.r && busAWide.l == busAMono.l && busAWide.r == busAMono.r
                   && hitWide.l == hitMono.l && hitWide.r == hitMono.r,
               "stereo: Fly-By passes, bus A and the hits play the mono sum, sample for sample what the mono file gives");
+
+        // Turning the width away while the bed plays: Width, Pass Mode, Doppler and the track's bus each changed in
+        // one go, mid-stream. The sound is smooth (low-passed noise), so a step in the side signal would be the
+        // biggest jump from one sample to the next by far.
+        {
+            auto steepest = [&](bool change)
+            {
+                CargoHold h;
+                juce::String e;
+                h.loadFile(0, wideFile, e);
+                h.setBusOverride(0, 1);
+                RigEngine engine;
+                engine.setCargoHold(&h);
+                RigEngine::Params q;
+                q.rideOn = false;
+                q.space = 0.0f;
+                q.fill = 0.0f;
+                for (auto& b : q.buses)
+                {
+                    b.doppler = 0.0f;
+                    b.width = 1.0f;
+                    b.passMode = 0;
+                    b.duck = b.key = b.low = b.swirl = b.filter = b.drive = 0.0f;
+                }
+                engine.setParams(q);
+                engine.prepare(c_rate, c_block);
+                engine.setParams(q);
+                const int total = static_cast<int>(c_rate * 9.0) / c_block * c_block;
+                std::vector<float> l(static_cast<size_t>(c_block)), r(l.size());
+                float lastL = 0.0f, lastR = 0.0f, worst = 0.0f;
+                int step = 0;
+                for (int pos = 0; pos < total; pos += c_block)
+                {
+                    const int second = pos / static_cast<int>(c_rate);
+                    if (change && second > step)
+                    {
+                        step = second;
+                        for (auto& b : q.buses)
+                        {
+                            b.width = step == 2 ? 0.0f : 1.0f;
+                            b.passMode = step == 4 ? 1 : 0;
+                            b.doppler = step == 6 ? 1.0f : 0.0f;
+                        }
+                        engine.setParams(q);
+                        if (step == 8)
+                            h.setBusOverride(0, 0);
+                    }
+                    engine.process(nullptr, nullptr, l.data(), r.data(), c_block);
+                    for (int i = 0; i < c_block; ++i)
+                    {
+                        if (pos + i > static_cast<int>(c_rate))
+                            worst = std::max({ worst, std::abs(l[static_cast<size_t>(i)] - lastL), std::abs(r[static_cast<size_t>(i)] - lastR) });
+                        lastL = l[static_cast<size_t>(i)];
+                        lastR = r[static_cast<size_t>(i)];
+                    }
+                }
+                return worst;
+            };
+            const float steady = steepest(false), changed = steepest(true);
+            check(steady > 0.0f && changed < 1.5f * steady,
+                  "stereo bed: Width, Pass Mode, Doppler and the bus changed while it plays leave no step (steepest "
+                      + juce::String(changed, 4) + " a sample, " + juce::String(steady, 4) + " left alone)");
+        }
     }
 
     // Presets: every sample-track level is a session parameter; Cargo Run still exists.
