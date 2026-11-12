@@ -1721,6 +1721,106 @@ int main(int argc, char* argv[])
             const int w = static_cast<int>(0.02 * c_rate), start = juce::jlimit(0, o.getNumSamples() - w, centre - w / 2);
             return std::sqrt(0.5f * (o.getRMSLevel(0, start, w) * o.getRMSLevel(0, start, w) + o.getRMSLevel(1, start, w) * o.getRMSLevel(1, start, w)));
         };
+        // Markers: the engine says where a throw peaks, where the passes go by and where the hits land (for the
+        // cue points of a recording).
+        {
+            struct Mark { int at = 0, kind = 0; };
+            auto markRun = [&](CargoHold& from, bool playing, bool link, bool aim, bool throwOne, double length, juce::AudioBuffer<float>& into)
+            {
+                std::vector<Mark> marks;
+                RigEngine e;
+                e.setCargoHold(&from);
+                RigEngine::Params q;
+                q.space = 0.0f;
+                q.fill = 0.0f;
+                q.hitDuck = 0.0f;
+                q.throwSeconds = 2.0f;
+                q.energy = q.chaos = 0.0f;
+                q.linkBuses = link;
+                q.hitAim = aim;
+                for (auto& b : q.buses)
+                {
+                    b.low = b.swirl = b.filter = b.drive = b.duck = b.key = 0.0f;
+                    b.passMode = 1; // Fly-By: one pass at a time, so each peak stands out
+                }
+                e.setParams(q);
+                e.prepare(c_rate, c_block);
+                e.setParams(q);
+                e.setReleased(! playing);
+                into.setSize(2, static_cast<int>(length * c_rate));
+                for (int pos = 0; pos < into.getNumSamples(); pos += c_block)
+                {
+                    if (throwOne && throwAt >= pos && throwAt < pos + c_block)
+                        e.throwWhoosh(throwAt - pos, 0.8f);
+                    e.process(nullptr, nullptr, into.getWritePointer(0, pos), into.getWritePointer(1, pos), juce::jmin(c_block, into.getNumSamples() - pos));
+                    for (int i = 0; i < e.getNumMarkers(); ++i)
+                        marks.push_back({ pos + e.getMarker(i).offset, e.getMarker(i).kind });
+                }
+                return marks;
+            };
+            auto count = [](const std::vector<Mark>& marks, int kind)
+            {
+                return static_cast<int>(std::count_if(marks.begin(), marks.end(), [kind](const Mark& m) { return m.kind == kind; }));
+            };
+            juce::AudioBuffer<float> o;
+            // A throw with the rig stopped: one Throw marker, where the whoosh is loudest; no pass markers.
+            {
+                const auto marks = markRun(tones, false, false, true, true, 11.0, o);
+                int peakAt = 0;
+                float best = 0.0f;
+                for (int at = throwAt; at < throwAt + static_cast<int>(2.0 * c_rate); at += 64)
+                    if (const float v = levelAt(o, at); v > best)
+                    {
+                        best = v;
+                        peakAt = at;
+                    }
+                const int expected = throwAt + static_cast<int>(c_rate);
+                check(marks.size() == 1 && marks[0].kind == RigEngine::MarkThrow && std::abs(marks[0].at - expected) < 64
+                          && std::abs(marks[0].at - peakAt) < static_cast<int>(0.06 * c_rate),
+                      "markers: a throw is marked once, at its peak (marker " + juce::String(marks.empty() ? -1.0 : (marks[0].at - throwAt) / c_rate, 3)
+                          + " s after the throw, loudest at " + juce::String((peakAt - throwAt) / c_rate, 3) + " s; " + juce::String(static_cast<int>(marks.size())) + " markers)");
+            }
+            // With hit tracks and AIM, the hit that lands on the throw's peak is marked too, at the same moment.
+            {
+                const auto marks = markRun(tonesAndHits, false, false, true, true, 11.0, o);
+                int throwMark = -1, hitMark = -1;
+                for (const auto& m : marks)
+                    (m.kind == RigEngine::MarkThrow ? throwMark : hitMark) = m.at;
+                check(count(marks, RigEngine::MarkThrow) == 1 && count(marks, RigEngine::MarkHit) == 1 && std::abs(throwMark - hitMark) < static_cast<int>(0.02 * c_rate),
+                      "markers: the aimed hit is marked where the throw peaks (" + juce::String((hitMark - throwMark) * 1000.0 / c_rate, 1) + " ms apart)");
+            }
+            // The rig playing, buses linked: bus A's passes are marked (bus B flies the same ones), each where the level stands out.
+            {
+                const auto marks = markRun(tones, true, true, true, false, 30.0, o);
+                const int passes = count(marks, RigEngine::MarkPassA);
+                double atMarks = 0.0;
+                int used = 0;
+                for (const auto& m : marks)
+                    if (m.kind == RigEngine::MarkPassA && m.at > static_cast<int>(3.0 * c_rate))
+                    {
+                        atMarks += levelAt(o, m.at);
+                        ++used;
+                    }
+                atMarks /= juce::jmax(1, used);
+                const double overall = std::sqrt(0.5 * (static_cast<double>(o.getRMSLevel(0, 0, o.getNumSamples())) * o.getRMSLevel(0, 0, o.getNumSamples())
+                                                        + static_cast<double>(o.getRMSLevel(1, 0, o.getNumSamples())) * o.getRMSLevel(1, 0, o.getNumSamples())));
+                check(passes >= 6 && passes <= 40 && count(marks, RigEngine::MarkPassB) == 0 && count(marks, RigEngine::MarkThrow) == 0,
+                      "markers: linked, every pass is marked once (" + juce::String(passes) + " in 30 s)");
+                check(atMarks > 1.3 * overall, "markers: the pass markers sit on the loud moments (" + juce::String(20.0 * std::log10(atMarks / juce::jmax(1.0e-9, overall)), 1)
+                                                   + " dB over the take's level)");
+                // Unlinked, bus B flies its own passes and they get their own markers.
+                const auto apart = markRun(tones, true, false, true, false, 30.0, o);
+                check(count(apart, RigEngine::MarkPassA) >= 6 && count(apart, RigEngine::MarkPassB) >= 6,
+                      "markers: unlinked, each bus's passes are marked (" + juce::String(count(apart, RigEngine::MarkPassA)) + " on A, "
+                          + juce::String(count(apart, RigEngine::MarkPassB)) + " on B)");
+            }
+            // The hit gate (AIM off): every opening of the gate is a Hit marker.
+            {
+                const auto marks = markRun(tonesAndHits, true, true, false, false, 30.0, o);
+                check(count(marks, RigEngine::MarkHit) >= 1, "markers: the hit gate opening is marked (" + juce::String(count(marks, RigEngine::MarkHit)) + " in 30 s)");
+            }
+        }
+
         for (const float length : { 2.0f, 0.6f })
         {
             int count = 0;

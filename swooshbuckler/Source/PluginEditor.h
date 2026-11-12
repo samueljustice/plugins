@@ -9,6 +9,7 @@
 #include "Presets.h"
 #include "SeaVisualiser.h"
 #include "SectionScope.h"
+#include "TakesView.h"
 #include "Theme.h"
 #include "LogoOutline.h"
 #include "UpdatePopup.h"
@@ -114,9 +115,15 @@ private:
         std::array<juce::TextButton, 2> m_channels;
         juce::ToggleButton m_auto { "Arm the tape as soon as Swooshbuckler opens" };
         juce::ToggleButton m_skip { "Skip Silence" };
+        // Harvesting: one file per whoosh, how files are named and who made them, and how much LAST 60s keeps.
+        juce::ToggleButton m_perWhoosh { "One File Per Whoosh" };
+        juce::TextEditor m_name, m_creator;
+        std::array<juce::TextButton, 2> m_nameStyles;
+        std::array<juce::TextButton, 3> m_retroLengths;
         std::unique_ptr<juce::FileChooser> m_chooser;
         juce::Rectangle<int> m_panel;
         std::array<juce::Rectangle<int>, 6> m_captions;
+        std::array<juce::Rectangle<int>, 4> m_moreCaptions; // Take Name, Creator, File Names, Keep the Last
     };
 
     /** About: the version and build, what Swooshbuckler is, and the credits. Opened from the title or the version link. */
@@ -180,7 +187,9 @@ private:
 
     // Header
     juce::TextButton m_presetPrev { "<" }, m_presetName, m_presetNext { ">" }, m_dice { "RANDOMISE" };
-    juce::TextButton m_retroButton { "LAST 60s" }, m_settingsButton { "SETTINGS" };
+    juce::TextButton m_retroButton { "LAST 60s" }, m_settingsButton { "SETTINGS" }, m_takesButton { "Takes" };
+    int m_retroShown = 0, m_takesShown = -1, m_takesSeen = -1, m_slowTick = 0; // what those two buttons last showed
+    void showTakes();
     juce::TextButton m_playButton { "PLAY" }, m_newButton { "NEW" };
     TapeButton m_tape;
     juce::HyperlinkButton m_websiteLink { "www.sweetjusticesound.com", juce::URL("https://www.sweetjusticesound.com") };
@@ -243,6 +252,7 @@ private:
     juce::TextButton m_cablesButton { "CABLES" };
     juce::Rectangle<int> m_modSection;
     SettingsPanel m_settings;
+    TakesView m_takes;
     AboutPanel m_about;
     juce::HyperlinkButton m_versionLink;
     juce::Rectangle<int> m_titleArea;

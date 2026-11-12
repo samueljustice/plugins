@@ -356,6 +356,172 @@ int main(int argc, char* argv[])
         p.setMono(false);
     }
 
+    // Harvesting on the real plug-in: one file per whoosh with names, descriptions and markers; the takes; audition.
+    {
+        const auto harvest = folder.getChildFile("harvest");
+        harvest.deleteRecursively();
+        harvest.createDirectory();
+        Rig rig(sources, 0);
+        auto& p = rig.proc;
+        check(! p.getOneFilePerWhoosh() && p.getTakeName().isEmpty() && p.getCreator().isEmpty() && p.getNameStyle() == 0 && p.getRetroMinutes() == 1,
+              "harvest: One File Per Whoosh is off, names follow the preset with a counter, LAST 60s keeps a minute, unless set otherwise");
+        p.setRecordFolder(harvest);
+        p.setOneFilePerWhoosh(true);
+        p.setTakeName("Fly By");
+        p.setCreator("Anne Bonny");
+        if (auto* length = param(p, ParamIDs::throwLength))
+            length->setValueNotifyingHost(length->convertTo0to1(1.5f));
+        p.prepareToPlay(c_fs, c_block);
+        juce::String error;
+        check(p.arm(error), "harvest: the tape arms " + error);
+        // Three throws with the rig stopped, each left to ring out: three whooshes.
+        for (int k = 0; k < 3; ++k)
+        {
+            p.throwWhoosh();
+            rig.run(5.0);
+        }
+        check(p.isRecording() && ! p.isCapturing(), "harvest: the tape is still armed, waiting for the next whoosh");
+        // The files of the first whooshes are closed and in the takes while the tape is still armed.
+        for (int tries = 0; tries < 100 && p.getTakes().size() < 3; ++tries)
+        {
+            juce::Thread::sleep(20);
+            p.refreshTakes(); // (the processor's own timer does this in the app; no message loop runs here)
+        }
+        const int whileArmed = static_cast<int>(p.getTakes().size());
+        p.stopRecording();
+        const auto takes = p.getTakes(); // newest first
+        juce::StringArray names;
+        bool cued = takes.size() == 3, described = takes.size() == 3;
+        for (const auto& take : takes)
+        {
+            names.add(take.file.getFileName() + " (" + take.kind + ")");
+            juce::AudioBuffer<float> audio;
+            const double rate = readFile(take.file, audio);
+            // One Throw marker (with the hit aimed at it), where the file is loudest.
+            const auto cues = TapeRecorder::readCues(take.file);
+            int loudest = 0;
+            float best = 0.0f;
+            const int win = static_cast<int>(0.05 * rate);
+            for (int at = 0; at + win < audio.getNumSamples(); at += win / 4)
+                if (const float v = audio.getRMSLevel(0, at, win) + audio.getRMSLevel(1, at, win); v > best)
+                {
+                    best = v;
+                    loudest = at + win / 2;
+                }
+            int throws = 0;
+            double throwAt = -1.0;
+            for (const auto& cue : cues)
+                if (cue.label.contains("Throw"))
+                {
+                    ++throws;
+                    throwAt = static_cast<double>(cue.frame) / rate;
+                }
+            cued = cued && throws == 1 && take.markers == static_cast<int>(cues.size()) && std::abs(throwAt - loudest / rate) < 0.25
+                   && std::abs(take.seconds - audio.getNumSamples() / rate) < 0.01 && take.seconds > 1.0 && take.seconds < 4.5;
+            std::cout << "         " << take.file.getFileName() << ": " << juce::String(take.seconds, 2) << " s, loudest at "
+                      << juce::String(loudest / rate, 2) << " s, cues:";
+            for (const auto& cue : cues)
+                std::cout << " [" << cue.label << " @ " << juce::String(static_cast<double>(cue.frame) / rate, 2) << "]";
+            std::cout << std::endl;
+            const auto description = TapeRecorder::readDescription(take.file);
+            std::unique_ptr<juce::AudioFormatReader> r(juce::WavAudioFormat().createReaderFor(new juce::FileInputStream(take.file), true));
+            described = described && description.startsWith("Swooshbuckler " + juce::String(JucePlugin_VersionString) + ". Preset: Default. Energy ")
+                        && description.contains("Pass A Bed") && r != nullptr
+                        && r->metadataValues[juce::WavAudioFormat::bwavOriginator] == "Anne Bonny";
+            if (&take == &takes.front())
+                std::cout << "         description: " << description << std::endl;
+        }
+        check(names.joinIntoString(", ") == "Fly By_0003.wav (Whoosh), Fly By_0002.wav (Whoosh), Fly By_0001.wav (Whoosh)",
+              "harvest: three throws, three numbered whoosh files in the takes, newest first (" + names.joinIntoString(", ") + ")");
+        check(whileArmed >= 2 && p.getFilesThisTake() == 3 && harvest.getNumberOfChildFiles(juce::File::findFiles) == 3,
+              "harvest: they are listed as each whoosh ends, and nothing else is written (" + juce::String(whileArmed) + " listed while armed)");
+        check(cued, "harvest: each file has its Throw marker at its loudest moment");
+        check(described, "harvest: each file says what made it and who");
+
+        // Audition: a take plays through the output with the rig at rest, and is not recorded.
+        if (! takes.empty())
+        {
+            const auto silent = rig.run(1.0);
+            check(peak(silent, 0.0, 1.0) == 0.0f && p.getAuditionTake() == -1, "audition: the rig is at rest and nothing is playing");
+            check(p.arm(error), "audition: the tape arms again " + error);
+            check(p.auditionTake(takes.front().id, error) && p.getAuditionTake() == takes.front().id, "audition: a take starts playing " + error);
+            juce::AudioBuffer<float> heard(2, 0);
+            double progressMid = 0.0;
+            for (int k = 0; k < 12 && p.getAuditionTake() >= 0; ++k)
+            {
+                const auto part = rig.run(0.5);
+                const int had = heard.getNumSamples();
+                heard.setSize(2, had + part.getNumSamples(), true);
+                for (int ch = 0; ch < 2; ++ch)
+                    heard.copyFrom(ch, had, part, ch, 0, part.getNumSamples());
+                if (k == 1)
+                    progressMid = p.getAuditionProgress();
+                juce::Thread::sleep(30); // the reader thread tops the playback up
+            }
+            juce::AudioBuffer<float> original;
+            readFile(takes.front().file, original);
+            const float heardPeak = heard.getMagnitude(0, heard.getNumSamples()), filePeak = original.getMagnitude(0, original.getNumSamples());
+            const double heardSeconds = lastSound(heard);
+            check(std::abs(heardPeak - filePeak) < 0.05f * filePeak && std::abs(heardSeconds - takes.front().seconds) < 0.3 && p.getAuditionTake() == -1,
+                  "audition: the whole take is heard at its own level, then it stops (" + juce::String(heardSeconds, 2) + " s of "
+                      + juce::String(takes.front().seconds, 2) + " s, peak " + juce::String(heardPeak, 3) + " of " + juce::String(filePeak, 3) + ")");
+            check(progressMid > 0.1 && progressMid < 0.9, "audition: it says how far through it is (" + juce::String(progressMid, 2) + ")");
+            p.stopRecording();
+            check(p.getFilesThisTake() == 0 && p.getTakes().size() == takes.size(), "audition: what is auditioned is not recorded");
+            // Stopping part-way fades it out.
+            check(p.auditionTake(takes.back().id, error), "audition: another take starts " + error);
+            rig.run(0.5);
+            p.stopAudition();
+            const auto fading = rig.run(0.25);
+            check(p.getAuditionTake() == -1 && peak(fading, 0.1, 0.25) == 0.0f, "audition: stop fades it out within a few milliseconds");
+        }
+
+        // The takes: stars keep, a full list drops the oldest without a star, delete moves the file to the trash.
+        if (takes.size() == 3)
+        {
+            const int oldest = takes.back().id;
+            p.setTakeStarred(oldest, true);
+            for (int k = 0; k < SwooshbucklerAudioProcessor::c_maxTakes; ++k)
+            {
+                const auto extra = harvest.getChildFile("extra_" + juce::String(k) + ".wav");
+                takes.front().file.copyFileTo(extra);
+                p.registerTake(extra, "Render");
+            }
+            const auto& now = p.getTakes();
+            const bool kept = std::any_of(now.begin(), now.end(), [oldest](const auto& t) { return t.id == oldest && t.starred; });
+            const bool others = std::none_of(now.begin(), now.end(), [](const auto& t) { return t.kind == "Whoosh" && ! t.starred; });
+            check(static_cast<int>(now.size()) == SwooshbucklerAudioProcessor::c_maxTakes && kept && others && now.front().kind == "Render"
+                      && std::abs(now.front().seconds - takes.front().seconds) < 0.01,
+                  "takes: the list holds 20; a starred take stays, the oldest others leave; a registered file is listed with its length");
+            const auto victim = now.front();
+            const int before = p.getTakesGeneration();
+            check(p.deleteTake(victim.id, false) && ! victim.file.exists() && static_cast<int>(p.getTakes().size()) == SwooshbucklerAudioProcessor::c_maxTakes - 1
+                      && p.getTakesGeneration() != before,
+                  "takes: delete takes the file out of the folder and off the list");
+        }
+
+        // LAST 60s: named and listed like the rest; its length is a setting.
+        {
+            p.setOneFilePerWhoosh(false);
+            p.setPlaying(true);
+            rig.run(3.0);
+            juce::File written;
+            check(p.saveRetro(written, error) && written.getFileName() == "Fly By_0004_retro.wav" && p.getTakes().front().file == written
+                      && p.getTakes().front().kind == "Last 60s",
+                  "harvest: LAST 60s is named by the same counter and listed (" + written.getFileName() + ") " + error);
+            p.setRetroMinutes(3);
+            juce::PropertiesFile reread(settingsFile, options);
+            check(p.getRetroMinutes() == 3 && reread.getIntValue("retroMinutes") == 3 && reread.getBoolValue("oneFilePerWhoosh", true) == false
+                      && reread.getValue("takeName") == "Fly By" && reread.getValue("creator") == "Anne Bonny",
+                  "harvest: the settings are saved");
+            p.setPlaying(false);
+        }
+        p.setRetroMinutes(1);
+        p.setTakeName({});
+        p.setCreator({});
+        p.setRecordFolder(tapeFolder);
+    }
+
     // Perform: Follow Host, the Play parameter, MIDI keys and the wander, on the real plug-in.
     {
         struct Transport final : juce::AudioPlayHead

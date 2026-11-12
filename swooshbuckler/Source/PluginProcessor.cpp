@@ -1,5 +1,6 @@
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
+#include "Version.h"
 
 namespace
 {
@@ -95,6 +96,7 @@ SwooshbucklerAudioProcessor::SwooshbucklerAudioProcessor()
         m_ownSettings = openSettings();
         m_settings = m_ownSettings.get();
     }
+    m_recorder.setRetroSeconds(getRetroMinutes() * 60);
     startTimerHz(4);
 }
 
@@ -127,6 +129,7 @@ void SwooshbucklerAudioProcessor::prepareToPlay(double sampleRate, int samplesPe
     // seed. No key is held across it either (its note-off may never come).
     m_hostWasPlaying = false;
     m_keysDown = {};
+    m_audition.prepare(sampleRate);
     prepareInternal();
 }
 
@@ -165,6 +168,11 @@ void SwooshbucklerAudioProcessor::renderAtRenderRate(const float* inL, const flo
     const bool playing = m_playing.load();
     m_engine.setReleased(! playing); // Stop: the sources let go, the echoes and Space ring out
     m_engine.process(inL, inR, l, r, n);
+    // The pass peaks and hits of this block, for the take's markers: they reach the tape after the limiter's look-ahead.
+    static_assert(static_cast<int>(RigEngine::MarkPassA) == static_cast<int>(TapeRecorder::MarkPassA)
+                  && static_cast<int>(RigEngine::MarkHit) == static_cast<int>(TapeRecorder::MarkHit), "the same marker kinds");
+    for (int i = 0; i < m_engine.getNumMarkers(); ++i)
+        m_recorder.addMarker(m_engine.getMarker(i).offset + m_master.getLatencySamples(), m_engine.getMarker(i).kind);
     const bool throwing = m_engine.isThrowing(); // a throw with the rig stopped: its tail is waited for afterwards
 
     // Inflate, then Push (drive into the limiter; the ceiling stays put), then the limiter.
@@ -449,6 +457,7 @@ void SwooshbucklerAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
         for (size_t half = 0; half < 2; ++half)
             m_keysView[half].store(mode == KeysThrow ? m_keysLatched[half] : m_keysDown[half], std::memory_order_relaxed);
         buffer.clear();
+        m_audition.process(buffer, 0, n); // a take being auditioned plays whether the rig does or not
         publishOutputPeak(0.0f, n);
         return;
     }
@@ -573,6 +582,8 @@ void SwooshbucklerAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
         m_followerLevels[ModMatrix::FollowHits] = sections[2];
         publishOutputPeak(preTrimPeak, len);
     }
+    // A take being auditioned: on top of the output, after the tape, the meters and the trim.
+    m_audition.process(buffer, 0, n);
 }
 
 int SwooshbucklerAudioProcessor::keysMode() const
@@ -712,16 +723,29 @@ bool SwooshbucklerAudioProcessor::isUserEdit(int) const
 bool SwooshbucklerAudioProcessor::arm(juce::String& error)
 {
     m_recorder.setSignalGate(getSkipSilence());
-    return startRecording(error);
-}
-
-bool SwooshbucklerAudioProcessor::startRecording(juce::String& error)
-{
     TapeRecorder::Options o;
     o.bitDepth = getBitDepth();
     o.fileRate = static_cast<double>(getRecordRate()); // 0 = the session rate
     o.type = static_cast<TapeRecorder::FileType>(getFileType());
     o.mono = getMono();
+    o.perWhoosh = getOneFilePerWhoosh();
+    refreshTakes();
+    m_filesThisTake = 0;
+    updateTapeNaming();
+    return m_recorder.start(getRecordFolder(), o, error);
+}
+
+bool SwooshbucklerAudioProcessor::startRecording(juce::String& error)
+{
+    // One continuous take in one file, whatever the settings say about whooshes.
+    TapeRecorder::Options o;
+    o.bitDepth = getBitDepth();
+    o.fileRate = static_cast<double>(getRecordRate()); // 0 = the session rate
+    o.type = static_cast<TapeRecorder::FileType>(getFileType());
+    o.mono = getMono();
+    refreshTakes();
+    m_filesThisTake = 0;
+    updateTapeNaming();
     return m_recorder.start(getRecordFolder(), o, error);
 }
 
@@ -756,6 +780,7 @@ void SwooshbucklerAudioProcessor::setMono(bool mono) { m_settings->setValue("mon
 void SwooshbucklerAudioProcessor::stopRecording()
 {
     m_recorder.stop();
+    refreshTakes();
 }
 
 bool SwooshbucklerAudioProcessor::saveRetro(juce::File& written, juce::String& error)
@@ -766,7 +791,188 @@ bool SwooshbucklerAudioProcessor::saveRetro(juce::File& written, juce::String& e
     o.fileRate = static_cast<double>(getRecordRate()); // 0 = the session rate
     o.type = static_cast<TapeRecorder::FileType>(getFileType());
     o.mono = getMono();
-    return m_recorder.saveRetro(getRecordFolder(), o, written, error);
+    updateTapeNaming();
+    if (! m_recorder.saveRetro(getRecordFolder(), o, written, error))
+        return false;
+    registerTake(written, getRetroMinutes() == 1 ? juce::String("Last 60s") : "Last " + juce::String(getRetroMinutes()) + "m");
+    return true;
+}
+
+//==============================================================================
+// Names, descriptions and the takes
+bool SwooshbucklerAudioProcessor::getOneFilePerWhoosh() const { return m_settings->getBoolValue("oneFilePerWhoosh", false); }
+
+void SwooshbucklerAudioProcessor::setOneFilePerWhoosh(bool on)
+{
+    if (on == getOneFilePerWhoosh())
+        return;
+    m_settings->setValue("oneFilePerWhoosh", on);
+    m_settings->saveIfNeeded();
+    if (isRecording())
+    {
+        // The open take is written the old way: close it and carry on in a new one.
+        stopRecording();
+        juce::String error;
+        arm(error);
+    }
+}
+
+juce::String SwooshbucklerAudioProcessor::getTakeName() const { return m_settings->getValue("takeName").trim(); }
+void SwooshbucklerAudioProcessor::setTakeName(const juce::String& name) { m_settings->setValue("takeName", name.trim()); m_settings->saveIfNeeded(); updateTapeNaming(); }
+juce::String SwooshbucklerAudioProcessor::getCreator() const { return m_settings->getValue("creator").trim(); }
+void SwooshbucklerAudioProcessor::setCreator(const juce::String& creator) { m_settings->setValue("creator", creator.trim()); m_settings->saveIfNeeded(); updateTapeNaming(); }
+int SwooshbucklerAudioProcessor::getNameStyle() const { return juce::jlimit(0, 1, m_settings->getIntValue("nameStyle", 0)); }
+void SwooshbucklerAudioProcessor::setNameStyle(int style) { m_settings->setValue("nameStyle", juce::jlimit(0, 1, style)); m_settings->saveIfNeeded(); updateTapeNaming(); }
+
+int SwooshbucklerAudioProcessor::getRetroMinutes() const
+{
+    const int minutes = m_settings->getIntValue("retroMinutes", 1);
+    return minutes == 3 || minutes == 5 ? minutes : 1;
+}
+
+void SwooshbucklerAudioProcessor::setRetroMinutes(int minutes)
+{
+    m_settings->setValue("retroMinutes", minutes == 3 || minutes == 5 ? minutes : 1);
+    m_settings->saveIfNeeded();
+    m_recorder.setRetroSeconds(getRetroMinutes() * 60);
+}
+
+juce::String SwooshbucklerAudioProcessor::getEffectiveTakeName() const
+{
+    if (const auto name = getTakeName(); name.isNotEmpty())
+        return name;
+    const bool message = juce::MessageManager::existsAndIsCurrentThread();
+    const auto preset = message ? currentPresetName : juce::String();
+    return preset.isEmpty() || preset == "Default" ? juce::String("Swooshbuckler") : preset;
+}
+
+juce::String SwooshbucklerAudioProcessor::describeSettings() const
+{
+    // Short enough for a BWF description (256 characters): the version, the preset, and the controls that say most
+    // about how the take was made.
+    auto text = [this](const char* id)
+    {
+        auto* param = m_state.getParameter(id);
+        return param != nullptr ? param->getCurrentValueAsText() : juce::String();
+    };
+    juce::String d;
+    d << "Swooshbuckler " << Version::number() << ". Preset: " << currentPresetName
+      << ". Energy " << text(ParamIDs::energy) << ", Rate " << text(ParamIDs::rate) << ", Fill " << text(ParamIDs::fill)
+      << ", Chaos " << text(ParamIDs::chaos) << ", Pitch " << text(ParamIDs::pitch) << ", Space " << text(ParamIDs::space)
+      << ". Pass A " << text(ParamIDs::passMode[0]) << ", Pass B " << text(ParamIDs::passMode[1])
+      << ". Morph " << text(ParamIDs::morphOn) << ", Aim " << text(ParamIDs::hitAim) << ".";
+    return d.substring(0, 256);
+}
+
+void SwooshbucklerAudioProcessor::updateTapeNaming()
+{
+    TapeRecorder::Naming naming;
+    naming.prefix = getEffectiveTakeName();
+    naming.style = getNameStyle() == 1 ? TapeRecorder::NameStyle::DateTime : TapeRecorder::NameStyle::Counter;
+    naming.description = describeSettings();
+    naming.creator = getCreator().isNotEmpty() ? getCreator() : juce::String("Samuel Justice");
+    naming.software = "Swooshbuckler " + Version::number();
+    m_recorder.setNaming(naming);
+}
+
+void SwooshbucklerAudioProcessor::refreshTakes()
+{
+    for (const auto& take : m_recorder.takeFinishedTakes())
+    {
+        ++m_filesThisTake;
+        registerTake(take.file, take.whoosh ? "Whoosh" : "Tape", take.seconds, take.markers);
+    }
+}
+
+void SwooshbucklerAudioProcessor::registerTake(const juce::File& fileToAdd, const juce::String& kindToShow, double seconds, int markers)
+{
+    const juce::File file(fileToAdd);     // copies: the caller may have handed us a take of the list that is about
+    const juce::String kind(kindToShow);  // to be replaced
+    if (! juce::MessageManager::existsAndIsCurrentThread())
+    {
+        juce::WeakReference<SwooshbucklerAudioProcessor> weak(this);
+        juce::MessageManager::callAsync([weak, file, kind, seconds, markers]
+        {
+            if (auto* self = weak.get())
+                self->registerTake(file, kind, seconds, markers);
+        });
+        return;
+    }
+    if (seconds < 0.0)
+    {
+        juce::AudioFormatManager formats;
+        formats.registerBasicFormats();
+        if (std::unique_ptr<juce::AudioFormatReader> reader { formats.createReaderFor(file) })
+            seconds = reader->sampleRate > 0.0 ? static_cast<double>(reader->lengthInSamples) / reader->sampleRate : 0.0;
+    }
+    for (auto it = m_takes.begin(); it != m_takes.end();) // the same file again (written over): one entry
+        it = it->file == file ? m_takes.erase(it) : it + 1;
+    Take take;
+    take.id = m_nextTakeId++;
+    take.file = file;
+    take.kind = kind;
+    take.seconds = juce::jmax(0.0, seconds);
+    take.markers = markers;
+    m_takes.insert(m_takes.begin(), take);
+    // Full: the oldest take that isn't starred leaves the list (its file stays where it is); all starred, the oldest.
+    while (static_cast<int>(m_takes.size()) > c_maxTakes)
+    {
+        auto oldest = m_takes.end() - 1;
+        for (auto it = m_takes.end(); it != m_takes.begin();)
+            if (! (--it)->starred)
+            {
+                oldest = it;
+                break;
+            }
+        m_takes.erase(oldest);
+    }
+    ++m_takesGeneration;
+}
+
+void SwooshbucklerAudioProcessor::setTakeStarred(int id, bool starred)
+{
+    for (auto& take : m_takes)
+        if (take.id == id && take.starred != starred)
+        {
+            take.starred = starred;
+            ++m_takesGeneration;
+        }
+}
+
+bool SwooshbucklerAudioProcessor::deleteTake(int id, bool toTrash)
+{
+    for (auto it = m_takes.begin(); it != m_takes.end(); ++it)
+        if (it->id == id)
+        {
+            if (m_audition.getFile() == it->file)
+                m_audition.stop();
+            if (it->file.existsAsFile() && ! (toTrash ? it->file.moveToTrash() : it->file.deleteFile()))
+                return false;
+            m_takes.erase(it);
+            ++m_takesGeneration;
+            return true;
+        }
+    return false;
+}
+
+bool SwooshbucklerAudioProcessor::auditionTake(int id, juce::String& error)
+{
+    for (const auto& take : m_takes)
+        if (take.id == id)
+            return m_audition.play(take.file, error);
+    error = "That take is no longer in the list";
+    return false;
+}
+
+int SwooshbucklerAudioProcessor::getAuditionTake() const
+{
+    if (! m_audition.isPlaying())
+        return -1;
+    const auto file = m_audition.getFile();
+    for (const auto& take : m_takes)
+        if (take.file == file)
+            return take.id;
+    return -1;
 }
 
 juce::File SwooshbucklerAudioProcessor::getRecordFolder() const
@@ -830,6 +1036,12 @@ void SwooshbucklerAudioProcessor::timerCallback()
     // session is opened otherwise).
     if (m_hostStopped.exchange(false) && ! m_playing.load())
         setPlaying(false);
+
+    // The tape: the files it has closed go into the takes, and the next file is named and described by the
+    // settings as they are now.
+    refreshTakes();
+    if (isRecording())
+        updateTapeNaming();
 
     // Auto-roll the tape once audio is running (message thread, never the audio thread).
     if (! m_autoRecordDone && getSampleRate() > 0.0)

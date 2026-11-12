@@ -356,6 +356,7 @@ void RigEngine::reseedNow()
     m_aimClock = 0.0;
     m_lastAimTarget = -1.0e12;
     m_lastHitTiming = -1;
+    m_hitMarks.fill(-1.0);
     m_releaseGain = 0.0f;
     m_reseedPending = false;
 }
@@ -736,11 +737,35 @@ void RigEngine::renderTracks(int frames)
         cue.secondsToPeak = toPeak;
         cue.flightSeconds = period;
         m_beatViewWait = toPeak * m_sampleRate; // the view moves when the transients land
+        if (m_hasHitTracks)                     // and a recording gets a marker there
+            for (auto& at : m_hitMarks)
+                if (at < 0.0)
+                {
+                    at = toPeak * m_sampleRate;
+                    break;
+                }
         const double ratio = juce::jmax(0.01, static_cast<double>(pitchRatio));
         m_hitPreView.store(toPeak * ratio, std::memory_order_relaxed);
         m_hitPostView.store(juce::jmax(0.0, period - toPeak - 0.08) * ratio, std::memory_order_relaxed);
         return period;
     };
+
+    m_hasHitTracks = false;
+    if (m_cargo != nullptr)
+        for (int t = 0; t < c_tracks && ! m_hasHitTracks; ++t)
+            m_hasHitTracks = m_cargo->getLive(t) != nullptr && m_cargo->getBus(t) == CargoHold::c_hitsBus;
+    // Cued hits whose transients land in this chunk.
+    for (auto& at : m_hitMarks)
+        if (at >= 0.0)
+        {
+            if (at < static_cast<double>(frames))
+            {
+                mark(MarkHit, static_cast<int>(at));
+                at = -1.0;
+            }
+            else
+                at -= static_cast<double>(frames);
+        }
 
     CargoCue hitCue;
     if (hitSync && m_cargo != nullptr)
@@ -1568,6 +1593,8 @@ void RigEngine::renderHits(int frames)
     const float avgCoef = 1.0f - std::exp(-1.0f / (2.0f * m_fs));
     const float dt = 1.0f / m_fs;
     float gateMax = 0.0f, hitsMax = 0.0f;
+    const bool gateMarks = mode != 3 && ! m_params.hitSync && m_hasHitTracks;
+    float gateWas = m_gate;
 
     for (int i = 0; i < frames; ++i)
     {
@@ -1601,6 +1628,10 @@ void RigEngine::renderHits(int frames)
         {
             m_gate -= m_gate * release;
         }
+        // The hit gate opening (not with AIM or SYNC HITS, which mark their own hits, nor with the gate held open).
+        if (gateMarks && gateWas < 0.5f && m_gate >= 0.5f)
+            mark(MarkHit, i);
+        gateWas = m_gate;
         gateMax = std::max(gateMax, m_gate);
 
         const float h = m_hitsIn[ii] * (floorGain + (1.0f - floorGain) * m_gate) * boost;
@@ -1729,9 +1760,11 @@ void RigEngine::process(const float* inL, const float* inR, float* outL, float* 
 {
     juce::ignoreUnused(inL, inR); // sample-based: the plug-in has no audio input
     int offset = 0;
+    m_numMarkers = 0;
     while (offset < numSamples)
     {
         const int frames = std::min(c_chunk, numSamples - offset);
+        m_chunkOffset = offset;
 
         // A seeded restart waits for the output to have faded out. It always takes the fade's time, sounding or
         // not, so the new run starts the same number of samples after it was asked for every time. Throws asked
@@ -1770,6 +1803,14 @@ void RigEngine::process(const float* inL, const float* inR, float* outL, float* 
         const bool link = m_linkNow;
         if (link)
             m_leadStart = keyBus.heads; // A's passes before this chunk, for B to line up with
+        // Markers: which passes and throws are still on their way in before this chunk (see below).
+        std::array<std::array<bool, 2>, c_maxBuses> passComing {};
+        std::array<bool, c_throws> throwComing {};
+        for (size_t b = 0; b < m_buses.size(); ++b)
+            for (size_t k = 0; k < 2; ++k)
+                passComing[b][k] = m_buses[b].heads[k].time < static_cast<double>(m_buses[b].heads[k].lenIn);
+        for (size_t v = 0; v < m_throws.size(); ++v)
+            throwComing[v] = m_throws[v].active && keyBus.throwHeads[v].time < static_cast<double>(keyBus.throwHeads[v].lenIn);
         renderBus(keyBus, frames, 0.0f, true);
         for (int b = 1; b < numBuses; ++b)
         {
@@ -1826,6 +1867,26 @@ void RigEngine::process(const float* inL, const float* inR, float* outL, float* 
                 if (duckKey)
                     duckSample(keyBus.byBus, key0 + (keyBus.duck - key0) * t, returnCoef, 0.9f, keyBus.l[ii], keyBus.r[ii]);
             }
+        }
+
+        // Markers: a pass or a throw that went by its closest point in this chunk.
+        {
+            auto crossedAt = [&](const Head& h)
+            {
+                const double past = (h.time - static_cast<double>(h.lenIn)) * m_sampleRate; // samples since the peak
+                return static_cast<int>(sj::clamp(static_cast<float>(frames) - static_cast<float>(past), 0.0f, static_cast<float>(frames - 1)));
+            };
+            for (size_t b = 0; b < m_buses.size() && b < 2; ++b)
+            {
+                if (m_releaseGain <= 0.0f || m_buses[b].env < 0.002f || (b > 0 && link))
+                    continue;
+                for (size_t k = 0; k < 2; ++k)
+                    if (const auto& h = m_buses[b].heads[k]; passComing[b][k] && h.time >= static_cast<double>(h.lenIn))
+                        mark(b == 0 ? MarkPassA : MarkPassB, crossedAt(h));
+            }
+            for (size_t v = 0; v < m_throws.size(); ++v)
+                if (const auto& h = keyBus.throwHeads[v]; throwComing[v] && m_throws[v].active && h.time >= static_cast<double>(h.lenIn))
+                    mark(MarkThrow, crossedAt(h));
         }
 
         // A throw is over when its tail has gone (its window is shut from there on).

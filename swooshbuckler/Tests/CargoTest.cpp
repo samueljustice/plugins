@@ -971,8 +971,8 @@ int main(int argc, char* argv[])
             std::unique_ptr<juce::AudioFormatReader> all(formats.createReaderFor(continuous.getLastFile()));
             check(all != nullptr && std::abs(static_cast<double>(all->lengthInSamples) - 20.0 * c_rate) < 2.0 * c_block,
                   "tape: with Skip Silence off the take is continuous (20 s)");
-            check(all != nullptr && all->metadataValues[juce::WavAudioFormat::bwavOriginatorRef] == "Samuel Justice",
-                  "tape: the file names its author (" + (all != nullptr ? all->metadataValues[juce::WavAudioFormat::bwavOriginatorRef] : juce::String()) + ")");
+            check(all != nullptr && all->metadataValues[juce::WavAudioFormat::bwavOriginator] == "Samuel Justice",
+                  "tape: the file names its author (" + (all != nullptr ? all->metadataValues[juce::WavAudioFormat::bwavOriginator] : juce::String()) + ")");
         }
 
         // 16-bit takes are dithered: a tone of 0.4 of a 16-bit step survives (without dither the file is flat),
@@ -1049,6 +1049,304 @@ int main(int argc, char* argv[])
             std::unique_ptr<juce::AudioFormatReader> r(formats.createReaderFor(written));
             check(written.hasFileExtension("flac") && r != nullptr && r->bitsPerSample == 16 && r->numChannels == 1,
                   "tape: LAST 60s uses the chosen file type, bit depth and channels");
+        }
+
+        // Harvesting ---------------------------------------------------------------------------------------------
+        auto tone = [&](TapeRecorder& t, double seconds, float level, int startAt = 0)
+        {
+            for (int pos = 0; pos < static_cast<int>(seconds * c_rate); pos += c_block)
+            {
+                for (int i = 0; i < c_block; ++i)
+                    for (int ch = 0; ch < 2; ++ch)
+                        block.setSample(ch, i, level * static_cast<float>(std::sin(0.05 * (startAt + pos + i))));
+                t.process(block.getArrayOfReadPointers(), 2, c_block);
+                if ((pos / c_block) % 64 == 63)
+                    juce::Thread::sleep(2); // let the writer thread keep up
+            }
+        };
+        auto waitForFiles = [](TapeRecorder& t, std::vector<TapeRecorder::FinishedTake>& into, size_t count)
+        {
+            for (int tries = 0; tries < 200 && into.size() < count; ++tries)
+            {
+                for (auto& f : t.takeFinishedTakes())
+                    into.push_back(f);
+                if (into.size() < count)
+                    juce::Thread::sleep(10);
+            }
+        };
+
+        // Names: <Name>_NNNN with a counter that goes on, never taking a number a file already has; or the date and time.
+        {
+            auto names = folder.getChildFile("names");
+            names.deleteRecursively();
+            names.createDirectory();
+            names.getChildFile("Jet Passes_0002.wav").create(); // already there from an earlier run
+            TapeRecorder t;
+            t.prepare(c_rate, 2);
+            TapeRecorder::Naming naming;
+            naming.prefix = "Jet Passes";
+            t.setNaming(naming);
+            juce::StringArray made;
+            for (int k = 0; k < 2; ++k)
+            {
+                check(t.start(names, 24, error), "names: starts a take " + error);
+                tone(t, 0.5, 0.25f);
+                t.stop();
+                made.add(t.getLastFile().getFileName());
+            }
+            tone(t, 1.0, 0.25f);
+            check(t.saveRetro(names, 24, written, error), "names: LAST 60s saves " + error);
+            made.add(written.getFileName());
+            check(made.joinIntoString(", ") == "Jet Passes_0001.wav, Jet Passes_0003.wav, Jet Passes_0004_retro.wav",
+                  "names: a counter that goes on and skips a number already in the folder (" + made.joinIntoString(", ") + ")");
+
+            // A take with nothing in it leaves no file and gives its number back.
+            t.setSignalGate(true);
+            check(t.start(names, 24, error), "names: starts an empty take " + error);
+            const auto emptyFile = t.getCurrentFile();
+            block.clear();
+            for (int k = 0; k < 100; ++k)
+                t.process(block.getArrayOfReadPointers(), 2, c_block);
+            t.stop();
+            t.setSignalGate(false);
+            check(emptyFile.getFileName() == "Jet Passes_0005.wav" && ! emptyFile.exists() && t.getLastFile() == juce::File(),
+                  "names: a take with no sound leaves no file behind (" + emptyFile.getFileName() + ")");
+            check(t.nextFile(names, {}, ".wav").getFileName() == "Jet Passes_0005.wav", "names: and its number is used by the next one");
+
+            naming.prefix = "A/B: test?";
+            naming.style = TapeRecorder::NameStyle::DateTime;
+            t.setNaming(naming);
+            const auto dated = t.nextFile(names, {}, ".wav").getFileNameWithoutExtension();
+            const auto stamp = dated.fromLastOccurrenceOf("test_", false, false);
+            check(juce::File::createLegalFileName(dated) == dated && stamp.length() == 19 && stamp[4] == '-' && stamp[10] == '_',
+                  "names: the date and time form, with a name made safe for a file (" + dated + ")");
+            naming.prefix = "   ";
+            naming.style = TapeRecorder::NameStyle::Counter;
+            t.setNaming(naming);
+            check(t.nextFile(names, {}, ".wav").getFileName().startsWith("Swooshbuckler_"), "names: an empty name falls back to Swooshbuckler");
+        }
+
+        // The same description in every file type, and who made it.
+        {
+            auto meta = folder.getChildFile("meta");
+            meta.deleteRecursively();
+            meta.createDirectory();
+            TapeRecorder::Naming naming;
+            naming.prefix = "Meta";
+            naming.description = juce::String::fromUTF8("Swooshbuckler 9.9.9. Preset: Jet Passes. Energy 36 %, Rate 2.1 s. Caf\xc3\xa9.");
+            naming.creator = "Anne Bonny";
+            naming.software = "Swooshbuckler 9.9.9";
+            const TapeRecorder::FileType types[] = { TapeRecorder::FileType::Wav, TapeRecorder::FileType::Aiff, TapeRecorder::FileType::Flac };
+            const char* typeNames[] = { "WAV", "AIFF", "FLAC" };
+            for (int k = 0; k < 3; ++k)
+            {
+                TapeRecorder t;
+                t.prepare(c_rate, 2);
+                t.setNaming(naming);
+                TapeRecorder::Options o;
+                o.type = types[k];
+                check(t.start(meta, o, error), juce::String("metadata: starts a ") + typeNames[k] + " take " + error);
+                tone(t, 1.0, 0.25f);
+                t.stop();
+                const auto file = t.getLastFile();
+                const auto read = TapeRecorder::readDescription(file);
+                std::unique_ptr<juce::AudioFormatReader> r(formats.createReaderFor(file));
+                check(read == naming.description, juce::String("metadata: the description is in the ") + typeNames[k] + " file (" + read + ")");
+                check(r != nullptr && std::abs(static_cast<double>(r->lengthInSamples) - c_rate) < 2.0 * c_block,
+                      juce::String("metadata: the ") + typeNames[k] + " file still plays, all 1 s of it");
+                if (k == 0)
+                    check(r != nullptr && r->metadataValues[juce::WavAudioFormat::bwavOriginator] == "Anne Bonny"
+                              && r->metadataValues[juce::WavAudioFormat::riffInfoArtist] == "Anne Bonny"
+                              && r->metadataValues[juce::WavAudioFormat::riffInfoSoftware] == "Swooshbuckler 9.9.9",
+                          "metadata: the WAV names the Creator and the software");
+                if (k == 2)
+                {
+                    juce::MemoryBlock bytes;
+                    file.loadFileAsData(bytes);
+                    const std::string all(static_cast<const char*>(bytes.getData()), bytes.getSize());
+                    check(all.find("ARTIST=Anne Bonny") != std::string::npos && all.find("ENCODER=Swooshbuckler 9.9.9") != std::string::npos,
+                          "metadata: the FLAC names the Creator and the software");
+                }
+                // LAST 60s the same way.
+                check(t.saveRetro(meta, o, written, error) && TapeRecorder::readDescription(written) == naming.description,
+                      juce::String("metadata: LAST 60s carries it too (") + typeNames[k] + ") " + error);
+            }
+        }
+
+        // Markers: cue points with labels, where the audio thread said, in the file's own frames.
+        {
+            auto marks = folder.getChildFile("marks");
+            marks.deleteRecursively();
+            marks.createDirectory();
+            auto describe = [](const std::vector<TapeRecorder::Cue>& cues, double rate)
+            {
+                juce::StringArray parts;
+                for (const auto& c : cues)
+                    parts.add(c.label + " @ " + juce::String(static_cast<double>(c.frame) / rate, 3));
+                return parts.joinIntoString(", ");
+            };
+            // A continuous take: markers at 0.5 s, 1.0 s (two kinds at once), and one that comes due two blocks later.
+            {
+                TapeRecorder t;
+                t.prepare(c_rate, 2);
+                TapeRecorder::Options o;
+                o.fileRate = 96000.0; // the cue points are in the file's frames, not the session's
+                check(t.start(marks, o, error), "markers: starts a take " + error);
+                const int blocks = static_cast<int>(2.0 * c_rate) / c_block;
+                for (int k = 0; k < blocks; ++k)
+                {
+                    const int from = k * c_block, to = from + c_block;
+                    auto in = [&](int sample) { return sample >= from && sample < to; };
+                    if (in(24000)) t.addMarker(24000 - from, TapeRecorder::MarkPassA);
+                    if (in(48000)) { t.addMarker(48000 - from, TapeRecorder::MarkPassB); t.addMarker(48000 - from + 30, TapeRecorder::MarkHit); t.addMarker(48000 - from + 60, TapeRecorder::MarkHit); }
+                    if (in(72000 - 2 * c_block)) t.addMarker(72000 - from, TapeRecorder::MarkThrow); // told ahead of time
+                    for (int i = 0; i < c_block; ++i)
+                        for (int ch = 0; ch < 2; ++ch)
+                            block.setSample(ch, i, 0.25f * static_cast<float>(std::sin(0.05 * (from + i))));
+                    t.process(block.getArrayOfReadPointers(), 2, c_block);
+                    if (k % 64 == 63)
+                        juce::Thread::sleep(2);
+                }
+                t.stop();
+                const auto cues = TapeRecorder::readCues(t.getLastFile());
+                const auto text = describe(cues, 96000.0);
+                check(cues.size() == 3 && text == "Pass A @ 0.500, Pass B + Hit @ 1.000, Throw @ 1.500", "markers: read back from the cue chunk (" + text + ")");
+                std::unique_ptr<juce::AudioFormatReader> r(formats.createReaderFor(t.getLastFile()));
+                check(r != nullptr && std::abs(static_cast<double>(r->lengthInSamples) - 2.0 * 96000.0) < 4.0 * c_block,
+                      "markers: the file with markers still reads as 2 s of audio");
+                std::vector<TapeRecorder::FinishedTake> done;
+                for (auto& f : t.takeFinishedTakes())
+                    done.push_back(f);
+                check(done.size() == 1 && done[0].markers == 3 && std::abs(done[0].seconds - 2.0) < 0.05 && ! done[0].whoosh,
+                      "markers: the finished take says how long it is and how many markers it has");
+            }
+            // Skip Silence: a marker in a stretch the tape left out is dropped; one after the gap sits where its
+            // sound is in the file, not where it was in time.
+            {
+                TapeRecorder t;
+                t.prepare(c_rate, 2);
+                t.setSignalGate(true);
+                check(t.start(marks, 24, error), "markers: starts a gated take " + error);
+                tone(t, 1.0, 0.5f);                       // 0 .. 1 s: sound
+                t.addMarker(0, TapeRecorder::MarkPassA);  // 1.0 s: the tape is still rolling (its hang)
+                tone(t, 2.0, 0.0f);                       // 1 .. 3 s: silence (the tape stops at 1.75 s)
+                t.addMarker(0, TapeRecorder::MarkHit);    // 3.0 s: nothing is being written
+                tone(t, 1.0, 0.0f);                       // 3 .. 4 s
+                tone(t, 0.5, 0.5f);                       // 4 .. 4.5 s: sound again
+                t.addMarker(0, TapeRecorder::MarkThrow);  // 4.5 s
+                tone(t, 0.5, 0.5f, static_cast<int>(0.5 * c_rate));
+                t.stop();
+                const auto cues = TapeRecorder::readCues(t.getLastFile());
+                // In the file: 0 .. 1.75 s is the first sound and its hang, then 0.25 s of pre-roll, then the second sound.
+                const bool placed = cues.size() == 2 && cues[0].label == "Pass A" && std::abs(static_cast<double>(cues[0].frame) / c_rate - 1.0) < 0.02
+                                    && cues[1].label == "Throw" && std::abs(static_cast<double>(cues[1].frame) / c_rate - 2.5) < 0.03;
+                check(placed, "markers: with Skip Silence they follow the sound into the file (" + describe(cues, c_rate) + ")");
+            }
+            // AIFF and FLAC takes carry no cue points, and are not harmed by being told about markers.
+            {
+                TapeRecorder t;
+                t.prepare(c_rate, 2);
+                TapeRecorder::Options o;
+                o.type = TapeRecorder::FileType::Flac;
+                check(t.start(marks, o, error), "markers: starts a FLAC take " + error);
+                t.addMarker(1000, TapeRecorder::MarkHit);
+                tone(t, 1.0, 0.25f);
+                t.stop();
+                std::unique_ptr<juce::AudioFormatReader> r(formats.createReaderFor(t.getLastFile()));
+                check(r != nullptr && std::abs(static_cast<double>(r->lengthInSamples) - c_rate) < 2.0 * c_block, "markers: a FLAC take ignores them");
+            }
+        }
+
+        // One File Per Whoosh: the four whooshes over a bed become four numbered files; a blip is not kept.
+        {
+            auto whooshes = folder.getChildFile("whooshes");
+            whooshes.deleteRecursively();
+            whooshes.createDirectory();
+            TapeRecorder t;
+            t.prepare(c_rate, 2);
+            TapeRecorder::Naming naming;
+            naming.prefix = "Ride";
+            t.setNaming(naming);
+            TapeRecorder::Options o;
+            o.perWhoosh = true;
+            check(t.start(whooshes, o, error), "one file per whoosh: starts " + error);
+            check(whooshes.getNumberOfChildFiles(juce::File::findFiles) == 0, "one file per whoosh: no file until there is sound");
+            std::vector<TapeRecorder::FinishedTake> done;
+            // The first whoosh's file is closed and listed while the tape is still armed and nothing is arriving.
+            tone(t, 1.0, 0.5f);
+            t.addMarker(0, TapeRecorder::MarkPassA); // 1.0 s: in the first file's tail
+            tone(t, 1.5, 0.0f);
+            waitForFiles(t, done, 1);
+            check(done.size() == 1 && done[0].file.getFileName() == "Ride_0001.wav" && done[0].whoosh && t.isRecording(),
+                  "one file per whoosh: the file is closed when the whoosh has ended, with the tape still armed");
+            // A blip (50 ms): its file is thrown away and its number given back.
+            tone(t, 0.05, 0.5f);
+            tone(t, 2.0, 0.0f);
+            // Three more whooshes over a quiet bed.
+            for (int k = 0; k < 3; ++k)
+            {
+                tone(t, 1.0, 0.5f);
+                tone(t, 3.0, 0.005f);
+            }
+            // And one still sounding when the tape is stopped.
+            tone(t, 0.6, 0.5f);
+            t.stop();
+            waitForFiles(t, done, 5);
+            juce::StringArray names;
+            bool lengths = done.size() == 5;
+            for (size_t k = 0; k < done.size(); ++k)
+            {
+                names.add(done[k].file.getFileName());
+                std::unique_ptr<juce::AudioFormatReader> r(formats.createReaderFor(done[k].file));
+                const double seconds = r != nullptr ? static_cast<double>(r->lengthInSamples) / r->sampleRate : 0.0;
+                // 1 s of sound, its 0.75 s tail, and (after the first) 0.25 s of pre-roll; the last was cut at 0.6 s.
+                const double expected = k == 0 ? 1.75 : (k == 4 ? 0.85 : 2.0);
+                lengths = lengths && std::abs(seconds - expected) < 0.06 && std::abs(done[k].seconds - seconds) < 0.01;
+            }
+            check(names.joinIntoString(" ") == "Ride_0001.wav Ride_0002.wav Ride_0003.wav Ride_0004.wav Ride_0005.wav",
+                  "one file per whoosh: five whooshes, five numbered files, the blip left out (" + names.joinIntoString(" ") + ")");
+            check(lengths, "one file per whoosh: each file is its whoosh with its lead-in and tail");
+            check(whooshes.getNumberOfChildFiles(juce::File::findFiles) == 5, "one file per whoosh: nothing else is left in the folder ("
+                                                                                   + juce::String(whooshes.getNumberOfChildFiles(juce::File::findFiles)) + " files)");
+            const auto cues = done.empty() ? std::vector<TapeRecorder::Cue>() : TapeRecorder::readCues(done[0].file);
+            check(cues.size() == 1 && cues[0].label == "Pass A" && std::abs(static_cast<double>(cues[0].frame) / c_rate - 1.0) < 0.02
+                      && (done.size() < 2 || TapeRecorder::readCues(done[1].file).empty()),
+                  "one file per whoosh: a marker goes into the file of its own whoosh");
+            check(t.getDroppedSamples() == 0, "one file per whoosh: no audio dropped");
+        }
+
+        // LAST 60s can keep more: three minutes hold 100 s of sound, one minute holds the last 60.
+        {
+            TapeRecorder t;
+            t.prepare(8000.0, 2);
+            auto fill = [&](double seconds)
+            {
+                for (int pos = 0; pos < static_cast<int>(seconds * 8000.0); pos += c_block)
+                {
+                    for (int i = 0; i < c_block; ++i)
+                        for (int ch = 0; ch < 2; ++ch)
+                            block.setSample(ch, i, 0.25f * static_cast<float>(std::sin(0.05 * (pos + i))));
+                    t.process(block.getArrayOfReadPointers(), 2, c_block);
+                }
+            };
+            auto savedSeconds = [&]
+            {
+                if (! t.saveRetro(tapeFolder, 24, written, error))
+                    return 0.0;
+                std::unique_ptr<juce::AudioFormatReader> r(formats.createReaderFor(written));
+                return r != nullptr ? static_cast<double>(r->lengthInSamples) / r->sampleRate : 0.0;
+            };
+            fill(100.0);
+            const double oneMinute = savedSeconds();
+            t.setRetroSeconds(180);
+            const double afterChange = savedSeconds(); // emptied by the change
+            fill(100.0);
+            const double threeMinutes = savedSeconds();
+            check(std::abs(oneMinute - 59.5) < 0.2 && afterChange == 0.0 && std::abs(threeMinutes - 99.5) < 0.2 && t.getRetroSeconds() == 180,
+                  "retro length: one minute keeps 60 s, three minutes keep all 100 s (" + juce::String(oneMinute, 1) + " s, "
+                      + juce::String(threeMinutes, 1) + " s)");
+            t.setRetroSeconds(100000);
+            check(t.getRetroSeconds() == TapeRecorder::c_maxRetroSeconds, "retro length: held to five minutes at most");
         }
     }
 

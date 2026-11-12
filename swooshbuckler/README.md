@@ -100,10 +100,11 @@ From left to right:
 | Preset name | Shows the current preset (or "Randomised"). Click it for the list, with **Back to Defaults** at the bottom. See [Presets and RANDOMISE](#presets-and-randomise). |
 | **RANDOMISE** | Rolls a random but musical setting and glides to it. |
 | Tape (**ARM**) | The tape machine. See [Recording](#recording). It reads **ARM**, **ARMED** (with a blinking red dot, waiting for sound) or **REC mm:ss** (recording, reels spinning). |
-| **LAST 60s** | Saves the last minute of output to a file, even if the tape wasn't armed. |
+| **LAST 60s** | Saves the last minute of output to a file, even if the tape wasn't armed. With **Keep the Last** in Settings at 3 or 5 minutes it reads LAST 3 MIN or LAST 5 MIN and saves that much. |
+| **Takes** | Opens [Takes](#takes): the recordings of this run, to hear, drag out, keep or delete. The number beside it is how many there are. |
 | **SETTINGS** | Opens [Settings](#settings-and-recording): where recordings go and how they're written, and the audio device in the app. |
 
-A status line runs along the bottom of the window. The left side always shows a hint. The right side shows the latest message, such as "Saved ...", which fades after about 8 seconds. Click a "Saved ..." message to show the file in Finder or Explorer.
+A status line runs along the bottom of the window. The left side always shows a hint. The right side shows the latest message, such as "Saved ...", which fades after about 8 seconds. Click a "Saved ..." message to open [Takes](#takes), where the file is at the top of the list.
 
 ### Tracks
 
@@ -385,23 +386,45 @@ Click **SETTINGS** to open. Close it with CLOSE, Esc, or a click outside the pan
 | Setting | Options (default) | What it does |
 |---|---|---|
 | **Recordings Are Saved To** | (your Desktop) | **CHOOSE...** picks a folder, **DESKTOP** goes back to the default, and **SHOW** opens the folder. |
-| **File Type** | WAV / AIFF / FLAC (WAV) | WAV files also carry broadcast-wave details. FLAC is lossless and about half the size. |
+| **File Type** | WAV / AIFF / FLAC (WAV) | FLAC is lossless and about half the size. Every type carries a description of how the take was made; WAV files also get markers (see [Recording](#recording)). |
 | **Bit Depth** | 16-Bit / 24-Bit / 32-Bit Float (24-Bit) | 32-Bit Float can't clip in the file, and is WAV only. 16-Bit files are dithered, so quiet fades end in a faint steady hiss and not in grit. |
 | **Sample Rate** | Session / 44.1 / 48 / 88.2 / 96 / 192 kHz (Session) | Session records at the audio device's or host's rate. Pick a higher rate and the whole rig runs at that rate, so the recording keeps the extra high end, which is good for pitching down later; you still hear it at the device rate, filtered so the extra high end is taken out cleanly and held to the Ceiling again. A note in the panel says which is happening. It can't be changed while the tape is armed. |
 | **Channels** | Stereo / Mono (Stereo) | Mono folds the output to one channel, for sounds you'll pan yourself. |
 | **Arm the tape as soon as Swooshbuckler opens** | (off) | So you never miss the first good take. |
 | **Skip Silence** | (on) | On: the armed tape leaves the quiet stretches out (see [Recording](#recording)). Off: the tape rolls all the time, for one continuous take. You can switch it during a take. |
+| **One File Per Whoosh** | (off) | On: the armed tape closes its file each time a whoosh has ended and opens the next one for the next whoosh (see [Recording](#recording)). Off: one file for the whole take. Switching it while the tape is armed closes the open take and arms again. |
+| **Take Name** | (empty) | The start of every recorded file's name. Empty: the preset's name (Swooshbuckler for the default preset). |
+| **Creator** | (empty) | Who made the recording, written into every file. Empty: Samuel Justice. |
+| **File Names** | Counter / Date and Time (Counter) | Counter: `Name_0001`, `Name_0002` and so on. Date and Time: `Name_2026-11-07_16-32-10`, good for single long takes. |
+| **Keep the Last** | 1 Minute / 3 Minutes / 5 Minutes (1 Minute) | How much the LAST button can save after the fact. The sound is held in memory all the time: about 23 MB a minute at a 48 kHz recording rate, 46 MB at 96 kHz and 92 MB at 192 kHz, so 5 minutes at 192 kHz is about 460 MB. Changing it empties what is held. |
 | **AUDIO DEVICE...** | | The app only: the audio output, sample rate and buffer size. |
 
 #### Recording
 
-- **The tape (ARM).** Click to arm. Everything goes into one file until you click the tape again, press NEW or close Swooshbuckler. The REC timer counts only what's been written.
+- **The tape (ARM).** Click to arm. Everything goes into one file until you click the tape again, press NEW or close Swooshbuckler. The REC timer counts only what's been written. A take with no sound in it leaves no file behind.
+- **One File Per Whoosh** (off by default, in Settings). The armed tape writes a separate file for each whoosh, so a session of riding leaves a folder of numbered whooshes and not one long take to cut up. A whoosh has ended when the output has sat about 25 dB under its recent peaks for three quarters of a second (the same test Skip Silence uses, and the quiet between whooshes is always left out), or when a thrown whoosh has rung out with the rig stopped. Each file keeps the quarter second before its sound and its tail. Sounds with less than a fifth of a second of level in them are not kept, so clicks and blips don't become files. Each file appears in [Takes](#takes) as its whoosh ends. Whooshes that overlap, with no quiet between them, share a file.
+- **Markers.** WAV takes carry cue points with labels, so a long take arrives already spotted in Reaper, Soundminer and other tools that read them: **Pass A** and **Pass B** where a doppler pass on that bus goes by at its closest (with LINK on the two buses fly the same passes, so only Pass A is written), **Throw** at the peak of a thrown whoosh, and **Hit** where an aimed or synced hit lands or the hit gate opens. Markers that fall together are one cue, such as "Throw + Hit". They are placed in the file itself, so they stay on their sounds when Skip Silence has left stretches out. AIFF, FLAC and LAST 60s files have no markers.
+- **What each file says about itself.** Every file carries a description: the Swooshbuckler version, the preset, and Energy, Rate, Fill, Chaos, Pitch, Space, the Pass Modes, Morph and AIM as they were when the file was started. It also names the Creator from Settings and the software. In a WAV these are the broadcast-wave description and originator and the INFO comment, artist and software; in an AIFF, comments; in a FLAC, the DESCRIPTION, ARTIST and ENCODER tags.
 - **Skip Silence** (on by default, in Settings). The tape judges quiet against the recent peaks, not against a fixed level, because a rig with a bed in it never falls truly silent. It stops rolling once the output has sat about 25 dB under the recent peaks (or under about −56 dBFS) for three quarters of a second, and starts again when the sound comes back, keeping the quarter second before it so attacks survive. Each join is faded over 30 ms. The recent peak is remembered for about 10 seconds and then follows the level down, so a quieter passage is recorded once it is the new normal. After STOP the tape keeps the whole tail, and once the rig has come to rest the tape stops rolling until the next PLAY. How much is left out depends on the sound: deep, slow swells (a high Energy, few layers) leave gaps to skip, while a busy rig with a steady bed is recorded almost whole. Switch Skip Silence off for one continuous take.
 - **If the disk can't keep up**, the tape buffers about 3 seconds of audio at any sample rate before anything is lost, and the message that names the saved file says how much is missing.
-- **LAST 60s.** Swooshbuckler always keeps the last minute of output while it plays. Click LAST 60s to save it, even if the tape wasn't armed and even while a take is going. Silence at the start is trimmed. It's written the way the tape is set: the same File Type, Bit Depth, Sample Rate and Channels.
+- **LAST 60s.** Swooshbuckler always keeps the last minute of output while it plays (or the last 3 or 5 minutes: **Keep the Last** in Settings, at the memory cost given there). Click LAST 60s to save it, even if the tape wasn't armed and even while a take is going. Silence at the start is trimmed. It's written the way the tape is set: the same File Type, Bit Depth, Sample Rate and Channels.
 - **What's recorded** is the final output, after Space and the limiter: exactly what you hear.
-- **File names** look like `Swooshbuckler_2026-11-07_16-32-10_48213.wav`. The number on the end keeps two takes in the same second apart. LAST 60s files end in `_retro`.
+- **File names** look like `Jet Passes_0007.wav`: the Take Name from Settings (or the preset's name), then a four-digit counter. The counter carries on for as long as Swooshbuckler is open and never takes a number that a file in the folder already has. Set **File Names** to Date and Time for names like `Jet Passes_2026-11-07_16-32-10.wav`. LAST 60s files end in `_retro`.
 - File Type, Bit Depth, Sample Rate and Channels are fixed when you arm, so changes apply to the next take.
+
+#### Takes
+
+Click **Takes** in the header (or a "Saved ..." message) to open the list of this run's recordings, newest first: tape takes, whoosh files and LAST 60s saves, up to 20. Close it with Close, Esc, or a click outside the panel. The list starts empty each time Swooshbuckler opens; the files themselves stay in the recordings folder.
+
+| Part of a row | What it does |
+|---|---|
+| Star | Keeps the take in the list. When the list is full the oldest take without a star leaves first. Leaving the list never deletes a file. |
+| Waveform and name | Click to hear the take; click again, or another take, to stop. It plays over whatever the rig is doing, after the tape, so it is never recorded. A line shows where it is. Drag the row out to the Finder or Explorer, or straight onto a track in your DAW, to copy the file there. |
+| Tag and length | What it is (Tape, Whoosh, Last 60s) and how long. A file that has been moved or deleted since reads Missing. |
+| **Show** | Shows the file in the Finder or Explorer. |
+| Bin | Moves the file to the system trash and takes it off the list. |
+
+**Show Folder** opens the recordings folder.
 
 #### Your session in the app
 
@@ -449,7 +472,7 @@ Anything else a preset doesn't set goes back to its default. **Back to Defaults*
 | MIDI notes | What the **Keys** menu in the Ride panel says: hold Swell (the default), set the pitch of the tracks, or throw one whoosh per note. See [Keys](#keys). |
 | Click the sea | A short swell. |
 | Cmd+Z / Shift+Cmd+Z (Ctrl+Z / Ctrl+Shift+Z on Windows) | Undo and redo the last load or removal in Tracks, newest first. Click the Tracks panel first. |
-| Esc | Closes Settings or About. |
+| Esc | Closes Settings, Takes or About. |
 | Double-click a knob | Resets it. |
 | Double-click a track name | Renames it. |
 | Double-click a waveform | Puts the start flag back at the top. |

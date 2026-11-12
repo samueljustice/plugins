@@ -154,6 +154,19 @@ public:
     void process(const float* inL, const float* inR, float* outL, float* outR, int numSamples);
     float getLatencySamples() const;
 
+    /** The moments of the last process() call worth a marker in a recording: a doppler pass at its closest (while
+        that bus sounds and the rig plays; a linked bus B flies bus A's passes, so only A's are told), a throw at
+        its peak, and a hit: an aimed or synced hit where its transients land, or the hit gate opening. offset is
+        the sample of that call. Audio thread, after process(). */
+    enum MarkerKind { MarkPassA = 0, MarkPassB, MarkThrow, MarkHit };
+    struct Marker
+    {
+        int offset = 0;
+        int kind = MarkPassA;
+    };
+    int getNumMarkers() const { return m_numMarkers; }
+    const Marker& getMarker(int index) const { return m_markers[static_cast<size_t>(index)]; }
+
     // UI (any thread)
     FlightView getFlightView(int index) const;
     float getEnergy() const { return m_energyView.load(std::memory_order_relaxed); }
@@ -378,6 +391,18 @@ private:
     /** selected: this is what the tremolo shakes now. The others keep following their level and their LFO so a switch
         (or turning it on) starts from the present, and they fade out instead of stopping dead. */
     void applyTremolo(PeakTremolo& t, float* l, float* r, int frames, bool selected);
+
+    // Markers (see getMarker): those of this process() call, the cued hits still on their way (samples until their
+    // transients land, < 0 = free), and where the chunk being rendered starts in the call.
+    std::array<Marker, 32> m_markers {};
+    int m_numMarkers = 0, m_chunkOffset = 0;
+    std::array<double, 4> m_hitMarks { -1.0, -1.0, -1.0, -1.0 };
+    bool m_hasHitTracks = false;
+    void mark(int kind, int offsetInChunk)
+    {
+        if (m_numMarkers < static_cast<int>(m_markers.size()))
+            m_markers[static_cast<size_t>(m_numMarkers++)] = { m_chunkOffset + offsetInChunk, kind };
+    }
 
     int m_lastHitTiming = -1;            // 0 gate, 1 sync beat, 2 aimed at pass peaks
     double m_aimClock = 0.0;             // samples rendered (for telling aimed peaks apart)

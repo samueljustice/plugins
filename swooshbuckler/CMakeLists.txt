@@ -94,6 +94,8 @@ target_sources(Swooshbuckler
     Source/LogoOutline.cpp
     Source/ModPanel.cpp
     Source/UpdatePopup.cpp
+    Source/TakeAudition.cpp
+    Source/TakesView.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/../common/SammyJUpdateCheck.cpp
 )
 

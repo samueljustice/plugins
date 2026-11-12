@@ -6,6 +6,7 @@
 #include "MasterProcessor.h"
 #include "Parameters.h"
 #include "TapeRecorder.h"
+#include "TakeAudition.h"
 #include "RigEngine.h"
 #include "Modulators.h"
 #include "MorphWander.h"
@@ -106,6 +107,42 @@ public:
     juce::File getLastRecording() const { return m_recorder.getLastFile(); }
     juce::File getCurrentRecording() const { return m_recorder.getCurrentFile(); }
     bool saveRetro(juce::File& written, juce::String& error);
+    /** How many files the tape has kept since it was last armed (One File Per Whoosh makes many). Message thread. */
+    int getFilesThisTake() const { return m_filesThisTake; }
+    /** A file the tape could not open while rolling: the message, once (empty = none). */
+    juce::String takeRecordingError() { return m_recorder.takeWriteError(); }
+
+    // Takes: the recordings of this run (tape takes, whoosh files, LAST 60s saves, and whatever else registers
+    // itself), newest first, at most c_maxTakes. Message thread unless said otherwise. --------------------------
+    struct Take
+    {
+        int id = 0;
+        juce::File file;
+        juce::String kind;      // "Tape", "Whoosh", "Last 60s", ...
+        double seconds = 0.0;
+        int markers = 0;
+        bool starred = false;   // kept: it stays in the list when newer takes push the others out
+    };
+    static constexpr int c_maxTakes = 20;
+    /** Adds a file to the takes (any thread: off the message thread it is added a moment later). kind is the short
+        tag shown beside it; seconds < 0 = read the length from the file. */
+    void registerTake(const juce::File& file, const juce::String& kind, double seconds = -1.0, int markers = 0);
+    const std::vector<Take>& getTakes() const { return m_takes; }
+    /** Puts the files the tape has closed since the last look into the takes. The processor does it by itself four
+        times a second and when the tape stops; this is for looking sooner. */
+    void refreshTakes();
+    /** Goes up whenever the list changes. */
+    int getTakesGeneration() const { return m_takesGeneration; }
+    void setTakeStarred(int id, bool starred);
+    /** Moves the file to the system trash and takes it off the list. False if the file could not be moved.
+        toTrash false deletes the file outright (tests: nothing is left in the trash). */
+    bool deleteTake(int id, bool toTrash = true);
+    /** Plays a take through the output, on top of the rig (it is not recorded). Click again, or another, to stop. */
+    bool auditionTake(int id, juce::String& error);
+    void stopAudition() { m_audition.stop(); }
+    /** The take being played (-1 = none), and how far through it is (0..1). */
+    int getAuditionTake() const;
+    double getAuditionProgress() const { return m_audition.getProgress(); }
 
     // App settings (shared across sessions, not saved with presets).
     juce::File getRecordFolder() const;
@@ -129,6 +166,26 @@ public:
     /** Skip Silence (on unless switched off): the tape leaves the quiet stretches out. Off: one continuous take. */
     bool getSkipSilence() const;
     void setSkipSilence(bool on);
+    /** One File Per Whoosh (off unless switched on): the armed tape closes its file when a whoosh has ended and
+        opens the next for the next one. An open take is closed and armed again when this changes. */
+    bool getOneFilePerWhoosh() const;
+    void setOneFilePerWhoosh(bool on);
+    /** The <Name> of recorded files. Empty (the default): the preset's name. */
+    juce::String getTakeName() const;
+    void setTakeName(const juce::String& name);
+    /** The name files get right now: the Name setting, or the preset (Swooshbuckler for the default one). */
+    juce::String getEffectiveTakeName() const;
+    /** Who the files say made them. Empty (the default): Samuel Justice. */
+    juce::String getCreator() const;
+    void setCreator(const juce::String& creator);
+    /** 0 = <Name>_0001 (a counter), 1 = <Name>_<date>_<time>. */
+    int getNameStyle() const;
+    void setNameStyle(int style);
+    /** How much LAST 60s keeps: 1, 3 or 5 minutes. */
+    int getRetroMinutes() const;
+    void setRetroMinutes(int minutes);
+    /** The description written into every recorded file: version, preset and the main settings. Message thread. */
+    juce::String describeSettings() const;
 
     /** The settings file to use instead of opening our own: the standalone app shares its file (two objects on
         one file would overwrite each other's values), and tests point it at a scratch file. Not owned; set it
@@ -280,6 +337,12 @@ private:
     std::atomic<float> m_outputPeak { 0.0f }, m_outputPeakHold { 0.0f };
     void publishOutputPeak(float peak, int numSamples);
     bool m_autoRecordDone = false;
+
+    // Takes (message thread)
+    std::vector<Take> m_takes;
+    int m_takesGeneration = 0, m_nextTakeId = 1, m_filesThisTake = 0;
+    void updateTapeNaming();   // the name and description the tape gives its next file
+    TakeAudition m_audition;
 
     JUCE_DECLARE_WEAK_REFERENCEABLE(SwooshbucklerAudioProcessor)
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(SwooshbucklerAudioProcessor)

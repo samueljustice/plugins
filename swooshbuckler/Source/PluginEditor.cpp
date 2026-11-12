@@ -266,6 +266,60 @@ SwooshbucklerAudioProcessorEditor::SettingsPanel::SettingsPanel(SwooshbucklerAud
     m_skip.onClick = [this] { m_owner.m_processor.setSkipSilence(m_skip.getToggleState()); repaint(); };
     addAndMakeVisible(m_skip);
 
+    m_perWhoosh.setTooltip("One File Per Whoosh\nOn: the armed tape closes its file each time a whoosh has ended and opens the next one for the next "
+                           "whoosh, so a session of riding leaves a folder of separate, numbered files. A whoosh has ended when the level "
+                           "has sat about 25 dB under its peak for most of a second, or when a thrown whoosh has rung out with the rig stopped. "
+                           "Sounds shorter than a fifth of a second are not kept, and the quiet between whooshes is always left out. "
+                           "Off: one file for the whole take.");
+    m_perWhoosh.setColour(juce::ToggleButton::tickColourId, TC::flight);
+    m_perWhoosh.onClick = [this] { m_owner.m_processor.setOneFilePerWhoosh(m_perWhoosh.getToggleState()); repaint(); };
+    addAndMakeVisible(m_perWhoosh);
+
+    for (auto* editor : { &m_name, &m_creator })
+    {
+        editor->setFont(m_owner.m_fonts->body(13.0f));
+        editor->setColour(juce::TextEditor::backgroundColourId, TC::scope);
+        editor->setInputRestrictions(60);
+        editor->setSelectAllWhenFocused(true);
+        // Return and Escape hand the keyboard back to the rig (space for Swell, F for Throw).
+        editor->onReturnKey = [this] { m_owner.grabKeyboardFocus(); };
+        editor->onEscapeKey = [this] { m_owner.grabKeyboardFocus(); };
+        addAndMakeVisible(*editor);
+    }
+    m_name.setTooltip("Take Name\nThe start of every recorded file's name; a number, or the date and time, follows it. "
+                      "Leave it empty to use the preset's name.");
+    m_name.onTextChange = [this] { m_owner.m_processor.setTakeName(m_name.getText()); };
+    m_creator.setTooltip("Creator\nWho made the recording. It is written into every file, with a description of the preset and the main settings "
+                         "(as the originator of a WAV, a comment in an AIFF, the artist of a FLAC). Leave it empty for Samuel Justice.");
+    m_creator.onTextChange = [this] { m_owner.m_processor.setCreator(m_creator.getText()); };
+
+    const char* styleNames[] = { "Counter", "Date and Time" };
+    const char* styleTips[] = { "Counter\nFiles are named Name_0001, Name_0002 and so on. The number carries on for as long as Swooshbuckler is open, "
+                                "and never takes one that a file in the folder already has.",
+                                "Date and Time\nFiles are named after the moment they were started, like Name_2026-11-07_16-32-10. Good for single long takes." };
+    for (int i = 0; i < 2; ++i)
+    {
+        auto& b = m_nameStyles[static_cast<size_t>(i)];
+        setup(b);
+        b.setButtonText(styleNames[i]);
+        b.setTooltip(styleTips[i]);
+        b.onClick = [this, i] { m_owner.m_processor.setNameStyle(i); refresh(); };
+    }
+    const int minutes[] = { 1, 3, 5 };
+    const char* lengthNames[] = { "1 Minute", "3 Minutes", "5 Minutes" };
+    for (int i = 0; i < 3; ++i)
+    {
+        auto& b = m_retroLengths[static_cast<size_t>(i)];
+        setup(b);
+        b.setButtonText(lengthNames[i]);
+        const int value = minutes[i];
+        // Two channels of 32-bit float: 23 MB a minute at 48 kHz, four times that at 192 kHz.
+        b.setTooltip(juce::String(lengthNames[i]) + "\nHow much the LAST button can save after the fact. The sound is held in memory all the time: about "
+                     + juce::String(23 * value) + " MB at a 48 kHz recording rate, " + juce::String(46 * value) + " MB at 96 kHz and "
+                     + juce::String(92 * value) + " MB at 192 kHz. Changing it empties what is held.");
+        b.onClick = [this, value] { m_owner.m_processor.setRetroMinutes(value); refresh(); };
+    }
+
     m_audio.setVisible(static_cast<bool>(SwooshbucklerAudioProcessor::showAudioSettings));
     m_audio.onClick = [] { if (SwooshbucklerAudioProcessor::showAudioSettings) SwooshbucklerAudioProcessor::showAudioSettings(); };
     m_close.onClick = [this] { setVisible(false); };
@@ -303,6 +357,18 @@ void SwooshbucklerAudioProcessorEditor::SettingsPanel::refresh()
     m_channels[1].setToggleState(p.getMono(), juce::dontSendNotification);
     m_auto.setToggleState(p.getAutoRecord(), juce::dontSendNotification);
     m_skip.setToggleState(p.getSkipSilence(), juce::dontSendNotification);
+    m_perWhoosh.setToggleState(p.getOneFilePerWhoosh(), juce::dontSendNotification);
+    if (! m_name.hasKeyboardFocus(true))
+        m_name.setText(p.getTakeName(), false);
+    if (! m_creator.hasKeyboardFocus(true))
+        m_creator.setText(p.getCreator(), false);
+    m_name.setTextToShowWhenEmpty(p.getEffectiveTakeName(), TC::textFaint);
+    m_creator.setTextToShowWhenEmpty("Samuel Justice", TC::textFaint);
+    for (int i = 0; i < 2; ++i)
+        m_nameStyles[static_cast<size_t>(i)].setToggleState(i == p.getNameStyle(), juce::dontSendNotification);
+    m_retroLengths[0].setToggleState(p.getRetroMinutes() == 1, juce::dontSendNotification);
+    m_retroLengths[1].setToggleState(p.getRetroMinutes() == 3, juce::dontSendNotification);
+    m_retroLengths[2].setToggleState(p.getRetroMinutes() == 5, juce::dontSendNotification);
     m_audio.setVisible(static_cast<bool>(SwooshbucklerAudioProcessor::showAudioSettings)); // standalone only
     repaint();
 }
@@ -315,7 +381,7 @@ void SwooshbucklerAudioProcessorEditor::SettingsPanel::mouseDown(const juce::Mou
 
 void SwooshbucklerAudioProcessorEditor::SettingsPanel::resized()
 {
-    m_panel = getLocalBounds().withSizeKeepingCentre(700, 500);
+    m_panel = getLocalBounds().withSizeKeepingCentre(700, 646);
     auto r = m_panel.reduced(28, 0);
     r.removeFromTop(56);
 
@@ -350,11 +416,38 @@ void SwooshbucklerAudioProcessorEditor::SettingsPanel::resized()
     buttons(section(4, 28), channels, 2, 100);
 
     {
-        auto toggles = r.removeFromTop(26);
-        m_skip.setBounds(toggles.removeFromRight(150));
-        m_auto.setBounds(toggles);
+        // Take Name and Creator side by side, then File Names and Keep the Last.
+        auto captions = r.removeFromTop(20);
+        auto row = r.removeFromTop(26);
+        r.removeFromTop(12);
+        m_moreCaptions[0] = captions.removeFromLeft(300);
+        m_name.setBounds(row.removeFromLeft(300));
+        captions.removeFromLeft(24);
+        row.removeFromLeft(24);
+        m_moreCaptions[1] = captions.removeFromLeft(300);
+        m_creator.setBounds(row.removeFromLeft(300));
+
+        captions = r.removeFromTop(20);
+        row = r.removeFromTop(28);
+        r.removeFromTop(12);
+        m_moreCaptions[2] = captions.removeFromLeft(300);
+        auto styles = row.removeFromLeft(300);
+        juce::TextButton* styleButtons[] = { &m_nameStyles[0], &m_nameStyles[1] };
+        buttons(styles, styleButtons, 2, 120);
+        captions.removeFromLeft(24);
+        row.removeFromLeft(24);
+        m_moreCaptions[3] = captions.removeFromLeft(300);
+        juce::TextButton* lengthButtons[] = { &m_retroLengths[0], &m_retroLengths[1], &m_retroLengths[2] };
+        buttons(row, lengthButtons, 3, 96);
     }
-    r.removeFromTop(8);
+    {
+        auto toggles = r.removeFromTop(26);
+        m_skip.setBounds(toggles.removeFromLeft(150));
+        toggles.removeFromLeft(24);
+        m_perWhoosh.setBounds(toggles.removeFromLeft(210));
+        m_auto.setBounds(r.removeFromTop(26));
+    }
+    r.removeFromTop(6);
     m_captions[5] = r.removeFromTop(44);
 
     auto bottom = m_panel.reduced(28, 18).removeFromBottom(30);
@@ -375,6 +468,9 @@ void SwooshbucklerAudioProcessorEditor::SettingsPanel::paint(juce::Graphics& g)
         g.setColour(TC::textDim);
         g.drawText(captions[i], m_captions[static_cast<size_t>(i)], juce::Justification::centredLeft);
     }
+    const char* moreCaptions[] = { "Take Name", "Creator", "File Names", "Keep the Last" };
+    for (size_t i = 0; i < m_moreCaptions.size(); ++i)
+        g.drawText(moreCaptions[i], m_moreCaptions[i], juce::Justification::centredLeft);
     g.setFont(f.body(12.0f));
     g.setColour(TC::text);
     g.drawText(m_owner.m_processor.getRecordFolder().getFullPathName(),
@@ -382,9 +478,11 @@ void SwooshbucklerAudioProcessorEditor::SettingsPanel::paint(juce::Graphics& g)
 
     // What the sample rate means in practice
     auto& p = m_owner.m_processor;
-    juce::String note = p.getSkipSilence()
-        ? "Armed, the tape writes whenever there is sound and skips the quiet stretches. LAST 60s saves the last minute in the same format."
-        : "Armed, the tape rolls all the time. LAST 60s saves the last minute in the same format.";
+    const juce::String last = p.getRetroMinutes() == 1 ? juce::String("LAST 60s saves the last minute in the same format.")
+                                                       : "LAST " + juce::String(p.getRetroMinutes()) + " MIN saves the last " + juce::String(p.getRetroMinutes()) + " minutes in the same format.";
+    juce::String note = (p.getOneFilePerWhoosh() ? "Armed, the tape writes a new file for every whoosh and leaves the quiet between them out. "
+                         : p.getSkipSilence() ? "Armed, the tape writes whenever there is sound and skips the quiet stretches. "
+                                              : "Armed, the tape rolls all the time. ") + last;
     if (p.getRecordRate() > 0 && p.getDeviceRate() > 0.0)
     {
         if (p.getRecordRate() > p.getDeviceRate() + 0.5)
@@ -518,6 +616,7 @@ SwooshbucklerAudioProcessorEditor::SwooshbucklerAudioProcessorEditor(Swooshbuckl
     , m_wires(p.getMods(), *m_fonts)
     , m_modPanel(p, *m_fonts, m_wires)
     , m_settings(*this)
+    , m_takes(p, *m_fonts)
     , m_about(*this)
 {
     setLookAndFeel(&m_lnf);
@@ -531,7 +630,7 @@ SwooshbucklerAudioProcessorEditor::SwooshbucklerAudioProcessorEditor(Swooshbuckl
     m_content.onMouseDown = [this](const juce::MouseEvent& e)
     {
         if (m_toastFile != juce::File() && m_toastArea.contains(e.getPosition()))
-            m_toastFile.revealToUser();
+            showTakes(); // a "Saved ..." message: the file is at the top of the takes
         else if (m_titleArea.contains(e.getPosition()))
         {
             m_about.setVisible(true);
@@ -540,7 +639,7 @@ SwooshbucklerAudioProcessorEditor::SwooshbucklerAudioProcessorEditor(Swooshbuckl
     };
 
     // Header ------------------------------------------------------------------
-    for (auto* b : { &m_presetPrev, &m_presetName, &m_presetNext, &m_dice, &m_retroButton, &m_settingsButton, &m_playButton, &m_newButton })
+    for (auto* b : { &m_presetPrev, &m_presetName, &m_presetNext, &m_dice, &m_retroButton, &m_settingsButton, &m_playButton, &m_newButton, &m_takesButton })
     {
         b->setColour(juce::TextButton::buttonOnColourId, TC::flight);
         b->setWantsKeyboardFocus(false);
@@ -561,9 +660,12 @@ SwooshbucklerAudioProcessorEditor::SwooshbucklerAudioProcessorEditor(Swooshbuckl
         m_processor.currentPresetName = "Randomised";
     };
     m_content.addAndMakeVisible(m_tape);
-    m_tape.setTooltip("Tape\nArm it and it records whenever there is sound, skipping the quiet stretches, into one long file of usable whooshes. Click again to stop and close the file. Where it saves, in which format, and Skip Silence (off for one continuous take) are in SETTINGS.");
+    m_tape.setTooltip("Tape\nArm it and it records whenever there is sound, skipping the quiet stretches, into one long file of usable whooshes. Click again to stop and close the file. Pass peaks and hits are marked in WAV files, so a take arrives ready to spot. Where it saves, in which format, Skip Silence (off for one continuous take) and One File Per Whoosh (a separate file for each) are in SETTINGS; what it has saved is in Takes.");
     m_tape.onClick = [this] { toggleLog(); };
-    m_retroButton.setTooltip("Last 60 Seconds\nThe rig always remembers the last minute. Click to save it to a file, even if the tape wasn't armed: for the happy accident you didn't record.");
+    m_retroButton.setTooltip("Last 60 Seconds\nThe rig always remembers the last minute. Click to save it to a file, even if the tape wasn't armed: for the happy accident you didn't record. Keep the Last in SETTINGS makes it 3 or 5 minutes.");
+    m_takesButton.setTooltip("Takes\nThe recordings of this run, newest first, with how many there are: tape takes, whoosh files and LAST 60s saves. "
+                             "Open it to hear them, drag them out to the Finder / Explorer or into your DAW, keep or delete them.");
+    m_takesButton.onClick = [this] { showTakes(); };
     m_playButton.setColour(juce::TextButton::buttonOnColourId, TC::good);
     m_playButton.setTooltip("Play / Stop\nStarts and stops the whole rig. Stop lets the tail ring out. The app always opens stopped, so nothing blasts out when you load a session. In a DAW it can be automated, and with Follow Host on the transport starts and stops it too.");
     m_playButton.onClick = [this] { m_processor.setPlaying(! m_processor.isPlaying()); };
@@ -858,6 +960,8 @@ SwooshbucklerAudioProcessorEditor::SwooshbucklerAudioProcessorEditor(Swooshbuckl
     };
 
     m_content.addChildComponent(m_settings);
+    m_content.addChildComponent(m_takes);
+    m_takes.onStatus = [this](const juce::String& text) { toast(text); };
     m_content.addChildComponent(m_about);
 
     // Version: next to the website, and the title itself, both open About.
@@ -967,13 +1071,14 @@ void SwooshbucklerAudioProcessorEditor::layoutContent()
     }
     m_playButton.setBounds(372, 15, 84, 30);
     m_newButton.setBounds(462, 15, 60, 30);
-    m_presetPrev.setBounds(552, 15, 26, 30);
-    m_presetName.setBounds(582, 15, 196, 30);
-    m_presetNext.setBounds(782, 15, 26, 30);
-    m_dice.setBounds(814, 15, 108, 30);
-    m_tape.setBounds(940, 13, 124, 34);
-    m_retroButton.setBounds(1070, 15, 96, 30);
-    m_settingsButton.setBounds(1172, 15, 92, 30);
+    m_presetPrev.setBounds(536, 15, 26, 30);
+    m_presetName.setBounds(566, 15, 172, 30);
+    m_presetNext.setBounds(742, 15, 26, 30);
+    m_dice.setBounds(774, 15, 100, 30);
+    m_tape.setBounds(888, 13, 124, 34);
+    m_retroButton.setBounds(1018, 15, 86, 30);
+    m_takesButton.setBounds(1110, 15, 70, 30);
+    m_settingsButton.setBounds(1186, 15, 78, 30);
 
     // Row 1: the tracks, the output view, and the ride
     m_hold.setBounds(16, 62, 884, 384);
@@ -1101,6 +1206,8 @@ void SwooshbucklerAudioProcessorEditor::layoutContent()
     m_toastArea = { 640, 1002, 624, 18 };
     m_settings.setBounds(0, 0, c_width, c_height);
     m_settings.setVisible(false);
+    m_takes.setBounds(0, 0, c_width, c_height);
+    m_takes.setVisible(false);
     m_about.setBounds(0, 0, c_width, c_height);
     m_about.setVisible(false);
 
@@ -1260,7 +1367,7 @@ void SwooshbucklerAudioProcessorEditor::paintContent(juce::Graphics& g)
     {
         const float age = static_cast<float>(juce::Time::getMillisecondCounterHiRes() * 0.001 - m_toastTime);
         g.setColour(TC::flight.withAlpha(juce::jlimit(0.0f, 1.0f, 8.0f - age)));
-        g.drawText(m_toast + (m_toastFile != juce::File() ? "  (click to show)" : ""), m_toastArea, juce::Justification::centredRight, true);
+        g.drawText(m_toast + (m_toastFile != juce::File() ? "  (click for Takes)" : ""), m_toastArea, juce::Justification::centredRight, true);
     }
 }
 
@@ -1287,10 +1394,11 @@ bool SwooshbucklerAudioProcessorEditor::keyPressed(const juce::KeyPress& key)
         m_updatePopup.setVisible(false);
         return true;
     }
-    if (key == juce::KeyPress::escapeKey && (m_settings.isVisible() || m_about.isVisible()))
+    if (key == juce::KeyPress::escapeKey && (m_settings.isVisible() || m_about.isVisible() || m_takes.isVisible()))
     {
         m_settings.setVisible(false);
         m_about.setVisible(false);
+        m_takes.setVisible(false);
         return true;
     }
     return false;
@@ -1331,6 +1439,14 @@ void SwooshbucklerAudioProcessorEditor::toast(const juce::String& text, juce::Fi
     m_content.repaint(m_footer);
 }
 
+void SwooshbucklerAudioProcessorEditor::showTakes()
+{
+    m_settings.setVisible(false);
+    m_about.setVisible(false);
+    m_takes.setVisible(true);
+    m_takes.toFront(false);
+}
+
 void SwooshbucklerAudioProcessorEditor::toggleLog()
 {
     if (m_processor.isRecording())
@@ -1338,18 +1454,25 @@ void SwooshbucklerAudioProcessorEditor::toggleLog()
         const double dropped = m_processor.getRecordingDroppedSeconds(); // read before the take closes
         m_processor.stopRecording();
         const auto file = m_processor.getLastRecording();
-        toast("Saved " + file.getFileName()
-                  + (dropped > 0.005 ? " (the disk fell behind: " + juce::String(dropped, 2) + " s are missing)" : juce::String()),
-              file);
+        const int files = m_processor.getFilesThisTake();
+        m_takesSeen = m_processor.getTakesGeneration(); // this message covers the files just closed
+        if (files <= 0 || file == juce::File())
+            toast("Nothing was recorded: there was no sound while the tape was armed");
+        else
+            toast((files > 1 ? "Saved " + juce::String(files) + " files, the last is " : juce::String("Saved ")) + file.getFileName()
+                      + (dropped > 0.005 ? " (the disk fell behind: " + juce::String(dropped, 2) + " s are missing)" : juce::String()),
+                  file);
     }
     else
     {
         juce::String error;
-        if (m_processor.arm(error))
+        if (! m_processor.arm(error))
+            toast("Couldn't arm the tape: " + error);
+        else if (m_processor.getOneFilePerWhoosh())
+            toast("Armed: a new file for every whoosh, into " + m_processor.getRecordFolder().getFileName());
+        else
             toast((m_processor.getSkipSilence() ? "Armed: recording whenever there is sound, into " : "Armed: recording all the time, into ")
                   + m_processor.getCurrentRecording().getFileName());
-        else
-            toast("Couldn't arm the tape: " + error);
     }
 }
 
@@ -1558,6 +1681,26 @@ void SwooshbucklerAudioProcessorEditor::timerCallback()
 
     if (m_presetName.getButtonText() != m_processor.currentPresetName)
         m_presetName.setButtonText(m_processor.currentPresetName);
+
+    // The LAST button says how much it keeps, Takes how many there are; a whoosh file closed while the tape rolls
+    // is announced, and so is a file the tape could not open.
+    if (const int minutes = m_processor.getRetroMinutes(); minutes != m_retroShown)
+    {
+        m_retroShown = minutes;
+        m_retroButton.setButtonText(minutes == 1 ? juce::String("LAST 60s") : "LAST " + juce::String(minutes) + " MIN");
+    }
+    if (const int generation = m_processor.getTakesGeneration(); generation != m_takesShown)
+    {
+        m_takesShown = generation;
+        const auto& takes = m_processor.getTakes();
+        m_takesButton.setButtonText(takes.empty() ? juce::String("Takes") : "Takes " + juce::String(static_cast<int>(takes.size())));
+        if (m_takesSeen >= 0 && generation != m_takesSeen && m_processor.isRecording() && ! takes.empty() && takes.front().kind == "Whoosh")
+            toast("Saved " + takes.front().file.getFileName(), takes.front().file);
+        m_takesSeen = generation;
+    }
+    if ((++m_slowTick % 30) == 0)
+        if (const auto error = m_processor.takeRecordingError(); error.isNotEmpty())
+            toast("The tape couldn't write: " + error);
     if (m_followHost.getToggleState() != m_processor.getFollowHost())
         m_followHost.setToggleState(m_processor.getFollowHost(), juce::dontSendNotification);
     if (const auto status = rideStatus(); status != m_rideStatus)

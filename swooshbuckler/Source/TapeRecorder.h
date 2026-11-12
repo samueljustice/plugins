@@ -13,14 +13,22 @@
  *  - Retro capture: the last c_retroSeconds are always kept in RAM, so a happy
  *    accident can be saved after the fact even if the tape was not rolling.
  *
- * Files are named Swooshbuckler_YYYY-MM-DD_HH-MM-SS_NNNNN.wav (.aif / .flac; NNNNN = random 5 digits)
- * in the chosen folder.
+ *  - One File Per Whoosh: the take is cut into one file for each stretch of sound (the Skip Silence gate finds
+ *    them), each opened and closed on the writer thread; stretches shorter than c_minWhooshSeconds are thrown away.
+ *  - Markers: the audio thread tells the tape where the pass peaks and the hits are (addMarker); they are handed
+ *    to the writer thread through a lock-free queue and written into WAV files as cue points with labels.
+ *
+ * Files are named <Name>_NNNN.wav (.aif / .flac; a counter that goes on through the session), or
+ * <Name>_YYYY-MM-DD_HH-MM-SS.wav, in the chosen folder (see Naming). Every file carries a description (BWF bext and
+ * LIST INFO in WAV, a comment in AIFF, Vorbis comments in FLAC).
  * Rate (e.g. 96 kHz), bit depth, file type and mono/stereo are chosen per recording (Options).
  */
 class TapeRecorder
 {
 public:
-    static constexpr int c_retroSeconds = 60;
+    static constexpr int c_retroSeconds = 60;         // how much the retro buffer keeps unless setRetroSeconds says more
+    static constexpr int c_maxRetroSeconds = 300;
+    static constexpr double c_minWhooshSeconds = 0.2; // One File Per Whoosh: less sound than this is not kept
 
     enum class FileType { Wav = 0, Aiff, Flac };
 
@@ -31,7 +39,52 @@ public:
         double fileRate = 0.0;        // 0 = session rate; otherwise windowed-sinc conversion, e.g. 96000
         FileType type = FileType::Wav;
         bool mono = false;            // fold the stereo output down to one channel
+        bool perWhoosh = false;       // One File Per Whoosh (the gate is on whatever setSignalGate says)
     };
+
+    /** How files are named and described. Message thread; it can change while a take is open (the next file uses it). */
+    enum class NameStyle { Counter = 0, DateTime };
+    struct Naming
+    {
+        juce::String prefix { "Swooshbuckler" };   // the <Name> of the file name (made safe for a file name)
+        NameStyle style = NameStyle::Counter;
+        juce::String description { "Swooshbuckler log" }; // the same text in every file type
+        juce::String creator { "Samuel Justice" };        // BWF originator, the artist elsewhere
+        juce::String software { "Swooshbuckler" };        // name and version
+    };
+    void setNaming(const Naming& naming);
+    Naming getNaming() const;
+    /** The file the next recording would get: <prefix>_NNNN<suffix> with the next free number, or
+        <prefix>_<date>_<time><suffix>. */
+    juce::File nextFile(const juce::File& folder, const juce::String& suffix, const juce::String& extension);
+
+    /** Markers. Audio thread, before process(): a moment samplesFromNow samples into (or after) the next process()
+        call. If the tape is writing at that moment the take gets a cue point there. */
+    enum MarkerKind { MarkPassA = 0, MarkPassB, MarkThrow, MarkHit, numMarkerKinds };
+    static juce::String markerLabel(int kind);
+    void addMarker(int samplesFromNow, int kind);
+
+    /** Files the tape has closed and kept since the last call (newest last). Any thread but the audio thread. */
+    struct FinishedTake
+    {
+        juce::File file;
+        double seconds = 0.0;
+        int markers = 0;
+        bool whoosh = false; // one of One File Per Whoosh's files
+    };
+    std::vector<FinishedTake> takeFinishedTakes();
+    /** A file could not be opened while the tape was rolling (One File Per Whoosh opens them as it goes): the
+        message, once. */
+    juce::String takeWriteError();
+
+    /** What a file says about itself (the description written by this class), and its cue points. For tests and tools. */
+    static juce::String readDescription(const juce::File& file);
+    struct Cue
+    {
+        std::int64_t frame = 0;
+        juce::String label;
+    };
+    static std::vector<Cue> readCues(const juce::File& file);
 
     TapeRecorder();
     ~TapeRecorder();
@@ -79,7 +132,7 @@ public:
     bool rest();
     bool getSignalGate() const { return m_signalGate.load(); }
     /** True while audio is actually being written (always true when the gate is off and a take is open). */
-    bool isCapturing() const { return m_recording.load() && (! m_signalGate.load() || m_capturing.load()); }
+    bool isCapturing() const { return m_recording.load() && (! (m_signalGate.load() || m_perWhoosh.load()) || m_capturing.load()); }
     double getRecordedSeconds() const;
     juce::File getCurrentFile() const { const juce::ScopedLock sl(m_fileLock); return m_currentFile; }
     juce::File getLastFile() const { const juce::ScopedLock sl(m_fileLock); return m_lastFile; }
@@ -88,6 +141,10 @@ public:
     bool saveRetro(const juce::File& folder, int bitDepth, juce::File& written, juce::String& error, double fileRate = 0.0);
     bool saveRetro(const juce::File& folder, const Options& options, juce::File& written, juce::String& error);
     double getSessionRate() const { return m_sampleRate; }
+    /** How much the retro buffer keeps (60 to c_maxRetroSeconds). The buffer is emptied when this changes. Two
+        channels of float at the session rate: 23 MB a minute at 48 kHz, 92 MB a minute at 192 kHz. Message thread. */
+    void setRetroSeconds(int seconds);
+    int getRetroSeconds() const { return m_retroSeconds.load(); }
 
     /** Samples the rolling take lost because the writer FIFO was full (reset by start()). Any thread. */
     std::int64_t getDroppedSamples() const { return m_droppedSamples.load(); }
@@ -97,17 +154,60 @@ public:
     int getFifoSamples() const { return static_cast<int>(c_fifoSeconds * m_sampleRate); }
 
     static juce::File defaultFolder();
-    static juce::File makeFileName(const juce::File& folder, const juce::String& suffix = {}, const juce::String& extension = ".wav");
 
 private:
+    class Sink;
+    friend class Sink;
+    /** Lets the writer thread close a whoosh's file while no audio is arriving. */
+    struct Pump : public juce::TimeSliceClient
+    {
+        explicit Pump(TapeRecorder& o) : owner(o) {}
+        int useTimeSlice() override;
+        TapeRecorder& owner;
+    };
+
     juce::TimeSliceThread m_thread { "Captain's Log" };
+    Pump m_pump { *this };
+    Sink* m_sink = nullptr; // the open take's file writer: used on the writer thread, and by stop() once that has let go
     std::unique_ptr<juce::AudioFormatWriter::ThreadedWriter> m_writer;
     juce::CriticalSection m_writerLock;
     juce::AudioFormatWriter::ThreadedWriter* m_activeWriter = nullptr; // guarded by m_writerLock
 
     std::atomic<bool> m_recording { false };
     std::atomic<std::int64_t> m_samplesWritten { 0 };
-    std::atomic<bool> m_signalGate { false }, m_capturing { false };
+    std::atomic<bool> m_signalGate { false }, m_capturing { false }, m_perWhoosh { false };
+
+    // From the audio thread to the writer thread, in the order of their place in the take (lock-free).
+    struct Command
+    {
+        enum Type { Marker = 0, Split };
+        std::int64_t position = 0; // samples of the take's stream (what the audio thread has handed to the writer)
+        int type = Marker;
+        int value = 0;             // Marker: its kind. Split: 1 = keep the file, 0 = too short
+    };
+    static constexpr int c_commandSlots = 1024;
+    juce::AbstractFifo m_commandFifo { c_commandSlots };
+    std::array<Command, c_commandSlots> m_commands;
+    bool pushCommand(const Command& command);   // audio thread
+    bool peekCommand(Command& command);         // writer thread
+    void popCommand();                          //
+    void closeWhoosh();                         // audio thread: the gate has closed
+    std::int64_t m_streamPos = 0;               // audio thread: samples handed to the writer in this take
+    std::atomic<std::int64_t> m_whooshLoud { 0 }; // samples of sound since the gate opened
+    struct PendingMarker
+    {
+        int due = 0, kind = 0;
+    };
+    std::array<PendingMarker, 32> m_pendingMarkers {}; // audio thread
+    int m_numPendingMarkers = 0;
+
+    // Names, metadata and what has been written (never touched by the audio thread).
+    mutable juce::CriticalSection m_metaLock;
+    Naming m_naming;
+    int m_counter = 1;
+    int numberOf(const juce::File& file) const; // the NNNN of a file named by the counter (0 = none)
+    std::vector<FinishedTake> m_finished;
+    juce::String m_writeError;
     // The gate (audio thread only; sized in prepare)
     int m_hangLeft = 0;
     int m_fadeInLeft = 0;                 // samples left of a fade back in (sound returned during the closing fade)
@@ -116,6 +216,7 @@ private:
     float m_gatePeak = 0.0f;              // the recent peak the gate measures against
     int m_gatePeakHold = 0;               // samples until it starts to fall
     std::atomic<bool> m_gateRestart { false }; // a new take: forget the last one's levels
+    std::atomic<bool> m_streamRestart { false }; // a new take: its stream starts at 0
     std::atomic<bool> m_gateHold { false };    // see setGateHold
     std::atomic<std::int64_t> m_droppedSamples { 0 };   //
     std::atomic<double> m_recordRate { 48000.0 };        // session rate the current take was opened at
@@ -130,6 +231,7 @@ private:
 
     // Retro ring (written on the audio thread, read on the message thread).
     juce::AudioBuffer<float> m_retro;
+    std::atomic<int> m_retroSeconds { c_retroSeconds };
     std::atomic<int> m_retroWrite { 0 };
     std::atomic<std::int64_t> m_retroTotal { 0 };
     juce::SpinLock m_retroLock; // held while preparing / reallocating, and briefly per piece while saveRetro copies
