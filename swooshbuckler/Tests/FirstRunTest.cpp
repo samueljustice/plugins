@@ -339,6 +339,12 @@ int main(int argc, char* argv[])
         rig.proc.learnMidiControl(-1);
         rig.run({ juce::MidiMessage::controllerEvent(1, 40, 90) });
         check(rig.proc.applyMidiControls() == -1 && rig.proc.getMidiControl(4) == -1, "midi: a cancelled Learn learns nothing");
+
+        // Channel mode messages (Reset All Controllers and the like, which hosts send by themselves) are not controls.
+        rig.proc.learnMidiControl(4);
+        rig.run({ juce::MidiMessage::controllerEvent(1, 121, 0), juce::MidiMessage::controllerEvent(1, 126, 0) });
+        check(rig.proc.getMidiLearnTarget() == 4 && rig.proc.getMidiControl(4) == -1, "midi: a channel mode message (CC 120 and up) is never learned");
+        rig.proc.learnMidiControl(-1);
         rig.proc.setMidiControl(Proc::c_ccEnergy, -1);
     }
 
@@ -352,6 +358,23 @@ int main(int argc, char* argv[])
               "names: a long name keeps its start and its end around three dots, within the length asked for");
         check(Theme::middleTruncated("Demo Growl", 24) == "Demo Growl", "names: a short name is left alone");
         check(Theme::middleTruncated(name, 4).isEmpty() || Theme::middleTruncated(name, 4).length() <= 4, "names: never longer than asked, however short");
+
+        // Fitting a width (what the lane does), with a measure of 7 units a character and a count of the measurements.
+        int measured = 0;
+        const auto measure = [&measured](const juce::String& t) { ++measured; return 7.0f * static_cast<float>(t.length()); };
+        check(Theme::fitMiddleBy(juce::String("wind"), measure, 100.0f) == "wind" && Theme::fitMiddleBy(juce::String("ab"), measure, 14.0f) == "ab",
+              "names: a name shorter than six characters is shown whole when it fits");
+        check(Theme::fitMiddleBy(juce::String("wind"), measure, 20.0f).isEmpty(), "names: and not at all when it does not");
+        check(Theme::fitMiddleBy(name, measure, 1000.0f) == name, "names: a long name with room is shown whole");
+        const auto fitted = Theme::fitMiddleBy(name, measure, 7.0f * 20.0f);
+        check(fitted.length() <= 20 && fitted.length() >= 18 && fitted.contains("...") && fitted.startsWith("ANMLFarm") && fitted.endsWith("v2"),
+              "names: a long name is cut to the longest that fits (\"" + fitted + "\")");
+        check(Theme::fitMiddleBy(name, measure, 7.0f * 5.0f).isEmpty(), "names: no room for six characters shows nothing");
+        measured = 0;
+        const juce::String veryLong = juce::String::repeatedString("Long_File_Name_", 20);
+        const auto cutLong = Theme::fitMiddleBy(veryLong, measure, 7.0f * 30.0f);
+        check(cutLong.length() <= 30 && cutLong.length() >= 28 && measured <= 12,
+              "names: fitting a 300-character name takes a handful of measurements (" + juce::String(measured) + ")");
     }
 
     Proc::useSettings(nullptr);

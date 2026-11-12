@@ -75,17 +75,37 @@ namespace Theme
         return text.substring(0, head).trimEnd() + "..." + text.substring(text.length() - tail).trimStart();
     }
 
-    /** The name, cut in the middle as far as it takes to fit maxWidth in this font (empty when even a few
-        characters don't fit). */
+    /** The name, cut in the middle as far as it takes to fit maxWidth, as `measure` says how wide a text is: whole
+        when it fits (however short), else the longest cut of six characters or more that does, else empty. A handful
+        of measurements, not one per character: it is called while painting. */
+    template <typename Measure>
+    juce::String fitMiddleBy(const juce::String& text, Measure&& measure, float maxWidth)
+    {
+        if (text.isEmpty() || maxWidth <= 0.0f)
+            return {};
+        if (measure(text) <= maxWidth)
+            return text;
+        int lo = 6, hi = text.length() - 1; // the shortest cut worth showing, and the longest there is
+        juce::String best;
+        while (lo <= hi)
+        {
+            const int mid = (lo + hi) / 2;
+            const auto cut = middleTruncated(text, mid);
+            if (measure(cut) <= maxWidth)
+            {
+                best = cut;
+                lo = mid + 1;
+            }
+            else
+                hi = mid - 1;
+        }
+        return best;
+    }
+
+    /** fitMiddleBy, measured in a font. */
     inline juce::String fitMiddle(const juce::String& text, const juce::Font& font, float maxWidth)
     {
-        for (int chars = text.length(); chars >= 6; --chars)
-        {
-            const auto cut = middleTruncated(text, chars);
-            if (juce::GlyphArrangement::getStringWidth(font, cut) <= maxWidth)
-                return cut;
-        }
-        return {};
+        return fitMiddleBy(text, [&font](const juce::String& t) { return juce::GlyphArrangement::getStringWidth(font, t); }, maxWidth);
     }
 
     /** Colours for the tracks: lagoon, coral, gold, sea glass, sky, hibiscus, harbour, rope, lilac, palm. */

@@ -650,7 +650,7 @@ It works on every knob, each track's fader (through its right-click menu), a tra
 A track's fader, and the Energy knob, can follow a fader or knob on a MIDI controller. Nothing is mapped until you do this:
 
 1. Right-click the track's fader (or the Energy knob) and choose **Learn MIDI CC**. The status line asks you to move a control.
-2. Move the fader or knob on your controller. The first one that moves is learned, on any MIDI channel, and the status line says which ("Track 1 Fader follows MIDI CC 7").
+2. Move the fader or knob on your controller. The first one that moves is learned (any controller from 0 to 119), on any MIDI channel, and the status line says which ("Track 1 Fader follows MIDI CC 7").
 
 From then on that controller moves the control, whether the rig is playing or stopped. The same menu has **Forget MIDI CC** to let it go and **Cancel Learn MIDI CC** if you change your mind while it waits. One controller can be learned for several things, to move them together. The mappings are kept in the settings, so they are the same in every session, and in the app and the plug-in. Controller moves are not Undo steps.
 

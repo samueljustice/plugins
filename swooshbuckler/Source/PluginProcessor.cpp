@@ -669,7 +669,7 @@ void SwooshbucklerAudioProcessor::handleMidi(const juce::MidiMessage& msg, int o
     }
     else if (msg.isAllNotesOff() || msg.isAllSoundOff())
         m_keysDown = {};
-    else if (msg.isController())
+    else if (msg.isController() && msg.getControllerNumber() < 120) // 120 and up are channel mode messages, not controls
     {
         // A learned controller: its position is left for the message thread, which moves the parameter.
         const int cc = msg.getControllerNumber();
