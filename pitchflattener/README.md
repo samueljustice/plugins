@@ -1,5 +1,7 @@
 # SammyJs Pitch Flattener
 
+![Work in progress](https://img.shields.io/badge/WORK_IN_PROGRESS-D00000?style=for-the-badge)
+
 A VST3/AU plugin that removes pitch movement from a sound while keeping its energy and character. Use it to take the Doppler sweep out of a pass-by, iron the wail out of a siren, take the vibrato out of a voice or instrument, or lock a warbling tone to one note so the pitch is malleable again.
 
 ### Latest Release v2.4.0 - [Download Here](https://github.com/samueljustice/plugins/releases/tag/pitchflattener-v2.4.0)
