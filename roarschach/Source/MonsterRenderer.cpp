@@ -64,7 +64,7 @@ namespace roar
 
         const char* const c_rNames[] = { "uOutRes", "uSimTexel", "uSimRes", "uSimS", "uDt", "uFirst", "uDiss", "uSeedMode",
                                          "uWarm", "uDyeS", "uCFS", "uLightS", "uBloomS", "uSrcS", "uSrcTexel", "uDyeTexel",
-                                         "uDyeRes", "uCFTexel", "uDyeOn", "uSteps", "uUpGain", "uDivK", "uDither", "uInkRes", "uInkStep", "uInkRule" };
+                                         "uDyeRes", "uCFTexel", "uDyeOn", "uSteps", "uUpGain", "uDivK", "uDither", "uInkRes", "uInkStep", "uInkRule", "uInkTier" };
         const char* const c_sNames[] = { "uDye", "uV", "uE", "uCF", "uLight", "uNoise", "uBloom", "uLogoSdf", "uWc", "uP", "uDv", "uSrc", "uInkTex" };
 
         float clamp01 (float v) { return std::isfinite (v) ? std::min (1.0f, std::max (0.0f, v)) : 0.0f; }
@@ -884,13 +884,21 @@ namespace roar
         f.set (U::uInkO, pose.look.ox, pose.look.oy, (float) m_inkPhase[8], pose.look.ribbon);
 
         // ---- the cloud: its own picture asleep, folding with the blot as it forms; banks and gaps
-        f.set (U::uCloudK, 0.10f + 0.55f * F, pose.look.bank * m_inkFrontCloud, 0.10f * m_inkFrontCloud, 0.45f * heat);
+        f.set (U::uCloudK, 0.04f + 0.61f * F, pose.look.bank * m_inkFrontCloud, 0.10f * m_inkFrontCloud, 0.45f * heat);
         f.set (U::uCloudO, (float) m_inkPhase[4], (float) m_inkPhase[5], (float) m_inkPhase[6] + 0.61f, (float) m_inkPhase[7] + 0.61f);
+        {
+            // the far cloud's two carries, half a cycle apart; each has no share as it starts again
+            scroll (m_inkCloudPhase, 1.0 / 9.0);
+            const float ph = (float) m_inkCloudPhase, phB = ph < 0.5f ? ph + 0.5f : ph - 0.5f;
+            f.set (U::uCloudT, 9.0f * ph, 9.0f * phB, std::abs (2.0f * ph - 1.0f), CreatureFlow::c_restGain / std::max (0.1f, fl.gain));
+        }
 
         // ---- the rift's light: by seed and by moment, from a dark tear to drifting lit breath
         const float t = (float) m_inkClock, ph = pose.look.ox * 40.0f;
-        const float moment = smooth (-0.35f, 0.55f, std::sin (t * 0.31f + ph) * std::cos (t * 0.17f + 1.3f * ph));
-        f.set (U::uBreath, pose.look.glow * moment * (0.45f + 0.55f * heat) * awake, jet, (float) m_inkPhase[9], level);
+        const float moment = m_inkMoment >= 0.0f ? clamp01 (m_inkMoment)
+                                                 : smooth (-0.35f, 0.55f, std::sin (t * 0.31f + ph) * std::cos (t * 0.17f + 1.3f * ph));
+        const float light = m_inkLight >= 0.0f ? clamp01 (m_inkLight) : pose.look.glow * moment * (0.45f + 0.55f * heat);
+        f.set (U::uBreath, light * awake, jet, (float) m_inkPhase[9], level);
 
         // ---- the pigment rule: how fast free pigment turns into held ink and back, the pull on it
         {
@@ -915,7 +923,44 @@ namespace roar
             const float kick = (0.25f + 0.75f * m_inkKick) * (0.3f + 0.7f * un) + 0.15f * heat;
             f.set (U::uHold, 0.6f + 2.4f * F, 1.2f + 1.3f * un, drift, 0.45f + 0.25f * stage + 0.2f * heat);
             f.set (U::uPig, c_inkAmbient, m_inkBudget, kick, 0.008f);
-            m_inkState = { F, pose.maw[2], heat, level, f.get (U::uBreath), reach / speed, drift, kick };
+            m_inkState = { F, pose.maw[2], heat, level, f.get (U::uBreath), reach / speed, drift, kick, 0.0f, 0.0f };
+        }
+
+        // ---- the sub's onsets push the pigment outwards from the body once each; a clipped peak
+        // throws a few beads of pure pigment off the rim (no more often than the flash limiter lets
+        // a spark through)
+        {
+            const auto& af = f.forces;
+            const float push = std::min (0.45f, 0.12f * af.subPulse * clamp01 (f.get (U::uSub) * 2.0f)) * awake * F;
+            f.set (U::uSubPulse, pose.centreY, push, 0.30f + 0.15f * stage, 0.0f);
+            m_inkSparkAge = std::min (9.0f, m_inkSparkAge + dt);
+            // (only off a loud voice: the clipper is doing nothing to a quiet one)
+            if (af.sparkSeed != m_inkSparkSeed && af.clipSparks > 0.02f && awake > 0.1f && F > 0.5f && f.inputLoud > 0.5f)
+            {
+                m_inkSparkSeed = af.sparkSeed;
+                m_inkSparkAge = 0.0f;
+                for (int i = 0; i < 3; ++i)
+                {
+                    // a way out of the body's middle, upwards more often than down; the bead leaves
+                    // from where that way crosses the rim
+                    const float a = 3.14159265f * (0.08f + 0.84f * hashf ((float) af.sparkSeed * 0.6180339f + 0.37f * (float) i));
+                    const float dx = std::sin (a), dy = std::cos (a) * (hashf ((float) af.sparkSeed * 0.754877f + 0.61f * (float) i) < 0.7f ? 1.0f : -1.0f);
+                    float r = 0.04f;
+                    while (r < 1.2f && CreatureAnatomy::sdf (pose, dx * r, pose.centreY + dy * r) < 0.0f)
+                        r += 0.02f;
+                    m_inkBead[(size_t) i] = { dx * r, pose.centreY + dy * r, dx, dy };
+                }
+            }
+            // (a bead flies a tenth of a view height and is spent in a quarter of a second)
+            const float fly = 0.10f * (1.0f - std::exp (-m_inkSparkAge / 0.09f));
+            const float amount = m_inkSparkAge < 0.25f ? 30.0f * clamp01 (af.clipSparks * 3.0f + 0.3f) * (1.0f - m_inkSparkAge / 0.25f) * awake : 0.0f;
+            for (int i = 0; i < 3; ++i)
+            {
+                const auto& b = m_inkBead[(size_t) i];
+                f.setAt (U::uSparkP, i, b[0] + b[2] * fly, b[1] + b[3] * fly, 0.012f, amount);
+            }
+            m_inkState.push = push;
+            m_inkState.beads = amount;
         }
     }
 
@@ -1349,6 +1394,8 @@ namespace roar
         setR (R::uInkRes, (float) m_inkBuf[0].w, (float) m_inkBuf[0].h, 0.5f * m_aspect, dt);
         setR (R::uInkStep, fresh ? 1.0f : 0.0f, m_inkBytes ? 1.0f : 0.0f, hashf ((float) (m_frame % 4093u) * 0.6180339f) * 64.0f, 0.0f);
         setR (R::uInkRule, m_inkFloor, m_inkFalling, m_inkSmoke, m_inkGather);
+        // the cloud by tier: three layers, the far one carried in two phases, and threads, from the second buffer tier up
+        setR (R::uInkTier, m_tier >= 2 ? 3.0f : 2.0f, m_tier >= 2 ? 1.0f : 0.0f, m_tier >= 2 ? 1.0f : 0.0f, 0.0f);
     }
 
     // One step of the buffer (fresh: filled as the shape stands and the cloud's own pigment, no history).

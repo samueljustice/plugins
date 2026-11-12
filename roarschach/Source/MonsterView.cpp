@@ -500,6 +500,9 @@ void MonsterView::updateAnimation (float dt)
         roar::CreatureMood::Axes target {};
         for (size_t i = 0; i < target.size(); ++i)
             target[i] = safe (m_moodTarget[i].load (std::memory_order_relaxed), 0.0f, 1.0f);
+        if (m_testMood[0].load (std::memory_order_relaxed) >= 0.0f)
+            for (size_t i = 0; i < target.size(); ++i)
+                target[i] = safe (m_testMood[i].load (std::memory_order_relaxed), 0.0f, 1.0f);
         const int resets = m_moodResets.load (std::memory_order_relaxed);
         const bool reset = resets != m_moodResetsSeen;
         m_moodResetsSeen = resets;

@@ -106,6 +106,16 @@ public:
     void setInkFullSizeForTests (int full) { m_renderer.setInkFullSize (full); }
     /** Tests: the cloud in front of the ink creature at this share of its opacity (0: the ink bare). */
     void setInkFrontCloudForTests (float share) { m_renderer.setInkFrontCloud (share); }
+    /** Tests: the light in the ink creature's rift held at this share of the blot's own (< 0 = live). */
+    void setInkMomentForTests (float moment) { m_renderer.setInkMoment (moment); }
+    /** Tests: the light in the ink creature's rift itself, whatever the blot's own is (< 0 = the blot's). */
+    void setInkLightForTests (float light) { m_renderer.setInkLight (light); }
+    /** Tests and snapshots: hold the colour mood at these axes whatever the settings are (any < 0 = live). */
+    void setMoodForTests (const roar::CreatureMood::Axes& axes)
+    {
+        for (size_t i = 0; i < axes.size(); ++i)
+            m_testMood[i].store (axes[i], std::memory_order_relaxed);
+    }
 
     /** Message thread. Stores into atomics read by the GL thread. */
     void setParams (const Params& params);
@@ -163,6 +173,7 @@ private:
                        m_swirlKnob { 0.0f }, m_ensembleKnob { 0.0f }, m_overtoneKnob { 0.0f }, m_ringKnob { 0.0f },
                        m_cleanOn { 1.0f };
     std::array<std::atomic<float>, roar::CreatureMood::numAxes> m_moodTarget {};
+    std::array<std::atomic<float>, roar::CreatureMood::numAxes> m_testMood { { { -1.0f }, { -1.0f }, { -1.0f }, { -1.0f } } };
     std::atomic<bool> m_moodFrozen { false };
     std::atomic<int> m_moodResets { 0 };     // bumped by the menu's reset (message thread)
     std::array<std::atomic<float>, roar::CreatureMood::numAxes> m_moodKept {};   // the saved frozen colour

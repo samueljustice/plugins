@@ -44,7 +44,8 @@ namespace roar
         X (uAtmo, 4, 1) X (uAtmoTint, 3, 1) X (uMood, 4, 1) \
         X (uBlob, 4, 8) X (uBlobR, 4, 8) X (uLimbA, 4, 6) X (uLimbB, 4, 6) X (uMaw, 4, 1) X (uBay, 4, 2) \
         X (uFlowK, 4, 1) X (uFlowO, 4, 1) X (uFlowC, 4, 1) X (uCarry, 4, 1) X (uInkF, 4, 1) X (uInkO, 4, 1) \
-        X (uCloudK, 4, 1) X (uCloudO, 4, 1) X (uBreath, 4, 1) X (uHold, 4, 1) X (uPig, 4, 1)
+        X (uCloudK, 4, 1) X (uCloudO, 4, 1) X (uBreath, 4, 1) X (uHold, 4, 1) X (uPig, 4, 1) \
+        X (uCloudT, 4, 1) X (uSubPulse, 4, 1) X (uSparkP, 4, 3)
 
     enum class U : int
     {
@@ -160,6 +161,10 @@ namespace roar
         void setInkFullSize (int full) { m_inkFullForced = full; }
         /** Tests: the cloud in front of the ink at this share of its opacity (0: the ink bare). */
         void setInkFrontCloud (float share) { m_inkFrontCloud = share; }
+        /** Tests: the rift's light held at this share of the blot's own (0 a dark moment, 1 a lit one; < 0: live). */
+        void setInkMoment (float moment) { m_inkMoment = moment; }
+        /** Tests: the rift's light itself (0 a dark tear .. 1 lit breath), whatever the blot's own is (< 0: the blot's). */
+        void setInkLight (float light) { m_inkLight = light; }
         bool isInkFullSize() const { return m_inkFullForced >= 0 ? m_inkFullForced != 0 : m_inkFull; }
         bool isInkCreature() const { return m_ink; }
         /** The ink creature as the last prepare() posed it (tests: the shader's inputs, for the C++ twins). */
@@ -167,7 +172,7 @@ namespace roar
         const CreatureFlow::Params& getInkFlow() const { return m_inkFlow; }
         const CreatureAnatomy::Genome& getInkGenome() const { return m_genomes[(size_t) m_genomeNow]; }
         /** What drove the ink creature's last frame (tests and the screenshot tool's log). */
-        struct InkState { float formation = 0.0f, opening = 0.0f, heat = 0.0f, level = 0.0f, light = 0.0f, carry = 0.0f, drift = 0.0f, kick = 0.0f; };
+        struct InkState { float formation = 0.0f, opening = 0.0f, heat = 0.0f, level = 0.0f, light = 0.0f, carry = 0.0f, drift = 0.0f, kick = 0.0f, push = 0.0f, beads = 0.0f; };
         const InkState& getInkState() const { return m_inkState; }
         /** Tests: the ink buffer as bytes even where half floats work. Takes effect at the next create(). */
         void setInkBytes (bool bytes) { m_inkBytesForced = bytes; }
@@ -224,7 +229,7 @@ namespace roar
         {
             uOutRes, uSimTexel, uSimRes, uSimS, uDt, uFirst, uDiss, uSeedMode, uWarm, uDyeS, uCFS, uLightS,
             uBloomS, uSrcS, uSrcTexel, uDyeTexel, uDyeRes, uCFTexel, uDyeOn, uSteps, uUpGain, uDivK, uDither,
-            uInkRes, uInkStep, uInkRule,
+            uInkRes, uInkStep, uInkRule, uInkTier,
             numR
         };
 
@@ -311,6 +316,12 @@ namespace roar
         float m_inkFPrev = -1.0f, m_inkFRate = 0.0f, m_inkKick = 0.0f, m_inkFalling = 0.0f, m_inkFloor = 0.0f, m_inkSmoke = 0.33f, m_inkGather = 0.0f;
         float m_inkJet = 0.0f;       // the breath's jet, smoothed
         float m_inkLevel = 0.0f;     // the level the eddies follow, smoothed
+        double m_inkCloudPhase = 0.0;   // the far cloud's carry, a cycle of nine seconds
+        int m_inkSparkSeed = -1;     // the spark the beads were last thrown for
+        float m_inkSparkAge = 9.0f;
+        std::array<std::array<float, 4>, 3> m_inkBead {};   // each bead: where it left the rim xy, its way xy
+        float m_inkLight = -1.0f;    // tests: the rift's light, whatever the blot's own (< 0: the blot's)
+        float m_inkMoment = -1.0f;   // tests: the rift's light held at this moment's share (< 0: live)
         float m_aspect = 3.27f;
         int m_simH = 78;       // rows of the Q3 sim
         std::array<Prog, (size_t) shaders::Program::numPrograms> m_progs {};

@@ -422,7 +422,8 @@ namespace roar
             // strands of ink left across the rift, thinning as it opens: unevenly spaced and leaning
             float sx = x * (1.0f + 1.6f * (y - P.maw[0]));
             float swell = 0.5f;
-            const float gap = std::max (0.01f, mrx * (0.6f + P.look.strandGap));
+            // (close enough that at least a pair of them crosses the rift wherever it is wide)
+            const float gap = std::max (0.01f, mrx * (0.20f + 0.55f * P.look.strandGap));
             if (ragged)
             {
                 const auto& n = NoiseSampler::shared();
@@ -433,7 +434,7 @@ namespace roar
             if (ragged)
                 swell = NoiseSampler::shared().sample (std::floor (f) * 0.173f + P.look.oy, y * 2.3f + P.look.ox, 0.0f)[0];
             const float dist = std::abs (f - std::floor (f) - 0.5f) * gap;
-            const float thread = (0.002f + (0.004f + 0.008f * P.maw[3]) * smooth (0.25f, 0.75f, swell)) * (1.0f - open * 3.2f) - dist;
+            const float thread = (0.0035f + (0.004f + 0.008f * P.maw[3]) * smooth (0.25f, 0.75f, swell)) * (1.0f - open * 3.2f) - dist;
             d = smax (d, -std::max (rift, thread), 0.03f);
         }
         // the bays: tapered cuts that widen towards the outside
