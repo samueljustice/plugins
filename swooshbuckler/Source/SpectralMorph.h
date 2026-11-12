@@ -159,14 +159,17 @@ public:
 
     void setParams(const SpectralMorph::Params& p) { m_morph.setParams(p); }
 
-    /** a, b: the two bus inputs, changed in place. mix: how far the morph is in at the end of this block (0..1). */
-    void process(float* a, float* b, int numSamples, float mix);
+    /** a, b: the two bus inputs, changed in place. mix: how far the morph is in at the end of this block (0..1).
+        wetA / wetB: when given, that side's share of the morph is ADDED there instead, and a / b keeps only what
+        is left of its dry sound (for a side whose input is one track rather than the whole bus). They must not
+        be a or b. */
+    void process(float* a, float* b, int numSamples, float mix, float* wetA = nullptr, float* wetB = nullptr);
 
     int getLatencySamples() const { return m_morph.getLatencySamples(); }
     bool isRunning() const { return m_running; }
 
 private:
-    void processBlock(float* a, float* b, int n, float mixFrom, float mixTo);
+    void processBlock(float* a, float* b, int n, float mixFrom, float mixTo, float* wetA, float* wetB);
 
     SpectralMorph m_morph;
     std::vector<float> m_delayA, m_delayB, m_wet;

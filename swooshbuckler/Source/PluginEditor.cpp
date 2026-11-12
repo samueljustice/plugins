@@ -755,7 +755,19 @@ SwooshbucklerAudioProcessorEditor::SwooshbucklerAudioProcessorEditor(Swooshbuckl
 
     // Morph: the pad sits over the output view (the waves show through) while it's switched on.
     m_content.addChildComponent(m_morphPad);
-    m_morphPad.setFixedSources("Bus A", TC::movement, "Bus B", TC::sources);
+    // Each side of the morph is its bus until a rope is dragged from its handle onto a track.
+    m_morphPad.setBusLabels("Bus A", TC::movement, "Bus B", TC::sources);
+    m_morphPad.setRopeOverlayParent(&m_content);
+    m_morphPad.laneAtScreenPosition = [this](juce::Point<int> screenPos) { return m_hold.trackAtScreenPosition(screenPos); };
+    m_morphPad.laneAnchor = [this](int track, juce::Point<int>& screenPos) { return m_hold.laneAnchorScreen(track, screenPos); };
+    m_morphPad.onSourceAssigned = [this](int side, int track)
+    {
+        m_processor.setMorphSource(side, track);
+        const juce::String name = side == 0 ? "A" : "B";
+        toast(track >= 0 ? "Morph side " + name + " is roped to \"" + m_processor.getCargo().getDisplayName(track) + "\"."
+                         : "Morph side " + name + " is bus " + name + " again.");
+        syncMorphPad();
+    };
     auto setParam = [this](const char* id, float plain)
     {
         if (auto* param = m_processor.getState().getParameter(id))
@@ -790,7 +802,7 @@ SwooshbucklerAudioProcessorEditor::SwooshbucklerAudioProcessorEditor(Swooshbuckl
     m_morphButton.setClickingTogglesState(true);
     m_morphButton.setColour(juce::TextButton::buttonOnColourId, TC::filter);
     m_morphButton.setWantsKeyboardFocus(false);
-    m_morphButton.setTooltip("Morph\nShows the morph pad over the sea. It blends bus A into bus B spectrally, not just a crossfade: the two sounds trade their tone and pitch. Switch it on with ON on the pad, then drag the dot or press play to let it wander.");
+    m_morphButton.setTooltip("Morph\nShows the morph pad over the sea. It blends bus A into bus B spectrally, not just a crossfade: the two sounds trade their tone and pitch. To morph two single sounds, drag the rope from the A or B handle under the pad onto a track. Switch it on with ON on the pad, then drag the dot or press play to let it wander.");
     m_morphButton.onClick = [this] { syncMorphPad(); };
     m_content.addAndMakeVisible(m_morphButton);
 
@@ -820,6 +832,15 @@ SwooshbucklerAudioProcessorEditor::SwooshbucklerAudioProcessorEditor(Swooshbuckl
     m_rideButton.setWantsKeyboardFocus(false);
     m_content.addAndMakeVisible(m_rideButton);
     m_rideAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment>(p.getState(), ParamIDs::rideOn, m_rideButton);
+
+    m_followMasterButton.setClickingTogglesState(true);
+    m_followMasterButton.setColour(juce::TextButton::buttonOnColourId, TC::flight);
+    m_followMasterButton.setTooltip("Follow Master\nOn: every track's ride swells with the Master track's loudness instead of its own slow wave, so all the layers "
+                                    "move like that one sound. The Master itself plays as it is. Energy still sets how deep the faders dip. "
+                                    "It needs Auto Ride on and a Master track (the star on a lane); until then it waits.");
+    m_followMasterButton.setWantsKeyboardFocus(false);
+    m_content.addAndMakeVisible(m_followMasterButton);
+    m_followMasterAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment>(p.getState(), ParamIDs::rideFollowMaster, m_followMasterButton);
 
     m_throwButton.setColour(juce::TextButton::buttonColourId, TC::flight.withAlpha(0.25f));
     m_throwButton.setWantsKeyboardFocus(false);
@@ -1013,7 +1034,7 @@ SwooshbucklerAudioProcessorEditor::SwooshbucklerAudioProcessorEditor(Swooshbuckl
     m_content.addAndMakeVisible(m_cablesButton);
     m_content.addAndMakeVisible(m_wires);
     m_wires.setPanel(&m_modPanel);
-    m_hold.onLanesMoved = [this] { m_wires.rebuildSoon(); }; // scrolling the tracks moves the plugs on their pitch boxes
+    m_hold.onLanesMoved = [this] { m_wires.rebuildSoon(); m_morphPad.ropesMoved(); }; // scrolling the tracks moves the plugs on their pitch boxes, and the morph's ropes
     m_wires.onStatus = [this](const juce::String& text) { toast(text); };
     m_wires.isSourceBipolar = [&p](int source)
     {
@@ -1167,8 +1188,10 @@ void SwooshbucklerAudioProcessorEditor::layoutContent()
     m_morphButton.setBounds(m_sea.getRight() - 86, m_sea.getY() + 4, 80, 20);
     m_performPanel = { 912, 270, 352, 176 };
     m_swell.setBounds(m_performPanel.getX() + 8, m_performPanel.getY() + 28, 100, 100);
-    m_throwButton.setBounds(m_performPanel.getX() + 14, m_performPanel.getY() + 126, 88, 22);
-    m_rideButton.setBounds(m_performPanel.getX() + 14, m_performPanel.getY() + 150, 88, 22);
+    // Under Swell: Throw, Auto Ride and Follow Master.
+    m_throwButton.setBounds(m_performPanel.getX() + 14, m_performPanel.getY() + 121, 88, 16);
+    m_rideButton.setBounds(m_performPanel.getX() + 14, m_performPanel.getY() + 139, 88, 16);
+    m_followMasterButton.setBounds(m_performPanel.getX() + 14, m_performPanel.getY() + 157, 88, 16);
     {
         constexpr int cw = 78, ch = 70;
         const int x0 = m_performPanel.getX() + 108, y0 = m_performPanel.getY() + 34;
@@ -2021,6 +2044,12 @@ void SwooshbucklerAudioProcessorEditor::syncMorphPad()
         m_morphButton.toFront(false);
     }
     m_morphPad.setMorphEnabled(on);
+    {
+        // The ropes: each side's track (or its bus).
+        const auto& cargo = m_processor.getCargo();
+        const int a = cargo.getMorphSource(0), b = cargo.getMorphSource(1);
+        m_morphPad.setSources(a, b, a >= 0 ? cargo.getDisplayName(a) : juce::String(), b >= 0 ? cargo.getDisplayName(b) : juce::String());
+    }
     if (! shown)
         return;
     m_morphPad.setMode(juce::roundToInt(value(ParamIDs::morphMode)));
@@ -2122,6 +2151,15 @@ void SwooshbucklerAudioProcessorEditor::timerCallback()
     }
     if ((++m_morphSyncTick % 6) == 0)
         syncMorphPad();
+    {
+        // Follow Master waits (dimmed, still usable) until Auto Ride is on and a track is the Master.
+        const bool ready = m_processor.getState().getRawParameterValue(ParamIDs::rideOn)->load() > 0.5f && m_processor.getCargo().getMaster() >= 0;
+        if (m_followMasterShown != (ready ? 1 : 0))
+        {
+            m_followMasterShown = ready ? 1 : 0;
+            m_followMasterButton.setAlpha(ready ? 1.0f : 0.45f);
+        }
+    }
 
     if (! m_morph.items.empty())
         m_morph.step();

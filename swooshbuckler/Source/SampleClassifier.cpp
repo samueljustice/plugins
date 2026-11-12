@@ -787,3 +787,221 @@ SampleAnalysis SampleClassifier::analyse(const float* mono, int numSamples, doub
 
     return finish(s);
 }
+
+//==============================================================================
+CargoContours SampleClassifier::extractContours(const float* mono, int numSamples, double sampleRate,
+                                                const std::vector<CargoRegion>& regionsIn)
+{
+    CargoContours c;
+    c.hop = juce::jmax(1, juce::roundToInt(0.01 * sampleRate));
+    if (mono == nullptr || numSamples <= 0 || sampleRate <= 0.0)
+        return c;
+
+    const int hop = c.hop;
+    const int numFrames = (numSamples + hop - 1) / hop;
+    const auto count = static_cast<size_t>(numFrames);
+    const auto regions = clipRegions(regionsIn, numSamples);
+
+    //--------------------------------------------------------------------------
+    // Loudness: the RMS of a 30 ms window round each value, in dB under the loudest.
+    std::vector<float> levelDb(count, -120.0f);
+    float loudestDb = -120.0f;
+    {
+        std::vector<double> prefix(static_cast<size_t>(numSamples) + 1, 0.0);
+        for (int i = 0; i < numSamples; ++i)
+            prefix[static_cast<size_t>(i) + 1] = prefix[static_cast<size_t>(i)] + static_cast<double>(mono[i]) * mono[i];
+        const int half = juce::jmax(hop / 2, juce::roundToInt(0.015 * sampleRate));
+        for (int f = 0; f < numFrames; ++f)
+        {
+            const int centre = f * hop + hop / 2;
+            const int a = juce::jlimit(0, numSamples, centre - half), b = juce::jlimit(0, numSamples, centre + half);
+            const double ms = b > a ? (prefix[static_cast<size_t>(b)] - prefix[static_cast<size_t>(a)]) / static_cast<double>(b - a) : 0.0;
+            levelDb[static_cast<size_t>(f)] = static_cast<float>(10.0 * std::log10(ms + 1.0e-12));
+            loudestDb = juce::jmax(loudestDb, levelDb[static_cast<size_t>(f)]);
+        }
+    }
+    constexpr float c_levelRangeDb = 34.0f; // the Followers' range
+    c.level.resize(count);
+    for (size_t f = 0; f < count; ++f)
+        c.level[f] = loudestDb > -110.0f ? juce::jlimit(0.0f, 1.0f, 1.0f + (levelDb[f] - loudestDb) / c_levelRangeDb) : 0.0f;
+
+    c.pitch.assign(count, 0.5f);
+    c.bright.assign(count, 0.5f);
+    if (loudestDb <= -110.0f)
+        return c; // silence
+
+    //--------------------------------------------------------------------------
+    // Pitch and brightness, on a decimated copy (the classifier's frames, one per value).
+    const int decim = juce::jmax(1, static_cast<int>(std::round(sampleRate / c_targetRate)));
+    const double rate = sampleRate / decim;
+    const int dn = numSamples / decim;
+    std::vector<float> x(static_cast<size_t>(juce::jmax(0, dn)));
+    for (int i = 0; i < dn; ++i)
+    {
+        float s = 0.0f;
+        for (int k = 0; k < decim; ++k)
+            s += mono[i * decim + k];
+        x[static_cast<size_t>(i)] = s / static_cast<float>(decim);
+    }
+
+    juce::dsp::FFT specFft(c_fftOrder);
+    juce::dsp::FFT acfFft(c_acfOrder);
+    std::vector<float> window(static_cast<size_t>(c_frame));
+    for (int i = 0; i < c_frame; ++i)
+        window[static_cast<size_t>(i)] = 0.5f - 0.5f * std::cos(juce::MathConstants<float>::twoPi * static_cast<float>(i) / static_cast<float>(c_frame));
+    std::vector<float> specBuf(static_cast<size_t>(2 * c_frame));
+    std::vector<float> acfBuf(static_cast<size_t>(2 * c_acfSize));
+    std::vector<float> frame(static_cast<size_t>(c_frame));
+    std::vector<double> prefixSq(static_cast<size_t>(c_frame + 1));
+    std::vector<float> nsdf(static_cast<size_t>(c_frame / 2 + 2), 0.0f);
+    const int bins = c_frame / 2;
+    const int minLag = juce::jmax(2, static_cast<int>(rate / 2000.0));
+    const int maxLag = juce::jmin(c_frame / 2, static_cast<int>(rate / 60.0));
+
+    auto inRegion = [&regions](int sample)
+    {
+        for (const auto& r : regions)
+            if (sample >= r.start && sample < r.end)
+                return true;
+        return false;
+    };
+
+    // Per value: the pitch in semitones (re 1 Hz) where it is clear, the centroid in octaves (re 1 Hz) where it sounds.
+    constexpr float c_none = -1.0e9f;
+    std::vector<float> semis(count, c_none), octaves(count, c_none);
+    for (int f = 0; f < numFrames; ++f)
+    {
+        const auto fi = static_cast<size_t>(f);
+        const int centre = f * hop + hop / 2;
+        const bool sounding = levelDb[fi] > loudestDb - 40.0f && (regions.empty() || inRegion(centre));
+        if (! sounding)
+            continue;
+
+        const int off = centre / decim - c_frame / 2;
+        for (int i = 0; i < c_frame; ++i)
+        {
+            const int at = off + i;
+            frame[static_cast<size_t>(i)] = at >= 0 && at < dn ? x[static_cast<size_t>(at)] : 0.0f;
+        }
+        const float mean = std::accumulate(frame.begin(), frame.end(), 0.0f) / static_cast<float>(c_frame);
+        for (auto& v : frame) v -= mean;
+
+        // Brightness: the centroid of the windowed power spectrum.
+        std::fill(specBuf.begin(), specBuf.end(), 0.0f);
+        for (int i = 0; i < c_frame; ++i)
+            specBuf[static_cast<size_t>(i)] = frame[static_cast<size_t>(i)] * window[static_cast<size_t>(i)];
+        specFft.performFrequencyOnlyForwardTransform(specBuf.data(), true);
+        double sumP = 0.0, sumFP = 0.0;
+        for (int b = 1; b <= bins; ++b)
+        {
+            const double p = static_cast<double>(specBuf[static_cast<size_t>(b)]) * specBuf[static_cast<size_t>(b)];
+            sumP += p;
+            sumFP += p * (b * rate / c_frame);
+        }
+        if (sumP > 0.0 && sumFP > 0.0)
+            octaves[fi] = static_cast<float>(std::log2(sumFP / sumP));
+
+        // Pitch: the first strong peak of the normalised autocorrelation (McLeod), refined between lags.
+        std::fill(acfBuf.begin(), acfBuf.end(), 0.0f);
+        std::copy(frame.begin(), frame.end(), acfBuf.begin());
+        acfFft.performRealOnlyForwardTransform(acfBuf.data(), true);
+        for (int b = 0; b <= c_acfSize / 2; ++b)
+        {
+            const float re = acfBuf[static_cast<size_t>(2 * b)], im = acfBuf[static_cast<size_t>(2 * b + 1)];
+            acfBuf[static_cast<size_t>(2 * b)] = re * re + im * im;
+            acfBuf[static_cast<size_t>(2 * b + 1)] = 0.0f;
+        }
+        acfFft.performRealOnlyInverseTransform(acfBuf.data());
+
+        prefixSq[0] = 0.0;
+        for (int i = 0; i < c_frame; ++i)
+            prefixSq[static_cast<size_t>(i + 1)] = prefixSq[static_cast<size_t>(i)]
+                                                   + static_cast<double>(frame[static_cast<size_t>(i)]) * frame[static_cast<size_t>(i)];
+        const double r0 = acfBuf[0];
+        const double total = prefixSq[static_cast<size_t>(c_frame)];
+        if (r0 <= 0.0 || total <= 0.0)
+            continue;
+        const double scale = total / r0;
+        const int last = juce::jmin(maxLag + 1, c_frame / 2);
+        for (int tau = 0; tau <= last; ++tau)
+        {
+            const double m = prefixSq[static_cast<size_t>(c_frame - tau)] + (total - prefixSq[static_cast<size_t>(tau)]);
+            nsdf[static_cast<size_t>(tau)] = m > 0.0 ? static_cast<float>(2.0 * acfBuf[static_cast<size_t>(tau)] * scale / m) : 0.0f;
+        }
+        // The highest peak after the first zero crossing, then the first peak nearly as high (the fundamental,
+        // not one of its multiples).
+        int firstNegative = 1;
+        while (firstNegative < last && nsdf[static_cast<size_t>(firstNegative)] > 0.0f)
+            ++firstNegative;
+        const int from = juce::jmax(minLag, firstNegative);
+        float best = 0.0f;
+        for (int tau = from; tau < last; ++tau)
+            if (nsdf[static_cast<size_t>(tau)] > nsdf[static_cast<size_t>(tau - 1)] && nsdf[static_cast<size_t>(tau)] >= nsdf[static_cast<size_t>(tau + 1)])
+                best = juce::jmax(best, nsdf[static_cast<size_t>(tau)]);
+        if (best < 0.6f)
+            continue; // no clear pitch here
+        for (int tau = from; tau < last; ++tau)
+        {
+            const float y0 = nsdf[static_cast<size_t>(tau - 1)], y1 = nsdf[static_cast<size_t>(tau)], y2 = nsdf[static_cast<size_t>(tau + 1)];
+            if (y1 > y0 && y1 >= y2 && y1 >= 0.9f * best)
+            {
+                const float denom = y0 - 2.0f * y1 + y2;
+                const float shift = std::abs(denom) > 1.0e-9f ? juce::jlimit(-0.5f, 0.5f, 0.5f * (y0 - y2) / denom) : 0.0f;
+                const double lag = static_cast<double>(tau) + static_cast<double>(shift);
+                semis[fi] = static_cast<float>(12.0 * std::log2(rate / lag));
+                break;
+            }
+        }
+    }
+
+    //--------------------------------------------------------------------------
+    // Spread each over the sound's own range, and hold through the moments that have none.
+    auto spread = [count](const std::vector<float>& raw, float minSpan, std::vector<float>& out, float& low, float& high, float& middle)
+    {
+        std::vector<float> have;
+        for (const float v : raw)
+            if (v > 0.5f * c_none)
+                have.push_back(v);
+        if (have.empty())
+            return 0.0f;
+        std::sort(have.begin(), have.end());
+        auto percentile = [&have](float p) { return have[static_cast<size_t>(juce::jlimit(0, static_cast<int>(have.size()) - 1, juce::roundToInt(p * static_cast<float>(have.size() - 1))))]; };
+        middle = percentile(0.5f);
+        const float p10 = percentile(0.1f), p90 = percentile(0.9f);
+        const float span = juce::jmax(minSpan, p90 - p10);
+        low = 0.5f * (p10 + p90) - 0.5f * span;
+        high = low + span;
+
+        float held = -1.0f;
+        for (size_t f = 0; f < count; ++f)
+            if (raw[f] > 0.5f * c_none)
+            {
+                held = juce::jlimit(0.0f, 1.0f, (raw[f] - low) / span);
+                break;
+            }
+        for (size_t f = 0; f < count; ++f)
+        {
+            if (raw[f] > 0.5f * c_none)
+                held = juce::jlimit(0.0f, 1.0f, (raw[f] - low) / span);
+            out[f] = held;
+        }
+        return static_cast<float>(have.size());
+    };
+
+    float low = 0.0f, high = 0.0f, middle = 0.0f;
+    const float pitched = spread(semis, 2.0f, c.pitch, low, high, middle);
+    if (pitched > 0.0f)
+    {
+        c.medianPitchHz = std::exp2(middle / 12.0f);
+        c.pitchLowHz = std::exp2(low / 12.0f);
+        c.pitchHighHz = std::exp2(high / 12.0f);
+    }
+    const float sounding = spread(octaves, 0.5f, c.bright, low, high, middle);
+    if (sounding > 0.0f)
+    {
+        c.brightLowHz = std::exp2(low);
+        c.brightHighHz = std::exp2(high);
+        c.voiced = pitched / sounding;
+    }
+    return c;
+}

@@ -108,6 +108,19 @@ public:
     /** The track the last undo or redo of a track edit acted on (-1 = none), then forgets it. */
     int takeRestoredTrack() { return std::exchange(m_restoredTrack, -1); }
 
+    // Routing: the Master track, each track's bus, and the morph's ropes. They live in the session (CargoHold);
+    // these change them as undo steps. Message thread.
+    /** Makes a track the Master (-1 = none): the one sound the Followers and Follow Master listen to. */
+    void setMasterTrack(int trackOrMinusOne);
+    /** The bus a track plays on: -1 = Auto (by its type), 0 = bus A, 1 = bus B, CargoHold::c_hitsBus = the hits. */
+    void setTrackBus(int track, int busOrMinusOne);
+    /** Ropes one side of the morph (0 = A, 1 = B) to a track, or back to its whole bus (-1). */
+    void setMorphSource(int side, int trackOrMinusOne);
+    /** Match Pitch To Master: sets the track's Semitones and Cents so the pitch its sound sits at is the Master's
+        (as the Master is tuned), in the nearest octave the two-octave range reaches. One undo step. Returns a
+        line for the status bar; `done` says whether anything was set. */
+    juce::String matchPitchToMaster(int track, bool* done = nullptr);
+
     /** The settings a preset owns, as plain values: every parameter that isn't the session's. withMods adds the
         modulators' own controls; outputStage adds Inflate and Push (what the Output die rolls). */
     using Look = std::map<juce::String, float>;
@@ -427,6 +440,7 @@ private:
         std::array<std::atomic<float>*, ParamIDs::numCargoTracks> tracks {}, trackSemis {}, trackCents {}, trackVari {};
         std::atomic<float>* pitch = nullptr;
         std::atomic<float>* rideOn = nullptr, *energy = nullptr, *rate = nullptr, *fill = nullptr, *chaos = nullptr;
+        std::atomic<float>* rideFollowMaster = nullptr;
         std::atomic<float>* bus[ParamIDs::numBuses][ParamIDs::numBusControls] {};
         std::atomic<float>* hitSense = nullptr, *hitBoost = nullptr, *hitRelease = nullptr, *hitDuck = nullptr, *hitSync = nullptr;
         std::atomic<float>* gateMode = nullptr, *hitHold = nullptr, *hitFloor = nullptr, *duckMode = nullptr, *duckReturn = nullptr,

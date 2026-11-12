@@ -9,6 +9,7 @@ namespace
     constexpr int c_peakBlock = 256;
     constexpr int c_headerWidth = 282; // room for the pitch boxes and VARI next to the fader
     constexpr int c_skipWidth = 96;
+    constexpr int c_buttonsWidth = 112; // the star, M, S and x at the right of a lane's name row
     // CAF and M4A are read through Core Audio, so only on macOS.
    #if JUCE_MAC
     const juce::String c_audioExtensions = "wav;wave;aif;aiff;flac;ogg;mp3;caf;m4a";
@@ -167,6 +168,19 @@ public:
         addAndMakeVisible(m_type);
 
 
+        m_master.setClickingTogglesState(false);
+        m_master.setTooltip("Master Track\nMakes this track the Master: the one sound the others can follow. Only one track is the Master at a time. "
+                            "A Follower modulator set to Master, Master Pitch or Master Brightness then moves with this sound's loudness, pitch or brightness "
+                            "as it plays, and Follow Master in the Ride panel makes every other track swell with it.\n"
+                            "Click to choose it, click again to have no Master. Right-click another lane for Match Pitch To Master.");
+        m_master.onClick = [this]
+        {
+            const bool was = m_owner.m_hold.getMaster() == m_track;
+            m_owner.m_processor.setMasterTrack(was ? -1 : m_track);
+            m_owner.status(was ? "No Master track." : "\"" + m_owner.m_hold.getDisplayName(m_track) + "\" is the Master track.");
+        };
+        addAndMakeVisible(m_master);
+
         for (auto* b : { &m_mute, &m_solo, &m_remove })
         {
             b->setColour(juce::TextButton::buttonOnColourId, b == &m_solo ? TC::flight : (b == &m_mute ? TC::record : TC::textDim));
@@ -224,9 +238,10 @@ public:
         m_mute.setToggleState(hold.getMute(lane), juce::dontSendNotification);
         m_solo.setToggleState(hold.getSolo(lane), juce::dontSendNotification);
         m_skip.setToggleState(hold.getSkipSilence(m_track), juce::dontSendNotification);
+        m_master.setToggleState(hold.getMaster() == m_track, juce::dontSendNotification);
         m_type.setButtonText(CargoHold::typeName(hold.getRole(m_track)).toUpperCase() + (hold.getRoleOverride(m_track) < 0 ? "" : " *"));
         m_type.setTooltip("Sound Type: " + CargoHold::typeName(hold.getRole(m_track)) + "\n" + roleTip(hold.getRole(m_track))
-                          + " Plays on " + busLabel(hold.getBus(m_track)) + "."
+                          + " Plays on " + busLabel(hold.getBus(m_track)) + (hold.getBusOverride(m_track) < 0 ? "." : " (chosen by hand on the bus tag).")
                           + (hold.getRoleOverride(m_track) < 0 ? " Guessed from the sound." : " Set by you (marked *).")
                           + "\nWrong guess? Click to tell it what the sound is.");
         repaint();
@@ -260,6 +275,8 @@ public:
         m_solo.setBounds(top.removeFromRight(22));
         top.removeFromRight(4);
         m_mute.setBounds(top.removeFromRight(22));
+        top.removeFromRight(4);
+        m_master.setBounds(top.removeFromRight(22));
         m_nameEditor.setBounds(top.withTrimmedLeft(10));
         header.removeFromTop(4);
         // Type and skip silence side by side, always visible; the fader underneath.
@@ -296,24 +313,30 @@ public:
         g.fillRoundedRectangle(bounds.getX() + 6.0f, bounds.getY() + 8.0f, 3.0f, bounds.getHeight() - 16.0f, 1.5f);
 
         auto header = headerArea(getLocalBounds());
-        auto nameRow = header.removeFromTop(18).withTrimmedLeft(10).withTrimmedRight(86);
+        auto nameRow = header.removeFromTop(18).withTrimmedLeft(10).withTrimmedRight(c_buttonsWidth);
         if (hasData())
         {
-            // Where the track plays: a tag in that section's colour, right of the name. Follows the type.
+            // Where the track plays: a tag in that section's colour, right of the name. It follows the type until
+            // a bus is chosen by hand (then it is marked *). A click opens the menu: the little arrow says so.
             const int bus = m_owner.m_hold.getBus(m_track);
             const auto tagColour = busColour(bus);
-            const auto tagText = busTag(bus);
+            const auto tagText = busTag(bus) + (m_owner.m_hold.getBusOverride(m_track) < 0 ? "" : " *");
             g.setFont(fonts.label(10.0f));
-            const int tagW = juce::roundToInt(juce::GlyphArrangement::getStringWidth(g.getCurrentFont(), tagText)) + 10;
+            const int arrowW = 9;
+            const int tagW = juce::roundToInt(std::ceil(juce::GlyphArrangement::getStringWidth(g.getCurrentFont(), tagText))) + 10 + arrowW;
             const auto tag = nameRow.removeFromRight(tagW).reduced(0, 2).toFloat();
             nameRow.removeFromRight(6);
             m_busTagArea = tag.toNearestInt();
-            g.setColour(tagColour.withAlpha(0.16f));
+            g.setColour(tagColour.withAlpha(m_busTagHover ? 0.3f : 0.16f));
             g.fillRoundedRectangle(tag, 3.0f);
             g.setColour(tagColour.withAlpha(0.8f));
             g.drawRoundedRectangle(tag.reduced(0.5f), 3.0f, 1.0f);
             g.setColour(tagColour);
-            g.drawText(tagText, tag, juce::Justification::centred, false);
+            g.drawText(tagText, tag.withTrimmedRight(static_cast<float>(arrowW)), juce::Justification::centred, false);
+            juce::Path arrow;
+            const float ax = tag.getRight() - 9.0f, ay = tag.getCentreY() - 1.5f;
+            arrow.addTriangle(ax, ay, ax + 5.0f, ay, ax + 2.5f, ay + 3.5f);
+            g.fillPath(arrow);
         }
         else
         {
@@ -516,13 +539,17 @@ public:
         if (hasData() && m_busTagArea.contains(pos))
         {
             const int bus = m_owner.m_hold.getBus(m_track);
-            return busTag(bus) + "\nWhere this track plays: "
+            const bool byHand = m_owner.m_hold.getBusOverride(m_track) >= 0;
+            return juce::String("Bus\nWhere this track plays: ")
                    + (bus == CargoHold::c_hitsBus ? juce::String("the hits, which only open at the biggest moments of buses A and B.")
                                                    : busLabel(bus) + (bus == 0 ? ", the bus that leads and ducks bus B." : ", the bus that sits under bus A."))
-                   + " It follows the sound type.\nClick the type badge underneath to change the type, and so the bus.";
+                   + (byHand ? " Chosen by hand (marked *): the sound type and the track's name stay as they are."
+                             : " On Auto it follows the sound type.")
+                   + "\nClick to choose: Auto, Bus A, Bus B or Hits.";
         }
         if (header.removeFromTop(18).contains(pos))
-            return "Track Name\nNamed after its sound type, until you rename it.\nDouble-click to rename it.";
+            return "Track Name\nNamed after its sound type, until you rename it.\nDouble-click to rename it. Right-click for the track's menu: "
+                   "Master Track, Match Pitch To Master and the bus.";
         if (hasData() && waveArea().contains(pos))
             return "Waveform\nThe flag marks where this track starts playing; it loops from there and the part before it is dimmed. "
                    "With Skip Silence on, the bright parts are the sounds it plays and the faint parts are the gaps it skips.\n"
@@ -534,6 +561,16 @@ public:
     void mouseDown(const juce::MouseEvent& e) override
     {
         m_owner.setActiveTrack(m_track);
+        if (hasData() && e.mods.isPopupMenu())
+        {
+            showLaneMenu();
+            return;
+        }
+        if (hasData() && m_busTagArea.contains(e.getPosition()))
+        {
+            showBusMenu();
+            return;
+        }
         if (hasData() && waveArea().contains(e.getPosition()))
         {
             m_gesture = true;
@@ -547,8 +584,23 @@ public:
         computeWindow();
     }
 
+    void mouseMove(const juce::MouseEvent& e) override
+    {
+        const bool over = hasData() && m_busTagArea.contains(e.getPosition());
+        if (over != m_busTagHover)
+        {
+            m_busTagHover = over;
+            setMouseCursor(over ? juce::MouseCursor::PointingHandCursor : juce::MouseCursor::NormalCursor);
+            repaint(m_busTagArea.expanded(2));
+        }
+    }
+
+    void mouseExit(const juce::MouseEvent& e) override { mouseMove(e.withNewPosition(juce::Point<int>(-1, -1))); }
+
     void mouseDrag(const juce::MouseEvent& e) override
     {
+        if (e.mods.isPopupMenu())
+            return;
         if (hasData() && e.mouseDownPosition.x >= waveArea().getX())
             m_owner.m_hold.setStart(m_track, fractionForX(static_cast<float>(e.x)));
     }
@@ -653,10 +705,73 @@ private:
         return bus == 0 ? TC::movement : TC::sources;
     }
 
+    /** As a menu item: "Bus A", "Bus B", "Hits". */
+    static juce::String busTitle(int bus)
+    {
+        if (bus == CargoHold::c_hitsBus) return "Hits";
+        return juce::String("Bus ") + ParamIDs::busNames[juce::jlimit(0, CargoHold::c_maxBuses - 1, bus)];
+    }
+
     static juce::String busLabel(int bus)
     {
         if (bus == CargoHold::c_hitsBus) return "the hits";
         return juce::String("bus ") + ParamIDs::busNames[juce::jlimit(0, CargoHold::c_maxBuses - 1, bus)];
+    }
+
+    /** The bus choices, as menu items 100 (Auto) and 101.. (Bus A, Bus B, Hits). */
+    void addBusItems(juce::PopupMenu& menu) const
+    {
+        auto& hold = m_owner.m_hold;
+        const int chosen = hold.getBusOverride(m_track);
+        menu.addItem(100, "Auto (" + busTitle(CargoHold::busForRole(hold.getRole(m_track))) + ", By Type)", true, chosen < 0);
+        for (int bus = 0; bus <= CargoHold::c_hitsBus; ++bus)
+            menu.addItem(101 + bus, busTitle(bus), true, chosen == bus);
+    }
+
+    void applyBusItem(int result)
+    {
+        if (result < 100 || result > 101 + CargoHold::c_hitsBus)
+            return;
+        m_owner.m_processor.setTrackBus(m_track, result - 101);
+        const int bus = m_owner.m_hold.getBus(m_track);
+        m_owner.status("\"" + m_owner.m_hold.getDisplayName(m_track) + "\" plays on " + busLabel(bus)
+                       + (result == 100 ? " (by its type)." : "."));
+    }
+
+    void showBusMenu()
+    {
+        juce::PopupMenu menu;
+        menu.addSectionHeader("Plays On");
+        addBusItems(menu);
+        menu.showMenuAsync(juce::PopupMenu::Options().withTargetScreenArea(localAreaToGlobal(m_busTagArea)),
+                           [safe = juce::Component::SafePointer<Lane>(this)](int result) { if (safe != nullptr) safe->applyBusItem(result); });
+    }
+
+    /** The lane's own menu (right-click): the Master, matching its pitch, and the bus. */
+    void showLaneMenu()
+    {
+        auto& hold = m_owner.m_hold;
+        const int master = hold.getMaster();
+        juce::PopupMenu menu;
+        menu.addItem(1, "Master Track", true, master == m_track);
+        menu.addItem(2, "Match Pitch To Master", master >= 0 && master != m_track);
+        menu.addSeparator();
+        juce::PopupMenu buses;
+        addBusItems(buses);
+        menu.addSubMenu("Plays On", buses);
+        menu.showMenuAsync(juce::PopupMenu::Options().withMousePosition(),
+                           [safe = juce::Component::SafePointer<Lane>(this)](int result)
+                           {
+                               if (safe == nullptr)
+                                   return;
+                               auto& owner = safe->m_owner;
+                               if (result == 1)
+                                   safe->m_master.onClick();
+                               else if (result == 2)
+                                   owner.status(owner.m_processor.matchPitchToMaster(safe->m_track));
+                               else
+                                   safe->applyBusItem(result);
+                           });
     }
 
     void showTypeMenu()
@@ -723,8 +838,10 @@ private:
     PitchBox m_semis, m_cents;
     juce::TextButton m_vari { "VARI" };
     juce::TextButton m_type, m_mute { "M" }, m_solo { "S" }, m_remove { "x" }, m_skip { "SKIP SILENCE" };
+    IconButton m_master { IconButton::Icon::Star, TC::flight }; // lit on the Master track
     juce::TextEditor m_nameEditor;
-    juce::Rectangle<int> m_busTagArea; // set in paint(), for the tooltip
+    juce::Rectangle<int> m_busTagArea; // set in paint(), for the tooltip and the bus menu
+    bool m_busTagHover = false;
     juce::AudioProcessorValueTreeState::SliderAttachment m_levelAttachment, m_semisAttachment, m_centsAttachment;
     juce::AudioProcessorValueTreeState::ButtonAttachment m_variAttachment;
 };
@@ -1050,6 +1167,20 @@ juce::String CargoHoldView::loadFiles(const juce::StringArray& files, int track)
     resized();
     updateButtons();
     return text.startsWith("!") ? text.substring(1) : text;
+}
+
+bool CargoHoldView::laneAnchorScreen(int track, juce::Point<int>& screenPos) const
+{
+    if (track < 0 || track >= CargoHold::c_numTracks)
+        return false;
+    const auto& lane = *m_lanes[static_cast<size_t>(track)];
+    if (! lane.isVisible() || ! lane.hasData() || ! isShowing())
+        return false;
+    const auto wave = lane.waveArea();
+    auto point = m_viewport.getLocalPoint(&lane, juce::Point<int>(wave.getRight() - 14, wave.getCentreY()));
+    point.y = juce::jlimit(4, juce::jmax(4, m_viewport.getHeight() - 4), point.y); // scrolled away: the rope ends at the list's edge
+    screenPos = m_viewport.localPointToGlobal(point);
+    return true;
 }
 
 int CargoHoldView::trackAtScreenPosition(juce::Point<int> screenPos) const

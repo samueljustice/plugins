@@ -51,6 +51,39 @@ struct CargoRegion
 enum class CargoRole { Generic = 0, Bed, Tonal, Impact, Air, Crackle, Rumble };
 inline constexpr int c_numCargoRoles = 7;
 
+/**
+ * How a sound moves over its length, for a track that leads the others (the Master track): its loudness, its pitch
+ * and its brightness, one value every `hop` source samples, so each sound region's contour is its slice. Each is
+ * 0..1 over the sound's own range, ready to turn a knob with. Made by SampleClassifier::extractContours on the
+ * message thread, only for the tracks that need it (see CargoHold::setMaster).
+ */
+struct CargoContours
+{
+    int hop = 480;               // source samples per value (10 ms)
+    std::vector<float> level;    // loudness: 0 = 34 dB or more under the sound's loudest moment .. 1 = the loudest
+    std::vector<float> pitch;    // pitch: 0 = the sound's lowest .. 1 = its highest; held through unpitched moments
+    std::vector<float> bright;   // brightness (spectral centroid): 0 = its dullest .. 1 = its brightest; held through silence
+    float medianPitchHz = 0.0f;  // the pitch it sits at most of the time (0 = no clear pitch)
+    float voiced = 0.0f;         // how much of the sound has a clear pitch (0..1)
+    float pitchLowHz = 0.0f, pitchHighHz = 0.0f;   // what 0 and 1 of `pitch` stand for
+    float brightLowHz = 0.0f, brightHighHz = 0.0f; // and of `bright`
+
+    int size() const { return static_cast<int>(level.size()); }
+    /** A contour at a source position (linear between values). */
+    static float at(const std::vector<float>& contour, int hop, double sourcePosition)
+    {
+        if (contour.empty() || hop <= 0)
+            return 0.0f;
+        // Value k describes the samples k * hop .. (k + 1) * hop: it sits at their middle.
+        const double x = std::max(0.0, sourcePosition / static_cast<double>(hop) - 0.5);
+        const auto i = static_cast<size_t>(x);
+        if (i + 1 >= contour.size())
+            return contour.back();
+        const auto f = static_cast<float>(x - static_cast<double>(i));
+        return contour[i] + (contour[i + 1] - contour[i]) * f;
+    }
+};
+
 struct CargoData
 {
     juce::AudioBuffer<float> audio; // mono
@@ -78,12 +111,32 @@ struct CargoData
     static constexpr int c_numMips = 4;
     std::array<std::vector<float>, c_numMips> mips;
 
+    /**
+     * The contours (see CargoContours), made the first time something asks for them and kept for as long as this
+     * data lives. Message thread: ensureContours(). Any thread: getContours() (null until they are made).
+     */
+    const CargoContours* getContours() const { return m_contours.get(); }
+    const CargoContours& ensureContours() const;
+
     int length() const { return audio.getNumSamples(); }
 
     /** Fills regions, autoGain and the octave copies from the audio. */
     void analyse();
     void buildMips();
     static std::vector<CargoRegion> detectRegions(const float* data, int numSamples, double sampleRate);
+
+private:
+    /** Filled once, then only read. A copy of the data starts without (its audio may be about to change). */
+    struct ContourSlot
+    {
+        ContourSlot() = default;
+        ContourSlot(const ContourSlot&) {}
+        ContourSlot& operator=(const ContourSlot&) { return *this; }
+        ~ContourSlot() { delete m_made.load(); }
+        const CargoContours* get() const { return m_made.load(std::memory_order_acquire); }
+        std::atomic<const CargoContours*> m_made { nullptr };
+    };
+    mutable ContourSlot m_contours;
 };
 
 //==============================================================================
@@ -128,10 +181,32 @@ public:
     static constexpr int c_maxBuses = 2; // rig buses A and B
     static constexpr int c_hitsBus = 2;  // "bus" index meaning: the hit gate
 
-    /** Which rig bus a track feeds, decided by its type (change the type to move it):
-        impacts -> hits, beds and air -> bus B, everything else -> bus A. Any thread. */
+    /** Which rig bus a track feeds: the bus chosen for it by hand, else the one its type picks (impacts -> hits,
+        beds and air -> bus B, everything else -> bus A). Any thread. */
     int getBus(int track) const;
     static int busForRole(CargoRole role);
+    /** The bus chosen by hand: -1 = Auto (by type), 0 = bus A, 1 = bus B, c_hitsBus = the hits. The type and
+        the track's name stay as they are. Any thread. */
+    int getBusOverride(int track) const { return m_tracks[static_cast<size_t>(track)].busOverride.load(std::memory_order_relaxed); }
+    void setBusOverride(int track, int busOrMinusOne);     // message thread
+
+    /**
+     * The Master track: the one sound the others can be made to follow (-1 = none; only a loaded track can be
+     * it). Its loudness, pitch and brightness contours are worked out when it is chosen, and again after every
+     * edit to it, so the engine can read them as it plays. Any thread reads; the message thread sets.
+     */
+    int getMaster() const { return m_master.load(std::memory_order_relaxed); }
+    void setMaster(int trackOrMinusOne);
+    /** The pitch a track's sound sits at most of the time, in Hz, or 0 when it has no clear pitch (or no sound).
+        Works the track's contours out if it has none yet (a long file takes a moment). Message thread. */
+    float getMedianPitchHz(int track) const;
+
+    /**
+     * The morph's ropes: the track each side of the morph listens to (side 0 = A, 1 = B; -1 = that side's whole
+     * bus). The two sides never hold the same track. Any thread reads; the message thread sets.
+     */
+    int getMorphSource(int side) const { return m_morphSource[static_cast<size_t>(side & 1)].load(std::memory_order_relaxed); }
+    void setMorphSource(int side, int trackOrMinusOne);
 
     /** Start marker per track (0..1 of its length): playback starts here and loops back here. Any thread. */
     float getStart(int track) const { return m_start[static_cast<size_t>(track)].load(); }
@@ -238,6 +313,9 @@ private:
     {
         bool valid = false;
         int roleOverride = -1;
+        int busOverride = -1;
+        bool master = false;      // it was the Master track
+        int ropes = 0;            // bit 0: the morph's side A was roped to it, bit 1: side B
         juce::String userName;
         float start = 0.0f;
     };
@@ -250,6 +328,7 @@ private:
         std::atomic<const CargoData*> live { nullptr };
         std::atomic<bool> skipSilence { true };
         std::atomic<int> roleOverride { -1 };   //
+        std::atomic<int> busOverride { -1 };    // -1 = by type
         juce::String userName;                  // message thread only
     };
 
@@ -276,6 +355,10 @@ private:
     std::int64_t m_undoByteLimit = c_undoByteLimit;
     std::array<std::atomic<bool>, c_numLanes> m_mute {}, m_solo {};   //
     std::atomic<int> m_soloCount { 0 };
+    std::atomic<int> m_master { -1 };                                 // see setMaster
+    std::array<std::atomic<int>, 2> m_morphSource { { { -1 }, { -1 } } }; // see setMorphSource
+    /** A track that is cleared stops being the Master and lets go of its ropes (undo brings them back). */
+    void dropLinks(int track);
     std::array<std::atomic<float>, c_numTracks> m_start {};
     juce::AudioBuffer<float> m_clipboard;
     double m_clipboardRate = 48000.0;                                  //

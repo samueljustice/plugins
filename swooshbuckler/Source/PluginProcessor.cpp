@@ -36,6 +36,7 @@ SwooshbucklerAudioProcessor::SwooshbucklerAudioProcessor(juce::PropertiesFile* o
     }
     m_raw.pitch = raw(ParamIDs::pitch);
     m_raw.rideOn = raw(ParamIDs::rideOn);
+    m_raw.rideFollowMaster = raw(ParamIDs::rideFollowMaster);
     m_raw.energy = raw(ParamIDs::energy);
     m_raw.rate = raw(ParamIDs::rate);
     m_raw.fill = raw(ParamIDs::fill);
@@ -318,6 +319,7 @@ void SwooshbucklerAudioProcessor::updateEngineParams()
     p.pitch = m_raw.pitch->load();
     p.pitchMod = modDelta(m_raw.pitch);
     p.rideOn = m_raw.rideOn->load() > 0.5f;
+    p.followMaster = m_raw.rideFollowMaster->load() > 0.5f;
     p.energy = m_raw.energy->load();
     p.energyMod = modDelta(m_raw.energy);
     p.rate = modValue(m_raw.rate);
@@ -606,6 +608,10 @@ void SwooshbucklerAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
         m_followerLevels[ModMatrix::FollowBusA] = sections[0];
         m_followerLevels[ModMatrix::FollowBusB] = sections[1];
         m_followerLevels[ModMatrix::FollowHits] = sections[2];
+        const auto& master = m_engine.getMasterFollow();
+        m_followerLevels[ModMatrix::FollowMaster] = master[0];
+        m_followerLevels[ModMatrix::FollowMasterPitch] = master[1];
+        m_followerLevels[ModMatrix::FollowMasterBright] = master[2];
         publishOutputPeak(preTrimPeak, len);
     }
     // A take being auditioned: on top of the output, after the tape, the meters and the trim.
@@ -939,6 +945,89 @@ bool SwooshbucklerAudioProcessor::saveUserPreset(const juce::String& name, bool 
     written = file;
     currentPresetName = legal;
     return true;
+}
+
+//==============================================================================
+// Routing
+void SwooshbucklerAudioProcessor::setMasterTrack(int trackOrMinusOne)
+{
+    const int before = m_cargo.getMaster();
+    m_cargo.setMaster(trackOrMinusOne);
+    const int after = m_cargo.getMaster();
+    if (after != before)
+        m_history->add("Master Track", [this, before] { m_cargo.setMaster(before); }, [this, after] { m_cargo.setMaster(after); });
+}
+
+void SwooshbucklerAudioProcessor::setTrackBus(int track, int busOrMinusOne)
+{
+    if (track < 0 || track >= CargoHold::c_numTracks)
+        return;
+    const int before = m_cargo.getBusOverride(track);
+    m_cargo.setBusOverride(track, busOrMinusOne);
+    const int after = m_cargo.getBusOverride(track);
+    if (after != before)
+        m_history->add("Track Bus", [this, track, before] { m_cargo.setBusOverride(track, before); },
+                       [this, track, after] { m_cargo.setBusOverride(track, after); });
+}
+
+void SwooshbucklerAudioProcessor::setMorphSource(int side, int trackOrMinusOne)
+{
+    const std::array<int, 2> before { m_cargo.getMorphSource(0), m_cargo.getMorphSource(1) };
+    m_cargo.setMorphSource(side, trackOrMinusOne);
+    const std::array<int, 2> after { m_cargo.getMorphSource(0), m_cargo.getMorphSource(1) };
+    if (after == before)
+        return;
+    auto place = [this](std::array<int, 2> ropes)
+    {
+        m_cargo.setMorphSource(0, -1);
+        m_cargo.setMorphSource(1, ropes[1]);
+        m_cargo.setMorphSource(0, ropes[0]);
+    };
+    m_history->add("Morph Rope", [place, before] { place(before); }, [place, after] { place(after); });
+}
+
+juce::String SwooshbucklerAudioProcessor::matchPitchToMaster(int track, bool* done)
+{
+    if (done != nullptr)
+        *done = false;
+    const int master = m_cargo.getMaster();
+    if (master < 0)
+        return "Choose a Master track first (the star on a lane).";
+    if (track < 0 || track >= CargoHold::c_numTracks || track == master)
+        return "This is the Master track: the others are matched to it.";
+    const float masterHz = m_cargo.getMedianPitchHz(master), trackHz = m_cargo.getMedianPitchHz(track);
+    if (masterHz <= 0.0f)
+        return "The Master track has no clear pitch to match.";
+    if (trackHz <= 0.0f)
+        return "This track has no clear pitch to match.";
+
+    // The Master as it is tuned: its own Semitones and Cents count (the Ride's Pitch and held keys move every track
+    // alike). The nearest octave the two-octave range reaches is used.
+    auto plain = [this](const char* id) { return m_state.getRawParameterValue(id)->load(); };
+    const float masterOwn = plain(ParamIDs::trackSemis[master]) + plain(ParamIDs::trackCents[master]) / 100.0f;
+    float semitones = 12.0f * std::log2(masterHz / trackHz) + masterOwn;
+    while (semitones > 24.5f) semitones -= 12.0f;
+    while (semitones < -24.5f) semitones += 12.0f;
+    const float whole = juce::jlimit(-24.0f, 24.0f, std::round(semitones));
+    const float cents = juce::jlimit(-100.0f, 100.0f, std::round((semitones - whole) * 100.0f));
+
+    EditHistory::Group group(*m_history, "Match Pitch");
+    auto set = [this](const char* id, float value)
+    {
+        if (auto* param = m_state.getParameter(id))
+        {
+            param->beginChangeGesture();
+            param->setValueNotifyingHost(param->convertTo0to1(value));
+            param->endChangeGesture();
+        }
+    };
+    set(ParamIDs::trackSemis[track], whole);
+    set(ParamIDs::trackCents[track], cents);
+    if (done != nullptr)
+        *done = true;
+    const int centsInt = juce::roundToInt(cents);
+    return "Matched to the Master: " + juce::String(whole > 0.0f ? "+" : "") + juce::String(juce::roundToInt(whole)) + " st"
+           + (centsInt != 0 ? juce::String(centsInt > 0 ? " +" : " ") + juce::String(centsInt) + " c" : juce::String()) + ".";
 }
 
 void SwooshbucklerAudioProcessor::applyPresetWires(const UserPresets::Loaded& loaded)

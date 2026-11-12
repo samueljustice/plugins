@@ -292,9 +292,11 @@ void ModMatrix::process(const std::array<SourceSettings, c_numSources>& settings
             case Type::Follower:
             {
                 // Loudness of the chosen input, -40..-6 dBFS -> 0..1. Speed: slow (2 s, follows whole passes) .. fast (26 ms).
-                const float in = followerInputs[static_cast<size_t>(juce::jlimit(0, c_numFollowerInputs - 1, set.follow))];
+                // The Master inputs are the Master track's contours, already 0..1 over the sound's own range.
+                const int which = juce::jlimit(0, c_numFollowerInputs - 1, set.follow);
+                const float in = followerInputs[static_cast<size_t>(which)];
                 const float db = juce::Decibels::gainToDecibels(juce::jmax(1.0e-6f, in), -100.0f);
-                const float target = juce::jlimit(0.0f, 1.0f, (db + 40.0f) / 34.0f);
+                const float target = which >= FollowMaster ? juce::jlimit(0.0f, 1.0f, in) : juce::jlimit(0.0f, 1.0f, (db + 40.0f) / 34.0f);
                 const float tau = followerSeconds(set.knob);
                 const float tauNow = target > st.env ? tau * 0.3f : tau;
                 st.env += (target - st.env) * (1.0f - std::exp(static_cast<float>(-dt) / juce::jmax(0.001f, tauNow)));

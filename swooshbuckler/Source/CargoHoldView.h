@@ -1,6 +1,7 @@
 #pragma once
 
 #include <JuceHeader.h>
+#include "IconButton.h"
 #include "LookAndFeel.h" // ModTarget
 #include "PluginProcessor.h"
 #include "Theme.h"
@@ -13,7 +14,10 @@
  *  - Every track is scanned on arrival and named after what it is ("Tonal
  *    Content", "Energy Bed", "Impact", "Air / Swish", "Crackle", "Rumble",
  *    "Mixed Content"), which also decides its bus. Click the type to change it,
- *    double-click the name to rename.
+ *    double-click the name to rename. Click the bus tag to send the track to a
+ *    bus by hand. The star makes a track the Master (one at a time); a
+ *    right-click on a lane opens its menu (Master Track, Match Pitch To Master,
+ *    the bus).
  *  - The waveform shows the sound regions that will be played and dims the
  *    silence that will be skipped. Drag the clip's edge handles to trim; drag
  *    inside to select; double-click a region to grab it.
@@ -61,6 +65,9 @@ public:
 
     /** The track under a screen position (for the morph ropes), or -1. */
     int trackAtScreenPosition(juce::Point<int> screenPos) const;
+    /** Where a morph rope ties on to a track's lane, in screen coordinates: the right end of its waveform, kept
+        inside the list when the lane is scrolled out of it. False when the track has no lane. */
+    bool laneAnchorScreen(int track, juce::Point<int>& screenPos) const;
 
 private:
     class Lane;

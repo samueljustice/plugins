@@ -26,7 +26,7 @@ namespace
         {
             case ModMatrix::Type::Lfo:      return "Modulator Type: LFO\nA steady repeating wave that moves each wired knob up and down around where you set it. Pick its shape below.";
             case ModMatrix::Type::Random:   return "Modulator Type: Random\nA smooth random wander up and down around each wired knob, never the same twice.";
-            case ModMatrix::Type::Follower: return "Modulator Type: Follower\nFollows the loudness of bus A, bus B, the hits or the output (choose which underneath): the louder it gets, the further it turns each wired knob (one way only).";
+            case ModMatrix::Type::Follower: return "Modulator Type: Follower\nFollows the loudness of bus A, bus B, the hits or the output, or the Master track's loudness, pitch or brightness (choose which underneath): the more there is of it, the further it turns each wired knob (one way only).";
             case ModMatrix::Type::Macro:    return "Modulator Type: Macro\nOne knob that turns every knob it is wired to at once, each by its own depth. Great to automate from your DAW.";
         }
         return {};
@@ -57,7 +57,7 @@ public:
     {
         m_type.addItemList({ "LFO", "Random", "Follower", "Macro" }, 1);
         m_shape.addItemList({ "Sine", "Triangle", "Ramp", "Square", "Steps" }, 1);
-        m_follow.addItemList({ "Bus A", "Bus B", "Hits", "Output" }, 1);
+        m_follow.addItemList(ModMatrix::followerNames(), 1);
         // Attachments set the selection before the items existed: sync once more.
         m_type.setSelectedItemIndex(juce::roundToInt(owner.m_processor.getState().getRawParameterValue(ParamIDs::modType[source])->load()),
                                     juce::dontSendNotification);
@@ -66,7 +66,10 @@ public:
         m_follow.setSelectedItemIndex(juce::roundToInt(owner.m_processor.getState().getRawParameterValue(ParamIDs::modFollow[source])->load()),
                                       juce::dontSendNotification);
         m_follow.setTooltip("Follows\nWhat the follower listens to: bus A, bus B or the hits on their own, or the whole output. "
-                            "Follow one bus to make the other react to it, or follow the hits to make every impact kick a knob.");
+                            "Follow one bus to make the other react to it, or follow the hits to make every impact kick a knob.\n"
+                            "Master, Master Pitch and Master Brightness follow the Master track (the lane with the lit star): how loud, "
+                            "how high and how bright that sound is at the moment it is playing, each over the sound's own range. "
+                            "They rest until a track is made the Master.");
         m_type.onChange = [this] { updateType(); };
         m_shape.setTooltip("LFO Shape\nSine and Triangle are smooth, Ramp rises then drops, Square jumps between two values, Steps jumps to a new random value every cycle.");
         m_clear.setTooltip("Clear\nPulls out every wire of this modulator. The knobs go back to just where you set them.");

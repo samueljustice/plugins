@@ -13,7 +13,8 @@
  *
  *   LFO      : sine, triangle, ramp, square or steps (sample and hold), bipolar
  *   Random   : a smooth random walk, bipolar
- *   Follower : follows the loudness of bus A, bus B, the hits or the output, unipolar
+ *   Follower : follows the loudness of bus A, bus B, the hits or the output, or the Master track's loudness,
+ *              pitch or brightness, unipolar
  *   Macro    : a knob you turn (or automate), unipolar
  *
  * A wire adds depth x modulator to the knob's own (normalised) value. The parameter
@@ -78,8 +79,11 @@ public:
         int follow = 0;    // Follower: which input (an index into FollowerInputs)
     };
 
-    /** What a Follower can listen to: RMS of the last block of each. */
-    enum FollowerInput { FollowBusA = 0, FollowBusB, FollowHits, FollowOutput, c_numFollowerInputs };
+    /** What a Follower can listen to. The first four are the RMS of the last block of each; the Master ones are
+        the Master track's loudness, pitch and brightness where it is playing, already 0..1 over its own range. */
+    enum FollowerInput { FollowBusA = 0, FollowBusB, FollowHits, FollowOutput,
+                         FollowMaster, FollowMasterPitch, FollowMasterBright, c_numFollowerInputs };
+    static juce::StringArray followerNames() { return { "Bus A", "Bus B", "Hits", "Output", "Master", "Master Pitch", "Master Brightness" }; }
     using FollowerInputs = std::array<float, c_numFollowerInputs>;
 
     void prepare(double sampleRate);

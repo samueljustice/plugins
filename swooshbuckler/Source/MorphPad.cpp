@@ -8,7 +8,7 @@ namespace
     const char* const c_topLabels[MorphPad::c_numModes] = { "Fuse", "Shape", "A thru B" };
     const char* const c_bottomLabels[MorphPad::c_numModes] = { "Mix", "Move", "B thru A" };
     const char* const c_modeTips[MorphPad::c_numModes] = {
-        "Blend\nMorphs the tone of bus A into bus B's: left is A, right is B. Higher up the pad fuses the two into one texture.",
+        "Blend\nMorphs the tone of side A into side B's: left is A, right is B. Higher up the pad fuses the two into one texture.",
         "Glide\nThe pitches inside the sound slide from A's to B's as you move across. Higher up keeps the character (formants) in place while the pitch moves.",
         "Cross\nA vocoder: towards the top plays A through B's tone, towards the bottom plays B through A's.",
     };
@@ -25,14 +25,19 @@ public:
         setOpaque(false);
     }
 
+    juce::Point<float> handlePoint(int slot) const
+    {
+        return getLocalPoint(nullptr, owner.localPointToGlobal(owner.m_handles[static_cast<size_t>(slot)].getCentre()));
+    }
+
+    /** The rope being dragged from a handle. */
     juce::Path makeRope() const
     {
         juce::Path p;
         if (owner.m_ropeSlot < 0)
             return p;
 
-        const auto startScreen = owner.localPointToGlobal(owner.m_handles[static_cast<size_t>(owner.m_ropeSlot)].getCentre());
-        const auto start = getLocalPoint(nullptr, startScreen);
+        const auto start = handlePoint(owner.m_ropeSlot);
         const auto end = getLocalPoint(nullptr, owner.m_ropeEndScreen);
         const auto mid = (start + end) * 0.5f;
         const auto ctrl = mid + owner.m_ropeOffset * 2.0f; // the curve's midpoint sits at mid + offset
@@ -41,21 +46,38 @@ public:
         return p;
     }
 
+    /** A rope that hangs between a handle and its track (false: that side has none to show). */
+    bool hangingRope(int slot, juce::Path& p, juce::Point<float>& end) const
+    {
+        const int lane = owner.m_lanes[static_cast<size_t>(slot)];
+        juce::Point<int> anchor;
+        if (lane < 0 || slot == owner.m_ropeSlot || ! owner.isShowing() || ! owner.laneAnchor || ! owner.laneAnchor(lane, anchor))
+            return false;
+        const auto start = handlePoint(slot);
+        end = getLocalPoint(nullptr, anchor.toFloat());
+        const float sag = juce::jlimit(6.0f, 48.0f, 0.1f * start.getDistanceFrom(end)); // hangs a little: it crosses other panels
+        p.startNewSubPath(start);
+        p.quadraticTo((start + end) * 0.5f + juce::Point<float>(0.0f, 2.0f * sag), end);
+        return true;
+    }
+
     void update()
     {
-        const auto now = makeRope().getBounds().expanded(16.0f).getSmallestIntegerContainer();
+        auto bounds = makeRope().getBounds();
+        for (int slot = 0; slot < 2; ++slot)
+        {
+            juce::Path p;
+            juce::Point<float> end;
+            if (hangingRope(slot, p, end))
+                bounds = bounds.isEmpty() ? p.getBounds() : bounds.getUnion(p.getBounds());
+        }
+        const auto now = bounds.expanded(16.0f).getSmallestIntegerContainer();
         repaint(lastArea.getUnion(now));
         lastArea = now;
     }
 
-    void paint(juce::Graphics& g) override
+    void drawRope(juce::Graphics& g, const juce::Path& rope, juce::Colour colour) const
     {
-        if (owner.m_ropeSlot < 0)
-            return;
-
-        const auto rope = makeRope();
-        const auto colour = owner.laneColour(owner.m_ropeSlot);
-
         g.setColour(Theme::Colours::shadow);
         g.strokePath(rope, juce::PathStrokeType(5.0f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded),
                      juce::AffineTransform::translation(0.0f, 2.0f));
@@ -68,18 +90,44 @@ public:
         juce::PathStrokeType(1.4f).createDashedStroke(twist, rope, dashes, 2);
         g.setColour(colour.brighter(0.4f).withAlpha(0.85f));
         g.fillPath(twist);
+    }
 
-        // The loose end: a ring, filled with the colour of the lane it would land on.
-        const auto end = getLocalPoint(nullptr, owner.m_ropeEndScreen);
+    void drawEnd(juce::Graphics& g, juce::Point<float> end, int slot, int lane, juce::Colour colour) const
+    {
+        // The end of the rope: a ring, filled with the colour of the lane it is on (or would land on).
         const auto ring = juce::Rectangle<float>(18.0f, 18.0f).withCentre(end);
-        const int lane = owner.m_ropeHoverLane;
         g.setColour(lane >= 0 ? Theme::trackColour(lane) : Theme::Colours::panelRaised);
         g.fillEllipse(ring);
         g.setColour(colour);
         g.drawEllipse(ring, 2.0f);
         g.setColour(lane >= 0 ? Theme::Colours::background : Theme::Colours::text);
         g.setFont(owner.m_fonts.heading(11.0f));
-        g.drawText(owner.m_ropeSlot == 0 ? "A" : "B", ring, juce::Justification::centred, false);
+        g.drawText(slot == 0 ? "A" : "B", ring, juce::Justification::centred, false);
+    }
+
+    void paint(juce::Graphics& g) override
+    {
+        // The ropes that hang between a handle and its track (a little see-through: they cross other controls).
+        for (int slot = 0; slot < 2; ++slot)
+        {
+            juce::Path p;
+            juce::Point<float> end;
+            if (hangingRope(slot, p, end))
+            {
+                g.beginTransparencyLayer(0.8f);
+                drawRope(g, p, owner.laneColour(slot));
+                g.endTransparencyLayer();
+                drawEnd(g, end, slot, owner.m_lanes[static_cast<size_t>(slot)], owner.laneColour(slot));
+            }
+        }
+
+        if (owner.m_ropeSlot < 0)
+            return;
+
+        const auto rope = makeRope();
+        const auto colour = owner.laneColour(owner.m_ropeSlot);
+        drawRope(g, rope, colour);
+        drawEnd(g, getLocalPoint(nullptr, owner.m_ropeEndScreen), owner.m_ropeSlot, owner.m_ropeHoverLane, colour);
     }
 
     MorphPad& owner;
@@ -149,7 +197,7 @@ MorphPad::MorphPad(const Theme::Fonts& fonts) : m_fonts(fonts)
 
     m_enable.setClickingTogglesState(true);
     m_enable.setColour(juce::TextButton::buttonOnColourId, Theme::Colours::go); // green when on, greyed when off
-    m_enable.setTooltip("Morph On / Off\nOn (green): buses A and B are morphed together, as the dot says. Off: they play side by side as usual and the morph rests.");
+    m_enable.setTooltip("Morph On / Off\nOn (green): sides A and B are morphed together, as the dot says. A side is its whole bus, or the one track its rope is tied to. Off: everything plays side by side as usual and the morph rests.");
     m_enable.onClick = [this]
     {
         applyEnabledLook(m_enable.getToggleState());
@@ -285,9 +333,80 @@ void MorphPad::setWander(bool on, float speed)
 
 void MorphPad::setSources(int laneA, int laneB, juce::String nameA, juce::String nameB)
 {
+    if (m_lanes[0] == laneA && m_lanes[1] == laneB && m_names[0] == nameA && m_names[1] == nameB)
+        return;
     m_lanes = { laneA, laneB };
     m_names = { std::move(nameA), std::move(nameB) };
     repaint();
+    updateOverlay();
+}
+
+bool MorphPad::anyRopeShown() const
+{
+    return m_ropeSlot >= 0 || (isShowing() && (m_lanes[0] >= 0 || m_lanes[1] >= 0));
+}
+
+void MorphPad::updateOverlay()
+{
+    const bool wanted = anyRopeShown();
+    if (m_overlay == nullptr)
+    {
+        if (! wanted)
+            return;
+        m_overlay = std::make_unique<RopeOverlay>(*this);
+    }
+    juce::Component* parent = m_overlayParent != nullptr ? m_overlayParent.getComponent() : getTopLevelComponent();
+    if (wanted && parent != nullptr)
+    {
+        if (m_overlay->getParentComponent() != parent)
+        {
+            if (auto* old = m_overlay->getParentComponent())
+                old->removeChildComponent(m_overlay.get());
+            parent->addChildComponent(*m_overlay);
+        }
+        m_overlay->setBounds(parent->getLocalBounds());
+        if (! m_overlay->isVisible())
+        {
+            m_overlay->toFront(false);
+            m_overlay->setVisible(true);
+        }
+        m_overlay->update();
+    }
+    else if (m_overlay->isVisible())
+    {
+        m_overlay->repaint(m_overlay->lastArea);
+        m_overlay->setVisible(false);
+    }
+}
+
+void MorphPad::ropesMoved()
+{
+    if (m_overlay != nullptr && m_overlay->isVisible())
+        m_overlay->update();
+}
+
+void MorphPad::visibilityChanged() { updateOverlay(); }
+void MorphPad::moved() { ropesMoved(); }
+void MorphPad::parentHierarchyChanged() { updateOverlay(); }
+
+juce::String MorphPad::getTooltip()
+{
+    const auto pos = getMouseXYRelative().toFloat();
+    for (int slot = 0; slot < 2; ++slot)
+        if (m_handles[static_cast<size_t>(slot)].contains(pos))
+        {
+            const juce::String side = slot == 0 ? "A" : "B";
+            const bool roped = m_lanes[static_cast<size_t>(slot)] >= 0;
+            return "Morph Source " + side + "\nWhat side " + side + " of the morph listens to: "
+                   + (roped ? "the track \"" + m_names[static_cast<size_t>(slot)] + "\" alone. The rest of its bus plays on as it is."
+                            : "the whole of " + m_busNames[static_cast<size_t>(slot)].replace("Bus", "bus") + ".")
+                   + "\nDrag the rope from here onto a track to morph just that sound."
+                   + (roped ? " Double-click to let the rope go." : "");
+        }
+    if (m_pad.contains(pos))
+        return "Morph Pad\nLeft is side A, right is side B; up and down is what the chosen mode says at the top and bottom.\n"
+               "Drag the dot. Double-click to centre it.";
+    return {};
 }
 
 void MorphPad::setRopeOverlayParent(juce::Component* topLevel)
@@ -298,21 +417,18 @@ void MorphPad::setRopeOverlayParent(juce::Component* topLevel)
     m_overlayParent = topLevel;
 }
 
-void MorphPad::setFixedSources(juce::String nameA, juce::Colour colourA, juce::String nameB, juce::Colour colourB)
+void MorphPad::setBusLabels(juce::String nameA, juce::Colour colourA, juce::String nameB, juce::Colour colourB)
 {
-    m_fixedSources = true;
-    m_names = { nameA, nameB };
-    m_fixedColours = { colourA, colourB };
-    resized(); // narrower labels, with the wander shape and speed between them
+    m_busNames = { std::move(nameA), std::move(nameB) };
+    m_busColours = { colourA, colourB };
     repaint();
 }
 
 juce::Colour MorphPad::laneColour(int slot) const
 {
-    if (m_fixedSources)
-        return m_fixedColours[static_cast<size_t>(slot)];
+    // A roped side takes its track's colour; an unroped one is its bus.
     const int lane = m_lanes[static_cast<size_t>(slot)];
-    return lane >= 0 ? Theme::trackColour(lane) : Theme::Colours::textFaint;
+    return lane >= 0 ? Theme::trackColour(lane) : m_busColours[static_cast<size_t>(slot)];
 }
 
 //==============================================================================
@@ -330,28 +446,16 @@ void MorphPad::resized()
     top.removeFromRight(4);
 
     auto bottom = b.removeFromBottom(24);
-    if (m_fixedSources)
     {
-        // Fixed sources are just labels, so they can be narrow: the wander shape and speed sit between them,
-        // where the shape names have room to be read.
-        const int handleW = juce::jmin(84, bottom.getWidth() / 4);
+        // The rope handles (the side's bus, or the track it is roped to) at the two ends, with the wander shape
+        // and speed between them.
+        const int handleW = juce::jmin(100, (bottom.getWidth() * 3) / 10);
         m_handles[0] = bottom.removeFromLeft(handleW).toFloat().reduced(0.0f, 2.0f);
         m_handles[1] = bottom.removeFromRight(handleW).toFloat().reduced(0.0f, 2.0f);
         auto middle = bottom.reduced(6, 1);
-        m_speed.setBounds(middle.removeFromRight(juce::jmin(56, middle.getWidth() / 3)));
+        m_speed.setBounds(middle.removeFromRight(juce::jmin(44, middle.getWidth() / 3)));
         middle.removeFromRight(4);
         m_shapeBox.setBounds(middle);
-    }
-    else
-    {
-        // Rope handles show lane names and need the width: the wander shape and speed go in the top row.
-        m_speed.setBounds(top.removeFromRight(juce::jmin(64, top.getWidth())));
-        top.removeFromRight(4);
-        m_shapeBox.setBounds(top.removeFromRight(juce::jmin(110, top.getWidth())));
-        const float handleW = juce::jmin(160.0f, static_cast<float>(bottom.getWidth()) * 0.5f - 4.0f);
-        auto bf = bottom.toFloat();
-        m_handles[0] = bf.removeFromLeft(handleW).reduced(0.0f, 2.0f);
-        m_handles[1] = bf.removeFromRight(handleW).reduced(0.0f, 2.0f);
     }
 
     m_pad = b.toFloat().reduced(0.0f, 4.0f);
@@ -463,11 +567,12 @@ void MorphPad::paint(juce::Graphics& g)
         g.drawText(slot == 0 ? "A" : "B", knot, juce::Justification::centred, false);
 
         inner.reduce(5.0f, 0.0f);
-        const bool assigned = m_fixedSources || m_lanes[static_cast<size_t>(slot)] >= 0;
+        // The bus, or the roped track's name (squeezed a little, then cut short, if it is long).
+        const bool roped = m_lanes[static_cast<size_t>(slot)] >= 0;
         g.setFont(m_fonts.label(12.0f));
-        g.setColour(assigned ? Theme::Colours::text : Theme::Colours::textFaint);
-        g.drawText(assigned ? m_names[static_cast<size_t>(slot)] : juce::String("Drag to a track"), inner,
-                   slot == 0 ? juce::Justification::centredLeft : juce::Justification::centredRight, true);
+        g.setColour(Theme::Colours::text);
+        g.drawFittedText(roped ? m_names[static_cast<size_t>(slot)] : m_busNames[static_cast<size_t>(slot)], inner.toNearestInt(),
+                         slot == 0 ? juce::Justification::centredLeft : juce::Justification::centredRight, 1, 0.75f);
     }
 }
 
@@ -489,7 +594,7 @@ void MorphPad::mouseDown(const juce::MouseEvent& e)
     for (int slot = 0; slot < 2; ++slot)
         if (m_handles[static_cast<size_t>(slot)].contains(p))
         {
-            if (! m_fixedSources)
+            if (e.getNumberOfClicks() < 2) // a double-click lets the rope go (see mouseDoubleClick)
                 startRope(slot, e.getScreenPosition());
             return;
         }
@@ -528,6 +633,14 @@ void MorphPad::mouseUp(const juce::MouseEvent& e)
 
 void MorphPad::mouseDoubleClick(const juce::MouseEvent& e)
 {
+    for (int slot = 0; slot < 2; ++slot)
+        if (m_handles[static_cast<size_t>(slot)].contains(e.position))
+        {
+            // Let the rope go: the side is its bus again.
+            if (m_lanes[static_cast<size_t>(slot)] >= 0 && onSourceAssigned)
+                onSourceAssigned(slot, -1);
+            return;
+        }
     if (m_pad.contains(e.position) && ! m_wander)
     {
         m_x = m_y = 0.5f;
@@ -568,19 +681,15 @@ void MorphPad::startRope(int slot, juce::Point<int> screenPos)
     if (parent == nullptr)
         return;
 
-    if (m_overlay == nullptr)
-        m_overlay = std::make_unique<RopeOverlay>(*this);
-    if (m_overlay->getParentComponent() != parent)
-    {
-        if (auto* old = m_overlay->getParentComponent())
-            old->removeChildComponent(m_overlay.get());
-        parent->addChildComponent(*m_overlay);
-    }
-    m_overlay->setBounds(parent->getLocalBounds());
-    m_overlay->toFront(false);
-    m_overlay->setVisible(true);
-
     m_ropeSlot = slot;
+    m_ropeMoved = false;
+    updateOverlay();
+    if (m_overlay == nullptr)
+    {
+        m_ropeSlot = -1;
+        return;
+    }
+    m_overlay->toFront(false);
     m_ropeEndScreen = m_ropeLastScreen = screenPos.toFloat();
     m_ropeOffset = { 0.0f, 0.0f };
     m_ropeVelocity = { 0.0f, 0.0f };
@@ -593,6 +702,8 @@ void MorphPad::startRope(int slot, juce::Point<int> screenPos)
 
 void MorphPad::dragRope(juce::Point<int> screenPos)
 {
+    if (screenPos.toFloat().getDistanceFrom(m_ropeEndScreen) > 0.5f)
+        m_ropeMoved = true;
     m_ropeEndScreen = screenPos.toFloat();
     m_ropeHoverLane = laneAtScreenPosition ? laneAtScreenPosition(screenPos) : -1;
     if (m_overlay != nullptr)
@@ -603,17 +714,14 @@ void MorphPad::endRope(juce::Point<int> screenPos)
 {
     const int slot = m_ropeSlot;
     m_ropeSlot = -1;
-    if (m_overlay != nullptr)
-    {
-        m_overlay->repaint(m_overlay->lastArea);
-        m_overlay->setVisible(false);
-    }
     updateTimer();
     repaint();
 
-    const int lane = laneAtScreenPosition ? laneAtScreenPosition(screenPos) : -1;
+    // Dropped on a track: that track is the side's source. Dropped anywhere else, the rope goes back where it was.
+    const int lane = m_ropeMoved && laneAtScreenPosition ? laneAtScreenPosition(screenPos) : -1;
     if (slot >= 0 && lane >= 0 && onSourceAssigned)
         onSourceAssigned(slot, lane);
+    updateOverlay();
 }
 
 //==============================================================================

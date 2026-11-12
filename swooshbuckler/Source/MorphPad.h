@@ -11,20 +11,22 @@
 /**
  * Morph pad: the control surface for SpectralMorph. Kept simple: the pad IS the control.
  *
- *   [ON] [Blend|Glide|Cross]           [shape] [speed] [play]
+ *   [ON] [Blend|Glide|Cross]                              [play]
  *   +-------------------------------------------------------------+
  *   |            Fuse / Shape / A thru B   (top label)            |
  *   | A                          o (dot = x, y)                 B |
  *   |            Mix / Move / B thru A     (bottom label)         |
  *   +-------------------------------------------------------------+
- *   (A  Air)                                             (B  Sample 2)
+ *   (A  Bus A)            [shape] [speed]             (Energy Bed  B)
  *
  *  - Click / drag on the pad: sets x (0 = A, 1 = B) and y (mode axis). Double-click: centre.
  *  - Mode: tiny segmented control, Blend (default) / Glide / Cross.
- *  - Rope handles A and B, in their source lanes' colours: press and drag to pull a sagging, wobbly
- *    rope across the editor, drop it on a lane to make that lane the source. The rope is drawn on a
- *    transparent, click-through overlay added to the component given to setRopeOverlayParent()
- *    (falls back to the top-level component).
+ *  - Rope handles A and B. A side with no rope is its bus (the handle says so, in the bus's colour). Press
+ *    and drag a handle to pull a sagging, wobbly rope across the editor and drop it on a track: that track
+ *    alone is the side's source, the handle takes its name and colour, and the rope stays hanging between
+ *    the two while the pad is showing. Double-click a handle to let its rope go. The ropes are drawn on a
+ *    transparent, click-through overlay added to the component given to setRopeOverlayParent() (falls back
+ *    to the top-level component).
  *  - Wander (play button): the dot flies along the chosen shape (see MorphWander) at the speed set by
  *    the Speed slider. The flying is done by whoever owns the morph (the processor, so it carries on
  *    with the window closed): the pad asks wanderPosition for the dot's place and draws it, with the
@@ -32,7 +34,7 @@
  *
  * Independent of the processor: wire it through the callbacks / setters below (message thread only).
  */
-class MorphPad : public juce::Component, private juce::Timer
+class MorphPad : public juce::Component, public juce::TooltipClient, private juce::Timer
 {
 public:
     explicit MorphPad(const Theme::Fonts& fonts);
@@ -46,8 +48,13 @@ public:
     std::function<void(int shape)> onShapeChanged;
     std::function<void(bool on)> onEnableChanged;
     void setMorphEnabled(bool on);
-    std::function<int(juce::Point<int> screenPos)> laneAtScreenPosition; // lane 0..11 or -1
+    std::function<int(juce::Point<int> screenPos)> laneAtScreenPosition; // the track under a point, or -1
+    /** A rope was dropped on a track, or let go (lane -1: the side is its bus again). */
     std::function<void(int slot /*0 = A, 1 = B*/, int lane)> onSourceAssigned;
+    /** Where a roped track's lane is on screen (false: it isn't shown, so its rope isn't drawn). */
+    std::function<bool(int lane, juce::Point<int>& screenPos)> laneAnchor;
+    /** The lanes moved (scrolled, added, removed): the hanging ropes are drawn again. */
+    void ropesMoved();
 
     /** While wandering: where the dot is now (0..1 across and up) and how far its shape has turned (radians). */
     std::function<void(float& x, float& y, float& rotation)> wanderPosition;
@@ -60,11 +67,12 @@ public:
     /** The path the dot wanders along. */
     static juce::StringArray shapeNames() { return MorphWander::shapeNames(); }
     void setShape(int shape);
-    /** lane -1 = unassigned. */
+    /** The track each side is roped to and its name (lane -1 = no rope: the side is its bus). */
     void setSources(int laneA, int laneB, juce::String nameA, juce::String nameB);
     void setRopeOverlayParent(juce::Component* topLevel);
-    /** Fixed sources (e.g. "Bus A" / "Bus B"): the handles become labels and can't be dragged. */
-    void setFixedSources(juce::String nameA, juce::Colour colourA, juce::String nameB, juce::Colour colourB);
+    /** What an unroped side is called and its colour ("Bus A" / "Bus B"). */
+    void setBusLabels(juce::String nameA, juce::Colour colourA, juce::String nameB, juce::Colour colourB);
+    juce::String getTooltip() override;
 
     float getX() const { return m_x; }
     float getY() const { return m_y; }
@@ -83,6 +91,9 @@ public:
     void mouseDoubleClick(const juce::MouseEvent&) override;
     void mouseMove(const juce::MouseEvent&) override;
     void mouseExit(const juce::MouseEvent&) override;
+    void visibilityChanged() override;
+    void moved() override;
+    void parentHierarchyChanged() override;
 
 private:
     class RopeOverlay;
@@ -121,8 +132,8 @@ private:
 
     std::array<int, 2> m_lanes { -1, -1 };
     std::array<juce::String, 2> m_names;
-    bool m_fixedSources = false;
-    std::array<juce::Colour, 2> m_fixedColours;
+    std::array<juce::String, 2> m_busNames { "Bus A", "Bus B" };
+    std::array<juce::Colour, 2> m_busColours { Theme::Colours::textFaint, Theme::Colours::textFaint };
 
     // Wander state
     bool m_wander = false;
@@ -138,6 +149,10 @@ private:
     int m_ropeSlot = -1;
     juce::Point<float> m_ropeEndScreen, m_ropeLastScreen, m_ropeOffset, m_ropeVelocity;
     int m_ropeHoverLane = -1;
+    bool m_ropeMoved = false;       // the handle was dragged (a plain click leaves the rope as it is)
+    /** Makes the overlay if there is somewhere to put it, and shows it while a rope hangs or is being dragged. */
+    void updateOverlay();
+    bool anyRopeShown() const;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(MorphPad)
 };

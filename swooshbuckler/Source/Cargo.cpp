@@ -341,6 +341,18 @@ void CargoData::analyse()
     buildMips();
 }
 
+const CargoContours& CargoData::ensureContours() const
+{
+    if (const auto* made = m_contours.get())
+        return *made;
+    auto fresh = std::make_unique<CargoContours>(SampleClassifier::extractContours(
+        audio.getNumSamples() > 0 ? audio.getReadPointer(0) : nullptr, audio.getNumSamples(), sampleRate, regions));
+    const CargoContours* expected = nullptr;
+    if (m_contours.m_made.compare_exchange_strong(expected, fresh.get(), std::memory_order_release))
+        return *fresh.release();
+    return *expected; // someone else made them meanwhile
+}
+
 void CargoData::buildMips()
 {
     for (auto& m : mips)
@@ -559,6 +571,67 @@ void CargoHold::setRoleOverride(int track, int roleOrMinusOne)
         sendChangeMessage();
 }
 
+void CargoHold::setBusOverride(int track, int busOrMinusOne)
+{
+    if (track < 0 || track >= c_numTracks)
+        return;
+    const int v = (busOrMinusOne >= 0 && busOrMinusOne <= c_hitsBus) ? busOrMinusOne : -1;
+    if (m_tracks[static_cast<size_t>(track)].busOverride.exchange(v) != v)
+        sendChangeMessage();
+}
+
+void CargoHold::setMaster(int trackOrMinusOne)
+{
+    int v = (trackOrMinusOne >= 0 && trackOrMinusOne < c_numTracks) ? trackOrMinusOne : -1;
+    if (v >= 0)
+    {
+        const auto& cur = m_tracks[static_cast<size_t>(v)].current;
+        if (cur == nullptr || cur->length() <= 0)
+            v = -1; // an empty track can't lead
+        else
+            cur->ensureContours(); // before the engine is told, so it never follows a master it can't read
+    }
+    if (m_master.exchange(v) != v)
+        sendChangeMessage();
+}
+
+float CargoHold::getMedianPitchHz(int track) const
+{
+    if (track < 0 || track >= c_numTracks)
+        return 0.0f;
+    const auto cur = m_tracks[static_cast<size_t>(track)].current;
+    if (cur == nullptr || cur->length() <= 0)
+        return 0.0f;
+    const auto& c = cur->ensureContours();
+    return c.voiced >= 0.2f ? c.medianPitchHz : 0.0f; // mostly noise with a pitched moment has no pitch to match
+}
+
+void CargoHold::setMorphSource(int side, int trackOrMinusOne)
+{
+    side &= 1;
+    const int v = (trackOrMinusOne >= 0 && trackOrMinusOne < c_numTracks) ? trackOrMinusOne : -1;
+    bool changed = m_morphSource[static_cast<size_t>(side)].exchange(v) != v;
+    // One track can't be both sides of the morph: roping it to one side lets go of the other side's rope.
+    if (v >= 0 && m_morphSource[static_cast<size_t>(1 - side)].load() == v)
+    {
+        m_morphSource[static_cast<size_t>(1 - side)] = -1;
+        changed = true;
+    }
+    if (changed)
+        sendChangeMessage();
+}
+
+void CargoHold::dropLinks(int track)
+{
+    int expected = track;
+    m_master.compare_exchange_strong(expected, -1);
+    for (auto& rope : m_morphSource)
+    {
+        expected = track;
+        rope.compare_exchange_strong(expected, -1);
+    }
+}
+
 juce::String CargoHold::typeName(CargoRole role)
 {
     switch (role)
@@ -615,9 +688,13 @@ CargoHold::Meta CargoHold::metaOf(const Track& t) const
 {
     Meta m;
     m.valid = true;
+    const int track = static_cast<int>(&t - m_tracks.data());
     m.roleOverride = t.roleOverride.load();
+    m.busOverride = t.busOverride.load();
+    m.master = m_master.load() == track;
+    m.ropes = (m_morphSource[0].load() == track ? 1 : 0) | (m_morphSource[1].load() == track ? 2 : 0);
     m.userName = t.userName;
-    m.start = m_start[static_cast<size_t>(&t - m_tracks.data())].load();
+    m.start = m_start[static_cast<size_t>(track)].load();
     return m;
 }
 
@@ -625,9 +702,38 @@ void CargoHold::applyMeta(Track& t, const Meta& m)
 {
     if (! m.valid)
         return;
+    const int track = static_cast<int>(&t - m_tracks.data());
     t.roleOverride = m.roleOverride;
+    t.busOverride = m.busOverride;
     t.userName = m.userName;
-    m_start[static_cast<size_t>(&t - m_tracks.data())] = m.start;
+    m_start[static_cast<size_t>(track)] = m.start;
+    // The lane comes back (or goes again) with what hung on it. A Master or a rope chosen since stays where it
+    // was put: only a free place is taken back.
+    if (m.master)
+    {
+        int none = -1;
+        m_master.compare_exchange_strong(none, track);
+    }
+    else
+    {
+        int self = track;
+        m_master.compare_exchange_strong(self, -1);
+    }
+    for (int side = 0; side < 2; ++side)
+    {
+        auto& rope = m_morphSource[static_cast<size_t>(side)];
+        if ((m.ropes & (1 << side)) != 0)
+        {
+            int none = -1;
+            if (m_morphSource[static_cast<size_t>(1 - side)].load() != track)
+                rope.compare_exchange_strong(none, track);
+        }
+        else
+        {
+            int self = track;
+            rope.compare_exchange_strong(self, -1);
+        }
+    }
 }
 
 void CargoHold::publish(int track, std::shared_ptr<CargoData> data, bool recordUndo)
@@ -640,6 +746,8 @@ void CargoHold::publish(int track, std::shared_ptr<CargoData> data, bool recordU
     auto& t = m_tracks[static_cast<size_t>(track)];
     if (data != nullptr && data->regions.empty()) // loadFile / restore may have analysed already
         data->analyse();
+    if (data != nullptr && data->length() > 0 && m_master.load() == track)
+        data->ensureContours(); // the Master's new sound is followed from its first block
 
     {
         const juce::ScopedLock sl(m_lock);
@@ -824,11 +932,12 @@ bool CargoHold::loadFile(int track, const juce::File& file, juce::String& error)
     {
         const juce::ScopedLock sl(m_lock);
         t.roleOverride = -1;
+        t.busOverride = -1;
         t.userName = {};
     }
     m_start[static_cast<size_t>(track)] = 0.0f;
 
-    publish(track, std::move(d), true, before);
+    publish(track, std::move(d), true, before); // the lane stays: still the Master, still roped, if it was
     return true;
 }
 
@@ -913,9 +1022,11 @@ void CargoHold::clear(int track)
     {
         const juce::ScopedLock sl(m_lock);
         t.roleOverride = -1;
+        t.busOverride = -1;
         t.userName = {};
     }
     m_start[static_cast<size_t>(track)] = 0.0f;
+    dropLinks(track); // the lane goes, and what hung on it with it
     if (t.current != nullptr)
         publish(track, nullptr, true, before);
     else
@@ -1108,6 +1219,8 @@ void CargoHold::undo(int track)
         if (! t.undoMeta.empty())
             t.undoMeta.pop_back();
         applyMeta(t, entry); // undoing a load / clear brings back the lane's name and role
+        if (t.current != nullptr && t.current->length() > 0 && m_master.load() == track)
+            t.current->ensureContours();
         t.live.store(t.current.get(), std::memory_order_release);
     }
     sendChangeMessage();
@@ -1130,6 +1243,8 @@ void CargoHold::redo(int track)
         if (! t.redoMeta.empty())
             t.redoMeta.pop_back();
         applyMeta(t, entry);
+        if (t.current != nullptr && t.current->length() > 0 && m_master.load() == track)
+            t.current->ensureContours();
         t.live.store(t.current.get(), std::memory_order_release);
     }
     sendChangeMessage();
@@ -1161,6 +1276,10 @@ juce::ValueTree CargoHold::toValueTree() const
             starts.add(juce::String(s.load(), 6));
         tree.setProperty("starts", starts.joinIntoString(","), nullptr);
     }
+    // The Master track and the morph's ropes (-1 = none / the bus).
+    tree.setProperty("master", m_master.load(), nullptr);
+    tree.setProperty("morphSourceA", m_morphSource[0].load(), nullptr);
+    tree.setProperty("morphSourceB", m_morphSource[1].load(), nullptr);
 
     // Snapshot under the lock (hosts may save from a background thread while the UI edits). The local
     // shared_ptrs keep the data alive for the whole encode, whatever the message thread does meanwhile.
@@ -1170,6 +1289,7 @@ juce::ValueTree CargoHold::toValueTree() const
         juce::String userName;
         bool skip = true;
         int role = -1;
+        int bus = -1;
     };
     std::array<Snapshot, c_numTracks> snap;
     {
@@ -1177,7 +1297,7 @@ juce::ValueTree CargoHold::toValueTree() const
         for (size_t i = 0; i < snap.size(); ++i)
         {
             const auto& t = m_tracks[i];
-            snap[i] = { t.current, t.userName, t.skipSilence.load(), t.roleOverride.load() };
+            snap[i] = { t.current, t.userName, t.skipSilence.load(), t.roleOverride.load(), t.busOverride.load() };
         }
     }
 
@@ -1189,6 +1309,8 @@ juce::ValueTree CargoHold::toValueTree() const
         node.setProperty("index", i, nullptr);
         node.setProperty("skipSilence", sn.skip, nullptr);
         node.setProperty("roleOverride", sn.role, nullptr);
+        if (sn.bus >= 0)
+            node.setProperty("busOverride", sn.bus, nullptr);
         if (sn.userName.isNotEmpty())
             node.setProperty("userName", sn.userName, nullptr);
 
@@ -1280,6 +1402,12 @@ int CargoHold::busForRole(CargoRole role)
 
 int CargoHold::getBus(int track) const
 {
+    if (track >= 0 && track < c_numTracks)
+    {
+        const int chosen = m_tracks[static_cast<size_t>(track)].busOverride.load(std::memory_order_relaxed);
+        if (chosen >= 0 && chosen <= c_hitsBus)
+            return chosen;
+    }
     return busForRole(getRole(track));
 }
 
@@ -1305,11 +1433,16 @@ void CargoHold::shareFrom(const CargoHold& other)
         t.redoMeta.clear();
         t.skipSilence = from.skipSilence.load();
         t.roleOverride = from.roleOverride.load();
+        t.busOverride = from.busOverride.load();
         t.userName = from.userName;
         retire(t.current);
         t.current = from.current;
         t.live.store(t.current.get(), std::memory_order_release);
     }
+    // The Master's contours live in the shared data (made when it was chosen), so this hold reads the same ones.
+    m_master = other.m_master.load();
+    for (size_t side = 0; side < m_morphSource.size(); ++side)
+        m_morphSource[side] = other.m_morphSource[side].load();
     m_undoOrder.clear();
     m_redoOrder.clear();
     sendChangeMessage();
@@ -1351,8 +1484,13 @@ void CargoHold::fromValueTree(const juce::ValueTree& tree)
         m_redoOrder.clear();
         t.skipSilence = true;
         t.roleOverride = -1;
+        t.busOverride = -1;
         t.userName = {};
     }
+    // Nothing leads and nothing is roped until the tracks are back (set at the end).
+    m_master = -1;
+    m_morphSource[0] = -1;
+    m_morphSource[1] = -1;
 
     std::array<bool, c_numTracks> restored {};
     for (const auto& node : tree)
@@ -1369,6 +1507,8 @@ void CargoHold::fromValueTree(const juce::ValueTree& tree)
             t.skipSilence = static_cast<bool>(node.getProperty("skipSilence", true));
             const int role = node.getProperty("roleOverride", -1);
             t.roleOverride = (role >= 0 && role < c_numCargoRoles) ? role : -1;
+            const int bus = node.getProperty("busOverride", -1);
+            t.busOverride = (bus >= 0 && bus <= c_hitsBus) ? bus : -1;
             t.userName = node.getProperty("userName", juce::String()).toString();
         }
 
@@ -1422,6 +1562,20 @@ void CargoHold::fromValueTree(const juce::ValueTree& tree)
     for (int i = 0; i < c_numTracks; ++i)
         if (! restored[static_cast<size_t>(i)])
             publish(i, nullptr, false);
+
+    // The Master track and the morph's ropes: only onto tracks that came back with sound.
+    auto loaded = [this](int track)
+    {
+        if (track < 0 || track >= c_numTracks)
+            return false;
+        const auto& cur = m_tracks[static_cast<size_t>(track)].current;
+        return cur != nullptr && cur->length() > 0;
+    };
+    const int master = tree.getProperty("master", -1);
+    setMaster(loaded(master) ? master : -1);
+    const int ropeA = tree.getProperty("morphSourceA", -1), ropeB = tree.getProperty("morphSourceB", -1);
+    setMorphSource(0, loaded(ropeA) ? ropeA : -1);
+    setMorphSource(1, loaded(ropeB) && ropeB != ropeA ? ropeB : -1);
 }
 
 //==============================================================================

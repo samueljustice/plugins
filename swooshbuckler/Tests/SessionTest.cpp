@@ -257,15 +257,16 @@ int main(int argc, char* argv[])
                   && MorphPad::shapeNames()[1] == "Cherries" && static_cast<int>(MorphWander::Cherries) == 1
                   && MorphPad::shapeNames() == shape->choices && static_cast<int>(MorphWander::Butterfly) == 5,
               "morph: the second wander shape is Cherries, Butterfly is added last (the others keep their places)");
-        // The last three host parameters are the newest, in this order (new ones only ever go on the end).
+        // The last four host parameters are the newest, in this order (new ones only ever go on the end).
         const auto& all = rig.proc.getParameters();
         auto idAt = [&all](int fromEnd)
         {
             auto* ranged = dynamic_cast<juce::RangedAudioParameter*>(all[all.size() - fromEnd]);
             return ranged != nullptr ? ranged->getParameterID() : juce::String();
         };
-        check(idAt(3) == ParamIDs::throwLength && idAt(2) == ParamIDs::play && idAt(1) == ParamIDs::keysMode && idAt(4) == ParamIDs::passMode[1],
-              "parameters: Throw Length, Play and Keys are added after every older parameter");
+        check(idAt(4) == ParamIDs::throwLength && idAt(3) == ParamIDs::play && idAt(2) == ParamIDs::keysMode
+                  && idAt(1) == ParamIDs::rideFollowMaster && idAt(5) == ParamIDs::passMode[1],
+              "parameters: Throw Length, Play, Keys and Follow Master are added after every older parameter, in that order");
     }
 
     // Stop: the tail rings out

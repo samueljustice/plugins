@@ -36,7 +36,12 @@
  *                 It plays the tracks at their fader levels (not ridden) through its own delay line, so it is
  *                 the same whoosh whether the rig is playing or stopped, and AIM lands the hits on its peak.
  *   morph:        optional: what feeds bus A and bus B goes through a Zynaptiq-style spectral morph
- *                 (SpectralMorph); the result is handed back to the two buses in proportion to X.
+ *                 (SpectralMorph); the result is handed back to the two buses in proportion to X. A side with
+ *                 a rope (CargoHold::getMorphSource) morphs that one track instead of its whole bus: the rest
+ *                 of the bus plays on as it is, and with the morph off the roped track plays through its bus.
+ *   master:       optional: one track leads (CargoHold::getMaster). Its loudness, pitch and brightness
+ *                 contours are read where it is playing, for the Followers, and with Follow Master the other
+ *                 tracks' rides swell with its loudness instead of their own LFOs.
  *   -> ride make-up (the mix is eased down as the ride gets shallower, so Auto Ride off or a held Swell reaches
  *      the output stage about as loud as the ridden rig) -> space (echoes, reverb, width)
  *   -> out (the processor adds inflate + limiter)
@@ -67,6 +72,7 @@ public:
     struct Params
     {
         bool rideOn = true;
+        bool followMaster = false; // the rides swell with the Master track's loudness instead of their own LFOs
         float energy = 0.6f;   // how far the auto-ride pulls the faders
         float rate = 0.4f;     // how fast the faders move (and how long a doppler pass is)
         float fill = 0.3f;     // long delays into the gaps
@@ -211,6 +217,14 @@ public:
     /** Audio thread: RMS of bus A, bus B and the hits (what each adds to the mix) since the last call, for the
         Follower modulators. */
     std::array<float, 3> takeSectionLevels();
+    /** Audio thread, after process(): the Master track where it is playing now: its loudness, pitch and
+        brightness, each 0..1 over the sound's own range (see CargoContours). All 0 with no Master; the loudness
+        is 0 while the rig is stopped. */
+    const std::array<float, 3>& getMasterFollow() const { return m_masterFollow; }
+    /** Any thread: the Master's loudness as the rides follow it (0..1), for the UI. */
+    float getMasterLevel() const { return m_masterView.load(std::memory_order_relaxed); }
+    /** Any thread: the track each side of the morph is listening to right now (-1 = its whole bus). */
+    int getMorphSource(int side) const { return m_ropeView[static_cast<size_t>(side & 1)].load(std::memory_order_relaxed); }
 
 private:
     static constexpr int c_chunk = 32;
@@ -368,6 +382,18 @@ private:
     float m_energyModNow = 0.0f, m_pitchModNow = 0.0f, m_fillModNow = 0.0f, m_spaceModNow = 0.0f;
     std::array<std::array<float, 9>, c_maxBuses> m_busModNow {};
     float m_morphMixNow = 0.0f; // how far the morph is in (B isn't ducked or filtered by A while morphing)
+    // Morph ropes. A roped track is rendered into its side's tap instead of its bus; the morph works on the tap and
+    // what it leaves of the dry sound goes back to the track's bus. A change of rope while the morph is in fades
+    // the side's sounds out (15 ms), swaps, and fades them back in.
+    std::array<std::array<float, c_chunk>, 2> m_morphTap {};
+    std::array<int, 2> m_ropeNow { -1, -1 };     // the rope in use on each side
+    std::array<float, 2> m_ropeFade { 1.0f, 1.0f };
+    std::array<std::atomic<int>, 2> m_ropeView { { { -1 }, { -1 } } };
+    int wantedRope(int side) const;
+    // The Master track (see getMasterFollow), the smoothed loudness the rides follow, and how far Follow Master is in.
+    std::array<float, 3> m_masterFollow {};
+    float m_masterRide = 0.0f, m_followMix = 0.0f;
+    std::atomic<float> m_masterView { 0.0f };
     void glideMods(int frames);
     std::array<float, c_chunk> m_trackScratch {};
     MorphInsert m_morph;

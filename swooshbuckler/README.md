@@ -72,7 +72,7 @@ Every control has a tooltip: hover over it to see what it does and how to use it
 ```
 
 1. **Tracks** loop your sounds. The ride moves each track's fader, so the layers rise and fall on their own.
-2. Each track's **sound type** decides where it plays:
+2. Each track's **sound type** decides where it plays, unless you choose the bus yourself on the lane's bus tag:
    - **Bus A** gets Tonal Content, Crackle, Rumble and Mixed Content.
    - **Bus B** gets Energy Bed and Air / Swish.
    - **Hits** gets Impact.
@@ -135,8 +135,9 @@ This is where your sounds live: up to ten files, each on its own looping lane.
 | Part | What it does |
 |---|---|
 | **Name** | The track is named after its sound type ("Energy Bed", "Tonal Content" and so on) until you rename it. Two tracks of the same type share a name; the lane colour tells them apart. **Double-click** the name to rename it. Return keeps it and Esc cancels. Clear it to go back to the automatic name. |
-| **Bus tag** | Where the track plays: **BUS A** (coral), **BUS B** (turquoise) or **HITS** (red), in the colour of that section's knobs. It follows the sound type. |
-| **Type badge** | The sound type. Click it to change it, or choose **Auto** to go back to the guess. A ` *` means you set it yourself. The type decides the bus: see the table below. |
+| **Bus tag** | Where the track plays: **BUS A** (coral), **BUS B** (turquoise) or **HITS** (red), in the colour of that section's knobs. **Click it** to choose: **Auto** (the bus the sound type picks, the default), **Bus A**, **Bus B** or **Hits**. A ` *` on the tag means you chose it yourself. See [Choosing the bus](#choosing-the-bus). |
+| **Star** | Makes this track the **Master**: the one sound the others can follow. Only one track is the Master at a time; click the lit star again to have none. See [The Master track](#the-master-track). |
+| **Type badge** | The sound type. Click it to change it, or choose **Auto** to go back to the guess. A ` *` means you set it yourself. On Auto the type decides the bus: see the table below. |
 | **SKIP SILENCE** | On (the default): only the sounds play and the gaps between them are skipped, so a recording full of pauses becomes a steady source. The sounds are drawn bright and the gaps faint. Off: the whole file loops, silence and all, and the lane reads "silence kept". |
 | **Fader** | The track's level, in dB: 30 dB of travel (each 10% is 3 dB), with the last 5% fading to silence; default −2.1 dB. With AUTO RIDE on, it sets how high the ride can take the track. Double-click to reset. Each one is also a host parameter, "Track 1" to "Track 10". |
 | **Semitones / Cents** | The track's own pitch: up to 24 semitones either way, plus up to 100 cents for fine tuning. It adds to the Ride's Pitch knob and glides to a new setting. **Drag up or down** on a box to change it, and **double-click** to reset. Each one is also a host parameter ("Track 1 Semitones", "Track 1 Cents" and so on). Drag a MOD jack onto the Semitones box to modulate the track's pitch; its plugs sit in a row under the box. |
@@ -146,6 +147,7 @@ This is where your sounds live: up to ten files, each on its own looping lane.
 | **Ride line** | The line across the waveform traces the track's actual level over the last 8 seconds, like an automation lane scrolling past, with a dot at the right for right now. The thin strip left of the waveform shows the level now. Both include the fader, the ride, and mute and solo. |
 | **Playheads** | Thin white lines show where in the file the track is playing (two while it crossfades from one sound to the next). |
 | Top left of the waveform | The file length and how many sounds were found in it. |
+| **Right-click** a lane | The track's menu: **Master Track**, **Match Pitch To Master** and **Plays On** (the bus). |
 
 **Sound types**
 
@@ -159,7 +161,28 @@ This is where your sounds live: up to ten files, each on its own looping lane.
 | Air / Swish | Air movement: swishes, cloth, flaps, sword swings. | Bus B |
 | Impact | Hits and transients. | Hits |
 
-Changing a track's type is how you move it to the other bus.
+#### Choosing the bus
+
+A track plays on the bus its sound type picks until you say otherwise. Click the **bus tag** on its lane (or right-click the lane and open **Plays On**) and choose:
+
+- **Auto**: the bus the type picks, as in the table above. The menu says which that is. This is the default.
+- **Bus A**, **Bus B** or **Hits**: the track plays there whatever its type. The tag is marked ` *`.
+
+The type, and the name the track takes from it, stay as they are, so a growl can sit under the beds on bus B, or a swish can go through the hit gate, and still be called what it is. The choice is saved with the session and can be undone. Dropping a new sound on the lane puts it back on Auto.
+
+#### The Master track
+
+![The Master star and a bus chosen by hand](docs/images/track-master.png)
+
+One track can be the **Master**: the sound you want everything else to move like. Click the **star** on its lane; it lights, and any other track that was the Master lets go. Click it again to have no Master.
+
+When a track becomes the Master, Swooshbuckler works out how that sound moves over its length, every 10 ms: how loud it is, what pitch it is at, and how bright it is. Each is measured over the sound's own range (its quietest to its loudest moment, its lowest to its highest pitch, its dullest to its brightest). A long file takes a moment. They are worked out again whenever you edit the Master or drop a new sound on its lane. Three things use them:
+
+- **Follower modulators.** A [Follower](#modulation) can follow **Master**, **Master Pitch** or **Master Brightness**: the Master's loudness, pitch or brightness at the moment it is playing. Wire it to any knob, and that knob moves with the Master sound: bus B's Filter opening as the Master gets brighter, Space growing as it gets louder, another track's Semitones rising with its pitch.
+- **Match Pitch To Master.** Right-click a pitched track's lane and choose **Match Pitch To Master**: its Semitones and Cents are set so the pitch it sits at most of the time is the Master's, to the nearest cent. The Master's own Semitones and Cents count. If the two are more than two octaves apart, the nearest octave in reach is used. A sound with no clear pitch (wind, noise, a hit) is left alone, and the status line says so. It is one undo step.
+- **Follow Master**, in the [Ride](#ride) panel: every other track's ride swells with the Master's loudness instead of its own slow wave.
+
+The Master is saved with the session. Removing its track leaves no Master; undo brings it back.
 
 **Undo**
 
@@ -180,6 +203,7 @@ This is where the whooshes come from. With AUTO RIDE on, each track's fader rise
 | **Swell** | button | Hold it to push every track's fader up to its full level, over the ride. Let go and the ride takes over again. It glides rather than jumps. It is a push: held for longer than a couple of seconds, the mix eases back to its usual level with every fader still up (see the note under the table). The space bar does the same, and so does any MIDI note while Keys is set to Swell. |
 | **Throw** | button | Throws one whoosh now. See [Throw](#throw) below. The F key does the same. |
 | **AUTO RIDE** | on / off (on) | The faders move by themselves. Off: the movement glides to a stop and each fader stays where you set it. The doppler passes then do the moving: Low End, Swirl and Filter follow how close each pass is. |
+| **Follow Master** | on / off (off) | On: every track's ride swells with the [Master track](#the-master-track)'s loudness instead of its own slow wave, so all the layers move like that one sound. See the note under the table. It waits, dimmed, until AUTO RIDE is on and a track is the Master. |
 | **Energy** | 0–100% (35%) | How deep the ride dips the faders between swells, evenly in dB: 4 dB more for every 10%, to −36 dB at 90% and silence at 100%. Dimmed with AUTO RIDE off, when it does nothing. |
 | **Rate** | 25 s to 1.9 s (6.4 s) | How fast the faders move: the readout is the time of one rise and fall. It also sets how long each doppler pass lasts, from about 6 s down to about 1.6 s. |
 | **Fill** | 0–100% (15%) | Long, softened echoes at about 0.5, 1 and 2 s (each track has its own times, so layered tracks don't echo in step), after each track's fader, so they hang on into the dips of the ride and the gaps of gappy sounds. |
@@ -191,6 +215,8 @@ This is where the whooshes come from. With AUTO RIDE on, each track's fader rise
 Pitch moves every track at once. To pitch one track on its own, with or without changing its speed, use that track's Semitones, Cents and VARI controls in [Tracks](#tracks).
 
 Swell only lifts the faders up to the ride's ceiling, so with AUTO RIDE off (or Energy at 0%) the faders are already there and Swell does nothing you'll hear.
+
+**Follow Master** swaps each track's own rise and fall for the Master's: when the Master sound is loud the other faders are up, and when it falls away they dip. The Master itself plays as it is, unridden, since its own sound is the swell. Energy still sets how deep the dips go: at 100% the other layers follow the Master all the way down to silence, at low settings they only lean with it. The faders rise quickly with the Master (about 15 ms) and fall a little slower (about 90 ms). Rate still sets the length of the doppler passes. Follow Master is a host parameter and is saved with the session; presets and RANDOMISE leave it alone.
 
 **The level stays put when the ride changes.** With every fader up all the time (AUTO RIDE off, Energy below its default, or Swell held) the tracks add up to more than they do while the ride dips them. Swooshbuckler eases the mix down to match, by up to about 5 dB with the faders fully still, so the rig reaches Inflate and the limiter about as loud as with the default ride, and switching AUTO RIDE on and off compares the movement, not the loudness. It follows Energy and AUTO RIDE as they glide, and a held Swell over about 2.5 seconds, so a short Swell is still a push. From the default Energy (35%) up, nothing is changed.
 
@@ -324,7 +350,7 @@ The OUTPUT view at the top right pictures what the rig is sending out:
 
 The morph blends bus A into bus B spectrally, so the two sounds trade tone and pitch rather than just crossfading. Click **MORPH** over the sea to show the pad, then switch the morph on with **ON**. The MORPH button only shows and hides the pad; the morph keeps running when the pad is hidden.
 
-- **ON / OFF** switches the morph itself, with a fade rather than a hard switch. The morph takes about 43 ms to do its work, so while it is on, buses A and B run that much later; the fade is lined up with that, so you never hear the sound doubled while switching. While it's off the pad is veiled and dimmed, but everything still works, so you can set it up first.
+- **ON / OFF** switches the morph itself, with a fade rather than a hard switch. The morph takes about 43 ms to do its work, so while it is on, what goes through it runs that much later; the fade is lined up with that, so you never hear the sound doubled while switching. While it's off the pad is veiled and dimmed, but everything still works, so you can set it up first.
 - **Blend / Glide / Cross** pick the mode. Changing mode crossfades, so it doesn't click.
 - **The dot**: left is bus A and right is bus B in every mode. Up and down depends on the mode:
 
@@ -342,7 +368,21 @@ The morph blends bus A into bus B spectrally, so the two sounds trade tone and p
     - **Cherries**: the outline of the logo in the sky, a grenade with a pair of cherries.
     - **Figure Eight**, **Rose** and **Circle**: these turn slowly, one degree per lap, so they never repeat exactly.
     - **Butterfly**: the butterfly curve, two pairs of wings drawn in one closed line. It turns slowly like the others.
-- The **Bus A** and **Bus B** labels under the pad show the two sources. The morph always runs between the two buses.
+- The **A** and **B** handles under the pad show the two sources. Each side is its whole bus (**Bus A**, **Bus B**) until you tie it to one track: see below.
+
+**Ropes: morphing two single sounds**
+
+![A rope from the morph to a track](docs/images/morph-rope.png)
+
+Each side of the morph listens to its whole bus by default. To morph one particular sound instead, **drag the rope** from the **A** or **B** handle under the pad and drop it on a track's lane. The handle takes the track's name and colour, and the rope stays hanging between the two while the pad is showing.
+
+- **A roped side is that one track.** Only that track goes into the morph; the other tracks on its bus play on as they are, unmorphed.
+- **An unroped side is its bus**, as before. You can rope one side and leave the other on its bus, or rope both to morph two single sounds.
+- **A rope reaches any track**, whichever bus it plays on, the hits included. The morphed result still comes out through bus A and bus B in proportion to the dot, so it flies with their doppler passes.
+- **With the morph off, a roped track simply plays through its own bus**, exactly as it would without the rope.
+- **Double-click a handle** to let its rope go: the side is its bus again. Dropping a rope anywhere that isn't a track leaves things as they were. One track can't be both sides: roping it to the second side lets go of the first.
+- Changing a rope while the morph is on dips that side for a few hundredths of a second, so the swap doesn't click.
+- Ropes stay with their track when other tracks are added or removed. Removing a roped track lets its rope go, and undo ties it back. Ropes are saved with the session and can be undone.
 
 The wander runs inside the rig, not in the window: the dot keeps flying with the Swooshbuckler window closed, and it is part of an offline bounce. It leaves the Morph X and Morph Y controls alone (so it writes no automation); when you stop it, the dot stays where the wander left it.
 
@@ -356,7 +396,7 @@ Four modulators run along the bottom: **MOD 1** (yellow), **MOD 2** (pink), **MO
 |---|---|---|
 | **LFO** | A repeating wave that swings each wired knob up and down. The shape menu offers Sine, Triangle, Ramp (rises then drops), Square and Steps (a new random value every cycle). | **Rate**: one cycle every 20 s (0.05 Hz) to 8 Hz |
 | **Random** | A smooth random wander up and down, never the same twice. | **Rate**: as above |
-| **Follower** | Follows the loudness of **Bus A**, **Bus B**, the **Hits** or the whole **Output** (pick which in the menu under the scope), and turns its knobs one way only. | **Speed**: slow and smooth (2 s) to fast and jumpy (15 ms) |
+| **Follower** | Follows the loudness of **Bus A**, **Bus B**, the **Hits** or the whole **Output**, or the [Master track](#the-master-track): **Master** (its loudness), **Master Pitch** or **Master Brightness**, each read where the Master is playing and spread over that sound's own range. Pick which in the menu under the scope. It turns its knobs one way only. The Master inputs rest until a track is the Master. | **Speed**: slow and smooth (2 s) to fast and jumpy (15 ms) |
 | **Macro** | One knob that turns every knob it's wired to, each by its own depth. It's a host parameter, so you can automate it. | **Amount** |
 
 The defaults are MOD 1: LFO (Sine), MOD 2: LFO (Triangle), MOD 3: Random, MOD 4: Follower (Bus A). The scope on each card shows what the modulator has done over the last few seconds.
@@ -501,7 +541,8 @@ Presets and RANDOMISE set the sound, not your session. They leave these alone:
 
 - your tracks, their levels and each track's pitch and VARI
 - Inflate, Push, Ceiling, TRIM and the Peak Tremolo
-- AUTO RIDE, AIM, SYNC HITS, the GATE and DUCK modes, TAKE TURNS and LINK
+- AUTO RIDE, Follow Master, AIM, SYNC HITS, the GATE and DUCK modes, TAKE TURNS and LINK
+- the Master track, each track's bus and the morph's ropes
 - the morph's ON switch, wander, shape and speed
 - PLAY, the Keys menu and Throw Length
 - the modulators and their wires (unless a preset of your own was saved with them)
@@ -561,6 +602,9 @@ The keys work wherever you last clicked in the window (while you type in a text 
 | Double-click a knob | Resets it. |
 | Double-click a track name | Renames it. |
 | Double-click a waveform | Puts the start flag back at the top. |
+| Click a lane's bus tag | Chooses the track's bus: Auto, Bus A, Bus B or Hits. See [Choosing the bus](#choosing-the-bus). |
+| Right-click a track lane | The track's menu: Master Track, Match Pitch To Master and Plays On. |
+| Drag from the A or B handle under the morph pad onto a track | Ropes that side of the morph to the track. Double-click the handle to let the rope go. See [Morph pad](#morph-pad). |
 
 ## Tips
 
@@ -573,6 +617,9 @@ The keys work wherever you last clicked in the window (while you type in a text 
 - **For one clean pass instead of two layers flying about**, turn on LINK so bus B follows bus A's passes. Turn it off when B carries a bed that should keep moving on its own.
 - **For a single object going by** (a jet, a car, a creature's call), set that bus's PASS to Fly-By: each sound is heard once, at one pitch. Keep Bed for wind, air and long energy beds.
 - **If the buses fight**, turn on TAKE TURNS, or raise Ducked and Filtered on bus B.
+- **To make every layer move like one sound**, make that sound the Master (the star on its lane) and turn on Follow Master. Raise Energy for layers that vanish between its swells.
+- **To tune the layers to one sound**, make it the Master, then right-click each pitched track and choose Match Pitch To Master.
+- **To morph a growl into a wind**, rope side A to the growl and side B to the wind, switch the morph on and let the dot wander. Everything else keeps playing around them.
 - **Record at 96 or 192 kHz** if you plan to pitch the whooshes down later.
 - **Leave the tape armed** while you play with the controls. It only writes when there's sound, so you just need to listen back for the good ones.
 - **Press STOP and wait for the tail** before you close a take: the echoes and Space ring out onto the tape.
@@ -591,7 +638,7 @@ cmake -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build --config Release
 ```
 
-This builds the app, the VST3 and the AU (macOS) into `build/Swooshbuckler_artefacts/Release/`, along with the offline test programs: `SwooshbucklerRig`, `SwooshbucklerCargo`, `SwooshbucklerClassify`, `SwooshbucklerPitch`, `SwooshbucklerMorph`, `SwooshbucklerMaster`, `SwooshbucklerSession` and `SwooshbucklerRender`. Pass `-DSWOOSHBUCKLER_TESTS=OFF` to skip the tests, or `-DSWOOSHBUCKLER_FORMATS="Standalone;VST3"` to choose the formats.
+This builds the app, the VST3 and the AU (macOS) into `build/Swooshbuckler_artefacts/Release/`, along with the offline test programs: `SwooshbucklerRig`, `SwooshbucklerCargo`, `SwooshbucklerClassify`, `SwooshbucklerPitch`, `SwooshbucklerMorph`, `SwooshbucklerMaster`, `SwooshbucklerSession`, `SwooshbucklerRender`, `SwooshbucklerKeep` and `SwooshbucklerRouting`. Pass `-DSWOOSHBUCKLER_TESTS=OFF` to skip the tests, or `-DSWOOSHBUCKLER_FORMATS="Standalone;VST3"` to choose the formats.
 
 ### Version
 

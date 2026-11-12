@@ -53,6 +53,7 @@ namespace Presets
             || id.startsWith("trem") // the peak tremolo, like the rest of the output stage // how the rig behaves: kept by presets and Randomise
             || id == morphOn || id == morphWander || id == morphShape || id == morphSpeed
             || id == play || id == keysMode || id == throwLength // the transport, what MIDI keys do, how long a throw is
+            || id == rideFollowMaster // needs this session's Master track
             || id.startsWith("mod"); // the modulators and their wires belong to the session, not to a preset
     }
 

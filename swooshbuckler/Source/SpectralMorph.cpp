@@ -668,7 +668,7 @@ void MorphInsert::reset(bool on)
     m_toB = std::sin(0.5f * c_pi * x);
 }
 
-void MorphInsert::process(float* a, float* b, int numSamples, float mix)
+void MorphInsert::process(float* a, float* b, int numSamples, float mix, float* wetA, float* wetB)
 {
     if (m_wet.empty() || numSamples <= 0)
         return;
@@ -680,12 +680,13 @@ void MorphInsert::process(float* a, float* b, int numSamples, float mix)
         const int n = std::min(m_maxBlock, numSamples - done);
         processBlock(a + done, b + done, n,
                      from + (mix - from) * static_cast<float>(done) / static_cast<float>(numSamples),
-                     from + (mix - from) * static_cast<float>(done + n) / static_cast<float>(numSamples));
+                     from + (mix - from) * static_cast<float>(done + n) / static_cast<float>(numSamples),
+                     wetA != nullptr ? wetA + done : nullptr, wetB != nullptr ? wetB + done : nullptr);
     }
     m_mix = mix;
 }
 
-void MorphInsert::processBlock(float* a, float* b, int n, float mixFrom, float mixTo)
+void MorphInsert::processBlock(float* a, float* b, int n, float mixFrom, float mixTo, float* wetA, float* wetB)
 {
     const bool on = mixFrom > 1.0e-4f || mixTo > 1.0e-4f;
     // The morph is also kept fed through the splice back to the live sound: if it is switched in again before
@@ -748,8 +749,11 @@ void MorphInsert::processBlock(float* a, float* b, int n, float mixFrom, float m
             const float filled = clampf(static_cast<float>(m_filled + i - m_latency) / static_cast<float>(hop), 0.0f, 1.0f);
             w = (mixFrom + (mixTo - mixFrom) * t) * filled;
             const float wet = m_wet[static_cast<size_t>(i)];
-            dryA += w * ((toA0 + (toA1 - toA0) * t) * wet - dryA);
-            dryB += w * ((toB0 + (toB1 - toB0) * t) * wet - dryB);
+            // The morph's share: crossfaded into the same buffer, or added to where the caller wants it.
+            if (wetA != nullptr) { wetA[i] += w * (toA0 + (toA1 - toA0) * t) * wet; dryA *= 1.0f - w; }
+            else                 dryA += w * ((toA0 + (toA1 - toA0) * t) * wet - dryA);
+            if (wetB != nullptr) { wetB[i] += w * (toB0 + (toB1 - toB0) * t) * wet; dryB *= 1.0f - w; }
+            else                 dryB += w * ((toB0 + (toB1 - toB0) * t) * wet - dryB);
         }
         a[i] = dryA;
         b[i] = dryB;

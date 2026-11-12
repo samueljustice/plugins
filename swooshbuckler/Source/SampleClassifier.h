@@ -44,6 +44,16 @@ namespace SampleClassifier
     SampleAnalysis analyse(const float* mono, int numSamples, double sampleRate,
                            const std::vector<CargoRegion>& regions, const juce::String& fileName);
 
+    /**
+     * How the sound moves over its whole length: loudness, pitch and brightness every 10 ms (see CargoContours).
+     * Loudness is the RMS of a 30 ms window against the loudest one. Pitch is McLeod's normalised autocorrelation
+     * (60 Hz .. 2 kHz) on a ~16 kHz copy, kept where the sound is clearly pitched and in a region; brightness is
+     * the spectral centroid of the same frames. Pitch and brightness are spread over the sound's own range (its
+     * 10th to 90th percentile, at least 2 semitones / half an octave wide). Message thread; about 1.5 ms per second
+     * of sound.
+     */
+    CargoContours extractContours(const float* mono, int numSamples, double sampleRate, const std::vector<CargoRegion>& regions);
+
     /** Fills each region's focus (loudest 20 ms window; for impacts the steepest rise). */
     void findFocusPoints(const float* mono, int numSamples, double sampleRate, std::vector<CargoRegion>& regions);
 

@@ -46,6 +46,9 @@ namespace
     constexpr float c_makeupEnergy = 0.35f;
     constexpr float c_makeupSlope = 0.85f;
     constexpr float c_makeupSwellSeconds = 2.5f, c_makeupReleaseSeconds = 0.3f;
+    // Follow Master: how fast the rides take up the Master's loudness (up, down), and how fast the option comes in.
+    constexpr float c_masterUpSeconds = 0.015f, c_masterDownSeconds = 0.09f, c_followSeconds = 0.05f;
+    constexpr float c_ropeFadeSeconds = 0.015f; // a change of morph rope: out, swap, back in
 
     float coef(float ms, float fs) { return 1.0f - std::exp(-1.0f / (0.001f * ms * fs)); }
     /** A one-pole smoothing coefficient for a step of `frames` samples: the same glide at every rate and chunk size. */
@@ -309,6 +312,21 @@ void RigEngine::reset()
     }
     m_morph.reset(m_params.morphOn);
     m_morphMix.snap(m_params.morphOn ? 1.0f : 0.0f);
+    for (int side = 0; side < 2; ++side)
+    {
+        m_ropeNow[static_cast<size_t>(side)] = wantedRope(side);
+        m_ropeFade[static_cast<size_t>(side)] = 1.0f;
+        m_ropeView[static_cast<size_t>(side)].store(m_ropeNow[static_cast<size_t>(side)], std::memory_order_relaxed);
+        m_morphTap[static_cast<size_t>(side)].fill(0.0f);
+    }
+    m_masterFollow = {};
+    m_masterRide = 0.0f;
+    {
+        // Follow Master starts in only when there is a Master to follow.
+        const int master = m_cargo != nullptr ? m_cargo->getMaster() : -1;
+        m_followMix = m_params.followMaster && master >= 0 && m_cargo->getLive(master) != nullptr ? 1.0f : 0.0f;
+    }
+    m_masterView.store(0.0f, std::memory_order_relaxed);
     letGoOfCargo();
 }
 
@@ -572,6 +590,18 @@ void RigEngine::followPass(Head& h, const Head& from, float bend, bool newPass)
         h.aimed = false;
     if (newPass)
         h.mach = sj::clamp(h.machBase * sj::clamp(bend, 0.0f, 1.0f), 0.0f, machLimit(h.lenIn));
+}
+
+int RigEngine::wantedRope(int side) const
+{
+    if (m_cargo == nullptr)
+        return -1;
+    const int track = m_cargo->getMorphSource(side);
+    if (track < 0 || track >= c_tracks || m_cargo->getLive(track) == nullptr)
+        return -1; // no rope, or its track is empty: the side's whole bus
+    if (side == 1 && track == m_cargo->getMorphSource(0))
+        return -1; // one track can't be both sides
+    return track;
 }
 
 void RigEngine::renderTracks(int frames)
@@ -868,6 +898,72 @@ void RigEngine::renderTracks(int frames)
                            : std::max(0.0f, m_throwOpen - seconds / c_throwCloseSeconds);
     }
 
+    // The Master track: its contours where it is playing now (the loop's two heads while they cross: the louder).
+    const int master = m_cargo != nullptr ? m_cargo->getMaster() : -1;
+    bool masterPlays = false;
+    m_masterFollow[0] = 0.0f;
+    if (master >= 0 && master < c_tracks)
+    {
+        const auto& player = m_players[static_cast<size_t>(master)];
+        const CargoData* d = player.getData();
+        const CargoContours* c = d != nullptr ? d->getContours() : nullptr;
+        const float head = player.getPlayhead(0), other = player.getPlayhead(1);
+        if (c != nullptr && c->size() > 0 && head >= 0.0f)
+        {
+            masterPlays = true;
+            const double length = static_cast<double>(d->length());
+            const double at = static_cast<double>(head) * length;
+            float level = CargoContours::at(c->level, c->hop, at);
+            if (other >= 0.0f)
+                level = std::max(level, CargoContours::at(c->level, c->hop, static_cast<double>(other) * length));
+            m_masterFollow = { level * m_releaseGain, CargoContours::at(c->pitch, c->hop, at), CargoContours::at(c->bright, c->hop, at) };
+            m_masterRide += (level - m_masterRide) * glide(frames, level > m_masterRide ? c_masterUpSeconds : c_masterDownSeconds, m_fs);
+        }
+    }
+    else
+    {
+        m_masterFollow = {};
+    }
+    if (! masterPlays)
+        m_masterRide += (0.0f - m_masterRide) * glide(frames, c_masterDownSeconds, m_fs);
+    m_masterView.store(m_masterRide, std::memory_order_relaxed);
+    // Follow Master: every other track's ride is the Master's loudness (shaped by Energy like the LFO it replaces),
+    // and the Master itself plays unridden: its own sound is the swell.
+    m_followMix += ((m_params.followMaster && masterPlays ? 1.0f : 0.0f) - m_followMix) * glide(frames, c_followSeconds, m_fs);
+    if (m_followMix < 1.0e-4f) m_followMix = 0.0f;
+    const float followRide = std::pow(sj::clamp(m_masterRide, 0.0f, 1.0f), 1.0f + 1.85f * energy);
+
+    // Morph ropes: the track each side listens to this chunk. A change while the morph is in fades the side out
+    // first (its bus's tracks, the old rope and the new one), swaps at silence, and fades back in; with the morph
+    // out the roped track plays through its bus just the same, so the swap is made at once.
+    std::array<int, 2> rope = m_ropeNow, ropeWanted { wantedRope(0), wantedRope(1) };
+    std::array<float, 2> ropeFrom = m_ropeFade, ropeTo = m_ropeFade;
+    {
+        const bool morphHeard = morphMix > 1.0e-4f || m_morph.isRunning();
+        const float step = seconds / c_ropeFadeSeconds;
+        for (size_t side = 0; side < 2; ++side)
+        {
+            if (ropeWanted[side] != m_ropeNow[side])
+            {
+                if (! morphHeard)
+                    rope[side] = m_ropeNow[side] = ropeWanted[side];
+                else
+                    ropeTo[side] = std::max(0.0f, ropeFrom[side] - step);
+            }
+            if (ropeWanted[side] == m_ropeNow[side])
+                ropeTo[side] = std::min(1.0f, ropeFrom[side] + step);
+            m_ropeFade[side] = ropeTo[side];
+        }
+        if (rope[0] >= 0 && rope[0] == rope[1])
+            rope[1] = -1; // never the same track on both sides (the wanted ropes already rule it out)
+        for (auto& tap : m_morphTap)
+            std::fill(tap.begin(), tap.begin() + frames, 0.0f);
+    }
+    auto busInput = [this](int bus)
+    {
+        return bus == CargoHold::c_hitsBus ? m_hitsIn.data() : m_buses[static_cast<size_t>(juce::jlimit(0, c_maxBuses - 1, bus))].in.data();
+    };
+
     for (int t = 0; t < c_tracks; ++t)
     {
         const auto ti = static_cast<size_t>(t);
@@ -886,7 +982,9 @@ void RigEngine::renderTracks(int frames)
         // Higher energy = deeper and more peaked swells (the fader spends longer down low).
         const float shaped = std::pow(lfo, 1.0f + 1.85f * energy);
         const float drift = m_rideDrift[ti].next(frames);
-        const float r = sj::clamp(shaped * (1.0f - 0.6f * chaos * m_rideDepth[ti]) * (1.0f + 0.2f * chaos * drift), 0.0f, 1.0f);
+        float r = sj::clamp(shaped * (1.0f - 0.6f * chaos * m_rideDepth[ti]) * (1.0f + 0.2f * chaos * drift), 0.0f, 1.0f);
+        if (m_followMix > 0.0f)
+            r = sj::lerp(r, t == master ? 1.0f : followRide, m_followMix);
         float ride = sj::lerp(1.0f, r, energy);
         ride = sj::lerp(ride, 1.0f, swell);
         m_rideView[ti].store(ride, std::memory_order_relaxed);
@@ -962,10 +1060,21 @@ void RigEngine::renderTracks(int frames)
         // Skip Silence hops over the file's gaps, so every sound gets a fair share of the echoes then.
         const float fillAmount = fill * (skip ? std::max(0.5f, m_fillAmount[ti]) : m_fillAmount[ti]);
         auto& line = m_fillLines[ti];
-        // Routed by type: hits go to the hit gate, the rest to bus A or B.
+        // Routed by type, or to the bus chosen by hand: hits go to the hit gate, the rest to bus A or B. A track
+        // on a morph rope goes to its side's tap instead (see below); the fades are those of a rope being changed.
         const int bus = m_cargo != nullptr ? m_cargo->getBus(t) : 0;
-        float* dest = bus == CargoHold::c_hitsBus ? m_hitsIn.data()
-                                                  : m_buses[static_cast<size_t>(juce::jlimit(0, numBuses - 1, bus))].in.data();
+        float* dest = busInput(bus);
+        float rope0 = 1.0f, rope1 = 1.0f;
+        for (size_t side = 0; side < 2; ++side)
+        {
+            if (rope[side] == t)
+                dest = m_morphTap[side].data();
+            if (bus == static_cast<int>(side) || rope[side] == t || ropeWanted[side] == t)
+            {
+                rope0 *= ropeFrom[side];
+                rope1 *= ropeTo[side];
+            }
+        }
         const float g0 = m_gain[ti];
         const auto& taps = m_fillTaps[ti];
         // A throw in flight: the track also feeds its bus's throw line, at its fader level. A hit track has no
@@ -999,7 +1108,7 @@ void RigEngine::renderTracks(int frames)
             const float g = g0 + (target - g0) * frac;
             const float dry = x * (modeGain0 + (modeGain1 - modeGain0) * frac) * g * variGain;
             line.push(dry + 0.3f * delayed);
-            dest[i] += dry + fillAmount * delayed;
+            dest[i] += (dry + fillAmount * delayed) * (rope0 + (rope1 - rope0) * frac);
         }
         m_gain[ti] = target;
     }
@@ -1019,7 +1128,26 @@ void RigEngine::renderTracks(int frames)
         mp.y = m_params.morphY;
         mp.mode = juce::jlimit(0, SpectralMorph::NumModes - 1, m_params.morphMode);
         m_morph.setParams(mp);
-        m_morph.process(m_buses[0].in.data(), m_buses[1].in.data(), frames, morphMix);
+        // A roped side: the morph hears the tap (that one track), its share of the result goes to the side's bus,
+        // and what is left of the track's dry sound goes back to the bus the track plays on. With the morph out
+        // the tap comes back untouched, so the roped track is simply heard through its bus.
+        const bool ropedA = rope[0] >= 0, ropedB = rope[1] >= 0;
+        m_morph.process(ropedA ? m_morphTap[0].data() : m_buses[0].in.data(), ropedB ? m_morphTap[1].data() : m_buses[1].in.data(),
+                        frames, morphMix, ropedA ? m_buses[0].in.data() : nullptr, ropedB ? m_buses[1].in.data() : nullptr);
+        for (size_t side = 0; side < 2; ++side)
+        {
+            if (rope[side] >= 0)
+            {
+                float* home = busInput(m_cargo != nullptr ? m_cargo->getBus(rope[side]) : 0);
+                const float* tap = m_morphTap[side].data();
+                for (int i = 0; i < frames; ++i)
+                    home[i] += tap[i];
+            }
+            // A rope that has faded out is swapped for the wanted one here, at silence.
+            if (ropeWanted[side] != m_ropeNow[side] && m_ropeFade[side] <= 0.0f)
+                m_ropeNow[side] = ropeWanted[side];
+            m_ropeView[side].store(m_ropeNow[side], std::memory_order_relaxed);
+        }
     }
 
 }

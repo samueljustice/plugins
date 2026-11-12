@@ -21,6 +21,7 @@ namespace ParamIDs
 
     // Ride (the faders move by themselves)
     inline constexpr const char* rideOn   = "rideOn";
+    inline constexpr const char* rideFollowMaster = "rideFollowMaster"; // the rides follow the Master track's loudness
     inline constexpr const char* energy   = "energy";
     inline constexpr const char* rate     = "rate";
     inline constexpr const char* fill     = "fill";
@@ -271,7 +272,7 @@ namespace Params
                                                               StringArray { "Sine", "Triangle", "Ramp", "Square", "Steps" }, defaultShapes[m]));
             layout.add(pct(ParamIDs::modKnob[m], name + " Rate / Amount", defaultKnobs[m]));
             layout.add(std::make_unique<AudioParameterChoice>(ParameterID { ParamIDs::modFollow[m], 2 }, name + " Follows",
-                                                              StringArray { "Bus A", "Bus B", "Hits", "Output" }, 0));
+                                                              StringArray { "Bus A", "Bus B", "Hits", "Output", "Master", "Master Pitch", "Master Brightness" }, 0));
         }
 
         // Added later: kept at the end, so every parameter before them keeps its place in the host's list.
@@ -291,6 +292,7 @@ namespace Params
         layout.add(std::make_unique<AudioParameterBool>(ParameterID { ParamIDs::play, 4 }, "Play", false));
         layout.add(std::make_unique<AudioParameterChoice>(ParameterID { ParamIDs::keysMode, 4 }, "Keys",
                                                           StringArray { "Swell", "Pitch", "Throw" }, 0));
+        layout.add(std::make_unique<AudioParameterBool>(ParameterID { ParamIDs::rideFollowMaster, 4 }, "Follow Master", false));
         return layout;
     }
 }

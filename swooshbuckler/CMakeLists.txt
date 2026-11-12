@@ -224,6 +224,14 @@ if(SWOOSHBUCKLER_TESTS)
     target_include_directories(SwooshbucklerRender PRIVATE Source ${CMAKE_CURRENT_BINARY_DIR}/Swooshbuckler_artefacts/JuceLibraryCode $<TARGET_PROPERTY:Swooshbuckler,INCLUDE_DIRECTORIES>)
     target_compile_definitions(SwooshbucklerRender PRIVATE $<TARGET_PROPERTY:Swooshbuckler,COMPILE_DEFINITIONS>)
     target_link_libraries(SwooshbucklerRender PRIVATE Swooshbuckler)
+
+    # Routing test: the Master track (contours, the Master followers, Follow Master, Match Pitch To Master), a
+    # track's bus chosen by hand, and the morph's ropes, through the real engine and the whole plug-in.
+    juce_add_console_app(SwooshbucklerRouting PRODUCT_NAME "SwooshbucklerRouting")
+    target_sources(SwooshbucklerRouting PRIVATE Tests/RoutingTest.cpp)
+    target_include_directories(SwooshbucklerRouting PRIVATE Source ${CMAKE_CURRENT_BINARY_DIR}/Swooshbuckler_artefacts/JuceLibraryCode $<TARGET_PROPERTY:Swooshbuckler,INCLUDE_DIRECTORIES>)
+    target_compile_definitions(SwooshbucklerRouting PRIVATE $<TARGET_PROPERTY:Swooshbuckler,COMPILE_DEFINITIONS>)
+    target_link_libraries(SwooshbucklerRouting PRIVATE Swooshbuckler)
 endif()
 
 # Artwork tools (off by default): renders Resources/icon.png. See tools/IconRender.cpp.
