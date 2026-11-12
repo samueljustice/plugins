@@ -133,20 +133,23 @@ namespace
         return weight > 1.0e-6f ? sum / weight : 0.0f;
     }
 
-    /** Band-limited resample of a mono buffer (message thread): the same kernel the players read with. */
+    /** Band-limited resample of a buffer, channel by channel (message thread): the same kernel the players read with. */
     juce::AudioBuffer<float> resampled(const juce::AudioBuffer<float>& in, double fromRate, double toRate)
     {
         if (fromRate <= 0.0 || toRate <= 0.0 || std::abs(fromRate - toRate) < 0.5 || in.getNumSamples() < 2)
             return in;
         const double ratio = fromRate / toRate;
         const int outLen = juce::jmax(1, static_cast<int>(in.getNumSamples() / ratio));
-        juce::AudioBuffer<float> out(1, outLen);
-        const float* src = in.getReadPointer(0);
-        float* dst = out.getWritePointer(0);
+        juce::AudioBuffer<float> out(in.getNumChannels(), outLen);
         // Offline, so the kernel may be as long as the ratio asks for (no octave copies needed).
         const double stretch = ratio > 1.0 ? ratio / c_sincGuard : 1.0;
-        for (int i = 0; i < outLen; ++i)
-            dst[i] = sincRead(src, in.getNumSamples(), i * ratio, stretch);
+        for (int ch = 0; ch < in.getNumChannels(); ++ch)
+        {
+            const float* src = in.getReadPointer(ch);
+            float* dst = out.getWritePointer(ch);
+            for (int i = 0; i < outLen; ++i)
+                dst[i] = sincRead(src, in.getNumSamples(), i * ratio, stretch);
+        }
         return out;
     }
 
@@ -367,6 +370,18 @@ void CargoData::buildMips()
         src = m.data();
         length = static_cast<int>(m.size());
     }
+    for (auto& m : sideMips)
+        m.clear();
+    src = hasSide() && audio.getNumSamples() > 0 ? audio.getReadPointer(1) : nullptr;
+    length = audio.getNumSamples();
+    for (auto& m : sideMips)
+    {
+        if (src == nullptr || length < 2)
+            break;
+        m = halved(src, length);
+        src = m.data();
+        length = static_cast<int>(m.size());
+    }
 }
 
 //==============================================================================
@@ -433,6 +448,8 @@ void CargoHold::dropMips(const std::shared_ptr<const CargoData>& data)
     // sees published data. The caller has made sure no thread reads this one.
     for (auto& m : const_cast<CargoData&>(*data).mips)
         std::vector<float>().swap(m);
+    for (auto& m : const_cast<CargoData&>(*data).sideMips)
+        std::vector<float>().swap(m);
 }
 
 void CargoHold::restoreMips(const std::shared_ptr<const CargoData>& data)
@@ -445,8 +462,10 @@ std::int64_t CargoHold::bytesOf(const CargoData* data)
 {
     if (data == nullptr)
         return 0;
-    std::int64_t samples = data->length();
+    std::int64_t samples = static_cast<std::int64_t>(data->length()) * juce::jmax(1, data->audio.getNumChannels());
     for (const auto& m : data->mips)
+        samples += static_cast<std::int64_t>(m.size());
+    for (const auto& m : data->sideMips)
         samples += static_cast<std::int64_t>(m.size());
     return samples * static_cast<std::int64_t>(sizeof(float));
 }
@@ -816,6 +835,14 @@ bool CargoHold::validRange(int track, int& start, int& end) const
 
 juce::AudioBuffer<float> CargoHold::foldToMono(const juce::AudioBuffer<float>& multi, const juce::AudioChannelSet& reported)
 {
+    auto folded = foldToMidSide(multi, reported);
+    if (folded.getNumChannels() > 1)
+        folded.setSize(1, folded.getNumSamples(), true); // the carrier alone
+    return folded;
+}
+
+juce::AudioBuffer<float> CargoHold::foldToMidSide(const juce::AudioBuffer<float>& multi, const juce::AudioChannelSet& reported)
+{
     using CT = juce::AudioChannelSet::ChannelType;
     const int channels = multi.getNumChannels(), length = multi.getNumSamples();
     juce::AudioBuffer<float> mono(1, length);
@@ -889,7 +916,20 @@ juce::AudioBuffer<float> CargoHold::foldToMono(const juce::AudioBuffer<float>& m
     mono.applyGain(0.5f);
     const float rl = stereo.getRMSLevel(0, 0, length), rr = stereo.getRMSLevel(1, 0, length);
     if (mono.getRMSLevel(0, 0, length) < 0.5f * 0.5f * (rl + rr))
+    {
         mono.copyFrom(0, 0, stereo, rl >= rr ? 0 : 1, 0, length);
+        return mono; // the sides cancel: one of them is the whole sound, and there is no width to keep
+    }
+
+    // The side signal, kept when the two sides really differ (a file that is the same on both stays mono).
+    juce::AudioBuffer<float> side(1, length);
+    side.copyFrom(0, 0, stereo, 0, 0, length);
+    side.addFrom(0, 0, stereo, 1, 0, length, -1.0f);
+    side.applyGain(0.5f);
+    if (side.getRMSLevel(0, 0, length) <= 1.0e-3f * mono.getRMSLevel(0, 0, length))
+        return mono;
+    mono.setSize(2, length, true);
+    mono.copyFrom(1, 0, side, 0, 0, length);
     return mono;
 }
 
@@ -918,7 +958,7 @@ bool CargoHold::loadFile(int track, const juce::File& file, juce::String& error)
     auto d = std::make_shared<CargoData>();
     d->sampleRate = fileRate; // kept: played at its own rate
     d->name = file.getFileNameWithoutExtension();
-    d->audio = foldToMono(multi, reader->getChannelLayout());
+    d->audio = foldToMidSide(multi, reader->getChannelLayout());
     if (reader->lengthInSamples > static_cast<juce::int64>(length)) // only the beginning fitted: say so
         d->sourceSeconds = static_cast<double>(reader->lengthInSamples) / fileRate;
 
@@ -1038,8 +1078,9 @@ void CargoHold::copy(int track, int start, int end)
     if (! validRange(track, start, end))
         return;
     const auto& cur = m_tracks[static_cast<size_t>(track)].current;
-    m_clipboard.setSize(1, end - start);
-    m_clipboard.copyFrom(0, 0, cur->audio, 0, start, end - start);
+    m_clipboard.setSize(cur->audio.getNumChannels(), end - start);
+    for (int ch = 0; ch < cur->audio.getNumChannels(); ++ch)
+        m_clipboard.copyFrom(ch, 0, cur->audio, ch, start, end - start);
     m_clipboardRate = cur->sampleRate;
     sendChangeMessage();
 }
@@ -1061,9 +1102,12 @@ void CargoHold::erase(int track, int start, int end)
         publish(track, nullptr, true);
         return;
     }
-    juce::AudioBuffer<float> out(1, length);
-    out.copyFrom(0, 0, src, 0, 0, start);
-    out.copyFrom(0, start, src, 0, end, src.getNumSamples() - end);
+    juce::AudioBuffer<float> out(src.getNumChannels(), length);
+    for (int ch = 0; ch < src.getNumChannels(); ++ch)
+    {
+        out.copyFrom(ch, 0, src, ch, 0, start);
+        out.copyFrom(ch, start, src, ch, end, src.getNumSamples() - end);
+    }
     publish(track, makeEdited(track, out), true);
 }
 
@@ -1087,10 +1131,16 @@ void CargoHold::paste(int track, int position)
     const auto& src = cur->audio;
     position = juce::jlimit(0, src.getNumSamples(), position);
     const int clip = clipboard.getNumSamples();
-    juce::AudioBuffer<float> out(1, src.getNumSamples() + clip);
-    out.copyFrom(0, 0, src, 0, 0, position);
-    out.copyFrom(0, position, clipboard, 0, 0, clip);
-    out.copyFrom(0, position + clip, src, 0, position, src.getNumSamples() - position);
+    // Stereo if either is: the one without a side signal is in the middle (its side is silence).
+    juce::AudioBuffer<float> out(juce::jmax(src.getNumChannels(), clipboard.getNumChannels()), src.getNumSamples() + clip);
+    out.clear();
+    for (int ch = 0; ch < src.getNumChannels(); ++ch)
+    {
+        out.copyFrom(ch, 0, src, ch, 0, position);
+        out.copyFrom(ch, position + clip, src, ch, position, src.getNumSamples() - position);
+    }
+    for (int ch = 0; ch < clipboard.getNumChannels(); ++ch)
+        out.copyFrom(ch, position, clipboard, ch, 0, clip);
     publish(track, makeEdited(track, out), true);
 }
 
@@ -1100,10 +1150,13 @@ void CargoHold::duplicate(int track, int start, int end)
         return;
     const auto& src = m_tracks[static_cast<size_t>(track)].current->audio;
     const int len = end - start;
-    juce::AudioBuffer<float> out(1, src.getNumSamples() + len);
-    out.copyFrom(0, 0, src, 0, 0, end);
-    out.copyFrom(0, end, src, 0, start, len);
-    out.copyFrom(0, end + len, src, 0, end, src.getNumSamples() - end);
+    juce::AudioBuffer<float> out(src.getNumChannels(), src.getNumSamples() + len);
+    for (int ch = 0; ch < src.getNumChannels(); ++ch)
+    {
+        out.copyFrom(ch, 0, src, ch, 0, end);
+        out.copyFrom(ch, end, src, ch, start, len);
+        out.copyFrom(ch, end + len, src, ch, end, src.getNumSamples() - end);
+    }
     publish(track, makeEdited(track, out), true);
 }
 
@@ -1112,8 +1165,9 @@ void CargoHold::trim(int track, int start, int end)
     if (! validRange(track, start, end))
         return;
     const auto& src = m_tracks[static_cast<size_t>(track)].current->audio;
-    juce::AudioBuffer<float> out(1, end - start);
-    out.copyFrom(0, 0, src, 0, start, end - start);
+    juce::AudioBuffer<float> out(src.getNumChannels(), end - start);
+    for (int ch = 0; ch < src.getNumChannels(); ++ch)
+        out.copyFrom(ch, 0, src, ch, start, end - start);
     publish(track, makeEdited(track, out), true);
 }
 
@@ -1122,7 +1176,7 @@ void CargoHold::reverse(int track, int start, int end)
     if (! validRange(track, start, end))
         return;
     juce::AudioBuffer<float> out(m_tracks[static_cast<size_t>(track)].current->audio);
-    out.reverse(0, start, end - start);
+    out.reverse(start, end - start);
     publish(track, makeEdited(track, out), true);
 }
 
@@ -1134,7 +1188,7 @@ void CargoHold::normalise(int track, int start, int end)
     const float peak = out.getMagnitude(0, start, end - start);
     if (peak < 1.0e-6f)
         return;
-    out.applyGain(0, start, end - start, juce::Decibels::decibelsToGain(-1.0f) / peak);
+    out.applyGain(start, end - start, juce::Decibels::decibelsToGain(-1.0f) / peak); // the side signal with it
     publish(track, makeEdited(track, out), true);
 }
 
@@ -1143,13 +1197,16 @@ void CargoHold::fade(int track, int start, int end, bool fadeIn)
     if (! validRange(track, start, end))
         return;
     juce::AudioBuffer<float> out(m_tracks[static_cast<size_t>(track)].current->audio);
-    float* d = out.getWritePointer(0);
     const int len = end - start;
-    for (int i = 0; i < len; ++i)
+    for (int ch = 0; ch < out.getNumChannels(); ++ch)
     {
-        const float t = static_cast<float>(i) / static_cast<float>(juce::jmax(1, len - 1));
-        const float g = std::sin(0.5f * juce::MathConstants<float>::pi * (fadeIn ? t : 1.0f - t));
-        d[start + i] *= g * g;
+        float* d = out.getWritePointer(ch);
+        for (int i = 0; i < len; ++i)
+        {
+            const float t = static_cast<float>(i) / static_cast<float>(juce::jmax(1, len - 1));
+            const float g = std::sin(0.5f * juce::MathConstants<float>::pi * (fadeIn ? t : 1.0f - t));
+            d[start + i] *= g * g;
+        }
     }
     publish(track, makeEdited(track, out), true);
 }
@@ -1331,34 +1388,45 @@ juce::ValueTree CargoHold::toValueTree() const
                 cache = Encoded {};
                 // FLAC keeps the saved session small. Integer FLAC clips at full scale, so audio that goes over
                 // 0 dBFS (float sources) is stored scaled down with its gain; raw floats if FLAC refuses the rate.
-                const float peak = d->audio.getMagnitude(0, 0, d->length());
-                const double gain = peak > 1.0f ? static_cast<double>(peak) : 1.0;
-                juce::FlacAudioFormat flac;
-                auto* stream = new juce::MemoryOutputStream(cache.block, false);
-                std::unique_ptr<juce::AudioFormatWriter> writer(
-                    flac.createWriterFor(stream, d->sampleRate, 1, 24, {}, 0));
-                if (writer != nullptr)
+                // The mono sum and the side signal (when there is one) are stored apart, each on its own, so the
+                // mono sum reads back the same from a session with a side signal as from one without.
+                auto encode = [&d](int channel, juce::MemoryBlock& block, bool& raw, double& storedGain)
                 {
-                    if (gain > 1.0)
+                    const float peak = d->audio.getMagnitude(channel, 0, d->length());
+                    const double gain = peak > 1.0f ? static_cast<double>(peak) : 1.0;
+                    float* samples = const_cast<float*>(d->audio.getReadPointer(channel)); // read only (see below)
+                    const juce::AudioBuffer<float> one(&samples, 1, d->length());
+                    juce::FlacAudioFormat flac;
+                    auto* stream = new juce::MemoryOutputStream(block, false);
+                    std::unique_ptr<juce::AudioFormatWriter> writer(
+                        flac.createWriterFor(stream, d->sampleRate, 1, 24, {}, 0));
+                    if (writer != nullptr)
                     {
-                        juce::AudioBuffer<float> scaled(d->audio);
-                        scaled.applyGain(static_cast<float>(1.0 / gain));
-                        writer->writeFromAudioSampleBuffer(scaled, 0, d->length());
+                        if (gain > 1.0)
+                        {
+                            juce::AudioBuffer<float> scaled;
+                            scaled.makeCopyOf(one);
+                            scaled.applyGain(static_cast<float>(1.0 / gain));
+                            writer->writeFromAudioSampleBuffer(scaled, 0, d->length());
+                        }
+                        else
+                        {
+                            writer->writeFromAudioSampleBuffer(one, 0, d->length());
+                        }
+                        writer.reset();
+                        storedGain = gain;
                     }
                     else
                     {
-                        writer->writeFromAudioSampleBuffer(d->audio, 0, d->length());
+                        delete stream;
+                        block.reset();
+                        block.append(samples, sizeof(float) * static_cast<size_t>(d->length()));
+                        raw = true;
                     }
-                    writer.reset();
-                    cache.gain = gain;
-                }
-                else
-                {
-                    delete stream;
-                    cache.block.reset();
-                    cache.block.append(d->audio.getReadPointer(0), sizeof(float) * static_cast<size_t>(d->length()));
-                    cache.raw = true;
-                }
+                };
+                encode(0, cache.block, cache.raw, cache.gain);
+                if (d->hasSide())
+                    encode(1, cache.sideBlock, cache.sideRaw, cache.sideGain);
                 cache.source = d;
             }
 
@@ -1369,6 +1437,12 @@ juce::ValueTree CargoHold::toValueTree() const
                 node.setProperty("flac", juce::var(cache.block), nullptr);
                 if (cache.gain > 1.0)
                     node.setProperty("flacGain", cache.gain, nullptr);
+            }
+            if (! cache.sideBlock.isEmpty())
+            {
+                node.setProperty(cache.sideRaw ? "sideRaw" : "sideFlac", juce::var(cache.sideBlock), nullptr);
+                if (! cache.sideRaw && cache.sideGain > 1.0)
+                    node.setProperty("sideGain", cache.sideGain, nullptr);
             }
         }
         tree.appendChild(node, nullptr);
@@ -1536,6 +1610,40 @@ void CargoHold::fromValueTree(const juce::ValueTree& tree)
             const int len = static_cast<int>(raw->getSize() / sizeof(float));
             d->audio.setSize(1, len);
             std::memcpy(d->audio.getWritePointer(0), raw->getData(), sizeof(float) * static_cast<size_t>(len));
+        }
+
+        // The side signal of a stereo sound (sessions without one, and older ones, have the mono sum alone).
+        if (d != nullptr && d->length() > 0)
+        {
+            const int len = d->length();
+            juce::AudioBuffer<float> side;
+            if (auto* sideFlac = node.getProperty("sideFlac").getBinaryData())
+            {
+                juce::FlacAudioFormat format;
+                std::unique_ptr<juce::AudioFormatReader> reader(
+                    format.createReaderFor(new juce::MemoryInputStream(*sideFlac, false), true));
+                if (reader != nullptr && reader->lengthInSamples == static_cast<juce::int64>(len))
+                {
+                    side.setSize(1, len);
+                    reader->read(&side, 0, len, 0, true, false);
+                    const double gain = node.getProperty("sideGain", 1.0);
+                    if (gain > 1.0)
+                        side.applyGain(static_cast<float>(gain));
+                }
+            }
+            else if (auto* sideRaw = node.getProperty("sideRaw").getBinaryData())
+            {
+                if (sideRaw->getSize() == sizeof(float) * static_cast<size_t>(len))
+                {
+                    side.setSize(1, len);
+                    std::memcpy(side.getWritePointer(0), sideRaw->getData(), sideRaw->getSize());
+                }
+            }
+            if (side.getNumSamples() == len)
+            {
+                d->audio.setSize(2, len, true);
+                d->audio.copyFrom(1, 0, side, 0, 0, len);
+            }
         }
 
         if (d != nullptr)
@@ -1784,6 +1892,24 @@ float CargoPlayer::readAt(const CargoData& d, const MipRead& r, double pos, int 
     return before + (now - before) * (static_cast<float>(sampleInChunk + 1) / static_cast<float>(r.fade));
 }
 
+float CargoPlayer::readSideBandLimited(const CargoData& d, int level, double pos, double inc)
+{
+    if (level <= 0 || level > CargoData::c_numMips || d.sideMips[static_cast<size_t>(level - 1)].empty())
+        return sincRead(d.audio.getReadPointer(1), d.length(), pos, stretchFor(inc));
+    const auto& mip = d.sideMips[static_cast<size_t>(level - 1)];
+    const double scale = 1.0 / static_cast<double>(1 << level);
+    return sincRead(mip.data(), static_cast<int>(mip.size()), pos * scale, stretchFor(inc * scale));
+}
+
+float CargoPlayer::readSideAt(const CargoData& d, const MipRead& r, double pos, int sampleInChunk)
+{
+    const float now = readSideBandLimited(d, r.level, pos, r.inc);
+    if (sampleInChunk >= r.fade)
+        return now;
+    const float before = readSideBandLimited(d, r.from, pos, r.inc);
+    return before + (now - before) * (static_cast<float>(sampleInChunk + 1) / static_cast<float>(r.fade));
+}
+
 float CargoPlayer::getPlayhead(int head) const
 {
     return m_lastPlayhead[head];
@@ -1791,7 +1917,7 @@ float CargoPlayer::getPlayhead(int head) const
 
 //==============================================================================
 void CargoPlayer::render(const CargoData* data, CargoRole role, bool skipSilence, float rate, float chaos, sj::Random& rng,
-                         float fadeSeconds, const CargoCue& cue, float* out, int frames)
+                         float fadeSeconds, const CargoCue& cue, float* out, int frames, float* sideOut)
 {
     if (role == CargoRole::Rumble)
         rate = std::sqrt(juce::jmax(0.01f, rate)); // follows PITCH at half strength
@@ -1816,6 +1942,8 @@ void CargoPlayer::render(const CargoData* data, CargoRole role, bool skipSilence
     }
 
     std::fill(out, out + frames, 0.0f);
+    if (sideOut != nullptr)
+        std::fill(sideOut, sideOut + frames, 0.0f);
 
     const int skipNow = skipSilence ? 1 : 0;
     if (m_lastSkip != skipNow)
@@ -1843,11 +1971,13 @@ void CargoPlayer::render(const CargoData* data, CargoRole role, bool skipSilence
 
     const CargoData& d = *m_data;
     const bool oneShot = isOneShotRole(role);
+    if (! d.hasSide())
+        sideOut = nullptr; // nothing to add: it stays silent
 
     // Loop behaviours (also run while fading out after a switch to a one-shot role).
-    renderLoop(d, role, skipSilence, rate, chaos, rng, fadeSeconds, cue.active && ! oneShot, out, frames);
+    renderLoop(d, role, skipSilence, rate, chaos, rng, fadeSeconds, cue.active && ! oneShot, out, frames, sideOut);
     // One-shots (also run while tails finish after a switch to a loop role).
-    renderShots(d, role, skipSilence, rate, chaos, rng, fadeSeconds, cue, oneShot, out, frames);
+    renderShots(d, role, skipSilence, rate, chaos, rng, fadeSeconds, cue, oneShot, out, frames, sideOut);
 
     const float switchStep = 1.0f / 256.0f;
     for (int i = 0; i < frames; ++i)
@@ -1865,6 +1995,8 @@ void CargoPlayer::render(const CargoData* data, CargoRole role, bool skipSilence
                 m_loopLevel = 0.0f;
                 resetShots();
                 std::fill(out + i, out + frames, 0.0f);
+                if (sideOut != nullptr)
+                    std::fill(sideOut + i, sideOut + frames, 0.0f);
                 m_lastPlayhead[0] = m_lastPlayhead[1] = -1.0f;
                 return; // continue with the new data next chunk
             }
@@ -1874,6 +2006,8 @@ void CargoPlayer::render(const CargoData* data, CargoRole role, bool skipSilence
             m_switchGain = juce::jmin(1.0f, m_switchGain + switchStep);
         }
         out[i] *= d.autoGain * m_switchGain;
+        if (sideOut != nullptr)
+            sideOut[i] *= d.autoGain * m_switchGain;
     }
 
     // Playheads for the UI: the loop heads first, then the newest playing one-shots.
@@ -1905,7 +2039,7 @@ void CargoPlayer::render(const CargoData* data, CargoRole role, bool skipSilence
 
 //==============================================================================
 void CargoPlayer::renderLoop(const CargoData& d, CargoRole role, bool skipSilence, float rate, float chaos, sj::Random& rng,
-                             float fadeSeconds, bool cue, float* out, int frames)
+                             float fadeSeconds, bool cue, float* out, int frames, float* sideOut)
 {
     const bool loopRole = ! isOneShotRole(role);
     const bool cycles = role == CargoRole::Bed || role == CargoRole::Rumble; // move on at region ends, ignore whooshes
@@ -2023,6 +2157,8 @@ void CargoPlayer::renderLoop(const CargoData& d, CargoRole role, bool skipSilenc
             const float gNew = std::sin(0.5f * sj::c_pi * t);
             const float gOld = std::cos(0.5f * sj::c_pi * t);
             value = gNew * readAt(d, mip, now.pos, i) + gOld * readAt(d, mip, old.pos, i);
+            if (sideOut != nullptr)
+                sideOut[i] += (gNew * readSideAt(d, mip, now.pos, i) + gOld * readSideAt(d, mip, old.pos, i)) * smooth(m_loopLevel);
             old.pos += inc;
             if (--m_xfadeLeft == 0)
                 old.active = false;
@@ -2030,6 +2166,8 @@ void CargoPlayer::renderLoop(const CargoData& d, CargoRole role, bool skipSilenc
         else
         {
             value = readAt(d, mip, now.pos, i);
+            if (sideOut != nullptr)
+                sideOut[i] += readSideAt(d, mip, now.pos, i) * smooth(m_loopLevel);
         }
         now.pos += inc;
 
@@ -2130,7 +2268,7 @@ void CargoPlayer::fadeOlderShots(int age, float fadeOutSamples)
 }
 
 void CargoPlayer::renderShots(const CargoData& d, CargoRole role, bool skipSilence, float rate, float chaos, sj::Random& rng,
-                              float fadeSeconds, const CargoCue& cue, bool acceptCue, float* out, int frames)
+                              float fadeSeconds, const CargoCue& cue, bool acceptCue, float* out, int frames, float* sideOut)
 {
     if (acceptCue && cue.active)
         cueShot(d, role, skipSilence, rate, chaos, rng, fadeSeconds, cue);
@@ -2182,6 +2320,8 @@ void CargoPlayer::renderShots(const CargoData& d, CargoRole role, bool skipSilen
             }
 
             out[i] += smooth(s.level) * smooth(endGain) * readAt(d, mip, s.pos, i);
+            if (sideOut != nullptr)
+                sideOut[i] += smooth(s.level) * smooth(endGain) * readSideAt(d, mip, s.pos, i);
             s.pos += inc;
         }
     }

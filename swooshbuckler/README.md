@@ -122,7 +122,8 @@ This is where your sounds live: up to ten files, each on its own looping lane.
 - Drag audio files onto the drop zone, or anywhere in the window, or click the drop zone to browse. You can pick several files at once.
 - Each file takes the next empty track. Drop a file onto a lane that already has a sound to replace it.
 - Swooshbuckler reads WAV, AIFF, FLAC, OGG and MP3, and on macOS also CAF and M4A.
-- Files are folded to mono and play at their own sample rate. Only the first 10 minutes of a file are loaded; when a longer file is cut, the status line says so ("Loaded the first 10:00 of 23:41").
+- Every sound plays from its mono sum, which is what a doppler pass needs: one point that moves. A stereo file whose two sides differ also keeps its stereo width, for beds on bus B (see [Stereo beds](#stereo-beds)); a stereo file with the same sound on both sides is stored as mono. Files with more channels (up to 7.1.4) are mixed down to stereo first. A stereo sound takes about twice the memory of a mono one: roughly 45 MB a minute at 48 kHz, against 22 MB.
+- Files play at their own sample rate. Only the first 10 minutes of a file are loaded; when a longer file is cut, the status line says so ("Loaded the first 10:00 of 23:41").
 - The status line accounts for every file you add: how many went in, how many didn't fit (ten tracks at most), and any that couldn't be read.
 - Each track gets an automatic loudness trim, so quiet and loud files sit at similar levels before the fader. A peaky sound, such as a hit or a click, is only lifted until its peak reaches full scale, never past it.
 - Sounds stay clean when they play faster than they were recorded: pitched up (by Pitch or a track's Semitones), or a 96 kHz file in a 48 kHz session. Anything pushed above the top of the audible range is filtered out instead of folding back down as harsh, off-pitch tones. A sound playing at its own speed is untouched.
@@ -255,6 +256,16 @@ Notes glide from one pitch to the next, so playing never clicks. Each track foll
 Each bus turns its tracks into a moving source: it runs two doppler passes, half a pass apart, and each one flies across the stereo field. **PASS**, the menu in each bus's title bar, sets how the two follow each other: overlapped into a steady level (Bed) or one at a time (Fly-By). In order, the chain is: doppler passes (with Width and Bend), then Low End, Swirl, Filter and Drive, then the ducking. A pass that comes in fast plays the sound up to twice as fast, and it stays clean: whatever that pushes above the top of the audible range is filtered out instead of folding back down as whistles.
 
 Low End, Swirl and Filter move with the sound: they follow the bus's level against its own recent peak, which with AUTO RIDE on is mostly the ride's swells. The stiller the faders are (AUTO RIDE off, a low Energy, or Swell held), the more they follow how close the nearer pass is instead, so the colours keep moving with the passes you see on the sea when the level doesn't.
+
+#### Stereo beds
+
+A wide ambience should stay wide. When a stereo sound plays on **Bus B** with **PASS** set to **Bed**, the bus keeps its stereo width: each pass carries the sound's left and right, not just its mono sum.
+
+- **Doppler** decides how much of the width is heard. At 0% the bed is as wide as the file; as Doppler rises it folds in towards the moving point, and at 100% it is the same single point a mono file gives.
+- **Width** scales it too: at 0% everything sits in the middle, mono. A pass that has travelled far to one side narrows on its way out, so the bed is never wider than its source.
+- Low End, Swirl, Filter and Drive work on the mono sum, as they do for every sound; the width is added back after them at a matching level.
+- Bus A, the hits, thrown whooshes and Fly-By passes always play the mono sum: a fly-by is one point going past. So do a track with **VARI** off and a sound that is being morphed.
+- Mono files, and sessions saved before, play exactly as they did. A session stores the extra stereo information only for the sounds that have it.
 
 Bus A ("growls, tones, crackle, rumble - and the key for B") is the aggressive bus. Bus B ("air and beds, ducked and filtered by A") sits under it.
 

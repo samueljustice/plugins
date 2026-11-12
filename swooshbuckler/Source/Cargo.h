@@ -23,6 +23,10 @@
  *    skipped without any quick hopping. CHAOS shuffles which sound comes next.
  *  - A loudness trim (auto gain) computed from the regions levels every track.
  *
+ * Stereo: every sound is played from its mono sum (what the doppler passes, the hits and the analysis use). A file
+ * whose two sides differ also keeps their difference (CargoData::hasSide), which only a bus playing a wide bed
+ * asks its player for.
+ *
  * Threading: CargoHold lives on the message thread. Every edit builds a new
  * immutable CargoData and publishes a raw pointer through an atomic. Replaced
  * data is kept alive (undo history / a timed graveyard) long after the audio
@@ -86,7 +90,11 @@ struct CargoContours
 
 struct CargoData
 {
-    juce::AudioBuffer<float> audio; // mono
+    /** Channel 0 is the mono sum: all that the regions, the analysis and every mono reader look at. A stereo source
+        whose sides differ has a channel 1 as well: the side signal, (left - right) / 2, so left = mono + side and
+        right = mono - side. It follows channel 0 through every edit and doubles the memory the sound takes. */
+    juce::AudioBuffer<float> audio;
+    bool hasSide() const { return audio.getNumChannels() > 1; }
     double sampleRate = 48000.0;
     std::vector<CargoRegion> regions;
     float autoGain = 1.0f;
@@ -110,6 +118,7 @@ struct CargoData
      */
     static constexpr int c_numMips = 4;
     std::array<std::vector<float>, c_numMips> mips;
+    std::array<std::vector<float>, c_numMips> sideMips; // the same for the side signal (empty without one)
 
     /**
      * The contours (see CargoContours), made the first time something asks for them and kept for as long as this
@@ -255,6 +264,10 @@ public:
 
     /** Any channel layout (mono .. 7.1.4) to the mono carrier: BS.775 stereo downmix, gain safe, phase safe. */
     static juce::AudioBuffer<float> foldToMono(const juce::AudioBuffer<float>& multi, const juce::AudioChannelSet& layout);
+    /** The same carrier in channel 0 and, when the stereo downmix has two sides that differ, their difference in
+        channel 1 (see CargoData::audio). One channel for a mono source, for two sides that are the same (under
+        -60 dB of difference) and for sides that cancel (the carrier is then the louder side alone). */
+    static juce::AudioBuffer<float> foldToMidSide(const juce::AudioBuffer<float>& multi, const juce::AudioChannelSet& layout);
     void clear(int track);
 
     // Editing. Ranges are in samples; all operations are undoable.
@@ -383,6 +396,9 @@ private:
         juce::MemoryBlock block;
         bool raw = false;
         double gain = 1.0;   // FLAC stores audio / gain when the peak is over full scale
+        juce::MemoryBlock sideBlock; // the side signal, the same way (empty without one)
+        bool sideRaw = false;
+        double sideGain = 1.0;
     };
     mutable std::array<Encoded, c_numTracks> m_encoded;
     mutable juce::CriticalSection m_encodeLock;
@@ -422,9 +438,12 @@ public:
      *  rate        : playback speed multiplier (pitch).
      *  fadeSeconds : crossfade / tail length (tied to the whoosh length by the engine).
      *  cue         : set on the chunk in which a new whoosh started (see CargoCue).
+     *  sideOut     : null, or where the side signal of what `out` plays goes (overwritten; zeros when the sound
+     *                has none): the same heads, fades and gain, so out + sideOut is the left and out - sideOut
+     *                the right of the source. `out` is the same whether it is asked for or not.
      */
     void render(const CargoData* data, CargoRole role, bool skipSilence, float rate, float chaos, sj::Random& rng,
-                float fadeSeconds, const CargoCue& cue, float* out, int frames);
+                float fadeSeconds, const CargoCue& cue, float* out, int frames, float* sideOut = nullptr);
 
     float getPlayhead(int head) const;
 
@@ -472,6 +491,8 @@ private:
     };
     static MipRead beginRead(MipState& state, const CargoData& d, double inc, int frames);
     static float readAt(const CargoData& d, const MipRead& r, double pos, int sampleInChunk);
+    static float readSideAt(const CargoData& d, const MipRead& r, double pos, int sampleInChunk);
+    static float readSideBandLimited(const CargoData& d, int level, double pos, double inc);
 
 public:
     /** One band-limited sample of `d` at source position `pos`, for a read speed of `inc` source samples per
@@ -514,9 +535,9 @@ private:
     static constexpr int c_numShots = 4;
 
     void renderLoop(const CargoData& d, CargoRole role, bool skipSilence, float rate, float chaos, sj::Random& rng,
-                    float fadeSeconds, bool cue, float* out, int frames);
+                    float fadeSeconds, bool cue, float* out, int frames, float* sideOut);
     void renderShots(const CargoData& d, CargoRole role, bool skipSilence, float rate, float chaos, sj::Random& rng,
-                     float fadeSeconds, const CargoCue& cue, bool acceptCue, float* out, int frames);
+                     float fadeSeconds, const CargoCue& cue, bool acceptCue, float* out, int frames, float* sideOut);
     void cueShot(const CargoData& d, CargoRole role, bool skipSilence, float rate, float chaos, sj::Random& rng,
                  float fadeSeconds, const CargoCue& cue);
     void resetShots();

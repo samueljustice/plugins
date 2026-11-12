@@ -4,6 +4,8 @@
 namespace
 {
     constexpr float c_lineSeconds = 4.6f;
+    constexpr size_t c_sideBus = 1;           // the bus that keeps a stereo bed wide (bus B)
+    constexpr float c_sideFadeSeconds = 0.015f; // a track's side signal coming in or going out
     constexpr float c_maxPassDelay = 4.0f;
     constexpr float c_earOffset = 0.09f / 343.0f;
     constexpr float c_baseDelay = 0.002f;
@@ -163,6 +165,8 @@ void RigEngine::prepare(double sampleRate, int maxBlockSize)
         auto* bus = &b;
         bus->line.prepare(static_cast<int>(c_lineSeconds * m_fs));
         bus->throwLine.prepare(static_cast<int>(c_lineSeconds * m_fs));
+        if (bus == &m_buses[c_sideBus])
+            bus->sideLine.prepare(static_cast<int>(c_lineSeconds * m_fs));
         bus->flL.prepare(static_cast<int>(0.02f * m_fs));
         bus->flR.prepare(static_cast<int>(0.02f * m_fs));
         bus->lowA.set(130.0f, 0.7071f, m_fs);
@@ -219,6 +223,7 @@ void RigEngine::reset()
     for (auto& l : m_fillLines) l.reset();
     m_gain.fill(0.0f);
     m_throwGain.fill(0.0f);
+    m_sideGain.fill(0.0f);
     m_throwOpen = 0.0f;
     for (auto& v : m_throws) v = ThrowVoice {};
     for (auto& q : m_throwQueue) q = QueuedThrow {};
@@ -235,6 +240,11 @@ void RigEngine::reset()
         auto& bus = m_buses[i];
         bus.line.reset();
         bus.throwLine.reset();
+        bus.sideLine.reset();
+        bus.sideHold = 0;
+        bus.sideAmount = 0.0f;
+        bus.sidePre = bus.sidePost = 0.0f;
+        bus.sideMatch = 1.0f;
         bus.flL.reset();
         bus.flR.reset();
         bus.env = 0.0f;
@@ -339,6 +349,7 @@ void RigEngine::letGoOfCargo()
         p.reset();
     m_gain.fill(0.0f);
     m_throwGain.fill(0.0f);
+    m_sideGain.fill(0.0f);
     if (m_cargo != nullptr)
         for (int t = 0; t < c_tracks; ++t)
             m_cargo->markInUse(t, nullptr, nullptr);
@@ -358,7 +369,7 @@ void RigEngine::reseedNow()
     {
         for (auto* f : { &bus.lowA, &bus.lowB, &bus.lowHp, &bus.subA, &bus.subB, &bus.harm, &bus.shelfL, &bus.shelfR, &bus.fL, &bus.fR, &bus.keyL, &bus.keyR })
             f->reset();
-        for (auto& h : bus.heads) { h.airL.reset(); h.airR.reset(); }
+        for (auto& h : bus.heads) { h.airL.reset(); h.airR.reset(); h.airSL.reset(); h.airSR.reset(); }
         for (auto& a : bus.phL) a = {};
         for (auto& a : bus.phR) a = {};
         bus.phFbL = bus.phFbR = bus.lfo = bus.flFbL = bus.flFbR = 0.0f;
@@ -611,6 +622,7 @@ void RigEngine::renderTracks(int frames)
     {
         std::fill(bus.in.begin(), bus.in.begin() + frames, 0.0f);
         std::fill(bus.throwIn.begin(), bus.throwIn.begin() + frames, 0.0f);
+        std::fill(bus.sideIn.begin(), bus.sideIn.begin() + frames, 0.0f);
     }
     std::fill(m_hitsIn.begin(), m_hitsIn.begin() + frames, 0.0f);
     const int numBuses = c_maxBuses;
@@ -655,6 +667,7 @@ void RigEngine::renderTracks(int frames)
     const float chaos = m_params.chaos;
     const float baseHz = ::Params::rideHz(m_params.rate);
     const float invFrames = 1.0f / static_cast<float>(frames);
+    const float morphMixBefore = m_morphMixNow;
     const float morphMix = sj::clamp(m_morphMix.step(seconds), 0.0f, 1.0f);
     m_morphMixNow = morphMix;
 
@@ -1009,6 +1022,7 @@ void RigEngine::renderTracks(int frames)
         {
             m_gain[ti] = 0.0f;
             m_throwGain[ti] = 0.0f;
+            m_sideGain[ti] = 0.0f;
             if (m_shifterUsed[ti]) // emptied while VARI was off: drop the old sound still inside the shifter (once)
             {
                 m_shifters[ti].reset(std::exp2(m_trackPitchNow[ti] / 12.0f), static_cast<float>(t) / static_cast<float>(c_tracks));
@@ -1046,6 +1060,15 @@ void RigEngine::renderTracks(int frames)
         m_players[ti].setStart(m_cargo != nullptr ? m_cargo->getStart(t) : 0.0f);
         const float rate = pitchRatio * (vari ? ownRatio : 1.0f);
         const bool syncedHit = timing != 0 && m_cargo != nullptr && m_cargo->getBus(t) == CargoHold::c_hitsBus;
+        // A stereo sound on bus B: its side signal is played along with it (see the bus, which decides how much of
+        // it is heard). Not through the pitch shifter: with VARI off the track plays its mono sum.
+        const int bus = m_cargo != nullptr ? m_cargo->getBus(t) : 0;
+        const bool wantSide = data != nullptr && data->hasSide() && bus == static_cast<int>(c_sideBus) && vari;
+        const float sideGain0 = m_sideGain[ti];
+        const float sideGain1 = wantSide ? std::min(1.0f, sideGain0 + seconds / c_sideFadeSeconds)
+                                         : std::max(0.0f, sideGain0 - seconds / c_sideFadeSeconds);
+        m_sideGain[ti] = sideGain1;
+        float* const sideOut = (sideGain0 > 0.0f || sideGain1 > 0.0f) && ! syncedHit ? m_sideScratch.data() : nullptr;
         if (syncedHit)
         {
             CargoCue cue = hitCue;
@@ -1054,7 +1077,7 @@ void RigEngine::renderTracks(int frames)
             m_players[ti].render(data, CargoRole::Impact, skip, rate, chaos, m_rng, 0.15f, cue, m_trackScratch.data(), frames);
         }
         else
-            m_players[ti].render(data, CargoRole::Bed, skip, rate, chaos, m_rng, 0.6f, CargoCue {}, m_trackScratch.data(), frames);
+            m_players[ti].render(data, CargoRole::Bed, skip, rate, chaos, m_rng, 0.6f, CargoCue {}, m_trackScratch.data(), frames, sideOut);
         if (! vari)
         {
             m_shifters[ti].process(m_trackScratch.data(), m_trackScratch.data(), frames, ownRatio);
@@ -1073,7 +1096,6 @@ void RigEngine::renderTracks(int frames)
         auto& line = m_fillLines[ti];
         // Routed by type, or to the bus chosen by hand: hits go to the hit gate, the rest to bus A or B. A track
         // on a morph rope goes to its side's tap instead (see below); the fades are those of a rope being changed.
-        const int bus = m_cargo != nullptr ? m_cargo->getBus(t) : 0;
         float* dest = busInput(bus);
         float rope0 = 1.0f, rope1 = 1.0f;
         for (size_t side = 0; side < 2; ++side)
@@ -1121,6 +1143,21 @@ void RigEngine::renderTracks(int frames)
             const float dry = x * (modeGain0 + (modeGain1 - modeGain0) * frac) * g * variGain;
             line.push(dry + 0.3f * delayed);
             dest[i] += (dry + fillAmount * delayed) * (rope0 + (rope1 - rope0) * frac);
+        }
+        if (sideOut != nullptr)
+        {
+            // The side signal takes the track's fader, ride and fades (not the Fill echoes), and goes as the morph
+            // comes in over this track's sound (its own rope, or bus B as a whole): a morph has no sides.
+            const bool morphed = rope[0] == t || rope[1] == t || rope[1] < 0;
+            const float keep0 = morphed ? 1.0f - morphMixBefore : 1.0f, keep1 = morphed ? 1.0f - morphMix : 1.0f;
+            float* sideDest = m_buses[c_sideBus].sideIn.data();
+            for (int i = 0; i < frames; ++i)
+            {
+                const float frac = static_cast<float>(i + 1) * invFrames;
+                sideDest[i] += m_sideScratch[static_cast<size_t>(i)] * (modeGain0 + (modeGain1 - modeGain0) * frac)
+                               * (g0 + (target - g0) * frac) * variGain * (rope0 + (rope1 - rope0) * frac)
+                               * (sideGain0 + (sideGain1 - sideGain0) * frac) * (keep0 + (keep1 - keep0) * frac);
+            }
         }
         m_gain[ti] = target;
     }
@@ -1221,6 +1258,39 @@ void RigEngine::renderBus(BusState& bus, int frames, float key, bool isKeyBus,
         bus.line.push(bus.in[static_cast<size_t>(i)]);
     for (int i = 0; i < frames; ++i)
         bus.throwLine.push(bus.throwIn[static_cast<size_t>(i)]);
+    // Stereo beds: the side signals of this bus's stereo tracks go down a line of their own, and the two passes
+    // read it where they read the mono sum, ear by ear, so each pass is the stereo sound itself, moved: its left
+    // is the mono sum plus the side signal, its right the mono sum minus it. Heard by Width x (1 - Doppler), in Bed
+    // mode only (wide while the passes are gentle, folding into the moving point as Doppler rises), and less the
+    // further a pass is to one side: the amount is the most that leaves left and right no more apart than they are
+    // in the file, so a pass panned hard over is a point and nothing is ever wider than its source. Nothing here
+    // runs unless the line holds sound.
+    bool sideHeard = false;
+    const float sideAmount0 = bus.sideAmount;
+    float sideAmount1 = 0.0f;
+    if (busIndex == c_sideBus)
+    {
+        bool any = false;
+        for (int i = 0; i < frames; ++i)
+        {
+            const float x = bus.sideIn[static_cast<size_t>(i)];
+            bus.sideLine.push(x);
+            any = any || x != 0.0f;
+        }
+        bus.sideHold = any ? bus.sideLine.maxDelay() : std::max(0, bus.sideHold - frames);
+        if (bus.sideHold > 0)
+        {
+            sideAmount1 = p.width * (1.0f - p.doppler);
+            sideHeard = (sideAmount0 > 0.0f || sideAmount1 > 0.0f) && (shape0 < 1.0f || shape1 < 1.0f);
+        }
+        bus.sideAmount = sideAmount1;
+        if (sideHeard)
+        {
+            std::fill(bus.sideL.begin(), bus.sideL.begin() + frames, 0.0f);
+            std::fill(bus.sideR.begin(), bus.sideR.begin() + frames, 0.0f);
+        }
+    }
+    const float sideAmountStep = (sideAmount1 - sideAmount0) / static_cast<float>(frames);
     if (busIndex == 0)
     {
         m_throwDoppler = p.doppler;
@@ -1259,6 +1329,11 @@ void RigEngine::renderBus(BusState& bus, int frames, float key, bool isKeyBus,
             auto shadowed = [cutoff](float away) { return std::max(std::min(cutoff, c_shadowFloor), cutoff * std::exp2(-c_shadowOctaves * std::max(0.0f, away))); };
             h.airL.set(shadowed(az), fs);
             h.airR.set(shadowed(-az), fs);
+            if (sideHeard)
+            {
+                h.airSL.set(shadowed(az), fs);
+                h.airSR.set(shadowed(-az), fs);
+            }
         }
 
         double t0 = leadTime, len0 = leadLength; // the first head's clock again, sample by sample (second head only)
@@ -1344,8 +1419,18 @@ void RigEngine::renderBus(BusState& bus, int frames, float key, bool isKeyBus,
                 proximity = std::max(proximity, window * (0.1f + 0.9f * std::sqrt(std::min(nearness, 1.0f))));
             const float theta = (0.95f * az + 1.0f) * (sj::c_pi * 0.25f);
 
-            bus.l[static_cast<size_t>(i)] += h.airL.lowpass(l) * gain * std::cos(theta) * 1.41421356f;
-            bus.r[static_cast<size_t>(i)] += h.airR.lowpass(r) * gain * std::sin(theta) * 1.41421356f;
+            const float panL = std::cos(theta), panR = std::sin(theta);
+            bus.l[static_cast<size_t>(i)] += h.airL.lowpass(l) * gain * panL * 1.41421356f;
+            bus.r[static_cast<size_t>(i)] += h.airR.lowpass(r) * gain * panR * 1.41421356f;
+            if (sideHeard)
+            {
+                const float amount = (sideAmount0 + sideAmountStep * static_cast<float>(i + 1)) * (1.0f - shapeNow)
+                                     * std::sqrt(std::max(0.0f, 2.0f * panL * panR)); // 1 in the middle, 0 hard over
+                const float sl = bus.sideLine.readSinc((base + ear) * m_sampleRate + back, stretch, kernel);
+                const float sr = bus.sideLine.readSinc((base - ear) * m_sampleRate + back, stretch, kernel);
+                bus.sideL[static_cast<size_t>(i)] += h.airSL.lowpass(sl) * gain * amount;
+                bus.sideR[static_cast<size_t>(i)] -= h.airSR.lowpass(sr) * gain * amount;
+            }
 
             if (k == 0)
                 h.time += dt;
@@ -1422,6 +1507,12 @@ void RigEngine::renderBus(BusState& bus, int frames, float key, bool isKeyBus,
         h.view = passWindow(h.age, 1.0f) * level;
         h.x = h.dir * std::tanh(5.0f * (h.age - 0.5f));
     }
+
+    // Stereo beds: what goes into the colour chain, to match the side signal to what comes out of it.
+    float sidePreSq = 0.0f;
+    if (sideHeard)
+        for (int i = 0; i < frames; ++i)
+            sidePreSq += bus.l[static_cast<size_t>(i)] * bus.l[static_cast<size_t>(i)] + bus.r[static_cast<size_t>(i)] * bus.r[static_cast<size_t>(i)];
 
     // Level tracking for the low-end lift and the views.
     float chunkPeak = 0.0f;
@@ -1652,6 +1743,32 @@ void RigEngine::renderBus(BusState& bus, int frames, float key, bool isKeyBus,
     {
         bus.drivePre = bus.drivePost = 0.0f;
         bus.driveGain = 1.0f;
+    }
+
+    // Stereo beds: the side signal comes back in here, past the colours (they work on the mono sum's passes), as
+    // loud against the bus as it went in.
+    if (sideHeard)
+    {
+        float postSq = 0.0f;
+        for (int i = 0; i < frames; ++i)
+            postSq += bus.l[static_cast<size_t>(i)] * bus.l[static_cast<size_t>(i)] + bus.r[static_cast<size_t>(i)] * bus.r[static_cast<size_t>(i)];
+        const float c = 1.0f - std::exp(-static_cast<float>(frames) / (0.3f * fs));
+        bus.sidePre += (sidePreSq / static_cast<float>(frames) - bus.sidePre) * c;
+        bus.sidePost += (postSq / static_cast<float>(frames) - bus.sidePost) * c;
+        const float want = bus.sidePre > 1.0e-10f ? sj::clamp(std::sqrt(bus.sidePost / bus.sidePre), 0.25f, 2.0f) : 1.0f;
+        const float g0 = bus.sideMatch;
+        bus.sideMatch += (want - bus.sideMatch) * glide(frames, 0.05f, fs);
+        for (int i = 0; i < frames; ++i)
+        {
+            const float g = g0 + (bus.sideMatch - g0) * static_cast<float>(i + 1) / static_cast<float>(frames);
+            bus.l[static_cast<size_t>(i)] += g * bus.sideL[static_cast<size_t>(i)];
+            bus.r[static_cast<size_t>(i)] += g * bus.sideR[static_cast<size_t>(i)];
+        }
+    }
+    else
+    {
+        bus.sidePre = bus.sidePost = 0.0f;
+        bus.sideMatch = 1.0f;
     }
 }
 

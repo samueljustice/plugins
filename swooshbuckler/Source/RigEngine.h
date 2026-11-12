@@ -26,6 +26,11 @@
  *                 other) -> low end (sub octave, overtones, lift at the loudest point) -> swirl (phaser + flanger)
  *                 -> envelope filter -> drive. Low end, swirl and filter follow the bus's level and, the stiller
  *                 the faders are, how near the pass is.
+ *   stereo beds:  a stereo sound on bus B keeps its width while B's Pass Mode is Bed: its side signal
+ *                 (CargoData::hasSide) rides with the track and flies the same two passes (the same delays at
+ *                 each ear), plus on the left and minus on the right, by Width x (1 - Doppler) and by how near
+ *                 the middle the pass is (a pass far to one side is a point). It skips the colour chain and is
+ *                 added back after it, level-matched to what the chain did. Everything else plays the mono sum.
  *   side-chains:  A ducks B, and A's level low-passes B
  *   hit sync:     optional: every hit track fires its next sound on a shared beat, transients aligned
  *                 (the beat is as long as the longest hit, so none is cut short).
@@ -241,6 +246,7 @@ private:
         float machRef = 0.2f;  // that speed within the limits: the swell and the air filter follow it, whatever Bend is
         bool aimed = false;    // AIM has decided about this pass's peak
         sj::OnePole airL, airR;
+        sj::OnePole airSL, airSR; // the same air on a stereo bed's side signal, at each ear
         float view = 0.0f, x = 0.0f, age = 0.0f;
 
         /** How far through the pass (0..1, 0.5 = closest). */
@@ -297,6 +303,14 @@ private:
         };
         Duck byBus, byHits;
         std::array<float, c_chunk> l {}, r {}, in {};
+        // Stereo beds (bus B): the tracks' side signals, their own delay line for the passes to read, what the
+        // passes made of them this chunk, how many more samples the line still holds sound for, the amount it
+        // was mixed in at the end of the last chunk, and the level match across the colour chain.
+        sj::DelayLine sideLine;
+        std::array<float, c_chunk> sideIn {}, sideL {}, sideR {};
+        int sideHold = 0;
+        float sideAmount = 0.0f;
+        float sidePre = 0.0f, sidePost = 0.0f, sideMatch = 1.0f;
     };
 
     /** lenIn: how long the approach is, or < 0 to draw a whole new pass length (the first head of a bus). */
@@ -398,7 +412,8 @@ private:
     float m_masterRide = 0.0f, m_followMix = 0.0f;
     std::atomic<float> m_masterView { 0.0f };
     void glideMods(int frames);
-    std::array<float, c_chunk> m_trackScratch {};
+    std::array<float, c_chunk> m_trackScratch {}, m_sideScratch {};
+    std::array<float, c_tracks> m_sideGain {};      // each track's side signal into bus B (0..1, fades in and out)
     MorphInsert m_morph;
     sj::Spring m_morphMix;
 

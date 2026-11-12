@@ -1412,6 +1412,259 @@ int main(int argc, char* argv[])
         }
     }
 
+    // Stereo sources: a stereo file keeps its side signal, mono readers are untouched, and bus B plays a bed wide.
+    {
+        const int n = static_cast<int>(c_rate * 4.0);
+        juce::AudioBuffer<float> wide(2, n), mono(1, n);
+        {
+            // Two noises with nothing in common, most of their energy low (where the two ears hear a pass in step,
+            // so left against right says how wide the sound is and not how far apart the ears are).
+            juce::Random rl(11), rr(23);
+            float a = 0.0f, b = 0.0f;
+            for (int i = 0; i < n; ++i)
+            {
+                a += 0.05f * ((2.0f * rl.nextFloat() - 1.0f) - a);
+                b += 0.05f * ((2.0f * rr.nextFloat() - 1.0f) - b);
+                wide.setSample(0, i, 1.5f * a);
+                wide.setSample(1, i, 1.5f * b);
+            }
+        }
+        auto writeStereo = [&](const juce::String& name, const juce::AudioBuffer<float>& buffer)
+        {
+            auto file = folder.getChildFile(name);
+            file.deleteFile();
+            juce::WavAudioFormat wav;
+            std::unique_ptr<juce::AudioFormatWriter> writer(wav.createWriterFor(new juce::FileOutputStream(file), c_rate, 2, 24, {}, 0));
+            if (writer != nullptr)
+                writer->writeFromAudioSampleBuffer(buffer, 0, buffer.getNumSamples());
+            return file;
+        };
+        const auto stereoLayout = juce::AudioChannelSet::stereo();
+
+        // The fold.
+        const auto folded = CargoHold::foldToMidSide(wide, stereoLayout);
+        const auto carrier = CargoHold::foldToMono(wide, stereoLayout);
+        {
+            bool same = folded.getNumChannels() == 2 && carrier.getNumChannels() == 1;
+            double worst = 0.0;
+            for (int i = 0; same && i < n; ++i)
+            {
+                same = folded.getSample(0, i) == carrier.getSample(0, i);
+                worst = std::max({ worst, std::abs(static_cast<double>(folded.getSample(0, i) + folded.getSample(1, i) - wide.getSample(0, i))),
+                                   std::abs(static_cast<double>(folded.getSample(0, i) - folded.getSample(1, i) - wide.getSample(1, i))) });
+            }
+            check(same && worst < 1.0e-6, "stereo: the fold keeps the mono sum as it was and a side signal that gives left and right back (worst "
+                                              + juce::String(worst, 8) + ")");
+
+            juce::AudioBuffer<float> twin(2, n), flipped(2, n);
+            twin.copyFrom(0, 0, wide, 0, 0, n);
+            twin.copyFrom(1, 0, wide, 0, 0, n);
+            flipped.copyFrom(0, 0, wide, 0, 0, n);
+            flipped.copyFrom(1, 0, wide, 0, 0, n);
+            flipped.applyGain(1, 0, n, -1.0f);
+            const auto twinFold = CargoHold::foldToMidSide(twin, stereoLayout);
+            const auto flipFold = CargoHold::foldToMidSide(flipped, stereoLayout);
+            check(twinFold.getNumChannels() == 1, "stereo: a file with the same sound on both sides stays mono");
+            const float flipRms = flipFold.getRMSLevel(0, 0, n), sideRms = wide.getRMSLevel(0, 0, n);
+            check(flipFold.getNumChannels() == 1 && std::abs(flipRms - sideRms) < 0.01f * sideRms,
+                  "stereo: sides that cancel don't: the mono sum is one side at full level (" + juce::String(flipRms, 3) + " of "
+                      + juce::String(sideRms, 3) + ")");
+        }
+        const auto wideFile = writeStereo("stereo_wide.wav", wide);
+
+        // Loading, editing, saving. The mono file is the stereo one's mono sum exactly as it was loaded (float).
+        juce::String err;
+        CargoHold hold;
+        hold.loadFile(0, wideFile, err);
+        const auto loaded = hold.get(0);
+        if (loaded != nullptr)
+            mono.copyFrom(0, 0, loaded->audio, 0, 0, n);
+        const auto monoFile = writeMono(folder, "stereo_as_mono.wav", mono, c_rate, 32);
+        hold.loadFile(1, monoFile, err);
+        check(loaded != nullptr && loaded->hasSide() && loaded->length() == n && ! loaded->sideMips[0].empty()
+                  && hold.get(1) != nullptr && ! hold.get(1)->hasSide() && hold.get(1)->sideMips[0].empty(),
+              "stereo: a stereo file loads with its side signal, a mono file without");
+        {
+            bool sameMono = loaded != nullptr && hold.get(1) != nullptr && loaded->regions.size() == hold.get(1)->regions.size()
+                            && loaded->autoGain == hold.get(1)->autoGain;
+            for (int i = 0; sameMono && i < n; i += 7)
+                sameMono = loaded->audio.getSample(0, i) == hold.get(1)->audio.getSample(0, i);
+            check(sameMono, "stereo: its mono sum, regions and level are those of the same sound loaded as a mono file");
+        }
+        {
+            const auto tree = hold.toValueTree();
+            const auto node0 = tree.getChildWithProperty("index", 0), node1 = tree.getChildWithProperty("index", 1);
+            check(node0.hasProperty("sideFlac") && ! node1.hasProperty("sideFlac") && ! node1.hasProperty("sideRaw"),
+                  "stereo session: the side signal is saved only for a sound that has one");
+            CargoHold back;
+            back.fromValueTree(tree);
+            double worst = 1.0;
+            if (back.get(0) != nullptr && back.get(0)->hasSide() && back.get(0)->length() == n)
+            {
+                worst = 0.0;
+                for (int ch = 0; ch < 2; ++ch)
+                    for (int i = 0; i < n; ++i)
+                        worst = std::max(worst, std::abs(static_cast<double>(back.get(0)->audio.getSample(ch, i) - loaded->audio.getSample(ch, i))));
+            }
+            check(worst < 1.0e-6 && back.get(1) != nullptr && ! back.get(1)->hasSide(),
+                  "stereo session: both come back as they were (worst " + juce::String(worst, 8) + ")");
+
+            // A session written before there were side signals: the same tree without them.
+            auto older = tree.createCopy();
+            older.getChildWithProperty("index", 0).removeProperty("sideFlac", nullptr);
+            CargoHold old;
+            old.fromValueTree(older);
+            bool sameMono = old.get(0) != nullptr && ! old.get(0)->hasSide() && old.get(0)->length() == n;
+            for (int i = 0; sameMono && i < n; i += 5)
+                sameMono = old.get(0)->audio.getSample(0, i) == back.get(0)->audio.getSample(0, i);
+            check(sameMono, "stereo session: a session without side signals loads as mono, the same mono sum");
+        }
+        {
+            CargoHold edit;
+            edit.loadFile(0, wideFile, err);
+            edit.trim(0, n / 4, n / 2);
+            const bool trimmed = edit.get(0)->hasSide() && edit.get(0)->length() == n / 4
+                                 && edit.get(0)->audio.getSample(1, 10) == loaded->audio.getSample(1, n / 4 + 10);
+            edit.copy(0, 100, 600);
+            edit.paste(0, 0);
+            const bool pasted = edit.get(0)->hasSide() && edit.get(0)->length() == n / 4 + 500
+                                && edit.get(0)->audio.getSample(1, 20) == loaded->audio.getSample(1, n / 4 + 120);
+            edit.reverse(0, 0, edit.get(0)->length());
+            const bool reversed = edit.get(0)->audio.getSample(1, edit.get(0)->length() - 21) == loaded->audio.getSample(1, n / 4 + 120);
+            edit.loadFile(1, monoFile, err);
+            edit.paste(1, 0); // a stereo cut into a mono sound: it becomes stereo, the old part in the middle
+            const bool promoted = edit.get(1)->hasSide() && edit.get(1)->audio.getSample(1, 520) == 0.0f
+                                  && edit.get(1)->audio.getSample(1, 30) != 0.0f;
+            edit.undo(1);
+            check(trimmed && pasted && reversed && promoted && ! edit.get(1)->hasSide(),
+                  "stereo: edits carry the side signal with the sound (trim, copy and paste, reverse, undo)");
+        }
+
+        // The player: asking for the side signal changes nothing in what it plays.
+        {
+            auto renderPlayer = [&](bool withSide, std::vector<float>& sideOut)
+            {
+                CargoPlayer player;
+                player.prepare(c_rate);
+                sj::Random rng;
+                rng.seed(5);
+                std::vector<float> out(static_cast<size_t>(c_rate * 2.0)), side(out.size());
+                for (size_t pos = 0; pos + c_block <= out.size(); pos += c_block)
+                    player.render(loaded.get(), CargoRole::Bed, true, 1.26f, 0.4f, rng, 0.6f, CargoCue {}, out.data() + pos, c_block,
+                                  withSide ? side.data() + pos : nullptr);
+                sideOut = side;
+                return out;
+            };
+            std::vector<float> none, side;
+            const auto plain = renderPlayer(false, none);
+            const auto with = renderPlayer(true, side);
+            const double sideRms = rmsOf(side.data(), static_cast<int>(side.size())), outRms = rmsOf(with.data(), static_cast<int>(with.size()));
+            check(plain == with && sideRms > 0.5 * outRms && sideRms < 2.0 * outRms,
+                  "stereo player: the mono sum is the same sample for sample, with the side signal beside it at its level");
+        }
+
+        // The engine. One track, the ride held still, no Space: left against right over 8 s.
+        struct Heard
+        {
+            std::vector<float> l, r;
+            double correlation = 0.0, monoRms = 0.0;
+        };
+        auto renderRig = [&](const juce::File& file, int bus, float doppler, float width, int passMode, bool colours)
+        {
+            CargoHold h;
+            juce::String e;
+            h.loadFile(0, file, e);
+            h.setBusOverride(0, bus);
+            RigEngine engine;
+            engine.setCargoHold(&h);
+            RigEngine::Params q;
+            q.rideOn = false;
+            q.space = 0.0f;
+            q.fill = 0.0f;
+            for (auto& b : q.buses)
+            {
+                b.doppler = doppler;
+                b.width = width;
+                b.passMode = passMode;
+                b.duck = b.key = 0.0f;
+                if (! colours)
+                    b.low = b.swirl = b.filter = b.drive = 0.0f;
+            }
+            engine.setParams(q);
+            engine.prepare(c_rate, c_block);
+            engine.setParams(q);
+            Heard out;
+            const int total = static_cast<int>(c_rate * 8.0) / c_block * c_block;
+            out.l.resize(static_cast<size_t>(total));
+            out.r.resize(static_cast<size_t>(total));
+            for (int pos = 0; pos < total; pos += c_block)
+                engine.process(nullptr, nullptr, out.l.data() + pos, out.r.data() + pos, c_block);
+            double ll = 0.0, rr = 0.0, lr = 0.0, mm = 0.0;
+            for (int i = static_cast<int>(c_rate); i < total; ++i)
+            {
+                const double a = out.l[static_cast<size_t>(i)], b = out.r[static_cast<size_t>(i)];
+                ll += a * a; rr += b * b; lr += a * b;
+                mm += 0.25 * (a + b) * (a + b);
+            }
+            out.correlation = lr / std::sqrt(std::max(1.0e-30, ll * rr));
+            out.monoRms = std::sqrt(mm / (total - c_rate));
+            return out;
+        };
+        auto monoDifference = [](const Heard& a, const Heard& b) // of the two mono folds, against the first one's level
+        {
+            double diff = 0.0, ref = 0.0;
+            for (size_t i = 0; i < a.l.size(); ++i)
+            {
+                const double x = 0.5 * (a.l[i] + a.r[i]), y = 0.5 * (b.l[i] + b.r[i]);
+                diff += (x - y) * (x - y);
+                ref += x * x;
+            }
+            return 10.0 * std::log10(std::max(1.0e-30, diff) / std::max(1.0e-30, ref));
+        };
+
+        const auto bedWide = renderRig(wideFile, 1, 0.0f, 1.0f, 0, false);
+        const auto bedMono = renderRig(monoFile, 1, 0.0f, 1.0f, 0, false);
+        check(bedMono.correlation > 0.35 && bedWide.correlation < bedMono.correlation - 0.3 && bedWide.correlation > -0.1,
+              "stereo bed: on bus B at Doppler 0% it comes out wide (left against right " + juce::String(bedWide.correlation, 2)
+                  + ", the same sound as a mono file " + juce::String(bedMono.correlation, 2) + ")");
+        // Folded to mono, the mono file's sound is all there: what the fold adds is the little of the side signal
+        // that the time difference between the ears lets through while a pass is off centre.
+        const double folds = monoDifference(bedMono, bedWide);
+        check(folds < -6.0 && bedWide.monoRms > 0.98 * bedMono.monoRms && bedWide.monoRms < 1.15 * bedMono.monoRms,
+              "stereo bed: folded to mono nothing cancels (" + juce::String(bedWide.monoRms, 4) + " against the mono file's "
+                  + juce::String(bedMono.monoRms, 4) + ", difference " + juce::String(folds, 1) + " dB)");
+
+        const auto colouredWide = renderRig(wideFile, 1, 0.0f, 1.0f, 0, true);
+        const auto colouredMono = renderRig(monoFile, 1, 0.0f, 1.0f, 0, true);
+        check(colouredWide.correlation < colouredMono.correlation - 0.3 && colouredWide.correlation > -0.1
+                  && colouredWide.monoRms > 0.98 * colouredMono.monoRms,
+              "stereo bed: it stays wide through Low End, Swirl and Filter, and never goes out of phase ("
+                  + juce::String(colouredWide.correlation, 2) + " against " + juce::String(colouredMono.correlation, 2) + ")");
+
+        const auto halfWide = renderRig(wideFile, 1, 0.5f, 1.0f, 0, false);
+        const auto halfMono = renderRig(monoFile, 1, 0.5f, 1.0f, 0, false);
+        const auto fullWide = renderRig(wideFile, 1, 1.0f, 1.0f, 0, false);
+        const auto fullMono = renderRig(monoFile, 1, 1.0f, 1.0f, 0, false);
+        const double gap0 = bedMono.correlation - bedWide.correlation, gapHalf = halfMono.correlation - halfWide.correlation;
+        check(gapHalf > 0.05 && gapHalf < 0.75 * gap0 && fullWide.l == fullMono.l && fullWide.r == fullMono.r,
+              "stereo bed: it narrows as Doppler rises and is the moving point at 100% (narrower than the mono file by "
+                  + juce::String(gap0, 2) + " at 0%, " + juce::String(gapHalf, 2) + " at 50%, the same output at 100%)");
+
+        const auto narrowWide = renderRig(wideFile, 1, 0.0f, 0.0f, 0, false);
+        const auto narrowMono = renderRig(monoFile, 1, 0.0f, 0.0f, 0, false);
+        check(narrowWide.l == narrowMono.l && narrowWide.r == narrowMono.r, "stereo bed: Width 0% is mono");
+
+        const auto flyWide = renderRig(wideFile, 1, 0.0f, 1.0f, 1, false);
+        const auto flyMono = renderRig(monoFile, 1, 0.0f, 1.0f, 1, false);
+        const auto busAWide = renderRig(wideFile, 0, 0.0f, 1.0f, 0, true);
+        const auto busAMono = renderRig(monoFile, 0, 0.0f, 1.0f, 0, true);
+        const auto hitWide = renderRig(wideFile, CargoHold::c_hitsBus, 0.0f, 1.0f, 0, true);
+        const auto hitMono = renderRig(monoFile, CargoHold::c_hitsBus, 0.0f, 1.0f, 0, true);
+        check(flyWide.l == flyMono.l && flyWide.r == flyMono.r && busAWide.l == busAMono.l && busAWide.r == busAMono.r
+                  && hitWide.l == hitMono.l && hitWide.r == hitMono.r,
+              "stereo: Fly-By passes, bus A and the hits play the mono sum, sample for sample what the mono file gives");
+    }
+
     // Presets: every sample-track level is a session parameter; Cargo Run still exists.
     {
         bool allTracks = true;
