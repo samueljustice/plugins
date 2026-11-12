@@ -1,5 +1,6 @@
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
+#include "DemoSounds.h"
 #include "VariationRenderer.h"
 #include "Version.h"
 
@@ -81,6 +82,10 @@ SwooshbucklerAudioProcessor::SwooshbucklerAudioProcessor(juce::PropertiesFile* o
     m_raw.play = raw(ParamIDs::play);
     m_raw.keysMode = raw(ParamIDs::keysMode);
     m_followHost.store(canFollowHost());
+    for (auto& cc : m_ccOf)
+        cc.store(-1);
+    for (auto& v : m_ccValue)
+        v.store(-1.0f);
     MorphWander::prepareTables(); // the wander shapes, before the audio thread reads them
     for (int m = 0; m < ParamIDs::numMods; ++m)
     {
@@ -118,6 +123,15 @@ SwooshbucklerAudioProcessor::SwooshbucklerAudioProcessor(juce::PropertiesFile* o
         m_settings = m_ownSettings.get();
     }
     m_recorder.setRetroSeconds(getRetroMinutes() * 60);
+    // The learned MIDI controllers: "target:cc" pairs.
+    for (const auto& pair : juce::StringArray::fromTokens(m_settings->getValue("midiControls"), ",", ""))
+    {
+        const int target = pair.upToFirstOccurrenceOf(":", false, false).getIntValue();
+        const int cc = pair.fromFirstOccurrenceOf(":", false, false).getIntValue();
+        if (pair.containsChar(':') && target >= 0 && target < c_numCcTargets && cc >= 0 && cc < 128)
+            m_ccOf[static_cast<size_t>(target)].store(cc);
+    }
+    updateCcPump();
     startTimerHz(4);
 }
 
@@ -127,6 +141,7 @@ SwooshbucklerAudioProcessor::~SwooshbucklerAudioProcessor()
     m_cargo.onUndoableEdit = nullptr;
     m_history.reset();
     stopTimer();
+    m_ccPump.stopTimer();
     m_recorder.stop();
 }
 
@@ -654,6 +669,99 @@ void SwooshbucklerAudioProcessor::handleMidi(const juce::MidiMessage& msg, int o
     }
     else if (msg.isAllNotesOff() || msg.isAllSoundOff())
         m_keysDown = {};
+    else if (msg.isController())
+    {
+        // A learned controller: its position is left for the message thread, which moves the parameter.
+        const int cc = msg.getControllerNumber();
+        int learn = m_ccLearn.load(std::memory_order_relaxed);
+        if (learn >= 0 && learn < c_numCcTargets && m_ccLearn.compare_exchange_strong(learn, -1))
+        {
+            m_ccOf[static_cast<size_t>(learn)].store(cc, std::memory_order_relaxed);
+            m_ccLearned.store(learn, std::memory_order_relaxed);
+        }
+        const float value = static_cast<float>(msg.getControllerValue()) / 127.0f;
+        for (size_t t = 0; t < static_cast<size_t>(c_numCcTargets); ++t)
+            if (m_ccOf[t].load(std::memory_order_relaxed) == cc)
+                m_ccValue[t].store(value, std::memory_order_relaxed);
+    }
+}
+
+//==============================================================================
+// MIDI control
+juce::String SwooshbucklerAudioProcessor::midiTargetName(int target)
+{
+    return target == c_ccEnergy ? juce::String("Energy") : "Track " + juce::String(target + 1) + " Fader";
+}
+
+juce::RangedAudioParameter* SwooshbucklerAudioProcessor::midiTargetParameter(int target) const
+{
+    if (target < 0 || target >= c_numCcTargets)
+        return nullptr;
+    return m_state.getParameter(target == c_ccEnergy ? ParamIDs::energy : ParamIDs::cargoTrack[target]);
+}
+
+int SwooshbucklerAudioProcessor::getMidiControl(int target) const
+{
+    return target >= 0 && target < c_numCcTargets ? m_ccOf[static_cast<size_t>(target)].load(std::memory_order_relaxed) : -1;
+}
+
+void SwooshbucklerAudioProcessor::updateCcPump()
+{
+    bool wanted = m_ccLearn.load() >= 0;
+    for (const auto& cc : m_ccOf)
+        wanted = wanted || cc.load() >= 0;
+    if (wanted && ! m_offline)
+        m_ccPump.startTimerHz(60);
+    else
+        m_ccPump.stopTimer();
+}
+
+void SwooshbucklerAudioProcessor::learnMidiControl(int target)
+{
+    m_ccLearned.store(-1);
+    m_ccLearn.store(target >= 0 && target < c_numCcTargets ? target : -1);
+    updateCcPump();
+}
+
+void SwooshbucklerAudioProcessor::saveMidiControls()
+{
+    juce::StringArray pairs;
+    for (int t = 0; t < c_numCcTargets; ++t)
+        if (const int cc = getMidiControl(t); cc >= 0)
+            pairs.add(juce::String(t) + ":" + juce::String(cc));
+    if (m_settings != nullptr && ! m_offline)
+    {
+        m_settings->setValue("midiControls", pairs.joinIntoString(","));
+        m_settings->saveIfNeeded();
+    }
+    ++m_ccGeneration;
+}
+
+void SwooshbucklerAudioProcessor::setMidiControl(int target, int ccOrMinusOne)
+{
+    if (target < 0 || target >= c_numCcTargets)
+        return;
+    m_ccOf[static_cast<size_t>(target)].store(juce::jlimit(-1, 127, ccOrMinusOne));
+    m_ccValue[static_cast<size_t>(target)].store(-1.0f);
+    saveMidiControls();
+    updateCcPump();
+}
+
+int SwooshbucklerAudioProcessor::applyMidiControls()
+{
+    const int learned = m_ccLearned.exchange(-1);
+    if (learned >= 0)
+        saveMidiControls();
+    for (int t = 0; t < c_numCcTargets; ++t)
+    {
+        const float value = m_ccValue[static_cast<size_t>(t)].exchange(-1.0f, std::memory_order_relaxed);
+        if (value < 0.0f)
+            continue;
+        // Like host automation: the control moves, and it is not an undo step.
+        if (auto* param = midiTargetParameter(t); param != nullptr && std::abs(param->getValue() - value) > 1.0e-6f)
+            param->setValueNotifyingHost(value);
+    }
+    return learned;
 }
 
 void SwooshbucklerAudioProcessor::runWander(int numSamples)
@@ -945,6 +1053,25 @@ bool SwooshbucklerAudioProcessor::saveUserPreset(const juce::String& name, bool 
     written = file;
     currentPresetName = legal;
     return true;
+}
+
+//==============================================================================
+int SwooshbucklerAudioProcessor::loadDemoSounds()
+{
+    if (m_cargo.firstEmptyTrack() < 0)
+        return 0;
+    // One undo step for the four of them.
+    EditHistory::Group group(*m_history, "Load Demo Sounds");
+    int loaded = 0;
+    for (const auto& sound : DemoSounds::all())
+    {
+        const int track = m_cargo.firstEmptyTrack();
+        if (track < 0)
+            break;
+        if (m_cargo.loadBuffer(track, sound.audio, DemoSounds::c_sampleRate, sound.name))
+            ++loaded;
+    }
+    return loaded;
 }
 
 //==============================================================================

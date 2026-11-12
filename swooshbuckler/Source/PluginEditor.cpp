@@ -519,12 +519,46 @@ SwooshbucklerAudioProcessorEditor::AboutPanel::AboutPanel(SwooshbucklerAudioProc
         m_owner.toast("Version copied");
     };
     m_logo = std::make_unique<LogoOutline>(BinaryData::sjlogo_svg, static_cast<size_t>(BinaryData::sjlogo_svgSize));
+
+    // Licences: the third-party notices (THIRD-PARTY-NOTICES.md, built in), in place of the About text.
+    m_licences.setColour(juce::TextButton::buttonOnColourId, TC::flight);
+    m_licences.setWantsKeyboardFocus(false);
+    m_licences.setTooltip("Licences\nShows the notices and licences of what Swooshbuckler is built with: JUCE, the FLAC and Ogg Vorbis codecs, "
+                          "the plug-in format SDKs and the two typefaces. Click again to go back.");
+    m_licences.onClick = [this] { showNotices(! m_notices.isVisible()); };
+    addAndMakeVisible(m_licences);
+    m_notices.setMultiLine(true, true);
+    m_notices.setReadOnly(true);
+    m_notices.setScrollbarsShown(true);
+    m_notices.setCaretVisible(false);
+    m_notices.setFont(m_owner.m_fonts->body(12.5f));
+    m_notices.setColour(juce::TextEditor::backgroundColourId, TC::scope);
+    m_notices.setColour(juce::TextEditor::textColourId, TC::text);
+    m_notices.setColour(juce::TextEditor::outlineColourId, TC::outline);
+    m_notices.setColour(juce::TextEditor::focusedOutlineColourId, TC::outline);
+    // The file is Markdown: shown as plain text, without the heading marks.
+    auto lines = juce::StringArray::fromLines(juce::String::fromUTF8(BinaryData::THIRDPARTYNOTICES_md, BinaryData::THIRDPARTYNOTICES_mdSize));
+    for (auto& line : lines)
+        if (line.startsWithChar('#'))
+            line = line.trimCharactersAtStart("#").trimStart();
+    m_notices.setText(lines.joinIntoString("\n"), false);
+    addChildComponent(m_notices);
+}
+
+void SwooshbucklerAudioProcessorEditor::AboutPanel::showNotices(bool show)
+{
+    m_notices.setVisible(show);
+    m_licences.setButtonText(show ? "About" : "Licences");
+    if (show)
+        m_notices.setCaretPosition(0);
+    repaint();
 }
 
 void SwooshbucklerAudioProcessorEditor::AboutPanel::visibilityChanged()
 {
     if (isVisible())
     {
+        showNotices(false);
         m_shownAt = juce::Time::getMillisecondCounterHiRes() * 0.001;
         startTimerHz(30);
     }
@@ -549,7 +583,10 @@ void SwooshbucklerAudioProcessorEditor::AboutPanel::resized()
     bottom.removeFromRight(8);
     m_website.setBounds(bottom.removeFromRight(100));
     m_copy.setBounds(bottom.removeFromLeft(130));
+    bottom.removeFromLeft(8);
+    m_licences.setBounds(bottom.removeFromLeft(100));
     r.removeFromBottom(14);
+    m_notices.setBounds(r.withTrimmedTop(4));
     m_logoArea = r.removeFromLeft(190).withSizeKeepingCentre(190, 190).withY(r.getY() + 6);
     r.removeFromLeft(24);
     m_textArea = r;
@@ -560,6 +597,8 @@ void SwooshbucklerAudioProcessorEditor::AboutPanel::paint(juce::Graphics& g)
     const auto& f = *m_owner.m_fonts;
     g.fillAll(TC::background.withAlpha(0.8f));
     SwooshLookAndFeel::drawPanel(g, m_panel.toFloat(), "About", "the rig, its makers and its version", TC::flight, f);
+    if (m_notices.isVisible())
+        return; // the licences cover the rest
 
     // The Sweet Justice logo, traced by its comets.
     if (m_logo != nullptr && m_logo->isLoaded())
@@ -662,7 +701,7 @@ SwooshbucklerAudioProcessorEditor::SwooshbucklerAudioProcessorEditor(Swooshbuckl
     m_dice.setTooltip("Randomise\nRolls a random but musical setting for the ride, the buses, the hits and the space, and glides to it. "
                       "Only the knobs it rolls move: every other control stays where you set it, and so do your tracks, their levels and the output. "
                       "A section with its lock on is left out. Keep rolling until you hear something you like; the arrows beside it go back "
-                      "through the last 20 rolls, and the star keeps one as a preset.");
+                      "through the last 20 rolls, and the star keeps one as a preset. The R key rolls too.");
     m_dice.onClick = [this] { rollDice(-1); };
 
     for (auto* b : { &m_undoButton, &m_redoButton, &m_rollBack, &m_rollForward, &m_keepRoll })
@@ -720,9 +759,9 @@ SwooshbucklerAudioProcessorEditor::SwooshbucklerAudioProcessorEditor(Swooshbuckl
         }
     }
     m_content.addAndMakeVisible(m_tape);
-    m_tape.setTooltip("Tape\nArm it and it records whenever there is sound, skipping the quiet stretches, into one long file of usable whooshes. Click again to stop and close the file. Pass peaks and hits are marked in WAV files, so a take arrives ready to spot. Where it saves, in which format, Skip Silence (off for one continuous take) and One File Per Whoosh (a separate file for each) are in SETTINGS; what it has saved is in Takes.");
+    m_tape.setTooltip("Tape\nArm it and it records whenever there is sound, skipping the quiet stretches, into one long file of usable whooshes. Click again to stop and close the file. Pass peaks and hits are marked in WAV files, so a take arrives ready to spot. Where it saves, in which format, Skip Silence (off for one continuous take) and One File Per Whoosh (a separate file for each) are in SETTINGS; what it has saved is in Takes. The T key arms and stops it too.");
     m_tape.onClick = [this] { toggleLog(); };
-    m_retroButton.setTooltip("Last 60 Seconds\nThe rig always remembers the last minute. Click to save it to a file, even if the tape wasn't armed: for the happy accident you didn't record. Keep the Last in SETTINGS makes it 3 or 5 minutes.");
+    m_retroButton.setTooltip("Last 60 Seconds\nThe rig always remembers the last minute. Click to save it to a file, even if the tape wasn't armed: for the happy accident you didn't record. Keep the Last in SETTINGS makes it 3 or 5 minutes. The L key saves it too.");
     m_takesButton.setTooltip("Takes\nThe recordings of this run, newest first, with how many there are: tape takes, whoosh files and LAST 60s saves. "
                              "Open it to hear them, drag them out to the Finder / Explorer or into your DAW, keep or delete them.");
     m_takesButton.onClick = [this] { showTakes(); };
@@ -731,7 +770,7 @@ SwooshbucklerAudioProcessorEditor::SwooshbucklerAudioProcessorEditor(Swooshbuckl
                                   "While a batch renders, this button shows how far it is.");
     m_variationsButton.onClick = [this] { showVariations(); };
     m_playButton.setColour(juce::TextButton::buttonOnColourId, TC::good);
-    m_playButton.setTooltip("Play / Stop\nStarts and stops the whole rig. Stop lets the tail ring out. The app always opens stopped, so nothing blasts out when you load a session. In a DAW it can be automated, and with Follow Host on the transport starts and stops it too.");
+    m_playButton.setTooltip("Play / Stop\nStarts and stops the whole rig; the Return key does the same. Stop lets the tail ring out. The app always opens stopped, so nothing blasts out when you load a session. In a DAW it can be automated, and with Follow Host on the transport starts and stops it too.");
     m_playButton.onClick = [this] { m_processor.setPlaying(! m_processor.isPlaying()); };
     m_newButton.setTooltip("New Session\nStops, empties every track and puts every control back to its default. Undo (Cmd+Z) brings all of it back in one step: the tracks, the settings and the wires.");
     m_newButton.onClick = [this]
@@ -1019,7 +1058,9 @@ SwooshbucklerAudioProcessorEditor::SwooshbucklerAudioProcessorEditor(Swooshbuckl
     m_trim.setWantsKeyboardFocus(false);
     m_trim.setTooltip("Master Trim\nHow loud you hear it (and what your DAW gets from the plug-in), from silence up to the limiter's level, after the limiter. "
                       "The tape and LAST 60s record before it, at full level, so turning it down never makes a quieter take.\n"
-                      "Drag it. Double-click to reset it to 0 dB.");
+                      "Drag it. Double-click to reset it to 0 dB. Right-click (or Alt-double-click) to type a value.");
+    m_trim.setTypedParameter(p.getState().getParameter(ParamIDs::masterTrim), *m_fonts);
+    m_trim.minTypingWidth = 54; // the fader is narrower than "-12.0 dB"
     m_content.addAndMakeVisible(m_trim);
     m_trimAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(p.getState(), ParamIDs::masterTrim, m_trim);
 
@@ -1116,14 +1157,25 @@ WheelKnob& SwooshbucklerAudioProcessorEditor::addKnob(const char* paramId, const
     auto knob = std::make_unique<WheelKnob>(*m_fonts, accent);
     knob->caption = caption;
     // Heading (the caption, unless the tip brings its own), what it does, then how to handle it.
+    const juce::String id(paramId);
+    // Energy can follow a MIDI controller, so its right-click is a menu (with typing a value in it).
+    const bool learnable = id == ParamIDs::energy;
     knob->setTooltip((tip.containsChar('\n') ? tip : caption + "\n" + tip)
-                     + "\nDouble-click to reset it. Drag a MOD jack onto it to modulate it.");
+                     + "\nDouble-click to reset it. "
+                     + (learnable ? "Right-click to type a value or to choose Learn MIDI CC, so a knob on a MIDI controller moves it; Alt-double-click types a value too. "
+                                  : "Right-click (or Alt-double-click) to type a value. ")
+                     + "Drag a MOD jack onto it to modulate it.");
     m_content.addAndMakeVisible(*knob);
     m_attachments.push_back(std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(m_processor.getState(), paramId, *knob));
     if (auto* param = m_processor.getState().getParameter(paramId))
+    {
         knob->setDoubleClickReturnValue(true, param->convertFrom0to1(param->getDefaultValue()));
-    const juce::String id(paramId);
+        knob->setTypedParameter(param, *m_fonts);
+    }
     knob->onDragStart = [this, id] { m_morph.cancel(id); };
+    knob->onTypedValue = [this, id] { m_morph.cancel(id); };
+    if (learnable)
+        knob->onContextMenu = [this, k = knob.get()] { m_hold.showControlMenu(SwooshbucklerAudioProcessor::c_ccEnergy, *k); };
     m_controls[id] = knob.get();
     m_knobs.push_back(std::move(knob));
     return *m_knobs.back();
@@ -1501,10 +1553,24 @@ bool SwooshbucklerAudioProcessorEditor::keyPressed(const juce::KeyPress& key)
         }
         return true;
     }
-    if ((key.getKeyCode() == 'f' || key.getKeyCode() == 'F') && ! key.getModifiers().isAnyModifierKeyDown())
+    // The single keys: never while something is being typed, and not through a panel that is open over the rig.
+    const bool typing = dynamic_cast<juce::TextEditor*>(juce::Component::getCurrentlyFocusedComponent()) != nullptr;
+    const bool panelOpen = m_settings.isVisible() || m_about.isVisible() || m_takes.isVisible() || m_variations.isVisible() || m_updatePopup.isVisible();
+    if (! typing && ! panelOpen && ! key.getModifiers().isAnyModifierKeyDown())
     {
-        m_processor.throwWhoosh(); // F: throw one whoosh
-        return true;
+        if (key == juce::KeyPress::returnKey)
+        {
+            m_processor.setPlaying(! m_processor.isPlaying()); // Return: Play / Stop
+            return true;
+        }
+        switch (juce::CharacterFunctions::toLowerCase(static_cast<juce::juce_wchar>(key.getKeyCode())))
+        {
+            case 'f': m_processor.throwWhoosh(); return true;  // F: throw one whoosh
+            case 'r': rollDice(-1); return true;               // R: Randomise
+            case 't': toggleLog(); return true;                // T: arm / stop the tape
+            case 'l': saveRetro(); return true;                // L: save the last minute(s)
+            default: break;
+        }
     }
     // Undo and redo, wherever the focus is in the window (a text box keeps its own).
     if (key.getModifiers().isCommandDown() && ! key.getModifiers().isAltDown())

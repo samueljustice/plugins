@@ -99,6 +99,7 @@ target_sources(Swooshbuckler
     Source/VariationRenderer.cpp
     Source/VariationsView.cpp
     Source/UserPresets.cpp
+    Source/DemoSounds.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/../common/SammyJUpdateCheck.cpp
 )
 
@@ -124,6 +125,7 @@ juce_add_binary_data(SwooshbucklerBinaryData
     Resources/Fonts/IBMPlexSansCondensed-Medium.ttf
     Resources/Fonts/IBMPlexSansCondensed-SemiBold.ttf
     Resources/sj-logo.svg
+    THIRD-PARTY-NOTICES.md   # shown by Licences in About
 )
 
 juce_generate_juce_header(Swooshbuckler)
@@ -132,7 +134,6 @@ target_link_libraries(Swooshbuckler
     PRIVATE
     juce::juce_audio_utils
     juce::juce_dsp
-    juce::juce_opengl
     SwooshbucklerBinaryData
     PUBLIC
     juce::juce_recommended_config_flags
@@ -232,6 +233,14 @@ if(SWOOSHBUCKLER_TESTS)
     target_include_directories(SwooshbucklerRouting PRIVATE Source ${CMAKE_CURRENT_BINARY_DIR}/Swooshbuckler_artefacts/JuceLibraryCode $<TARGET_PROPERTY:Swooshbuckler,INCLUDE_DIRECTORIES>)
     target_compile_definitions(SwooshbucklerRouting PRIVATE $<TARGET_PROPERTY:Swooshbuckler,COMPILE_DEFINITIONS>)
     target_link_libraries(SwooshbucklerRouting PRIVATE Swooshbuckler)
+
+    # First-run test: the demo sounds (typed right from their audio, one undo step, Play makes sound), typed
+    # values against every knob's readout, MIDI controllers learned and kept, and file names cut in the middle.
+    juce_add_console_app(SwooshbucklerFirstRun PRODUCT_NAME "SwooshbucklerFirstRun")
+    target_sources(SwooshbucklerFirstRun PRIVATE Tests/FirstRunTest.cpp)
+    target_include_directories(SwooshbucklerFirstRun PRIVATE Source ${CMAKE_CURRENT_BINARY_DIR}/Swooshbuckler_artefacts/JuceLibraryCode $<TARGET_PROPERTY:Swooshbuckler,INCLUDE_DIRECTORIES>)
+    target_compile_definitions(SwooshbucklerFirstRun PRIVATE $<TARGET_PROPERTY:Swooshbuckler,COMPILE_DEFINITIONS>)
+    target_link_libraries(SwooshbucklerFirstRun PRIVATE Swooshbuckler)
 endif()
 
 # Artwork tools (off by default): renders Resources/icon.png. See tools/IconRender.cpp.

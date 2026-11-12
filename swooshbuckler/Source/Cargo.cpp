@@ -955,12 +955,28 @@ bool CargoHold::loadFile(int track, const juce::File& file, juce::String& error)
     juce::AudioBuffer<float> multi(channels, length);
     reader->read(&multi, 0, length, 0, true, true);
 
+    const double wholeSeconds = reader->lengthInSamples > static_cast<juce::int64>(length) // only the beginning fitted: say so
+                                    ? static_cast<double>(reader->lengthInSamples) / fileRate : 0.0;
+    install(track, multi, reader->getChannelLayout(), fileRate, file.getFileNameWithoutExtension(), wholeSeconds);
+    return true;
+}
+
+bool CargoHold::loadBuffer(int track, const juce::AudioBuffer<float>& audio, double sampleRate, const juce::String& name)
+{
+    if (track < 0 || track >= c_numTracks || audio.getNumSamples() <= 0 || audio.getNumChannels() <= 0 || sampleRate <= 0.0)
+        return false;
+    install(track, audio, audio.getNumChannels() == 1 ? juce::AudioChannelSet::mono() : juce::AudioChannelSet::stereo(), sampleRate, name, 0.0);
+    return true;
+}
+
+void CargoHold::install(int track, const juce::AudioBuffer<float>& multi, const juce::AudioChannelSet& layout, double sampleRate,
+                        const juce::String& name, double sourceSeconds)
+{
     auto d = std::make_shared<CargoData>();
-    d->sampleRate = fileRate; // kept: played at its own rate
-    d->name = file.getFileNameWithoutExtension();
-    d->audio = foldToMidSide(multi, reader->getChannelLayout());
-    if (reader->lengthInSamples > static_cast<juce::int64>(length)) // only the beginning fitted: say so
-        d->sourceSeconds = static_cast<double>(reader->lengthInSamples) / fileRate;
+    d->sampleRate = sampleRate; // kept: played at its own rate
+    d->name = name;
+    d->audio = foldToMidSide(multi, layout);
+    d->sourceSeconds = sourceSeconds;
 
     d->analyse();
     classify(*d, d->name);
@@ -978,7 +994,6 @@ bool CargoHold::loadFile(int track, const juce::File& file, juce::String& error)
     m_start[static_cast<size_t>(track)] = 0.0f;
 
     publish(track, std::move(d), true, before); // the lane stays: still the Master, still roped, if it was
-    return true;
 }
 
 juce::String CargoHold::getLoadNote(int track) const

@@ -21,6 +21,9 @@
  * The ship. Laid out once at a fixed design size inside a content component
  * that is scaled uniformly, so the window can be resized without reflowing.
  *
+ * Keys (never while a text box is being typed in): Return = Play / Stop, R = Randomise, T = arm / stop the tape,
+ * L = save the last minute(s), F = Throw, Space = Swell (held), Cmd/Ctrl+Z and Shift+Cmd/Ctrl+Z = Undo / Redo.
+ *
  * One screen, in signal order (the whoosh rig):
  *
  *   header : title | play, new, undo, redo | presets, A / B | randomise, its history, keep | tape | last 60 s | variations | takes | settings
@@ -140,7 +143,9 @@ private:
     private:
         void timerCallback() override { repaint(m_logoArea); }
         SwooshbucklerAudioProcessorEditor& m_owner;
-        juce::TextButton m_close { "CLOSE" }, m_website { "WEBSITE" }, m_copy { "COPY VERSION" };
+        void showNotices(bool show);
+        juce::TextButton m_close { "CLOSE" }, m_website { "WEBSITE" }, m_copy { "COPY VERSION" }, m_licences { "Licences" };
+        juce::TextEditor m_notices; // the third-party notices, shown in place of the About text
         std::unique_ptr<LogoOutline> m_logo;
         double m_shownAt = 0.0;
         juce::Rectangle<int> m_panel, m_logoArea, m_textArea;
@@ -253,7 +258,7 @@ private:
     std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> m_tremOnAttachment;
     juce::Rectangle<int> m_tremGroup; // the framed PEAK TREMOLO group at the left of the Output panel
     std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> m_tremShapeAttachment, m_tremTargetAttachment;
-    juce::Slider m_trim;
+    ValueSlider m_trim;
     std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> m_trimAttachment;
     juce::Rectangle<int> m_trimLabel;
     std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> m_syncAttachment;

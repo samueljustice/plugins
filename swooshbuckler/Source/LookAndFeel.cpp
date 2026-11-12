@@ -1,4 +1,5 @@
 #include "LookAndFeel.h"
+#include "TypedValue.h"
 
 namespace TC = Theme::Colours;
 
@@ -413,6 +414,165 @@ float WheelKnob::getDialRadius() const
     return juce::jmin(bounds.getWidth(), bounds.getHeight()) * 0.5f - 2.0f;
 }
 
+//==============================================================================
+ValueSlider::ValueSlider() = default;
+ValueSlider::~ValueSlider() = default;
+
+void ValueSlider::setTypedParameter(juce::RangedAudioParameter* parameter, const Theme::Fonts& fonts)
+{
+    m_typedParameter = parameter;
+    m_typedFonts = &fonts;
+}
+
+bool ValueSlider::isTyping() const { return m_typing != nullptr && m_typing->isVisible(); }
+
+void ValueSlider::beginTyping()
+{
+    if (m_typedParameter == nullptr || m_typedFonts == nullptr || ! isEnabled())
+        return;
+    if (m_typing == nullptr)
+    {
+        m_typing = std::make_unique<juce::TextEditor>();
+        m_typing->setColour(juce::TextEditor::backgroundColourId, TC::scope);
+        m_typing->setColour(juce::TextEditor::textColourId, TC::text);
+        m_typing->setColour(juce::TextEditor::highlightColourId, TC::flight.withAlpha(0.35f));
+        m_typing->setColour(juce::TextEditor::outlineColourId, TC::outline);
+        m_typing->setColour(juce::TextEditor::focusedOutlineColourId, TC::flight);
+        m_typing->setJustification(juce::Justification::centred);
+        m_typing->setBorder(juce::BorderSize<int>(1));
+        m_typing->setIndents(2, 0);
+        m_typing->setSelectAllWhenFocused(true);
+        m_typing->onReturnKey = [this] { endTyping(true, true); };
+        m_typing->onEscapeKey = [this] { endTyping(false, true); };
+        m_typing->onFocusLost = [this] { endTyping(false, false); }; // clicked away: whatever was clicked keeps the keys
+    }
+    // The box lives in this control's parent, so it can be wider than a narrow control (a vertical fader).
+    auto* parent = getParentComponent();
+    if (parent == nullptr)
+        return;
+    if (m_typing->getParentComponent() != parent)
+        parent->addChildComponent(*m_typing);
+    placeTyping();
+    const auto bounds = m_typing->getBounds();
+    // The readout's own size, a little smaller in a low box so the text never touches its edges.
+    m_typing->applyFontToAllText(m_typedFonts->label(bounds.getHeight() < 18 ? 10.5f : 11.5f));
+    m_typing->setText(m_typedParameter->getText(m_typedParameter->getValue(), 0), false);
+    m_typing->setVisible(true);
+    m_typing->toFront(false);
+    m_typing->grabKeyboardFocus();
+    m_typing->selectAll();
+}
+
+void ValueSlider::endTyping(bool keep, bool takeKeysBack)
+{
+    if (! isTyping())
+        return;
+    const auto text = m_typing->getText();
+    m_typing->setVisible(false); // first: hiding it loses the focus, which comes back here
+    if (keep && m_typedParameter != nullptr)
+    {
+        auto* param = m_typedParameter;
+        const float value = TypedValue::toNormalised([param](float n) { return param->getText(n, 0); }, text, param->getValue());
+        if (value >= 0.0f)
+        {
+            if (onTypedValue)
+                onTypedValue();
+            // One gesture, so it is one undo step.
+            param->beginChangeGesture();
+            param->setValueNotifyingHost(juce::jlimit(0.0f, 1.0f, value));
+            param->endChangeGesture();
+        }
+    }
+    // The keys go back to the window (its shortcuts), not to nothing.
+    if (takeKeysBack)
+        if (auto* window = findParentComponentOfClass<juce::AudioProcessorEditor>())
+            window->grabKeyboardFocus();
+}
+
+juce::Rectangle<int> ValueSlider::typingBounds() const
+{
+    // Over the control; a tall one (a vertical fader) gets a box across its middle.
+    auto r = getLocalBounds();
+    if (r.getHeight() > 30)
+        r = r.withSizeKeepingCentre(r.getWidth(), 20);
+    return r;
+}
+
+void ValueSlider::placeTyping()
+{
+    if (m_typing == nullptr)
+        return;
+    auto r = typingBounds();
+    if (r.getWidth() < minTypingWidth)
+        r = r.withSizeKeepingCentre(minTypingWidth, r.getHeight());
+    m_typing->setBounds(r + getPosition());
+}
+
+void ValueSlider::resized()
+{
+    juce::Slider::resized();
+    if (isTyping())
+        placeTyping();
+}
+
+void ValueSlider::moved()
+{
+    juce::Slider::moved();
+    if (isTyping())
+        placeTyping();
+}
+
+void ValueSlider::mouseDown(const juce::MouseEvent& e)
+{
+    // A right-click: the control's menu, or the box to type a value into. Alt belongs to typing too (an
+    // Alt-double-click opens the box), so an Alt-click never moves the control.
+    m_swallowMouse = false;
+    if (e.mods.isPopupMenu())
+    {
+        m_swallowMouse = true;
+        if (onContextMenu)
+            onContextMenu();
+        else
+            beginTyping();
+        return;
+    }
+    if (e.mods.isAltDown() && m_typedParameter != nullptr)
+    {
+        m_swallowMouse = true;
+        return;
+    }
+    juce::Slider::mouseDown(e);
+}
+
+void ValueSlider::mouseDrag(const juce::MouseEvent& e)
+{
+    if (! m_swallowMouse)
+        juce::Slider::mouseDrag(e);
+}
+
+void ValueSlider::mouseUp(const juce::MouseEvent& e)
+{
+    if (std::exchange(m_swallowMouse, false))
+        return;
+    juce::Slider::mouseUp(e);
+}
+
+void ValueSlider::mouseDoubleClick(const juce::MouseEvent& e)
+{
+    if (e.mods.isAltDown() && m_typedParameter != nullptr)
+    {
+        beginTyping();
+        return;
+    }
+    if (! e.mods.isPopupMenu())
+        juce::Slider::mouseDoubleClick(e);
+}
+
+juce::Rectangle<int> WheelKnob::typingBounds() const
+{
+    return getLocalBounds().removeFromBottom(26).reduced(2, 3);
+}
+
 void ModTarget::setModLive(float normalised)
 {
     if (std::abs(normalised - m_modLive) < 0.002f)
@@ -430,7 +590,7 @@ void ModTarget::mouseDown(const juce::MouseEvent& e)
         onModDepthGesture(e, 0);
         return;
     }
-    juce::Slider::mouseDown(e);
+    ValueSlider::mouseDown(e);
 }
 
 void ModTarget::mouseDrag(const juce::MouseEvent& e)
@@ -440,7 +600,7 @@ void ModTarget::mouseDrag(const juce::MouseEvent& e)
         onModDepthGesture(e, 1);
         return;
     }
-    juce::Slider::mouseDrag(e);
+    ValueSlider::mouseDrag(e);
 }
 
 void ModTarget::mouseUp(const juce::MouseEvent& e)
@@ -451,7 +611,7 @@ void ModTarget::mouseUp(const juce::MouseEvent& e)
         onModDepthGesture(e, 2);
         return;
     }
-    juce::Slider::mouseUp(e);
+    ValueSlider::mouseUp(e);
 }
 
 void ModTarget::mouseDoubleClick(const juce::MouseEvent& e)
@@ -461,7 +621,7 @@ void ModTarget::mouseDoubleClick(const juce::MouseEvent& e)
         onModDepthGesture(e, 3);
         return;
     }
-    juce::Slider::mouseDoubleClick(e);
+    ValueSlider::mouseDoubleClick(e);
 }
 
 void ModTarget::strokeModPath(juce::Graphics& g, const juce::Path& p, juce::Colour colour, float depth, float thickness)

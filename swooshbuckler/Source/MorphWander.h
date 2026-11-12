@@ -4,6 +4,14 @@
 
 #include <array>
 
+/** A point in three dimensions (the Lorenz attractor's state). */
+struct WanderVec3
+{
+    double x = 0.0, y = 0.0, z = 0.0;
+    WanderVec3 operator+(const WanderVec3& o) const { return { x + o.x, y + o.y, z + o.z }; }
+    WanderVec3 operator*(double k) const { return { x * k, y * k, z * k }; }
+};
+
 /**
  * The morph dot's wander: the path it flies along and where it is on it.
  *
@@ -63,6 +71,6 @@ private:
     int m_shape = -1;
     double m_t = 0.0, m_laps = 0.0;
     float m_rotation = 0.0f;
-    juce::Vector3D<double> m_lorenz { 1.0, 1.0, 20.0 };
+    WanderVec3 m_lorenz { 1.0, 1.0, 20.0 };
     float m_x = 0.5f, m_y = 0.5f;
 };

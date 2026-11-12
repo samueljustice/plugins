@@ -183,6 +183,31 @@ public:
     /** Swell: while held, every track's fader rides up (button, space bar, MIDI notes). Any thread. */
     void setSwell(bool held) { m_uiSwell.store(held); }
 
+    /** Load Demo Sounds: makes the four demo sounds (see DemoSounds) and puts them in the first empty tracks, as
+        one undo step. Returns how many were loaded (0 when every track is in use). Message thread. */
+    int loadDemoSounds();
+
+    // MIDI control: a track's fader, or Energy, follows a MIDI controller (CC) once it has been learned. There is
+    // no mapping until you make one; the mappings are kept in the settings file (the same in every session).
+    static constexpr int c_ccEnergy = ParamIDs::numCargoTracks;      // the targets: 0..9 the track faders, then Energy
+    static constexpr int c_numCcTargets = ParamIDs::numCargoTracks + 1;
+    /** "Track 3 Fader" / "Energy". */
+    static juce::String midiTargetName(int target);
+    /** The next controller that moves is learned for this target (-1 = stop waiting). Message thread. */
+    void learnMidiControl(int target);
+    /** The target waiting for a controller (-1 = none). Any thread. */
+    int getMidiLearnTarget() const { return m_ccLearn.load(std::memory_order_relaxed); }
+    /** The controller number a target follows (-1 = none). Any thread. */
+    int getMidiControl(int target) const;
+    /** Sets a target's controller (-1 = none) and saves the mappings. Message thread. */
+    void setMidiControl(int target, int ccOrMinusOne);
+    /** Puts the controller moves the audio thread has seen into the parameters, and saves a mapping that has just
+        been learned. The processor does it by itself 60 times a second while there is anything to follow; tests
+        call it. Returns the target that was just learned (-1 = none). Message thread. */
+    int applyMidiControls();
+    /** Goes up whenever a mapping changes (learned, forgotten). */
+    int getMidiControlGeneration() const { return m_ccGeneration; }
+
     // Captain's Log -----------------------------------------------------------
     bool startRecording(juce::String& error);
     void stopRecording();
@@ -405,6 +430,21 @@ private:
     std::array<std::atomic<std::uint64_t>, 2> m_keysView {};
     int m_sinceMidiThrow = 1 << 30;  // device samples since the last throw from a key (a chord is one throw)
     void handleMidi(const juce::MidiMessage&, int offsetSamples, bool mayThrow);
+    // MIDI control. The audio thread reads m_ccOf, learns into it when m_ccLearn is set, and leaves the latest
+    // position of each target's controller in m_ccValue (-1 = nothing new); the message thread moves the parameters.
+    std::array<std::atomic<int>, c_numCcTargets> m_ccOf;
+    std::array<std::atomic<float>, c_numCcTargets> m_ccValue;
+    std::atomic<int> m_ccLearn { -1 }, m_ccLearned { -1 };
+    int m_ccGeneration = 0;
+    juce::RangedAudioParameter* midiTargetParameter(int target) const;
+    void saveMidiControls();
+    struct CcPump : juce::Timer
+    {
+        explicit CcPump(SwooshbucklerAudioProcessor& p) : owner(p) {}
+        void timerCallback() override { owner.applyMidiControls(); }
+        SwooshbucklerAudioProcessor& owner;
+    } m_ccPump { *this };
+    void updateCcPump();
     int keysMode() const;
     // Morph wander (audio thread): the dot's own flight, blended in over the X / Y controls.
     MorphWander m_wander;

@@ -62,6 +62,32 @@ namespace Theme
        #endif
     }
 
+    /** A long name cut in the middle to at most maxChars characters, keeping its start and its end (where file
+        names carry their take numbers): "ANMLFarm_Pig...al_Close_01". Short names come back as they are. */
+    inline juce::String middleTruncated(const juce::String& text, int maxChars)
+    {
+        if (text.length() <= maxChars)
+            return text;
+        const int keep = maxChars - 3; // the three dots
+        if (keep < 2)
+            return {};
+        const int head = (keep + 1) / 2, tail = keep - head;
+        return text.substring(0, head).trimEnd() + "..." + text.substring(text.length() - tail).trimStart();
+    }
+
+    /** The name, cut in the middle as far as it takes to fit maxWidth in this font (empty when even a few
+        characters don't fit). */
+    inline juce::String fitMiddle(const juce::String& text, const juce::Font& font, float maxWidth)
+    {
+        for (int chars = text.length(); chars >= 6; --chars)
+        {
+            const auto cut = middleTruncated(text, chars);
+            if (juce::GlyphArrangement::getStringWidth(font, cut) <= maxWidth)
+                return cut;
+        }
+        return {};
+    }
+
     /** Colours for the tracks: lagoon, coral, gold, sea glass, sky, hibiscus, harbour, rope, lilac, palm. */
     inline juce::Colour trackColour(int lane)
     {

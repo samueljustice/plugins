@@ -53,12 +53,63 @@ private:
 
 //==============================================================================
 /**
+ * A slider you can type a value into. A right-click (or an Alt-double-click) opens a small box over the control
+ * showing its value; type a new one in the control's own units ("-12 dB", "4.2 s", "35%", or just the number),
+ * Return keeps it and Esc (or clicking away) leaves the control as it was. A plain double-click still resets.
+ * The typed value is one undo step, like a drag.
+ *
+ * The owner says which parameter the control is attached to (setTypedParameter); what is typed is matched against
+ * that parameter's own readout (see TypedValue), so every law works without a formula of its own.
+ * A control with a menu of its own (onContextMenu) shows that on a right-click, and offers typing in it.
+ */
+class ValueSlider : public juce::Slider
+{
+public:
+    ValueSlider();
+    ~ValueSlider() override;
+
+    void setTypedParameter(juce::RangedAudioParameter* parameter, const Theme::Fonts& fonts);
+    juce::RangedAudioParameter* getTypedParameter() const { return m_typedParameter; }
+    /** Opens the box (nothing happens without a parameter). */
+    void beginTyping();
+    bool isTyping() const;
+    /** Called just before a typed value is set (a glide towards a preset is stopped here). */
+    std::function<void()> onTypedValue;
+    /** A right-click opens this instead of the box. */
+    std::function<void()> onContextMenu;
+
+    void mouseDown(const juce::MouseEvent&) override;
+    void mouseDrag(const juce::MouseEvent&) override;
+    void mouseUp(const juce::MouseEvent&) override;
+    void mouseDoubleClick(const juce::MouseEvent&) override;
+    void resized() override;
+    void moved() override;
+
+    /** The narrowest the box may be: a control narrower than this (a vertical fader) gets a box wider than itself. */
+    int minTypingWidth = 0;
+
+protected:
+    /** Where the box sits, in this control's coordinates: over the control (across the middle of a tall one)
+        unless a subclass says otherwise. */
+    virtual juce::Rectangle<int> typingBounds() const;
+
+private:
+    void placeTyping();
+    void endTyping(bool keep, bool takeKeysBack);
+    juce::RangedAudioParameter* m_typedParameter = nullptr;
+    const Theme::Fonts* m_typedFonts = nullptr;
+    std::unique_ptr<juce::TextEditor> m_typing;
+    bool m_swallowMouse = false; // this click opened the box or a menu: the slider never sees it
+};
+
+//==============================================================================
+/**
  * A control a modulator wire can land on: the knobs, and each track's Semitones box. The wire overlay (ModWires)
  * draws the cables and the plugs; the control shows each wire's reach (an arc, dashed when the depth is negative)
  * and where the modulation has it now, and a Cmd-drag on it (Ctrl on Windows) sets its newest wire's depth, up or
  * down through zero, without hunting for the plug.
  */
-class ModTarget : public juce::Slider
+class ModTarget : public ValueSlider
 {
 public:
     /** One wire: its colour, its depth (-1..1, normalised) and whether it swings both ways. */
@@ -132,6 +183,9 @@ public:
     /** The dial (without the caption), in this knob's coordinates. */
     juce::Point<float> getDialCentre() const override;
     float getDialRadius() const override;
+
+protected:
+    juce::Rectangle<int> typingBounds() const override; // over the caption, under the dial
 
 private:
     void timerCallback() override;

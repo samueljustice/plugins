@@ -14,8 +14,7 @@
  * and every doppler pass is a cannonball arcing across with a trail and a
  * reflection. When the ship is quiet the logo traces itself in the sky. Click anywhere to fire a whoosh.
  *
- * Rendered with juce::Graphics; the editor attaches an OpenGLContext so it is
- * composited on the GPU.
+ * Drawn with juce::Graphics.
  */
 class SeaVisualiser : public juce::Component, public juce::SettableTooltipClient, private juce::Timer
 {

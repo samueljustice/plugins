@@ -21,10 +21,11 @@
  *  - The waveform shows the sound regions that will be played and dims the
  *    silence that will be skipped. Drag the clip's edge handles to trim; drag
  *    inside to select; double-click a region to grab it.
- *  - Cut / copy / paste / duplicate / trim / delete / reverse / normalise /
- *    fades. Every edit joins the rig's one undo history (Cmd+Z and Shift+Cmd+Z,
- *    handled by the window). Keys: Cmd+X C V D, Delete, T (trim to selection),
- *    Space fires a whoosh.
+ *  - Every edit joins the rig's one undo history (Cmd+Z and Shift+Cmd+Z,
+ *    handled by the window). Space holds Swell; the other keys are the window's.
+ *  - Empty, the drop zone offers Load Demo Sounds (four sounds made on the spot).
+ *  - A right-click on a track's fader types a value or learns a MIDI controller
+ *    for it (showControlMenu, which the Energy knob uses too).
  */
 class CargoHoldView : public juce::Component,
                       public juce::FileDragAndDropTarget,
@@ -47,6 +48,12 @@ public:
 
     /** Loads files into the first empty tracks (or into `track` and onwards). Returns a short status line. */
     juce::String loadFiles(const juce::StringArray& files, int track = -1);
+
+    /** The menu of a control a MIDI controller can move (target: a track, or SwooshbucklerAudioProcessor::c_ccEnergy):
+        Type a Value, Learn MIDI CC and Forget. What happens is said in the status line. */
+    void showControlMenu(int target, ValueSlider& control);
+    /** Load Demo Sounds (the button in the empty drop zone). */
+    void loadDemo();
 
     /** An undo or redo has just run (from the header buttons or the keys): shows the track it brought back. */
     void historyStepped();
@@ -100,6 +107,8 @@ private:
     float m_beatFlash = 0.0f;   // 1 on a sync beat, decays
     int m_lastBeat = 0;
     bool m_dragOver = false;
+    juce::TextButton m_demo { "Load Demo Sounds" };
+    int m_learnWaiting = -1; // the target Learn MIDI CC is waiting for a controller on (-1 = none)
     std::unique_ptr<juce::FileChooser> m_chooser;
     juce::String m_status;
     juce::Rectangle<int> m_toolbar, m_statusArea, m_dropZone;

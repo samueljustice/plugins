@@ -53,13 +53,15 @@ What's changed in each version is in the [changelog](CHANGELOG.md).
 
 ## Quick start
 
+No sounds to hand? Click **Load Demo Sounds** in the empty Tracks panel. It fills four tracks with a growl, a wind bed, air swishes and hits, so you can press PLAY and hear the rig straight away.
+
 1. **Drop sounds into Tracks**, or click the drop zone to browse. Anything works: cloth, air, engines, animals, metal, voices. Each file gets its own looping track. Swooshbuckler finds the separate sounds in it, guesses what type of sound it is, and sends it to bus A, bus B or the hits.
 2. **Press PLAY.** With **AUTO RIDE** on (it is by default), every track's fader moves by itself at its own speed. When the layers swell together you get a whoosh.
 3. **Shape it** with Energy, Rate and Chaos, or try a preset or **RANDOMISE**.
 4. **Arm the tape** (ARM). It records whenever there's sound and skips the quiet stretches. Click again to stop and close the file.
 5. Missed a good one? **LAST 60s** saves the last minute, even if the tape wasn't armed.
 
-Hold **SWELL**, the space bar or any MIDI note to push every fader up at once. Press **Throw** (or the F key) for one whoosh on demand, with the rig playing or stopped.
+Hold **SWELL**, the space bar or any MIDI note to push every fader up at once. Press **Throw** (or the F key) for one whoosh on demand, with the rig playing or stopped. Return is PLAY / STOP, R is RANDOMISE, T arms the tape and L saves the last minute: see [Keyboard, mouse and MIDI](#keyboard-mouse-and-midi).
 
 Every control has a tooltip: hover over it to see what it does and how to use it.
 
@@ -119,6 +121,7 @@ This is where your sounds live: up to ten files, each on its own looping lane.
 
 **Loading sounds**
 
+- **Load Demo Sounds**, the button in the empty drop zone, fills four tracks with sounds Swooshbuckler makes on the spot (nothing is read from disk): **Demo Growl**, a creature's voice in five phrases, on bus A; **Demo Wind Bed**, eight seconds of gusting wind in stereo that loops without a seam, on bus B; **Demo Swish**, six air swishes of different lengths, on bus B; and **Demo Hit**, a thump, a crack, a clang and a boom, on the hits. They are the same every time, they behave like any sound you load, and one Undo (Cmd+Z) takes all four out again. With fewer than four tracks free it loads as many as fit.
 - Drag audio files onto the drop zone, or anywhere in the window, or click the drop zone to browse. You can pick several files at once.
 - Each file takes the next empty track. Drop a file onto a lane that already has a sound to replace it.
 - Swooshbuckler reads WAV, AIFF, FLAC, OGG and MP3, and on macOS also CAF and M4A.
@@ -530,15 +533,20 @@ Session files, and the state a DAW project keeps, hold the audio in a compact bi
 
 ![About](docs/images/about.png)
 
-Click the **Swooshbuckler** title or the version number to open it. It shows the version, which format you're running (app, VST3 or AU), the build date and commit, and the credits. **COPY VERSION** copies the version, build date and commit, plus your operating system, for a bug report. **WEBSITE** opens sweetjusticesound.com.
+Click the **Swooshbuckler** title or the version number to open it. It shows the version, which format you're running (app, VST3 or AU), the build date and commit, and the credits. **COPY VERSION** copies the version, build date and commit, plus your operating system, for a bug report. **WEBSITE** opens sweetjusticesound.com. **Licences** shows the notices and licences of the software and typefaces Swooshbuckler is built with (the same text as [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md)); click it again to go back.
 
 ## In a DAW
 
+- **Put it on an instrument track.** Swooshbuckler is an instrument (a generator): it makes sound from the tracks you load into it, not from the audio of the track it sits on. Use an instrument or software-instrument track (VST3 or AU), then open the window and drop your sounds in, or click Load Demo Sounds.
 - **Follow Host** (in the header, on by default) starts and stops the rig with the transport. Every start begins the ride from the same place, so a bounce of the same project is the same every time, including the modulators and the morph's Wander.
 - **The tail is bounced too.** Swooshbuckler tells the host its tail can last up to 6.5 seconds, so a bounce or a freeze that respects plug-in tails keeps the ring-out after the transport stops.
 - **Play is a parameter.** Automate it to start and stop the rig at exact places, with Follow Host on or off.
-- **MIDI**: route a MIDI track to the plug-in and pick what notes do with [Keys](#keys). With Keys on Throw, a note throws a whoosh whose peak lands half a Throw Length later, so you can place whooshes on the timeline note by note.
-- Follow Host, the play state, Keys and Throw Length are saved with the project.
+- **MIDI notes**: play or draw notes on the instrument track and pick what they do with [Keys](#keys). **Swell**: any held note holds Swell. **Pitch**: the held notes set the pitch of the tracks, a chord dealt out over them. **Throw**: every note throws one whoosh at that note's pitch, its peak half a Throw Length after the note, so you can place whooshes on the timeline note by note.
+- **MIDI controllers**: a track's fader, or Energy, can follow a fader or knob on a controller. Right-click it and choose **Learn MIDI CC** (see [MIDI controllers](#midi-controllers)). There is no mapping until you make one.
+- **Automation**: every knob, fader and switch is a host parameter and can be automated, Play included. Typing a value into a knob, or moving it by hand, writes automation like any other move; a MIDI controller moves the control without starting a write of its own.
+- **Where recordings go**: the tape, LAST 60s and Render Variations write files to the folder set in [Settings](#settings-and-recording) (the Desktop unless you change it), not into the DAW project. Drag a take from **Takes** straight onto a DAW track. The plug-in's output is also just audio on the track: bounce or record it there as you would any instrument.
+- **Keys**: the single-key shortcuts work while the Swooshbuckler window has the keyboard (click in it first). Some hosts keep keys such as the space bar and Return for their own transport.
+- Follow Host, the play state, Keys and Throw Length are saved with the project. The settings in Settings, and learned MIDI controllers, are shared by every project and the app.
 
 ## Presets and RANDOMISE
 
@@ -602,8 +610,12 @@ The keys work wherever you last clicked in the window (while you type in a text 
 
 | Input | What it does |
 |---|---|
+| Return | PLAY / STOP. |
 | Space bar (hold) | Swell. With a track lane selected, it gives a short swell instead: click outside Tracks for a held one. |
 | F | Throw: one whoosh now, playing or stopped. See [Throw](#throw). |
+| R | RANDOMISE: a new roll. |
+| T | Arms the tape; again to stop it and close the file. |
+| L | Saves the last minute (or the last 3 or 5, as Keep the Last is set). |
 | MIDI notes | What the **Keys** menu in the Ride panel says: hold Swell (the default), set the pitch of the tracks, or throw one whoosh per note. See [Keys](#keys). |
 | Click the sea | A short swell. |
 | Cmd+Z / Shift+Cmd+Z (Ctrl+Z / Ctrl+Shift+Z on Windows) | Undo and redo, wherever you last clicked in the window: knobs, presets, rolls, A / B, NEW and track edits, newest first. See [Undo and redo](#undo-and-redo). |
@@ -611,11 +623,36 @@ The keys work wherever you last clicked in the window (while you type in a text 
 | Drop a `.swooshpreset` or `.swooshsession` file on the window | Loads the preset (and adds it to yours), or opens the session. |
 | Esc | Closes Settings, Takes, Render Variations or About. A batch that is rendering carries on. |
 | Double-click a knob | Resets it. |
+| Right-click a knob, or Alt-double-click it | Opens a box to type a value. See [Typing a value](#typing-a-value). |
+| Right-click a track's fader, or the Energy knob | A menu: Type a Value and Learn MIDI CC. See [MIDI controllers](#midi-controllers). |
 | Double-click a track name | Renames it. |
 | Double-click a waveform | Puts the start flag back at the top. |
 | Click a lane's bus tag | Chooses the track's bus: Auto, Bus A, Bus B or Hits. See [Choosing the bus](#choosing-the-bus). |
 | Right-click a track lane | The track's menu: Master Track, Match Pitch To Master and Plays On. |
 | Drag from the A or B handle under the morph pad onto a track | Ropes that side of the morph to the track. Double-click the handle to let the rope go. See [Morph pad](#morph-pad). |
+
+The single keys (Return, F, R, T, L) do nothing while you are typing in a text box, and nothing while Settings, Takes, Render Variations or About is open, so a name or a value you type never triggers them.
+
+### Typing a value
+
+Right-click a knob (or hold Alt and double-click it) and a small box opens on it with the current value. Type a new one in the knob's own units and press Return to keep it; Esc, or a click anywhere else, leaves the knob as it was. A plain double-click still resets the knob.
+
+- Units are optional and are the ones the knob shows: `-12 dB`, `4.2 s`, `35%`, or just `-12`, `4.2`, `35`.
+- Milliseconds and seconds are converted, so `0.3 s` on a knob that shows `300 ms` is understood, and a bare number is read in the unit showing at that moment.
+- Words the knob shows work too: `Rate` on Throw Length, `Off` on Duck, `-inf` on a fader.
+- A value out of the knob's range goes to the nearest end. Text that isn't a value changes nothing.
+- A typed value is one Undo step.
+
+It works on every knob, each track's fader (through its right-click menu), a track's Semitones and Cents boxes, and Master Trim.
+
+### MIDI controllers
+
+A track's fader, and the Energy knob, can follow a fader or knob on a MIDI controller. Nothing is mapped until you do this:
+
+1. Right-click the track's fader (or the Energy knob) and choose **Learn MIDI CC**. The status line asks you to move a control.
+2. Move the fader or knob on your controller. The first one that moves is learned, on any MIDI channel, and the status line says which ("Track 1 Fader follows MIDI CC 7").
+
+From then on that controller moves the control, whether the rig is playing or stopped. The same menu has **Forget MIDI CC** to let it go and **Cancel Learn MIDI CC** if you change your mind while it waits. One controller can be learned for several things, to move them together. The mappings are kept in the settings, so they are the same in every session, and in the app and the plug-in. Controller moves are not Undo steps.
 
 ## Tips
 
@@ -689,6 +726,7 @@ You can also run the workflow by hand (Actions → Build and Release Swooshbuckl
 - Fonts: [Pirata One](https://fonts.google.com/specimen/Pirata+One) by Rodrigo Fuenzalida and Nicolas Massi, and [IBM Plex Sans Condensed](https://github.com/IBM/plex) by IBM, both under the SIL Open Font License 1.1.
 - Built with [JUCE](https://juce.com).
 - VST is a registered trademark of Steinberg Media Technologies GmbH.
+- The notices and licences of everything it is built with are in [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md), and under **Licences** in About.
 
 ## License
 

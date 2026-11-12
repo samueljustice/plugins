@@ -235,6 +235,9 @@ public:
     void setSkipSilence(int track, bool skip);
 
     bool loadFile(int track, const juce::File& file, juce::String& error);
+    /** Loads audio made in memory (the demo sounds) into a track, exactly as a file of that name would be: analysed,
+        typed, routed, and one undo step. One channel, or two (left and right). Message thread. */
+    bool loadBuffer(int track, const juce::AudioBuffer<float>& audio, double sampleRate, const juce::String& name);
 
     /** The longest file that is loaded whole; a longer one keeps its beginning (see CargoData::sourceSeconds). */
     static constexpr double c_maxLoadSeconds = 600.0;
@@ -345,6 +348,8 @@ private:
         juce::String userName;                  // message thread only
     };
 
+    void install(int track, const juce::AudioBuffer<float>& multi, const juce::AudioChannelSet& layout, double sampleRate,
+                 const juce::String& name, double sourceSeconds);   // what loadFile and loadBuffer share
     void publish(int track, std::shared_ptr<CargoData> data, bool recordUndo);
     void publish(int track, std::shared_ptr<CargoData> data, bool recordUndo, const Meta& undoMeta); //
     Meta metaOf(const Track& t) const;                                                              //

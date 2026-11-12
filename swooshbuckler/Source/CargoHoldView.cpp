@@ -142,9 +142,12 @@ public:
         m_semis.setTooltip("Semitones\nThis track's own pitch, up to two octaves up or down, on top of the Ride's Pitch knob. "
                            "With VARI on it works like tape, so higher is also faster; with VARI off the speed stays the same. "
                            "Drag a MOD jack onto it to modulate the track's pitch (smoothly, not in steps); a 100% wire swings two octaves.\n"
-                           "Drag up or down. Double-click to reset. Cmd-drag (Ctrl on Windows) when it's modulated to set the wire's depth, up or down."); 
+                           "Drag up or down. Double-click to reset. Right-click (or Alt-double-click) to type a value. "
+                           "Cmd-drag (Ctrl on Windows) when it's modulated to set the wire's depth, up or down.");
         m_cents.setTooltip("Cents\nFine tuning for this track, up to a semitone either way (100 cents), on top of the semitones.\n"
-                           "Drag up or down. Double-click to reset.");
+                           "Drag up or down. Double-click to reset. Right-click (or Alt-double-click) to type a value.");
+        m_semis.setTypedParameter(owner.m_processor.getState().getParameter(ParamIDs::trackSemis[track]), owner.m_fonts);
+        m_cents.setTypedParameter(owner.m_processor.getState().getParameter(ParamIDs::trackCents[track]), owner.m_fonts);
         m_vari.setClickingTogglesState(true);
         m_vari.setColour(juce::TextButton::buttonOnColourId, colour);
         m_vari.setWantsKeyboardFocus(false);
@@ -158,7 +161,10 @@ public:
         m_level.setTextBoxStyle(juce::Slider::NoTextBox, false, 0, 0);
         m_level.setColour(juce::Slider::trackColourId, colour);
         m_level.setTooltip("Track Level\nThis track's fader, in dB (30 dB of travel, then silence at the bottom). With Auto Ride on it moves by itself and this sets how high it can go; "
-                           "the strip next to the waveform shows where it is right now.\nDouble-click to reset it.");
+                           "the strip next to the waveform shows where it is right now.\nDouble-click to reset it. Right-click to type a value in dB, or to choose Learn MIDI CC "
+                           "and have a fader or knob on a MIDI controller move it.");
+        m_level.setTypedParameter(owner.m_processor.getState().getParameter(ParamIDs::cargoTrack[track]), owner.m_fonts);
+        m_level.onContextMenu = [this] { m_owner.showControlMenu(m_track, m_level); };
         addAndMakeVisible(m_level);
 
         m_type.setColour(juce::TextButton::buttonOnColourId, colour);
@@ -189,7 +195,7 @@ public:
         }
         m_mute.setTooltip("Mute\nSilences this track. It keeps its place in the ride, so it comes straight back in when you unmute it.");
         m_solo.setTooltip("Solo\nPlays only this track (and any others soloed), to hear what it brings to the whoosh.");
-        m_remove.setTooltip("Remove\nThrows this track overboard and frees its slot. Cmd+Z fishes it back out.");
+        m_remove.setTooltip("Remove\nRemoves this track and frees its slot. Cmd+Z brings it back.");
         const int lane = CargoHold::c_numBuiltIns + track;
         m_mute.onClick = [this, lane] { m_owner.m_hold.setMute(lane, ! m_owner.m_hold.getMute(lane)); };
         m_solo.onClick = [this, lane] { m_owner.m_hold.setSolo(lane, ! m_owner.m_hold.getSolo(lane)); };
@@ -453,11 +459,17 @@ public:
         }
         else
         {
+            // The length, the sounds found, and the file it came from (cut in the middle to fit the lane).
             g.setColour(TC::textDim);
-            g.drawText(juce::String(d.length() / d.sampleRate, 2) + " s   " + juce::String(static_cast<int>(d.regions.size()))
-                           + (d.regions.size() == 1 ? " sound" : " sounds")
-                           + (m_owner.m_hold.getSkipSilence(m_track) ? "" : "   silence kept"),
-                       wave.reduced(16, 4), juce::Justification::topLeft);
+            const auto line = wave.reduced(16, 4);
+            juce::String info = juce::String(d.length() / d.sampleRate, 2) + " s   " + juce::String(static_cast<int>(d.regions.size()))
+                                + (d.regions.size() == 1 ? " sound" : " sounds")
+                                + (m_owner.m_hold.getSkipSilence(m_track) ? "" : "   silence kept");
+            const float room = static_cast<float>(line.getWidth()) - juce::GlyphArrangement::getStringWidth(g.getCurrentFont(), info + "      ");
+            const auto file = Theme::fitMiddle(d.name, g.getCurrentFont(), room);
+            if (file.isNotEmpty())
+                info << "   " << file;
+            g.drawText(info, line, juce::Justification::topLeft, false);
         }
     }
 
@@ -548,8 +560,9 @@ public:
                    + "\nClick to choose: Auto, Bus A, Bus B or Hits.";
         }
         if (header.removeFromTop(18).contains(pos))
-            return "Track Name\nNamed after its sound type, until you rename it.\nDouble-click to rename it. Right-click for the track's menu: "
-                   "Master Track, Match Pitch To Master and the bus.";
+            return "Track Name\nNamed after its sound type, until you rename it."
+                   + (hasData() && m_data->name.isNotEmpty() ? " The sound is \"" + Theme::middleTruncated(m_data->name, 60) + "\"." : juce::String())
+                   + "\nDouble-click to rename it. Right-click for the track's menu: Master Track, Match Pitch To Master and the bus.";
         if (hasData() && waveArea().contains(pos))
             return "Waveform\nThe flag marks where this track starts playing; it loops from there and the part before it is dimmed. "
                    "With Skip Silence on, the bright parts are the sounds it plays and the faint parts are the gaps it skips.\n"
@@ -836,7 +849,7 @@ private:
     std::shared_ptr<const CargoData> m_data;
     std::vector<std::pair<float, float>> m_peaks;
 
-    juce::Slider m_level;
+    ValueSlider m_level;
     PitchBox m_semis, m_cents;
     juce::TextButton m_vari { "VARI" };
     juce::TextButton m_type, m_mute { "M" }, m_solo { "S" }, m_remove { "x" }, m_skip { "SKIP SILENCE" };
@@ -883,6 +896,15 @@ CargoHoldView::CargoHoldView(SwooshbucklerAudioProcessor& processor, const Theme
         m_laneHolder.addChildComponent(*m_lanes[static_cast<size_t>(t)]);
         m_lanes[static_cast<size_t>(t)]->refresh();
     }
+
+    // The empty state's way to hear the rig at once: four made-up sounds, one of each main kind.
+    m_demo.setColour(juce::TextButton::buttonOnColourId, TC::sources);
+    m_demo.setWantsKeyboardFocus(false);
+    m_demo.setTooltip("Load Demo Sounds\nFills four tracks with sounds made on the spot: a growl, a wind bed, air swishes and hits, "
+                      "one for each part of the rig. Press Play (or Return) and you have a whoosh to shape. "
+                      "Cmd+Z takes them out again, and you can drop your own sounds in beside them or over them.");
+    m_demo.onClick = [this] { loadDemo(); };
+    addChildComponent(m_demo);
 
     m_viewport.setViewedComponent(&m_laneHolder, false);
     m_viewport.onMoved = [this] { if (onLanesMoved) onLanesMoved(); };
@@ -933,14 +955,16 @@ void CargoHoldView::paint(juce::Graphics& g)
         const int loaded = static_cast<int>(std::count_if(m_lanes.begin(), m_lanes.end(), [](const auto& l) { return l->hasData(); }));
         g.setFont(m_fonts.label(13.0f));
         g.setColour(m_dragOver ? TC::sources : TC::textDim);
-        g.drawText(loaded == 0 ? "DROP SOUNDS HERE" : "DROP MORE SOUNDS HERE", m_dropZone.withTrimmedBottom(m_dropZone.getHeight() / 2 - 6),
+        // Empty: the two lines sit a little higher, with Load Demo Sounds under them.
+        const int lift = loaded == 0 ? 22 : 0;
+        g.drawText(loaded == 0 ? "DROP SOUNDS HERE" : "DROP MORE SOUNDS HERE", m_dropZone.withTrimmedBottom(m_dropZone.getHeight() / 2 - 6 + lift),
                    juce::Justification::centredBottom);
         g.setFont(m_fonts.body(11.0f));
         g.setColour(TC::textFaint);
         g.drawText(loaded == 0 ? "growls, tones, wind, engines, cloth, hits... or click to browse. Each sound is named by type and routed"
                                : juce::String(CargoHold::c_numTracks - loaded) + (CargoHold::c_numTracks - loaded == 1 ? " more track fits" : " more tracks fit")
                                      + " (or click to browse)",
-                   m_dropZone.withTrimmedTop(m_dropZone.getHeight() / 2 + 4), juce::Justification::centredTop);
+                   m_dropZone.withTrimmedTop(m_dropZone.getHeight() / 2 + 4 - lift).reduced(8, 0), juce::Justification::centredTop);
     }
 }
 
@@ -1002,6 +1026,9 @@ void CargoHoldView::resized()
     {
         m_dropZone = {};
     }
+    // Load Demo Sounds: under the two lines of the empty drop zone.
+    m_demo.setVisible(visible.empty() && m_dropZone.getHeight() >= 110);
+    m_demo.setBounds(juce::Rectangle<int>(170, 26).withCentre({ m_dropZone.getCentreX(), m_dropZone.getCentreY() + 26 }));
     if (onLanesMoved)
         onLanesMoved(); // lanes appear, go and change size: their plugs move
 }
@@ -1021,6 +1048,15 @@ void CargoHoldView::changeListenerCallback(juce::ChangeBroadcaster*)
 void CargoHoldView::timerCallback()
 {
     const auto& engine = m_processor.getEngine();
+
+    // Learn MIDI CC: the controller has moved.
+    if (m_learnWaiting >= 0 && m_processor.getMidiLearnTarget() != m_learnWaiting)
+    {
+        const int cc = m_processor.getMidiControl(m_learnWaiting);
+        if (cc >= 0)
+            status(SwooshbucklerAudioProcessor::midiTargetName(m_learnWaiting) + " follows MIDI CC " + juce::String(cc) + ".");
+        m_learnWaiting = -1;
+    }
 
     // Hit sync view: the shared beat window over every hit track, and a flash on each beat.
     // Hit tracks line up their transients in the view whenever they're cued: SYNC HITS or AIM.
@@ -1169,6 +1205,60 @@ juce::String CargoHoldView::loadFiles(const juce::StringArray& files, int track)
     resized();
     updateButtons();
     return text.startsWith("!") ? text.substring(1) : text;
+}
+
+void CargoHoldView::loadDemo()
+{
+    const int loaded = m_processor.loadDemoSounds();
+    for (auto& lane : m_lanes)
+        lane->refresh();
+    for (auto& lane : m_lanes)
+        if (lane->hasData()) { m_active = lane->getTrack(); break; }
+    status(loaded > 0 ? "Demo sounds loaded. Press Play (or Return) to hear them; Cmd+Z takes them out."
+                      : "!Every track is in use: remove one to make room for the demo sounds.");
+    resized();
+    updateButtons();
+    repaint();
+}
+
+void CargoHoldView::showControlMenu(int target, ValueSlider& control)
+{
+    const int cc = m_processor.getMidiControl(target);
+    const bool waiting = m_processor.getMidiLearnTarget() == target;
+    juce::PopupMenu menu;
+    menu.addSectionHeader(SwooshbucklerAudioProcessor::midiTargetName(target));
+    menu.addItem(1, "Type a Value...");
+    menu.addSeparator();
+    menu.addItem(2, waiting ? "Cancel Learn MIDI CC" : "Learn MIDI CC");
+    if (cc >= 0)
+        menu.addItem(3, "Forget MIDI CC " + juce::String(cc));
+    menu.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(control),
+                       [this, target, waiting, safeView = juce::Component::SafePointer<CargoHoldView>(this),
+                        safeControl = juce::Component::SafePointer<ValueSlider>(&control)](int result)
+                       {
+                           if (safeView == nullptr)
+                               return;
+                           const auto name = SwooshbucklerAudioProcessor::midiTargetName(target);
+                           if (result == 1 && safeControl != nullptr)
+                               safeControl->beginTyping();
+                           else if (result == 2 && waiting)
+                           {
+                               m_processor.learnMidiControl(-1);
+                               m_learnWaiting = -1;
+                               status("Learn MIDI CC cancelled.");
+                           }
+                           else if (result == 2)
+                           {
+                               m_processor.learnMidiControl(target);
+                               m_learnWaiting = target;
+                               status("Move a fader or knob on your MIDI controller: " + name + " will follow it.");
+                           }
+                           else if (result == 3)
+                           {
+                               m_processor.setMidiControl(target, -1);
+                               status(name + " no longer follows a MIDI controller.");
+                           }
+                       });
 }
 
 bool CargoHoldView::laneAnchorScreen(int track, juce::Point<int>& screenPos) const

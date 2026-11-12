@@ -5,16 +5,15 @@
 #include <vector>
 
 /**
- * Animated outline of the Sweet Justice logo (grenade + cherry), drawn by the
- * OpenGL visualiser while there is no input signal.
+ * Animated outline of the Sweet Justice logo (grenade + cherry), drawn in the
+ * sea view while the rig is quiet, and in About.
  *
  * Every filled path in the SVG is split into its subpaths, and each subpath is
  * drawn as one closed contour. The white details in the artwork are gaps
  * between (or holes in) the fills, so they appear as the inner outlines.
  * Everything is parsed, flattened, normalised and resampled at even arc length
  * in the constructor. Drawing only reads that data and keeps no state between
- * calls, so render() does not allocate and can run on the GL thread while the
- * message thread calls renderPreview().
+ * calls.
  *
  * Timeline (timeSeconds counts up from when the logo should start appearing):
  *  - 0-3 s: each contour is traced from its start point by a glowing comet,
@@ -24,9 +23,8 @@
  *    colours drift, and every 12 s a new comet traces over the whole logo again.
  *    The outline never blanks and redraws.
  *
- * render() and renderPreview() share one per-vertex style function and one view
- * matrix, so the CPU preview shows exactly what the GL path draws (except that
- * juce::Graphics blends normally where GL blends additively).
+ * Drawn with juce::Graphics (renderPreview()); measureFrame() runs the same
+ * per-vertex style function and view matrix with a counting sink, for tests.
  */
 class LogoOutline
 {
@@ -38,15 +36,7 @@ public:
 
     bool isLoaded() const { return m_loaded; }
 
-    /**
-     * Draws into the current OpenGL context using legacy fixed-function GL. Expects the caller to have
-     * enabled blending with glBlendFunc(GL_SRC_ALPHA, GL_ONE). Loads its own GL_PROJECTION (a narrow,
-     * nearly orthographic frustum that fits the logo into a viewport of aspect viewportAspect =
-     * width / height) and GL_MODELVIEW, and resets both to identity before returning.
-     */
-    void render(float timeSeconds, float opacity, float viewportAspect) const;
-
-    /** Draws the same frame as render() into a juce::Graphics, fitted into area. For tests and screenshots. */
+    /** Draws the frame at timeSeconds into a juce::Graphics, fitted into area. */
     void renderPreview(juce::Graphics& g, juce::Rectangle<float> area, float timeSeconds, float opacity) const;
 
     //==============================================================================
@@ -72,8 +62,8 @@ public:
 
     struct FrameStats
     {
-        int strips = 0;                    // glBegin/glEnd pairs render() would issue
-        int vertices = 0;                  // glVertex2f calls render() would issue
+        int strips = 0;                    // line strips in the frame
+        int vertices = 0;                  // vertices in the frame
         float revealed = 0.0f;             // drawn length / total outline length
         float minLineAlpha = 0.0f;         // range of alpha on the core line
         float maxLineAlpha = 0.0f;
@@ -81,7 +71,7 @@ public:
         juce::Rectangle<float> ndcBounds;  // projected outline bounds; the viewport is -1..1
     };
 
-    /** Runs the exact render() code path with a counting sink instead of GL. Does not allocate. */
+    /** Runs the drawing code with a counting sink and no graphics. Does not allocate. */
     FrameStats measureFrame(float timeSeconds, float opacity, float viewportAspect) const;
 
 private:
@@ -112,7 +102,7 @@ private:
 
     std::vector<juce::Point<float>> m_points; // normalised, centred, y-up; contours back to back
     std::vector<float> m_driftSin;            // per point: sin/cos of the colour drift's spatial phase,
-    std::vector<float> m_driftCos;            // so render() needs no trig per vertex
+    std::vector<float> m_driftCos;            // so drawing needs no trig per vertex
     std::vector<Contour> m_contours;
 
     juce::Rectangle<float> m_sourceBounds;

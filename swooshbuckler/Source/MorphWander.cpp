@@ -14,12 +14,12 @@ namespace
     constexpr double c_sigma = 10.0, c_rho = 28.0, c_beta = 8.0 / 3.0;
     constexpr double c_lorenzDt = 0.01; // time step of the recorded stretch (2400 steps, about 30 loops)
 
-    juce::Vector3D<double> lorenzDeriv(const juce::Vector3D<double>& v)
+    WanderVec3 lorenzDeriv(const WanderVec3& v)
     {
         return { c_sigma * (v.y - v.x), v.x * (c_rho - v.z) - v.y, v.x * v.y - c_beta * v.z };
     }
 
-    juce::Vector3D<double> lorenzStep(const juce::Vector3D<double>& v, double h) // RK4
+    WanderVec3 lorenzStep(const WanderVec3& v, double h) // RK4
     {
         const auto k1 = lorenzDeriv(v);
         const auto k2 = lorenzDeriv(v + k1 * (h * 0.5));
@@ -31,7 +31,7 @@ namespace
     struct Tables
     {
         std::array<MorphWander::Curve, MorphWander::NumShapes> curves;
-        std::array<juce::Vector3D<double>, MorphWander::c_curvePoints> lorenzStates; // the 3-D states behind the Lorenz curve
+        std::array<WanderVec3, MorphWander::c_curvePoints> lorenzStates; // the 3-D states behind the Lorenz curve
         std::atomic<bool> cherriesReady { false };
 
         Tables()
@@ -58,7 +58,7 @@ namespace
                 }
             }
             // Lorenz: settle onto the attractor first, then record a long stretch of it.
-            juce::Vector3D<double> v { 1.0, 1.0, 20.0 };
+            WanderVec3 v { 1.0, 1.0, 20.0 };
             for (int i = 0; i < 1500; ++i)
                 v = lorenzStep(v, c_lorenzDt);
             for (int i = 0; i < n; ++i)
