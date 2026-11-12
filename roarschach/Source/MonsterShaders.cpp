@@ -3120,6 +3120,116 @@ vec3 outDither (vec2 frag)
 }
 )GLSL";
 
+// ---- The ink buffer (the tiers with one): half the view (x >= 0), mirrored across the fold by its
+// wrap mode. R held ink, G free pigment, B the marbling tone (signed), A the breath.
+const char* const c_inkBuffer = R"GLSL(
+uniform sampler2D uInkTex;
+uniform vec4 uInkRes;    // the buffer's size, the half view's width in view heights, the step's time
+uniform vec4 uInkStep;   // 1: fill the buffer afresh; 1: bytes (not half floats); a dither phase; spare
+uniform vec4 uInkRule;   // the body's floor (0..1, long formed), how fast the hold is letting go (0..1), how much smoke ink let go makes, the gathering's share of the pull
+uniform vec4 uHold;      // hold, release (per second), drift (+ inwards, - outwards; view heights a second), its reach
+uniform vec4 uPig;       // the cloud's own pigment, the budget's gain on it, the release's curl kick, sink
+
+vec4 inkDecode (vec4 s) { return uInkStep.y > 0.5 ? vec4 (s.r * 2.5, s.g * 2.5, s.b * 2.0 - 1.0, s.a * 2.0) : s; }
+vec4 inkRead (vec2 m, float lod)
+{
+    return inkDecode (IT (vec2 (min (abs (m.x) / uInkRes.z, 1.0), m.y + 0.5), lod));
+}
+)GLSL";
+
+// ---- One step of the ink. Nothing is drawn into the buffer as a shape and nothing is faded: free
+// pigment that is already in the cloud is carried by the flow and drawn towards the body, and turns
+// into held ink where it has arrived and the shape has room; held ink the shape no longer covers
+// turns back into free pigment where it is, and from then on belongs to the flow.
+const char* const c_inkSim = R"GLSL(
+void main()
+{
+    vec2 uv = gl_FragCoord.xy / uInkRes.xy;
+    vec2 m = vec2 (uv.x * uInkRes.z, uv.y - 0.5);
+    vec2 ms = vec2 (sqrt (m.x * m.x + 0.0004), m.y);
+    float dt = uInkRes.w, amb = uPig.x;
+    float cap = inkTarget (ms);
+    // where pigment turns into ink it takes the tone of the place: the body shows where its ink came from
+    float tone = clamp ((sv (NZ (m * 0.33 + uInkO.yx * 1.3, 2.0)) - 0.5) * 3.0, -1.0, 1.0);
+    vec4 o;
+    if (uInkStep.x > 0.5)
+        o = vec4 (cap, amb * (1.0 - smoothstep (0.2, 0.7, cap)), tone, 0.0);
+    else
+    {
+        vec2 v = flow (m) * 2.5;
+        // the pull: towards the body while it gathers (on through it, slower, to its middle), away
+        // from it while it lets go
+        float dA = anatomySdf (ms);
+        vec2 gA = vec2 (dFdx (dA) * uInkRes.x / uInkRes.z, dFdy (dA) * uInkRes.y);
+        vec2 dir = gA / (length (gA) + 1.0e-4);
+        // (the pull eases off over a wide band as it reaches the body, so the pigment gathers as a
+        // soft hull of smoke round where the body will be, never as its outline or its skeleton)
+        float pull = uHold.z > 0.0 ? (1.0 - smoothstep (0.5 * uHold.w, uHold.w, dA)) * mix (0.3 * smoothstep (0.5, 0.9, uInkF.x), 1.0, smoothstep (-0.05, 0.25, dA))
+                                   : 1.0 - smoothstep (0.0, 0.5, dA);
+        // (no pull across the fold: pigment drawn onto it from both sides would pile into a line)
+        vec2 drift = -dir * uHold.z * pull * vec2 (smoothstep (0.0, 0.12, m.x), 1.0);
+        // the kick: small eddies that take only the free pigment (none of it crosses the fold)
+        vec4 kn = NZ (m * 1.9 + uInkO.xy * 3.0 + vec2 (0.0, 2.0 * uInkO.z), max (0.5, PXL (1.9)));
+        float e = clamp (m.x / 0.2, 0.0, 1.0);
+        float ks = e * e * (3.0 - 2.0 * e), dks = 6.0 * e * (1.0 - e) / 0.2;
+        vec2 kg = gv (kn) * 1.9;
+        vec2 kick = uPig.z * 0.03 * vec2 (ks * kg.y, -(ks * kg.x + dks * (sv (kn) - 0.5)));
+        vec4 kn2 = NZ (m * 4.3 - uInkO.xy * 5.0 + vec2 (3.0 * uInkO.z, 0.0), max (0.5, PXL (4.3)));
+        vec2 kg2 = gv (kn2) * 4.3;
+        kick += uPig.z * 0.008 * vec2 (ks * kg2.y, -(ks * kg2.x + dks * (sv (kn2) - 0.5)));
+        // the breath: out of the rift, up and away from the fold
+        vec2 rc = vec2 (m.x, m.y - uMaw.x);
+        float jawOpen = smoothstep (0.015, 0.10, uMaw.z);
+        vec2 breath = uBreath.y * 0.30 * jawOpen * exp (-dot (rc, rc) / 0.03) * normalize (vec2 (m.x * 4.0, 1.0));
+        vec2 vG = v + drift + kick + breath - vec2 (0.0, uPig.w);
+        // (drawn in, pigment gathers where the pull converges and the cloud pales where it spreads;
+        // only the pull does this: the eddies carry pigment without ever piling it up)
+        // (and only while it gathers: the slight pull that goes on awake carries, and piles nothing)
+        float conv = uHold.z > 0.0 ? uInkRule.w * clamp (-(dFdx (drift.x) * uInkRes.x / uInkRes.z + dFdy (drift.y) * uInkRes.y) * dt, -0.08, 0.08) : 0.0;
+
+        vec4 a = inkRead (m - v * dt, 0.0);
+        vec2 mg = m - vG * dt;
+        // (it spreads a little as it goes; more beside the fold, which no flow crosses and which
+        // would otherwise keep a stripe of whatever it last held)
+        float g = mix (inkRead (mg, 0.0).g, inkRead (mg, 2.5).g, 0.04 + 0.20 * (1.0 - smoothstep (0.0, 0.10, m.x)));
+        // (what arrives is the cloud's own pigment at the pull's pace: it adds up, it does not multiply)
+        g += conv * (conv > 0.0 ? min (g, 1.5 * amb) : g);
+        float c = a.r, q = a.b;
+        float b = inkRead (m - (v + breath) * dt, 0.0).a;
+
+        // pigment condenses into ink (a little pigment is a lot of ink) and ink let go spreads into
+        // smoke; while the hold lets go, ink leaves even where the shape still stands
+        float take = min (uHold.x * (1.0 - uInkRule.y) * dt * max (cap - c, 0.0) / 3.0, g);
+        // (let go in streaks, not all at once: some of the ink holds on a little longer than the rest)
+        // (fine streaks, and none holds on for long: what is left is many shreds, never a pair of blots)
+        float streak = NZ (m * 5.5 + uInkO.yx * 2.0 - v * 0.8, max (0.5, PXL (5.5))).a;
+        float give = min (uHold.y * dt * max (c - cap, 0.0) + uInkRule.y * (0.9 + 1.5 * smoothstep (0.25, 0.75, streak)) * dt * c, c);
+        q = (q * c + tone * 3.0 * take) / (c + 3.0 * take + 1.0e-4);
+        c += 3.0 * take - give;
+        // (awake, what the rim sheds is the pigment it was made of, a wisp; let go, the body's ink
+        // spreads into heavy smoke)
+        g += uInkRule.z * give - take;
+        // (long formed, the body never empties, whatever is pulling at it and however little
+        // pigment the cloud has left to give)
+        c += max (0.85 * min (cap, 1.3) - c, 0.0) * uInkRule.x * min (1.0, 3.0 * dt);
+        // away from the body the cloud comes back to its own pigment: slowly where it paled, sooner
+        // where smoke hangs
+        float away = 1.0 - smoothstep (0.0, 0.15, cap);
+        float want = amb * uPig.y;
+        // (smoke clears in patches, never evenly: the cloud opens holes in it)
+        g += (want - g) * away * min (1.0, dt * (g > want ? 0.15 + 0.45 * smoothstep (0.35, 0.75, sv (kn)) : 0.04));
+        // the breath: lit vapour fed low in the open rift, carried out, gone in a second
+        float src = uBreath.x * jawOpen * smoothstep (0.25, 0.7, inkRead (m, 3.5).r) * exp (-(rc.x * rc.x) / (0.0009 + uMaw.y * uMaw.y) - (rc.y + 0.3 * uMaw.z) * (rc.y + 0.3 * uMaw.z) / (0.0009 + 0.3 * uMaw.z * uMaw.z));
+        b = b * exp (-dt / 1.1) + 2.5 * dt * src;
+        o = vec4 (c, g, q, b);
+    }
+    o = clamp (o, vec4 (0.0, 0.0, -1.0, 0.0), vec4 (2.5, 2.5, 1.0, 2.0));
+    if (uInkStep.y > 0.5)
+        o = vec4 (o.r * 0.4, o.g * 0.4, o.b * 0.5 + 0.5, o.a * 0.5) + (hash12 (gl_FragCoord.xy + uInkStep.z) - 0.5) / 255.0;
+    gl_FragColor = o;
+}
+)GLSL";
+
 // ---- The single pass: the whole creature without any buffer. The held ink is the target itself,
 // per pixel; a halo and a smoke fringe stand in for the free pigment; two cloud layers.
 const char* const c_inkSingle = R"GLSL(
@@ -3134,9 +3244,38 @@ void main()
     vec2 vw = vec2 (v.x * sgn, v.y);
     float F = uInkF.x, un = uCarry.z, roar = uInkF.y, open = uMaw.z;
 
+#ifdef INK_BUFFER
+    // the ink as the buffer holds it: held ink, the free pigment above (and below) what the cloud
+    // always carries, the tone it took, the breath
+    vec4 held = inkRead (m, 0.0);
+    // (pigment the flow has wound dense is ink again, wherever it is: what the body lets go stays
+    // ink until the eddies have thinned it)
+    float inkFloor = 1.2 * uPig.x * max (1.0, uPig.y);
+    float heldShare = held.r / (held.r + 1.1 * max (held.g - inkFloor, 0.0) + 1.0e-3);
+    float body = held.r + 1.1 * max (held.g - inkFloor, 0.0);
+    // (the buffer's ink lags the shape a little, which widens its edge: drawn steeper about the edge)
+    body = max (0.5 + (body - 0.5) * 1.7, 0.0);
+    vec4 wide = inkRead (m, 4.0);
+    float halo = clamp (0.85 * (wide.r + 1.1 * max (wide.g - inkFloor, 0.0)), 0.0, 1.0);
+    float pigment = inkRead (m, 0.7).g;
+    float loose = 2.0 * max (pigment - uPig.x * max (1.0, uPig.y), 0.0);
+    float paled = smoothstep (0.15, 0.9, 1.0 - inkRead (m, 2.5).g / (uPig.x * min (1.0, uPig.y)));
+    float breathLit = inkRead (m, 1.0).a, breathWide = inkRead (m, 3.5).a;
+    gCarried = m - v * 2.0;
+    gStretch = 0.0;
+#else
     float body = inkTarget (ms);
     float halo = clamp (0.5 - gHaloD / 0.5, 0.0, 1.0);
+#endif
+#ifdef INK_BUFFER
+    // (the sheen's slope from a coarser level of the buffer, by differences: the slope of one
+    // magnified texel is constant across it, and would facet the gleam)
+    float gt = 1.5 / uInkRes.y;
+    vec2 grad = 1.7 * 0.0114 / (2.0 * gt) * vec2 (inkRead (vec2 (p.x + gt, p.y), 1.5).r - inkRead (vec2 (p.x - gt, p.y), 1.5).r,
+                                                  inkRead (vec2 (p.x, p.y + gt), 1.5).r - inkRead (vec2 (p.x, p.y - gt), 1.5).r);
+#else
     vec2 grad = vec2 (dFdx (body), dFdy (body)) * (uRes.y * 0.0114);
+#endif
 
     // detail carried by the flow (a single phase, the carry capped)
     vec2 cap = v * 3.0;
@@ -3157,9 +3296,18 @@ void main()
     float thick = smoothstep (0.5, 0.85, f);
     float rim = ink * (1.0 - smoothstep (0.5, 0.60, f));            // pigment pooled at the edge
     float veil = smoothstep (0.22, 0.52, f) * (1.0 - ink);          // the wet bleed outside the edge
+#ifdef INK_BUFFER
+    // free pigment: smoke where it is thin, ink again where the flow has wound it dense; threaded
+    // by the carried noise, so it hangs in filaments rather than as a grey fog
+    float thread = 0.75 + 0.5 * fine.a * (0.4 + detV);
+    float smoke = (1.2 * loose + 1.8 * loose * loose) * thread * (1.0 - 0.8 * ink);
+    float smokeDense = smoothstep (0.3, 1.0, loose);
+#else
     float fs = gFringe + (detV - 0.5) * 0.45 + (fineV - 0.5) * 0.2;
     float aaS = max (0.05, 0.75 * (abs (dFdx (fs)) + abs (dFdy (fs))));
     float smoke = smoothstep (0.52 - aaS, 0.52 + aaS, fs) * (1.0 - ink) * (0.45 + 1.1 * detV * (0.4 + fine.a));
+    float smokeDense = 0.0;
+#endif
 
     // ---- the cloud behind: lit billows, carried by the flow; its own picture asleep, folding
     // towards the blot's symmetry near the creature as it forms
@@ -3183,7 +3331,11 @@ void main()
     float cv = clamp (0.10 + 0.60 * lit + 0.95 * (dens - 0.5), 0.0, 1.0);
     cv = cv * cv * (3.0 - 2.0 * cv);
     // the halo: the cloud round the body is paler (its pigment was taken), the ink shades what is close
+#ifdef INK_BUFFER
+    cv = mix (cv, 0.5 + 0.5 * cv, 0.20 * paled * (1.0 - smoothstep (0.5, 1.0, halo)));
+#else
     cv = mix (cv, 0.5 + 0.5 * cv, 0.35 * smoothstep (0.0, 0.5, halo) * (1.0 - smoothstep (0.5, 1.0, halo)));
+#endif
     cv *= 1.0 - 0.38 * smoothstep (0.45, 1.0, halo);
     vec3 col = cv < 0.5 ? mix (shadow, mid, cv * 2.0) : mix (mid, light, cv * 2.0 - 1.0);
 
@@ -3199,14 +3351,21 @@ void main()
     vec4 bn = NZ (vec2 (m.x * 1.3, m.y * 0.8) - v * 1.2 + vec2 (0.0, -uBreath.z) + uInkO.yx, max (1.0, PXL (1.3)));
     float vap = smoothstep (0.30, 0.80, sv (bn) + 0.25 * bn.a - 0.35 * dot (ms2, ms2));
     float deep = 1.0 - smoothstep (-0.6, 0.9, ms2.y);                     // brighter low in the tear
+#ifdef INK_BUFFER
+    // (the light is the breath itself, where the flow has carried it: ragged, drifting, sometimes none)
+    float glow = 0.8 * min (breathLit, 1.2) * smoothstep (0.30, 0.85, sv (bn) + 0.3 * bn.a + 0.25 * breathLit - 0.1) * (0.4 + 0.6 * deep);
+#else
     float glow = uBreath.x * mOpen * vap * (0.35 + 0.65 * deep) * exp (-0.8 * dot (ms2, ms2));
     // the breath outside it: a plume rising and drifting with the flow, ragged
     vec2 pc = vec2 (p.x, p.y - (uMaw.x + 0.35 * open + 0.06));
     float plume = exp (-(pc.x * pc.x) / 0.035 - (pc.y * pc.y) / 0.06) * smoothstep (0.35, 0.75, sv (bn) + 0.3 * bn.a);
     glow += uBreath.x * uBreath.y * plume * 0.55 * F * smoothstep (0.015, 0.10, open);
+#endif
     // (inside the tear no smoke hangs: what shows is the cloud deep behind, shaded, lit or not)
     float tear = mOpen * (1.0 - smoothstep (0.6, 1.0, length (ms2 * vec2 (1.2, 1.2))));
-    col *= 1.0 + 0.25 * tear;   // (the shade the body throws on the cloud round it is not thrown through the tear)
+    // (what shows through the tear is the cloud deep behind the body, in its shade: unlit, a dark
+    // tear in the dark; never a pale mark on the fold)
+    col *= 1.0 - 0.22 * tear;
     col = mix (col, light * mix (vec3 (1.0), accent, 0.55), clamp (glow, 0.0, 1.0) * (1.0 - ink));
     float clear = clamp (max (glow * 1.5, tear), 0.0, 1.0);
     smoke *= 1.0 - 0.9 * clear;
@@ -3216,7 +3375,11 @@ void main()
     // inside is marbled by where the ink came from.
     vec3 sigma = moodTurnBy (vec3 (1.05, 0.92, 0.74), 0.25);
     vec3 sigThin = sigma.zxy * 0.6 + 0.35;
+#ifdef INK_BUFFER
+    float marble = clamp (held.b * 1.2, -1.0, 1.0);
+#else
     float marble = sv (NZ (gCarried * 0.45 + uInkO.yx, 2.0 + gStretch)) * 2.0 - 1.0;
+#endif
     float veins = NZ (gCarried * 1.3 - uInkO.xy, max (1.0, PXL (1.3)) + gStretch).a;
     // some blots are one dense mass; others are marbled: part of the body is a thin wash the cloud
     // shows through, with the dense ink left as ribbons and veins in it
@@ -3224,11 +3387,14 @@ void main()
     // (the heart of the body stays dense, to a ragged bound: the rift is a tear in the dark, never
     // a mark on a pale ground)
     wash *= smoothstep (0.08, 0.38, length (vec2 (p.x, 0.5 * (p.y - uFlowC.w))) + 0.28 * marble + 0.20 * (veins - 0.5));
+#ifdef INK_BUFFER
+    wash *= heldShare;   // (ink the body has let go is ink, whatever the body's own marbling was)
+#endif
     // ink that is still gathering, or leaving, is thin where there is little of it
     float thinEdge = mix (2.0, 0.9, smoothstep (0.0, 0.45, un));
     float A = (ink * (thinEdge + (4.6 - thinEdge) * thick) * (1.0 + 0.55 * marble * thick) + rim * 0.8 * (1.0 - 0.6 * smoothstep (0.0, 0.45, un))) * uInkF.w;
     float Aw = ink * (0.55 + 0.9 * thick * (1.0 - veins)) + rim * 0.5;
-    col *= exp (-sigma * mix (A, 0.0, wash)) * exp (-sigThin * (veil * 0.75 + smoke * 0.9 + 1.5 * Aw * wash));
+    col *= exp (-sigma * mix (A, 0.0, wash)) * exp (-sigThin * (veil * 0.75 + 1.5 * Aw * wash)) * exp (-mix (sigThin, sigma, smokeDense) * smoke * 0.9);
 
     // ---- wet sheen on the thick ink (the light is above and to the left): one broad soft band
     vec2 n2 = grad * 5.0 + gv (det) * 0.9 * 0.004;
@@ -3262,7 +3428,11 @@ void main()
     // and drifting out in front of the body: ragged lit vapour the flow carries up and away
     vec2 bc = vec2 (p.x, p.y - uMaw.x - 0.04 - 0.10 * uBreath.y) + (bn.gb - vec2 (0.5)) * 0.5;
     float reachB = dot (bc / vec2 (0.20 + 0.10 * uBreath.y, 0.14 + 0.08 * uBreath.y), bc / vec2 (0.20 + 0.10 * uBreath.y, 0.14 + 0.08 * uBreath.y));
+#ifdef INK_BUFFER
+    float vapour = smoothstep (0.30, 0.85, (sv (bn) + 0.35 * bn.a) * (0.4 + 1.6 * breathWide)) * clamp (2.5 * breathWide, 0.0, 1.0);
+#else
     float vapour = smoothstep (0.42, 0.90, sv (bn) + 0.35 * bn.a + 0.15 - reachB) * uBreath.x * smoothstep (0.015, 0.10, open) * F;
+#endif
     col = mix (col, light * mix (vec3 (1.0), accent, 0.7), 0.5 * vapour);
 
     // vignette, grain, dither
@@ -3288,14 +3458,19 @@ const char* vertex() { return c_vertex; }
 std::string fragment (Program program, bool textureLod)
 {
     std::string s;
-    if (program == Program::inkSinglePass)
+    if (program == Program::inkSinglePass || program == Program::inkSim || program == Program::inkComposite)
     {
         // the noise is read at an explicit level of detail where the context can (every core
         // context; older ones through the extension the caller enables), so a jump in the lookup
         // position never picks a wrong mip
         s += textureLod ? "#define NZ(uv, lod) texture2DLod (uNoise, uv, lod)\n" : "#define NZ(uv, lod) texture2D (uNoise, uv)\n";
+        if (program != Program::inkSinglePass)
+            s += "#define INK_BUFFER 1\n#define IT(uv, lod) texture2DLod (uInkTex, uv, lod)\n";
         s += c_inkCommon;
-        s += c_inkSingle;
+        if (program != Program::inkSinglePass)
+            s += c_inkBuffer;
+        // (the buffer's step and the draws share everything above: the tiers cannot drift apart)
+        s += program == Program::inkSim ? c_inkSim : c_inkSingle;
         return s;
     }
     const auto creature = [&s] (const char* smk)
@@ -3362,7 +3537,9 @@ std::string fragment (Program program, bool textureLod)
             s += c_q0H;
             s += c_q0Rest;
             break;
-        case Program::inkSinglePass: break;   // (above)
+        case Program::inkSinglePass:
+        case Program::inkSim:
+        case Program::inkComposite: break;   // (above)
         case Program::numPrograms: break;
     }
     return s;
@@ -3372,7 +3549,7 @@ const char* name (Program program)
 {
     static const char* const names[] = { "creature field", "emitter", "advect", "curl", "forces", "divergence", "jacobi",
                                          "gradient", "dye", "light", "bright", "down", "up", "composite", "copy", "probe",
-                                         "single pass", "ink single pass" };
+                                         "single pass", "ink single pass", "ink step", "ink composite" };
     const auto i = static_cast<int> (program);
     return i >= 0 && i < static_cast<int> (Program::numPrograms) ? names[i] : "?";
 }

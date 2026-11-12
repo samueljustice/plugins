@@ -16,7 +16,8 @@ namespace roar
     // The per-frame uniforms every program may read: name, components (1..4), array length.
     // The creature's own uniforms first (as the single-pass shader always had them), then the head
     // and jaw motion, then the medium's forces, light and post (filled by MonsterRenderer::prepare),
-    // then the ink creature's: its anatomy, flow, carry, cloud and breath (prepare fills those too).
+    // then the ink creature's: its anatomy, flow, carry, cloud, breath and the pigment rule's rates
+    // (prepare fills those too).
     #define ROAR_FRAME_UNIFORMS(X) \
         X (uRes, 2, 1) X (uPxScale, 1, 1) X (uRadius, 1, 1) X (uTime, 1, 1) X (uJaw, 1, 1) X (uGrowl, 1, 1) \
         X (uGrowlMod, 1, 1) X (uLiquid, 1, 1) X (uLiquidPhase, 1, 1) X (uRoar, 1, 1) X (uRoarDrive, 1, 1) \
@@ -43,7 +44,7 @@ namespace roar
         X (uAtmo, 4, 1) X (uAtmoTint, 3, 1) X (uMood, 4, 1) \
         X (uBlob, 4, 8) X (uBlobR, 4, 8) X (uLimbA, 4, 6) X (uLimbB, 4, 6) X (uMaw, 4, 1) X (uBay, 4, 2) \
         X (uFlowK, 4, 1) X (uFlowO, 4, 1) X (uFlowC, 4, 1) X (uCarry, 4, 1) X (uInkF, 4, 1) X (uInkO, 4, 1) \
-        X (uCloudK, 4, 1) X (uCloudO, 4, 1) X (uBreath, 4, 1)
+        X (uCloudK, 4, 1) X (uCloudO, 4, 1) X (uBreath, 4, 1) X (uHold, 4, 1) X (uPig, 4, 1)
 
     enum class U : int
     {
@@ -121,7 +122,7 @@ namespace roar
     class MonsterRenderer
     {
     public:
-        enum class Target { creatureField, emitter, velocity, pressure, dye, light, bloom, numTargets };
+        enum class Target { creatureField, emitter, velocity, pressure, dye, light, bloom, ink, numTargets };
 
         struct PassTimer
         {
@@ -166,8 +167,21 @@ namespace roar
         const CreatureFlow::Params& getInkFlow() const { return m_inkFlow; }
         const CreatureAnatomy::Genome& getInkGenome() const { return m_genomes[(size_t) m_genomeNow]; }
         /** What drove the ink creature's last frame (tests and the screenshot tool's log). */
-        struct InkState { float formation = 0.0f, opening = 0.0f, heat = 0.0f, level = 0.0f, light = 0.0f, carry = 0.0f; };
+        struct InkState { float formation = 0.0f, opening = 0.0f, heat = 0.0f, level = 0.0f, light = 0.0f, carry = 0.0f, drift = 0.0f, kick = 0.0f; };
         const InkState& getInkState() const { return m_inkState; }
+        /** Tests: the ink buffer as bytes even where half floats work. Takes effect at the next create(). */
+        void setInkBytes (bool bytes) { m_inkBytesForced = bytes; }
+        bool isInkBytes() const { return m_inkBytes; }
+        /** The ink buffer's size on the tier being drawn (0 on the single pass). */
+        int inkColumns() const { return m_tier >= 1 ? m_inkBuf[0].w : 0; }
+        int inkRows() const { return m_tier >= 1 ? m_inkBuf[0].h : 0; }
+        /** All the pigment in the buffer against the cloud's own at rest, as last read back (1 at rest). */
+        float getInkBudget() const { return m_inkTotal; }
+        float getInkBudgetGain() const { return m_inkBudget; }
+        /** The cloud's own pigment, at rest. */
+        static constexpr float c_inkAmbient = 0.15f;
+        /** How much held ink one part of free pigment condenses into. */
+        static constexpr float c_inkYield = 3.0f;
 
         /** Fills the medium's uniforms (forces, light, emitters) from the creature's ones and the forces. */
         void prepare (MonsterFrame&);
@@ -210,10 +224,11 @@ namespace roar
         {
             uOutRes, uSimTexel, uSimRes, uSimS, uDt, uFirst, uDiss, uSeedMode, uWarm, uDyeS, uCFS, uLightS,
             uBloomS, uSrcS, uSrcTexel, uDyeTexel, uDyeRes, uCFTexel, uDyeOn, uSteps, uUpGain, uDivK, uDither,
+            uInkRes, uInkStep, uInkRule,
             numR
         };
 
-        enum class S : int { dye, v, e, cf, light, noise, bloom, logo, wc, p, dv, src, numS };
+        enum class S : int { dye, v, e, cf, light, noise, bloom, logo, wc, p, dv, src, ink, numS };
 
         struct Prog
         {
@@ -250,6 +265,17 @@ namespace roar
         void seed (const MonsterFrame&);
         void resampleTier (int from, int to);
         void drawSinglePass (const MonsterFrame&, unsigned int hostFbo, const int vp[4], float alpha);
+        // the ink creature's buffer (tiers 1 to 3)
+        static int inkWidthFor (int tier) { return tier >= 3 ? 512 : (tier == 2 ? 384 : 256); }
+        bool allocInk (int tier);
+        bool makeInkTex (int index, int w, int h);
+        void freeInk();
+        void inkUniforms (float dt, bool fresh);
+        void inkStep (const MonsterFrame&, float dt, bool fresh);
+        void inkResample (int toTier);
+        void inkBudgetRead();
+        void ensureInkWindowTargets (int w, int h, float dt);
+        void renderInkTier (const MonsterFrame&, int tier, bool fading, unsigned int hostFbo, const int vp[4]);
         bool ensureQ0Target (int w, int h);
         void readTimers();
         void sizesFor (int tier, int& simW, int& simH, int& dyeW, int& dyeH) const;
@@ -273,6 +299,16 @@ namespace roar
         InkState m_inkState;
         double m_inkPhase[10] {};    // the eddies', the clouds' and the breath's slow scrolls (wrapped)
         double m_inkClock = 0.0;
+        Tex m_inkBuf[2];             // the ink buffer's ping-pong pair (half the view, with its mips)
+        unsigned int m_inkTopFbo[2] {};   // ... a small mip of each, to read all its pigment at once
+        unsigned int m_inkPbo = 0;   // the budget's read comes back through this, frames later
+        int m_inkCur = 0, m_inkTopLevel = 0, m_inkTopW = 1, m_inkTopH = 1;
+        int m_inkReadAge = -1;       // frames since the budget's read was asked for (-1: none pending)
+        bool m_inkBytes = false, m_inkBytesForced = false;
+        bool m_inkSimToggle = false;
+        float m_inkSimDt = 0.0f;     // time the buffer has not been stepped for (asleep: every other frame)
+        float m_inkTotal = 1.0f, m_inkBudget = 1.0f;
+        float m_inkFPrev = -1.0f, m_inkFRate = 0.0f, m_inkKick = 0.0f, m_inkFalling = 0.0f, m_inkFloor = 0.0f, m_inkSmoke = 0.33f, m_inkGather = 0.0f;
         float m_inkJet = 0.0f;       // the breath's jet, smoothed
         float m_inkLevel = 0.0f;     // the level the eddies follow, smoothed
         float m_aspect = 3.27f;

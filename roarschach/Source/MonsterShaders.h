@@ -11,6 +11,8 @@ namespace roar::shaders
         creatureField, emitter, advect, curl, forces, divergence, jacobi, gradient, dye, light,
         bright, down, up, composite, copy, probe, singlePass,
         inkSinglePass,   // the ink creature without any buffer (see c_inkCommon)
+        inkSim,          // one step of the ink buffer: the pigment rule
+        inkComposite,    // the ink creature drawn from the buffer
         numPrograms
     };
 

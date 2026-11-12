@@ -55,6 +55,7 @@ namespace roar
             }
         };
 
+        constexpr int c_inkReadTexels = 64 * 48;            // the budget's read: the largest buffer's third mip, at any aspect a view has
         constexpr int c_q3SimW = 256;
         constexpr float c_refRows = 78.0f;                  // the speeds below are tuned on a 78-row sim
         constexpr float c_atmoTintShare = 0.22f;           // how much of the stage's own hue the grade keeps
@@ -63,8 +64,8 @@ namespace roar
 
         const char* const c_rNames[] = { "uOutRes", "uSimTexel", "uSimRes", "uSimS", "uDt", "uFirst", "uDiss", "uSeedMode",
                                          "uWarm", "uDyeS", "uCFS", "uLightS", "uBloomS", "uSrcS", "uSrcTexel", "uDyeTexel",
-                                         "uDyeRes", "uCFTexel", "uDyeOn", "uSteps", "uUpGain", "uDivK", "uDither" };
-        const char* const c_sNames[] = { "uDye", "uV", "uE", "uCF", "uLight", "uNoise", "uBloom", "uLogoSdf", "uWc", "uP", "uDv", "uSrc" };
+                                         "uDyeRes", "uCFTexel", "uDyeOn", "uSteps", "uUpGain", "uDivK", "uDither", "uInkRes", "uInkStep", "uInkRule" };
+        const char* const c_sNames[] = { "uDye", "uV", "uE", "uCF", "uLight", "uNoise", "uBloom", "uLogoSdf", "uWc", "uP", "uDv", "uSrc", "uInkTex" };
 
         float clamp01 (float v) { return std::isfinite (v) ? std::min (1.0f, std::max (0.0f, v)) : 0.0f; }
         float smooth (float a, float b, float x) { const float t = clamp01 ((x - a) / (b - a)); return t * t * (3.0f - 2.0f * t); }
@@ -212,7 +213,7 @@ namespace roar
 
         const auto vs = compileOne (GL_VERTEX_SHADER, juce::OpenGLHelpers::translateVertexShaderToV3 (shaders::vertex()));
         auto source = shaders::fragment (which, m_textureLod);
-        if (which == P::inkSinglePass && ! m_core && m_textureLod)
+        if ((which == P::inkSinglePass || which == P::inkSim || which == P::inkComposite) && ! m_core && m_textureLod)
             source = "#extension GL_ARB_shader_texture_lod : enable\n" + source;
         const auto fs = compileOne (GL_FRAGMENT_SHADER, juce::OpenGLHelpers::translateFragmentShaderToV3 (juce::String (source)));
         if (vs == 0 || fs == 0)
@@ -325,14 +326,24 @@ namespace roar
         const bool floats = m_core || (hasExtension ("GL_ARB_texture_float")
                                        && (hasExtension ("GL_ARB_color_buffer_float") || hasExtension ("GL_ARB_half_float_pixel")));
         bool ok = floats && units >= 8 && glActiveTexture != nullptr && glGenFramebuffers != nullptr && glCheckFramebufferStatus != nullptr;
-        // (the ink creature has its single pass only so far: every machine draws it, and none of the
-        // programs or targets of the one before it are made)
         if (m_ink)
-            ok = false;
-
-        for (int i = 0; ok && i < (int) P::numPrograms; ++i)
-            if (i != (int) P::singlePass && i != (int) P::inkSinglePass)
-                ok = buildProgram ((P) i, m_progs[(size_t) i]);
+        {
+            // the ink creature's tiers need a framebuffer texture with mips, read at a level of
+            // detail; half floats only choose the buffer's format. None of the programs or targets
+            // of the creature before it are made.
+            ok = units >= 4 && m_textureLod && glActiveTexture != nullptr && glGenFramebuffers != nullptr
+              && glCheckFramebufferStatus != nullptr && glGenerateMipmap != nullptr;
+            for (const P which : { P::inkSim, P::inkComposite, P::copy })
+                ok = ok && buildProgram (which, m_progs[(size_t) which]);
+            if (ok && floats && ! m_inkBytesForced)
+                buildProgram (P::probe, m_progs[(size_t) P::probe]);
+        }
+        else
+        {
+            for (int i = 0; ok && i < (int) P::numPrograms; ++i)
+                if (i != (int) P::singlePass && i != (int) P::inkSinglePass && i != (int) P::inkSim && i != (int) P::inkComposite)
+                    ok = buildProgram ((P) i, m_progs[(size_t) i]);
+        }
         // (the single pass upscales its half-resolution frame with the copy program: built even when
         // the fluid tiers are not available)
         m_q0HalfFailed = glGenFramebuffers == nullptr || glCheckFramebufferStatus == nullptr || glActiveTexture == nullptr;
@@ -347,8 +358,16 @@ namespace roar
             glEnableVertexAttribArray (0);
             glVertexAttribPointer (0, 2, GL_FLOAT, GL_FALSE, 0, nullptr);
         }
-        m_stats.probeOk = ok && probeFloat();
-        ok = m_stats.probeOk;
+        if (m_ink)
+        {
+            m_stats.probeOk = ok && m_progs[(size_t) P::probe].id != 0 && probeFloat();
+            m_inkBytes = ! m_stats.probeOk;
+        }
+        else
+        {
+            m_stats.probeOk = ok && probeFloat();
+            ok = m_stats.probeOk;
+        }
 
         const auto* renderer = reinterpret_cast<const char*> (glGetString (GL_RENDERER));
         const auto* vendor = reinterpret_cast<const char*> (glGetString (GL_VENDOR));
@@ -420,6 +439,13 @@ namespace roar
                 m_governor.reset (m_capTier);
         }
         m_tier = m_forcedTier >= 0 ? std::min (m_forcedTier, m_capTier) : std::min (m_governor.tier, m_capTier);
+        if (m_ink && m_tier >= 1 && ! allocInk (m_tier))
+        {
+            freeInk();
+            m_simOk = false;
+            m_capTier = m_tier = 0;
+        }
+        glBindFramebuffer (GL_FRAMEBUFFER, m_hostFbo);
         m_fadeUnsupported = m_fluidFreed = false;
         m_divDt = 0.0f;
         m_prevTier = -1;
@@ -437,6 +463,8 @@ namespace roar
 
     bool MonsterRenderer::allocSim()
     {
+        if (m_ink)
+            return true;   // (the ink buffer is made for the tier that draws: allocInk)
         const int simW = c_q3SimW, simH = m_simH;
         bool ok = true;
         for (int i = 0; i < 2 && ok; ++i)
@@ -452,6 +480,7 @@ namespace roar
         for (auto* t : { &m_E[0], &m_E[1], &m_V[0], &m_V[1], &m_P[0], &m_P[1], &m_dye[0], &m_dye[1], &m_Wc, &m_Dv, &m_light,
                          &m_cf, &m_bloom[0], &m_bloom[1], &m_bloom[2], &m_bloom[3], &m_half, &m_fade })
             freeTex (*t);
+        freeInk();
         m_winW = m_winH = m_pendW = m_pendH = 0;
         m_tierFade = -1.0f;
         m_tierCapture = false;
@@ -479,6 +508,7 @@ namespace roar
             for (auto* t : { &m_E[0], &m_E[1], &m_V[0], &m_V[1], &m_P[0], &m_P[1], &m_dye[0], &m_dye[1], &m_Wc, &m_Dv, &m_light,
                              &m_cf, &m_bloom[0], &m_bloom[1], &m_bloom[2], &m_bloom[3], &m_half, &m_fade, &m_q0 })
                 freeTex (*t);
+            freeInk();
             if (m_noiseTex != 0) glDeleteTextures (1, &m_noiseTex);
             if (m_logoTex != 0) glDeleteTextures (1, &m_logoTex);
             if (m_vbo != 0) glDeleteBuffers (1, &m_vbo);
@@ -783,7 +813,9 @@ namespace roar
         }
         // the weighted jaw opens the rift; the lips' syllables wobble the strands; a shut gate closes it
         const float jaw = std::min (1.0f, std::max (0.0f, f.get (U::uJaw)));
-        pose.maw[2] = CreatureAnatomy::opening (jaw, stage) * awake * (1.0f - 0.85f * clamp01 (f.get (U::uGateClosed)));
+        // (and no rift until there is a body round it: a hole in the first shred on the fold is a ring)
+        pose.maw[2] = CreatureAnatomy::opening (jaw, stage) * awake * (1.0f - 0.85f * clamp01 (f.get (U::uGateClosed)))
+                    * smooth (0.45f, 0.9f, clamp01 (f.inkFormation));
         pose.maw[3] = clamp01 (pose.maw[3] + 0.35f * std::min (1.0f, std::max (-1.0f, f.get (U::uLip))));
         m_inkPose = pose;
         for (int i = 0; i < CreatureAnatomy::maxLobes; ++i)
@@ -859,7 +891,32 @@ namespace roar
         const float t = (float) m_inkClock, ph = pose.look.ox * 40.0f;
         const float moment = smooth (-0.35f, 0.55f, std::sin (t * 0.31f + ph) * std::cos (t * 0.17f + 1.3f * ph));
         f.set (U::uBreath, pose.look.glow * moment * (0.45f + 0.55f * heat) * awake, jet, (float) m_inkPhase[9], level);
-        m_inkState = { F, pose.maw[2], heat, level, f.get (U::uBreath), reach / speed };
+
+        // ---- the pigment rule: how fast free pigment turns into held ink and back, the pull on it
+        {
+            if (m_inkFPrev < 0.0f || dt <= 0.0f)
+                m_inkFRate = 0.0f;
+            else
+                m_inkFRate += ((F - m_inkFPrev) / dt - m_inkFRate) * (1.0f - std::exp (-dt / 0.15f));
+            m_inkFPrev = F;
+            const float rising = clamp01 (m_inkFRate / 0.4f), falling = clamp01 (-m_inkFRate / 0.10f);
+            // towards the body while it gathers (and a little always, awake: the pull keeps replacing
+            // what the flow carries off), away from it while it lets go
+            const float drift = falling > 0.0f ? -0.10f * falling : 0.28f * rising + 0.05f * F;
+            // the release's kick: small eddies that tear what was let go, for two seconds after
+            m_inkKick = std::max (falling, m_inkKick * std::exp (-dt / 2.0f));
+            m_inkFalling = falling;
+            m_inkGather = drift > 0.0f ? 0.28f * rising / drift : 0.0f;
+            // (awake, what the rim sheds is the pigment it was made of; let go, the ink spreads into smoke)
+            m_inkSmoke = mixf (1.0f / c_inkYield, 0.9f, clamp01 (std::max (2.0f * un, 1.5f * falling)));
+            // (the floor under the body comes in over seconds once it has formed: the gathering is
+            // the pigment's alone)
+            m_inkFloor += ((F > 0.9f ? 1.0f : 0.0f) - m_inkFloor) * (1.0f - std::exp (-dt / (F > 0.9f ? 2.0f : 0.3f)));
+            const float kick = (0.25f + 0.75f * m_inkKick) * (0.3f + 0.7f * un) + 0.15f * heat;
+            f.set (U::uHold, 0.6f + 2.4f * F, 1.2f + 1.3f * un, drift, 0.45f + 0.25f * stage + 0.2f * heat);
+            f.set (U::uPig, c_inkAmbient, m_inkBudget, kick, 0.008f);
+            m_inkState = { F, pose.maw[2], heat, level, f.get (U::uBreath), reach / speed, drift, kick };
+        }
     }
 
     //==============================================================================================
@@ -1214,6 +1271,334 @@ namespace roar
             glDisable (GL_BLEND);
     }
 
+    //==============================================================================================
+    // The ink buffer: half the view (x >= 0), a ping-pong pair with mips; mirrored across the fold
+    // by its wrap mode, so filtered reads at the fold are right and the ink's symmetry is exact.
+    bool MonsterRenderer::makeInkTex (int index, int w, int h)
+    {
+        auto& t = m_inkBuf[index];
+        if (m_inkTopFbo[index] != 0)
+            glDeleteFramebuffers (1, &m_inkTopFbo[index]);
+        m_inkTopFbo[index] = 0;
+        if (! makeTex (t, w, h, ! m_inkBytes))
+            return false;
+        glBindTexture (GL_TEXTURE_2D, t.tex);
+        glTexParameteri (GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, (GLint) GL_MIRRORED_REPEAT);
+        glTexParameteri (GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, (GLint) GL_CLAMP_TO_EDGE);
+        glTexParameteri (GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+        glGenerateMipmap (GL_TEXTURE_2D);
+        glBindTexture (GL_TEXTURE_2D, 0);
+        // a small mip holds all the pigment there is in a few hundred texels, read back for the
+        // budget (not the smallest: each halving of an odd size drops a row, and by the last level
+        // a good part of the buffer is no longer counted)
+        m_inkTopLevel = 3;
+        m_inkTopW = std::max (1, w >> m_inkTopLevel);
+        m_inkTopH = std::max (1, h >> m_inkTopLevel);
+        glGenFramebuffers (1, &m_inkTopFbo[index]);
+        glBindFramebuffer (GL_FRAMEBUFFER, m_inkTopFbo[index]);
+        glFramebufferTexture2D (GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, t.tex, m_inkTopLevel);
+        if (glCheckFramebufferStatus (GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE)
+        {
+            glBindFramebuffer (GL_FRAMEBUFFER, m_hostFbo);
+            glDeleteFramebuffers (1, &m_inkTopFbo[index]);
+            m_inkTopFbo[index] = 0;   // (no budget on this driver: the gain stays at 1)
+        }
+        glBindFramebuffer (GL_FRAMEBUFFER, m_hostFbo);
+        return true;
+    }
+
+    bool MonsterRenderer::allocInk (int tier)
+    {
+        const int w = inkWidthFor (tier), h = std::max (16, (int) std::lround ((float) w / (0.5f * m_aspect)));
+        bool ok = makeInkTex (0, w, h) && makeInkTex (1, w, h);
+        if (! ok && ! m_inkBytes)
+        {
+            m_inkBytes = true;   // (half floats that probe but do not complete at this size: bytes)
+            ok = makeInkTex (0, w, h) && makeInkTex (1, w, h);
+        }
+        if (ok && m_inkPbo == 0 && glGetBufferSubData != nullptr)
+        {
+            glGenBuffers (1, &m_inkPbo);
+            glBindBuffer (GL_PIXEL_PACK_BUFFER, m_inkPbo);
+            glBufferData (GL_PIXEL_PACK_BUFFER, (GLsizeiptr) (c_inkReadTexels * 4 * sizeof (GLfloat)), nullptr, GL_STREAM_READ);
+            glBindBuffer (GL_PIXEL_PACK_BUFFER, 0);
+        }
+        m_inkCur = 0;
+        m_inkReadAge = -1;
+        m_needsSeed = true;
+        return ok;
+    }
+
+    void MonsterRenderer::freeInk()
+    {
+        for (int i = 0; i < 2; ++i)
+        {
+            if (m_inkTopFbo[i] != 0)
+                glDeleteFramebuffers (1, &m_inkTopFbo[i]);
+            m_inkTopFbo[i] = 0;
+            freeTex (m_inkBuf[i]);
+        }
+        if (m_inkPbo != 0)
+            glDeleteBuffers (1, &m_inkPbo);
+        m_inkPbo = 0;
+        m_inkReadAge = -1;
+    }
+
+    void MonsterRenderer::inkUniforms (float dt, bool fresh)
+    {
+        setR (R::uInkRes, (float) m_inkBuf[0].w, (float) m_inkBuf[0].h, 0.5f * m_aspect, dt);
+        setR (R::uInkStep, fresh ? 1.0f : 0.0f, m_inkBytes ? 1.0f : 0.0f, hashf ((float) (m_frame % 4093u) * 0.6180339f) * 64.0f, 0.0f);
+        setR (R::uInkRule, m_inkFloor, m_inkFalling, m_inkSmoke, m_inkGather);
+    }
+
+    // One step of the buffer (fresh: filled as the shape stands and the cloud's own pigment, no history).
+    void MonsterRenderer::inkStep (const MonsterFrame& f, float dt, bool fresh)
+    {
+        use (P::inkSim, f);
+        // (its pixel-sized measures follow the buffer: the whole view at the buffer's scale)
+        auto& prog = m_progs[(size_t) P::inkSim];
+        if (const int loc = prog.frameLoc[(size_t) U::uRes]; loc >= 0)
+            glUniform2f (loc, 2.0f * (float) m_inkBuf[0].w, (float) m_inkBuf[0].h);
+        inkUniforms (dt, fresh);
+        bindRaw (S::noise, m_noiseTex);
+        bind (S::ink, m_inkBuf[m_inkCur]);
+        draw (&m_inkBuf[1 - m_inkCur], m_inkBuf[0].w, m_inkBuf[0].h, "ink step");
+        m_inkCur = 1 - m_inkCur;
+        bind (S::ink, m_inkBuf[m_inkCur]);
+        glGenerateMipmap (GL_TEXTURE_2D);
+    }
+
+    // A change of tier: what the buffer holds is drawn into one of the new size.
+    void MonsterRenderer::inkResample (int toTier)
+    {
+        Tex src = m_inkBuf[m_inkCur];
+        const unsigned int srcTop = m_inkTopFbo[m_inkCur];
+        m_inkBuf[m_inkCur] = Tex();
+        m_inkTopFbo[m_inkCur] = 0;
+        const bool seedWas = m_needsSeed;
+        const bool ok = allocInk (toTier);
+        if (ok && src.tex != 0)
+        {
+            auto& prog = m_progs[(size_t) P::copy];
+            glUseProgram (prog.id);
+            m_cur = &prog;
+            setR (R::uDither, 0.0f);
+            setScale (R::uSrcS, src, src.w, src.h);
+            bind (S::src, src);
+            draw (&m_inkBuf[0], m_inkBuf[0].w, m_inkBuf[0].h, "ink resample");
+            glBindTexture (GL_TEXTURE_2D, m_inkBuf[0].tex);
+            glGenerateMipmap (GL_TEXTURE_2D);
+            m_needsSeed = seedWas;
+        }
+        if (srcTop != 0)
+            glDeleteFramebuffers (1, &srcTop);
+        freeTex (src);
+    }
+
+    // All the pigment in the buffer, from a small mip of it, through a pixel buffer a few frames
+    // later (never a stall); a slow gain on the cloud's own pigment keeps the total near its rest.
+    void MonsterRenderer::inkBudgetRead()
+    {
+        if (m_inkPbo == 0 || glGetBufferSubData == nullptr)
+            return;
+        if (m_inkReadAge < 0)
+        {
+            if ((m_frame & 15u) != 0 || m_inkTopFbo[m_inkCur] == 0 || m_inkTopW * m_inkTopH > c_inkReadTexels)
+                return;
+            glBindFramebuffer (GL_FRAMEBUFFER, m_inkTopFbo[m_inkCur]);
+            glBindBuffer (GL_PIXEL_PACK_BUFFER, m_inkPbo);
+            glPixelStorei (GL_PACK_ALIGNMENT, 1);
+            glReadPixels (0, 0, m_inkTopW, m_inkTopH, GL_RGBA, GL_FLOAT, nullptr);
+            glBindBuffer (GL_PIXEL_PACK_BUFFER, 0);
+            glBindFramebuffer (GL_FRAMEBUFFER, m_hostFbo);
+            m_inkReadAge = 0;
+        }
+        else if (++m_inkReadAge >= 3)
+        {
+            GLfloat px[c_inkReadTexels * 4];
+            const int n = m_inkTopW * m_inkTopH;
+            glBindBuffer (GL_PIXEL_PACK_BUFFER, m_inkPbo);
+            glGetBufferSubData (GL_PIXEL_PACK_BUFFER, 0, (GLsizeiptr) ((size_t) n * 4 * sizeof (GLfloat)), px);
+            glBindBuffer (GL_PIXEL_PACK_BUFFER, 0);
+            m_inkReadAge = -1;
+            double heldSum = 0.0, freeSum = 0.0;
+            for (int i = 0; i < n; ++i)
+            {
+                heldSum += (double) px[i * 4];
+                freeSum += (double) px[i * 4 + 1];
+            }
+            const float k = (m_inkBytes ? 2.5f : 1.0f) / (float) n;
+            const float total = (float) (heldSum / (double) c_inkYield + freeSum) * k / c_inkAmbient;
+            if (std::isfinite (total) && total >= 0.0f)
+            {
+                // (a read every half second: the total is followed, never jumped to, and the gain
+                // moves over several seconds)
+                m_inkTotal += std::min (0.3f, std::max (-0.3f, total - m_inkTotal));
+                const float step = m_inkTotal > 1.15f ? -0.25f * (m_inkTotal - 1.15f) : m_inkTotal < 0.85f ? 0.25f * (0.85f - m_inkTotal) : 0.1f * (1.0f - m_inkBudget);
+                m_inkBudget = std::min (1.3f, std::max (0.5f, m_inkBudget + step));
+            }
+        }
+    }
+
+    // The half-size composite's target and the tier crossfade's kept frame (a change of size waits
+    // until it has held for 200 ms, as the window targets of the creature before did).
+    void MonsterRenderer::ensureInkWindowTargets (int w, int h, float dt)
+    {
+        if (w == m_winW && h == m_winH)
+        {
+            m_pendSeconds = 0.0f;
+            return;
+        }
+        if (w != m_pendW || h != m_pendH)
+        {
+            m_pendW = w;
+            m_pendH = h;
+            m_pendSeconds = 0.0f;
+        }
+        m_pendSeconds += dt;
+        if (m_winW != 0 && m_pendSeconds < 0.2f)
+            return;
+        makeTex (m_half, std::max (8, (w + 1) / 2), std::max (8, (h + 1) / 2), false);
+        makeTex (m_fade, std::max (8, (w + 1) / 2), std::max (8, (h + 1) / 2), false);
+        m_tierFade = -1.0f;
+        m_winW = w;
+        m_winH = h;
+        m_pendSeconds = 0.0f;
+    }
+
+    // Tiers 1 to 3 of the ink creature: one step of the buffer, then the composite (at half size and
+    // upscaled on tier 1).
+    void MonsterRenderer::renderInkTier (const MonsterFrame& f, int tier, bool fading, unsigned int hostFbo, const int hostViewport[4])
+    {
+        const int W = hostViewport[2], H = hostViewport[3];
+        // a change of tier: the tier being left draws once more and is kept, then the new one fades in under it
+        bool captureOld = false;
+        const bool canFade = glBlitFramebuffer != nullptr && m_fade.fbo != 0 && ! m_fadeUnsupported;
+        if (m_prevTier >= 1 && tier != m_prevTier)
+        {
+            if (canFade && ! m_tierCapture)
+            {
+                m_tierCapture = captureOld = true;
+                tier = m_prevTier;
+            }
+            else
+            {
+                inkResample (tier);
+                m_tierCapture = false;
+                m_tierFade = canFade ? 0.0f : -1.0f;
+            }
+        }
+        else
+            m_tierCapture = false;
+        if (m_inkBuf[0].tex == 0 || m_inkBuf[1].tex == 0)
+        {
+            if (! allocInk (tier))
+            {
+                // no buffer after all: the single pass from here on
+                freeInk();
+                m_simOk = false;
+                m_capTier = m_tier = 0;
+                drawSinglePass (f, hostFbo, hostViewport, 1.0f);
+                return;
+            }
+        }
+        else if (m_inkBuf[0].w != inkWidthFor (tier))
+            inkResample (tier);
+        m_tier = tier;
+        m_prevTier = tier;
+        ensureInkWindowTargets (W, H, f.frameDt);
+
+        const int qi = m_queryIndex;
+        const bool timing = m_timers && m_passTimer == nullptr && ! m_queryPending[(size_t) qi];
+        if (timing)
+            glBeginQuery (GL_TIME_ELAPSED, m_queries[(size_t) qi]);
+
+        const float dt = m_fixedStep ? 1.0f / 30.0f : std::min (c_maxDt, std::max (c_minDt, f.frameDt));
+        if (m_needsSeed)
+        {
+            inkStep (f, 1.0f / 30.0f, true);
+            m_needsSeed = false;
+            m_inkSimDt = 0.0f;
+        }
+        // (asleep and settled, the buffer steps every other frame)
+        m_inkSimDt = std::min (0.1f, m_inkSimDt + dt);
+        m_inkSimToggle = ! m_inkSimToggle;
+        if (! f.asleep || m_inkSimToggle)
+        {
+            const int steps = m_inkSimDt > 1.0f / 24.0f ? 2 : 1;
+            for (int s = 0; s < steps; ++s)
+                inkStep (f, m_inkSimDt / (float) steps, false);
+            m_inkSimDt = 0.0f;
+        }
+        inkBudgetRead();
+
+        // the composite
+        const bool half = tier == 1 && m_half.fbo != 0;
+        use (P::inkComposite, f);
+        if (half)
+        {
+            auto& prog = m_progs[(size_t) P::inkComposite];
+            const float k = (float) m_half.h / (float) std::max (1, H);
+            if (const int loc = prog.frameLoc[(size_t) U::uRes]; loc >= 0) glUniform2f (loc, (float) m_half.w, (float) m_half.h);
+            if (const int loc = prog.frameLoc[(size_t) U::uPxScale]; loc >= 0) glUniform1f (loc, f.get (U::uPxScale) * k);
+            if (const int loc = prog.frameLoc[(size_t) U::uRadius]; loc >= 0) glUniform1f (loc, f.get (U::uRadius) * k);
+        }
+        inkUniforms (dt, false);
+        bindRaw (S::noise, m_noiseTex);
+        bind (S::ink, m_inkBuf[m_inkCur]);
+        draw (half ? &m_half : nullptr, half ? m_half.w : W, half ? m_half.h : H, "ink composite");
+        if (half)
+        {
+            auto& prog = m_progs[(size_t) P::copy];
+            glUseProgram (prog.id);
+            m_cur = &prog;
+            setScale (R::uSrcS, m_half, m_half.w, m_half.h);
+            setR (R::uDither, 1.0f);   // (the upscale smooths the composite's dither away: the mist would band)
+            bind (S::src, m_half);
+            draw (nullptr, W, H, "upscale");
+        }
+
+        if (captureOld)
+        {
+            while (glGetError() != GL_NO_ERROR) {}
+            glBindFramebuffer (GL_READ_FRAMEBUFFER, hostFbo);
+            glBindFramebuffer (GL_DRAW_FRAMEBUFFER, m_fade.fbo);
+            glBlitFramebuffer (hostViewport[0], hostViewport[1], hostViewport[0] + W, hostViewport[1] + H, 0, 0, m_fade.w, m_fade.h,
+                               GL_COLOR_BUFFER_BIT, GL_LINEAR);
+            glBindFramebuffer (GL_FRAMEBUFFER, hostFbo);
+            if (glGetError() != GL_NO_ERROR)
+                m_fadeUnsupported = true;   // (a multisampled host can't be scaled: tier changes switch outright)
+        }
+        else if (m_tierFade >= 0.0f && m_tierFade < 0.5f)
+        {
+            auto& prog = m_progs[(size_t) P::copy];
+            glUseProgram (prog.id);
+            m_cur = &prog;
+            setScale (R::uSrcS, m_fade, m_fade.w, m_fade.h);
+            setR (R::uDither, 0.0f);
+            bind (S::src, m_fade);
+            glEnable (GL_BLEND);
+            glBlendColor (0.0f, 0.0f, 0.0f, 1.0f - m_tierFade / 0.5f);
+            glBlendFunc (GL_CONSTANT_ALPHA, GL_ONE_MINUS_CONSTANT_ALPHA);
+            draw (nullptr, W, H, "tier crossfade");
+            glDisable (GL_BLEND);
+            m_tierFade += std::min (0.1f, std::max (1.0f / 120.0f, f.frameDt));
+        }
+
+        if (fading)
+        {
+            drawSinglePass (f, hostFbo, hostViewport, std::min (1.0f, m_fadeQ0 / 0.5f));
+            m_fadeQ0 += std::min (0.1f, std::max (0.0f, f.frameDt));
+        }
+
+        if (timing)
+        {
+            glEndQuery (GL_TIME_ELAPSED);
+            m_queryPending[(size_t) qi] = true;
+            m_queryIndex = (qi + 1) % (int) m_queries.size();
+        }
+    }
+
     void MonsterRenderer::readTimers()
     {
         if (! m_timers)
@@ -1308,6 +1693,8 @@ namespace roar
             m_tier = 0;
             drawSinglePass (f, hostFbo, hostViewport, 1.0f);
         }
+        else if (m_ink)
+            renderInkTier (f, tier, fading, hostFbo, hostViewport);
         else
         {
             // a change of tier: the old tier draws once more and is kept, then the new one fades in under it
@@ -1539,7 +1926,7 @@ namespace roar
                                             std::vector<unsigned int>& programs, std::vector<unsigned int>& buffers) const
     {
         for (const auto* t : { &m_E[0], &m_E[1], &m_V[0], &m_V[1], &m_P[0], &m_P[1], &m_dye[0], &m_dye[1], &m_Wc, &m_Dv, &m_light,
-                               &m_cf, &m_bloom[0], &m_bloom[1], &m_bloom[2], &m_bloom[3], &m_half, &m_fade, &m_q0 })
+                               &m_cf, &m_bloom[0], &m_bloom[1], &m_bloom[2], &m_bloom[3], &m_half, &m_fade, &m_q0, &m_inkBuf[0], &m_inkBuf[1] })
         {
             if (t->tex != 0) textures.push_back (t->tex);
             if (t->fbo != 0) framebuffers.push_back (t->fbo);
@@ -1548,7 +1935,10 @@ namespace roar
         if (m_logoTex != 0) textures.push_back (m_logoTex);
         for (const auto& p : m_progs)
             if (p.id != 0) programs.push_back (p.id);
+        for (auto fb : m_inkTopFbo)
+            if (fb != 0) framebuffers.push_back (fb);
         if (m_vbo != 0) buffers.push_back (m_vbo);
+        if (m_inkPbo != 0) buffers.push_back (m_inkPbo);
         for (auto q : m_queries)
             if (q != 0) buffers.push_back (q);
     }
@@ -1577,6 +1967,7 @@ namespace roar
             case Target::dye: t = &m_dye[m_d]; w = dyeW; h = dyeH; break;
             case Target::light: t = &m_light; w = dyeW; h = dyeH; break;
             case Target::bloom: t = &m_bloom[0]; w = m_bloom[0].w; h = m_bloom[0].h; break;
+            case Target::ink: t = &m_inkBuf[m_inkCur]; w = t->w; h = t->h; break;
             case Target::numTargets: return false;
         }
         if (t == nullptr || t->fbo == 0)
@@ -1588,6 +1979,14 @@ namespace roar
         glPixelStorei (GL_PACK_ALIGNMENT, 1);
         glReadPixels (0, 0, w, h, GL_RGBA, GL_FLOAT, rgba.data());
         glBindFramebuffer (GL_FRAMEBUFFER, (GLuint) prev);
+        if (which == Target::ink && m_inkBytes)
+            for (size_t i = 0; i + 3 < rgba.size(); i += 4)
+            {
+                rgba[i] *= 2.5f;
+                rgba[i + 1] *= 2.5f;
+                rgba[i + 2] = rgba[i + 2] * 2.0f - 1.0f;
+                rgba[i + 3] *= 2.0f;
+            }
         return true;
     }
 }

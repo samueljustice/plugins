@@ -130,6 +130,8 @@ public:
     /** Tests: which creature the next context draws (see MonsterRenderer::setInkCreature). */
     void setInkCreatureForTests (bool ink) { m_renderer.setInkCreature (ink); }
     const roar::MonsterRenderer& getRendererForTests() const { return m_renderer; }
+    /** Tests and the screenshot tool (their own thread is the GL thread): hold a tier, read the ink buffer. */
+    roar::MonsterRenderer& rendererForTests() { return m_renderer; }
 
     void newOpenGLContextCreated() override;
     void renderOpenGL() override;
