@@ -98,6 +98,7 @@ target_sources(Swooshbuckler
     Source/TakesView.cpp
     Source/VariationRenderer.cpp
     Source/VariationsView.cpp
+    Source/UserPresets.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/../common/SammyJUpdateCheck.cpp
 )
 
@@ -207,6 +208,14 @@ if(SWOOSHBUCKLER_TESTS)
     target_include_directories(SwooshbucklerSession PRIVATE Source ${CMAKE_CURRENT_BINARY_DIR}/Swooshbuckler_artefacts/JuceLibraryCode $<TARGET_PROPERTY:Swooshbuckler,INCLUDE_DIRECTORIES>)
     target_compile_definitions(SwooshbucklerSession PRIVATE $<TARGET_PROPERTY:Swooshbuckler,COMPILE_DEFINITIONS>)
     target_link_libraries(SwooshbucklerSession PRIVATE Swooshbuckler)
+
+    # Keep test: keeping work through the whole plug-in. Presets and Randomise (unlisted knobs stay), the section
+    # dice and locks, the roll history, undo and its grouping, user preset files, A/B and session files.
+    juce_add_console_app(SwooshbucklerKeep PRODUCT_NAME "SwooshbucklerKeep")
+    target_sources(SwooshbucklerKeep PRIVATE Tests/KeepTest.cpp)
+    target_include_directories(SwooshbucklerKeep PRIVATE Source ${CMAKE_CURRENT_BINARY_DIR}/Swooshbuckler_artefacts/JuceLibraryCode $<TARGET_PROPERTY:Swooshbuckler,INCLUDE_DIRECTORIES>)
+    target_compile_definitions(SwooshbucklerKeep PRIVATE $<TARGET_PROPERTY:Swooshbuckler,COMPILE_DEFINITIONS>)
+    target_link_libraries(SwooshbucklerKeep PRIVATE Swooshbuckler)
 
     # Render test: Render Variations through the whole plug-in. A batch's files (names, lengths, peaks, each one
     # different), cancelling, the same batch seed giving the same files, and how fast a batch renders.

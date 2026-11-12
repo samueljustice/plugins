@@ -673,6 +673,8 @@ void CargoHold::publish(int track, std::shared_ptr<CargoData> data, bool recordU
         t.current = std::move(data);
         t.live.store(t.current.get(), std::memory_order_release);
     }
+    if (recordUndo && onUndoableEdit)
+        onUndoableEdit(track);
     sendChangeMessage();
 }
 

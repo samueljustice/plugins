@@ -641,26 +641,84 @@ SwooshbucklerAudioProcessorEditor::SwooshbucklerAudioProcessorEditor(Swooshbuckl
 
     // Header ------------------------------------------------------------------
     for (auto* b : { &m_presetPrev, &m_presetName, &m_presetNext, &m_dice, &m_retroButton, &m_settingsButton, &m_playButton, &m_newButton, &m_takesButton,
-                     &m_variationsButton })
+                     &m_variationsButton, &m_abButton })
     {
         b->setColour(juce::TextButton::buttonOnColourId, TC::flight);
         b->setWantsKeyboardFocus(false);
         m_content.addAndMakeVisible(*b);
     }
     m_presetName.setButtonText(p.currentPresetName);
-    m_presetName.setTooltip("Presets\nClick for the list of factory presets. Picking one glides every control to its new setting over a moment, so you can switch while it plays. Your tracks, their levels and the output section are left alone. Use < and > to step through them.");
+    m_presetName.setTooltip("Presets\nClick for the list: the factory presets, then your own. Picking one glides every control to its new setting over a moment, "
+                            "so you can switch while it plays. A preset is a complete look: every knob it doesn't set goes back to its default. "
+                            "Your tracks, their levels, the output section and the modulators are left alone (a preset of your own can carry its "
+                            "modulators and wires, if you saved it with them). The list also saves, renames and deletes your presets, switches "
+                            "A / B and saves and opens sessions. Use < and > to step through the presets.");
     m_presetName.onClick = [this] { showPresetMenu(); };
     m_presetPrev.setTooltip("Previous Preset");
     m_presetNext.setTooltip("Next Preset");
     m_presetPrev.onClick = [this] { stepPreset(-1); };
     m_presetNext.onClick = [this] { stepPreset(1); };
     m_dice.setColour(juce::TextButton::buttonOnColourId, TC::movement);
-    m_dice.setTooltip("Randomise\nRolls a random but musical setting for the ride, the buses, the hits and the space, and glides to it. Your tracks, their levels and the output stay put. Keep rolling until you hear something you like.");
-    m_dice.onClick = [this]
+    m_dice.setTooltip("Randomise\nRolls a random but musical setting for the ride, the buses, the hits and the space, and glides to it. "
+                      "Only the knobs it rolls move: every other control stays where you set it, and so do your tracks, their levels and the output. "
+                      "A section with its lock on is left out. Keep rolling until you hear something you like; the arrows beside it go back "
+                      "through the last 20 rolls, and the star keeps one as a preset.");
+    m_dice.onClick = [this] { rollDice(-1); };
+
+    for (auto* b : { &m_undoButton, &m_redoButton, &m_rollBack, &m_rollForward, &m_keepRoll })
+        m_content.addAndMakeVisible(*b);
+    m_undoButton.setTooltip("Undo\nTakes back the last thing you changed: a knob move, a preset, a Randomise roll, a section's die, A / B, New Session "
+                            "or a track edit, in the order they happened. A preset or a roll is one step, however many knobs it moved. Cmd+Z does the same.");
+    m_undoButton.onClick = [this] { stepHistory(false); };
+    m_redoButton.setTooltip("Redo\nDoes again what Undo took back. Shift+Cmd+Z does the same.");
+    m_redoButton.onClick = [this] { stepHistory(true); };
+    m_rollBack.setTooltip("Previous Roll\nGoes back through the last 20 Randomise rolls (the header's and the section dice), and at the end to the "
+                          "settings you had before the first of them. Each one comes back as you left it.");
+    m_rollBack.onClick = [this] { stepRoll(-1); };
+    m_rollForward.setTooltip("Next Roll\nGoes forward again through the rolls you stepped back over.");
+    m_rollForward.onClick = [this] { stepRoll(1); };
+    m_keepRoll.setTooltip("Keep This Roll\nSaves the settings as they are as a preset of your own, called Roll, Roll 2 and so on. "
+                          "It joins your presets in the preset list, where you can rename it.");
+    m_keepRoll.onClick = [this] { keepRoll(); };
+    m_abButton.setTooltip("A / B\nTwo sets of the settings a preset holds, to compare two versions of a sound. Click to go to the other set; "
+                          "each waits as you left it. The other set starts as a copy of this one. Copy to Other, in the preset list, "
+                          "copies the settings you have now across. Both sets are saved with the session.");
+    m_abButton.onClick = [this]
     {
-        applyPreset(Presets::roll(m_random), false);
-        m_processor.currentPresetName = "Randomised";
+        m_morph.finish();
+        m_processor.switchAB();
+        toast(m_processor.getABSlot() == 0 ? "Set A" : "Set B");
     };
+
+    // A die and a lock for each section, in its title bar.
+    {
+        const juce::Colour colours[Presets::numSections] = { TC::flight, TC::movement, TC::sources, TC::record, TC::master };
+        const char* rolls[Presets::numSections] = {
+            "Energy, Rate, Fill, Chaos and Pitch",
+            "bus A's Doppler, Width, Bend, Low End, Swirl, Filter and Drive",
+            "bus B's Doppler, Width, Bend, Low End, Swirl, Filter, Drive, Ducked and Filtered",
+            "Sensitivity, Boost, Release and Duck",
+            "Space, and gently Inflate and Push",
+        };
+        for (int section = 0; section < Presets::numSections; ++section)
+        {
+            const juce::String name = Presets::sectionName(section);
+            auto& die = m_sectionDice[static_cast<size_t>(section)];
+            die = std::make_unique<IconButton>(IconButton::Icon::Die, colours[section]);
+            die->setTooltip("Roll " + name + "\nRolls just this section: " + rolls[section] + ". Everything else stays where it is. "
+                            "The roll joins the Randomise history, so the arrows by RANDOMISE step back over it.");
+            die->onClick = [this, section] { rollDice(section); };
+            m_content.addAndMakeVisible(*die);
+            auto& lock = m_sectionLocks[static_cast<size_t>(section)];
+            lock = std::make_unique<IconButton>(IconButton::Icon::Lock, colours[section]);
+            lock->setClickingTogglesState(true);
+            lock->setToggleState(m_processor.isSectionLocked(section), juce::dontSendNotification);
+            lock->setTooltip("Lock " + name + "\nOn: the header's RANDOMISE (and Randomise Everything in Render Variations) leaves this section "
+                             "as it is. The section's own die still rolls it. The locks are saved with the session.");
+            lock->onClick = [this, section] { m_processor.setSectionLocked(section, m_sectionLocks[static_cast<size_t>(section)]->getToggleState()); };
+            m_content.addAndMakeVisible(*lock);
+        }
+    }
     m_content.addAndMakeVisible(m_tape);
     m_tape.setTooltip("Tape\nArm it and it records whenever there is sound, skipping the quiet stretches, into one long file of usable whooshes. Click again to stop and close the file. Pass peaks and hits are marked in WAV files, so a take arrives ready to spot. Where it saves, in which format, Skip Silence (off for one continuous take) and One File Per Whoosh (a separate file for each) are in SETTINGS; what it has saved is in Takes.");
     m_tape.onClick = [this] { toggleLog(); };
@@ -675,12 +733,12 @@ SwooshbucklerAudioProcessorEditor::SwooshbucklerAudioProcessorEditor(Swooshbuckl
     m_playButton.setColour(juce::TextButton::buttonOnColourId, TC::good);
     m_playButton.setTooltip("Play / Stop\nStarts and stops the whole rig. Stop lets the tail ring out. The app always opens stopped, so nothing blasts out when you load a session. In a DAW it can be automated, and with Follow Host on the transport starts and stops it too.");
     m_playButton.onClick = [this] { m_processor.setPlaying(! m_processor.isPlaying()); };
-    m_newButton.setTooltip("New Session\nStops, empties every track and puts every control back to its default. Cmd+Z can bring removed tracks back.");
+    m_newButton.setTooltip("New Session\nStops, empties every track and puts every control back to its default. Undo (Cmd+Z) brings all of it back in one step: the tracks, the settings and the wires.");
     m_newButton.onClick = [this]
     {
         m_morph.finish();
         m_processor.newSession();
-        toast("New Session");
+        toast("New Session. Cmd+Z brings everything back.");
     };
     m_retroButton.onClick = [this] { saveRetro(); };
     m_settingsButton.setTooltip("Settings\nWhere recordings go, their file type, bit depth, sample rate and channels, auto-arming the tape, and (in the app) the audio device.");
@@ -997,10 +1055,6 @@ SwooshbucklerAudioProcessorEditor::SwooshbucklerAudioProcessorEditor(Swooshbuckl
     setSize(width, width * c_height / c_width);
     m_sizeRestored = true;
 
-    for (size_t i = 0; i < Presets::factory().size(); ++i)
-        if (Presets::factory()[i].name.equalsIgnoreCase(p.currentPresetName)) // sessions saved before the names were Title Case
-            m_presetIndex = static_cast<int>(i);
-
     // A newer release: the popup sits on the editor itself, above the scaled content, and scales with it.
     addChildComponent(m_updatePopup);
     m_updatePopup.setBounds(0, 0, c_width, c_height);
@@ -1078,17 +1132,32 @@ void SwooshbucklerAudioProcessorEditor::layoutContent()
                                 juce::GlyphArrangement::getStringWidthInt(m_fonts->label(10.0f), m_versionLink.getButtonText()) + 8, 16);
         m_titleArea = { 16, 4, 290, 34 };
     }
-    m_playButton.setBounds(372, 15, 72, 30);
-    m_newButton.setBounds(450, 15, 52, 30);
-    m_presetPrev.setBounds(510, 15, 26, 30);
-    m_presetName.setBounds(540, 15, 132, 30);
-    m_presetNext.setBounds(676, 15, 26, 30);
-    m_dice.setBounds(708, 15, 92, 30);
-    m_tape.setBounds(808, 13, 124, 34);
-    m_retroButton.setBounds(938, 15, 80, 30);
-    m_variationsButton.setBounds(1024, 15, 86, 30);
-    m_takesButton.setBounds(1116, 15, 70, 30);
-    m_settingsButton.setBounds(1192, 15, 72, 30);
+    // Left to right: Play, New, Undo, Redo | < preset > A/B | Randomise, its history, Keep | tape | Last | Variations | Takes | Settings.
+    {
+        int x = 330;
+        auto place = [&x](juce::Component& c, int width, int gap, int y = 15, int height = 30)
+        {
+            c.setBounds(x, y, width, height);
+            x += width + gap;
+        };
+        place(m_playButton, 60, 3);
+        place(m_newButton, 44, 3);
+        place(m_undoButton, 22, 2);
+        place(m_redoButton, 22, 5);
+        place(m_presetPrev, 22, 2);
+        place(m_presetName, 116, 2);
+        place(m_presetNext, 22, 2);
+        place(m_abButton, 24, 5);
+        place(m_dice, 86, 2);
+        place(m_rollBack, 20, 2);
+        place(m_rollForward, 20, 2);
+        place(m_keepRoll, 22, 5);
+        place(m_tape, 120, 3, 13, 34);
+        place(m_retroButton, 76, 3);
+        place(m_variationsButton, 80, 3);
+        place(m_takesButton, 64, 3);
+        place(m_settingsButton, 1264 - x, 0);
+    }
 
     // Row 1: the tracks, the output view, and the ride
     m_hold.setBounds(16, 62, 884, 384);
@@ -1112,9 +1181,9 @@ void SwooshbucklerAudioProcessorEditor::layoutContent()
         m_keysMode.setBounds(m_performPanel.getRight() - 14 - keysWidth, m_performPanel.getY() + 9, keysWidth, 22);
         m_keysLabel = { m_keysMode.getX() - keysLabel - 2, m_keysMode.getY(), keysLabel, 22 };
         const int titleEnd = m_performPanel.getX() + 30 + juce::GlyphArrangement::getStringWidthInt(m_fonts->display(21.0f), "Ride") + 12;
-        m_rideStatusArea = { titleEnd, m_performPanel.getY() + 9, m_keysLabel.getX() - 4 - titleEnd, 22 };
+        m_rideStatusArea = { titleEnd, m_performPanel.getY() + 9, m_keysLabel.getX() - 2 - 42 - 4 - titleEnd, 22 }; // the die and lock sit between it and Keys
     }
-    m_followHost.setBounds(286, 15, 80, 30); // left of Play (in a host only)
+    m_followHost.setBounds(250, 15, 76, 30); // left of Play (in a host only)
 
     // Rows 2 and 3, in signal order
     m_sections[0] = { 1, "Bus A", "growls, tones, crackle, rumble - and the key for B", TC::movement, { 16, 458, 616, 168 } };
@@ -1162,9 +1231,21 @@ void SwooshbucklerAudioProcessorEditor::layoutContent()
         // The little waveforms, at the right of each title bar (left of any buttons and menus there).
         const auto& out = m_sections[3].bounds;
         m_sectionScopes[0]->setBounds(m_passModeLabel[0].getX() - 6 - 120, busA.getY() + 9, 120, 22);
-        m_sectionScopes[1]->setBounds(m_passModeLabel[1].getX() - 6 - 64, busB.getY() + 9, 64, 22);
-        m_sectionScopes[2]->setBounds(m_gateModeLabel.getX() - 6 - 120, hits.getY() + 9, 120, 22);
+        m_sectionScopes[1]->setBounds(m_passModeLabel[1].getX() - 6 - 46, busB.getY() + 9, 46, 22);
+        m_sectionScopes[2]->setBounds(m_gateModeLabel.getX() - 6 - 76, hits.getY() + 9, 76, 22);
         m_sectionScopes[3]->setBounds(out.getRight() - 14 - 120, out.getY() + 9, 120, 22);
+
+        // Each section's die and lock, left of its little waveform (in Ride, left of Keys).
+        auto diceAt = [this](int section, int right, int y)
+        {
+            m_sectionLocks[static_cast<size_t>(section)]->setBounds(right - 20, y + 1, 20, 20);
+            m_sectionDice[static_cast<size_t>(section)]->setBounds(right - 42, y + 1, 20, 20);
+        };
+        diceAt(Presets::Ride, m_keysLabel.getX() - 2, m_performPanel.getY() + 9);
+        diceAt(Presets::BusA, m_sectionScopes[0]->getX() - 6, busA.getY() + 9);
+        diceAt(Presets::BusB, m_sectionScopes[1]->getX() - 6, busB.getY() + 9);
+        diceAt(Presets::Hits, m_sectionScopes[2]->getX() - 6, hits.getY() + 9);
+        diceAt(Presets::Output, m_sectionScopes[3]->getX() - 6, out.getY() + 9);
     }
     m_gateLamp = { m_sections[2].bounds.getRight() - 120, m_sections[2].bounds.getY() + 38, 100, 52 };
     m_aimHits.setBounds(m_gateLamp.getX() + 4, m_gateLamp.getBottom() + 2, 92, 24);
@@ -1401,6 +1482,36 @@ bool SwooshbucklerAudioProcessorEditor::keyPressed(const juce::KeyPress& key)
         m_processor.throwWhoosh(); // F: throw one whoosh
         return true;
     }
+    // Undo and redo, wherever the focus is in the window (a text box keeps its own).
+    if (key.getModifiers().isCommandDown() && ! key.getModifiers().isAltDown())
+    {
+        const auto c = juce::CharacterFunctions::toLowerCase(key.getTextCharacter());
+        const bool shift = key.getModifiers().isShiftDown();
+        if (c == 'z' || key.isKeyCode('Z') || key.isKeyCode('z'))
+        {
+            stepHistory(shift);
+            return true;
+        }
+        if (! shift && (c == 'y' || key.isKeyCode('Y') || key.isKeyCode('y')))
+        {
+            stepHistory(true);
+            return true;
+        }
+        // The app's own session keys (in a host these belong to the host).
+        if (! m_processor.canFollowHost())
+        {
+            if (c == 's' || key.isKeyCode('S') || key.isKeyCode('s'))
+            {
+                saveSession(shift);
+                return true;
+            }
+            if (! shift && (c == 'o' || key.isKeyCode('O') || key.isKeyCode('o')))
+            {
+                openSession();
+                return true;
+            }
+        }
+    }
     if (key == juce::KeyPress::escapeKey && m_updatePopup.isVisible()) // when the popup didn't get the focus
     {
         m_updatePopup.setVisible(false);
@@ -1432,13 +1543,27 @@ bool SwooshbucklerAudioProcessorEditor::keyStateChanged(bool)
 bool SwooshbucklerAudioProcessorEditor::isInterestedInFileDrag(const juce::StringArray& files)
 {
     for (const auto& f : files)
-        if (CargoHoldView::isAudioFile(f))
+        if (CargoHoldView::isAudioFile(f) || f.endsWithIgnoreCase(UserPresets::extension)
+            || f.endsWithIgnoreCase(SwooshbucklerAudioProcessor::c_sessionExtension))
             return true;
     return false;
 }
 
 void SwooshbucklerAudioProcessorEditor::filesDropped(const juce::StringArray& files, int, int)
 {
+    // A session file opens; a preset file loads (and joins your presets); sounds go into Tracks.
+    for (const auto& f : files)
+        if (f.endsWithIgnoreCase(SwooshbucklerAudioProcessor::c_sessionExtension))
+        {
+            openSessionFile(juce::File(f));
+            return;
+        }
+    for (const auto& f : files)
+        if (f.endsWithIgnoreCase(UserPresets::extension))
+        {
+            loadPresetFile(juce::File(f), true);
+            return;
+        }
     const auto text = m_hold.loadFiles(files);
     if (text.isNotEmpty())
         toast(text);
@@ -1511,53 +1636,368 @@ void SwooshbucklerAudioProcessorEditor::saveRetro()
 }
 
 //==============================================================================
+std::vector<SwooshbucklerAudioProcessorEditor::PresetItem> SwooshbucklerAudioProcessorEditor::presetList() const
+{
+    std::vector<PresetItem> items;
+    const auto& factory = Presets::factory();
+    for (size_t i = 0; i < factory.size(); ++i)
+        items.push_back({ factory[i].name, static_cast<int>(i), {} });
+    for (const auto& file : m_processor.getUserPresets())
+        items.push_back({ file.getFileNameWithoutExtension(), -1, file });
+    return items;
+}
+
+namespace
+{
+    enum PresetMenuItem { itemDefaults = 1000, itemSave, itemRename, itemRemove, itemShowFolder, itemSwitchAB, itemCopyAB, itemSaveSession, itemSaveSessionAs, itemOpenSession, itemClearRecent, itemFirstRecent = 1100 };
+}
+
+juce::PopupMenu SwooshbucklerAudioProcessorEditor::buildPresetMenu(const std::vector<PresetItem>& items, juce::File& currentFile,
+                                                                   juce::Array<juce::File>& recent) const
+{
+    const auto current = m_processor.currentPresetName;
+    currentFile = juce::File(); // the preset of yours that is loaded, if one is
+    juce::PopupMenu menu;
+    menu.addSectionHeader("Factory Presets");
+    bool userHeader = false;
+    for (size_t i = 0; i < items.size(); ++i)
+    {
+        if (items[i].factory < 0 && ! userHeader)
+        {
+            menu.addSectionHeader("Your Presets");
+            userHeader = true;
+        }
+        const bool ticked = items[i].name.equalsIgnoreCase(current);
+        if (ticked && items[i].factory < 0)
+            currentFile = items[i].file;
+        menu.addItem(static_cast<int>(i) + 1, items[i].name, true, ticked);
+    }
+    menu.addSeparator();
+    menu.addItem(itemSave, "Save Preset...");
+    menu.addItem(itemRename, "Rename Preset...", currentFile != juce::File());
+    menu.addItem(itemRemove, "Delete Preset", currentFile != juce::File());
+    menu.addItem(itemShowFolder, "Show Preset Folder");
+    menu.addItem(itemDefaults, "Back to Defaults");
+    menu.addSectionHeader("A / B");
+    menu.addItem(itemSwitchAB, m_processor.getABSlot() == 0 ? "Switch to B" : "Switch to A");
+    menu.addItem(itemCopyAB, "Copy to Other");
+    menu.addSectionHeader("Session");
+    const auto session = m_processor.getSessionFile();
+    menu.addItem(itemSaveSession, session != juce::File() ? "Save Session \"" + session.getFileNameWithoutExtension() + "\"" : juce::String("Save Session"));
+    menu.addItem(itemSaveSessionAs, "Save Session As...");
+    menu.addItem(itemOpenSession, "Open Session...");
+    recent = m_processor.getRecentSessions();
+    {
+        juce::PopupMenu sub;
+        for (int i = 0; i < recent.size(); ++i)
+            sub.addItem(itemFirstRecent + i, recent[i].getFileNameWithoutExtension(), true, recent[i] == session);
+        sub.addSeparator();
+        sub.addItem(itemClearRecent, "Clear Recent Sessions");
+        menu.addSubMenu("Recent Sessions", sub, ! recent.isEmpty());
+    }
+    return menu;
+}
+
 void SwooshbucklerAudioProcessorEditor::showPresetMenu()
 {
-    juce::PopupMenu menu;
-    menu.addSectionHeader("PRESETS");
-    const auto& presets = Presets::factory();
-    for (size_t i = 0; i < presets.size(); ++i)
-        menu.addItem(static_cast<int>(i) + 1, presets[i].name, true, static_cast<int>(i) == m_presetIndex);
-    menu.addSeparator();
-    menu.addItem(1000, "Back to Defaults");
-    menu.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(m_presetName), [this](int result)
+    const auto items = presetList();
+    juce::File currentFile;
+    juce::Array<juce::File> recent;
+    auto menu = buildPresetMenu(items, currentFile, recent);
+    menu.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(m_presetName),
+                       [safe = juce::Component::SafePointer<SwooshbucklerAudioProcessorEditor>(this), items, currentFile, recent](int result)
     {
-        if (result == 1000)
+        if (safe == nullptr || result <= 0)
+            return;
+        auto& self = *safe;
+        if (result >= itemFirstRecent)
         {
-            m_presetIndex = -1;
-            applyPreset({ "Default", {} }, true);
-            m_processor.currentPresetName = "Default";
+            if (result - itemFirstRecent < recent.size())
+                self.openSessionFile(recent[result - itemFirstRecent]);
+            return;
         }
-        else if (result > 0)
+        switch (result)
         {
-            m_presetIndex = result - 1;
-            const auto& preset = Presets::factory()[static_cast<size_t>(m_presetIndex)];
-            applyPreset(preset, true);
-            m_processor.currentPresetName = preset.name;
+            case itemDefaults:        self.applyLook({ "Default", {} }, Presets::Unlisted::Default, "Back to Defaults", "Default"); break;
+            case itemSave:            self.savePresetAs(); break;
+            case itemRename:          self.renamePreset(currentFile); break;
+            case itemRemove:          self.deletePreset(currentFile); break;
+            case itemShowFolder:
+            {
+                const auto folder = self.m_processor.getPresetFolder();
+                folder.createDirectory();
+                folder.revealToUser();
+                break;
+            }
+            case itemSwitchAB:        self.m_abButton.onClick(); break;
+            case itemCopyAB:
+                self.m_morph.finish();
+                self.m_processor.copyABToOther();
+                self.toast(self.m_processor.getABSlot() == 0 ? "Copied A to B" : "Copied B to A");
+                break;
+            case itemSaveSession: self.saveSession(false); break;
+            case itemSaveSessionAs:   self.saveSession(true); break;
+            case itemOpenSession: self.openSession(); break;
+            case itemClearRecent:     self.m_processor.clearRecentSessions(); break;
+            default:
+                if (result - 1 < static_cast<int>(items.size()))
+                    self.choosePreset(items[static_cast<size_t>(result - 1)]);
+                break;
         }
     });
 }
 
-void SwooshbucklerAudioProcessorEditor::stepPreset(int delta)
+void SwooshbucklerAudioProcessorEditor::choosePreset(const PresetItem& item)
 {
-    const int count = static_cast<int>(Presets::factory().size());
-    m_presetIndex = ((m_presetIndex < 0 ? (delta > 0 ? -1 : 0) : m_presetIndex) + delta + count) % count;
-    const auto& preset = Presets::factory()[static_cast<size_t>(m_presetIndex)];
-    applyPreset(preset, true);
-    m_processor.currentPresetName = preset.name;
+    if (item.factory >= 0)
+    {
+        const auto& preset = Presets::factory()[static_cast<size_t>(item.factory)];
+        applyLook(preset, Presets::Unlisted::Default, preset.name, preset.name);
+    }
+    else
+        loadPresetFile(item.file, false);
 }
 
-void SwooshbucklerAudioProcessorEditor::applyPreset(const Presets::Preset& preset, bool includeMode)
+void SwooshbucklerAudioProcessorEditor::stepPreset(int delta)
+{
+    const auto items = presetList();
+    const int count = static_cast<int>(items.size());
+    int at = -1;
+    for (int i = 0; i < count; ++i)
+        if (items[static_cast<size_t>(i)].name.equalsIgnoreCase(m_processor.currentPresetName))
+            at = i;
+    choosePreset(items[static_cast<size_t>(((at < 0 ? (delta > 0 ? -1 : 0) : at) + delta + count) % count)]);
+}
+
+void SwooshbucklerAudioProcessorEditor::loadPresetFile(const juce::File& file, bool addToPresets)
+{
+    UserPresets::Loaded loaded;
+    juce::String error;
+    if (! UserPresets::read(file, loaded, error))
+    {
+        toast(error);
+        return;
+    }
+    // A file dropped on the window joins your presets (unless one of that name is there already).
+    juce::String added;
+    if (addToPresets && file.getParentDirectory() != m_processor.getPresetFolder())
+    {
+        const auto copy = UserPresets::fileFor(m_processor.getPresetFolder(), loaded.preset.name);
+        if (! copy.existsAsFile() && ! UserPresets::isFactoryName(loaded.preset.name)
+            && m_processor.getPresetFolder().createDirectory() && file.copyFileTo(copy))
+            added = " and added it to your presets";
+    }
+    m_morph.finish();
+    {
+        EditHistory::Group group(m_processor.getHistory(), loaded.preset.name);
+        m_processor.applyPresetWires(loaded);
+        applyLook(loaded.preset, Presets::Unlisted::Default, loaded.preset.name, loaded.preset.name);
+    }
+    if (addToPresets)
+        toast("Loaded " + loaded.preset.name + added);
+}
+
+void SwooshbucklerAudioProcessorEditor::askForName(const juce::String& title, const juce::String& message, const juce::String& initial,
+                                                   const juce::String& okText, bool modsOption,
+                                                   std::function<void(const juce::String&, bool)> done)
+{
+    auto* window = new juce::AlertWindow(title, message, juce::MessageBoxIconType::NoIcon, this);
+    window->addTextEditor("name", initial);
+    if (auto* editor = window->getTextEditor("name"))
+        editor->setInputRestrictions(UserPresets::maxNameLength);
+    m_dialogToggle.reset();
+    if (modsOption)
+    {
+        m_dialogToggle = std::make_unique<juce::ToggleButton>("Include Modulators and Wires");
+        m_dialogToggle->setName({}); // or the window prints the name above it as a caption
+        m_dialogToggle->setColour(juce::ToggleButton::tickColourId, TC::flight);
+        m_dialogToggle->setTooltip("Include Modulators and Wires\nOn: the preset also holds the four modulators' settings and every wire, and loading it "
+                                   "replaces yours. Off: the preset leaves your modulators and wires alone.");
+        m_dialogToggle->setSize(280, 26);
+        window->addCustomComponent(m_dialogToggle.get());
+    }
+    window->addButton(okText, 1, juce::KeyPress(juce::KeyPress::returnKey));
+    window->addButton("Cancel", 0, juce::KeyPress(juce::KeyPress::escapeKey));
+    window->enterModalState(true, juce::ModalCallbackFunction::create(
+        [safe = juce::Component::SafePointer<SwooshbucklerAudioProcessorEditor>(this), window, done = std::move(done)](int result)
+        {
+            if (safe == nullptr)
+                return;
+            const auto name = window->getTextEditorContents("name").trim();
+            const bool mods = safe->m_dialogToggle != nullptr && safe->m_dialogToggle->getToggleState();
+            window->removeCustomComponent(0);
+            safe->m_dialogToggle.reset();
+            safe->grabKeyboardFocus(); // the keys go back to the rig
+            if (result == 1 && name.isNotEmpty() && done)
+                done(name, mods);
+        }), true);
+}
+
+void SwooshbucklerAudioProcessorEditor::savePresetAs()
+{
+    const auto current = m_processor.currentPresetName;
+    const auto suggestion = UserPresets::isFactoryName(current) ? UserPresets::uniqueName(m_processor.getPresetFolder(), "My Preset") : current;
+    askForName("Save Preset", "The settings as they are now are saved under this name. A preset of yours with the same name is replaced.",
+               suggestion, "Save", true, [this](const juce::String& name, bool withMods)
+    {
+        m_morph.finish(); // what is saved is where a glide was heading
+        juce::File written;
+        juce::String error;
+        if (m_processor.saveUserPreset(name, withMods, written, error))
+            toast("Saved the preset " + written.getFileNameWithoutExtension() + (withMods ? " with its modulators and wires" : juce::String()));
+        else
+            toast(error);
+    });
+}
+
+void SwooshbucklerAudioProcessorEditor::renamePreset(const juce::File& file)
+{
+    if (! file.existsAsFile())
+        return;
+    askForName("Rename Preset", "A new name for \"" + file.getFileNameWithoutExtension() + "\".", file.getFileNameWithoutExtension(), "Rename", false,
+               [this, file](const juce::String& name, bool)
+    {
+        juce::File renamed;
+        juce::String error;
+        if (! UserPresets::rename(file, name, renamed, error))
+        {
+            toast(error);
+            return;
+        }
+        if (m_processor.currentPresetName.equalsIgnoreCase(file.getFileNameWithoutExtension()))
+            m_processor.currentPresetName = renamed.getFileNameWithoutExtension();
+        toast("Renamed to " + renamed.getFileNameWithoutExtension());
+    });
+}
+
+void SwooshbucklerAudioProcessorEditor::deletePreset(const juce::File& file)
+{
+    if (! file.existsAsFile())
+        return;
+    // To the system trash, so a slip can be put right there.
+    if (file.moveToTrash())
+        toast("Moved the preset " + file.getFileNameWithoutExtension() + " to the trash");
+    else
+        toast("Couldn't delete " + file.getFileName());
+}
+
+void SwooshbucklerAudioProcessorEditor::applyLook(const Presets::Preset& look, Presets::Unlisted unlisted, const juce::String& undoName,
+                                                  const juce::String& presetName, bool outputStage)
 {
     m_morph.finish();
-    // Randomise leaves each bus's Pass Mode as it is set (a factory preset picks it).
-    for (const auto& [param, target] : Presets::targets(m_processor.getParameters(), preset, includeMode))
+    // One undo step: the gestures begun here stay open while the knobs glide, and the step is closed when the
+    // last of them lands.
+    EditHistory::Group group(m_processor.getHistory(), undoName);
+    if (presetName.isNotEmpty())
+        m_processor.setPresetName(presetName);
+    for (const auto& [param, target] : Presets::targets(m_processor.getParameters(), look, unlisted, outputStage))
     {
         if (std::abs(param->getValue() - target) < 1.0e-5f)
             continue;
         param->beginChangeGesture();
         m_morph.items.push_back({ param, param->getValue(), 0.0f, target });
     }
+}
+
+void SwooshbucklerAudioProcessorEditor::rollDice(int section)
+{
+    m_morph.finish();
+    const juce::String name = section < 0 ? juce::String("Randomise") : "Roll " + juce::String(Presets::sectionName(section));
+    EditHistory::Group group(m_processor.getHistory(), name);
+    const auto roll = m_processor.rollLook(section);
+    applyLook(roll, Presets::Unlisted::Keep, name, "Randomised", true);
+    if (roll.values.empty())
+        toast("Every section is locked: nothing to roll");
+}
+
+void SwooshbucklerAudioProcessorEditor::stepRoll(int delta)
+{
+    m_morph.finish();
+    if (! m_processor.canStepRoll(delta))
+        return;
+    const juce::String name = delta < 0 ? "Previous Roll" : "Next Roll";
+    EditHistory::Group group(m_processor.getHistory(), name);
+    if (const auto* look = m_processor.stepRoll(delta))
+    {
+        applyLook(*look, Presets::Unlisted::Keep, name, look->name, true);
+        const int at = m_processor.getRollPosition();
+        toast(at == 0 ? juce::String("Before the first roll") : "Roll " + juce::String(at) + " of " + juce::String(m_processor.getRollCount()));
+    }
+}
+
+void SwooshbucklerAudioProcessorEditor::keepRoll()
+{
+    m_morph.finish();
+    juce::File written;
+    juce::String error;
+    if (m_processor.saveUserPreset(UserPresets::uniqueName(m_processor.getPresetFolder(), "Roll"), false, written, error))
+        toast("Kept as the preset " + written.getFileNameWithoutExtension() + ". Rename it in the preset list.");
+    else
+        toast(error);
+}
+
+void SwooshbucklerAudioProcessorEditor::stepHistory(bool redo)
+{
+    m_morph.finish(); // a glide still moving is the step to take back
+    juce::String what;
+    const bool done = redo ? m_processor.redoEdit(&what) : m_processor.undoEdit(&what);
+    m_hold.historyStepped();
+    if (done)
+        toast((redo ? "Redo: " : "Undo: ") + what);
+    else
+        toast(redo ? "Nothing to redo" : "Nothing to undo");
+}
+
+//==============================================================================
+void SwooshbucklerAudioProcessorEditor::saveSession(bool saveAs)
+{
+    const auto current = m_processor.getSessionFile();
+    auto write = [this](const juce::File& file)
+    {
+        m_morph.finish();
+        juce::String error;
+        if (m_processor.saveSession(file, error))
+            toast("Saved the session " + m_processor.getSessionFile().getFileNameWithoutExtension());
+        else
+            toast(error);
+    };
+    if (! saveAs && current != juce::File())
+    {
+        write(current);
+        return;
+    }
+    const auto start = current != juce::File() ? current
+                                               : juce::File::getSpecialLocation(juce::File::userDocumentsDirectory).getChildFile("Swooshbuckler Session");
+    m_sessionChooser = std::make_unique<juce::FileChooser>("Save Session As", start, juce::String("*") + SwooshbucklerAudioProcessor::c_sessionExtension);
+    m_sessionChooser->launchAsync(juce::FileBrowserComponent::saveMode | juce::FileBrowserComponent::canSelectFiles | juce::FileBrowserComponent::warnAboutOverwriting,
+                                  [write](const juce::FileChooser& chooser)
+                                  {
+                                      if (chooser.getResult() != juce::File())
+                                          write(chooser.getResult());
+                                  });
+}
+
+void SwooshbucklerAudioProcessorEditor::openSession()
+{
+    const auto current = m_processor.getSessionFile();
+    const auto start = current != juce::File() ? current.getParentDirectory() : juce::File::getSpecialLocation(juce::File::userDocumentsDirectory);
+    m_sessionChooser = std::make_unique<juce::FileChooser>("Open Session", start, juce::String("*") + SwooshbucklerAudioProcessor::c_sessionExtension);
+    m_sessionChooser->launchAsync(juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
+                                  [this](const juce::FileChooser& chooser)
+                                  {
+                                      if (chooser.getResult() != juce::File())
+                                          openSessionFile(chooser.getResult());
+                                  });
+}
+
+void SwooshbucklerAudioProcessorEditor::openSessionFile(const juce::File& file)
+{
+    m_morph.finish();
+    juce::String error;
+    if (m_processor.openSession(file, error))
+        toast("Opened the session " + file.getFileNameWithoutExtension());
+    else
+        toast(error);
 }
 
 //==============================================================================
@@ -1695,6 +2135,22 @@ void SwooshbucklerAudioProcessorEditor::timerCallback()
 
     if (m_presetName.getButtonText() != m_processor.currentPresetName)
         m_presetName.setButtonText(m_processor.currentPresetName);
+
+    // Undo, redo and the roll history light up when there is somewhere to go; A / B says which set you are on;
+    // the locks follow the session.
+    {
+        auto& history = m_processor.getHistory();
+        m_undoButton.setEnabled(history.canUndo() || ! m_morph.items.empty());
+        m_redoButton.setEnabled(history.canRedo());
+        m_rollBack.setEnabled(m_processor.canStepRoll(-1));
+        m_rollForward.setEnabled(m_processor.canStepRoll(1));
+        const char* slot = m_processor.getABSlot() == 0 ? "A" : "B";
+        if (m_abButton.getButtonText() != slot)
+            m_abButton.setButtonText(slot);
+        m_abButton.setToggleState(m_processor.getABSlot() == 1, juce::dontSendNotification);
+        for (int section = 0; section < Presets::numSections; ++section)
+            m_sectionLocks[static_cast<size_t>(section)]->setToggleState(m_processor.isSectionLocked(section), juce::dontSendNotification);
+    }
 
     // The LAST button says how much it keeps, Takes how many there are; a whoosh file closed while the tape rolls
     // is announced, and so is a file the tape could not open.

@@ -2,6 +2,7 @@
 
 #include <JuceHeader.h>
 #include "CargoHoldView.h"
+#include "IconButton.h"
 #include "LookAndFeel.h"
 #include "ModPanel.h"
 #include "MorphPad.h"
@@ -22,7 +23,7 @@
  *
  * One screen, in signal order (the whoosh rig):
  *
- *   header : title | presets | randomise | record | save last 60 s | render variations | takes | settings
+ *   header : title | play, new, undo, redo | presets, A / B | randomise, its history, keep | tape | last 60 s | variations | takes | settings
  *   row 1  : TRACKS (each loops; start markers; the ride drawn live)   | OUTPUT view (the sea) / RIDE
  *   row 2  : BUS A (aggressive)                                 ->     BUS B (smooth, ducked and filtered by A)
  *   row 3  : HITS (gated at the loudest moments)                ->     OUTPUT
@@ -175,8 +176,42 @@ private:
     void toggleLog();
     void saveRetro();
     void showPresetMenu();
-    void applyPreset(const Presets::Preset& preset, bool includeMode);
+    /** Glides the parameters to a look, as one undo step called undoName. presetName: what the preset box shows
+        afterwards (empty = as it is). */
+    void applyLook(const Presets::Preset& look, Presets::Unlisted unlisted, const juce::String& undoName,
+                   const juce::String& presetName, bool outputStage = false);
     void stepPreset(int delta);
+    // Presets: the factory ones, then your own (files in the presets folder).
+    struct PresetItem
+    {
+        juce::String name;
+        int factory = -1;   // index into Presets::factory(), or -1 for one of yours
+        juce::File file;
+    };
+    std::vector<PresetItem> presetList() const;
+    /** The preset list: factory presets, yours, saving and renaming, A / B and the session. currentFile gets the
+        preset of yours that is loaded (if one is), recent the session files offered. */
+    juce::PopupMenu buildPresetMenu(const std::vector<PresetItem>& items, juce::File& currentFile, juce::Array<juce::File>& recent) const;
+    void choosePreset(const PresetItem& item);
+    void loadPresetFile(const juce::File& file, bool addToPresets);
+    void savePresetAs();
+    void renamePreset(const juce::File& file);
+    void deletePreset(const juce::File& file);
+    /** A small window asking for a name (and, with modsOption, whether the modulators and wires go in too). */
+    void askForName(const juce::String& title, const juce::String& message, const juce::String& initial, const juce::String& okText,
+                    bool modsOption, std::function<void(const juce::String&, bool)> done);
+    std::unique_ptr<juce::ToggleButton> m_dialogToggle;
+    // Randomise: the header's roll or a section's die (section -1 = the header), the way back, and keeping one.
+    void rollDice(int section);
+    void stepRoll(int delta);
+    void keepRoll();
+    // Undo / redo: the processor's one history (parameters, presets, rolls, tracks), from the buttons and the keys.
+    void stepHistory(bool redo);
+    // Session files
+    void saveSession(bool saveAs);
+    void openSession();
+    void openSessionFile(const juce::File& file);
+    std::unique_ptr<juce::FileChooser> m_sessionChooser;
     void toast(const juce::String& text, juce::File file = {});
 
     SwooshbucklerAudioProcessor& m_processor;
@@ -188,6 +223,12 @@ private:
 
     // Header
     juce::TextButton m_presetPrev { "<" }, m_presetName, m_presetNext { ">" }, m_dice { "RANDOMISE" };
+    IconButton m_undoButton { IconButton::Icon::Undo, Theme::Colours::flight }, m_redoButton { IconButton::Icon::Redo, Theme::Colours::flight };
+    IconButton m_rollBack { IconButton::Icon::Back, Theme::Colours::movement }, m_rollForward { IconButton::Icon::Forward, Theme::Colours::movement };
+    IconButton m_keepRoll { IconButton::Icon::Star, Theme::Colours::movement };
+    juce::TextButton m_abButton { "A" };
+    // A die and a lock in each section's title bar: Ride, Bus A, Bus B, Hits, Output.
+    std::array<std::unique_ptr<IconButton>, Presets::numSections> m_sectionDice, m_sectionLocks;
     juce::TextButton m_retroButton { "LAST 60s" }, m_settingsButton { "SETTINGS" }, m_takesButton { "Takes" };
     int m_retroShown = 0, m_takesShown = -1, m_takesSeen = -1, m_slowTick = 0; // what those two buttons last showed
     void showTakes();
@@ -265,8 +306,6 @@ private:
     juce::String versionLine() const;
 
     Morph m_morph;
-    int m_presetIndex = -1;
-    juce::Random m_random;
 
     juce::String m_toast;
     juce::File m_toastFile;

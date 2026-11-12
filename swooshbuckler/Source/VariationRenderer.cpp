@@ -225,7 +225,7 @@ int VariationRenderer::renderOne(int index, int& first, juce::String& descriptio
     switch (m_job.mode)
     {
         case Mode::RandomiseEverything:
-            for (const auto& [param, target] : Presets::targets(rig.getParameters(), Presets::roll(random), false))
+            for (const auto& [param, target] : Presets::targets(rig.getParameters(), Presets::roll(random, rig.getLockedSections()), Presets::Unlisted::Keep))
                 param->setValueNotifyingHost(target);
             preset = "Randomised";
             break;

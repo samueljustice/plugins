@@ -3,6 +3,7 @@
 #include <JuceHeader.h>
 #include "Cargo.h"
 #include "Downsampler.h"
+#include "EditHistory.h"
 #include "MasterProcessor.h"
 #include "Parameters.h"
 #include "TapeRecorder.h"
@@ -10,6 +11,8 @@
 #include "RigEngine.h"
 #include "Modulators.h"
 #include "MorphWander.h"
+#include "Presets.h"
+#include "UserPresets.h"
 
 class VariationRenderer;
 
@@ -92,8 +95,77 @@ public:
     /** Whether a change of this parameter (its index in getParameters()) right now is something the user did, to
         be saved. Always true: the morph wander flies the dot inside the processor and leaves X and Y alone. Any thread. */
     bool isUserEdit(int parameterIndex) const;
-    /** New session: stops, empties every track and puts every parameter back to its default. Message thread. */
+    /** New session: stops, empties every track and puts every parameter back to its default, as one undo step
+        (Undo brings the tracks, the settings, the wires and the session's name back). Message thread. */
     void newSession();
+
+    // Keeping work: undo, presets, Randomise, A/B and session files. Message thread unless said otherwise. --------
+    /** One undo history for the parameters, presets, Randomise, A/B, New Session and the track edits. */
+    EditHistory& getHistory() { return *m_history; }
+    /** Undo / redo the latest step. `what` gets the step's name. False when there was nothing to undo / redo. */
+    bool undoEdit(juce::String* what = nullptr);
+    bool redoEdit(juce::String* what = nullptr);
+    /** The track the last undo or redo of a track edit acted on (-1 = none), then forgets it. */
+    int takeRestoredTrack() { return std::exchange(m_restoredTrack, -1); }
+
+    /** The settings a preset owns, as plain values: every parameter that isn't the session's. withMods adds the
+        modulators' own controls; outputStage adds Inflate and Push (what the Output die rolls). */
+    using Look = std::map<juce::String, float>;
+    Look captureLook(bool withMods = false, bool outputStage = false) const;
+    /** Puts the settings there at once, as one undo step called undoName (the editor glides instead; this is
+        for A/B, tests and anything without a window). presetName: the new preset name, empty = unchanged. */
+    void applyLook(const Presets::Preset& look, Presets::Unlisted unlisted, const juce::String& undoName,
+                   const juce::String& presetName = {}, bool outputStage = false);
+    /** The name in the preset box, recorded in the undo history (so undoing a preset brings its name back). */
+    void setPresetName(const juce::String& name);
+
+    // Randomise: the header's roll (every section that isn't locked) or one section's die, and the way back.
+    /** Rolls and remembers it. section -1 = the header's Randomise. Returns the values to go to (the caller moves
+        the parameters there, leaving every knob the roll doesn't name where it is). */
+    Presets::Preset rollLook(int section = -1);
+    static constexpr int c_maxRolls = 20;
+    /** Whether there is a roll before (-1) / after (+1) the one you are on. */
+    bool canStepRoll(int delta) const;
+    /** Steps back or forward through the last c_maxRolls rolls and the settings before the first of them. How
+        you left the one you step away from is kept. Returns the settings to go to (its name is the preset name
+        to show), or null when there is nothing that way. */
+    const Presets::Preset* stepRoll(int delta);
+    int getRollCount() const { return juce::jmax(0, static_cast<int>(m_rolls.size()) - 1); }
+    int getRollPosition() const { return m_rollAt; }
+    void setRollSeed(juce::int64 seed) { m_random.setSeed(seed); }
+    /** A locked section is left out of the header's Randomise (its own die still rolls it). Saved with the session. */
+    bool isSectionLocked(int section) const { return (m_lockedSections.load() & (1u << section)) != 0; }
+    void setSectionLocked(int section, bool locked);
+    unsigned getLockedSections() const { return m_lockedSections.load(); }
+
+    // Your own presets: files in a folder beside the settings (see UserPresets).
+    juce::File getPresetFolder() const;
+    std::vector<juce::File> getUserPresets() const { return UserPresets::list(getPresetFolder()); }
+    /** Saves the settings as they are under this name (an existing preset of that name is replaced). withMods:
+        the modulators and their wires are saved too. */
+    bool saveUserPreset(const juce::String& name, bool withMods, juce::File& written, juce::String& error);
+    /** Loads a preset file's wires (when it has them) as part of the undo step in progress; the caller moves the
+        parameters. */
+    void applyPresetWires(const UserPresets::Loaded& loaded);
+
+    // A/B: two sets of the settings a preset owns. You are always on one; the other waits as you left it.
+    int getABSlot() const { return m_abSlot; }
+    /** Goes to the other set (it starts as a copy of this one), at once, as one undo step. */
+    void switchAB();
+    /** Copies the settings as they are to the other set. */
+    void copyABToOther();
+
+    // Session files: the whole state, audio included, in one file.
+    static constexpr const char* c_sessionExtension = ".swooshsession";
+    bool saveSession(const juce::File& file, juce::String& error);
+    bool openSession(const juce::File& file, juce::String& error);
+    /** The file this session was last saved to or opened from (none for a new session). Any thread. */
+    juce::File getSessionFile() const;
+    /** The session files opened or saved lately that still exist, newest first (the settings file). */
+    juce::Array<juce::File> getRecentSessions() const;
+    void clearRecentSessions();
+    /** Whether these bytes are a saved state (either form: the binary one written now, or the XML one before it). */
+    static bool readState(const void* data, int sizeInBytes, juce::ValueTree& state);
 
     /** Swell: while held, every track's fader rides up (button, space bar, MIDI notes). Any thread. */
     void setSwell(bool held) { m_uiSwell.store(held); }
@@ -263,6 +335,26 @@ private:
     void prepareInternal();
     void renderAtRenderRate(const float* inL, const float* inR, float* l, float* r, int n);
     void applyRestoredState(const juce::ValueTree& cargo, int editorWidth, const juce::String& presetName); //
+    void restoreStateTree(juce::ValueTree tree);
+    void noteRecentSession(const juce::File& file);
+
+    // Keeping work (message thread, except where a lock or an atomic says otherwise)
+    std::unique_ptr<EditHistory> m_history;
+    int m_restoredTrack = -1;
+    struct Roll
+    {
+        Look look;
+        juce::String name;
+    };
+    std::vector<Roll> m_rolls;      // [0] is the settings before the first roll
+    int m_rollAt = -1;
+    Presets::Preset m_rollTarget;   // what stepRoll hands out
+    juce::Random m_random;
+    std::atomic<unsigned> m_lockedSections { 0 };
+    std::array<Look, 2> m_ab;       // guarded by m_stateLock (a host may save from another thread)
+    std::array<juce::String, 2> m_abNames;
+    int m_abSlot = 0;               // guarded by m_stateLock for writes
+    juce::String m_sessionPath;     // guarded by m_stateLock
     void applyPendingState();                                                                              //
 
     // Restore handling. A state set off the message thread is kept here until the message thread has

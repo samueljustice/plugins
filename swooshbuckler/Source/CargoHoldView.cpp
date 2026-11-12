@@ -998,12 +998,12 @@ void CargoHoldView::perform(Action action)
         case Action::Undo:
         case Action::Redo:
         {
-            const int acted = action == Action::Undo ? m_hold.undoLatest() : m_hold.redoLatest();
-            if (acted >= 0 && m_lanes[static_cast<size_t>(acted)]->hasData())
-                setActiveTrack(acted);
-            for (auto& l : m_lanes)
-                l->refresh();
-            updateButtons();
+            // The rig's one history: track edits and settings, in the order they were made.
+            if (action == Action::Undo)
+                m_processor.undoEdit();
+            else
+                m_processor.redoEdit();
+            historyStepped();
             return;
         }
     }
@@ -1084,15 +1084,22 @@ void CargoHoldView::mouseUp(const juce::MouseEvent& e)
         chooseFiles();
 }
 
+void CargoHoldView::historyStepped()
+{
+    const int acted = m_processor.takeRestoredTrack();
+    if (acted >= 0 && m_lanes[static_cast<size_t>(acted)]->hasData())
+        setActiveTrack(acted);
+    for (auto& l : m_lanes)
+        l->refresh();
+    updateButtons();
+}
+
 bool CargoHoldView::keyPressed(const juce::KeyPress& key)
 {
     const bool cmd = key.getModifiers().isCommandDown();
     const auto c = juce::CharacterFunctions::toLowerCase(key.getTextCharacter());
     if (cmd && (c == 'z' || key.getKeyCode() == 'Z'))
-    {
-        perform(key.getModifiers().isShiftDown() ? Action::Redo : Action::Undo);
-        return true;
-    }
+        return false; // undo and redo belong to the window: one history for the tracks and the settings
     if (key == juce::KeyPress::spaceKey)
     {
         if (onSwell) onSwell();

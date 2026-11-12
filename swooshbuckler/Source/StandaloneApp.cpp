@@ -63,12 +63,25 @@ namespace
                                                                [processor] (int index) { return processor->isUserEdit(index); });
                 if (recovered)
                     m_autosave->markChanged(); // keep the recovered session on disk until the next clean quit
+
+                // The window's title says which session file this is (Save Session As / Open Session set it).
+                m_title.update = [this, processor]
+                {
+                    const auto file = processor->getSessionFile();
+                    const auto title = file != juce::File() ? getApplicationName() + " - " + file.getFileNameWithoutExtension() : getApplicationName();
+                    if (m_window != nullptr && m_window->getName() != title)
+                        m_window->setName(title);
+                };
+                m_title.update();
+                m_title.startTimer(500);
             }
         }
 
         void shutdown() override
         {
             SwooshbucklerAudioProcessor::showAudioSettings = nullptr;
+            m_title.stopTimer();
+            m_title.update = nullptr;
             // Both ways out (the window's close button and Quit) have put the session in the settings by now.
             const bool saved = m_properties.saveIfNeeded();
             if (m_autosave != nullptr && saved)
@@ -90,6 +103,11 @@ namespace
         juce::ApplicationProperties m_properties;
         std::unique_ptr<juce::StandaloneFilterWindow> m_window;
         std::unique_ptr<SessionAutosave> m_autosave;
+        struct TitleTimer : juce::Timer
+        {
+            std::function<void()> update;
+            void timerCallback() override { if (update) update(); }
+        } m_title;
     };
 }
 

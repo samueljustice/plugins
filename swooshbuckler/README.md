@@ -95,10 +95,14 @@ From left to right:
 | **Swooshbuckler** title | Click it, or the version number beside the website link under it, to open [About](#about). |
 | **PLAY / STOP** | Starts and stops the whole rig. It turns green and reads STOP while running. PLAY starts every track from its start flag and the ride from the top. PLAY fades in over about 60 ms. STOP lets go of the sounds and lets the Fill echoes, the passes in flight and Space ring out, in your speakers and on the tape, until they have died away (6 seconds at most, then a short fade), so a take ends with its tail and not a cut. Press PLAY during the tail to start again at once (even straight after STOP: sounds that are still letting go fade out in a few milliseconds first, so the restart doesn't click). The app always opens stopped. In a DAW, Play is a parameter you can automate, and it is saved with the project, so a project saved while playing plays when it is opened. |
 | **Follow Host** (plug-in only) | On (the default): the rig plays while your DAW's transport plays and stops when it stops, letting the tail ring out. Every transport start begins the ride again from the same place, with the modulators and the morph's Wander starting over too, so the same settings bounce the same way every time. PLAY still starts and stops the rig by hand in between. Off: only PLAY, or its automation, starts and stops the rig. Saved with the project. See [In a DAW](#in-a-daw). |
-| **NEW** | A new session. It stops the rig and the tape, empties all ten tracks, turns off every mute and solo, puts every control back to its default, and removes every modulation wire. |
-| **<** and **>** | Step through the factory presets, wrapping round at either end. |
-| Preset name | Shows the current preset (or "Randomised"). Click it for the list, with **Back to Defaults** at the bottom. See [Presets and RANDOMISE](#presets-and-randomise). |
+| **NEW** | A new session. It stops the rig and the tape, empties all ten tracks, turns off every mute and solo, puts every control back to its default, removes every modulation wire and forgets the session's file. One **Undo** brings all of it back. |
+| **Undo** and **Redo** (the two curved arrows) | Take back, and do again, the last thing you changed. See [Undo and redo](#undo-and-redo). |
+| **<** and **>** | Step through the presets, the factory ones and then your own, wrapping round at either end. |
+| Preset name | Shows the current preset (or "Randomised"). Click it for the list: the factory presets, your own, saving and renaming, A / B and the session. See [Presets and RANDOMISE](#presets-and-randomise). |
+| **A** / **B** | Which of the two sets of settings you are on. Click it to go to the other. See [A / B](#a--b). |
 | **RANDOMISE** | Rolls a random but musical setting and glides to it. |
+| The two triangles | **Previous Roll** and **Next Roll**: step back and forward through the last 20 rolls. See [The roll history](#the-roll-history). |
+| The star | **Keep This Roll**: saves the settings as they are as a preset of your own, called Roll, Roll 2 and so on. |
 | Tape (**ARM**) | The tape machine. See [Recording](#recording). It reads **ARM**, **ARMED** (with a blinking red dot, waiting for sound) or **REC mm:ss** (recording, reels spinning). |
 | **LAST 60s** | Saves the last minute of output to a file, even if the tape wasn't armed. With **Keep the Last** in Settings at 3 or 5 minutes it reads LAST 3 MIN or LAST 5 MIN and saves that much. |
 | **Variations** | Opens [Render Variations](#render-variations): a batch of whooshes rendered straight to files. While a batch renders it lights up and reads **Render 37%**. |
@@ -159,7 +163,7 @@ Changing a track's type is how you move it to the other bus.
 
 **Undo**
 
-With the Tracks panel focused (click it first), Cmd+Z (Ctrl+Z on Windows) undoes the last sound you loaded or the last track you removed, on whichever track it was, and selects that track. Shift+Cmd+Z (Ctrl+Shift+Z) redoes it. Remove three tracks and three presses bring them all back. Each track keeps up to 40 steps, and all the steps together hold up to about 500 MB of audio: past that the oldest edits are forgotten first, and the latest one can always be undone.
+Cmd+Z (Ctrl+Z on Windows), or the Undo arrow in the header, undoes the last sound you loaded or the last track you removed, on whichever track it was, and selects that track. Shift+Cmd+Z (Ctrl+Shift+Z) redoes it. Remove three tracks and three presses bring them all back. Track edits share one history with the knobs and presets, so everything is taken back in the order you did it: see [Undo and redo](#undo-and-redo). Each track keeps up to 40 steps, and all the steps together hold up to about 500 MB of audio: past that the oldest edits are forgotten first, and the latest one can always be undone.
 
 **Hit sync view**
 
@@ -438,7 +442,7 @@ The batch renders in the background, much faster than real time (on the machine 
 | **Count** | How many whooshes to render, from 1 to 1000. It starts at 100 and remembers what you set. |
 | **Length** | How long each thrown whoosh is, from 0.3 to 6 seconds; it peaks half-way through. It starts out as the Ride panel's Throw Length. Every file runs on after its whoosh until the tail has rung out (six seconds at the most), so the files are longer than this. |
 | **Batch Seed** | The number every file's random draws come from. The same seed, with the same settings and samples, renders the same batch again, sample for sample (16-bit files differ only in their dither); another seed renders another batch. **New Seed** draws a new one, and a new one is drawn after every batch unless you typed your own. |
-| **What Varies** | **Randomise Everything**: a fresh RANDOMISE roll for every file, so the ride, the buses, the hits and the space all change; your tracks, their levels and the output stay as they are. **Small Changes**: every file starts from the settings as they are, nudges each of those controls by up to Amount, and starts each track a little further into its sample: a family of whooshes around one you like. **Seed Only**: the settings stay exactly as they are and only the rig's own dice change: how each pass flies, how close it comes and which sound of each track it picks. |
+| **What Varies** | **Randomise Everything**: a fresh RANDOMISE roll for every file, so the ride, the buses, the hits and the space all change; your tracks, their levels, the output, every knob a roll doesn't name and any section you have locked stay as they are. **Small Changes**: every file starts from the settings as they are, nudges each of those controls by up to Amount, and starts each track a little further into its sample: a family of whooshes around one you like. **Seed Only**: the settings stay exactly as they are and only the rig's own dice change: how each pass flies, how close it comes and which sound of each track it picks. |
 | **Amount** | How far Small Changes may move each control: at 100%, up to half of its travel either way, and up to four semitones of Pitch. |
 | **Folder** | Where the files go. **Dated Folder** (the default) gives every batch a new folder of its own inside the recordings folder, named after the take name and the date and time. **Choose...** picks a folder that stays; numbers carry on after the files already there, so nothing is ever written over. |
 | **Render** | Starts the batch. |
@@ -454,7 +458,22 @@ If the rig has nothing to play (no samples loaded and every lane muted, say) the
 
 #### Your session in the app
 
-The app reopens with the sounds, settings and wires you had when you quit. While it runs it also keeps a safety copy: about once a minute when you have changed something (a knob, a wire or how deep it reaches, a track), and a few seconds after a track is loaded, edited or removed. Movement the rig makes by itself, such as the morph dot while Wander is on, doesn't count, so a session that is only playing isn't saved over and over. The copy is written in the background, so the interface never waits for it (with about 20 MB of audio in the session a save takes around a fifth of a second). If the app doesn't get to quit properly (a crash, a power cut), the next launch opens that copy, so you lose a minute at most. In a DAW, the project keeps the plug-in's state as usual.
+The app reopens where you left off: the sounds, settings, wires, A / B sets, locks and the session's name are all as they were when you quit. While it runs it also keeps a safety copy: about once a minute when you have changed something (a knob, a wire or how deep it reaches, a track), and a few seconds after a track is loaded, edited or removed. Movement the rig makes by itself, such as the morph dot while Wander is on, doesn't count, so a session that is only playing isn't saved over and over. The copy is written in the background, so the interface never waits for it (with about 20 MB of audio in the session a save takes around a fifth of a second). If the app doesn't get to quit properly (a crash, a power cut), the next launch opens that copy, so you lose a minute at most. In a DAW, the project keeps the plug-in's state as usual.
+
+#### Session files
+
+A session can also be saved as a file of its own, to keep several pieces of work or to move one to another machine or into a DAW. The commands are in the **Session** part of the preset list (click the preset name):
+
+| Command | What it does |
+|---|---|
+| **Save Session As...** | Writes the whole session to one `.swooshsession` file: every setting, the wires, the A / B sets, the locks and all the audio in the tracks (stored losslessly), so the file needs nothing else. Shift+Cmd+S in the app. |
+| **Save Session** | Saves to the session's file again (the list shows its name). The first time, it asks where. Cmd+S in the app. |
+| **Open Session...** | Opens a session file in place of what is loaded. Cmd+O in the app. Dropping a `.swooshsession` file on the window does the same. |
+| **Recent Sessions** | The last ten session files you saved or opened that still exist, newest first, and **Clear Recent Sessions**. |
+
+In the app the window's title shows the session's name. **NEW** starts an unnamed session again. Opening a session clears the undo history. The plug-in has the same commands, so a session made in the app opens in a DAW and the other way round; the DAW project still keeps the plug-in's state by itself.
+
+Session files, and the state a DAW project keeps, are about a quarter smaller than before for the same sounds. Sessions and projects saved by earlier versions still open.
 
 ### About
 
@@ -474,9 +493,9 @@ Click the **Swooshbuckler** title or the version number to open it. It shows the
 
 The factory presets are **Steady Energy**, **Jet Passes**, **Monster Swells**, **Gentle Breeze**, **Fast and Furious**, **Magic Dust** and **Heavy Hits**. Pick one from the preset name, or step through them with **<** and **>**. Every control glides to its new setting while it plays, so you can switch mid-whoosh. Grab a knob during the glide and your move wins.
 
-**RANDOMISE** rolls Energy, Rate, Fill, Chaos and Pitch (whole semitones from −7 to +7), the bus knobs (Doppler, Low End, Swirl, Filter and Drive, plus Ducked and Filtered on B), the hit knobs (Sensitivity, Boost, Release and Duck) and Space. It leaves each bus's PASS menu as you set it.
+A preset is a complete look: every control it owns that it doesn't set goes back to its default. The presets set PASS too: **Jet Passes**, **Monster Swells** and **Fast and Furious** put bus A on Fly-By, and the others use Bed on both buses.
 
-The presets set PASS too: **Jet Passes**, **Monster Swells** and **Fast and Furious** put bus A on Fly-By, and the others use Bed on both buses.
+**RANDOMISE** rolls Energy, Rate, Fill, Chaos and Pitch (whole semitones from −7 to +7), the bus knobs (Doppler, Width, Bend, Low End, Swirl, Filter and Drive, plus Ducked and Filtered on B), the hit knobs (Sensitivity, Boost, Release and Duck) and Space. Width stays between 35% and 100% and Bend between 30% and 90%, so a roll never leaves a pass stuck in the middle or screaming. Only those knobs move. Everything a roll doesn't name stays exactly where you set it: Hold, Floor, Return, each bus's PASS menu, Throw Length, the morph's dot and mode.
 
 Presets and RANDOMISE set the sound, not your session. They leave these alone:
 
@@ -485,9 +504,47 @@ Presets and RANDOMISE set the sound, not your session. They leave these alone:
 - AUTO RIDE, AIM, SYNC HITS, the GATE and DUCK modes, TAKE TURNS and LINK
 - the morph's ON switch, wander, shape and speed
 - PLAY, the Keys menu and Throw Length
-- the modulators and their wires
+- the modulators and their wires (unless a preset of your own was saved with them)
 
-Anything else a preset doesn't set goes back to its default. **Back to Defaults** at the bottom of the preset list puts every one of those controls back to its default, and leaves the same things alone. It's much gentler than NEW, which also empties the tracks, resets everything else and pulls out the wires.
+**Back to Defaults** in the preset list puts every control a preset owns back to its default, and leaves the same things alone. It's much gentler than NEW, which also empties the tracks, resets everything else and pulls out the wires.
+
+### Section dice and locks
+
+Each of Ride, Bus A, Bus B, Hits and Output has a small die and a small padlock in its title bar.
+
+- **The die** rolls just that section and leaves everything else where it is. The Output die rolls Space and, gently, Inflate (up to 50%) and Push (up to +6 dB); the header's RANDOMISE never touches those two.
+- **The lock** keeps that section out of the header's RANDOMISE, and out of Randomise Everything in [Render Variations](#render-variations). Lock the bus you like and keep rolling the rest. A locked section's own die still rolls it. The locks are saved with the session.
+
+### The roll history
+
+The two triangles beside RANDOMISE step back and forward through the last 20 rolls, the header's and the section dice alike. Past the oldest roll, back ends at the settings you had before the first of them. Each stop comes back as you left it, so a tweak you made on a roll is still there when you return to it. Rolling again from the middle of the history drops the rolls that were ahead. The star beside them keeps the settings you have now as a preset of your own (Roll, Roll 2, ...), ready to rename.
+
+### Your own presets
+
+The preset list has a **Your Presets** section under the factory ones.
+
+| Command | What it does |
+|---|---|
+| **Save Preset...** | Saves the settings as they are under a name (up to 24 characters). A preset of yours with the same name is replaced; a factory preset's name can't be used. Tick **Include Modulators and Wires** to store the four modulators' settings and every wire as well: loading that preset then replaces yours. Without it, a preset leaves your modulators and wires alone. |
+| **Rename Preset...** and **Delete Preset** | Act on the preset of yours that is loaded. Delete moves its file to the system trash. |
+| **Show Preset Folder** | Opens the folder the presets are kept in. |
+
+A preset holds the same controls a factory preset does, so it leaves your tracks, their levels and the output stage alone. Each one is a small `.swooshpreset` file in a `Swooshbuckler Presets` folder beside Swooshbuckler's settings file. To share a preset, send the file. To load one you were sent, drop it on the window: it loads and joins your presets (or put it in the folder yourself). Renaming a file in the folder renames the preset.
+
+### A / B
+
+The **A** / **B** button in the header holds two sets of the controls a preset owns, for comparing two versions of a sound. You are always on one of them, and the other waits as you left it. Click the button (or **Switch to B** / **Switch to A** in the preset list) to go to the other; the change is immediate. The first time, B starts as a copy of A. **Copy to Other** in the preset list copies the settings you have now into the other set. Both sets are saved with the session. Your tracks, the output stage and the modulators are not part of a set, so they stay the same on both.
+
+### Undo and redo
+
+The two curved arrows in the header, and Cmd+Z / Shift+Cmd+Z (Ctrl+Z / Ctrl+Shift+Z on Windows; Ctrl+Y also redoes), take back and do again what you changed, in the order you did it:
+
+- a knob, fader, menu or switch you moved (one step per move; quick moves in a row, such as turns of the mouse wheel, are one step)
+- a preset, a RANDOMISE roll, a section's die, a step through the roll history, A / B: one step each, however many knobs glided
+- NEW: one step brings back the tracks, every setting, the wires, the mutes and solos and the session's file
+- loading, replacing, removing and editing a track
+
+The keys work wherever you last clicked in the window (while you type in a text box, they undo the typing). The message at the bottom right says what was undone. PLAY and STOP are not steps, and neither is automation from a DAW. Dragging a wire is not a step either: pull the plug out to remove it. Opening a session starts the history afresh.
 
 ## Keyboard, mouse and MIDI
 
@@ -497,7 +554,9 @@ Anything else a preset doesn't set goes back to its default. **Back to Defaults*
 | F | Throw: one whoosh now, playing or stopped. See [Throw](#throw). |
 | MIDI notes | What the **Keys** menu in the Ride panel says: hold Swell (the default), set the pitch of the tracks, or throw one whoosh per note. See [Keys](#keys). |
 | Click the sea | A short swell. |
-| Cmd+Z / Shift+Cmd+Z (Ctrl+Z / Ctrl+Shift+Z on Windows) | Undo and redo the last load or removal in Tracks, newest first. Click the Tracks panel first. |
+| Cmd+Z / Shift+Cmd+Z (Ctrl+Z / Ctrl+Shift+Z on Windows) | Undo and redo, wherever you last clicked in the window: knobs, presets, rolls, A / B, NEW and track edits, newest first. See [Undo and redo](#undo-and-redo). |
+| Cmd+S / Shift+Cmd+S / Cmd+O (Ctrl on Windows), in the app | Save Session, Save Session As and Open Session. See [Session files](#session-files). |
+| Drop a `.swooshpreset` or `.swooshsession` file on the window | Loads the preset (and adds it to yours), or opens the session. |
 | Esc | Closes Settings, Takes, Render Variations or About. A batch that is rendering carries on. |
 | Double-click a knob | Resets it. |
 | Double-click a track name | Renames it. |

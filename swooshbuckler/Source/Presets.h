@@ -8,9 +8,11 @@
 
 /**
  * Factory presets and the randomiser. Both return plain-value targets; the
- * editor glides the parameters to them on springs. Anything a preset doesn't
- * mention goes back to its default. Track levels, input and the output stage
- * are left alone (they belong to your session).
+ * editor glides the parameters to them on springs. A factory preset is a
+ * complete look: anything it doesn't mention goes back to its default.
+ * Randomise only moves what it rolls and leaves every other knob where it is.
+ * Track levels, input and the output stage are left alone (they belong to
+ * your session).
  */
 namespace Presets
 {
@@ -54,11 +56,31 @@ namespace Presets
             || id.startsWith("mod"); // the modulators and their wires belong to the session, not to a preset
     }
 
-    /** Where a preset puts each parameter it owns, as (parameter, normalised value): what it names goes there,
-        everything else of its own goes back to its default, and the session's parameters are left out.
-        includeMode false (Randomise): each bus's Pass Mode is left as it is set too. */
+    /** The sections Randomise works in: each has its own die and its own lock in the window. */
+    enum Section { Ride = 0, BusA, BusB, Hits, Output, numSections };
+    inline const char* sectionName(int section)
+    {
+        static const char* names[numSections] = { "Ride", "Bus A", "Bus B", "Hits", "Output" };
+        return section >= 0 && section < numSections ? names[section] : "";
+    }
+
+    /** The values a section die may move that belong to the session (so targets() has to be told to let them through). */
+    inline bool isOutputStageRoll(const juce::String& id) { return id == ParamIDs::inflate || id == ParamIDs::push; }
+
+    /** What a preset does with the parameters it doesn't mention. */
+    enum class Unlisted
+    {
+        Default, // back to their defaults: a factory or user preset is a complete look
+        Keep,    // left where they are: Randomise, the section dice, the roll history
+    };
+
+    /** Where a preset puts each parameter it owns, as (parameter, normalised value). What it names goes there;
+        what it doesn't name goes back to its default (Unlisted::Default) or stays put (Unlisted::Keep). The
+        session's parameters are left out, except the modulators' own controls when the preset names them (a user
+        preset saved with its modulators) and, with outputStage, Inflate and Push (the Output die and its history). */
     inline std::vector<std::pair<juce::RangedAudioParameter*, float>> targets(const juce::Array<juce::AudioProcessorParameter*>& parameters,
-                                                                               const Preset& preset, bool includeMode)
+                                                                               const Preset& preset, Unlisted unlisted,
+                                                                               bool outputStage = false)
     {
         std::vector<std::pair<juce::RangedAudioParameter*, float>> out;
         for (auto* p : parameters)
@@ -67,45 +89,83 @@ namespace Presets
             if (param == nullptr)
                 continue;
             const auto id = param->getParameterID();
-            if (isSessionParameter(id))
-                continue;
             const auto it = preset.values.find(id);
-            if (! includeMode && it == preset.values.end() && (id == ParamIDs::passMode[0] || id == ParamIDs::passMode[1]))
+            const bool listed = it != preset.values.end();
+            const bool sessionButAllowed = listed && (id.startsWith("mod") || (outputStage && isOutputStageRoll(id)));
+            if (isSessionParameter(id) ? ! sessionButAllowed : (! listed && unlisted == Unlisted::Keep))
                 continue;
-            out.emplace_back(param, it != preset.values.end() ? param->convertTo0to1(it->second) : param->getDefaultValue());
+            out.emplace_back(param, listed ? param->convertTo0to1(param->getNormalisableRange().snapToLegalValue(it->second)) : param->getDefaultValue());
         }
         return out;
     }
 
-    /** A random but musical setting (wide where it's safe, narrow where it matters). */
-    inline Preset roll(juce::Random& r)
+    /** One section's share of a roll (wide where it's safe, narrow where it matters). The Output die also rolls
+        Inflate and Push, gently; the header's Randomise leaves those to the session (outputStage false). */
+    inline void rollSectionInto(Preset& p, juce::Random& r, int section, bool outputStage)
     {
         using namespace ParamIDs;
         auto u = [&r](float lo, float hi) { return lo + (hi - lo) * r.nextFloat(); };
-        Preset p { "Randomised", {} };
-        p.values[energy] = u(0.15f, 0.85f);
-        p.values[rate] = u(0.15f, 0.8f);
-        p.values[fill] = u(0.05f, 0.4f);
-        p.values[chaos] = u(0.2f, 0.7f);
-        p.values[pitch] = std::round(u(-7.0f, 7.0f));
-        for (int b = 0; b < numBuses; ++b)
+        switch (section)
         {
-            p.values[bus[b][Doppler]] = u(0.2f, 0.95f);
-            p.values[bus[b][Low]] = u(0.0f, 0.7f);
-            p.values[bus[b][Swirl]] = u(0.0f, 0.75f);
-            p.values[bus[b][Filter]] = u(0.0f, 0.7f);
-            p.values[bus[b][Drive]] = u(0.0f, b == 0 ? 0.48f : 0.22f);
-            if (b > 0)
+            case Ride:
+                p.values[energy] = u(0.15f, 0.85f);
+                p.values[rate] = u(0.15f, 0.8f);
+                p.values[fill] = u(0.05f, 0.4f);
+                p.values[chaos] = u(0.2f, 0.7f);
+                p.values[pitch] = std::round(u(-7.0f, 7.0f));
+                break;
+            case BusA:
+            case BusB:
             {
-                p.values[bus[b][Duck]] = u(0.1f, 0.7f);
-                p.values[bus[b][Key]] = u(0.0f, 0.6f);
+                const int b = section == BusA ? 0 : 1;
+                p.values[bus[b][Doppler]] = u(0.2f, 0.95f);
+                p.values[bus[b][Width]] = u(0.35f, 1.0f);   // never a pass stuck in the middle
+                p.values[bus[b][Bend]] = u(0.3f, 0.9f);     // always some bend, never the full scream
+                p.values[bus[b][Low]] = u(0.0f, 0.7f);
+                p.values[bus[b][Swirl]] = u(0.0f, 0.75f);
+                p.values[bus[b][Filter]] = u(0.0f, 0.7f);
+                p.values[bus[b][Drive]] = u(0.0f, b == 0 ? 0.48f : 0.22f);
+                if (b > 0)
+                {
+                    p.values[bus[b][Duck]] = u(0.1f, 0.7f);
+                    p.values[bus[b][Key]] = u(0.0f, 0.6f);
+                }
+                break;
             }
+            case Hits:
+                p.values[hitSense] = u(0.3f, 0.7f);
+                p.values[hitBoost] = u(0.0f, 10.0f);
+                p.values[hitRelease] = u(0.15f, 0.6f);
+                p.values[hitDuck] = u(0.2f, 0.8f);
+                break;
+            case Output:
+                p.values[space] = u(0.05f, 0.6f);
+                if (outputStage)
+                {
+                    p.values[inflate] = u(0.0f, 0.5f);
+                    p.values[push] = u(0.0f, 6.0f);
+                }
+                break;
+            default:
+                break;
         }
-        p.values[hitSense] = u(0.3f, 0.7f);
-        p.values[hitBoost] = u(0.0f, 10.0f);
-        p.values[hitRelease] = u(0.15f, 0.6f);
-        p.values[hitDuck] = u(0.2f, 0.8f);
-        p.values[space] = u(0.05f, 0.6f);
+    }
+
+    /** A random but musical setting for every section that isn't locked (bit n of lockedSections = Section n). */
+    inline Preset roll(juce::Random& r, unsigned lockedSections = 0)
+    {
+        Preset p { "Randomised", {} };
+        for (int section = 0; section < numSections; ++section)
+            if ((lockedSections & (1u << section)) == 0)
+                rollSectionInto(p, r, section, false);
+        return p;
+    }
+
+    /** A section's own die: just that section, locked or not. */
+    inline Preset rollSection(juce::Random& r, int section)
+    {
+        Preset p { "Randomised", {} };
+        rollSectionInto(p, r, section, true);
         return p;
     }
 }

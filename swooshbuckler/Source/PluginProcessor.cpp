@@ -93,6 +93,15 @@ SwooshbucklerAudioProcessor::SwooshbucklerAudioProcessor(juce::PropertiesFile* o
 
 
     m_engine.setCargoHold(&m_cargo);
+
+    // One undo history for the parameters and the track edits. The transport is not an edit.
+    m_history = std::make_unique<EditHistory>(*this);
+    m_history->isRecorded = [play = m_state.getParameter(ParamIDs::play)->getParameterIndex()](int index) { return index != play; };
+    m_cargo.onUndoableEdit = [this](int)
+    {
+        m_history->add("Track Edit", [this] { m_restoredTrack = m_cargo.undoLatest(); }, [this] { m_restoredTrack = m_cargo.redoLatest(); });
+    };
+    m_random.setSeedRandomly();
     if (m_offline)
     {
         // An offline copy: its maker's settings (read only), no tape memory and no timer (so no auto-arming).
@@ -114,6 +123,8 @@ SwooshbucklerAudioProcessor::SwooshbucklerAudioProcessor(juce::PropertiesFile* o
 SwooshbucklerAudioProcessor::~SwooshbucklerAudioProcessor()
 {
     m_variations.reset(); // stops its thread and lets go of its copy of this rig first
+    m_cargo.onUndoableEdit = nullptr;
+    m_history.reset();
     stopTimer();
     m_recorder.stop();
 }
@@ -706,6 +717,56 @@ void SwooshbucklerAudioProcessor::newSession()
     setPlaying(false);
     if (isRecording())
         stopRecording();
+
+    // Everything below is one undo step: the tracks (each clear is a track edit), the parameters, and what
+    // neither of those covers, put back by hand.
+    struct Extras
+    {
+        juce::ValueTree wires;
+        std::array<bool, CargoHold::c_numLanes> mute {}, solo {};
+        juce::String sessionPath, presetName;
+        unsigned locks = 0;
+        std::array<Look, 2> ab;
+        std::array<juce::String, 2> abNames;
+        int abSlot = 0;
+    };
+    auto capture = [this]
+    {
+        Extras e;
+        e.wires = m_mods.toValueTree();
+        for (int lane = 0; lane < CargoHold::c_numLanes; ++lane)
+        {
+            e.mute[static_cast<size_t>(lane)] = m_cargo.getMute(lane);
+            e.solo[static_cast<size_t>(lane)] = m_cargo.getSolo(lane);
+        }
+        e.presetName = currentPresetName;
+        e.locks = m_lockedSections.load();
+        const juce::ScopedLock sl(m_stateLock);
+        e.sessionPath = m_sessionPath;
+        e.ab = m_ab;
+        e.abNames = m_abNames;
+        e.abSlot = m_abSlot;
+        return e;
+    };
+    auto restore = [this](const Extras& e)
+    {
+        m_mods.fromValueTree(e.wires);
+        for (int lane = 0; lane < CargoHold::c_numLanes; ++lane)
+        {
+            m_cargo.setMute(lane, e.mute[static_cast<size_t>(lane)]);
+            m_cargo.setSolo(lane, e.solo[static_cast<size_t>(lane)]);
+        }
+        currentPresetName = e.presetName;
+        m_lockedSections.store(e.locks);
+        const juce::ScopedLock sl(m_stateLock);
+        m_sessionPath = e.sessionPath;
+        m_ab = e.ab;
+        m_abNames = e.abNames;
+        m_abSlot = e.abSlot;
+    };
+
+    EditHistory::Group group(*m_history, "New Session");
+    const auto before = capture();
     for (int t = 0; t < CargoHold::c_numTracks; ++t)
     {
         m_cargo.clear(t);
@@ -727,6 +788,299 @@ void SwooshbucklerAudioProcessor::newSession()
         }
     m_mods.clear();
     currentPresetName = "Default";
+    m_lockedSections.store(0);
+    {
+        const juce::ScopedLock sl(m_stateLock);
+        m_sessionPath.clear();
+        m_ab = {};
+        m_abNames = {};
+        m_abSlot = 0;
+    }
+    m_rolls.clear();
+    m_rollAt = -1;
+    const auto after = capture();
+    m_history->add("New Session", [restore, before] { restore(before); }, [restore, after] { restore(after); });
+}
+
+//==============================================================================
+// Keeping work: undo, presets, Randomise, A/B
+bool SwooshbucklerAudioProcessor::undoEdit(juce::String* what)
+{
+    m_restoredTrack = -1;
+    return m_history->undo(what);
+}
+
+bool SwooshbucklerAudioProcessor::redoEdit(juce::String* what)
+{
+    m_restoredTrack = -1;
+    return m_history->redo(what);
+}
+
+SwooshbucklerAudioProcessor::Look SwooshbucklerAudioProcessor::captureLook(bool withMods, bool outputStage) const
+{
+    Look look;
+    for (auto* p : getParameters())
+        if (auto* param = dynamic_cast<juce::RangedAudioParameter*>(p))
+        {
+            const auto id = param->getParameterID();
+            if (Presets::isSessionParameter(id) && ! ((withMods && id.startsWith("mod")) || (outputStage && Presets::isOutputStageRoll(id))))
+                continue;
+            look[id] = param->convertFrom0to1(param->getValue());
+        }
+    return look;
+}
+
+void SwooshbucklerAudioProcessor::setPresetName(const juce::String& name)
+{
+    if (name == currentPresetName)
+        return;
+    const auto before = currentPresetName;
+    currentPresetName = name;
+    m_history->add("Preset", [this, before] { currentPresetName = before; }, [this, name] { currentPresetName = name; });
+}
+
+void SwooshbucklerAudioProcessor::applyLook(const Presets::Preset& look, Presets::Unlisted unlisted, const juce::String& undoName,
+                                            const juce::String& presetName, bool outputStage)
+{
+    EditHistory::Group group(*m_history, undoName);
+    if (presetName.isNotEmpty())
+        setPresetName(presetName);
+    for (const auto& [param, target] : Presets::targets(getParameters(), look, unlisted, outputStage))
+    {
+        if (std::abs(param->getValue() - target) < 1.0e-6f)
+            continue;
+        param->beginChangeGesture();
+        param->setValueNotifyingHost(target);
+        param->endChangeGesture();
+    }
+}
+
+Presets::Preset SwooshbucklerAudioProcessor::rollLook(int section)
+{
+    // The stop you are on keeps how you left it; anything after it is forgotten, as in any history.
+    auto now = captureLook(false, true);
+    const int from = m_rollAt;
+    if (m_rolls.empty() || m_rollAt < 0)
+    {
+        m_rolls.clear();
+        m_rolls.push_back({ now, currentPresetName });
+        m_rollAt = 0;
+    }
+    else
+    {
+        m_rolls[static_cast<size_t>(m_rollAt)] = { now, currentPresetName };
+        m_rolls.resize(static_cast<size_t>(m_rollAt) + 1);
+    }
+    auto roll = section < 0 ? Presets::roll(m_random, getLockedSections()) : Presets::rollSection(m_random, section);
+    for (const auto& [id, value] : roll.values)
+        now[id] = value;
+    m_rolls.push_back({ std::move(now), roll.name });
+    ++m_rollAt;
+    int shift = 0;
+    if (static_cast<int>(m_rolls.size()) > c_maxRolls + 1)
+    {
+        m_rolls.erase(m_rolls.begin());
+        --m_rollAt;
+        shift = 1;
+    }
+    // Undoing the roll steps the history back with it.
+    const int to = m_rollAt, back = from - shift;
+    auto place = [this](int at) { m_rollAt = m_rolls.empty() ? -1 : juce::jlimit(0, static_cast<int>(m_rolls.size()) - 1, at); };
+    m_history->add("Randomise", [place, back] { place(back); }, [place, to] { place(to); });
+    return roll;
+}
+
+bool SwooshbucklerAudioProcessor::canStepRoll(int delta) const
+{
+    const int to = m_rollAt + delta;
+    return m_rollAt >= 0 && delta != 0 && to >= 0 && to < static_cast<int>(m_rolls.size());
+}
+
+const Presets::Preset* SwooshbucklerAudioProcessor::stepRoll(int delta)
+{
+    if (! canStepRoll(delta))
+        return nullptr;
+    const int from = m_rollAt, to = m_rollAt + delta;
+    m_rolls[static_cast<size_t>(from)] = { captureLook(false, true), currentPresetName };
+    m_rollAt = to;
+    m_rollTarget = { m_rolls[static_cast<size_t>(to)].name, m_rolls[static_cast<size_t>(to)].look };
+    auto place = [this](int at) { m_rollAt = m_rolls.empty() ? -1 : juce::jlimit(0, static_cast<int>(m_rolls.size()) - 1, at); };
+    m_history->add("Randomise", [place, from] { place(from); }, [place, to] { place(to); });
+    return &m_rollTarget;
+}
+
+void SwooshbucklerAudioProcessor::setSectionLocked(int section, bool locked)
+{
+    if (section < 0 || section >= Presets::numSections || isSectionLocked(section) == locked)
+        return;
+    const unsigned bit = 1u << section;
+    m_lockedSections.store(locked ? (m_lockedSections.load() | bit) : (m_lockedSections.load() & ~bit));
+    updateHostDisplay(ChangeDetails().withNonParameterStateChanged(true)); // it is part of the session: the host and the autosave hear of it
+}
+
+juce::File SwooshbucklerAudioProcessor::getPresetFolder() const
+{
+    return m_settings->getFile().getSiblingFile("Swooshbuckler Presets");
+}
+
+bool SwooshbucklerAudioProcessor::saveUserPreset(const juce::String& name, bool withMods, juce::File& written, juce::String& error)
+{
+    const auto legal = UserPresets::legalName(name);
+    if (UserPresets::isFactoryName(legal))
+    {
+        error = "\"" + legal + "\" is a factory preset's name";
+        return false;
+    }
+    const Presets::Preset preset { legal, captureLook(withMods) };
+    const auto file = UserPresets::fileFor(getPresetFolder(), legal);
+    const auto wires = m_mods.toValueTree();
+    if (! UserPresets::write(file, preset, withMods ? &wires : nullptr, error))
+        return false;
+    written = file;
+    currentPresetName = legal;
+    return true;
+}
+
+void SwooshbucklerAudioProcessor::applyPresetWires(const UserPresets::Loaded& loaded)
+{
+    if (! loaded.hasMods)
+        return;
+    const auto before = m_mods.toValueTree();
+    m_mods.fromValueTree(loaded.mods.isValid() ? loaded.mods.createCopy() : juce::ValueTree("Mods"));
+    const auto after = m_mods.toValueTree();
+    m_history->add("Wires", [this, before] { m_mods.fromValueTree(before); }, [this, after] { m_mods.fromValueTree(after); });
+}
+
+void SwooshbucklerAudioProcessor::switchAB()
+{
+    const auto now = captureLook();
+    const int from = m_abSlot, to = 1 - from;
+    Presets::Preset target;
+    {
+        const juce::ScopedLock sl(m_stateLock);
+        m_ab[static_cast<size_t>(from)] = now;
+        m_abNames[static_cast<size_t>(from)] = currentPresetName;
+        if (m_ab[static_cast<size_t>(to)].empty()) // never used: it starts as a copy of this one
+        {
+            m_ab[static_cast<size_t>(to)] = now;
+            m_abNames[static_cast<size_t>(to)] = currentPresetName;
+        }
+        target = { m_abNames[static_cast<size_t>(to)], m_ab[static_cast<size_t>(to)] };
+        m_abSlot = to;
+    }
+    EditHistory::Group group(*m_history, to == 1 ? "Switch to B" : "Switch to A");
+    auto place = [this](int slot)
+    {
+        const juce::ScopedLock sl(m_stateLock);
+        m_abSlot = slot;
+    };
+    m_history->add("A/B", [place, from] { place(from); }, [place, to] { place(to); });
+    applyLook(target, Presets::Unlisted::Keep, {}, target.name);
+    updateHostDisplay(ChangeDetails().withNonParameterStateChanged(true));
+}
+
+void SwooshbucklerAudioProcessor::copyABToOther()
+{
+    const auto now = captureLook();
+    {
+        const juce::ScopedLock sl(m_stateLock);
+        m_ab[static_cast<size_t>(1 - m_abSlot)] = now;
+        m_abNames[static_cast<size_t>(1 - m_abSlot)] = currentPresetName;
+    }
+    updateHostDisplay(ChangeDetails().withNonParameterStateChanged(true));
+}
+
+//==============================================================================
+// Session files
+juce::File SwooshbucklerAudioProcessor::getSessionFile() const
+{
+    const juce::ScopedLock sl(m_stateLock);
+    return m_sessionPath.isEmpty() ? juce::File() : juce::File(m_sessionPath);
+}
+
+bool SwooshbucklerAudioProcessor::saveSession(const juce::File& file, juce::String& error)
+{
+    const auto target = file.hasFileExtension(c_sessionExtension) ? file : file.withFileExtension(c_sessionExtension);
+    juce::String before;
+    {
+        const juce::ScopedLock sl(m_stateLock);
+        before = m_sessionPath;
+        m_sessionPath = target.getFullPathName(); // the file says where it is
+    }
+    juce::MemoryBlock data;
+    getStateInformation(data);
+    bool ok = data.getSize() > 0 && target.getParentDirectory().createDirectory();
+    if (ok)
+    {
+        // Written beside its final name and swapped in, so a failed save leaves the previous file intact.
+        juce::TemporaryFile temp(target);
+        ok = temp.getFile().replaceWithData(data.getData(), data.getSize()) && temp.overwriteTargetFileWithTemporary();
+    }
+    if (! ok)
+    {
+        const juce::ScopedLock sl(m_stateLock);
+        m_sessionPath = before;
+        error = "Couldn't write " + target.getFileName();
+        return false;
+    }
+    noteRecentSession(target);
+    updateHostDisplay(ChangeDetails().withNonParameterStateChanged(true));
+    return true;
+}
+
+bool SwooshbucklerAudioProcessor::openSession(const juce::File& file, juce::String& error)
+{
+    jassert(juce::MessageManager::existsAndIsCurrentThread());
+    juce::MemoryBlock data;
+    if (! file.existsAsFile() || ! file.loadFileAsData(data) || data.getSize() == 0 || data.getSize() >= static_cast<size_t>(0x7fffffff))
+    {
+        error = "Couldn't read " + file.getFileName();
+        return false;
+    }
+    juce::ValueTree tree;
+    if (! readState(data.getData(), static_cast<int>(data.getSize()), tree))
+    {
+        error = file.getFileName() + " isn't a Swooshbuckler session";
+        return false;
+    }
+    data.reset();
+    restoreStateTree(tree);
+    {
+        const juce::ScopedLock sl(m_stateLock);
+        m_sessionPath = file.getFullPathName(); // where it is now, wherever it was saved
+    }
+    noteRecentSession(file);
+    updateHostDisplay(ChangeDetails().withNonParameterStateChanged(true));
+    return true;
+}
+
+juce::Array<juce::File> SwooshbucklerAudioProcessor::getRecentSessions() const
+{
+    juce::Array<juce::File> files;
+    for (const auto& path : juce::StringArray::fromLines(m_settings->getValue("recentSessions")))
+        if (path.trim().isNotEmpty() && juce::File::isAbsolutePath(path.trim()) && juce::File(path.trim()).existsAsFile())
+            files.add(juce::File(path.trim()));
+    return files;
+}
+
+void SwooshbucklerAudioProcessor::noteRecentSession(const juce::File& file)
+{
+    if (m_offline)
+        return;
+    auto paths = juce::StringArray::fromLines(m_settings->getValue("recentSessions"));
+    paths.removeEmptyStrings();
+    paths.removeString(file.getFullPathName());
+    paths.insert(0, file.getFullPathName());
+    while (paths.size() > 10)
+        paths.remove(paths.size() - 1);
+    m_settings->setValue("recentSessions", paths.joinIntoString("\n"));
+    m_settings->saveIfNeeded();
+}
+
+void SwooshbucklerAudioProcessor::clearRecentSessions()
+{
+    m_settings->removeValue("recentSessions");
+    m_settings->saveIfNeeded();
 }
 
 bool SwooshbucklerAudioProcessor::isUserEdit(int) const
@@ -842,6 +1196,7 @@ std::unique_ptr<SwooshbucklerAudioProcessor> SwooshbucklerAudioProcessor::makeOf
     copy->m_state.replaceState(state);
     copy->m_mods.fromValueTree(m_mods.toValueTree());
     copy->currentPresetName = currentPresetName;
+    copy->m_lockedSections.store(m_lockedSections.load()); // Randomise Everything leaves locked sections alone too
     // Stopped, and Master Trim out of the way: what it renders is what the tape would get.
     if (auto* play = copy->m_state.getParameter(ParamIDs::play))
         play->setValueNotifyingHost(0.0f);
@@ -1148,16 +1503,39 @@ double SwooshbucklerAudioProcessor::getRecordingDroppedSeconds() const
     return m_recorder.getDroppedSeconds(); // by the rate the tape runs at (the render rate), not the device's
 }
 
+namespace
+{
+    // A saved state is these eight bytes, then the state as a binary ValueTree stream. (Sessions saved before were
+    // XML, with the audio in base64: a third bigger. Those are still read.)
+    constexpr char c_stateMagic[8] = { 'S', 'W', 'B', 'K', 'S', 'T', '1', '\n' };
+    const juce::Identifier c_stateType("Swooshbuckler");
+
+    juce::ValueTree lookToTree(const juce::String& name, const std::map<juce::String, float>& look)
+    {
+        juce::ValueTree set("Set");
+        set.setProperty("name", name, nullptr);
+        for (const auto& [id, value] : look)
+        {
+            juce::ValueTree v("Value");
+            v.setProperty("id", id, nullptr);
+            v.setProperty("value", value, nullptr);
+            set.appendChild(v, nullptr);
+        }
+        return set;
+    }
+}
+
 void SwooshbucklerAudioProcessor::getStateInformation(juce::MemoryBlock& destData)
 {
     auto state = m_state.copyState();
     state.removeChild(state.getChildWithName("Cargo"), nullptr);
     state.removeChild(state.getChildWithName("Mods"), nullptr);
+    state.removeChild(state.getChildWithName("AB"), nullptr);
     state.appendChild(m_mods.toValueTree(), nullptr); // the wires (thread safe snapshot)
 
     juce::ValueTree cargo;
     int width = 0;
-    juce::String preset;
+    juce::String preset, sessionPath;
     {
         const juce::ScopedLock sl(m_stateLock);
         if (m_pending.valid)
@@ -1171,6 +1549,16 @@ void SwooshbucklerAudioProcessor::getStateInformation(juce::MemoryBlock& destDat
         {
             width = m_mirrorWidth;
             preset = m_mirrorPreset;
+        }
+        sessionPath = m_sessionPath;
+        // A/B: the two sets and which one you are on (left out until the other set has been used).
+        if (! m_ab[0].empty() || ! m_ab[1].empty())
+        {
+            juce::ValueTree ab("AB");
+            ab.setProperty("slot", m_abSlot, nullptr);
+            for (size_t i = 0; i < m_ab.size(); ++i)
+                ab.appendChild(lookToTree(m_abNames[i], m_ab[i]), nullptr);
+            state.appendChild(ab, nullptr);
         }
     }
 
@@ -1187,27 +1575,66 @@ void SwooshbucklerAudioProcessor::getStateInformation(juce::MemoryBlock& destDat
     state.setProperty("editorWidth", width, nullptr);
     state.setProperty("presetName", preset, nullptr);
     state.setProperty("followHost", getFollowHost(), nullptr);
+    state.setProperty("sectionLocks", static_cast<int>(m_lockedSections.load()), nullptr);
+    if (sessionPath.isNotEmpty())
+        state.setProperty("sessionFile", sessionPath, nullptr);
+    else
+        state.removeProperty("sessionFile", nullptr);
     state.removeProperty("throwPath", nullptr); // v2 sessions
     state.appendChild(cargo, nullptr);
 
-    if (auto xml = state.createXml())
-        copyXmlToBinary(*xml, destData);
+    juce::MemoryOutputStream out(destData, false);
+    out.write(c_stateMagic, sizeof(c_stateMagic));
+    state.writeToStream(out);
+}
+
+bool SwooshbucklerAudioProcessor::readState(const void* data, int sizeInBytes, juce::ValueTree& state)
+{
+    state = {};
+    if (data == nullptr || sizeInBytes <= 0)
+        return false;
+    const size_t size = static_cast<size_t>(sizeInBytes);
+    if (size > sizeof(c_stateMagic) && std::memcmp(data, c_stateMagic, sizeof(c_stateMagic)) == 0)
+        state = juce::ValueTree::readFromData(static_cast<const char*>(data) + sizeof(c_stateMagic), size - sizeof(c_stateMagic));
+    else if (auto xml = getXmlFromBinary(data, sizeInBytes))
+        state = juce::ValueTree::fromXml(*xml);
+    return state.isValid() && state.hasType(c_stateType);
 }
 
 void SwooshbucklerAudioProcessor::setStateInformation(const void* data, int sizeInBytes)
 {
-    auto xml = getXmlFromBinary(data, sizeInBytes);
-    if (xml == nullptr)
-        return;
+    juce::ValueTree tree;
+    if (readState(data, sizeInBytes, tree))
+        restoreStateTree(tree);
+}
 
-    auto tree = juce::ValueTree::fromXml(*xml);
-    if (! tree.hasType(m_state.state.getType()))
-        return;
-
+void SwooshbucklerAudioProcessor::restoreStateTree(juce::ValueTree tree)
+{
     const int width = tree.getProperty("editorWidth", 0);
     const juce::String preset = tree.getProperty("presetName", "Default").toString();
     tree.removeProperty("throwPath", nullptr); // v2 sessions
     m_followHost.store(canFollowHost() && static_cast<bool>(tree.getProperty("followHost", true)));
+    m_lockedSections.store(static_cast<unsigned>(static_cast<int>(tree.getProperty("sectionLocks", 0))) & ((1u << Presets::numSections) - 1u));
+    {
+        // The session's file, and the A/B sets (a state without them has none).
+        const juce::ScopedLock sl(m_stateLock);
+        m_sessionPath = tree.getProperty("sessionFile", juce::String()).toString();
+        m_ab = {};
+        m_abNames = {};
+        m_abSlot = 0;
+        if (auto ab = tree.getChildWithName("AB"); ab.isValid())
+        {
+            m_abSlot = juce::jlimit(0, 1, static_cast<int>(ab.getProperty("slot", 0)));
+            for (int i = 0; i < juce::jmin(2, ab.getNumChildren()); ++i)
+            {
+                const auto set = ab.getChild(i);
+                m_abNames[static_cast<size_t>(i)] = set.getProperty("name").toString();
+                for (const auto& v : set)
+                    m_ab[static_cast<size_t>(i)][v.getProperty("id").toString()] = static_cast<float>(v.getProperty("value", 0.0f));
+            }
+            tree.removeChild(ab, nullptr);
+        }
+    }
     // The app always opens stopped, so nothing blasts out; in a host the session comes back as it was left (a
     // bounce of a session left playing has sound).
     if (! canFollowHost())
@@ -1287,6 +1714,10 @@ void SwooshbucklerAudioProcessor::applyRestoredState(const juce::ValueTree& carg
 {
     jassert(juce::MessageManager::existsAndIsCurrentThread());
     m_mods.notifyChanged(); // the wires were restored (possibly off the message thread): redraw them
+    // Another session: nothing of the old one is left to undo or to step back to.
+    m_history->clear();
+    m_rolls.clear();
+    m_rollAt = -1;
     savedEditorWidth = editorWidth;
     // Sessions saved before the preset names were Title Case ("Steady energy"): show today's spelling.
     currentPresetName = presetName;

@@ -115,7 +115,15 @@ void SwooshLookAndFeel::drawButtonText(juce::Graphics& g, juce::TextButton& butt
 {
     const bool on = button.getToggleState();
     const auto accent = button.findColour(juce::TextButton::buttonOnColourId);
-    g.setFont(getTextButtonFont(button, button.getHeight()));
+    auto font = getTextButtonFont(button, button.getHeight());
+    {
+        // Text that would not fit even squeezed (a long preset name) is set smaller, so it is never cut short.
+        const float room = static_cast<float>(button.getWidth() - 8);
+        const float width = juce::GlyphArrangement::getStringWidth(font, button.getButtonText()) * 0.8f;
+        if (width > room && room > 0.0f)
+            font = font.withHeight(juce::jmax(7.0f, font.getHeight() * room / width * 0.98f));
+    }
+    g.setFont(font);
     // A button can light its text while off (e.g. MORPH ON with the pad hidden) by setting textColourOffId.
     const auto offText = button.isColourSpecified(juce::TextButton::textColourOffId) ? button.findColour(juce::TextButton::textColourOffId)
                                                                                       : (over ? TC::text : TC::textDim);

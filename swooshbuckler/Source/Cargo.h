@@ -201,6 +201,9 @@ public:
     int undoLatest();
     int redoLatest();
     bool canUndoLatest() const;
+    /** Called (message thread) each time an edit that can be undone has been made, with its track: the owner's
+        undo history puts it in line with everything else that was changed. Not called by undo or redo. */
+    std::function<void(int)> onUndoableEdit;
     bool canRedoLatest() const;
     /** How much audio the undo and redo steps of every track hold, in bytes, and the most they may hold (the
         oldest edits are forgotten first; the newest one always stays). Message thread. */

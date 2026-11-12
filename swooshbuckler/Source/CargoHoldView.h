@@ -18,8 +18,9 @@
  *    silence that will be skipped. Drag the clip's edge handles to trim; drag
  *    inside to select; double-click a region to grab it.
  *  - Cut / copy / paste / duplicate / trim / delete / reverse / normalise /
- *    fades, with undo and redo per track. Keys: Cmd+X C V D Z, Shift+Cmd+Z,
- *    Delete, T (trim to selection), Space fires a whoosh.
+ *    fades. Every edit joins the rig's one undo history (Cmd+Z and Shift+Cmd+Z,
+ *    handled by the window). Keys: Cmd+X C V D, Delete, T (trim to selection),
+ *    Space fires a whoosh.
  */
 class CargoHoldView : public juce::Component,
                       public juce::FileDragAndDropTarget,
@@ -42,6 +43,9 @@ public:
 
     /** Loads files into the first empty tracks (or into `track` and onwards). Returns a short status line. */
     juce::String loadFiles(const juce::StringArray& files, int track = -1);
+
+    /** An undo or redo has just run (from the header buttons or the keys): shows the track it brought back. */
+    void historyStepped();
 
     std::function<void()> onSwell; // space bar while the tracks have focus
     /** The lanes moved (scrolled, added, removed or resized): modulation plugs on them need placing again. */
