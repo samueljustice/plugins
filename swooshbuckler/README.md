@@ -473,7 +473,7 @@ A session can also be saved as a file of its own, to keep several pieces of work
 
 In the app the window's title shows the session's name. **NEW** starts an unnamed session again. Opening a session clears the undo history. The plug-in has the same commands, so a session made in the app opens in a DAW and the other way round; the DAW project still keeps the plug-in's state by itself.
 
-Session files, and the state a DAW project keeps, are about a quarter smaller than before for the same sounds. Sessions and projects saved by earlier versions still open.
+Session files, and the state a DAW project keeps, hold the audio in a compact binary form. Sessions and projects saved by earlier versions still open. If a session's file is no longer where it was when the session is reopened (it was moved, or the project came from another machine), the session comes back unnamed and **Save Session** asks where to save.
 
 ### About
 

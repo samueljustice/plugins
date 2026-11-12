@@ -712,6 +712,31 @@ int main(int argc, char* argv[])
         reopened.proc.undoEdit();
         check(reopened.proc.getSessionFile() == moved, "sessions: undoing New Session brings the file's name back too");
 
+        // A state naming a session file that has gone (moved, or a project from another machine), or something
+        // that isn't a full path, comes back unnamed: Save Session then asks where instead of writing there.
+        {
+            const auto gone = sessions.getChildFile("Gone.swooshsession");
+            Rig saver;
+            saver.move(ParamIDs::energy, 0.61f);
+            saver.proc.saveSession(gone, error);
+            juce::MemoryBlock goneState;
+            saver.proc.getStateInformation(goneState);
+            gone.deleteFile();
+            Rig later;
+            later.proc.setStateInformation(goneState.getData(), static_cast<int>(goneState.getSize()));
+            juce::ValueTree relative;
+            Proc::readState(goneState.getData(), static_cast<int>(goneState.getSize()), relative);
+            relative.setProperty("sessionFile", "not a path/at all.swooshsession", nullptr);
+            juce::MemoryBlock relativeState;
+            if (auto xml = relative.createXml())
+                juce::AudioProcessor::copyXmlToBinary(*xml, relativeState);
+            Rig odd;
+            odd.proc.setStateInformation(relativeState.getData(), static_cast<int>(relativeState.getSize()));
+            check(later.proc.getSessionFile() == juce::File() && near(later.plain(ParamIDs::energy), 0.61f)
+                      && odd.proc.getSessionFile() == juce::File() && near(odd.plain(ParamIDs::energy), 0.61f),
+                  "sessions: a state whose session file has gone, or isn't a full path, comes back unnamed with its settings");
+        }
+
         // The old form (XML, audio in base64) still opens: as a state, and as a file.
         Rig old;
         old.proc.setStateInformation(xmlForm.getData(), static_cast<int>(xmlForm.getSize()));

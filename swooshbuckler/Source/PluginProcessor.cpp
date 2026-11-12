@@ -1619,6 +1619,8 @@ void SwooshbucklerAudioProcessor::restoreStateTree(juce::ValueTree tree)
         // The session's file, and the A/B sets (a state without them has none).
         const juce::ScopedLock sl(m_stateLock);
         m_sessionPath = tree.getProperty("sessionFile", juce::String()).toString();
+        if (! juce::File::isAbsolutePath(m_sessionPath)) // a state from another kind of machine, or not a path at all
+            m_sessionPath.clear();
         m_ab = {};
         m_abNames = {};
         m_abSlot = 0;
@@ -1718,6 +1720,14 @@ void SwooshbucklerAudioProcessor::applyRestoredState(const juce::ValueTree& carg
     m_history->clear();
     m_rolls.clear();
     m_rollAt = -1;
+    // A session file that is no longer there (the state came from another machine, the file was moved or its disk
+    // is away) is forgotten, so Save Session asks where to save instead of writing to a place that has gone.
+    if (const auto file = getSessionFile(); file != juce::File() && ! file.existsAsFile())
+    {
+        const juce::ScopedLock sl(m_stateLock);
+        if (m_sessionPath == file.getFullPathName())
+            m_sessionPath.clear();
+    }
     savedEditorWidth = editorWidth;
     // Sessions saved before the preset names were Title Case ("Steady energy"): show today's spelling.
     currentPresetName = presetName;

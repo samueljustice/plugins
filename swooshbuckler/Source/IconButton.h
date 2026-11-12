@@ -18,6 +18,13 @@ public:
         setWantsKeyboardFocus(false);
     }
 
+    /** The tooltip's heading line is also the button's name for screen readers (it has no text of its own). */
+    void setTooltip(const juce::String& tip) override
+    {
+        juce::Button::setTooltip(tip);
+        setTitle(tip.upToFirstOccurrenceOf("\n", false, false));
+    }
+
     void paintButton(juce::Graphics& g, bool over, bool down) override
     {
         namespace TC = Theme::Colours;

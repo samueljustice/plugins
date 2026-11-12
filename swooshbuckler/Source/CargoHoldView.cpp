@@ -999,6 +999,11 @@ void CargoHoldView::perform(Action action)
         case Action::Redo:
         {
             // The rig's one history: track edits and settings, in the order they were made.
+            if (onHistory)
+            {
+                onHistory(action == Action::Redo);
+                return;
+            }
             if (action == Action::Undo)
                 m_processor.undoEdit();
             else

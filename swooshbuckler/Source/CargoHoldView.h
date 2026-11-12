@@ -48,6 +48,9 @@ public:
     void historyStepped();
 
     std::function<void()> onSwell; // space bar while the tracks have focus
+    /** The panel's own Undo (true = redo): the window runs it as it runs the header's, so a glide still moving is
+        finished first and the message says what was undone. Without it the rig's history is stepped directly. */
+    std::function<void(bool)> onHistory;
     /** The lanes moved (scrolled, added, removed or resized): modulation plugs on them need placing again. */
     std::function<void()> onLanesMoved;
     /** Each track's Semitones box, as a modulation target (parameter ID -> control). */

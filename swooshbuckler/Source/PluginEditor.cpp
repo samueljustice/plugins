@@ -746,6 +746,7 @@ SwooshbucklerAudioProcessorEditor::SwooshbucklerAudioProcessorEditor(Swooshbuckl
 
     // Tracks + output view + ride --------------------------------------------
     m_content.addAndMakeVisible(m_hold);
+    m_hold.onHistory = [this](bool redo) { stepHistory(redo); };
     m_hold.onSwell = [this] { m_processor.setSwell(true); juce::Timer::callAfterDelay(250, [this] { if (! m_spaceHeld) m_processor.setSwell(false); }); };
     m_hold.onStatus = [this](const juce::String& s) { toast(s); };
     m_content.addAndMakeVisible(m_sea);
