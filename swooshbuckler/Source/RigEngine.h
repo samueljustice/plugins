@@ -6,6 +6,7 @@
 #include "PitchShifter.h"
 #include "DspUtils.h"
 #include "SpectralMorph.h"
+#include "SpaceReverb.h"
 
 #include <array>
 #include <atomic>
@@ -17,21 +18,38 @@
  *   tracks (always playing, looped, silence skipped)
  *     -> ride: each track's fader is LFO'd at its own offset speed plus a random
  *        "hand on the fader" (Mondo-Mod style), scaled by Energy / Rate
- *     -> fill: long delays (0.5 / 1 / 2 s) fill the gaps of unsteady tracks
+ *     -> fill: long delays (about 0.5 / 1 / 2 s, a little different on every track) fill the gaps of unsteady tracks
  *     -> bus A (aggressive) | bus B (smooth) | hits      (routed automatically by detected type)
  *
- *   each bus:     doppler (two overlapping passes with randomly automated speed,
- *                 distance and direction) -> low end (sub octave, overtones, lift at
- *                 the loudest point) -> swirl (phaser + flanger) -> envelope filter -> drive
+ *   each bus:     doppler (two passes, always half a pass apart, with randomly automated speed, distance and
+ *                 direction; Pass Mode Bed overlaps them into a steady level, Fly-By plays them one after the
+ *                 other) -> low end (sub octave, overtones, lift at the loudest point) -> swirl (phaser + flanger)
+ *                 -> envelope filter -> drive. Low end, swirl and filter follow the bus's level and, the stiller
+ *                 the faders are, how near the pass is.
+ *   stereo beds:  a stereo sound on bus B keeps its width while B's Pass Mode is Bed: its side signal
+ *                 (CargoData::hasSide) rides with the track and flies the same two passes (the same delays at
+ *                 each ear), plus on the left and minus on the right, by Width x (1 - Doppler) and by how near
+ *                 the middle the pass is (a pass far to one side is a point). It skips the colour chain and is
+ *                 added back after it, level-matched to what the chain did. Everything else plays the mono sum.
  *   side-chains:  A ducks B, and A's level low-passes B
  *   hit sync:     optional: every hit track fires its next sound on a shared beat, transients aligned
  *                 (the beat is as long as the longest hit, so none is cut short).
  *   hits:         a gate on A + B opens only at the loudest moments (a boost with hold
  *                 and release, not on/off); the gated hits then duck A and B.
  *                 The detector listens before the ducking, so there is no feedback loop.
+ *   throw:        on demand: one more pass, the same on both buses, shaped like a Fly-By (approach, peak, tail).
+ *                 It plays the tracks at their fader levels (not ridden) through its own delay line, so it is
+ *                 the same whoosh whether the rig is playing or stopped, and AIM lands the hits on its peak.
  *   morph:        optional: what feeds bus A and bus B goes through a Zynaptiq-style spectral morph
- *                 (SpectralMorph); the result is handed back to the two buses in proportion to X.
- *   -> space (echoes, reverb, width) -> out (the processor adds inflate + limiter)
+ *                 (SpectralMorph); the result is handed back to the two buses in proportion to X. A side with
+ *                 a rope (CargoHold::getMorphSource) morphs that one track instead of its whole bus: the rest
+ *                 of the bus plays on as it is, and with the morph off the roped track plays through its bus.
+ *   master:       optional: one track leads (CargoHold::getMaster). Its loudness, pitch and brightness
+ *                 contours are read where it is playing, for the Followers, and with Follow Master the other
+ *                 tracks' rides swell with its loudness instead of their own LFOs.
+ *   -> ride make-up (the mix is eased down as the ride gets shallower, so Auto Ride off or a held Swell reaches
+ *      the output stage about as loud as the ridden rig) -> space (echoes, reverb, width)
+ *   -> out (the processor adds inflate + limiter)
  *
  * Every continuous control is chased by a damped spring (rubber banding).
  * No allocation, locks or I/O on the audio thread.
@@ -41,7 +59,9 @@ class RigEngine
 public:
     static constexpr int c_tracks = CargoHold::c_numTracks;
     static constexpr int c_maxBuses = CargoHold::c_maxBuses;
-    static constexpr int c_maxFlights = c_maxBuses * 2; // two doppler passes per bus, shown by the visualiser
+    static constexpr int c_throws = 4;                  // thrown whooshes that can be in flight at once
+    static constexpr int c_maxFlights = c_maxBuses * 2 + c_throws; // two doppler passes per bus, then the throws (the visualiser's comets)
+    static constexpr int c_maxKeys = 16;                // held MIDI keys that set pitches
 
     struct BusParams
     {
@@ -51,16 +71,23 @@ public:
         float low = 0.3f, swirl = 0.2f, filter = 0.3f, drive = 0.1f;
         float duck = 0.4f;  // ducked by bus A (ignored on bus A)
         float key = 0.3f;   // low-passed by bus A (ignored on bus A)
+        int passMode = 0;   // 0 Bed (two overlapped passes, a steady level), 1 Fly-By (one pass at a time). Linked: bus A's.
     };
 
     struct Params
     {
         bool rideOn = true;
+        bool followMaster = false; // the rides swell with the Master track's loudness instead of their own LFOs
         float energy = 0.6f;   // how far the auto-ride pulls the faders
         float rate = 0.4f;     // how fast the faders move (and how long a doppler pass is)
         float fill = 0.3f;     // long delays into the gaps
         float chaos = 0.4f;    // randomness of the rides and the passes
         float pitch = 0.0f;    // semitones, every track
+        // Held keys (semitones from middle C, lowest first): each is added to a track's own pitch. One key: every
+        // track. Several: spread over the loaded tracks in order (the first takes the lowest), wrapping round.
+        std::array<float, c_maxKeys> keys {};
+        int numKeys = 0;
+        float throwSeconds = 0.0f; // Throw Length (see ::Params::throwSeconds; under the minimum = follows Rate)
         // Modulator offsets for the knobs that glide on springs, in the knob's own units. They are added after the
         // spring, so a fast modulator isn't smoothed away by the glide meant for turning the knob.
         float energyMod = 0.0f, pitchMod = 0.0f, fillMod = 0.0f, spaceMod = 0.0f;
@@ -112,17 +139,62 @@ public:
     void prepare(double sampleRate, int maxBlockSize);
     void reset();
     void setCargoHold(CargoHold* hold) { m_cargo = hold; }
+    /** The audio has stopped (reset() does this too): the players drop their sample data and tell the hold, so
+        data replaced since is freed without waiting for the engine to run again. Not while process() may run. */
+    void letGoOfCargo();
     void setParams(const Params& p);
-    /** Start every track again from its start marker (audio thread; the processor calls it on Play). */
+    /** Start every track again from its start marker (audio thread; the processor calls it on Play). If the
+        sources are still sounding they fade out first (5 ms), so the restart never cuts a wave short. */
     void restart();
+    /** Stop pressed: the sources fade out over 60 ms and stay silent while the Fill echoes, the passes in flight
+        and Space ring out. Play lets them back in. Audio thread (the processor sets it before each process()). */
+    void setReleased(bool released) { m_released = released; }
+    /** The transport started: fade the output out (5 ms, whether anything sounds or not, so the timing is always
+        the same), then start everything again from the same seed and from empty delays and reverb, so the same
+        settings give the same ride every time. Throws asked for meanwhile start with the new run. Audio thread. */
+    void restartSeeded() { m_reseedPending = true; }
+    /** The seed every run starts from (prepare() and a seeded restart use it): another seed draws other passes,
+        other sounds from each track and other rides from the same settings. Before prepare(), or with a seeded
+        restart after it. */
+    static constexpr std::uint32_t c_defaultSeed = 0x5EA5EAu;
+    void setSeed(std::uint32_t seed) { m_seed = seed != 0 ? seed : c_defaultSeed; }
+    std::uint32_t getSeed() const { return m_seed; }
+    /** A seeded restart has been asked for and the old sound is still fading out. Audio thread. */
+    bool isRestarting() const { return m_reseedPending; }
+    /** Throw one whoosh: a single pass, the same on both buses, that starts delaySamples from the start of the
+        next process() call and peaks half a Throw Length later. velocity 0..1 sets how close and how loud it is;
+        below 0 the pass is as close as the bus would draw it (Doppler and Chaos). With every throw voice in
+        flight it is dropped. Audio thread, before process(). */
+    void throwWhoosh(int delaySamples, float velocity);
+    /** A throw is waiting, in flight, or its sources are still open. Audio thread. */
+    bool isThrowing() const;
     void process(const float* inL, const float* inR, float* outL, float* outR, int numSamples);
     float getLatencySamples() const;
+
+    /** The moments of the last process() call worth a marker in a recording: a doppler pass at its closest (while
+        that bus sounds and the rig plays; a linked bus B flies bus A's passes, so only A's are told), a throw at
+        its peak, and a hit: an aimed or synced hit where its transients land, or the hit gate opening. offset is
+        the sample of that call. Audio thread, after process(). */
+    enum MarkerKind { MarkPassA = 0, MarkPassB, MarkThrow, MarkHit };
+    struct Marker
+    {
+        int offset = 0;
+        int kind = MarkPassA;
+    };
+    int getNumMarkers() const { return m_numMarkers; }
+    const Marker& getMarker(int index) const { return m_markers[static_cast<size_t>(index)]; }
 
     // UI (any thread)
     FlightView getFlightView(int index) const;
     float getEnergy() const { return m_energyView.load(std::memory_order_relaxed); }
     float getRide(int track) const { return m_rideView[static_cast<size_t>(track)].load(std::memory_order_relaxed); }
     float getHitGate() const { return m_gateView.load(std::memory_order_relaxed); }
+    /** Seconds until the last throw's peak is heard (counts down), or < 0 when none is on its way in. */
+    float getThrowPeakIn() const { return m_throwPeakView.load(std::memory_order_relaxed); }
+    /** Goes up by one with every throw that starts. */
+    int getThrowCount() const { return m_throwCountView.load(std::memory_order_relaxed); }
+    /** Each track's pitch from the held keys right now, in semitones (0 with none held). */
+    float getKeyPitch(int track) const { return m_keyPitchView[static_cast<size_t>(track)].load(std::memory_order_relaxed); }
     /** Hit sync, for the track view: which region (CargoPlayer::regionAt index) each synced hit track fired last
         (-1 = none / not synced), and a counter that goes up on every shared beat. */
     /** Published when the beat's transients are heard (not when it is cued, up to 1 s earlier). */
@@ -136,37 +208,78 @@ public:
     float getBusLevel(int bus) const { return m_busView[static_cast<size_t>(bus)].load(std::memory_order_relaxed); }
     /** A track's own VARI speed (1 = as the global Pitch plays it; 1 for VARI off), for the hit sync view. */
     float getTrackSpeed(int track) const { return m_trackSpeedView[static_cast<size_t>(track)].load(std::memory_order_relaxed); }
+    /** The fill echo times of a track, in seconds (tap 0..2). Every track has its own, so layered tracks don't
+        echo on one shared grid. */
+    static float fillTapSeconds(int track, int tap);
+    /** A pass's loudness window over its progress (0..1, 0.5 = closest). shape 0 = Bed: a sine, so two passes half
+        a pass apart add up to a steady level. shape 1 = Fly-By: a long approach, the peak at the closest point and
+        a shorter tail that is gone by the time the next pass is half-way in. In between: a blend (mode changes glide). */
+    static float passWindow(float progress, float shape);
+    /** The gain the mix is eased down by for a ride of this depth (0 = faders still .. 1 = full dips) at this
+        Chaos: 1 from the default ride depth up, lower as the faders move less (they then sit at full level). */
+    static float rideMakeup(float depth, float chaos);
 
     /** Audio thread: RMS of bus A, bus B and the hits (what each adds to the mix) since the last call, for the
         Follower modulators. */
     std::array<float, 3> takeSectionLevels();
+    /** Audio thread, after process(): the Master track where it is playing now: its loudness, pitch and
+        brightness, each 0..1 over the sound's own range (see CargoContours). All 0 with no Master; the loudness
+        is 0 while the rig is stopped. */
+    const std::array<float, 3>& getMasterFollow() const { return m_masterFollow; }
+    /** Any thread: the Master's loudness as the rides follow it (0..1), for the UI. */
+    float getMasterLevel() const { return m_masterView.load(std::memory_order_relaxed); }
+    /** Any thread: the track each side of the morph is listening to right now (-1 = its whole bus). */
+    int getMorphSource(int side) const { return m_ropeView[static_cast<size_t>(side & 1)].load(std::memory_order_relaxed); }
 
 private:
     static constexpr int c_chunk = 32;
 
     struct Head
     {
-        double time = 0.0;
-        float length = 3.0f, mach = 0.2f, closest = 0.02f, dir = 1.0f, closeness = 0.5f;
+        double time = 0.0;     // seconds since the pass started
+        // A pass approaches for lenIn seconds, is closest (and loudest) at lenIn, and recedes for lenOut seconds.
+        // The first head's halves are equal. The second head is kept exactly half a pass from the first, so its
+        // approach is half of one of the first head's passes and its way out is half of the next.
+        float lenIn = 1.5f, lenOut = 1.5f, length = 3.0f;
+        float mach = 0.2f, closest = 0.02f, dir = 1.0f, closeness = 0.5f;
         float machBase = 0.2f; // the pass's speed before Bend (a linked bus applies its own Bend to the shared pass)
+        float machRef = 0.2f;  // that speed within the limits: the swell and the air filter follow it, whatever Bend is
         bool aimed = false;    // AIM has decided about this pass's peak
         sj::OnePole airL, airR;
-        float view = 0.0f, x = 0.0f;
+        sj::OnePole airSL, airSR; // the same air on a stereo bed's side signal, at each ear
+        float view = 0.0f, x = 0.0f, age = 0.0f;
+
+        /** How far through the pass (0..1, 0.5 = closest). */
+        float progress() const
+        {
+            const double u = time < static_cast<double>(lenIn) ? 0.5 * time / static_cast<double>(lenIn)
+                                                               : 0.5 + 0.5 * (time - static_cast<double>(lenIn)) / static_cast<double>(lenOut);
+            return static_cast<float>(u < 0.0 ? 0.0 : (u > 1.0 ? 1.0 : u));
+        }
     };
 
     struct BusState
     {
         sj::DelayLine line;
         std::array<Head, 2> heads;
+        // Throws: the tracks at their fader levels, and one pass per throw voice reading them.
+        sj::DelayLine throwLine;
+        std::array<Head, c_throws> throwHeads;
+        std::array<float, c_chunk> throwIn {};
         // low end
-        sj::Svf lowA, lowB, subA, subB, harm, shelfL, shelfR;
+        sj::Svf lowA, lowB, lowHp, subA, subB, harm, shelfL, shelfR;
         sj::Follower lowFollower;
-        float flip = 1.0f, lastLow = 0.0f;
+        float flip = 1.0f;
+        bool subArmed = false; // the sub octave's trigger: armed below the low band's level, fires above it
         // swirl
         std::array<sj::Allpass1, 6> phL, phR;
         float phFbL = 0, phFbR = 0, lfo = 0;
         sj::DelayLine flL, flR;
         float flFbL = 0, flFbR = 0;
+        // What Swirl reached at the end of the last chunk (everything is ramped from there across the next one),
+        // and its own slower copy of the level-against-peak.
+        bool swirlOn = false;
+        float swPeak = 0.0f, swAL = 0.0f, swAR = 0.0f, swMsL = 0.3f, swMsR = 0.3f, swPhMix = 0.0f, swFlMix = 0.0f, swFb = 0.0f;
         // filter, and Filtered by A (its own low-pass)
         sj::Svf fL, fR, keyL, keyR;
         // level matching (slow mean squares) around Swirl and Drive, and the gains they set
@@ -177,6 +290,8 @@ private:
         sj::OnePole toneL, toneR;
         // level tracking
         float env = 0.0f, peakRef = 1.0e-3f;
+        float passShape = 0.0f; // Pass Mode in use: 0 Bed .. 1 Fly-By (glides, so a change mid-pass doesn't step the level)
+        float prox = 1.0f;      // how near the nearer pass is right now (its window x nearness), smoothed
         std::array<sj::Spring, 9> springs; // doppler width bend low swirl filter drive duck key
         float duck = 0.0f;
         // Ducking state (one for being ducked by the other bus, one for being ducked by the hits).
@@ -188,9 +303,22 @@ private:
         };
         Duck byBus, byHits;
         std::array<float, c_chunk> l {}, r {}, in {};
+        // Stereo beds (bus B): the tracks' side signals, their own delay line for the passes to read, what the
+        // passes made of them this chunk, how many more samples the line still holds sound for, the amount it
+        // was mixed in at the end of the last chunk, and the level match across the colour chain.
+        sj::DelayLine sideLine;
+        std::array<float, c_chunk> sideIn {}, sideL {}, sideR {};
+        int sideHold = 0;
+        float sideAmount = 0.0f;
+        float sidePre = 0.0f, sidePost = 0.0f, sideMatch = 1.0f;
     };
 
-    void startPass(Head& h, const BusParams& p);
+    /** lenIn: how long the approach is, or < 0 to draw a whole new pass length (the first head of a bus). */
+    void startPass(Head& h, const BusParams& p, float lenIn = -1.0f);
+    /** A pass's length before Chaos varies it: follows Rate (6 s .. 1.6 s). */
+    float nominalPassSeconds() const;
+    void startThrows(int frames);
+    void reseedNow();
     void renderTracks(int frames);
     /** How strongly a bus keys the other one: its level against its own recent peak, faded out below -40 dBFS so a
         quiet bus with an old peak can't duck the other. */
@@ -212,30 +340,82 @@ private:
     float m_fs = 48000.0f;
     Params m_params;
     sj::Random m_rng;
+    std::uint32_t m_seed = c_defaultSeed;          // see setSeed
+    std::uint32_t rideSeed(int track) const { return static_cast<std::uint32_t>(4242 + 977 * track) + (m_seed - c_defaultSeed); }
     CargoHold* m_cargo = nullptr;
 
     // Tracks
     std::array<CargoPlayer, c_tracks> m_players;
     std::array<sj::DelayLine, c_tracks> m_fillLines;
+    std::array<std::array<float, 3>, c_tracks> m_fillTaps {}; // each track's echo times, in samples
     std::array<sj::OnePole, c_tracks> m_fillTone;
     std::array<float, c_tracks> m_fillAmount {}, m_coverage {};
     std::array<const CargoData*, c_tracks> m_coverageFor {};
     std::array<double, c_tracks> m_ridePhase {};
     std::array<sj::Drift, c_tracks> m_rideDrift;
     std::array<float, c_tracks> m_gain {};          // gain applied at the end of the previous chunk
+    bool m_released = false;                        // see setReleased
+    bool m_reseedPending = false;                   // see restartSeeded
+    float m_outFade = 1.0f;                         // the output's gain around a seeded restart
+    // Throws. A voice is one thrown pass (its heads are in the buses); the queue holds throws that start later in
+    // the block. The tracks feed the throw lines through their own gain (m_throwGain), open while a voice needs it.
+    struct ThrowVoice
+    {
+        bool active = false, aimed = false;
+        float level = 1.0f;   // from the velocity
+        double gate = 0.0;    // seconds the sources stay open for it
+    };
+    struct QueuedThrow
+    {
+        bool pending = false;
+        int delay = 0;
+        float velocity = -1.0f;
+    };
+    std::array<ThrowVoice, c_throws> m_throws;
+    std::array<QueuedThrow, c_throws> m_throwQueue;
+    std::array<float, c_tracks> m_throwGain {};     // each track's gain into the throw lines at the end of the last chunk
+    float m_throwOpen = 0.0f;                       // 0..1: the throw's sources are open
+    float m_throwDoppler = 0.5f, m_throwWidthLaw = 0.7f; // bus A's Doppler and Width this chunk: a throw is one pass on both buses
+    std::atomic<float> m_throwPeakView { -1.0f };
+    std::atomic<int> m_throwCountView { 0 };
+    std::array<std::atomic<float>, c_tracks> m_keyPitchView {};
+    bool m_restartPending = false;                  // restart() asked: done once the sources are silent
+    void restartNow();
+    float m_releaseGain = 1.0f;                     // 1 = the sources play, 0 = released
     std::array<sj::Spring, c_tracks> m_levelSprings;
     sj::Spring m_swellSpring, m_energySpring, m_pitchSpring, m_fillSpring, m_spaceSpring;
+    // How still the faders are (0 = the ride at full depth .. 1 = not moving): the stiller, the more Low End, Swirl
+    // and Filter go by how near the pass is, not by the level alone.
+    float m_proxBlend = 0.0f;
+    // Ride make-up: the gain on the mix, and the slow copy of Swell it follows (a Swell is a push at first, and
+    // settles to the ridden level if it is held).
+    float m_makeup = 1.0f, m_makeupTarget = 1.0f, m_makeupSwell = 0.0f;
+    float m_makeupDepth = -1.0f, m_makeupChaos = -1.0f; // what m_makeupTarget was worked out for
     std::array<float, c_tracks> m_rideDepth {};
     // The modulator offsets, glided per chunk (the modulators update once per host block; a step would click).
     float m_energyModNow = 0.0f, m_pitchModNow = 0.0f, m_fillModNow = 0.0f, m_spaceModNow = 0.0f;
     std::array<std::array<float, 9>, c_maxBuses> m_busModNow {};
-    float m_modGlide = 0.5f;
     float m_morphMixNow = 0.0f; // how far the morph is in (B isn't ducked or filtered by A while morphing)
-    void glideMods();     // Chaos: how far this cycle of each track's ride dips (redrawn each cycle)
-    std::array<float, c_chunk> m_trackScratch {};
-    SpectralMorph m_morph;
+    // Morph ropes. A roped track is rendered into its side's tap instead of its bus; the morph works on the tap and
+    // what it leaves of the dry sound goes back to the track's bus. A change of rope while the morph is in fades
+    // what the change moves out (15 ms), swaps, and fades it back in.
+    std::array<std::array<float, c_chunk>, 2> m_morphTap {};
+    std::array<int, 2> m_ropeNow { -1, -1 };     // the rope in use on each side
+    std::array<float, 2> m_ropeFade { 1.0f, 1.0f };
+    // What the fade in progress applies to: a bit per track, and c_ropeFadesBus for the rest of the side's bus.
+    static constexpr std::uint32_t c_ropeFadesBus = 1u << 31;
+    std::array<std::uint32_t, 2> m_ropeFading { 0, 0 };
+    std::array<std::atomic<int>, 2> m_ropeView { { { -1 }, { -1 } } };
+    int wantedRope(int side) const;
+    // The Master track (see getMasterFollow), the smoothed loudness the rides follow, and how far Follow Master is in.
+    std::array<float, 3> m_masterFollow {};
+    float m_masterRide = 0.0f, m_followMix = 0.0f;
+    std::atomic<float> m_masterView { 0.0f };
+    void glideMods(int frames);
+    std::array<float, c_chunk> m_trackScratch {}, m_sideScratch {};
+    std::array<float, c_tracks> m_sideGain {};      // each track's side signal into bus B (0..1, fades in and out)
+    MorphInsert m_morph;
     sj::Spring m_morphMix;
-    std::array<float, c_chunk> m_morphA {}, m_morphB {}, m_morphOut {};
 
     // Buses
     std::array<BusState, c_maxBuses> m_buses;
@@ -264,6 +444,18 @@ private:
         (or turning it on) starts from the present, and they fade out instead of stopping dead. */
     void applyTremolo(PeakTremolo& t, float* l, float* r, int frames, bool selected);
 
+    // Markers (see getMarker): those of this process() call, the cued hits still on their way (samples until their
+    // transients land, < 0 = free), and where the chunk being rendered starts in the call.
+    std::array<Marker, 32> m_markers {};
+    int m_numMarkers = 0, m_chunkOffset = 0;
+    std::array<double, 4> m_hitMarks { -1.0, -1.0, -1.0, -1.0 };
+    bool m_hasHitTracks = false;
+    void mark(int kind, int offsetInChunk)
+    {
+        if (m_numMarkers < static_cast<int>(m_markers.size()))
+            m_markers[static_cast<size_t>(m_numMarkers++)] = { m_chunkOffset + offsetInChunk, kind };
+    }
+
     int m_lastHitTiming = -1;            // 0 gate, 1 sync beat, 2 aimed at pass peaks
     double m_aimClock = 0.0;             // samples rendered (for telling aimed peaks apart)
     double m_lastAimTarget = -1.0e12;    // when the last aimed peak lands (m_aimClock samples)
@@ -273,7 +465,10 @@ private:
     std::array<float, c_chunk> m_mixL {}, m_mixR {};
     sj::DelayLine m_echoL, m_echoR;
     sj::OnePole m_echoLpL, m_echoLpR, m_echoHpL, m_echoHpR;
-    juce::Reverb m_reverb;
+    SpaceReverb m_reverb;
+    float m_echoDriftL = 0.0f, m_echoDriftR = 0.5f; // phases (-1..1) of the slow drift of the two echo times
+    float m_spaceDry = 1.0f, m_spaceWet = 0.0f;     // the reverb's dry and wet gains at the end of the last chunk
+    bool m_spaceOn = false; // the echoes and reverb hold sound (cleared once when Space reaches 0)
     sj::DcBlock m_dcL, m_dcR;
     sj::Follower m_mixFollower;
 
@@ -297,7 +492,6 @@ private:
     std::array<float, c_tracks> m_modeGain {};       // that fade, 0..1
     std::array<int, c_tracks> m_modeHold {};         // samples to stay silent after switching to the shifter
     std::array<bool, c_tracks> m_shifterUsed {};     // the shifter holds sound (flushed once when the track empties)
-    float m_trackPitchGlide = 0.1f;                  // per-chunk smoothing coefficient
     std::array<std::atomic<float>, c_tracks> m_trackSpeedView {};
     float trackSpeed(int track) const;               // VARI ratio of a track right now (1 when VARI is off)
     std::array<double, 3> m_sectionSquares {}; // sums for takeSectionLevels()

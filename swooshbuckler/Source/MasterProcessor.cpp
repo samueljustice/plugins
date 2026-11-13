@@ -13,6 +13,12 @@ namespace
     constexpr double c_paramRampSeconds   = 0.012; // effect, curve and ceiling glide this long (short: they can be modulated)
     constexpr double c_limiterFadeSeconds = 0.030; // limiter on/off crossfade
     constexpr double c_dcBlockHz          = 5.0;   // AC coupling of the even part of the curve
+    constexpr double c_pushRampSeconds    = 0.020; // Push glides this long (short: it can be modulated)
+    constexpr double c_sustainAttackSeconds = 0.030; // how quickly the slow stage settles once reduction is lasting
+    constexpr double c_activityUpSeconds    = 0.020; // how the "is this lasting?" measure builds up and falls away
+    constexpr double c_activityDownSeconds  = 0.060;
+    constexpr double c_activityStart        = 0.45;  // the slow stage starts to move here ...
+    constexpr double c_activityFull         = 0.75;  // ... and moves at its full rate from here
 
     // The gain computer aims 2^-20 (~0.00001 dB) under the ceiling, so float
     // rounding in the gain path can never carry a sample over it.
@@ -31,6 +37,58 @@ namespace
     float dbToGain(float db)
     {
         return std::exp(db * 0.115129255f); // ln(10) / 20
+    }
+
+    //==============================================================================
+    // True-peak detector: three points between each pair of samples, each read from c_detectorTaps samples with
+    // a Kaiser-windowed sinc (a 4x polyphase interpolator without the phase that is the samples themselves).
+    // 48 samples per point is longer than a meter needs for music; it is what keeps full-band noise bursts
+    // (hits), whose peaks between the samples are built from many samples either side, within 0.1 dB.
+    static_assert(MasterProcessor::c_detectorTaps % 4 == 0, "the detector sums in fours");
+    constexpr int c_taps = MasterProcessor::c_detectorTaps;
+    constexpr int c_centre = c_taps / 2 - 1; // index in a window of the sample the estimate belongs to
+
+    double besselI0(double x)
+    {
+        double sum = 1.0, term = 1.0;
+        for (int k = 1; k < 40; ++k)
+        {
+            term *= (0.5 * x / k) * (0.5 * x / k);
+            sum += term;
+        }
+        return sum;
+    }
+
+    struct DetectorTable
+    {
+        float phase[3][c_taps];
+
+        DetectorTable()
+        {
+            constexpr double beta = 5.0;
+            const double norm = besselI0(beta);
+            for (int p = 0; p < 3; ++p)
+            {
+                double total = 0.0;
+                double h[c_taps];
+                for (int j = 0; j < c_taps; ++j)
+                {
+                    const double d = static_cast<double>(j - c_centre) - 0.25 * (p + 1); // distance from the point, in samples
+                    const double px = 0.5 * c_twoPi * d;
+                    const double r = d / (0.5 * c_taps);
+                    h[j] = (std::sin(px) / px) * besselI0(beta * std::sqrt(std::max(0.0, 1.0 - r * r))) / norm;
+                    total += h[j];
+                }
+                for (int j = 0; j < c_taps; ++j)
+                    phase[p][j] = static_cast<float>(h[j] / total); // a steady level reads as itself
+            }
+        }
+    };
+
+    const DetectorTable& detectorTable()
+    {
+        static const DetectorTable table;
+        return table;
     }
 
     // Exact comparison on purpose (unchanged host values); std::equal_to keeps -Wfloat-equal quiet.
@@ -222,35 +280,84 @@ double MasterProcessor::BoxFilter::push(double value)
 }
 
 //==============================================================================
+float MasterProcessor::detectPeak(const float* window)
+{
+    const DetectorTable& table = detectorTable();
+
+    // Four running sums per point, so the compiler can keep each point's sum in one vector register.
+    float sumA[4] {}, sumB[4] {}, sumC[4] {};
+
+    for (int j = 0; j < c_taps; j += 4)
+    {
+        for (int k = 0; k < 4; ++k)
+        {
+            const float x = window[j + k];
+            sumA[k] += x * table.phase[0][j + k];
+            sumB[k] += x * table.phase[1][j + k];
+            sumC[k] += x * table.phase[2][j + k];
+        }
+    }
+
+    const float a = (sumA[0] + sumA[1]) + (sumA[2] + sumA[3]);
+    const float b = (sumB[0] + sumB[1]) + (sumB[2] + sumB[3]);
+    const float c = (sumC[0] + sumC[1]) + (sumC[2] + sumC[3]);
+
+    // std::max keeps its first argument when the second is NaN, so the comparisons are ordered to let a NaN
+    // through to the caller (which treats it as a huge peak) instead of hiding it.
+    float peak = std::abs(window[c_centre]);
+    for (const float v : { std::abs(a), std::abs(b), std::abs(c) })
+        peak = v > peak || v != v ? v : peak;
+
+    return peak;
+}
+
+//==============================================================================
 void MasterProcessor::prepare(double sampleRate, int maxChannels)
 {
     m_sampleRate = sampleRate > 0.0 ? sampleRate : 44100.0;
     m_numChannels = std::max(1, maxChannels);
-    m_latency = std::max(1, static_cast<int>(std::lround(c_lookaheadSeconds * m_sampleRate)));
+    m_lookahead = std::max(1, static_cast<int>(std::lround(c_lookaheadSeconds * m_sampleRate)));
+
+    // The detector reports the peak around a sample once it has seen the c_detectorTaps / 2 samples after it,
+    // so the audio waits that much longer than the gain computer's look-ahead.
+    m_latency = m_lookahead + c_taps / 2;
+    detectorTable(); // built here, not on the audio thread
 
     m_channels.assign(static_cast<size_t>(m_numChannels), Channel {});
     for (auto& channel : m_channels)
         channel.delay.assign(static_cast<size_t>(m_latency), 0.0f);
 
-    m_ceilingDelay.assign(static_cast<size_t>(m_latency), 1.0f);
+    m_ceilingDelay.assign(static_cast<size_t>(m_lookahead), 1.0f);
 
     // No-overs guarantee: the gain leaving the smoothing at time n is a weighted average
-    // (positive weights summing to 1) of held gains from n - latency .. n, and each of
-    // those holds the minimum target over a window that contains sample n - latency, the
-    // one being output. So the applied gain is never above what that sample needs.
-    // Two cascaded moving averages (lengths summing to latency + 2, span latency + 1) give
+    // (positive weights summing to 1) of held gains from n - lookahead .. n, and each of
+    // those holds the minimum target over a window that contains the target of the sample
+    // being output (the detector's reading for it, which is never below the sample itself).
+    // So the applied gain is never above what that sample needs.
+    // Two cascaded moving averages (lengths summing to lookahead + 2, span lookahead + 1) give
     // an S-shaped attack instead of a linear ramp with corners.
-    m_minimum.prepare(m_latency + 1);
-    const int boxTotal = m_latency + 2;
+    m_minimum.prepare(m_lookahead + 1);
+    const int boxTotal = m_lookahead + 2;
     m_box1.prepare(boxTotal / 2);
     m_box2.prepare(boxTotal - boxTotal / 2);
 
     m_rampLength = std::max(1, static_cast<int>(std::lround(c_paramRampSeconds * m_sampleRate)));
     m_limiterMixStep = static_cast<float>(1.0 / std::max(1.0, c_limiterFadeSeconds * m_sampleRate));
     m_dcCoeff = static_cast<float>(std::exp(-c_twoPi * c_dcBlockHz / m_sampleRate));
-    m_releaseCoeff = 1.0 - std::exp(-1.0 / (static_cast<double>(m_target.releaseMs) * 0.001 * m_sampleRate));
+    m_pushRampLength = std::max(1, static_cast<int>(std::lround(c_pushRampSeconds * m_sampleRate)));
+    updateReleaseCoefficients();
 
     reset();
+}
+
+void MasterProcessor::updateReleaseCoefficients()
+{
+    auto coeff = [this](double seconds) { return 1.0 - std::exp(-1.0 / (std::max(1.0e-4, seconds) * m_sampleRate)); };
+    m_releaseCoeff = coeff(m_target.releaseMs * 0.001);
+    m_sustainAttackCoeff = coeff(c_sustainAttackSeconds);
+    m_sustainReleaseCoeff = m_target.sustainReleaseMs > 0.0f ? coeff(m_target.sustainReleaseMs * 0.001) : 0.0;
+    m_activityUpCoeff = coeff(c_activityUpSeconds);
+    m_activityDownCoeff = coeff(c_activityDownSeconds);
 }
 
 void MasterProcessor::reset()
@@ -258,10 +365,14 @@ void MasterProcessor::reset()
     for (auto& channel : m_channels)
     {
         std::fill(channel.delay.begin(), channel.delay.end(), 0.0f);
+        std::fill(std::begin(channel.history), std::end(channel.history), 0.0f);
         channel.dcIn = channel.dcOut = 0.0f;
     }
 
     m_delayPosition = 0;
+    m_lookPosition = 0;
+    m_historyPosition = 0;
+    m_push.snap(dbToGain(m_target.pushDb));
 
     m_effect.snap(m_target.inflateEffect);
     m_curve.snap(m_target.inflateCurve);
@@ -275,9 +386,12 @@ void MasterProcessor::reset()
     m_box1.reset();
     m_box2.reset();
     m_releaseGain = 1.0;
+    m_sustainGain = 1.0;
+    m_sustainActivity = 0.0;
 
     m_safetyClampCount = 0;
     m_gainReductionDb.store(0.0f, std::memory_order_relaxed);
+    m_gainReductionHoldDb.store(0.0f, std::memory_order_relaxed);
 
     // The host's first parameters after a reset are the session state, not a change: jump to them.
     m_snapNextParameters = true;
@@ -291,6 +405,8 @@ void MasterProcessor::setParameters(const Parameters& p)
     t.limiterOn = p.limiterOn;
     t.ceilingDb = sanitise(p.ceilingDb, -12.0f, 0.0f);
     t.releaseMs = sanitise(p.releaseMs, 1.0f, 1000.0f);
+    t.sustainReleaseMs = sanitise(p.sustainReleaseMs, 0.0f, 5000.0f);
+    t.pushDb = sanitise(p.pushDb, 0.0f, 24.0f);
 
     if (m_snapNextParameters)
     {
@@ -301,19 +417,25 @@ void MasterProcessor::setParameters(const Parameters& p)
         m_ceilingGain = dbToGain(t.ceilingDb);
         std::fill(m_ceilingDelay.begin(), m_ceilingDelay.end(), m_ceilingGain);
         m_limiterMix = t.limiterOn ? 1.0f : 0.0f;
+        m_push.snap(dbToGain(t.pushDb));
     }
     else
     {
+        if (!exactlyEqual(t.pushDb, m_target.pushDb))
+            m_push.setTarget(dbToGain(t.pushDb), m_pushRampLength);
+
         m_effect.setTarget(t.inflateEffect, m_rampLength);
         m_curve.setTarget(t.inflateCurve, m_rampLength);
         m_ceilingDb.setTarget(t.ceilingDb, m_rampLength);
     }
 
-    // The release rate can change abruptly: the gain itself stays continuous.
-    if (!exactlyEqual(t.releaseMs, m_target.releaseMs))
-        m_releaseCoeff = 1.0 - std::exp(-1.0 / (static_cast<double>(t.releaseMs) * 0.001 * m_sampleRate));
-
+    // The release rates can change abruptly: the gain itself stays continuous.
+    const bool releaseChanged = !exactlyEqual(t.releaseMs, m_target.releaseMs)
+                             || !exactlyEqual(t.sustainReleaseMs, m_target.sustainReleaseMs);
     m_target = t;
+
+    if (releaseChanged)
+        updateReleaseCoefficients();
 }
 
 //==============================================================================
@@ -348,10 +470,23 @@ void MasterProcessor::process(float* const* channels, int numChannels, int numSa
         else
             m_curve.snap(m_curve.target); // inaudible while bypassed, so no need to glide
 
+        // Push: after inflate, into the limiter. At rest on 0 dB the gain is exactly 1.
+        for (int i = 0; i < numFrames; ++i)
+            m_framePush[i] = m_push.next();
+
         std::fill_n(m_framePeak, numFrames, 0.0f);
 
         for (int ch = 0; ch < activeChannels; ++ch)
-            inflate(channels[ch] + offset, m_channels[static_cast<size_t>(ch)], numFrames);
+        {
+            Channel& channel = m_channels[static_cast<size_t>(ch)];
+
+            if (m_inflateActive)
+                inflate(channels[ch] + offset, channel, numFrames);
+
+            pushAndDetect(channels[ch] + offset, channel, numFrames);
+        }
+
+        m_historyPosition = (m_historyPosition + numFrames) % c_taps;
 
         computeGain(numFrames);
 
@@ -361,7 +496,13 @@ void MasterProcessor::process(float* const* channels, int numChannels, int numSa
         m_delayPosition = (m_delayPosition + numFrames) % m_latency;
     }
 
-    m_gainReductionDb.store(20.0f * std::log10(std::max(m_blockMinGain, 1.0e-6f)), std::memory_order_relaxed);
+    const float reductionDb = 20.0f * std::log10(std::max(m_blockMinGain, 1.0e-6f));
+    m_gainReductionDb.store(reductionDb, std::memory_order_relaxed);
+
+    // The meter's hold. Its reader may reset it between this load and store; the worst that does is show one
+    // reduction for one more reading.
+    if (reductionDb < m_gainReductionHoldDb.load(std::memory_order_relaxed))
+        m_gainReductionHoldDb.store(reductionDb, std::memory_order_relaxed);
 }
 
 void MasterProcessor::renderControl(int numFrames)
@@ -387,16 +528,30 @@ void MasterProcessor::renderControl(int numFrames)
     }
 }
 
+void MasterProcessor::pushAndDetect(float* data, Channel& channel, int numFrames)
+{
+    float* const history = channel.history;
+    int position = m_historyPosition;
+
+    for (int i = 0; i < numFrames; ++i)
+    {
+        const float y = data[i] * m_framePush[i];
+        data[i] = y;
+
+        history[position] = y;
+        history[position + c_taps] = y;
+
+        if (++position == c_taps)
+            position = 0;
+
+        // The window now ends at this sample; the reading belongs to the sample c_taps / 2 back.
+        const float peak = detectPeak(history + position);
+        m_framePeak[i] = peak > m_framePeak[i] || peak != peak ? peak : m_framePeak[i];
+    }
+}
+
 void MasterProcessor::inflate(float* data, Channel& channel, int numFrames)
 {
-    if (!m_inflateActive)
-    {
-        for (int i = 0; i < numFrames; ++i)
-            m_framePeak[i] = std::max(m_framePeak[i], std::abs(data[i]));
-
-        return;
-    }
-
     float dcIn = channel.dcIn;
     float dcOut = channel.dcOut;
     const float dcCoeff = m_dcCoeff;
@@ -420,9 +575,7 @@ void MasterProcessor::inflate(float* data, Channel& channel, int numFrames)
         dcIn = even;
         dcOut = evenAc;
 
-        const float y = x + m_frameEffect[i] * (odd + evenAc);
-        data[i] = y;
-        m_framePeak[i] = std::max(m_framePeak[i], std::abs(y));
+        data[i] = x + m_frameEffect[i] * (odd + evenAc);
     }
 
     // Keep the decaying coupling state out of the denormal range (hosts usually set FTZ as well).
@@ -436,7 +589,8 @@ void MasterProcessor::inflate(float* data, Channel& channel, int numFrames)
 void MasterProcessor::computeGain(int numFrames)
 {
     const bool limiterOn = m_target.limiterOn;
-    int position = m_delayPosition;
+    const bool sustainStage = m_sustainReleaseCoeff > 0.0;
+    int position = m_lookPosition;
 
     for (int i = 0; i < numFrames; ++i)
     {
@@ -449,10 +603,10 @@ void MasterProcessor::computeGain(int numFrames)
         const float outgoingCeiling = ceilingSlot;
         ceilingSlot = m_ceilingGain;
 
-        if (++position == m_latency)
+        if (++position == m_lookahead)
             position = 0;
 
-        // --- Target gain for the incoming sample ------------------------------------
+        // --- Target gain for the sample the detector has just finished reading ------------------------------------
         float peak = m_framePeak[i];
         if (!(peak < c_maxDetectPeak))
             peak = c_maxDetectPeak;
@@ -460,9 +614,10 @@ void MasterProcessor::computeGain(int numFrames)
         const float threshold = m_ceilingGain * c_detectionMargin;
         const float target = peak > threshold ? threshold / peak : 1.0f;
 
-        // --- Hold over the look-ahead, instant attack / one-pole release, then smoothing
+        // --- Hold over the look-ahead, instant attack / programme-dependent release, then smoothing
         const float held = m_minimum.push(target);
 
+        // Fast stage: takes every over at once and lets go quickly, so a short over (a hit) leaves no hole.
         double released = m_releaseGain;
         if (held <= released)
         {
@@ -475,6 +630,36 @@ void MasterProcessor::computeGain(int numFrames)
                 released = held; // land exactly, so unity gain is exactly 1
         }
         m_releaseGain = released;
+
+        // Slow stage: drifts down to reduction that lasts and lets go slowly, so sustained loud material is
+        // held at a steady gain instead of being let go and caught again on every cycle. It only ever takes
+        // the gain lower than the fast stage would, so the no-overs argument is unchanged.
+        if (sustainStage)
+        {
+            // "Lasting" is judged by how much of the recent past needed any reduction at all: the activity
+            // rises while there is some and falls away without it. Until it has built up, the slow stage does
+            // not move, so one short over leaves nothing behind for it to let go of slowly.
+            const bool reducing = held < 1.0f;
+            m_sustainActivity += (reducing ? m_activityUpCoeff : m_activityDownCoeff) * ((reducing ? 1.0 : 0.0) - m_sustainActivity);
+            if (m_sustainActivity < 1.0e-9)
+                m_sustainActivity = 0.0; // rest exactly, out of the denormal range
+
+            const double engaged = std::clamp((m_sustainActivity - c_activityStart) / (c_activityFull - c_activityStart), 0.0, 1.0);
+
+            double sustained = m_sustainGain;
+            sustained += (held < sustained ? engaged * m_sustainAttackCoeff : m_sustainReleaseCoeff) * (held - sustained);
+            if (std::abs(held - sustained) < 1.0e-9)
+                sustained = held;
+            m_sustainGain = sustained;
+
+            if (sustained < released)
+                released = sustained;
+        }
+        else
+        {
+            m_sustainGain = 1.0;
+            m_sustainActivity = 0.0;
+        }
 
         const float gain = static_cast<float>(m_box2.push(m_box1.push(released)));
 
@@ -492,6 +677,8 @@ void MasterProcessor::computeGain(int numFrames)
         m_frameClamp[i] = m_limiterMix >= 1.0f ? outgoingCeiling : c_noClamp;
         m_blockMinGain = std::min(m_blockMinGain, applied);
     }
+
+    m_lookPosition = position;
 }
 
 void MasterProcessor::applyGain(float* data, Channel& channel, int numFrames, int delayPosition)

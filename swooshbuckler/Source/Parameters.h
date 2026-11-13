@@ -21,6 +21,7 @@ namespace ParamIDs
 
     // Ride (the faders move by themselves)
     inline constexpr const char* rideOn   = "rideOn";
+    inline constexpr const char* rideFollowMaster = "rideFollowMaster"; // the rides follow the Master track's loudness
     inline constexpr const char* energy   = "energy";
     inline constexpr const char* rate     = "rate";
     inline constexpr const char* fill     = "fill";
@@ -35,6 +36,13 @@ namespace ParamIDs
         { "bDoppler", "bWidth", "bBend", "bLow", "bSwirl", "bFilter", "bDrive", "bDuck", "bKey" },
     };
     inline constexpr const char* busNames[numBuses] = { "A", "B" };
+    // Pass Mode: Bed (two overlapped passes, a steady level) / Fly-By (one pass at a time). Linked: B uses A's.
+    inline constexpr const char* passMode[numBuses] = { "aPassMode", "bPassMode" };
+
+    // Perform: throw one whoosh on demand, the transport, and what MIDI keys do
+    inline constexpr const char* throwLength = "throwLength"; // seconds; under Params::throwMinSeconds = follows Rate
+    inline constexpr const char* play        = "play";        // the transport, for host automation
+    inline constexpr const char* keysMode    = "keysMode";    // Swell / Pitch / Throw
 
     // Hits
     inline constexpr const char* hitSense   = "hitSense";
@@ -102,6 +110,14 @@ namespace Params
     {
         const float s = 1.0f / rideHz(rate);
         return (s < 10.0f ? juce::String(s, 1) : juce::String(juce::roundToInt(s))) + " s";
+    }
+    /** A doppler pass's length before Chaos varies it: follows Rate (6 s .. 1.6 s). */
+    inline float passSeconds(float rate) { return 6.0f * std::pow(1.6f / 6.0f, std::clamp(rate, 0.0f, 1.0f)); }
+    /** Throw Length: the whole thrown pass, 0.3 .. 6 s. Settings under the minimum mean "as long as Rate's passes". */
+    inline constexpr float throwMinSeconds = 0.3f, throwMaxSeconds = 6.0f;
+    inline float throwSeconds(float setting, float rate)
+    {
+        return setting < throwMinSeconds ? passSeconds(rate) : std::min(setting, throwMaxSeconds);
     }
     inline float hitFloorDb(float k) { return -28.0f + 25.0f * std::pow(std::clamp(k, 0.0f, 1.0f), 0.6f); }
     inline float hitDuckDb(float k) { return 12.0f * std::clamp(k, 0.0f, 1.0f); }
@@ -212,7 +228,7 @@ namespace Params
         layout.add(std::make_unique<AudioParameterBool>(ParameterID { ParamIDs::morphWander, 2 }, "Morph Wander", false));
         layout.add(pct(ParamIDs::morphSpeed, "Morph Speed", 0.5f));
         layout.add(std::make_unique<AudioParameterChoice>(ParameterID { ParamIDs::morphShape, 2 }, "Morph Shape",
-                                                          StringArray { "Lorenz", "Sweet Justice", "Figure Eight", "Rose", "Circle" }, 0));
+                                                          StringArray { "Lorenz", "Cherries", "Figure Eight", "Rose", "Circle", "Butterfly" }, 0));
 
         layout.add(pct(ParamIDs::space, "Space", 0.3f));
         layout.add(pct(ParamIDs::inflate, "Inflate", 0.3f));
@@ -256,8 +272,27 @@ namespace Params
                                                               StringArray { "Sine", "Triangle", "Ramp", "Square", "Steps" }, defaultShapes[m]));
             layout.add(pct(ParamIDs::modKnob[m], name + " Rate / Amount", defaultKnobs[m]));
             layout.add(std::make_unique<AudioParameterChoice>(ParameterID { ParamIDs::modFollow[m], 2 }, name + " Follows",
-                                                              StringArray { "Bus A", "Bus B", "Hits", "Output" }, 0));
+                                                              StringArray { "Bus A", "Bus B", "Hits", "Output", "Master", "Master Pitch", "Master Brightness" }, 0));
         }
+
+        // Added later: kept at the end, so every parameter before them keeps its place in the host's list.
+        for (int b = 0; b < ParamIDs::numBuses; ++b)
+            layout.add(std::make_unique<AudioParameterChoice>(ParameterID { ParamIDs::passMode[b], 4 }, String("Bus ") + ParamIDs::busNames[b] + " Pass Mode",
+                                                              StringArray { "Bed", "Fly-By" }, 0));
+        // Throw Length: the bottom of the travel is "Rate" (a throw is as long as Rate's passes), then 0.3 .. 6 s.
+        layout.add(std::make_unique<P>(ParameterID { ParamIDs::throwLength, 4 }, "Throw Length",
+                                       NormalisableRange<float>(0.0f, throwMaxSeconds, 0.0f, 0.6f), 0.0f,
+                                       AudioParameterFloatAttributes().withLabel("s")
+                                           .withStringFromValueFunction([](float v, int) { return v < throwMinSeconds ? String("Rate") : String(v, v < 1.0f ? 2 : 1) + " s"; })
+                                           .withValueFromStringFunction([](const String& t)
+                                           {
+                                               const float v = t.retainCharacters(".0123456789").getFloatValue();
+                                               return v < throwMinSeconds ? 0.0f : v;
+                                           })));
+        layout.add(std::make_unique<AudioParameterBool>(ParameterID { ParamIDs::play, 4 }, "Play", false));
+        layout.add(std::make_unique<AudioParameterChoice>(ParameterID { ParamIDs::keysMode, 4 }, "Keys",
+                                                          StringArray { "Swell", "Pitch", "Throw" }, 0));
+        layout.add(std::make_unique<AudioParameterBool>(ParameterID { ParamIDs::rideFollowMaster, 4 }, "Follow Master", false));
         return layout;
     }
 }

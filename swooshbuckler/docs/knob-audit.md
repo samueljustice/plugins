@@ -93,6 +93,5 @@ Each knob was swept in its default setting and in variations: other sources, oth
 These were noted and left for later:
 
 - Playing bright material fast (Pitch up, or VARI on with Semitones up) aliases, because the varispeed read has no anti-alias filter. It darkens beds above about +6 semitones.
-- With Auto Ride off or Swell held, the rig runs hot into the limiter (about 8 dB of gain reduction at Push 0). That is gain staging upstream of Output.
 - Doppler and Bend set each pass's speed when the pass starts, so a modulator on them changes the bend from the next pass on.
 - The morph pad's wander runs in the editor, so it stops while the window is closed.

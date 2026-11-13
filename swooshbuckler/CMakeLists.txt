@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.21)
 
 # The one place the version lives. Release builds pass -DSWOOSHBUCKLER_VERSION=x.y.z (from the
 # swooshbuckler-vx.y.z tag); it ends up in the About panel, the bundles, the installers and the app.
-set(SWOOSHBUCKLER_VERSION "1.4.2" CACHE STRING "Swooshbuckler version (major.minor.patch)")
+set(SWOOSHBUCKLER_VERSION "2.0.0" CACHE STRING "Swooshbuckler version (major.minor.patch)")
 project(Swooshbuckler VERSION ${SWOOSHBUCKLER_VERSION})
 
 set(CMAKE_CXX_STANDARD 20)
@@ -78,6 +78,7 @@ set(SWOOSHBUCKLER_DSP_SOURCES
     Source/SpectralMorph.cpp
     Source/Modulators.cpp
     Source/PitchShifter.cpp
+    Source/SpaceReverb.cpp
 )
 
 target_sources(Swooshbuckler
@@ -85,13 +86,21 @@ target_sources(Swooshbuckler
     ${SWOOSHBUCKLER_DSP_SOURCES}
     Source/PluginProcessor.cpp
     Source/PluginEditor.cpp
+    Source/Shortcuts.cpp
     Source/LookAndFeel.cpp
     Source/SeaVisualiser.cpp
     Source/CargoHoldView.cpp
     Source/MorphPad.cpp
+    Source/MorphWander.cpp
     Source/LogoOutline.cpp
     Source/ModPanel.cpp
     Source/UpdatePopup.cpp
+    Source/TakeAudition.cpp
+    Source/TakesView.cpp
+    Source/VariationRenderer.cpp
+    Source/VariationsView.cpp
+    Source/UserPresets.cpp
+    Source/DemoSounds.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/../common/SammyJUpdateCheck.cpp
 )
 
@@ -117,6 +126,7 @@ juce_add_binary_data(SwooshbucklerBinaryData
     Resources/Fonts/IBMPlexSansCondensed-Medium.ttf
     Resources/Fonts/IBMPlexSansCondensed-SemiBold.ttf
     Resources/sj-logo.svg
+    THIRD-PARTY-NOTICES.md   # shown by Licences in About
 )
 
 juce_generate_juce_header(Swooshbuckler)
@@ -125,7 +135,6 @@ target_link_libraries(Swooshbuckler
     PRIVATE
     juce::juce_audio_utils
     juce::juce_dsp
-    juce::juce_opengl
     SwooshbucklerBinaryData
     PUBLIC
     juce::juce_recommended_config_flags
@@ -174,6 +183,76 @@ if(SWOOSHBUCKLER_TESTS)
     target_link_libraries(SwooshbucklerPitch
         PRIVATE juce::juce_dsp juce::juce_audio_formats
         PUBLIC juce::juce_recommended_config_flags juce::juce_recommended_warning_flags)
+
+    # Morph test: the spectral morph (level across X, the level law, Glide's partials and attacks) and the way
+    # it is switched in between the buses (aligned fades, nothing old left inside), plus its speed.
+    juce_add_console_app(SwooshbucklerMorph PRODUCT_NAME "SwooshbucklerMorph")
+    juce_generate_juce_header(SwooshbucklerMorph)
+    target_sources(SwooshbucklerMorph PRIVATE Tests/MorphTest.cpp Source/SpectralMorph.cpp)
+    target_include_directories(SwooshbucklerMorph PRIVATE Source)
+    target_compile_definitions(SwooshbucklerMorph PRIVATE JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0)
+    target_link_libraries(SwooshbucklerMorph
+        PRIVATE juce::juce_dsp
+        PUBLIC juce::juce_recommended_config_flags juce::juce_recommended_warning_flags)
+
+    # Master test: the output stage (Inflate, Push, the true-peak limiter and its release, the gain reduction
+    # hold) and the downsampler of the monitor path. Plain C++: neither class uses JUCE.
+    add_executable(SwooshbucklerMaster Tests/MasterTest.cpp Source/MasterProcessor.cpp)
+    target_include_directories(SwooshbucklerMaster PRIVATE Source)
+    target_compile_features(SwooshbucklerMaster PRIVATE cxx_std_20)
+    set_target_properties(SwooshbucklerMaster PROPERTIES
+        RUNTIME_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/SwooshbucklerMaster_artefacts/$<CONFIG>")
+
+    # Session test: the whole plug-in offline. Stop lets the tail ring out into the output and the tape, Skip
+    # Silence on the real rig, LAST 60s in the chosen format, the settings, and the app's session autosave.
+    juce_add_console_app(SwooshbucklerSession PRODUCT_NAME "SwooshbucklerSession")
+    target_sources(SwooshbucklerSession PRIVATE Tests/SessionTest.cpp)
+    target_include_directories(SwooshbucklerSession PRIVATE Source ${CMAKE_CURRENT_BINARY_DIR}/Swooshbuckler_artefacts/JuceLibraryCode $<TARGET_PROPERTY:Swooshbuckler,INCLUDE_DIRECTORIES>)
+    target_compile_definitions(SwooshbucklerSession PRIVATE $<TARGET_PROPERTY:Swooshbuckler,COMPILE_DEFINITIONS>)
+    target_link_libraries(SwooshbucklerSession PRIVATE Swooshbuckler)
+
+    # Keep test: keeping work through the whole plug-in. Presets and Randomise (unlisted knobs stay), the section
+    # dice and locks, the roll history, undo and its grouping, user preset files, A/B and session files.
+    juce_add_console_app(SwooshbucklerKeep PRODUCT_NAME "SwooshbucklerKeep")
+    target_sources(SwooshbucklerKeep PRIVATE Tests/KeepTest.cpp)
+    target_include_directories(SwooshbucklerKeep PRIVATE Source ${CMAKE_CURRENT_BINARY_DIR}/Swooshbuckler_artefacts/JuceLibraryCode $<TARGET_PROPERTY:Swooshbuckler,INCLUDE_DIRECTORIES>)
+    target_compile_definitions(SwooshbucklerKeep PRIVATE $<TARGET_PROPERTY:Swooshbuckler,COMPILE_DEFINITIONS>)
+    target_link_libraries(SwooshbucklerKeep PRIVATE Swooshbuckler)
+
+    # Render test: Render Variations through the whole plug-in. A batch's files (names, lengths, peaks, each one
+    # different), cancelling, the same batch seed giving the same files, and how fast a batch renders.
+    juce_add_console_app(SwooshbucklerRender PRODUCT_NAME "SwooshbucklerRender")
+    target_sources(SwooshbucklerRender PRIVATE Tests/RenderTest.cpp)
+    target_include_directories(SwooshbucklerRender PRIVATE Source ${CMAKE_CURRENT_BINARY_DIR}/Swooshbuckler_artefacts/JuceLibraryCode $<TARGET_PROPERTY:Swooshbuckler,INCLUDE_DIRECTORIES>)
+    target_compile_definitions(SwooshbucklerRender PRIVATE $<TARGET_PROPERTY:Swooshbuckler,COMPILE_DEFINITIONS>)
+    target_link_libraries(SwooshbucklerRender PRIVATE Swooshbuckler)
+
+    # Routing test: the Master track (contours, the Master followers, Follow Master, Match Pitch To Master), a
+    # track's bus chosen by hand, and the morph's ropes, through the real engine and the whole plug-in.
+    juce_add_console_app(SwooshbucklerRouting PRODUCT_NAME "SwooshbucklerRouting")
+    target_sources(SwooshbucklerRouting PRIVATE Tests/RoutingTest.cpp)
+    target_include_directories(SwooshbucklerRouting PRIVATE Source ${CMAKE_CURRENT_BINARY_DIR}/Swooshbuckler_artefacts/JuceLibraryCode $<TARGET_PROPERTY:Swooshbuckler,INCLUDE_DIRECTORIES>)
+    target_compile_definitions(SwooshbucklerRouting PRIVATE $<TARGET_PROPERTY:Swooshbuckler,COMPILE_DEFINITIONS>)
+    target_link_libraries(SwooshbucklerRouting PRIVATE Swooshbuckler)
+
+    # First-run test: the demo sounds (typed right from their audio, one undo step, Play makes sound), typed
+    # values against every knob's readout, MIDI controllers learned and kept, and file names cut in the middle.
+    juce_add_console_app(SwooshbucklerFirstRun PRODUCT_NAME "SwooshbucklerFirstRun")
+    target_sources(SwooshbucklerFirstRun PRIVATE Tests/FirstRunTest.cpp)
+    target_include_directories(SwooshbucklerFirstRun PRIVATE Source ${CMAKE_CURRENT_BINARY_DIR}/Swooshbuckler_artefacts/JuceLibraryCode $<TARGET_PROPERTY:Swooshbuckler,INCLUDE_DIRECTORIES>)
+    target_compile_definitions(SwooshbucklerFirstRun PRIVATE $<TARGET_PROPERTY:Swooshbuckler,COMPILE_DEFINITIONS>)
+    target_link_libraries(SwooshbucklerFirstRun PRIVATE Swooshbuckler)
+
+    # UI test: the design tokens (contrast, the modulators' colours), the fitted text helper, the one rule for
+    # capitals (every parameter name and choice, every tooltip heading), and the real editor drawn offline at
+    # three window scales and in each of its states, with every text checked: it fits its box, is big enough,
+    # sits on no other text and follows the rule. The checker is tools/UiProbe.h, shared with SwooshbucklerUiShot.
+    juce_add_console_app(SwooshbucklerUi PRODUCT_NAME "SwooshbucklerUi")
+    target_sources(SwooshbucklerUi PRIVATE Tests/UiTest.cpp)
+    target_include_directories(SwooshbucklerUi PRIVATE Source tools ${CMAKE_CURRENT_SOURCE_DIR}/../common ${CMAKE_CURRENT_BINARY_DIR}/Swooshbuckler_artefacts/JuceLibraryCode $<TARGET_PROPERTY:Swooshbuckler,INCLUDE_DIRECTORIES>)
+    target_compile_definitions(SwooshbucklerUi PRIVATE $<TARGET_PROPERTY:Swooshbuckler,COMPILE_DEFINITIONS>
+        SWOOSH_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/Source") # the hard-edge check reads the sources
+    target_link_libraries(SwooshbucklerUi PRIVATE Swooshbuckler)
 endif()
 
 # Artwork tools (off by default): renders Resources/icon.png. See tools/IconRender.cpp.
@@ -193,4 +272,13 @@ if(SWOOSHBUCKLER_TOOLS)
     target_include_directories(SwooshbucklerAudit PRIVATE Source ${CMAKE_CURRENT_BINARY_DIR}/Swooshbuckler_artefacts/JuceLibraryCode $<TARGET_PROPERTY:Swooshbuckler,INCLUDE_DIRECTORIES>)
     target_compile_definitions(SwooshbucklerAudit PRIVATE $<TARGET_PROPERTY:Swooshbuckler,COMPILE_DEFINITIONS>)
     target_link_libraries(SwooshbucklerAudit PRIVATE Swooshbuckler)
+
+    # UI shots: renders the real editor offline to PNG files at any window scale, one picture per panel and per
+    # state, and checks that every text fits its box and is capitalised by the one rule (tools/UiShot.cpp,
+    # tools/UiProbe.h). Exits non-zero when a text does not fit.
+    juce_add_console_app(SwooshbucklerUiShot PRODUCT_NAME "SwooshbucklerUiShot")
+    target_sources(SwooshbucklerUiShot PRIVATE tools/UiShot.cpp)
+    target_include_directories(SwooshbucklerUiShot PRIVATE Source tools ${CMAKE_CURRENT_SOURCE_DIR}/../common ${CMAKE_CURRENT_BINARY_DIR}/Swooshbuckler_artefacts/JuceLibraryCode $<TARGET_PROPERTY:Swooshbuckler,INCLUDE_DIRECTORIES>)
+    target_compile_definitions(SwooshbucklerUiShot PRIVATE $<TARGET_PROPERTY:Swooshbuckler,COMPILE_DEFINITIONS>)
+    target_link_libraries(SwooshbucklerUiShot PRIVATE Swooshbuckler)
 endif()

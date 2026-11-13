@@ -1,16 +1,35 @@
 #pragma once
 
 #include <JuceHeader.h>
+#include "Icons.h"
 #include "Theme.h"
 
 /**
- * Sweet Justice house style with a bit of salt: brass ship's-wheel knobs,
- * rope dividers, riveted panels, on a deep Caribbean sea palette.
+ * How every stock control is drawn, from the tokens and the vocabulary in Theme.h. One look for each kind of thing:
+ *
+ *   button   a control plate: iron, square corners, a dark edge and a lip under it, its label stamped in. Hovered it
+ *            lightens; switched on, the whole plate is brass (or its section's colour) with dark lettering. A
+ *            button that switches something has a small square lamp slot at its left, open when off and filled
+ *            when on. Primary (Play) is the one brass key. An icon can sit left of the text (Icons::set).
+ *   chip     a small tag with no lip: a state, never an action. Dark and quiet when off, in its colour when on.
+ *   menu     a control plate with a drawn chevron at its right; a button that opens a menu gets the same chevron.
+ *   switch   a two-state choice: a slot with a block that slides to the right, in its colour, when on.
+ *   fader    a slot with a sand block cap.
+ *
+ * And three looks for a control that is not simply usable (Theme::Look): Disabled is drained and flat, Resting
+ * is drawn hollow with a dashed edge (usable, waiting for something else to be on), Linked shows a chain link.
  */
 class SwooshLookAndFeel : public juce::LookAndFeel_V4
 {
 public:
     explicit SwooshLookAndFeel(const Theme::Fonts& fonts);
+
+    /** How a text button is drawn (see above). Menu is a button that opens a menu. */
+    enum class ButtonStyle { Button = 0, Primary, Chip, Menu };
+    static void setStyle(juce::Button& b, ButtonStyle style) { b.getProperties().set("style", static_cast<int>(style)); }
+    static ButtonStyle getStyle(const juce::Button& b) { return static_cast<ButtonStyle>(static_cast<int>(b.getProperties().getWithDefault("style", 0))); }
+    /** A button whose text is a name of the user's (a preset): it may be cut in the middle to fit. */
+    static void setShowsName(juce::Button& b) { b.getProperties().set("name", true); }
 
     void drawLinearSlider(juce::Graphics&, int x, int y, int width, int height, float sliderPos, float minSliderPos,
                           float maxSliderPos, juce::Slider::SliderStyle, juce::Slider&) override;
@@ -29,21 +48,56 @@ public:
     void positionComboBoxText(juce::ComboBox&, juce::Label&) override;
     juce::Font getPopupMenuFont() override;
     juce::Font getLabelFont(juce::Label&) override;
+    void drawLabel(juce::Graphics&, juce::Label&) override;
     void drawPopupMenuBackground(juce::Graphics&, int width, int height) override;
+    int getPopupMenuBorderSize() override { return 6; }
+    void drawPopupMenuUpDownArrow(juce::Graphics&, int width, int height, bool isScrollUpArrow) override;
     void drawPopupMenuSectionHeader(juce::Graphics&, const juce::Rectangle<int>& area, const juce::String& sectionName) override;
     void drawPopupMenuItem(juce::Graphics&, const juce::Rectangle<int>& area, bool isSeparator, bool isActive, bool isHighlighted,
                            bool isTicked, bool hasSubMenu, const juce::String& text, const juce::String& shortcutKeyText,
                            const juce::Drawable* icon, const juce::Colour* textColour) override;
     void getIdealPopupMenuItemSize(const juce::String& text, bool isSeparator, int standardMenuItemHeight, int& idealWidth, int& idealHeight) override;
+    void drawScrollbar(juce::Graphics&, juce::ScrollBar&, int x, int y, int width, int height, bool isScrollbarVertical,
+                       int thumbStartPosition, int thumbSize, bool isMouseOver, bool isMouseDown) override;
+    void drawCornerResizer(juce::Graphics&, int w, int h, bool isMouseOver, bool isMouseDragging) override;
+    juce::Font getAlertWindowTitleFont() override { return m_fonts.title(); }
+    juce::Font getAlertWindowMessageFont() override { return m_fonts.body(); }
+    juce::Font getAlertWindowFont() override { return m_fonts.control(); }
+    void fillTextEditorBackground(juce::Graphics&, int width, int height, juce::TextEditor&) override;
+    void drawTextEditorOutline(juce::Graphics&, int width, int height, juce::TextEditor&) override;
 
     void drawTooltip(juce::Graphics&, const juce::String& text, int width, int height) override;
     juce::Rectangle<int> getTooltipBounds(const juce::String& tipText, juce::Point<int> screenPos, juce::Rectangle<int> parentArea) override;
+    /** The small window that asks for a name: a bolted plate (square: its window cannot be see-through). */
+    void drawAlertBox(juce::Graphics&, juce::AlertWindow&, const juce::Rectangle<int>& textArea, juce::TextLayout&) override;
 
-    /** A panel with a title plate, rivets and a rope rule under the title. */
+    /** A plate bolted to what is under it: a short hard shadow, the flat fill, square corners and the pressed edge.
+        Costs a handful of fills, and nothing at all when the area is outside what is being repainted. */
+    static void drawSurface(juce::Graphics&, juce::Rectangle<float> area, float cut = Theme::Cut::panel,
+                            juce::Colour fill = Theme::Colours::panel, float elevation = 1.0f);
+    /** A window cut into a plate (a scope, a meter, a text box): the well colour, a shadow under its top edge and
+        a light line along its bottom. */
+    static void drawWell(juce::Graphics&, juce::Rectangle<float> area, float cut = Theme::Cut::control);
+    /** A slotted bolt in each corner of a plate. */
+    static void drawBolts(juce::Graphics&, juce::Rectangle<float> area, float inset = Theme::Plate::boltInset);
+    /** The plate of a control (a button, a menu) in its state: see the vocabulary in Theme.h. */
+    static void drawControlPlate(juce::Graphics&, juce::Rectangle<float> area, juce::Colour accent, Theme::Look look, bool on,
+                                 bool over, bool down, bool focused = false, float cut = Theme::Cut::control);
+    /** The face of a control plate inside its bounds: above its lip, or down on it when pressed. */
+    static juce::Rectangle<float> plateFace(juce::Rectangle<float> area, bool down);
+    /** A panel: a bolted plate with its nameplate (a tally with the section's mark, then the title) and a one-line
+        subtitle in the title bar. The subtitle is kept left of subtitleRight (0 = the panel's own edge). */
     static void drawPanel(juce::Graphics&, juce::Rectangle<float> area, const juce::String& title,
-                          const juce::String& subtitle, juce::Colour accent, const Theme::Fonts& fonts);
-    /** A twisted-rope line between two points. */
+                          const juce::String& subtitle, juce::Colour accent, const Theme::Fonts& fonts,
+                          Icons::Icon mark = Icons::Icon::None, float subtitleRight = 0.0f);
+    /** Where a panel's title starts, and where its nameplate ends, from the panel's left edge (for laying things
+        out after it). */
+    static constexpr int c_titleX = 50, c_plateTail = 13;
+    static int titleEnd(const Theme::Fonts& fonts, const juce::String& title);
+    /** A twisted rope between two points: two strands, thick enough to read as rope. Under the header only. */
     static void drawRope(juce::Graphics&, juce::Point<float> a, juce::Point<float> b, juce::Colour colour);
+    /** A thin quiet rule (menu separators, dividers inside a panel). */
+    static void drawRule(juce::Graphics&, juce::Point<float> a, juce::Point<float> b);
     /** Two crossed cutlasses (the Swooshbuckler mark). */
     static void drawCutlasses(juce::Graphics&, juce::Rectangle<float> area, juce::Colour blade, juce::Colour hilt);
 
@@ -53,12 +107,63 @@ private:
 
 //==============================================================================
 /**
+ * A slider you can type a value into. A right-click (or an Alt-double-click) opens a small box over the control
+ * showing its value; type a new one in the control's own units ("-12 dB", "4.2 s", "35%", or just the number),
+ * Return keeps it and Esc (or clicking away) leaves the control as it was. A plain double-click still resets.
+ * The typed value is one undo step, like a drag.
+ *
+ * The owner says which parameter the control is attached to (setTypedParameter); what is typed is matched against
+ * that parameter's own readout (see TypedValue), so every law works without a formula of its own.
+ * A control with a menu of its own (onContextMenu) shows that on a right-click, and offers typing in it.
+ */
+class ValueSlider : public juce::Slider
+{
+public:
+    ValueSlider();
+    ~ValueSlider() override;
+
+    void setTypedParameter(juce::RangedAudioParameter* parameter, const Theme::Fonts& fonts);
+    juce::RangedAudioParameter* getTypedParameter() const { return m_typedParameter; }
+    /** Opens the box (nothing happens without a parameter). */
+    void beginTyping();
+    bool isTyping() const;
+    /** Called just before a typed value is set (a glide towards a preset is stopped here). */
+    std::function<void()> onTypedValue;
+    /** A right-click opens this instead of the box. */
+    std::function<void()> onContextMenu;
+
+    void mouseDown(const juce::MouseEvent&) override;
+    void mouseDrag(const juce::MouseEvent&) override;
+    void mouseUp(const juce::MouseEvent&) override;
+    void mouseDoubleClick(const juce::MouseEvent&) override;
+    void resized() override;
+    void moved() override;
+
+    /** The narrowest the box may be: a control narrower than this (a vertical fader) gets a box wider than itself. */
+    int minTypingWidth = 0;
+
+protected:
+    /** Where the box sits, in this control's coordinates: over the control (across the middle of a tall one)
+        unless a subclass says otherwise. */
+    virtual juce::Rectangle<int> typingBounds() const;
+
+private:
+    void placeTyping();
+    void endTyping(bool keep, bool takeKeysBack);
+    juce::RangedAudioParameter* m_typedParameter = nullptr;
+    const Theme::Fonts* m_typedFonts = nullptr;
+    std::unique_ptr<juce::TextEditor> m_typing;
+    bool m_swallowMouse = false; // this click opened the box or a menu: the slider never sees it
+};
+
+//==============================================================================
+/**
  * A control a modulator wire can land on: the knobs, and each track's Semitones box. The wire overlay (ModWires)
  * draws the cables and the plugs; the control shows each wire's reach (an arc, dashed when the depth is negative)
  * and where the modulation has it now, and a Cmd-drag on it (Ctrl on Windows) sets its newest wire's depth, up or
  * down through zero, without hunting for the plug.
  */
-class ModTarget : public juce::Slider
+class ModTarget : public ValueSlider
 {
 public:
     /** One wire: its colour, its depth (-1..1, normalised) and whether it swings both ways. */
@@ -88,12 +193,15 @@ public:
         const float a = juce::degreesToRadians(38.0f + 24.0f * static_cast<float>(index));
         return getDialCentre() + juce::Point<float>(std::sin(a), -std::cos(a)) * (getDialRadius() + 5.0f);
     }
+    /** Where a cable turns in towards its plug, in this control's coordinates: it comes up to this point and
+        curves in from there, so it stays off the control's own caption and value. False: straight to the plug. */
+    virtual bool getCableGate(int index, juce::Point<float>& gate) const { juce::ignoreUnused(index, gate); return false; }
     /** A wire is being dragged over this control. */
     void setWireHover(juce::Colour c) { m_wireHover = c; repaint(); }
     /** Can a wire land on (and a plug be shown at) this control now: showing, enabled, not scrolled out of view. */
-    virtual bool isReachable() const { return isShowing() && isEnabled(); }
+    virtual bool isReachable() const { return Theme::isShownInWindow(*this) && isEnabled(); }
 
-    /** Its name, as wires describe it ("MOD 1 -> Doppler"); a knob also draws it under the dial. */
+    /** Its name, as wires describe it ("Mod 1 -> Doppler"); a knob also draws it under the dial. */
     juce::String caption;
 
     /** Cmd-drag (Ctrl on Windows) on a modulated control: phase 0 = start, 1 = drag, 2 = end, 3 = Cmd-double-click
@@ -114,30 +222,87 @@ protected:
 };
 
 /**
- * Rotary knob drawn as a brass ship's wheel. The wheel chases the real value
- * on a damped spring, so every move (and every preset morph) swings in with a
- * little rubber-band overshoot.
+ * The knob: a chunky flat ship's wheel with six spokes, one of them the sand pointer, inside a ring that fills
+ * with its value in the section's colour. Under it, always, its caption and its value in its own units.
+ *
+ * There are two sizes on the whole screen (Size): the ring's radius is fixed by the size, never by the box the
+ * knob is given, so every knob of a size is the same wheel. A knob's box is the dial (the ring, and room outside
+ * it for the modulation rings) over two lines of text; cellWidth / cellHeight say how big that is.
+ *
+ * Modulation: one thin ring for each wire outside the value ring, in the modulator's colour, stacked outwards
+ * (dashed when the depth is negative), and a dot where the modulation has the value now. Plugs sit on the rim at
+ * the wheel's right, never on the text.
+ *
+ * Under the hand the wheel turns with the value, one to one; let go and it coasts on a moment and settles. A
+ * value that changes on its own (a preset, Randomise, automation) swings the wheel in on a spring.
+ *
+ * What does not move (the socket, the empty ring, the wheel's rim and hub) is kept as an image for each size,
+ * colour and screen scale, shared by every knob; a repaint draws that, the arc, the spokes and the text.
  */
 class WheelKnob : public ModTarget, private juce::Timer
 {
 public:
-    WheelKnob(const Theme::Fonts& fonts, juce::Colour accent);
+    enum class Size { Primary = 0, Secondary };
+    /** The value ring's radius for each size, the room outside it for the modulation rings, and the two text lines. */
+    static constexpr float c_ringPrimary = 24.0f, c_ringSecondary = 15.0f, c_modRoom = 7.0f;
+    static constexpr int c_lineHeight = 13, c_textHeight = 2 * c_lineHeight;
+    static constexpr float ringFor(Size size) { return size == Size::Primary ? c_ringPrimary : c_ringSecondary; }
+    /** The smallest box a knob of this size is whole in. */
+    static constexpr int cellWidth(Size size) { return static_cast<int>(2.0f * (ringFor(size) + c_modRoom)); }
+    static constexpr int cellHeight(Size size) { return cellWidth(size) + c_textHeight; }
 
+    WheelKnob(const Theme::Fonts& fonts, juce::Colour accent, Size size = Size::Primary);
+
+    void setSize(Size size) { m_size = size; repaint(); }
+    Size getSize() const { return m_size; }
     void setAccent(juce::Colour c) { m_accent = c; repaint(); }
+    /** The colour of what this knob follows while it is Linked (Theme::Look). */
+    void setLinkColour(juce::Colour c) { m_linkColour = c; repaint(); }
+    /** What a Linked knob says in place of its value ("Linked To A"). */
+    void setLinkText(const juce::String& text) { m_linkText = text; repaint(); }
+    /** The value's text function was changed: read the value again. */
+    void valueTextChanged() { m_valueTextStale = true; repaint(); }
     void paint(juce::Graphics&) override;
     void valueChanged() override;
     void mouseEnter(const juce::MouseEvent&) override;
     void mouseExit(const juce::MouseEvent&) override;
+    void mouseDown(const juce::MouseEvent&) override;
+    void mouseUp(const juce::MouseEvent&) override;
 
-    /** The dial (without the caption), in this knob's coordinates. */
+    /** The dial (without the caption), in this knob's coordinates: its centre, and the outside of its value ring. */
     juce::Point<float> getDialCentre() const override;
     float getDialRadius() const override;
+    /** The value ring's radius: the size's own, unless the box is too small for it (a fault in the layout). */
+    float getRingRadius() const;
+    juce::Point<float> getPlugPosition(int index) const override;
+    bool getCableGate(int index, juce::Point<float>& gate) const override;
+    /** Where the caption and the value are drawn. */
+    juce::Rectangle<float> getCaptionArea() const;
+    juce::Rectangle<float> getValueArea() const;
+    /** How many images of the still part of a wheel are kept (one for each size, colour and screen scale in use). */
+    static int keptLayerCount();
+    /** Where the wheel is drawn now, 0..1 of its travel (the value, but for the spring and the coast). */
+    float getShownPosition() const { return m_shown; }
+
+protected:
+    juce::Rectangle<int> typingBounds() const override; // over the caption and the value, under the dial
 
 private:
     void timerCallback() override;
+    float valuePosition() { return static_cast<float>(valueToProportionOfLength(getValue())); }
 
     const Theme::Fonts& m_fonts;
-    juce::Colour m_accent;
+    juce::Colour m_accent, m_linkColour { Theme::Colours::textDim };
+    Size m_size = Size::Primary;
     float m_shown = 0.0f, m_velocity = 0.0f;
     bool m_hover = false;
+    // Under the hand: the wheel follows the value; how fast it was turning is kept for the coast.
+    bool m_held = false;
+    float m_dragVelocity = 0.0f, m_dragLast = 0.0f;
+    double m_dragTime = 0.0;
+    // The value's text, read when the value changes rather than at every repaint.
+    juce::String m_valueText, m_linkText;
+    double m_valueTextFor = 0.0;
+    bool m_valueTextStale = true;
+    juce::Path m_scratch; // the arcs are built in this one path
 };
