@@ -81,7 +81,7 @@ Every knob is a ship's wheel with a sand pointer, and under it its name and its 
    - **Stowaway** gets Rumble while its Mode is Sub. In its other modes, Rumble plays on Bus A.
    - **Hits** gets Impact.
 3. **Bus A and Bus B** each turn their tracks into moving sources: doppler passes that fly across the stereo field, with low end, swirl, an envelope filter and drive. Bus A is the key for Bus B: when A gets loud it ducks and darkens B, so the two don't pile up.
-4. **Stowaway** is one extra bus beside the two. It does not fly passes of its own: the tracks sent to it play in the middle, at their ridden level. A [throw](#throw) reaches it as well, swelling to the throw's peak. The hits duck it like the buses, except while its Mode is Sub, when the low end stays under the hit.
+4. **Stowaway** is one extra bus beside the two. It does not fly passes of its own: the tracks sent to it play in the middle. While its Mode is **Sub** it is the rig's sub: only the low end of its tracks comes through, in mono, swelling with Bus A's passes. A [throw](#throw) reaches it as well, swelling to the throw's peak. The hits duck it like the buses, except in Sub, when the low end stays under the hit. See [Stowaway](#stowaway).
 5. **Hits** only play when the hit gate opens. By default the gate opens at the loudest moments of the two buses, so the impacts land on the biggest swells and push the buses out of the way.
 6. **Output** adds echoes and reverb, makes it louder and denser, and limits it. The tape and Last 60 s record exactly what you hear.
 
@@ -370,6 +370,28 @@ Ducked and Filtered are what Bus A does to Bus B, so they sit in a tinted group 
 All the knobs run from 0 to 100%. How Bus B gets out of the way (turned down, darkened or just its mids) follows the **Duck** box in the Hits section, and how fast it comes back follows the Hits **Return** knob.
 
 The strip along the bottom of each bus's panel shows the last 3 seconds of what that bus sends on. Bus B's is drawn after A has ducked and filtered it, so a thin line under a busy Bus A means the ducking is working.
+
+### Stowaway
+
+One extra bus beside Bus A and Bus B, for a layer that should not fly about with the others. A track gets there from its lane's bus tag (see [Choosing the bus](#choosing-the-bus)); Rumble goes there by itself while the Mode is Sub. **Stowaway Mode** and its five knobs, **Follow**, **Low End**, **Filter**, **Drive** and **Width**, are in the host's parameter list, and the knobs can be wired to the [modulators](#modulation). The knobs keep their names in every mode.
+
+#### Sub
+
+The mode Stowaway starts in. It is planted in the middle with no doppler, and whatever you send it, only its low end comes through: a full-range roar on Stowaway gives you its rumble and nothing else. In order: a 20 Hz high-pass, the crossover, Low End, Drive, a safety low-pass, then Follow.
+
+| Knob | Starts at | What it does |
+|------|-----------|--------------|
+| **Follow** | 70% | How much the sub swells with Bus A's passes. At 0% it is a steady sub. At 100% it rises and falls as far as Bus A does, and each 10% takes on a tenth of that swell. The sub is turned up a little as Follow rises (4.5 dB at 100%), so on average it stays as loud and only its movement changes. |
+| **Low End** | 0% | Adds a note an octave below what came through the crossover, and overtones just above it, which is what lets a small speaker hear the sub. |
+| **Filter** | 120 Hz | The crossover, from 40 to 250 Hz. It is steep: 48 dB per octave, so sound one octave above the crossover is more than 45 dB down and two octaves above it is gone. |
+| **Drive** | 0% | Thickens the sub and flattens its swell. It works against the sub's own level, so it does the same to a quiet rumble as to a loud one, and it does not turn the sub up. |
+| **Width** | Mono | Not used: a sub is mono, the same in both speakers. |
+
+- **What Follow goes by.** Bus A's level against its own recent peak and, the stiller the faders are, how near Bus A's pass is. While the sub has a bus to follow, its own tracks are not ridden: Bus A is its swell. If no track is playing on Bus A it follows Bus B the same way. If none is playing on either, its tracks are ridden like any others and Follow sets how deep, so the sub is never stuck silent.
+- **Low End and Drive cannot brighten it.** They come after the crossover and are followed by a second low-pass at 1.6 times the crossover, so what they add stays within about an octave above it.
+- **Its delay.** A filter this steep holds the low end back by about two cycles of the crossover frequency: 15 ms at 120 Hz, 50 ms at 40 Hz. Follow is applied after the filter, so the swell itself is never late.
+
+The other modes (**Wake**, **Fly** and **Dry**) pass the tracks on in the middle for now.
 
 ### Hits
 
@@ -755,7 +777,7 @@ cmake -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build --config Release
 ```
 
-This builds the app, the VST3 and the AU (macOS) into `build/Swooshbuckler_artefacts/Release/`, along with the offline test programs: `SwooshbucklerRig`, `SwooshbucklerCargo`, `SwooshbucklerClassify`, `SwooshbucklerPitch`, `SwooshbucklerMorph`, `SwooshbucklerMaster`, `SwooshbucklerSession`, `SwooshbucklerRender`, `SwooshbucklerKeep`, `SwooshbucklerRouting`, `SwooshbucklerFirstRun` and `SwooshbucklerUi`. Pass `-DSWOOSHBUCKLER_TESTS=OFF` to skip the tests, or `-DSWOOSHBUCKLER_FORMATS="Standalone;VST3"` to choose the formats.
+This builds the app, the VST3 and the AU (macOS) into `build/Swooshbuckler_artefacts/Release/`, along with the offline test programs: `SwooshbucklerRig`, `SwooshbucklerCargo`, `SwooshbucklerClassify`, `SwooshbucklerPitch`, `SwooshbucklerMorph`, `SwooshbucklerMaster`, `SwooshbucklerSession`, `SwooshbucklerRender`, `SwooshbucklerKeep`, `SwooshbucklerRouting`, `SwooshbucklerStowaway`, `SwooshbucklerFirstRun` and `SwooshbucklerUi`. Pass `-DSWOOSHBUCKLER_TESTS=OFF` to skip the tests, or `-DSWOOSHBUCKLER_FORMATS="Standalone;VST3"` to choose the formats.
 
 ### Version
 

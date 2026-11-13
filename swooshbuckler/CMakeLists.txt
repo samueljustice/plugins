@@ -235,6 +235,15 @@ if(SWOOSHBUCKLER_TESTS)
     target_compile_definitions(SwooshbucklerRouting PRIVATE $<TARGET_PROPERTY:Swooshbuckler,COMPILE_DEFINITIONS>)
     target_link_libraries(SwooshbucklerRouting PRIVATE Swooshbuckler)
 
+    # Stowaway test: the extra bus's modes through the real engine. Sub: it filters (white noise 45 dB down one
+    # octave above the crossover and 80 dB down from two, at 48 and 192 kHz), Low End and Drive stay under the
+    # safety low-pass, what passes, the filter's delay, Follow, the hits, moving the crossover, its tail.
+    juce_add_console_app(SwooshbucklerStowaway PRODUCT_NAME "SwooshbucklerStowaway")
+    target_sources(SwooshbucklerStowaway PRIVATE Tests/StowawayTest.cpp)
+    target_include_directories(SwooshbucklerStowaway PRIVATE Source ${CMAKE_CURRENT_BINARY_DIR}/Swooshbuckler_artefacts/JuceLibraryCode $<TARGET_PROPERTY:Swooshbuckler,INCLUDE_DIRECTORIES>)
+    target_compile_definitions(SwooshbucklerStowaway PRIVATE $<TARGET_PROPERTY:Swooshbuckler,COMPILE_DEFINITIONS>)
+    target_link_libraries(SwooshbucklerStowaway PRIVATE Swooshbuckler)
+
     # First-run test: the demo sounds (typed right from their audio, one undo step, Play makes sound), typed
     # values against every knob's readout, MIDI controllers learned and kept, and file names cut in the middle.
     juce_add_console_app(SwooshbucklerFirstRun PRODUCT_NAME "SwooshbucklerFirstRun")

@@ -9,10 +9,10 @@
 //     with no pitch alone, and is one undo step.
 //   - Bus: a track sent to a bus by hand plays there (and only there), keeps its type and name, and the choice
 //     survives undo, save and restore.
-//   - Stowaway: a track sent to it reaches the output at unity and feeds neither bus A, bus B nor the hits; throws
-//     reach it, from rest too; rumbles go to it by themselves only while its Mode is Sub; the hits duck it in every
-//     mode but Sub; its Mode and knobs reach the engine (modulated), read by the mode, and are saved; Randomise
-//     and the dice never change the Mode.
+//   - Stowaway (its plumbing, in Dry; Sub mode itself is StowawayTest's): a track sent to it reaches the output at
+//     unity and feeds neither bus A, bus B nor the hits; throws reach it, from rest too; rumbles go to it by
+//     themselves only while its Mode is Sub; the hits duck it in Wake, Fly and Dry; its Mode and knobs reach the
+//     engine (modulated), read by the mode, and are saved; Randomise and the dice never change the Mode.
 //   - Morph ropes: a roped side morphs that one track and the rest of its bus plays on; with the morph off a
 //     roped track sounds exactly as without the rope; changing a rope mid-morph doesn't click; ropes let go when
 //     their track is removed, come back with undo, and are saved with the session.
@@ -692,6 +692,7 @@ int main(int argc, char* argv[])
         {
             auto p = plainParams();
             p.hitBoost = 0.0f; // the hits at unity too: the reference for "straight through"
+            p.stow.mode = RigEngine::StowDry; // the tracks as they are (a Sub keeps only their low end: see StowawayTest)
             return p;
         };
         struct Run { std::array<float, RigEngine::c_sections> levels; juce::AudioBuffer<float> out; float scopePeak = 0.0f; float view = 0.0f; };
@@ -751,16 +752,15 @@ int main(int argc, char* argv[])
             auto p = plain();
             p.hitDuck = 1.0f;
             float level[RigEngine::c_stowModes] {};
-            for (int mode = 0; mode < RigEngine::c_stowModes; ++mode)
+            for (int mode = RigEngine::StowWake; mode < RigEngine::c_stowModes; ++mode) // (a Sub is not ducked: StowawayTest)
             {
                 p.stow.mode = mode;
                 level[mode] = run(CargoHold::c_stowBus, p).levels[RigEngine::SectionStow];
             }
-            std::cout << "  Stowaway under a full Hit Duck: Sub " << level[0] << ", Wake " << level[1] << ", Fly " << level[2] << ", Dry " << level[3]
+            std::cout << "  Stowaway under a full Hit Duck: Wake " << level[1] << ", Fly " << level[2] << ", Dry " << level[3]
                       << " (" << s[RigEngine::SectionStow] << " with no hits)" << std::endl;
-            check(std::abs(level[RigEngine::StowSub] / s[RigEngine::SectionStow] - 1.0f) < 0.01f, "stowaway: the hits do not duck it in Sub");
-            check(level[RigEngine::StowWake] < 0.5f * level[RigEngine::StowSub] && level[RigEngine::StowFly] < 0.5f * level[RigEngine::StowSub]
-                      && level[RigEngine::StowDry] < 0.5f * level[RigEngine::StowSub],
+            check(level[RigEngine::StowWake] < 0.5f * s[RigEngine::SectionStow] && level[RigEngine::StowFly] < 0.5f * s[RigEngine::SectionStow]
+                      && level[RigEngine::StowDry] < 0.5f * s[RigEngine::SectionStow],
                   "stowaway: the hits duck it in Wake, Fly and Dry");
             hold.clear(1);
         }

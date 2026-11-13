@@ -51,6 +51,13 @@ namespace
     // Follow Master: how fast the rides take up the Master's loudness (up, down), and how fast the option comes in.
     constexpr float c_masterUpSeconds = 0.015f, c_masterDownSeconds = 0.09f, c_followSeconds = 0.05f;
     constexpr float c_ropeFadeSeconds = 0.015f; // a change of morph rope: out, swap, back in
+    constexpr float c_subTailSeconds = 0.5f;    // how long a sub's filters are left to ring out after its tracks stop
+    constexpr float c_subKeySeconds = 0.02f;    // how fast a sub's Follow takes up what it goes by
+    constexpr float c_subDriveFloor = 0.4f;     // a sub's Drive at 0%: its level (RMS) into the saturator
+    constexpr float c_subDriveDb = 20.0f;       // and how much more gain goes in at 100%
+    constexpr float c_subDriveMaxMatch = 8.0f;  // the most the level match after it may turn up
+    constexpr float c_subPeakPasses = 2.16f;    // the peak a sub measures a bus's swell against falls back 12 dB per three passes
+    constexpr float c_subBusSeconds = 0.1f;     // how fast it changes over between bus A, bus B and its own ride
 
     float coef(float ms, float fs) { return 1.0f - std::exp(-1.0f / (0.001f * ms * fs)); }
     /** A one-pole smoothing coefficient for a step of `frames` samples: the same glide at every rate and chunk size. */
@@ -171,13 +178,9 @@ void RigEngine::prepare(double sampleRate, int maxBlockSize)
         bus->flR.prepare(static_cast<int>(0.02f * m_fs));
         bus->lowA.set(130.0f, 0.7071f, m_fs);
         bus->lowB.set(130.0f, 0.7071f, m_fs);
-        bus->lowHp.set(40.0f, 0.7071f, m_fs);
-        bus->subA.set(90.0f, 0.7071f, m_fs);
-        bus->subB.set(90.0f, 0.7071f, m_fs);
-        bus->harm.set(170.0f, 0.8f, m_fs);
+        bus->lowAdd.prepare(m_fs);
         bus->shelfL.set(110.0f, 0.7071f, m_fs);
         bus->shelfR.set(110.0f, 0.7071f, m_fs);
-        bus->lowFollower.set(5.0f, 90.0f, m_fs);
         bus->follower.set(4.0f, 160.0f, m_fs);
         for (auto& s : bus->springs) s.prepare(controlRate, 2.2f, 0.6f);
         for (auto* d : { &bus->byBus, &bus->byHits })
@@ -189,6 +192,8 @@ void RigEngine::prepare(double sampleRate, int maxBlockSize)
     for (auto& band : m_stow.byHits.band)
         band.set(1000.0f, 0.35f, m_fs);
     m_stow.follower.set(4.0f, 160.0f, m_fs);
+    m_stow.sub.low.follower.set(5.0f, 90.0f, m_fs);
+    m_stow.sub.lowHp.set(static_cast<float>(SubFilter::c_highpassHz), 0.7071f, m_fs);
 
     m_detect.set(1.0f, 60.0f, m_fs);
     m_hitsFollower.set(2.0f, 120.0f, m_fs);
@@ -256,7 +261,7 @@ void RigEngine::reset()
         bus.duck = 0.0f;
         bus.peakRef = 1.0e-3f;
         bus.swirlOn = false;
-        bus.subArmed = false;
+        bus.lowAdd.armed = false;
         bus.passShape = m_params.buses[(m_params.linkBuses && i > 0) ? 0 : i].passMode == 1 ? 1.0f : 0.0f;
         bus.prox = 1.0f;
         // The second pass starts half a pass from the first (at its closest point), and stays there.
@@ -291,6 +296,7 @@ void RigEngine::reset()
         s.byHits.band[0].reset();
         s.byHits.band[1].reset();
         s.env = s.follower.env = 0.0f;
+        s.sub.reset();
     }
 
     m_echoL.reset(); m_echoR.reset();
@@ -389,17 +395,17 @@ void RigEngine::reseedNow()
     m_throwQueue = waitingThrows;
     for (auto& bus : m_buses)
     {
-        for (auto* f : { &bus.lowA, &bus.lowB, &bus.lowHp, &bus.subA, &bus.subB, &bus.harm, &bus.shelfL, &bus.shelfR, &bus.fL, &bus.fR, &bus.keyL, &bus.keyR })
+        for (auto* f : { &bus.lowA, &bus.lowB, &bus.shelfL, &bus.shelfR, &bus.fL, &bus.fR, &bus.keyL, &bus.keyR })
             f->reset();
+        bus.lowAdd.reset();
         for (auto& h : bus.heads) { h.airL.reset(); h.airR.reset(); h.airSL.reset(); h.airSR.reset(); }
         for (auto& a : bus.phL) a = {};
         for (auto& a : bus.phR) a = {};
         bus.phFbL = bus.phFbR = bus.lfo = bus.flFbL = bus.flFbR = 0.0f;
-        bus.flip = 1.0f;
         bus.swirlPre = bus.swirlPost = bus.drivePre = bus.drivePost = 0.0f;
         bus.swirlGain = bus.driveGain = 1.0f;
         bus.toneL.reset(); bus.toneR.reset();
-        bus.follower.env = bus.lowFollower.env = 0.0f;
+        bus.follower.env = 0.0f;
     }
     for (auto& f : m_fillTone) f.reset();
     m_detect.env = m_hitsFollower.env = m_mixFollower.env = 0.0f;
@@ -1013,6 +1019,29 @@ void RigEngine::renderTracks(int frames)
             std::fill(tap.begin(), tap.begin() + frames, 0.0f);
     }
 
+    // A sub swells with bus A (or bus B, when A holds no track that can be heard), not with its own tracks' rides:
+    // those are let go as far as it has a bus to go by. With neither bus to follow, its tracks are ridden like any
+    // others, and Follow is how deep. So Follow is always how much the sub swells, whatever it swells with.
+    const bool subMode = m_params.stow.mode == StowSub;
+    float subRide = 1.0f; // how much of its ride (in dB) a track on Stowaway keeps
+    if (subMode)
+    {
+        auto& sub = m_stow.sub;
+        bool onA = false, onB = false;
+        if (m_cargo != nullptr)
+            for (int t = 0; t < c_tracks; ++t)
+                if (m_cargo->getLive(t) != nullptr && m_levelSprings[static_cast<size_t>(t)].target * m_cargo->laneGain(CargoHold::c_numBuiltIns + t) > 1.0e-3f)
+                {
+                    const int bus = m_cargo->getBus(t);
+                    onB = onB || bus == 1;
+                    onA = onA || (bus != 1 && bus != CargoHold::c_hitsBus && bus != CargoHold::c_stowBus);
+                }
+        const float a = onA ? 1.0f : 0.0f, b = onB ? 1.0f : 0.0f;
+        sub.busA = sub.on ? sub.busA + (a - sub.busA) * glide(frames, c_subBusSeconds, m_fs) : a;
+        sub.busB = sub.on ? sub.busB + (b - sub.busB) * glide(frames, c_subBusSeconds, m_fs) : b;
+        subRide = m_stow.now.follow * (1.0f - sub.busA) * (1.0f - sub.busB);
+    }
+
     for (int t = 0; t < c_tracks; ++t)
     {
         const auto ti = static_cast<size_t>(t);
@@ -1036,9 +1065,11 @@ void RigEngine::renderTracks(int frames)
             r = sj::lerp(r, t == master ? 1.0f : followRide, m_followMix);
         float ride = sj::lerp(1.0f, r, energy);
         ride = sj::lerp(ride, 1.0f, swell);
+        const CargoData* data = m_cargo != nullptr ? m_cargo->getLive(t) : nullptr;
+        if (subMode && data != nullptr && m_cargo->getBus(t) == CargoHold::c_stowBus)
+            ride = subRide <= 0.0f ? 1.0f : std::pow(ride, subRide);
         m_rideView[ti].store(ride, std::memory_order_relaxed);
 
-        const CargoData* data = m_cargo != nullptr ? m_cargo->getLive(t) : nullptr;
         const float laneGain = m_cargo != nullptr ? m_cargo->laneGain(CargoHold::c_numBuiltIns + t) : 1.0f;
         const float target = data != nullptr ? level * ride * laneGain * m_releaseGain : 0.0f;
         const float throwTarget = data != nullptr ? level * laneGain * m_throwOpen : 0.0f;
@@ -1274,20 +1305,158 @@ void RigEngine::renderStow(int frames)
     s.panFrom = s.pan;
     s.pan = 0.0f;
 
-    // Nothing sent here: no sound, and nothing for the mix to add (see process()).
-    s.sounding = s.fed;
+    // Nothing sent here: no sound, and nothing for the mix to add (see process()). A sub's filters ring on for a
+    // moment after its tracks stop, so it stays in until they are quiet.
+    const bool isSub = s.now.mode == StowSub;
+    if (! isSub && s.sub.on)
+        s.sub.reset();
+    if (isSub && s.fed)
+        s.sub.tail = static_cast<int>(c_subTailSeconds * m_fs);
+    s.sounding = s.fed || (isSub && s.sub.on && s.sub.tail > 0);
     if (! s.sounding)
     {
         s.env = s.follower.env = 0.0f;
+        if (s.sub.on)
+            s.sub.reset();
         return;
     }
     const float invFrames = 1.0f / static_cast<float>(frames);
     for (int i = 0; i < frames; ++i)
     {
         const auto ii = static_cast<size_t>(i);
-        const float m = s.in[ii] + s.throwIn[ii] * (key0 + (key - key0) * static_cast<float>(i + 1) * invFrames);
-        s.mono[ii] = m;
-        s.env = s.follower.process(m);
+        s.mono[ii] = s.in[ii] + s.throwIn[ii] * (key0 + (key - key0) * static_cast<float>(i + 1) * invFrames);
+    }
+    if (isSub)
+        renderSub(frames);
+    for (int i = 0; i < frames; ++i)
+        s.env = s.follower.process(s.mono[static_cast<size_t>(i)]);
+}
+
+void RigEngine::StowState::Sub::reset()
+{
+    filter.reset();
+    low.reset();
+    lowHp.reset();
+    on = false;
+    tail = 0;
+    hz = 0.0f;
+    lowAmount = 0.0f;
+    gain = 0.0f;
+    key = 1.0f;
+    busA = busB = 0.0f;
+    peak = { 1.0e-3f, 1.0e-3f };
+    drivePre = drivePost = 0.0f;
+    driveGain = 1.0f;
+}
+
+float RigEngine::subFollowGain(float follow, float key)
+{
+    // The swell it goes by, taken on in dB: at 100% the sub rises and falls exactly as far as bus A does, at 50%
+    // half as far, at 0% not at all. (Nothing is ever further down than 60 dB: silence.)
+    return follow <= 0.0f ? 1.0f : std::pow(sj::clamp(key, 1.0e-3f, 1.0f), std::min(follow, 1.0f));
+}
+
+float RigEngine::subFollowMakeup(float follow)
+{
+    return sj::dbToGain(c_subFollowMakeupDb * sj::clamp(follow, 0.0f, 1.0f));
+}
+
+void RigEngine::renderSub(int frames)
+{
+    auto& s = m_stow;
+    auto& sub = s.sub;
+    const float fs = m_fs;
+    const bool starting = ! sub.on; // from silence: nothing to glide from
+    sub.on = true;
+    if (! s.fed)
+        sub.tail -= frames;
+
+    // Filter: the crossover. The filters are retuned as it glides (they are safe to move).
+    const float hz = ::Params::stowCrossoverHz(s.now.filter);
+    if (starting || std::abs(hz - sub.hz) > 1.0e-4f * sub.hz)
+    {
+        sub.hz = hz;
+        sub.filter.set(static_cast<double>(hz), m_sampleRate);
+        // Low End's sub octave stays under the crossover, and its overtones sit just above it (under the safety
+        // low-pass): they are what lets a small speaker hear the note.
+        sub.low.tune(static_cast<float>(SubFilter::c_highpassHz), std::min(90.0f, hz), 1.2f * hz, fs);
+    }
+
+    // Follow: bus A's swell: its level against its recent peak and, the stiller the faders are, how near its pass
+    // is (what its own colours follow, but against a peak that falls back more slowly, so the whole rise and fall
+    // of a pass is in it, not only its top). With no track on bus A it is bus B's; with none there either the sub's
+    // own tracks are ridden instead (see renderTracks). The changeover glides, so a track arriving on a bus or
+    // leaving it never steps the sub.
+    const float peakFall = std::exp(-static_cast<float>(frames) / (c_subPeakPasses * nominalPassSeconds() * fs));
+    float swell[c_maxBuses] {};
+    for (size_t b = 0; b < m_buses.size(); ++b)
+    {
+        const auto& bus = m_buses[b];
+        sub.peak[b] = std::max({ bus.env, sub.peak[b] * peakFall, 1.0e-3f });
+        swell[b] = sj::clamp(bus.env / sub.peak[b], 0.0f, 1.0f) * (1.0f - m_proxBlend * (1.0f - bus.prox));
+    }
+    const float keyNow = sub.busA * swell[0] + (1.0f - sub.busA) * swell[1];
+    sub.key = starting ? keyNow : sub.key + (keyNow - sub.key) * glide(frames, c_subKeySeconds, fs);
+    const float byBus = 1.0f - (1.0f - sub.busA) * (1.0f - sub.busB); // the rest of Follow is its tracks' ride
+    const float gain1 = subFollowMakeup(s.now.follow) * subFollowGain(s.now.follow * byBus, sub.key);
+    const float gain0 = starting ? gain1 : sub.gain;
+    sub.gain = gain1;
+
+    // The crossover, then Low End: a note an octave down and overtones, made from what the crossover let through.
+    const float low1 = std::pow(s.now.low, 0.8f); // a little faster at the bottom of the knob: each 10% adds about as much
+    const float low0 = starting ? low1 : sub.lowAmount;
+    sub.lowAmount = low1;
+    const bool lowOn = low0 > 1.0e-4f || low1 > 1.0e-4f;
+    const float invFrames = 1.0f / static_cast<float>(frames);
+    for (int i = 0; i < frames; ++i)
+    {
+        auto& x = s.mono[static_cast<size_t>(i)];
+        x = static_cast<float>(sub.filter.band(static_cast<double>(x)));
+        if (lowOn)
+            x += (low0 + (low1 - low0) * static_cast<float>(i + 1) * invFrames) * sub.lowHp.highpass(sub.low.process(x));
+    }
+
+    // Drive. The sub is driven against its own level (a slow measure of it), so the knob does the same to a quiet
+    // rumble as to a loud one, and its travel is even: the gain into the saturator rises 2 dB per 10%, from all
+    // but clean to squared off. The result is brought back to the level it went in at: Drive thickens the sub and
+    // flattens its swell, it does not turn it up.
+    if (s.now.drive > 1.0e-4f)
+    {
+        float preSq = 0.0f;
+        for (int i = 0; i < frames; ++i)
+            preSq += s.mono[static_cast<size_t>(i)] * s.mono[static_cast<size_t>(i)];
+        preSq /= static_cast<float>(frames);
+        const bool driveStarting = sub.drivePre <= 0.0f;
+        sub.drivePre = driveStarting ? preSq : sub.drivePre + (preSq - sub.drivePre) * glide(frames, preSq > sub.drivePre ? 0.03f : 1.5f, fs);
+        const float rms = std::max(std::sqrt(sub.drivePre), 1.0e-4f);
+        const float into = c_subDriveFloor * sj::dbToGain(c_subDriveDb * s.now.drive) / rms; // the gain into the saturator
+        const float mix = sj::clamp(s.now.drive * 20.0f, 0.0f, 1.0f); // in over the first 5%: 0% is the sub untouched
+        float postSq = 0.0f;
+        for (int i = 0; i < frames; ++i)
+        {
+            auto& x = s.mono[static_cast<size_t>(i)];
+            x += mix * (sj::fastTanh(into * x) / into - x);
+            postSq += x * x;
+        }
+        postSq /= static_cast<float>(frames);
+        sub.drivePost = driveStarting ? postSq : sub.drivePost + (postSq - sub.drivePost) * glide(frames, postSq > sub.drivePost ? 0.03f : 1.5f, fs);
+        const float want = sub.drivePost > 1.0e-12f ? std::min(c_subDriveMaxMatch, std::sqrt(sub.drivePre / sub.drivePost)) : 1.0f;
+        const float g0 = driveStarting ? want : sub.driveGain;
+        sub.driveGain = driveStarting ? want : sub.driveGain + (want - sub.driveGain) * glide(frames, c_matchSeconds, fs);
+        for (int i = 0; i < frames; ++i)
+            s.mono[static_cast<size_t>(i)] *= g0 + (sub.driveGain - g0) * static_cast<float>(i + 1) * invFrames;
+    }
+    else
+    {
+        sub.drivePre = sub.drivePost = 0.0f;
+        sub.driveGain = 1.0f;
+    }
+
+    // The safety low-pass (what Low End and Drive added stays within about an octave of the crossover), then Follow.
+    for (int i = 0; i < frames; ++i)
+    {
+        auto& x = s.mono[static_cast<size_t>(i)];
+        x = static_cast<float>(sub.filter.safety(static_cast<double>(x))) * (gain0 + (gain1 - gain0) * static_cast<float>(i + 1) * invFrames);
     }
 }
 
@@ -1657,22 +1826,8 @@ void RigEngine::renderBus(BusState& bus, int frames, float key, bool isKeyBus,
             auto& l = bus.l[static_cast<size_t>(i)];
             auto& r = bus.r[static_cast<size_t>(i)];
             const float low = bus.lowB.lowpass(bus.lowA.lowpass(0.5f * (l + r)));
-            const float level = bus.lowFollower.process(low);
-            // The sub octave flips once per cycle of the low band (40 Hz .. about 120 Hz). The trigger has to swing a
-            // tenth of the band's level below zero and then above it, so ripples and noise riding on the wave don't
-            // flip it at random (which is heard as rumble instead of a note an octave down).
-            const float detect = bus.lowHp.highpass(low);
-            const float swing = 0.1f * level + 1.0e-6f;
-            if (detect < -swing)
-                bus.subArmed = true;
-            else if (bus.subArmed && detect > swing)
-            {
-                bus.flip = -bus.flip;
-                bus.subArmed = false;
-            }
-            const float sub = bus.subB.lowpass(bus.subA.lowpass(bus.flip * level));
-            const float harm = bus.harm.bandpass(sj::fastTanh(4.0f * std::abs(low)));
-            const float add = p.low * (1.3f * sub + 0.45f * harm);
+            // A note an octave under the low band (40 Hz .. about 120 Hz) and its overtones: see LowAdd.
+            const float add = p.low * bus.lowAdd.process(low);
             l += add + shelf * bus.shelfL.lowpass(l);
             r += add + shelf * bus.shelfR.lowpass(r);
         }

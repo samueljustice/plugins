@@ -5,6 +5,7 @@
 #include "ScopeRing.h"
 #include "PitchShifter.h"
 #include "DspUtils.h"
+#include "SubFilter.h"
 #include "SpectralMorph.h"
 #include "SpaceReverb.h"
 
@@ -35,9 +36,14 @@
  *   stowaway:     one extra, lighter bus beside A and B (not a third rig bus: it has no doppler pair, colour chain,
  *                 morph side, Take Turns or LINK of its own). Tracks sent to it, and their throw feed, arrive in
  *                 StowState; it renders after bus B (bus A's level and passes are final by then) and before the
- *                 hits, as one mono stream with a position, and joins the mix. For now it passes its tracks
- *                 through at unity in the middle, a throw's share shaped by the throw's own pass; the modes (Sub,
- *                 Wake, Fly, Dry) go in renderStow. The hits duck it in every mode but Sub.
+ *                 hits, as one mono stream with a position, and joins the mix. A throw's share is shaped by the
+ *                 throw's own pass. The hits duck it in every mode but Sub.
+ *                 Sub: planted in the middle, mono. 20 Hz high-pass -> crossover (48 dB per octave low-pass at
+ *                 Filter, 40 .. 250 Hz) -> Low End (sub octave, overtones) -> Drive -> safety low-pass just
+ *                 above the crossover -> Follow (it swells with bus A: A's level against its recent peak and how
+ *                 near A's pass is; with no track on A it goes by bus B, and with none there either by its own
+ *                 tracks' ride). See SubFilter and renderSub.
+ *                 Wake, Fly, Dry: for now the tracks pass through at unity in the middle.
  *   hit sync:     optional: every hit track fires its next sound on a shared beat, transients aligned
  *                 (the beat is as long as the longest hit, so none is cut short).
  *   hits:         a gate on A + B opens only at the loudest moments (a boost with hold
@@ -236,6 +242,17 @@ public:
     /** Audio thread, after process(): Stowaway's mode and knobs as the last chunk used them (the knobs after
         their glides, with the modulators' offsets). */
     const StowParams& getStowNow() const { return m_stow.now; }
+    /** Audio thread, after process(): Stowaway's level at the end of the last chunk (its own follower, not
+        scaled or clamped for a meter as getStowLevel is). */
+    float getStowEnv() const { return m_stow.env; }
+    /** Sub mode's Follow: Stowaway's gain for the swell it goes by (0 nothing .. 1 the loudest moment). The knob
+        is how much of that swell, in dB, the sub takes on (0% none: a steady sub; 100% all of it). */
+    static float subFollowGain(float follow, float key);
+    /** The make-up that goes with Follow: the more of the swell the sub takes on, the longer it spends down in the
+        dips, so it is turned up to match (4.5 dB at 100%). On average it stays as loud wherever the knob is; what
+        changes is how far it moves. */
+    static constexpr float c_subFollowMakeupDb = 4.5f;
+    static float subFollowMakeup(float follow);
     /** A track's own VARI speed (1 = as the global Pitch plays it; 1 for VARI off), for the hit sync view. */
     float getTrackSpeed(int track) const { return m_trackSpeedView[static_cast<size_t>(track)].load(std::memory_order_relaxed); }
     /** The fill echo times of a track, in seconds (tap 0..2). Every track has its own, so layered tracks don't
@@ -288,6 +305,59 @@ private:
         }
     };
 
+    /** What Low End adds under a low band: a note an octave below it and its overtones. The buses feed it their
+        low band (under 130 Hz); Stowaway's Sub feeds it what its crossover let through. */
+    struct LowAdd
+    {
+        sj::Svf detectHp, subA, subB, harm;
+        sj::Follower follower;
+        float flip = 1.0f;
+        bool armed = false; // the sub octave's trigger: armed below the low band's level, fires above it
+
+        /** detectHz: under this the trigger does not listen. subHz: the sub octave's own low-pass. harmHz: where
+            the overtones are centred. */
+        void tune(float detectHz, float subHz, float harmHz, float fs)
+        {
+            detectHp.set(detectHz, 0.7071f, fs);
+            subA.set(subHz, 0.7071f, fs);
+            subB.set(subHz, 0.7071f, fs);
+            harm.set(harmHz, 0.8f, fs);
+        }
+        void prepare(float fs)
+        {
+            tune(40.0f, 90.0f, 170.0f, fs);
+            follower.set(5.0f, 90.0f, fs);
+        }
+        void reset()
+        {
+            for (auto* f : { &detectHp, &subA, &subB, &harm })
+                f->reset();
+            follower.env = 0.0f;
+            flip = 1.0f;
+            armed = false;
+        }
+        /** One sample of the low band in, what to add to it out (before the Low End amount). */
+        float process(float low)
+        {
+            const float level = follower.process(low);
+            // The sub octave flips once per cycle of the low band. The trigger has to swing a tenth of the band's
+            // level below zero and then above it, so ripples and noise riding on the wave don't flip it at random
+            // (which is heard as rumble instead of a note an octave down).
+            const float detect = detectHp.highpass(low);
+            const float swing = 0.1f * level + 1.0e-6f;
+            if (detect < -swing)
+                armed = true;
+            else if (armed && detect > swing)
+            {
+                flip = -flip;
+                armed = false;
+            }
+            const float sub = subB.lowpass(subA.lowpass(flip * level));
+            const float overtones = harm.bandpass(sj::fastTanh(4.0f * std::abs(low)));
+            return 1.3f * sub + 0.45f * overtones;
+        }
+    };
+
     struct BusState
     {
         sj::DelayLine line;
@@ -297,10 +367,8 @@ private:
         std::array<Head, c_throws> throwHeads;
         std::array<float, c_chunk> throwIn {};
         // low end
-        sj::Svf lowA, lowB, lowHp, subA, subB, harm, shelfL, shelfR;
-        sj::Follower lowFollower;
-        float flip = 1.0f;
-        bool subArmed = false; // the sub octave's trigger: armed below the low band's level, fires above it
+        sj::Svf lowA, lowB, shelfL, shelfR;
+        LowAdd lowAdd;
         // swirl
         std::array<sj::Allpass1, 6> phL, phR;
         float phFbL = 0, phFbR = 0, lfo = 0;
@@ -364,7 +432,26 @@ private:
         bool ducked = false;   // byHits holds something
         sj::Follower follower;
         float env = 0.0f;
+        // Sub. `mono` is then the sub itself: one stem, in the middle (a room sends it to its LFE).
+        struct Sub
+        {
+            SubFilter filter;
+            LowAdd low;
+            sj::Svf lowHp;          // keeps what Low End adds above 20 Hz (the octave under a 30 Hz note is 15 Hz)
+            bool on = false;        // the filters hold state (cleared when Sub is left, or once its tail has rung out)
+            int tail = 0;           // samples the filters may still ring for after the last track played in
+            float hz = 0.0f;        // the crossover the filters are set to
+            float lowAmount = 0.0f; // Low End at the end of the last chunk
+            float gain = 0.0f;      // Follow's gain at the end of the last chunk
+            float key = 1.0f;       // what Follow goes by (0..1), smoothed
+            float busA = 0.0f, busB = 0.0f; // how far bus A and bus B hold tracks to follow (0..1, glides)
+            std::array<float, c_maxBuses> peak { 1.0e-3f, 1.0e-3f }; // each bus's recent peak, as the sub measures its swell
+            float drivePre = 0.0f, drivePost = 0.0f, driveGain = 1.0f; // Drive: the sub's level before and after it (slow mean squares), and the level match
+            void reset();
+        } sub;
     };
+    /** Sub: m_stow.mono (what was sent here this chunk) through the sub's filters, colours and Follow. */
+    void renderSub(int frames);
     /** The mono stream and its place for this chunk, from what was sent here (and what bus A did). */
     void renderStow(int frames);
     /** The stream at its place, as the stereo the mix takes. After the hits have ducked it. */
