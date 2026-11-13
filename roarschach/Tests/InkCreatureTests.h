@@ -702,8 +702,10 @@ inline int runInkShots(const juce::File& dir, const juce::File& clips)
                 take(9.0, "quiet", steady[static_cast<size_t>(ti)]);
                 take(13.0, "roar", steady[static_cast<size_t>(ti)]);
                 take(14.4, "roar-late", steady[static_cast<size_t>(ti)]);
+                // (ROARSCHACH_INK_DISSOLVE_FROM: when the eight dissolving frames start)
+                const double dissolveFrom = juce::SystemStats::getEnvironmentVariable("ROARSCHACH_INK_DISSOLVE_FROM", "18.4").getDoubleValue();
                 for (int i = 0; i < 8; ++i)
-                    take(18.4 + 0.8 * i, "dissolving-" + juce::String(i), dissolving[static_cast<size_t>(ti)]);
+                    take(dissolveFrom + 0.8 * i, "dissolving-" + juce::String(i), dissolving[static_cast<size_t>(ti)]);
             }
             const auto beside = [&](const std::vector<std::vector<juce::Image>>& sets, const juce::String& name)
             {
@@ -730,10 +732,11 @@ inline int runInkShots(const juce::File& dir, const juce::File& clips)
     if (only.contains("cloud"))
     {
         const int count = juce::SystemStats::getEnvironmentVariable("ROARSCHACH_INK_SEEDS", "4").getIntValue();
+        const int firstSeed = juce::SystemStats::getEnvironmentVariable("ROARSCHACH_INK_FIRST_SEED", "1").getIntValue();
         struct State { double t; const char* name; };
         const std::vector<State> states { { 2.8, "asleep" }, { 4.0, "forming-a" }, { 4.7, "forming-b" }, { 9.0, "quiet" },
                                           { 13.0, "roar" }, { 14.4, "roar-late" }, { 19.2, "dissolving-a" }, { 20.4, "dissolving-b" } };
-        for (int seed = 1; seed <= count; ++seed)
+        for (int seed = firstSeed; seed < firstSeed + count; ++seed)
         {
             std::vector<std::vector<juce::Image>> cells(2);
             for (int ti = 0; ti < 2; ++ti)
@@ -978,7 +981,9 @@ inline int runInkShots(const juce::File& dir, const juce::File& clips)
     {
         std::vector<juce::Image> quiet, roar;
         juce::StringArray labels;
-        for (std::uint32_t seed = 1; seed <= 32; ++seed)
+        // (ROARSCHACH_INK_SHEET_SEEDS: how many seeds the sheet shows)
+        const auto sheetSeeds = static_cast<std::uint32_t>(juce::jlimit(4, 128, juce::SystemStats::getEnvironmentVariable("ROARSCHACH_INK_SHEET_SEEDS", "32").getIntValue()));
+        for (std::uint32_t seed = 1; seed <= sheetSeeds; ++seed)
         {
             InkRig rig(576, 160, 1000u + seed * 7919u, 0.6f);
             rig.run(9.0, &script.audio);
@@ -987,8 +992,8 @@ inline int runInkShots(const juce::File& dir, const juce::File& clips)
             roar.push_back(rig.shot(&script.audio).image);
             labels.add("seed " + juce::String(static_cast<int>(seed)));
         }
-        save(inkSheet(quiet, 4, labels), "sheet-32-seeds-quiet.png");
-        save(inkSheet(roar, 4, labels), "sheet-32-seeds-roar.png");
+        save(inkSheet(quiet, 4, labels), "sheet-" + juce::String(static_cast<int>(sheetSeeds)) + "-seeds-quiet.png");
+        save(inkSheet(roar, 4, labels), "sheet-" + juce::String(static_cast<int>(sheetSeeds)) + "-seeds-roar.png");
     }
 
     // 3. the factory presets on one instance's seed (each preset has its own blot)
@@ -1294,6 +1299,7 @@ inline void testInkAnatomy()
         check(ends, "ink anatomy: the glide starts on the one blot and ends on the other");
         // (the overlap is reported; the jump is measured against the blot's own size, as a mask of a
         // quarter of it half way has a low overlap between frames however smoothly it moves)
+        check(smallest >= 0.40, "ink anatomy: the glide keeps the blot's weight half way (least " + juce::String(smallest, 2) + " of the larger end's area)");
         check(mostChange < 0.10, "ink anatomy: the glide never jumps (at most " + juce::String(100.0 * mostChange, 1) + " % of the blot's area changes in a frame)");
     }
 

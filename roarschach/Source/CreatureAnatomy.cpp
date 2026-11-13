@@ -830,6 +830,27 @@ namespace roar
         p.look.ox = lerp (la.ox, lb.ox, t);
         p.look.oy = lerp (la.oy, lb.oy, t);
         p.centreY = lerp (a.centreY, b.centreY, t);
+        // the glide keeps the blot's weight: half way, where the two blots' masses pass each other
+        // and each is still moving to its place, the union of them is far smaller than either blot.
+        // The masses and limbs swell by as much as the ink fell short (one measured step, on the
+        // coarse grid; the swelling is smooth in t, so the glide never jumps)
+        {
+            const float want = lerp (inspect (a).area, inspect (b).area, t), now = inspect (p).area;
+            if (now > 1.0e-4f && now < want)
+            {
+                const float k = std::min (1.6f, std::sqrt (want / now));
+                for (auto& bl : p.blob)
+                {
+                    bl[2] *= k;
+                    bl[3] *= k;
+                }
+                for (auto& lb : p.limbB)
+                {
+                    lb[2] *= k;
+                    lb[3] *= k;
+                }
+            }
+        }
         return p;
     }
 

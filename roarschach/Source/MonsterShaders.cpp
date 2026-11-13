@@ -3212,11 +3212,20 @@ void main()
         // the pull: towards the body while it gathers (on through it, slower, to its middle), away
         // from it while it lets go
         float dA = anatomySdf (ms);
-        vec2 gA = vec2 (dFdx (dA) * uInkRes.x / uInkRes.z, dFdy (dA) * uInkRes.y);
-        vec2 dir = gA / (length (gA) + 1.0e-4);
+        // (its slope from four taps a texel and a half apart, so that it turns from one pixel to the
+        // next: a slope from screen derivatives is one for each block of four pixels on some
+        // drivers, and then the spread below never sees the way inwards bend, and loses the
+        // pigment that crowds as the rings round the body grow shorter)
+        float h = 1.5 / uInkRes.y;
+        float dxp = anatomySdf (vec2 (sqrt ((m.x + h) * (m.x + h) + 0.0004), m.y)), dxm = anatomySdf (vec2 (sqrt ((m.x - h) * (m.x - h) + 0.0004), m.y));
+        vec2 gA = vec2 (dxp - dxm, anatomySdf (ms + vec2 (0.0, h)) - anatomySdf (ms - vec2 (0.0, h)));
+        vec2 dir = gA / (length (gA) + 1.0e-6);
         // (the pull eases off over a wide band as it reaches the body, so the pigment gathers as a
         // soft hull of smoke round where the body will be, never as its outline or its skeleton)
-        float pull = uHold.z > 0.0 ? (1.0 - smoothstep (0.5 * uHold.w, uHold.w, dA)) * mix (0.3 * smoothstep (0.5, 0.9, uInkF.x), 1.0, smoothstep (-0.05, 0.25, dA))
+        // (and it stops at the rim: the body takes in what arrives there. Carried on to the body's
+        // middle, the pigment met itself head on at the middle line and was lost there: the step
+        // reads it from beyond the line every time and it can never pile up)
+        float pull = uHold.z > 0.0 ? (1.0 - smoothstep (0.5 * uHold.w, uHold.w, dA)) * smoothstep (-0.05, 0.25, dA)
                                    : smoothstep (-0.12, 0.0, dA) * (1.0 - smoothstep (0.0, 0.5, dA));
         // (no pull across the fold: pigment drawn onto it from both sides would pile into a line)
         // (and none towards the view's top or bottom, where no ink may stand: nothing piles up there)
@@ -3245,10 +3254,12 @@ void main()
         vec2 vG = v + drift + kick + breath + push - vec2 (0.0, uPig.w);
         // (drawn in, pigment gathers where the pull converges and the cloud pales where it spreads;
         // only the pull does this: the eddies carry pigment without ever piling it up)
-        // (and only while it gathers: the slight pull that goes on awake carries, and piles nothing)
+        // (all of the pull, the slight one that goes on awake as well: carried without this, the
+        // pull loses pigment where it crowds and makes it where it spreads, so it would take pigment
+        // from round the body and the budget would put it back far out in the cloud)
         // (let go, the push outwards only carries it: thinned here as well, the body let go would pale
         // in a moment and darken again as the smoke gathered)
-        float conv = uHold.z > 0.0 ? uInkRule.w * clamp (-(dFdx (drift.x) * uInkRes.x / uInkRes.z + dFdy (drift.y) * uInkRes.y) * dt, -0.08, 0.08) : 0.0;
+        float conv = uHold.z > 0.0 ? clamp (-(dFdx (drift.x) * uInkRes.x / uInkRes.z + dFdy (drift.y) * uInkRes.y) * dt, -0.08, 0.08) : 0.0;
 
         vec4 a = inkRead (m - (v + 0.5 * push) * dt, 0.0);
         vec2 mg = m - vG * dt;
@@ -3258,8 +3269,9 @@ void main()
         // (from a level only a little coarser: a coarse level read over and over is a coarse texel,
         // and leaves square blocks of pigment on the fold)
         float g = mix (inkRead (mg, 0.0).g, inkRead (mg, 1.2).g, 0.04 + (0.20 + 0.65 * uInkTier.w) * (1.0 - smoothstep (0.0, 0.10, m.x)));
-        // (what arrives is the cloud's own pigment at the pull's pace: it adds up, it does not multiply)
-        g += conv * (conv > 0.0 ? min (g, 1.5 * amb) : g);
+        // (what arrives is the cloud's own pigment at the pull's pace: it adds up. Only while the body
+        // gathers may it pile up past that; the slight pull that goes on awake piles nothing)
+        g += conv * (conv > 0.0 ? mix (min (g, 1.5 * amb), g, uInkRule.w) : g);
         // beads of pure pigment thrown from the rim by a clipped peak
         for (int i = 0; i < 3; ++i)
         {
@@ -3268,6 +3280,32 @@ void main()
         }
         float c = a.r, q = a.b;
         float b = inkRead (m - (v + breath) * dt, 0.0).a;
+
+        // cloud shut inside the ink: an eddy that winds a limb round on itself, or two masses that
+        // close round a gap, leave a pale hole with ink on all sides or all but one, and mirrored, a
+        // pair of those is a pair of eyes. Wet ink runs in and closes it; a bay, open wide to the
+        // outside, stays open.
+        // (only once it has formed and while it holds: the shreds that gather and the smoke let go
+        // may hold whatever gaps the flow leaves)
+        // (the ink on the side where there is least, and on the side with the next least: one gap,
+        // the mouth of a curl, does not keep the hole open)
+        // (looked for at two reaches: a small hole, and the wider eye of a curl)
+        float shut = 0.0;
+        for (int j = 0; j < 2; ++j)
+        {
+            float least = 9.0, next = 9.0;
+            for (int k = 0; k < 8; ++k)
+            {
+                float ak = (float (k) + 0.5 * float (j)) * 0.785398;
+                float side = inkRead (m + vec2 (cos (ak), sin (ak)) * (j == 0 ? 0.05 : 0.09), 1.5).r;
+                next = min (next, max (least, side));
+                least = min (least, side);
+            }
+            shut = max (shut, next);
+        }
+        float closing = smoothstep (0.35, 0.70, shut) * smoothstep (0.6, 0.95, uInkF.x) * (1.0 - uInkRule.y);
+        cap = max (cap, closing * min (shut * 1.2, 1.2));
+        c += max (closing * min (shut, 1.0) - c, 0.0) * min (1.0, 4.0 * dt);
 
         // pigment condenses into ink (a little pigment is a lot of ink) and ink let go spreads into
         // smoke; while the hold lets go, ink leaves even where the shape still stands

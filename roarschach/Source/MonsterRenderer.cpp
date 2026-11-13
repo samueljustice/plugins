@@ -1009,18 +1009,31 @@ namespace roar
             // (only while it swells: a roar held draws no more than the body has room for, and no
             // bank of smoke piles up round it)
             const float roarPull = 0.16f * smooth (0.35f, 0.8f, heat) * F * clamp01 ((heat - m_inkSwell + 0.06f) / 0.08f);
-            const float drift = falling > 0.0f ? -0.10f * falling : 0.28f * rising + 0.08f * F + roarPull;
+            // the hush: the voice has stopped, and the body starts to let go at once, at its rim and
+            // its limbs, while the formation still holds (it gives only after the grace before
+            // sleep). A pause between phrases tears the rim a little; the pull mends it when the
+            // voice comes back.
+            m_inkQuiet = level * awake < 0.08f && F > 0.05f ? std::min (9.0f, m_inkQuiet + dt) : 0.0f;
+            const float hushTo = smooth (0.20f, 0.90f, m_inkQuiet) * awake;
+            m_inkHush += (hushTo - m_inkHush) * (1.0f - std::exp (-dt / (hushTo > m_inkHush ? 0.25f : 0.12f)));
+            const float hush = m_inkHush;
+            const float drift = falling > 0.0f ? -0.10f * falling : (0.28f * rising + 0.08f * F + roarPull) * (1.0f - hush) - 0.05f * hush;
             // the release's kick: small eddies that tear what was let go, for two seconds after
-            m_inkKick = std::max (falling, m_inkKick * std::exp (-dt / 2.0f));
+            m_inkKick = std::max (std::max (falling, 0.7f * hush), m_inkKick * std::exp (-dt / 2.0f));
             // (only as the body really goes: a formation that dips between two syllables and comes
             // back has let nothing go, and the wisps round a formed body are never drawn as its smoke)
-            const float going = falling * smooth (0.01f, 0.10f, un);
+            // (the hush lets go of a share at once: the limbs and the rim tear into smoke from the
+            // moment the voice stops; the floor under a long formed body keeps its core until the
+            // formation itself gives)
+            const float going = std::max (falling * smooth (0.01f, 0.10f, un), 0.30f * hush);
             m_inkFalling = going;
             m_inkGather = drift > 0.0f ? (0.28f * rising + roarPull) / drift : 0.0f;
             // (awake, what the rim sheds is the pigment it was made of; let go, the ink spreads into smoke)
             // (let go, the ink is still ink where it hangs dense: drawn as heavy as it was held, and
             // lighter over the next seconds as it is torn and spread, so it is smoke by six or seven)
-            m_inkLetGo = std::max (clamp01 (1.5f * going), m_inkLetGo * std::exp (-dt / (rising > 0.0f ? 0.4f : un < 0.02f ? 1.5f : 4.5f)));
+            // (the hush draws its smoke as heavy as the formation's giving will: no lighter smoke
+            // that darkens again when the body goes)
+            m_inkLetGo = std::max (std::max (clamp01 (1.5f * going), hush), m_inkLetGo * std::exp (-dt / (rising > 0.0f ? 0.4f : un < 0.02f ? 1.5f : 4.5f)));
             m_inkSmoke = 1.0f + 1.8f * m_inkLetGo;   // (2.8: held ink is three times as dense as the pigment it was made of)
             // (the floor under the body comes in over seconds once it has formed: the gathering is
             // the pigment's alone)

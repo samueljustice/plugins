@@ -314,6 +314,7 @@ namespace roar
         float m_inkTotal = 1.0f, m_inkBudget = 1.0f;
         float m_inkFPrev = -1.0f, m_inkFRate = 0.0f, m_inkKick = 0.0f, m_inkFalling = 0.0f, m_inkFloor = 0.0f, m_inkSmoke = 1.0f, m_inkGather = 0.0f;
         float m_inkLetGo = 0.0f;     // how lately the body was let go: up as the hold gives, down as it gathers again
+        float m_inkQuiet = 0.0f, m_inkHush = 0.0f;   // how long the voice has been still, and the hush that lets the rim go
         float m_inkUnSingle = 0.0f;  // the single pass's own unformedness: it lets go no faster than the buffer's smoke clears
         float m_inkSwellHold = 0.0f; // seconds the swell is held for yet
         float m_inkFitK = 1.0f, m_inkFitY = 0.0f;   // the pose kept inside the view: its scale and shift, eased
