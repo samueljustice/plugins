@@ -75,6 +75,7 @@ public:
     std::function<void (std::optional<roar::CreatureMood::Axes>)> keepCreatureColour;
 
     void mouseDown (const juce::MouseEvent&) override;
+    void visibilityChanged() override;
 
     /** One quiet line of help at the bottom of the view, shown while no audio has arrived yet and
         the creature has slept through 1.5 s of silence. The first sound takes it away for good and
@@ -88,6 +89,11 @@ public:
 
     /** Tests and snapshots: draw what the view shows where OpenGL can't run. */
     void showFallbackForTests() { m_shaderFailed.store (true, std::memory_order_relaxed); refreshOverlay (0.0f); }
+
+    /** Tests: what the view does when no OpenGL context could be made (it lets go of the context,
+        so the component paints its fallback itself). */
+    void giveUpOnGLForTests() { giveUpOnGL(); refreshOverlay (0.0f); }
+    bool isGLAttachedForTests() const { return m_context.isAttached(); }
 
     /** Tests and snapshots: a fixed 1/30 s step, so frames repeat. */
     void setFixedStepForTests (bool fixed) { m_testFixedStep.store (fixed, std::memory_order_relaxed); }
@@ -147,6 +153,7 @@ public:
 private:
     void timerCallback() override;
     void releaseGL();
+    void giveUpOnGL();
     void createRenderer (bool coreProfile);
     void drawFrame (float dt, float scale, int width, int height);
     void updateAnimation (float dt);
@@ -187,6 +194,7 @@ private:
     std::atomic<bool> m_stale { false };     // the audio thread stopped publishing (host not processing)
     std::atomic<bool> m_idle { false };      // asleep and fully settled: frames can come slowly
     std::atomic<int> m_tier { -1 };          // the renderer's tier (the idle frame rate depends on it)
+    std::atomic<int> m_awakeHz { 30 };       // frames a second awake (fewer where the GPU is given relief)
 
     // Frame read-back for snapshots (never used while a host runs the plug-in).
     std::atomic<bool> m_captureRequested { false };
@@ -237,6 +245,7 @@ private:
     bool m_hintShown = false;
     int m_timerHz = 30;        // the frame timer's current rate (30 awake, slower once asleep and settled)
     int m_ticksWithoutGL = 0;  // timer ticks spent on screen without a working GL context
+    bool m_glGivenUp = false;  // no context could be made: detached, so paint() draws the fallback
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (MonsterView)
 };

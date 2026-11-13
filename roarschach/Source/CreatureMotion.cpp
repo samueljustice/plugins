@@ -260,13 +260,42 @@ namespace roar
         tier = startTier;
     }
 
-    void QualityGovernor::resume (int start, int settled, bool locked)
+    void QualityGovernor::resume (int start, int settled, bool locked, double settledPixels, int settledRelief)
     {
         reset (start);
         tier = std::min (startTier, std::max (floorTier(), settled));
         upgradesLocked = locked;
+        relief = tier == floorTier() ? std::min (3, std::max (0, settledRelief)) : 0;
+        lockPixels = std::isfinite (settledPixels) ? std::max (0.0, settledPixels) : 0.0;
+        resumed = lockPixels > 0.0;
         if (tier < startTier)
             cooldown = c_dropCooldownSeconds;
+    }
+
+    void QualityGovernor::noteLoad (double viewPixels)
+    {
+        if (! std::isfinite (viewPixels) || viewPixels <= 0.0)
+            return;
+        pixels = viewPixels;
+        if (resumed)
+        {
+            // what was remembered was settled on a much larger view: this one starts from the top
+            resumed = false;
+            if (pixels < c_lighterLoad * lockPixels)
+            {
+                const int start = startTier, changed = changes;
+                reset (start);
+                pixels = viewPixels;
+                changes = changed + 1;
+                return;
+            }
+        }
+        // a lock set on a much larger view does not hold this one down
+        if (upgradesLocked && lockPixels > 0.0 && pixels < c_lighterLoad * lockPixels)
+        {
+            upgradesLocked = false;
+            lockPixels = 0.0;
+        }
     }
 
     int QualityGovernor::step (float interval, float target, float gpuMs, bool stalled)
@@ -276,7 +305,7 @@ namespace roar
         elapsed += interval;
 
         if (startTier <= 0)
-            return tier = 0;
+            tier = 0;
 
         cooldown = std::max (0.0f, cooldown - interval);
         sinceChange = std::min (sinceChange + interval, 1.0e9f);
@@ -285,7 +314,8 @@ namespace roar
         if (elapsed < c_warmupSeconds || stalled)
             return tier;
 
-        if (std::isfinite (gpuMs) && gpuMs > 0.0f && gpuMs <= 250.0f)
+        // (the single pass is not timed: where it is all there is, only the frame interval is a measure)
+        if (startTier > 0 && std::isfinite (gpuMs) && gpuMs > 0.0f && gpuMs <= 250.0f)
         {
             ema = emaValid ? 0.9f * ema + 0.1f * gpuMs : gpuMs;
             emaValid = true;
@@ -306,19 +336,48 @@ namespace roar
         if (slowFrames >= needed && (cooldown <= 0.0f || failedUpgrade) && tier > floorTier())
         {
             if (failedUpgrade)
+            {
                 upgradesLocked = true;
+                lockPixels = pixels;
+            }
             const int by = farOver ? 2 : 1;
             tier = std::max (floorTier(), tier - by);
             cooldown = c_dropCooldownSeconds;
             sinceChange = 0.0f;
             sinceUpgrade = 1.0e9f;
             slowFrames = fastFrames = 0;
-            emaValid = false;   // (the new tier's first reading replaces it: no second drop on the old tier's cost)
+            emaValid = false;   // (the new tier's first reading replaces it: no second drop on the cost of the tier just left)
             ++changes;
         }
-        else if (fastFrames >= c_fastFramesToRise && sinceChange >= c_cooldownSeconds && ! upgradesLocked && tier < startTier)
+        else if (slowFrames >= c_slowFramesToRelieve && (cooldown <= 0.0f || failedUpgrade) && tier == floorTier() && relief < 3
+                 // (the last step is a slower frame rate still, which costs smoothness: only where a
+                 // frame is far over budget, or still overruns with no timer to say by how much)
+                 && (relief < 2 || (emaValid ? ema > c_reliefFarMs : slowInterval)))
         {
-            ++tier;
+            // still slow on the lowest tier: relief (a step of it taken back too soon is given again, and kept)
+            if (failedUpgrade)
+            {
+                upgradesLocked = true;
+                lockPixels = pixels;
+            }
+            ++relief;
+            cooldown = c_dropCooldownSeconds;
+            sinceChange = 0.0f;
+            sinceUpgrade = 1.0e9f;
+            slowFrames = fastFrames = 0;
+            // (a smaller draw costs less: its first reading replaces the average. A slower rate
+            // costs the same a frame, and the average stands.)
+            if (relief == 1)
+                emaValid = false;
+            ++changes;
+        }
+        else if (fastFrames >= c_fastFramesToRise && sinceChange >= c_cooldownSeconds && ! upgradesLocked && (tier < startTier || relief > 0))
+        {
+            // (relief is taken back first, a step at a time, then the tiers are climbed)
+            if (relief > 0)
+                --relief;
+            else
+                ++tier;
             sinceChange = 0.0f;
             sinceUpgrade = 0.0f;
             slowFrames = fastFrames = 0;
@@ -351,7 +410,12 @@ namespace roar
             if (d + 2 < s.size() && (s[d] == '4' || s[d] == '5') && digit (d + 1) && digit (d + 2) && ! digit (d + 3))
                 return 2;
         }
-        if (has ("apple") || has ("nvidia") || has ("geforce") || has ("quadro") || has ("amd") || has ("radeon") || has ("ati "))
+        // Apple's own parts: the base ones (no Pro, Max or Ultra in the name) and the device a virtual
+        // machine shows start one tier down. Only the largest of the family has been measured, and a
+        // part that starts too high pays for it with its first seconds on screen.
+        if (has ("apple"))
+            return has (" pro") || has (" max") || has (" ultra") ? 3 : 2;
+        if (has ("nvidia") || has ("geforce") || has ("quadro") || has ("amd") || has ("radeon") || has ("ati "))
             return 3;
         if (has ("intel"))
             return ((has ("iris") && has ("xe")) || has (" arc")) ? 2 : 1;

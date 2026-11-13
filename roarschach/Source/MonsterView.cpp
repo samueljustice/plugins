@@ -182,13 +182,16 @@ void MonsterView::timerCallback()
     // GL frames: full rate while awake, an even slower rate once asleep and settled (the timer
     // itself is retimed, so the frames stay evenly spaced).
     const bool buffered = m_tier.load (std::memory_order_relaxed) >= 1;
-    const int wantHz = m_idle.load (std::memory_order_relaxed) ? (buffered ? c_idleBufferHz : c_idleSinglePassHz) : c_frameHz;
+    // (a GPU still slow on its lowest tier is given fewer frames: see QualityGovernor)
+    const int awakeHz = juce::jlimit (10, c_frameHz, m_awakeHz.load (std::memory_order_relaxed));
+    const int wantHz = m_idle.load (std::memory_order_relaxed) ? std::min (awakeHz, buffered ? c_idleBufferHz : c_idleSinglePassHz) : awakeHz;
     if (wantHz != m_timerHz)
     {
         m_timerHz = wantHz;
         startTimerHz (wantHz);
     }
-    m_context.triggerRepaint();
+    if (! m_glGivenUp)
+        m_context.triggerRepaint();
     refreshOverlay (1.0f / static_cast<float> (m_timerHz));
 }
 
@@ -252,7 +255,12 @@ void MonsterView::refreshOverlay (float seconds)
     // runs: give it a few seconds on screen before showing the fallback.
     const bool glReady = m_glReady.load (std::memory_order_relaxed);
     m_ticksWithoutGL = (glReady || ! isShowing()) ? 0 : std::min (m_ticksWithoutGL + 1, c_failAfterTicks);
-    const bool failed = m_shaderFailed.load (std::memory_order_relaxed) || ! m_context.isAttached()
+    // No context after all: the view lets go of OpenGL. While it is attached the component is drawn
+    // through the context's own cached image, which without a native context draws nothing, and
+    // paint() (the still cloud and the line that says why) would never be reached.
+    if (! m_glGivenUp && ! glReady && m_ticksWithoutGL >= c_failAfterTicks)
+        giveUpOnGL();
+    const bool failed = m_shaderFailed.load (std::memory_order_relaxed) || m_glGivenUp || ! m_context.isAttached()
                      || m_ticksWithoutGL >= c_failAfterTicks;
 
     if (f0Text != m_f0Text || detailText != m_detailText || gravel != m_gravelShown
@@ -264,6 +272,26 @@ void MonsterView::refreshOverlay (float seconds)
         m_sleepShown = asleep;
         m_failShown = failed;
         repaint();
+    }
+}
+
+void MonsterView::giveUpOnGL()
+{
+    m_glGivenUp = true;
+    m_context.detach();
+    m_creature.eggVisible.store (false, std::memory_order_relaxed);
+    repaint();
+}
+
+// Shown again after the view had let go of OpenGL (the editor reopened, or moved to a display
+// that may have a context): one more try.
+void MonsterView::visibilityChanged()
+{
+    if (m_glGivenUp && isShowing())
+    {
+        m_glGivenUp = false;
+        m_ticksWithoutGL = 0;
+        m_context.attachTo (*this);
     }
 }
 
@@ -671,7 +699,6 @@ void MonsterView::drawFrame (float dt, float scale, int width, int height)
     fr.set (U::uJaw, testJaw >= 0.0f ? testJaw : m_jawMotion.y);
     fr.set (U::uJawVel, m_jawMotion.v);
     fr.set (U::uLip, m_jawMotion.lip);
-    fr.set (U::uRoarHold, m_jawMotion.roarHold);
     {
         // the head's motion moves the blot up and down and breathes its scale; CHAMBER's Boom pulses in it
         const float pulse = 0.5f - 0.5f * std::cos (m_chamberPhase * juce::MathConstants<float>::twoPi);
@@ -683,7 +710,6 @@ void MonsterView::drawFrame (float dt, float scale, int width, int height)
     fr.set (U::uGrowl, m_knobs.growl);
     fr.set (U::uGrowlMod, juce::jlimit (0.0f, 1.0f, m_audioForces.growl));   // rectified and slow: a shiver, never a 20-80 Hz flicker
     fr.set (U::uLiquid, m_knobs.liquid);
-    fr.set (U::uLiquidPhase, safe (m_features.shimmerPhase.load (std::memory_order_relaxed), 0.0f, 1.0f));
     fr.set (U::uRoar, m_knobs.roar);
     fr.set (U::uRoarDrive, m_roarDrive);
     fr.set (U::uSub, m_knobs.sub);
@@ -735,7 +761,11 @@ void MonsterView::drawFrame (float dt, float scale, int width, int height)
     fr.interval = m_lastInterval;
     fr.dtClamped = m_lastClamped;
     fr.asleep = idle;
-    fr.targetInterval = idle ? 1.0f / 24.0f : 1.0f / (float) c_frameHz;
+    {
+        const int awakeHz = juce::jlimit (10, c_frameHz, m_awakeHz.load (std::memory_order_relaxed));
+        const int idleHz = m_tier.load (std::memory_order_relaxed) >= 1 ? c_idleBufferHz : c_idleSinglePassHz;
+        fr.targetInterval = 1.0f / (float) (idle ? std::min (awakeHz, idleHz) : awakeHz);
+    }
     fr.forces = m_audioForces;
     {
         // the seeds the anatomy grows from, and the creature's formation
@@ -761,6 +791,7 @@ void MonsterView::drawFrame (float dt, float scale, int width, int height)
     const int viewport[4] = { 0, 0, width, height };
     m_renderer.render (fr, (unsigned int) hostFbo, viewport);
     m_tier.store (m_renderer.getTier(), std::memory_order_relaxed);
+    m_awakeHz.store (m_renderer.awakeHz(), std::memory_order_relaxed);
 
     if (m_captureRequested.exchange (false, std::memory_order_relaxed))
     {

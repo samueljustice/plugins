@@ -96,7 +96,7 @@ namespace roar
             float awake = 1.0f;
         };
 
-        // outputs (followers)
+        // outputs (followers; the view reads growl, swirl, subPulse and the sparks, the rest are read by the tests)
         float roar = 0.0f, growl = 0.0f, sub = 0.0f, swirl = 0.0f, ensemble = 0.0f, clip = 0.0f, strain = 0.0f;
         float puff = 0.0f;          // exhale, decays in 0.4 s
         float subPulse = 0.0f;      // the sub's push right after an onset (decays in 0.12 s)
@@ -132,6 +132,17 @@ namespace roar
      * tier; an upgrade that turns slow within 5 s is reverted and upgrades stop for the context.
      * Measurement never goes below tier 1: the single pass (tier 0) costs more per pixel than tier 1,
      * so it is only for a GPU without the buffer's capabilities (a start tier of 0, final).
+     *
+     * Relief at the floor: a GPU that is still slow on its lowest tier (tier 1, or the single pass
+     * where that is all it has, judged there from the frame interval: the single pass has no timer)
+     * is given relief in three steps, each after 60 slow frames: the composite (or the single pass)
+     * drawn at a third of the view's size instead of half, then 20 frames a second awake instead of
+     * 30, then 15 where a frame still costs over 8 ms (or still overruns). Relief is taken back a
+     * step at a time by the same rule that raises a tier, before any tier is raised.
+     *
+     * A lock on upgrades belongs to the load it was measured at: it is dropped when the view has
+     * fewer than 0.7 times the pixels it had when the upgrade failed, and a settled tier remembered
+     * from a view that much larger is not resumed at all (the smaller view starts from the top).
      * The first 2 s and stalled frames (a gap of a quarter second or more: hidden, host busy) are
      * ignored. GPU readings outside (0, 250] ms are ignored.
      */
@@ -144,12 +155,24 @@ namespace roar
         float elapsed = 0.0f, cooldown = 0.0f, sinceChange = 1.0e9f, sinceUpgrade = 1.0e9f;
         bool upgradesLocked = false;
         int changes = 0;
+        int relief = 0;                 // 0 none; 1 a third-size draw; 2 and 20 Hz; 3 and 15 Hz (only on the lowest tier)
+        double pixels = 0.0;            // the view's pixels now (0: not told)
+        double lockPixels = 0.0;        // ... when the upgrade lock was set, or when the resumed tier was settled on
+        bool resumed = false;           // started from a remembered tier, its load not yet compared with this view's
 
         void reset (int start);
+        /** The view's size in pixels, each frame before step(): a lock or a remembered tier measured
+            on a much larger view does not hold a smaller one down. */
+        void noteLoad (double viewPixels);
+        /** The lowest tier's draw is at 1 / this of the view's size (2, or 3 in relief). */
+        int lowDivisor() const { return relief >= 1 ? 3 : 2; }
+        /** Frames a second awake (30, or 20 or 15 in relief). */
+        int awakeHz() const { return relief >= 3 ? 15 : relief == 2 ? 20 : 30; }
         /** The lowest tier measurement can reach: 1 (0 only when 0 is where it starts). */
         int floorTier() const { return startTier >= 1 ? 1 : 0; }
-        /** Starts at the tier this GPU settled on before (capped by start), keeping its upgrade lock. */
-        void resume (int start, int settled, bool locked);
+        /** Starts at the tier this GPU settled on before (capped by start), keeping its upgrade lock
+            and its relief; settledPixels: the view's size it settled at (0: not known). */
+        void resume (int start, int settled, bool locked, double settledPixels = 0.0, int settledRelief = 0);
         /** One frame. interval and target in seconds; gpuMs < 0 when there is no reading; stalled: the
             frame came after a long gap (not a measurement). Returns the tier. */
         int step (float interval, float target, float gpuMs, bool stalled);
@@ -157,7 +180,9 @@ namespace roar
         static constexpr float c_warmupSeconds = 2.0f, c_cooldownSeconds = 30.0f, c_dropCooldownSeconds = 3.0f;
         static constexpr float c_failedUpgradeSeconds = 5.0f;
         static constexpr float c_slowMs = 4.0f, c_fastMs = 1.8f, c_slowIntervalRatio = 1.4f, c_farOverRatio = 2.5f;
-        static constexpr int c_slowFramesToDrop = 20, c_fastFramesToRise = 300;
+        static constexpr int c_slowFramesToDrop = 20, c_fastFramesToRise = 300, c_slowFramesToRelieve = 60;
+        static constexpr float c_reliefFarMs = 8.0f;     // the last step of relief: a frame still costs over this
+        static constexpr double c_lighterLoad = 0.7;      // a view with fewer than this share of the pixels is another load
 
         /** The starting tier for a GL_RENDERER / GL_VENDOR string (0 for software renderers). */
         static int startTierFor (const char* renderer, const char* vendor);

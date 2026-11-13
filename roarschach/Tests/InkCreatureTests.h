@@ -9,6 +9,33 @@
 //                                             folder of voice recordings (else the test voice)
 
 //==============================================================================================
+// A check on a drawn picture. The CI runner's GPU is virtual and draws the single pass only, so
+// there a picture check is printed and not gated; both kinds are counted, and the ink tests end by
+// saying how many of each ran, so a pass on CI is never read as the pictures having been checked.
+struct InkPictureChecks
+{
+    static int& gated() { static int n = 0; return n; }
+    static int& reported() { static int n = 0; return n; }
+    static int& reportedNo() { static int n = 0; return n; }
+};
+
+inline void inkPictureCheck(bool ok, const juce::String& what)
+{
+    static const bool reportOnly = std::getenv("CI") != nullptr;
+    if (reportOnly)
+    {
+        ++InkPictureChecks::reported();
+        InkPictureChecks::reportedNo() += ok ? 0 : 1;
+        std::printf("  (reported only on a CI GPU) %s: %s\n", what.toRawUTF8(), ok ? "ok" : "no");
+    }
+    else
+    {
+        ++InkPictureChecks::gated();
+        check(ok, what);
+    }
+}
+
+//==============================================================================================
 // Pictures as luma, and the measures the checks use.
 struct InkPicture
 {
@@ -440,6 +467,42 @@ struct InkRig
         monster->requestCapture();
         step(audio, gain);
         return InkPicture::from(monster->takeCapture());
+    }
+};
+
+/** Every GL object a renderer holds, each kind in its own list and asked after with its own
+    query (a timer query's name is never a buffer's: asked as one, it is "not alive" whether or not
+    it was deleted). Taken with the context current; alive() after release() must be 0. */
+struct InkGlObjects
+{
+    roar::MonsterRenderer::ObjectIds ids;
+
+    explicit InkGlObjects(const roar::MonsterRenderer& r) { r.collectObjectIds(ids); }
+
+    /** What a created renderer must hold: programs, its quad, a vertex array on a core context,
+        and its timer queries where it says it has them. */
+    bool complete(bool core) const
+    {
+        return ! ids.programs.empty() && ! ids.buffers.empty() && (! core || ! ids.vertexArrays.empty()) && (! ids.timers || ! ids.queries.empty());
+    }
+
+    int alive() const
+    {
+        using namespace juce::gl;
+        int n = 0;
+        for (auto id : ids.textures) n += glIsTexture(id) ? 1 : 0;
+        for (auto id : ids.framebuffers) n += glIsFramebuffer(id) ? 1 : 0;
+        for (auto id : ids.programs) n += glIsProgram(id) ? 1 : 0;
+        for (auto id : ids.buffers) n += glIsBuffer(id) ? 1 : 0;
+        for (auto id : ids.queries) n += glIsQuery(id) ? 1 : 0;
+        for (auto id : ids.vertexArrays) n += glIsVertexArray(id) ? 1 : 0;
+        return n;
+    }
+
+    /** How many of them the context knows now (while the renderer is alive: all of them). */
+    int total() const
+    {
+        return static_cast<int>(ids.textures.size() + ids.framebuffers.size() + ids.programs.size() + ids.buffers.size() + ids.queries.size() + ids.vertexArrays.size());
     }
 };
 
@@ -1657,14 +1720,7 @@ inline void testInkAnatomy()
     the creature). The CI runner's GPU is virtual: there the picture checks are reported, not gated. */
 inline void testInkPictures()
 {
-    const bool reportOnly = std::getenv("CI") != nullptr;
-    const auto pictureCheck = [reportOnly](bool ok, const juce::String& what)
-    {
-        if (reportOnly)
-            std::printf("  (reported only on a CI GPU) %s: %s\n", what.toRawUTF8(), ok ? "ok" : "no");
-        else
-            check(ok, what);
-    };
+    const auto pictureCheck = [](bool ok, const juce::String& what) { inkPictureCheck(ok, what); };
     const int W = 864, H = 240;
     const InkScript script;
     // (ROARSCHACH_INK_KEEP = a folder: the pictures the checks measured are kept there)
@@ -1689,17 +1745,11 @@ inline void testInkPictures()
         const auto pic = rig.shot();
         check(r.isCreated() && pic.valid() && pic.percentile(0.5) > 0.2f,
               juce::String("ink renderer: the single pass builds and draws (") + (core ? "core" : "legacy") + ", median luma " + juce::String(pic.percentile(0.5), 2) + ")");
-        std::vector<unsigned int> tex, fbos, progs, bufs;
-        r.collectObjectIds(tex, fbos, progs, bufs);
+        const InkGlObjects held(r);
         rig.gl.bind();
         rig.monster->releaseOffline();
-        int alive = 0;
-        using namespace juce::gl;
-        for (auto id : tex) alive += glIsTexture(id) ? 1 : 0;
-        for (auto id : fbos) alive += glIsFramebuffer(id) ? 1 : 0;
-        for (auto id : progs) alive += glIsProgram(id) ? 1 : 0;
-        for (auto id : bufs) alive += glIsBuffer(id) ? 1 : 0;
-        check(! progs.empty() && alive == 0, juce::String("ink renderer: release deletes every GL object (") + juce::String(alive) + " left, " + (core ? "core" : "legacy") + ")");
+        const int alive = held.alive();
+        check(held.complete(core) && alive == 0, juce::String("ink renderer: release deletes every GL object (") + juce::String(alive) + " left, " + (core ? "core" : "legacy") + ")");
     }
 
     // ---- what the pass costs at the size of a large editor (reported: it depends on the GPU)
@@ -1958,14 +2008,7 @@ struct InkBufferRead
     no jump at a change of tier). Reported, not gated, on a CI GPU. */
 inline void testInkBuffer()
 {
-    const bool reportOnly = std::getenv("CI") != nullptr;
-    const auto pictureCheck = [reportOnly](bool ok, const juce::String& what)
-    {
-        if (reportOnly)
-            std::printf("  (reported only on a CI GPU) %s: %s\n", what.toRawUTF8(), ok ? "ok" : "no");
-        else
-            check(ok, what);
-    };
+    const auto pictureCheck = [](bool ok, const juce::String& what) { inkPictureCheck(ok, what); };
     const int W = 864, H = 240;
     const InkScript script;
 
@@ -2011,17 +2054,11 @@ inline void testInkBuffer()
                              && (! bytes || r.isInkBytes()),
                              "ink buffer: the tier draws the creature from its buffer (" + juce::String(buf.w) + " x " + juce::String(buf.h) + ", " + juce::String(r.getStats().draws)
                              + " draws, ink " + juce::String(100.0 * pic.darkShare(), 1) + " %)" + tag);
-                std::vector<unsigned int> tex, fbos, progs, bufs;
-                r.collectObjectIds(tex, fbos, progs, bufs);
+                const InkGlObjects held(r);
                 rig.gl.bind();
                 rig.monster->releaseOffline();
-                int alive = 0;
-                using namespace juce::gl;
-                for (auto id : tex) alive += glIsTexture(id) ? 1 : 0;
-                for (auto id : fbos) alive += glIsFramebuffer(id) ? 1 : 0;
-                for (auto id : progs) alive += glIsProgram(id) ? 1 : 0;
-                for (auto id : bufs) alive += glIsBuffer(id) ? 1 : 0;
-                check(! progs.empty() && alive == 0, "ink buffer: release deletes every GL object (" + juce::String(alive) + " left)" + tag);
+                const int alive = held.alive();
+                check(held.complete(true) && alive == 0, "ink buffer: release deletes every GL object (" + juce::String(alive) + " left)" + tag);
             }
 
     // ---- check 13: the tiers agree on the blot; no jump at a change of tier
@@ -2361,14 +2398,7 @@ inline double inkMeanHue(const juce::Image& img)
     the parting, the shade, the threads). Reported, not gated, on a CI GPU. */
 inline void testInkCloudAndRift()
 {
-    const bool reportOnly = std::getenv("CI") != nullptr;
-    const auto pictureCheck = [reportOnly](bool ok, const juce::String& what)
-    {
-        if (reportOnly)
-            std::printf("  (reported only on a CI GPU) %s: %s\n", what.toRawUTF8(), ok ? "ok" : "no");
-        else
-            check(ok, what);
-    };
+    const auto pictureCheck = [](bool ok, const juce::String& what) { inkPictureCheck(ok, what); };
     const int W = 864, H = 240;
     const InkScript script;
     const auto keepDir = juce::SystemStats::getEnvironmentVariable("ROARSCHACH_INK_KEEP", {});
@@ -2818,14 +2848,7 @@ inline void testInkCloudAndRift()
     all fifteen at once bend the blot without breaking it (the trace and force budgets). */
 inline void testInkModules()
 {
-    const bool reportOnly = std::getenv("CI") != nullptr;
-    const auto pictureCheck = [reportOnly](bool ok, const juce::String& what)
-    {
-        if (reportOnly)
-            std::printf("  (reported only on a CI GPU) %s: %s\n", what.toRawUTF8(), ok ? "ok" : "no");
-        else
-            check(ok, what);
-    };
+    const auto pictureCheck = [](bool ok, const juce::String& what) { inkPictureCheck(ok, what); };
     const int W = 576, H = 160;
     const InkScript script;
     // (each module is switched in two seconds before the frame: what it does to the voice has had
@@ -2993,14 +3016,7 @@ inline void testInkModules()
     lets it go, and the folded blot comes back. */
 inline void testInkLogo()
 {
-    const bool reportOnly = std::getenv("CI") != nullptr;
-    const auto pictureCheck = [reportOnly](bool ok, const juce::String& what)
-    {
-        if (reportOnly)
-            std::printf("  (reported only on a CI GPU) %s: %s\n", what.toRawUTF8(), ok ? "ok" : "no");
-        else
-            check(ok, what);
-    };
+    const auto pictureCheck = [](bool ok, const juce::String& what) { inkPictureCheck(ok, what); };
     const int W = 576, H = 160;
     const auto voice = dual(makeVoice(InkRig::sr, 60.0, 150.0));
     const auto& logo = LogoSdf::shared();
@@ -3110,14 +3126,7 @@ inline void testInkLogo()
     pair of eyes, whatever the outline). */
 inline void testInkFaces()
 {
-    const bool reportOnly = std::getenv("CI") != nullptr;
-    const auto pictureCheck = [reportOnly](bool ok, const juce::String& what)
-    {
-        if (reportOnly)
-            std::printf("  (reported only on a CI GPU) %s: %s\n", what.toRawUTF8(), ok ? "ok" : "no");
-        else
-            check(ok, what);
-    };
+    const auto pictureCheck = [](bool ok, const juce::String& what) { inkPictureCheck(ok, what); };
     const int W = 576, H = 160;
     const InkScript script;
     const auto row = [H](float y) { return juce::jlimit(0, H - 1, static_cast<int>(std::lround((0.5f - y) * H))); };
@@ -3235,14 +3244,7 @@ inline void testInkFaces()
     without a jump in any frame. */
 inline void testInkEvolution()
 {
-    const bool reportOnly = std::getenv("CI") != nullptr;
-    const auto pictureCheck = [reportOnly](bool ok, const juce::String& what)
-    {
-        if (reportOnly)
-            std::printf("  (reported only on a CI GPU) %s: %s\n", what.toRawUTF8(), ok ? "ok" : "no");
-        else
-            check(ok, what);
-    };
+    const auto pictureCheck = [](bool ok, const juce::String& what) { inkPictureCheck(ok, what); };
     const int W = 864, H = 240;
     const InkScript script;
     const auto keepDir = juce::SystemStats::getEnvironmentVariable("ROARSCHACH_INK_KEEP", {});
@@ -3446,6 +3448,116 @@ inline void testInkEvolution()
 }
 #endif
 
+#if defined(__APPLE__)
+/** The slow scrolls never jump the picture where they wrap. Each scroll is moved on to a moment
+    before its wrap and the view drawn across it, asleep (the cloud alone, where a jump shows
+    plainest) on the single pass and on the top buffer tier: no frame may change by more than a few
+    times what the frames round it do. (Wrapped at one noise tile while the shaders multiplied them
+    by 0.7, 0.55, 1.7 and the like, the clouds jumped by 20 to 50 times a frame's change every
+    111 s, 167 s and 250 s.) */
+inline void testInkScrollWraps()
+{
+    const auto pictureCheck = [](bool ok, const juce::String& what) { inkPictureCheck(ok, what); };
+    for (const int tier : { 0, 3 })
+    {
+        InkRig rig(864, 240, 1u, 0.6f);
+        if (! rig.ok())
+        {
+            std::printf("  (no GL context: the scroll checks are skipped)\n");
+            return;
+        }
+        rig.setTier(tier);
+        rig.run(4.0);
+        double worst = 0.0, steady = 0.0;
+        int worstScroll = -1, measured = 0;
+        for (int i = 0; i < roar::MonsterRenderer::inkScrollCount; ++i)
+        {
+            auto& r = rig.monster->rendererForTests();
+            // (to four frames before this scroll wraps; twelve frames across it)
+            const double until = r.inkScrollWrapInForTests(i) - 4.0 / 30.0;
+            if (until > 0.0)
+                r.advanceInkScrollsForTests(until);
+            rig.run(1.0);   // (the far cloud's carry and the buffer settle on the moved scrolls: not measured)
+            r.advanceInkScrollsForTests(std::max(0.0, r.inkScrollWrapInForTests(i) - 4.0 / 30.0));
+            const double before = r.inkScrollWrapInForTests(i);
+            std::vector<double> steps;
+            auto last = rig.shot();
+            bool wrapped = false;
+            const auto keepDir = juce::SystemStats::getEnvironmentVariable("ROARSCHACH_INK_KEEP", {});
+            for (int k = 0; k < 12; ++k)
+            {
+                const auto pic = rig.shot();
+                // (ROARSCHACH_INK_KEEP: the frames across the near cloud's wrap are kept)
+                if (keepDir.isNotEmpty() && i == 6 && k >= 2 && k <= 6)
+                    savePng(pic.image, juce::File(keepDir).getChildFile("scroll-wrap-tier" + juce::String(tier) + "-frame" + juce::String(k) + ".png"));
+                steps.push_back(pic.rmsDifference(last));
+                last = pic;
+                wrapped = wrapped || r.inkScrollWrapInForTests(i) > before;
+            }
+            auto sorted = steps;
+            std::sort(sorted.begin(), sorted.end());
+            const double median = std::max(1.0e-4, sorted[sorted.size() / 2]), most = sorted.back();
+            std::printf("  tier %d scroll %2d across its wrap%s: a frame changes %.2f per mille at the median, %.2f at most (%.1f times)\n", tier, i,
+                        wrapped ? "" : " (not reached)", 1000.0 * median, 1000.0 * most, most / median);
+            measured += wrapped ? 1 : 0;
+            steady = std::max(steady, median);
+            if (most / median > worst)
+            {
+                worst = most / median;
+                worstScroll = i;
+            }
+        }
+        check(measured == roar::MonsterRenderer::inkScrollCount, "ink scrolls: every slow scroll was drawn across its wrap (" + juce::String(measured) + " of "
+                                                                 + juce::String(roar::MonsterRenderer::inkScrollCount) + ", tier " + juce::String(tier) + ")");
+        pictureCheck(worst < 3.0, "ink scrolls: no frame jumps where a slow scroll wraps (tier " + juce::String(tier) + ": at most " + juce::String(worst, 1)
+                                  + " times the frames round it, scroll " + juce::String(worstScroll) + ")");
+    }
+}
+
+/** Relief on the lowest tier (a GPU still slow there draws at a third of the view's size instead of
+    half): the same picture, a little softer, on tier 1 and on the single pass, and nothing left
+    behind when it is taken back. */
+inline void testInkRelief()
+{
+    const auto pictureCheck = [](bool ok, const juce::String& what) { inkPictureCheck(ok, what); };
+    const InkScript script;
+    for (const int tier : { 0, 1 })
+    {
+        InkPicture plain, relieved, back;
+        for (int pass = 0; pass < 2; ++pass)
+        {
+            InkRig rig(864, 240, 2u, 0.6f);
+            if (! rig.ok())
+                return;
+            rig.setTier(tier);
+            rig.monster->setInkFullSizeForTests(0);
+            auto& r = rig.monster->rendererForTests();
+            if (pass == 1)
+                r.setForcedRelief(1);
+            rig.run(9.0 - 1.0 / 30.0, &script.audio);
+            (pass == 0 ? plain : relieved) = rig.shot(&script.audio);
+            if (pass == 1)
+            {
+                check(r.lowDivisor() == 3 && r.awakeHz() == 30 && juce::gl::glGetError() == juce::gl::GL_NO_ERROR, "ink relief: the first step draws at a third, at 30 frames a second (tier " + juce::String(tier) + ")");
+                r.setForcedRelief(3);
+                check(r.awakeHz() == 15, "ink relief: the last step asks for 15 frames a second");
+                r.setForcedRelief(0);
+                rig.run(0.5, &script.audio);
+                back = rig.shot(&script.audio);
+            }
+        }
+        if (! plain.valid() || ! relieved.valid() || ! back.valid())
+            return;
+        const double d = relieved.rmsDifference(plain), ink = plain.darkShare(), inkR = relieved.darkShare();
+        std::printf("  tier %d in relief: differs from the plain draw by %.1f per mille (rms luma); ink %.1f %% against %.1f %%; back out of it %.1f %%\n", tier, 1000.0 * d,
+                    100.0 * inkR, 100.0 * ink, 100.0 * back.darkShare());
+        pictureCheck(d < 0.06 && std::abs(inkR - ink) < 0.25 * ink + 0.005, "ink relief: at a third of the size the picture is the same one, softer (tier " + juce::String(tier)
+                                                                          + ", " + juce::String(1000.0 * d, 1) + " per mille apart)");
+        pictureCheck(std::abs(back.darkShare() - ink) < 0.35 * ink + 0.005, "ink relief: taken back, the plain picture returns (tier " + juce::String(tier) + ")");
+    }
+}
+#endif
+
 inline void testInk()
 {
     std::printf("[ink] the ink creature: flow, anatomy, pictures, the ink buffer, the cloud and the rift\n");
@@ -3471,5 +3583,11 @@ inline void testInk()
         testInkCloudAndRift();
     if (wanted("evolution"))
         testInkEvolution();
+    if (wanted("scrolls"))
+        testInkScrollWraps();
+    if (wanted("relief"))
+        testInkRelief();
    #endif
+    std::printf("  ink picture checks: %d gated, %d reported only (%d of those a no)%s\n", InkPictureChecks::gated(), InkPictureChecks::reported(),
+                InkPictureChecks::reportedNo(), InkPictureChecks::gated() == 0 ? "; the pictures were NOT checked on this machine" : "");
 }

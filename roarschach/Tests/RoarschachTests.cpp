@@ -3176,6 +3176,24 @@ namespace
             auto& view = RoarschachEditorInspector::monster(ed);
             view.showFallbackForTests();
             const auto image = view.createComponentSnapshot(view.getLocalBounds(), true, 1.0f);
+            {
+                // With no native context at all the view lets go of OpenGL: attached, the component is
+                // drawn through the context's cached image and its own paint() is never reached.
+                auto q2 = makeProcessor(48000.0, 512);
+                std::unique_ptr<juce::AudioProcessorEditor> base2(q2->createEditor());
+                auto& ed2 = *dynamic_cast<RoarschachAudioProcessorEditor*>(base2.get());
+                ed2.setSize(RoarschachAudioProcessorEditor::c_baseWidth, RoarschachAudioProcessorEditor::c_baseHeight);
+                auto& view2 = RoarschachEditorInspector::monster(ed2);
+                view2.giveUpOnGLForTests();
+                const auto fallback = view2.createComponentSnapshot(view2.getLocalBounds(), true, 1.0f);
+                double sum = 0.0;
+                int n = 0;
+                for (int y = 0; y < fallback.getHeight(); y += 4)
+                    for (int x = 0; x < fallback.getWidth(); x += 4, ++n)
+                        sum += static_cast<double>(fallback.getPixelAt(x, y).getBrightness());
+                check(! view2.isGLAttachedForTests(), "creature view: with no OpenGL context to be had it lets go of the context");
+                check(n > 0 && sum / n > 0.5, "creature view: and then paints its still cloud itself (mean brightness " + juce::String(n > 0 ? sum / n : 0.0, 2) + ")");
+            }
             const auto keepDir = juce::SystemStats::getEnvironmentVariable("ROARSCHACH_INK_KEEP", {});
             if (keepDir.isNotEmpty())
                 savePng(image, juce::File(keepDir).getChildFile("no-opengl-view.png"));
@@ -6536,6 +6554,92 @@ namespace
             for (int i = 0; i < 3000; ++i) u.step(T, T, 0.5f, false);
             check(u.tier == 2, "governor: no upgrade once locked");
 
+            // Relief at the floor: a GPU still slow on tier 1 draws its composite smaller, then fewer
+            // frames; relief is taken back a step at a time once it is fast again.
+            {
+                QualityGovernor f;
+                f.reset(3);
+                warm(f);
+                for (int i = 0; i < 400 && f.tier > 1; ++i) f.step(T, T, 6.0f, false);
+                check(f.tier == 1 && f.relief == 0 && f.lowDivisor() == 2 && f.awakeHz() == 30, "governor: on its lowest tier a GPU starts with no relief");
+                int frames = 0;
+                while (f.relief == 0 && frames < 2000) { f.step(T, T, 6.0f, false); ++frames; }
+                check(f.relief == 1 && f.tier == 1 && f.lowDivisor() == 3 && f.awakeHz() == 30 && frames >= 60,
+                      "governor: still slow on tier 1, the composite is drawn at a third (" + juce::String(frames) + " frames)");
+                for (int i = 0; i < 600; ++i) f.step(T, T, 6.0f, false);
+                check(f.relief == 2 && f.awakeHz() == 20 && f.tier == 1, "governor: still slow, 20 frames a second (relief " + juce::String(f.relief) + ")");
+                for (int i = 0; i < 1500; ++i) f.step(1.0f / 20.0f, 1.0f / 20.0f, 6.0f, false);
+                check(f.relief == 2, "governor: 15 frames a second only where a frame costs over 8 ms (relief " + juce::String(f.relief) + " at 6 ms)");
+                for (int i = 0; i < 600; ++i) f.step(1.0f / 20.0f, 1.0f / 20.0f, 12.0f, false);
+                check(f.relief == 3 && f.awakeHz() == 15 && f.tier == 1, "governor: far over budget on tier 1, 15 frames a second (relief " + juce::String(f.relief) + ")");
+                for (int i = 0; i < 3000; ++i) f.step(1.0f / 15.0f, 1.0f / 15.0f, 12.0f, false);
+                check(f.relief == 3 && f.tier == 1, "governor: relief ends at 15 frames a second on tier 1");
+                // fast again: one step back at a time, each after the 30 s and 300 fast frames; then the tiers
+                int steps = 0, lastRelief = f.relief;
+                bool oneAtATime = true, reliefFirst = true;
+                for (int i = 0; i < 12000 && f.tier < 3; ++i)
+                {
+                    const int tierBefore = f.tier;
+                    f.step(T, T, 0.6f, false);
+                    if (f.relief != lastRelief)
+                    {
+                        oneAtATime = oneAtATime && f.relief == lastRelief - 1;
+                        lastRelief = f.relief;
+                        ++steps;
+                    }
+                    reliefFirst = reliefFirst && (f.tier == tierBefore || f.relief == 0);
+                }
+                check(steps == 3 && oneAtATime && reliefFirst && f.relief == 0 && f.tier == 3,
+                      "governor: fast again, relief is taken back a step at a time and then the tiers are climbed (relief " + juce::String(f.relief) + ", tier " + juce::String(f.tier) + ")");
+
+                // the single pass (all a GPU without the buffer has) is judged from the frame interval
+                QualityGovernor s;
+                s.reset(0);
+                warm(s);
+                for (int i = 0; i < 2000 && s.relief < 2; ++i) s.step(2.0f * T, T, -1.0f, false);
+                check(s.tier == 0 && s.relief == 2, "governor: a slow single pass is given relief from the frame interval (relief " + juce::String(s.relief) + ")");
+                for (int i = 0; i < 600; ++i) s.step(1.0f / 20.0f, 1.0f / 20.0f, 9.0f, false);
+                check(s.tier == 0 && s.relief == 2, "governor: frames on time at 20 a second are not slowed again");
+                QualityGovernor busy1;
+                busy1.reset(1);
+                warm(busy1);
+                for (int i = 0; i < 600; ++i) busy1.step(0.048f, T, 1.0f, false);
+                check(busy1.relief == 0, "governor: slow intervals with a fast GPU timer bring no relief");
+            }
+            // A lock on upgrades belongs to the size of view it was measured at.
+            {
+                QualityGovernor l;
+                l.reset(3);
+                const double large = 7200.0 * 2000.0, small = 1728.0 * 480.0;
+                const auto run = [&l, T](int frames, float ms, double px) { for (int i = 0; i < frames; ++i) { l.noteLoad(px); l.step(T, T, ms, false); } };
+                run(70, -1.0f, large);
+                run(200, 6.0f, large);                                    // down to 2
+                for (int i = 0; i < 3000 && l.tier < 3; ++i) run(1, 1.0f, large);   // back up to 3
+                run(60, 8.0f, large);                                     // slow right after: reverts, locks
+                check(l.tier == 2 && l.upgradesLocked && l.lockPixels == large, "governor: the lock remembers the size of view it was set at");
+                run(3000, 0.6f, large);
+                check(l.tier == 2 && l.upgradesLocked, "governor: at that size the lock holds");
+                run(1, 0.6f, 0.8 * large);
+                check(l.upgradesLocked, "governor: a view a little smaller keeps the lock");
+                run(1, 0.6f, small);
+                check(! l.upgradesLocked, "governor: a much smaller view drops the lock");
+                run(1500, 0.6f, small);
+                check(l.tier == 3, "governor: and climbs again on fast readings (tier " + juce::String(l.tier) + ")");
+
+                // a remembered tier from a much larger view is not resumed on a small one
+                QualityGovernor m;
+                m.resume(3, 1, true, large, 2);
+                check(m.tier == 1 && m.upgradesLocked && m.relief == 2, "governor: resumes the settled tier, its lock and its relief");
+                const int changesBefore = m.changes;
+                m.noteLoad(small);
+                check(m.tier == 3 && ! m.upgradesLocked && m.relief == 0 && m.changes == changesBefore + 1,
+                      "governor: a view much smaller than the one remembered starts from the top (tier " + juce::String(m.tier) + ")");
+                QualityGovernor m2;
+                m2.resume(3, 1, true, large, 0);
+                m2.noteLoad(0.9 * large);
+                check(m2.tier == 1 && m2.upgradesLocked, "governor: a view of about the remembered size resumes where it settled");
+            }
+
             QualityGovernor z;
             z.reset(3);
             warm(z);
@@ -6563,7 +6667,15 @@ namespace
                       && QualityGovernor::startTierFor("AMD Radeon Pro 5500M OpenGL Engine", "ATI Technologies Inc.") == 3
                       && QualityGovernor::startTierFor("AMD Radeon RX 6800 XT", "ATI Technologies Inc.") == 3,
                   "governor: integrated and entry-level AMD parts start lower");
-            check(QualityGovernor::startTierFor("Apple M1", "Apple") == 3 && QualityGovernor::startTierFor("NVIDIA GeForce RTX 3060", "NVIDIA Corporation") == 3
+            // (the base Apple parts and a virtual machine's device start a tier under the Pro, Max and
+            // Ultra ones: only an Ultra has been measured, and at the largest editor size its top tier
+            // costs 1.65 ms, which a part with a tenth of its GPU does not have to spare)
+            check(QualityGovernor::startTierFor("Apple M1", "Apple") == 2 && QualityGovernor::startTierFor("Apple M4", "Apple") == 2
+                      && QualityGovernor::startTierFor("Apple Paravirtual device", "Apple") == 2
+                      && QualityGovernor::startTierFor("Apple M1 Pro", "Apple") == 3 && QualityGovernor::startTierFor("Apple M2 Max", "Apple") == 3
+                      && QualityGovernor::startTierFor("Apple M3 Ultra", "Apple") == 3 && QualityGovernor::startTierFor("Apple Software Renderer", "Apple") == 0,
+                  "governor: the base Apple parts start a tier under the Pro, Max and Ultra ones");
+            check(QualityGovernor::startTierFor("NVIDIA GeForce RTX 3060", "NVIDIA Corporation") == 3
                       && QualityGovernor::startTierFor("Intel(R) Iris(R) Xe Graphics", "Intel") == 2
                       && QualityGovernor::startTierFor("Intel(R) UHD Graphics 620", "Intel") == 1
                       && QualityGovernor::startTierFor("llvmpipe (LLVM 15.0.7, 256 bits)", "Mesa") == 0
@@ -7207,17 +7319,17 @@ namespace
                 bufferCheck(finite, "renderer: the ink buffer stays finite across tier changes" + tag);
                 const double before = meanLuma();
 
-                std::vector<unsigned int> tex, fbos, progs, bufs;
-                r.collectObjectIds(tex, fbos, progs, bufs);
+                // (each kind asked after with its own query: the timer queries and the vertex array too.
+                // Before the release the context must know them all, or the check after it proves
+                // nothing; a timer query's name is only known once it has timed a frame)
+                const InkGlObjects held(r);
+                const int known = held.alive();
                 r.release();
-                int alive = 0;
-                for (auto id : tex) alive += glIsTexture(id) ? 1 : 0;
-                for (auto id : fbos) alive += glIsFramebuffer(id) ? 1 : 0;
-                for (auto id : progs) alive += glIsProgram(id) ? 1 : 0;
-                for (auto id : bufs) alive += glIsBuffer(id) ? 1 : 0;
-                std::vector<unsigned int> after;
-                r.collectObjectIds(after, after, after, after);
-                check(! tex.empty() && alive == 0 && after.empty(), "renderer: release deletes every GL object and zeroes the ids (" + juce::String(alive) + " left)" + tag);
+                const int alive = held.alive();
+                const InkGlObjects after(r);
+                check(! held.ids.textures.empty() && held.complete(core) && known >= held.total() - static_cast<int>(held.ids.queries.size()) && alive == 0 && after.total() == 0,
+                      "renderer: release deletes every GL object and zeroes the ids (" + juce::String(known) + " of " + juce::String(held.total())
+                      + " known before, " + juce::String(alive) + " left)" + tag);
 
                 // A context loss and back: the first frame is a full one, not an empty grid.
                 r.create(core, static_cast<float>(W) / H, logo.rgba, LogoSdf::c_size, noise.rgba, noise.size);

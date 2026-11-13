@@ -20,7 +20,7 @@ namespace roar
     // (prepare() turns them into the ones the shaders read).
     #define ROAR_FRAME_UNIFORMS(X) \
         X (uRes, 2, 1) X (uPxScale, 1, 1) X (uRadius, 1, 1) X (uJaw, 1, 1) X (uGrowl, 1, 1) \
-        X (uGrowlMod, 1, 1) X (uLiquid, 1, 1) X (uLiquidPhase, 1, 1) X (uRoar, 1, 1) X (uRoarDrive, 1, 1) \
+        X (uGrowlMod, 1, 1) X (uLiquid, 1, 1) X (uRoar, 1, 1) X (uRoarDrive, 1, 1) \
         X (uSub, 1, 1) X (uSubLevel, 1, 1) X (uSubPhase, 1, 1) X (uPitch, 1, 1) X (uSize, 1, 1) X (uGravelOn, 1, 1) \
         X (uDetailLow, 1, 1) X (uDetailHigh, 1, 1) X (uSleep, 1, 1) \
         X (uLevel, 1, 1) X (uBands, 1, 32) X (uSwirlNotch, 1, 1) X (uSwirlAmt, 1, 1) X (uEnsWidth, 1, 1) \
@@ -28,7 +28,7 @@ namespace roar
         X (uOvReplace, 1, 1) X (uRing, 1, 1) X (uRingFlicker, 1, 1) X (uRingBody, 1, 1) X (uStrain, 1, 1) \
         X (uColOuter, 3, 1) X (uColCloudLit, 3, 1) \
         X (uStage, 1, 1) X (uEvoChar, 4, 1) X (uEgg, 1, 1) X (uLogoBox, 4, 1) \
-        X (uHead, 4, 1) X (uLip, 1, 1) X (uJawVel, 1, 1) X (uRoarHold, 1, 1) X (uAspect, 1, 1) \
+        X (uHead, 4, 1) X (uLip, 1, 1) X (uJawVel, 1, 1) X (uAspect, 1, 1) \
         X (uAtmoTint, 3, 1) X (uMood, 4, 1) \
         X (uBlob, 4, 8) X (uBlobR, 4, 8) X (uLimbA, 4, 6) X (uLimbB, 4, 6) X (uMaw, 4, 1) X (uBay, 4, 2) \
         X (uFlowK, 4, 1) X (uFlowO, 4, 1) X (uFlowC, 4, 1) X (uCarry, 4, 1) X (uInkF, 4, 1) X (uInkO, 4, 1) \
@@ -97,8 +97,9 @@ namespace roar
     /**
      * The creature view's renderer: the ink creature. On tiers 1 to 3 a half-domain ink buffer
      * (held ink, free pigment, marbling, breath) is stepped by the pigment rule and drawn with the
-     * lit cloud round it; on tier 0 (software and virtual GPUs, or a GPU too slow for the buffer) one
-     * stateless pass draws the same creature from the same shared shader block. No Component
+     * lit cloud round it; on tier 0 (software and virtual GPUs, and any context without what the
+     * buffer needs: measured cost never sends a GPU there) one stateless pass draws the same
+     * creature from the same shared shader block. No Component
      * dependency, so the offline harness drives it directly.
      *
      * GL thread only. create() in newOpenGLContextCreated (programs, the buffer, probe), render() per
@@ -189,10 +190,32 @@ namespace roar
         void setPassTimer (PassTimer* t) { m_passTimer = t; }
         const Stats& getStats() const { return m_stats; }
         const QualityGovernor& getGovernor() const { return m_governor; }
+        /** Tests: the governor itself (to script its readings). */
+        QualityGovernor& governorForTests() { return m_governor; }
+        /** Relief on the lowest tier (see QualityGovernor): none while a test holds a tier, unless a
+            test holds the relief too (-1: the governor's). */
+        void setForcedRelief (int relief) { m_forcedRelief = relief; }
+        int reliefNow() const { return m_forcedRelief >= 0 ? m_forcedRelief : (m_forcedTier >= 0 ? 0 : m_governor.relief); }
+        /** The lowest tier's draw is at 1 / this of the view's size. */
+        int lowDivisor() const { return reliefNow() >= 1 ? 3 : 2; }
+        /** Frames a second the view should ask for awake (30, or fewer in relief). */
+        int awakeHz() const { const int r = reliefNow(); return r >= 3 ? 15 : r == 2 ? 20 : 30; }
+        /** Tests: what this process remembers of each GPU's settled tier is forgotten. */
+        static void forgetTiersForTests();
 
-        /** Tests (allocates): every GL object this renderer holds. */
-        void collectObjectIds (std::vector<unsigned int>& textures, std::vector<unsigned int>& framebuffers,
-                               std::vector<unsigned int>& programs, std::vector<unsigned int>& buffers) const;
+        /** Tests: the slow scrolls moved on as this many seconds would move them (at rest). */
+        void advanceInkScrollsForTests (double seconds);
+        /** Tests: seconds (at rest) until this slow scroll next wraps; inkScrollCount of them. */
+        double inkScrollWrapInForTests (int index) const;
+        static constexpr int inkScrollCount = 13;
+
+        /** Tests (allocates): every GL object this renderer holds, each kind in its own list. */
+        struct ObjectIds
+        {
+            std::vector<unsigned int> textures, framebuffers, programs, buffers, queries, vertexArrays;
+            bool timers = false;   // it has timer queries (then queries is not empty)
+        };
+        void collectObjectIds (ObjectIds&) const;
 
         /** Harness only (allocates): the active rectangle of a target as RGBA floats, rows bottom up. */
         bool readTarget (Target, std::vector<float>& rgba, int& w, int& h);
@@ -217,6 +240,9 @@ namespace roar
             std::uint32_t uploaded = 0xffffffffu;
         };
 
+        static double inkScrollRate (int index, double eddyPace, double jet);
+        static double inkScrollPeriod (int index);
+        void stepInkScrolls (double dt, double eddyPace, double jet);
         bool buildProgram (shaders::Program, Prog&);
         void prepareInk (MonsterFrame&);
         const CreatureAnatomy::Genome& genomeFor (std::uint32_t seed, std::uint32_t keep);
@@ -231,9 +257,8 @@ namespace roar
         void setR (R, float a, float b, float c, float d);
         void setScale (R, const Tex&, int activeW, int activeH);
         void draw (const Tex* dst, int w, int h, const char* passName);
-        void freeBuffers();
         void rememberTier();
-        void drawSinglePass (const MonsterFrame&, unsigned int hostFbo, const int vp[4], float alpha);
+        void drawSinglePass (const MonsterFrame&, unsigned int hostFbo, const int vp[4]);
         // the ink creature's buffer (tiers 1 to 3)
         static int inkWidthFor (int tier) { return tier >= 3 ? 512 : (tier == 2 ? 384 : 256); }
         bool allocInk (int tier);
@@ -243,9 +268,9 @@ namespace roar
         void inkStep (const MonsterFrame&, float dt, bool fresh);
         void inkResample (int toTier);
         void inkBudgetRead();
-        void ensureInkWindowTargets (int w, int h, float dt);
-        void renderInkTier (const MonsterFrame&, int tier, bool fading, unsigned int hostFbo, const int vp[4]);
-        bool ensureQ0Target (int w, int h);
+        void ensureInkWindowTargets (int w, int h, float dt, int div);
+        void renderInkTier (const MonsterFrame&, int tier, unsigned int hostFbo, const int vp[4]);
+        bool ensureQ0Target (int w, int h, int div);
         void readTimers();
 
         bool m_created = false, m_core = true, m_simOk = false;   // (m_simOk: the buffer's tiers can run here)
@@ -260,8 +285,8 @@ namespace roar
         CreatureAnatomy::Pose m_inkPose;
         CreatureFlow::Params m_inkFlow;
         InkState m_inkState;
-        double m_inkPhase[10] {};    // the eddies', the clouds' and the breath's slow scrolls (wrapped)
-        double m_inkClock = 0.0;
+        static constexpr int c_inkScrolls = 13;
+        double m_inkPhase[c_inkScrolls] {};   // the slow scrolls (see stepInkScrolls): each wrapped at its own period
         Tex m_inkBuf[2];             // the ink buffer's ping-pong pair (half the view, with its mips)
         unsigned int m_inkPbo = 0;   // the budget's read comes back through this, frames later
         int m_inkCur = 0, m_inkTopLevel = 0, m_inkTopW = 1, m_inkTopH = 1;
@@ -299,19 +324,18 @@ namespace roar
         std::array<Prog, (size_t) shaders::Program::numPrograms> m_progs {};
         Prog* m_cur = nullptr;
         unsigned int m_vbo = 0, m_vao = 0, m_logoTex = 0, m_noiseTex = 0;
-        Tex m_half, m_fade;          // the half-size composite (tier 1) and the tier crossfade's kept frame
-        Tex m_q0;                    // the single pass at half resolution (grown, never shrunk; RGBA8)
+        Tex m_half, m_fade;          // the half-size composite (tier 1; a third in relief) and the tier crossfade's kept frame
+        Tex m_q0;                    // the single pass at half resolution, or a third (grown, never shrunk; RGBA8)
         bool m_q0HalfFailed = false; // no half-resolution target here: the single pass draws at full size
-        int m_winW = 0, m_winH = 0, m_pendW = 0, m_pendH = 0;
+        int m_winW = 0, m_winH = 0, m_pendW = 0, m_pendH = 0, m_halfDiv = 2;
+        int m_forcedRelief = -1;
         float m_pendSeconds = 0.0f;
         bool m_needsSeed = true;
         int m_tier = 0, m_prevTier = -1, m_forcedTier = -1, m_capTier = 3;
         bool m_fixedStep = false;
-        float m_fadeQ0 = -1.0f;      // >= 0: crossfading into the single pass (seconds into it)
-        bool m_tierCapture = false;  // the old tier drew once more and was kept, for the crossfade
+        bool m_tierCapture = false;  // the tier being left drew once more and was kept, for the crossfade
         float m_tierFade = -1.0f;    // >= 0: crossfading from the kept frame (seconds into it)
         bool m_fadeUnsupported = false;  // the crossfade blit failed once: tier changes switch outright
-        bool m_buffersFreed = false; // settled on the single pass: the buffer's textures are given back
         char m_rendererKey[128] {};  // GL_RENDERER + GL_VENDOR (the settled tier is remembered per GPU)
         float m_freshGpuMs = -1.0f;  // a timer reading that arrived this frame (-1 = none)
         std::uint32_t m_frame = 0;

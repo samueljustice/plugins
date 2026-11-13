@@ -83,7 +83,7 @@ uniform vec4 uModA;      // DETAIL: broad scallops, hairline fringe; VOCODER: cl
 uniform vec4 uModB;      // RING: depth, phase, ripples per view height; GROWL: depth
 uniform vec4 uModC;      // GROWL: phase; ENSEMBLE: the echoes' spacing; SHIMMER: beads, their phase
 uniform vec4 uModD;      // OVERTONE: the core's thinning; DE-ESS: spray; SUB: the pool under the body; the trace budget's scale
-uniform vec4 uModE;      // CLEAN: tidiness; spare
+uniform vec4 uModE;      // CLEAN: tidiness; the spines' sway (a phase); spare
 uniform vec4 uChamber;   // CHAMBER: the room's ringing, its walls, the bands' phase, the shadow's length
 uniform vec4 uSpine[5];  // OVERTONE: each spine's root xy, length, lean
 // the maker's mark, hidden: now and then the ink gathers into it
@@ -268,7 +268,7 @@ float spineDist (vec2 m)
             vec2 l = m - s.xy - vec2 (0.022 * fk, 0.0);
             float along = clamp (dot (l, dir) / max (len, 1.0e-3), 0.0, 1.0);
             // (swaying with the slow scroll, each its own way)
-            vec2 bend = vec2 (dir.y, -dir.x) * (0.10 * along * along * len) * sin (uInkO.z * 40.0 + float (i) * 1.7 + 2.1 * fk);
+            vec2 bend = vec2 (dir.y, -dir.x) * (0.10 * along * along * len) * sin (uModE.y + float (i) * 1.7 + 2.1 * fk);
             float e = length (l - dir * along * len + bend) - mix (0.008, 0.0015, along) + (s.z < 0.012 ? 1.0 : 0.0);
             d = min (d, e);
         }

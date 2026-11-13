@@ -661,6 +661,10 @@ void RoarschachAudioProcessor::setStateInformation(const void* data, int sizeInB
                              nullptr);
 
     m_presetManager.restoreState(presetInfo, [this, &tree] { m_parameters.replaceState(tree); });
+    // (again, now that the preset's name is the loaded one: a creature tick that ran on another
+    // thread while the state was being read spent the first on the name before it, and the blot
+    // of the loaded preset is shown at once, never glided to)
+    m_creaturePresetSnap.store(true);
 }
 
 bool RoarschachAudioProcessor::getViewOption(const juce::Identifier& option, bool defaultValue) const

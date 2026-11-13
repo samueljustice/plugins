@@ -14,16 +14,17 @@ namespace roar
 
     namespace
     {
-        // The tier each GPU settled on, for this process: a reopened editor (or a recreated context)
-        // starts there instead of at the top, and keeps an upgrade lock-out. Fixed storage, so the
-        // GL thread never allocates for it.
+        // The tier each GPU settled on, for this process, with the size of the view it settled at: a
+        // reopened editor (or a recreated context) of about that size or larger starts there instead
+        // of at the top, and keeps an upgrade lock-out and any relief. Fixed storage, so the GL
+        // thread never allocates for it.
         struct TierMemory
         {
-            struct Entry { char key[128] {}; int tier = -1; bool locked = false; };
+            struct Entry { char key[128] {}; int tier = -1; bool locked = false; double pixels = 0.0; int relief = 0; };
             static std::mutex& lock() { static std::mutex m; return m; }
             static std::array<Entry, 4>& entries() { static std::array<Entry, 4> e; return e; }
 
-            static bool recall (const char* key, int& tier, bool& locked)
+            static bool recall (const char* key, int& tier, bool& locked, double& pixels, int& relief)
             {
                 const std::lock_guard<std::mutex> g (lock());
                 for (auto& e : entries())
@@ -31,12 +32,14 @@ namespace roar
                     {
                         tier = e.tier;
                         locked = e.locked;
+                        pixels = e.pixels;
+                        relief = e.relief;
                         return true;
                     }
                 return false;
             }
 
-            static void store (const char* key, int tier, bool locked)
+            static void store (const char* key, int tier, bool locked, double pixels, int relief)
             {
                 const std::lock_guard<std::mutex> g (lock());
                 Entry* slot = nullptr;
@@ -52,6 +55,8 @@ namespace roar
                 std::snprintf (slot->key, sizeof (slot->key), "%s", key);
                 slot->tier = tier;
                 slot->locked = locked;
+                slot->pixels = pixels;
+                slot->relief = relief;
             }
         };
 
@@ -382,10 +387,11 @@ namespace roar
         // the governor starts where it settled last time on this GPU (this process), not at the top again
         std::snprintf (m_rendererKey, sizeof (m_rendererKey), "%s|%s", renderer != nullptr ? renderer : "", vendor != nullptr ? vendor : "");
         {
-            int settled = -1;
+            int settled = -1, relief = 0;
             bool locked = false;
-            if (TierMemory::recall (m_rendererKey, settled, locked))
-                m_governor.resume (m_capTier, settled, locked);
+            double pixels = 0.0;
+            if (TierMemory::recall (m_rendererKey, settled, locked, pixels, relief))
+                m_governor.resume (m_capTier, settled, locked, pixels, relief);
             else
                 m_governor.reset (m_capTier);
         }
@@ -397,37 +403,30 @@ namespace roar
             m_capTier = m_tier = 0;
         }
         glBindFramebuffer (GL_FRAMEBUFFER, m_hostFbo);
-        m_fadeUnsupported = m_buffersFreed = false;
+        m_fadeUnsupported = false;
         m_prevTier = -1;
         m_needsSeed = true;
-        m_fadeQ0 = m_tierFade = -1.0f;
+        m_tierFade = -1.0f;
         m_tierCapture = false;
-        if (m_tier == 0 && m_capTier > 0)
-            m_fadeQ0 = 0.5f;   // (settled on the single pass last time: no crossfade, the buffer's memory goes back)
         m_stats.startTier = m_capTier;
         m_stats.compileMs = std::chrono::duration<double, std::milli> (std::chrono::steady_clock::now() - t0).count();
         m_created = true;
         return true;
     }
 
-    // Settled on the single pass: the ink buffer and the window-sized targets go back to the driver
-    // (they are made again, and the buffer filled afresh, if the governor ever climbs back out).
-    void MonsterRenderer::freeBuffers()
-    {
-        for (auto* t : { &m_half, &m_fade })
-            freeTex (*t);
-        freeInk();
-        m_winW = m_winH = m_pendW = m_pendH = 0;
-        m_tierFade = -1.0f;
-        m_tierCapture = false;
-        m_prevTier = -1;
-        m_buffersFreed = true;
-    }
-
     void MonsterRenderer::rememberTier()
     {
+        // (the lock with the size of the view it was set at, or it would hold a smaller view down)
         if (m_created && m_forcedTier < 0 && m_rendererKey[0] != 0)
-            TierMemory::store (m_rendererKey, m_governor.tier, m_governor.upgradesLocked);
+            TierMemory::store (m_rendererKey, m_governor.tier, m_governor.upgradesLocked,
+                               m_governor.upgradesLocked && m_governor.lockPixels > 0.0 ? m_governor.lockPixels : m_governor.pixels, m_governor.relief);
+    }
+
+    void MonsterRenderer::forgetTiersForTests()
+    {
+        const std::lock_guard<std::mutex> g (TierMemory::lock());
+        for (auto& e : TierMemory::entries())
+            e = TierMemory::Entry();
     }
 
     void MonsterRenderer::release()
@@ -459,10 +458,10 @@ namespace roar
         m_created = m_simOk = false;
         m_needsSeed = true;
         m_cur = nullptr;
-        m_fadeQ0 = m_tierFade = -1.0f;   // (a crossfade never outlives its textures)
+        m_tierFade = -1.0f;   // (a crossfade never outlives its textures)
         m_tierCapture = false;
         m_prevTier = -1;
-        m_fadeUnsupported = m_buffersFreed = false;
+        m_fadeUnsupported = false;
     }
 
     //==============================================================================================
@@ -485,6 +484,50 @@ namespace roar
         }
 
         prepareInk (f);
+    }
+
+    // The slow scrolls. Each is kept inside one period and wraps where every use the shaders make of
+    // it has come round whole: the noise repeats once a tile, so a scroll the shaders multiply (by
+    // 0.7, 0.55, 0.6, 1.7 and their products for the clouds' drifts; by 0.5 and 0.3 for the carry's
+    // patches) wraps only after as many tiles as make every one of those a whole number, and the
+    // phases that go into a sine wrap at a whole turn. Wrapped at one tile, each wrap moved those
+    // lookups by a part of a tile and the cloud jumped in a single frame.
+    double MonsterRenderer::inkScrollRate (int i, double k, double jet)
+    {
+        static constexpr double rates[c_inkScrolls] = { 0.011, 0.017, -0.016, 0.009,      // the eddies (times their pace)
+                                                         0.006, 0.002, -0.009, 0.004,     // the far cloud's drift xy, the near cloud's
+                                                         0.004,                            // the carry's patches
+                                                         0.04,                             // the breath rises (faster with its jet)
+                                                         0.31, 0.17,                       // the rift's light: its two slow turns
+                                                         0.16 };                           // the spines' sway
+        return i < 4 ? rates[i] * k : i == 9 ? rates[i] + 0.10 * jet : rates[i];
+    }
+
+    double MonsterRenderer::inkScrollPeriod (int i)
+    {
+        constexpr double turn = 6.283185307179586;
+        return i < 4 ? 1.0 : i < 8 ? 200.0 : i == 8 ? 10.0 : i == 9 ? 1.0 : turn;
+    }
+
+    void MonsterRenderer::stepInkScrolls (double dt, double k, double jet)
+    {
+        for (int i = 0; i < c_inkScrolls; ++i)
+        {
+            const double period = inkScrollPeriod (i);
+            double p = std::fmod (m_inkPhase[i] + inkScrollRate (i, k, jet) * dt, period);
+            m_inkPhase[i] = p < 0.0 ? p + period : p;
+        }
+    }
+
+    void MonsterRenderer::advanceInkScrollsForTests (double seconds)
+    {
+        stepInkScrolls (seconds, 0.52, 0.0);
+    }
+
+    double MonsterRenderer::inkScrollWrapInForTests (int i) const
+    {
+        const double rate = inkScrollRate (i, 0.52, 0.0), period = inkScrollPeriod (i);
+        return rate > 0.0 ? (period - m_inkPhase[i]) / rate : m_inkPhase[i] / -rate;
     }
 
     // A seed's genome, from the two kept (the blot and the one it glides to); made when a new seed
@@ -736,7 +779,7 @@ namespace roar
             f.set (U::uModC, (float) m_inkModPhase[1], ens > 0.0f ? 0.05f + 0.11f * ens : 0.0f, shimmer * F0, (float) m_inkModPhase[2]);
             f.set (U::uModD, ovLevel * clamp01 (f.get (U::uOvReplace)), deess * F0, subAmt * F0, tk);
             // CLEAN: tidiness, the fray at the edge pulled back
-            f.set (U::uModE, m_inkTidy * eggOff, 0.0f, 0.0f, 0.0f);
+            f.set (U::uModE, m_inkTidy * eggOff, (float) m_inkPhase[12], 0.0f, 0.0f);
             // OVERTONE: the spines' roots are found on the pose, across the top of the body
             const float* harm = f.at (U::uOvHarm);
             for (int i = 0; i < 5; ++i)
@@ -806,20 +849,10 @@ namespace roar
         fl.vortexY = std::min (pose.centreY, pose.maw[0]) - 0.12f;
         const double k = 0.42 + 0.10 * (double) fl.gain / (double) (CreatureFlow::c_restGain * std::max (0.5f, pose.look.flow));
         const auto scroll = [dt] (double& phase, double rate) { phase = phase + rate * (double) dt; phase -= std::floor (phase); };
-        scroll (m_inkPhase[0], 0.011 * k);
-        scroll (m_inkPhase[1], 0.017 * k);
-        scroll (m_inkPhase[2], -0.016 * k);
-        scroll (m_inkPhase[3], 0.009 * k);
-        scroll (m_inkPhase[4], 0.006);     // the far cloud's drift
-        scroll (m_inkPhase[5], 0.002);
-        scroll (m_inkPhase[6], -0.009);    // the near cloud's
-        scroll (m_inkPhase[7], 0.004);
-        scroll (m_inkPhase[8], 0.004);     // the carry's patches
         // (the jaw's speed is uneven frame to frame: the breath follows it over a fifth of a second)
         m_inkJet += (clamp01 (0.7f * heat + 0.5f * std::abs (f.get (U::uJawVel))) - m_inkJet) * (1.0f - std::exp (-dt / 0.2f));
         const float jet = clamp01 (m_inkJet);
-        scroll (m_inkPhase[9], 0.04 + 0.10 * (double) jet);   // the breath rises
-        m_inkClock = std::fmod (m_inkClock + (double) dt, 4096.0);
+        stepInkScrolls ((double) dt, k, (double) jet);
         fl.o1x = (float) m_inkPhase[0] + pose.look.ox;
         fl.o1y = (float) m_inkPhase[1] + pose.look.oy;
         fl.o2x = (float) m_inkPhase[2] + pose.look.oy + 0.37f;
@@ -859,9 +892,9 @@ namespace roar
         }
 
         // ---- the rift's light: by seed and by moment, from a dark tear to drifting lit breath
-        const float t = (float) m_inkClock, ph = pose.look.ox * 40.0f;
+        const float ph = pose.look.ox * 40.0f;
         const float moment = m_inkMoment >= 0.0f ? clamp01 (m_inkMoment)
-                                                 : smooth (-0.12f, 0.30f, std::sin (t * 0.31f + ph) * std::cos (t * 0.17f + 1.3f * ph));
+                                                 : smooth (-0.12f, 0.30f, std::sin ((float) m_inkPhase[10] + ph) * std::cos ((float) m_inkPhase[11] + 1.3f * ph));
         const float light = m_inkLight >= 0.0f ? clamp01 (m_inkLight) : pose.look.glow * moment * (0.35f + 0.65f * swell);
         f.set (U::uBreath, light * awake, jet, (float) m_inkPhase[9], level);
 
@@ -1038,11 +1071,11 @@ namespace roar
     //==============================================================================================
     // The single pass's half-resolution target: grown to fit, never shrunk (a live resize must not
     // reallocate every frame; the active rectangle is the frame's own size).
-    bool MonsterRenderer::ensureQ0Target (int w, int h)
+    bool MonsterRenderer::ensureQ0Target (int w, int h, int div)
     {
         if (m_q0HalfFailed)
             return false;
-        const int hw = std::max (8, (w + 1) / 2), hh = std::max (8, (h + 1) / 2);
+        const int hw = std::max (8, (w + div - 1) / div), hh = std::max (8, (h + div - 1) / div);
         if (m_q0.fbo != 0 && hw <= m_q0.w && hh <= m_q0.h)
             return true;
         if (! makeTex (m_q0, std::max (hw, m_q0.w), std::max (hh, m_q0.h), false))
@@ -1056,11 +1089,13 @@ namespace roar
 
     // The single pass: the heaviest shader per pixel, so it draws at half resolution and is upscaled
     // (as the composite is on tier 1): the fallback tier must never cost more than the tiers above it.
-    // Without a framebuffer object it draws straight to the host at full size.
-    void MonsterRenderer::drawSinglePass (const MonsterFrame& f, unsigned int hostFbo, const int vp[4], float alpha)
+    // (A third in relief: see QualityGovernor.) Without a framebuffer object it draws straight to
+    // the host at full size.
+    void MonsterRenderer::drawSinglePass (const MonsterFrame& f, unsigned int hostFbo, const int vp[4])
     {
-        const bool half = ! isInkFullSize() && ensureQ0Target (vp[2], vp[3]);
-        const int hw = std::max (8, (vp[2] + 1) / 2), hh = std::max (8, (vp[3] + 1) / 2);
+        const int div = lowDivisor();
+        const bool half = (! isInkFullSize() || div > 2) && ensureQ0Target (vp[2], vp[3], div);
+        const int hw = std::max (8, (vp[2] + div - 1) / div), hh = std::max (8, (vp[3] + div - 1) / div);
         const P single = P::singlePass;
         use (single, f);
         bindRaw (S::noise, m_noiseTex);
@@ -1082,17 +1117,6 @@ namespace roar
             glBindFramebuffer (GL_FRAMEBUFFER, hostFbo);
             glViewport (vp[0], vp[1], vp[2], vp[3]);
         }
-        const auto blendOn = [alpha]
-        {
-            if (alpha < 0.999f)
-            {
-                glEnable (GL_BLEND);
-                glBlendColor (0.0f, 0.0f, 0.0f, alpha);
-                glBlendFunc (GL_CONSTANT_ALPHA, GL_ONE_MINUS_CONSTANT_ALPHA);
-            }
-        };
-        if (! half)
-            blendOn();
         if (m_passTimer != nullptr) m_passTimer->begin ("single pass");
         glDrawArrays (GL_TRIANGLE_STRIP, 0, 4);
         if (m_passTimer != nullptr) m_passTimer->end();
@@ -1105,13 +1129,10 @@ namespace roar
             setScale (R::uSrcS, m_q0, hw, hh);
             setR (R::uDither, 1.0f);   // (the upscale smooths the pass's own dither away: the mist would band)
             bind (S::src, m_q0);
-            blendOn();
             m_hostFbo = hostFbo;
             std::copy (vp, vp + 4, m_hostVp);
             draw (nullptr, vp[2], vp[3], "single pass upscale");
         }
-        if (alpha < 0.999f)
-            glDisable (GL_BLEND);
     }
 
     //==============================================================================================
@@ -1274,11 +1295,12 @@ namespace roar
         }
     }
 
-    // The half-size composite's target and the tier crossfade's kept frame (a change of size waits
-    // until it has held for 200 ms, so a live resize does not reallocate every frame).
-    void MonsterRenderer::ensureInkWindowTargets (int w, int h, float dt)
+    // The half-size composite's target (a third in relief) and the tier crossfade's kept frame (a
+    // change of size waits until it has held for 200 ms, so a live resize does not reallocate every
+    // frame).
+    void MonsterRenderer::ensureInkWindowTargets (int w, int h, float dt, int div)
     {
-        if (w == m_winW && h == m_winH)
+        if (w == m_winW && h == m_winH && div == m_halfDiv)
         {
             m_pendSeconds = 0.0f;
             return;
@@ -1290,19 +1312,20 @@ namespace roar
             m_pendSeconds = 0.0f;
         }
         m_pendSeconds += dt;
-        if (m_winW != 0 && m_pendSeconds < 0.2f)
+        if (m_winW != 0 && m_pendSeconds < 0.2f && div == m_halfDiv)
             return;
-        makeTex (m_half, std::max (8, (w + 1) / 2), std::max (8, (h + 1) / 2), false);
+        makeTex (m_half, std::max (8, (w + div - 1) / div), std::max (8, (h + div - 1) / div), false);
         makeTex (m_fade, std::max (8, (w + 1) / 2), std::max (8, (h + 1) / 2), false);
         m_tierFade = -1.0f;
         m_winW = w;
         m_winH = h;
+        m_halfDiv = div;
         m_pendSeconds = 0.0f;
     }
 
     // Tiers 1 to 3 of the ink creature: one step of the buffer, then the composite (at half size and
     // upscaled on tier 1).
-    void MonsterRenderer::renderInkTier (const MonsterFrame& f, int tier, bool fading, unsigned int hostFbo, const int hostViewport[4])
+    void MonsterRenderer::renderInkTier (const MonsterFrame& f, int tier, unsigned int hostFbo, const int hostViewport[4])
     {
         const int W = hostViewport[2], H = hostViewport[3];
         // a change of tier: the tier being left draws once more and is kept, then the new one fades in under it
@@ -1332,7 +1355,7 @@ namespace roar
                 freeInk();
                 m_simOk = false;
                 m_capTier = m_tier = 0;
-                drawSinglePass (f, hostFbo, hostViewport, 1.0f);
+                drawSinglePass (f, hostFbo, hostViewport);
                 return;
             }
         }
@@ -1340,7 +1363,7 @@ namespace roar
             inkResample (tier);
         m_tier = tier;
         m_prevTier = tier;
-        ensureInkWindowTargets (W, H, f.frameDt);
+        ensureInkWindowTargets (W, H, f.frameDt, lowDivisor());
 
         const int qi = m_queryIndex;
         const bool timing = m_timers && m_passTimer == nullptr && ! m_queryPending[(size_t) qi];
@@ -1420,12 +1443,6 @@ namespace roar
             m_tierFade += std::min (0.1f, std::max (1.0f / 120.0f, f.frameDt));
         }
 
-        if (fading)
-        {
-            drawSinglePass (f, hostFbo, hostViewport, std::min (1.0f, m_fadeQ0 / 0.5f));
-            m_fadeQ0 += std::min (0.1f, std::max (0.0f, f.frameDt));
-        }
-
         if (timing)
         {
             glEndQuery (GL_TIME_ELAPSED);
@@ -1488,39 +1505,23 @@ namespace roar
         readTimers();
         const float lastGpu = m_freshGpuMs;   // each reading reaches the governor once
         const int changesBefore = m_governor.changes;
-        int governed = m_governor.step (f.interval, f.targetInterval, lastGpu, f.dtClamped);
+        m_governor.noteLoad ((double) W * (double) H);
+        const int governed = m_governor.step (f.interval, f.targetInterval, lastGpu, f.dtClamped);
         if (m_governor.changes != changesBefore)
             rememberTier();
-        int want = m_forcedTier >= 0 ? std::min (m_forcedTier, m_capTier) : std::min (governed, m_capTier);
+        // (measurement never leaves the buffer's tiers for the single pass, which costs more a pixel
+        // than tier 1: the single pass is drawn where the buffer cannot run at all, and for a test)
+        int tier = m_forcedTier >= 0 ? std::min (m_forcedTier, m_capTier) : std::min (governed, m_capTier);
         if (! m_simOk)
-            want = 0;
-        if (want >= 1 && m_fadeQ0 >= 0.0f)
-        {
-            // back out of the single pass (measured there, not a capability limit): the buffer is made
-            // again (renderInkTier) and filled afresh
-            m_fadeQ0 = -1.0f;
-            m_buffersFreed = false;
-            m_needsSeed = true;
-            m_prevTier = -1;
-        }
-        if (want == 0 && m_tier >= 1 && m_fadeQ0 < 0.0f && m_forcedTier < 0)
-            m_fadeQ0 = 0.0f;   // into the single pass: keep the buffer running under a 0.5 s crossfade
-        const bool fading = m_fadeQ0 >= 0.0f && m_fadeQ0 < 0.5f;
-        int tier = fading ? std::max (1, m_tier) : want;
-        if (m_fadeQ0 >= 0.5f)
-        {
             tier = 0;
-            if (! m_buffersFreed)
-                freeBuffers();
-        }
 
         if (tier == 0)
         {
             m_tier = 0;
-            drawSinglePass (f, hostFbo, hostViewport, 1.0f);
+            drawSinglePass (f, hostFbo, hostViewport);
         }
         else
-            renderInkTier (f, tier, fading, hostFbo, hostViewport);
+            renderInkTier (f, tier, hostFbo, hostViewport);
 
         // restore what JUCE expects
         for (int i = 7; i >= 0; --i)
@@ -1545,22 +1546,24 @@ namespace roar
         m_stats.cpuMs = std::chrono::duration<float, std::milli> (std::chrono::steady_clock::now() - t0).count();
     }
 
-    void MonsterRenderer::collectObjectIds (std::vector<unsigned int>& textures, std::vector<unsigned int>& framebuffers,
-                                            std::vector<unsigned int>& programs, std::vector<unsigned int>& buffers) const
+    void MonsterRenderer::collectObjectIds (ObjectIds& ids) const
     {
         for (const auto* t : { &m_half, &m_fade, &m_q0, &m_inkBuf[0], &m_inkBuf[1] })
         {
-            if (t->tex != 0) textures.push_back (t->tex);
-            if (t->fbo != 0) framebuffers.push_back (t->fbo);
+            if (t->tex != 0) ids.textures.push_back (t->tex);
+            if (t->fbo != 0) ids.framebuffers.push_back (t->fbo);
         }
-        if (m_noiseTex != 0) textures.push_back (m_noiseTex);
-        if (m_logoTex != 0) textures.push_back (m_logoTex);
+        if (m_noiseTex != 0) ids.textures.push_back (m_noiseTex);
+        if (m_logoTex != 0) ids.textures.push_back (m_logoTex);
         for (const auto& p : m_progs)
-            if (p.id != 0) programs.push_back (p.id);
-        if (m_vbo != 0) buffers.push_back (m_vbo);
-        if (m_inkPbo != 0) buffers.push_back (m_inkPbo);
+            if (p.id != 0) ids.programs.push_back (p.id);
+        if (m_vbo != 0) ids.buffers.push_back (m_vbo);
+        if (m_inkPbo != 0) ids.buffers.push_back (m_inkPbo);
+        // (each kind in its own list: a query's name asked after as a buffer's is never alive)
         for (auto q : m_queries)
-            if (q != 0) buffers.push_back (q);
+            if (q != 0) ids.queries.push_back (q);
+        if (m_vao != 0) ids.vertexArrays.push_back (m_vao);
+        ids.timers = m_timers;
     }
 
     bool MonsterRenderer::readTarget (Target which, std::vector<float>& rgba, int& w, int& h)
