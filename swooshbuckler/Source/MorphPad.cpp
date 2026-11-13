@@ -95,12 +95,13 @@ public:
 
     void drawEnd(juce::Graphics& g, juce::Point<float> end, int slot, int lane, juce::Colour colour) const
     {
-        // The end of the rope: a ring, filled with the colour of the lane it is on (or would land on).
+        // The end of the rope: a square tag (a lettered label is never a roundel), filled with the colour of the
+        // lane it is on (or would land on).
         const auto ring = juce::Rectangle<float>(18.0f, 18.0f).withCentre(end);
         g.setColour(lane >= 0 ? Theme::trackColour(lane) : Theme::Colours::panelRaised);
-        g.fillEllipse(ring);
+        g.fillRect(ring);
         g.setColour(colour);
-        g.drawEllipse(ring, 2.0f);
+        g.drawRect(ring, 2.0f);
         g.setColour(lane >= 0 ? Theme::Colours::window : Theme::Colours::text);
         Theme::fitText(g, slot == 0 ? "A" : "B", ring, owner.m_fonts.caption(), juce::Justification::centred);
     }

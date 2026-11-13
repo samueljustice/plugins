@@ -171,7 +171,7 @@ int main(int argc, char* argv[])
                 {
                     const auto& raw = lines[i];
                     const auto code = raw.upToFirstOccurrenceOf("//", false, false);
-                    const bool roundedBox = code.contains("RoundedRectangle") || code.contains("cornerSize") || code.contains("Radius::")
+                    const bool roundedBox = code.contains("Rounded") || code.contains("cornerSize") || code.contains("Radius::")
                                             || code.contains("addBubble") || code.contains("drawBubble");
                     const bool roundedLine = (code.contains("PathStrokeType::curved") || code.contains("PathStrokeType::rounded")) && ! raw.contains("round object:");
                     if (roundedBox || roundedLine)
