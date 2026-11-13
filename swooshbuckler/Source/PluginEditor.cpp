@@ -1645,7 +1645,7 @@ void SwooshbucklerAudioProcessorEditor::layoutContent()
         m_titleArea = { Lay::left, 2, 236, 32 };
     }
     {
-        constexpr int y = 10, h = 30, groupGap = 21;
+        static constexpr int y = 10, h = 30, groupGap = 21; // static: MSVC will not take a local as a default argument
         int x = 262;
         auto place = [&x](juce::Component& c, int width, int gap, int top = y, int height = h)
         {
