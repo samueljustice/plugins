@@ -1388,12 +1388,14 @@ int main(int argc, char* argv[])
                 paintedOff += t.text == "Off" && ed.m_stowStrip.toFloat().expanded(2.0f).contains(t.box) ? 1 : 0;
         }
         check(paintedOff == 1, "plate: off, the scope's window on the plate reads Off");
+        check(ed.m_stowOn.getButtonText() == "Off", "plate: off, the switch says Off in a word beside it");
 
         // Switched on for the first time: the plate opens by itself, and the wheels are there.
         proc.setStowawayOn(true);
         rig.run(0.1);
         check(proc.getStowawayPanel() == 1 && ed.m_stowOpen.target() == 1.0f && ed.m_stowOn.getToggleState(),
               "plate: switching Stowaway on for the first time opens its plate");
+        check(ed.m_stowOn.getButtonText() == "On", "plate: on, the switch says On");
         settle(1.0f);
         rig.run(0.1);
         bool onPitch = true, inside = true;

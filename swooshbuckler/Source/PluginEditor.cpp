@@ -992,6 +992,7 @@ namespace
         // its chevron need), open it holds five wheels on the shared pitch. Modulation has the rest of the row.
         constexpr int stowFoldedW = 176, stowPad = 16, stowOpenW = 5 * pitch + 2 * stowPad;
         constexpr int stowKnobsY = 35, stowStripY = 108, stowStripH = 14;
+        constexpr int stowSwitchW = 54;                      // its switch, and the word (On or Off) beside it
         static_assert(busBX + busBW == right, "row 2 fills the window's width");
         static_assert(footerY + footerH <= SwooshbucklerAudioProcessorEditor::c_height - 4, "the rows fit the window's height");
     }
@@ -1959,14 +1960,14 @@ void SwooshbucklerAudioProcessorEditor::layoutBottomRow()
     die.setBounds(lock.getX() - 2 - 20, s.getY() + 10, 20, 20);
     if (openLayout)
     {
-        m_stowOn.setBounds(s.getX() + titleEnd + 8, s.getY() + 12, 30, 16);
-        m_stowMode.setBounds(m_stowOn.getRight() + 8, s.getY() + 9, 72, 22);
+        m_stowOn.setBounds(s.getX() + titleEnd + 8, s.getY() + 12, Lay::stowSwitchW, 16);
+        m_stowMode.setBounds(m_stowOn.getRight() + 6, s.getY() + 9, 72, 22);
         m_stowNote = {};
     }
     else
     {
-        m_stowOn.setBounds(s.getX() + Lay::stowPad, s.getY() + 43, 30, 16);
-        m_stowMode.setBounds(m_stowOn.getRight() + 8, s.getY() + 40, width - (Lay::stowPad + 30 + 8) - Lay::pad, 22);
+        m_stowOn.setBounds(s.getX() + Lay::stowPad, s.getY() + 43, Lay::stowSwitchW, 16);
+        m_stowMode.setBounds(m_stowOn.getRight() + 6, s.getY() + 40, width - (Lay::stowPad + Lay::stowSwitchW + 6) - Lay::pad, 22);
         m_stowNote = { s.getX() + Lay::stowPad, s.getY() + 68, width - 2 * Lay::stowPad, 36 };
     }
     auto show = [alpha](juce::Component& c, bool visible)
@@ -2064,6 +2065,7 @@ void SwooshbucklerAudioProcessorEditor::showStowaway(float dt)
     if (shown == m_stowShown)
         return;
     m_stowShown = shown;
+    m_stowOn.setButtonText(on ? "On" : "Off"); // the switch says which it is, in a word
     Theme::setLook(m_stowMode, on ? Theme::Look::Normal : Theme::Look::Resting);
     for (int k = 0; k < ParamIDs::numStowControls; ++k)
         if (auto* knob = m_controls[ParamIDs::stow[k]])
