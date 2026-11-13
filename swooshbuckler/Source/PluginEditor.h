@@ -210,6 +210,9 @@ private:
     /** A small window asking for a name (and, with modsOption, whether the modulators and wires go in too). */
     void askForName(const juce::String& title, const juce::String& message, const juce::String& initial, const juce::String& okText,
                     bool modsOption, std::function<void(const juce::String&, bool)> done);
+    /** That window, built and not yet shown (the caller owns it; its switch is m_dialogToggle). */
+    juce::AlertWindow* makeNameDialog(const juce::String& title, const juce::String& message, const juce::String& initial,
+                                      const juce::String& okText, bool modsOption);
     std::unique_ptr<juce::ToggleButton> m_dialogToggle;
     // Randomise: the header's roll or a section's die (section -1 = the header), the way back, and keeping one.
     void rollDice(int section);

@@ -577,6 +577,19 @@ juce::Rectangle<int> SwooshLookAndFeel::getTooltipBounds(const juce::String& tip
                                 width, height).constrainedWithin(parentArea);
 }
 
+void SwooshLookAndFeel::drawAlertBox(juce::Graphics& g, juce::AlertWindow& alert, const juce::Rectangle<int>&, juce::TextLayout& textLayout)
+{
+    // A panel plate with its bolts. The window is opaque, so the plate is square and filled edge to edge.
+    const auto r = alert.getLocalBounds().toFloat();
+    g.fillAll(alert.findColour(juce::AlertWindow::backgroundColourId));
+    Theme::Plate::edge(g, r, 0.0f);
+    drawBolts(g, r);
+    // The title and the message, where the window has left room for them above its text box and buttons.
+    g.setColour(alert.findColour(juce::AlertWindow::textColourId));
+    textLayout.draw(g, juce::Rectangle<float>(r.getX() + 1.0f, 30.0f, r.getWidth() - 2.0f,
+                                              r.getHeight() - static_cast<float>(getAlertWindowButtonHeight()) - 22.0f));
+}
+
 //==============================================================================
 void SwooshLookAndFeel::drawSurface(juce::Graphics& g, juce::Rectangle<float> area, float cut, juce::Colour fill, float elevation)
 {

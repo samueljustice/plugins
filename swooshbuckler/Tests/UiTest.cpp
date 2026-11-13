@@ -362,6 +362,28 @@ int main(int argc, char* argv[])
             check(rig.editor->m_playButton.getButtonText() == "Play" && Icons::get(rig.editor->m_playButton) == Icons::Icon::Play
                       && SwooshLookAndFeel::getStyle(rig.editor->m_playButton) == SwooshLookAndFeel::ButtonStyle::Primary,
                   "header: Play is the one filled button, with its glyph");
+
+            // The window that asks for a preset's name is a plate like the rest: square, filled to its corners
+            // (its window is opaque), with a bolt in each corner.
+            {
+                auto& ed = *rig.editor;
+                std::unique_ptr<juce::AlertWindow> dialog(ed.makeNameDialog("Save Preset", "The settings as they are now are saved under this name.", "My Preset", "Save", true));
+                UiProbe::Recorder recorder;
+                const auto image = recorder.paint(*dialog, 1.0f);
+                const int w = image.getWidth(), h = image.getHeight();
+                bool corners = true, bolts = true;
+                const int inset = juce::roundToInt(Theme::Plate::boltInset);
+                for (const auto& c : { juce::Point<int>(0, 0), juce::Point<int>(w - 1, 0), juce::Point<int>(0, h - 1), juce::Point<int>(w - 1, h - 1) })
+                {
+                    corners = corners && image.getPixelAt(c.x, c.y).getAlpha() == 255 && luminance(image.getPixelAt(c.x, c.y)) < luminance(TC::panel);
+                    const juce::Point<int> b(c.x == 0 ? inset : w - inset, c.y == 0 ? inset - 2 : h - inset - 2); // on the head, above its slot
+                    bolts = bolts && contrast(image.getPixelAt(b.x, b.y), TC::panel) >= 2.0;
+                }
+                check(corners && bolts, "name window: a square plate with a pressed edge to its very corners and a bolt in each");
+                dialog->removeCustomComponent(0);
+                dialog.reset();
+                ed.m_dialogToggle.reset();
+            }
         }
 
         proc.loadDemoSounds();

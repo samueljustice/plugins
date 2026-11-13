@@ -1891,9 +1891,8 @@ void SwooshbucklerAudioProcessorEditor::loadPresetFile(const juce::File& file, b
         toast("Loaded " + loaded.preset.name + added);
 }
 
-void SwooshbucklerAudioProcessorEditor::askForName(const juce::String& title, const juce::String& message, const juce::String& initial,
-                                                   const juce::String& okText, bool modsOption,
-                                                   std::function<void(const juce::String&, bool)> done)
+juce::AlertWindow* SwooshbucklerAudioProcessorEditor::makeNameDialog(const juce::String& title, const juce::String& message,
+                                                                     const juce::String& initial, const juce::String& okText, bool modsOption)
 {
     auto* window = new juce::AlertWindow(title, message, juce::MessageBoxIconType::NoIcon, this);
     window->addTextEditor("name", initial);
@@ -1912,6 +1911,14 @@ void SwooshbucklerAudioProcessorEditor::askForName(const juce::String& title, co
     }
     window->addButton(okText, 1, juce::KeyPress(juce::KeyPress::returnKey));
     window->addButton("Cancel", 0, juce::KeyPress(juce::KeyPress::escapeKey));
+    return window;
+}
+
+void SwooshbucklerAudioProcessorEditor::askForName(const juce::String& title, const juce::String& message, const juce::String& initial,
+                                                   const juce::String& okText, bool modsOption,
+                                                   std::function<void(const juce::String&, bool)> done)
+{
+    auto* window = makeNameDialog(title, message, initial, okText, modsOption);
     window->enterModalState(true, juce::ModalCallbackFunction::create(
         [safe = juce::Component::SafePointer<SwooshbucklerAudioProcessorEditor>(this), window, done = std::move(done)](int result)
         {

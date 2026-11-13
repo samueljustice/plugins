@@ -68,6 +68,8 @@ public:
 
     void drawTooltip(juce::Graphics&, const juce::String& text, int width, int height) override;
     juce::Rectangle<int> getTooltipBounds(const juce::String& tipText, juce::Point<int> screenPos, juce::Rectangle<int> parentArea) override;
+    /** The small window that asks for a name: a bolted plate (square: its window cannot be see-through). */
+    void drawAlertBox(juce::Graphics&, juce::AlertWindow&, const juce::Rectangle<int>& textArea, juce::TextLayout&) override;
 
     /** A plate bolted to what is under it: a short hard shadow, the flat fill, cut corners and the pressed edge.
         Costs a handful of fills, and nothing at all when the area is outside what is being repainted. */

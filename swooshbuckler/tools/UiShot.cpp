@@ -16,6 +16,7 @@
 //   settings.png takes.png variations.png variations-rendering.png about.png update.png
 //                             the panels that open over the window
 //   menu.png                  the preset menu open
+//   name-dialog.png           the window that asks for a preset's name
 //
 // --list prints every text drawn in each of those states with the box it had to fit, and what the checker
 // (tools/UiProbe.h) has to say: a text that had to be cut, runs outside its box, is under the smallest size, sits
@@ -305,6 +306,20 @@ int main(int argc, char* argv[])
             }
             shots.shoot("menu", window);
             juce::PopupMenu::dismissAllActiveMenus();
+        }
+
+        // The window that asks for a preset's name: a window of its own, painted here without being shown.
+        {
+            std::unique_ptr<juce::AlertWindow> dialog(ed.makeNameDialog("Save Preset", "The settings as they are now are saved under this name. "
+                                                                        "A preset of yours with the same name is replaced.", "My Preset", "Save", true));
+            UiProbe::Recorder recorder;
+            const auto image = recorder.paint(*dialog, rig.scale);
+            shots.report("name-dialog", recorder);
+            if (options.images)
+                save(image, options.out.getChildFile("name-dialog.png"));
+            dialog->removeCustomComponent(0);
+            dialog.reset();
+            ed.m_dialogToggle.reset();
         }
 
         proc.setPlaying(false);
