@@ -22,9 +22,10 @@ public:
     {
         namespace TC = Theme::Colours;
         const auto r = getLocalBounds().toFloat();
-        // A well cut into the title bar: no outline.
-        g.setColour(TC::well.withAlpha(0.9f));
-        g.fillRoundedRectangle(r, Theme::Radius::control);
+        // A window cut into the title bar.
+        g.setColour(TC::well);
+        Theme::Plate::fill(g, r, Theme::Cut::small);
+        Theme::Plate::wellEdge(g, r, Theme::Cut::small);
 
         const auto area = r.reduced(4.0f, 3.0f);
         const float mid = area.getCentreY(), half = area.getHeight() * 0.5f;

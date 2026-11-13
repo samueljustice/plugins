@@ -69,7 +69,8 @@ private:
     float m_quietSeconds = 0.0f, m_logoTime = 0.0f, m_logoOpacity = 0.0f;
     double m_time = 0.0;
     bool m_labelsShown = true;
-    juce::Path m_corners; // what is outside the panel's round corners (built in resized)
+    static constexpr float c_frame = 4.0f, c_gusset = 18.0f; // the frame's band, and the leg of its corner plates
+    juce::Path m_ironFrame, m_frameInner; // the iron frame around the sea and its inner edge (built in resized)
 
     // Projection, refreshed in paint
     float m_focal = 1.0f, m_horizon = 0.0f, m_cx = 0.0f, m_zNear = 0.85f, m_zStep = 0.12f;

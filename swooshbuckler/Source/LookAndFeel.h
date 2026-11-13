@@ -5,17 +5,19 @@
 #include "Theme.h"
 
 /**
- * How every stock control is drawn, from the tokens in Theme.h. One look for each kind of thing:
+ * How every stock control is drawn, from the tokens and the vocabulary in Theme.h. One look for each kind of thing:
  *
- *   button   a raised, rounded plate with no outline. Hovered it lightens and gains a stroke; a button that
- *            switches something shows a lamp at its left, lit (with a tinted plate and a stroke) when on.
- *            Primary (Play) is filled brass. An icon can sit left of the text (Icons::set).
- *   chip     a pill: a state or a tag, never an action. Dark and quiet when off, filled in its colour when on.
- *   menu     a raised plate with a drawn chevron at its right; a button that opens a menu gets the same chevron.
- *   switch   a two-state choice: a pill with a thumb that sits right, in its colour, when on.
+ *   button   a control plate: iron, cut corners, a dark edge and a lip under it, its label stamped in. Hovered it
+ *            lightens; switched on, the whole plate is brass (or its section's colour) with dark lettering. A
+ *            button that switches something has a small square lamp slot at its left, open when off and filled
+ *            when on. Primary (Play) is the one brass key. An icon can sit left of the text (Icons::set).
+ *   chip     a small tag with no lip: a state, never an action. Dark and quiet when off, in its colour when on.
+ *   menu     a control plate with a drawn chevron at its right; a button that opens a menu gets the same chevron.
+ *   switch   a two-state choice: a slot with a block that slides to the right, in its colour, when on.
+ *   fader    a slot with a sand block cap.
  *
  * And three looks for a control that is not simply usable (Theme::Look): Disabled is drained and flat, Resting
- * is drawn hollow (usable, waiting for something else to be on), Linked shows a chain link.
+ * is drawn hollow with a dashed edge (usable, waiting for something else to be on), Linked shows a chain link.
  */
 class SwooshLookAndFeel : public juce::LookAndFeel_V4
 {
@@ -67,19 +69,28 @@ public:
     void drawTooltip(juce::Graphics&, const juce::String& text, int width, int height) override;
     juce::Rectangle<int> getTooltipBounds(const juce::String& tipText, juce::Point<int> screenPos, juce::Rectangle<int> parentArea) override;
 
-    /** A surface floating on what is under it: a soft shadow below and around it, then the fill. No outline.
+    /** A plate bolted to what is under it: a short hard shadow, the flat fill, cut corners and the pressed edge.
         Costs a handful of fills, and nothing at all when the area is outside what is being repainted. */
-    static void drawSurface(juce::Graphics&, juce::Rectangle<float> area, float radius = Theme::Radius::panel,
+    static void drawSurface(juce::Graphics&, juce::Rectangle<float> area, float cut = Theme::Cut::panel,
                             juce::Colour fill = Theme::Colours::panel, float elevation = 1.0f);
-    /** A surface cut into what is around it (a scope, a meter, a text box): the well colour, darker at its top edge. */
-    static void drawWell(juce::Graphics&, juce::Rectangle<float> area, float radius = Theme::Radius::control);
-    /** A panel: a surface with a roundel, its title and a one-line subtitle in the title bar. The subtitle is kept
-        left of subtitleRight (0 = the panel's own edge). */
+    /** A window cut into a plate (a scope, a meter, a text box): the well colour, a shadow under its top edge and
+        a light line along its bottom. */
+    static void drawWell(juce::Graphics&, juce::Rectangle<float> area, float cut = Theme::Cut::control);
+    /** A slotted bolt in each corner of a plate. */
+    static void drawBolts(juce::Graphics&, juce::Rectangle<float> area, float inset = Theme::Plate::boltInset);
+    /** The plate of a control (a button, a menu) in its state: see the vocabulary in Theme.h. */
+    static void drawControlPlate(juce::Graphics&, juce::Rectangle<float> area, juce::Colour accent, Theme::Look look, bool on,
+                                 bool over, bool down, bool focused = false, float cut = Theme::Cut::control);
+    /** The face of a control plate inside its bounds: above its lip, or down on it when pressed. */
+    static juce::Rectangle<float> plateFace(juce::Rectangle<float> area, bool down);
+    /** A panel: a bolted plate with its nameplate (a tally with the section's mark, then the title) and a one-line
+        subtitle in the title bar. The subtitle is kept left of subtitleRight (0 = the panel's own edge). */
     static void drawPanel(juce::Graphics&, juce::Rectangle<float> area, const juce::String& title,
                           const juce::String& subtitle, juce::Colour accent, const Theme::Fonts& fonts,
-                          Icons::Icon roundel = Icons::Icon::None, float subtitleRight = 0.0f);
-    /** Where a panel's title starts and ends, from the panel's left edge (for laying things out after it). */
-    static constexpr int c_titleX = 46;
+                          Icons::Icon mark = Icons::Icon::None, float subtitleRight = 0.0f);
+    /** Where a panel's title starts, and where its nameplate ends, from the panel's left edge (for laying things
+        out after it). */
+    static constexpr int c_titleX = 50, c_plateTail = 13;
     static int titleEnd(const Theme::Fonts& fonts, const juce::String& title);
     /** A twisted rope between two points: two strands, thick enough to read as rope. Under the header only. */
     static void drawRope(juce::Graphics&, juce::Point<float> a, juce::Point<float> b, juce::Colour colour);

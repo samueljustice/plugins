@@ -6,11 +6,34 @@
 #include <unordered_map>
 
 /**
- * The design tokens: every colour, radius, gap and text size the interface uses is named here, once.
+ * The design tokens: every colour, corner cut, gap and text size the interface uses is named here, once.
  *
- * Surfaces sit on each other by tone and a soft shadow, never by an outline: the window is the deepest water,
- * panels float on it, raised things (buttons, lanes, menus) float on panels, and wells (scopes, text boxes,
- * meters) are cut into them. A stroke always means a state: hovered, switched on, focused.
+ * THE VOCABULARY. The window is ship's ironwork with brass: flat plates with things stamped into them. Four
+ * things, and nothing is drawn that is not one of them (the round things are the ones that are round on a ship:
+ * the wheel, bolts, lamps, jacks and the moon).
+ *
+ *   1. Panel plate   A big plate bolted to the window (Theme::Colours::panel). Cut corners (Cut::panel), a pressed
+ *                    edge - a dark line with a faint light line inside it - and a slotted bolt in each corner.
+ *                    SwooshLookAndFeel::drawPanel; drawSurface is the same plate without the bolts.
+ *   2. Control plate A button, menu, chip or tag (Colours::raised), cut corners (Cut::control; Cut::small for a
+ *                    chip), its label stamped into it (Theme::stampText). Its states:
+ *                      idle      iron plate, dark edge, a light line along its top, a dark lip under it
+ *                      hover     lighter plate, the edge in Colours::stroke
+ *                      pressed   the plate sits down on its lip
+ *                      on        the whole plate is brass (or its section's colour), its label dark
+ *                      disabled  flat and faint: no edge, no lip
+ *                      resting   hollow, with a dashed edge: it can be set, and waits for something else
+ *                      linked    as disabled, with a chain link: it follows another control
+ *                    SwooshLookAndFeel::drawControlPlate (every button style, menus, the tape button).
+ *   3. Well          A window cut into a plate (Colours::well): dark, with a shadow line under its top edge and a
+ *                    light line along its bottom. Scopes, waveforms, meters, text boxes, slots a fader or a switch
+ *                    slides in. SwooshLookAndFeel::drawWell.
+ *   4. Nameplate     A panel's title: a small dark plate riveted to the panel head, a tally in the section's colour
+ *                    at its left with the section's mark or letter, the name in the blackletter face.
+ *
+ * No pills and no round corners: a corner is cut at 45 degrees (Theme::Plate::fill / stroke), or square. Stamping
+ * is one or two thin tonal lines, never a gradient or a gloss, and never at the cost of reading the label: text
+ * keeps its full colour and 4.5:1 on its plate (UiTest checks it).
  *
  * One chrome accent (brass) for everything that is not a section. The sections keep their own colour from the
  * knobs to the track tags to the comets: coral for Bus A, turquoise for Bus B, cherry for the Hits, driftwood
@@ -51,6 +74,12 @@ namespace Theme
         inline const juce::Colour shadow      { 0xff02090d };
         inline const juce::Colour grid        { 0xff173a46 }; // lines inside a well
 
+        // The ironwork: what a plate's pressed edge and its fasteners are drawn in.
+        inline const juce::Colour edgeDark    { 0xff040e13 }; // the pressed line around a plate, the lip under a key
+        inline const juce::Colour edgeLight   { 0x24f2e8d2 }; // the faint light line beside it (sand, mostly clear)
+        inline const juce::Colour bolt        { 0xff7e99a1 }; // gunmetal: bolt heads and rivets
+        inline const juce::Colour boltSlot    { 0xff0b1c24 }; // the slot in a bolt's head
+
         // The older names, kept where the meaning is the same thing.
         inline const juce::Colour background  = window;
         inline const juce::Colour panelRaised = raised;
@@ -86,12 +115,110 @@ namespace Theme
         return true;
     }
 
-    /** Corner radii. */
-    namespace Radius
+    /** Corner cuts: how much of a plate's corner is taken off at 45 degrees. Nothing has a round corner. */
+    namespace Cut
     {
-        constexpr float panel = 13.0f;   // the big surfaces, the sea, popup menus
-        constexpr float control = 7.0f;  // buttons, menus, lanes, wells
-        constexpr float small = 4.0f;    // the little things inside a control
+        constexpr float panel = 5.0f;    // the panel plates, the overlays, popup menus
+        constexpr float control = 3.0f;  // buttons, menus, tags, lanes, cards, wells
+        constexpr float small = 2.0f;    // chips, text boxes, the little things inside a control
+    }
+
+    /** Plates: the cut-corner shape everything is made of, its pressed edge and its fasteners. Message thread only
+        (the shape is built in one kept path, so drawing a plate allocates nothing after the first). */
+    namespace Plate
+    {
+        constexpr float bolt = 6.5f;       // a bolt head's diameter: big enough to read as a bolt, slot and all
+        constexpr float boltInset = 8.0f;  // from a plate's corner to its bolt's centre
+        constexpr float rivet = 3.0f;      // the small fastener on a nameplate
+
+        /** The rectangle with its four corners cut by `cut`. The reference is good until the next call. */
+        inline const juce::Path& shape(juce::Rectangle<float> r, float cut)
+        {
+            static juce::Path p;
+            p.clear();
+            const float c = juce::jmax(0.0f, juce::jmin(cut, r.getWidth() * 0.5f, r.getHeight() * 0.5f));
+            if (c < 0.05f)
+            {
+                p.addRectangle(r);
+                return p;
+            }
+            const float x0 = r.getX(), y0 = r.getY(), x1 = r.getRight(), y1 = r.getBottom();
+            p.startNewSubPath(x0 + c, y0);
+            p.lineTo(x1 - c, y0);
+            p.lineTo(x1, y0 + c);
+            p.lineTo(x1, y1 - c);
+            p.lineTo(x1 - c, y1);
+            p.lineTo(x0 + c, y1);
+            p.lineTo(x0, y1 - c);
+            p.lineTo(x0, y0 + c);
+            p.closeSubPath();
+            return p;
+        }
+
+        /** Fills the cut-corner plate in the current colour. */
+        inline void fill(juce::Graphics& g, juce::Rectangle<float> r, float cut)
+        {
+            if (cut < 0.05f)
+                g.fillRect(r);
+            else
+                g.fillPath(shape(r, cut));
+        }
+
+        /** A line around the cut-corner plate, inside r, in the current colour. */
+        inline void stroke(juce::Graphics& g, juce::Rectangle<float> r, float cut, float thickness = 1.0f)
+        {
+            g.strokePath(shape(r.reduced(thickness * 0.5f), juce::jmax(0.0f, cut - thickness * 0.3f)),
+                         juce::PathStrokeType(thickness, juce::PathStrokeType::mitered, juce::PathStrokeType::butt));
+        }
+
+        /** The pressed edge of a plate: a dark line around it and a faint light line just inside that. */
+        inline void edge(juce::Graphics& g, juce::Rectangle<float> r, float cut, juce::Colour dark = Colours::edgeDark,
+                         juce::Colour light = Colours::edgeLight)
+        {
+            g.setColour(light);
+            stroke(g, r.reduced(1.0f), cut - 0.4f);
+            g.setColour(dark);
+            stroke(g, r, cut);
+        }
+
+        /** The edge of a window cut into a plate: a dark line around it, a shadow under its top edge and a light
+            line along its bottom. */
+        inline void wellEdge(juce::Graphics& g, juce::Rectangle<float> r, float cut)
+        {
+            g.setColour(Colours::shadow.withAlpha(0.55f));
+            g.fillRect(juce::Rectangle<float>(r.getX() + cut + 1.0f, r.getY() + 1.0f, r.getWidth() - 2.0f * cut - 2.0f, 1.0f));
+            g.setColour(Colours::edgeLight);
+            g.fillRect(juce::Rectangle<float>(r.getX() + cut, r.getBottom() - 1.0f, r.getWidth() - 2.0f * cut, 1.0f));
+            g.setColour(Colours::edgeDark);
+            stroke(g, r.withTrimmedBottom(1.0f), cut);
+        }
+
+        /** A slotted bolt head: a dark seat, a gunmetal head lit along its top, and the slot, turned a little
+            differently on every bolt (from where it is, so it never moves). */
+        inline void drawBolt(juce::Graphics& g, juce::Point<float> centre, float diameter = bolt)
+        {
+            const auto head = juce::Rectangle<float>(diameter, diameter).withCentre(centre);
+            g.setColour(Colours::edgeDark);
+            g.fillEllipse(head.expanded(1.0f));
+            g.setColour(Colours::bolt.darker(0.35f));
+            g.fillEllipse(head);
+            g.setColour(Colours::bolt);
+            g.fillEllipse(head.reduced(0.6f).translated(0.0f, -0.5f));
+            const float turn = 0.55f + 0.45f * std::sin(centre.x * 0.37f + centre.y * 0.91f);
+            const juce::Point<float> dir { std::cos(turn), std::sin(turn) };
+            g.setColour(Colours::boltSlot);
+            g.drawLine(juce::Line<float>(centre - dir * (diameter * 0.42f), centre + dir * (diameter * 0.42f)), juce::jmax(1.0f, diameter * 0.2f));
+        }
+
+        /** A rivet: the small round fastener on a nameplate. */
+        inline void drawRivet(juce::Graphics& g, juce::Point<float> centre, float diameter = rivet)
+        {
+            const auto head = juce::Rectangle<float>(diameter, diameter).withCentre(centre);
+            g.setColour(Colours::edgeDark);
+            g.fillEllipse(head.expanded(0.8f));
+            g.setColour(Colours::bolt);
+            g.fillEllipse(head);
+        }
     }
 
     /** Spacing: everything is a multiple of the 4 px unit; panels are a gutter apart. */
@@ -387,30 +514,62 @@ namespace Theme
         return result;
     }
 
+    namespace detail
+    {
+        /** fitText and stampText: `stamp` (when it is not clear) is drawn first, the same text moved by stampDy. */
+        inline float drawFitted(juce::Graphics& g, const juce::String& text, juce::Rectangle<float> box, const juce::Font& font,
+                                juce::Justification justification, Fit fit, const juce::Colour* colour, juce::Colour stamp, float stampDy)
+        {
+            if (text.isEmpty() || box.getWidth() <= 0.0f || box.getHeight() <= 0.0f)
+                return 0.0f;
+            const auto fitted = fitToWidth(text, font, box.getWidth(), fit);
+            if (fitted.text.isEmpty())
+                return 0.0f;
+            // Placed in the box as juce::GlyphArrangement::justifyGlyphs places it (centred text is centred by its
+            // ink, the rest by its whole width), by moving the kept layout rather than laying it out again.
+            const auto& shape = shaped(fitted.font, fitted.text);
+            const auto& bb = justification.testFlags(juce::Justification::horizontallyCentred) ? shape.ink : shape.bounds;
+            float dx = box.getX(), dy = box.getY();
+            if (justification.testFlags(juce::Justification::horizontallyCentred))  dx += (box.getWidth() - bb.getWidth()) * 0.5f - bb.getX();
+            else if (justification.testFlags(juce::Justification::right))           dx += box.getWidth() - bb.getRight();
+            else                                                                    dx -= bb.getX();
+            if (justification.testFlags(juce::Justification::top))                  dy -= bb.getY();
+            else if (justification.testFlags(juce::Justification::bottom))          dy += box.getHeight() - bb.getBottom();
+            else                                                                    dy += (box.getHeight() - bb.getHeight()) * 0.5f - bb.getY();
+            if (colour != nullptr)
+            {
+                if (! stamp.isTransparent())
+                {
+                    g.setColour(stamp);
+                    shape.glyphs.draw(g, juce::AffineTransform::translation(dx, dy + stampDy));
+                }
+                g.setColour(*colour);
+            }
+            shape.glyphs.draw(g, juce::AffineTransform::translation(dx, dy));
+            if (auto* probe = textProbe())
+                probe->textDrawn(g, text, box, shape.bounds.translated(dx, dy), fitted.font.getHeight(), fit, fitted.shrunk, fitted.cut);
+            return fitted.width;
+        }
+    }
+
     /** Draws one line of text inside box in the current colour, fitted (see above). Returns the width drawn. */
     inline float fitText(juce::Graphics& g, const juce::String& text, juce::Rectangle<float> box, const juce::Font& font,
                          juce::Justification justification, Fit fit = Fit::Whole)
     {
-        if (text.isEmpty() || box.getWidth() <= 0.0f || box.getHeight() <= 0.0f)
-            return 0.0f;
-        const auto fitted = fitToWidth(text, font, box.getWidth(), fit);
-        if (fitted.text.isEmpty())
-            return 0.0f;
-        // Placed in the box as juce::GlyphArrangement::justifyGlyphs places it (centred text is centred by its
-        // ink, the rest by its whole width), by moving the kept layout rather than laying it out again.
-        const auto& shape = shaped(fitted.font, fitted.text);
-        const auto& bb = justification.testFlags(juce::Justification::horizontallyCentred) ? shape.ink : shape.bounds;
-        float dx = box.getX(), dy = box.getY();
-        if (justification.testFlags(juce::Justification::horizontallyCentred))  dx += (box.getWidth() - bb.getWidth()) * 0.5f - bb.getX();
-        else if (justification.testFlags(juce::Justification::right))           dx += box.getWidth() - bb.getRight();
-        else                                                                    dx -= bb.getX();
-        if (justification.testFlags(juce::Justification::top))                  dy -= bb.getY();
-        else if (justification.testFlags(juce::Justification::bottom))          dy += box.getHeight() - bb.getBottom();
-        else                                                                    dy += (box.getHeight() - bb.getHeight()) * 0.5f - bb.getY();
-        shape.glyphs.draw(g, juce::AffineTransform::translation(dx, dy));
-        if (auto* probe = textProbe())
-            probe->textDrawn(g, text, box, shape.bounds.translated(dx, dy), fitted.font.getHeight(), fit, fitted.shrunk, fitted.cut);
-        return fitted.width;
+        return detail::drawFitted(g, text, box, font, justification, fit, nullptr, {}, 0.0f);
+    }
+
+    /** A label stamped into its plate: fitted like fitText, in `colour` at full strength, with one thin line of
+        tone beside each stroke. Light lettering on a dark plate gets a dark line above it (pressed in); dark
+        lettering on a lit plate gets a light line under it. The stamping never dims the lettering itself. */
+    inline float stampText(juce::Graphics& g, const juce::String& text, juce::Rectangle<float> box, const juce::Font& font,
+                           juce::Justification justification, juce::Colour colour, Fit fit = Fit::Whole)
+    {
+        const bool darkLettering = colour.getPerceivedBrightness() < 0.4f;
+        return detail::drawFitted(g, text, box, font, justification, fit, &colour,
+                                  darkLettering ? juce::Colours::white.withAlpha(0.28f * colour.getFloatAlpha())
+                                                : Colours::edgeDark.withAlpha(0.75f * colour.getFloatAlpha()),
+                                  darkLettering ? 1.0f : -1.0f);
     }
     inline float fitText(juce::Graphics& g, const juce::String& text, juce::Rectangle<int> box, const juce::Font& font,
                          juce::Justification justification, Fit fit = Fit::Whole)

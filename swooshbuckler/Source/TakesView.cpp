@@ -227,7 +227,8 @@ void TakesView::paint(juce::Graphics& g)
                                  TC::brass, m_fonts, Icons::Icon::Takes);
 
     g.setColour(TC::well.withAlpha(0.6f));
-    g.fillRoundedRectangle(m_list.toFloat().expanded(4.0f, 2.0f), Theme::Radius::control);
+    Theme::Plate::fill(g, m_list.toFloat().expanded(4.0f, 2.0f), Theme::Cut::control);
+    Theme::Plate::wellEdge(g, m_list.toFloat().expanded(4.0f, 2.0f), Theme::Cut::control);
 
     if (takes.empty())
         Theme::fitLines(g, "Nothing recorded yet. Arm the tape or press Last 60 s, and the files appear here.",
@@ -244,7 +245,7 @@ void TakesView::paint(juce::Graphics& g)
         if (isPlaying || hover)
         {
             g.setColour(isPlaying ? TC::brass.withAlpha(0.14f) : TC::hover.withAlpha(0.7f));
-            g.fillRoundedRectangle(r.all.toFloat().reduced(0.0f, 1.0f), Theme::Radius::small);
+            Theme::Plate::fill(g, r.all.toFloat().reduced(0.0f, 1.0f), Theme::Cut::small);
         }
 
         // Star
@@ -264,7 +265,7 @@ void TakesView::paint(juce::Graphics& g)
         // Waveform, with the playhead while it plays
         {
             const auto w = r.wave.toFloat();
-            SwooshLookAndFeel::drawWell(g, w, Theme::Radius::small);
+            SwooshLookAndFeel::drawWell(g, w, Theme::Cut::small);
             const auto it = m_thumbs.find(take.id);
             if (it != m_thumbs.end() && it->second->getTotalLength() > 0.0)
             {
@@ -291,15 +292,8 @@ void TakesView::paint(juce::Graphics& g)
         {
             const bool over = hover && m_hoverZone == Zone::Show;
             const auto b = r.show.toFloat().reduced(0.0f, 1.0f);
-            g.setColour(over ? TC::hover : TC::raised);
-            g.fillRoundedRectangle(b, Theme::Radius::small + 2.0f);
-            if (over)
-            {
-                g.setColour(TC::stroke);
-                g.drawRoundedRectangle(b.reduced(0.5f), Theme::Radius::small + 2.0f, 1.0f);
-            }
-            g.setColour(TC::text);
-            Theme::fitText(g, "Show", r.show, m_fonts.caption(), juce::Justification::centred);
+            SwooshLookAndFeel::drawControlPlate(g, b, TC::brass, Theme::Look::Normal, false, over, false, false, Theme::Cut::small);
+            Theme::stampText(g, "Show", SwooshLookAndFeel::plateFace(b, false), m_fonts.caption(), juce::Justification::centred, TC::text);
         }
 
         // Bin
@@ -308,7 +302,7 @@ void TakesView::paint(juce::Graphics& g)
             const auto c = r.bin.toFloat().getCentre();
             g.setColour(over ? TC::record : TC::textFaint);
             juce::Path bin;
-            bin.addRoundedRectangle(c.x - 4.5f, c.y - 3.0f, 9.0f, 9.5f, 1.2f);       // the can
+            bin.addRectangle(c.x - 4.5f, c.y - 3.0f, 9.0f, 9.5f);                    // the can
             bin.addRectangle(c.x - 6.0f, c.y - 5.2f, 12.0f, 1.2f);                   // the lid
             bin.addRectangle(c.x - 2.0f, c.y - 7.0f, 4.0f, 1.2f);                    // its handle
             g.strokePath(bin, juce::PathStrokeType(1.1f));

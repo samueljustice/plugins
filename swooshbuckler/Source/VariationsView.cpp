@@ -400,7 +400,7 @@ void VariationsView::paint(juce::Graphics& g)
             g.setColour(p.state == State::Failed ? TC::hits.withAlpha(0.75f)
                         : p.state == State::Cancelled ? TC::textFaint
                         : p.state == State::Finished ? TC::go.withAlpha(0.85f) : TC::brass.withAlpha(0.9f));
-            g.fillRoundedRectangle(bar, Theme::Radius::control);
+            Theme::Plate::fill(g, bar.reduced(1.0f), Theme::Cut::control - 1.0f);
             g.restoreState();
         }
         if (p.state != State::Idle)

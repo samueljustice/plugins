@@ -129,8 +129,39 @@ int main(int argc, char* argv[])
               "sections: coral, turquoise and cherry are three different colours");
         check(TC::flight == TC::brass && TC::accent == TC::brass, "chrome: one accent (the old gold is the brass)");
 
-        check(Theme::Radius::panel >= 12.0f && Theme::Radius::panel <= 14.0f && Theme::Radius::control >= 6.0f && Theme::Radius::control <= 8.0f,
-              "radii: panels 12 to 14, controls 6 to 8");
+        check(Theme::Cut::panel >= 3.0f && Theme::Cut::panel <= 5.0f && Theme::Cut::control >= 2.0f && Theme::Cut::control <= Theme::Cut::panel
+                  && Theme::Cut::small > 0.0f && Theme::Cut::small <= Theme::Cut::control,
+              "corners: cut, not round - panels 3 to 5, controls no more than panels, the small things no more than controls");
+        check(Theme::Plate::bolt >= 6.0f && Theme::Plate::bolt <= 7.0f && Theme::Plate::boltInset >= Theme::Plate::bolt,
+              "fasteners: a bolt head is 6 to 7 across (big enough to read as a bolt) and sits clear of its plate's edge");
+        check(contrast(TC::bolt, TC::panel) >= 3.0 && contrast(TC::bolt, TC::boltSlot) >= 3.0 && contrast(TC::bolt, TC::raised) >= 3.0,
+              "fasteners: a bolt reads on its plate, and its slot reads on the bolt (" + juce::String(contrast(TC::bolt, TC::panel), 2) + ", "
+                  + juce::String(contrast(TC::bolt, TC::boltSlot), 2) + ")");
+        check(luminance(TC::edgeDark) < luminance(TC::window) && TC::edgeLight.getAlpha() > 0 && TC::edgeLight.getAlpha() < 80,
+              "edges: the pressed line is darker than anything it is drawn on, and the light line beside it is faint");
+        {
+            // The lit plates: the lettering on a plate in a section's colour, the brass or a modulator's colour.
+            const juce::Colour lit[] = { TC::brass, TC::busA, TC::busB, TC::hits, TC::output, TC::go, TC::space, TC::filter,
+                                         Theme::modColour(0), Theme::modColour(1), Theme::modColour(2), Theme::modColour(3) };
+            for (const auto& plate : lit)
+                check(plate.getPerceivedBrightness() > 0.5f && contrast(TC::window, plate) >= 4.5,
+                      "lit plates: dark lettering reads on " + plate.toDisplayString(false) + " (" + juce::String(contrast(TC::window, plate), 2) + ":1)");
+            for (int lane = 0; lane < 10; ++lane)
+                check(contrast(TC::window, Theme::trackColour(lane)) >= 4.5, "lit plates: dark lettering reads on track colour " + juce::String(lane + 1));
+        }
+        {
+            // A plate's shape: corners cut at 45 degrees, nothing round. Its path is eight straight lines.
+            const auto& shape = Theme::Plate::shape({ 10.0f, 20.0f, 80.0f, 24.0f }, Theme::Cut::control);
+            int lines = 0, curves = 0;
+            for (juce::Path::Iterator it(shape); it.next();)
+            {
+                lines += it.elementType == juce::Path::Iterator::lineTo ? 1 : 0;
+                curves += it.elementType == juce::Path::Iterator::quadraticTo || it.elementType == juce::Path::Iterator::cubicTo ? 1 : 0;
+            }
+            check(curves == 0 && lines == 7 && ! shape.contains(10.5f, 20.5f) && shape.contains(10.5f, 32.0f) && shape.contains(14.0f, 21.0f)
+                      && shape.getBounds() == juce::Rectangle<float>(10.0f, 20.0f, 80.0f, 24.0f),
+                  "plates: a plate is its rectangle with the four corners cut straight (no curves)");
+        }
         check(Theme::Space::unit == 4 && Theme::Space::gutter == 12 && Theme::Space::gutter % Theme::Space::unit == 0 && Theme::Space::panelPadding % Theme::Space::unit == 0,
               "spacing: a 4 px unit, a 12 px gutter");
         using F = Theme::Fonts;

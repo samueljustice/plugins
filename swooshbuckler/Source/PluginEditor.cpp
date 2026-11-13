@@ -77,27 +77,22 @@ void SwooshbucklerAudioProcessorEditor::TapeButton::paint(juce::Graphics& g)
     const bool armed = m_processor.isRecording();
     const bool capturing = m_processor.isCapturing();
 
-    // A raised plate like the buttons beside it; a stroke only while it is armed or under the mouse.
-    g.setColour(TC::shadow.withAlpha(0.55f));
-    g.fillRoundedRectangle(b.withTrimmedTop(2.0f), Theme::Radius::control);
-    b = b.withTrimmedBottom(1.5f);
-    g.setColour(isMouseOver() && ! armed ? TC::hover : TC::raised);
-    g.fillRoundedRectangle(b, Theme::Radius::control);
+    // A control plate like the buttons beside it; while it is armed it is tinted cherry, with a cherry edge
+    // (not a whole cherry plate: the reels and the time have to read on it).
+    SwooshLookAndFeel::drawControlPlate(g, getLocalBounds().toFloat(), TC::record, Theme::Look::Normal, false, isMouseOver() && ! armed, false);
+    b = SwooshLookAndFeel::plateFace(getLocalBounds().toFloat(), false);
     if (armed)
     {
         g.setColour(TC::record.withAlpha(0.2f));
-        g.fillRoundedRectangle(b, Theme::Radius::control);
-    }
-    if (armed || isMouseOver())
-    {
-        g.setColour(armed ? TC::record.withAlpha(0.9f) : TC::stroke);
-        g.drawRoundedRectangle(b, Theme::Radius::control, 1.0f);
+        Theme::Plate::fill(g, b, Theme::Cut::control);
+        g.setColour(TC::record.withAlpha(0.9f));
+        Theme::Plate::stroke(g, b, Theme::Cut::control);
     }
 
     // Cassette body with two reels and the tape between them
     auto icon = b.removeFromLeft(b.getHeight() * 1.6f).reduced(5.0f, 5.0f);
     g.setColour(TC::brass.withAlpha(0.85f));
-    g.drawRoundedRectangle(icon, 3.0f, 1.2f);
+    Theme::Plate::stroke(g, icon.expanded(0.6f), 2.0f, 1.2f);
     const float r = icon.getHeight() * 0.3f;
     const juce::Point<float> c1 { icon.getX() + icon.getWidth() * 0.3f, icon.getCentreY() - 1.0f };
     const juce::Point<float> c2 { icon.getX() + icon.getWidth() * 0.7f, icon.getCentreY() - 1.0f };
@@ -130,8 +125,7 @@ void SwooshbucklerAudioProcessorEditor::TapeButton::paint(juce::Graphics& g)
         g.fillEllipse(juce::Rectangle<float>(7.0f, 7.0f).withCentre({ b.getX() + 6.0f, b.getCentreY() }));
         b.removeFromLeft(12.0f);
     }
-    g.setColour(TC::text);
-    Theme::fitText(g, text, b.withTrimmedRight(5.0f), m_fonts.control(), juce::Justification::centredLeft);
+    Theme::stampText(g, text, b.withTrimmedRight(5.0f), m_fonts.control(), juce::Justification::centredLeft, TC::text);
 }
 
 //==============================================================================
@@ -604,7 +598,7 @@ void SwooshbucklerAudioProcessorEditor::AboutPanel::paint(juce::Graphics& g)
     // The Sweet Justice logo, traced by its comets.
     if (m_logo != nullptr && m_logo->isLoaded())
     {
-        SwooshLookAndFeel::drawWell(g, m_logoArea.toFloat(), Theme::Radius::panel);
+        SwooshLookAndFeel::drawWell(g, m_logoArea.toFloat(), Theme::Cut::panel);
         const float t = static_cast<float>(juce::Time::getMillisecondCounterHiRes() * 0.001 - m_shownAt);
         m_logo->renderPreview(g, m_logoArea.toFloat().reduced(18.0f), t, 1.0f);
     }
@@ -1243,7 +1237,7 @@ void SwooshbucklerAudioProcessorEditor::layoutContent()
     m_hold.setBounds(16, 62, 884, 384);
     m_sea.setBounds(912, 62, 352, 196);
     m_morphPad.setBounds(m_sea.getBounds().reduced(6).withTrimmedTop(18));
-    m_morphButton.setBounds(m_sea.getRight() - 86, m_sea.getY() + 4, 80, 20);
+    m_morphButton.setBounds(m_sea.getRight() - 96, m_sea.getY() + 7, 80, 20); // clear of the frame's corner plate
     m_performPanel = { 912, 270, 352, 176 };
     m_swell.setBounds(m_performPanel.getX() + 8, m_performPanel.getY() + 28, 100, 100);
     // Under Swell: Throw, Auto Ride and Follow Master.
@@ -1415,7 +1409,7 @@ void SwooshbucklerAudioProcessorEditor::paintContent(juce::Graphics& g)
                        juce::Justification::centredLeft, readout ? Theme::Fit::Message : Theme::Fit::Sentence);
     }
     for (const auto& sec : m_sections)
-        SwooshLookAndFeel::drawPanel(g, sec.bounds.toFloat(), sec.title, sec.subtitle, sec.accent, f, sec.roundel, static_cast<float>(sec.subtitleRight));
+        SwooshLookAndFeel::drawPanel(g, sec.bounds.toFloat(), sec.title, sec.subtitle, sec.accent, f, sec.mark, static_cast<float>(sec.subtitleRight));
     SwooshLookAndFeel::drawPanel(g, m_modSection.toFloat(), "Modulation", "Drag a jack onto any knob to wire it", TC::brass, f, Icons::Icon::Modulation,
                                  static_cast<float>(m_cablesButton.getX() - 8));
     g.setColour(TC::textDim);
@@ -1432,7 +1426,7 @@ void SwooshbucklerAudioProcessorEditor::paintContent(juce::Graphics& g)
         if (down) { p.startNewSubPath(c.x - 5.0f, c.y - 2.5f); p.lineTo(c.x, c.y + 2.5f); p.lineTo(c.x + 5.0f, c.y - 2.5f); }
         else      { p.startNewSubPath(c.x - 2.5f, c.y - 5.0f); p.lineTo(c.x + 2.5f, c.y); p.lineTo(c.x - 2.5f, c.y + 5.0f); }
         g.setColour(TC::brass.withAlpha(0.8f));
-        g.strokePath(p, juce::PathStrokeType(2.0f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+        g.strokePath(p, juce::PathStrokeType(2.0f, juce::PathStrokeType::mitered, juce::PathStrokeType::butt));
     };
     arrow({ 458.0f, 452.0f }, true);   // tracks -> buses
     arrow({ 640.0f, 542.0f }, false);  // A -> B
@@ -1458,7 +1452,8 @@ void SwooshbucklerAudioProcessorEditor::paintContent(juce::Graphics& g)
     if (g.clipRegionIntersects(m_tremGroup))
     {
         g.setColour(TC::window.withAlpha(0.45f));
-        g.fillRoundedRectangle(m_tremGroup.toFloat(), Theme::Radius::control + 2.0f);
+        Theme::Plate::fill(g, m_tremGroup.toFloat(), Theme::Cut::control);
+        Theme::Plate::wellEdge(g, m_tremGroup.toFloat(), Theme::Cut::control);
         g.setColour(m_tremShown == 1 ? TC::busA : TC::textDim);
         Theme::fitText(g, "Peak Tremolo", m_tremCaption, f.caption(), juce::Justification::centredLeft);
     }
@@ -1476,17 +1471,17 @@ void SwooshbucklerAudioProcessorEditor::paintContent(juce::Graphics& g)
         const auto outBar = bars.removeFromLeft(20.0f);
         const auto outScale = bars.removeFromLeft(28.0f);
         for (auto bar : { grBar, outBar })
-            SwooshLookAndFeel::drawWell(g, bar, 4.0f);
+            SwooshLookAndFeel::drawWell(g, bar, 0.0f); // a slot
 
         // GR grows down from the top, 12 dB at the bottom; Out grows up from the bottom, 0 dBFS at the top.
         auto grY = [&grBar](float db) { return grBar.getY() + grBar.getHeight() * juce::jlimit(0.0f, 1.0f, -db / 12.0f); };
         auto outY = [&outBar](float db) { return outBar.getBottom() - outBar.getHeight() * outMeterPosition(db); };
 
         g.setColour(TC::busA);
-        g.fillRoundedRectangle(grBar.withBottom(grY(m_grDb)), 4.0f);
+        g.fillRect(grBar.reduced(1.0f).withBottom(juce::jmax(grBar.getY() + 1.0f, grY(m_grDb))));
         const float outDb = juce::Decibels::gainToDecibels(m_outLevel, -60.0f);
         g.setColour(TC::output);
-        g.fillRoundedRectangle(outBar.withTop(outY(outDb)), 4.0f);
+        g.fillRect(outBar.reduced(1.0f).withTop(juce::jmin(outBar.getBottom() - 2.0f, outY(outDb))));
 
         // Peak holds: the deepest reduction and the highest level of the last moments stay as a line.
         if (m_grHoldDb < -0.05f)

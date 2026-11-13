@@ -5,7 +5,7 @@
 /**
  * The drawn icons: every glyph the interface uses in place of a letter or a word, drawn as strokes in one weight
  * so they sit together. Used by IconButton (an icon alone), by text buttons that carry one at their left
- * (Icons::set, drawn by the look and feel) and by the panels' roundels.
+ * (Icons::set, drawn by the look and feel) and by the panels' nameplates.
  */
 namespace Icons
 {
@@ -24,7 +24,7 @@ namespace Icons
         Takes,              // a stack of takes
         Variations,         // a fan of copies
         Link,               // two links of a chain: this follows something else
-        // The panels' roundels.
+        // The marks on the panels' nameplates.
         Tracks, Ride, Hits, Output, Modulation, LetterA, LetterB
     };
 
@@ -101,7 +101,7 @@ namespace Icons
             case Icon::Die:
             {
                 const auto face = box.reduced(box.getWidth() * 0.08f);
-                g.drawRoundedRectangle(face, face.getWidth() * 0.22f, juce::jmax(1.0f, line * 0.85f));
+                g.drawRoundedRectangle(face, face.getWidth() * 0.1f, juce::jmax(1.0f, line * 0.85f));
                 const float pip = juce::jmax(1.6f, face.getWidth() * 0.17f);
                 for (const auto& c : { juce::Point<float>(0.28f, 0.28f), juce::Point<float>(0.72f, 0.28f), juce::Point<float>(0.5f, 0.5f),
                                        juce::Point<float>(0.28f, 0.72f), juce::Point<float>(0.72f, 0.72f) })
@@ -120,9 +120,9 @@ namespace Icons
                     p.lineTo(at(0.68f, 0.48f));
                 g.strokePath(p, juce::PathStrokeType(juce::jmax(1.0f, line * 0.9f), juce::PathStrokeType::curved, juce::PathStrokeType::butt));
                 if (filled)
-                    g.fillRoundedRectangle(body, body.getWidth() * 0.15f);
+                    g.fillRect(body);
                 else
-                    g.drawRoundedRectangle(body.reduced(line * 0.4f), body.getWidth() * 0.15f, juce::jmax(1.0f, line * 0.8f));
+                    g.drawRect(body, juce::jmax(1.0f, line * 0.8f));
                 break;
             }
             case Icon::Remove:
@@ -303,7 +303,7 @@ namespace Icons
             }
             case Icon::LetterA:
             case Icon::LetterB:
-                break; // letters are set in type by whoever draws the roundel
+                break; // letters are set in type by whoever draws the nameplate
         }
     }
 }

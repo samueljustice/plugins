@@ -149,12 +149,13 @@ public:
     {
         const auto colour = sourceColour(m_source);
         const auto& fonts = m_owner.m_fonts;
-        // A raised card, owned by its colour: a bar down its left edge (no outline).
+        // A plate of its own, owned by its colour: a bar down its left edge.
         const auto bounds = getLocalBounds().toFloat();
         g.setColour(TC::raised.withAlpha(0.6f));
-        g.fillRoundedRectangle(bounds, Theme::Radius::control + 2.0f);
+        Theme::Plate::fill(g, bounds, Theme::Cut::control);
+        Theme::Plate::edge(g, bounds, Theme::Cut::control, TC::edgeDark.withAlpha(0.8f), TC::edgeLight.withMultipliedAlpha(0.5f));
         g.setColour(colour);
-        g.fillRoundedRectangle(bounds.getX() + 3.0f, bounds.getY() + 36.0f, 3.0f, bounds.getHeight() - 46.0f, 1.5f);
+        g.fillRect(juce::Rectangle<float>(bounds.getX() + 3.0f, bounds.getY() + 36.0f, 3.0f, bounds.getHeight() - 46.0f));
 
         // The jack: a brass socket in the modulator's colour. Drag it onto a knob.
         const auto jack = jackArea();
@@ -169,8 +170,7 @@ public:
             g.fillEllipse(jack.expanded(4.0f));
         }
 
-        g.setColour(colour);
-        Theme::fitText(g, sourceName(m_source), juce::Rectangle<float>(jack.getRight() + 8.0f, 7.0f, 60.0f, 24.0f), fonts.display(), juce::Justification::centredLeft);
+        Theme::stampText(g, sourceName(m_source), juce::Rectangle<float>(jack.getRight() + 8.0f, 7.0f, 60.0f, 24.0f), fonts.display(), juce::Justification::centredLeft, colour);
 
         // Scope: what the modulator is doing (the last 4 s)
         const auto sa = m_scopeArea.toFloat();
@@ -538,9 +538,9 @@ void ModWires::paint(juce::Graphics& g)
             const auto text = juce::String(plug.route.depth > 0.0f ? "+" : "") + juce::String(juce::roundToInt(plug.route.depth * 100.0f)) + "%";
             auto bubble = juce::Rectangle<float>(48.0f, 18.0f).withCentre(plug.pos.translated(0.0f, -18.0f));
             g.setColour(TC::panelRaised);
-            g.fillRoundedRectangle(bubble, 4.0f);
+            Theme::Plate::fill(g, bubble, Theme::Cut::small);
             g.setColour(c);
-            g.drawRoundedRectangle(bubble, 4.0f, 1.0f);
+            Theme::Plate::stroke(g, bubble, Theme::Cut::small);
             Theme::fitText(g, text, bubble, m_fonts.caption(), juce::Justification::centred);
         }
     }

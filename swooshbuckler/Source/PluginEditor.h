@@ -174,7 +174,7 @@ private:
         juce::String title, subtitle;
         juce::Colour accent;
         juce::Rectangle<int> bounds;
-        Icons::Icon roundel = Icons::Icon::None;
+        Icons::Icon mark = Icons::Icon::None;
         int subtitleRight = 0; // where the subtitle has to stop: the first control in the title bar
     };
 

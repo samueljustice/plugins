@@ -37,7 +37,7 @@ SwooshLookAndFeel::SwooshLookAndFeel(const Theme::Fonts& fonts) : m_fonts(fonts)
     setColour(juce::ComboBox::outlineColourId, TC::stroke);
     setColour(juce::ComboBox::textColourId, TC::text);
     setColour(juce::ComboBox::arrowColourId, TC::textDim);
-    // Not opaque, so a menu's window can have round corners (it is opaque where windows cannot be see-through).
+    // Not opaque, so a menu's window can have cut corners (it is square where windows cannot be see-through).
     setColour(juce::PopupMenu::backgroundColourId, TC::raised.withAlpha(0.0f));
     setColour(juce::PopupMenu::textColourId, TC::text);
     setColour(juce::PopupMenu::highlightedBackgroundColourId, TC::brass.withAlpha(0.2f));
@@ -66,27 +66,31 @@ SwooshLookAndFeel::SwooshLookAndFeel(const Theme::Fonts& fonts) : m_fonts(fonts)
 void SwooshLookAndFeel::drawLinearSlider(juce::Graphics& g, int x, int y, int width, int height, float sliderPos,
                                          float, float, juce::Slider::SliderStyle style, juce::Slider& slider)
 {
-    // A fader: a groove cut into the surface, filled in the control's colour up to a sand thumb.
+    // A fader: a slot cut into the plate, filled in the control's colour up to a sand block cap.
     const bool enabled = slider.isEnabled();
     const auto accent = enabled ? slider.findColour(juce::Slider::trackColourId) : TC::textFaint.withAlpha(0.5f);
     const auto r = juce::Rectangle<float>(static_cast<float>(x), static_cast<float>(y), static_cast<float>(width), static_cast<float>(height));
     const bool vertical = style == juce::Slider::LinearVertical;
     const bool over = slider.isMouseOverOrDragging();
-    const float thumb = vertical ? 14.0f : 12.0f;
-    const auto groove = vertical ? r.withSizeKeepingCentre(5.0f, r.getHeight()) : r.withSizeKeepingCentre(r.getWidth(), 5.0f);
-    const auto filled = vertical ? groove.withTop(sliderPos) : groove.withRight(sliderPos);
+    const auto slot = (vertical ? r.withSizeKeepingCentre(6.0f, r.getHeight()).expanded(0.0f, 7.0f)
+                                : r.withSizeKeepingCentre(r.getWidth(), 6.0f).expanded(6.0f, 0.0f));
     const juce::Point<float> at = vertical ? juce::Point<float>(r.getCentreX(), sliderPos) : juce::Point<float>(sliderPos, r.getCentreY());
 
     g.setColour(TC::well);
-    g.fillRoundedRectangle(groove.expanded(vertical ? 0.0f : 6.0f, vertical ? 7.0f : 0.0f), 2.5f);
+    g.fillRect(slot);
     g.setColour(accent.withAlpha(0.9f));
-    g.fillRoundedRectangle(filled.expanded(vertical ? 0.0f : 3.0f, vertical ? 3.0f : 0.0f), 2.5f);
-    g.setColour(TC::shadow.withAlpha(0.45f));
-    g.fillEllipse(juce::Rectangle<float>(thumb, thumb).withCentre(at.translated(0.0f, 1.0f)));
+    g.fillRect((vertical ? slot.withTop(sliderPos) : slot.withRight(sliderPos)).reduced(1.0f));
+    Theme::Plate::wellEdge(g, slot, 0.0f);
+
+    // The cap: a block across the slot, with a grip line in the control's colour.
+    const float across = juce::jmin(18.0f, (vertical ? r.getWidth() : r.getHeight()) - 2.0f), along = 10.0f;
+    const auto cap = (vertical ? juce::Rectangle<float>(across, along) : juce::Rectangle<float>(along, across)).withCentre(at);
+    g.setColour(TC::edgeDark);
+    Theme::Plate::fill(g, cap.expanded(1.0f).translated(0.0f, 1.0f), Theme::Cut::small);
     g.setColour(enabled ? (over ? TC::text.brighter(0.2f) : TC::text) : TC::textFaint);
-    g.fillEllipse(juce::Rectangle<float>(thumb, thumb).withCentre(at));
-    g.setColour(enabled ? accent.darker(0.2f) : TC::well);
-    g.fillEllipse(juce::Rectangle<float>(thumb * 0.36f, thumb * 0.36f).withCentre(at));
+    Theme::Plate::fill(g, cap, Theme::Cut::small);
+    g.setColour(enabled ? accent.darker(0.35f) : TC::well);
+    g.fillRect(vertical ? cap.withSizeKeepingCentre(across - 6.0f, 2.0f) : cap.withSizeKeepingCentre(2.0f, across - 6.0f));
 }
 
 juce::Slider::SliderLayout SwooshLookAndFeel::getSliderLayout(juce::Slider& slider)
@@ -110,73 +114,72 @@ juce::Label* SwooshLookAndFeel::createSliderTextBox(juce::Slider& slider)
 
 namespace
 {
-    /** The face of a plate that can be pressed: it sits a little above its own hard shadow, and down on it when pressed. */
-    juce::Rectangle<float> plateFace(juce::Rectangle<float> r, bool down)
-    {
-        return down ? r.withTrimmedTop(1.5f) : r.withTrimmedBottom(1.5f);
-    }
-
-    /** The plate of anything raised (a button, a menu): its fill by state, a hard little shadow under it so it
-        reads as a key you can press, and a stroke only when it is hovered, on, focused or resting. */
-    void drawPlate(juce::Graphics& g, juce::Rectangle<float> r, float radius, juce::Colour accent, Theme::Look look,
-                   bool on, bool over, bool down, bool focused = false)
-    {
-        if (look == Theme::Look::Disabled || look == Theme::Look::Linked)
-        {
-            g.setColour(TC::raised.withAlpha(0.45f));
-            g.fillRoundedRectangle(plateFace(r, false), radius);
-            return;
-        }
-        if (look == Theme::Look::Resting)
-        {
-            // Hollow: it can be set, and waits for something else to be switched on.
-            const auto face = plateFace(r, down);
-            g.setColour(TC::raised.withAlpha(over ? 0.7f : 0.35f));
-            g.fillRoundedRectangle(face, radius);
-            juce::Path edge, dashed;
-            edge.addRoundedRectangle(face.reduced(0.5f), radius);
-            const float dashes[] = { 3.0f, 3.0f };
-            juce::PathStrokeType(1.0f).createDashedStroke(dashed, edge, dashes, 2);
-            g.setColour(on ? accent.withAlpha(0.8f) : TC::stroke);
-            g.fillPath(dashed);
-            return;
-        }
-        if (! down)
-        {
-            g.setColour(TC::shadow.withAlpha(0.55f));
-            g.fillRoundedRectangle(r.withTrimmedTop(2.0f), radius);
-        }
-        const auto face = plateFace(r, down);
-        // A solid base first, so nothing behind shows through a lit button (the moon behind Morph).
-        g.setColour(over && ! on ? TC::hover : TC::raised);
-        g.fillRoundedRectangle(face, radius);
-        if (on)
-        {
-            g.setColour(accent.withAlpha(over ? 0.34f : 0.24f));
-            g.fillRoundedRectangle(face, radius);
-        }
-        if (on || over || focused)
-        {
-            g.setColour(focused ? TC::brass : (on ? accent.withAlpha(0.9f) : TC::stroke));
-            g.drawRoundedRectangle(face.reduced(0.5f), radius, 1.0f);
-        }
-    }
-
     /** The little open arrow that says "this opens a menu". */
-    void drawChevron(juce::Graphics& g, juce::Point<float> centre, juce::Colour colour)
+    void drawChevron(juce::Graphics& g, juce::Point<float> centre, juce::Colour colour, bool up = false)
     {
+        const float d = up ? -1.8f : 1.8f;
         juce::Path p;
-        p.startNewSubPath(centre.x - 3.5f, centre.y - 1.8f);
-        p.lineTo(centre.x, centre.y + 1.8f);
-        p.lineTo(centre.x + 3.5f, centre.y - 1.8f);
+        p.startNewSubPath(centre.x - 3.5f, centre.y - d);
+        p.lineTo(centre.x, centre.y + d);
+        p.lineTo(centre.x + 3.5f, centre.y - d);
         g.setColour(colour);
-        g.strokePath(p, juce::PathStrokeType(1.5f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+        g.strokePath(p, juce::PathStrokeType(1.5f, juce::PathStrokeType::mitered, juce::PathStrokeType::butt));
     }
+
+    /** Dark lettering reads on a lit plate of this colour; on the few that are too deep for it, sand does. */
+    juce::Colour letteringOn(juce::Colour plate)
+    {
+        return plate.getPerceivedBrightness() > 0.5f ? TC::window : TC::text;
+    }
+}
+
+juce::Rectangle<float> SwooshLookAndFeel::plateFace(juce::Rectangle<float> r, bool down)
+{
+    return down ? r.withTrimmedTop(1.5f) : r.withTrimmedBottom(1.5f);
+}
+
+void SwooshLookAndFeel::drawControlPlate(juce::Graphics& g, juce::Rectangle<float> r, juce::Colour accent, Theme::Look look,
+                                         bool on, bool over, bool down, bool focused, float cut)
+{
+    namespace Plate = Theme::Plate;
+    if (look == Theme::Look::Disabled || look == Theme::Look::Linked)
+    {
+        // Flat and faint: no edge, no lip.
+        g.setColour(TC::raised.withAlpha(0.45f));
+        Plate::fill(g, plateFace(r, false), cut);
+        return;
+    }
+    if (look == Theme::Look::Resting)
+    {
+        // Hollow: it can be set, and waits for something else to be switched on.
+        const auto face = plateFace(r, down);
+        g.setColour(TC::raised.withAlpha(over ? 0.7f : 0.35f));
+        Plate::fill(g, face, cut);
+        juce::Path dashed;
+        const float dashes[] = { 3.0f, 3.0f };
+        juce::PathStrokeType(1.0f).createDashedStroke(dashed, Plate::shape(face.reduced(0.5f), cut), dashes, 2);
+        g.setColour(on ? accent.withAlpha(0.8f) : TC::stroke);
+        g.fillPath(dashed);
+        return;
+    }
+    // The lip the plate sits on (and down on, when pressed).
+    g.setColour(on ? accent.darker(0.75f) : TC::edgeDark);
+    Plate::fill(g, down ? r.withTrimmedTop(1.5f) : r.withTrimmedTop(2.0f), cut);
+    const auto face = plateFace(r, down);
+    // A solid plate, so nothing behind shows through it (the moon behind Morph).
+    g.setColour(on ? (over ? accent.brighter(0.18f) : accent) : (down ? TC::raised.darker(0.12f) : (over ? TC::hover : TC::raised)));
+    Plate::fill(g, face, cut);
+    // The light line along its top edge, then the edge itself.
+    g.setColour(on ? juce::Colours::white.withAlpha(0.32f) : TC::edgeLight);
+    g.fillRect(juce::Rectangle<float>(face.getX() + cut, face.getY() + 1.0f, face.getWidth() - 2.0f * cut, 1.0f));
+    g.setColour(focused ? TC::brass : (on ? accent.darker(0.6f) : (over ? TC::stroke.brighter(0.15f) : TC::edgeDark)));
+    Plate::stroke(g, face, cut);
 }
 
 void SwooshLookAndFeel::drawButtonBackground(juce::Graphics& g, juce::Button& button, const juce::Colour& background,
                                              bool over, bool down)
 {
+    namespace Plate = Theme::Plate;
     const auto r = button.getLocalBounds().toFloat();
     const auto accent = button.findColour(juce::TextButton::buttonOnColourId);
     const bool on = button.getToggleState();
@@ -185,43 +188,45 @@ void SwooshLookAndFeel::drawButtonBackground(juce::Graphics& g, juce::Button& bu
 
     if (style == ButtonStyle::Chip)
     {
-        // A chip is a state, not a key: a pill, dark and quiet when off, filled in its colour when on.
-        const float radius = juce::jmin(r.getHeight() * 0.5f, 9.0f);
+        // A chip is a state, not a key: a small tag with no lip, dark and quiet when off, its whole plate in its
+        // colour when on.
         const bool usable = look == Theme::Look::Normal || look == Theme::Look::Resting;
-        g.setColour(! usable ? TC::well.withAlpha(0.4f) : (on ? accent : (over ? TC::hover : TC::well.withAlpha(0.75f))));
-        g.fillRoundedRectangle(r, radius);
-        if (usable && over && ! on)
+        g.setColour(! usable ? TC::well.withAlpha(0.4f) : (on ? (over ? accent.brighter(0.18f) : accent) : (over ? TC::hover : TC::well.withAlpha(0.8f))));
+        Plate::fill(g, r, Theme::Cut::small);
+        if (usable)
         {
-            g.setColour(TC::stroke);
-            g.drawRoundedRectangle(r.reduced(0.5f), radius, 1.0f);
+            g.setColour(on ? accent.darker(0.6f) : (over ? TC::stroke.brighter(0.15f) : TC::edgeDark));
+            Plate::stroke(g, r, Theme::Cut::small);
         }
         return;
     }
     if (style == ButtonStyle::Primary)
     {
-        const float radius = Theme::Radius::control + 2.0f;
         if (look != Theme::Look::Normal)
         {
-            // Not to be pressed now: the brass is gone, and so is the shadow that makes it a key.
+            // Not to be pressed now: the brass is gone, and so is the lip that makes it a key.
             g.setColour(TC::raised.withAlpha(0.45f));
-            g.fillRoundedRectangle(r.withTrimmedBottom(2.0f), radius);
+            Plate::fill(g, r.withTrimmedBottom(2.0f), Theme::Cut::control);
             return;
         }
-        if (! down)
-        {
-            g.setColour(TC::brassDark);
-            g.fillRoundedRectangle(r.withTrimmedTop(3.0f), radius);
-        }
+        // The one brass key: a deeper lip than the iron plates have.
+        const auto face = down ? r.withTrimmedTop(2.0f) : r.withTrimmedBottom(2.0f);
+        g.setColour(TC::brassDark.darker(0.3f));
+        Plate::fill(g, r.withTrimmedTop(2.0f), Theme::Cut::control);
         g.setColour(over ? TC::brass.brighter(0.25f) : TC::brass);
-        g.fillRoundedRectangle(down ? r.withTrimmedTop(2.0f) : r.withTrimmedBottom(2.0f), radius);
+        Plate::fill(g, face, Theme::Cut::control);
+        g.setColour(juce::Colours::white.withAlpha(0.35f));
+        g.fillRect(juce::Rectangle<float>(face.getX() + Theme::Cut::control, face.getY() + 1.0f, face.getWidth() - 2.0f * Theme::Cut::control, 1.0f));
+        g.setColour(TC::brassDark);
+        Plate::stroke(g, face, Theme::Cut::control);
         return;
     }
-    drawPlate(g, r, Theme::Radius::control, accent, look, on, over, down);
+    drawControlPlate(g, r, accent, look, on, over, down);
     // A button whose plate has a colour of its own (Throw) keeps it as a tint.
     if (background != TC::raised && look == Theme::Look::Normal && ! on)
     {
         g.setColour(background);
-        g.fillRoundedRectangle(plateFace(r, down), Theme::Radius::control);
+        Plate::fill(g, plateFace(r, down).reduced(1.0f), Theme::Cut::control - 0.5f);
     }
 }
 
@@ -234,19 +239,22 @@ void SwooshLookAndFeel::drawButtonText(juce::Graphics& g, juce::TextButton& butt
     const auto icon = Icons::get(button);
     const auto text = button.getButtonText();
     const bool single = text.length() <= 2; // a single-letter chip (A, B, M, S)
-    // A button that switches something (and is not a chip, whose fill says it) carries a lamp.
+    // A button that switches something (and is not a chip, whose plate says it) carries a lamp slot.
     // One of a row of choices (a radio group) is lit by its plate alone.
     const bool lamp = style == ButtonStyle::Button && button.getClickingTogglesState() && icon == Icons::Icon::None
                       && button.getRadioGroupId() == 0 && ! button.getProperties().contains("plain");
     const bool chevron = style == ButtonStyle::Menu;
+    const bool lit = on && look == Theme::Look::Normal; // the whole plate is in its colour
 
     juce::Colour colour;
     if (look == Theme::Look::Disabled || look == Theme::Look::Linked)
         colour = TC::textFaint.withAlpha(0.55f);
-    else if (style == ButtonStyle::Primary || (style == ButtonStyle::Chip && on))
+    else if (style == ButtonStyle::Primary)
         colour = TC::window;
+    else if (lit || (on && style == ButtonStyle::Chip))
+        colour = letteringOn(accent);
     else if (on)
-        colour = accent.brighter(0.45f);
+        colour = accent.brighter(0.45f); // resting and on: hollow, its lettering in its colour
     else if (style == ButtonStyle::Chip)
         colour = over ? TC::text : TC::textDim;
     else if (look == Theme::Look::Resting)
@@ -275,24 +283,17 @@ void SwooshLookAndFeel::drawButtonText(juce::Graphics& g, juce::TextButton& butt
         Icons::draw(g, icon, juce::Rectangle<float>(x, r.getCentreY() - iconSide * 0.5f, iconSide, iconSide), colour, on);
     else if (lamp)
     {
-        const auto dot = juce::Rectangle<float>(6.0f, 6.0f).withCentre({ x + 3.0f, r.getCentreY() });
-        if (on && look == Theme::Look::Normal)
-        {
-            g.setColour(accent.withAlpha(0.3f));
-            g.fillEllipse(dot.expanded(2.5f));
-            g.setColour(accent.brighter(0.3f));
-            g.fillEllipse(dot);
-        }
+        // The lamp: a small square slot punched in the plate, open when off, filled when on.
+        const auto slot = juce::Rectangle<float>(6.0f, 6.0f).withCentre({ x + 3.0f, std::floor(r.getCentreY()) + 0.5f });
+        g.setColour(colour.withMultipliedAlpha(lit ? 0.9f : 0.65f));
+        if (on)
+            g.fillRect(slot);
         else
-        {
-            g.setColour(colour.withMultipliedAlpha(0.6f));
-            g.drawEllipse(dot.reduced(0.5f), 1.2f);
-        }
+            g.drawRect(slot, 1.2f);
     }
-    g.setColour(colour);
     const float left = x + lead + gap;
-    Theme::fitText(g, text, juce::Rectangle<float>(left, r.getY(), r.getRight() - pad - tail - left, r.getHeight()), font,
-                   juce::Justification::centredLeft, fit);
+    Theme::stampText(g, text, juce::Rectangle<float>(left, r.getY(), r.getRight() - pad - tail - left, r.getHeight()), font,
+                     juce::Justification::centredLeft, colour, fit);
     if (chevron)
         drawChevron(g, { r.getRight() - 11.0f, r.getCentreY() }, colour.withMultipliedAlpha(0.8f));
 }
@@ -305,31 +306,43 @@ juce::Font SwooshLookAndFeel::getTextButtonFont(juce::TextButton& button, int)
 
 void SwooshLookAndFeel::drawToggleButton(juce::Graphics& g, juce::ToggleButton& button, bool over, bool)
 {
-    // A switch: a pill with a thumb that sits right, in the control's colour, when on.
+    // A switch: a slot cut in the plate with a block that slides in it, to the right and in the control's
+    // colour when on.
     auto r = button.getLocalBounds().toFloat();
     const auto accent = button.findColour(juce::ToggleButton::tickColourId);
     const bool on = button.getToggleState();
     const auto look = Theme::getLook(button);
     const bool usable = look == Theme::Look::Normal || look == Theme::Look::Resting;
-    const float trackH = juce::jmin(16.0f, r.getHeight() - 2.0f), trackW = std::floor(trackH * 1.75f);
-    const auto track = juce::Rectangle<float>(r.getX() + 1.0f, r.getCentreY() - trackH * 0.5f, trackW, trackH);
-    const float thumbD = trackH - 5.0f;
-    const auto thumb = juce::Rectangle<float>(thumbD, thumbD).withCentre({ on ? track.getRight() - trackH * 0.5f : track.getX() + trackH * 0.5f, track.getCentreY() });
+    const float slotH = juce::jmin(16.0f, r.getHeight() - 2.0f), slotW = std::floor(slotH * 1.75f);
+    const auto slot = juce::Rectangle<float>(r.getX() + 1.0f, std::floor(r.getCentreY() - slotH * 0.5f), slotW, slotH);
+    const float blockW = std::floor(slotW * 0.5f) - 1.0f;
+    const auto block = juce::Rectangle<float>(on ? slot.getRight() - 2.0f - blockW : slot.getX() + 2.0f, slot.getY() + 2.0f, blockW, slotH - 5.0f);
 
-    g.setColour(! usable ? TC::well.withAlpha(0.5f) : (on ? accent : TC::well));
-    g.fillRoundedRectangle(track, trackH * 0.5f);
-    if (usable && (over || ! on))
+    g.setColour(usable ? TC::well : TC::well.withAlpha(0.5f));
+    Theme::Plate::fill(g, slot, Theme::Cut::small);
+    if (usable)
     {
-        g.setColour(over ? (on ? accent.brighter(0.4f) : TC::stroke.brighter(0.3f)) : TC::stroke);
-        g.drawRoundedRectangle(track.reduced(0.5f), trackH * 0.5f, 1.0f);
+        if (on)
+        {
+            g.setColour(accent.withAlpha(0.28f));
+            Theme::Plate::fill(g, slot, Theme::Cut::small);
+        }
+        Theme::Plate::wellEdge(g, slot, Theme::Cut::small);
+        if (over || on)
+        {
+            g.setColour(on ? accent.withAlpha(over ? 1.0f : 0.75f) : TC::stroke.brighter(0.3f));
+            Theme::Plate::stroke(g, slot.withTrimmedBottom(1.0f), Theme::Cut::small);
+        }
     }
-    g.setColour(! usable ? TC::textFaint.withAlpha(0.5f) : (on ? TC::window : TC::textDim));
-    g.fillEllipse(thumb);
+    g.setColour(! usable ? TC::textFaint.withAlpha(0.5f) : (on ? accent : TC::textDim));
+    g.fillRect(block);
+    g.setColour(TC::well.withAlpha(usable ? 0.7f : 0.3f));
+    g.fillRect(block.withSizeKeepingCentre(1.5f, block.getHeight() - 4.0f));
 
     if (button.getButtonText().isNotEmpty())
     {
         g.setColour(! usable ? TC::textFaint.withAlpha(0.55f) : (on || over ? TC::text : TC::textDim));
-        Theme::fitText(g, button.getButtonText(), r.withTrimmedLeft(trackW + 8.0f), m_fonts.control(), juce::Justification::centredLeft);
+        Theme::fitText(g, button.getButtonText(), r.withTrimmedLeft(slotW + 8.0f), m_fonts.control(), juce::Justification::centredLeft);
     }
 }
 
@@ -337,7 +350,7 @@ void SwooshLookAndFeel::drawComboBox(juce::Graphics& g, int width, int height, b
 {
     const auto r = juce::Rectangle<float>(0.0f, 0.0f, static_cast<float>(width), static_cast<float>(height));
     const auto look = Theme::getLook(box);
-    drawPlate(g, r, Theme::Radius::control, TC::brass, look, false, box.isMouseOver(true), down, box.hasKeyboardFocus(false));
+    drawControlPlate(g, r, TC::brass, look, false, box.isMouseOver(true), down, box.hasKeyboardFocus(false));
     const juce::Point<float> mark { r.getRight() - 11.0f, plateFace(r, down).getCentreY() };
     if (look == Theme::Look::Linked)
         Icons::draw(g, Icons::Icon::Link, juce::Rectangle<float>(12.0f, 12.0f).withCentre(mark), TC::textDim);
@@ -365,19 +378,26 @@ void SwooshLookAndFeel::drawLabel(juce::Graphics& g, juce::Label& label)
     // The label inside a menu takes the menu's look (a linked or switched-off menu reads fainter).
     const auto* owner = dynamic_cast<juce::ComboBox*>(label.getParentComponent());
     const auto look = owner != nullptr ? Theme::getLook(*owner) : Theme::getLook(label);
-    g.setColour(look == Theme::Look::Disabled || look == Theme::Look::Linked ? TC::textFaint.withAlpha(0.55f)
-                : look == Theme::Look::Resting ? TC::textDim : label.findColour(juce::Label::textColourId));
-    Theme::fitText(g, label.getText(), label.getBorderSize().subtractedFrom(label.getLocalBounds()).toFloat(), getLabelFont(label),
-                   label.getJustificationType(), owner != nullptr ? Theme::Fit::Whole : Theme::Fit::Name);
+    const auto colour = look == Theme::Look::Disabled || look == Theme::Look::Linked ? TC::textFaint.withAlpha(0.55f)
+                        : look == Theme::Look::Resting ? TC::textDim : label.findColour(juce::Label::textColourId);
+    const auto box = label.getBorderSize().subtractedFrom(label.getLocalBounds()).toFloat();
+    if (owner != nullptr) // on a menu's plate: stamped, like a button's
+        Theme::stampText(g, label.getText(), box, getLabelFont(label), label.getJustificationType(), colour);
+    else
+    {
+        g.setColour(colour);
+        Theme::fitText(g, label.getText(), box, getLabelFont(label), label.getJustificationType(), Theme::Fit::Name);
+    }
 }
 
 void SwooshLookAndFeel::drawPopupMenuBackground(juce::Graphics& g, int width, int height)
 {
+    // A plate of its own: cut corners where the window can be see-through, square where it cannot.
     const auto r = juce::Rectangle<float>(0.0f, 0.0f, static_cast<float>(width), static_cast<float>(height));
-    if (! juce::Desktop::canUseSemiTransparentWindows())
-        g.fillAll(TC::raised); // the window is opaque: its corners are filled too
+    const float cut = juce::Desktop::canUseSemiTransparentWindows() ? Theme::Cut::panel : 0.0f;
     g.setColour(TC::raised.brighter(0.03f));
-    g.fillRoundedRectangle(r, 10.0f);
+    Theme::Plate::fill(g, r, cut);
+    Theme::Plate::edge(g, r, cut);
 }
 
 void SwooshLookAndFeel::drawPopupMenuUpDownArrow(juce::Graphics& g, int width, int height, bool isScrollUpArrow)
@@ -385,19 +405,8 @@ void SwooshLookAndFeel::drawPopupMenuUpDownArrow(juce::Graphics& g, int width, i
     // A menu too long for the screen scrolls: the arrow sits on the menu's own colour, fading into the items.
     const float w = static_cast<float>(width), h = static_cast<float>(height);
     g.setGradientFill(juce::ColourGradient(TC::raised, 0.0f, h * 0.5f, TC::raised.withAlpha(0.0f), 0.0f, isScrollUpArrow ? h : 0.0f, false));
-    g.fillRect(0.0f, 0.0f, w, h);
-    drawChevron(g, { w * 0.5f, h * 0.5f }, TC::textDim);
-    if (isScrollUpArrow) // the chevron points down: turn it over
-    {
-        g.setColour(TC::raised);
-        g.fillRect(w * 0.5f - 6.0f, h * 0.5f - 4.0f, 12.0f, 8.0f);
-        juce::Path p;
-        p.startNewSubPath(w * 0.5f - 3.5f, h * 0.5f + 1.8f);
-        p.lineTo(w * 0.5f, h * 0.5f - 1.8f);
-        p.lineTo(w * 0.5f + 3.5f, h * 0.5f + 1.8f);
-        g.setColour(TC::textDim);
-        g.strokePath(p, juce::PathStrokeType(1.5f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
-    }
+    g.fillRect(2.0f, 0.0f, w - 4.0f, h);
+    drawChevron(g, { w * 0.5f, h * 0.5f }, TC::textDim, isScrollUpArrow);
 }
 
 void SwooshLookAndFeel::drawPopupMenuSectionHeader(juce::Graphics& g, const juce::Rectangle<int>& area, const juce::String& name)
@@ -420,13 +429,14 @@ void SwooshLookAndFeel::drawPopupMenuItem(juce::Graphics& g, const juce::Rectang
     if (isHighlighted && isActive)
     {
         g.setColour(TC::brass.withAlpha(0.2f));
-        g.fillRoundedRectangle(r.toFloat(), Theme::Radius::control);
+        Theme::Plate::fill(g, r.toFloat(), Theme::Cut::small);
     }
     const auto tick = r.removeFromLeft(22);
     if (isTicked)
     {
+        // The chosen one: a small brass block.
         g.setColour(TC::brass);
-        g.fillEllipse(juce::Rectangle<float>(6.0f, 6.0f).withCentre(tick.toFloat().getCentre()));
+        g.fillRect(juce::Rectangle<float>(6.0f, 6.0f).withCentre(tick.toFloat().getCentre()));
     }
     if (hasSubMenu)
     {
@@ -436,7 +446,7 @@ void SwooshLookAndFeel::drawPopupMenuItem(juce::Graphics& g, const juce::Rectang
         p.lineTo(arrow.x + 1.8f, arrow.y);
         p.lineTo(arrow.x - 1.8f, arrow.y + 3.5f);
         g.setColour(isActive ? TC::textDim : TC::textFaint.withAlpha(0.5f));
-        g.strokePath(p, juce::PathStrokeType(1.5f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+        g.strokePath(p, juce::PathStrokeType(1.5f, juce::PathStrokeType::mitered, juce::PathStrokeType::butt));
     }
     g.setColour(! isActive ? TC::textFaint.withAlpha(0.6f) : (isHighlighted ? TC::text : TC::text.withAlpha(0.9f)));
     Theme::fitText(g, text, r.withTrimmedRight(8).toFloat(), m_fonts.control(), juce::Justification::centredLeft);
@@ -451,46 +461,49 @@ void SwooshLookAndFeel::getIdealPopupMenuItemSize(const juce::String& text, bool
 void SwooshLookAndFeel::drawScrollbar(juce::Graphics& g, juce::ScrollBar&, int x, int y, int width, int height, bool vertical,
                                       int thumbStart, int thumbSize, bool over, bool down)
 {
-    // A quiet pill in a groove: no arrows, no frame.
+    // A block in a slot: no arrows, no frame.
     const auto track = juce::Rectangle<int>(x, y, width, height).toFloat();
     const float thick = juce::jmin(6.0f, vertical ? track.getWidth() : track.getHeight());
-    const auto groove = vertical ? track.withSizeKeepingCentre(thick, track.getHeight()) : track.withSizeKeepingCentre(track.getWidth(), thick);
-    g.setColour(TC::well.withAlpha(0.6f));
-    g.fillRoundedRectangle(groove, thick * 0.5f);
+    const auto slot = vertical ? track.withSizeKeepingCentre(thick, track.getHeight()) : track.withSizeKeepingCentre(track.getWidth(), thick);
+    g.setColour(TC::well.withAlpha(0.7f));
+    g.fillRect(slot);
     if (thumbSize <= 0)
         return;
-    const auto thumb = vertical ? groove.withY(static_cast<float>(thumbStart)).withHeight(static_cast<float>(thumbSize))
-                                : groove.withX(static_cast<float>(thumbStart)).withWidth(static_cast<float>(thumbSize));
+    const auto thumb = vertical ? slot.withY(static_cast<float>(thumbStart)).withHeight(static_cast<float>(thumbSize))
+                                : slot.withX(static_cast<float>(thumbStart)).withWidth(static_cast<float>(thumbSize));
     g.setColour(down ? TC::brass : (over ? TC::stroke.brighter(0.4f) : TC::stroke));
-    g.fillRoundedRectangle(thumb, thick * 0.5f);
+    Theme::Plate::fill(g, thumb, 1.5f);
 }
 
 void SwooshLookAndFeel::drawCornerResizer(juce::Graphics& g, int w, int h, bool over, bool dragging)
 {
-    // Three brass dots in the corner: quiet until the mouse is on them.
+    // Three brass cuts across the corner: quiet until the mouse is on them.
     g.setColour(TC::brass.withAlpha(over || dragging ? 0.9f : 0.45f));
     const float fw = static_cast<float>(w), fh = static_cast<float>(h);
-    for (const auto& p : { juce::Point<float>(0.72f, 0.72f), juce::Point<float>(0.72f, 0.36f), juce::Point<float>(0.36f, 0.72f) })
-        g.fillEllipse(juce::Rectangle<float>(2.6f, 2.6f).withCentre({ fw * p.x, fh * p.y }));
+    for (const float t : { 0.3f, 0.52f, 0.74f })
+        g.drawLine(fw * t, fh * 0.86f, fw * 0.86f, fh * t, 1.3f);
 }
 
 void SwooshLookAndFeel::fillTextEditorBackground(juce::Graphics& g, int width, int height, juce::TextEditor& editor)
 {
-    // A text box paints every pixel of itself: its corners take the colour of the panel it is cut into.
+    // A text box paints every pixel of itself: its cut corners take the colour of the panel it is cut into.
     g.fillAll(TC::panel);
     g.setColour(editor.findColour(juce::TextEditor::backgroundColourId));
-    g.fillRoundedRectangle(0.0f, 0.0f, static_cast<float>(width), static_cast<float>(height), Theme::Radius::small);
+    Theme::Plate::fill(g, juce::Rectangle<float>(0.0f, 0.0f, static_cast<float>(width), static_cast<float>(height)), Theme::Cut::small);
 }
 
 void SwooshLookAndFeel::drawTextEditorOutline(juce::Graphics& g, int width, int height, juce::TextEditor& editor)
 {
-    // A stroke only while it has the keyboard (or the mouse is over it).
+    // A well; its edge turns brass while it has the keyboard (and lighter under the mouse).
+    const auto r = juce::Rectangle<float>(0.0f, 0.0f, static_cast<float>(width), static_cast<float>(height));
     const bool focused = editor.hasKeyboardFocus(true) && ! editor.isReadOnly();
     if (! focused && ! editor.isMouseOver(true))
+    {
+        Theme::Plate::wellEdge(g, r, Theme::Cut::small);
         return;
+    }
     g.setColour(focused ? editor.findColour(juce::TextEditor::focusedOutlineColourId) : TC::stroke);
-    g.drawRoundedRectangle(juce::Rectangle<float>(0.0f, 0.0f, static_cast<float>(width), static_cast<float>(height)).reduced(0.5f),
-                           Theme::Radius::small, 1.0f);
+    Theme::Plate::stroke(g, r, Theme::Cut::small);
 }
 
 namespace
@@ -533,10 +546,13 @@ namespace
 
 void SwooshLookAndFeel::drawTooltip(juce::Graphics& g, const juce::String& text, int width, int height)
 {
-    // The tooltip's window is a plain rectangle: filled edge to edge, with a quiet brass edge (it floats over anything).
+    // The tooltip's window is a plain rectangle: a plate filled edge to edge, a dark edge and a quiet brass line
+    // inside it (it floats over anything).
     const auto r = juce::Rectangle<float>(0, 0, static_cast<float>(width), static_cast<float>(height));
     g.fillAll(TC::raised);
     g.setColour(TC::brass.withAlpha(0.5f));
+    g.drawRect(r.reduced(1.0f), 1.0f);
+    g.setColour(TC::edgeDark);
     g.drawRect(r, 1.0f);
     const auto inner = r.reduced(c_tipPadX, c_tipPadY);
     layoutTip(text, m_fonts, inner.getWidth()).draw(g, inner);
@@ -562,74 +578,88 @@ juce::Rectangle<int> SwooshLookAndFeel::getTooltipBounds(const juce::String& tip
 }
 
 //==============================================================================
-void SwooshLookAndFeel::drawSurface(juce::Graphics& g, juce::Rectangle<float> area, float radius, juce::Colour fill, float elevation)
+void SwooshLookAndFeel::drawSurface(juce::Graphics& g, juce::Rectangle<float> area, float cut, juce::Colour fill, float elevation)
 {
-    if (! g.clipRegionIntersects(area.expanded(8.0f, 10.0f).getSmallestIntegerContainer()))
+    if (! g.clipRegionIntersects(area.expanded(4.0f, 6.0f).getSmallestIntegerContainer()))
         return; // nothing of it is being repainted
-    // The shadow: a few wider, fainter copies below it. Cheap (no blur), and soft enough at this size.
+    // A plate: a hard, short shadow under it (it is bolted on, not floating), the flat tone, the pressed edge.
     if (elevation > 0.0f)
     {
-        const float alphas[] = { 0.07f, 0.10f, 0.16f };
-        const float spreads[] = { 5.0f, 3.0f, 1.0f };
-        for (int i = 0; i < 3; ++i)
-        {
-            g.setColour(TC::shadow.withAlpha(juce::jmin(1.0f, alphas[i] * elevation)));
-            g.fillRoundedRectangle(area.expanded(spreads[i]).translated(0.0f, 1.0f + spreads[i] * 0.6f), radius + spreads[i]);
-        }
+        g.setColour(TC::shadow.withAlpha(juce::jmin(1.0f, 0.5f * elevation)));
+        Theme::Plate::fill(g, area.expanded(1.0f, 0.0f).translated(0.0f, 2.0f + elevation), cut + 1.0f);
     }
-    g.setGradientFill(juce::ColourGradient(fill.brighter(0.045f), area.getX(), area.getY(), fill, area.getX(), area.getY() + 56.0f, false));
-    g.fillRoundedRectangle(area, radius);
+    g.setColour(fill);
+    Theme::Plate::fill(g, area, cut);
+    Theme::Plate::edge(g, area, cut);
 }
 
-void SwooshLookAndFeel::drawWell(juce::Graphics& g, juce::Rectangle<float> area, float radius)
+void SwooshLookAndFeel::drawWell(juce::Graphics& g, juce::Rectangle<float> area, float cut)
 {
     g.setColour(TC::well);
-    g.fillRoundedRectangle(area, radius);
+    Theme::Plate::fill(g, area, cut);
+    Theme::Plate::wellEdge(g, area, cut);
+}
+
+void SwooshLookAndFeel::drawBolts(juce::Graphics& g, juce::Rectangle<float> area, float inset)
+{
+    for (const auto& c : { area.getTopLeft().translated(inset, inset), area.getTopRight().translated(-inset, inset),
+                           area.getBottomLeft().translated(inset, -inset), area.getBottomRight().translated(-inset, -inset) })
+        Theme::Plate::drawBolt(g, c);
 }
 
 int SwooshLookAndFeel::titleEnd(const Theme::Fonts& fonts, const juce::String& title)
 {
-    return c_titleX + juce::roundToInt(std::ceil(Theme::textWidth(fonts.display(), title)));
+    // The right end of the nameplate: the title, then the room its rivet takes.
+    return c_titleX + juce::roundToInt(std::ceil(Theme::textWidth(fonts.display(), title))) + c_plateTail;
 }
 
 void SwooshLookAndFeel::drawPanel(juce::Graphics& g, juce::Rectangle<float> area, const juce::String& title,
                                   const juce::String& subtitle, juce::Colour accent, const Theme::Fonts& fonts,
-                                  Icons::Icon roundel, float subtitleRight)
+                                  Icons::Icon mark, float subtitleRight)
 {
+    namespace Plate = Theme::Plate;
     drawSurface(g, area);
+    if (g.clipRegionIntersects(area.getSmallestIntegerContainer()))
+        drawBolts(g, area);
     if (title.isEmpty())
         return;
     const auto bar = area.withHeight(static_cast<float>(Theme::Space::titleBar));
     if (! g.clipRegionIntersects(bar.getSmallestIntegerContainer()))
         return;
 
-    // The roundel: a disc in the section's colour with its mark (or its letter) cut out dark.
-    const auto disc = juce::Rectangle<float>(24.0f, 24.0f).withCentre({ area.getX() + 26.0f, area.getY() + 20.0f });
-    if (roundel != Icons::Icon::None)
+    // The nameplate: a dark plate riveted to the panel head, with a tally in the section's colour at its left
+    // carrying the section's mark (or its letter), and the name in the blackletter face.
+    const float x = area.getX() + static_cast<float>(c_titleX);
+    const float titleWidth = juce::jmin(area.getRight() - 16.0f - static_cast<float>(c_plateTail) - x, std::ceil(Theme::textWidth(fonts.display(), title)));
+    const auto plate = juce::Rectangle<float>(area.getX() + 18.0f, area.getY() + 8.0f, x + titleWidth + static_cast<float>(c_plateTail) - (area.getX() + 18.0f), 24.0f);
+    g.setColour(TC::well.interpolatedWith(TC::panel, 0.35f));
+    Plate::fill(g, plate, Theme::Cut::control);
+    auto tally = plate.withWidth(24.0f);
+    g.setColour(accent);
     {
-        g.setColour(accent);
-        g.fillEllipse(disc);
-        if (roundel == Icons::Icon::LetterA || roundel == Icons::Icon::LetterB)
-        {
-            g.setColour(TC::window);
-            Theme::fitText(g, roundel == Icons::Icon::LetterA ? "A" : "B", disc, fonts.title(), juce::Justification::centred);
-        }
-        else
-            Icons::draw(g, roundel, disc.reduced(5.0f), TC::window);
+        // The tally keeps the plate's cut corners at its left and is square where it meets the name.
+        g.saveState();
+        g.reduceClipRegion(tally.getSmallestIntegerContainer());
+        Plate::fill(g, plate, Theme::Cut::control);
+        g.restoreState();
     }
+    const auto ink = letteringOn(accent);
+    if (mark == Icons::Icon::LetterA || mark == Icons::Icon::LetterB)
+        Theme::stampText(g, mark == Icons::Icon::LetterA ? "A" : "B", tally, fonts.title(), juce::Justification::centred, ink);
+    else if (mark != Icons::Icon::None)
+        Icons::draw(g, mark, tally.reduced(5.0f), ink);
     else
     {
-        g.setColour(accent);
-        g.fillRoundedRectangle(area.getX() + 24.0f, area.getY() + 11.0f, 4.0f, 18.0f, 2.0f);
+        g.setColour(ink.withAlpha(0.8f));
+        g.fillRect(tally.withSizeKeepingCentre(3.0f, 12.0f));
     }
+    Plate::edge(g, plate, Theme::Cut::control);
+    Plate::drawRivet(g, { plate.getRight() - 6.0f, plate.getCentreY() });
 
-    const float x = area.getX() + static_cast<float>(c_titleX);
-    g.setColour(TC::text);
-    const float titleWidth = Theme::fitText(g, title, juce::Rectangle<float>(x, area.getY() + 6.0f, area.getRight() - 16.0f - x, 28.0f),
-                                            fonts.display(), juce::Justification::centredLeft);
+    Theme::stampText(g, title, juce::Rectangle<float>(x, area.getY() + 6.0f, titleWidth, 28.0f), fonts.display(), juce::Justification::centredLeft, TC::text);
     if (subtitle.isNotEmpty())
     {
-        const float sx = x + titleWidth + 12.0f;
+        const float sx = plate.getRight() + 10.0f;
         const float right = subtitleRight > 0.0f ? subtitleRight : area.getRight() - 16.0f;
         g.setColour(TC::textFaint);
         Theme::fitText(g, subtitle, juce::Rectangle<float>(sx, area.getY() + 11.0f, right - sx, 20.0f), fonts.body(), juce::Justification::centredLeft,

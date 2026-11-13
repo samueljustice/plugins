@@ -63,12 +63,12 @@ public:
         auto r = getLocalBounds().toFloat().reduced(0.5f);
         const bool zero = std::abs(getValue()) < 0.5;
         const bool hot = isMouseOverOrDragging();
-        // A well; a stroke only when it is under the mouse or holds something other than zero.
-        SwooshLookAndFeel::drawWell(g, r, Theme::Radius::small);
+        // A well; its edge is in the track's colour when it holds something other than zero, lighter under the mouse.
+        SwooshLookAndFeel::drawWell(g, r, Theme::Cut::small);
         if (hot || ! zero)
         {
             g.setColour(zero ? TC::stroke : m_colour.withAlpha(hot ? 1.0f : 0.8f));
-            g.drawRoundedRectangle(r, Theme::Radius::small, 1.0f);
+            Theme::Plate::stroke(g, r, Theme::Cut::small);
         }
         g.setColour(zero ? TC::textDim : TC::text);
         Theme::fitText(g, getTextFromValue(getValue()), getLocalBounds().reduced(2, 0), m_fonts.caption(), juce::Justification::centred);
@@ -93,13 +93,13 @@ public:
             if (m_modLive >= 0.0f)
             {
                 g.setColour(TC::text);
-                g.fillEllipse(juce::Rectangle<float>(4.0f, 4.0f).withCentre({ x0 + w * m_modLive, r.getBottom() - 2.0f }));
+                g.fillRect(juce::Rectangle<float>(3.0f, 4.0f).withCentre({ x0 + w * m_modLive, r.getBottom() - 2.5f }));
             }
         }
         if (! m_wireHover.isTransparent())
         {
             g.setColour(m_wireHover.withAlpha(0.85f));
-            g.drawRoundedRectangle(r.expanded(1.5f), 4.0f, 2.0f);
+            Theme::Plate::stroke(g, getLocalBounds().toFloat(), Theme::Cut::small, 2.0f);
         }
     }
 
@@ -315,16 +315,18 @@ public:
         const auto colour = Theme::trackColour(m_track);
         auto bounds = getLocalBounds().toFloat().reduced(0.0f, 3.0f);
 
-        // A lane is a raised strip; the one in hand is lighter and carries a stroke in its colour.
+        // A lane is a plate of its own; the one in hand is lighter and its edge is in its colour.
         g.setColour(active ? TC::raised : TC::raised.withAlpha(0.45f));
-        g.fillRoundedRectangle(bounds, Theme::Radius::control + 2.0f);
+        Theme::Plate::fill(g, bounds, Theme::Cut::control);
         if (active)
         {
             g.setColour(colour.withAlpha(0.75f));
-            g.drawRoundedRectangle(bounds.reduced(0.5f), Theme::Radius::control + 2.0f, 1.0f);
+            Theme::Plate::stroke(g, bounds, Theme::Cut::control);
         }
+        else
+            Theme::Plate::edge(g, bounds, Theme::Cut::control, TC::edgeDark.withAlpha(0.8f), TC::edgeLight.withMultipliedAlpha(0.5f));
         g.setColour(colour);
-        g.fillRoundedRectangle(bounds.getX() + 6.0f, bounds.getY() + 8.0f, 4.0f, bounds.getHeight() - 16.0f, 2.0f);
+        g.fillRect(juce::Rectangle<float>(bounds.getX() + 6.0f, bounds.getY() + 8.0f, 4.0f, bounds.getHeight() - 16.0f));
 
         auto header = headerArea(getLocalBounds());
         auto nameRow = header.removeFromTop(18).withTrimmedLeft(10).withTrimmedRight(c_buttonsWidth);
@@ -335,20 +337,19 @@ public:
             const int bus = m_owner.m_hold.getBus(m_track);
             const auto tagColour = busColour(bus);
             const auto tagText = busTag(bus) + (m_owner.m_hold.getBusOverride(m_track) < 0 ? "" : " *");
-            // A chip: a pill tinted in the section's colour, with the chevron of a menu.
+            // A tag: a small cut-corner plate in the section's colour, with the chevron of a menu.
             const auto tagFont = fonts.caption();
             const int arrowW = 11;
             const int tagW = juce::roundToInt(std::ceil(Theme::textWidth(tagFont, tagText))) + 14 + arrowW;
             const auto tag = nameRow.removeFromRight(tagW).reduced(0, 1).toFloat();
             nameRow.removeFromRight(6);
             m_busTagArea = tag.toNearestInt();
+            g.setColour(TC::well.withAlpha(0.8f));
+            Theme::Plate::fill(g, tag, Theme::Cut::small);
             g.setColour(tagColour.withAlpha(m_busTagHover ? 0.34f : 0.18f));
-            g.fillRoundedRectangle(tag, tag.getHeight() * 0.5f);
-            if (m_busTagHover)
-            {
-                g.setColour(tagColour.withAlpha(0.8f));
-                g.drawRoundedRectangle(tag.reduced(0.5f), tag.getHeight() * 0.5f, 1.0f);
-            }
+            Theme::Plate::fill(g, tag, Theme::Cut::small);
+            g.setColour(tagColour.withAlpha(m_busTagHover ? 0.95f : 0.55f));
+            Theme::Plate::stroke(g, tag, Theme::Cut::small);
             g.setColour(tagColour.brighter(0.15f));
             Theme::fitText(g, tagText, tag.withTrimmedLeft(7.0f).withTrimmedRight(static_cast<float>(arrowW) + 3.0f), tagFont, juce::Justification::centredLeft);
             juce::Path arrow;
@@ -356,7 +357,7 @@ public:
             arrow.startNewSubPath(ax - 3.0f, ay - 1.5f);
             arrow.lineTo(ax, ay + 1.5f);
             arrow.lineTo(ax + 3.0f, ay - 1.5f);
-            g.strokePath(arrow, juce::PathStrokeType(1.4f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+            g.strokePath(arrow, juce::PathStrokeType(1.4f, juce::PathStrokeType::mitered, juce::PathStrokeType::butt));
         }
         else
         {
@@ -386,15 +387,16 @@ public:
         const float gainNow = m_history[static_cast<size_t>((m_historyHead + c_history - 1) % c_history)];
         // The waveform brightens and dims with the fader as the ride moves it.
         g.setColour(TC::scope.withAlpha(0.55f * (1.0f - juce::jlimit(0.0f, 1.0f, gainNow))));
-        g.fillRoundedRectangle(wf, Theme::Radius::control);
+        g.fillRect(wf);
+        Theme::Plate::wellEdge(g, wf, 0.0f); // a window cut in the lane
 
         // Ride meter beside the waveform
         {
             const auto strip = juce::Rectangle<float>(wf.getX() - 12.0f, wf.getY() + 2.0f, 5.0f, wf.getHeight() - 4.0f);
             g.setColour(TC::scope);
-            g.fillRoundedRectangle(strip, 2.0f);
+            g.fillRect(strip);
             g.setColour(colour);
-            g.fillRoundedRectangle(strip.withTop(strip.getBottom() - strip.getHeight() * juce::jlimit(0.0f, 1.0f, gainNow)), 2.0f);
+            g.fillRect(strip.withTop(strip.getBottom() - strip.getHeight() * juce::jlimit(0.0f, 1.0f, gainNow)));
         }
 
         // Everything before the start marker is played only once you move it back.
@@ -465,7 +467,7 @@ public:
         {
             const float width = juce::jmin(infoLine.getWidth(), Theme::fitToWidth(text, infoFont, infoLine.getWidth(), fit).width);
             g.setColour(TC::well.withAlpha(0.62f));
-            g.fillRoundedRectangle(infoLine.withWidth(width).expanded(5.0f, 0.0f), 7.0f);
+            Theme::Plate::fill(g, infoLine.withWidth(width).expanded(5.0f, 0.0f), Theme::Cut::small);
             g.setColour(textColour);
             Theme::fitText(g, text, infoLine, infoFont, juce::Justification::centredLeft, fit);
         };
@@ -510,7 +512,7 @@ public:
         const float w = static_cast<float>(iw), h = static_cast<float>(ih);
 
         g.setColour(TC::scope);
-        g.fillRoundedRectangle(0.0f, 0.0f, w, h, Theme::Radius::control * scale);
+        g.fillRect(0.0f, 0.0f, w, h);
 
         const auto& d = *m_data;
         const int len = d.length();
@@ -957,9 +959,8 @@ void CargoHoldView::paint(juce::Graphics& g)
         const auto r = m_dropZone.toFloat();
         // The one dashed edge in the window: it says "drop here".
         g.setColour(m_dragOver ? TC::sources.withAlpha(0.12f) : TC::well.withAlpha(0.45f));
-        g.fillRoundedRectangle(r, Theme::Radius::control + 2.0f);
-        juce::Path p;
-        p.addRoundedRectangle(r.reduced(1.0f), Theme::Radius::control + 2.0f);
+        Theme::Plate::fill(g, r, Theme::Cut::panel);
+        const auto& p = Theme::Plate::shape(r.reduced(1.0f), Theme::Cut::panel);
         juce::Path dashed;
         const float dashes[] = { 6.0f, 5.0f };
         juce::PathStrokeType(1.2f).createDashedStroke(dashed, p, dashes, 2);

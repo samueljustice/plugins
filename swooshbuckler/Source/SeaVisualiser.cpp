@@ -327,7 +327,7 @@ void SeaVisualiser::paint(juce::Graphics& g)
             const juce::Colour colour = b == 0 ? Theme::Colours::busA : Theme::Colours::busB;
             // A dark plate behind it, so it reads over the stars and the waves.
             g.setColour(Theme::Colours::well.withAlpha(0.6f * label.alpha));
-            g.fillRoundedRectangle(area.expanded(4.0f, 0.0f), 7.0f);
+            Theme::Plate::fill(g, area.expanded(4.0f, 0.0f), Theme::Cut::small);
             g.setColour(colour.brighter(0.15f).withAlpha(label.alpha));
             Theme::fitText(g, text, area, labelFont, juce::Justification::centred, Theme::Fit::Name);
         }
@@ -335,31 +335,54 @@ void SeaVisualiser::paint(juce::Graphics& g)
 
     // The panel's name, and the tape's time while it is armed.
     g.setColour(Theme::Colours::textDim);
-    Theme::fitText(g, "Output", juce::Rectangle<float>(14.0f, 8.0f, 80.0f, 16.0f), m_fonts.control(), juce::Justification::centredLeft);
+    Theme::fitText(g, "Output", juce::Rectangle<float>(20.0f, 8.0f, 70.0f, 16.0f), m_fonts.control(), juce::Justification::centredLeft);
 
     if (m_processor.isRecording())
     {
         const bool blink = std::fmod(m_time, 1.0) < 0.6;
-        const auto dot = juce::Rectangle<float>(8.0f, 8.0f).withCentre({ 72.0f, 16.0f });
+        const auto dot = juce::Rectangle<float>(8.0f, 8.0f).withCentre({ 76.0f, 16.0f });
         g.setColour(Theme::Colours::record.withAlpha(blink ? 1.0f : 0.35f));
         g.fillEllipse(dot);
         const int secs = static_cast<int>(m_processor.getRecordedSeconds());
         g.setColour(Theme::Colours::text);
         Theme::fitText(g, "Rec " + juce::String::formatted("%02d:%02d:%02d", secs / 3600, (secs / 60) % 60, secs % 60),
-                       juce::Rectangle<float>(80.0f, 8.0f, 80.0f, 16.0f), m_fonts.control(), juce::Justification::centredLeft);
+                       juce::Rectangle<float>(84.0f, 8.0f, 80.0f, 16.0f), m_fonts.control(), juce::Justification::centredLeft);
     }
 
-    // Round corners: the sea is painted as one opaque rectangle (cheap to repaint), then its four corners are
-    // given back to the window behind it. No outline.
-    g.setColour(Theme::Colours::window);
-    g.fillPath(m_corners);
+    // The frame: the sea is a rectangular window in an iron frame, a gusset plate with a bolt in each corner.
+    // Painted over the opaque sea (cheap to repaint): the band, its two edges, the gussets and their bolts.
+    namespace TC = Theme::Colours;
+    g.setColour(TC::raised);
+    g.fillPath(m_ironFrame);
+    g.setColour(TC::edgeDark);
+    g.strokePath(m_frameInner, juce::PathStrokeType(1.0f));
+    g.drawRect(bounds, 1.0f);
+    g.setColour(TC::edgeLight);
+    g.drawRect(bounds.reduced(1.0f), 1.0f);
+    const float in = c_gusset * 0.36f;
+    for (const auto& c : { bounds.getTopLeft().translated(in, in), bounds.getTopRight().translated(-in, in),
+                           bounds.getBottomLeft().translated(in, -in), bounds.getBottomRight().translated(-in, -in) })
+        Theme::Plate::drawBolt(g, c);
 }
 
 void SeaVisualiser::resized()
 {
     const auto bounds = getLocalBounds().toFloat();
-    m_corners.clear();
-    m_corners.addRectangle(bounds);
-    m_corners.addRoundedRectangle(bounds, Theme::Radius::panel);
-    m_corners.setUsingNonZeroWinding(false);
+    // The window the sea shows through: the frame's inner edge, its corners cut off by the gussets.
+    const float band = c_frame, cut = c_gusset - band;
+    const auto window = bounds.reduced(band);
+    m_frameInner.clear();
+    m_frameInner.startNewSubPath(window.getX() + cut, window.getY());
+    m_frameInner.lineTo(window.getRight() - cut, window.getY());
+    m_frameInner.lineTo(window.getRight(), window.getY() + cut);
+    m_frameInner.lineTo(window.getRight(), window.getBottom() - cut);
+    m_frameInner.lineTo(window.getRight() - cut, window.getBottom());
+    m_frameInner.lineTo(window.getX() + cut, window.getBottom());
+    m_frameInner.lineTo(window.getX(), window.getBottom() - cut);
+    m_frameInner.lineTo(window.getX(), window.getY() + cut);
+    m_frameInner.closeSubPath();
+    m_ironFrame.clear();
+    m_ironFrame.addRectangle(bounds);
+    m_ironFrame.addPath(m_frameInner);
+    m_ironFrame.setUsingNonZeroWinding(false);
 }

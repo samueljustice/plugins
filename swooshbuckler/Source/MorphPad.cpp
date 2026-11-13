@@ -257,9 +257,9 @@ void MorphPad::paintOverChildren(juce::Graphics& g)
     // A grey veil over the pad and the bus labels while the morph is off.
     // The pad and each label on their own, so the wander controls between the labels only get their usual dimming.
     g.setColour(Theme::Colours::window.withAlpha(0.5f));
-    g.fillRoundedRectangle(m_pad.expanded(2.0f), Theme::Radius::control);
+    Theme::Plate::fill(g, m_pad.expanded(2.0f), Theme::Cut::control);
     for (const auto& h : m_handles)
-        g.fillRoundedRectangle(h.expanded(2.0f), h.getHeight() * 0.5f);
+        Theme::Plate::fill(g, h.expanded(2.0f), Theme::Cut::control);
     g.setColour(Theme::Colours::text);
     Theme::fitText(g, "Morph Off", m_pad.withTrimmedTop(m_pad.getHeight() * 0.62f).withHeight(16.0f), m_fonts.control(), juce::Justification::centred);
 }
@@ -458,7 +458,8 @@ void MorphPad::paint(juce::Graphics& g)
 {
     // Pad
     g.setColour(Theme::Colours::well.withAlpha(0.5f)); // the waves show through
-    g.fillRoundedRectangle(m_pad, Theme::Radius::control);
+    Theme::Plate::fill(g, m_pad, Theme::Cut::control);
+    Theme::Plate::wellEdge(g, m_pad, Theme::Cut::control);
 
     g.setColour(Theme::Colours::grid);
     for (int i = 1; i < 4; ++i)
@@ -537,19 +538,16 @@ void MorphPad::paint(juce::Graphics& g)
         const bool active = m_ropeSlot == slot;
         const bool hover = m_hoverHandle == slot;
 
-        // A chip: a stroke only while the mouse is over it or its rope is in hand.
+        // A tag: its edge takes a colour while the mouse is over it or its rope is in hand.
         g.setColour(hover || active ? Theme::Colours::hover : Theme::Colours::raised);
-        g.fillRoundedRectangle(r, r.getHeight() * 0.5f);
-        if (hover || active)
-        {
-            g.setColour(active ? accent : colour.withAlpha(0.8f));
-            g.drawRoundedRectangle(r.reduced(0.5f), r.getHeight() * 0.5f, 1.0f);
-        }
+        Theme::Plate::fill(g, r, Theme::Cut::control);
+        g.setColour(active ? accent : (hover ? colour.withAlpha(0.8f) : Theme::Colours::edgeDark));
+        Theme::Plate::stroke(g, r, Theme::Cut::control);
 
         auto inner = r.reduced(3.0f, 2.0f);
         const auto knot = slot == 0 ? inner.removeFromLeft(inner.getHeight()) : inner.removeFromRight(inner.getHeight());
         g.setColour(colour);
-        g.fillEllipse(knot);
+        Theme::Plate::fill(g, knot, Theme::Cut::small);
         g.setColour(Theme::Colours::window);
         Theme::fitText(g, slot == 0 ? "A" : "B", knot, m_fonts.caption(), juce::Justification::centred);
 
