@@ -283,7 +283,7 @@ void SwooshLookAndFeel::drawButtonText(juce::Graphics& g, juce::TextButton& butt
     const float x = chevron ? r.getX() + pad + 1.0f : juce::jmax(r.getX() + pad, r.getCentreX() - (lead + gap + textWidth) * 0.5f);
 
     if (icon != Icons::Icon::None)
-        Icons::draw(g, icon, juce::Rectangle<float>(x, r.getCentreY() - iconSide * 0.5f, iconSide, iconSide), colour, on);
+        Icons::draw(g, icon, juce::Rectangle<float>(x, r.getCentreY() - iconSide * 0.5f, iconSide, iconSide), colour, on, Icons::getPips(button));
     else if (lamp)
     {
         // The lamp: a small square slot punched in the plate, open when off, filled when on.
@@ -419,8 +419,8 @@ void SwooshLookAndFeel::drawPopupMenuSectionHeader(juce::Graphics& g, const juce
 }
 
 void SwooshLookAndFeel::drawPopupMenuItem(juce::Graphics& g, const juce::Rectangle<int>& area, bool isSeparator, bool isActive,
-                                          bool isHighlighted, bool isTicked, bool hasSubMenu, const juce::String& text, const juce::String&,
-                                          const juce::Drawable*, const juce::Colour*)
+                                          bool isHighlighted, bool isTicked, bool hasSubMenu, const juce::String& text,
+                                          const juce::String& shortcutKeyText, const juce::Drawable*, const juce::Colour*)
 {
     if (isSeparator)
     {
@@ -450,6 +450,15 @@ void SwooshLookAndFeel::drawPopupMenuItem(juce::Graphics& g, const juce::Rectang
         p.lineTo(arrow.x - 1.8f, arrow.y + 3.5f);
         g.setColour(isActive ? TC::textDim : TC::textFaint.withAlpha(0.5f));
         g.strokePath(p, juce::PathStrokeType(1.5f, juce::PathStrokeType::mitered, juce::PathStrokeType::butt));
+    }
+    // The key that does the same thing, quietly at the right of the row, so the keys are learned by using the menus.
+    if (shortcutKeyText.isNotEmpty())
+    {
+        const auto key = Theme::localiseShortcuts(shortcutKeyText);
+        const int width = juce::roundToInt(Theme::textWidth(m_fonts.caption(), key)) + 10;
+        g.setColour(isActive ? TC::textFaint : TC::textFaint.withAlpha(0.5f));
+        Theme::fitText(g, key, r.removeFromRight(juce::jmin(width, r.getWidth() / 2)).toFloat(),
+                       m_fonts.caption(), juce::Justification::centredRight);
     }
     g.setColour(! isActive ? TC::textFaint.withAlpha(0.6f) : (isHighlighted ? TC::text : TC::text.withAlpha(0.9f)));
     Theme::fitText(g, text, r.withTrimmedRight(8).toFloat(), m_fonts.control(), juce::Justification::centredLeft);

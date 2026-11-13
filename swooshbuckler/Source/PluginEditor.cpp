@@ -3,6 +3,42 @@
 
 namespace TC = Theme::Colours;
 
+#if JUCE_MAC
+/** The app's menu bar. Every item is an action, shown with the key the user has given it. */
+struct SwooshbucklerAudioProcessorEditor::MenuBar final : public juce::MenuBarModel
+{
+    explicit MenuBar(SwooshbucklerAudioProcessorEditor& o) : owner(o) {}
+
+    juce::StringArray getMenuBarNames() override { return { "File", "Edit", "Transport", "View" }; }
+
+    juce::PopupMenu getMenuForIndex(int index, const juce::String&) override
+    {
+        using A = Shortcuts::Action;
+        juce::PopupMenu menu;
+        auto add = [&](A action) { owner.m_keys.addToMenu(menu, action, static_cast<int>(action) + 1, owner.canDoAction(action)); };
+        switch (index)
+        {
+            case 0: add(A::NewSession); add(A::OpenSession); menu.addSeparator(); add(A::SaveSession); add(A::SaveSessionAs); break;
+            case 1: add(A::Undo); add(A::Redo); menu.addSeparator(); add(A::Randomise); add(A::PreviousRoll); add(A::NextRoll);
+                    add(A::KeepRoll); menu.addSeparator(); add(A::PreviousPreset); add(A::NextPreset); break;
+            case 2: add(A::PlayStop); add(A::Throw); menu.addSeparator(); add(A::ArmTape); add(A::SaveLast); break;
+            case 3: add(A::Takes); add(A::Variations); menu.addSeparator(); add(A::MorphPad); add(A::Cables);
+                    menu.addSeparator(); add(A::Settings); break;
+            default: break;
+        }
+        return menu;
+    }
+
+    void menuItemSelected(int itemId, int) override
+    {
+        if (itemId > 0 && itemId <= Shortcuts::numActions)
+            owner.doAction(static_cast<Shortcuts::Action>(itemId - 1));
+    }
+
+    SwooshbucklerAudioProcessorEditor& owner;
+};
+#endif
+
 namespace
 {
 
@@ -10,14 +46,12 @@ namespace
 
 //==============================================================================
 // SwellButton
-void SwooshbucklerAudioProcessorEditor::SwellButton::timerCallback()
+void SwooshbucklerAudioProcessorEditor::SwellButton::frame(float dt)
 {
-    constexpr float dt = 1.0f / 60.0f;
-    const float omega = juce::MathConstants<float>::twoPi * 3.2f;
-    m_velocity += (omega * omega * (m_target - m_scale) - 2.0f * 0.35f * omega * m_velocity) * dt;
-    m_scale += m_velocity * dt;
-    const float glow = m_glow + (m_processor.getEngine().getEnergy() - m_glow) * 0.2f;
-    const bool changed = std::abs(m_velocity) > 1.0e-3f || std::abs(m_target - m_scale) > 1.0e-3f || std::abs(glow - m_glow) > 2.0e-3f;
+    // The one Swell spring (Motion::Springs), stepped with the real time of the frame.
+    const bool moving = m_scale.stepSwell(dt);
+    const float glow = m_glow + (m_processor.getEngine().getEnergy() - m_glow) * juce::jmin(1.0f, dt * 12.0f);
+    const bool changed = moving || std::abs(glow - m_glow) > 2.0e-3f;
     m_glow = glow;
     if (changed)
         repaint(); // only when something moved: idle repaints cost frame rate
@@ -27,7 +61,7 @@ void SwooshbucklerAudioProcessorEditor::SwellButton::paint(juce::Graphics& g)
 {
     const auto b = getLocalBounds().toFloat();
     const auto centre = b.getCentre();
-    const float radius = juce::jmin(b.getWidth(), b.getHeight()) * 0.5f * 0.8f * m_scale;
+    const float radius = juce::jmin(b.getWidth(), b.getHeight()) * 0.5f * 0.8f * m_scale.value;
 
     auto disc = [&centre](float r) { return juce::Rectangle<float>(r * 2.0f, r * 2.0f).withCentre(centre); };
 
@@ -44,7 +78,7 @@ void SwooshbucklerAudioProcessorEditor::SwellButton::paint(juce::Graphics& g)
     for (int i = 0; i < 8; ++i)
     {
         // Turned half a step, so none points straight up at the nameplate or down at Throw.
-        const float a = juce::MathConstants<float>::twoPi * (static_cast<float>(i) + 0.5f) / 8.0f + (1.0f - m_scale) * 2.0f;
+        const float a = juce::MathConstants<float>::twoPi * (static_cast<float>(i) + 0.5f) / 8.0f + (1.0f - m_scale.value) * 2.0f;
         const juce::Point<float> dir { std::sin(a), -std::cos(a) };
         g.setColour(TC::edgeDark);
         g.drawLine(juce::Line<float>(centre + dir * radius * 0.9f, centre + dir * (radius * 1.15f + 1.0f)), 8.0f);
@@ -74,15 +108,33 @@ void SwooshbucklerAudioProcessorEditor::SwellButton::paint(juce::Graphics& g)
 
 //==============================================================================
 // TapeButton
-void SwooshbucklerAudioProcessorEditor::TapeButton::timerCallback()
+void SwooshbucklerAudioProcessorEditor::TapeButton::frame(float dt)
 {
-    m_blink += 1.0f / 30.0f;
     const bool capturing = m_processor.isCapturing(), armed = m_processor.isRecording();
-    if (capturing)
-        m_angle -= 0.18f; // anticlockwise: the reels' bottoms, and the tape between them, run left to right
-    if (capturing || armed || m_wasArmed)
-        repaint();
+    // The reels spin up over a quarter of a second and coast down over six tenths, so starting and stopping the
+    // tape reads as a machine rather than a switch.
+    const float wanted = capturing ? 1.0f : 0.0f;
+    const float tau = (wanted > m_speed ? Motion::Ms::spinUp : Motion::Ms::coastDown) * 0.001f;
+    const float was = m_speed;
+    m_speed += (wanted - m_speed) * juce::jmin(1.0f, dt / tau);
+    // A click on Last flicks them back half a turn, then they settle.
+    float flick = 0.0f;
+    if (std::abs(m_rewind) > 1.0e-3f)
+    {
+        flick = m_rewind * juce::jmin(1.0f, dt / 0.3f);
+        m_rewind -= flick;
+    }
+    m_angle -= m_speed * 10.8f * dt - flick; // anticlockwise: the reels' bottoms, and the tape, run left to right
+    // Armed and waiting, the lamp breathes once a second between a third and full; capturing, it is solid.
+    m_breath += dt;
+    const float lamp = ! armed ? 0.0f
+                               : (capturing ? 1.0f : 0.35f + 0.65f * (0.5f + 0.5f * std::sin(m_breath * juce::MathConstants<float>::twoPi)));
+    const bool changed = armed != m_wasArmed || std::abs(lamp - m_lamp) > 0.01f || m_speed > 1.0e-3f || was > 1.0e-3f
+                         || std::abs(m_rewind) > 1.0e-3f || (armed && capturing);
+    m_lamp = lamp;
     m_wasArmed = armed;
+    if (changed)
+        repaint();
 }
 
 void SwooshbucklerAudioProcessorEditor::TapeButton::paint(juce::Graphics& g)
@@ -114,7 +166,7 @@ void SwooshbucklerAudioProcessorEditor::TapeButton::paint(juce::Graphics& g)
     {
         g.setColour(TC::scope);
         g.fillEllipse(juce::Rectangle<float>(r * 2.0f, r * 2.0f).withCentre(c));
-        g.setColour(capturing ? TC::record : TC::brass);
+        g.setColour(m_speed > 0.02f ? TC::brass.interpolatedWith(TC::record, juce::jlimit(0.0f, 1.0f, m_speed)) : TC::brass);
         g.drawEllipse(juce::Rectangle<float>(r * 2.0f, r * 2.0f).withCentre(c), 1.2f);
         for (int k = 0; k < 3; ++k)
         {
@@ -134,8 +186,8 @@ void SwooshbucklerAudioProcessorEditor::TapeButton::paint(juce::Graphics& g)
         text = "Armed";
     if (armed)
     {
-        const bool on = capturing || std::fmod(m_blink, 1.0f) < 0.6f;
-        g.setColour(TC::record.withAlpha(on ? 1.0f : 0.3f));
+        // Round object: a lamp. It breathes while the tape waits and is solid while it writes.
+        g.setColour(TC::record.withAlpha(juce::jlimit(0.25f, 1.0f, m_lamp)));
         g.fillEllipse(juce::Rectangle<float>(7.0f, 7.0f).withCentre({ b.getX() + 6.0f, b.getCentreY() }));
         b.removeFromLeft(12.0f);
     }
@@ -144,16 +196,22 @@ void SwooshbucklerAudioProcessorEditor::TapeButton::paint(juce::Graphics& g)
 
 //==============================================================================
 // Morph
-bool SwooshbucklerAudioProcessorEditor::Morph::step()
+bool SwooshbucklerAudioProcessorEditor::Morph::step(float dt)
 {
-    constexpr float dt = 1.0f / 60.0f;
-    const float omega = juce::MathConstants<float>::twoPi * 2.2f;
+    dt = juce::jlimit(0.0f, Motion::c_maxStep, dt);
+    const float omega = juce::MathConstants<float>::twoPi * Motion::Springs::swellHz;
     bool moving = false;
     for (auto& it : items)
     {
         if (it.param == nullptr)
             continue;
-        it.vel += (omega * omega * (it.target - it.pos) - 2.0f * 0.55f * omega * it.vel) * dt;
+        if (it.delay > 0.0f)
+        {
+            it.delay -= dt;
+            moving = true;
+            continue; // it has not set off yet: the wave has not reached it
+        }
+        it.vel += (omega * omega * (it.target - it.pos) - 2.0f * Motion::Springs::swellDamping * omega * it.vel) * dt;
         it.pos += it.vel * dt;
         if (std::abs(it.target - it.pos) < 1.0e-4f && std::abs(it.vel) < 1.0e-3f)
         {
@@ -192,6 +250,155 @@ void SwooshbucklerAudioProcessorEditor::Morph::finish()
 }
 
 //==============================================================================
+// The keys, in Settings
+SwooshbucklerAudioProcessorEditor::ShortcutsList::ShortcutsList(SwooshbucklerAudioProcessorEditor& owner) : m_owner(owner)
+{
+    setWantsKeyboardFocus(true);
+    setMouseCursor(juce::MouseCursor::PointingHandCursor);
+}
+
+juce::Rectangle<int> SwooshbucklerAudioProcessorEditor::ShortcutsList::rowBounds(int index) const
+{
+    return { 0, index * c_row, getWidth(), c_row };
+}
+
+int SwooshbucklerAudioProcessorEditor::ShortcutsList::rowAt(juce::Point<int> p) const
+{
+    const int index = p.y / c_row;
+    return juce::isPositiveAndBelow(index, Shortcuts::numActions) && getLocalBounds().contains(p) ? index : -1;
+}
+
+void SwooshbucklerAudioProcessorEditor::ShortcutsList::stopListening()
+{
+    if (m_listening < 0)
+        return;
+    m_listening = -1;
+    repaint();
+}
+
+void SwooshbucklerAudioProcessorEditor::ShortcutsList::mouseMove(const juce::MouseEvent& e)
+{
+    if (const int row = rowAt(e.getPosition()); row != m_over)
+    {
+        m_over = row;
+        repaint();
+    }
+}
+
+void SwooshbucklerAudioProcessorEditor::ShortcutsList::mouseExit(const juce::MouseEvent&)
+{
+    if (m_over >= 0)
+    {
+        m_over = -1;
+        repaint();
+    }
+}
+
+void SwooshbucklerAudioProcessorEditor::ShortcutsList::mouseDown(const juce::MouseEvent& e)
+{
+    const int row = rowAt(e.getPosition());
+    if (row < 0)
+    {
+        stopListening();
+        return;
+    }
+    m_listening = row;
+    grabKeyboardFocus();
+    repaint();
+}
+
+void SwooshbucklerAudioProcessorEditor::ShortcutsList::focusLost(FocusChangeType)
+{
+    stopListening();
+}
+
+void SwooshbucklerAudioProcessorEditor::ShortcutsList::bind(Shortcuts::Action action, const juce::KeyPress& key)
+{
+    m_owner.m_keys.set(action, key);
+    stopListening();
+    m_owner.refreshShortcuts();
+    m_owner.toast(key.isValid() ? juce::String(Shortcuts::info(action).name) + " is now " + m_owner.m_keys.keyText(action)
+                                : juce::String(Shortcuts::info(action).name) + " has no key");
+    repaint();
+}
+
+bool SwooshbucklerAudioProcessorEditor::ShortcutsList::keyPressed(const juce::KeyPress& key)
+{
+    if (m_listening < 0)
+        return false;
+    const auto action = static_cast<Shortcuts::Action>(m_listening);
+    if (key == juce::KeyPress::escapeKey)
+    {
+        stopListening();
+        return true;
+    }
+    if (key == juce::KeyPress::backspaceKey || key == juce::KeyPress::deleteKey)
+    {
+        bind(action, {}); // the key is taken away
+        return true;
+    }
+    if (! Shortcuts::isBindable(key))
+        return true; // a key that cannot be a shortcut: the row keeps waiting
+    const auto taken = m_owner.m_keys.clash(action, key);
+    if (taken == Shortcuts::Action::Count)
+    {
+        bind(action, key);
+        return true;
+    }
+    // Another action has that key already: ask before taking it off it.
+    const auto text = Shortcuts::describe(key);
+    juce::AlertWindow::showAsync(juce::MessageBoxOptions()
+                                     .withIconType(juce::MessageBoxIconType::QuestionIcon)
+                                     .withTitle("Move the Key?")
+                                     .withMessage(Theme::localiseShortcuts(text) + " is " + Shortcuts::info(taken).name
+                                                  + " at the moment. Give it to " + Shortcuts::info(action).name + " instead?")
+                                     .withButton("Move It")
+                                     .withButton("Cancel"),
+                                 [this, action, key](int result)
+                                 {
+                                     if (result == 1)
+                                         bind(action, key);
+                                     else
+                                         stopListening();
+                                 });
+    return true;
+}
+
+void SwooshbucklerAudioProcessorEditor::ShortcutsList::resized() {}
+
+void SwooshbucklerAudioProcessorEditor::ShortcutsList::paint(juce::Graphics& g)
+{
+    const auto& f = *m_owner.m_fonts;
+    for (int i = 0; i < Shortcuts::numActions; ++i)
+    {
+        const auto action = static_cast<Shortcuts::Action>(i);
+        auto row = rowBounds(i);
+        const bool listening = i == m_listening;
+        if (listening || i == m_over)
+        {
+            g.setColour(listening ? TC::brass.withAlpha(0.18f) : TC::hover);
+            g.fillRect(row.reduced(0, 1));
+        }
+        auto plate = row.reduced(0, 2).removeFromRight(104);
+        auto name = row.withTrimmedRight(110);
+        g.setColour(listening ? TC::brass : TC::text);
+        Theme::fitText(g, Shortcuts::info(action).name, name.withTrimmedLeft(6), f.caption(), juce::Justification::centredLeft);
+        SwooshLookAndFeel::drawWell(g, plate.toFloat());
+        const auto key = m_owner.m_keys.keyText(action);
+        if (listening)
+        {
+            g.setColour(TC::brass);
+            Theme::fitText(g, "Press a key", plate.reduced(4, 0), f.caption(), juce::Justification::centred);
+        }
+        else
+        {
+            Theme::stampText(g, key.isEmpty() ? juce::String("-") : key, plate.reduced(4, 0).toFloat(), f.caption(),
+                             juce::Justification::centred, key.isEmpty() ? TC::textFaint : TC::text);
+        }
+    }
+}
+
+//==============================================================================
 // Settings panel
 namespace
 {
@@ -199,8 +406,23 @@ namespace
     const char* c_rateNames[6] = { "Session", "44.1 kHz", "48 kHz", "88.2 kHz", "96 kHz", "192 kHz" };
 }
 
-SwooshbucklerAudioProcessorEditor::SettingsPanel::SettingsPanel(SwooshbucklerAudioProcessorEditor& owner) : m_owner(owner)
+SwooshbucklerAudioProcessorEditor::SettingsPanel::SettingsPanel(SwooshbucklerAudioProcessorEditor& owner)
+    : m_owner(owner), m_keysList(owner)
 {
+    addAndMakeVisible(m_keysList);
+    m_resetKeys.setColour(juce::TextButton::buttonOnColourId, TC::flight);
+    m_resetKeys.setWantsKeyboardFocus(false);
+    m_resetKeys.setTooltip("Reset To Defaults\nPuts every key back to the one it started with.");
+    m_resetKeys.onClick = [this]
+    {
+        m_keysList.stopListening();
+        m_owner.m_keys.resetToDefaults();
+        m_owner.refreshShortcuts();
+        m_keysList.repaint();
+        m_owner.toast("The keys are back to their defaults");
+    };
+    addAndMakeVisible(m_resetKeys);
+
     auto setup = [this](juce::TextButton& b)
     {
         b.setColour(juce::TextButton::buttonOnColourId, TC::flight);
@@ -400,9 +622,20 @@ void SwooshbucklerAudioProcessorEditor::SettingsPanel::mouseDown(const juce::Mou
 
 void SwooshbucklerAudioProcessorEditor::SettingsPanel::resized()
 {
-    m_panel = getLocalBounds().withSizeKeepingCentre(700, 646);
+    m_panel = getLocalBounds().withSizeKeepingCentre(1060, 700);
     auto r = m_panel.reduced(28, 0);
     r.removeFromTop(56);
+
+    // The keys have a column of their own at the right: the tape's settings keep the left one.
+    {
+        auto keys = r.removeFromRight(334);
+        r.removeFromRight(26);
+        m_keysCaption = keys.removeFromTop(20);
+        m_keysHint = keys.removeFromTop(30);
+        m_keysList.setBounds(keys.removeFromTop(ShortcutsList::idealHeight()));
+        keys.removeFromTop(10);
+        m_resetKeys.setBounds(keys.removeFromTop(28).removeFromLeft(160));
+    }
 
     auto section = [&](int index, int height)
     {
@@ -469,7 +702,7 @@ void SwooshbucklerAudioProcessorEditor::SettingsPanel::resized()
     r.removeFromTop(6);
     m_captions[5] = r.removeFromTop(44);
 
-    auto bottom = m_panel.reduced(28, 18).removeFromBottom(30);
+    auto bottom = m_panel.reduced(28, 18).removeFromBottom(30).withTrimmedRight(360); // the keys' column is to the right
     m_close.setBounds(bottom.removeFromRight(100));
     m_audio.setBounds(bottom.removeFromLeft(150));
 }
@@ -477,9 +710,15 @@ void SwooshbucklerAudioProcessorEditor::SettingsPanel::resized()
 void SwooshbucklerAudioProcessorEditor::SettingsPanel::paint(juce::Graphics& g)
 {
     g.fillAll(TC::window.withAlpha(0.8f));
-    SwooshLookAndFeel::drawPanel(g, m_panel.toFloat(), "Settings", "The tape and the audio device", TC::brass, *m_owner.m_fonts, Icons::Icon::Settings);
+    SwooshLookAndFeel::drawPanel(g, m_panel.toFloat(), "Settings", "The tape, the audio device and the keys", TC::brass,
+                                 *m_owner.m_fonts, Icons::Icon::Settings);
 
     const auto& f = *m_owner.m_fonts;
+    // The keys column.
+    g.setColour(TC::textDim);
+    Theme::fitText(g, "Shortcuts", m_keysCaption, f.caption(), juce::Justification::centredLeft);
+    Theme::fitLines(g, "Click a row and press the key you want. Esc leaves it as it was, Backspace takes the key away.",
+                    m_keysHint, f.caption(), TC::textFaint);
     const char* captions[] = { "Recordings Folder", "File Type", "Bit Depth", "Sample Rate", "Channels" };
     g.setColour(TC::textDim);
     for (int i = 0; i < 5; ++i)
@@ -769,6 +1008,12 @@ SwooshbucklerAudioProcessorEditor::SwooshbucklerAudioProcessorEditor(Swooshbuckl
     m_tooltips.setLookAndFeel(&m_lnf);
     setWantsKeyboardFocus(true);
 
+    // The keys as the user has them, and the one clock the moving parts run on.
+    m_keys.attach(p.getSettingsFile());
+    m_swell.listenTo(&m_clock);
+    m_tape.listenTo(&m_clock);
+    m_wires.listenTo(&m_clock);
+
     addAndMakeVisible(m_content);
     m_content.setBounds(0, 0, c_width, c_height);
     m_content.onPaint = [this](juce::Graphics& g) { paintContent(g); };
@@ -1038,8 +1283,7 @@ SwooshbucklerAudioProcessorEditor::SwooshbucklerAudioProcessorEditor(Swooshbuckl
     addKnob(ParamIDs::pitch, "Pitch", TC::flight, "Plays every track higher or lower, in semitones (up to two octaves either way), finer near the middle. Down makes everything bigger, heavier and slower; up makes it smaller and faster (the hits too).");
     addKnob(ParamIDs::throwLength, "Throw Length", TC::flight, "")
         .setTooltip("Throw Length\nHow long a thrown whoosh lasts, from 0.3 to 6 seconds. Its peak is heard halfway through, so half of this is the "
-                    "time from pressing Throw to the peak. Fully left (Rate): a throw is as long as the ride's own passes, set by Rate.\n"
-                    "Double-click to reset it.");
+                    "time from pressing Throw to the peak. Fully left (Rate): a throw is as long as the ride's own passes, set by Rate.");
 
     // Buses: one set of controls per bus, shown one bus at a time (tabs) --------
     {
@@ -1175,8 +1419,7 @@ SwooshbucklerAudioProcessorEditor::SwooshbucklerAudioProcessorEditor(Swooshbuckl
     m_trim.setDoubleClickReturnValue(true, 0.0);
     m_trim.setWantsKeyboardFocus(false);
     m_trim.setTooltip("Master Trim\nHow loud you hear it (and what your DAW gets from the plug-in), from silence up to the limiter's level, after the limiter. "
-                      "The tape and Last 60 s record before it, at full level, so turning it down never makes a quieter take.\n"
-                      "Drag it. Double-click to reset it to 0 dB. Right-click (or Alt-double-click) to type a value.");
+                      "The tape and Last 60 s record before it, at full level, so turning it down never makes a quieter take.");
     m_trim.setTypedParameter(p.getState().getParameter(ParamIDs::masterTrim), *m_fonts);
     m_trim.onValueChange = [this]
     {
@@ -1211,6 +1454,8 @@ SwooshbucklerAudioProcessorEditor::SwooshbucklerAudioProcessorEditor(Swooshbuckl
         if (safe != nullptr) safe->rebuild();
     };
 
+    // Over the panels and the sea, and under the overlays, which dim everything behind them.
+    m_content.addAndMakeVisible(m_toastPlate);
     m_content.addChildComponent(m_settings);
     m_content.addChildComponent(m_takes);
     m_content.addChildComponent(m_variations);
@@ -1223,14 +1468,14 @@ SwooshbucklerAudioProcessorEditor::SwooshbucklerAudioProcessorEditor(Swooshbuckl
     m_versionLink.setButtonText(versionLine());
     m_versionLink.setURL({});
     m_versionLink.setFont(m_fonts->caption(), false, juce::Justification::centredLeft);
-    m_versionLink.setColour(juce::HyperlinkButton::textColourId, TC::textDim);
+    m_versionLink.setColour(juce::HyperlinkButton::textColourId, TC::textFaint);
     m_versionLink.setTooltip("About Swooshbuckler\nThe version, the build and the credits.");
     m_versionLink.onClick = [this] { m_about.setVisible(true); m_about.toFront(false); };
     m_content.addAndMakeVisible(m_versionLink);
 
     m_content.addAndMakeVisible(m_websiteLink);
     m_websiteLink.setFont(m_fonts->caption(), false, juce::Justification::centredLeft);
-    m_websiteLink.setColour(juce::HyperlinkButton::textColourId, TC::brass);
+    m_websiteLink.setColour(juce::HyperlinkButton::textColourId, TC::textFaint); // demoted: the rig is the thing, not the address
     m_websiteLink.setTooltip("Website\nOpens sweetjusticesound.com in your browser.");
 
     setResizable(true, true);
@@ -1253,6 +1498,32 @@ SwooshbucklerAudioProcessorEditor::SwooshbucklerAudioProcessorEditor(Swooshbuckl
     m_updatePopup.setBounds(0, 0, c_width, c_height);
     m_updatePopup.setTransform(m_content.getTransform());
 
+    // Which control does the same thing as which key: its tooltip then names the key, whatever it has been
+    // changed to, and the menu bar and the menus take their keys from the same place.
+    {
+        using A = Shortcuts::Action;
+        const std::pair<juce::Component*, A> tagged[] = {
+            { &m_playButton, A::PlayStop },       { &m_throwButton, A::Throw },        { &m_swell, A::Swell },
+            { &m_tape, A::ArmTape },              { &m_retroButton, A::SaveLast },     { &m_dice, A::Randomise },
+            { &m_rollBack, A::PreviousRoll },     { &m_rollForward, A::NextRoll },     { &m_keepRoll, A::KeepRoll },
+            { &m_presetPrev, A::PreviousPreset }, { &m_presetNext, A::NextPreset },    { &m_undoButton, A::Undo },
+            { &m_redoButton, A::Redo },           { &m_newButton, A::NewSession },     { &m_takesButton, A::Takes },
+            { &m_variationsButton, A::Variations },{ &m_settingsButton, A::Settings }, { &m_morphButton, A::MorphPad },
+            { &m_cablesButton, A::Cables },
+        };
+        for (const auto& [component, action] : tagged)
+            Shortcuts::tag(*component, action);
+    }
+
+   #if JUCE_MAC
+    // The app gets a menu bar: the same actions, showing the same keys.
+    if (juce::PluginHostType::getPluginLoadedAs() == juce::AudioProcessor::wrapperType_Standalone)
+    {
+        m_menuBar = std::make_unique<MenuBar>(*this);
+        juce::MenuBarModel::setMacMainMenu(m_menuBar.get());
+    }
+   #endif
+
     startTimerHz(60);
 
     // Checks GitHub at most once a day in the background, silently; only an editor ever asks.
@@ -1269,6 +1540,13 @@ void SwooshbucklerAudioProcessorEditor::showUpdatePopup(const sammyj::UpdateInfo
 SwooshbucklerAudioProcessorEditor::~SwooshbucklerAudioProcessorEditor()
 {
     stopTimer();
+   #if JUCE_MAC
+    if (m_menuBar != nullptr)
+    {
+        juce::MenuBarModel::setMacMainMenu(nullptr);
+        m_menuBar = nullptr;
+    }
+   #endif
     m_processor.getMods().onChange = nullptr;
     m_processor.setSwell(false);
     m_morph.finish();
@@ -1287,15 +1565,13 @@ WheelKnob& SwooshbucklerAudioProcessorEditor::addKnob(const char* paramId, const
 {
     auto knob = std::make_unique<WheelKnob>(*m_fonts, accent);
     knob->caption = caption;
-    // Heading (the caption, unless the tip brings its own), what it does, then how to handle it.
+    // Heading (the caption, unless the tip brings its own), then what it does. The how-to line that is the same
+    // on every knob is added by the tooltip window (SwooshTooltips), in its second tier, so it is written once.
     const juce::String id(paramId);
     // Energy can follow a MIDI controller, so its right-click is a menu (with typing a value in it).
     const bool learnable = id == ParamIDs::energy;
     knob->setTooltip((tip.containsChar('\n') ? tip : caption + "\n" + tip)
-                     + "\nDouble-click to reset it. "
-                     + (learnable ? "Right-click to type a value or to choose Learn MIDI CC, so a knob on a MIDI controller moves it; Alt-double-click types a value too. "
-                                  : "Right-click (or Alt-double-click) to type a value. ")
-                     + "Drag a Mod jack onto it to modulate it.");
+                     + (learnable ? "\nRight-click for Learn MIDI CC, so a knob on a MIDI controller moves it." : ""));
     m_content.addAndMakeVisible(*knob);
     m_attachments.push_back(std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(m_processor.getState(), paramId, *knob));
     if (auto* param = m_processor.getState().getParameter(paramId))
@@ -1805,66 +2081,103 @@ void SwooshbucklerAudioProcessorEditor::paintContent(juce::Graphics& g)
             Theme::fitText(g, m_toast, m_toastArea, f.body(), juce::Justification::centredRight, Theme::Fit::Message);
         }
     }
+
 }
 
 //==============================================================================
+
+void SwooshbucklerAudioProcessorEditor::refreshShortcuts()
+{
+   #if JUCE_MAC
+    if (m_menuBar != nullptr)
+        m_menuBar->menuItemsChanged();
+   #endif
+    // Tooltips name their key as they are asked for it, so nothing else has to be written again.
+    m_content.repaint();
+}
+
+//==============================================================================
+bool SwooshbucklerAudioProcessorEditor::isTyping()
+{
+    return dynamic_cast<juce::TextEditor*>(juce::Component::getCurrentlyFocusedComponent()) != nullptr;
+}
+
+bool SwooshbucklerAudioProcessorEditor::canDoAction(Shortcuts::Action action) const
+{
+    using A = Shortcuts::Action;
+    switch (action)
+    {
+        // The session files are the app's own: in a host, the host owns those keys and that menu.
+        case A::NewSession: case A::OpenSession: case A::SaveSession: case A::SaveSessionAs:
+            return ! m_processor.canFollowHost();
+        case A::Undo:         return m_processor.getHistory().canUndo() || ! m_morph.items.empty();
+        case A::Redo:         return m_processor.getHistory().canRedo();
+        case A::PreviousRoll: return m_processor.canStepRoll(-1);
+        case A::NextRoll:     return m_processor.canStepRoll(1);
+        default:              return true;
+    }
+}
+
+void SwooshbucklerAudioProcessorEditor::doAction(Shortcuts::Action action)
+{
+    using A = Shortcuts::Action;
+    if (! canDoAction(action))
+        return;
+    switch (action)
+    {
+        case A::PlayStop:       m_processor.setPlaying(! m_processor.isPlaying()); break;
+        case A::Throw:          m_processor.throwWhoosh(); break;
+        case A::Swell:          break; // held, not pressed: keyPressed and keyStateChanged do it
+        case A::ArmTape:        toggleLog(); break;
+        case A::SaveLast:       saveRetro(); break;
+        case A::Randomise:      rollDice(-1); break;
+        case A::PreviousRoll:   stepRoll(-1); break;
+        case A::NextRoll:       stepRoll(1); break;
+        case A::KeepRoll:       keepRoll(); break;
+        case A::PreviousPreset: stepPreset(-1); break;
+        case A::NextPreset:     stepPreset(1); break;
+        case A::Undo:           stepHistory(false); break;
+        case A::Redo:           stepHistory(true); break;
+        case A::NewSession:     if (m_newButton.onClick) m_newButton.onClick(); break;
+        case A::OpenSession:    openSession(); break;
+        case A::SaveSession:    saveSession(false); break;
+        case A::SaveSessionAs:  saveSession(true); break;
+        case A::Takes:          showTakes(); break;
+        case A::Variations:     showVariations(); break;
+        case A::Settings:       m_settings.refresh(); m_settings.setVisible(true); m_settings.toFront(false); break;
+        case A::MorphPad:       m_morphButton.setToggleState(! m_morphButton.getToggleState(), juce::sendNotification); break;
+        case A::Cables:         m_cablesButton.setToggleState(! m_cablesButton.getToggleState(), juce::sendNotification); break;
+        case A::Count:          break;
+    }
+}
+
 bool SwooshbucklerAudioProcessorEditor::keyPressed(const juce::KeyPress& key)
 {
-    if (key == juce::KeyPress::spaceKey)
+    // Nothing fires while a value is being typed, while a key is being given a new action, or through a panel
+    // that is open over the rig (its own keys belong to it).
+    const bool panelOpen = m_settings.isVisible() || m_about.isVisible() || m_takes.isVisible()
+                           || m_variations.isVisible() || m_updatePopup.isVisible();
+    if (! isTyping() && ! m_settings.keys().isListening())
     {
-        if (! m_spaceHeld)
+        const auto action = m_keys.find(key);
+        if (action == Shortcuts::Action::Swell)
         {
-            m_spaceHeld = true;
-            m_processor.setSwell(true);
-            m_swell.press(true);
-        }
-        return true;
-    }
-    // The single keys: never while something is being typed, and not through a panel that is open over the rig.
-    const bool typing = dynamic_cast<juce::TextEditor*>(juce::Component::getCurrentlyFocusedComponent()) != nullptr;
-    const bool panelOpen = m_settings.isVisible() || m_about.isVisible() || m_takes.isVisible() || m_variations.isVisible() || m_updatePopup.isVisible();
-    if (! typing && ! panelOpen && ! key.getModifiers().isAnyModifierKeyDown())
-    {
-        if (key == juce::KeyPress::returnKey)
-        {
-            m_processor.setPlaying(! m_processor.isPlaying()); // Return: Play / Stop
-            return true;
-        }
-        switch (juce::CharacterFunctions::toLowerCase(static_cast<juce::juce_wchar>(key.getKeyCode())))
-        {
-            case 'f': m_processor.throwWhoosh(); return true;  // F: throw one whoosh
-            case 'r': rollDice(-1); return true;               // R: Randomise
-            case 't': toggleLog(); return true;                // T: arm / stop the tape
-            case 'l': saveRetro(); return true;                // L: save the last minute(s)
-            default: break;
-        }
-    }
-    // Undo and redo, wherever the focus is in the window (a text box keeps its own).
-    if (key.getModifiers().isCommandDown() && ! key.getModifiers().isAltDown())
-    {
-        const auto c = juce::CharacterFunctions::toLowerCase(key.getTextCharacter());
-        const bool shift = key.getModifiers().isShiftDown();
-        if (c == 'z' || key.isKeyCode('Z') || key.isKeyCode('z'))
-        {
-            stepHistory(shift);
-            return true;
-        }
-        if (! shift && (c == 'y' || key.isKeyCode('Y') || key.isKeyCode('y')))
-        {
-            stepHistory(true);
-            return true;
-        }
-        // The app's own session keys (in a host these belong to the host).
-        if (! m_processor.canFollowHost())
-        {
-            if (c == 's' || key.isKeyCode('S') || key.isKeyCode('s'))
+            if (! m_spaceHeld)
             {
-                saveSession(shift);
-                return true;
+                m_spaceHeld = true;
+                m_processor.setSwell(true);
+                m_swell.press(true);
             }
-            if (! shift && (c == 'o' || key.isKeyCode('O') || key.isKeyCode('o')))
+            return true;
+        }
+        if (action != Shortcuts::Action::Count)
+        {
+            // A key with a modifier works wherever the focus is; a bare one only over the rig itself, so a
+            // single letter cannot act through an open panel.
+            const bool bare = ! Shortcuts::normalise(key).getModifiers().isAnyModifierKeyDown();
+            if (! bare || ! panelOpen)
             {
-                openSession();
+                doAction(action);
                 return true;
             }
         }
@@ -1876,6 +2189,7 @@ bool SwooshbucklerAudioProcessorEditor::keyPressed(const juce::KeyPress& key)
     }
     if (key == juce::KeyPress::escapeKey && (m_settings.isVisible() || m_about.isVisible() || m_takes.isVisible() || m_variations.isVisible()))
     {
+        m_settings.keys().stopListening();
         m_settings.setVisible(false);
         m_about.setVisible(false);
         m_takes.setVisible(false);
@@ -1887,7 +2201,8 @@ bool SwooshbucklerAudioProcessorEditor::keyPressed(const juce::KeyPress& key)
 
 bool SwooshbucklerAudioProcessorEditor::keyStateChanged(bool)
 {
-    if (m_spaceHeld && ! juce::KeyPress::isKeyCurrentlyDown(juce::KeyPress::spaceKey))
+    const auto swellKey = m_keys.key(Shortcuts::Action::Swell);
+    if (m_spaceHeld && (! swellKey.isValid() || ! juce::KeyPress::isKeyCurrentlyDown(swellKey.getKeyCode())))
     {
         m_spaceHeld = false;
         m_processor.setSwell(false);
@@ -1936,7 +2251,42 @@ void SwooshbucklerAudioProcessorEditor::toast(const juce::String& text, juce::Fi
     }
     m_toast = Theme::localiseShortcuts(text);
     m_toastTime = juce::Time::getMillisecondCounterHiRes() * 0.001;
+    // The plate rises into place and fades in; the footer keeps the same line as a log.
+    m_toastRise.snap(0.0f);
+    m_toastRise.to(1.0f, Motion::Ms::overlayIn);
+    placeToast(m_sea.getBounds());
     m_content.repaint(m_footer);
+    m_toastPlate.repaint();
+}
+
+void SwooshbucklerAudioProcessorEditor::ToastPlate::paint(juce::Graphics& g)
+{
+    // It rises eight pixels into place and fades, and it lies over everything the content draws.
+    if (owner.m_toast.isEmpty() || owner.m_toastRise.value <= 0.004f)
+        return;
+    const float a = juce::jlimit(0.0f, 1.0f, owner.m_toastRise.value);
+    const auto plate = getLocalBounds().toFloat().reduced(2.0f, 10.0f).translated(0.0f, 8.0f * (1.0f - a));
+    g.setColour(TC::shadow.withAlpha(0.45f * a));
+    Theme::Plate::fill(g, plate.translated(0.0f, 2.0f), Theme::Cut::control);
+    g.setColour(TC::raised.withAlpha(0.97f * a));
+    Theme::Plate::fill(g, plate, Theme::Cut::control);
+    g.setColour(TC::brass.withAlpha(0.8f * a));
+    Theme::Plate::stroke(g, plate, Theme::Cut::control);
+    Theme::stampText(g, owner.m_toast, plate.reduced(13.0f, 2.0f), owner.m_fonts->body(), juce::Justification::centred,
+                     TC::text.withAlpha(a), Theme::Fit::Message);
+}
+
+void SwooshbucklerAudioProcessorEditor::placeToast(juce::Rectangle<int> near)
+{
+    // A plate at the top of the open water: one place for everything the rig says back, in sight of the header
+    // the action came from and clear of every panel's own lettering.
+    constexpr int height = 26, margin = 14;
+    if (near.isEmpty())
+        near = { 0, 0, c_width, c_height }; // before the window has been laid out
+    const int widest = juce::jmax(160, juce::jmin(560, near.getWidth() - 2 * margin));
+    const int width = juce::jlimit(140, widest, juce::roundToInt(Theme::textWidth(m_fonts->body(), m_toast)) + 30);
+    m_toastPill = juce::Rectangle<int>(near.getCentreX() - width / 2, near.getY() + margin, width, height);
+    m_toastPlate.setBounds(m_toastPill.expanded(2, 10)); // room for the rise and the shadow under it
 }
 
 void SwooshbucklerAudioProcessorEditor::showTakes()
@@ -1989,6 +2339,7 @@ void SwooshbucklerAudioProcessorEditor::toggleLog()
 
 void SwooshbucklerAudioProcessorEditor::saveRetro()
 {
+    m_tape.rewind(); // the reels flick back: the rig is going back over what has just been played
     juce::File written;
     juce::String error;
     if (m_processor.saveRetro(written, error))
@@ -2045,9 +2396,16 @@ juce::PopupMenu SwooshbucklerAudioProcessorEditor::buildPresetMenu(const std::ve
     menu.addItem(itemCopyAB, "Copy to Other");
     menu.addSectionHeader("Session");
     const auto session = m_processor.getSessionFile();
-    menu.addItem(itemSaveSession, session != juce::File() ? "Save Session \"" + session.getFileNameWithoutExtension() + "\"" : juce::String("Save Session"));
-    menu.addItem(itemSaveSessionAs, "Save Session As...");
-    menu.addItem(itemOpenSession, "Open Session...");
+    // Each one shows its key at the right of the row, from the registry, so a key that has been changed reads
+    // the same here as it does in Settings and in the menu bar.
+    {
+        juce::PopupMenu::Item save(session != juce::File() ? "Save Session \"" + session.getFileNameWithoutExtension() + "\"" : juce::String("Save Session"));
+        save.itemID = itemSaveSession;
+        save.shortcutKeyDescription = m_keys.keyText(Shortcuts::Action::SaveSession);
+        menu.addItem(save);
+    }
+    m_keys.addToMenu(menu, Shortcuts::Action::SaveSessionAs, itemSaveSessionAs);
+    m_keys.addToMenu(menu, Shortcuts::Action::OpenSession, itemOpenSession);
     recent = m_processor.getRecentSessions();
     {
         juce::PopupMenu sub;
@@ -2264,13 +2622,46 @@ void SwooshbucklerAudioProcessorEditor::applyLook(const Presets::Preset& look, P
         if (std::abs(param->getValue() - target) < 1.0e-5f)
             continue;
         param->beginChangeGesture();
-        m_morph.items.push_back({ param, param->getValue(), 0.0f, target });
+        m_morph.items.push_back({ param, param->getValue(), 0.0f, target, 0.0f });
     }
+    stagger();
+}
+
+void SwooshbucklerAudioProcessorEditor::stagger()
+{
+    // The wave runs the way the eye reads the window: down the rows, and left to right along each. A control
+    // that is not on screen (or has no knob) sets off at once.
+    std::vector<std::pair<int, size_t>> order; // where the knob is, and which item it is
+    order.reserve(m_morph.items.size());
+    for (size_t i = 0; i < m_morph.items.size(); ++i)
+    {
+        const auto* param = m_morph.items[i].param;
+        int place = -1;
+        if (param != nullptr)
+            if (const auto found = m_controls.find(param->getParameterID()); found != m_controls.end() && found->second != nullptr)
+            {
+                const auto bounds = found->second->getBounds();
+                // A row is 80 design pixels deep: knobs side by side are in the same one.
+                place = (bounds.getCentreY() / 80) * 10000 + bounds.getCentreX();
+            }
+        order.push_back({ place, i });
+    }
+    std::sort(order.begin(), order.end());
+    int step = 0;
+    for (const auto& [place, index] : order)
+        m_morph.items[index].delay = place < 0 ? 0.0f
+                                               : juce::jmin(Morph::c_wave, static_cast<float>(step++) * Morph::c_waveStep);
 }
 
 void SwooshbucklerAudioProcessorEditor::rollDice(int section)
 {
     m_morph.finish();
+    // The die tumbles: three faces, a tenth of a second each, then it settles on five again. The label does
+    // not move - only the face the die shows changes.
+    m_diceTime = juce::Time::getMillisecondCounterHiRes() * 0.001;
+    m_diceStep = 0;
+    m_diceRolling = section < 0 ? static_cast<juce::Component*>(&m_dice) : m_sectionDice[static_cast<size_t>(section)].get();
+    Icons::setPips(*m_diceRolling, 1 + juce::Random::getSystemRandom().nextInt(6));
     const juce::String name = section < 0 ? juce::String("Randomise") : "Roll " + juce::String(Presets::sectionName(section));
     EditHistory::Group group(m_processor.getHistory(), name);
     const auto roll = m_processor.rollLook(section);
@@ -2502,6 +2893,14 @@ void SwooshbucklerAudioProcessorEditor::showLinkedKnobs()
 
 void SwooshbucklerAudioProcessorEditor::timerCallback()
 {
+    // One frame for everything that moves: the real time since the last one, clamped, so a late frame catches
+    // the interface up in one step instead of running it in slow motion.
+    const double frameNow = juce::Time::getMillisecondCounterHiRes() * 0.001;
+    const float dt = m_frameTime > 0.0 ? juce::jlimit(0.0f, Motion::c_maxStep, static_cast<float>(frameNow - m_frameTime))
+                                       : 1.0f / 60.0f;
+    m_frameTime = frameNow;
+    m_clock.tick(dt);
+
     showLinkedKnobs();
     showAimControls();
     {
@@ -2533,7 +2932,25 @@ void SwooshbucklerAudioProcessorEditor::timerCallback()
     }
 
     if (! m_morph.items.empty())
-        m_morph.step();
+        m_morph.step(dt);
+
+    // The rolling die: a new face every tenth of a second for three tenths, then it settles on five.
+    if (m_diceTime > 0.0 && m_diceRolling != nullptr)
+    {
+        const int step = static_cast<int>((juce::Time::getMillisecondCounterHiRes() * 0.001 - m_diceTime) / 0.1);
+        if (step >= 3)
+        {
+            Icons::setPips(*m_diceRolling, 5);
+            m_diceTime = 0.0;
+            m_diceStep = -1;
+            m_diceRolling = nullptr;
+        }
+        else if (step != m_diceStep)
+        {
+            m_diceStep = step;
+            Icons::setPips(*m_diceRolling, 1 + juce::Random::getSystemRandom().nextInt(6));
+        }
+    }
 
 
     const bool playing = m_processor.isPlaying();
@@ -2661,10 +3078,13 @@ void SwooshbucklerAudioProcessorEditor::timerCallback()
     if (m_toast.isNotEmpty())
     {
         const double age = juce::Time::getMillisecondCounterHiRes() * 0.001 - m_toastTime;
+        // The plate holds for two and a half seconds and fades; the footer keeps the line for eight.
+        if (age > 2.5 && m_toastRise.target() > 0.5f)
+            m_toastRise.to(0.0f, Motion::Ms::overlayOut);
+        if (m_toastRise.step(dt))
+            m_toastPlate.repaint();
         if (age > 8.0)
-        {
             m_toast.clear();
-        }
         m_content.repaint(m_footer);
     }
 }

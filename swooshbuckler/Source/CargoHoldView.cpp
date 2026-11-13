@@ -162,8 +162,7 @@ public:
         m_level.setSliderStyle(juce::Slider::LinearHorizontal);
         m_level.setTextBoxStyle(juce::Slider::NoTextBox, false, 0, 0);
         m_level.setTooltip("Track Level\nThis track's fader, in dB (30 dB of travel, then silence at the bottom). With Auto Ride on it moves by itself and this sets how high it can go; "
-                           "the strip next to the waveform shows where it is right now.\nDouble-click to reset it. Right-click to type a value in dB, or to choose Learn MIDI CC "
-                           "and have a fader or knob on a MIDI controller move it.");
+                           "the strip next to the waveform shows where it is right now.\nRight-click for Learn MIDI CC, to have a fader or knob on a MIDI controller move it.");
         m_level.setTypedParameter(owner.m_processor.getState().getParameter(ParamIDs::cargoTrack[track]), owner.m_fonts);
         m_level.onContextMenu = [this] { m_owner.showControlMenu(m_track, m_level); };
         addAndMakeVisible(m_level);
@@ -342,8 +341,12 @@ public:
         }
         else
             Theme::Plate::edge(g, bounds, Theme::Cut::control, TC::edgeDark.withAlpha(0.8f), TC::edgeLight.withMultipliedAlpha(0.5f));
-        g.setColour(colour);
-        g.fillRect(juce::Rectangle<float>(bounds.getX() + 6.0f, bounds.getY() + 8.0f, 4.0f, bounds.getHeight() - 16.0f));
+        // The colour stripe, breathing with the ride: 4 to 6 px wide, half to full strength.
+        {
+            const float ride = juce::jlimit(0.0f, 1.0f, m_stripe);
+            g.setColour(colour.withAlpha(0.5f + 0.5f * ride));
+            g.fillRect(juce::Rectangle<float>(bounds.getX() + 6.0f, bounds.getY() + 8.0f, 4.0f + 2.0f * ride, bounds.getHeight() - 16.0f));
+        }
 
         auto header = m_rows;
         auto nameRow = header.removeFromTop(18).withTrimmedLeft(10).withTrimmedRight(c_buttonsWidth);
@@ -685,11 +688,27 @@ public:
     {
         m_history[static_cast<size_t>(m_historyHead)] = gain;
         m_historyHead = (m_historyHead + 1) % c_history;
+        // The lane's colour stripe breathes with the ride, so the left edge of the track list reads as a row of
+        // lanterns. It is only repainted when the drawn width or tone would actually change.
+        m_stripe += (juce::jlimit(0.0f, 1.0f, gain) - m_stripe) * 0.35f;
+    }
+
+    /** Where the colour stripe is, and whether it has moved enough to be worth redrawing. */
+    juce::Rectangle<int> stripeArea() const { return getLocalBounds().withX(4).withWidth(10); }
+    bool stripeMoved()
+    {
+        const int step = static_cast<int>(m_stripe * 12.0f);
+        if (step == m_stripeShown)
+            return false;
+        m_stripeShown = step;
+        return true;
     }
 
 private:
     static constexpr int c_history = 240; // 8 s at 30 Hz
     std::array<float, c_history> m_history {};
+    float m_stripe = 0.0f;      // the ride, smoothed, that the colour stripe breathes with
+    int m_stripeShown = -1;     // the step of it the stripe was last drawn at
     juce::Image m_cache;
     const CargoData* m_cacheData = nullptr;
     bool m_cacheSkip = true;
@@ -1164,7 +1183,11 @@ void CargoHoldView::timerCallback()
     }
     for (auto& lane : m_lanes)
         if (lane->isVisible())
+        {
             lane->repaint(lane->waveArea().withLeft(lane->waveArea().getX() - 14));
+            if (lane->stripeMoved())
+                lane->repaint(lane->stripeArea());
+        }
     // A take's note fades out over its last second, then makes way for the last thing said.
     if (m_takeNote.isNotEmpty())
     {

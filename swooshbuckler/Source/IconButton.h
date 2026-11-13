@@ -37,7 +37,8 @@ public:
         // Switched on, its plate is in its colour and the icon is cut out dark.
         const auto colour = ! isEnabled() ? TC::textFaint.withAlpha(0.45f) : (on ? (accent.getPerceivedBrightness() > 0.5f ? TC::window : TC::text) : (over ? TC::text : TC::textDim));
         const float side = juce::jmin(static_cast<float>(getWidth()), static_cast<float>(getHeight())) - 6.0f;
-        Icons::draw(g, m_icon, juce::Rectangle<float>(side, side).withCentre(getLocalBounds().toFloat().getCentre()), colour, on || (down && m_icon == Icon::Star));
+        Icons::draw(g, m_icon, juce::Rectangle<float>(side, side).withCentre(getLocalBounds().toFloat().getCentre()), colour,
+                    on || (down && m_icon == Icon::Star), Icons::getPips(*this));
     }
 
 private:

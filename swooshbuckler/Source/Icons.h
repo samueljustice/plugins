@@ -39,8 +39,21 @@ namespace Icons
     }
     inline Icon get(const juce::Component& c) { return static_cast<Icon>(static_cast<int>(c.getProperties().getWithDefault(property, 0))); }
 
-    /** Draws the icon inside a square box in one colour. filled: the lit form (a kept star, a closed lock). */
-    inline void draw(juce::Graphics& g, Icon icon, juce::Rectangle<float> area, juce::Colour colour, bool filled = false)
+    /** The face a die shows. Randomise sets it while the die tumbles and puts it back to five afterwards; it is
+        the only thing that changes it, so the die is still five everywhere else. */
+    inline const juce::Identifier pipsProperty { "diePips" };
+    inline void setPips(juce::Component& c, int pips)
+    {
+        if (static_cast<int>(c.getProperties().getWithDefault(pipsProperty, 5)) == pips)
+            return;
+        c.getProperties().set(pipsProperty, pips);
+        c.repaint();
+    }
+    inline int getPips(const juce::Component& c) { return juce::jlimit(1, 6, static_cast<int>(c.getProperties().getWithDefault(pipsProperty, 5))); }
+
+    /** Draws the icon inside a square box in one colour. filled: the lit form (a kept star, a closed lock).
+        pips: the face a die shows (five by default). */
+    inline void draw(juce::Graphics& g, Icon icon, juce::Rectangle<float> area, juce::Colour colour, bool filled = false, int pips = 5)
     {
         const float side = juce::jmin(area.getWidth(), area.getHeight());
         const auto box = juce::Rectangle<float>(side, side).withCentre(area.getCentre());
@@ -103,9 +116,18 @@ namespace Icons
                 const auto face = box.reduced(box.getWidth() * 0.08f);
                 g.drawRect(face, juce::jmax(1.0f, line * 0.85f));
                 const float pip = juce::jmax(1.6f, face.getWidth() * 0.17f);
-                for (const auto& c : { juce::Point<float>(0.28f, 0.28f), juce::Point<float>(0.72f, 0.28f), juce::Point<float>(0.5f, 0.5f),
-                                       juce::Point<float>(0.28f, 0.72f), juce::Point<float>(0.72f, 0.72f) })
-                    g.fillEllipse(juce::Rectangle<float>(pip, pip).withCentre({ face.getX() + c.x * face.getWidth(), face.getY() + c.y * face.getHeight() }));
+                // The six faces, as pips are laid out on a die. Round objects: the pips.
+                static const char* faces[6] = { "....X....", "X.......X", "X...X...X", "X.X...X.X", "X.X.X.X.X", "X.XX.XX.X" };
+                const char* layout = faces[juce::jlimit(1, 6, pips) - 1];
+                for (int cell = 0; cell < 9; ++cell)
+                {
+                    if (layout[cell] != 'X')
+                        continue;
+                    const float x = 0.28f + 0.22f * static_cast<float>(cell % 3);
+                    const float y = 0.28f + 0.22f * static_cast<float>(cell / 3);
+                    g.fillEllipse(juce::Rectangle<float>(pip, pip).withCentre({ face.getX() + x * face.getWidth(),
+                                                                               face.getY() + y * face.getHeight() }));
+                }
                 break;
             }
             case Icon::Lock:

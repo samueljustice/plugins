@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+- **Shortcuts you can see and change.** Settings now lists every action Swooshbuckler can do with the key it has: click a row and press the key you want, Esc leaves it as it was and Backspace takes the key away. A key another action already has is only moved once you say so, and **Reset To Defaults** puts them all back. Your keys are kept with the rest of the settings. There are keys for the rolls ([ and ]), for keeping one (K), for stepping through the presets (, and .), for the morph pad (M), the cables (C), Takes, Render Variations and Settings, as well as the ones that were there before.
+- **The key is shown wherever the action is**: beside the item in the menus, at the end of the control's tooltip, and - in the app on a Mac - in a menu bar of its own (File, Edit, Transport and View).
+- **Tooltips come in two parts.** Rest on a control and it says its name and what it is set to out of what it can be; stay a moment longer and it grows into the whole explanation, with how to handle it and its key at the end. The how-to line that used to be repeated on every knob is now written once.
+- **One clock for everything that moves**, stepped with the real time of the frame, so nothing runs slow when the window is busy and no spring is thrown across the screen by a late frame. Sound still answers instantly; the interface eases, and never for longer than a quarter of a second.
+- **The tape's reels spin up and coast down** instead of starting and stopping dead, the record lamp breathes while the tape is armed and waiting (and is solid while it writes), and Last 60 s flicks the reels back half a turn.
+- **Each track's colour stripe breathes with its ride**, so the left edge of the track list reads as a row of lanterns.
+- **A wire clicks in.** The plug drops onto its knob and settles, and the knob's ring flashes in the wire's colour.
+- **A preset or a roll passes through the window as a wave**: the knobs set off left to right, row by row, over a quarter of a second, instead of all at once.
+- **The die tumbles** through three faces when you roll it, then settles.
+- **What the rig says back is said where you can see it**: a plate at the top of the open water that rises into place and fades after a couple of seconds. The footer keeps the same line as a log.
+- **The web address and the version in the header are quieter**, so the transport and the tape read first.
+
 - **The sea is the hero, and it moves properly.** It runs on the screen's own frame clock, up to sixty times a second however fast the screen is, and the swell rolls away smoothly instead of stepping. Rows go colder and hazier towards the horizon, the near crests are drawn as curves, and the water has its own colours so nothing on it can be mistaken for a bus. The sky is kept in one picture and painted again only when the view changes shape, and after five seconds of quiet the sea steps at a third of the rate.
 - **The sea answers what it hears.** A pass leaves a bump in the water under it that rolls away with the swell; a hit fires a short cherry glow along the horizon and a ring on the water; a click drops a ripple where it landed; holding Swell raises the swell; and the moon's halo warms and widens while the limiter is holding the output down. A thrown whoosh is the same comet in brass, and brighter, labelled Throw.
 - **The moon moved to the left of the sky**, with its glitter path on the water below it, clear of the Morph button and the readouts.

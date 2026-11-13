@@ -6,12 +6,15 @@
 #include "LookAndFeel.h"
 #include "ModPanel.h"
 #include "MorphPad.h"
+#include "Motion.h"
 #include "PluginProcessor.h"
 #include "Presets.h"
 #include "SeaVisualiser.h"
 #include "SectionScope.h"
+#include "Shortcuts.h"
 #include "TakesView.h"
 #include "Theme.h"
+#include "Tooltips.h"
 #include "LogoOutline.h"
 #include "UpdatePopup.h"
 #include "VariationsView.h"
@@ -21,8 +24,9 @@
  * The window. Laid out once at a fixed design size inside a content component
  * that is scaled uniformly, so the window can be resized without reflowing.
  *
- * Keys (never while a text box is being typed in): Return = Play / Stop, R = Randomise, T = arm / stop the tape,
- * L = save the last minute(s), F = Throw, Space = Swell (held), Cmd/Ctrl+Z and Shift+Cmd/Ctrl+Z = Undo / Redo.
+ * Keys (never while a text box is being typed in) are not written into this window: every one of them is an
+ * action in Shortcuts.h, with a default key the user can change in Settings. The same registry gives the key
+ * shown beside an item in the menus and at the end of a control's tooltip, and fills the Mac menu bar in the app.
  *
  * One screen, in signal order (the whoosh rig):
  *
@@ -79,47 +83,81 @@ private:
         void mouseDown(const juce::MouseEvent& e) override { if (onMouseDown) onMouseDown(e); }
     };
 
-    /** Swell: hold it and every track's fader rides up; let go and the ride takes over again. */
-    class SwellButton : public juce::Component, public juce::SettableTooltipClient, private juce::Timer
+    /** Swell: hold it and every track's fader rides up; let go and the ride takes over again.
+        It squashes on the Swell spring and its halo follows the energy of the ride. */
+    class SwellButton : public juce::Component, public juce::SettableTooltipClient, public Motion::ClockClient
     {
     public:
         SwellButton(SwooshbucklerAudioProcessor& p, const Theme::Fonts& f) : m_processor(p), m_fonts(f)
         {
             setMouseCursor(juce::MouseCursor::PointingHandCursor);
-            startTimerHz(60);
+            m_scale.snap(1.0f);
         }
         void paint(juce::Graphics&) override;
-        void mouseDown(const juce::MouseEvent&) override { m_processor.setSwell(true); m_target = 0.9f; }
-        void mouseUp(const juce::MouseEvent&) override { m_processor.setSwell(false); m_target = 1.0f; }
-        void press(bool down) { m_target = down ? 0.9f : 1.0f; }
+        void mouseDown(const juce::MouseEvent&) override { m_processor.setSwell(true); press(true); }
+        void mouseUp(const juce::MouseEvent&) override { m_processor.setSwell(false); press(false); }
+        void press(bool down) { m_scale.to(down ? 0.9f : 1.0f); }
     private:
-        void timerCallback() override;
+        void frame(float dt) override;
         SwooshbucklerAudioProcessor& m_processor;
         const Theme::Fonts& m_fonts;
-        float m_scale = 1.0f, m_velocity = 0.0f, m_target = 1.0f, m_glow = 0.0f;
+        Motion::Spring m_scale;
+        float m_glow = 0.0f;
     };
 
-    /** The tape machine: two reels that spin while audio is being captured. Click to arm / disarm. */
-    class TapeButton : public juce::Component, public juce::SettableTooltipClient, private juce::Timer
+    /** The tape machine: two reels that spin up when capture starts and coast down when it stops, and a record
+        lamp that breathes while it is armed and waiting. Click to arm / disarm. */
+    class TapeButton : public juce::Component, public juce::SettableTooltipClient, public Motion::ClockClient
     {
     public:
         TapeButton(SwooshbucklerAudioProcessor& p, const Theme::Fonts& f) : m_processor(p), m_fonts(f)
         {
             setMouseCursor(juce::MouseCursor::PointingHandCursor);
-            startTimerHz(30);
         }
         void paint(juce::Graphics&) override;
         void mouseUp(const juce::MouseEvent& e) override { if (onClick && contains(e.getPosition())) onClick(); }
+        /** The LAST button was pressed: the reels flick back half a turn. */
+        void rewind() { m_rewind = -juce::MathConstants<float>::pi; }
         std::function<void()> onClick;
     private:
-        void timerCallback() override;
+        void frame(float dt) override;
         SwooshbucklerAudioProcessor& m_processor;
         const Theme::Fonts& m_fonts;
-        float m_angle = 0.0f, m_blink = 0.0f;
+        float m_angle = 0.0f, m_breath = 0.0f, m_speed = 0.0f, m_rewind = 0.0f, m_lamp = 0.0f;
         bool m_wasArmed = false;
     };
 
-    /** Settings: where the tape goes and how it's written (type, bit depth, sample rate, channels), audio device. */
+    /**
+     * The keys, in Settings: every action with the key it has now. Click a row and press a key to give it that
+     * one, Esc leaves the row as it was, and a key another action already has is offered to be moved.
+     */
+    class ShortcutsList : public juce::Component
+    {
+    public:
+        explicit ShortcutsList(SwooshbucklerAudioProcessorEditor& owner);
+        void paint(juce::Graphics&) override;
+        void resized() override;
+        void mouseDown(const juce::MouseEvent&) override;
+        void mouseMove(const juce::MouseEvent&) override;
+        void mouseExit(const juce::MouseEvent&) override;
+        bool keyPressed(const juce::KeyPress&) override;
+        void focusLost(FocusChangeType) override;
+        /** Whether a row is waiting for a key: while it is, the window's own keys are off. */
+        bool isListening() const { return m_listening >= 0; }
+        void stopListening();
+        /** The row height and how tall the whole list is, so the panel can give it the room. */
+        static constexpr int c_row = 22;
+        static int idealHeight() { return Shortcuts::numActions * c_row; }
+    private:
+        juce::Rectangle<int> rowBounds(int index) const;
+        int rowAt(juce::Point<int> p) const;
+        void bind(Shortcuts::Action action, const juce::KeyPress& key);
+        SwooshbucklerAudioProcessorEditor& m_owner;
+        int m_listening = -1, m_over = -1;
+    };
+
+    /** Settings: where the tape goes and how it's written (type, bit depth, sample rate, channels), audio
+        device, and the keys. */
     class SettingsPanel : public juce::Component
     {
     public:
@@ -128,8 +166,13 @@ private:
         void resized() override;
         void mouseDown(const juce::MouseEvent&) override;
         void refresh();
+        /** The keys list, so the window can ask whether it is waiting for a key. */
+        ShortcutsList& keys() { return m_keysList; }
     private:
         SwooshbucklerAudioProcessorEditor& m_owner;
+        ShortcutsList m_keysList;
+        juce::TextButton m_resetKeys { "Reset To Defaults" };
+        juce::Rectangle<int> m_keysCaption, m_keysHint;
         juce::TextButton m_choose { "Choose..." }, m_reveal { "Show" }, m_close { "Close" }, m_desktop { "Desktop" }, m_audio { "Audio Device..." };
         std::array<juce::TextButton, 3> m_types, m_bits;
         std::array<juce::TextButton, 6> m_rates;
@@ -167,19 +210,26 @@ private:
         juce::Rectangle<int> m_panel, m_logoArea, m_textArea;
     };
 
-    /** Glides parameters to new targets on springs (presets, Roll the Bones). */
+    /** Glides parameters to new targets on the Swell spring (presets, Roll the Bones). Each knob waits a little
+        longer than the one to its left, so a preset passes through the window like a swell. */
     struct Morph
     {
         struct Item
         {
             juce::RangedAudioParameter* param = nullptr;
             float pos = 0.0f, vel = 0.0f, target = 0.0f;
+            float delay = 0.0f; // seconds still to wait before this one starts moving
         };
         std::vector<Item> items;
-        bool step();
+        /** Advances the glide by dt seconds. True while anything is still moving. */
+        bool step(float dt);
         void cancel(const juce::String& id);
         void finish();
+        /** The longest a preset takes to pass through the panels, in seconds. */
+        static constexpr float c_wave = 0.24f, c_waveStep = 0.012f;
     };
+    /** Gives the items of a glide their delays: left to right, row by row, from where the knobs are. */
+    void stagger();
 
     struct Section
     {
@@ -243,7 +293,27 @@ private:
     SwooshbucklerAudioProcessor& m_processor;
     juce::SharedResourcePointer<Theme::Fonts> m_fonts;
     SwooshLookAndFeel m_lnf;
-    juce::TooltipWindow m_tooltips { nullptr, 600 };
+    /** The keys, and the one frame clock everything that animates runs on. Both are declared before the
+        components, so they are made first and destroyed last. */
+    Shortcuts::Registry m_keys;
+    Motion::FrameClock m_clock;
+    double m_frameTime = 0.0;
+    SwooshTooltips m_tooltips { nullptr, m_keys };
+
+    // What a key, a menu item or a button asks for; one place, so a key and its menu item can never drift apart.
+    void doAction(Shortcuts::Action action);
+    /** The keys have changed: the menu bar and the tooltips that name one are written again. */
+    void refreshShortcuts();
+    /** Whether the action can be used now (a session key in a host belongs to the host, Redo with nothing to redo). */
+    bool canDoAction(Shortcuts::Action action) const;
+    /** Something is being typed into a text box: no single key fires. */
+    static bool isTyping();
+
+   #if JUCE_MAC
+    /** The app's menu bar: the same actions, with the keys the user has given them. */
+    struct MenuBar;
+    std::unique_ptr<MenuBar> m_menuBar;
+   #endif
 
     Content m_content;
 
@@ -343,6 +413,23 @@ private:
 
     juce::String m_toast;
     double m_toastTime = 0.0;
+    /** The toast's plate: it rises 8 px and fades in at the top of the open water, holds, and fades out. It is a
+        child of its own so it lies over the sea and the panels; the footer keeps the same line as a log. */
+    struct ToastPlate : public juce::Component
+    {
+        explicit ToastPlate(SwooshbucklerAudioProcessorEditor& o) : owner(o) { setInterceptsMouseClicks(false, false); }
+        void paint(juce::Graphics&) override;
+        SwooshbucklerAudioProcessorEditor& owner;
+    };
+    ToastPlate m_toastPlate { *this };
+    Motion::Fade m_toastRise;
+    juce::Rectangle<int> m_toastPill;
+    void placeToast(juce::Rectangle<int> near);
+    /** Randomise: the die that was rolled tumbles through three faces for 300 ms, then settles on five.
+        Nothing else on the button moves. */
+    double m_diceTime = 0.0;
+    int m_diceStep = -1;
+    juce::Component* m_diceRolling = nullptr; // the die that is tumbling: a child of ours, alive as long as we are
     // Output meters: the bars, and the peak holds (the deepest reduction / highest level of the last moments).
     float m_grDb = 0.0f, m_outLevel = 0.0f, m_grHoldDb = 0.0f, m_outHold = 0.0f;
     double m_meterTime = 0.0, m_grHoldTime = 0.0, m_outHoldTime = 0.0;

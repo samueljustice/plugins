@@ -86,6 +86,7 @@ target_sources(Swooshbuckler
     ${SWOOSHBUCKLER_DSP_SOURCES}
     Source/PluginProcessor.cpp
     Source/PluginEditor.cpp
+    Source/Shortcuts.cpp
     Source/LookAndFeel.cpp
     Source/SeaVisualiser.cpp
     Source/CargoHoldView.cpp

@@ -208,7 +208,7 @@ MorphPad::MorphPad(const Theme::Fonts& fonts) : m_fonts(fonts)
     m_speed.setRange(0.0, 1.0);
     m_speed.setValue(0.5, juce::dontSendNotification);
     m_speed.setDoubleClickReturnValue(true, 0.5);
-    m_speed.setTooltip("Wander Speed\nHow fast the dot travels along its shape.\nDouble-click to reset it.");
+    m_speed.setTooltip("Wander Speed\nHow fast the dot travels along its shape.");
     m_speed.onValueChange = [this]
     {
         if (onWanderChanged) onWanderChanged(m_wander, static_cast<float>(m_speed.getValue()));

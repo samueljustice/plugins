@@ -61,9 +61,9 @@ No sounds to hand? Click **Load Demo Sounds** in the empty Tracks panel. It fill
 4. **Arm the tape** (Arm). It records whenever there's sound and skips the quiet stretches. Click again to stop and close the file.
 5. Missed a good one? **Last 60 s** saves the last minute, even if the tape wasn't armed.
 
-Hold **Swell**, the space bar or any MIDI note to push every fader up at once. Press **Throw** (or the F key) for one whoosh on demand, with the rig playing or stopped. Return is Play / Stop, R is Randomise, T arms the tape and L saves the last minute: see [Keyboard, mouse and MIDI](#keyboard-mouse-and-midi).
+Hold **Swell**, the space bar or any MIDI note to push every fader up at once. Press **Throw** (or the F key) for one whoosh on demand, with the rig playing or stopped. Return is Play / Stop, R is Randomise, T arms the tape and L saves the last minute. Every key can be changed in Settings: see [Keyboard, mouse and MIDI](#keyboard-mouse-and-midi).
 
-Every knob is a ship's wheel with a sand pointer, and under it its name and its value, always in its own units. The ring around the wheel fills with the value in its section's colour. Every control has a tooltip: hover over it to see what it does and how to use it.
+Every knob is a ship's wheel with a sand pointer, and under it its name and its value, always in its own units. The ring around the wheel fills with the value in its section's colour. Every control has a tooltip: rest on it and it tells you its name and what it is set to, and a moment later the whole explanation.
 
 ## How it works
 
@@ -469,6 +469,7 @@ Click **Settings** to open. Close it with Close, Esc, or a click outside the pan
 | **File Names** | Counter / Date and Time (Counter) | Counter: `Name_0001`, `Name_0002` and so on. Date and Time: `Name_2026-11-07_16-32-10`, good for single long takes. |
 | **Keep the Last** | 1 Minute / 3 Minutes / 5 Minutes (1 Minute) | How much the Last button can save after the fact. The sound is held in memory all the time: about 23 MB a minute at a 48 kHz recording rate, 46 MB at 96 kHz and 92 MB at 192 kHz, so 5 minutes at 192 kHz is about 460 MB. Changing it empties what is held. |
 | **Audio Device...** | | The app only: the audio output, sample rate and buffer size. |
+| **Shortcuts** | | Down the right-hand side: every action with the key it has now. Click a row and press a key to change it. See [Changing the keys](#changing-the-keys). |
 
 #### Recording
 
@@ -620,6 +621,11 @@ The keys work wherever you last clicked in the window (while you type in a text 
 
 ## Keyboard, mouse and MIDI
 
+Every key below can be changed: **Settings** lists all of them with the key each one has, and a click on a row
+lets you press the key you want (see [Changing the keys](#changing-the-keys)). The key an action has is shown
+beside it in the menus, at the end of its tooltip, and in the app's menu bar on a Mac, so a key you move reads
+the same everywhere.
+
 | Input | What it does |
 |---|---|
 | Return | Play / Stop. |
@@ -628,10 +634,14 @@ The keys work wherever you last clicked in the window (while you type in a text 
 | R | Randomise: a new roll. |
 | T | Arms the tape; again to stop it and close the file. |
 | L | Saves the last minute (or the last 3 or 5, as Keep the Last is set). |
+| [ and ] | Back and forward through the Randomise rolls; K keeps the one you are on as a preset. |
+| , and . | The preset before and after this one in the list. |
+| M | Shows and hides the morph pad. C shows and hides the modulation cables. |
+| Cmd+1 / Cmd+2 / Cmd+, (Ctrl on Windows) | Takes, Render Variations and Settings. |
 | MIDI notes | What the **Keys** menu in the Ride panel says: hold Swell (the default), set the pitch of the tracks, or throw one whoosh per note. See [Keys](#keys). |
 | Click the sea | A short swell. |
 | Cmd+Z / Shift+Cmd+Z (Ctrl+Z / Ctrl+Shift+Z on Windows) | Undo and redo, wherever you last clicked in the window: knobs, presets, rolls, A / B, New and track edits, newest first. See [Undo and redo](#undo-and-redo). |
-| Cmd+S / Shift+Cmd+S / Cmd+O (Ctrl on Windows), in the app | Save Session, Save Session As and Open Session. See [Session files](#session-files). |
+| Cmd+N / Cmd+S / Shift+Cmd+S / Cmd+O (Ctrl on Windows), in the app | New Session, Save Session, Save Session As and Open Session. See [Session files](#session-files). |
 | Drop a `.swooshpreset` or `.swooshsession` file on the window | Loads the preset (and adds it to yours), or opens the session. |
 | Esc | Closes Settings, Takes, Render Variations or About. A batch that is rendering carries on. |
 | Double-click a knob | Resets it. |
@@ -643,7 +653,19 @@ The keys work wherever you last clicked in the window (while you type in a text 
 | Right-click a track lane | The track's menu: Master Track, Match Pitch to Master and Plays On. |
 | Drag from the A or B handle under the morph pad onto a track | Ropes that side of the morph to the track. Double-click the handle to let the rope go. See [Morph pad](#morph-pad). |
 
-The single keys (Return, F, R, T, L) do nothing while you are typing in a text box, and nothing while Settings, Takes, Render Variations or About is open, so a name or a value you type never triggers them.
+The single keys do nothing while you are typing in a text box, and nothing while Settings, Takes, Render Variations or About is open, so a name or a value you type never triggers them.
+
+### Changing the keys
+
+**Settings** has a **Shortcuts** list down its right-hand side: every action Swooshbuckler can do, with the key it
+has now. Click a row and press the key you want. Esc leaves the row as it was and Backspace takes the key away
+altogether. If another action already has that key, you are asked whether to move it; moving it leaves the other
+action with no key until you give it one. **Reset To Defaults** puts every key back.
+
+Your keys are kept with the rest of the settings, so they are still yours the next time you open Swooshbuckler,
+in the app and in every DAW. The key an action has is shown beside its item in the menus and at the end of its
+tooltip. In the app on a Mac there is also a menu bar - File, Edit, Transport and View - whose items show the
+same keys.
 
 ### Typing a value
 

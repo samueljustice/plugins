@@ -3,6 +3,7 @@
 #include <JuceHeader.h>
 #include "LookAndFeel.h"
 #include "Modulators.h"
+#include "Motion.h"
 #include "PluginProcessor.h"
 #include "Theme.h"
 
@@ -48,8 +49,11 @@ private:
  *   double-click a plug   : depth back to +50%
  *   right-click a plug    : invert, depths, remove
  * The cables are drawn once into an image and only redrawn when the wiring or the layout changes.
+ *
+ * A wire that lands clicks in: the plug drops from 1.4 to its size on the Helm spring and the knob's ring
+ * flashes in the modulator's colour for a moment. That runs on the window's one frame clock (Motion.h).
  */
-class ModWires : public juce::Component, public juce::TooltipClient, private juce::AsyncUpdater
+class ModWires : public juce::Component, public juce::TooltipClient, public Motion::ClockClient, private juce::AsyncUpdater
 {
 public:
     ModWires(ModMatrix& matrix, const Theme::Fonts& fonts);
@@ -78,6 +82,8 @@ public:
     static constexpr float c_cableAlpha = 0.62f, c_cableAlphaHovered = 0.97f, c_cableAlphaFaded = 0.2f;
     /** At the UI rate: the knobs' live modulated values. */
     void updateKnobs();
+    /** One frame of the plug that has just landed. */
+    void frame(float dt) override;
 
     void paint(juce::Graphics&) override;
     void resized() override { rebuild(); }
@@ -128,6 +134,13 @@ private:
     void updateArcs(ModTarget* knob);
     bool m_showCables = true;
     void drawCables();
+    // A wire that has just landed: which plug, how big it is drawn now, and how long its knob's ring still flashes.
+    int m_landSlot = -1;
+    Motion::Spring m_landScale;
+    ModTarget* m_landKnob = nullptr;
+    float m_landFlash = 0.0f;
+    void clearLandFlash();
+
     int m_hoverCard = -1, m_hoverPlug = -1; // the modulator under the mouse, by its card or by one of its plugs
     void setHover(int card, int plug);
     int hoverSource() const;

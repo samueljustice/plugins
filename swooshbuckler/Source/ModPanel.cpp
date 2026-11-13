@@ -84,9 +84,9 @@ public:
     {
         const auto t = type();
         m_knob.caption = knobCaption(t);
-        m_knob.setTooltip(t == ModMatrix::Type::Macro ? "Amount\nThe macro's value: turn it and every wired knob follows, each by its own depth.\nDouble-click to reset it."
-                          : t == ModMatrix::Type::Follower ? "Speed\nHow quickly it follows its input: slow is smooth and gentle, fast is jumpy and follows every hit.\nDouble-click to reset it."
-                                                           : "Rate\nHow fast it moves, from one cycle every 20 seconds to 8 times a second.\nDouble-click to reset it.");
+        m_knob.setTooltip(t == ModMatrix::Type::Macro ? "Amount\nThe macro's value: turn it and every wired knob follows, each by its own depth."
+                          : t == ModMatrix::Type::Follower ? "Speed\nHow quickly it follows its input: slow is smooth and gentle, fast is jumpy and follows every hit."
+                                                           : "Rate\nHow fast it moves, from one cycle every 20 seconds to 8 times a second.");
         // The readout in the knob's own units: the cycle time or rate, the follow time, or the amount.
         m_knob.textFromValueFunction = [t](double v)
         {
@@ -602,6 +602,36 @@ void ModWires::updateKnobs()
         }
 }
 
+void ModWires::clearLandFlash()
+{
+    if (m_landKnob != nullptr)
+        m_landKnob->setWireHover(juce::Colours::transparentBlack);
+    m_landKnob = nullptr;
+    m_landFlash = 0.0f;
+}
+
+void ModWires::frame(float dt)
+{
+    if (m_landSlot < 0)
+        return;
+    const bool settling = m_landScale.stepHelm(dt);
+    if (m_landFlash > 0.0f)
+    {
+        m_landFlash -= dt;
+        if (m_landFlash <= 0.0f)
+            clearLandFlash();
+    }
+    for (const auto& plug : m_plugs)
+        if (plug.route.slot == m_landSlot)
+        {
+            const float room = c_plugRadius * 2.0f;
+            repaint(juce::Rectangle<float>(room * 2.0f, room * 2.0f).withCentre(plug.pos).getSmallestIntegerContainer());
+            break;
+        }
+    if (! settling && m_landFlash <= 0.0f)
+        m_landSlot = -1;
+}
+
 void ModWires::paint(juce::Graphics& g)
 {
     // Cable image resolution: the physical scale in half steps (so a live window resize doesn't redraw it every frame).
@@ -621,7 +651,9 @@ void ModWires::paint(juce::Graphics& g)
     for (const auto& plug : m_plugs)
     {
         const auto c = ModPanel::sourceColour(plug.route.source);
-        const auto r = juce::Rectangle<float>(c_plugRadius * 2.0f, c_plugRadius * 2.0f).withCentre(plug.pos);
+        // Round object: a plug. The one that has just landed is still settling onto its seat.
+        const float size = c_plugRadius * 2.0f * (plug.route.slot == m_landSlot ? juce::jlimit(0.8f, 1.6f, m_landScale.value) : 1.0f);
+        const auto r = juce::Rectangle<float>(size, size).withCentre(plug.pos);
         g.setColour(TC::shadow.withAlpha(0.6f));
         g.fillEllipse(r.translated(0.0f, 1.5f));
         g.setColour(c);
@@ -706,7 +738,18 @@ void ModWires::endWire(juce::Point<float> at)
     {
         const int slot = m_matrix.connect(m_dragSource, id, 0.5f);
         if (slot >= 0)
+        {
             m_newestSlot[m_knobs[id]] = slot;
+            // It clicks in: the plug drops onto its seat and the knob's ring flashes in the wire's colour.
+            clearLandFlash();
+            m_landSlot = slot;
+            m_landScale.snap(1.4f);
+            m_landScale.to(1.0f);
+            m_landFlash = 0.2f;
+            m_landKnob = m_knobs[id];
+            if (m_landKnob != nullptr)
+                m_landKnob->setWireHover(ModPanel::sourceColour(m_dragSource));
+        }
         if (onStatus)
             onStatus(slot >= 0 ? ModPanel::sourceName(m_dragSource) + " wired. Drag its plug up or down for depth, right-click to pull it out."
                                : juce::String("No more room for wires (") + juce::String(ModMatrix::c_maxRoutes) + " max).");

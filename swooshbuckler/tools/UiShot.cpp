@@ -238,6 +238,17 @@ int main(int argc, char* argv[])
             }
         }
 
+        // What the rig says back: the toast's plate at the top of the open water, risen into place.
+        {
+            ed.toast("Kept as the preset Roll 2. Rename it in the preset list.");
+            rig.run(0.4);
+            const auto window = shots.shoot("toast");
+            shots.crop(window, "toast-plate", ed.m_toastPill.expanded(40, 24), 0);
+            ed.m_toast.clear();
+            ed.m_toastRise.snap(0.0f);
+            rig.run(0.1);
+        }
+
         // The sea at its moments: one crop each, so the hero can be looked at on its own. Everything the sea
         // answers to is set here by hand, because none of it happens to order in three seconds of demo sounds.
         if (options.sea)

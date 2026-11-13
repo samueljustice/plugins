@@ -33,7 +33,7 @@ namespace UiRig
     /** Steps every timer the interface runs. */
     inline void tick(juce::Component* c)
     {
-        if (auto* x = dynamic_cast<Editor*>(c)) x->timerCallback();
+        if (auto* x = dynamic_cast<Editor*>(c)) x->timerCallback(); // this also ticks the one frame clock (Motion.h)
         if (auto* x = dynamic_cast<SeaVisualiser*>(c)) x->timerCallback();
         if (auto* x = dynamic_cast<CargoHoldView*>(c)) x->timerCallback();
         if (auto* x = dynamic_cast<MorphPad*>(c)) x->timerCallback();
@@ -42,8 +42,6 @@ namespace UiRig
         if (auto* x = dynamic_cast<WheelKnob*>(c)) x->timerCallback();
         if (auto* x = dynamic_cast<TakesView*>(c); x != nullptr && x->isVisible()) x->timerCallback();
         if (auto* x = dynamic_cast<VariationsView*>(c); x != nullptr && x->isVisible()) x->timerCallback();
-        if (auto* x = dynamic_cast<Editor::SwellButton*>(c)) x->timerCallback();
-        if (auto* x = dynamic_cast<Editor::TapeButton*>(c)) x->timerCallback();
         for (auto* child : c->getChildren())
             tick(child);
     }

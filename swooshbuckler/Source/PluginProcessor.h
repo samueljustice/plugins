@@ -334,6 +334,9 @@ public:
         one file would overwrite each other's values), and tests point it at a scratch file. Not owned; set it
         before the processor is made and clear it after the processor is gone. Message thread. */
     static void useSettings(juce::PropertiesFile* shared) { s_sharedSettings = shared; }
+    /** The settings file this rig reads and writes (its own, the standalone app's, or a test's). It may be
+        nullptr. For the few things the interface keeps for itself, such as the keys. Message thread. */
+    juce::PropertiesFile* getSettingsFile() const { return m_settings; }
 
     // Metering / visuals -------------------------------------------------------
     float getGainReductionDb() const { return m_master.getGainReductionDb(); }

@@ -458,6 +458,162 @@ int main(int argc, char* argv[])
         check(wrong == 0 && checked > 150, "parameters: all " + juce::String(checked) + " names and choices are in Title Case");
     }
 
+    // Motion -----------------------------------------------------------------------------------------------------
+    std::cout << "Motion" << std::endl;
+    {
+        // A fade eases to its target in its own time and never goes past it.
+        {
+            Motion::Fade fade;
+            fade.snap(0.0f);
+            fade.to(1.0f, 120.0f);
+            float highest = 0.0f;
+            int frames = 0;
+            while (fade.step(1.0f / 60.0f) && frames < 100)
+            {
+                highest = juce::jmax(highest, fade.value);
+                ++frames;
+            }
+            const bool quick = fade.value > 0.4f; // ease-out: well past half way after the first third
+            Motion::Fade third;
+            third.snap(0.0f);
+            third.to(1.0f, 120.0f);
+            third.step(0.04f);
+            check(std::abs(fade.value - 1.0f) < 1.0e-5f && highest <= 1.0f && frames > 2 && frames < 20 && third.value > 0.6f && quick,
+                  "motion: a fade reaches its target in " + juce::String(frames) + " frames, eases out (" + juce::String(third.value, 2)
+                      + " of the way at a third of the time) and never overshoots");
+        }
+        // A spring overshoots a little and settles; a very late frame catches up instead of flying apart.
+        {
+            Motion::Spring helm;
+            helm.snap(0.0f);
+            helm.to(1.0f);
+            float highest = 0.0f;
+            int frames = 0;
+            while (helm.stepHelm(1.0f / 60.0f) && frames < 600)
+            {
+                highest = juce::jmax(highest, helm.value);
+                ++frames;
+            }
+            Motion::Spring late;
+            late.snap(0.0f);
+            late.to(1.0f);
+            for (int i = 0; i < 20; ++i)
+                late.stepHelm(2.0f); // two whole seconds a frame: clamped to Motion::c_maxStep
+            check(std::abs(helm.value - 1.0f) < 1.0e-3f && highest > 1.0f && highest < 1.2f && frames > 10 && frames < 90
+                      && std::isfinite(late.value) && std::abs(late.value - 1.0f) < 0.05f,
+                  "motion: the Helm spring overshoots " + juce::String(juce::roundToInt((highest - 1.0f) * 100.0f)) + "% and settles in "
+                      + juce::String(frames) + " frames; a 2 s frame lands it, not launches it");
+        }
+        // One clock: every listener gets the same frame, the step is clamped, and one that goes mid-frame is safe.
+        {
+            struct Counter : Motion::FrameClock::Listener
+            {
+                int frames = 0;
+                float last = 0.0f;
+                std::function<void()> alsoDo;
+                void frame(float dt) override { ++frames; last = dt; if (alsoDo) alsoDo(); }
+            };
+            Motion::FrameClock clock;
+            Counter a, b, c;
+            clock.addListener(&a);
+            clock.addListener(&b);
+            clock.addListener(&c);
+            clock.addListener(&a); // twice is once
+            a.alsoDo = [&clock, &c] { clock.removeListener(&c); }; // c goes while the frame is being handed out
+            clock.tick(5.0f);
+            const bool clamped = std::abs(a.last - Motion::c_maxStep) < 1.0e-6f;
+            const int afterOne = clock.listenerCount();
+            clock.tick(1.0f / 60.0f);
+            check(a.frames == 2 && b.frames == 2 && afterOne == 2 && clock.listenerCount() == 2 && clamped
+                      && std::abs(b.last - 1.0f / 60.0f) < 1.0e-6f,
+                  "motion: one clock hands every listener the same frame, clamps a 5 s step to "
+                      + juce::String(Motion::c_maxStep, 3) + " s, and lets a listener leave inside its own frame");
+        }
+    }
+
+    // The keys ---------------------------------------------------------------------------------------------------
+    std::cout << "The keys" << std::endl;
+    {
+        // Every action is named in Title Case, no two share a name, and every default key is one of its own.
+        {
+            std::set<juce::String> names, keys;
+            int wrong = 0;
+            for (const auto& info : Shortcuts::all())
+            {
+                const juce::String name(info.name);
+                if (UiProbe::capitalsFault(name, Theme::Fit::Whole).isNotEmpty() || ! names.insert(name).second)
+                    ++wrong;
+            }
+            Shortcuts::Registry registry;
+            for (int i = 0; i < Shortcuts::numActions; ++i)
+            {
+                const auto key = registry.key(static_cast<Shortcuts::Action>(i));
+                if (! key.isValid() || ! keys.insert(Shortcuts::describe(key)).second)
+                    ++wrong;
+            }
+            check(wrong == 0 && names.size() == static_cast<size_t>(Shortcuts::numActions) && keys.size() == names.size(),
+                  "keys: all " + juce::String(Shortcuts::numActions) + " actions have a Title Case name of their own and a default key of its own");
+        }
+        // A key is written the same way every time, and reads back as itself.
+        {
+            Shortcuts::Registry registry;
+            bool roundTrips = true;
+            for (int i = 0; i < Shortcuts::numActions; ++i)
+            {
+                const auto action = static_cast<Shortcuts::Action>(i);
+                const auto key = registry.key(action);
+                roundTrips = roundTrips && registry.find(key) == action;
+            }
+            const auto undo = registry.keyText(Shortcuts::Action::Undo);
+            const auto redo = registry.keyText(Shortcuts::Action::Redo);
+           #if JUCE_MAC
+            const bool written = undo == "Cmd+Z" && redo == "Shift+Cmd+Z";
+           #else
+            const bool written = undo == "Ctrl+Z" && redo == "Ctrl+Shift+Z";
+           #endif
+            check(roundTrips && written && registry.keyText(Shortcuts::Action::Swell) == "Space",
+                  "keys: every key finds its own action again, and is written one way (Undo is " + undo + ")");
+        }
+        // Giving a key away: the action that had it loses it, and nothing else moves.
+        {
+            Shortcuts::Registry registry;
+            const auto randomiseKey = registry.key(Shortcuts::Action::Randomise);
+            const auto taken = registry.set(Shortcuts::Action::Throw, randomiseKey);
+            const bool moved = taken == Shortcuts::Action::Randomise
+                               && ! registry.key(Shortcuts::Action::Randomise).isValid()
+                               && registry.find(randomiseKey) == Shortcuts::Action::Throw
+                               && ! registry.isDefault();
+            registry.resetToDefaults();
+            check(moved && registry.isDefault() && registry.find(randomiseKey) == Shortcuts::Action::Randomise,
+                  "keys: a key given to another action is taken off the one that had it, and Reset To Defaults puts them all back");
+        }
+        // The keys are kept in the settings file.
+        {
+            const auto file = folder.getChildFile("keys.settings");
+            file.deleteFile();
+            juce::PropertiesFile::Options options;
+            options.applicationName = "keys";
+            options.filenameSuffix = ".settings";
+            bool kept = false, emptyKept = false;
+            {
+                juce::PropertiesFile settings(file, options);
+                Shortcuts::Registry registry;
+                registry.attach(&settings);
+                registry.set(Shortcuts::Action::Randomise, juce::KeyPress('Q'));
+                registry.set(Shortcuts::Action::Throw, juce::KeyPress());
+                settings.saveIfNeeded();
+            }
+            {
+                juce::PropertiesFile settings(file, options);
+                Shortcuts::Registry registry;
+                registry.attach(&settings);
+                kept = registry.find(juce::KeyPress('Q')) == Shortcuts::Action::Randomise;
+                emptyKept = ! registry.key(Shortcuts::Action::Throw).isValid();
+            }
+            check(kept && emptyKept, "keys: a key you change, and one you take away, are still yours the next time");
+        }
+    }
+
     // The editor -------------------------------------------------------------------------------------------------
     std::cout << "The editor" << std::endl;
     {
@@ -541,6 +697,76 @@ int main(int argc, char* argv[])
                 }
                 check(tips.size() > 90 && noBody == 0 && badHeadings == 0 && shouted == 0,
                       "tooltips: all " + juce::String(tips.size()) + " start with a heading in Title Case and none has a word in capitals");
+
+                // The how-to that is the same on every knob is written once, in the tooltip window, not forty times.
+                {
+                    int repeated = 0;
+                    for (const auto& tip : tips)
+                        if (tip.contains("Double-click to reset it"))
+                            ++repeated;
+                    check(repeated == 0, "tooltips: the how-to line that is the same on every control is written once, in the tooltip window, not on each of them");
+                }
+
+                // The keys go through the registry: move Randomise to a key of its own and that key rolls, while
+                // the key it used to have does nothing. Hard-coded keys cannot pass this.
+                {
+                    const auto energyId = juce::String(ParamIDs::energy);
+                    auto* energy = proc.getState().getParameter(energyId);
+                    const auto was = ed.m_keys.key(Shortcuts::Action::Randomise);
+                    ed.m_keys.set(Shortcuts::Action::Randomise, juce::KeyPress('Q'));
+                    ed.m_morph.finish();
+                    const int before = static_cast<int>(ed.m_morph.items.size());
+                    const bool oldKeyDead = ! ed.keyPressed(was) && ed.m_morph.items.empty();
+                    const bool newKeyRolls = ed.keyPressed(juce::KeyPress('Q')) && ! ed.m_morph.items.empty();
+                    ed.m_morph.finish();
+                    ed.m_keys.resetToDefaults();
+                    const bool backAgain = ed.keyPressed(was) && ! ed.m_morph.items.empty();
+                    check(before == 0 && oldKeyDead && newKeyRolls && backAgain && energy != nullptr,
+                          "keys: Randomise rolls from whatever key it has been given, and from no other");
+
+                    // The glide passes through the window: the knobs set off left to right, row by row, inside a
+                    // quarter of a second, and the one furthest on waits longest.
+                    // Every knob with a place in the window, paired with when it sets off: sorting by place must
+                    // sort by delay too, and nobody waits longer than the wave is long.
+                    std::vector<std::pair<int, float>> wave;
+                    float longest = 0.0f, shortest = 1.0f;
+                    for (const auto& item : ed.m_morph.items)
+                    {
+                        if (item.param == nullptr)
+                            continue;
+                        longest = juce::jmax(longest, item.delay);
+                        shortest = juce::jmin(shortest, item.delay);
+                        const auto found = ed.m_controls.find(item.param->getParameterID());
+                        if (found == ed.m_controls.end() || found->second == nullptr)
+                            continue;
+                        const auto box = found->second->getBounds();
+                        wave.push_back({ (box.getCentreY() / 80) * 10000 + box.getCentreX(), item.delay });
+                    }
+                    std::sort(wave.begin(), wave.end());
+                    bool ordered = wave.size() > 3;
+                    for (size_t i = 1; i < wave.size(); ++i)
+                        ordered = ordered && wave[i].second >= wave[i - 1].second - 1.0e-6f;
+                    check(ed.m_morph.items.size() > 5 && shortest <= 1.0e-6f && longest > 0.0f
+                              && longest <= Editor::Morph::c_wave + 1.0e-6f && ordered,
+                          "motion: a roll passes through the knobs as a wave - the first sets off at once, the last after "
+                              + juce::String(juce::roundToInt(longest * 1000.0f)) + " ms, and it is the one furthest down and right");
+                    ed.m_morph.finish();
+                }
+
+                // The tape's reels spin up when it starts writing and coast down when it stops.
+                {
+                    auto& tape = ed.m_tape;
+                    tape.m_speed = 0.0f;
+                    for (int i = 0; i < 20; ++i)
+                        tape.frame(1.0f / 60.0f);   // not capturing: they stay still
+                    const float stopped = tape.m_speed;
+                    tape.m_speed = 1.0f;
+                    const float wasAngle = tape.m_angle;
+                    for (int i = 0; i < 6; ++i)
+                        tape.frame(1.0f / 60.0f);   // coasting down, still turning
+                    check(stopped <= 1.0e-3f && tape.m_speed > 0.3f && tape.m_speed < 1.0f && tape.m_angle != wasAngle,
+                          "motion: the tape's reels coast down rather than stopping dead (" + juce::String(tape.m_speed, 2) + " of speed after a tenth of a second)");
+                }
             }
 
             // Wires, linked buses and the tape armed: the three looks.
