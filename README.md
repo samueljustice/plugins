@@ -25,12 +25,12 @@ Want just one? Each plug-in's own download is below, or browse all <a href="http
 
 | [<img src="swooshbuckler/docs/screenshot.png" width="400" alt="Swooshbuckler">](#swooshbuckler) | [<img src="subbertone/docs/screenshot.jpg" width="400" alt="Subbertone">](#subbertone) |
 |:---:|:---:|
-| **[Swooshbuckler](#swooshbuckler)**<br>Generates whooshes from up to ten sounds | **[Subbertone](#subbertone)**<br>Adds a pitch-tracked sub and harmonics to bass |
+| **[Swooshbuckler](#swooshbuckler)**<br>Generates whooshes from up to ten sounds | **[Subbertone](#subbertone)**<br>![Work in progress](https://img.shields.io/badge/WORK_IN_PROGRESS-D00000?style=for-the-badge)<br>Adds a pitch-tracked sub and harmonics to bass |
 | [<img src="pitchflattener/docs/screenshot.png" width="400" alt="Pitch Flattener">](#pitch-flattener) | [<img src="reversinator/docs/screenshot.png" width="400" alt="Reversinator">](#reversinator) |
-| **[Pitch Flattener](#pitch-flattener)**<br>Removes pitch movement from Doppler passes, sirens and vibrato | **[Reversinator](#reversinator)**<br>Real-time reverse effects, recreating Backwards Machine |
+| **[Pitch Flattener](#pitch-flattener)**<br>![Work in progress](https://img.shields.io/badge/WORK_IN_PROGRESS-D00000?style=for-the-badge)<br>Removes pitch movement from Doppler passes, sirens and vibrato | **[Reversinator](#reversinator)**<br>Real-time reverse effects, recreating Backwards Machine |
 
 [<img src="roarschach/docs/screenshot.jpg" width="812" alt="Roarschach">](#roarschach)<br>
-**[Roarschach](#roarschach)**<br>A modular voice processor for exploration and fun
+**[Roarschach](#roarschach)**<br>![Work in progress](https://img.shields.io/badge/WORK_IN_PROGRESS-D00000?style=for-the-badge)<br>A modular voice processor for exploration and fun
 
 [<img src="soundadvice/docs/screenshot.png" width="812" alt="Sound Advice">](#sound-advice)<br>
 **[Sound Advice](#sound-advice)**<br>Advice from film, TV and game sound professionals and other creative people
@@ -79,6 +79,8 @@ Drop in up to ten sounds (cloth, air, engines, creatures, metal) and Swooshbuckl
 
 ## Subbertone
 
+![Work in progress](https://img.shields.io/badge/WORK_IN_PROGRESS-D00000?style=for-the-badge)
+
 > Adds a pitch-tracked sub an octave down, plus harmonics, saturation, filtering and limiting.
 
 <p align="center">
@@ -116,6 +118,8 @@ Subbertone follows the pitch of your bass, engine or drone and adds a clean sub 
 ---
 
 ## Pitch Flattener
+
+![Work in progress](https://img.shields.io/badge/WORK_IN_PROGRESS-D00000?style=for-the-badge)
 
 > Removes pitch movement from Doppler passes, sirens and vibrato.
 
@@ -181,6 +185,8 @@ A real-time reverser that faithfully recreates Backwards Machine's three effects
 ---
 
 ## Roarschach
+
+![Work in progress](https://img.shields.io/badge/WORK_IN_PROGRESS-D00000?style=for-the-badge)
 
 > *Fifteen modules, any order. See where your voice ends up.*
 
@@ -266,7 +272,7 @@ cmake --build build --config Release
 
 See each project's README for its own options.
 
-**AAX:** add `-DSAMMYJ_AAX=ON` to build the AAX format too (macOS and Windows), and `-DAAX_SDK_PATH=<folder>` to use Avid's AAX SDK instead of the one bundled with JUCE (see [`cmake/AAX.cmake`](cmake/AAX.cmake)). The SDK isn't in this repository: it's Avid's. The release workflows fetch it from a private repository and upload each plug-in's AAX as a build artifact. It's unsigned, so it loads only in Pro Tools Developer until it is signed with PACE's wraptool.
+**AAX:** add `-DSAMMYJ_AAX=ON` to build the AAX format too (macOS and Windows), and `-DAAX_SDK_PATH=<folder>` to use Avid's AAX SDK instead of the one bundled with JUCE (see [`cmake/AAX.cmake`](cmake/AAX.cmake)). The SDK isn't in this repository: it's Avid's. The release workflows fetch it from a private repository and upload each plug-in's AAX as a build artifact. That build is unsigned. Pro Tools needs it signed with PACE's wraptool, which goes through an iLok account, so the signing runs on a Mac: after a release, run `bundle/sign-aax.sh` (all plug-ins, or name some). It signs each plug-in's macOS AAX with the hardened runtime, then the Notarise AAX workflow notarises it and adds `<Name>-<version>-macOS-AAX.zip` to the release. Windows AAX signing needs a Windows code-signing certificate, so Windows AAX aren't published yet.
 
 </details>
 
