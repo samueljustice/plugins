@@ -389,6 +389,7 @@ The mode Stowaway starts in. It is planted in the middle with no doppler, and wh
 
 - **What Follow goes by.** Bus A's level against its own recent peak and, the stiller the faders are, how near Bus A's pass is. While the sub has a bus to follow, its own tracks are not ridden: Bus A is its swell. If no track is playing on Bus A it follows Bus B the same way. If none is playing on either, its tracks are ridden like any others and Follow sets how deep, so the sub is never stuck silent.
 - **Low End and Drive cannot brighten it.** They come after the crossover and are followed by a second low-pass at 1.6 times the crossover, so what they add stays within about an octave above it.
+- **Mono, before Space.** The sub itself is one signal, the same in both speakers. It then goes through [Space](#output) with the rest of the rig, and Space's echoes and reverb spread a little of it to the sides (about 20 dB under the sub with Space at 30%). With Space at 0% the left and right are identical.
 - **Its delay.** A filter this steep holds the low end back by about two cycles of the crossover frequency: 15 ms at 120 Hz, 50 ms at 40 Hz. Follow is applied after the filter, so the swell itself is never late.
 
 The other modes (**Wake**, **Fly** and **Dry**) pass the tracks on in the middle for now.
