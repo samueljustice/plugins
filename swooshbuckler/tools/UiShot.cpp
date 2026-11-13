@@ -22,6 +22,12 @@
 // the constellation showing) and prints what a frame of it costs to paint at 1x and 2x. --constellation holds
 // the constellation on for every picture.
 //
+// --docs writes, instead of all of the above, exactly the pictures the manual uses, under the names it uses
+// (screenshot.png, header.png, tracks.png, track-lane.png, track-master.png, ride.png, throw-keys.png,
+// bus-a.png, bus-b.png, hits.png, output.png, sea.png, morph-pad.png, morph-rope.png, modulation.png,
+// cables.png, settings.png, shortcuts.png, takes.png, variations.png, about.png). Run it as
+// tools/make-docs-images.sh does, at --scale 2.0, and the files go straight into docs/ and docs/images/.
+//
 // --list prints every text drawn in each of those states with the box it had to fit, and what the checker
 // (tools/UiProbe.h) has to say: a text that had to be cut, runs outside its box, is under the smallest size, sits
 // on another text, or is capitalised against the rule. The tool exits non-zero when anything is wrong, so it can
@@ -51,7 +57,7 @@ namespace
         juce::File out, work, state;
         float scale = 1.0f;
         double seconds = 3.0;
-        bool list = false, images = true, constellation = false, sea = false;
+        bool list = false, images = true, constellation = false, sea = false, docs = false;
     };
 
     /** One state of the window: its picture, and the texts in it. */
@@ -115,6 +121,186 @@ namespace
     };
 }
 
+namespace
+{
+    /** --docs: exactly the pictures the manual uses, under the names it uses. One run, in the order the manual
+        reads, so each picture shows the window in the state its section describes. */
+    int runDocs(const Options& options)
+    {
+        using namespace UiRig;
+
+        Sandbox sandbox(options.work, "uishot-docs");
+        int faults = 0, texts = 0;
+        {
+            auto base = makeProcessor();
+            auto& proc = *dynamic_cast<Proc*>(base.get());
+            // Render Variations prints where its files go, so the recordings folder is named as a reader's would be.
+            // Give --work a short, plain folder (make-docs-images.sh does) and the line reads like anyone's.
+            const auto recordings = options.work.getChildFile("Desktop");
+            recordings.deleteRecursively();
+            recordings.createDirectory();
+            proc.setRecordFolder(recordings);
+            proc.setVariationFolder({}); // Dated Folder: the default
+            proc.loadDemoSounds();
+
+            Rig rig(proc, options.scale);
+            Shots shots { rig, options };
+            rig.open();
+            auto& ed = *rig.editor;
+            proc.setPlaying(true);
+            rig.run(options.seconds);
+
+            // The window as it comes, and one crop per part of it.
+            {
+                const auto window = shots.shoot("screenshot");
+                shots.crop(window, "header", { 0, 0, Editor::c_width, 56 }, 0);
+                shots.crop(window, "tracks", ed.m_hold.getBounds(), 2);
+                shots.crop(window, "sea", ed.m_sea.getBounds(), 2);
+                shots.crop(window, "ride", ed.m_performPanel, 2);
+                shots.crop(window, "bus-a", ed.m_sections[0].bounds, 2);
+                shots.crop(window, "bus-b", ed.m_sections[1].bounds, 2);
+                shots.crop(window, "hits", ed.m_sections[2].bounds, 2);
+                shots.crop(window, "output", ed.m_sections[3].bounds, 2);
+                shots.crop(window, "modulation", ed.m_modSection, 2);
+                for (auto* lane : ed.m_hold.m_laneHolder.getChildren())
+                    if (lane->isVisible())
+                    {
+                        shots.crop(window, "track-lane", ed.m_content.getLocalArea(lane, lane->getLocalBounds()), 2);
+                        break;
+                    }
+            }
+
+            // A throw on its way in: the Ride panel counting down to its peak, with Throw, Throw Length and Keys.
+            {
+                proc.throwWhoosh();
+                rig.run(0.5);
+                const auto window = shots.shoot("window-throw");
+                shots.crop(window, "throw-keys", ed.m_swell.getBounds().getUnion(ed.m_throwButton.getBounds())
+                                                     .getUnion(ed.m_keysMode.getBounds()), 10);
+                rig.run(2.5); // let it go by, so it is not still in flight in the pictures that follow
+            }
+
+            // The Master star on one lane, and a bus chosen by hand on another.
+            {
+                proc.setMasterTrack(0);
+                proc.setTrackBus(1, 0);
+                ed.m_hold.historyStepped();
+                rig.run(0.4);
+                const auto window = shots.shoot("window-master");
+                juce::Rectangle<int> two;
+                int seen = 0;
+                for (auto* lane : ed.m_hold.m_laneHolder.getChildren())
+                    if (lane->isVisible() && seen++ < 2)
+                        two = two.getUnion(ed.m_content.getLocalArea(lane, lane->getLocalBounds()));
+                shots.crop(window, "track-master", two, 2);
+                proc.setTrackBus(1, -1);
+                proc.setMasterTrack(-1);
+                ed.m_hold.historyStepped();
+                rig.run(0.2);
+            }
+
+            // The morph pad, open and on, over the sea; then one of its ropes tied to a track.
+            {
+                if (auto* on = proc.getState().getParameter(ParamIDs::morphOn))
+                    on->setValueNotifyingHost(1.0f);
+                ed.m_morphButton.setToggleState(true, juce::dontSendNotification);
+                ed.syncMorphPad();
+                rig.run(0.6);
+                shots.crop(shots.shoot("window-morph"), "morph-pad", ed.m_sea.getBounds(), 2); // the pad docks in the sea
+
+                proc.setMorphSource(0, 0);
+                ed.syncMorphPad();
+                ed.m_morphPad.ropesMoved();
+                rig.run(0.4);
+                shots.crop(shots.shoot("window-rope"), "morph-rope", ed.m_hold.getBounds().getUnion(ed.m_sea.getBounds()), 2);
+
+                proc.setMorphSource(0, -1);
+                ed.m_morphButton.setToggleState(false, juce::dontSendNotification);
+                if (auto* on = proc.getState().getParameter(ParamIDs::morphOn))
+                    on->setValueNotifyingHost(0.0f);
+                ed.syncMorphPad();
+                ed.m_morphPad.ropesMoved();
+                rig.run(0.2);
+            }
+
+            // Three wires with the cables showing: the Linked, Resting and Disabled looks, as the manual describes.
+            {
+                auto& mods = proc.getMods();
+                mods.connect(0, ParamIDs::bus[0][ParamIDs::Doppler], 0.6f);
+                mods.connect(1, ParamIDs::bus[1][4], -0.4f);
+                mods.connect(1, ParamIDs::energy, 0.3f);
+                mods.connect(2, ParamIDs::hitBoost, 0.5f);
+                if (auto* link = proc.getState().getParameter(ParamIDs::linkBuses))
+                    link->setValueNotifyingHost(1.0f);
+                ed.m_wires.rebuild();
+                ed.toggleLog(); // arm the tape, so Takes has something in it
+                rig.run(1.0);
+                ed.m_wires.rebuild();
+                shots.shoot("cables");
+                ed.toggleLog();
+                ed.saveRetro();
+                proc.timerCallback();
+                rig.run(0.2);
+
+                // A few more, so the Takes list in the manual has something to show.
+                for (int i = 0; i < 2; ++i)
+                {
+                    ed.toggleLog();
+                    rig.run(0.8);
+                    ed.toggleLog();
+                    ed.saveRetro();
+                    proc.timerCallback();
+                    rig.run(0.3);
+                }
+            }
+
+            // The panels that open over the window, and the shortcuts list inside Settings.
+            {
+                ed.m_toast.clear(); // nothing of the run's own doings over the panels
+                ed.m_toastRise.snap(0.0f);
+                rig.run(0.1);
+
+                ed.m_settings.refresh();
+                ed.m_settings.setVisible(true);
+                ed.m_settings.toFront(false);
+                const auto window = shots.shoot("settings", &ed.m_settings);
+                auto& list = ed.m_settings.keys();
+                // Its own box, with a hair's breadth around it: any more catches the sentence above it.
+                shots.crop(window, "shortcuts", ed.m_content.getLocalArea(&list, list.getLocalBounds()).expanded(6).withTrimmedTop(6), 0);
+                ed.m_settings.setVisible(false);
+
+                ed.showTakes();
+                rig.run(0.3);
+                shots.shoot("takes", &ed.m_takes);
+                ed.m_takes.setVisible(false);
+
+                proc.setVariationFolder({}); // Dated Folder, the default: no scratch path in the manual's picture
+                ed.showVariations();
+                ed.m_variations.readSettings();
+                rig.run(0.2);
+                shots.shoot("variations", &ed.m_variations);
+                ed.m_variations.setVisible(false);
+
+                ed.m_about.setVisible(true);
+                ed.m_about.toFront(false);
+                // The mark draws itself over about two and a half seconds of real time from the moment About opens
+                // (it reads the clock, not the rig), so the picture waits for it rather than playing more audio.
+                juce::Thread::sleep(3000);
+                shots.shoot("about", &ed.m_about);
+                ed.m_about.setVisible(false);
+            }
+
+            proc.setPlaying(false);
+            faults = shots.faults;
+            texts = shots.texts;
+            rig.editor.reset();
+        }
+        std::cout << texts << " texts checked at scale " << juce::String(options.scale, 2) << ": "
+                  << (faults == 0 ? juce::String("every one fits its box and follows the capitals rule.") : juce::String(faults) + " faults.") << std::endl;
+        return faults == 0 ? 0 : 1;
+    }
+}
+
 int main(int argc, char* argv[])
 {
     juce::ScopedJuceInitialiser_GUI init;
@@ -135,10 +321,11 @@ int main(int argc, char* argv[])
         else if (a == "--no-images") options.images = false;
         else if (a == "--constellation") options.constellation = true;
         else if (a == "--sea") options.sea = true;
+        else if (a == "--docs") options.docs = true;
         else
         {
             std::cerr << "Unknown option " << a << "\nUsage: SwooshbucklerUiShot --out <dir> [--scale 1.0] [--seconds 3] [--state <session file>] "
-                         "[--work <dir>] [--list] [--no-images] [--constellation] [--sea]" << std::endl;
+                         "[--work <dir>] [--list] [--no-images] [--constellation] [--sea] [--docs]" << std::endl;
             return 2;
         }
     }
@@ -150,6 +337,9 @@ int main(int argc, char* argv[])
     if (options.images)
         options.out.createDirectory();
     options.work.createDirectory();
+
+    if (options.docs)
+        return runDocs(options);
 
     // Our own settings file and folders: nothing of the user's is touched, and nothing goes on line.
     Sandbox sandbox(options.work, "uishot");

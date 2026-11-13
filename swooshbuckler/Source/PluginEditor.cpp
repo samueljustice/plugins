@@ -866,7 +866,11 @@ void SwooshbucklerAudioProcessorEditor::AboutPanel::paint(juce::Graphics& g)
     {
         Theme::fitLines(g, text, r.removeFromTop(height), font, colour);
     };
-    line("Version " + Version::number() + "   " + juce::AudioProcessor::getWrapperTypeDescription(m_owner.m_processor.wrapperType),
+    // The format, when there is one to name: offline tools that make the editor without a wrapper say nothing.
+    const auto wrapper = m_owner.m_processor.wrapperType;
+    line("Version " + Version::number()
+             + (wrapper == juce::AudioProcessor::wrapperType_Undefined
+                    ? juce::String() : juce::String("   ") + juce::AudioProcessor::getWrapperTypeDescription(wrapper)),
          f.title(), TC::brass, 22);
     line("Built " + Version::builtOn() + (Version::commit().isNotEmpty() ? "   commit " + Version::commit() : juce::String()),
          f.body(), TC::textDim, 20);

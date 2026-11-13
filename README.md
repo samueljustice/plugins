@@ -47,22 +47,24 @@ Want just one? Each plug-in's own download is below, or browse all <a href="http
   <img src="swooshbuckler/docs/screenshot.png" alt="Swooshbuckler" width="820">
 </p>
 
-Drop in up to ten sounds (cloth, air, engines, creatures, metal) and Swooshbuckler works out what each one is and sends it to Bus A, Bus B or the Hits. Then it rides every fader by itself, so the layers swell, fly past as Doppler passes and fall away. Hold **Swell** (the space bar, a MIDI note or a click on the sea) to push it all harder. Arm the tape and it records every whoosh into one file and skips the silence. Missed one? **LAST 60s** grabs the last minute anyway.
+Drop in up to ten sounds (cloth, air, engines, creatures, metal) and Swooshbuckler works out what each one is and sends it to Bus A, Bus B or the Hits. Then it rides every fader by itself, so the layers swell, fly past as Doppler passes and fall away. Hold **Swell** (the space bar, a MIDI note or a click on the sea) to push it all harder. Arm the tape and it records every whoosh into one file and skips the silence. Missed one? **Last 60 s** grabs the last minute anyway.
 
-- **Auto ride** across up to ten looping tracks, each fader on its own path, shaped by Energy, Rate, Fill, Chaos and Pitch
+- **Auto Ride** across up to ten looping tracks, each fader on its own path, shaped by Energy, Rate, Fill, Chaos and Pitch
 - **Smart loading** finds the separate sounds in each file, skips the gaps and guesses what each one is from the audio and the file name
-- **Per-track pitch** in semitones and cents, with **VARI** on for tape-style varispeed or off to change the pitch and keep the speed
+- **Per-track pitch** in semitones and cents, with **Vari** on for tape-style varispeed or off to change the pitch and keep the speed
 - **Two Doppler buses** with Width, Bend, Low End, Swirl, an envelope filter and Drive. Bus A can duck and darken Bus B, or they **Take Turns**
 - **Spectral morph pad** blends A into B (Blend, Glide or vocoder-style Cross), and can wander along a Lorenz loop, a rose or a figure eight
-- **Hit gate** fires your impacts at the biggest swells, and **Sync Hits** stacks their transients into one huge hit
-- **Four drag-a-cable modulators** (LFO, Random, Follower, Macro), plus **7 factory presets** and a RANDOMISE button
+- **Aim** lands your impacts right on the peak of each pass, or a **hit gate** fires them at the biggest swells; **Sync Hits** stacks their transients into one huge hit
+- **Throw** fires one whoosh on demand, playing or stopped, and **Render Variations** writes a batch of them straight to files
+- **Takes** keeps this run's recordings to hear, drag out or bin, and the whole session saves to a file of its own
+- **Four drag-a-cable modulators** (LFO, Random, Follower, Macro), plus **7 factory presets**, your own presets, A / B, Undo and **Randomise** with a history
 
 <details>
 <summary>More screenshots</summary>
 <br>
 <p align="center">
   <img src="swooshbuckler/docs/images/morph-pad.png" alt="Swooshbuckler spectral morph pad" width="400">
-  <img src="swooshbuckler/docs/images/cables.png" alt="Swooshbuckler modulation cables" width="400">
+  <img src="swooshbuckler/docs/images/sea.png" alt="Swooshbuckler the sea" width="400">
 </p>
 <p align="center">
   <img src="swooshbuckler/docs/images/tracks.png" alt="Swooshbuckler tracks" width="820">

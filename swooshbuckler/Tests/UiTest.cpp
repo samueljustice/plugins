@@ -1254,6 +1254,19 @@ int main(int argc, char* argv[])
             ed.m_variations.setVisible(false);
             ed.m_about.setVisible(true);
             checkTexts("About," + at, ed.m_about, scale, 1.0f);
+            {
+                // The version line names the version, and nothing else: an editor made without a wrapper (this test,
+                // the picture tool) has no format to name, and used to print the word "Undefined" beside the number.
+                UiProbe::Recorder about;
+                about.paint(ed.m_about, scale, 1.0f);
+                bool named = false, undefined = false;
+                for (const auto& t : about.texts)
+                {
+                    named |= t.text.startsWith("Version ");
+                    undefined |= t.text.contains("Undefined");
+                }
+                check(named && ! undefined, "About," + at + ": the version line names the version and nothing that isn't a format");
+            }
             ed.m_about.setVisible(false);
             sammyj::UpdateInfo info;
             info.pluginId = "swooshbuckler";
