@@ -679,8 +679,28 @@ int main(int argc, char* argv[])
                         width->timerCallback();
                         furthest = juce::jmax(furthest, width->getShownPosition() - last);
                     }
+                    const bool settled = std::abs(width->getShownPosition() - last) < 1.0e-4f;
                     check(oneToOne, "wheel: under the hand it is where the value is at every step of a drag, with no lag");
-                    check(furthest > 0.003f && furthest < 0.08f && std::abs(width->getShownPosition() - last) < 1.0e-4f,
+                    // An Alt-click (it belongs to typing a value) never turns the wheel, so it is not a hold: a value set
+                    // after one, even with no mouse-up seen, still swings in on the spring.
+                    {
+                        for (int i = 0; i < 400; ++i) width->timerCallback();
+                        const auto now = juce::Time::getCurrentTime();
+                        const juce::MouseEvent alt(juce::Desktop::getInstance().getMainMouseSource(), centre,
+                                                   juce::ModifierKeys(juce::ModifierKeys::leftButtonModifier | juce::ModifierKeys::altModifier),
+                                                   juce::MouseInputSource::defaultPressure, juce::MouseInputSource::defaultOrientation,
+                                                   juce::MouseInputSource::defaultRotation, juce::MouseInputSource::defaultTiltX,
+                                                   juce::MouseInputSource::defaultTiltY, width, width, now, centre, now, 1, false);
+                        width->mouseDown(alt);
+                        const float from = width->getShownPosition();
+                        width->setValue(width->getMinimum() + 0.2 * (width->getMaximum() - width->getMinimum()), juce::sendNotificationSync);
+                        const float to = static_cast<float>(width->valueToProportionOfLength(width->getValue()));
+                        const bool sprung = std::abs(width->getShownPosition() - from) < 1.0e-4f && std::abs(to - from) > 0.2f;
+                        width->mouseUp(alt);
+                        for (int i = 0; i < 400; ++i) width->timerCallback();
+                        check(sprung && std::abs(width->getShownPosition() - to) < 1.0e-4f, "wheel: an Alt-click or a right-click is not a hold (a value set after it swings in on the spring)");
+                    }
+                    check(furthest > 0.003f && furthest < 0.08f && settled,
                           "wheel: let go while turning, it coasts on (" + juce::String(furthest * 100.0f, 1) + "% of its travel) and settles on the value");
                 }
 

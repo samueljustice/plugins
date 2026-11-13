@@ -1144,7 +1144,9 @@ void WheelKnob::mouseExit(const juce::MouseEvent& e) { m_hover = false; repaint(
 
 void WheelKnob::mouseDown(const juce::MouseEvent& e)
 {
-    m_held = true;
+    // A right-click (the menu, or the box to type in) and an Alt-click never turn the wheel, so they are not a hold:
+    // a value typed or picked after one swings in on the spring like any other that changes on its own.
+    m_held = ! (e.mods.isPopupMenu() || e.mods.isAltDown());
     m_dragVelocity = 0.0f;
     m_dragLast = valuePosition();
     m_dragTime = juce::Time::getMillisecondCounterHiRes() * 0.001;
