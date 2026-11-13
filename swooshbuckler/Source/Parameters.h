@@ -190,10 +190,15 @@ namespace Params
         return juce::String(juce::roundToInt(v * 100.0f)) + "%";
     }
     /** Whether a Stowaway knob does anything in a mode. The knobs never move or change their names; one that is
-        out of use is dimmed. Sub is mono: Width is out of use there (and reads "Mono"). */
+        out of use is dimmed. Sub is mono: Width is out of use there (and reads "Mono"). Dry skips the colours: Low
+        End and Drive are out of use there (its Width is the width of the stereo sounds sent to it). */
     inline bool stowControlInUse(int mode, int control)
     {
-        return ! (mode == ParamIDs::StowSub && control == ParamIDs::StowWidth);
+        if (mode == ParamIDs::StowSub)
+            return control != ParamIDs::StowWidth;
+        if (mode == ParamIDs::StowDry)
+            return control != ParamIDs::StowLow && control != ParamIDs::StowDrive;
+        return true;
     }
 
     /** Where the Stowaway knobs' readouts find the Mode in use: the owner of the parameters points `mode` at the

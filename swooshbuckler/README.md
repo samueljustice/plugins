@@ -81,7 +81,7 @@ Every knob is a ship's wheel with a sand pointer, and under it its name and its 
    - **Stowaway** gets Rumble while its Mode is Sub. In its other modes, Rumble plays on Bus A.
    - **Hits** gets Impact.
 3. **Bus A and Bus B** each turn their tracks into moving sources: doppler passes that fly across the stereo field, with low end, swirl, an envelope filter and drive. Bus A is the key for Bus B: when A gets loud it ducks and darkens B, so the two don't pile up.
-4. **Stowaway** is one extra bus beside the two. It does not fly passes of its own: the tracks sent to it play in the middle. While its Mode is **Sub** it is the rig's sub: only the low end of its tracks comes through, in mono, swelling with Bus A's passes. A [throw](#throw) reaches it as well, swelling to the throw's peak. The hits duck it like the buses, except in Sub, when the low end stays under the hit. See [Stowaway](#stowaway).
+4. **Stowaway** is one extra bus beside the two, and its **Mode** decides what it is. In **Sub** it is the rig's sub: only the low end of its tracks comes through, in mono, swelling with Bus A's passes. In **Wake** it is a trail: it opens as Bus A falls away, behind the pass that has just gone by. In **Dry** its tracks are only ridden, and go past Space straight to the output stage. A [throw](#throw) reaches it in every mode. The hits duck it like the buses, except in Sub, when the low end stays under the hit. See [Stowaway](#stowaway).
 5. **Hits** only play when the hit gate opens. By default the gate opens at the loudest moments of the two buses, so the impacts land on the biggest swells and push the buses out of the way.
 6. **Output** adds echoes and reverb, makes it louder and denser, and limits it. The tape and Last 60 s record exactly what you hear.
 
@@ -346,6 +346,7 @@ A wide ambience should stay wide. When a stereo sound plays on **Bus B** with **
 - **Width** scales it too: at 0% everything sits in the middle, mono. A pass that has travelled far to one side narrows on its way out, so the bed is never wider than its source.
 - Low End, Swirl, Filter and Drive work on the mono sum, as they do for every sound; the width is added back after them at a matching level.
 - Bus A, the Hits, thrown whooshes and Fly-By passes always play the mono sum: a fly-by is one point going past. So do a track with **Vari** off and a sound that is being morphed.
+- [Stowaway](#stowaway) in **Dry** keeps a stereo sound's width as well, by its own Width knob.
 - A mono file is not touched by any of this. A session stores the extra stereo information only for the sounds that have it.
 
 Bus A ("growls, tones, crackle, rumble - and the key for B") is the aggressive bus. Bus B ("air and beds, ducked and filtered by A") sits under it.
@@ -381,7 +382,7 @@ The mode Stowaway starts in. It is planted in the middle with no doppler, and wh
 
 | Knob | Starts at | What it does |
 |------|-----------|--------------|
-| **Follow** | 70% | How much the sub swells with Bus A's passes. At 0% it is a steady sub. At 100% it rises and falls as far as Bus A does, and each 10% takes on a tenth of that swell. The sub is turned up a little as Follow rises (4.5 dB at 100%), so on average it stays as loud and only its movement changes. |
+| **Follow** | 70% | How much the sub swells with Bus A's passes. At 0% it is a steady sub. At 100% it rises and falls as far as Bus A does, and each 10% takes on a tenth of that swell. The sub is turned up as Follow rises, by as much as the swell it is following takes away (about 4.5 dB at 100% under a typical bed, never more than 6 dB), so on average it stays as loud and only its movement changes. |
 | **Low End** | 0% | Adds a note an octave below what came through the crossover, and overtones just above it, which is what lets a small speaker hear the sub. |
 | **Filter** | 120 Hz | The crossover, from 40 to 250 Hz. It is steep: 48 dB per octave, so sound one octave above the crossover is more than 45 dB down and two octaves above it is gone. |
 | **Drive** | 0% | Thickens the sub and flattens its swell. It works against the sub's own level, so it does the same to a quiet rumble as to a loud one, and it does not turn the sub up. |
@@ -392,7 +393,43 @@ The mode Stowaway starts in. It is planted in the middle with no doppler, and wh
 - **Mono, before Space.** The sub itself is one signal, the same in both speakers. It then goes through [Space](#output) with the rest of the rig, and Space's echoes and reverb spread a little of it to the sides (about 20 dB under the sub with Space at 30%). With Space at 0% the left and right are identical.
 - **Its delay.** A filter this steep holds the low end back by about two cycles of the crossover frequency: 15 ms at 120 Hz, 50 ms at 40 Hz. Follow is applied after the filter, so the swell itself is never late.
 
-The other modes (**Wake**, **Fly** and **Dry**) pass the tracks on in the middle for now.
+#### Wake
+
+A trail behind Bus A. Stowaway is shut while a pass of Bus A's comes in and goes by, opens just behind it as Bus A falls away, and fades as the pass leaves, so every pass drags its own wake. Its tracks are not ridden: the trail is what moves them.
+
+| Knob | Starts at | What it does |
+|------|-----------|--------------|
+| **Follow** | 70% | How far the trail shuts between passes. At 0% it is a steady layer; at 100% it is silent until Bus A falls away. Each 10% shuts it about as much further. The trail is turned up as Follow rises (never by more than 12 dB), so on average it stays as loud wherever the knob is. |
+| **Low End** | 0% | Adds a note an octave under the trail's low band, its overtones, and a low lift of up to 5 dB. |
+| **Filter** | Open | A tilt. In the middle it is open. Below the middle it is a low-pass that closes from 18 kHz down to 150 Hz; above the middle it is a high-pass that rises from 20 Hz to 2.5 kHz. The readout says what gets through: **Under 670 Hz**, **Open**, **Over 550 Hz**. |
+| **Drive** | 0% | Thickens the trail. It works against the trail's own level, so it does the same to a quiet sound as to a loud one, and it does not turn it up. |
+| **Width** | 100% | How far out the trail sits. At 0% it is in the middle. |
+
+- **What it goes by.** Two things. Bus A's level: every drop opens the trail (fully once Bus A is 12 dB down from where it was) and every rise shuts it. And Bus A's passes: the trail blooms over the first quarter of a pass's way out and fades over the rest. The passes count for everything in Fly-By, and in Bed for more the stiller the faders are, since a ridden bed rises and falls with its rides. With no sound on Bus A at all the passes are all there is to go by, so Wake is never stuck silent.
+- **Where it sits.** On the side Bus A's outgoing pass is heading, half as far out as the pass has got, so it is always behind it. Width scales that.
+- **A throw leaves a trail too**: it blooms behind the throw's peak and is gone with its tail, with the rig playing or from rest.
+
+#### Dry
+
+Riding only. Stowaway's tracks play at their faders and rides and skip everything else: no movement, no Fill echoes, no Space, and the Everything tremolo leaves them alone. They join the mix after Space, straight into the output stage (Loudness, Density and the limiter still act on them). Use it for a layer that must stay exactly what it is: a voice, a production sound, a guide.
+
+| Knob | Starts at | What it does |
+|------|-----------|--------------|
+| **Follow** | 70% | How much of the ride its tracks keep. At 0% they sit still at their faders; at 100% they are ridden as deep as any other track. They are turned up to match, so on average they stay as loud. |
+| **Low End** | 0% | Not used. |
+| **Filter** | Open | The same tilt as in Wake: a low-pass below the middle, open in the middle, a high-pass above it. |
+| **Drive** | 0% | Not used. |
+| **Width** | 100% | How wide a stereo sound plays: 100% is as wide as the file, 0% is mono. A mono file is in the middle whatever the knob says. |
+
+A stereo file keeps its left and right in Dry while the track's **Vari** is on (a track with Vari off plays its mono sum, as on Bus B). In Sub and Wake a stereo file plays its mono sum.
+
+#### Changing the Mode
+
+A change of Mode never clicks, by hand or under automation: Stowaway fades out over 30 ms, changes over while it is silent, and fades back in over 30 ms. A track that changes bus (by hand, or a Rumble as the Mode enters or leaves Sub) is faded across in the same way, over 10 ms.
+
+The modes are matched in level: with the same sound on Stowaway and everything where it starts, Sub, Wake and Dry come out within about 1 dB of each other.
+
+**Fly** passes the tracks on in the middle for now.
 
 ### Hits
 

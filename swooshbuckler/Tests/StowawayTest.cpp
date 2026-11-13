@@ -525,7 +525,7 @@ int main(int argc, char* argv[])
         check(byA[0].range == 0.0, "follow: at 0% the sub is steady");
         check(byA[10].range > 26.0 && byA[10].correlation > 0.8, "follow: at 100% it rises and falls as far as bus A does, with it");
         check(even, "follow: every 10% takes on about as much more of the swell (2 to 4 dB of a 30 dB swell)");
-        check(std::abs(byA[10].top - RigEngine::c_subFollowMakeupDb) < 1.0, "follow: its loudest moments rise by the make-up only");
+        check(byA[10].top > 3.0 && byA[10].top < RigEngine::c_subFollowMakeupDb + 0.5, "follow: its loudest moments rise by the make-up only (never more than 6 dB)");
 
         const auto baseSteady = run(0.0f, 2, false), baseAlone = run(0.0f, -1, false);
         const auto steadySeen = run(1.0f, 2, true), riddenSeen = run(1.0f, -1, true);
@@ -628,6 +628,694 @@ int main(int argc, char* argv[])
             std::cout << "  after its track is taken away: " << tail << " in the first 100 ms, " << late << " a second later, steepest step " << step
                       << ", level " << rig.engine.getStowEnv() << std::endl;
             check(tail > 0.01f && late < 1.0e-9f && rig.engine.getStowEnv() == 0.0f && step < 0.05f, "sub: it fades with its track, rings out and leaves the mix without a click");
+        }
+    }
+
+    //==========================================================================
+    // Wake, Dry and what all the modes share. A 1 kHz tone on Stowaway is the layer; Stowaway's level (the RMS of
+    // each block of what it adds to the mix) and what bus A does (its level, and where its two passes are) are read
+    // from the engine after every block. The layer is longer than any of the runs (70 s): a sound that loops is
+    // crossfaded into its own start, and where the two copies of a steady tone meet in step its level rises 3 dB,
+    // which is the file and not the mode.
+    const auto layerFile = writeWav(folder, "stow_layer1k", tone(1000.0, 70.0, 48000.0, 0.3f), 48000.0);
+    const auto lowLayerFile = writeWav(folder, "stow_layer200", tone(200.0, 4.0, 48000.0, 0.3f), 48000.0);
+    const auto busToneFile = writeWav(folder, "stow_bus440", tone(440.0, 4.0, 48000.0, 0.1f), 48000.0);
+    struct Seen
+    {
+        std::vector<float> amount, pan, stowDb, busDb, out, dir; // per block; out / dir: bus A's outgoing pass (how far out, which way)
+        float rideLow = 1.0f;
+        juce::AudioBuffer<float> audio;
+    };
+    auto watch = [](Rig& rig, double seconds)
+    {
+        Seen seen;
+        seen.audio = render(rig.engine, seconds, rig.rate, [&](int)
+        {
+            seen.amount.push_back(rig.engine.getWakeAmount());
+            seen.pan.push_back(rig.engine.getStowPan());
+            seen.stowDb.push_back(20.0f * std::log10(std::max(rig.engine.takeSectionLevels()[RigEngine::SectionStow], 1.0e-6f)));
+            seen.busDb.push_back(20.0f * std::log10(std::max(rig.engine.getBusLevel(0) / 3.0f, 1.0e-6f)));
+            const auto a = rig.engine.getFlightView(0), b = rig.engine.getFlightView(1);
+            const auto& leaving = a.age > 0.5f ? a : b;
+            seen.out.push_back(2.0f * leaving.age - 1.0f);
+            seen.dir.push_back(leaving.x >= 0.0f ? 1.0f : -1.0f);
+            seen.rideLow = std::min(seen.rideLow, rig.engine.getRide(0));
+        });
+        return seen;
+    };
+    auto percentile = [](std::vector<float> v, double p)
+    {
+        std::sort(v.begin(), v.end());
+        return v.empty() ? 0.0f : v[std::min(v.size() - 1, static_cast<size_t>(p * static_cast<double>(v.size())))];
+    };
+    /** The steepest step between two samples of a channel. */
+    auto steepest = [](const juce::AudioBuffer<float>& a, int channel = 0)
+    {
+        float step = 0.0f;
+        for (int i = 1; i < a.getNumSamples(); ++i)
+            step = std::max(step, std::abs(a.getSample(channel, i) - a.getSample(channel, i - 1)));
+        return step;
+    };
+    auto peakOf = [](const juce::AudioBuffer<float>& a, int channel = 0)
+    {
+        float peak = 0.0f;
+        for (int i = 0; i < a.getNumSamples(); ++i)
+            peak = std::max(peak, std::abs(a.getSample(channel, i)));
+        return peak;
+    };
+
+    std::cout << "Wake: it opens as bus A falls away" << std::endl;
+    {
+        // onA: a steady tone on bus A. ride: Auto Ride deep (what then makes bus A rise and fall is its fader).
+        auto run = [&](float follow, bool onA, bool ride, int passMode, float width, double seconds = 30.0)
+        {
+            Rig rig;
+            rig.hold.loadFile(0, layerFile, error);
+            rig.hold.setSkipSilence(0, false);
+            rig.hold.setBusOverride(0, CargoHold::c_stowBus);
+            if (onA)
+            {
+                rig.hold.loadFile(1, busToneFile, error);
+                rig.hold.setSkipSilence(1, false);
+                rig.hold.setBusOverride(1, 0);
+            }
+            auto p = plainParams();
+            p.stow.mode = RigEngine::StowWake;
+            p.stow.follow = follow;
+            p.stow.width = width;
+            p.rideOn = ride;
+            p.energy = 0.9f;
+            p.rate = 0.8f;
+            p.buses[0].passMode = passMode;
+            rig.start(p, 48000.0);
+            render(rig.engine, 4.0, 48000.0);
+            return watch(rig, seconds);
+        };
+
+        // A ridden bed: bus A's level is its ride. The trail is open while A is falling and shut while it rises.
+        {
+            const auto seen = run(1.0f, true, true, 0, 1.0f, 60.0);
+            const size_t lag = 19; // about 100 ms of blocks
+            double falling = 0.0, rising = 0.0;
+            int nFalling = 0, nRising = 0;
+            for (size_t i = lag; i < seen.amount.size(); ++i)
+            {
+                if (seen.busDb[i - lag] < -55.0f)
+                    continue;
+                const float d = seen.busDb[i] - seen.busDb[i - lag];
+                if (d < -1.5f) { falling += seen.amount[i]; ++nFalling; }
+                if (d > 1.5f) { rising += seen.amount[i]; ++nRising; }
+            }
+            falling /= std::max(1, nFalling);
+            rising /= std::max(1, nRising);
+            std::cout << "  a ridden bed on bus A: the trail is " << juce::String(100.0 * falling, 0) << "% open on average while A falls (" << nFalling << " blocks) and "
+                      << juce::String(100.0 * rising, 0) << "% while it rises (" << nRising << "); its own fader's lowest " << seen.rideLow << std::endl;
+            check(nFalling > 500 && nRising > 500 && falling > 0.6 && rising < 0.25, "wake: with a ridden bed on bus A it is open while A falls away and shut while A rises");
+            check(seen.rideLow > 0.99f, "wake: its own tracks are not ridden (the trail is what moves them)");
+        }
+
+        // Nothing on bus A at all: the passes are all there is to go by, and the trail blooms behind each.
+        {
+            const auto seen = run(1.0f, false, false, 0, 1.0f);
+            double sa = 0.0, sb = 0.0, saa = 0.0, sbb = 0.0, sab = 0.0;
+            const double n = static_cast<double>(seen.amount.size());
+            for (size_t i = 0; i < seen.amount.size(); ++i)
+            {
+                const double a = seen.amount[i], b = RigEngine::wakeBloom(seen.out[i]);
+                sa += a; sb += b; saa += a * a; sbb += b * b; sab += a * b;
+            }
+            const double corr = (sab - sa * sb / n) / std::sqrt((saa - sa * sa / n) * (sbb - sb * sb / n));
+            const float top = percentile(seen.amount, 0.99), bottom = percentile(seen.amount, 0.01);
+            std::cout << "  nothing on bus A: the trail goes from " << bottom << " to " << top << ", with how far out A's outgoing pass is (" << juce::String(corr, 3)
+                      << "); Stowaway's level " << juce::String(percentile(seen.stowDb, 0.02), 1) << " .. " << juce::String(percentile(seen.stowDb, 0.98), 1) << " dB" << std::endl;
+            check(top > 0.95f && bottom < 0.05f && corr > 0.95, "wake: with no sound on bus A it blooms behind each of A's passes all the same (never stuck silent)");
+        }
+
+        // Fly-By: a steady tone on bus A, faders still. Just behind each pass the trail is open; as the next pass
+        // comes in it is shut.
+        {
+            const auto seen = run(1.0f, true, false, 1, 1.0f);
+            double behind = 0.0, ahead = 0.0, atPeak = 0.0;
+            int nBehind = 0, nAhead = 0, nPeak = 0;
+            for (size_t i = 0; i < seen.amount.size(); ++i)
+            {
+                if (seen.out[i] > 0.1f && seen.out[i] < 0.5f) { behind += seen.amount[i]; ++nBehind; }
+                if (seen.out[i] > 0.85f) { ahead += seen.amount[i]; ++nAhead; }
+                if (seen.out[i] < 0.02f) { atPeak += seen.amount[i]; ++nPeak; }
+            }
+            behind /= std::max(1, nBehind);
+            ahead /= std::max(1, nAhead);
+            atPeak /= std::max(1, nPeak);
+            std::cout << "  Fly-By on bus A: the trail is " << juce::String(100.0 * atPeak, 0) << "% open as a pass goes by, " << juce::String(100.0 * behind, 0)
+                      << "% over the first half of its way out, " << juce::String(100.0 * ahead, 0) << "% as the next pass arrives" << std::endl;
+            check(behind > 0.7 && ahead < 0.2 && atPeak < 0.2, "wake: in Fly-By each pass leaves a trail: shut as the pass goes by, open behind it, shut again before the next");
+        }
+
+        // Where it sits: behind A's outgoing pass (the same side of the middle, not as far out), by Width.
+        {
+            const auto wide = run(1.0f, false, false, 0, 1.0f), half = run(1.0f, false, false, 0, 0.5f), narrow = run(1.0f, false, false, 0, 0.0f);
+            int open = 0, sameSide = 0, behind = 0;
+            float furthest = 0.0f, furthestHalf = 0.0f, furthestNarrow = 0.0f;
+            double leftWhenRight = 0.0, rightWhenRight = 0.0;
+            for (size_t i = 0; i < wide.amount.size(); ++i)
+            {
+                furthest = std::max(furthest, std::abs(wide.pan[i]));
+                furthestHalf = std::max(furthestHalf, std::abs(half.pan[i]));
+                furthestNarrow = std::max(furthestNarrow, std::abs(narrow.pan[i]));
+                if (wide.amount[i] < 0.5f || wide.out[i] < 0.1f)
+                    continue;
+                ++open;
+                sameSide += wide.pan[i] * wide.dir[i] > 0.0f ? 1 : 0;
+                behind += std::abs(wide.pan[i]) < std::pow(wide.out[i], 0.6f) ? 1 : 0;
+                if (wide.pan[i] > 0.2f)
+                    for (int s = static_cast<int>(i) * c_block; s < static_cast<int>(i + 1) * c_block; ++s)
+                    {
+                        leftWhenRight += static_cast<double>(wide.audio.getSample(0, s)) * wide.audio.getSample(0, s);
+                        rightWhenRight += static_cast<double>(wide.audio.getSample(1, s)) * wide.audio.getSample(1, s);
+                    }
+            }
+            float narrowDiff = 0.0f;
+            for (int s = 0; s < narrow.audio.getNumSamples(); ++s)
+                narrowDiff = std::max(narrowDiff, std::abs(narrow.audio.getSample(0, s) - narrow.audio.getSample(1, s)));
+            const double tilt = 10.0 * std::log10(std::max(rightWhenRight, 1.0e-20) / std::max(leftWhenRight, 1.0e-20));
+            std::cout << "  its place while open (" << open << " blocks): on the side A's outgoing pass is heading " << sameSide << ", nearer the middle than the pass " << behind
+                      << "; furthest out " << furthest << " at Width 100%, " << furthestHalf << " at 50%, " << furthestNarrow << " at 0% (left - right " << narrowDiff
+                      << "); right over left while it sits to the right: " << juce::String(tilt, 1) << " dB" << std::endl;
+            check(open > 500 && sameSide > open * 95 / 100 && behind > open * 95 / 100, "wake: it sits behind bus A's outgoing pass (the same side, nearer the middle)");
+            check(furthest > 0.4f && furthest < 0.75f && furthestHalf > 0.45f * furthest && furthestHalf < 0.7f * furthest && furthestNarrow == 0.0f && narrowDiff == 0.0f && tilt > 2.0,
+                  "wake: Width is how far out it goes (0% is the middle: left and right the same)");
+        }
+
+        // Follow: how far it shuts between trails, evenly in dB, and about as loud on average wherever it is.
+        {
+            auto meanDb = [](const Seen& seen)
+            {
+                double sum = 0.0;
+                for (const float db : seen.stowDb)
+                    sum += std::pow(10.0, db / 10.0);
+                return 10.0 * std::log10(sum / static_cast<double>(seen.stowDb.size()));
+            };
+            // Nothing on bus A (the trail is the passes' alone, so each run moves the same), then a ridden bed.
+            for (const bool bed : { false, true })
+            {
+                const auto base = run(0.0f, bed, bed, 0, 1.0f, 40.0);
+                const float steady = percentile(base.stowDb, 0.98) - percentile(base.stowDb, 0.02);
+                std::cout << "  " << (bed ? "a ridden bed on bus A" : "nothing on bus A") << ", Follow 0%: its level moves " << juce::String(steady, 2) << " dB. Follow 10% .. 100%, how far it shuts between trails:";
+                bool even = true, level = true;
+                float last = 0.0f, top = 0.0f;
+                juce::String means;
+                for (int i = 1; i <= 10; ++i)
+                {
+                    const auto seen = run(static_cast<float>(i) / 10.0f, bed, bed, 0, 1.0f, 40.0);
+                    std::vector<float> gain(seen.stowDb.size());
+                    for (size_t k = 0; k < gain.size(); ++k)
+                        gain[k] = seen.stowDb[k] - base.stowDb[k];
+                    const float range = percentile(gain, 0.98) - percentile(gain, 0.05);
+                    top = std::max(top, percentile(gain, 0.995));
+                    std::cout << " " << juce::String(range, 1);
+                    even = even && range - last > 2.0f && range - last < 7.5f;
+                    last = range;
+                    const double mean = meanDb(seen) - meanDb(base);
+                    means << " " << juce::String(mean, 1);
+                    level = level && std::abs(mean) < 1.5;
+                }
+                std::cout << " dB; its average level against 0%:" << means << " dB; its loudest moments " << juce::String(top, 1) << " dB up" << std::endl;
+                check(steady < 0.5f, juce::String("wake follow: at 0% it is a steady layer") + (bed ? " (a ridden bed on bus A)" : ""));
+                check(even && last > 35.0f, juce::String("wake follow: every 10% shuts it about as much further between trails (2 to 7.5 dB), down to silence at 100%") + (bed ? " (a ridden bed on bus A)" : ""));
+                check(level && top < RigEngine::c_wakeFollowMakeupDb + 0.5f, juce::String("wake follow: on average it is as loud wherever the knob is (within 1.5 dB), and never more than 12 dB up") + (bed ? " (a ridden bed on bus A)" : ""));
+            }
+        }
+    }
+
+    //==========================================================================
+    std::cout << "Wake and Dry: Low End, Filter and Drive" << std::endl;
+    {
+        const auto noiseFile = writeWav(folder, "stow_noise_48000", whiteNoise(8.0, 48000.0, 7), 48000.0);
+        auto run = [&](int mode, const juce::File& file, float low, float filter, float drive)
+        {
+            Rig rig;
+            rig.hold.loadFile(0, file, error);
+            rig.hold.setSkipSilence(0, false);
+            rig.hold.setBusOverride(0, CargoHold::c_stowBus);
+            auto p = plainParams();
+            p.stow.mode = mode;
+            p.stow.low = low;
+            p.stow.filter = filter;
+            p.stow.drive = drive;
+            rig.start(p, 48000.0);
+            render(rig.engine, 2.0, 48000.0);
+            return render(rig.engine, 12.0, 48000.0);
+        };
+        auto spec = [&](const juce::AudioBuffer<float>& a) { return spectrum(a.getReadPointer(0), a.getNumSamples(), 48000.0, 14); };
+        for (const int mode : { RigEngine::StowWake, RigEngine::StowDry })
+        {
+            const juce::String name = ParamIDs::stowModeNames[mode];
+            const auto open = spec(run(mode, noiseFile, 0.0f, 0.5f, 0.0f)), dark = spec(run(mode, noiseFile, 0.0f, 0.15f, 0.0f)), thin = spec(run(mode, noiseFile, 0.0f, 0.85f, 0.0f));
+            const double lpHz = Params::stowLowpassHz(0.15f), hpHz = Params::stowHighpassHz(0.85f);
+            const double flat = open.peak(100.0, 200.0) - open.peak(8000.0, 12000.0);
+            const double darkTop = open.peak(4.0 * lpHz, 6.0 * lpHz) - dark.peak(4.0 * lpHz, 6.0 * lpHz), darkLow = open.peak(0.2 * lpHz, 0.4 * lpHz) - dark.peak(0.2 * lpHz, 0.4 * lpHz);
+            const double thinLow = open.peak(hpHz / 6.0, hpHz / 4.0) - thin.peak(hpHz / 6.0, hpHz / 4.0), thinTop = open.peak(3.0 * hpHz, 5.0 * hpHz) - thin.peak(3.0 * hpHz, 5.0 * hpHz);
+            std::cout << "  " << name << ", white noise: Filter in the middle, 150 Hz against 10 kHz " << juce::String(flat, 1) << " dB; at 15% (" << Params::stowText(mode, ParamIDs::StowFilter, 0.15f) << ") "
+                      << juce::String(darkTop, 1) << " dB off two octaves above and " << juce::String(darkLow, 1) << " dB off under it; at 85% (" << Params::stowText(mode, ParamIDs::StowFilter, 0.85f) << ") "
+                      << juce::String(thinLow, 1) << " dB off two octaves under and " << juce::String(thinTop, 1) << " dB off above it" << std::endl;
+            check(std::abs(flat) < 3.0, name + ": Filter in the middle is open");
+            check(darkTop > 18.0 && std::abs(darkLow) < 2.0, name + ": below the middle Filter is a low-pass (12 dB per octave)");
+            check(thinLow > 18.0 && std::abs(thinTop) < 2.0, name + ": above the middle it is a high-pass");
+            check(Params::stowText(mode, ParamIDs::StowFilter, 0.5f) == "Open" && Params::stowText(mode, ParamIDs::StowFilter, 0.15f).startsWith("Under ")
+                      && Params::stowText(mode, ParamIDs::StowFilter, 0.85f).startsWith("Over ") && Params::stowControlInUse(mode, ParamIDs::StowFilter),
+                  name + ": Filter reads Open in the middle, and what it lets through either side");
+
+            // Sweeping Filter over its whole travel (through the middle, where each side comes in and goes out) under
+            // a 200 Hz tone: nothing steps.
+            Rig rig;
+            rig.hold.loadFile(0, lowLayerFile, error);
+            rig.hold.setSkipSilence(0, false);
+            rig.hold.setBusOverride(0, CargoHold::c_stowBus);
+            auto p = plainParams();
+            p.stow.mode = mode;
+            rig.start(p, 48000.0);
+            render(rig.engine, 1.0, 48000.0);
+            const auto swept = render(rig.engine, 4.0, 48000.0, [&](int pos)
+            {
+                const double t = std::fmod(pos / 48000.0, 2.0);
+                p.stow.filter = static_cast<float>(t < 1.0 ? t : 2.0 - t);
+                rig.engine.setParams(p);
+            });
+            const float allowed = 1.5f * 0.3f * static_cast<float>(c_twoPi * 200.0 / 48000.0);
+            std::cout << "  " << name << ", sweeping Filter under a 200 Hz tone: steepest step " << steepest(swept) << " (the tone's own: " << allowed / 1.5f << ")" << std::endl;
+            check(steepest(swept) < allowed, name + ": moving Filter through its whole travel does not click");
+        }
+
+        // Low End and Drive: in Wake they colour the trail; Dry skips them.
+        const auto lowTone = writeWav(folder, "stow_tone_100", tone(100.0, 4.0, 48000.0, 0.3f), 48000.0);
+        for (const int mode : { RigEngine::StowWake, RigEngine::StowDry })
+        {
+            const juce::String name = ParamIDs::stowModeNames[mode];
+            const auto plainOut = run(mode, lowTone, 0.0f, 0.5f, 0.0f), lowOut = run(mode, lowTone, 1.0f, 0.5f, 0.0f), drivenOut = run(mode, lowTone, 0.0f, 0.5f, 1.0f);
+            const auto plainSpec = spec(plainOut), low = spec(lowOut), driven = spec(drivenOut);
+            const double octaveDown = low.peak(40.0, 60.0) - plainSpec.peak(40.0, 60.0), third = driven.peak(280.0, 320.0) - plainSpec.peak(280.0, 320.0);
+            const double level = rmsDb(drivenOut, 0, 0, drivenOut.getNumSamples()) - rmsDb(plainOut, 0, 0, plainOut.getNumSamples());
+            std::cout << "  " << name << ", a 100 Hz tone: Low End at 100% adds " << juce::String(octaveDown, 1) << " dB at 50 Hz; Drive at 100% adds " << juce::String(third, 1)
+                      << " dB at 300 Hz and changes the level by " << juce::String(level, 2) << " dB" << std::endl;
+            if (mode == RigEngine::StowWake)
+            {
+                check(octaveDown > 30.0, "Wake: Low End adds the octave under the low band");
+                check(third > 30.0 && std::abs(level) < 3.0, "Wake: Drive adds overtones and holds its level (within 3 dB: a squared-off tone at the same peak)");
+                check(Params::stowControlInUse(mode, ParamIDs::StowLow) && Params::stowControlInUse(mode, ParamIDs::StowDrive) && Params::stowControlInUse(mode, ParamIDs::StowWidth)
+                          && Params::stowControlInUse(mode, ParamIDs::StowFollow),
+                      "Wake: all five knobs are in use");
+            }
+            else
+            {
+                check(std::abs(octaveDown) < 0.5 && std::abs(third) < 0.5 && std::abs(level) < 0.01, "Dry: Low End and Drive do nothing");
+                check(! Params::stowControlInUse(mode, ParamIDs::StowLow) && ! Params::stowControlInUse(mode, ParamIDs::StowDrive) && Params::stowControlInUse(mode, ParamIDs::StowWidth)
+                          && Params::stowControlInUse(mode, ParamIDs::StowFollow),
+                      "Dry: Low End and Drive are out of use (a panel dims them); Follow, Filter and Width are in use");
+            }
+        }
+    }
+
+    //==========================================================================
+    std::cout << "Dry: riding only" << std::endl;
+    {
+        // A short burst every 4 s on Stowaway, Fill at 100%: in Dry there are no echoes after it (Fly, which passes
+        // the tracks on with their echoes, is the control).
+        juce::AudioBuffer<float> burst(1, 4 * 48000);
+        burst.clear();
+        for (int i = 0; i < 4800; ++i)
+            burst.setSample(0, i, 0.4f * static_cast<float>(std::sin(c_twoPi * 300.0 * i / 48000.0) * std::sin(juce::MathConstants<double>::pi * i / 4800.0)));
+        const auto burstFile = writeWav(folder, "stow_burst", burst, 48000.0);
+        auto echoes = [&](int mode)
+        {
+            Rig rig;
+            rig.hold.loadFile(0, burstFile, error);
+            rig.hold.setSkipSilence(0, false);
+            rig.hold.setBusOverride(0, CargoHold::c_stowBus);
+            auto p = plainParams();
+            p.stow.mode = mode;
+            p.fill = 1.0f;
+            rig.start(p, 48000.0);
+            const auto out = render(rig.engine, 4.0, 48000.0);
+            // (Up to 3 s: after that the file is on its way round to the burst again.)
+            return std::pair<double, double> { rmsDb(out, 0, 0, 4800), rmsDb(out, 0, 19200, 3 * 48000) };
+        };
+        const auto dryEchoes = echoes(RigEngine::StowDry), flyEchoes = echoes(RigEngine::StowFly);
+        std::cout << "  a burst with Fill at 100%: after it, Dry " << juce::String(dryEchoes.second, 1) << " dB (the burst: " << juce::String(dryEchoes.first, 1) << " dB), Fly "
+                  << juce::String(flyEchoes.second, 1) << " dB" << std::endl;
+        check(dryEchoes.first > -30.0 && dryEchoes.second < -120.0 && flyEchoes.second > -60.0, "dry: no Fill echoes");
+
+        // Space and the Everything tremolo do not touch it: the output is the same with them as without, sample
+        // for sample (in Fly they change it: the control).
+        auto through = [&](int mode, float space, bool tremolo)
+        {
+            Rig rig;
+            rig.hold.loadFile(0, layerFile, error);
+            rig.hold.setSkipSilence(0, false);
+            rig.hold.setBusOverride(0, CargoHold::c_stowBus);
+            auto p = plainParams();
+            p.stow.mode = mode;
+            p.space = space;
+            p.tremOn = tremolo;
+            p.tremDepth = 1.0f;
+            p.tremThreshold = 0.0f;
+            p.tremTarget = 0;
+            rig.start(p, 48000.0);
+            return render(rig.engine, 3.0, 48000.0);
+        };
+        auto differs = [](const juce::AudioBuffer<float>& a, const juce::AudioBuffer<float>& b)
+        {
+            float d = 0.0f;
+            for (int c = 0; c < 2; ++c)
+                for (int i = 0; i < a.getNumSamples(); ++i)
+                    d = std::max(d, std::abs(a.getSample(c, i) - b.getSample(c, i)));
+            return d;
+        };
+        const auto dryPlain = through(RigEngine::StowDry, 0.0f, false);
+        const float drySpace = differs(through(RigEngine::StowDry, 1.0f, false), dryPlain), dryTrem = differs(through(RigEngine::StowDry, 0.0f, true), dryPlain);
+        const auto flyPlain = through(RigEngine::StowFly, 0.0f, false);
+        const float flySpace = differs(through(RigEngine::StowFly, 1.0f, false), flyPlain), flyTrem = differs(through(RigEngine::StowFly, 0.0f, true), flyPlain);
+        std::cout << "  Space at 100% changes the output by " << drySpace << " in Dry (" << flySpace << " in Fly); the Everything tremolo by " << dryTrem << " (" << flyTrem << " in Fly); peak "
+                  << peakOf(dryPlain) << std::endl;
+        check(peakOf(dryPlain) > 0.1f && drySpace == 0.0f && flySpace > 0.01f, "dry: it skips Space");
+        check(dryTrem == 0.0f && flyTrem > 0.01f, "dry: it skips the Everything tremolo");
+
+        // Follow: how much of the ride its tracks keep.
+        auto ridden = [&](float follow, bool ride)
+        {
+            Rig rig;
+            rig.hold.loadFile(0, layerFile, error);
+            rig.hold.setSkipSilence(0, false);
+            rig.hold.setBusOverride(0, CargoHold::c_stowBus);
+            auto p = plainParams();
+            p.stow.mode = RigEngine::StowDry;
+            p.stow.follow = follow;
+            p.rideOn = ride;
+            p.energy = 0.9f;
+            p.rate = 0.8f;
+            rig.start(p, 48000.0);
+            render(rig.engine, 4.0, 48000.0);
+            return watch(rig, 30.0);
+        };
+        auto moves = [&](const Seen& seen) { return percentile(seen.stowDb, 0.98) - percentile(seen.stowDb, 0.02); };
+        auto mean = [](const Seen& seen)
+        {
+            double sum = 0.0;
+            for (const float db : seen.stowDb)
+                sum += std::pow(10.0, db / 10.0);
+            return 10.0 * std::log10(sum / static_cast<double>(seen.stowDb.size()));
+        };
+        const auto still = ridden(1.0f, false), none = ridden(0.0f, true), halfRide = ridden(0.5f, true), full = ridden(1.0f, true);
+        std::cout << "  with Auto Ride deep its level moves " << juce::String(moves(none), 1) << " dB at Follow 0%, " << juce::String(moves(halfRide), 1) << " dB at 50%, " << juce::String(moves(full), 1)
+                  << " dB at 100% (faders still: " << juce::String(moves(still), 1) << " dB); on average " << juce::String(mean(none) - mean(still), 1) << ", " << juce::String(mean(halfRide) - mean(still), 1) << ", "
+                  << juce::String(mean(full) - mean(still), 1) << " dB against still faders" << std::endl;
+        check(moves(none) < 0.5f && moves(full) > 12.0f && moves(halfRide) > 0.4f * moves(full) && moves(halfRide) < 0.6f * moves(full), "dry follow: how much of the ride its tracks keep (0% none, 100% all)");
+        check(std::abs(mean(none) - mean(still)) < 0.5 && std::abs(mean(halfRide) - mean(still)) < 2.0 && std::abs(mean(full) - mean(still)) < 2.0,
+              "dry follow: on average it stays about as loud wherever the knob is");
+
+        // A stereo sound keeps its sides, by Width: 300 Hz on the left only, 500 Hz on the right only.
+        {
+            juce::AudioBuffer<float> stereo(2, 4 * 48000);
+            for (int i = 0; i < stereo.getNumSamples(); ++i)
+            {
+                stereo.setSample(0, i, 0.3f * static_cast<float>(std::sin(c_twoPi * 300.0 * i / 48000.0)));
+                stereo.setSample(1, i, 0.3f * static_cast<float>(std::sin(c_twoPi * 500.0 * i / 48000.0)));
+            }
+            const auto file = folder.getChildFile("stow_stereo.wav");
+            file.deleteFile();
+            {
+                juce::WavAudioFormat wav;
+                std::unique_ptr<juce::AudioFormatWriter> writer(wav.createWriterFor(new juce::FileOutputStream(file), 48000.0, 2, 24, {}, 0));
+                writer->writeFromAudioSampleBuffer(stereo, 0, stereo.getNumSamples());
+            }
+            // How much of the right-hand tone (500 Hz) is in the left channel, against the left-hand tone there (dB).
+            auto crosstalk = [&](int mode, float width, bool hits = false)
+            {
+                Rig rig;
+                rig.hold.loadFile(0, file, error);
+                rig.hold.setSkipSilence(0, false);
+                rig.hold.setBusOverride(0, CargoHold::c_stowBus);
+                if (hits)
+                {
+                    rig.hold.loadFile(1, writeWav(folder, "stow_hit300", tone(300.0, 4.0, 48000.0), 48000.0), error);
+                    rig.hold.setSkipSilence(1, false);
+                    rig.hold.setBusOverride(1, CargoHold::c_hitsBus);
+                    rig.hold.setBusOverride(0, CargoHold::c_stowBus);
+                }
+                auto p = plainParams();
+                p.stow.mode = mode;
+                p.stow.width = width;
+                p.stow.filter = mode == RigEngine::StowSub ? 1.0f : 0.5f;
+                rig.start(p, 48000.0);
+                render(rig.engine, 1.0, 48000.0);
+                const auto out = render(rig.engine, 4.0, 48000.0);
+                const auto left = spectrum(out.getReadPointer(0), out.getNumSamples(), 48000.0, 14);
+                return left.peak(480.0, 520.0) - left.peak(280.0, 320.0);
+            };
+            const double wide = crosstalk(RigEngine::StowDry, 1.0f), half = crosstalk(RigEngine::StowDry, 0.5f), mono = crosstalk(RigEngine::StowDry, 0.0f), wake = crosstalk(RigEngine::StowWake, 1.0f);
+            std::cout << "  a stereo sound (300 Hz left, 500 Hz right): the right-hand tone in the left channel, against the left-hand one: Width 100% " << juce::String(wide, 1) << " dB, 50% "
+                      << juce::String(half, 1) << " dB, 0% " << juce::String(mono, 1) << " dB; in Wake " << juce::String(wake, 1) << " dB" << std::endl;
+            check(wide < -60.0, "dry: at Width 100% a stereo sound is as wide as its file");
+            check(std::abs(half - 20.0 * std::log10(1.0 / 3.0)) < 1.0 && std::abs(mono) < 0.5, "dry: Width narrows it evenly, down to mono at 0%");
+            check(std::abs(wake) < 0.5, "dry: (the other modes play the mono sum)");
+        }
+    }
+
+    //==========================================================================
+    std::cout << "Every mode: hits, throws, changes of mode and of place" << std::endl;
+    {
+        // The hits duck Wake, Fly and Dry (not Sub: see above). A full Hit Duck under a steady hit.
+        for (const int mode : { RigEngine::StowWake, RigEngine::StowFly, RigEngine::StowDry })
+        {
+            auto level = [&](bool hits)
+            {
+                Rig rig;
+                rig.hold.loadFile(0, layerFile, error);
+                rig.hold.setSkipSilence(0, false);
+                rig.hold.setBusOverride(0, CargoHold::c_stowBus);
+                if (hits)
+                {
+                    rig.hold.loadFile(1, writeWav(folder, "stow_hit300", tone(300.0, 4.0, 48000.0), 48000.0), error);
+                    rig.hold.setSkipSilence(1, false);
+                    rig.hold.setBusOverride(1, CargoHold::c_hitsBus);
+                }
+                auto p = plainParams();
+                p.hitDuck = 1.0f;
+                p.stow.mode = mode;
+                rig.start(p, 48000.0);
+                render(rig.engine, 1.0, 48000.0);
+                rig.engine.takeSectionLevels();
+                render(rig.engine, 2.0, 48000.0);
+                return rig.engine.takeSectionLevels()[RigEngine::SectionStow];
+            };
+            const float alone = level(false), under = level(true);
+            std::cout << "  " << ParamIDs::stowModeNames[mode] << " under a full Hit Duck: " << under << " (" << alone << " with no hits)" << std::endl;
+            check(alone > 0.1f && under < 0.5f * alone, juce::String(ParamIDs::stowModeNames[mode]) + ": the hits duck it");
+        }
+
+        // A throw includes Stowaway in every mode, from rest too: the rig is stopped, a tone on bus A and the layer
+        // on Stowaway, one throw of 2 s. And with nothing on bus A at all.
+        for (const bool onA : { true, false })
+            for (int mode = 0; mode < RigEngine::c_stowModes; ++mode)
+            {
+                Rig rig;
+                rig.hold.loadFile(0, mode == RigEngine::StowSub ? writeWav(folder, "stow_sub50", tone(50.0, 4.0, 48000.0), 48000.0) : layerFile, error);
+                rig.hold.setSkipSilence(0, false);
+                rig.hold.setBusOverride(0, CargoHold::c_stowBus);
+                if (onA)
+                {
+                    rig.hold.loadFile(1, busToneFile, error);
+                    rig.hold.setSkipSilence(1, false);
+                    rig.hold.setBusOverride(1, 0);
+                }
+                auto p = plainParams();
+                p.stow.mode = mode;
+                p.stow.follow = 0.7f;
+                p.throwSeconds = 2.0f;
+                rig.start(p, 48000.0);
+                rig.engine.setReleased(true);
+                render(rig.engine, 1.0, 48000.0);
+                rig.engine.takeSectionLevels();
+                render(rig.engine, 0.5, 48000.0);
+                const float before = rig.engine.takeSectionLevels()[RigEngine::SectionStow];
+                rig.engine.throwWhoosh(0, 1.0f);
+                float loudest = 0.0f;
+                render(rig.engine, 2.2, 48000.0, [&](int) { loudest = std::max(loudest, rig.engine.getStowEnv()); });
+                rig.engine.takeSectionLevels();
+                render(rig.engine, 1.5, 48000.0);
+                const float after = rig.engine.takeSectionLevels()[RigEngine::SectionStow];
+                std::cout << "  a throw from rest, " << ParamIDs::stowModeNames[mode] << (onA ? " (a tone on bus A)" : " (nothing on bus A)") << ": Stowaway " << before << " before, up to " << loudest
+                          << " during, " << after << " after" << std::endl;
+                check(before < 1.0e-6f && loudest > 0.05f && after < 1.0e-3f,
+                      juce::String(ParamIDs::stowModeNames[mode]) + ": a throw from rest is heard on Stowaway, and gone with its tail" + (onA ? "" : " (with nothing on bus A too)"));
+            }
+
+        // Changing the Mode: a 60 Hz tone (which every mode passes with Filter in the middle: under the sub's
+        // crossover, and open otherwise) at steady level, every change of mode there is, one every half second. The sound fades out, the mode swaps, and it fades back in: about 30 ms each way.
+        {
+            const auto file = writeWav(folder, "stow_tone_60b", tone(60.0, 20.0, 48000.0, 0.3f), 48000.0); // (longer than the run: see the layer)
+            Rig rig;
+            rig.hold.loadFile(0, file, error);
+            rig.hold.setSkipSilence(0, false);
+            rig.hold.setBusOverride(0, CargoHold::c_stowBus);
+            auto p = plainParams();
+            rig.start(p, 48000.0);
+            render(rig.engine, 1.0, 48000.0);
+            const float allowed = 2.0f * 0.3f * static_cast<float>(c_twoPi * 60.0 / 48000.0);
+            // The tone's peak in the output with nothing changing (every mode passes it alike, with Follow at 0%).
+            const float steadyPeak = peakOf(render(rig.engine, 0.5, 48000.0));
+            float worst = 0.0f, slowest = 0.0f, fastest = 1.0f, deepest = 1.0f, back = 0.0f;
+            int changes = 0;
+            for (int from = 0; from < RigEngine::c_stowModes; ++from)
+                for (int to = 0; to < RigEngine::c_stowModes; ++to)
+                {
+                    if (from == to)
+                        continue;
+                    p.stow.mode = from;
+                    rig.engine.setParams(p);
+                    render(rig.engine, 0.5, 48000.0);
+                    p.stow.mode = to;
+                    rig.engine.setParams(p);
+                    float swappedAt = -1.0f, low = 1.0f;
+                    const auto out = render(rig.engine, 0.5, 48000.0, [&](int pos)
+                    {
+                        if (swappedAt < 0.0f && rig.engine.getStowNow().mode == to)
+                            swappedAt = static_cast<float>(pos + c_block) / 48000.0f;
+                    });
+                    for (int i = 480; i + 480 < 4800; i += 48) // the quietest 17 ms (one cycle of the tone) of the first 100 ms
+                    {
+                        float m = 0.0f;
+                        for (int k = i - 400; k < i + 400; ++k)
+                            m = std::max(m, std::abs(out.getSample(0, k)));
+                        low = std::min(low, m);
+                    }
+                    // (Both channels: Wake sits to one side or the other.)
+                    juce::AudioBuffer<float> tail(1, 9600);
+                    for (int k = 0; k < 9600; ++k)
+                        tail.setSample(0, k, std::sqrt(0.5f * (out.getSample(0, 14400 + k) * out.getSample(0, 14400 + k) + out.getSample(1, 14400 + k) * out.getSample(1, 14400 + k))));
+                    worst = std::max(worst, steepest(out));
+                    slowest = std::max(slowest, swappedAt);
+                    fastest = std::min(fastest, swappedAt);
+                    deepest = std::min(deepest, peakOf(tail));
+                    back = std::max(back, low);
+                    ++changes;
+                }
+            std::cout << "  " << changes << " changes of mode under a 60 Hz tone: steepest step " << worst << " (twice the tone's own: " << allowed << "); the new mode is in use "
+                      << juce::String(1000.0f * fastest, 0) << " to " << juce::String(1000.0f * slowest, 0) << " ms after it is asked for; the loudest the gap between gets: " << back
+                      << "; 300 ms later the quietest any mode is: " << deepest << " (the tone with nothing changing: " << steadyPeak << ")" << std::endl;
+            check(changes == 12 && worst < allowed, "modes: changing the Mode does not click (any mode to any other)");
+            check(fastest > 0.02f && slowest < 0.045f && back < 0.3f * steadyPeak && deepest > 0.9f * steadyPeak, "modes: the sound fades out in about 30 ms, the mode swaps at silence, and it fades back in");
+        }
+        // Under automation: the Mode moved every block (5 ms), round and round, then left alone.
+        {
+            Rig rig;
+            rig.hold.loadFile(0, writeWav(folder, "stow_tone_60b", tone(60.0, 20.0, 48000.0, 0.3f), 48000.0), error);
+            rig.hold.setSkipSilence(0, false);
+            rig.hold.setBusOverride(0, CargoHold::c_stowBus);
+            auto p = plainParams();
+            rig.start(p, 48000.0);
+            render(rig.engine, 1.0, 48000.0);
+            const float steadyPeak = peakOf(render(rig.engine, 0.5, 48000.0)); // the tone before anything changes
+            int n = 0;
+            const auto busy = render(rig.engine, 2.0, 48000.0, [&](int)
+            {
+                p.stow.mode = (++n / 3) % RigEngine::c_stowModes;
+                rig.engine.setParams(p);
+            });
+            p.stow.mode = RigEngine::StowDry;
+            rig.engine.setParams(p);
+            const auto settled = render(rig.engine, 0.5, 48000.0);
+            juce::AudioBuffer<float> end(1, 4800);
+            end.copyFrom(0, 0, settled, 0, settled.getNumSamples() - 4800, 4800);
+            const float allowed = 2.0f * 0.3f * static_cast<float>(c_twoPi * 60.0 / 48000.0);
+            std::cout << "  the Mode automated (a new one every 16 ms for 2 s): steepest step " << std::max(steepest(busy), steepest(settled)) << " (allowed " << allowed << "); then left in Dry: peak "
+                      << peakOf(end) << " (before: " << steadyPeak << ")" << std::endl;
+            check(std::max(steepest(busy), steepest(settled)) < allowed && rig.engine.getStowNow().mode == RigEngine::StowDry && steadyPeak > 0.1f && std::abs(peakOf(end) - steadyPeak) < 0.05f * steadyPeak, "modes: automating the Mode does not click either, and it settles in the last one asked for");
+        }
+
+        // A track changing place: by hand (Stowaway to bus A and back), and a rumble as Stowaway stops being a sub.
+        {
+            Rig rig;
+            rig.hold.loadFile(0, writeWav(folder, "stow_tone_100", tone(100.0, 4.0, 48000.0, 0.3f), 48000.0), error);
+            rig.hold.setSkipSilence(0, false);
+            rig.hold.setBusOverride(0, CargoHold::c_stowBus);
+            auto p = plainParams();
+            p.stow.mode = RigEngine::StowDry;
+            rig.start(p, 48000.0);
+            render(rig.engine, 1.0, 48000.0);
+            float worst = 0.0f;
+            for (const int place : { 0, CargoHold::c_stowBus, 1, CargoHold::c_stowBus, CargoHold::c_hitsBus, CargoHold::c_stowBus })
+            {
+                rig.hold.setBusOverride(0, place);
+                worst = std::max(worst, steepest(render(rig.engine, 0.5, 48000.0)));
+            }
+            rig.engine.takeSectionLevels();
+            render(rig.engine, 0.5, 48000.0);
+            const auto there = rig.engine.takeSectionLevels();
+            // A rumble on Auto: on Stowaway while it is a sub, on bus A otherwise (the processor tells the hold as
+            // the Mode moves).
+            rig.hold.setBusOverride(0, -1);
+            rig.hold.setRoleOverride(0, static_cast<int>(CargoRole::Rumble));
+            p.stow.mode = RigEngine::StowSub;
+            p.stow.filter = 1.0f;
+            rig.hold.setRumbleToStowaway(true);
+            rig.engine.setParams(p);
+            render(rig.engine, 0.5, 48000.0);
+            rig.engine.takeSectionLevels();
+            float rumbleWorst = steepest(render(rig.engine, 0.5, 48000.0));
+            const auto asSub = rig.engine.takeSectionLevels();
+            p.stow.mode = RigEngine::StowWake;
+            rig.hold.setRumbleToStowaway(false);
+            rig.engine.setParams(p);
+            rumbleWorst = std::max(rumbleWorst, steepest(render(rig.engine, 0.5, 48000.0)));
+            rig.engine.takeSectionLevels();
+            render(rig.engine, 0.5, 48000.0);
+            const auto asWake = rig.engine.takeSectionLevels();
+            p.stow.mode = RigEngine::StowSub;
+            rig.hold.setRumbleToStowaway(true);
+            rig.engine.setParams(p);
+            rumbleWorst = std::max(rumbleWorst, steepest(render(rig.engine, 0.5, 48000.0)));
+            const float allowed = 2.0f * 0.3f * static_cast<float>(c_twoPi * 100.0 / 48000.0);
+            std::cout << "  a track moved by hand between Stowaway, bus A, bus B and the hits: steepest step " << worst << " (allowed " << allowed << "); it ends on Stowaway (" << there[RigEngine::SectionStow]
+                      << "). A rumble on Auto: Stowaway / bus A " << asSub[RigEngine::SectionStow] << " / " << asSub[RigEngine::SectionBusA] << " in Sub, " << asWake[RigEngine::SectionStow] << " / "
+                      << asWake[RigEngine::SectionBusA] << " in Wake; steepest step through the changes " << rumbleWorst << std::endl;
+            check(worst < allowed && there[RigEngine::SectionStow] > 0.1f, "places: a track sent somewhere else is faded across (no click)");
+            check(asSub[RigEngine::SectionStow] > 0.1f && asSub[RigEngine::SectionBusA] < 1.0e-5f && asWake[RigEngine::SectionStow] < 1.0e-5f && asWake[RigEngine::SectionBusA] > 0.1f && rumbleWorst < allowed,
+                  "places: a rumble leaves Stowaway for bus A as the Mode leaves Sub, and comes back, without a click");
+        }
+
+        // The modes are about as loud as each other: the same low drone (45 and 72 Hz, under the sub's crossover) on
+        // Stowaway, gappy bursts on bus A, everything else as the plug-in starts.
+        {
+            juce::AudioBuffer<float> drone(1, 8 * 48000), gappy(1, 8 * 48000);
+            juce::Random r(11);
+            for (int i = 0; i < drone.getNumSamples(); ++i)
+            {
+                const double t = i / 48000.0;
+                drone.setSample(0, i, static_cast<float>(0.2 * std::sin(c_twoPi * 45.0 * t) + 0.15 * std::sin(c_twoPi * 72.0 * t)));
+                const double u = std::fmod(t, 1.6) / 1.6; // a burst every 1.6 s, 60% of it sounding
+                gappy.setSample(0, i, u < 0.6 ? static_cast<float>(0.3 * std::sin(juce::MathConstants<double>::pi * u / 0.6) * (std::sin(c_twoPi * 220.0 * t) + 0.3 * (r.nextFloat() * 2.0f - 1.0f))) : 0.0f);
+            }
+            const auto droneFile = writeWav(folder, "stow_drone", drone, 48000.0), gappyFile = writeWav(folder, "stow_gappy", gappy, 48000.0);
+            auto level = [&](int mode)
+            {
+                Rig rig;
+                rig.hold.loadFile(0, droneFile, error);
+                rig.hold.setSkipSilence(0, false);
+                rig.hold.setBusOverride(0, CargoHold::c_stowBus);
+                rig.hold.loadFile(1, gappyFile, error);
+                rig.hold.setBusOverride(1, 0);
+                RigEngine::Params p; // as the plug-in starts
+                p.stow.mode = mode;
+                rig.start(p, 48000.0);
+                render(rig.engine, 4.0, 48000.0);
+                rig.engine.takeSectionLevels();
+                render(rig.engine, 90.0, 48000.0);
+                return 20.0 * std::log10(static_cast<double>(rig.engine.takeSectionLevels()[RigEngine::SectionStow]));
+            };
+            const double sub = level(RigEngine::StowSub), wake = level(RigEngine::StowWake), fly = level(RigEngine::StowFly), dry = level(RigEngine::StowDry);
+            std::cout << "  the same drone on Stowaway over 90 s, at the starting settings: Sub " << juce::String(sub, 1) << " dB, Wake " << juce::String(wake, 1) << " dB, Dry " << juce::String(dry, 1)
+                      << " dB (Fly, which passes it on for now: " << juce::String(fly, 1) << " dB)" << std::endl;
+            check(std::abs(wake - sub) < 1.0 && std::abs(dry - sub) < 1.0 && std::abs(wake - dry) < 1.0, "modes: Sub, Wake and Dry are within 1 dB of each other on the same sound");
         }
     }
 

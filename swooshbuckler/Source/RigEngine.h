@@ -43,7 +43,16 @@
  *                 above the crossover -> Follow (it swells with bus A: A's level against its recent peak and how
  *                 near A's pass is; with no track on A it goes by bus B, and with none there either by its own
  *                 tracks' ride). See SubFilter and renderSub.
- *                 Wake, Fly, Dry: for now the tracks pass through at unity in the middle.
+ *                 Wake: opens as bus A falls away (how far A's level has dropped from what it was and, as far as the passes
+ *                 are what moves A, how far out its outgoing pass is), so each pass leaves a trail; placed behind
+ *                 that pass by Width. Its tracks are not ridden. Low End, Filter (a tilt) and Drive colour it. See
+ *                 renderWake.
+ *                 Dry: the tracks at their faders and rides (Follow: how much of the ride), no Fill echoes, through
+ *                 Filter only, and added after Space and the Everything tremolo. A stereo sound keeps its sides
+ *                 (by Width). See renderDry.
+ *                 Fly: for now the tracks pass through at unity in the middle.
+ *                 A change of Mode fades it out (30 ms), swaps, and fades it back in; a track that changes place
+ *                 (by hand, or a rumble as Stowaway becomes a sub or stops being one) is faded across (10 ms).
  *   hit sync:     optional: every hit track fires its next sound on a shared beat, transients aligned
  *                 (the beat is as long as the longest hit, so none is cut short).
  *   hits:         a gate on A + B opens only at the loudest moments (a boost with hold
@@ -83,7 +92,7 @@ public:
         int mode = StowSub;
         float follow = 0.7f; // how much it goes by bus A
         float low = 0.0f;    // Low End
-        float filter = 0.5f; // Sub: the crossover (::Params::stowCrossoverHz); otherwise open in the middle
+        float filter = 0.5f; // Sub: the crossover (::Params::stowCrossoverHz); otherwise a tilt, open in the middle
         float drive = 0.0f;
         float width = 1.0f;
     };
@@ -240,7 +249,8 @@ public:
     float getStowLevel() const { return m_stowLevelView.load(std::memory_order_relaxed); }
     float getStowPan() const { return m_stowPanView.load(std::memory_order_relaxed); }
     /** Audio thread, after process(): Stowaway's mode and knobs as the last chunk used them (the knobs after
-        their glides, with the modulators' offsets). */
+        their glides, with the modulators' offsets; the mode is the one in use, which a change of Mode reaches
+        once the old one has faded out). */
     const StowParams& getStowNow() const { return m_stow.now; }
     /** Audio thread, after process(): Stowaway's level at the end of the last chunk (its own follower, not
         scaled or clamped for a meter as getStowLevel is). */
@@ -249,10 +259,23 @@ public:
         is how much of that swell, in dB, the sub takes on (0% none: a steady sub; 100% all of it). */
     static float subFollowGain(float follow, float key);
     /** The make-up that goes with Follow: the more of the swell the sub takes on, the longer it spends down in the
-        dips, so it is turned up to match (4.5 dB at 100%). On average it stays as loud wherever the knob is; what
-        changes is how far it moves. */
-    static constexpr float c_subFollowMakeupDb = 4.5f;
-    static float subFollowMakeup(float follow);
+        dips, so it is turned up to match. On average it stays as loud wherever the knob is; what changes is how far
+        it moves. How much that takes is measured as it plays (see FollowMakeup): 4.5 dB at 100% under a typical
+        bed, which is where it starts, and never more than 6 dB. */
+    static constexpr float c_subFollowTypicalDb = 4.5f;
+    static constexpr float c_subFollowMakeupDb = 6.0f;
+    /** Wake: how far open the trail is (0 shut .. 1 open) for a pass this far on its way out (0 = at its closest,
+        1 = gone): it blooms just behind the pass and fades as the pass leaves. */
+    static float wakeBloom(float out);
+    /** Wake: the most the make-up that goes with Follow may turn the trail up (see renderWake: on average the
+        trail is as loud wherever the knob is). */
+    static constexpr float c_wakeFollowMakeupDb = 12.0f;
+    /** Audio thread, after process(): how far open Wake's trail was at the end of the last chunk (0..1; 0 in the
+        other modes). */
+    float getWakeAmount() const { return m_stow.wake.amount; }
+    /** The average power a ridden fader is left at (1 = not ridden) when `exponent` of its ride (in dB) is kept,
+        for a ride of this depth (0 = still .. 1 = full dips) at this Chaos. */
+    static float ridePower(float depth, float chaos, float exponent);
     /** A track's own VARI speed (1 = as the global Pitch plays it; 1 for VARI off), for the hit sync view. */
     float getTrackSpeed(int track) const { return m_trackSpeedView[static_cast<size_t>(track)].load(std::memory_order_relaxed); }
     /** The fill echo times of a track, in seconds (tap 0..2). Every track has its own, so layered tracks don't
@@ -411,6 +434,74 @@ private:
         float sidePre = 0.0f, sidePost = 0.0f, sideMatch = 1.0f;
     };
 
+    /** Stowaway's Filter outside Sub, on one stream: open in the middle of the knob, a low-pass that closes towards
+        the bottom and a high-pass that rises towards the top (::Params::stowLowpassHz, stowHighpassHz; 12 dB per
+        octave each). Either side comes in and goes out over a few milliseconds, so crossing the middle never
+        steps. */
+    struct StowTilt
+    {
+        sj::Svf lp, hp;
+        float lpMix = 0.0f, hpMix = 0.0f; // how far each side is in (0..1) at the end of the last chunk
+        void reset()
+        {
+            lp.reset();
+            hp.reset();
+            lpMix = hpMix = 0.0f;
+        }
+        /** snap: nothing to glide from (the stream starts here). */
+        void process(float* x, int frames, float knob, float fs, bool snap);
+    };
+    /** Stowaway's Drive, on one stream. The stream is driven against its own level (a slow measure of it), so the
+        knob does the same to a quiet sound as to a loud one, and its travel is even: the gain into the saturator
+        rises 2 dB per 10%, from all but clean to squared off. The result is brought back to the level it went in
+        at: Drive thickens the sound and flattens its swell, it does not turn it up. */
+    struct StowSaturator
+    {
+        float pre = 0.0f, post = 0.0f, gain = 1.0f; // the level before and after (slow mean squares), and the level match
+        void reset()
+        {
+            pre = post = 0.0f;
+            gain = 1.0f;
+        }
+        void process(float* x, int frames, float drive, float fs);
+    };
+    /** Low End, Filter and Drive for one moving stream of Stowaway's (Wake): the buses' low end (a note an octave
+        under the low band, its overtones and a lift), the tilt, and the drive. */
+    struct StowColour
+    {
+        sj::Svf lowA, lowB, shelf;
+        LowAdd lowAdd;
+        bool lowOn = false;     // Low End holds state
+        float lowAmount = 0.0f; // Low End at the end of the last chunk
+        StowTilt tilt;
+        StowSaturator drive;
+        void prepare(float fs);
+        void reset();
+        void process(float* x, int frames, const StowParams& now, float fs, bool snap);
+    };
+
+    /** The make-up that goes with Follow in Sub and Wake. Follow shuts the sound down between the moments it opens
+        for, and how much quieter that leaves it on average depends on what it follows. So that is measured: a slow
+        average of the power of the sound before Follow, and of what Follow at 25, 50, 75 and 100% would keep of it,
+        gives what the knob costs at each of those. The make-up is the cost at the knob's place: it answers the knob
+        at once, and only learns the material slowly. */
+    struct FollowMakeup
+    {
+        float sent = 0.0f;            // the power before Follow (a slow average; 0 = nothing measured yet)
+        std::array<float, 4> kept {}; // and of what Follow at 25, 50, 75 and 100% keeps of it
+        void reset()
+        {
+            sent = 0.0f;
+            kept = {};
+        }
+        /** inSq: this chunk's mean square before Follow. keeps: the share of its power Follow at 25, 50, 75 and
+            100% keeps now. typicalDb: what those cost a typical sound (where the measure starts from). c: the
+            averages' coefficient for this chunk. */
+        void measure(float inSq, const float keeps[4], const float typicalDb[4], float c);
+        /** What Follow at this place costs, in dB (0 with nothing measured). */
+        float costDb(float follow) const;
+    };
+
     // Stowaway. Beside the two rig buses, not one of them: nothing that loops over m_buses (the hit gate's
     // detector, AIM, LINK, Take Turns, the morph, the passes' random draws) knows it is there.
     struct StowState
@@ -428,6 +519,12 @@ private:
         StowParams now;        // see getStowNow
         std::array<sj::Spring, c_stowKnobs> springs; // follow low filter drive width
         float throwKey = 0.0f; // the loudest throw's own swell (its pass window x its level) at the end of the last chunk
+        // The mode in use. A change of Mode fades the sound out, swaps (here), and fades it back in.
+        int mode = StowSub;
+        float fade = 1.0f;
+        // Dry: the side signals of the stereo tracks sent here, and what Filter and the hits left of them.
+        std::array<float, c_chunk> sideIn {}, side {};
+        bool sideFed = false;  // a track played into `sideIn` this chunk
         BusState::Duck byHits; // ducked by the hits (not in Sub)
         bool ducked = false;   // byHits holds something
         sj::Follower follower;
@@ -446,12 +543,45 @@ private:
             float key = 1.0f;       // what Follow goes by (0..1), smoothed
             float busA = 0.0f, busB = 0.0f; // how far bus A and bus B hold tracks to follow (0..1, glides)
             std::array<float, c_maxBuses> peak { 1.0e-3f, 1.0e-3f }; // each bus's recent peak, as the sub measures its swell
-            float drivePre = 0.0f, drivePost = 0.0f, driveGain = 1.0f; // Drive: the sub's level before and after it (slow mean squares), and the level match
+            FollowMakeup makeup;
+            StowSaturator drive;
             void reset();
         } sub;
+        // Wake. `mono` is the trail and `pan` where it sits (behind bus A's outgoing pass).
+        struct Wake
+        {
+            StowColour colour;
+            bool on = false;     // it holds state
+            float envDb = -60.0f; // bus A's level at the end of the last chunk (dB, never under -60)
+            float fall = 0.0f;    // how far bus A has fallen from what it was (dB): drops add, rises take away, time lets it go
+            float amount = 0.0f; // how far open the trail is (0..1), smoothed
+            float gain = 0.0f;   // Follow's gain at the end of the last chunk
+            FollowMakeup makeup;
+            float pan = 0.0f;    // where the trail sits before Width (-1..1), smoothed
+            void reset();
+        } wake;
+        // Dry. `mono` is the tracks' sum and `side` their side signals: left = mono + side, right = mono - side.
+        struct Dry
+        {
+            StowTilt filter, sideFilter;
+            bool on = false;       // it holds state
+            bool sideOn = false;   // the side filter holds state
+            int sideTail = 0;      // samples the side filter may still ring for after the last side signal
+            float gain = 1.0f;     // the make-up at the end of the last chunk
+            float width = 1.0f;    // Width at the end of the last chunk
+            float power = 1.0f, powerDepth = -1.0f, powerChaos = -1.0f, powerFollow = -1.0f; // ridePower, and what it was worked out for
+            void reset();
+        } dry;
+        /** Leave the mode in use: everything it holds is cleared. */
+        void leaveMode();
     };
     /** Sub: m_stow.mono (what was sent here this chunk) through the sub's filters, colours and Follow. */
     void renderSub(int frames);
+    /** Wake: what was sent here, opened as bus A falls away, coloured, and where it sits. key0 .. key1: the throws'
+        own trail across the chunk (their share arrives in throwIn). */
+    void renderWake(int frames, float key0, float key1);
+    /** Dry: m_stow.mono and m_stow.side (the tracks and their sides) through Filter, at the ride's make-up. */
+    void renderDry(int frames);
     /** The mono stream and its place for this chunk, from what was sent here (and what bus A did). */
     void renderStow(int frames);
     /** The stream at its place, as the stereo the mix takes. After the hits have ducked it. */
@@ -563,7 +693,11 @@ private:
     std::atomic<float> m_masterView { 0.0f };
     void glideMods(int frames);
     std::array<float, c_chunk> m_trackScratch {}, m_sideScratch {};
-    std::array<float, c_tracks> m_sideGain {};      // each track's side signal into bus B (0..1, fades in and out)
+    std::array<float, c_tracks> m_sideGain {};      // each track's side signal into bus B or Stowaway (0..1, fades in and out)
+    // Where each track plays (CargoHold::getBus) as it is in use, -1 = not known yet. A change of place fades the
+    // track out, swaps, and fades it back in, so nothing steps in the bus it leaves or the one it joins.
+    std::array<int, c_tracks> m_busNow {};
+    std::array<float, c_tracks> m_busFade {};
     MorphInsert m_morph;
     sj::Spring m_morphMix;
 
