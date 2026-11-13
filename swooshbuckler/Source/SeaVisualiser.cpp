@@ -49,7 +49,13 @@ SeaVisualiser::SeaVisualiser(SwooshbucklerAudioProcessor& processor, const Theme
                                             : 1.0f / 60.0f;
         m_lastVBlank = timestamp;
         m_vblankSeenMs = juce::Time::getMillisecondCounter();
-        startTimerHz(4); // the timer is only the watch now: enough to notice if the screen's clock stops
+        if (! m_timerIsWatch)
+        {
+            // The timer is only the watch now: enough to notice if the screen's clock stops. Put down once, not
+            // on every frame - restarting a timer takes the timer thread's lock.
+            m_timerIsWatch = true;
+            startTimerHz(4);
+        }
         step(dt);
     });
     startTimerHz(60);
@@ -66,7 +72,11 @@ void SeaVisualiser::timerCallback()
     // The screen's clock has it in hand: nothing to do. (Offline there is no vblank, so this is the clock.)
     if (m_vblankSeenMs != 0 && juce::Time::getMillisecondCounter() - m_vblankSeenMs < 500)
         return;
-    startTimerHz(60);  // no screen clock (or it stopped): this is the clock again
+    if (m_timerIsWatch)
+    {
+        m_timerIsWatch = false;
+        startTimerHz(60);  // no screen clock (or it stopped): this is the clock again
+    }
     step(1.0f / 60.0f);
 }
 
@@ -129,15 +139,19 @@ void SeaVisualiser::analyse()
 
 void SeaVisualiser::step(float dt)
 {
-    // After five seconds of quiet the sea runs at a third of the rate: a big picture that costs little when
-    // there is nothing to show.
-    if (m_quietSeconds > 5.0f && ++m_idleSkip < 3)
+    // The sea keeps its own rate: 60 a second however fast the screen is, and after five seconds of quiet 20 a
+    // second - a big picture that costs little when there is nothing to show. The time between steps is gathered
+    // up and handed on whole, so the swell rolls at the same speed whichever rate it is running at.
+    m_sinceStep += juce::jlimit(0.0f, 0.25f, dt);
+    const float want = m_quietSeconds > 5.0f ? c_idleStepSeconds : c_stepSeconds;
+    if (m_sinceStep < want)
         return;
-    dt *= static_cast<float>(1 + m_idleSkip);
-    m_idleSkip = 0;
+    dt = m_sinceStep;
+    m_sinceStep = 0.0f;
 
     m_time += dt;
     analyse();
+    refreshBusLabels();
 
     // The swell rolls away smoothly: the rows are drawn between steps, not only on them.
     m_rowPhase += dt * c_rowsPerSecond;
@@ -488,27 +502,39 @@ void SeaVisualiser::paintWater(juce::Graphics& g, float h)
 }
 
 //==============================================================================
+void SeaVisualiser::refreshBusLabels()
+{
+    // The names over the comets are made here, in the step, and not in paint: building them is string work, and
+    // paint does none. They only change when a track moves bus or is renamed, so they are looked at four times a
+    // second and rebuilt only when what they are made of has changed.
+    if (m_busLabelsAt >= 0.0 && m_time - m_busLabelsAt < 0.25)
+        return;
+    m_busLabelsAt = m_time;
+
+    auto& cargo = m_processor.getCargo();
+    for (int b = 0; b < RigEngine::c_maxBuses; ++b)
+    {
+        int count = 0, only = -1;
+        for (int t = 0; t < CargoHold::c_numTracks; ++t)
+            if (cargo.get(t) != nullptr && cargo.getBus(t) == b)
+            {
+                ++count;
+                only = t;
+            }
+
+        const auto name = count == 1 ? cargo.getDisplayName(only) : juce::String();
+        const auto want = juce::String("Bus ") + (b == 0 ? "A" : "B")
+                          + (name.isNotEmpty() ? (" " + juce::String::charToString(0x00b7) + " ") + name : juce::String());
+        m_busLabels[static_cast<size_t>(b)] = want;
+    }
+    m_busLabels[RigEngine::c_maxBuses] = "Throw";
+}
+
 void SeaVisualiser::paintComets(juce::Graphics& g, float w)
 {
     namespace TC = Theme::Colours;
 
-    std::array<juce::String, c_cometGroups> busLabels;
-    {
-        auto& cargo = m_processor.getCargo();
-        for (int b = 0; b < RigEngine::c_maxBuses; ++b)
-        {
-            int count = 0, only = -1;
-            for (int t = 0; t < CargoHold::c_numTracks; ++t)
-                if (cargo.get(t) != nullptr && cargo.getBus(t) == b)
-                {
-                    ++count;
-                    only = t;
-                }
-            busLabels[static_cast<size_t>(b)] = juce::String("Bus ") + (b == 0 ? "A" : "B")
-                                                + (count == 1 ? (" " + juce::String::charToString(0x00b7) + " ") + cargo.getDisplayName(only) : juce::String());
-        }
-        busLabels[RigEngine::c_maxBuses] = "Throw";
-    }
+    const auto& busLabels = m_busLabels;
 
     struct Label { float env = -1.0f, alpha = 0.0f; juce::Point<float> at; };
     std::array<Label, c_cometGroups> labels; // one per bus, on its louder pass, and one for the throws
@@ -653,29 +679,32 @@ void SeaVisualiser::paint(juce::Graphics& g)
     // The moon's glitter path: flecks of light on the near rows, under the moon.
     {
         const float t = static_cast<float>(m_time);
-        constexpr int rows = 26;
+        constexpr int rows = c_rows;
         for (int k = 0; k < rows; ++k)
         {
             const float depth = static_cast<float>(k) + m_rowPhase;
             const float z = m_zNear + depth * m_zStep;
-            const float nearness = 1.0f - depth / static_cast<float>(rows);
+            const float nearness = juce::jlimit(0.0f, 1.0f, 1.0f - depth / static_cast<float>(rows));
             const float worldX = (moonAt.x - m_cx) * z / m_focal;
             const float u = juce::jlimit(0.0f, 1.0f, (worldX / c_halfWidth + 1.0f) * 0.5f);
             const int band = juce::jlimit(0, c_bands - 1, juce::roundToInt(u * static_cast<float>(c_bands - 1)));
             const float height = m_rows[static_cast<size_t>((m_rowHead - k + c_rows) % c_rows)][static_cast<size_t>(band)];
-            // Two or three flecks on each row, scattered across a path that widens towards the camera: the
-            // offsets are in world units scaled by depth, so a fleck is the same few pixels wherever it is.
-            const int flecks = nearness > 0.45f ? 3 : 2;
+            // A few flecks on each row, scattered across a path that widens towards the camera: the offsets are
+            // in world units scaled by depth, so a fleck is the same few pixels wherever it is. They are lights
+            // on the water, so they brighten quickly with nearness and sit on the lit crests: far out they fade
+            // to nothing rather than littering the horizon with specks.
+            const int flecks = 2 + juce::roundToInt(3.0f * nearness);
             for (int f = 0; f < flecks; ++f)
             {
                 const float seed = static_cast<float>(k) * 1.7f + static_cast<float>(f) * 4.3f;
-                const float side = std::sin(seed * 2.11f) * (0.05f + 0.22f * nearness);
-                const float sway = 0.04f * std::sin(t * 1.9f + seed);
+                const float side = std::sin(seed * 2.11f) * (0.04f + 0.20f * nearness);
+                const float sway = 0.035f * std::sin(t * 1.9f + seed);
                 const auto at = project({ worldX + (side + sway) * z, height * 0.42f, z });
-                const float len = 3.0f + 11.0f * nearness * (0.6f + 0.4f * std::abs(std::sin(seed)));
-                const float shine = 0.3f + 0.7f * std::abs(std::sin(t * 2.7f + seed * 1.3f));
-                g.setColour(c_moonlight.withAlpha(0.10f + 0.34f * nearness * shine));
-                g.fillRect(at.x - len * 0.5f, at.y - 0.8f, len, 1.5f);
+                const float len = 2.0f + 10.0f * nearness * (0.6f + 0.4f * std::abs(std::sin(seed)));
+                const float shine = 0.35f + 0.65f * std::abs(std::sin(t * 2.7f + seed * 1.3f));
+                const float lit = nearness * std::sqrt(nearness); // the far ones fade out rather than litter the horizon
+                g.setColour(c_moonlight.withAlpha(0.58f * lit * shine * (0.6f + 0.4f * juce::jmin(1.0f, height))));
+                g.fillRect(at.x - len * 0.5f, at.y - 0.7f, len, 1.4f);
             }
         }
     }
@@ -692,10 +721,11 @@ void SeaVisualiser::paint(juce::Graphics& g)
     }
     if (m_hitRing > 0.01f)
     {
-        const float z = 2.6f;
-        const float rx = (1.0f - m_hitRing) * 1.7f * m_focal / z;
-        g.setColour(TC::hits.withAlpha(0.30f * m_hitRing));
-        g.drawEllipse(juce::Rectangle<float>(rx * 2.0f, rx * 0.42f).withCentre(project({ 0.0f, 0.0f, z })), 1.2f);
+        // Nearer than the horizon and bright enough to read against the water: it is the hit's own mark.
+        const float z = 1.9f;
+        const float rx = (1.0f - m_hitRing) * 2.2f * m_focal / z;
+        g.setColour(TC::hits.withAlpha(0.50f * m_hitRing));
+        g.drawEllipse(juce::Rectangle<float>(rx * 2.0f, rx * 0.42f).withCentre(project({ 0.0f, 0.0f, z })), 1.6f);
     }
 
     // A ripple where the sea was clicked.
@@ -752,7 +782,8 @@ void SeaVisualiser::paint(juce::Graphics& g)
         }
     }
 
-    // The morph pad is docked over the sea: the water behind it is dimmed so the pad reads.
+    // The morph pad is docked over a corner of the sea: everything behind it is dimmed so the pad reads, and the
+    // sky, the moon and the comets stay in view through it.
     if (! m_dock.isEmpty())
     {
         g.setColour(TC::window.withAlpha(0.55f));

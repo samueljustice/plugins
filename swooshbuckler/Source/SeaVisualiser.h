@@ -68,6 +68,8 @@ private:
     static constexpr int c_rows = 34;
     static constexpr int c_trail = 34;
     static constexpr float c_rowsPerSecond = 20.0f; // how fast the swell rolls away (rows are drawn between steps)
+    static constexpr float c_stepSeconds = 1.0f / 75.0f;  // never step more often than this, however fast the screen is
+    static constexpr float c_idleStepSeconds = 1.0f / 20.0f; // and after five seconds of quiet, only this often
 
     struct P3 { float x, y, z; };
 
@@ -124,7 +126,7 @@ private:
     float m_skyScale = 0.0f;
     double m_time = 0.0;
     float m_quietSeconds = 0.0f;
-    int m_idleSkip = 0;
+    float m_sinceStep = 0.0f;     // time gathered up since the last step: the sea's own rate, not the screen's
     bool m_labelsShown = true;
     juce::Rectangle<float> m_reserved, m_dock;
     juce::Rectangle<float> m_titleBox, m_recBox;
@@ -132,6 +134,12 @@ private:
     juce::VBlankAttachment m_vblank;
     double m_lastVBlank = 0.0;
     juce::uint32 m_vblankSeenMs = 0;
+    bool m_timerIsWatch = false;  // the timer has been put down to its watchdog rate (so it is not reset every frame)
+
+    // The comets' names, kept rather than built in paint, and when they were last made up.
+    std::array<juce::String, RigEngine::c_maxBuses + 1> m_busLabels;
+    double m_busLabelsAt = -1.0;
+    void refreshBusLabels();
 
     static constexpr float c_frame = 4.0f, c_gusset = 18.0f; // the frame's band, and the leg of its corner plates
     juce::Path m_ironFrame, m_frameInner; // the iron frame around the sea and its inner edge (built in resized)

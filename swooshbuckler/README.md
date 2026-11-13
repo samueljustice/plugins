@@ -357,7 +357,7 @@ If the gain reduction number is coral all the time, back off Push or raise Ceili
 
 ![The sea](docs/images/sea.png)
 
-The sea at the top right pictures what the rig is sending out. It is the largest thing in the window, and it runs at the screen's own rate; after five seconds of quiet it steps more slowly to stay out of the way.
+The sea at the top right pictures what the rig is sending out. It is the largest thing in the window, and it runs at the screen's own rate, up to sixty times a second; after five seconds of quiet it steps more slowly to stay out of the way.
 
 - **The waves** are the output's spectrum, lows on the left and highs on the right. The newest wave is at the front, and older ones roll away towards the horizon, going colder and hazier with distance. The water has its own colours, so nothing on it is mistaken for a bus.
 - **Each doppler pass** is a glowing ball that arcs across the sea, in its bus's colour (coral for bus A, turquoise for bus B). It comes closer the closer the pass, glows brighter the louder it is, and leaves a bump in the water under it that rolls away with the swell. A label above it names the bus, and the track too when only one track plays on that bus ("Bus B · Energy Bed"). Labels keep off the panel's name, the recording lamp and the Morph button, and off each other.

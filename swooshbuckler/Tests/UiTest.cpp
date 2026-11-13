@@ -1132,7 +1132,28 @@ int main(int argc, char* argv[])
             ed.syncMorphPad();
         }
 
-        proc.setPlaying(false);
+        // The sea keeps time. Busy it steps on every frame, quiet it steps a third as often - but either way the
+        // same number of frames must carry it the same distance, or the swell rolls fast whenever nothing plays.
+        {
+            proc.setPlaying(true);
+            rig.run(1.0);
+            const double busyFrom = sea.m_time;
+            rig.run(4.0);
+            const double busy = sea.m_time - busyFrom;
+            const bool wasBusy = sea.m_quietSeconds < 0.5f;
+
+            proc.setPlaying(false);
+            rig.run(9.0);                       // the tails run out, and five seconds of quiet pass
+            const bool wentQuiet = sea.m_quietSeconds > 5.0f;
+            const double idleFrom = sea.m_time;
+            rig.run(4.0);
+            const double idle = sea.m_time - idleFrom;
+
+            check(wasBusy && wentQuiet && busy > 1.0 && std::abs(idle - busy) < busy * 0.05,
+                  "sea: the idle rate steps less often without running fast (the same frames move it "
+                      + juce::String(busy, 2) + " s busy and " + juce::String(idle, 2) + " s quiet)");
+            proc.setPlaying(false);
+        }
     }
 
     std::cout << (g_failures == 0 ? "ALL PASSED" : juce::String(g_failures) + " FAILED") << std::endl;
