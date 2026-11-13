@@ -12,11 +12,11 @@
  * things, and nothing is drawn that is not one of them (the round things are the ones that are round on a ship:
  * the wheel, bolts, lamps, jacks and the moon).
  *
- *   1. Panel plate   A big plate bolted to the window (Theme::Colours::panel). Cut corners (Cut::panel), a pressed
- *                    edge - a dark line with a faint light line inside it - and a slotted bolt in each corner.
+ *   1. Panel plate   A big plate bolted to the window (Theme::Colours::panel). Square corners, a pressed edge -
+ *                    a dark line with a faint light line inside it - and a slotted bolt in each corner.
  *                    SwooshLookAndFeel::drawPanel; drawSurface is the same plate without the bolts.
- *   2. Control plate A button, menu, chip or tag (Colours::raised), cut corners (Cut::control; Cut::small for a
- *                    chip), its label stamped into it (Theme::stampText). Its states:
+ *   2. Control plate A button, menu, chip or tag (Colours::raised), square corners, its label stamped into it
+ *                    (Theme::stampText). Its states:
  *                      idle      iron plate, dark edge, a light line along its top, a dark lip under it
  *                      hover     lighter plate, the edge in Colours::stroke
  *                      pressed   the plate sits down on its lip
@@ -31,7 +31,12 @@
  *   4. Nameplate     A panel's title: a small dark plate riveted to the panel head, a tally in the section's colour
  *                    at its left with the section's mark or letter, the name in the blackletter face.
  *
- * No pills and no round corners: a corner is cut at 45 degrees (Theme::Plate::fill / stroke), or square. Stamping
+ * HARD EDGES ONLY. No pills and no round corners, not even a small radius: every plate, well, chip, cap and frame
+ * has sharp 90 degree corners (Theme::Cut is zero everywhere; a small cut reads as a round corner at this size, so
+ * the only 45 degree cuts are big ones that read as ironwork: the gussets of the sea's frame). Lines around plates
+ * are mitered with butt ends. The only round things are the ones that are round on a ship (above), ropes and
+ * cables, and the dots on ride lines and cursors. UiTest fails if a corner token is not zero, and if a rounded
+ * rectangle or a round-ended stroke appears in Source/ without the words "round object:" beside it. Stamping
  * is one or two thin tonal lines, never a gradient or a gloss, and never at the cost of reading the label: text
  * keeps its full colour and 4.5:1 on its plate (UiTest checks it).
  *
@@ -115,16 +120,18 @@ namespace Theme
         return true;
     }
 
-    /** Corner cuts: how much of a plate's corner is taken off at 45 degrees. Nothing has a round corner. */
+    /** Corners: how much of a plate's corner is taken off. Nothing: every corner is a hard 90 degrees (a cut of a
+        few pixels reads as a round corner). The names stay so that one place decides; UiTest holds them at zero. */
     namespace Cut
     {
-        constexpr float panel = 5.0f;    // the panel plates, the overlays, popup menus
-        constexpr float control = 3.0f;  // buttons, menus, tags, lanes, cards, wells
-        constexpr float small = 2.0f;    // chips, text boxes, the little things inside a control
+        constexpr float panel = 0.0f;    // the panel plates, the overlays, popup menus
+        constexpr float control = 0.0f;  // buttons, menus, tags, lanes, cards, wells
+        constexpr float small = 0.0f;    // chips, text boxes, the little things inside a control
     }
 
-    /** Plates: the cut-corner shape everything is made of, its pressed edge and its fasteners. Message thread only
-        (the shape is built in one kept path, so drawing a plate allocates nothing after the first). */
+    /** Plates: the hard-edged shape everything is made of (a rectangle; a `cut` takes its corners off straight),
+        its pressed edge and its fasteners. Message thread only (the shape is built in one kept path, so drawing a
+        plate allocates nothing after the first). */
     namespace Plate
     {
         constexpr float bolt = 6.5f;       // a bolt head's diameter: big enough to read as a bolt, slot and all
@@ -155,7 +162,7 @@ namespace Theme
             return p;
         }
 
-        /** Fills the cut-corner plate in the current colour. */
+        /** Fills the plate in the current colour. */
         inline void fill(juce::Graphics& g, juce::Rectangle<float> r, float cut)
         {
             if (cut < 0.05f)
@@ -164,7 +171,7 @@ namespace Theme
                 g.fillPath(shape(r, cut));
         }
 
-        /** A line around the cut-corner plate, inside r, in the current colour. */
+        /** A line around the plate, inside r, in the current colour: mitered, with butt ends. */
         inline void stroke(juce::Graphics& g, juce::Rectangle<float> r, float cut, float thickness = 1.0f)
         {
             g.strokePath(shape(r.reduced(thickness * 0.5f), juce::jmax(0.0f, cut - thickness * 0.3f)),

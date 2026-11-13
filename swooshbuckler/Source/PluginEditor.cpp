@@ -92,7 +92,7 @@ void SwooshbucklerAudioProcessorEditor::TapeButton::paint(juce::Graphics& g)
     // Cassette body with two reels and the tape between them
     auto icon = b.removeFromLeft(b.getHeight() * 1.6f).reduced(5.0f, 5.0f);
     g.setColour(TC::brass.withAlpha(0.85f));
-    Theme::Plate::stroke(g, icon.expanded(0.6f), 2.0f, 1.2f);
+    Theme::Plate::stroke(g, icon.expanded(0.6f), 0.0f, 1.2f);
     const float r = icon.getHeight() * 0.3f;
     const juce::Point<float> c1 { icon.getX() + icon.getWidth() * 0.3f, icon.getCentreY() - 1.0f };
     const juce::Point<float> c2 { icon.getX() + icon.getWidth() * 0.7f, icon.getCentreY() - 1.0f };

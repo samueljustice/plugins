@@ -1,7 +1,9 @@
 // UI test: the design tokens, the fitted text helper, the one rule for capitals, and the real editor drawn offline.
 //
 //   - Tokens: every text colour reaches 4.5:1 on the surfaces it is drawn on; the modulators' colours are none of
-//     the sections' colours or the brass; the radii and the type scale are what the design says.
+//     the sections' colours or the brass; the corners and the type scale are what the design says.
+//   - Hard edges: every corner token is zero, plates are filled square to their corner pixels, and no file in
+//     Source/ draws a rounded rectangle or a round-ended line except on a round object (marked "round object:").
 //   - Fitted text: a text that fits is left alone, one that does not is set smaller but never under the floor, and
 //     only then cut; a name is cut in its middle, a label at its end; nothing comes out wider than its box; a text
 //     is laid out once and kept, and lands where JUCE's own justification would put it.
@@ -129,9 +131,58 @@ int main(int argc, char* argv[])
               "sections: coral, turquoise and cherry are three different colours");
         check(TC::flight == TC::brass && TC::accent == TC::brass, "chrome: one accent (the old gold is the brass)");
 
-        check(Theme::Cut::panel >= 3.0f && Theme::Cut::panel <= 5.0f && Theme::Cut::control >= 2.0f && Theme::Cut::control <= Theme::Cut::panel
-                  && Theme::Cut::small > 0.0f && Theme::Cut::small <= Theme::Cut::control,
-              "corners: cut, not round - panels 3 to 5, controls no more than panels, the small things no more than controls");
+        check(Theme::Cut::panel == 0.0f && Theme::Cut::control == 0.0f && Theme::Cut::small == 0.0f,
+              "corners: hard - every corner token is zero (panels, controls and the small things are square)");
+        {
+            // Square to the pixel: a panel plate, a control plate (idle, lit, resting, disabled) and a well each
+            // fill the four corner pixels of their box.
+            const juce::Rectangle<float> box(4.0f, 4.0f, 60.0f, 24.0f);
+            auto squareCorners = [&box](std::function<void(juce::Graphics&)> draw)
+            {
+                juce::Image image(juce::Image::ARGB, 68, 40, true);
+                {
+                    juce::Graphics g(image);
+                    draw(g);
+                }
+                return image.getPixelAt(4, 4).getAlpha() > 40 && image.getPixelAt(63, 4).getAlpha() > 40
+                       && image.getPixelAt(4, 25).getAlpha() > 40 && image.getPixelAt(63, 25).getAlpha() > 40
+                       && image.getPixelAt(3, 3).getAlpha() == 0 && image.getPixelAt(64, 3).getAlpha() == 0;
+            };
+            using L = SwooshLookAndFeel;
+            bool square = squareCorners([&](juce::Graphics& g) { L::drawSurface(g, box, Theme::Cut::panel, TC::panel, 0.0f); })
+                          && squareCorners([&](juce::Graphics& g) { L::drawWell(g, box); })
+                          && squareCorners([&](juce::Graphics& g) { L::drawWell(g, box, Theme::Cut::small); });
+            for (const auto look : { Theme::Look::Normal, Theme::Look::Resting, Theme::Look::Disabled })
+                for (const bool on : { false, true })
+                    square = square && squareCorners([&](juce::Graphics& g) { L::drawControlPlate(g, box, TC::brass, look, on, false, false); });
+            check(square, "corners: a panel plate, a well and a control plate in each of its looks fill their box to its four corner pixels");
+        }
+        {
+            // The sources: no rounded rectangle, no corner radius, and no round-ended or round-joined line unless
+            // it is on a round object and says so on its line ("round object: the rope").
+            const juce::File sources(SWOOSH_SOURCE_DIR);
+            int files = 0, faults = 0;
+            for (const auto& entry : juce::RangedDirectoryIterator(sources, false, "*.h;*.cpp"))
+            {
+                ++files;
+                juce::StringArray lines;
+                entry.getFile().readLines(lines);
+                for (int i = 0; i < lines.size(); ++i)
+                {
+                    const auto& raw = lines[i];
+                    const auto code = raw.upToFirstOccurrenceOf("//", false, false);
+                    const bool roundedBox = code.contains("RoundedRectangle") || code.contains("cornerSize") || code.contains("Radius::")
+                                            || code.contains("addBubble") || code.contains("drawBubble");
+                    const bool roundedLine = (code.contains("PathStrokeType::curved") || code.contains("PathStrokeType::rounded")) && ! raw.contains("round object:");
+                    if (roundedBox || roundedLine)
+                    {
+                        ++faults;
+                        std::cout << "         " << entry.getFile().getFileName() << ":" << (i + 1) << " " << raw.trim().substring(0, 110) << std::endl;
+                    }
+                }
+            }
+            check(files > 40 && faults == 0, "corners: none of the " + juce::String(files) + " source files draws a rounded rectangle, or a round-ended line that is not on a round object");
+        }
         check(Theme::Plate::bolt >= 6.0f && Theme::Plate::bolt <= 7.0f && Theme::Plate::boltInset >= Theme::Plate::bolt,
               "fasteners: a bolt head is 6 to 7 across (big enough to read as a bolt) and sits clear of its plate's edge");
         check(contrast(TC::bolt, TC::panel) >= 3.0 && contrast(TC::bolt, TC::boltSlot) >= 3.0 && contrast(TC::bolt, TC::raised) >= 3.0,
@@ -150,8 +201,12 @@ int main(int argc, char* argv[])
                 check(contrast(TC::window, Theme::trackColour(lane)) >= 4.5, "lit plates: dark lettering reads on track colour " + juce::String(lane + 1));
         }
         {
-            // A plate's shape: corners cut at 45 degrees, nothing round. Its path is eight straight lines.
-            const auto& shape = Theme::Plate::shape({ 10.0f, 20.0f, 80.0f, 24.0f }, Theme::Cut::control);
+            // A plate's shape, when it is given a cut: corners taken off at 45 degrees, nothing round. Its path
+            // is eight straight lines. With no cut (every token) it is its rectangle.
+            const juce::Rectangle<float> whole(10.0f, 20.0f, 80.0f, 24.0f);
+            const auto& plain = Theme::Plate::shape(whole, Theme::Cut::control);
+            check(plain.contains(10.2f, 20.2f) && plain.contains(89.8f, 43.8f) && plain.getBounds() == whole, "plates: a plate is its whole rectangle");
+            const auto& shape = Theme::Plate::shape(whole, 3.0f);
             int lines = 0, curves = 0;
             for (juce::Path::Iterator it(shape); it.next();)
             {
@@ -160,7 +215,7 @@ int main(int argc, char* argv[])
             }
             check(curves == 0 && lines == 7 && ! shape.contains(10.5f, 20.5f) && shape.contains(10.5f, 32.0f) && shape.contains(14.0f, 21.0f)
                       && shape.getBounds() == juce::Rectangle<float>(10.0f, 20.0f, 80.0f, 24.0f),
-                  "plates: a plate is its rectangle with the four corners cut straight (no curves)");
+                  "plates: a cut, where one is asked for, is straight (no curves)");
         }
         check(Theme::Space::unit == 4 && Theme::Space::gutter == 12 && Theme::Space::gutter % Theme::Space::unit == 0 && Theme::Space::panelPadding % Theme::Space::unit == 0,
               "spacing: a 4 px unit, a 12 px gutter");

@@ -191,9 +191,9 @@ public:
             if (k == 0) p.startNewSubPath(x, y); else p.lineTo(x, y);
         }
         g.setColour(colour.withAlpha(0.25f));
-        g.strokePath(p, juce::PathStrokeType(5.0f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+        g.strokePath(p, juce::PathStrokeType(5.0f, juce::PathStrokeType::beveled, juce::PathStrokeType::butt));
         g.setColour(colour);
-        g.strokePath(p, juce::PathStrokeType(1.6f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+        g.strokePath(p, juce::PathStrokeType(1.6f, juce::PathStrokeType::beveled, juce::PathStrokeType::butt));
 
         const int wires = m_owner.m_processor.getMods().numRoutes(m_source);
         g.setColour(wires > 0 ? TC::text : TC::textFaint);
@@ -358,12 +358,12 @@ juce::Path ModWires::cablePath(juce::Point<float> from, juce::Point<float> to) c
 void ModWires::drawCable(juce::Graphics& g, const juce::Path& p, juce::Colour c, float alpha)
 {
     g.setColour(TC::shadow.withAlpha(0.45f * alpha));
-    g.strokePath(p, juce::PathStrokeType(4.5f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded),
+    g.strokePath(p, juce::PathStrokeType(4.5f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded), // round object: a cable
                  juce::AffineTransform::translation(0.0f, 2.0f));
     g.setColour(c.darker(0.35f).withAlpha(alpha));
-    g.strokePath(p, juce::PathStrokeType(3.6f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+    g.strokePath(p, juce::PathStrokeType(3.6f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded)); // round object: a cable
     g.setColour(c.brighter(0.25f).withAlpha(alpha * 0.9f));
-    g.strokePath(p, juce::PathStrokeType(1.2f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+    g.strokePath(p, juce::PathStrokeType(1.2f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded)); // round object: a cable
 }
 
 void ModWires::rebuild()

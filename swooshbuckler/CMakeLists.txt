@@ -249,7 +249,8 @@ if(SWOOSHBUCKLER_TESTS)
     juce_add_console_app(SwooshbucklerUi PRODUCT_NAME "SwooshbucklerUi")
     target_sources(SwooshbucklerUi PRIVATE Tests/UiTest.cpp)
     target_include_directories(SwooshbucklerUi PRIVATE Source tools ${CMAKE_CURRENT_SOURCE_DIR}/../common ${CMAKE_CURRENT_BINARY_DIR}/Swooshbuckler_artefacts/JuceLibraryCode $<TARGET_PROPERTY:Swooshbuckler,INCLUDE_DIRECTORIES>)
-    target_compile_definitions(SwooshbucklerUi PRIVATE $<TARGET_PROPERTY:Swooshbuckler,COMPILE_DEFINITIONS>)
+    target_compile_definitions(SwooshbucklerUi PRIVATE $<TARGET_PROPERTY:Swooshbuckler,COMPILE_DEFINITIONS>
+        SWOOSH_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/Source") # the hard-edge check reads the sources
     target_link_libraries(SwooshbucklerUi PRIVATE Swooshbuckler)
 endif()
 

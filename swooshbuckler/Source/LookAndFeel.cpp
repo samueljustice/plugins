@@ -37,7 +37,7 @@ SwooshLookAndFeel::SwooshLookAndFeel(const Theme::Fonts& fonts) : m_fonts(fonts)
     setColour(juce::ComboBox::outlineColourId, TC::stroke);
     setColour(juce::ComboBox::textColourId, TC::text);
     setColour(juce::ComboBox::arrowColourId, TC::textDim);
-    // Not opaque, so a menu's window can have cut corners (it is square where windows cannot be see-through).
+    // The menu's plate is drawn by drawPopupMenuBackground, square to its corners.
     setColour(juce::PopupMenu::backgroundColourId, TC::raised.withAlpha(0.0f));
     setColour(juce::PopupMenu::textColourId, TC::text);
     setColour(juce::PopupMenu::highlightedBackgroundColourId, TC::brass.withAlpha(0.2f));
@@ -392,9 +392,9 @@ void SwooshLookAndFeel::drawLabel(juce::Graphics& g, juce::Label& label)
 
 void SwooshLookAndFeel::drawPopupMenuBackground(juce::Graphics& g, int width, int height)
 {
-    // A plate of its own: cut corners where the window can be see-through, square where it cannot.
+    // A plate of its own, square like every other.
     const auto r = juce::Rectangle<float>(0.0f, 0.0f, static_cast<float>(width), static_cast<float>(height));
-    const float cut = juce::Desktop::canUseSemiTransparentWindows() ? Theme::Cut::panel : 0.0f;
+    const float cut = Theme::Cut::panel;
     g.setColour(TC::raised.brighter(0.03f));
     Theme::Plate::fill(g, r, cut);
     Theme::Plate::edge(g, r, cut);
@@ -472,7 +472,7 @@ void SwooshLookAndFeel::drawScrollbar(juce::Graphics& g, juce::ScrollBar&, int x
     const auto thumb = vertical ? slot.withY(static_cast<float>(thumbStart)).withHeight(static_cast<float>(thumbSize))
                                 : slot.withX(static_cast<float>(thumbStart)).withWidth(static_cast<float>(thumbSize));
     g.setColour(down ? TC::brass : (over ? TC::stroke.brighter(0.4f) : TC::stroke));
-    Theme::Plate::fill(g, thumb, 1.5f);
+    g.fillRect(thumb);
 }
 
 void SwooshLookAndFeel::drawCornerResizer(juce::Graphics& g, int w, int h, bool over, bool dragging)
@@ -486,7 +486,7 @@ void SwooshLookAndFeel::drawCornerResizer(juce::Graphics& g, int w, int h, bool 
 
 void SwooshLookAndFeel::fillTextEditorBackground(juce::Graphics& g, int width, int height, juce::TextEditor& editor)
 {
-    // A text box paints every pixel of itself: its cut corners take the colour of the panel it is cut into.
+    // A text box paints every pixel of itself, square to its corners.
     g.fillAll(TC::panel);
     g.setColour(editor.findColour(juce::TextEditor::backgroundColourId));
     Theme::Plate::fill(g, juce::Rectangle<float>(0.0f, 0.0f, static_cast<float>(width), static_cast<float>(height)), Theme::Cut::small);
@@ -599,7 +599,7 @@ void SwooshLookAndFeel::drawSurface(juce::Graphics& g, juce::Rectangle<float> ar
     if (elevation > 0.0f)
     {
         g.setColour(TC::shadow.withAlpha(juce::jmin(1.0f, 0.5f * elevation)));
-        Theme::Plate::fill(g, area.expanded(1.0f, 0.0f).translated(0.0f, 2.0f + elevation), cut + 1.0f);
+        Theme::Plate::fill(g, area.expanded(1.0f, 0.0f).translated(0.0f, 2.0f + elevation), cut);
     }
     g.setColour(fill);
     Theme::Plate::fill(g, area, cut);
@@ -650,7 +650,7 @@ void SwooshLookAndFeel::drawPanel(juce::Graphics& g, juce::Rectangle<float> area
     auto tally = plate.withWidth(24.0f);
     g.setColour(accent);
     {
-        // The tally keeps the plate's cut corners at its left and is square where it meets the name.
+        // The tally fills the plate's left end.
         g.saveState();
         g.reduceClipRegion(tally.getSmallestIntegerContainer());
         Plate::fill(g, plate, Theme::Cut::control);
@@ -687,7 +687,7 @@ void SwooshLookAndFeel::drawRope(juce::Graphics& g, juce::Point<float> a, juce::
     if (length < 2.0f || ! g.clipRegionIntersects(juce::Rectangle<float>(a, b).expanded(4.0f).getSmallestIntegerContainer()))
         return;
 
-    // Two strands twisted together: a run of slanted, round-ended strokes, each lit along its upper edge.
+    // Two strands twisted together: a run of slanted, round-ended strokes (a rope is round), each lit along its upper edge.
     const auto dir = (b - a) / length;
     const juce::Point<float> normal { -dir.y, dir.x };
     juce::Path strands, lights;
@@ -700,9 +700,9 @@ void SwooshLookAndFeel::drawRope(juce::Graphics& g, juce::Point<float> a, juce::
         lights.lineTo(c - normal * 0.2f);
     }
     g.setColour(colour.withMultipliedAlpha(0.55f));
-    g.strokePath(strands, juce::PathStrokeType(2.6f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+    g.strokePath(strands, juce::PathStrokeType(2.6f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded)); // round object: the rope
     g.setColour(colour.brighter(0.5f).withMultipliedAlpha(0.55f));
-    g.strokePath(lights, juce::PathStrokeType(1.0f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+    g.strokePath(lights, juce::PathStrokeType(1.0f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded)); // round object: the rope
 }
 
 void SwooshLookAndFeel::drawRule(juce::Graphics& g, juce::Point<float> a, juce::Point<float> b)
@@ -730,12 +730,12 @@ void SwooshLookAndFeel::drawCutlasses(juce::Graphics& g, juce::Rectangle<float> 
         guard.startNewSubPath(x0 + 0.08f * w, y0 + 0.74f * h);
         guard.quadraticTo(x0 + 0.24f * w, y0 + 0.80f * h, x0 + 0.32f * w, y0 + 0.97f * h);
         g.setColour(hilt);
-        g.strokePath(guard, juce::PathStrokeType(juce::jmax(1.5f, w * 0.07f), juce::PathStrokeType::curved, juce::PathStrokeType::rounded), t);
+        g.strokePath(guard, juce::PathStrokeType(juce::jmax(1.5f, w * 0.07f), juce::PathStrokeType::mitered, juce::PathStrokeType::butt), t);
 
         juce::Path grip;
         grip.startNewSubPath(x0 + 0.20f * w, y0 + 0.87f * h);
         grip.lineTo(x0 + 0.04f * w, y0 + 1.0f * h);
-        g.strokePath(grip, juce::PathStrokeType(juce::jmax(1.5f, w * 0.06f), juce::PathStrokeType::curved, juce::PathStrokeType::rounded), t);
+        g.strokePath(grip, juce::PathStrokeType(juce::jmax(1.5f, w * 0.06f), juce::PathStrokeType::mitered, juce::PathStrokeType::butt), t);
     };
     drawOne(false);
     drawOne(true);
@@ -977,7 +977,7 @@ void ModTarget::mouseDoubleClick(const juce::MouseEvent& e)
 void ModTarget::strokeModPath(juce::Graphics& g, const juce::Path& p, juce::Colour colour, float depth, float thickness)
 {
     g.setColour(colour);
-    const juce::PathStrokeType stroke(thickness, juce::PathStrokeType::curved, juce::PathStrokeType::rounded);
+    const juce::PathStrokeType stroke(thickness, juce::PathStrokeType::curved, juce::PathStrokeType::rounded); // round object: an arc on the wheel
     if (depth >= 0.0f)
     {
         g.strokePath(p, stroke);
@@ -1029,11 +1029,11 @@ void WheelKnob::paint(juce::Graphics& g)
     juce::Path track;
     track.addCentredArc(centre.x, centre.y, arcR, arcR, 0.0f, c_startAngle, c_endAngle, true);
     g.setColour(drained ? TC::well.withAlpha(0.7f) : TC::well);
-    g.strokePath(track, juce::PathStrokeType(3.0f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+    g.strokePath(track, juce::PathStrokeType(3.0f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded)); // round object: the wheel's arc
     if (look == Theme::Look::Linked)
     {
         g.setColour(m_linkColour.withAlpha(0.55f));
-        g.strokePath(track, juce::PathStrokeType(1.2f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+        g.strokePath(track, juce::PathStrokeType(1.2f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded)); // round object: the wheel's arc
     }
 
     const float valueAngle = c_startAngle + static_cast<float>(valueToProportionOfLength(getValue())) * (c_endAngle - c_startAngle);
@@ -1052,9 +1052,9 @@ void WheelKnob::paint(juce::Graphics& g)
     else if (! drained)
     {
         g.setColour(accent.withAlpha(0.22f));
-        g.strokePath(arc, juce::PathStrokeType(7.0f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+        g.strokePath(arc, juce::PathStrokeType(7.0f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded)); // round object: the wheel's arc
         g.setColour(accent);
-        g.strokePath(arc, juce::PathStrokeType(3.0f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+        g.strokePath(arc, juce::PathStrokeType(3.0f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded)); // round object: the wheel's arc
     }
 
     // Modulation: each wire's reach as a thin arc just inside the ring, and the live position as a dot.

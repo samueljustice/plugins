@@ -80,10 +80,10 @@ public:
     void drawRope(juce::Graphics& g, const juce::Path& rope, juce::Colour colour) const
     {
         g.setColour(Theme::Colours::shadow.withAlpha(0.5f));
-        g.strokePath(rope, juce::PathStrokeType(5.0f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded),
+        g.strokePath(rope, juce::PathStrokeType(5.0f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded), // round object: a rope
                      juce::AffineTransform::translation(0.0f, 2.0f));
         g.setColour(colour.darker(0.35f));
-        g.strokePath(rope, juce::PathStrokeType(3.6f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+        g.strokePath(rope, juce::PathStrokeType(3.6f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded)); // round object: a rope
 
         // Twist: short light dashes along the rope.
         juce::Path twist;

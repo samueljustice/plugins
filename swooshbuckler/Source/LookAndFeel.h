@@ -7,7 +7,7 @@
 /**
  * How every stock control is drawn, from the tokens and the vocabulary in Theme.h. One look for each kind of thing:
  *
- *   button   a control plate: iron, cut corners, a dark edge and a lip under it, its label stamped in. Hovered it
+ *   button   a control plate: iron, square corners, a dark edge and a lip under it, its label stamped in. Hovered it
  *            lightens; switched on, the whole plate is brass (or its section's colour) with dark lettering. A
  *            button that switches something has a small square lamp slot at its left, open when off and filled
  *            when on. Primary (Play) is the one brass key. An icon can sit left of the text (Icons::set).
@@ -71,7 +71,7 @@ public:
     /** The small window that asks for a name: a bolted plate (square: its window cannot be see-through). */
     void drawAlertBox(juce::Graphics&, juce::AlertWindow&, const juce::Rectangle<int>& textArea, juce::TextLayout&) override;
 
-    /** A plate bolted to what is under it: a short hard shadow, the flat fill, cut corners and the pressed edge.
+    /** A plate bolted to what is under it: a short hard shadow, the flat fill, square corners and the pressed edge.
         Costs a handful of fills, and nothing at all when the area is outside what is being repainted. */
     static void drawSurface(juce::Graphics&, juce::Rectangle<float> area, float cut = Theme::Cut::panel,
                             juce::Colour fill = Theme::Colours::panel, float elevation = 1.0f);

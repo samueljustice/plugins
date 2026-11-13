@@ -46,7 +46,7 @@ namespace Icons
         const auto box = juce::Rectangle<float>(side, side).withCentre(area.getCentre());
         auto at = [&box](float x, float y) { return juce::Point<float>(box.getX() + x * box.getWidth(), box.getY() + y * box.getHeight()); };
         const float line = juce::jmax(1.3f, side * 0.11f);
-        const juce::PathStrokeType stroke(line, juce::PathStrokeType::curved, juce::PathStrokeType::rounded);
+        const juce::PathStrokeType stroke(line, juce::PathStrokeType::mitered, juce::PathStrokeType::butt); // hard: square ends, sharp joins
         g.setColour(colour);
         juce::Path p;
 
@@ -101,7 +101,7 @@ namespace Icons
             case Icon::Die:
             {
                 const auto face = box.reduced(box.getWidth() * 0.08f);
-                g.drawRoundedRectangle(face, face.getWidth() * 0.1f, juce::jmax(1.0f, line * 0.85f));
+                g.drawRect(face, juce::jmax(1.0f, line * 0.85f));
                 const float pip = juce::jmax(1.6f, face.getWidth() * 0.17f);
                 for (const auto& c : { juce::Point<float>(0.28f, 0.28f), juce::Point<float>(0.72f, 0.28f), juce::Point<float>(0.5f, 0.5f),
                                        juce::Point<float>(0.28f, 0.72f), juce::Point<float>(0.72f, 0.72f) })
@@ -118,7 +118,7 @@ namespace Icons
                 p.cubicTo(at(0.32f, 0.04f - lift), at(0.68f, 0.04f - lift), at(0.68f, 0.36f - lift));
                 if (filled)
                     p.lineTo(at(0.68f, 0.48f));
-                g.strokePath(p, juce::PathStrokeType(juce::jmax(1.0f, line * 0.9f), juce::PathStrokeType::curved, juce::PathStrokeType::butt));
+                g.strokePath(p, juce::PathStrokeType(juce::jmax(1.0f, line * 0.9f), juce::PathStrokeType::mitered, juce::PathStrokeType::butt));
                 if (filled)
                     g.fillRect(body);
                 else
@@ -142,7 +142,7 @@ namespace Icons
             }
             case Icon::Stop:
             {
-                g.fillRoundedRectangle(juce::Rectangle<float>(at(0.2f, 0.2f), at(0.8f, 0.8f)), side * 0.1f);
+                g.fillRect(juce::Rectangle<float>(at(0.2f, 0.2f), at(0.8f, 0.8f)));
                 break;
             }
             case Icon::Settings:
@@ -155,9 +155,9 @@ namespace Icons
                     p.startNewSubPath(at(0.12f, y));
                     p.lineTo(at(0.88f, y));
                 }
-                g.strokePath(p, juce::PathStrokeType(juce::jmax(1.0f, line * 0.8f), juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+                g.strokePath(p, juce::PathStrokeType(juce::jmax(1.0f, line * 0.8f), juce::PathStrokeType::mitered, juce::PathStrokeType::butt));
                 for (int i = 0; i < 3; ++i)
-                    g.fillEllipse(juce::Rectangle<float>(side * 0.24f, side * 0.24f).withCentre(at(thumbs[i], 0.22f + 0.28f * static_cast<float>(i))));
+                    g.fillRect(juce::Rectangle<float>(side * 0.16f, side * 0.26f).withCentre(at(thumbs[i], 0.22f + 0.28f * static_cast<float>(i)))); // block caps
                 break;
             }
             case Icon::New:
@@ -172,7 +172,7 @@ namespace Icons
                 p.startNewSubPath(at(0.58f, 0.10f));
                 p.lineTo(at(0.58f, 0.30f));
                 p.lineTo(at(0.78f, 0.30f));
-                g.strokePath(p, juce::PathStrokeType(juce::jmax(1.0f, line * 0.85f), juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+                g.strokePath(p, juce::PathStrokeType(juce::jmax(1.0f, line * 0.85f), juce::PathStrokeType::mitered, juce::PathStrokeType::butt));
                 break;
             }
             case Icon::Clock:
@@ -186,7 +186,7 @@ namespace Icons
                 p.startNewSubPath(at(0.04f, 0.26f));
                 p.lineTo(at(0.14f, 0.44f));
                 p.lineTo(at(0.32f, 0.36f));
-                g.strokePath(p, juce::PathStrokeType(juce::jmax(1.0f, line * 0.85f), juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+                g.strokePath(p, juce::PathStrokeType(juce::jmax(1.0f, line * 0.85f), juce::PathStrokeType::mitered, juce::PathStrokeType::butt));
                 break;
             }
             case Icon::Cables:
@@ -206,7 +206,7 @@ namespace Icons
                     p.startNewSubPath(at(0.8f, 0.3f));
                     p.quadraticTo(at(0.8f, 0.74f), at(0.6f, 0.78f));
                 }
-                g.strokePath(p, juce::PathStrokeType(juce::jmax(1.0f, line * 0.85f), juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+                g.strokePath(p, juce::PathStrokeType(juce::jmax(1.0f, line * 0.85f), juce::PathStrokeType::mitered, juce::PathStrokeType::butt));
                 g.fillEllipse(juce::Rectangle<float>(r * 2.0f, r * 2.0f).withCentre(at(0.2f, 0.26f)));
                 g.fillEllipse(juce::Rectangle<float>(r * 2.0f, r * 2.0f).withCentre(at(0.8f, 0.26f)));
                 break;
@@ -218,34 +218,34 @@ namespace Icons
                 for (int i = 0; i < 3; ++i)
                 {
                     const float y = 0.26f + 0.24f * static_cast<float>(i);
-                    g.fillEllipse(juce::Rectangle<float>(side * 0.14f, side * 0.14f).withCentre(at(0.16f, y)));
+                    g.fillRect(juce::Rectangle<float>(side * 0.14f, side * 0.14f).withCentre(at(0.16f, y)));
                     p.startNewSubPath(at(0.34f, y));
                     p.lineTo(at(ends[i], y));
                 }
-                g.strokePath(p, juce::PathStrokeType(juce::jmax(1.0f, line * 0.85f), juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+                g.strokePath(p, juce::PathStrokeType(juce::jmax(1.0f, line * 0.85f), juce::PathStrokeType::mitered, juce::PathStrokeType::butt));
                 break;
             }
             case Icon::Variations:
             {
                 // One page, with two more behind it.
                 const float w = juce::jmax(1.0f, line * 0.85f);
-                g.drawRoundedRectangle(juce::Rectangle<float>(at(0.10f, 0.34f), at(0.62f, 0.90f)), side * 0.08f, w);
+                g.drawRect(juce::Rectangle<float>(at(0.10f, 0.34f), at(0.62f, 0.90f)).expanded(w * 0.5f), w);
                 p.startNewSubPath(at(0.26f, 0.22f));
                 p.lineTo(at(0.76f, 0.22f));
                 p.lineTo(at(0.76f, 0.76f));
                 p.startNewSubPath(at(0.42f, 0.10f));
                 p.lineTo(at(0.90f, 0.10f));
                 p.lineTo(at(0.90f, 0.62f));
-                g.strokePath(p, juce::PathStrokeType(w, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+                g.strokePath(p, juce::PathStrokeType(w, juce::PathStrokeType::mitered, juce::PathStrokeType::butt));
                 break;
             }
             case Icon::Link:
             {
-                // Two links of a chain, one through the other.
+                // Two links of a chain, one through the other (square links: forged, not bent).
                 const float w = juce::jmax(1.0f, line * 0.85f);
                 juce::Path a, b;
-                a.addRoundedRectangle(juce::Rectangle<float>(at(0.08f, 0.34f), at(0.58f, 0.66f)), side * 0.16f);
-                b.addRoundedRectangle(juce::Rectangle<float>(at(0.42f, 0.34f), at(0.92f, 0.66f)), side * 0.16f);
+                a.addRectangle(juce::Rectangle<float>(at(0.08f, 0.34f), at(0.58f, 0.66f)));
+                b.addRectangle(juce::Rectangle<float>(at(0.42f, 0.34f), at(0.92f, 0.66f)));
                 g.strokePath(a, juce::PathStrokeType(w));
                 g.strokePath(b, juce::PathStrokeType(w));
                 break;
@@ -298,7 +298,7 @@ namespace Icons
                 juce::Path waves;
                 waves.addCentredArc(at(0.48f, 0.5f).x, box.getCentreY(), side * 0.20f, side * 0.20f, 0.0f, 0.6f, 2.54f, true);
                 waves.addCentredArc(at(0.48f, 0.5f).x, box.getCentreY(), side * 0.36f, side * 0.36f, 0.0f, 0.6f, 2.54f, true);
-                g.strokePath(waves, juce::PathStrokeType(juce::jmax(1.0f, line * 0.85f), juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+                g.strokePath(waves, juce::PathStrokeType(juce::jmax(1.0f, line * 0.85f), juce::PathStrokeType::mitered, juce::PathStrokeType::butt));
                 break;
             }
             case Icon::LetterA:

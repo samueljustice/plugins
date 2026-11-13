@@ -337,7 +337,7 @@ public:
             const int bus = m_owner.m_hold.getBus(m_track);
             const auto tagColour = busColour(bus);
             const auto tagText = busTag(bus) + (m_owner.m_hold.getBusOverride(m_track) < 0 ? "" : " *");
-            // A tag: a small cut-corner plate in the section's colour, with the chevron of a menu.
+            // A tag: a small square plate in the section's colour, with the chevron of a menu.
             const auto tagFont = fonts.caption();
             const int arrowW = 11;
             const int tagW = juce::roundToInt(std::ceil(Theme::textWidth(tagFont, tagText))) + 14 + arrowW;
