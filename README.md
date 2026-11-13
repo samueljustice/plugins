@@ -270,7 +270,7 @@ cmake --build build --config Release
 
 See each project's README for its own options.
 
-**AAX:** add `-DSAMMYJ_AAX=ON` to build the AAX format too (macOS and Windows), and `-DAAX_SDK_PATH=<folder>` to use Avid's AAX SDK instead of the one bundled with JUCE (see [`cmake/AAX.cmake`](cmake/AAX.cmake)). The SDK isn't in this repository: it's Avid's. The release workflows fetch it from a private repository and upload each plug-in's AAX as a build artifact. It's unsigned, so it loads only in Pro Tools Developer until it is signed with PACE's wraptool.
+**AAX:** add `-DSAMMYJ_AAX=ON` to build the AAX format too (macOS and Windows), and `-DAAX_SDK_PATH=<folder>` to use Avid's AAX SDK instead of the one bundled with JUCE (see [`cmake/AAX.cmake`](cmake/AAX.cmake)). The SDK isn't in this repository: it's Avid's. The release workflows fetch it from a private repository and upload each plug-in's AAX as a build artifact. That build is unsigned. Pro Tools needs it signed with PACE's wraptool, which goes through an iLok account, so the signing runs on a Mac: after a release, run `bundle/sign-aax.sh` (all plug-ins, or name some). It signs each plug-in's macOS AAX with the hardened runtime, then the Notarise AAX workflow notarises it and adds `<Name>-<version>-macOS-AAX.zip` to the release. Windows AAX signing needs a Windows code-signing certificate, so Windows AAX aren't published yet.
 
 </details>
 
