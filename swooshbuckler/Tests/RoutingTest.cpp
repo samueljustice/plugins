@@ -808,6 +808,27 @@ int main(int argc, char* argv[])
             check(early < 0.25f * atPeak && after < 1.0e-4f, "stowaway: the throw swells to its peak and is gone with its tail");
         }
 
+        // A throw with the rig playing: the feed is the track itself, in step with it, so the throw only lifts it
+        // to its fader level and never stacks a second copy on top (faders steady here: no louder than playing).
+        {
+            hold.setBusOverride(0, CargoHold::c_stowBus);
+            auto p = plain();
+            p.throwSeconds = 2.0f;
+            RigEngine rig;
+            rig.setCargoHold(&hold);
+            rig.setParams(p);
+            rig.prepare(c_fs, c_block);
+            rig.setParams(p);
+            render(rig, 0.5);
+            rig.throwWhoosh(0, 1.0f);
+            const auto thrown = render(rig, 3.0);
+            float thrownPeak = 0.0f;
+            for (int i = 0; i < static_cast<int>(1.5 * c_fs); ++i) // the throw up to and past its peak, before the tone's loop comes round
+                thrownPeak = std::max(thrownPeak, std::abs(thrown.getSample(0, i)));
+            std::cout << "  a throw on Stowaway with the rig playing: peak " << thrownPeak << " (" << peak << " playing)" << std::endl;
+            check(thrownPeak < 1.05f * peak, "stowaway: a throw with the rig playing does not stack a second copy of the track on it");
+        }
+
         // The knobs and the Mode reach the engine as they are set, glided, with the modulators' offsets on top.
         {
             auto p = plain();

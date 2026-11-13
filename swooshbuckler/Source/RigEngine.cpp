@@ -1139,16 +1139,19 @@ void RigEngine::renderTracks(int frames)
         // A throw in flight: the track also feeds its bus's throw line, at its fader level. A hit track has no
         // line of its own (the hits are one sound, heard once): the throw only lifts it to its fader level, so
         // a throw's hit is as loud with the rig playing as from rest (not the ridden hit and the thrown one summed).
+        // Stowaway's throw feed is the same sound as its track, in step with it (no pass delays it), so it too
+        // carries only what the ride leaves out: the throw lifts the track towards its fader level.
         const float throw0 = m_throwGain[ti];
         if (throw0 > 0.0f || throwTarget > 0.0f)
         {
             const bool toHits = bus == CargoHold::c_hitsBus;
+            const bool lifts = toHits || bus == CargoHold::c_stowBus;
             float* throwDest = toHits ? m_hitsIn.data() : throwInput(bus);
             for (int i = 0; i < frames; ++i)
             {
                 const float frac = static_cast<float>(i + 1) * invFrames;
                 float throwGain = throw0 + (throwTarget - throw0) * frac;
-                if (toHits)
+                if (lifts)
                     throwGain = std::max(0.0f, throwGain - (g0 + (target - g0) * frac));
                 throwDest[i] += m_trackScratch[static_cast<size_t>(i)] * (modeGain0 + (modeGain1 - modeGain0) * frac)
                                 * throwGain * variGain;
@@ -1257,7 +1260,7 @@ void RigEngine::renderStow(int frames)
         *knobs[k] = sj::clamp(s.springs[k].step(seconds) + m_stowModNow[k], 0.0f, 1.0f);
     s.now.mode = juce::jlimit(0, c_stowModes - 1, m_params.stow.mode);
 
-    // A throw: the tracks arrive at their fader levels for as long as its sources are open, so its share is
+    // A throw: what the ride holds back of each track arrives for as long as its sources are open, so its share is
     // shaped here by the throw's own pass (bus A's copy of it, already moved on by this chunk): it swells to the
     // throw's peak and is gone with its tail, the same from rest as with the rig playing.
     float key = 0.0f;
