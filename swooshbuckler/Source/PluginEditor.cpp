@@ -102,7 +102,8 @@ void SwooshbucklerAudioProcessorEditor::SwellButton::paint(juce::Graphics& g)
     Theme::stampText(g, "Swell", juce::Rectangle<float>(radius * 1.7f, radius * 0.7f).withCentre(centre.translated(0.0f, -radius * 0.1f)),
                      m_fonts.art(radius * 0.56f), juce::Justification::centred, TC::window);
     g.setColour(TC::window.withAlpha(0.85f));
-    Theme::fitText(g, "Hold or Space", juce::Rectangle<float>(radius * 1.6f, 14.0f).withCentre(centre.translated(0.0f, radius * 0.42f)),
+    Theme::fitText(g, m_keyHint.isEmpty() ? juce::String("Hold") : "Hold or " + m_keyHint,
+                   juce::Rectangle<float>(radius * 1.6f, 14.0f).withCentre(centre.translated(0.0f, radius * 0.42f)),
                    m_fonts.caption(), juce::Justification::centred);
 }
 
@@ -1058,15 +1059,15 @@ SwooshbucklerAudioProcessorEditor::SwooshbucklerAudioProcessorEditor(Swooshbuckl
     m_dice.setTooltip("Randomise\nRolls a random but musical setting for the ride, the buses, the hits and the space, and glides to it. "
                       "Only the knobs it rolls move: every other control stays where you set it, and so do your tracks, their levels and the output. "
                       "A section with its lock on is left out. Keep rolling until you hear something you like; the arrows beside it go back "
-                      "through the last 20 rolls, and the star keeps one as a preset. The R key rolls too.");
+                      "through the last 20 rolls, and the star keeps one as a preset.");
     m_dice.onClick = [this] { rollDice(-1); };
 
     for (auto* b : { &m_undoButton, &m_redoButton, &m_rollBack, &m_rollForward, &m_keepRoll, &m_presetPrev, &m_presetNext })
         m_content.addAndMakeVisible(*b);
     m_undoButton.setTooltip("Undo\nTakes back the last thing you changed: a knob move, a preset, a Randomise roll, a section's die, A / B, New Session "
-                            "or a track edit, in the order they happened. A preset or a roll is one step, however many knobs it moved. Cmd+Z does the same.");
+                            "or a track edit, in the order they happened. A preset or a roll is one step, however many knobs it moved.");
     m_undoButton.onClick = [this] { stepHistory(false); };
-    m_redoButton.setTooltip("Redo\nDoes again what Undo took back. Shift+Cmd+Z does the same.");
+    m_redoButton.setTooltip("Redo\nDoes again what Undo took back.");
     m_redoButton.onClick = [this] { stepHistory(true); };
     m_rollBack.setTooltip("Previous Roll\nGoes back through the last 20 Randomise rolls (the header's and the section dice), and at the end to the "
                           "settings you had before the first of them. Each one comes back as you left it.");
@@ -1116,9 +1117,9 @@ SwooshbucklerAudioProcessorEditor::SwooshbucklerAudioProcessorEditor(Swooshbuckl
         }
     }
     m_content.addAndMakeVisible(m_tape);
-    m_tape.setTooltip("Tape\nArm it and it records whenever there is sound, skipping the quiet stretches, into one long file of usable whooshes. Click again to stop and close the file. Pass peaks and hits are marked in WAV files, so a take arrives ready to spot. Where it saves, in which format, Skip Silence (off for one continuous take) and One File per Whoosh (a separate file for each) are in Settings; what it has saved is in Takes. The T key arms and stops it too.");
+    m_tape.setTooltip("Tape\nArm it and it records whenever there is sound, skipping the quiet stretches, into one long file of usable whooshes. Click again to stop and close the file. Pass peaks and hits are marked in WAV files, so a take arrives ready to spot. Where it saves, in which format, Skip Silence (off for one continuous take) and One File per Whoosh (a separate file for each) are in Settings; what it has saved is in Takes.");
     m_tape.onClick = [this] { toggleLog(); };
-    m_retroButton.setTooltip("Last 60 Seconds\nThe rig always remembers the last minute. Click to save it to a file, even if the tape wasn't armed: for the happy accident you didn't record. Keep the Last in Settings makes it 3 or 5 minutes. The L key saves it too.");
+    m_retroButton.setTooltip("Last 60 Seconds\nThe rig always remembers the last minute. Click to save it to a file, even if the tape wasn't armed: for the happy accident you didn't record. Keep the Last in Settings makes it 3 or 5 minutes.");
     m_takesButton.setTooltip("Takes\nThe recordings of this run, newest first, with how many there are: tape takes, whoosh files and Last 60 s saves. "
                              "Open it to hear them, drag them out to the Finder / Explorer or into your DAW, keep or delete them.");
     m_takesButton.onClick = [this] { showTakes(); };
@@ -1126,14 +1127,16 @@ SwooshbucklerAudioProcessorEditor::SwooshbucklerAudioProcessorEditor(Swooshbuckl
                                   "choose how many (100 unless you say otherwise), how long, and what changes from one to the next. "
                                   "While a batch renders, this button shows how far it is.");
     m_variationsButton.onClick = [this] { showVariations(); };
-    m_playButton.setTooltip("Play / Stop\nStarts and stops the whole rig; the Return key does the same. Stop lets the tail ring out. The app always opens stopped, so nothing blasts out when you load a session. In a DAW it can be automated, and with Follow Host on the transport starts and stops it too.");
+    m_playButton.setTooltip("Play / Stop\nStarts and stops the whole rig. Stop lets the tail ring out. The app always opens stopped, so nothing blasts out when you load a session. In a DAW it can be automated, and with Follow Host on the transport starts and stops it too.");
     m_playButton.onClick = [this] { m_processor.setPlaying(! m_processor.isPlaying()); };
-    m_newButton.setTooltip("New Session\nStops, empties every track and puts every control back to its default. Undo (Cmd+Z) brings all of it back in one step: the tracks, the settings and the wires.");
+    m_newButton.setTooltip("New Session\nStops, empties every track and puts every control back to its default. Undo brings all of it back in one step: the tracks, the settings and the wires.");
     m_newButton.onClick = [this]
     {
         m_morph.finish();
         m_processor.newSession();
-        toast("New Session. Cmd+Z brings everything back.");
+        const auto undoKey = m_keys.keyText(Shortcuts::Action::Undo);
+        toast(undoKey.isEmpty() ? juce::String("New Session. Undo brings everything back.")
+                                : "New Session. " + undoKey + " brings everything back.");
     };
     m_retroButton.onClick = [this] { saveRetro(); };
     m_settingsButton.setTooltip("Settings\nWhere recordings go, their file type, bit depth, sample rate and channels, auto-arming the tape, and (in the app) the audio device.");
@@ -1227,7 +1230,7 @@ SwooshbucklerAudioProcessorEditor::SwooshbucklerAudioProcessorEditor(Swooshbuckl
                             "moment at the right. A swell is a hump; Energy sets how deep the dips between them go and Rate how long they are.");
     m_content.addAndMakeVisible(*m_rideStrip);
     m_content.addAndMakeVisible(m_swell);
-    m_swell.setTooltip("Swell\nHold it to push every fader up at once, for a big whoosh on demand. Held for longer than a couple of seconds, the mix eases back to its usual level with every fader still up. The space bar does the same, and so does any MIDI note while Keys is set to Swell.");
+    m_swell.setTooltip("Swell\nHold it to push every fader up at once, for a big whoosh on demand. Held for longer than a couple of seconds, the mix eases back to its usual level with every fader still up. Any MIDI note does the same while Keys is set to Swell.");
     m_rideButton.setClickingTogglesState(true);
     m_rideButton.setColour(juce::TextButton::buttonOnColourId, TC::flight);
     m_rideButton.setTooltip("Auto Ride\nThe heart of the rig: every track's fader moves by itself, each at its own speed, so overlapping swells make whooshes for you. Energy, Rate, Fill, Chaos and Pitch shape how it moves. Off: the faders stay where you set them, the doppler passes do the moving, and the mix is eased down to about the level it has with the ride on.");
@@ -1249,7 +1252,7 @@ SwooshbucklerAudioProcessorEditor::SwooshbucklerAudioProcessorEditor(Swooshbuckl
     m_throwButton.setTooltip("Throw\nThrows one whoosh now: a single pass on both buses, with a long approach, the peak as it goes by and a shorter tail. "
                              "With Aim on, the hits land on its peak. While the rig plays it goes on top of the ride; with the rig stopped you get "
                              "just that one whoosh and then silence, so single whooshes can be made one at a time. The peak is heard half a Throw "
-                             "Length after you throw, and the Ride panel counts down to it. The F key does the same, and so does a MIDI note with Keys set to Throw.");
+                             "Length after you throw, and the Ride panel counts down to it. A MIDI note does the same with Keys set to Throw.");
     m_throwButton.onClick = [this] { m_processor.throwWhoosh(); };
     m_content.addAndMakeVisible(m_throwButton);
 
@@ -1514,6 +1517,9 @@ SwooshbucklerAudioProcessorEditor::SwooshbucklerAudioProcessorEditor(Swooshbuckl
         for (const auto& [component, action] : tagged)
             Shortcuts::tag(*component, action);
     }
+
+    // Whatever the keys are, the places that draw one read it now.
+    refreshShortcuts();
 
    #if JUCE_MAC
     // The app gets a menu bar: the same actions, showing the same keys.
@@ -2072,7 +2078,8 @@ void SwooshbucklerAudioProcessorEditor::paintContent(juce::Graphics& g)
     if (g.clipRegionIntersects(m_footer))
     {
         g.setColour(TC::textFaint);
-        Theme::fitText(g, "Drop sounds into Tracks, press Play, arm the tape and let it ride. Hold Swell (or Space) to push.",
+        // The key named here is the one Swell has now: the line is written in refreshShortcuts, not here.
+        Theme::fitText(g, m_footerHint,
                        m_footer.withWidth(m_footer.getWidth() / 2 - 12), f.body(), juce::Justification::centredLeft, Theme::Fit::Sentence);
         if (m_toast.isNotEmpty())
         {
@@ -2092,7 +2099,14 @@ void SwooshbucklerAudioProcessorEditor::refreshShortcuts()
     if (m_menuBar != nullptr)
         m_menuBar->menuItemsChanged();
    #endif
-    // Tooltips name their key as they are asked for it, so nothing else has to be written again.
+    // The two places a key is written into the drawing rather than asked for as it is needed: the hint under the
+    // Swell button and the sea's own tip. Every other tooltip gets its key from the registry as it is shown.
+    const auto swellKey = m_keys.keyText(Shortcuts::Action::Swell);
+    m_swell.setKeyHint(swellKey);
+    m_footerHint = "Drop sounds into Tracks, press Play, arm the tape and let it ride. Hold Swell"
+                   + (swellKey.isEmpty() ? juce::String() : " (or " + swellKey + ")") + " to push.";
+    m_sea.setTooltip(swellKey.isEmpty() ? juce::String("The Sea\nClick it to swell every track up.")
+                                        : "The Sea\nClick it (or press " + swellKey + ") to swell every track up.");
     m_content.repaint();
 }
 

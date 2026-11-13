@@ -766,6 +766,56 @@ int main(int argc, char* argv[])
                         tape.frame(1.0f / 60.0f);   // coasting down, still turning
                     check(stopped <= 1.0e-3f && tape.m_speed > 0.3f && tape.m_speed < 1.0f && tape.m_angle != wasAngle,
                           "motion: the tape's reels coast down rather than stopping dead (" + juce::String(tape.m_speed, 2) + " of speed after a tenth of a second)");
+
+                    // Last 60 s goes back over what has just been played: the reels turn the other way for it.
+                    tape.m_speed = 0.0f;
+                    tape.m_rewind = 0.0f;
+                    for (int i = 0; i < 40; ++i)
+                        tape.frame(1.0f / 60.0f);       // let the coast die away
+                    const float still = tape.m_angle;
+                    tape.m_speed = 1.0f;
+                    tape.frame(1.0f / 60.0f);           // one frame of playing: the angle winds down
+                    const float forward = tape.m_angle - still;
+                    tape.m_speed = 0.0f;
+                    const float before = tape.m_angle;
+                    tape.rewind();
+                    for (int i = 0; i < 60; ++i)
+                        tape.frame(1.0f / 60.0f);
+                    const float back = tape.m_angle - before;
+                    check(forward < 0.0f && back > 0.0f && std::abs(back) > 2.5f && std::abs(back) < 3.3f,
+                          "motion: Last 60 s flicks the reels back half a turn - the other way from playing ("
+                              + juce::String(back, 2) + " against " + juce::String(forward, 3) + " a frame)");
+                }
+
+                // A key is named in one place only: the registry. No control writes its own key into its words,
+                // or the tooltip window would say one thing and the control's own sentence another.
+                {
+                    const char* spelledOut[] = { "The R key", "The T key", "The L key", "The F key", "the Return key",
+                                                 "The space bar", "The spacebar", "the space bar", "key does the same",
+                                                 "key rolls too", "key arms", "key saves it too", "Cmd+Z does the same",
+                                                 "Shift+Cmd+Z does the same", "(Cmd+Z)", "Cmd+Z brings", "Cmd+Z takes" };
+                    int named = 0;
+                    for (const auto& tip : tips)
+                        for (const auto* phrase : spelledOut)
+                            if (tip.contains(phrase))
+                            {
+                                ++named;
+                                std::cout << "         \"" << phrase << "\" in \""
+                                          << tip.upToFirstOccurrenceOf("\n", false, false) << "\"" << std::endl;
+                            }
+                    check(named == 0, "keys: no control spells a key out in its own words - the key comes from the registry, so it follows a change");
+                }
+
+                // The two keys that are drawn rather than asked for follow the registry as well.
+                {
+                    const auto wasSwell = ed.m_keys.key(Shortcuts::Action::Swell);
+                    ed.m_keys.set(Shortcuts::Action::Swell, juce::KeyPress('Q'));
+                    ed.refreshShortcuts();
+                    const bool moved = ed.m_swell.m_keyHint == "Q" && ed.m_sea.getTooltip().contains("press Q");
+                    ed.m_keys.set(Shortcuts::Action::Swell, wasSwell);
+                    ed.refreshShortcuts();
+                    check(moved && ed.m_swell.m_keyHint == "Space" && ed.m_sea.getTooltip().contains("press Space"),
+                          "keys: the hint under Swell and the sea's own tip name the key Swell has now, not the one it started with");
                 }
             }
 

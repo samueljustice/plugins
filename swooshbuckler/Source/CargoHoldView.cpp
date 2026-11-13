@@ -197,11 +197,11 @@ public:
         addAndMakeVisible(m_remove);
         m_mute.setTooltip("Mute\nSilences this track. It keeps its place in the ride, so it comes straight back in when you unmute it.");
         m_solo.setTooltip("Solo\nPlays only this track (and any others soloed), to hear what it brings to the whoosh.");
-        m_remove.setTooltip("Remove\nRemoves this track and frees its slot. Cmd+Z brings it back.");
+        m_remove.setTooltip("Remove\nRemoves this track and frees its slot. Undo brings it back.");
         const int lane = CargoHold::c_numBuiltIns + track;
         m_mute.onClick = [this, lane] { m_owner.m_hold.setMute(lane, ! m_owner.m_hold.getMute(lane)); };
         m_solo.onClick = [this, lane] { m_owner.m_hold.setSolo(lane, ! m_owner.m_hold.getSolo(lane)); };
-        m_remove.onClick = [this] { m_owner.m_hold.clear(m_track); m_owner.status("Removed. Cmd+Z brings it back."); };
+        m_remove.onClick = [this] { m_owner.m_hold.clear(m_track); m_owner.status("Removed. Undo brings it back."); };
 
         m_skip.setClickingTogglesState(true);
         m_skip.setWantsKeyboardFocus(false);
@@ -941,7 +941,7 @@ CargoHoldView::CargoHoldView(SwooshbucklerAudioProcessor& processor, const Theme
     {
         auto b = std::make_unique<juce::TextButton>(name);
         b->setColour(juce::TextButton::buttonOnColourId, TC::sources);
-        b->setTooltip("Undo\nTakes back the last change (Cmd+Z).");
+        b->setTooltip("Undo\nTakes back the last change.");
         const auto a = action;
         b->onClick = [this, a] { perform(a); };
         b->setWantsKeyboardFocus(false);
@@ -961,7 +961,7 @@ CargoHoldView::CargoHoldView(SwooshbucklerAudioProcessor& processor, const Theme
     m_demo.setWantsKeyboardFocus(false);
     m_demo.setTooltip("Load Demo Sounds\nFills four tracks with sounds made on the spot: a growl, a wind bed, air swishes and hits, "
                       "one for each part of the rig. Press Play (or Return) and you have a whoosh to shape. "
-                      "Cmd+Z takes them out again, and you can drop your own sounds in beside them or over them.");
+                      "Undo takes them out again, and you can drop your own sounds in beside them or over them.");
     m_demo.onClick = [this] { loadDemo(); };
     addChildComponent(m_demo);
 
@@ -1326,7 +1326,7 @@ void CargoHoldView::loadDemo()
         lane->refresh();
     for (auto& lane : m_lanes)
         if (lane->hasData()) { m_active = lane->getTrack(); break; }
-    status(loaded > 0 ? "Demo sounds loaded. Press Play (or Return) to hear them; Cmd+Z takes them out."
+    status(loaded > 0 ? "Demo sounds loaded. Press Play to hear them; Undo takes them out."
                       : "!Every track is in use: remove one to make room for the demo sounds.");
     resized();
     updateButtons();

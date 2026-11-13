@@ -97,7 +97,11 @@ private:
         void mouseDown(const juce::MouseEvent&) override { m_processor.setSwell(true); press(true); }
         void mouseUp(const juce::MouseEvent&) override { m_processor.setSwell(false); press(false); }
         void press(bool down) { m_scale.to(down ? 0.9f : 1.0f); }
+        /** The key that holds Swell, as the user reads it: the hint under the word follows it when it is changed
+            (empty when Swell has been left with no key, and then the hint is just "Hold"). */
+        void setKeyHint(const juce::String& key) { if (key != m_keyHint) { m_keyHint = key; repaint(); } }
     private:
+        juce::String m_keyHint;
         void frame(float dt) override;
         SwooshbucklerAudioProcessor& m_processor;
         const Theme::Fonts& m_fonts;
@@ -116,8 +120,9 @@ private:
         }
         void paint(juce::Graphics&) override;
         void mouseUp(const juce::MouseEvent& e) override { if (onClick && contains(e.getPosition())) onClick(); }
-        /** The LAST button was pressed: the reels flick back half a turn. */
-        void rewind() { m_rewind = -juce::MathConstants<float>::pi; }
+        /** Last 60 s was pressed: the reels flick back half a turn. Playing winds the angle down, so going back
+            over what has just been played winds it up. */
+        void rewind() { m_rewind = juce::MathConstants<float>::pi; }
         std::function<void()> onClick;
     private:
         void frame(float dt) override;
@@ -411,6 +416,9 @@ private:
 
     Morph m_morph;
 
+    /** The line along the foot of the window. It names the key Swell has, so it is written in refreshShortcuts
+        rather than in paint. */
+    juce::String m_footerHint;
     juce::String m_toast;
     double m_toastTime = 0.0;
     /** The toast's plate: it rises 8 px and fades in at the top of the open water, holds, and fades out. It is a
