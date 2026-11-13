@@ -55,7 +55,7 @@ What's changed in each version is in the [changelog](CHANGELOG.md).
 
 No sounds to hand? Click **Load Demo Sounds** in the empty Tracks panel. It fills four tracks with a growl, a wind bed, air swishes and hits, so you can press Play and hear the rig straight away.
 
-1. **Drop sounds into Tracks**, or click the drop zone to browse. Anything works: cloth, air, engines, animals, metal, voices. Each file gets its own looping track. Swooshbuckler finds the separate sounds in it, guesses what type of sound it is, and sends it to Bus A, Bus B or the Hits.
+1. **Drop sounds into Tracks**, or click the drop zone to browse. Anything works: cloth, air, engines, animals, metal, voices. Each file gets its own looping track. Swooshbuckler finds the separate sounds in it, guesses what type of sound it is, and sends it to Bus A, Bus B, Stowaway or the Hits.
 2. **Press Play.** With **Auto Ride** on (it is by default), every track's fader moves by itself at its own speed. When the layers swell together you get a whoosh.
 3. **Shape it** with Energy, Rate and Chaos, or try a preset or **Randomise**.
 4. **Arm the tape** (Arm). It records whenever there's sound and skips the quiet stretches. Click again to stop and close the file.
@@ -68,19 +68,22 @@ Every knob is a ship's wheel with a sand pointer, and under it its name and its 
 ## How it works
 
 ```
- Tracks ─┬─> Bus A (tonal, crackle, rumble, mixed) ─┐
-         ├─> Bus B (beds, air)  <── ducked by A ────┼─> Output ─> tape
+ Tracks ─┬─> Bus A (tonal, crackle, mixed) ─────────┐
+         ├─> Bus B (beds, air)  <── ducked by A ────┤
+         ├─> Stowaway (rumble) ─────────────────────┼─> Output ─> tape
          └─> Hits (impacts) <── gate opens on A + B ┘
 ```
 
 1. **Tracks** loop your sounds. The ride moves each track's fader, so the layers rise and fall on their own.
 2. Each track's **sound type** decides where it plays, unless you choose the bus yourself on the lane's bus tag:
-   - **Bus A** gets Tonal Content, Crackle, Rumble and Mixed Content.
+   - **Bus A** gets Tonal Content, Crackle and Mixed Content.
    - **Bus B** gets Energy Bed and Air / Swish.
+   - **Stowaway** gets Rumble while its Mode is Sub. In its other modes, Rumble plays on Bus A.
    - **Hits** gets Impact.
 3. **Bus A and Bus B** each turn their tracks into moving sources: doppler passes that fly across the stereo field, with low end, swirl, an envelope filter and drive. Bus A is the key for Bus B: when A gets loud it ducks and darkens B, so the two don't pile up.
-4. **Hits** only play when the hit gate opens. By default the gate opens at the loudest moments of the two buses, so the impacts land on the biggest swells and push the buses out of the way.
-5. **Output** adds echoes and reverb, makes it louder and denser, and limits it. The tape and Last 60 s record exactly what you hear.
+4. **Stowaway** is one extra bus beside the two. It does not fly passes of its own: the tracks sent to it play in the middle, at their ridden level. A [throw](#throw) reaches it as well, swelling to the throw's peak. The hits duck it like the buses, except while its Mode is Sub, when the low end stays under the hit.
+5. **Hits** only play when the hit gate opens. By default the gate opens at the loudest moments of the two buses, so the impacts land on the biggest swells and push the buses out of the way.
+6. **Output** adds echoes and reverb, makes it louder and denser, and limits it. The tape and Last 60 s record exactly what you hear.
 
 The small brass arrows between the sections show this flow, and a strip along the bottom of each section's panel shows the last 3 seconds of what it sends on.
 
@@ -171,7 +174,7 @@ This is where your sounds live: up to ten files, each on its own looping lane. F
 |---|---|---|
 | Tonal Content | Sounds with a pitch or a voice: growls, squeals, creatures, tones. | Bus A |
 | Crackle | Busy, broken-up texture: fire, debris, sparks. | Bus A |
-| Rumble | Low end: sub, thunder, rumble. | Bus A |
+| Rumble | Low end: sub, thunder, rumble. | Stowaway while its Mode is Sub, otherwise Bus A |
 | Mixed Content | A bit of everything, or no single clear type. | Bus A |
 | Energy Bed | Steady sound with body: wind, drones, engines, rain. | Bus B |
 | Air / Swish | Air movement: swishes, cloth, flaps, sword swings. | Bus B |
@@ -182,7 +185,7 @@ This is where your sounds live: up to ten files, each on its own looping lane. F
 A track plays on the bus its sound type picks until you say otherwise. Click the **bus tag** on its lane (or right-click the lane and open **Plays On**) and choose:
 
 - **Auto**: the bus the type picks, as in the table above. The menu says which that is. This is the default.
-- **Bus A**, **Bus B** or **Hits**: the track plays there whatever its type. The tag is marked ` *`.
+- **Bus A**, **Bus B**, **Hits** or **Stowaway**: the track plays there whatever its type. The tag is marked ` *`. A Stowaway track's tag carries an **S**, and its lane takes Stowaway's kelp green.
 
 The type, and the name the track takes from it, stay as they are, so a growl can sit under the beds on Bus B, or a swish can go through the hit gate, and still be called what it is. The choice is saved with the session and can be undone. Dropping a new sound on the lane puts it back on Auto.
 
@@ -432,7 +435,7 @@ Four modulators run along the bottom: **Mod 1** (lilac), **Mod 2** (sky blue), *
 |---|---|---|
 | **LFO** | A repeating wave that swings each wired knob up and down. The shape menu offers Sine, Triangle, Ramp (rises then drops), Square and Steps (a new random value every cycle). | **Rate**: one cycle every 20 s (0.05 Hz) to 8 Hz |
 | **Random** | A smooth random wander up and down, never the same twice. | **Rate**: as above |
-| **Follower** | Follows the loudness of **Bus A**, **Bus B**, the **Hits** or the whole **Output**, or the [Master track](#the-master-track): **Master** (its loudness), **Master Pitch** or **Master Brightness**, each read where the Master is playing and spread over that sound's own range. Pick which in the menu under the type. It turns its knobs one way only. The Master inputs rest until a track is the Master. | **Speed**: slow and smooth (2 s) to fast and jumpy (15 ms) |
+| **Follower** | Follows the loudness of **Bus A**, **Bus B**, the **Hits**, **Stowaway** or the whole **Output**, or the [Master track](#the-master-track): **Master** (its loudness), **Master Pitch** or **Master Brightness**, each read where the Master is playing and spread over that sound's own range. Pick which in the menu under the type. It turns its knobs one way only. The Master inputs rest until a track is the Master. | **Speed**: slow and smooth (2 s) to fast and jumpy (15 ms) |
 | **Macro** | One knob that turns every knob it's wired to, each by its own depth. It's a host parameter, so you can automate it. | **Amount** |
 
 The defaults are Mod 1: LFO (Sine), Mod 2: LFO (Triangle), Mod 3: Random, Mod 4: Follower (Bus A). Every card is laid out the same way. Along its top are its jack, its name, a line that says what it is wired to ("1 wire - Bus B Swirl", or "No wires") and Clear. Under that are its two menus, a scope of what the modulator has done over the last few seconds, and its knob.
@@ -677,7 +680,7 @@ Esc closes Settings, Takes, Render Variations or About; a batch that is renderin
 | Cmd-drag a knob (Ctrl on Windows) | Sets the depth of its newest wire. See [Modulation](#modulation). |
 | Double-click a track name | Renames it. |
 | Double-click a waveform | Puts the start flag back at the top. |
-| Click a lane's bus tag | Chooses the track's bus: **Auto**, **Bus A**, **Bus B** or **Hits**. See [Choosing the bus](#choosing-the-bus). |
+| Click a lane's bus tag | Chooses the track's bus: **Auto**, **Bus A**, **Bus B**, **Hits** or **Stowaway**. See [Choosing the bus](#choosing-the-bus). |
 | Click a lane's star | Makes that track the [Master](#the-master-track). |
 | Right-click a track lane | The track's menu: **Master Track**, **Match Pitch to Master** and **Plays On**. |
 | Drag from the **A** or **B** handle under the morph pad onto a track | Ropes that side of the morph to the track. Double-click the handle to let the rope go. See [Morph pad](#morph-pad). |

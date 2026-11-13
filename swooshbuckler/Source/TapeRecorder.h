@@ -60,7 +60,7 @@ public:
 
     /** Markers. Audio thread, before process(): a moment samplesFromNow samples into (or after) the next process()
         call. If the tape is writing at that moment the take gets a cue point there. */
-    enum MarkerKind { MarkPassA = 0, MarkPassB, MarkThrow, MarkHit, numMarkerKinds };
+    enum MarkerKind { MarkPassA = 0, MarkPassB, MarkThrow, MarkHit, MarkPassStow, numMarkerKinds };
     static juce::String markerLabel(int kind);
     void addMarker(int samplesFromNow, int kind);
 

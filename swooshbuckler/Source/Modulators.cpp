@@ -15,6 +15,8 @@ const std::vector<juce::String>& ModMatrix::targets()
             for (int k = 0; k < ParamIDs::numBusControls; ++k)
                 if (ParamIDs::bus[b][k] != nullptr)
                     ids.emplace_back(ParamIDs::bus[b][k]);
+        for (auto* id : ParamIDs::stow) // Stowaway's five knobs (not its Mode)
+            ids.emplace_back(id);
         for (auto* id : { ParamIDs::hitSense, ParamIDs::hitBoost, ParamIDs::hitRelease, ParamIDs::hitDuck,
                           ParamIDs::hitHold, ParamIDs::hitFloor, ParamIDs::duckReturn,
                           ParamIDs::space, ParamIDs::inflate, ParamIDs::push, ParamIDs::ceiling,

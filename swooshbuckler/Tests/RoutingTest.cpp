@@ -9,6 +9,10 @@
 //     with no pitch alone, and is one undo step.
 //   - Bus: a track sent to a bus by hand plays there (and only there), keeps its type and name, and the choice
 //     survives undo, save and restore.
+//   - Stowaway: a track sent to it reaches the output at unity and feeds neither bus A, bus B nor the hits; throws
+//     reach it, from rest too; rumbles go to it by themselves only while its Mode is Sub; the hits duck it in every
+//     mode but Sub; its Mode and knobs reach the engine (modulated), read by the mode, and are saved; Randomise
+//     and the dice never change the Mode.
 //   - Morph ropes: a roped side morphs that one track and the rest of its bus plays on; with the morph off a
 //     roped track sounds exactly as without the rope; changing a rope mid-morph doesn't click; ropes let go when
 //     their track is removed, come back with undo, and are saved with the session.
@@ -20,6 +24,9 @@
 #include "Parameters.h"
 #include "RigEngine.h"
 #include "SampleClassifier.h"
+#include "Presets.h"
+#include "Modulators.h"
+#include "TapeRecorder.h"
 
 #include <cmath>
 #include <iostream>
@@ -597,7 +604,7 @@ int main(int argc, char* argv[])
             return rig.takeSectionLevels();
         };
         const auto onAuto = sections(-1), onA = sections(0), onB = sections(1), onHits = sections(CargoHold::c_hitsBus);
-        auto say = [](const std::array<float, 3>& s) { return juce::String(s[0], 4) + " / " + juce::String(s[1], 4) + " / " + juce::String(s[2], 4); };
+        auto say = [](const std::array<float, RigEngine::c_sections>& s) { return juce::String(s[0], 4) + " / " + juce::String(s[1], 4) + " / " + juce::String(s[2], 4); };
         std::cout << "  A / B / hits levels: Auto " << say(onAuto) << ", Bus A " << say(onA) << ", Bus B " << say(onB) << ", Hits " << say(onHits) << std::endl;
         check(onAuto[0] > 0.01f && onAuto[1] < 1.0e-5f && onAuto[2] < 1.0e-5f, "bus: Auto plays it on bus A only");
         check(onA[0] > 0.01f && onA[1] < 1.0e-5f && onA[2] < 1.0e-5f, "bus: Bus A plays it on bus A only");
@@ -670,6 +677,348 @@ int main(int argc, char* argv[])
         const auto& params = plug.proc.getParameters();
         auto* last = dynamic_cast<juce::AudioProcessorParameterWithID*>(params.getLast());
         check(last != nullptr && last->paramID == ParamIDs::rideFollowMaster, "follow master: the newest parameter is the last in the host's list");
+    }
+
+    //==========================================================================
+    std::cout << "Stowaway" << std::endl;
+    {
+        // A 1 kHz tone on track 1, steady faders, nothing else in the way.
+        CargoHold hold;
+        const auto toneFile = writeWav(folder, "routing_stow_tone1k", tone(1000.0, 3.0));
+        hold.loadFile(0, toneFile, error);
+        hold.setSkipSilence(0, false);
+        hold.setRoleOverride(0, static_cast<int>(CargoRole::Tonal));
+        auto plain = []
+        {
+            auto p = plainParams();
+            p.hitBoost = 0.0f; // the hits at unity too: the reference for "straight through"
+            return p;
+        };
+        struct Run { std::array<float, RigEngine::c_sections> levels; juce::AudioBuffer<float> out; float scopePeak = 0.0f; float view = 0.0f; };
+        auto run = [&](int bus, const RigEngine::Params& p)
+        {
+            hold.setBusOverride(0, bus);
+            RigEngine rig;
+            rig.setCargoHold(&hold);
+            rig.setParams(p);
+            rig.prepare(c_fs, c_block);
+            rig.setParams(p);
+            render(rig, 0.5);
+            rig.takeSectionLevels();
+            Run r;
+            r.out = render(rig, 1.5);
+            r.levels = rig.takeSectionLevels();
+            std::array<float, ScopeRing::c_points> lo {}, hi {};
+            rig.getScope(RigEngine::SectionStow).read(lo, hi);
+            for (const float v : hi)
+                r.scopePeak = std::max(r.scopePeak, v);
+            r.view = rig.getStowLevel();
+            return r;
+        };
+        check(CargoHold::c_hitsBus == 2 && CargoHold::c_stowBus == 3 && CargoHold::c_maxBuses == 2 && RigEngine::c_maxBuses == 2,
+              "stowaway: its own place beside the buses (the hits keep theirs, and there are still two rig buses)");
+        const auto onStow = run(CargoHold::c_stowBus, plain());
+        const auto onHits = run(CargoHold::c_hitsBus, plain());
+        const auto onA = run(0, plain());
+        const auto& s = onStow.levels;
+        std::cout << "  on Stowaway, A / B / hits / Stowaway levels: " << s[0] << " / " << s[1] << " / " << s[2] << " / " << s[3] << std::endl;
+        check(hold.getBusOverride(0) == 0 && (hold.setBusOverride(0, CargoHold::c_stowBus), hold.getBus(0) == CargoHold::c_stowBus),
+              "stowaway: a track can be sent there by hand");
+        check(s[RigEngine::SectionStow] > 0.01f && s[RigEngine::SectionBusA] < 1.0e-5f && s[RigEngine::SectionBusB] < 1.0e-5f && s[RigEngine::SectionHits] < 1.0e-5f,
+              "stowaway: a track sent there plays on Stowaway only (not bus A, not bus B, not the hits)");
+        // Unity: as loud as the same track through the hits with the gate open and no boost, which adds nothing.
+        const float expected = onHits.levels[RigEngine::SectionHits];
+        check(expected > 0.01f && std::abs(s[RigEngine::SectionStow] / expected - 1.0f) < 0.001f,
+              "stowaway: it passes the track on at unity (" + juce::String(s[RigEngine::SectionStow], 4) + " RMS, " + juce::String(expected, 4) + " through the open hits)");
+        float worstLR = 0.0f, worstVsHits = 0.0f, peak = 0.0f;
+        for (int i = 0; i < onStow.out.getNumSamples(); ++i)
+        {
+            worstLR = std::max(worstLR, std::abs(onStow.out.getSample(0, i) - onStow.out.getSample(1, i)));
+            worstVsHits = std::max(worstVsHits, std::abs(onStow.out.getSample(0, i) - onHits.out.getSample(0, i)));
+            peak = std::max(peak, std::abs(onStow.out.getSample(0, i)));
+        }
+        std::cout << "  output peak " << peak << ", left - right " << worstLR << ", against the same track through the open hits " << worstVsHits << std::endl;
+        check(peak > 0.1f && worstLR == 0.0f, "stowaway: it reaches the output, in the middle");
+        check(worstVsHits < 1.0e-3f, "stowaway: the output is the track itself (the same as through the open hit gate, sample for sample)");
+        check(onStow.scopePeak > 0.2f && onStow.view > 0.5f && onA.scopePeak == 0.0f && onA.view == 0.0f && onA.levels[RigEngine::SectionStow] == 0.0f,
+              "stowaway: its scope, level view and Follower level show it, and stay at nothing with no track there");
+
+        // The hits duck it in every mode but Sub. A second tone plays through the (open) hits.
+        {
+            hold.loadFile(1, writeWav(folder, "routing_stow_tone300", tone(300.0, 3.0)), error);
+            hold.setSkipSilence(1, false);
+            hold.setBusOverride(1, CargoHold::c_hitsBus);
+            auto p = plain();
+            p.hitDuck = 1.0f;
+            float level[RigEngine::c_stowModes] {};
+            for (int mode = 0; mode < RigEngine::c_stowModes; ++mode)
+            {
+                p.stow.mode = mode;
+                level[mode] = run(CargoHold::c_stowBus, p).levels[RigEngine::SectionStow];
+            }
+            std::cout << "  Stowaway under a full Hit Duck: Sub " << level[0] << ", Wake " << level[1] << ", Fly " << level[2] << ", Dry " << level[3]
+                      << " (" << s[RigEngine::SectionStow] << " with no hits)" << std::endl;
+            check(std::abs(level[RigEngine::StowSub] / s[RigEngine::SectionStow] - 1.0f) < 0.01f, "stowaway: the hits do not duck it in Sub");
+            check(level[RigEngine::StowWake] < 0.5f * level[RigEngine::StowSub] && level[RigEngine::StowFly] < 0.5f * level[RigEngine::StowSub]
+                      && level[RigEngine::StowDry] < 0.5f * level[RigEngine::StowSub],
+                  "stowaway: the hits duck it in Wake, Fly and Dry");
+            hold.clear(1);
+        }
+
+        // A morph rope on a Stowaway track, with the morph off: the track still plays through Stowaway.
+        {
+            hold.setBusOverride(0, CargoHold::c_stowBus);
+            hold.setMorphSource(0, 0);
+            const auto roped = run(CargoHold::c_stowBus, plain());
+            hold.setMorphSource(0, -1);
+            check(std::abs(roped.levels[RigEngine::SectionStow] / s[RigEngine::SectionStow] - 1.0f) < 0.01f && roped.levels[RigEngine::SectionBusB] < 1.0e-5f
+                      && roped.levels[RigEngine::SectionBusA] < 1.0e-5f,
+                  "stowaway: a roped Stowaway track with the morph off still plays through Stowaway, and nowhere else");
+        }
+
+        // Throws reach it, from rest too: the rig is stopped, one throw of 2 s, the track only on Stowaway.
+        {
+            hold.setBusOverride(0, CargoHold::c_stowBus);
+            auto p = plain();
+            p.throwSeconds = 2.0f;
+            RigEngine rig;
+            rig.setCargoHold(&hold);
+            rig.setParams(p);
+            rig.prepare(c_fs, c_block);
+            rig.setParams(p);
+            rig.setReleased(true);
+            const auto rest = render(rig, 0.5);
+            rig.takeSectionLevels();
+            rig.throwWhoosh(0, 1.0f);
+            const auto thrown = render(rig, 3.0);
+            const auto levels = rig.takeSectionLevels();
+            auto peakOf = [](const juce::AudioBuffer<float>& a, double from, double to)
+            {
+                float m = 0.0f;
+                for (int i = static_cast<int>(from * c_fs); i < std::min(a.getNumSamples(), static_cast<int>(to * c_fs)); ++i)
+                    m = std::max(m, std::abs(a.getSample(0, i)));
+                return m;
+            };
+            const float before = peakOf(rest, 0.3, 0.5), early = peakOf(thrown, 0.0, 0.2), atPeak = peakOf(thrown, 0.9, 1.1), after = peakOf(thrown, 2.3, 3.0);
+            std::cout << "  a throw from rest on Stowaway: " << before << " before, " << early << " as it starts, " << atPeak << " at its peak, " << after
+                      << " after its tail (levels A / B / hits / Stowaway " << levels[0] << " / " << levels[1] << " / " << levels[2] << " / " << levels[3] << ")" << std::endl;
+            check(before < 1.0e-5f && levels[RigEngine::SectionStow] > 0.01f && std::abs(atPeak / peak - 1.0f) < 0.05f,
+                  "stowaway: a throw from rest is heard on it, as loud at its peak as the track playing");
+            check(levels[RigEngine::SectionBusA] < 1.0e-5f && levels[RigEngine::SectionBusB] < 1.0e-5f, "stowaway: and the thrown track still feeds neither bus");
+            check(early < 0.25f * atPeak && after < 1.0e-4f, "stowaway: the throw swells to its peak and is gone with its tail");
+        }
+
+        // The knobs and the Mode reach the engine as they are set, glided, with the modulators' offsets on top.
+        {
+            auto p = plain();
+            p.stow.mode = RigEngine::StowFly;
+            p.stow.follow = 0.25f;
+            p.stow.low = 0.5f;
+            p.stow.filter = 0.3f;
+            p.stow.drive = 0.6f;
+            p.stow.width = 0.1f;
+            p.stowMod[RigEngine::StowFilter] = 0.2f;
+            p.stowMod[RigEngine::StowWidth] = -0.5f; // held at the bottom of the travel
+            RigEngine rig;
+            rig.setCargoHold(&hold);
+            rig.setParams(p);
+            rig.prepare(c_fs, c_block);
+            rig.setParams(p);
+            render(rig, 0.5);
+            const auto& now = rig.getStowNow();
+            check(now.mode == RigEngine::StowFly && std::abs(now.follow - 0.25f) < 1.0e-3f && std::abs(now.low - 0.5f) < 1.0e-3f
+                      && std::abs(now.filter - 0.5f) < 1.0e-3f && std::abs(now.drive - 0.6f) < 1.0e-3f && now.width == 0.0f,
+                  "stowaway: its Mode and five knobs reach the engine, modulators included");
+        }
+    }
+    {
+        // Rumbles go to Stowaway by themselves, but only while it is a sub.
+        CargoHold hold;
+        const auto file = writeWav(folder, "routing_stow_rumble", tone(60.0, 2.0));
+        hold.loadFile(0, file, error);
+        hold.setRoleOverride(0, static_cast<int>(CargoRole::Rumble));
+        check(hold.getRumbleToStowaway() && hold.getBus(0) == CargoHold::c_stowBus && hold.getBusOverride(0) == -1,
+              "rumble: on Auto a rumble plays on Stowaway (which starts as a sub)");
+        hold.setRumbleToStowaway(false);
+        check(hold.getBus(0) == 0, "rumble: with Stowaway not a sub, it plays on bus A");
+        bool othersStay = true;
+        for (const bool on : { false, true })
+        {
+            hold.setRumbleToStowaway(on);
+            for (int r = 0; r < c_numCargoRoles; ++r)
+                if (static_cast<CargoRole>(r) != CargoRole::Rumble)
+                    othersStay = othersStay && CargoHold::busForRole(static_cast<CargoRole>(r), on) != CargoHold::c_stowBus
+                                 && hold.autoBus(static_cast<CargoRole>(r)) == CargoHold::busForRole(static_cast<CargoRole>(r), false);
+        }
+        check(othersStay, "rumble: no other type is ever sent to Stowaway by itself");
+        hold.setRumbleToStowaway(true);
+        hold.setBusOverride(0, 1);
+        check(hold.getBus(0) == 1, "rumble: a bus chosen by hand wins");
+        hold.setBusOverride(0, CargoHold::c_stowBus);
+        hold.setRumbleToStowaway(false);
+        check(hold.getBus(0) == CargoHold::c_stowBus, "rumble: and Stowaway chosen by hand stays in every mode");
+        // Saved with the session like the other choices; a rig sharing the sounds routes the same way.
+        CargoHold back;
+        back.fromValueTree(hold.toValueTree());
+        check(back.getBusOverride(0) == CargoHold::c_stowBus, "stowaway: the choice survives save and restore");
+        hold.setBusOverride(0, -1);
+        CargoHold shared;
+        hold.beginLending();
+        shared.shareFrom(hold);
+        check(! shared.getRumbleToStowaway() && shared.getBus(0) == 0, "rumble: a rig that shares the sounds routes rumbles the same way");
+        shared.fromValueTree(juce::ValueTree("Cargo"));
+        hold.endLending();
+
+        // Through the plug-in: the Mode decides, at once (no audio needed), and with the audio running.
+        Plug plug;
+        plug.load(0, file);
+        plug.load(1, file);
+        auto& cargo = plug.proc.getCargo();
+        cargo.setRoleOverride(0, static_cast<int>(CargoRole::Rumble));
+        cargo.setRoleOverride(1, static_cast<int>(CargoRole::Tonal));
+        check(juce::roundToInt(plug.plain(ParamIDs::stowMode)) == ParamIDs::StowSub && cargo.getBus(0) == CargoHold::c_stowBus && cargo.getBus(1) == 0,
+              "rumble: in the plug-in, Stowaway starts in Sub and takes the rumble (a tonal sound stays on bus A)");
+        bool onlySub = true;
+        for (int mode = ParamIDs::numStowModes - 1; mode >= 0; --mode)
+        {
+            plug.set(ParamIDs::stowMode, static_cast<float>(mode));
+            onlySub = onlySub && cargo.getBus(0) == (mode == ParamIDs::StowSub ? CargoHold::c_stowBus : 0) && cargo.getBus(1) == 0;
+        }
+        check(onlySub, "rumble: it follows Stowaway's Mode: there in Sub, on bus A in Wake, Fly and Dry");
+
+        // The parameters: where they are, what they are called, how they read.
+        auto* modeParam = dynamic_cast<juce::AudioParameterChoice*>(plug.proc.getState().getParameter(ParamIDs::stowMode));
+        check(modeParam != nullptr && modeParam->choices == juce::StringArray({ "Sub", "Wake", "Fly", "Dry" }) && modeParam->getName(64) == "Stowaway Mode",
+              "stowaway: Mode is a menu of Sub, Wake, Fly and Dry");
+        const char* names[ParamIDs::numStowControls] = { "Stowaway Follow", "Stowaway Low End", "Stowaway Filter", "Stowaway Drive", "Stowaway Width" };
+        bool named = true, targets = true;
+        for (int k = 0; k < ParamIDs::numStowControls; ++k)
+        {
+            auto* param = plug.proc.getState().getParameter(ParamIDs::stow[k]);
+            named = named && param != nullptr && param->getName(64) == names[k];
+            targets = targets && ModMatrix::targetIndex(ParamIDs::stow[k]) >= 0;
+        }
+        check(named, "stowaway: five knobs: Follow, Low End, Filter, Drive, Width");
+        check(targets && ModMatrix::targetIndex(ParamIDs::stowMode) < 0, "stowaway: the five knobs can be modulated (the Mode cannot)");
+        auto text = [&](int k) { auto* param = plug.proc.getState().getParameter(ParamIDs::stow[k]); return param->getText(param->getValue(), 64); };
+        auto textAt = [&](int k, float v) { return plug.proc.getState().getParameter(ParamIDs::stow[k])->getText(v, 64); };
+        plug.set(ParamIDs::stowMode, static_cast<float>(ParamIDs::StowSub));
+        std::cout << "  in Sub the knobs read: " << text(0) << ", " << text(1) << ", " << text(2) << ", " << text(3) << ", " << text(4)
+                  << "; Filter from " << textAt(ParamIDs::StowFilter, 0.0f) << " to " << textAt(ParamIDs::StowFilter, 1.0f) << std::endl;
+        check(text(ParamIDs::StowFilter) == "120 Hz" && textAt(ParamIDs::StowFilter, 0.0f) == "40 Hz" && textAt(ParamIDs::StowFilter, 1.0f) == "250 Hz",
+              "stowaway: in Sub, Filter reads the crossover in Hz: 40 to 250 Hz, 120 Hz where it starts");
+        bool rises = true;
+        for (int i = 1; i <= 100; ++i)
+            rises = rises && Params::stowCrossoverHz(static_cast<float>(i) / 100.0f) > Params::stowCrossoverHz(static_cast<float>(i - 1) / 100.0f)
+                    && std::abs(Params::stowCrossoverKnob(Params::stowCrossoverHz(static_cast<float>(i) / 100.0f)) - static_cast<float>(i) / 100.0f) < 1.0e-4f;
+        check(rises, "stowaway: the crossover rises all the way up the knob, and a frequency finds its place on it");
+        check(text(ParamIDs::StowWidth) == "Mono" && text(ParamIDs::StowFollow) == "70%" && text(ParamIDs::StowLow) == "0%" && text(ParamIDs::StowDrive) == "0%",
+              "stowaway: in Sub, Width reads Mono; Follow, Low End and Drive read a percentage");
+        bool otherModes = true;
+        for (int mode = ParamIDs::StowWake; mode < ParamIDs::numStowModes; ++mode)
+        {
+            plug.set(ParamIDs::stowMode, static_cast<float>(mode));
+            otherModes = otherModes && text(ParamIDs::StowFilter) == "Open" && text(ParamIDs::StowWidth) == "100%"
+                         && textAt(ParamIDs::StowFilter, 0.0f) == "Under 150 Hz" && textAt(ParamIDs::StowFilter, 1.0f) == "Over 2.5 kHz";
+        }
+        std::cout << "  in Dry: Filter " << text(ParamIDs::StowFilter) << " (" << textAt(ParamIDs::StowFilter, 0.0f) << " .. " << textAt(ParamIDs::StowFilter, 0.3f) << " .. "
+                  << textAt(ParamIDs::StowFilter, 0.7f) << " .. " << textAt(ParamIDs::StowFilter, 1.0f) << "), Width " << text(ParamIDs::StowWidth) << std::endl;
+        check(otherModes, "stowaway: in Wake, Fly and Dry, Filter is open where it starts and closes either way, and Width reads a percentage");
+
+        // To the engine, with a modulator wired to one knob (a Macro at 40% through a 50% wire: +20%).
+        plug.set(ParamIDs::stowMode, static_cast<float>(ParamIDs::StowWake));
+        plug.set(ParamIDs::stow[ParamIDs::StowFollow], 0.2f);
+        plug.set(ParamIDs::stow[ParamIDs::StowLow], 0.3f);
+        plug.set(ParamIDs::stow[ParamIDs::StowFilter], 0.4f);
+        plug.set(ParamIDs::stow[ParamIDs::StowDrive], 0.6f);
+        plug.set(ParamIDs::stow[ParamIDs::StowWidth], 0.8f);
+        plug.set(ParamIDs::modType[0], 3.0f);
+        plug.set(ParamIDs::modKnob[0], 0.4f);
+        plug.proc.getMods().connect(0, ParamIDs::stow[ParamIDs::StowDrive], 0.5f);
+        cargo.setBusOverride(1, CargoHold::c_stowBus);
+        plug.proc.prepareToPlay(c_fs, 512);
+        plug.proc.setPlaying(true);
+        juce::AudioBuffer<float> block(2, 512);
+        juce::MidiBuffer midi;
+        float heard = 0.0f;
+        for (int i = 0; i < 200; ++i)
+        {
+            block.clear();
+            plug.proc.processBlock(block, midi);
+            heard = std::max(heard, block.getMagnitude(0, 512));
+        }
+        const auto now = plug.proc.getEngine().getStowNow();
+        std::cout << "  the engine's Stowaway: mode " << now.mode << ", " << now.follow << " / " << now.low << " / " << now.filter << " / " << now.drive << " / " << now.width
+                  << ", level " << plug.proc.getEngine().getStowLevel() << ", output peak " << heard << std::endl;
+        check(now.mode == RigEngine::StowWake && std::abs(now.follow - 0.2f) < 0.01f && std::abs(now.low - 0.3f) < 0.01f && std::abs(now.filter - 0.4f) < 0.01f
+                  && std::abs(now.width - 0.8f) < 0.01f,
+              "stowaway: the plug-in's Mode and knobs reach the engine");
+        check(std::abs(now.drive - 0.8f) < 0.02f, "stowaway: a modulator wired to a knob moves it in the engine");
+        check(plug.proc.getEngine().getStowLevel() > 0.01f && heard > 0.01f && cargo.getBus(0) == 0, "stowaway: a track sent there by hand is heard through the plug-in, in any mode");
+
+        // Saved and restored: the Mode, the knobs, the track's place, the wire, and the rumble routing that goes with the Mode.
+        juce::MemoryBlock state;
+        plug.proc.getStateInformation(state);
+        Plug other;
+        other.load(0, file); // so there is something to route before the state arrives
+        other.proc.setStateInformation(state.getData(), static_cast<int>(state.getSize()));
+        const auto wires = other.proc.getMods().getRoutes();
+        check(juce::roundToInt(other.plain(ParamIDs::stowMode)) == ParamIDs::StowWake && std::abs(other.plain(ParamIDs::stow[ParamIDs::StowFollow]) - 0.2f) < 1.0e-4f
+                  && std::abs(other.plain(ParamIDs::stow[ParamIDs::StowLow]) - 0.3f) < 1.0e-4f && std::abs(other.plain(ParamIDs::stow[ParamIDs::StowFilter]) - 0.4f) < 1.0e-4f
+                  && std::abs(other.plain(ParamIDs::stow[ParamIDs::StowDrive]) - 0.6f) < 1.0e-4f && std::abs(other.plain(ParamIDs::stow[ParamIDs::StowWidth]) - 0.8f) < 1.0e-4f,
+              "stowaway: the Mode and the knobs are saved and restored");
+        check(other.proc.getCargo().getBusOverride(1) == CargoHold::c_stowBus && other.proc.getCargo().getBus(1) == CargoHold::c_stowBus
+                  && wires.size() == 1 && wires[0].param == ParamIDs::stow[ParamIDs::StowDrive],
+              "stowaway: so are the track sent there and the wire to its knob");
+        check(! other.proc.getCargo().getRumbleToStowaway() && other.proc.getCargo().getRoleOverride(0) == static_cast<int>(CargoRole::Rumble)
+                  && other.proc.getCargo().getBus(0) == 0,
+              "rumble: a session restored in Wake keeps its rumble on bus A");
+        plug.proc.setTrackBus(0, CargoHold::c_stowBus);
+        juce::String what;
+        check(cargo.getBusOverride(0) == CargoHold::c_stowBus && plug.proc.undoEdit(&what) && what == "Track Bus" && cargo.getBusOverride(0) == -1,
+              "stowaway: sending a track there through the plug-in is one undo step");
+
+        // Presets and the dice: Stowaway is a section with a die and a lock; nothing random ever touches the Mode.
+        check(juce::String(Presets::sectionName(Presets::Stowaway)) == "Stowaway" && ! Presets::isSessionParameter(ParamIDs::stowMode),
+              "stowaway: a section of its own for the dice and the locks, and a preset may set its Mode");
+        juce::Random r(7);
+        bool modeLeft = true, knobsRolled = true, lockHolds = true, onlyItsOwn = true;
+        for (int i = 0; i < 200; ++i)
+        {
+            const auto all = Presets::roll(r), locked = Presets::roll(r, 1u << Presets::Stowaway), die = Presets::rollSection(r, Presets::Stowaway);
+            modeLeft = modeLeft && all.values.count(ParamIDs::stowMode) == 0 && die.values.count(ParamIDs::stowMode) == 0;
+            onlyItsOwn = onlyItsOwn && die.values.size() == static_cast<size_t>(ParamIDs::numStowControls);
+            for (const auto* id : ParamIDs::stow)
+            {
+                knobsRolled = knobsRolled && all.values.count(id) == 1 && die.values.count(id) == 1 && die.values.at(id) >= 0.0f && die.values.at(id) <= 1.0f;
+                lockHolds = lockHolds && locked.values.count(id) == 0;
+            }
+        }
+        check(modeLeft, "stowaway: Randomise and Stowaway's die never change the Mode");
+        check(knobsRolled && onlyItsOwn, "stowaway: they roll its five knobs (the die: those and nothing else)");
+        check(lockHolds, "stowaway: its lock keeps Randomise off them");
+        Presets::Preset wake { "Wake", { { ParamIDs::stowMode, static_cast<float>(ParamIDs::StowFly) } } };
+        bool presetSetsMode = false, rollKeepsMode = true;
+        for (const auto& [param, value] : Presets::targets(plug.proc.getParameters(), wake, Presets::Unlisted::Default))
+            if (param->getParameterID() == ParamIDs::stowMode)
+                presetSetsMode = juce::roundToInt(param->convertFrom0to1(value)) == ParamIDs::StowFly;
+        for (const auto& [param, value] : Presets::targets(plug.proc.getParameters(), Presets::roll(r), Presets::Unlisted::Keep))
+            rollKeepsMode = rollKeepsMode && param->getParameterID() != ParamIDs::stowMode;
+        check(presetSetsMode && rollKeepsMode, "stowaway: a preset that names the Mode sets it; a roll leaves it out");
+        plug.proc.setSectionLocked(Presets::Stowaway, true);
+        juce::MemoryBlock lockedState;
+        plug.proc.getStateInformation(lockedState);
+        Plug third;
+        third.proc.setStateInformation(lockedState.getData(), static_cast<int>(lockedState.getSize()));
+        check(third.proc.isSectionLocked(Presets::Stowaway) && ! third.proc.isSectionLocked(Presets::Output), "stowaway: its lock is saved with the session");
+
+        // The Followers can listen to it, and a recording can mark its passes.
+        const auto followers = ModMatrix::followerNames();
+        auto* follows = dynamic_cast<juce::AudioParameterChoice*>(plug.proc.getState().getParameter(ParamIDs::modFollow[0]));
+        check(followers.size() == ModMatrix::c_numFollowerInputs && followers[ModMatrix::FollowStow] == "Stowaway" && follows != nullptr && follows->choices == followers,
+              "stowaway: a Follower can listen to it");
+        check(TapeRecorder::markerLabel(TapeRecorder::MarkPassStow) == "Pass S" && static_cast<int>(RigEngine::MarkPassStow) == static_cast<int>(TapeRecorder::MarkPassStow),
+              "stowaway: its own passes have a marker of their own");
     }
 
     //==========================================================================

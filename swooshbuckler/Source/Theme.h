@@ -68,6 +68,7 @@ namespace Theme
         inline const juce::Colour busB        { 0xff3ccbc2 }; // turquoise
         inline const juce::Colour hits        { 0xffff4f6a }; // cherry
         inline const juce::Colour output      { 0xffd3c9b4 }; // driftwood
+        inline const juce::Colour stowaway    { 0xff9db04c }; // kelp
         inline const juce::Colour space       { 0xff8fd9b0 }; // sea glass (the Space knob)
         inline const juce::Colour go          { 0xff4fd68a }; // switched on and running (the morph)
         inline const juce::Colour filter      { 0xff86b4ff }; // sky blue (the morph pad)

@@ -11,6 +11,8 @@
 //   window.png                the whole window, playing
 //   header.png tracks.png lane.png sea.png ride.png bus-a.png bus-b.png hits.png output.png modulation.png
 //                             one crop per panel
+//   window-stowaway.png tracks-stowaway.png
+//                             a track sent to Stowaway by hand
 //   morph.png                 the morph pad open over the sea
 //   cables.png                three wires, cables on, the buses linked (the Linked, Resting and Disabled looks)
 //   settings.png takes.png variations.png variations-rendering.png about.png update.png
@@ -436,6 +438,17 @@ int main(int argc, char* argv[])
             shots.crop(window, "toast-plate", ed.m_toastPill.expanded(40, 24), 0);
             ed.m_toast.clear();
             ed.m_toastRise.snap(0.0f);
+            rig.run(0.1);
+        }
+
+        // A track sent to Stowaway by hand: its tag says so, with an S on its tally, and its lane takes Stowaway's colour.
+        {
+            proc.getCargo().setBusOverride(1, CargoHold::c_stowBus);
+            ed.m_hold.historyStepped(); // the lanes take up the change (no message loop runs here)
+            rig.run(0.3);
+            shots.crop(shots.shoot("window-stowaway"), "tracks-stowaway", ed.m_hold.getBounds());
+            proc.getCargo().setBusOverride(1, -1);
+            ed.m_hold.historyStepped();
             rig.run(0.1);
         }
 

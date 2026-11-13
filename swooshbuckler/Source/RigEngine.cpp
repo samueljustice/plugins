@@ -112,7 +112,7 @@ float RigEngine::trackSpeed(int track) const
     return m_variNow[t] ? std::exp2(m_trackPitchNow[t] / 12.0f) : 1.0f;
 }
 
-std::array<float, 3> RigEngine::takeSectionLevels()
+std::array<float, RigEngine::c_sections> RigEngine::takeSectionLevels()
 {
     // Nothing rendered since the last call (the resampler can skip a block): keep the last levels.
     if (m_sectionSamples > 0)
@@ -184,6 +184,11 @@ void RigEngine::prepare(double sampleRate, int maxBlockSize)
             for (auto& band : d->band)
                 band.set(1000.0f, 0.35f, m_fs);
     }
+
+    for (auto& s : m_stow.springs) s.prepare(controlRate, 2.2f, 0.6f);
+    for (auto& band : m_stow.byHits.band)
+        band.set(1000.0f, 0.35f, m_fs);
+    m_stow.follower.set(4.0f, 160.0f, m_fs);
 
     m_detect.set(1.0f, 60.0f, m_fs);
     m_hitsFollower.set(2.0f, 120.0f, m_fs);
@@ -272,6 +277,22 @@ void RigEngine::reset()
     m_linkNow = m_params.linkBuses;
     m_linkFade = 1.0f;
 
+    {
+        auto& s = m_stow;
+        const float v[c_stowKnobs] = { m_params.stow.follow, m_params.stow.low, m_params.stow.filter, m_params.stow.drive, m_params.stow.width };
+        for (size_t k = 0; k < s.springs.size(); ++k)
+            s.springs[k].snap(v[k]);
+        s.now = m_params.stow;
+        s.fed = s.sounding = s.ducked = false;
+        s.pan = s.panFrom = 0.0f;
+        s.throwKey = 0.0f;
+        s.byHits.amount = 0.0f;
+        s.byHits.lp[0] = s.byHits.lp[1] = 0.0f;
+        s.byHits.band[0].reset();
+        s.byHits.band[1].reset();
+        s.env = s.follower.env = 0.0f;
+    }
+
     m_echoL.reset(); m_echoR.reset();
     m_echoLpL.reset(); m_echoLpR.reset(); m_echoHpL.reset(); m_echoHpR.reset();
     m_reverb.reset();
@@ -297,6 +318,7 @@ void RigEngine::reset()
     m_fillModNow = m_params.fillMod;
     m_spaceModNow = m_params.spaceMod;
     m_busModNow = m_params.busMod;
+    m_stowModNow = m_params.stowMod;
 
     for (size_t t = 0; t < m_levelSprings.size(); ++t)
         m_levelSprings[t].snap(m_params.levels[t]);
@@ -487,6 +509,9 @@ void RigEngine::setParams(const Params& p)
         for (size_t k = 0; k < 9; ++k)
             m_buses[i].springs[k].target = v[k];
     }
+    const float stow[c_stowKnobs] = { p.stow.follow, p.stow.low, p.stow.filter, p.stow.drive, p.stow.width };
+    for (size_t k = 0; k < m_stow.springs.size(); ++k)
+        m_stow.springs[k].target = stow[k];
 }
 
 void RigEngine::snapBus(BusState& bus, const BusParams& b)
@@ -508,6 +533,8 @@ void RigEngine::glideMods(int frames)
     for (size_t b = 0; b < m_busModNow.size(); ++b)
         for (size_t k = 0; k < m_busModNow[b].size(); ++k)
             m_busModNow[b][k] += (m_params.busMod[b][k] - m_busModNow[b][k]) * a;
+    for (size_t k = 0; k < m_stowModNow.size(); ++k)
+        m_stowModNow[k] += (m_params.stowMod[k] - m_stowModNow[k]) * a;
 }
 
 void RigEngine::restart()
@@ -625,7 +652,9 @@ void RigEngine::renderTracks(int frames)
         std::fill(bus.sideIn.begin(), bus.sideIn.begin() + frames, 0.0f);
     }
     std::fill(m_hitsIn.begin(), m_hitsIn.begin() + frames, 0.0f);
-    const int numBuses = c_maxBuses;
+    std::fill(m_stow.in.begin(), m_stow.in.begin() + frames, 0.0f);
+    std::fill(m_stow.throwIn.begin(), m_stow.throwIn.begin() + frames, 0.0f);
+    m_stow.fed = false;
 
     // Energy: how deep each track's fader dips, even in dB across the knob (-4 dB per 10%, then silence at the top).
     // Modulator offsets go on after the springs (see Params::energyMod).
@@ -983,10 +1012,6 @@ void RigEngine::renderTracks(int frames)
         for (auto& tap : m_morphTap)
             std::fill(tap.begin(), tap.begin() + frames, 0.0f);
     }
-    auto busInput = [this](int bus)
-    {
-        return bus == CargoHold::c_hitsBus ? m_hitsIn.data() : m_buses[static_cast<size_t>(juce::jlimit(0, c_maxBuses - 1, bus))].in.data();
-    };
 
     for (int t = 0; t < c_tracks; ++t)
     {
@@ -1094,9 +1119,9 @@ void RigEngine::renderTracks(int frames)
         // Skip Silence hops over the file's gaps, so every sound gets a fair share of the echoes then.
         const float fillAmount = fill * (skip ? std::max(0.5f, m_fillAmount[ti]) : m_fillAmount[ti]);
         auto& line = m_fillLines[ti];
-        // Routed by type, or to the bus chosen by hand: hits go to the hit gate, the rest to bus A or B. A track
-        // on a morph rope goes to its side's tap instead (see below); the fades are those of a rope being changed.
-        float* dest = busInput(bus);
+        // Routed by type, or to the place chosen by hand: the hit gate, bus A, bus B or Stowaway. A track on a
+        // morph rope goes to its side's tap instead (see below); the fades are those of a rope being changed.
+        float* dest = trackInput(bus);
         float rope0 = 1.0f, rope1 = 1.0f;
         for (size_t side = 0; side < 2; ++side)
         {
@@ -1118,8 +1143,7 @@ void RigEngine::renderTracks(int frames)
         if (throw0 > 0.0f || throwTarget > 0.0f)
         {
             const bool toHits = bus == CargoHold::c_hitsBus;
-            float* throwDest = toHits ? m_hitsIn.data()
-                                      : m_buses[static_cast<size_t>(juce::jlimit(0, numBuses - 1, bus))].throwIn.data();
+            float* throwDest = toHits ? m_hitsIn.data() : throwInput(bus);
             for (int i = 0; i < frames; ++i)
             {
                 const float frac = static_cast<float>(i + 1) * invFrames;
@@ -1187,7 +1211,7 @@ void RigEngine::renderTracks(int frames)
         {
             if (rope[side] >= 0)
             {
-                float* home = busInput(m_cargo != nullptr ? m_cargo->getBus(rope[side]) : 0);
+                float* home = trackInput(m_cargo != nullptr ? m_cargo->getBus(rope[side]) : 0);
                 const float* tap = m_morphTap[side].data();
                 for (int i = 0; i < frames; ++i)
                     home[i] += tap[i];
@@ -1199,6 +1223,96 @@ void RigEngine::renderTracks(int frames)
         }
     }
 
+}
+
+float* RigEngine::trackInput(int bus)
+{
+    switch (bus)
+    {
+        case CargoHold::c_hitsBus: return m_hitsIn.data();
+        case CargoHold::c_stowBus: m_stow.fed = true; return m_stow.in.data();
+        case 1:                    return m_buses[1].in.data();
+        default:                   return m_buses[0].in.data();
+    }
+}
+
+float* RigEngine::throwInput(int bus)
+{
+    switch (bus)
+    {
+        case CargoHold::c_hitsBus: return nullptr;
+        case CargoHold::c_stowBus: m_stow.fed = true; return m_stow.throwIn.data();
+        case 1:                    return m_buses[1].throwIn.data();
+        default:                   return m_buses[0].throwIn.data();
+    }
+}
+
+void RigEngine::renderStow(int frames)
+{
+    auto& s = m_stow;
+    // The knobs (after their springs) plus any modulator offsets, and the mode: what this chunk is rendered with.
+    const float seconds = static_cast<float>(frames) / m_fs;
+    float* const knobs[c_stowKnobs] = { &s.now.follow, &s.now.low, &s.now.filter, &s.now.drive, &s.now.width };
+    for (size_t k = 0; k < s.springs.size(); ++k)
+        *knobs[k] = sj::clamp(s.springs[k].step(seconds) + m_stowModNow[k], 0.0f, 1.0f);
+    s.now.mode = juce::jlimit(0, c_stowModes - 1, m_params.stow.mode);
+
+    // A throw: the tracks arrive at their fader levels for as long as its sources are open, so its share is
+    // shaped here by the throw's own pass (bus A's copy of it, already moved on by this chunk): it swells to the
+    // throw's peak and is gone with its tail, the same from rest as with the rig playing.
+    float key = 0.0f;
+    for (size_t v = 0; v < m_throws.size(); ++v)
+        if (m_throws[v].active)
+            key = std::max(key, passWindow(m_buses[0].throwHeads[v].progress(), 1.0f) * m_throws[v].level);
+    const float key0 = s.throwKey;
+    s.throwKey = key;
+
+    // Planted in the middle.
+    s.panFrom = s.pan;
+    s.pan = 0.0f;
+
+    // Nothing sent here: no sound, and nothing for the mix to add (see process()).
+    s.sounding = s.fed;
+    if (! s.sounding)
+    {
+        s.env = s.follower.env = 0.0f;
+        return;
+    }
+    const float invFrames = 1.0f / static_cast<float>(frames);
+    for (int i = 0; i < frames; ++i)
+    {
+        const auto ii = static_cast<size_t>(i);
+        const float m = s.in[ii] + s.throwIn[ii] * (key0 + (key - key0) * static_cast<float>(i + 1) * invFrames);
+        s.mono[ii] = m;
+        s.env = s.follower.process(m);
+    }
+}
+
+void RigEngine::placeStow(int frames)
+{
+    // The stream at its place, as stereo: equal in both channels in the middle (as loud as the stream itself, like
+    // the hits), turning to one side at constant power.
+    auto& s = m_stow;
+    auto gains = [](float pan, float& l, float& r)
+    {
+        const float a = 0.25f * sj::c_pi * (sj::clamp(pan, -1.0f, 1.0f) + 1.0f);
+        l = 1.41421356f * std::cos(a);
+        r = 1.41421356f * std::sin(a);
+    };
+    float l0 = 1.0f, r0 = 1.0f, l1 = 1.0f, r1 = 1.0f;
+    if (s.panFrom != 0.0f || s.pan != 0.0f)
+    {
+        gains(s.panFrom, l0, r0);
+        gains(s.pan, l1, r1);
+    }
+    const float invFrames = 1.0f / static_cast<float>(frames);
+    for (int i = 0; i < frames; ++i)
+    {
+        const auto ii = static_cast<size_t>(i);
+        const float t = static_cast<float>(i + 1) * invFrames;
+        s.l[ii] = s.mono[ii] * (l0 + (l1 - l0) * t);
+        s.r[ii] = s.mono[ii] * (r0 + (r1 - r0) * t);
+    }
 }
 
 float RigEngine::keyLevel(const BusState& bus)
@@ -1852,6 +1966,11 @@ void RigEngine::renderHits(int frames)
     float gateMax = 0.0f, hitsMax = 0.0f;
     const bool gateMarks = mode != 3 && ! m_params.hitSync && m_hasHitTracks;
     float gateWas = m_gate;
+    // Stowaway is ducked too, as one stream (before it is placed), in every mode but Sub: a hit wants the low end
+    // under it. Leaving for Sub mid-duck, it comes back up at the return time instead of jumping.
+    auto& stow = m_stow;
+    const bool stowDucks = stow.now.mode != StowSub;
+    const bool stowDuck = stow.sounding && (stowDucks || stow.ducked);
 
     for (int i = 0; i < frames; ++i)
     {
@@ -1906,6 +2025,22 @@ void RigEngine::renderHits(int frames)
             auto& bus = m_buses[static_cast<size_t>(b)];
             duckSample(bus.byHits, duck, returnCoef, 1.0f - sj::dbToGain(-12.0f), bus.l[ii], bus.r[ii]);
         }
+        if (stowDuck)
+        {
+            float other = stow.mono[ii];
+            duckSample(stow.byHits, stowDucks ? duck : 0.0f, returnCoef, 1.0f - sj::dbToGain(-12.0f), stow.mono[ii], other);
+        }
+    }
+    if (stowDuck)
+        stow.ducked = stow.byHits.amount > 1.0e-4f;
+    else if (stow.ducked)
+    {
+        // It went silent while ducked: nothing of that duck is left for when it sounds again.
+        stow.ducked = false;
+        stow.byHits.amount = 0.0f;
+        stow.byHits.lp[0] = stow.byHits.lp[1] = 0.0f;
+        stow.byHits.band[0].reset();
+        stow.byHits.band[1].reset();
     }
     // The HIT GATE lamp: the gate, or with AIM (gate held open) the aimed hits themselves, so it flashes on each.
     m_gateView.store(m_params.hitAim ? hitsMax : gateMax, std::memory_order_relaxed);
@@ -2162,7 +2297,13 @@ void RigEngine::process(const float* inL, const float* inR, float* outL, float* 
             m_throwPeakView.store(peakIn, std::memory_order_relaxed);
         }
 
+        // Stowaway: after the buses (bus A's level and passes are final for this chunk) and before the hits,
+        // which duck it; then it is placed.
+        renderStow(frames);
         renderHits(frames);
+        const bool stowSounds = m_stow.sounding;
+        if (stowSounds)
+            placeStow(frames);
 
         // Peak tremolo on the buses and on the hits (each only deepens when it's the selected target). The two buses
         // share the tremolo's timing (so they dip together) while each deepens by its own level.
@@ -2199,6 +2340,15 @@ void RigEngine::process(const float* inL, const float* inR, float* outL, float* 
                                                                        + static_cast<double>(bus.r[ii]) * bus.r[ii]);
                 }
             }
+            // Stowaway joins only while it holds sound: with nothing sent to it, the mix is the same sum as without it.
+            const float stowL = stowSounds ? m_stow.l[ii] : 0.0f, stowR = stowSounds ? m_stow.r[ii] : 0.0f;
+            if (stowSounds)
+            {
+                l += stowL;
+                r += stowR;
+                m_sectionSquares[SectionStow] += 0.5 * (static_cast<double>(stowL) * stowL + static_cast<double>(stowR) * stowR);
+            }
+            m_scopes[SectionStow].push(0.5f * (stowL + stowR));
             ++m_sectionSamples;
             m_mixL[ii] = l;
             m_mixR[ii] = r;
@@ -2281,5 +2431,7 @@ void RigEngine::publishViews()
         m_viewData[i * 4 + 2].store(head.closeness, std::memory_order_relaxed);
         m_viewData[i * 4 + 3].store(on ? head.age : 0.0f, std::memory_order_relaxed);
     }
+    m_stowLevelView.store(sj::clamp(m_stow.env * 3.0f, 0.0f, 1.0f), std::memory_order_relaxed);
+    m_stowPanView.store(m_stow.pan, std::memory_order_relaxed);
     m_energyView.store(sj::clamp(m_mixFollower.env * 3.0f, 0.0f, 1.0f), std::memory_order_relaxed);
 }

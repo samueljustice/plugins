@@ -651,6 +651,7 @@ juce::String TapeRecorder::markerLabel(int kind)
         case MarkPassB: return "Pass B";
         case MarkThrow: return "Throw";
         case MarkHit:   return "Hit";
+        case MarkPassStow: return "Pass S";
         default:        return "Marker";
     }
 }

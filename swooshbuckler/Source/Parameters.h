@@ -2,7 +2,7 @@
 
 #include <JuceHeader.h>
 
-/** Parameter IDs and the layout, in signal order: tracks -> ride -> bus A / bus B -> hits -> output. */
+/** Parameter IDs and the layout, in signal order: tracks -> ride -> bus A / bus B -> Stowaway -> hits -> output. */
 namespace ParamIDs
 {
     // Tracks
@@ -38,6 +38,15 @@ namespace ParamIDs
     inline constexpr const char* busNames[numBuses] = { "A", "B" };
     // Pass Mode: Bed (two overlapped passes, a steady level) / Fly-By (one pass at a time). Linked: B uses A's.
     inline constexpr const char* passMode[numBuses] = { "aPassMode", "bPassMode" };
+
+    // Stowaway: one extra bus beside A and B. A Mode menu, and five knobs that keep their names and places in
+    // every mode (what each does, and how it reads, follows the mode: see Params::stowText).
+    inline constexpr const char* stowMode = "stowMode";
+    enum StowMode { StowSub = 0, StowWake, StowFly, StowDry, numStowModes };
+    inline constexpr const char* stowModeNames[numStowModes] = { "Sub", "Wake", "Fly", "Dry" };
+    enum StowControl { StowFollow = 0, StowLow, StowFilter, StowDrive, StowWidth, numStowControls };
+    inline constexpr const char* stow[numStowControls] = { "stowFollow", "stowLow", "stowFilter", "stowDrive", "stowWidth" };
+    inline constexpr const char* stowNames[numStowControls] = { "Follow", "Low End", "Filter", "Drive", "Width" };
 
     // Perform: throw one whoosh on demand, the transport, and what MIDI keys do
     inline constexpr const char* throwLength = "throwLength"; // seconds; under Params::throwMinSeconds = follows Rate
@@ -132,7 +141,67 @@ namespace Params
         return 1.0f - std::pow(10.0f, -2.0f * k) * std::min(1.0f, 10.0f * (1.0f - k));
     }
 
-    inline juce::AudioProcessorValueTreeState::ParameterLayout createLayout()
+    // Stowaway's Filter knob.
+    // Sub: the crossover, 40 .. 250 Hz, with 120 Hz at the middle of the travel (the knob's default). One smooth
+    // curve through the three: Hz = 128 x 2.640625^k - 88.
+    inline constexpr float stowCrossoverMinHz = 40.0f, stowCrossoverMaxHz = 250.0f, stowCrossoverDefaultHz = 120.0f;
+    inline float stowCrossoverHz(float k) { return 128.0f * std::pow(2.640625f, std::clamp(k, 0.0f, 1.0f)) - 88.0f; }
+    inline float stowCrossoverKnob(float hz)
+    {
+        return std::clamp(std::log((std::clamp(hz, stowCrossoverMinHz, stowCrossoverMaxHz) + 88.0f) / 128.0f) / std::log(2.640625f), 0.0f, 1.0f);
+    }
+    // The other modes: open in the middle of the travel, a low-pass that closes towards the bottom (18 kHz ..
+    // 150 Hz) and a high-pass that rises towards the top (20 Hz .. 2.5 kHz). 0 = that side is open.
+    inline constexpr float stowFilterOpenZone = 0.02f; // either side of the middle
+    inline float stowLowpassHz(float k)
+    {
+        const float u = (0.5f - stowFilterOpenZone - std::clamp(k, 0.0f, 1.0f)) / (0.5f - stowFilterOpenZone);
+        return u <= 0.0f ? 0.0f : 18000.0f * std::pow(150.0f / 18000.0f, u);
+    }
+    inline float stowHighpassHz(float k)
+    {
+        const float u = (std::clamp(k, 0.0f, 1.0f) - 0.5f - stowFilterOpenZone) / (0.5f - stowFilterOpenZone);
+        return u <= 0.0f ? 0.0f : 20.0f * std::pow(2500.0f / 20.0f, u);
+    }
+    inline juce::String hzText(float hz)
+    {
+        if (hz < 999.5f)
+            return juce::String(juce::roundToInt(hz)) + " Hz";
+        return (hz < 9950.0f ? juce::String(hz / 1000.0f, 1) : juce::String(juce::roundToInt(hz / 1000.0f))) + " kHz";
+    }
+    /** How a Stowaway knob reads at position v in a mode (ParamIDs::StowMode, ParamIDs::StowControl). The knobs
+        keep their names; Filter reads the Sub's crossover in Hz, and otherwise what it lets through ("Under 2.4 kHz"
+        for the low-pass side, "Over 320 Hz" for the high-pass side, "Open" between), and Width says Mono in Sub
+        (a sub is planted in the middle). */
+    inline juce::String stowText(int mode, int control, float v)
+    {
+        if (control == ParamIDs::StowFilter)
+        {
+            if (mode == ParamIDs::StowSub)
+                return hzText(stowCrossoverHz(v));
+            if (const float lp = stowLowpassHz(v); lp > 0.0f)
+                return "Under " + hzText(lp);
+            if (const float hp = stowHighpassHz(v); hp > 0.0f)
+                return "Over " + hzText(hp);
+            return "Open";
+        }
+        if (control == ParamIDs::StowWidth && mode == ParamIDs::StowSub)
+            return "Mono";
+        return juce::String(juce::roundToInt(v * 100.0f)) + "%";
+    }
+    /** Where the Stowaway knobs' readouts find the Mode in use: the owner of the parameters points `mode` at the
+        Mode parameter's value once it exists (until then they read as in Sub). */
+    struct StowModeSource
+    {
+        std::atomic<const std::atomic<float>*> mode { nullptr };
+        int get() const
+        {
+            const auto* raw = mode.load(std::memory_order_relaxed);
+            return raw != nullptr ? std::clamp(juce::roundToInt(raw->load(std::memory_order_relaxed)), 0, ParamIDs::numStowModes - 1) : 0;
+        }
+    };
+
+    inline juce::AudioProcessorValueTreeState::ParameterLayout createLayout(std::shared_ptr<StowModeSource> stowModeSource = std::make_shared<StowModeSource>())
     {
         using namespace juce;
         using P = AudioParameterFloat;
@@ -186,6 +255,16 @@ namespace Params
             for (int k = 0; k < ParamIDs::numBusControls; ++k)
                 if (ParamIDs::bus[b][k] != nullptr)
                     layout.add(pct(ParamIDs::bus[b][k], String("Bus ") + ParamIDs::busNames[b] + " " + controlNames[k], defaults[b][k]));
+
+        // Stowaway: the Mode, then the five knobs. Each knob reads by the mode in use (see stowText).
+        layout.add(std::make_unique<AudioParameterChoice>(ParameterID { ParamIDs::stowMode, 4 }, "Stowaway Mode",
+                                                          StringArray(ParamIDs::stowModeNames, ParamIDs::numStowModes), ParamIDs::StowSub));
+        const float stowDefaults[ParamIDs::numStowControls] = { 0.7f, 0.0f, 0.5f, 0.0f, 1.0f }; // Filter: 120 Hz in Sub, open otherwise
+        for (int k = 0; k < ParamIDs::numStowControls; ++k)
+            layout.add(std::make_unique<P>(ParameterID { ParamIDs::stow[k], 4 }, String("Stowaway ") + ParamIDs::stowNames[k],
+                                           NormalisableRange<float>(0.0f, 1.0f), stowDefaults[k],
+                                           AudioParameterFloatAttributes().withStringFromValueFunction(
+                                               [stowModeSource, k](float v, int) { return stowText(stowModeSource->get(), k, v); })));
 
         layout.add(pct(ParamIDs::hitSense, "Hit Sensitivity", 0.5f));
         layout.add(std::make_unique<P>(ParameterID { ParamIDs::hitBoost, 2 }, "Hit Boost", NormalisableRange<float>(-3.0f, 12.0f), 6.0f,
@@ -272,7 +351,7 @@ namespace Params
                                                               StringArray { "Sine", "Triangle", "Ramp", "Square", "Steps" }, defaultShapes[m]));
             layout.add(pct(ParamIDs::modKnob[m], name + " Rate / Amount", defaultKnobs[m]));
             layout.add(std::make_unique<AudioParameterChoice>(ParameterID { ParamIDs::modFollow[m], 2 }, name + " Follows",
-                                                              StringArray { "Bus A", "Bus B", "Hits", "Output", "Master", "Master Pitch", "Master Brightness" }, 0));
+                                                              StringArray { "Bus A", "Bus B", "Hits", "Stowaway", "Output", "Master", "Master Pitch", "Master Brightness" }, 0));
         }
 
         // Added later: kept at the end, so every parameter before them keeps its place in the host's list.

@@ -58,10 +58,10 @@ namespace Presets
     }
 
     /** The sections Randomise works in: each has its own die and its own lock in the window. */
-    enum Section { Ride = 0, BusA, BusB, Hits, Output, numSections };
+    enum Section { Ride = 0, BusA, BusB, Hits, Output, Stowaway, numSections };
     inline const char* sectionName(int section)
     {
-        static const char* names[numSections] = { "Ride", "Bus A", "Bus B", "Hits", "Output" };
+        static const char* names[numSections] = { "Ride", "Bus A", "Bus B", "Hits", "Output", "Stowaway" };
         return section >= 0 && section < numSections ? names[section] : "";
     }
 
@@ -146,6 +146,16 @@ namespace Presets
                     p.values[inflate] = u(0.0f, 0.5f);
                     p.values[push] = u(0.0f, 6.0f);
                 }
+                break;
+            case Stowaway:
+                // The five knobs, never the Mode: that decides what Stowaway is (and where rumbles play), so only
+                // a preset or your own hand changes it. The ranges suit every mode: Filter stays around the
+                // middle (the Sub's crossover between about 85 and 165 Hz; open or gently closed otherwise).
+                p.values[stow[StowFollow]] = u(0.4f, 1.0f);
+                p.values[stow[StowLow]] = u(0.0f, 0.6f);
+                p.values[stow[StowFilter]] = u(0.3f, 0.7f);
+                p.values[stow[StowDrive]] = u(0.0f, 0.35f);
+                p.values[stow[StowWidth]] = u(0.4f, 1.0f);
                 break;
             default:
                 break;

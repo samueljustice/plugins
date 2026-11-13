@@ -24,7 +24,8 @@ class VariationRenderer;
  *   engine (sources -> flights -> rigging) -> inflate -> push -> limiter -> out
  *                                                                        \-> Captain's Log (tape)
  */
-class SwooshbucklerAudioProcessor : public juce::AudioProcessor, private juce::Timer
+class SwooshbucklerAudioProcessor : public juce::AudioProcessor, private juce::Timer,
+                                    private juce::AudioProcessorValueTreeState::Listener
 {
 public:
     SwooshbucklerAudioProcessor();
@@ -416,6 +417,7 @@ private:
     int m_mirrorWidth = 0;             // copies of the editor fields for saves off the message thread (m_stateLock)
     juce::String m_mirrorPreset { "Default" };
 
+    std::shared_ptr<Params::StowModeSource> m_stowModeSource = std::make_shared<Params::StowModeSource>(); // before m_state: its layout reads it
     juce::AudioProcessorValueTreeState m_state;
     CargoHold m_cargo;
     RigEngine m_engine;
@@ -451,6 +453,8 @@ private:
     } m_ccPump { *this };
     void updateCcPump();
     int keysMode() const;
+    int stowMode() const; // ParamIDs::StowMode
+    void parameterChanged(const juce::String& parameterID, float newValue) override; // any thread
     // Morph wander (audio thread): the dot's own flight, blended in over the X / Y controls.
     MorphWander m_wander;
     bool m_wanderOn = false;
@@ -496,6 +500,7 @@ private:
         std::atomic<float>* throwLength = nullptr, *play = nullptr, *keysMode = nullptr;
         std::atomic<float>* linkBuses = nullptr, *hitAim = nullptr;
         std::atomic<float>* passMode[ParamIDs::numBuses] {};
+        std::atomic<float>* stowMode = nullptr, *stow[ParamIDs::numStowControls] {};
         std::atomic<float>* tremOn = nullptr, *tremDepth = nullptr, *tremRate = nullptr, *tremThreshold = nullptr, *tremShape = nullptr, *tremTarget = nullptr;
         std::atomic<float>* masterTrim = nullptr;
         std::atomic<float>* modType[ParamIDs::numMods] {}, *modShape[ParamIDs::numMods] {}, *modKnob[ParamIDs::numMods] {},

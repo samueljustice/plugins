@@ -24,7 +24,7 @@ SwooshbucklerAudioProcessor::SwooshbucklerAudioProcessor(juce::PropertiesFile* o
     // Sample-based instrument: no audio input (so no feedback loop, no microphone), MIDI in, stereo out.
     : AudioProcessor(BusesProperties().withOutput("Output", juce::AudioChannelSet::stereo(), true))
     , m_offline(offlineSettings != nullptr)
-    , m_state(*this, nullptr, "Swooshbuckler", Params::createLayout())
+    , m_state(*this, nullptr, "Swooshbuckler", Params::createLayout(m_stowModeSource))
 {
     auto raw = [this](const char* id) { return m_state.getRawParameterValue(id); };
     for (int i = 0; i < ParamIDs::numCargoTracks; ++i)
@@ -47,6 +47,14 @@ SwooshbucklerAudioProcessor::SwooshbucklerAudioProcessor(juce::PropertiesFile* o
             m_raw.bus[b][k] = ParamIDs::bus[b][k] != nullptr ? raw(ParamIDs::bus[b][k]) : nullptr;
     for (int b = 0; b < ParamIDs::numBuses; ++b)
         m_raw.passMode[b] = raw(ParamIDs::passMode[b]);
+    m_raw.stowMode = raw(ParamIDs::stowMode);
+    m_stowModeSource->mode.store(m_raw.stowMode); // the Stowaway knobs read by the mode from here on
+    for (int k = 0; k < ParamIDs::numStowControls; ++k)
+        m_raw.stow[k] = raw(ParamIDs::stow[k]);
+    // Rumbles ride with Stowaway while it is a sub. The hold is told as soon as the Mode moves, on whichever
+    // thread moves it (a flag, nothing else), so the routing is right with or without the audio running.
+    m_state.addParameterListener(ParamIDs::stowMode, this);
+    m_cargo.setRumbleToStowaway(stowMode() == ParamIDs::StowSub);
     m_raw.hitSense = raw(ParamIDs::hitSense);
     m_raw.hitBoost = raw(ParamIDs::hitBoost);
     m_raw.hitRelease = raw(ParamIDs::hitRelease);
@@ -137,6 +145,7 @@ SwooshbucklerAudioProcessor::SwooshbucklerAudioProcessor(juce::PropertiesFile* o
 
 SwooshbucklerAudioProcessor::~SwooshbucklerAudioProcessor()
 {
+    m_state.removeParameterListener(ParamIDs::stowMode, this);
     m_variations.reset(); // stops its thread and lets go of its copy of this rig first
     m_cargo.onUndoableEdit = nullptr;
     m_history.reset();
@@ -210,7 +219,8 @@ void SwooshbucklerAudioProcessor::renderAtRenderRate(const float* inL, const flo
     m_engine.process(inL, inR, l, r, n);
     // The pass peaks and hits of this block, for the take's markers: they reach the tape after the limiter's look-ahead.
     static_assert(static_cast<int>(RigEngine::MarkPassA) == static_cast<int>(TapeRecorder::MarkPassA)
-                  && static_cast<int>(RigEngine::MarkHit) == static_cast<int>(TapeRecorder::MarkHit), "the same marker kinds");
+                  && static_cast<int>(RigEngine::MarkHit) == static_cast<int>(TapeRecorder::MarkHit)
+                  && static_cast<int>(RigEngine::MarkPassStow) == static_cast<int>(TapeRecorder::MarkPassStow), "the same marker kinds");
     for (int i = 0; i < m_engine.getNumMarkers() && ! m_offline; ++i)
         m_recorder.addMarker(m_engine.getMarker(i).offset + m_master.getLatencySamples(), m_engine.getMarker(i).kind);
     const bool throwing = m_engine.isThrowing(); // a throw with the rig stopped: its tail is waited for afterwards
@@ -357,6 +367,19 @@ void SwooshbucklerAudioProcessor::updateEngineParams()
         d.duck = get(ParamIDs::Duck);
         d.key = get(ParamIDs::Key);
         d.passMode = juce::jlimit(0, 1, juce::roundToInt(m_raw.passMode[b]->load()));
+    }
+    {
+        static_assert(static_cast<int>(RigEngine::c_stowModes) == static_cast<int>(ParamIDs::numStowModes)
+                      && static_cast<int>(RigEngine::c_stowKnobs) == static_cast<int>(ParamIDs::numStowControls)
+                      && static_cast<int>(RigEngine::StowWidth) == static_cast<int>(ParamIDs::StowWidth), "the same Stowaway modes and knobs");
+        p.stow.mode = stowMode();
+        float* const knobs[ParamIDs::numStowControls] = { &p.stow.follow, &p.stow.low, &p.stow.filter, &p.stow.drive, &p.stow.width };
+        for (int k = 0; k < ParamIDs::numStowControls; ++k)
+        {
+            *knobs[k] = m_raw.stow[k]->load();
+            p.stowMod[static_cast<size_t>(k)] = modDelta(m_raw.stow[k]);
+        }
+        m_cargo.setRumbleToStowaway(p.stow.mode == ParamIDs::StowSub);
     }
     p.hitSense = modValue(m_raw.hitSense);
     p.hitBoost = modValue(m_raw.hitBoost);
@@ -623,6 +646,7 @@ void SwooshbucklerAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
         m_followerLevels[ModMatrix::FollowBusA] = sections[0];
         m_followerLevels[ModMatrix::FollowBusB] = sections[1];
         m_followerLevels[ModMatrix::FollowHits] = sections[2];
+        m_followerLevels[ModMatrix::FollowStow] = sections[RigEngine::SectionStow];
         const auto& master = m_engine.getMasterFollow();
         m_followerLevels[ModMatrix::FollowMaster] = master[0];
         m_followerLevels[ModMatrix::FollowMasterPitch] = master[1];
@@ -631,6 +655,17 @@ void SwooshbucklerAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
     }
     // A take being auditioned: on top of the output, after the tape, the meters and the trim.
     m_audition.process(buffer, 0, n);
+}
+
+int SwooshbucklerAudioProcessor::stowMode() const
+{
+    return juce::jlimit(0, ParamIDs::numStowModes - 1, juce::roundToInt(m_raw.stowMode->load()));
+}
+
+void SwooshbucklerAudioProcessor::parameterChanged(const juce::String& parameterID, float newValue)
+{
+    if (parameterID == ParamIDs::stowMode)
+        m_cargo.setRumbleToStowaway(juce::roundToInt(newValue) == ParamIDs::StowSub);
 }
 
 int SwooshbucklerAudioProcessor::keysMode() const

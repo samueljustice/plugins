@@ -1093,14 +1093,16 @@ SwooshbucklerAudioProcessorEditor::SwooshbucklerAudioProcessorEditor(Swooshbuckl
 
     // A die and a lock for each section, in its title bar.
     {
-        const juce::Colour colours[Presets::numSections] = { TC::brass, TC::busA, TC::busB, TC::hits, TC::output };
+        const juce::Colour colours[Presets::numSections] = { TC::brass, TC::busA, TC::busB, TC::hits, TC::output, TC::stowaway };
         const char* rolls[Presets::numSections] = {
             "Energy, Rate, Fill, Chaos and Pitch",
             "bus A's Doppler, Width, Bend, Low End, Swirl, Filter and Drive",
             "bus B's Doppler, Width, Bend, Low End, Swirl, Filter, Drive, Ducked and Filtered",
             "Sensitivity, Boost, Release and Duck",
             "Space, and gently Inflate and Push",
+            "Stowaway's Follow, Low End, Filter, Drive and Width, never its Mode",
         };
+        static_assert(Presets::Stowaway == Presets::numSections - 1, "the die and lock of each section, in Presets' order");
         for (int section = 0; section < Presets::numSections; ++section)
         {
             const juce::String name = Presets::sectionName(section);
@@ -1109,7 +1111,10 @@ SwooshbucklerAudioProcessorEditor::SwooshbucklerAudioProcessorEditor(Swooshbuckl
             die->setTooltip("Roll " + name + "\nRolls just this section: " + rolls[section] + ". Everything else stays where it is. "
                             "The roll joins the Randomise history, so the arrows by Randomise step back over it.");
             die->onClick = [this, section] { rollDice(section); };
-            m_content.addAndMakeVisible(*die);
+            // Stowaway has no panel to carry its die and lock yet: they exist (the lock follows the session) unseen.
+            const bool hasPanel = section != Presets::Stowaway;
+            if (hasPanel)
+                m_content.addAndMakeVisible(*die);
             auto& lock = m_sectionLocks[static_cast<size_t>(section)];
             lock = std::make_unique<IconButton>(IconButton::Icon::Lock, colours[section], true);
             lock->setClickingTogglesState(true);
@@ -1117,7 +1122,8 @@ SwooshbucklerAudioProcessorEditor::SwooshbucklerAudioProcessorEditor(Swooshbuckl
             lock->setTooltip("Lock " + name + "\nOn: the header's Randomise (and Randomise Everything in Render Variations) leaves this section "
                              "as it is. The section's own die still rolls it. The locks are saved with the session.");
             lock->onClick = [this, section] { m_processor.setSectionLocked(section, m_sectionLocks[static_cast<size_t>(section)]->getToggleState()); };
-            m_content.addAndMakeVisible(*lock);
+            if (hasPanel)
+                m_content.addAndMakeVisible(*lock);
         }
     }
     m_content.addAndMakeVisible(m_tape);

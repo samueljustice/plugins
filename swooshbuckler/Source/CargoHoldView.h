@@ -113,6 +113,7 @@ private:
     HitWindow m_hitWindow;      // hit sync's shared beat window (source seconds), for the aligned lanes
     float m_beatFlash = 0.0f;   // 1 on a sync beat, decays
     int m_lastBeat = 0;
+    bool m_rumblesOnStowaway = true; // CargoHold::getRumbleToStowaway as the lanes last showed it
     bool m_dragOver = false;
     juce::TextButton m_demo { "Load Demo Sounds" };
     int m_learnWaiting = -1; // the target Learn MIDI CC is waiting for a controller on (-1 = none)

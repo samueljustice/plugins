@@ -373,8 +373,7 @@ public:
             g.setColour(tagColour);
             g.fillRect(letter);
             g.setColour(TC::window);
-            Theme::fitText(g, bus == CargoHold::c_hitsBus ? juce::String("H") : juce::String(ParamIDs::busNames[juce::jlimit(0, CargoHold::c_maxBuses - 1, bus)]),
-                           letter, fonts.title(), juce::Justification::centred);
+            Theme::fitText(g, busLetter(bus), letter, fonts.title(), juce::Justification::centred);
             g.setColour(tagColour.brighter(0.2f));
             Theme::fitText(g, tagText, tag.withTrimmedLeft(static_cast<float>(tally) + 5.0f).withTrimmedRight(static_cast<float>(arrowW) + 3.0f), tagFont, juce::Justification::centredLeft);
             juce::Path arrow;
@@ -602,10 +601,11 @@ public:
             const bool byHand = m_owner.m_hold.getBusOverride(m_track) >= 0;
             return juce::String("Bus\nWhere this track plays: ")
                    + (bus == CargoHold::c_hitsBus ? juce::String("the hits, which only open at the biggest moments of buses A and B.")
+                      : bus == CargoHold::c_stowBus ? juce::String("Stowaway, the extra bus beside A and B. Its Mode decides what it does with the sound.")
                                                    : busLabel(bus) + (bus == 0 ? ", the bus that leads and ducks bus B." : ", the bus that sits under bus A."))
                    + (byHand ? " Chosen by hand (marked *): the sound type and the track's name stay as they are."
                              : " On Auto it follows the sound type.")
-                   + "\nClick to choose: Auto, Bus A, Bus B or Hits.";
+                   + "\nClick to choose: Auto, Bus A, Bus B, Hits or Stowaway.";
         }
         if (header.removeFromTop(18).contains(pos))
             return "Track Name\nNamed after its sound type, until you rename it."
@@ -772,45 +772,52 @@ private:
         m_owner.m_hold.rename(m_track, name);
     }
 
-    static juce::String busTag(int bus)
+    static juce::String busTag(int bus) { return busTitle(bus); }
+
+    /** The letter on a track's tag: A, B, H for the hits, S for Stowaway. */
+    static juce::String busLetter(int bus)
     {
-        if (bus == CargoHold::c_hitsBus) return "Hits";
-        return juce::String("Bus ") + ParamIDs::busNames[juce::jlimit(0, CargoHold::c_maxBuses - 1, bus)];
+        if (bus == CargoHold::c_hitsBus) return "H";
+        if (bus == CargoHold::c_stowBus) return "S";
+        return ParamIDs::busNames[bus == 1 ? 1 : 0];
     }
 
     static juce::Colour busColour(int bus)
     {
-        // The colours of the sections' knobs: bus A coral, bus B turquoise, hits red.
+        // The colours of the sections' knobs: bus A coral, bus B turquoise, hits red, Stowaway kelp.
         if (bus == CargoHold::c_hitsBus) return TC::record;
-        return bus == 0 ? TC::movement : TC::sources;
+        if (bus == CargoHold::c_stowBus) return TC::stowaway;
+        return bus == 1 ? TC::sources : TC::movement;
     }
 
-    /** As a menu item: "Bus A", "Bus B", "Hits". */
+    /** As a menu item: "Bus A", "Bus B", "Hits", "Stowaway". */
     static juce::String busTitle(int bus)
     {
         if (bus == CargoHold::c_hitsBus) return "Hits";
-        return juce::String("Bus ") + ParamIDs::busNames[juce::jlimit(0, CargoHold::c_maxBuses - 1, bus)];
+        if (bus == CargoHold::c_stowBus) return "Stowaway";
+        return juce::String("Bus ") + ParamIDs::busNames[bus == 1 ? 1 : 0];
     }
 
     static juce::String busLabel(int bus)
     {
         if (bus == CargoHold::c_hitsBus) return "the hits";
-        return juce::String("bus ") + ParamIDs::busNames[juce::jlimit(0, CargoHold::c_maxBuses - 1, bus)];
+        if (bus == CargoHold::c_stowBus) return "Stowaway";
+        return juce::String("bus ") + ParamIDs::busNames[bus == 1 ? 1 : 0];
     }
 
-    /** The bus choices, as menu items 100 (Auto) and 101.. (Bus A, Bus B, Hits). */
+    /** The bus choices, as menu items 100 (Auto) and 101.. (Bus A, Bus B, Hits, Stowaway). */
     void addBusItems(juce::PopupMenu& menu) const
     {
         auto& hold = m_owner.m_hold;
         const int chosen = hold.getBusOverride(m_track);
-        menu.addItem(100, "Auto (" + busTitle(CargoHold::busForRole(hold.getRole(m_track))) + ", by Type)", true, chosen < 0);
-        for (int bus = 0; bus <= CargoHold::c_hitsBus; ++bus)
+        menu.addItem(100, "Auto (" + busTitle(hold.autoBus(hold.getRole(m_track))) + ", by Type)", true, chosen < 0);
+        for (int bus = 0; CargoHold::isBusChoice(bus); ++bus)
             menu.addItem(101 + bus, busTitle(bus), true, chosen == bus);
     }
 
     void applyBusItem(int result)
     {
-        if (result < 100 || result > 101 + CargoHold::c_hitsBus)
+        if (result != 100 && ! CargoHold::isBusChoice(result - 101))
             return;
         m_owner.m_processor.setTrackBus(m_track, result - 101);
         const int bus = m_owner.m_hold.getBus(m_track);
@@ -866,9 +873,9 @@ private:
         menu.addItem(1, "Auto (Heard as " + CargoHold::typeName(detected) + ")", true, hold.getRoleOverride(m_track) < 0);
         menu.addSeparator();
         for (int r = 1; r < c_numCargoRoles; ++r)
-            menu.addItem(10 + r, CargoHold::typeName(static_cast<CargoRole>(r)) + (busByHand ? juce::String() : "   -> " + busTitle(CargoHold::busForRole(static_cast<CargoRole>(r)))),
+            menu.addItem(10 + r, CargoHold::typeName(static_cast<CargoRole>(r)) + (busByHand ? juce::String() : "   -> " + busTitle(hold.autoBus(static_cast<CargoRole>(r)))),
                          true, hold.getRoleOverride(m_track) == r);
-        menu.addItem(10, CargoHold::typeName(CargoRole::Generic) + (busByHand ? juce::String() : "   -> " + busTitle(CargoHold::busForRole(CargoRole::Generic))),
+        menu.addItem(10, CargoHold::typeName(CargoRole::Generic) + (busByHand ? juce::String() : "   -> " + busTitle(hold.autoBus(CargoRole::Generic))),
                      true, hold.getRoleOverride(m_track) == 0);
         menu.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(m_type), [this](int result)
         {
@@ -1004,7 +1011,7 @@ void CargoHoldView::showTakeNote(const juce::String& text)
 juce::Colour CargoHoldView::laneColour(int track) const
 {
     const int bus = m_hold.getBus(track);
-    const auto base = bus == CargoHold::c_hitsBus ? TC::hits : (bus == 0 ? TC::busA : TC::busB);
+    const auto base = bus == CargoHold::c_hitsBus ? TC::hits : bus == CargoHold::c_stowBus ? TC::stowaway : (bus == 1 ? TC::busB : TC::busA);
     int step = 0;
     for (int t = 0; t < track; ++t)
         if (m_hold.get(t) != nullptr && m_hold.getBus(t) == bus)
@@ -1149,6 +1156,13 @@ void CargoHoldView::changeListenerCallback(juce::ChangeBroadcaster*)
 void CargoHoldView::timerCallback()
 {
     const auto& engine = m_processor.getEngine();
+
+    // Stowaway's Mode moved the rumbles on Auto to or from it (the hold is only told a flag): the lanes show it.
+    if (const bool rumbles = m_hold.getRumbleToStowaway(); rumbles != m_rumblesOnStowaway)
+    {
+        m_rumblesOnStowaway = rumbles;
+        changeListenerCallback(nullptr);
+    }
 
     // Learn MIDI CC: the controller has moved.
     if (m_learnWaiting >= 0 && m_processor.getMidiLearnTarget() != m_learnWaiting)

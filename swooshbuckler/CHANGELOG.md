@@ -1,5 +1,15 @@
 # Swooshbuckler changelog
 
+## Unreleased
+
+- **Stowaway: one extra bus beside Bus A and Bus B.** Send a track to it from the lane's bus tag (**Stowaway**, with an **S** on the tag and the lane in kelp green). It does not fly passes of its own: its tracks play in the middle at their ridden level, reach the output through Space and the Everything tremolo like the buses, and feed neither Bus A nor Bus B. The choice is saved with the session and is one undo step.
+- **Throws reach Stowaway too**, with the rig playing or from rest: its tracks swell to the throw's peak and are gone with its tail.
+- **Stowaway Mode** (Sub, Wake, Fly, Dry) and five knobs, **Follow**, **Low End**, **Filter**, **Drive** and **Width**, are in the host's parameter list and are saved with the session. The knobs read by the mode: in Sub, Filter reads a crossover from 40 to 250 Hz (120 Hz where it starts) and Width reads Mono. The five knobs can be wired to the modulators.
+- **Rumble goes to Stowaway by itself while the Mode is Sub.** In Wake, Fly and Dry a Rumble track on Auto plays on Bus A, as the other Bus A types do. A bus chosen by hand always stays.
+- **The hits duck Stowaway** in Wake, Fly and Dry, by Hit Duck like the buses. In Sub they leave it alone, so the low end stays under a hit.
+- **Randomise rolls Stowaway's five knobs and never its Mode.** A preset may set the Mode.
+- **A Follower can follow Stowaway**: the Follows menu reads Bus A, Bus B, Hits, Stowaway, Output, Master, Master Pitch, Master Brightness.
+
 ## 2.0.0
 
 ### Interface
