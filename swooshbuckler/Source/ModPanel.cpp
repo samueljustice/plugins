@@ -115,7 +115,7 @@ public:
         return static_cast<ModMatrix::Type>(juce::jlimit(0, 3, m_type.getSelectedItemIndex()));
     }
 
-    juce::Rectangle<float> jackArea() const { return { 12.0f, 10.0f, c_jackRadius * 2.0f, c_jackRadius * 2.0f }; }
+    juce::Rectangle<float> jackArea() const { return { 12.0f, 7.0f, c_jackRadius * 2.0f, c_jackRadius * 2.0f }; }
 
     juce::String getTooltip() override
     {
@@ -128,21 +128,26 @@ public:
         return {};
     }
 
+    // Every type is laid out the same way. Along the top: the jack, the name, the wires it has, Clear. Under that:
+    // the type and (for an LFO or a Follower) its second menu at the left, the scope in the middle, the knob at the right.
     void resized() override
     {
-        auto r = getLocalBounds().reduced(10, 7);
-        auto top = r.removeFromTop(22);
-        top.removeFromLeft(static_cast<int>(c_jackRadius * 2.0f) + 8 + 60);
-        m_type.setBounds(top.removeFromRight(juce::jmin(104, top.getWidth())));
-        r.removeFromTop(6);
-        auto bottom = r.removeFromBottom(22);
-        m_clear.setBounds(bottom.removeFromRight(54));
-        m_shape.setBounds(bottom.removeFromLeft(juce::jmin(104, bottom.getWidth())));
-        m_follow.setBounds(m_shape.getBounds());
-        r.removeFromBottom(6);
-        const auto knob = r.removeFromRight(juce::jmin(78, r.getWidth()));
+        auto r = getLocalBounds().reduced(8, 6);
+        auto knob = r.removeFromRight(WheelKnob::cellWidth(WheelKnob::Size::Secondary) + 10);
         m_knob.setBounds(knob.withSizeKeepingCentre(knob.getWidth(), juce::jmin(knob.getHeight(), WheelKnob::cellHeight(WheelKnob::Size::Secondary))));
-        r.removeFromRight(8);
+        r.removeFromRight(6);
+        auto top = r.removeFromTop(20);
+        m_clear.setBounds(top.removeFromRight(48));
+        top.removeFromRight(6);
+        m_nameArea = top.withTrimmedLeft(static_cast<int>(c_jackRadius * 2.0f) + 12).withWidth(52);
+        m_summaryArea = top.withLeft(m_nameArea.getRight() + 6);
+        r.removeFromTop(6);
+        auto menus = r.removeFromLeft(88);
+        m_type.setBounds(menus.removeFromTop(22));
+        menus.removeFromTop(6);
+        m_shape.setBounds(menus.removeFromTop(22));
+        m_follow.setBounds(m_shape.getBounds());
+        r.removeFromLeft(8);
         m_scopeArea = r;
     }
 
@@ -156,7 +161,7 @@ public:
         Theme::Plate::fill(g, bounds, Theme::Cut::control);
         Theme::Plate::edge(g, bounds, Theme::Cut::control, TC::edgeDark.withAlpha(0.8f), TC::edgeLight.withMultipliedAlpha(0.5f));
         g.setColour(colour);
-        g.fillRect(juce::Rectangle<float>(bounds.getX() + 3.0f, bounds.getY() + 36.0f, 3.0f, bounds.getHeight() - 46.0f));
+        g.fillRect(juce::Rectangle<float>(bounds.getX() + 2.0f, bounds.getY() + 32.0f, 3.0f, bounds.getHeight() - 40.0f));
 
         // The jack: a brass socket in the modulator's colour. Drag it onto a knob.
         const auto jack = jackArea();
@@ -171,7 +176,11 @@ public:
             g.fillEllipse(jack.expanded(4.0f));
         }
 
-        Theme::stampText(g, sourceName(m_source), juce::Rectangle<float>(jack.getRight() + 8.0f, 7.0f, 60.0f, 24.0f), fonts.display(), juce::Justification::centredLeft, colour);
+        Theme::stampText(g, sourceName(m_source), m_nameArea.toFloat().expanded(0.0f, 3.0f), fonts.display(), juce::Justification::centredLeft, colour);
+
+        // What it is wired to: "1 wire - Bus B Swirl".
+        g.setColour(m_wires > 0 ? TC::text : TC::textFaint);
+        Theme::fitText(g, m_summary, m_summaryArea, fonts.caption(), juce::Justification::centredLeft, Theme::Fit::Message);
 
         // Scope: what the modulator is doing (the last 4 s)
         const auto sa = m_scopeArea.toFloat();
@@ -182,7 +191,8 @@ public:
             g.setColour(TC::grid);
             g.drawHorizontalLine(static_cast<int>(sa.getCentreY()), sa.getX() + 4.0f, sa.getRight() - 4.0f);
         }
-        juce::Path p;
+        auto& p = m_path; // kept between frames
+        p.clear();
         for (int k = 0; k < c_history; ++k)
         {
             const float v = m_history[static_cast<size_t>((m_head + k) % c_history)];
@@ -195,15 +205,29 @@ public:
         g.strokePath(p, juce::PathStrokeType(5.0f, juce::PathStrokeType::beveled, juce::PathStrokeType::butt));
         g.setColour(colour);
         g.strokePath(p, juce::PathStrokeType(1.6f, juce::PathStrokeType::beveled, juce::PathStrokeType::butt));
+    }
 
-        const int wires = m_owner.m_processor.getMods().numRoutes(m_source);
-        g.setColour(wires > 0 ? TC::text : TC::textFaint);
-        const int infoX = m_shape.isVisible() || m_follow.isVisible() ? m_shape.getRight() + 8 : 12;
-        const auto infoArea = juce::Rectangle<int>(infoX, m_clear.getY(), m_clear.getX() - infoX - 4, m_clear.getHeight());
-        // "No wires" always fits; the longer hint is shown where there is room for it (a Macro's card).
-        const juce::String none = infoArea.getWidth() > 130 ? "Drag the jack to a knob" : "No wires";
-        Theme::fitText(g, wires == 0 ? none : juce::String(wires) + (wires == 1 ? " wire" : " wires"), infoArea, fonts.caption(),
-                       juce::Justification::centredLeft, Theme::Fit::Sentence);
+    /** The line beside the name: how many wires, and what they land on (by the parameters' own names). */
+    void updateSummary()
+    {
+        auto& mods = m_owner.m_processor.getMods();
+        juce::String text;
+        int count = 0;
+        for (const auto& route : mods.getRoutes())
+        {
+            if (route.source != m_source)
+                continue;
+            juce::String name = route.param;
+            if (auto* param = m_owner.m_processor.getState().getParameter(route.param))
+                name = param->getName(48);
+            text << (count++ == 0 ? "" : ", ") << name;
+        }
+        text = count == 0 ? juce::String("No wires") : juce::String(count) + (count == 1 ? " wire - " : " wires - ") + text;
+        if (text != m_summary)
+        {
+            m_summary = text;
+            repaint(m_summaryArea);
+        }
     }
 
     void push()
@@ -212,11 +236,19 @@ public:
         m_head = (m_head + 1) % c_history;
         repaint(m_scopeArea);
         const int wires = m_owner.m_processor.getMods().numRoutes(m_source);
-        if (wires != m_wires)
+        const int generation = m_owner.m_processor.getMods().generation();
+        // The summary is written when the wiring changes, and looked at again twice a second (a wire can move
+        // from one knob to another without the count changing).
+        if (wires != m_wires || generation != m_generation || (++m_summaryTick % 15) == 0)
         {
-            m_wires = wires;
-            m_clear.setEnabled(wires > 0);
-            repaint();
+            if (wires != m_wires)
+            {
+                m_wires = wires;
+                m_clear.setEnabled(wires > 0);
+                repaint();
+            }
+            m_generation = generation;
+            updateSummary();
         }
     }
 
@@ -258,7 +290,10 @@ private:
     juce::TextButton m_clear { "Clear" };
     juce::AudioProcessorValueTreeState::ComboBoxAttachment m_typeAttachment, m_shapeAttachment, m_followAttachment;
     juce::AudioProcessorValueTreeState::SliderAttachment m_knobAttachment;
-    juce::Rectangle<int> m_scopeArea;
+    juce::Rectangle<int> m_scopeArea, m_nameArea, m_summaryArea;
+    juce::String m_summary { "No wires" };
+    juce::Path m_path;
+    int m_generation = -1, m_summaryTick = 0;
     std::array<float, c_history> m_history {};
     int m_head = 0;
     int m_wires = -1;
@@ -284,7 +319,7 @@ void ModPanel::paint(juce::Graphics&) {}
 void ModPanel::resized()
 {
     auto r = getLocalBounds();
-    const int gap = 12;
+    const int gap = 8;
     const int w = (r.getWidth() - gap * (ModMatrix::c_numSources - 1)) / ModMatrix::c_numSources;
     for (auto& c : m_cards)
     {
@@ -357,16 +392,21 @@ juce::Path ModWires::cablePath(juce::Point<float> from, juce::Point<float> to, c
     const auto end = gate != nullptr ? *gate : to;
     const float span = from.getDistanceFrom(end);
     const float sag = 24.0f + span * 0.22f;
+    // The modulators are along the bottom of the window, so nearly every cable goes up: it leaves its jack straight
+    // up (out of the top of its card, over none of the card's own text) and hangs from there. One that goes
+    // across or down hangs from the jack as it always did.
+    const bool up = end.y < from.y - 30.0f;
+    const auto leave = up ? from + juce::Point<float>((end.x - from.x) * 0.06f, -juce::jlimit(36.0f, 120.0f, (from.y - end.y) * 0.42f))
+                          : from + (end - from) * 0.25f + juce::Point<float>(0.0f, sag);
     juce::Path p;
     p.startNewSubPath(from);
     if (gate == nullptr)
     {
-        p.cubicTo(from + (to - from) * 0.25f + juce::Point<float>(0.0f, sag),
-                  from + (to - from) * 0.75f + juce::Point<float>(0.0f, sag * 0.8f), to);
+        p.cubicTo(leave, from + (to - from) * 0.75f + juce::Point<float>(0.0f, sag * 0.8f), to);
         return p;
     }
     const float rise = juce::jmax(8.0f, end.y - to.y);
-    p.cubicTo(from + (end - from) * 0.25f + juce::Point<float>(0.0f, sag), end + juce::Point<float>(0.0f, juce::jlimit(40.0f, 130.0f, sag * 0.9f)), end);
+    p.cubicTo(leave, end + juce::Point<float>(0.0f, juce::jlimit(40.0f, 130.0f, sag * 0.9f)), end);
     p.cubicTo(end - juce::Point<float>(0.0f, rise * 0.55f), { end.x, to.y }, to);
     return p;
 }

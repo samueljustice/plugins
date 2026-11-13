@@ -258,6 +258,8 @@ public:
     void setAccent(juce::Colour c) { m_accent = c; repaint(); }
     /** The colour of what this knob follows while it is Linked (Theme::Look). */
     void setLinkColour(juce::Colour c) { m_linkColour = c; repaint(); }
+    /** What a Linked knob says in place of its value ("Linked To A"). */
+    void setLinkText(const juce::String& text) { m_linkText = text; repaint(); }
     /** The value's text function was changed: read the value again. */
     void valueTextChanged() { m_valueTextStale = true; repaint(); }
     void paint(juce::Graphics&) override;
@@ -299,7 +301,7 @@ private:
     float m_dragVelocity = 0.0f, m_dragLast = 0.0f;
     double m_dragTime = 0.0;
     // The value's text, read when the value changes rather than at every repaint.
-    juce::String m_valueText;
+    juce::String m_valueText, m_linkText;
     double m_valueTextFor = 0.0;
     bool m_valueTextStale = true;
     juce::Path m_scratch; // the arcs are built in this one path

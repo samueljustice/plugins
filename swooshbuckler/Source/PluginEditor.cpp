@@ -646,6 +646,108 @@ void SwooshbucklerAudioProcessorEditor::AboutPanel::paint(juce::Graphics& g)
 }
 
 //==============================================================================
+//==============================================================================
+/** The ride of the last 8 seconds: where the ride has each bus's faders (the mean of its loaded tracks), newest at
+    the right, bus A in coral and bus B in turquoise. The window's timer steps it thirty times a second (step);
+    it repaints only itself. */
+class SwooshbucklerAudioProcessorEditor::RideStrip : public juce::Component, public juce::SettableTooltipClient
+{
+public:
+    RideStrip(SwooshbucklerAudioProcessor& p, const Theme::Fonts& f) : m_processor(p), m_fonts(f)
+    {
+        for (auto& line : m_history)
+            line.fill(0.0f);
+    }
+
+    void paint(juce::Graphics& g) override
+    {
+        const auto r = getLocalBounds().toFloat();
+        SwooshLookAndFeel::drawWell(g, r, Theme::Cut::small);
+        const float labelWidth = 52.0f;
+        g.setColour(TC::textFaint);
+        Theme::fitText(g, "Last 8 s", r.withWidth(labelWidth).withTrimmedLeft(6.0f), m_fonts.caption(), juce::Justification::centredLeft);
+        const auto area = r.withTrimmedLeft(labelWidth).reduced(4.0f, 3.0f);
+        g.setColour(TC::grid);
+        g.fillRect(juce::Rectangle<float>(area.getX(), area.getBottom() - 1.0f, area.getWidth(), 1.0f));
+        const juce::Colour colours[2] = { TC::busA, TC::busB };
+        for (size_t bus = 0; bus < 2; ++bus)
+        {
+            if (! m_used[bus])
+                continue;
+            auto& p = m_path; // kept between frames, so drawing it allocates nothing
+            p.clear();
+            for (int k = 0; k < c_points; ++k)
+            {
+                const float v = juce::jlimit(0.0f, 1.0f, m_history[bus][static_cast<size_t>((m_head + k) % c_points)]);
+                const float x = area.getX() + area.getWidth() * static_cast<float>(k) / static_cast<float>(c_points - 1);
+                const float y = area.getBottom() - 1.0f - (area.getHeight() - 2.0f) * v;
+                if (k == 0) p.startNewSubPath(x, y); else p.lineTo(x, y);
+            }
+            g.setColour(colours[bus].withAlpha(0.9f));
+            g.strokePath(p, juce::PathStrokeType(1.4f, juce::PathStrokeType::mitered, juce::PathStrokeType::butt));
+        }
+    }
+
+    /** Takes the rides as they are now: one more point. */
+    void step()
+    {
+        const auto& engine = m_processor.getEngine();
+        const auto& hold = m_processor.getCargo();
+        float sum[2] = { 0.0f, 0.0f };
+        int count[2] = { 0, 0 };
+        for (int t = 0; t < CargoHold::c_numTracks; ++t)
+        {
+            const int bus = hold.getBus(t);
+            if (bus < 0 || bus > 1 || hold.get(t) == nullptr)
+                continue;
+            sum[bus] += engine.getRide(t);
+            ++count[bus];
+        }
+        for (size_t bus = 0; bus < 2; ++bus)
+        {
+            m_used[bus] = count[bus] > 0;
+            m_history[bus][static_cast<size_t>(m_head)] = count[bus] > 0 ? sum[bus] / static_cast<float>(count[bus]) : 0.0f;
+        }
+        m_head = (m_head + 1) % c_points;
+        if (Theme::isShownInWindow(*this))
+            repaint();
+    }
+
+private:
+    static constexpr int c_points = 240; // 8 s at 30 Hz
+    SwooshbucklerAudioProcessor& m_processor;
+    const Theme::Fonts& m_fonts;
+    std::array<std::array<float, c_points>, 2> m_history;
+    std::array<bool, 2> m_used { false, false };
+    int m_head = 0;
+    juce::Path m_path;
+};
+
+namespace
+{
+    // The window's grid, in design pixels: one gutter between panels and around the window, rows from the top.
+    namespace Lay
+    {
+        constexpr int gutter = Theme::Space::gutter;
+        constexpr int left = gutter, right = SwooshbucklerAudioProcessorEditor::c_width - gutter;
+        constexpr int headerRule = 50;                       // the rope under the header
+        constexpr int topY = 58, topH = 360;                 // the tracks and the sea
+        constexpr int seaW = 648;                            // 1.8 : 1
+        constexpr int row2Y = topY + topH + gutter, rowH = 156; // Ride, Bus A, Bus B
+        constexpr int row3Y = row2Y + rowH + gutter;         // Hits, Output
+        constexpr int modY = row3Y + rowH + gutter, modH = 104;
+        constexpr int footerY = modY + modH + 6, footerH = 18;
+        // Knobs: one column pitch for bus A, bus B and the Hits; a panel's knobs start a pad in from its edge.
+        constexpr int pitch = 64, pad = 12;
+        constexpr int rideW = 400, busAW = 7 * pitch + 2 * pad, busBW = 9 * pitch + 2 * pad;
+        constexpr int busAX = left + rideW + gutter, busBX = busAX + busAW + gutter;
+        constexpr int knobsY = 42;                           // from a panel's top to its knob cells
+        constexpr int stripY = 134, stripH = 16;             // the scope strip along a panel's bottom
+        static_assert(busBX + busBW == right, "row 2 fills the window's width");
+        static_assert(footerY + footerH <= SwooshbucklerAudioProcessorEditor::c_height - 4, "the rows fit the window's height");
+    }
+}
+
 SwooshbucklerAudioProcessorEditor::SwooshbucklerAudioProcessorEditor(SwooshbucklerAudioProcessor& p)
     : AudioProcessorEditor(&p)
     , m_processor(p)
@@ -672,9 +774,7 @@ SwooshbucklerAudioProcessorEditor::SwooshbucklerAudioProcessorEditor(Swooshbuckl
     m_content.onPaint = [this](juce::Graphics& g) { paintContent(g); };
     m_content.onMouseDown = [this](const juce::MouseEvent& e)
     {
-        if (m_toastFile != juce::File() && m_toastArea.contains(e.getPosition()))
-            showTakes(); // a "Saved ..." message: the file is at the top of the takes
-        else if (m_titleArea.contains(e.getPosition()))
+        if (m_titleArea.contains(e.getPosition()))
         {
             m_about.setVisible(true);
             m_about.toFront(false);
@@ -799,6 +899,8 @@ SwooshbucklerAudioProcessorEditor::SwooshbucklerAudioProcessorEditor(Swooshbuckl
     m_hold.onHistory = [this](bool redo) { stepHistory(redo); };
     m_hold.onSwell = [this] { m_processor.setSwell(true); juce::Timer::callAfterDelay(250, [this] { if (! m_spaceHeld) m_processor.setSwell(false); }); };
     m_hold.onStatus = [this](const juce::String& s) { toast(s); };
+    m_hold.onTakeNoteClicked = [this] { showTakes(); };
+    m_morphPad.laneColourFor = [this](int track) { return m_hold.laneColour(track); };
     m_content.addAndMakeVisible(m_sea);
     m_sea.onClick = [this] { m_processor.setSwell(true); juce::Timer::callAfterDelay(400, [this] { if (! m_spaceHeld) m_processor.setSwell(false); }); };
     m_sea.setTooltip("The Sea\nWhat the rig sends out: the sound rolls away as waves, and each doppler pass is a comet across the sky. Click it (or press space) to swell every track up.");
@@ -875,6 +977,10 @@ SwooshbucklerAudioProcessorEditor::SwooshbucklerAudioProcessorEditor(Swooshbuckl
     m_content.addAndMakeVisible(m_aimHits);
     m_aimAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment>(p.getState(), ParamIDs::hitAim, m_aimHits);
 
+    m_rideStrip = std::make_unique<RideStrip>(p, *m_fonts);
+    m_rideStrip->setTooltip("Ride, the Last 8 Seconds\nWhere the ride has had the faders: bus A's tracks in coral, bus B's in turquoise, the newest "
+                            "moment at the right. A swell is a hump; Energy sets how deep the dips between them go and Rate how long they are.");
+    m_content.addAndMakeVisible(*m_rideStrip);
     m_content.addAndMakeVisible(m_swell);
     m_swell.setTooltip("Swell\nHold it to push every fader up at once, for a big whoosh on demand. Held for longer than a couple of seconds, the mix eases back to its usual level with every fader still up. The space bar does the same, and so does any MIDI note while Keys is set to Swell.");
     m_rideButton.setClickingTogglesState(true);
@@ -1128,13 +1234,17 @@ SwooshbucklerAudioProcessorEditor::SwooshbucklerAudioProcessorEditor(Swooshbuckl
     m_websiteLink.setTooltip("Website\nOpens sweetjusticesound.com in your browser.");
 
     setResizable(true, true);
-    setResizeLimits(c_width * 6 / 10, c_height * 6 / 10, c_width * 2, c_height * 2);
+    const int minWidth = juce::roundToInt(c_width * c_minScale), maxWidth = juce::roundToInt(c_width * c_maxScale);
+    setResizeLimits(minWidth, minWidth * c_height / c_width, maxWidth, maxWidth * c_height / c_width);
     if (auto* c = getConstrainer())
         c->setFixedAspectRatio(static_cast<double>(c_width) / c_height);
 
     layoutContent();
     const int saved = p.savedEditorWidth;
-    const int width = saved > 0 ? juce::jlimit(c_width * 6 / 10, c_width * 2, saved) : c_width;
+    // The first time, the design size or the largest that is whole on the screen; after that, the size it was left at.
+    const auto* display = juce::Desktop::getInstance().getDisplays().getPrimaryDisplay();
+    const int width = saved > 0 ? juce::jlimit(minWidth, maxWidth, saved)
+                                : firstOpenWidth(display != nullptr ? display->userArea : juce::Rectangle<int>());
     setSize(width, width * c_height / c_width);
     m_sizeRestored = true;
 
@@ -1217,54 +1327,85 @@ void SwooshbucklerAudioProcessorEditor::resized()
         m_processor.savedEditorWidth = getWidth();
 }
 
+int SwooshbucklerAudioProcessorEditor::firstOpenWidth(juce::Rectangle<int> usableArea)
+{
+    // Whole on the screen, with room for a title bar and a little air; never under the smallest size.
+    const int minWidth = juce::roundToInt(c_width * c_minScale);
+    if (usableArea.isEmpty())
+        return c_width;
+    const int byWidth = usableArea.getWidth() - 16;
+    const int byHeight = (usableArea.getHeight() - 48) * c_width / c_height;
+    return juce::jlimit(minWidth, c_width, juce::jmin(byWidth, byHeight));
+}
+
+std::vector<std::pair<juce::String, juce::Rectangle<int>>> SwooshbucklerAudioProcessorEditor::panelBounds() const
+{
+    return { { "Tracks", m_hold.getBounds() },         { "Sea", m_sea.getBounds() },
+             { "Ride", m_performPanel },               { "Bus A", m_sections[0].bounds },
+             { "Bus B", m_sections[1].bounds },        { "Hits", m_sections[2].bounds },
+             { "Output", m_sections[3].bounds },       { "Modulation", m_modSection },
+             { "Footer", m_footer } };
+}
+
 void SwooshbucklerAudioProcessorEditor::layoutContent()
 {
-    // Header: transport and session on the left, presets in the middle, tape and settings on the right
+    // Header: the name at the left, then three groups with a rule between them: transport | presets | tape, and
+    // Settings at the far right.
     {
         const int linkWidth = juce::GlyphArrangement::getStringWidthInt(m_fonts->caption(), m_websiteLink.getButtonText()) + 8;
-        m_websiteLink.setBounds(66, 38, linkWidth, 16);
-        m_versionLink.setBounds(m_websiteLink.getRight() + 6, 38,
-                                juce::GlyphArrangement::getStringWidthInt(m_fonts->caption(), m_versionLink.getButtonText()) + 8, 16);
-        m_titleArea = { 16, 4, 290, 34 };
+        m_websiteLink.setBounds(58, 33, linkWidth, 15);
+        m_versionLink.setBounds(m_websiteLink.getRight() + 4, 33,
+                                juce::GlyphArrangement::getStringWidthInt(m_fonts->caption(), m_versionLink.getButtonText()) + 8, 15);
+        m_titleArea = { Lay::left, 2, 236, 32 };
     }
-    // Left to right: Play, New, Undo, Redo | < preset > A/B | Randomise, its history, Keep | tape | Last | Variations | Takes | Settings.
     {
-        int x = 330;
-        auto place = [&x](juce::Component& c, int width, int gap, int y = 15, int height = 30)
+        constexpr int y = 10, h = 30, groupGap = 21;
+        int x = 262;
+        auto place = [&x](juce::Component& c, int width, int gap, int top = y, int height = h)
         {
-            c.setBounds(x, y, width, height);
+            c.setBounds(x, top, width, height);
             x += width + gap;
         };
-        place(m_playButton, 64, 4, 14, 32);
-        place(m_newButton, 52, 4);
-        place(m_undoButton, 22, 2);
-        place(m_redoButton, 22, 6);
-        place(m_presetPrev, 20, 2);
-        place(m_presetName, 112, 2);
-        place(m_presetNext, 20, 3);
-        place(m_abButton, 22, 6);
-        place(m_dice, 90, 2);
-        place(m_rollBack, 20, 2);
-        place(m_rollForward, 20, 2);
-        place(m_keepRoll, 22, 6);
-        place(m_tape, 110, 4, 13, 34);
-        place(m_retroButton, 66, 4);
-        place(m_variationsButton, 76, 4);
-        place(m_takesButton, 60, 4);
-        place(m_settingsButton, 1264 - x, 0);
+        // Transport: Follow Host (in a host only), Play, New.
+        const bool host = m_followHost.isVisible();
+        if (host)
+            place(m_followHost, 96, 4);
+        else
+            m_followHost.setBounds(x, y, 96, h);
+        place(m_playButton, 76, 4, y - 1, h + 2);
+        place(m_newButton, 62, 0);
+        m_headerRules[0] = x + groupGap / 2;
+        x += groupGap;
+        // Presets: Undo, Redo | < preset > A / B | Randomise, its history, Keep. The preset box takes what is left.
+        constexpr int tapeWidth = 124 + 4 + 78 + 4 + 88 + 4 + 72, settingsWidth = 94;
+        constexpr int afterPreset = 2 + 24 + 4 + 26 + 12 + 106 + 2 + 24 + 2 + 24 + 2 + 26;
+        place(m_undoButton, 26, 2);
+        place(m_redoButton, 26, 10);
+        place(m_presetPrev, 24, 2);
+        const int presetWidth = Lay::right - settingsWidth - groupGap - tapeWidth - groupGap - afterPreset - x;
+        place(m_presetName, presetWidth, 2);
+        place(m_presetNext, 24, 4);
+        place(m_abButton, 26, 12);
+        place(m_dice, 106, 2);
+        place(m_rollBack, 24, 2);
+        place(m_rollForward, 24, 2);
+        place(m_keepRoll, 26, 0);
+        m_headerRules[1] = x + groupGap / 2;
+        x += groupGap;
+        // Tape: the tape itself, Last 60 s, Render Variations and the Takes.
+        place(m_tape, 124, 4, y - 2, h + 4);
+        place(m_retroButton, 78, 4);
+        place(m_variationsButton, 88, 4);
+        place(m_takesButton, 72, groupGap);
+        place(m_settingsButton, Lay::right - x, 0);
     }
 
-    // Row 1: the tracks, the output view, and the ride
-    m_hold.setBounds(16, 62, 884, 384);
-    m_sea.setBounds(912, 62, 352, 196);
-    m_morphPad.setBounds(m_sea.getBounds().reduced(6).withTrimmedTop(18));
-    m_morphButton.setBounds(m_sea.getRight() - 96, m_sea.getY() + 7, 80, 20); // clear of the frame's corner plate
-    m_performPanel = { 912, 270, 352, 176 };
-    m_swell.setBounds(m_performPanel.getX() + 8, m_performPanel.getY() + 25, 100, 100);
-    // Under Swell: Throw, Auto Ride and Follow Master.
-    m_throwButton.setBounds(m_performPanel.getX() + 14, m_performPanel.getY() + 121, 88, 16);
-    m_rideButton.setBounds(m_performPanel.getX() + 14, m_performPanel.getY() + 139, 88, 16);
-    m_followMasterButton.setBounds(m_performPanel.getX() + 14, m_performPanel.getY() + 157, 88, 16);
+    // Row 1: the tracks and the sea, side by side.
+    m_hold.setBounds(Lay::left, Lay::topY, Lay::right - Lay::left - Lay::gutter - Lay::seaW, Lay::topH);
+    m_sea.setBounds(Lay::right - Lay::seaW, Lay::topY, Lay::seaW, Lay::topH);
+    m_morphPad.setBounds(m_sea.getBounds().reduced(10).withTrimmedTop(22));
+    m_morphButton.setBounds(m_sea.getRight() - 216, m_sea.getY() + 10, 84, 22); // left of the moon, clear of the frame's corner plate
+
     // A knob in its cell: the wheel of its size, whole, in the middle of the room it is given.
     auto placeKnob = [this](const char* id, juce::Rectangle<int> cell, WheelKnob::Size size)
     {
@@ -1273,36 +1414,54 @@ void SwooshbucklerAudioProcessorEditor::layoutContent()
             knob->setSize(size);
         control->setBounds(cell.withSizeKeepingCentre(cell.getWidth(), juce::jmin(cell.getHeight(), WheelKnob::cellHeight(size))));
     };
-    {
-        constexpr int cw = 78, ch = WheelKnob::cellHeight(WheelKnob::Size::Secondary);
-        const int x0 = m_performPanel.getX() + 108, y0 = m_performPanel.getY() + 31;
-        const char* ids[] = { ParamIDs::energy, ParamIDs::rate, ParamIDs::fill, ParamIDs::chaos, ParamIDs::pitch, ParamIDs::throwLength };
-        for (int i = 0; i < 6; ++i)
-            placeKnob(ids[i], { x0 + (i % 3) * cw, y0 + (i / 3) * ch, cw, ch }, WheelKnob::Size::Secondary);
-    }
-    {
-        // Keys (what MIDI notes do) at the right of the Ride title bar; the panel's subtitle line is between the two.
-        const int keysWidth = 62, keysLabel = 28;
-        m_keysMode.setBounds(m_performPanel.getRight() - 14 - keysWidth, m_performPanel.getY() + 9, keysWidth, 22);
-        m_keysLabel = { m_keysMode.getX() - keysLabel - 2, m_keysMode.getY(), keysLabel, 22 };
-        const int titleEnd = m_performPanel.getX() + SwooshLookAndFeel::titleEnd(*m_fonts, "Ride") + 12;
-        m_rideStatusArea = { titleEnd, m_performPanel.getY() + 9, m_keysLabel.getX() - 2 - 42 - 4 - titleEnd, 22 }; // the die and lock sit between it and Keys
-    }
-    m_followHost.setBounds(240, 15, 84, 30); // left of Play (in a host only)
+    constexpr int primaryH = WheelKnob::cellHeight(WheelKnob::Size::Primary), secondaryH = WheelKnob::cellHeight(WheelKnob::Size::Secondary);
 
-    // Rows 2 and 3, in signal order
-    m_sections[0] = { 1, "Bus A", "Growls and tones, and the key for B", TC::busA, { 16, 458, 616, 168 }, Icons::Icon::LetterA };
-    m_sections[1] = { 2, "Bus B", "Air and beds", TC::busB, { 648, 458, 616, 168 }, Icons::Icon::LetterB };
-    m_sections[2] = { 3, "Hits", "At the loudest moments", TC::hits, { 16, 638, 616, 158 }, Icons::Icon::Hits };
-    m_sections[3] = { 4, "Output", "Space, loudness, limiter", TC::output, { 648, 638, 616, 158 }, Icons::Icon::Output };
+    // Row 2: Ride, Bus A, Bus B. Row 3: Hits (under Ride and bus A, its knobs on bus A's columns), Output (under bus B).
+    m_performPanel = { Lay::left, Lay::row2Y, Lay::rideW, Lay::rowH };
+    m_sections[0] = { 1, "Bus A", "Growls and tones, and the key for B", TC::busA, { Lay::busAX, Lay::row2Y, Lay::busAW, Lay::rowH }, Icons::Icon::LetterA };
+    m_sections[1] = { 2, "Bus B", "Air and beds", TC::busB, { Lay::busBX, Lay::row2Y, Lay::busBW, Lay::rowH }, Icons::Icon::LetterB };
+    m_sections[2] = { 3, "Hits", "At the loudest moments", TC::hits, { Lay::left, Lay::row3Y, Lay::busAX + Lay::busAW - Lay::left, Lay::rowH }, Icons::Icon::Hits };
+    m_sections[3] = { 4, "Output", "Space, loudness, limiter", TC::output, { Lay::busBX, Lay::row3Y, Lay::busBW, Lay::rowH }, Icons::Icon::Output };
+    const auto& busA = m_sections[0].bounds;
+    const auto& busB = m_sections[1].bounds;
+    const auto& hits = m_sections[2].bounds;
+    const auto& out = m_sections[3].bounds;
 
-    // A row of primary knobs, on one of the two column pitches: wide (bus A's seven) or narrow (bus B's nine, the Hits).
-    constexpr int pitchWide = 84, pitchNarrow = 65;
-    auto row = [&placeKnob](juce::Rectangle<int> panel, std::vector<const char*> ids, int pitch)
+    // Ride: Swell at the left; its knobs in a row with Throw Length at the end, over Auto Ride, Follow Master and
+    // Throw; the ride of the last 8 seconds along the bottom. Keys is in the title bar.
     {
-        auto r = panel.reduced(14, 0).withTrimmedTop(40).withTrimmedBottom(8);
+        const auto& ride = m_performPanel;
+        const int bodyY = ride.getY() + 37, bodyBottom = ride.getBottom() - 6;
+        m_swell.setBounds(ride.getX() + 10, bodyY + 3 + (bodyBottom - bodyY - 3 - 92) / 2, 92, 92);
+        const int kx = ride.getX() + 106, kRight = ride.getRight() - Lay::pad + 4;
+        constexpr int lengthW = 62;
+        const int cw = (kRight - lengthW - kx) / 5;
+        const char* ids[] = { ParamIDs::energy, ParamIDs::rate, ParamIDs::fill, ParamIDs::chaos, ParamIDs::pitch };
+        for (int i = 0; i < 5; ++i)
+            placeKnob(ids[i], { kx + i * cw, bodyY, cw, secondaryH }, WheelKnob::Size::Secondary);
+        placeKnob(ParamIDs::throwLength, { kRight - lengthW, bodyY, lengthW, secondaryH }, WheelKnob::Size::Secondary);
+        const int by = bodyY + secondaryH + 3;
+        m_rideButton.setBounds(kx, by, 84, 18);
+        m_followMasterButton.setBounds(kx + 88, by, 106, 18);
+        m_throwButton.setBounds(kRight - 80, by, 80, 18);
+        m_rideStripArea = { kx, ride.getY() + Lay::stripY, kRight - kx, Lay::stripH };
+        m_rideStrip->setBounds(m_rideStripArea);
+
+        const int keysWidth = 66, keysLabel = 28;
+        m_keysMode.setBounds(ride.getRight() - Lay::pad - keysWidth, ride.getY() + 9, keysWidth, 22);
+        m_keysLabel = { m_keysMode.getX() - keysLabel - 4, m_keysMode.getY(), keysLabel, 22 };
+        const int titleEnd = ride.getX() + SwooshLookAndFeel::titleEnd(*m_fonts, "Ride") + 12;
+        m_rideStatusArea = { titleEnd, ride.getY() + 9, m_keysLabel.getX() - 4 - 44 - 6 - titleEnd, 22 }; // the die and lock sit between it and Keys
+    }
+
+    // A row of primary knobs on the shared column pitch, from x.
+    auto row = [&placeKnob](int x, int y, std::vector<const char*> ids)
+    {
         for (const auto* id : ids)
-            placeKnob(id, r.removeFromLeft(pitch), WheelKnob::Size::Primary);
+        {
+            placeKnob(id, { x, y, Lay::pitch, primaryH }, WheelKnob::Size::Primary);
+            x += Lay::pitch;
+        }
     };
     for (int b = 0; b < ParamIDs::numBuses; ++b)
     {
@@ -1310,89 +1469,101 @@ void SwooshbucklerAudioProcessorEditor::layoutContent()
         for (int k = 0; k < ParamIDs::numBusControls; ++k)
             if (ParamIDs::bus[b][k] != nullptr)
                 ids.push_back(ParamIDs::bus[b][k]);
-        row(m_sections[static_cast<size_t>(b)].bounds, ids, b == 0 ? pitchWide : pitchNarrow);
+        const auto& panel = m_sections[static_cast<size_t>(b)].bounds;
+        row(panel.getX() + Lay::pad, panel.getY() + Lay::knobsY, ids);
     }
-    row(m_sections[2].bounds, { ParamIDs::hitSense, ParamIDs::hitBoost, ParamIDs::hitRelease, ParamIDs::hitHold, ParamIDs::hitFloor,
-                                ParamIDs::hitDuck, ParamIDs::duckReturn }, pitchNarrow);
+    // The Hits' seven knobs sit on bus A's seven columns.
+    row(busA.getX() + Lay::pad, hits.getY() + Lay::knobsY,
+        { ParamIDs::hitSense, ParamIDs::hitBoost, ParamIDs::hitRelease, ParamIDs::hitHold, ParamIDs::hitFloor, ParamIDs::hitDuck, ParamIDs::duckReturn });
+    // Bus B's last two knobs (what bus A does to it) are in a tinted group of their own.
+    m_fromBusAGroup = { busB.getRight() - Lay::pad - 2 * Lay::pitch - 2, busB.getY() + 33, 2 * Lay::pitch + 6, Lay::stripY - 33 - 3 };
+    m_fromBusACaption = m_fromBusAGroup.reduced(6, 0).withTrimmedTop(1).withHeight(13);
+
     {
-        // Modes in the Hits title bar, Take Turns in bus B's.
-        const auto& hits = m_sections[2].bounds;
-        const int y = hits.getY() + 9;
-        m_duckMode.setBounds(hits.getRight() - 14 - 80, y, 80, 22);
-        m_duckModeLabel = { m_duckMode.getX() - 32, y, 28, 22 };
-        m_gateMode.setBounds(m_duckModeLabel.getX() - 8 - 72, y, 72, 22);
-        m_gateModeLabel = { m_gateMode.getX() - 32, y, 28, 22 };
-        const auto& busB = m_sections[1].bounds;
-        m_takeTurns.setBounds(busB.getRight() - 14 - 96, busB.getY() + 9, 96, 22);
-        m_linkBuses.setBounds(m_takeTurns.getX() - 6 - 56, busB.getY() + 9, 56, 22);
-
-        // Pass (the Pass Mode menu) in each bus's title bar: at the right end of A's, left of Link in B's.
-        const auto& busA = m_sections[0].bounds;
-        const int passWidth = 76, passLabel = 32;
-        m_passMode[0].setBounds(busA.getRight() - 14 - passWidth, busA.getY() + 9, passWidth, 22);
-        m_passMode[1].setBounds(m_linkBuses.getX() - 6 - passWidth, busB.getY() + 9, passWidth, 22);
+        // Title bars. Bus A: Pass. Bus B: Pass, Link, Take Turns. Each section's die and lock sit left of them.
+        const int y = 9, passWidth = 78, passLabel = 30;
+        m_takeTurns.setBounds(busB.getRight() - Lay::pad - 98, busB.getY() + y, 98, 22);
+        m_linkBuses.setBounds(m_takeTurns.getX() - 4 - 58, busB.getY() + y, 58, 22);
+        m_passMode[0].setBounds(busA.getRight() - Lay::pad - passWidth, busA.getY() + y, passWidth, 22);
+        m_passMode[1].setBounds(m_linkBuses.getX() - 8 - passWidth, busB.getY() + y, passWidth, 22);
         for (size_t b = 0; b < m_passMode.size(); ++b)
-            m_passModeLabel[b] = { m_passMode[b].getX() - passLabel - 2, m_passMode[b].getY(), passLabel, 22 };
+            m_passModeLabel[b] = { m_passMode[b].getX() - passLabel - 4, m_passMode[b].getY(), passLabel, 22 };
 
-        // The little waveforms, at the right of each title bar (left of any buttons and menus there).
-        const auto& out = m_sections[3].bounds;
-        m_sectionScopes[0]->setBounds(m_passModeLabel[0].getX() - 6 - 120, busA.getY() + 9, 120, 22);
-        m_sectionScopes[1]->setBounds(m_passModeLabel[1].getX() - 6 - 46, busB.getY() + 9, 46, 22);
-        m_sectionScopes[2]->setBounds(m_gateModeLabel.getX() - 6 - 76, hits.getY() + 9, 76, 22);
-        m_sectionScopes[3]->setBounds(out.getRight() - 14 - 120, out.getY() + 9, 120, 22);
-
-        // Each section's die and lock, left of its little waveform (in Ride, left of Keys).
-        auto diceAt = [this](int section, int right, int y)
+        auto diceAt = [this](int section, int right, int top)
         {
-            m_sectionLocks[static_cast<size_t>(section)]->setBounds(right - 20, y + 1, 20, 20);
-            m_sectionDice[static_cast<size_t>(section)]->setBounds(right - 42, y + 1, 20, 20);
+            m_sectionLocks[static_cast<size_t>(section)]->setBounds(right - 20, top + 1, 20, 20);
+            m_sectionDice[static_cast<size_t>(section)]->setBounds(right - 42, top + 1, 20, 20);
         };
-        diceAt(Presets::Ride, m_keysLabel.getX() - 2, m_performPanel.getY() + 9);
-        diceAt(Presets::BusA, m_sectionScopes[0]->getX() - 6, busA.getY() + 9);
-        diceAt(Presets::BusB, m_sectionScopes[1]->getX() - 6, busB.getY() + 9);
-        diceAt(Presets::Hits, m_sectionScopes[2]->getX() - 6, hits.getY() + 9);
-        diceAt(Presets::Output, m_sectionScopes[3]->getX() - 6, out.getY() + 9);
+        diceAt(Presets::Ride, m_keysLabel.getX() - 4, m_performPanel.getY() + y);
+        diceAt(Presets::BusA, m_passModeLabel[0].getX() - 4, busA.getY() + y);
+        diceAt(Presets::BusB, m_passModeLabel[1].getX() - 4, busB.getY() + y);
+        diceAt(Presets::Hits, hits.getRight() - Lay::pad, hits.getY() + y);
+        diceAt(Presets::Output, out.getRight() - Lay::pad, out.getY() + y);
         // Each subtitle stops short of its title bar's first control.
         for (size_t i = 0; i < m_sections.size(); ++i)
             m_sections[i].subtitleRight = m_sectionDice[i + 1]->getX() - 8;
+
+        // The scope strips: what each section sends on, along the bottom of its panel.
+        for (size_t i = 0; i < m_sectionScopes.size(); ++i)
+        {
+            const auto& panel = m_sections[i].bounds;
+            m_sectionScopes[i]->setBounds(panel.getX() + Lay::pad, panel.getY() + Lay::stripY, panel.getWidth() - 2 * Lay::pad, Lay::stripH);
+        }
     }
-    m_gateLamp = { m_sections[2].bounds.getRight() - 120, m_sections[2].bounds.getY() + 38, 100, 52 };
-    m_aimHits.setBounds(m_gateLamp.getX() + 4, m_gateLamp.getBottom() + 2, 92, 24);
-    m_syncHits.setBounds(m_gateLamp.getX() + 4, m_aimHits.getBottom() + 4, 92, 24);
-    // Output, left to right: the Peak Tremolo group (it comes before Space in the signal) with its name, its switch
-    // and its two menus over its three knobs; then Space, Inflate, Push and Ceiling; then the meters and the trim fader.
+
+    // Hits, left of its knobs (under the Ride panel): the gate lamp, Aim and Sync Hits, and the Gate and Duck menus.
     {
-        const auto& out = m_sections[3].bounds;
-        m_tremGroup = { out.getX() + 12, out.getY() + 38, 228, out.getHeight() - 44 };
-        m_tremCaption = m_tremGroup.reduced(10, 0).withTrimmedTop(2).withHeight(13);
-        auto menus = m_tremGroup.reduced(8, 0).withTrimmedTop(16).withHeight(20);
-        m_tremOn.setBounds(menus.removeFromLeft(30));
-        menus.removeFromLeft(6);
-        m_tremShape.setBounds(menus.removeFromLeft(72));
-        menus.removeFromLeft(4);
-        m_tremTarget.setBounds(menus);
-        auto knobs = m_tremGroup.reduced(6, 0).withTrimmedTop(38).withTrimmedBottom(2);
-        const int tw = knobs.getWidth() / 3;
+        const int x = hits.getX() + Lay::pad, top = hits.getY() + Lay::knobsY + 6;
+        m_gateLamp = { x, top, 84, 76 };
+        m_aimHits.setBounds(x + 96, top + 10, 104, 24);
+        m_syncHits.setBounds(x + 96, top + 42, 104, 24);
+        const int labelX = x + 216, label = 34, menuX = labelX + label + 4, menuW = busA.getX() + Lay::pad - 16 - menuX;
+        m_gateModeLabel = { labelX, top + 11, label, 22 };
+        m_gateMode.setBounds(menuX, top + 11, menuW, 22);
+        m_duckModeLabel = { labelX, top + 43, label, 22 };
+        m_duckMode.setBounds(menuX, top + 43, menuW, 22);
+    }
+
+    // Output, left to right: the Peak Tremolo group (it comes before Space in the signal) with its switch and name
+    // over its two menus and its three knobs; then Space, Inflate, Push and Ceiling; then the meters and the Trim fader.
+    {
+        const int top = out.getY() + 34, bottom = out.getY() + Lay::stripY - 3;
+        constexpr int menuW = 84, tremKnobW = 52;
+        m_tremGroup = { out.getX() + Lay::pad - 2, top, 8 + menuW + 4 + 3 * tremKnobW + 4, bottom - top };
+        auto head = m_tremGroup.reduced(8, 0).withTrimmedTop(3).withHeight(16);
+        m_tremOn.setBounds(head.removeFromLeft(30));
+        head.removeFromLeft(6);
+        m_tremCaption = head.withWidth(menuW + 40);
+        const int menuY = m_tremGroup.getY() + 28;
+        m_tremShape.setBounds(m_tremGroup.getX() + 8, menuY, menuW, 22);
+        m_tremTarget.setBounds(m_tremGroup.getX() + 8, menuY + 28, menuW, 22);
+        int kx = m_tremGroup.getX() + 8 + menuW + 4;
+        const int ky = m_tremGroup.getBottom() - 2 - secondaryH;
         for (const auto* id : { ParamIDs::tremDepth, ParamIDs::tremRate, ParamIDs::tremThreshold })
-            placeKnob(id, knobs.removeFromLeft(tw), WheelKnob::Size::Secondary);
+        {
+            placeKnob(id, { kx, ky, tremKnobW, secondaryH }, WheelKnob::Size::Secondary);
+            kx += tremKnobW;
+        }
 
         // The meters and the Trim fader: a name over each, the bars and the fader's slot, a number under each.
-        m_meterArea = { out.getRight() - 154, out.getY() + 42, 96, 108 };
-        const int textRow = 13;
-        m_trimLabel = { m_meterArea.getRight() + 2, m_meterArea.getY(), 44, textRow };
-        m_trimValue = { m_trimLabel.getX(), m_meterArea.getBottom() - textRow, m_trimLabel.getWidth(), textRow };
+        constexpr int textRow = 13, trimW = 40, meterW = 88;
+        m_meterArea = { out.getRight() - Lay::pad - trimW - 2 - meterW, top + 2, meterW, bottom - top - 2 };
+        m_trimLabel = { m_meterArea.getRight() + 2, m_meterArea.getY(), trimW, textRow };
+        m_trimValue = { m_trimLabel.getX(), m_meterArea.getBottom() - textRow, trimW, textRow };
         m_trim.setBounds(m_trimLabel.getCentreX() - 14, m_trimLabel.getBottom() + 1, 28, m_trimValue.getY() - m_trimLabel.getBottom() - 2);
-        auto rest = juce::Rectangle<int>(m_tremGroup.getRight() + 6, out.getY() + 40,
-                                         m_meterArea.getX() - 6 - (m_tremGroup.getRight() + 6), out.getHeight() - 48);
-        const int ow = rest.getWidth() / 4;
+        const int restX = m_tremGroup.getRight() + 6, restW = m_meterArea.getX() - 4 - restX, ow = restW / 4;
+        int ox = restX + (restW - 4 * ow) / 2;
         for (const auto* id : { ParamIDs::space, ParamIDs::inflate, ParamIDs::push, ParamIDs::ceiling })
-            placeKnob(id, rest.removeFromLeft(ow), WheelKnob::Size::Secondary);
+        {
+            placeKnob(id, { ox, ky - 8, ow, secondaryH }, WheelKnob::Size::Secondary);
+            ox += ow;
+        }
     }
 
-    // Row 4: modulation (MegaMod style), across the full width
-    m_modSection = { 16, 808, 1248, 190 };
-    m_modPanel.setBounds(m_modSection.reduced(14, 0).withTrimmedTop(40).withTrimmedBottom(10));
-    m_cablesButton.setBounds(m_modSection.getRight() - 96, m_modSection.getY() + 10, 82, 22);
+    // Row 4: modulation, across the full width: its name, hint and Cables at the left, then the four modulators.
+    m_modSection = { Lay::left, Lay::modY, Lay::right - Lay::left, Lay::modH };
+    m_cablesButton.setBounds(m_modSection.getX() + Lay::pad + 2, m_modSection.getBottom() - 10 - 22, 88, 22);
+    m_modPanel.setBounds(m_modSection.withTrimmedLeft(196).withTrimmedRight(Lay::pad).reduced(0, 8));
     m_wires.setBounds(0, 0, c_width, c_height);
     {
         // Every knob a wire can reach, and each track's Semitones box.
@@ -1406,17 +1577,13 @@ void SwooshbucklerAudioProcessorEditor::layoutContent()
         m_wires.setTargets(std::move(targets));
     }
 
-    m_footer = { 16, 1002, 1248, 18 };
-    m_toastArea = { 640, 1002, 624, 18 };
-    m_settings.setBounds(0, 0, c_width, c_height);
-    m_settings.setVisible(false);
-    m_takes.setBounds(0, 0, c_width, c_height);
-    m_takes.setVisible(false);
-    m_variations.setBounds(0, 0, c_width, c_height);
-    m_variations.setVisible(false);
-    m_about.setBounds(0, 0, c_width, c_height);
-    m_about.setVisible(false);
-
+    m_footer = { Lay::left, Lay::footerY, Lay::right - Lay::left, Lay::footerH };
+    m_toastArea = m_footer.withTrimmedLeft(m_footer.getWidth() / 2);
+    for (auto* overlay : std::initializer_list<juce::Component*> { &m_settings, &m_takes, &m_variations, &m_about })
+    {
+        overlay->setBounds(0, 0, c_width, c_height);
+        overlay->setVisible(false);
+    }
 }
 
 void SwooshbucklerAudioProcessorEditor::paintContent(juce::Graphics& g)
@@ -1425,12 +1592,16 @@ void SwooshbucklerAudioProcessorEditor::paintContent(juce::Graphics& g)
     const auto& f = *m_fonts;
 
     // The header: the mark, the name, and the one rope rule in the window.
-    if (g.clipRegionIntersects({ 0, 0, c_width, 60 }))
+    if (g.clipRegionIntersects({ 0, 0, c_width, Lay::topY }))
     {
-        SwooshLookAndFeel::drawCutlasses(g, { 18.0f, 12.0f, 38.0f, 34.0f }, TC::output, TC::brass);
+        SwooshLookAndFeel::drawCutlasses(g, { 14.0f, 7.0f, 38.0f, 34.0f }, TC::output, TC::brass);
         g.setColour(TC::text);
-        Theme::fitText(g, "Swooshbuckler", juce::Rectangle<float>(66.0f, 2.0f, 180.0f, 38.0f), f.wordmark(), juce::Justification::centredLeft);
-        SwooshLookAndFeel::drawRope(g, { 16.0f, 56.0f }, { 1264.0f, 56.0f }, TC::brass);
+        Theme::fitText(g, "Swooshbuckler", juce::Rectangle<float>(58.0f, -2.0f, 184.0f, 38.0f), f.wordmark(), juce::Justification::centredLeft);
+        SwooshLookAndFeel::drawRope(g, { static_cast<float>(Lay::left), static_cast<float>(Lay::headerRule) },
+                                    { static_cast<float>(Lay::right), static_cast<float>(Lay::headerRule) }, TC::brass);
+        // A rule between the header's groups: transport | presets | tape.
+        for (const int x : m_headerRules)
+            SwooshLookAndFeel::drawRule(g, { static_cast<float>(x), 13.0f }, { static_cast<float>(x), 37.0f });
     }
 
     SwooshLookAndFeel::drawPanel(g, m_performPanel.toFloat(), "Ride", {}, TC::brass, f, Icons::Icon::Ride);
@@ -1443,12 +1614,13 @@ void SwooshbucklerAudioProcessorEditor::paintContent(juce::Graphics& g)
     }
     for (const auto& sec : m_sections)
         SwooshLookAndFeel::drawPanel(g, sec.bounds.toFloat(), sec.title, sec.subtitle, sec.accent, f, sec.mark, static_cast<float>(sec.subtitleRight));
-    SwooshLookAndFeel::drawPanel(g, m_modSection.toFloat(), "Modulation", "Drag a jack onto any knob to wire it", TC::brass, f, Icons::Icon::Modulation,
-                                 static_cast<float>(m_cablesButton.getX() - 8));
+    SwooshLookAndFeel::drawPanel(g, m_modSection.toFloat(), "Modulation", {}, TC::brass, f, Icons::Icon::Modulation);
+    Theme::fitLines(g, "Drag a jack onto any knob to wire it.",
+                    juce::Rectangle<int>(m_modSection.getX() + Lay::pad + 2, m_modSection.getY() + 38, 196 - Lay::pad - 14, 30), f.body(), TC::textFaint);
     g.setColour(TC::textDim);
     Theme::fitText(g, "Keys", m_keysLabel, f.caption(), juce::Justification::centredRight);
-    Theme::fitText(g, "Gate", m_gateModeLabel, f.caption(), juce::Justification::centredRight);
-    Theme::fitText(g, "Duck", m_duckModeLabel, f.caption(), juce::Justification::centredRight);
+    Theme::fitText(g, "Gate", m_gateModeLabel, f.caption(), juce::Justification::centredLeft);
+    Theme::fitText(g, "Duck", m_duckModeLabel, f.caption(), juce::Justification::centredLeft);
     for (const auto& label : m_passModeLabel)
         Theme::fitText(g, "Pass", label, f.caption(), juce::Justification::centredRight);
 
@@ -1461,15 +1633,31 @@ void SwooshbucklerAudioProcessorEditor::paintContent(juce::Graphics& g)
         g.setColour(TC::brass.withAlpha(0.8f));
         g.strokePath(p, juce::PathStrokeType(2.0f, juce::PathStrokeType::mitered, juce::PathStrokeType::butt));
     };
-    arrow({ 458.0f, 452.0f }, true);   // tracks -> buses
-    arrow({ 640.0f, 542.0f }, false);  // A -> B
-    arrow({ 324.0f, 632.0f }, true);   // buses -> hits
-    arrow({ 640.0f, 716.0f }, false);  // hits -> output
+    {
+        const float gutter = static_cast<float>(Lay::gutter) * 0.5f;
+        const auto a = m_sections[0].bounds.toFloat(), b = m_sections[1].bounds.toFloat(), h = m_sections[2].bounds.toFloat(), o = m_sections[3].bounds.toFloat();
+        arrow({ a.getCentreX(), a.getY() - gutter }, true);        // tracks -> buses
+        arrow({ b.getX() - gutter, a.getCentreY() }, false);       // A -> B
+        arrow({ a.getCentreX(), h.getY() - gutter }, true);        // buses -> hits
+        arrow({ o.getX() - gutter, h.getCentreY() }, false);       // hits -> output
+    }
+
+    // Bus B's Ducked and Filtered are what bus A does to it: a tinted group of their own, in A's colour.
+    if (g.clipRegionIntersects(m_fromBusAGroup))
+    {
+        const auto r = m_fromBusAGroup.toFloat();
+        g.setColour(TC::busA.withAlpha(0.07f));
+        g.fillRect(r);
+        g.setColour(TC::busA.withAlpha(0.45f));
+        Theme::Plate::stroke(g, r, 0.0f);
+        g.setColour(TC::busA.brighter(0.25f));
+        Theme::fitText(g, "From Bus A", m_fromBusACaption, f.caption(), juce::Justification::centredLeft);
+    }
 
     // Hit gate lamp: a cherry light in a dark socket.
     if (g.clipRegionIntersects(m_gateLamp.expanded(10)))
     {
-        const auto lamp = juce::Rectangle<float>(26.0f, 26.0f).withCentre(m_gateLamp.toFloat().getCentre().translated(0.0f, -8.0f));
+        const auto lamp = juce::Rectangle<float>(30.0f, 30.0f).withCentre(m_gateLamp.toFloat().getCentre().translated(0.0f, -10.0f));
         g.setColour(TC::well);
         g.fillEllipse(lamp.expanded(3.0f));
         g.setColour(TC::hits.withAlpha(0.15f + 0.35f * m_gate));
@@ -1500,9 +1688,9 @@ void SwooshbucklerAudioProcessorEditor::paintContent(juce::Graphics& g)
         auto bars = m.reduced(0.0f, 3.0f);
         const auto grScale = bars.removeFromLeft(16.0f);
         const auto grBar = bars.removeFromLeft(18.0f);
-        bars.removeFromLeft(14.0f);
+        bars.removeFromLeft(12.0f);
         const auto outBar = bars.removeFromLeft(18.0f);
-        const auto outScale = bars.removeFromLeft(26.0f);
+        const auto outScale = bars.removeFromLeft(24.0f);
         for (auto bar : { grBar, outBar })
             SwooshLookAndFeel::drawWell(g, bar, 0.0f);
 
@@ -1605,13 +1793,12 @@ void SwooshbucklerAudioProcessorEditor::paintContent(juce::Graphics& g)
     {
         g.setColour(TC::textFaint);
         Theme::fitText(g, "Drop sounds into Tracks, press Play, arm the tape and let it ride. Hold Swell (or Space) to push.",
-                       m_footer.withWidth(600), f.body(), juce::Justification::centredLeft, Theme::Fit::Sentence);
+                       m_footer.withWidth(m_footer.getWidth() / 2 - 12), f.body(), juce::Justification::centredLeft, Theme::Fit::Sentence);
         if (m_toast.isNotEmpty())
         {
             const float age = static_cast<float>(juce::Time::getMillisecondCounterHiRes() * 0.001 - m_toastTime);
             g.setColour(TC::brass.withAlpha(juce::jlimit(0.0f, 1.0f, 8.0f - age)));
-            Theme::fitText(g, m_toast + (m_toastFile != juce::File() ? "  (click for Takes)" : ""), m_toastArea, f.body(), juce::Justification::centredRight,
-                           Theme::Fit::Message);
+            Theme::fitText(g, m_toast, m_toastArea, f.body(), juce::Justification::centredRight, Theme::Fit::Message);
         }
     }
 }
@@ -1737,6 +1924,12 @@ void SwooshbucklerAudioProcessorEditor::filesDropped(const juce::StringArray& fi
 
 void SwooshbucklerAudioProcessorEditor::toast(const juce::String& text, juce::File file)
 {
+    // A saved take is said in the Tracks title bar, beside the lanes it came from; a click there opens Takes.
+    if (file != juce::File())
+    {
+        m_hold.showTakeNote(text);
+        return;
+    }
     m_toast = Theme::localiseShortcuts(text);
     m_toastFile = file;
     m_toastTime = juce::Time::getMillisecondCounterHiRes() * 0.001;
@@ -2291,7 +2484,10 @@ void SwooshbucklerAudioProcessorEditor::showLinkedKnobs()
         if (it == m_controls.end() || it->second == nullptr)
             continue;
         if (auto* knob = dynamic_cast<WheelKnob*>(it->second))
+        {
             knob->setLinkColour(TC::busA);
+            knob->setLinkText("Linked To A");
+        }
         Theme::setLook(*it->second, linked ? Theme::Look::Linked : Theme::Look::Normal);
     }
     // And B flies A's passes in A's Pass Mode.
@@ -2318,6 +2514,8 @@ void SwooshbucklerAudioProcessorEditor::timerCallback()
     }
     if ((++m_morphSyncTick % 6) == 0)
         syncMorphPad();
+    if ((m_morphSyncTick & 1) == 0)
+        m_rideStrip->step();
     {
         // Follow Master rests (hollow, still usable) until Auto Ride is on and a track is the Master.
         const bool ready = m_processor.getState().getRawParameterValue(ParamIDs::rideOn)->load() > 0.5f && m_processor.getCargo().getMaster() >= 0;

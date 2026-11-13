@@ -82,21 +82,25 @@ Every knob is a ship's wheel with a sand pointer, and under it its name and its 
 4. **Hits** only play when the hit gate opens. By default the gate opens at the loudest moments of the two buses, so the impacts land on the biggest swells and push the buses out of the way.
 5. **Output** adds echoes and reverb, makes it louder and denser, and limits it. The tape and Last 60 s record exactly what you hear.
 
-The small brass arrows between the sections show this flow, and each section's title bar has a small waveform of the last 3 seconds of what it sends on.
+The small brass arrows between the sections show this flow, and a strip along the bottom of each section's panel shows the last 3 seconds of what it sends on.
 
 ## A tour of the window
+
+The window is a landscape one. The header runs along the top. Under it, side by side, are **Tracks** on the left and **the sea** on the right, which together take the top two fifths. Then a row of **Ride**, **Bus A** and **Bus B**; then **Hits** and **Output**, with the Hits' seven knobs directly under bus A's; and **Modulation** along the bottom, with a hint and message line under it. Bus A, Bus B and the Hits share one knob spacing, so their knobs line up in columns.
+
+The window resizes from its bottom right corner and keeps its shape; everything scales with it. The first time, it opens at its full size, or at the largest size that fits whole on your screen. After that it opens at the size you left it.
 
 ### Header bar
 
 ![Header bar](docs/images/header.png)
 
-From left to right:
+From left to right, in three groups with a thin rule between them: the transport (Follow Host, Play, New), the presets (Undo and Redo, the preset box, A / B, Randomise and its history) and the tape (the tape, Last 60 s, Variations, Takes). Settings is at the far right.
 
 | Control | What it does |
 |---|---|
 | **Swooshbuckler** title | Click it, or the version number beside the website link under it, to open [About](#about). |
-| **Play / Stop** | Starts and stops the whole rig. It is the one filled brass button: a triangle and Play while stopped, a square and Stop while running. Play starts every track from its start flag and the ride from the top. Play fades in over about 60 ms. Stop lets go of the sounds and lets the Fill echoes, the passes in flight and Space ring out, in your speakers and on the tape, until they have died away (6 seconds at most, then a short fade), so a take ends with its tail and not a cut. Press Play during the tail to start again at once (even straight after Stop: sounds that are still letting go fade out in a few milliseconds first, so the restart doesn't click). The app always opens stopped. In a DAW, Play is a parameter you can automate, and it is saved with the project, so a project saved while playing plays when it is opened. |
 | **Follow Host** (plug-in only) | On (the default): the rig plays while your DAW's transport plays and stops when it stops, letting the tail ring out. Every transport start begins the ride again from the same place, with the modulators and the morph's Wander starting over too, so the same settings bounce the same way every time. Play still starts and stops the rig by hand in between. Off: only Play, or its automation, starts and stops the rig. Saved with the project. See [In a DAW](#in-a-daw). |
+| **Play / Stop** | Starts and stops the whole rig. It is the one filled brass button: a triangle and Play while stopped, a square and Stop while running. Play starts every track from its start flag and the ride from the top. Play fades in over about 60 ms. Stop lets go of the sounds and lets the Fill echoes, the passes in flight and Space ring out, in your speakers and on the tape, until they have died away (6 seconds at most, then a short fade), so a take ends with its tail and not a cut. Press Play during the tail to start again at once (even straight after Stop: sounds that are still letting go fade out in a few milliseconds first, so the restart doesn't click). The app always opens stopped. In a DAW, Play is a parameter you can automate, and it is saved with the project, so a project saved while playing plays when it is opened. |
 | **New** | A new session. It stops the rig and the tape, empties all ten tracks, turns off every mute and solo, puts every control back to its default, removes every modulation wire and forgets the session's file. One **Undo** brings all of it back. |
 | **Undo** and **Redo** (the two curved arrows) | Take back, and do again, the last thing you changed. See [Undo and redo](#undo-and-redo). |
 | The two arrows either side of the preset name | **Previous Preset** and **Next Preset**: step through the presets, the factory ones and then your own, wrapping round at either end. |
@@ -111,7 +115,7 @@ From left to right:
 | **Takes** | Opens [Takes](#takes): the recordings of this run, to hear, drag out, keep or delete. The number beside it is how many there are. |
 | **Settings** | Opens [Settings](#settings-and-recording): where recordings go and how they're written, and the audio device in the app. |
 
-A status line runs along the bottom of the window. The left side always shows a hint. The right side shows the latest message, such as "Saved ...", which fades after about 8 seconds. Click a "Saved ..." message to open [Takes](#takes), where the file is at the top of the list.
+A status line runs along the bottom of the window. The left side always shows a hint. The right side shows the latest message, which fades after about 8 seconds. When a take is saved, the message ("Saved ...") appears in brass at the right of the Tracks title bar instead; click it to open [Takes](#takes), where the file is at the top of the list.
 
 ### Tracks
 
@@ -138,8 +142,8 @@ This is where your sounds live: up to ten files, each on its own looping lane.
 
 | Part | What it does |
 |---|---|
-| **Name** | The track is named after its sound type ("Energy Bed", "Tonal Content" and so on) until you rename it. Two tracks of the same type share a name; the lane colour tells them apart. **Double-click** the name to rename it. Return keeps it and Esc cancels. Clear it to go back to the automatic name. |
-| **Bus tag** | Where the track plays: **Bus A** (coral), **Bus B** (turquoise) or **Hits** (red), in the colour of that section's knobs. **Click it** to choose: **Auto** (the bus the sound type picks, the default), **Bus A**, **Bus B** or **Hits**. A ` *` on the tag means you chose it yourself. See [Choosing the bus](#choosing-the-bus). |
+| **Name** | The track is named after its sound type ("Energy Bed", "Tonal Content" and so on) until you rename it. Two tracks of the same type share a name; the lane's shade tells them apart. A lane is drawn in a shade of its bus's colour (coral on Bus A, turquoise on Bus B, cherry on the Hits), and each further track on the same bus is a step lighter or darker. **Double-click** the name to rename it. Return keeps it and Esc cancels. Clear it to go back to the automatic name. |
+| **Bus tag** | Where the track plays: **Bus A** (coral), **Bus B** (turquoise) or **Hits** (cherry), in the colour of that section's knobs, with the bus's letter (A, B, or H for the Hits) on a small plate at its left. **Click it** to choose: **Auto** (the bus the sound type picks, the default), **Bus A**, **Bus B** or **Hits**. A ` *` on the tag means you chose it yourself. See [Choosing the bus](#choosing-the-bus). |
 | **Star** | Makes this track the **Master**: the one sound the others can follow. Only one track is the Master at a time; click the lit star again to have none. See [The Master track](#the-master-track). |
 | **Type badge** | The sound type. Click it to change it, or choose **Auto** to go back to the guess. A ` *` means you set it yourself. On Auto the type decides the bus: see the table below. |
 | **Skip Silence** | On (the default): only the sounds play and the gaps between them are skipped, so a recording full of pauses becomes a steady source. The sounds are drawn bright and the gaps faint. Off: the whole file loops, silence and all, and the lane reads "silence kept". |
@@ -201,6 +205,8 @@ When **Sync Hits** is on in the Hits section, every track on Hits zooms and slid
 ![Ride](docs/images/ride.png)
 
 This is where the whooshes come from. With Auto Ride on, each track's fader rises and falls at its own speed (the ten tracks run at different speeds, so they never move together), and the layers swell, overlap and fall away.
+
+Swell is at the left. Its knobs are in a row beside it, with Throw Length at the end; under them are Auto Ride, Follow Master beside it, and Throw under its Throw Length knob. Along the bottom, the **Last 8 s** strip draws where the ride has had the faders over the last eight seconds: bus A's tracks in coral and bus B's in turquoise, the newest moment at the right.
 
 | Control | Range (default) | What it does |
 |---|---|---|
@@ -287,9 +293,11 @@ Bus A ("growls, tones, crackle, rumble - and the key for B") is the aggressive b
 | **Link** (in B's title bar) | off | Bus B flies the same doppler passes as bus A: at the same moment, as close, in the same direction, with A's Doppler, Width and Pass. The two buses move as one source, for one consistent whoosh. B keeps its own Bend, so its pitch can bend more or less. While linked, B's own Doppler, Width and Pass show a chain link in bus A's colour and can't be moved, and they come back as you set them when you unlink. Leave it off to keep energy beds on B moving on their own. |
 | **Take Turns** (in B's title bar) | off | Only the louder bus plays at full level and the other ducks under it by the Ducked amount (at 0% Ducked it does nothing), so they trade places. The other bus has to be clearly louder (about 2 dB) for 30 ms before the turn passes. Off: A always ducks B. |
 
+Ducked and Filtered are what bus A does to bus B, so they sit in a tinted group of their own at the right of Bus B, marked **From Bus A**. While Link is on, bus B's Doppler and Width read **Linked To A** in place of their own values.
+
 All the knobs run from 0 to 100%. How bus B gets out of the way (turned down, darkened or just its mids) follows the **Duck** box in the Hits section, and how fast it comes back follows the Hits **Return** knob.
 
-The waveform in each title bar shows the last 3 seconds of what that bus sends on. Bus B's is drawn after A has ducked and filtered it, so a thin line under a busy bus A means the ducking is working.
+The strip along the bottom of each bus's panel shows the last 3 seconds of what that bus sends on. Bus B's is drawn after A has ducked and filtered it, so a thin line under a busy bus A means the ducking is working.
 
 ### Hits
 
@@ -317,7 +325,7 @@ Sessions saved before Aim existed open with it off, so they keep the gate they w
 | **Aim** | on / off (on) | Aims the hits at the pass peaks (see above). |
 | **Sync Hits** | on / off (off), with Aim off | Every Impact track fires its next hit on one shared beat, so their transients line up into one big hit. Switching it restarts the hit tracks. See the [hit sync view](#tracks). |
 
-The waveform in the title bar shows the last 3 seconds of what got through the gate: each spike is a hit, and the gaps are the gate closed.
+The strip along the bottom of the panel shows the last 3 seconds of what got through the gate: each spike is a hit, and the gaps are the gate closed. The gate light, Aim, Sync Hits and the Gate and Duck boxes are at the left of the panel; the seven knobs sit under bus A's.
 
 ### Output
 
@@ -404,16 +412,16 @@ The wander runs inside the rig, not in the window: the dot keeps flying with the
 
 ![Modulation](docs/images/modulation.png)
 
-Four modulators run along the bottom: **Mod 1** (lilac), **Mod 2** (sky blue), **Mod 3** (rose) and **Mod 4** (lime). Each can be one of four types, picked from the menu at its top right:
+Four modulators run along the bottom: **Mod 1** (lilac), **Mod 2** (sky blue), **Mod 3** (rose) and **Mod 4** (lime). Each can be one of four types, picked from the upper of the two menus at the left of its card:
 
 | Type | What it does | Knob |
 |---|---|---|
 | **LFO** | A repeating wave that swings each wired knob up and down. The shape menu offers Sine, Triangle, Ramp (rises then drops), Square and Steps (a new random value every cycle). | **Rate**: one cycle every 20 s (0.05 Hz) to 8 Hz |
 | **Random** | A smooth random wander up and down, never the same twice. | **Rate**: as above |
-| **Follower** | Follows the loudness of **Bus A**, **Bus B**, the **Hits** or the whole **Output**, or the [Master track](#the-master-track): **Master** (its loudness), **Master Pitch** or **Master Brightness**, each read where the Master is playing and spread over that sound's own range. Pick which in the menu under the scope. It turns its knobs one way only. The Master inputs rest until a track is the Master. | **Speed**: slow and smooth (2 s) to fast and jumpy (15 ms) |
+| **Follower** | Follows the loudness of **Bus A**, **Bus B**, the **Hits** or the whole **Output**, or the [Master track](#the-master-track): **Master** (its loudness), **Master Pitch** or **Master Brightness**, each read where the Master is playing and spread over that sound's own range. Pick which in the menu under the type. It turns its knobs one way only. The Master inputs rest until a track is the Master. | **Speed**: slow and smooth (2 s) to fast and jumpy (15 ms) |
 | **Macro** | One knob that turns every knob it's wired to, each by its own depth. It's a host parameter, so you can automate it. | **Amount** |
 
-The defaults are Mod 1: LFO (Sine), Mod 2: LFO (Triangle), Mod 3: Random, Mod 4: Follower (Bus A). The scope on each card shows what the modulator has done over the last few seconds.
+The defaults are Mod 1: LFO (Sine), Mod 2: LFO (Triangle), Mod 3: Random, Mod 4: Follower (Bus A). Every card is laid out the same way. Along its top are its jack, its name, a line that says what it is wired to ("1 wire - Bus B Swirl", or "No wires") and Clear. Under that are its two menus, a scope of what the modulator has done over the last few seconds, and its knob.
 
 **Wiring**
 
@@ -429,7 +437,7 @@ The defaults are Mod 1: LFO (Sine), Mod 2: LFO (Triangle), Mod 3: Random, Mod 4:
   - **Right-click** a plug for a menu: Invert, Depth 25%, 50% or 100%, or Pull Out the Wire.
   - **Alt-click** a plug to pull the wire out straight away.
 - **Clear** on a card pulls out all of that modulator's wires.
-- **Cables** (top right) shows or hides the cables. The plugs stay on the knobs either way. A cable comes up beside a knob's name and value and turns in to its plug, so it never covers them. Put the mouse on a modulator's card, or on one of its plugs, and its cables stand out while the others fade.
+- **Cables** (at the left of the panel, under its name) shows or hides the cables. A cable leaves its jack straight up, out of the top of its card. The plugs stay on the knobs either way. A cable comes up beside a knob's name and value and turns in to its plug, so it never covers them. Put the mouse on a modulator's card, or on one of its plugs, and its cables stand out while the others fade.
 - Several wires on one knob add together. You can have up to 48 wires in all.
 - Wires only move the value that reaches the sound. The knob itself never moves, so your DAW automation stays clean.
 - Wires and modulator settings are saved with the session. Presets and Randomise don't touch them, and New pulls them all out.
@@ -702,7 +710,7 @@ cmake --build build --target SwooshbucklerUiShot
 ./build/SwooshbucklerUiShot_artefacts/Release/SwooshbucklerUiShot --out ui-shots --scale 1.0 --list
 ```
 
-`--scale` takes 0.6 to 2.0, `--list` prints every text with its box, and `--state` opens a session file instead of the demo sounds. The colours, radii, spacing and type sizes all live in [Source/Theme.h](Source/Theme.h).
+`--scale` takes 0.5 to 2.0, `--list` prints every text with its box and every panel with its bounds (a panel that runs into another, or out of the window, is a fault), and `--state` opens a session file instead of the demo sounds. The colours, radii, spacing and type sizes all live in [Source/Theme.h](Source/Theme.h).
 
 ### Icon
 

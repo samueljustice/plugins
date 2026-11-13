@@ -98,7 +98,7 @@ public:
         // The end of the rope: a square tag (a lettered label is never a roundel), filled with the colour of the
         // lane it is on (or would land on).
         const auto ring = juce::Rectangle<float>(18.0f, 18.0f).withCentre(end);
-        g.setColour(lane >= 0 ? Theme::trackColour(lane) : Theme::Colours::panelRaised);
+        g.setColour(lane >= 0 ? owner.trackColour(lane) : Theme::Colours::panelRaised);
         g.fillRect(ring);
         g.setColour(colour);
         g.drawRect(ring, 2.0f);
@@ -417,7 +417,7 @@ juce::Colour MorphPad::laneColour(int slot) const
 {
     // A roped side takes its track's colour; an unroped one is its bus.
     const int lane = m_lanes[static_cast<size_t>(slot)];
-    return lane >= 0 ? Theme::trackColour(lane) : m_busColours[static_cast<size_t>(slot)];
+    return lane >= 0 ? trackColour(lane) : m_busColours[static_cast<size_t>(slot)];
 }
 
 //==============================================================================

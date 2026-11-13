@@ -26,11 +26,14 @@
  *
  * One screen, in signal order (the whoosh rig):
  *
- *   header : title | play, new, undo, redo | presets, A / B | randomise, its history, keep | tape | last 60 s | variations | takes | settings
- *   row 1  : TRACKS (each loops; start markers; the ride drawn live)   | OUTPUT view (the sea) / RIDE
- *   row 2  : BUS A (aggressive)                                 ->     BUS B (smooth, ducked and filtered by A)
- *   row 3  : HITS (gated at the loudest moments)                ->     OUTPUT
+ *   header : title | transport: follow host, play, new | presets: undo, redo, presets, A / B, randomise, its history, keep
+ *            | tape: the tape, last 60 s, variations, takes | settings
+ *   row 1  : TRACKS (each loops; start markers; the ride drawn live)   | the sea (what the rig sends out)
+ *   row 2  : RIDE | BUS A (aggressive)  ->  BUS B (smooth, ducked and filtered by A)
+ *   row 3  : HITS (gated at the loudest moments; its knobs under bus A's)  ->  OUTPUT
  *   row 4  : MODULATION: four modulators; drag a jack onto any knob to wire it (MegaMod style)
+ *
+ * One 12 px gutter between panels and around the window; bus A, bus B and the Hits share one knob column pitch.
  */
 class SwooshbucklerAudioProcessorEditor : public juce::AudioProcessorEditor,
                                           public juce::FileDragAndDropTarget,
@@ -54,8 +57,18 @@ public:
     /** Whether an editor looks for a newer release when it opens. Tools and tests switch it off before making one. */
     static inline bool checkForUpdates = true;
 
-    static constexpr int c_width = 1280;
-    static constexpr int c_height = 1024;
+    /** The design size: a landscape window. 1520 wide is the widest that still opens whole on a 1536-point laptop
+        screen, and wide enough for the tracks and the sea to sit side by side over three panels of knobs on one
+        column pitch; 900 high keeps the mock-up's proportions. The window scales uniformly from here. */
+    static constexpr int c_width = 1520;
+    static constexpr int c_height = 900;
+    /** The smallest and largest the window gets. At the smallest, the 10 px text is 8.5 px on screen. */
+    static constexpr float c_minScale = 0.85f, c_maxScale = 2.0f;
+    /** The width the window first opens at: the design size, or the largest that fits the screen it is on. */
+    static int firstOpenWidth(juce::Rectangle<int> usableArea);
+
+    /** The panels bolted to the window, by name, in design coordinates: none may touch another (UiTest checks). */
+    std::vector<std::pair<juce::String, juce::Rectangle<int>>> panelBounds() const;
 
 private:
     struct Content : public juce::Component
@@ -344,6 +357,12 @@ private:
     }
 
     juce::Rectangle<int> m_performPanel, m_meterArea, m_gateLamp, m_footer, m_toastArea, m_busKnobArea;
+    juce::Rectangle<int> m_fromBusAGroup, m_fromBusACaption; // the tinted group around bus B's Ducked and Filtered
+    std::array<int, 2> m_headerRules {};                     // the x of the rules between the header's groups
+    // The ride of the last 8 seconds, in the Ride panel: each bus's faders (the mean of its tracks' rides).
+    class RideStrip;
+    std::unique_ptr<RideStrip> m_rideStrip;
+    juce::Rectangle<int> m_rideStripArea;
     std::array<Section, 4> m_sections; // ride, buses, hits, output
     float m_gate = 0.0f;
     bool m_sizeRestored = false;

@@ -243,6 +243,21 @@ int main(int argc, char* argv[])
                       "lit plates: dark lettering reads on " + plate.toDisplayString(false) + " (" + juce::String(contrast(TC::window, plate), 2) + ":1)");
             for (int lane = 0; lane < 10; ++lane)
                 check(contrast(TC::window, Theme::trackColour(lane)) >= 4.5, "lit plates: dark lettering reads on track colour " + juce::String(lane + 1));
+            // A lane is a shade of its bus's colour: every shade takes dark lettering, reads on a well, and
+            // neighbouring shades of one bus can be told apart.
+            for (const auto& bus : { TC::busA, TC::busB, TC::hits })
+            {
+                bool reads = Theme::laneShade(bus, 0) == bus, apart = true;
+                for (int step = 0; step < 5; ++step)
+                {
+                    const auto shade = Theme::laneShade(bus, step);
+                    reads = reads && contrast(TC::window, shade) >= 4.5 && contrast(shade, TC::well) >= 4.5;
+                    // The next lane on the bus is a clear step away; any two differ.
+                    for (int other = step + 1; other < 5; ++other)
+                        apart = apart && contrast(shade, Theme::laneShade(bus, other)) >= (other == step + 1 ? 1.15 : 1.06);
+                }
+                check(reads && apart, "lanes: the five shades of " + bus.toDisplayString(false) + " all take dark lettering, read in a well and differ from each other");
+            }
         }
         {
             // A plate's shape, when it is given a cut: corners taken off at 45 degrees, nothing round. Its path
@@ -556,7 +571,7 @@ int main(int argc, char* argv[])
                           && SwooshLookAndFeel::getStyle(ed.m_presetName) == SwooshLookAndFeel::ButtonStyle::Menu,
                       "header: the preset arrows are drawn icons, and the preset box is a menu");
             }
-            // The knobs: two wheels, whole in their boxes, on two column pitches.
+            // The knobs: two wheels, whole in their boxes, on one column pitch.
             {
                 std::vector<WheelKnob*> knobs;
                 collect(ed, knobs);
@@ -583,14 +598,17 @@ int main(int argc, char* argv[])
                       "knobs: all " + juce::String(count) + " are one of two wheels (" + juce::String(primary) + " primary, " + juce::String(count - primary)
                           + " secondary), whole in their boxes with the dial over the caption and the value," + at);
 
-                // Bus A, bus B and the Hits: each row on one pitch, and only two pitches between them.
+                // Bus A, bus B and the Hits: each a row on the one shared column pitch, and the Hits' knobs sit on
+                // the very columns of bus A's, the panel above them.
                 std::vector<int> pitches;
+                std::array<std::vector<int>, 3> columns;
                 bool even = true;
                 for (int section = 0; section < 3; ++section)
                 {
-                    std::vector<int> xs;
+                    auto& xs = columns[static_cast<size_t>(section)];
                     for (auto* k : knobs)
-                        if (k->getParentComponent() == &ed.m_content && ed.m_sections[static_cast<size_t>(section)].bounds.contains(k->getBounds().getCentre()))
+                        if (k->getParentComponent() == &ed.m_content && k->getSize() == WheelKnob::Size::Primary
+                            && ed.m_sections[static_cast<size_t>(section)].bounds.contains(k->getBounds().getCentre()))
                             xs.push_back(k->getBounds().getCentreX());
                     std::sort(xs.begin(), xs.end());
                     even = even && xs.size() >= 7;
@@ -601,7 +619,8 @@ int main(int argc, char* argv[])
                             pitches.push_back(xs[i] - xs[i - 1]);
                     }
                 }
-                check(even && pitches.size() == 2, "knobs: bus A, bus B and the Hits are rows on two column pitches (" + juce::String(static_cast<int>(pitches.size())) + ")" + at);
+                check(even && pitches.size() == 1, "knobs: bus A, bus B and the Hits are rows on one shared column pitch (" + juce::String(pitches.empty() ? 0 : pitches[0]) + " px)" + at);
+                check(columns[2] == columns[0], "knobs: the Hits' seven knobs are on the same columns as bus A's, the panel above them" + at);
 
                 // Nothing is drawn by JUCE's own look: every slider and scrollbar has ours.
                 std::vector<juce::Slider*> sliders;
@@ -620,6 +639,129 @@ int main(int argc, char* argv[])
                     ours += dynamic_cast<SwooshLookAndFeel*>(&bar->getLookAndFeel()) != nullptr ? 1 : 0;
                 check(faders >= 4 && ours == static_cast<int>(sliders.size() + bars.size()),
                       "faders: all " + juce::String(faders) + " faders and " + juce::String(static_cast<int>(bars.size())) + " scrollbars are drawn in the house style" + at);
+            }
+
+            // The layout: the panels bolted to the window, in design pixels (the same at every scale).
+            {
+                using E = Editor;
+                std::vector<WheelKnob*> knobs;
+                collect(ed, knobs);
+                const auto panels = ed.panelBounds();
+                const juce::Rectangle<int> window(0, 0, E::c_width, E::c_height);
+                int touching = 0, outside = 0;
+                for (size_t i = 0; i < panels.size(); ++i)
+                {
+                    if (panels[i].second.isEmpty() || ! window.contains(panels[i].second))
+                    {
+                        ++outside;
+                        std::cout << "         " << panels[i].first << " " << panels[i].second.toString() << " is not whole in the window" << std::endl;
+                    }
+                    for (size_t j = i + 1; j < panels.size(); ++j)
+                        if (panels[i].second.intersects(panels[j].second))
+                        {
+                            ++touching;
+                            std::cout << "         " << panels[i].first << " " << panels[i].second.toString() << " runs into " << panels[j].first << " "
+                                      << panels[j].second.toString() << std::endl;
+                        }
+                }
+                check(panels.size() == 9 && touching == 0 && outside == 0,
+                      "layout: the " + juce::String(static_cast<int>(panels.size())) + " panels are whole in the window and none runs into another" + at);
+
+                auto of = [&panels](const char* name)
+                {
+                    for (const auto& p : panels)
+                        if (p.first == name)
+                            return p.second;
+                    return juce::Rectangle<int>();
+                };
+                const auto tracks = of("Tracks"), sea = of("Sea"), ride = of("Ride"), busA = of("Bus A"), busB = of("Bus B"), hits = of("Hits"),
+                           output = of("Output"), mod = of("Modulation");
+                const int gutter = Theme::Space::gutter;
+                check(E::c_width >= 1480 && E::c_width <= 1560 && E::c_height == 900, "layout: a landscape window, " + juce::String(E::c_width) + " x " + juce::String(E::c_height));
+                check(tracks.getY() == sea.getY() && tracks.getHeight() == sea.getHeight() && sea.getX() - tracks.getRight() == gutter
+                          && tracks.getX() == gutter && sea.getRight() == E::c_width - gutter,
+                      "layout: the tracks and the sea share the top row, a gutter apart, a gutter in from the window's edges" + at);
+                const double seaShape = static_cast<double>(sea.getWidth()) / sea.getHeight();
+                const double topShare = static_cast<double>(sea.getHeight()) / E::c_height;
+                check(std::abs(seaShape - 1.8) < 0.02 && topShare >= 0.38 && topShare <= 0.44 && sea.getWidth() * sea.getHeight() > 3 * 352 * 196,
+                      "layout: the sea is 1.8 : 1 (" + juce::String(seaShape, 2) + "), the top row is about two fifths of the window (" + juce::String(topShare * 100.0, 0)
+                          + "%), and the sea is over three times the size it was" + at);
+                check(ride.getY() == busA.getY() && busA.getY() == busB.getY() && ride.getHeight() == busA.getHeight() && busA.getHeight() == busB.getHeight()
+                          && busA.getX() - ride.getRight() == gutter && busB.getX() - busA.getRight() == gutter && ride.getX() == gutter
+                          && busB.getRight() == E::c_width - gutter && ride.getY() - tracks.getBottom() == gutter,
+                      "layout: Ride, Bus A and Bus B are one row under the tracks, a gutter apart" + at);
+                check(hits.getY() == output.getY() && hits.getHeight() == output.getHeight() && hits.getY() - busA.getBottom() == gutter
+                          && output.getX() - hits.getRight() == gutter && hits.getX() == ride.getX() && hits.getRight() == busA.getRight()
+                          && output.getX() == busB.getX() && output.getRight() == busB.getRight(),
+                      "layout: Hits (under Ride and Bus A) and Output (under Bus B) are the next row, on the same seams" + at);
+                check(mod.getY() - hits.getBottom() == gutter && mod.getX() == gutter && mod.getRight() == E::c_width - gutter && of("Footer").getY() >= mod.getBottom(),
+                      "layout: Modulation runs along the bottom, with the hint line under it" + at);
+
+                // The strips: what each section sends on, along the bottom of its panel; the ride's last 8 s in Ride.
+                bool strips = true;
+                for (size_t i = 0; i < ed.m_sectionScopes.size(); ++i)
+                {
+                    const auto strip = ed.m_sectionScopes[i]->getBounds();
+                    const auto& panel = ed.m_sections[i].bounds;
+                    strips = strips && panel.contains(strip) && strip.getWidth() >= panel.getWidth() - 32 && strip.getBottom() > panel.getBottom() - 12 && strip.getHeight() >= 14;
+                    for (auto* k : knobs)
+                        strips = strips && ! (k->getParentComponent() == &ed.m_content && k->getBounds().intersects(strip));
+                }
+                check(strips && ride.contains(ed.m_rideStripArea) && ed.m_rideStripArea.getWidth() > 200,
+                      "strips: a scope strip the width of its panel along the bottom of Bus A, Bus B, Hits and Output, under the knobs; the ride's last 8 s in Ride" + at);
+
+                // Four whole lanes in view, never a half-cut one; the drop zone under them is one slim line.
+                auto& hold = ed.m_hold;
+                int lanes = 0, whole = 0, laneHeight = 0;
+                for (auto* lane : hold.m_laneHolder.getChildren())
+                    if (lane->isVisible())
+                    {
+                        ++lanes;
+                        laneHeight = lane->getHeight();
+                        whole += hold.m_viewport.getBounds().contains(hold.getLocalArea(lane, lane->getLocalBounds())) ? 1 : 0;
+                    }
+                check(lanes == 4 && whole == 4 && laneHeight >= 64 && hold.m_viewport.getHeight() == 4 * laneHeight,
+                      "lanes: four whole lanes in view (" + juce::String(laneHeight) + " high), the list exactly four lanes tall" + at);
+                check(hold.m_dropZone.getHeight() > 0 && hold.m_dropZone.getHeight() <= 24 && hold.m_dropZone.getY() >= hold.m_viewport.getBottom()
+                          && hold.getLocalBounds().contains(hold.m_dropZone),
+                      "lanes: with tracks loaded the drop zone is one slim line under them (" + juce::String(hold.m_dropZone.getHeight()) + " px)" + at);
+
+                // Everything in the header and the title bars sits whole in the window, and no two controls overlap.
+                {
+                    std::vector<juce::Component*> controls;
+                    for (auto* child : ed.m_content.getChildren())
+                        if (child->isVisible() && child != &ed.m_wires && child != &ed.m_hold && child != &ed.m_sea && child != &ed.m_morphPad
+                            && child != &ed.m_modPanel && child != &ed.m_morphButton && ! child->getBounds().isEmpty()
+                            && child->getBounds() != juce::Rectangle<int>(0, 0, E::c_width, E::c_height))
+                            controls.push_back(child);
+                    int clashes = 0, outOfWindow = 0;
+                    for (size_t i = 0; i < controls.size(); ++i)
+                    {
+                        outOfWindow += window.contains(controls[i]->getBounds()) ? 0 : 1;
+                        for (size_t j = i + 1; j < controls.size(); ++j)
+                            if (controls[i]->getBounds().intersects(controls[j]->getBounds()))
+                            {
+                                ++clashes;
+                                std::cout << "         " << controls[i]->getBounds().toString() << " and " << controls[j]->getBounds().toString() << " overlap" << std::endl;
+                            }
+                    }
+                    check(controls.size() > 80 && clashes == 0 && outOfWindow == 0,
+                          "layout: none of the window's " + juce::String(static_cast<int>(controls.size())) + " controls overlaps another or leaves the window" + at);
+                }
+            }
+
+            if (scale == 1.0f)
+            {
+                // The first open: the design size where the screen has room, else the largest that is whole on it,
+                // never under the smallest size (where the smallest text is still 8.5 px on screen).
+                using E = Editor;
+                const int smallest = juce::roundToInt(E::c_width * E::c_minScale);
+                check(E::firstOpenWidth({ 0, 0, 1920, 1055 }) == E::c_width && E::firstOpenWidth({}) == E::c_width, "first open: the design size on a screen with room");
+                const int laptop = E::firstOpenWidth({ 0, 25, 1440, 840 });
+                check(laptop < E::c_width && laptop >= smallest && laptop <= 1440 - 16 && laptop * E::c_height / E::c_width <= 840 - 48,
+                      "first open: on a 1440 x 900 laptop the window opens whole on the screen (" + juce::String(laptop) + " wide)");
+                check(E::firstOpenWidth({ 0, 0, 1024, 700 }) == smallest && Theme::c_minTextSize * E::c_minScale >= 8.5f,
+                      "first open: never under the smallest size, where the smallest text is " + juce::String(Theme::c_minTextSize * E::c_minScale, 1) + " px on screen");
             }
 
             if (scale == 1.0f)
@@ -795,7 +937,7 @@ int main(int argc, char* argv[])
                     check(kept >= 2 && kept <= 24 && WheelKnob::keptLayerCount() == kept, "wheel: the still part of all the knobs is " + juce::String(kept) + " kept images, and drawing again adds none");
                 }
 
-                // The meters and the Trim fader each have a number; Swell is the biggest thing in Ride, Throw under it.
+                // The meters and the Trim fader each have a number; Swell is the biggest thing in Ride; Throw is under its knob.
                 {
                     ed.m_trim.setValue(-12.0, juce::sendNotificationSync);
                     const bool numbers = ed.m_grReadout.isNotEmpty() && ed.m_outReadout.isNotEmpty() && ed.m_trimReadout == "-12.0";
@@ -803,10 +945,13 @@ int main(int argc, char* argv[])
                     check(numbers && ed.m_trimReadout == "0.0" && ed.m_trimValue.getWidth() >= 40 && ! ed.m_trimValue.intersects(ed.m_trim.getBounds()),
                           "meters: GR, Out and Trim each have a number under them (\"" + ed.m_grReadout + "\", \"" + ed.m_outReadout + "\", \"" + ed.m_trimReadout + "\")");
                     const auto swell = ed.m_swell.getBounds(), thrown = ed.m_throwButton.getBounds();
+                    const auto length = ed.m_controls[ParamIDs::throwLength]->getBounds();
+                    const auto autoRide = ed.m_rideButton.getBounds(), follow = ed.m_followMasterButton.getBounds();
                     check(swell.getWidth() >= 2 * WheelKnob::cellWidth(WheelKnob::Size::Secondary) && swell.getWidth() > WheelKnob::cellWidth(WheelKnob::Size::Primary)
-                              && ed.m_performPanel.contains(swell) && thrown.getX() >= swell.getX() && thrown.getRight() <= swell.getRight()
-                              && std::abs(thrown.getY() - swell.getBottom()) <= 12,
-                          "Swell: the biggest thing in Ride, with Throw right under it");
+                              && ed.m_performPanel.contains(swell) && ed.m_performPanel.contains(thrown)
+                              && std::abs(thrown.getY() - length.getBottom()) <= 8 && thrown.getRight() == length.getRight()
+                              && follow.getY() == autoRide.getY() && follow.getX() - autoRide.getRight() <= 8 && follow.getX() >= autoRide.getRight(),
+                          "Ride: Swell is the biggest thing in it, Throw is right under its Throw Length knob, and Follow Master is beside Auto Ride");
                 }
             }
 

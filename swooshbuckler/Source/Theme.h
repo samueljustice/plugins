@@ -387,6 +387,16 @@ namespace Theme
         return juce::Colour(colours[((lane % 10) + 10) % 10]);
     }
 
+    /** A lane's colour: a shade of its bus's colour. Lanes on the same bus step through lightness (the first is
+        the bus colour itself, then lighter, a touch darker, lighter still...), so two of them are told apart and both still
+        read as their bus. Every shade keeps 4.5:1 under dark lettering (UiTest checks it). */
+    inline juce::Colour laneShade(juce::Colour bus, int step)
+    {
+        static const float mix[5] = { 0.0f, 0.42f, -0.12f, 0.66f, 0.21f }; // towards sand (+) or towards the deep (-)
+        const float m = mix[((step % 5) + 5) % 5];
+        return m >= 0.0f ? bus.interpolatedWith(Colours::text, m) : bus.interpolatedWith(Colours::panel, -m);
+    }
+
     /**
      * Typefaces, loaded once and shared by every editor instance (SharedResourcePointer), and the type scale.
      * A text's size comes from its role, never from the height of the box it sits in:

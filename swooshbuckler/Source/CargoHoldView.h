@@ -40,6 +40,7 @@ public:
     void resized() override;
     bool keyPressed(const juce::KeyPress&) override;
     void mouseUp(const juce::MouseEvent&) override; // a click on the drop zone browses for sounds
+    void mouseMove(const juce::MouseEvent&) override;
 
     bool isInterestedInFileDrag(const juce::StringArray& files) override;
     void fileDragEnter(const juce::StringArray&, int, int) override;
@@ -67,6 +68,12 @@ public:
     /** Each track's Semitones box, as a modulation target (parameter ID -> control). */
     std::map<juce::String, ModTarget*> getModTargets();
     std::function<void(const juce::String&)> onStatus;
+
+    /** A take was saved: said in the title bar, in brass, for a few seconds; a click on it calls onTakeNoteClicked. */
+    void showTakeNote(const juce::String& text);
+    std::function<void()> onTakeNoteClicked;
+    /** A track's colour: a shade of its bus's colour (Theme::laneShade), by its place among the tracks on that bus. */
+    juce::Colour laneColour(int track) const;
 
     static bool isAudioFile(const juce::String& path);
 
@@ -110,6 +117,9 @@ private:
     juce::TextButton m_demo { "Load Demo Sounds" };
     int m_learnWaiting = -1; // the target Learn MIDI CC is waiting for a controller on (-1 = none)
     std::unique_ptr<juce::FileChooser> m_chooser;
-    juce::String m_status;
+    juce::String m_status, m_takeNote;
+    double m_takeNoteTime = 0.0;
+    static constexpr double c_takeNoteSeconds = 8.0;
+    bool takeNoteShowing() const;
     juce::Rectangle<int> m_toolbar, m_statusArea, m_dropZone;
 };

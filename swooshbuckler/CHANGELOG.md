@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+- **A landscape window, with the tracks and the sea on top.** The window is now 1520 x 900. Tracks and the sea sit side by side across the top two fifths, and the sea is over three times the size it was. Under them are Ride, Bus A and Bus B in one row, then Hits and Output, then Modulation along the bottom. Every control is still on the one screen.
+- **Knobs line up in columns.** Bus A, Bus B and the Hits share one knob spacing, and the Hits' seven knobs sit directly under bus A's.
+- **The header is in three groups**, with a thin rule between them: transport (Follow Host, Play, New), presets (Undo, Redo, the preset box, A / B, Randomise, its history and the star) and tape (the tape, Last 60 s, Variations, Takes). Settings is at the far right.
+- **Scope strips.** What Bus A, Bus B, the Hits and the Output send on is drawn in a strip the width of the panel along its bottom, in place of the small waveform in the title bar.
+- **New: the ride's last 8 seconds** in the Ride panel: where the ride has had bus A's faders (coral) and bus B's (turquoise).
+- **Ride is laid out again**: Swell at the left, the knobs in a row with Throw Length at the end, Throw under its Throw Length knob, and Follow Master beside Auto Ride.
+- **Hits is laid out again**: the gate light, Aim, Sync Hits and the Gate and Duck boxes are together at the left of the panel.
+- **Track lanes are coloured by their bus**: coral on Bus A, turquoise on Bus B, cherry on the Hits, with each further track on the same bus a step lighter or darker. The bus tag carries the bus's letter (A, B, or H for the Hits) on a small plate. The morph's ropes take the same colours.
+- **Four whole tracks are always in view.** With more than four, the list scrolls a track at a time and never shows half a lane. Once tracks are loaded, the drop zone is one slim line under them.
+- **A saved take is announced in the Tracks title bar**, in brass, and a click on the message opens Takes.
+- **Modulators are laid out the same way whatever their type**, and each says what it is wired to ("1 wire - Bus B Swirl"). Cables now leave their jack straight up, out of the top of the card.
+- **Bus B's Ducked and Filtered** sit in a tinted group marked From Bus A, and while Link is on its Doppler and Width read Linked To A.
+- **Peak Tremolo** has its switch and name along the top of its group, its two menus at the left and its three knobs beside them.
+- **The Morph button moved** left of the moon, so it no longer covers it.
+- **Window size.** The first time, the window opens at its full size or the largest that fits whole on your screen. It can be made smaller down to 85% and larger up to 200%.
 - **A new knob.** Every knob is a chunky, flat ship's wheel with six spokes, one of them a sand pointer you can't miss, inside a ring that fills with the value in its section's colour. There are two sizes on the whole screen, and the rows in Bus A, Bus B and the Hits sit on shared columns.
 - **Every knob shows its value all the time**, under its name, in its own units ("6.4 s", "+3.0 dB", "35%"). It updates as you drag. Typing a value (right-click or Alt-double-click) and double-click to reset work as before.
 - **The wheel turns with your hand.** While you drag, the wheel is exactly where the value is; let go while turning and it coasts on a touch before it settles. Presets and Randomise still swing the wheels in.

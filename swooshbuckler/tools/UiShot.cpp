@@ -189,7 +189,7 @@ int main(int argc, char* argv[])
         // The window and its panels.
         {
             const auto window = shots.shoot("window");
-            shots.crop(window, "header", { 0, 0, Editor::c_width, 58 }, 0);
+            shots.crop(window, "header", { 0, 0, Editor::c_width, 56 }, 0);
             shots.crop(window, "tracks", ed.m_hold.getBounds());
             if (ed.m_hold.m_laneHolder.getNumChildComponents() > 0)
                 for (auto* lane : ed.m_hold.m_laneHolder.getChildren())
@@ -205,6 +205,29 @@ int main(int argc, char* argv[])
             shots.crop(window, "hits", ed.m_sections[2].bounds);
             shots.crop(window, "output", ed.m_sections[3].bounds);
             shots.crop(window, "modulation", ed.m_modSection);
+
+            // The panels bolted to the window: listed, and none may run into another or leave the window.
+            const auto panels = ed.panelBounds();
+            const juce::Rectangle<int> whole(0, 0, Editor::c_width, Editor::c_height);
+            if (options.list)
+                std::cout << "== panels: " << panels.size() << std::endl;
+            for (size_t i = 0; i < panels.size(); ++i)
+            {
+                if (options.list)
+                    std::cout << "   " << panels[i].first << " " << panels[i].second.toString() << std::endl;
+                if (panels[i].second.isEmpty() || ! whole.contains(panels[i].second))
+                {
+                    ++shots.faults;
+                    std::cout << "FAULT in layout: " << panels[i].first << " " << panels[i].second.toString() << " is not whole in the window" << std::endl;
+                }
+                for (size_t j = i + 1; j < panels.size(); ++j)
+                    if (panels[i].second.intersects(panels[j].second))
+                    {
+                        ++shots.faults;
+                        std::cout << "FAULT in layout: " << panels[i].first << " " << panels[i].second.toString() << " runs into " << panels[j].first << " "
+                                  << panels[j].second.toString() << std::endl;
+                    }
+            }
         }
 
         // The morph pad, open and on.

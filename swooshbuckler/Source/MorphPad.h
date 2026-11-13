@@ -53,6 +53,9 @@ public:
     std::function<void(int slot /*0 = A, 1 = B*/, int lane)> onSourceAssigned;
     /** Where a roped track's lane is on screen (false: it isn't shown, so its rope isn't drawn). */
     std::function<bool(int lane, juce::Point<int>& screenPos)> laneAnchor;
+    /** A track's colour, as its lane shows it (a shade of its bus). */
+    std::function<juce::Colour(int lane)> laneColourFor;
+    juce::Colour trackColour(int lane) const { return laneColourFor ? laneColourFor(lane) : Theme::trackColour(lane); }
     /** The lanes moved (scrolled, added, removed): the hanging ropes are drawn again. */
     void ropesMoved();
 

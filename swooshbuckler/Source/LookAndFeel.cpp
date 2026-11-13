@@ -1297,6 +1297,13 @@ void WheelKnob::paint(juce::Graphics& g)
     const auto font = m_fonts.caption();
     g.setColour(drained ? TC::textFaint.withAlpha(0.7f) : TC::textDim);
     Theme::fitText(g, caption, getCaptionArea().reduced(1.0f, 0.0f), font, juce::Justification::centred);
+    if (look == Theme::Look::Linked && m_linkText.isNotEmpty())
+    {
+        // Linked: whose value it is using, in that one's colour, in place of its own (which waits for the unlinking).
+        g.setColour(m_linkColour);
+        Theme::fitText(g, m_linkText, getValueArea().reduced(1.0f, 0.0f), font, juce::Justification::centred);
+        return;
+    }
     g.setColour(drained ? TC::textFaint.withAlpha(0.7f) : ((m_hover || m_held) ? m_accent.brighter(0.4f) : (resting ? TC::textDim : TC::text)));
     Theme::fitText(g, m_valueText, getValueArea().reduced(1.0f, 0.0f), font, juce::Justification::centred);
 }
