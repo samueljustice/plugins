@@ -391,7 +391,7 @@ namespace roar
                 glBindTexture (GL_TEXTURE_2D, 0);
             }
         }
-        if (! logoRgba.empty() && logoSize > 0 && ! m_ink)
+        if (! logoRgba.empty() && logoSize > 0)
         {
             Tex l;
             makeTex (l, logoSize, logoSize, false, false, logoRgba.data());
@@ -770,6 +770,17 @@ namespace roar
     // flow's gain and slow scrolls; the carry and erosion from the formation; the cloud; the breath.
     void MonsterRenderer::prepareInk (MonsterFrame& f)
     {
+        if (m_inkTracesOff)
+        {
+            // (tests: each module's own reading of the view, as it would be with the module off)
+            for (const U u : { U::uPitch, U::uSize, U::uRoar, U::uRoarDrive, U::uSwirlAmt, U::uSwirlNotch, U::uGateClosed, U::uTame,
+                               U::uStrain, U::uSub, U::uSubLevel, U::uClean, U::uLiquid, U::uRing, U::uGrowl, U::uEnsWidth,
+                               U::uDeess, U::uOvLevel, U::uGravelOn, U::uDetailLow, U::uDetailHigh })
+                f.set (u, 0.0f);
+            f.set (U::uChamber, 0.0f, 0.0f, 0.0f, 0.0f);
+            float* bands = f.at (U::uBands);
+            std::fill (bands, bands + 32, 0.0f);
+        }
         const float dt = std::isfinite (f.frameDt) ? std::min (0.1f, std::max (0.0f, f.frameDt)) : 0.0f;
         const float sleep = clamp01 (f.get (U::uSleep)), awake = 1.0f - sleep;
         const float stage = clamp01 (f.get (U::uSeedB, 3));
@@ -820,6 +831,43 @@ namespace roar
                 b = { b[0] * k, moveY (b[1]), b[2] * k, b[3] };
             pose.maw[0] = moveY (pose.maw[0]);
             pose.centreY = moveY (cy);
+        }
+        // ---- the modules that change the pose itself (the traces on the field are further down)
+        // (eased: a gate opens and shuts between syllables, and the limbs draw back over half a second)
+        m_inkGate += (clamp01 (f.get (U::uGateClosed)) * awake - m_inkGate) * (1.0f - std::exp (-dt / 0.5f));
+        m_inkTame += (clamp01 (f.get (U::uTame)) * awake - m_inkTame) * (1.0f - std::exp (-dt / 0.35f));
+        const float gateShut = m_inkGate, tame = m_inkTame, strain = clamp01 (f.get (U::uStrain)) * awake;
+        const float subAmt = clamp01 (f.get (U::uSub)) * clamp01 (f.get (U::uSubLevel) * 2.0f) * awake;
+        {
+            // CLEAN: a shut gate draws the limbs back towards the core. TAME: surface tension, their reach pulled in.
+            // (never less than half their reach, both at once: a blot with no limbs is a round mass)
+            const float keep = std::max (0.5f, (1.0f - 0.6f * gateShut) * (1.0f - 0.2f * tame));
+            if (keep < 0.999f)
+                for (int i = 0; i < CreatureAnatomy::maxLimbs; ++i)
+                {
+                    auto& a = pose.limbA[(size_t) i];
+                    auto& b = pose.limbB[(size_t) i];
+                    a[2] = a[0] + (a[2] - a[0]) * keep;
+                    a[3] = a[1] + (a[3] - a[1]) * keep;
+                    b[0] = a[0] + (b[0] - a[0]) * keep;
+                    b[1] = a[1] + (b[1] - a[1]) * keep;
+                }
+            // SUB: a slow heave of the whole mass at the sub's own phase
+            const float heave = 1.0f + 0.045f * subAmt * std::sin (6.2831853f * clamp01 (f.get (U::uSubPhase)));
+            const float cy = pose.centreY;
+            if (std::abs (heave - 1.0f) > 1.0e-4f)
+            {
+                for (auto& b : pose.blob)
+                    b = { b[0] * heave, cy + (b[1] - cy) * heave, b[2] * heave, b[3] * heave };
+                for (auto& a : pose.limbA)
+                    a = { a[0] * heave, cy + (a[1] - cy) * heave, a[2] * heave, cy + (a[3] - cy) * heave };
+                for (auto& b : pose.limbB)
+                    b = { b[0] * heave, cy + (b[1] - cy) * heave, b[2] * heave, b[3] * heave };
+            }
+            // (CLEAN and TAME: the frayed edge pulled back to a clean one; TAME's limiting darkens the body)
+            m_inkTidy += (clamp01 (f.get (U::uClean)) * awake - m_inkTidy) * (1.0f - std::exp (-dt / 0.5f));
+            pose.look.feather *= (1.0f - 0.5f * tame) * (1.0f - 0.55f * m_inkTidy) * (1.0f - 0.3f * gateShut);
+            pose.look.density *= 1.0f + 0.35f * std::max (0.6f * tame, strain);
         }
         // the weighted jaw opens the rift; the lips' syllables wobble the strands; a shut gate closes it
         const float jaw = std::min (1.0f, std::max (0.0f, f.get (U::uJaw)));
@@ -905,7 +953,94 @@ namespace roar
         }
         for (int i = 0; i < CreatureAnatomy::maxBays; ++i)
             f.setAt (U::uBay, i, pose.bay[(size_t) i][0], pose.bay[(size_t) i][1], pose.bay[(size_t) i][2], pose.bay[(size_t) i][3]);
-        f.set (U::uMaw, pose.maw[0], pose.maw[1], pose.maw[2], pose.maw[3]);
+        // (while the ink gathers into the maker's mark there is no rift: uEgg)
+        const float egg = hasLogo() ? clamp01 (f.get (U::uEgg)) : 0.0f;
+        f.set (U::uEgg, egg);
+        const float eggOff = 1.0f - smooth (0.0f, 0.4f, egg);
+        f.set (U::uMaw, pose.maw[0], pose.maw[1], pose.maw[2] * eggOff, pose.maw[3]);
+
+        // ---- the modules' traces on the shape and the material (see the shaders' moduleTerms). Each
+        // follows its module's own activity, which is 0 while the module is off.
+        {
+            const float F0 = clamp01 (f.inkFormation);
+            const auto wrap = [dt] (double& phase, double rate, double period) { phase = std::fmod (phase + rate * (double) dt, period); };
+            const float ring = clamp01 (f.get (U::uRing)) * awake;
+            const float growl = clamp01 (f.get (U::uGrowl)) * (0.35f + 0.65f * clamp01 (f.get (U::uGrowlMod))) * awake;
+            const float shimmer = clamp01 (f.get (U::uLiquid)) * awake;
+            // (each at a pace the eye follows: an edge that shook at the growl's own rate would flicker)
+            // (and slow enough that all of them at once still move the picture at the pace of the flow)
+            wrap (m_inkModPhase[0], 0.8 + 1.2 * (double) clamp01 (f.get (U::uRingFlicker)), 6.283185307179586);
+            wrap (m_inkModPhase[1], 1.2 + 1.8 * (double) clamp01 (f.get (U::uGrowl)), 6.283185307179586);
+            wrap (m_inkModPhase[2], 0.05 + 0.07 * (double) shimmer, 1.0);
+            // (the strata follow the bands over a second: gaps that open and shut, not flicker)
+            float bandSum = 0.0f;
+            float* bands = f.at (U::uBands);
+            const float bandEase = 1.0f - std::exp (-dt / 1.2f);
+            for (int i = 0; i < 32; ++i)
+            {
+                m_inkBands[i] += (clamp01 (bands[i]) - m_inkBands[i]) * bandEase;
+                bands[i] = m_inkBands[i];
+                bandSum += m_inkBands[i];
+            }
+            const float strata = clamp01 (bandSum / 32.0f * 4.0f) * awake;
+            const float detailLow = clamp01 (f.get (U::uDetailLow)) * awake, detailHigh = clamp01 (f.get (U::uDetailHigh)) * awake;
+            const float gravel = clamp01 (f.get (U::uGravelOn)) * awake;
+            const float ovLevel = clamp01 (f.get (U::uOvLevel)) * awake;
+            const float ens = clamp01 (f.get (U::uEnsWidth)) * awake;
+            const float deess = clamp01 (f.get (U::uDeess)) * awake;
+            // the trace budget: the shape traces share one soft limit, weighted by how much each is at
+            // work, so ten modules together bend the blot and do not turn it to mush
+            {
+                const float work = 0.075f * detailLow + 0.034f * detailHigh + 0.05f * gravel + 0.03f * strata + 0.045f * ring
+                                 + 0.036f * growl + 0.055f * ovLevel * clamp01 (f.get (U::uOvReplace));
+                const float want = work > 0.08f ? 0.08f / work : 1.0f;
+                m_inkTraceK += (want - m_inkTraceK) * (dt > 0.0f ? 1.0f - std::exp (-dt / 0.5f) : 1.0f);
+            }
+            const float tk = m_inkTraceK * awake * eggOff;
+            f.set (U::uModA, detailLow, detailHigh, gravel, strata);
+            f.set (U::uModB, ring, (float) m_inkModPhase[0], 34.0f + 50.0f * clamp01 (f.get (U::uRingBody)), growl);
+            f.set (U::uModC, (float) m_inkModPhase[1], ens > 0.0f ? 0.05f + 0.11f * ens : 0.0f, shimmer * F0, (float) m_inkModPhase[2]);
+            f.set (U::uModD, ovLevel * clamp01 (f.get (U::uOvReplace)), deess * F0, subAmt * F0, tk);
+            // CLEAN: tidiness, the fray at the edge pulled back
+            f.set (U::uModE, m_inkTidy * eggOff, 0.0f, 0.0f, 0.0f);
+            // OVERTONE: the spines' roots are found on the pose, across the top of the body
+            const float* harm = f.at (U::uOvHarm);
+            for (int i = 0; i < 5; ++i)
+            {
+                // (none near the fold: a pair of spines there, rising over the middle, is a pair of horns;
+                // and each a tuft of thin ones, never one long curved one, which is a horn or a tusk)
+                const float x = (0.24f + 0.10f * (float) i) * m_inkFitK;
+                const float lean = 0.45f + 0.20f * (float) i - 0.10f * (float) (i % 2);
+                // (only on a body that has formed: a crown over shreds still gathering hangs in the cloud)
+                float len = (0.05f + 0.13f * clamp01 (harm[i])) * clamp01 (ovLevel * 2.0f) * clamp01 (harm[i] * 6.0f) * eggOff * smooth (0.75f, 0.95f, F0);
+                // (rooted well inside the mass, where the carried ink always stands: a spine is never
+                // left hanging in the cloud over an edge the flow has moved)
+                float y = 0.33f;
+                if (len > 0.012f)
+                    while (y > -0.3f && CreatureAnatomy::sdf (pose, x, y) > -0.05f)
+                        y -= 0.012f;
+                len = len > 0.012f ? len + 0.04f : 0.0f;
+                // (as long as there is room above it: the band at the view's top is cloud, and a spine
+                // drawn into it is not seen)
+                len = std::min (len, std::max (0.0f, (0.40f - y) * std::sqrt (1.0f + lean * lean)));
+                // (eased: the top of the body under a spine may change from one mass to another at once)
+                const float ease = dt > 0.0f ? 1.0f - std::exp (-dt / 0.4f) : 1.0f;
+                auto& sp = m_inkSpine[i];
+                const float wantLen = len > 0.012f && y > -0.3f ? len : 0.0f;
+                if (sp[1] < 0.005f && wantLen > 0.0f)
+                    sp[0] = y;   // (a spine that is only now growing starts where it stands)
+                else if (wantLen > 0.0f)
+                    sp[0] += (y - sp[0]) * ease;
+                sp[1] += (wantLen - sp[1]) * ease;
+                // (each leans its own way, outwards more than in: a crown, never a comb)
+                f.setAt (U::uSpine, i, x, sp[0], sp[1], lean);
+            }
+            // CHAMBER: the view's own ringing and room; the bands leave at a slow pace and return
+            const float* ch = f.at (U::uChamber);
+            const float echo = clamp01 (ch[0]) * awake, room = clamp01 (ch[1]) * awake;
+            wrap (m_inkModPhase[3], 0.22, 1.0);
+            f.set (U::uChamber, 0.55f * echo, std::max (room, 0.6f * echo), (float) m_inkModPhase[3], std::max (room, echo));
+        }
 
         // ---- formation: the blot being glided to forms out of the smoke of the one before
         const float F = clamp01 (f.inkFormation) * (1.0f - 0.75f * std::sin (3.14159265f * glide) * (f.seedTo != f.seedFrom ? 1.0f : 0.0f));
@@ -974,7 +1109,8 @@ namespace roar
         else
             m_inkUnSingle = std::min (un, m_inkUnSingle + dt * (0.10f + 0.25f * m_inkUnSingle * m_inkUnSingle));
         const float unC = m_tier == 0 ? m_inkUnSingle : un;
-        f.set (U::uCarry, reach / 0.035f, unC, unC, 2.0f + 2.0f * swell);
+        // (the mark is held where it is: the carry shortens as the ink gathers into it)
+        f.set (U::uCarry, reach / 0.035f * (1.0f - 0.9f * smooth (0.1f, 0.7f, egg)), unC, unC, 2.0f + 2.0f * swell);
         f.set (U::uInkF, F, swell, pose.look.feather, pose.look.density * (1.0f + 0.25f * swell));
         f.set (U::uInkO, pose.look.ox, pose.look.oy, (float) m_inkPhase[8], pose.look.ribbon);
 
@@ -1042,7 +1178,9 @@ namespace roar
             // (the spec's release, 0.5 + 2.0 (1 - F) a second; swollen with the roar, the body is slower
             // to let go of what the jaw's closing leaves outside it)
             f.set (U::uHold, 0.6f + 2.4f * F, 0.5f - 0.25f * swell + 2.0f * un, drift, 0.45f + 0.25f * stage + 0.2f * heat);
-            f.set (U::uPig, c_inkAmbient, m_inkBudget, kick, 0.008f);
+            // (PITCH: shifted down, its loose pigment sinks faster; shifted up, it rises)
+            const float pitchK = std::min (2.0f, std::max (-1.0f, -f.get (U::uPitch) / 12.0f));
+            f.set (U::uPig, c_inkAmbient, m_inkBudget, kick, 0.008f + 0.022f * pitchK * awake);
             m_inkState = { F, pose.maw[2], heat, level, f.get (U::uBreath), reach / speed, drift, kick, 0.0f, 0.0f };
         }
 
@@ -1398,6 +1536,7 @@ namespace roar
         const P single = m_ink ? P::inkSinglePass : P::singlePass;
         use (single, f);
         bindRaw (S::noise, m_noiseTex);
+        bindRaw (S::logo, m_logoTex);
         if (half)
         {
             // its pixel-sized measures follow the target's size (use() uploads the frame's own each frame)
@@ -1524,6 +1663,7 @@ namespace roar
         if (const int loc = prog.frameLoc[(size_t) U::uRes]; loc >= 0)
             glUniform2f (loc, 2.0f * (float) m_inkBuf[0].w, (float) m_inkBuf[0].h);
         inkUniforms (dt, fresh);
+        bindRaw (S::logo, m_logoTex);
         bindRaw (S::noise, m_noiseTex);
         bind (S::ink, m_inkBuf[m_inkCur]);
         draw (&m_inkBuf[1 - m_inkCur], m_inkBuf[0].w, m_inkBuf[0].h, "ink step");
@@ -1710,6 +1850,7 @@ namespace roar
             if (const int loc = prog.frameLoc[(size_t) U::uRadius]; loc >= 0) glUniform1f (loc, f.get (U::uRadius) * k);
         }
         inkUniforms (dt, false);
+        bindRaw (S::logo, m_logoTex);
         bindRaw (S::noise, m_noiseTex);
         bind (S::ink, m_inkBuf[m_inkCur]);
         draw (half ? &m_half : nullptr, half ? m_half.w : W, half ? m_half.h : H, "ink composite");

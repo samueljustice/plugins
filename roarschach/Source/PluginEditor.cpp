@@ -379,6 +379,8 @@ void RoarschachAudioProcessorEditor::updateMonsterParams()
     params.overtone = on(Params::overtoneOn) * effect(view::overtone, Params::overtone);
     params.ring = on(Params::ringOn) * percent(Params::ring);
     params.cleanOn = on(Params::cleanOn);
+    // (the edge is tidied only by containment beyond the usual fifth: the usual setting leaves the ink as it is)
+    params.clean = on(Params::cleanOn) * juce::jlimit(0.0f, 1.0f, (percent(Params::cleanContain) - 0.22f) / 0.78f);
     params.roar = on(Params::roarOn) * effect(view::roar, Params::roar);
     params.sub = on(Params::subOn) * effect(view::sub, Params::sub);
     params.gravel = on(Params::vocoderOn) * effect(view::gravel, Params::gravel);

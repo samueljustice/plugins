@@ -59,6 +59,7 @@ public:
         float overtone = 0.0f;     // OVERTONE amount (the ribs' strength)
         float ring = 0.0f;         // RING amount (the muzzle round the mouth)
         float cleanOn = 1.0f;      // CLEAN is On: its gate may close the lips
+        float clean = 0.0f;        // CLEAN's containment above its usual setting (0..1): how tidy the edge is
         roar::CreatureMood::Axes mood {};   // the colour mood of the settings (CreatureMood::evaluate)
         bool moodFrozen = false;   // the creature's evolution is Frozen: the colour holds too
         std::optional<roar::CreatureMood::Axes> moodKept;   // Frozen: the colour saved with the session (if any)
@@ -110,6 +111,7 @@ public:
     void setInkMomentForTests (float moment) { m_renderer.setInkMoment (moment); }
     /** Tests: the light in the ink creature's rift itself, whatever the blot's own is (< 0 = the blot's). */
     void setInkLightForTests (float light) { m_renderer.setInkLight (light); }
+    void setInkTracesOffForTests (bool off) { m_renderer.setInkTracesOff (off); }
     /** Tests and snapshots: hold the colour mood at these axes whatever the settings are (any < 0 = live). */
     void setMoodForTests (const roar::CreatureMood::Axes& axes)
     {
@@ -171,7 +173,7 @@ private:
                        m_roar { 0.35f }, m_sub { 0.25f }, m_gravel { 0.0f },
                        m_detailLow { 0.30f }, m_detailHigh { 0.20f },
                        m_swirlKnob { 0.0f }, m_ensembleKnob { 0.0f }, m_overtoneKnob { 0.0f }, m_ringKnob { 0.0f },
-                       m_cleanOn { 1.0f };
+                       m_cleanOn { 1.0f }, m_clean { 0.0f };
     std::array<std::atomic<float>, roar::CreatureMood::numAxes> m_moodTarget {};
     std::array<std::atomic<float>, roar::CreatureMood::numAxes> m_testMood { { { -1.0f }, { -1.0f }, { -1.0f }, { -1.0f } } };
     std::atomic<bool> m_moodFrozen { false };

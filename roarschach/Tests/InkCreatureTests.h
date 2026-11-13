@@ -559,6 +559,62 @@ inline juce::Image inkSheet(const std::vector<juce::Image>& cells, int columns, 
 
 inline double inkHueConcentration(const juce::Image& img);
 
+/** One frame of the script with only this module switched in (its knobs at their most; PITCH's shift
+    at its lowest), or with none (-1), or with all fifteen (-2); the colour mood held neutral, so what
+    differs is the trace. motion: nine frames on end from this one, then one a second after it.
+    onFor: the module is switched in only this many seconds before the frame (< 0: from the start), so
+    the voice it changes has had little time to move the blot another way and what differs is mostly
+    the trace itself. tracesOff: the modules change the voice but leave no trace on the picture. */
+inline InkPicture inkModuleShot(const InkScript& script, int module, int tier, int w, int h, double t, std::uint32_t seed = 2u,
+                                std::vector<InkPicture>* motion = nullptr, const juce::String& preset = {}, double onFor = -1.0, bool tracesOff = false)
+{
+    InkRig rig(w, h, seed, 0.6f, preset);
+    if (!rig.ok())
+        return {};
+    rig.setTier(tier);
+    rig.monster->setInkTracesOffForTests(tracesOff);
+    rig.monster->setMoodForTests({ 0.0f, 0.0f, 0.0f, 0.0f });
+    const auto switchIn = [&](bool modulesOn)
+    {
+        for (int i = 0; i < Params::numModules; ++i)
+        {
+            const auto& m = Params::modules[static_cast<size_t>(i)];
+            const bool on = modulesOn && (module == -2 || module == i);
+            if (module == -3)
+                continue;   // (-3: the preset as it is)
+            if (auto* param = rig.p->getValueTreeState().getParameter(m.onId))
+                param->setValueNotifyingHost(on ? 1.0f : 0.0f);
+            if (on)
+                for (const char* id : m.knobIds)
+                    if (id != nullptr)
+                        if (auto* param = rig.p->getValueTreeState().getParameter(id))
+                            param->setValueNotifyingHost(juce::String(id) == Params::pitch ? 0.0f : 1.0f);
+        }
+    };
+    if (onFor < 0.0)
+    {
+        switchIn(true);
+        rig.run(t - 1.0 / 30.0, &script.audio);
+    }
+    else
+    {
+        switchIn(false);
+        rig.run(t - onFor, &script.audio);
+        switchIn(true);
+        rig.run(onFor - 1.0 / 30.0, &script.audio);
+    }
+    auto pic = rig.shot(&script.audio);
+    if (motion != nullptr)
+    {
+        motion->push_back(pic);
+        for (int k = 0; k < 8; ++k)
+            motion->push_back(rig.shot(&script.audio));
+        rig.run(1.0 - 10.0 / 30.0, &script.audio);
+        motion->push_back(rig.shot(&script.audio));
+    }
+    return pic;
+}
+
 inline int runInkShots(const juce::File& dir, const juce::File& clips)
 {
     dir.createDirectory();
@@ -974,6 +1030,113 @@ inline int runInkShots(const juce::File& dir, const juce::File& clips)
                 }
             }
         save(inkSheet(liveCells, 3, liveLabels), "live-sheet.png");
+    }
+
+    // 1h. the modules: the blot with none of them, then with each one alone, then all fifteen, quiet
+    // and in the roar (ROARSCHACH_INK_MODULE_SEED: the blot; ROARSCHACH_INK_PRESETS with
+    // "as-set": those presets as they are)
+    if (only.contains("modules"))
+    {
+        const int tier = juce::jlimit(0, 3, juce::SystemStats::getEnvironmentVariable("ROARSCHACH_INK_TIER", "3").getIntValue());
+        const auto seed = static_cast<std::uint32_t>(juce::SystemStats::getEnvironmentVariable("ROARSCHACH_INK_MODULE_SEED", "2").getLargeIntValue());
+        const auto tag = "-tier" + juce::String(tier);
+        // (ROARSCHACH_INK_MODULES: only these, by name; ROARSCHACH_INK_WHEN: quiet or roar)
+        const auto pick = juce::StringArray::fromTokens(juce::SystemStats::getEnvironmentVariable("ROARSCHACH_INK_MODULES", {}), ",", {});
+        const auto whenOnly = juce::SystemStats::getEnvironmentVariable("ROARSCHACH_INK_WHEN", {});
+        for (const double t : { 9.0, 13.0 })
+        {
+            const juce::String when = t < 11.0 ? "quiet" : "roar";
+            if (whenOnly.isNotEmpty() && whenOnly != when)
+                continue;
+            const auto none = inkModuleShot(script, -1, tier, 1728, 480, t, seed);
+            if (!none.valid())
+                return 1;
+            save(none.image, "module-" + when + "-none" + tag + ".png");
+            std::vector<juce::Image> cells, all;
+            juce::StringArray cellLabels, allLabels;
+            for (int i = 0; i < Params::numModules; ++i)
+            {
+                const juce::String name(Params::modules[static_cast<size_t>(i)].uiName);
+                if (!pick.isEmpty() && !pick.contains(name))
+                    continue;
+                const auto pic = inkModuleShot(script, i, tier, 1728, 480, t, seed);
+                save(pic.image, "module-" + when + "-" + name.toLowerCase() + tag + ".png");
+                cells.push_back(none.image.rescaled(864, 240));
+                cellLabels.add("off  (" + when + ")");
+                cells.push_back(pic.image.rescaled(864, 240));
+                cellLabels.add(name + "  on  (" + when + ")");
+                all.push_back(pic.image.rescaled(576, 160));
+                allLabels.add(name);
+                std::printf("    module %s %s: differs from none by %.1f per mille (rms luma), ink %.1f %% (none %.1f %%)\n", name.toRawUTF8(), when.toRawUTF8(), 1000.0 * pic.rmsDifference(none),
+                            100.0 * pic.darkShare(), 100.0 * none.darkShare());
+                if (i % 5 == 4)
+                {
+                    save(inkSheet(cells, 2, cellLabels), "modules-" + when + "-pairs-" + juce::String(i / 5 + 1) + tag + ".png");
+                    cells.clear();
+                    cellLabels.clear();
+                }
+            }
+            const auto every = inkModuleShot(script, -2, tier, 1728, 480, t, seed);
+            save(every.image, "module-" + when + "-all" + tag + ".png");
+            all.push_back(none.image.rescaled(576, 160));
+            allLabels.add("none");
+            all.push_back(every.image.rescaled(576, 160));
+            allLabels.add("all fifteen");
+            save(inkSheet(all, 3, allLabels), "modules-" + when + "-contact" + tag + ".png");
+            std::printf("    all fifteen %s: differs from none by %.1f per mille, ink %.1f %%\n", when.toRawUTF8(), 1000.0 * every.rmsDifference(none), 100.0 * every.darkShare());
+        }
+    }
+    if (only.contains("as-set"))
+    {
+        const int tier = juce::jlimit(0, 3, juce::SystemStats::getEnvironmentVariable("ROARSCHACH_INK_TIER", "3").getIntValue());
+        const auto names = juce::StringArray::fromTokens(juce::SystemStats::getEnvironmentVariable("ROARSCHACH_INK_PRESETS", "Kaiju"), ",", {});
+        std::vector<juce::Image> cells;
+        juce::StringArray cellLabels;
+        for (const auto& name : names)
+            for (const double t : { 9.0, 13.0 })
+            {
+                const auto pic = inkModuleShot(script, -3, tier, 1728, 480, t, 0u, nullptr, name);
+                save(pic.image, "preset-" + name.replace(" ", "-").toLowerCase() + "-t" + juce::String(static_cast<int>(t)) + "-tier" + juce::String(tier) + ".png");
+                cells.push_back(pic.image.rescaled(864, 240));
+                cellLabels.add(name + "  t " + juce::String(t, 0));
+            }
+        save(inkSheet(cells, 2, cellLabels), "presets-modules-sheet-tier" + juce::String(tier) + ".png");
+    }
+
+    // 1i. the maker's mark: the ink gathers into it, holds, and lets go (each tier), on a voice that
+    // goes on (silence ends it early)
+    if (only.contains("logo"))
+    {
+        const auto tiers = juce::StringArray::fromTokens(juce::SystemStats::getEnvironmentVariable("ROARSCHACH_INK_TIERS", "0,3"), ",", {});
+        Stereo voice;
+        for (int k = 0; k < 4; ++k)
+        {
+            voice.l.insert(voice.l.end(), script.audio.l.begin() + static_cast<long>(InkScript::tVoice * InkRig::sr), script.audio.l.begin() + static_cast<long>(InkScript::tRoar * InkRig::sr));
+            voice.r.insert(voice.r.end(), script.audio.r.begin() + static_cast<long>(InkScript::tVoice * InkRig::sr), script.audio.r.begin() + static_cast<long>(InkScript::tRoar * InkRig::sr));
+        }
+        for (int ti = 0; ti < tiers.size(); ++ti)
+        {
+            InkRig rig(1728, 480, 2u, 0.6f);
+            if (!rig.ok())
+                return 1;
+            rig.setTier(tiers[ti].getIntValue());
+            rig.run(6.0, &voice);
+            rig.p->withCreatureForTests([](roar::CreatureEvolution& e) { e.triggerEggForTests(); });
+            std::vector<juce::Image> cells;
+            juce::StringArray cellLabels;
+            for (const double t : { 1.0, 2.5, 4.0, 6.5, 10.0, 16.0, 19.0, 21.0, 24.0, 28.0 })
+            {
+                rig.run(6.0 + t - rig.frames / 30.0 - 1.0 / 30.0, &voice);
+                const auto pic = rig.shot(&voice);
+                save(pic.image, "logo-tier" + tiers[ti] + "-t" + juce::String(static_cast<int>(t * 10.0)) + ".png");
+                cells.push_back(pic.image.rescaled(864, 240));
+                cellLabels.add("tier " + tiers[ti] + "  " + juce::String(t, 1) + " s after it starts");
+                float egg = 0.0f;
+                rig.p->withCreatureForTests([&egg](roar::CreatureEvolution& e) { egg = e.getEggAmount(); });
+                std::printf("    logo tier %s t %.1f: dark %.1f %%, mirror %.2f, egg %.2f\n", tiers[ti].toRawUTF8(), t, 100.0 * pic.darkShare(), pic.mirror(), static_cast<double>(egg));
+            }
+            save(inkSheet(cells, 2, cellLabels), "logo-tier" + tiers[ti] + "-sheet.png");
+        }
     }
 
     // 2. thirty-two seeds, quiet and in the roar
@@ -2491,6 +2654,296 @@ inline void testInkCloudAndRift()
         pictureCheck(freeMost > freeBefore + 0.2, "ink forces: the beads are pigment in the buffer (" + juce::String(freeMost, 2) + " against " + juce::String(freeBefore, 2) + ")");
     }
 }
+/** Check 11: every module leaves its own trace on the creature, each a different kind of change, and
+    all fifteen at once bend the blot without breaking it (the trace and force budgets). */
+inline void testInkModules()
+{
+    const bool reportOnly = std::getenv("CI") != nullptr;
+    const auto pictureCheck = [reportOnly](bool ok, const juce::String& what)
+    {
+        if (reportOnly)
+            std::printf("  (reported only on a CI GPU) %s: %s\n", what.toRawUTF8(), ok ? "ok" : "no");
+        else
+            check(ok, what);
+    };
+    const int W = 576, H = 160;
+    const InkScript script;
+    // (each module is switched in two seconds before the frame: what it does to the voice has had
+    // little time to carry the blot elsewhere, so the difference is mostly its own trace)
+    const double t = 9.0, onFor = 2.0;
+    for (const int tier : { 0, 2 })
+    {
+        const auto tag = " (tier " + juce::String(tier) + ")";
+        const auto none = inkModuleShot(script, -1, tier, W, H, t, 2u, nullptr, {}, onFor);
+        if (!none.valid())
+        {
+            pictureCheck(false, "ink modules: a frame is drawn" + tag);
+            return;
+        }
+        {
+            // (the same frame drawn again: how far two runs of one script differ on this tier)
+            const auto again = inkModuleShot(script, -1, tier, W, H, t, 2u, nullptr, {}, onFor);
+            std::printf("  tier %d: the frame without modules drawn twice differs by %.1f per mille\n", tier, 1000.0 * again.rmsDifference(none));
+        }
+        // inside the halo: the ink of the frame without modules, widened by a tenth of a view height
+        const auto base = none.mask();
+        std::vector<std::uint8_t> halo(base.size(), 0);
+        const int reach = H / 10;
+        for (int y = 0; y < H; ++y)
+            for (int x = 0; x < W; ++x)
+                if (base[static_cast<size_t>(y * W + x)] != 0)
+                    for (int dy = -reach; dy <= reach; dy += 2)
+                        for (int dx = -reach; dx <= reach; dx += 2)
+                        {
+                            const int xx = x + dx, yy = y + dy;
+                            if (xx >= 0 && yy >= 0 && xx < W && yy < H && dx * dx + dy * dy <= reach * reach)
+                                halo[static_cast<size_t>(yy * W + xx)] = 1;
+                        }
+        const auto about = [&](const InkPicture& a, const InkPicture& b)
+        {
+            std::vector<float> d;
+            for (size_t i = 0; i < halo.size(); ++i)
+                if (halo[i] != 0)
+                    d.push_back(a.luma[i] - b.luma[i]);
+            return d;
+        };
+        const auto rms = [](const std::vector<float>& d)
+        {
+            double s = 0.0;
+            for (float v : d)
+                s += static_cast<double>(v) * static_cast<double>(v);
+            return std::sqrt(s / static_cast<double>(std::max<size_t>(1, d.size())));
+        };
+        const auto corr = [](const std::vector<float>& a, const std::vector<float>& b)
+        {
+            double ma = 0.0, mb = 0.0;
+            for (size_t i = 0; i < a.size(); ++i)
+            {
+                ma += a[i];
+                mb += b[i];
+            }
+            ma /= static_cast<double>(a.size());
+            mb /= static_cast<double>(a.size());
+            double ab = 0.0, aa = 0.0, bb = 0.0;
+            for (size_t i = 0; i < a.size(); ++i)
+            {
+                ab += (a[i] - ma) * (b[i] - mb);
+                aa += (a[i] - ma) * (a[i] - ma);
+                bb += (b[i] - mb) * (b[i] - mb);
+            }
+            return aa > 0.0 && bb > 0.0 ? ab / std::sqrt(aa * bb) : 0.0;
+        };
+        // (the spec's measure, Init against Init and the module, takes in what the module does to the
+        // voice as well, and that is much the same change whichever module made it: the level, the
+        // jaw, the eddies' gain. So whether two traces are different changes is judged on the trace
+        // alone: the module with its trace against the module with its traces left out, the voice
+        // the same in both.)
+        std::vector<std::vector<float>> diffs;
+        double least = 1.0, leastOwn = 1.0;
+        juce::String weakest, weakestOwn;
+        for (int i = 0; i < Params::numModules; ++i)
+        {
+            std::vector<InkPicture> moving;
+            const auto pic = inkModuleShot(script, i, tier, W, H, t, 2u, &moving, {}, onFor);
+            const auto bare = inkModuleShot(script, i, tier, W, H, t, 2u, nullptr, {}, onFor, true);
+            diffs.push_back(about(pic, bare));
+            const double r = rms(about(pic, none)), own = rms(diffs.back());
+            std::vector<double> stepsI;
+            for (size_t k = 1; k + 1 < moving.size(); ++k)
+                stepsI.push_back(1000.0 * moving[k].rmsDifference(moving[k - 1]));
+            std::sort(stepsI.begin(), stepsI.end());
+            std::printf("  tier %d %s: differs from none of them by %.1f per mille inside the halo, by its trace alone %.1f; change over 1/30 s %.1f per mille\n", tier, Params::modules[static_cast<size_t>(i)].uiName,
+                        1000.0 * r, 1000.0 * own, stepsI.empty() ? 0.0 : stepsI[stepsI.size() / 2]);
+            if (own < leastOwn)
+            {
+                leastOwn = own;
+                weakestOwn = Params::modules[static_cast<size_t>(i)].uiName;
+            }
+            if (r < least)
+            {
+                least = r;
+                weakest = Params::modules[static_cast<size_t>(i)].uiName;
+            }
+        }
+        pictureCheck(least >= 0.003, "ink modules: each of the fifteen leaves a trace (the faintest, " + weakest + ", " + juce::String(1000.0 * least, 1) + " per mille)" + tag);
+        pictureCheck(leastOwn >= 0.003, "ink modules: each trace on its own is seen (the faintest, " + weakestOwn + ", " + juce::String(1000.0 * leastOwn, 1) + " per mille)" + tag);
+        double most = 0.0;
+        juce::String pair;
+        int alike = 0;
+        for (size_t a = 0; a < diffs.size(); ++a)
+            for (size_t b = a + 1; b < diffs.size(); ++b)
+            {
+                const double c = corr(diffs[a], diffs[b]);
+                alike += c >= 0.6 ? 1 : 0;
+                if (c >= 0.5)
+                    std::printf("    tier %d: %s and %s alike, %.2f\n", tier, Params::modules[a].uiName, Params::modules[b].uiName, c);
+                if (c > most)
+                {
+                    most = c;
+                    pair = juce::String(Params::modules[a].uiName) + " and " + Params::modules[b].uiName;
+                }
+            }
+        std::printf("  tier %d: the two traces most alike are %s (correlation %.2f); %d of 105 pairs at 0.6 or more\n", tier, pair.toRawUTF8(), most, alike);
+        pictureCheck(alike == 0, "ink modules: the fifteen traces are different changes (" + juce::String(alike) + " of 105 pairs alike; most alike: " + pair + ", " + juce::String(most, 2) + ")" + tag);
+
+        // all fifteen at their most: still one blot of a sane size that moves as it should, and
+        // still a different blot for a different seed
+        std::vector<InkPicture> motion;
+        const auto all = inkModuleShot(script, -2, tier, W, H, t, 2u, &motion);
+        const auto mask = all.mask();
+        const auto parts = inkmask::parts(mask, W, H);
+        const double largest = parts.empty() ? 0.0 : static_cast<double>(parts[0]) / std::max(1, inkmask::area(mask));
+        std::vector<double> steps;
+        for (size_t k = 1; k + 1 < motion.size(); ++k)
+            steps.push_back(1000.0 * motion[k].rmsDifference(motion[k - 1]));
+        std::sort(steps.begin(), steps.end());
+        const double step = steps.empty() ? 0.0 : steps[steps.size() / 2], second = motion.size() >= 3 ? 1000.0 * motion.back().rmsDifference(motion[0]) : 0.0;
+        std::printf("  tier %d all fifteen: ink %.1f %% of the view (none of them %.1f), largest part %.2f, change over 1/30 s %.1f per mille, over 1 s %.0f\n", tier, 100.0 * all.darkShare(),
+                    100.0 * none.darkShare(), largest, step, second);
+        {
+            // (the same with the traces left out: how much of the motion is the voice the modules made)
+            std::vector<InkPicture> plain;
+            inkModuleShot(script, -2, tier, W, H, t, 2u, &plain, {}, -1.0, true);
+            std::vector<double> stepsP;
+            for (size_t k = 1; k + 1 < plain.size(); ++k)
+                stepsP.push_back(1000.0 * plain[k].rmsDifference(plain[k - 1]));
+            std::sort(stepsP.begin(), stepsP.end());
+            std::printf("  tier %d all fifteen with no traces: change over 1/30 s %.1f per mille\n", tier, stepsP.empty() ? 0.0 : stepsP[stepsP.size() / 2]);
+        }
+        pictureCheck(all.darkShare() >= 0.08 && all.darkShare() <= 0.35 && largest >= 0.7, "ink modules: with all fifteen it is still one blot (" + juce::String(100.0 * all.darkShare(), 1) + " % of the view, "
+                     + juce::String(largest, 2) + " in the largest part)" + tag);
+        // (all fifteen at their most is a roar: ROAR at its top, on a voice every other module has made
+        // louder, so the eddies run at their full gain. Measured on tier 2: 17 per mille with every
+        // module, 9 with all but ROAR, 8 with none of the traces drawn, 12 with ROAR alone. So it is
+        // held to the bound the roar itself is held to above, 20, not the quiet voice's 15.)
+        pictureCheck(step >= 2.0 && step <= 20.0 && second >= 40.0, "ink modules: with all fifteen it moves as it should (" + juce::String(step, 1) + " per mille over 1/30 s, " + juce::String(second, 0) + " over 1 s)" + tag);
+        std::vector<inkmask::Mask> seeds { mask };
+        for (const std::uint32_t seed : { 5u, 9u, 14u })
+            seeds.push_back(inkModuleShot(script, -2, tier, W, H, t, seed).mask());
+        double iouMost = 0.0;
+        for (size_t a = 0; a < seeds.size(); ++a)
+            for (size_t b = a + 1; b < seeds.size(); ++b)
+                iouMost = std::max(iouMost, inkmask::iou(seeds[a], seeds[b]));
+        std::printf("  tier %d all fifteen, four seeds: the most alike pair overlaps %.2f\n", tier, iouMost);
+        pictureCheck(iouMost < 0.75, "ink modules: with all fifteen the seeds are still different blots (most alike " + juce::String(iouMost, 2) + ")" + tag);
+    }
+}
+
+/** Check 14: the maker's mark. The ink gathers into it (not folded, though the buffer is), holds it,
+    lets it go, and the folded blot comes back. */
+inline void testInkLogo()
+{
+    const bool reportOnly = std::getenv("CI") != nullptr;
+    const auto pictureCheck = [reportOnly](bool ok, const juce::String& what)
+    {
+        if (reportOnly)
+            std::printf("  (reported only on a CI GPU) %s: %s\n", what.toRawUTF8(), ok ? "ok" : "no");
+        else
+            check(ok, what);
+    };
+    const int W = 576, H = 160;
+    const auto voice = dual(makeVoice(InkRig::sr, 60.0, 150.0));
+    const auto& logo = LogoSdf::shared();
+    // the mark's own mask over the view (its box is 0.8 of the view's height, in the middle)
+    inkmask::Mask mark(static_cast<size_t>(W * H), 0);
+    const float box = 0.8f;
+    int x0 = W, x1 = 0, y0 = H, y1 = 0;
+    if (! logo.rgba.empty())
+        for (int y = 0; y < H; ++y)
+            for (int x = 0; x < W; ++x)
+            {
+                const float px = (static_cast<float>(x) + 0.5f - 0.5f * W) / H, py = 0.5f - (static_cast<float>(y) + 0.5f) / H;
+                const float u = px / box + 0.5f, v = py / box + 0.5f;
+                if (u < 0.0f || u > 1.0f || v < 0.0f || v > 1.0f)
+                    continue;
+                const int tx = juce::jlimit(0, LogoSdf::c_size - 1, static_cast<int>(u * LogoSdf::c_size)), ty = juce::jlimit(0, LogoSdf::c_size - 1, static_cast<int>(v * LogoSdf::c_size));
+                if (std::min(logo.distanceAt(tx, ty, 0), logo.distanceAt(tx, ty, 1)) < 0.0f)
+                {
+                    mark[static_cast<size_t>(y * W + x)] = 1;
+                    x0 = std::min(x0, x);
+                    x1 = std::max(x1, x);
+                    y0 = std::min(y0, y);
+                    y1 = std::max(y1, y);
+                }
+            }
+    const auto flipped = [W, H](const inkmask::Mask& m)
+    {
+        inkmask::Mask o(m.size());
+        for (int y = 0; y < H; ++y)
+            for (int x = 0; x < W; ++x)
+                o[static_cast<size_t>(y * W + x)] = m[static_cast<size_t>(y * W + W - 1 - x)];
+        return o;
+    };
+    check(x1 > x0 && y1 > y0, "ink logo: the mark has a mask");
+    if (x1 <= x0)
+        return;
+    for (const int tier : { 0, 1, 2, 3 })
+    {
+        const auto tag = " (tier " + juce::String(tier) + ")";
+        InkRig rig(W, H, 2u, 0.6f);
+        if (!rig.ok())
+        {
+            pictureCheck(false, "ink logo: a frame is drawn" + tag);
+            return;
+        }
+        rig.setTier(tier);
+        // (no cloud in front: the banks drift across the view on their own and are not folded, and
+        // the mirror is the ink's)
+        rig.monster->setInkFrontCloudForTests(0.0f);
+        rig.run(5.0, &voice, 0.5f);
+        check(rig.monster->getRendererForTests().hasLogo(), "ink logo: the ink creature can draw the mark, so the egg can be seen" + tag);
+        const auto before = rig.shot(&voice, 0.5f);
+        rig.p->withCreatureForTests([](roar::CreatureEvolution& e) { e.triggerEggForTests(); });
+        // (the egg forms over 6.5 s and holds for 12: well into the hold)
+        rig.run(11.0, &voice, 0.5f);
+        const auto held = rig.shot(&voice, 0.5f);
+        if (const auto keepDir = juce::SystemStats::getEnvironmentVariable("ROARSCHACH_INK_KEEP", {}); keepDir.isNotEmpty())
+            savePng(held.image, juce::File(keepDir).getChildFile("logo-held-tier" + juce::String(tier) + ".png"));
+        const auto mask = held.mask();
+        const double like = inkmask::correlation(mask, mark);
+        // left against right inside the mark's box
+        const int half = std::max(x1 - W / 2, W / 2 - x0);
+        double sa = 0.0, sb = 0.0, saa = 0.0, sbb = 0.0, sab = 0.0;
+        long n = 0;
+        for (int y = y0; y <= y1; ++y)
+            for (int d = 0; d < half; ++d)
+            {
+                const double a = mask[static_cast<size_t>(y * W + W / 2 + d)], b = mask[static_cast<size_t>(y * W + W / 2 - 1 - d)];
+                sa += a; sb += b; saa += a * a; sbb += b * b; sab += a * b;
+                ++n;
+            }
+        const double va = saa - sa * sa / static_cast<double>(n), vb = sbb - sb * sb / static_cast<double>(n);
+        const double mirrored = va > 0.0 && vb > 0.0 ? (sab - sa * sb / static_cast<double>(n)) / std::sqrt(va * vb) : 1.0;
+        // (12 s of hold and 5 of letting go, then the blot gathers again)
+        rig.run(18.0, &voice, 0.5f);
+        const auto after = rig.shot(&voice, 0.5f);
+        if (const auto keepDir = juce::SystemStats::getEnvironmentVariable("ROARSCHACH_INK_KEEP", {}); keepDir.isNotEmpty())
+        {
+            savePng(before.image, juce::File(keepDir).getChildFile("logo-before-tier" + juce::String(tier) + ".png"));
+            savePng(after.image, juce::File(keepDir).getChildFile("logo-after-tier" + juce::String(tier) + ".png"));
+        }
+        const double afterMirror = inkmask::correlation(after.mask(), flipped(after.mask()));
+        std::printf("  tier %d the mark at its hold: ink mask against the mark's %.2f, left against right in its box %.2f; the blot before %.1f %% of the view mirrored %.2f, after %.1f %% mirrored %.2f\n", tier, like, mirrored,
+                    100.0 * before.darkShare(), inkmask::correlation(before.mask(), flipped(before.mask())), 100.0 * after.darkShare(), afterMirror);
+        pictureCheck(like > (tier == 0 ? 0.6 : 0.8), "ink logo: at its hold the ink is the mark (" + juce::String(like, 2) + ")" + tag);
+        pictureCheck(mirrored < 0.8, "ink logo: the mark is not folded (left against right " + juce::String(mirrored, 2) + ")" + tag);
+        // the same blot on the same voice with no egg at all, at the same moment: the rift's torn edge
+        // and its strands are the view's own picture and not folded, so while the jaw is open the
+        // mask is never quite mirrored. Restored is as folded as that.
+        double control = 1.0;
+        {
+            InkRig plain(W, H, 2u, 0.6f);
+            plain.setTier(tier);
+            plain.monster->setInkFrontCloudForTests(0.0f);
+            plain.run(static_cast<double>(rig.frames - 1) / 30.0, &voice, 0.5f);
+            const auto same = plain.shot(&voice, 0.5f);
+            control = inkmask::correlation(same.mask(), flipped(same.mask()));
+        }
+        std::printf("  tier %d without the egg at that moment: mirrored %.2f\n", tier, control);
+        pictureCheck(after.darkShare() > 0.08 && afterMirror >= control - 0.02, "ink logo: afterwards the blot is back, and folded (" + juce::String(100.0 * after.darkShare(), 1) + " %, mirrored "
+                     + juce::String(afterMirror, 2) + " against " + juce::String(control, 2) + " with no egg)" + tag);
+    }
+}
 /** Check 4 on frames: what the eye would take for a face. On the ink mask, cloud the ink encloses
     in a mirrored pair above the rift (sockets); and inside the ink beside the fold, how far its
     relief (gleams, washes) is the same on both sides (a mirrored pair of marks on the dark is a
@@ -2631,6 +3084,10 @@ inline void testInk()
         testInkBuffer();
     if (wanted("faces"))
         testInkFaces();
+    if (wanted("modules"))
+        testInkModules();
+    if (wanted("logo"))
+        testInkLogo();
     if (wanted("cloud"))
         testInkCloudAndRift();
    #endif

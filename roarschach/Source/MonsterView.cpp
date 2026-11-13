@@ -103,6 +103,7 @@ void MonsterView::setParams (const Params& params)
     m_overtoneKnob.store (params.overtone, std::memory_order_relaxed);
     m_ringKnob.store (params.ring, std::memory_order_relaxed);
     m_cleanOn.store (params.cleanOn, std::memory_order_relaxed);
+    m_clean.store (params.clean, std::memory_order_relaxed);
     for (size_t i = 0; i < m_moodTarget.size(); ++i)
         m_moodTarget[i].store (params.mood[i], std::memory_order_relaxed);
     m_moodFrozen.store (params.moodFrozen, std::memory_order_relaxed);
@@ -709,6 +710,8 @@ void MonsterView::drawFrame (float dt, double seconds, float scale, int width, i
         fr.set (U::uHead, m_head.offY, m_head.scaleAdd + 0.008f * boom * pulse,
                 m_head.follow + echo * (m_chamberLagY - m_head.follow), m_head.breath + 0.6f * boom * pulse);
     }
+    // (CHAMBER for the ink creature: the room's ringing, how much room there is, the ring's slow clock)
+    fr.set (U::uChamber, juce::jlimit (0.0f, 1.0f, m_chamberEcho), juce::jlimit (0.0f, 1.0f, m_chamberBoom), m_chamberPhase, 0.0f);
     fr.set (U::uGrowl, m_knobs.growl);
     fr.set (U::uGrowlMod, juce::jlimit (0.0f, 1.0f, m_audioForces.growl));   // rectified and slow: a shiver, never a 20-80 Hz flicker
     fr.set (U::uLiquid, m_knobs.liquid);
@@ -735,6 +738,7 @@ void MonsterView::drawFrame (float dt, double seconds, float scale, int width, i
     fr.set (U::uDeess, juce::jlimit (0.0f, 1.0f, m_deess));
     fr.set (U::uTame, juce::jlimit (0.0f, 1.0f, m_tame));
     fr.set (U::uGateClosed, juce::jlimit (0.0f, 1.0f, 1.0f - m_gate));
+    fr.set (U::uClean, safe (m_clean.load (std::memory_order_relaxed), 0.0f, 1.0f));
     fr.set (U::uOvLevel, juce::jlimit (0.0f, 1.0f, m_ovLevel * (0.5f + m_knobs.overtone)));
     fr.setArray (U::uOvHarm, m_ovHarm.data(), (int) m_ovHarm.size());
     fr.set (U::uOvReplace, m_ovReplace);

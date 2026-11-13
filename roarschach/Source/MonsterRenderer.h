@@ -45,7 +45,8 @@ namespace roar
         X (uBlob, 4, 8) X (uBlobR, 4, 8) X (uLimbA, 4, 6) X (uLimbB, 4, 6) X (uMaw, 4, 1) X (uBay, 4, 2) \
         X (uFlowK, 4, 1) X (uFlowO, 4, 1) X (uFlowC, 4, 1) X (uCarry, 4, 1) X (uInkF, 4, 1) X (uInkO, 4, 1) \
         X (uCloudK, 4, 1) X (uCloudO, 4, 1) X (uBreath, 4, 1) X (uHold, 4, 1) X (uPig, 4, 1) \
-        X (uCloudT, 4, 1) X (uSubPulse, 4, 1) X (uSparkP, 4, 3)
+        X (uCloudT, 4, 1) X (uSubPulse, 4, 1) X (uSparkP, 4, 3) \
+        X (uModA, 4, 1) X (uModB, 4, 1) X (uModC, 4, 1) X (uModD, 4, 1) X (uModE, 4, 1) X (uClean, 1, 1) X (uChamber, 4, 1) X (uSpine, 4, 5)
 
     enum class U : int
     {
@@ -151,7 +152,7 @@ namespace roar
                      const std::vector<std::uint8_t>& noiseRgba, int noiseSize);
         void release();
         bool isCreated() const { return m_created; }
-        bool hasLogo() const { return m_logoTex != 0 && ! m_ink; }
+        bool hasLogo() const { return m_logoTex != 0; }
 
         /** Which creature is drawn: the ink creature (the build's default, ROARSCHACH_INK_CREATURE)
             or the one before it. Takes effect at the next create(). */
@@ -165,6 +166,9 @@ namespace roar
         void setInkMoment (float moment) { m_inkMoment = moment; }
         /** Tests: the rift's light itself (0 a dark tear .. 1 lit breath), whatever the blot's own is (< 0: the blot's). */
         void setInkLight (float light) { m_inkLight = light; }
+        /** Tests: the modules' traces left out of the picture (what each module does to the voice
+            still reaches it), so a trace can be told from the voice it changed. */
+        void setInkTracesOff (bool off) { m_inkTracesOff = off; }
         bool isInkFullSize() const { return m_inkFullForced >= 0 ? m_inkFullForced != 0 : m_inkFull; }
         bool isInkCreature() const { return m_ink; }
         /** The ink creature as the last prepare() posed it (tests: the shader's inputs, for the C++ twins). */
@@ -319,6 +323,12 @@ namespace roar
         float m_inkSwellHold = 0.0f; // seconds the swell is held for yet
         float m_inkFitK = 1.0f, m_inkFitY = 0.0f;   // the pose kept inside the view: its scale and shift, eased
         float m_inkNotch = 0.0f;     // SWIRL's notch as the bound pair's place follows it (eased)
+        float m_inkBands[32] {};     // VOCODER's band levels as the strata follow them (eased)
+        float m_inkSpine[5][2] {};   // OVERTONE's spines as they follow the body's top: root height, length (eased)
+        float m_inkGate = 0.0f, m_inkTame = 0.0f;   // CLEAN's gate and TAME as the limbs follow them (eased)
+        float m_inkTidy = 0.0f;      // CLEAN's tidiness, as the edge follows it (eased)
+        float m_inkTraceK = 1.0f;    // the trace budget's scale (eased)
+        double m_inkModPhase[4] {};  // the modules' own clocks: RING's ripples, GROWL's ruffle, SHIMMER's beads, CHAMBER's bands
         float m_inkHeat = 0.0f;      // the roar's heat as the eddies follow it (eased)
         float m_inkSwirl = 0.0f;     // SWIRL's amount as the bound pair follows it (eased)
         float m_inkJet = 0.0f;       // the breath's jet, smoothed
@@ -330,6 +340,7 @@ namespace roar
         std::array<std::array<float, 4>, 3> m_inkBead {};   // each bead: where it left the rim xy, its way xy
         float m_inkLight = -1.0f;    // tests: the rift's light, whatever the blot's own (< 0: the blot's)
         float m_inkMoment = -1.0f;   // tests: the rift's light held at this moment's share (< 0: live)
+        bool m_inkTracesOff = false; // tests: no module traces
         float m_aspect = 3.27f;
         int m_simH = 78;       // rows of the Q3 sim
         std::array<Prog, (size_t) shaders::Program::numPrograms> m_progs {};
