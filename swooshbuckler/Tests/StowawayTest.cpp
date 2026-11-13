@@ -14,6 +14,17 @@
 //     mix.
 //   - How its knobs read and which are in use (Width reads Mono and is out of use).
 //
+//   Fly
+//   - A tone flies by: its pitch bends, it crosses the stereo field and it swells (Dry is the control); Width at 0%
+//     keeps it in the middle.
+//   - The same seed gives the same render, sample for sample, and its random draws are its own (bus A's and bus B's
+//     passes do not move).
+//   - Follow at 100% lands every pass on one of bus A's; at 0% they keep their own time.
+//   - A marker at each pass's closest point; AIM, LINK and Pass Mode leave it alone; Low End, Filter and Drive
+//     colour it; it is as loud as the same sound flying by on bus A.
+//   - It sleeps with no track on Stowaway (the engine then costs what it did, and the output is the same sample for
+//     sample) and once its passes have rung out after Stop. Its cost is printed.
+//
 // Usage: SwooshbucklerStowaway [scratch folder] (a folder in the temp directory if none is given).
 
 #include <JuceHeader.h>
@@ -1134,6 +1145,406 @@ int main(int argc, char* argv[])
     }
 
     //==========================================================================
+    std::cout << "Fly: a third mover" << std::endl;
+    {
+        const auto flyTone = writeWav(folder, "stow_fly330", tone(330.0, 70.0, 48000.0, 0.3f), 48000.0);
+        // What a render of a tone does, 50 ms at a time while it is within 30 dB of its loudest: how far its pitch
+        // goes above and below the tone's (zero crossings of left + right), how far left and right of the middle
+        // it gets (dB, left over right), and how far its level moves.
+        struct Motion { double pitchUp = 1.0, pitchDown = 1.0, left = 0.0, right = 0.0, swell = 0.0, peak = -200.0; };
+        auto motionOf = [](const juce::AudioBuffer<float>& out, double hz, double rate)
+        {
+            const int win = static_cast<int>(0.05 * rate);
+            struct Frame { double db, pitch, balance; };
+            std::vector<Frame> frames;
+            for (int from = 0; from + win <= out.getNumSamples(); from += win)
+            {
+                double sumL = 0.0, sumR = 0.0, first = -1.0, last = -1.0;
+                int crossings = 0;
+                for (int i = from; i < from + win; ++i)
+                {
+                    const double l = out.getSample(0, i), r = out.getSample(1, i);
+                    sumL += l * l;
+                    sumR += r * r;
+                    if (i > from)
+                    {
+                        const double a = out.getSample(0, i - 1) + out.getSample(1, i - 1), b = l + r;
+                        if (a < 0.0 && b >= 0.0)
+                        {
+                            const double at = (i - 1) + a / (a - b);
+                            if (first < 0.0)
+                                first = at;
+                            last = at;
+                            ++crossings;
+                        }
+                    }
+                }
+                Frame f;
+                f.db = 10.0 * std::log10(std::max((sumL + sumR) / (2.0 * win), 1.0e-30));
+                f.pitch = crossings > 2 ? (crossings - 1) * rate / (last - first) / hz : 1.0;
+                f.balance = 10.0 * std::log10(std::max(sumL, 1.0e-30) / std::max(sumR, 1.0e-30));
+                frames.push_back(f);
+            }
+            Motion m;
+            double quietest = 0.0;
+            for (const auto& f : frames)
+                m.peak = std::max(m.peak, f.db);
+            for (const auto& f : frames)
+            {
+                quietest = std::min(quietest, f.db - m.peak);
+                if (f.db < m.peak - 30.0)
+                    continue;
+                m.pitchUp = std::max(m.pitchUp, f.pitch);
+                m.pitchDown = std::min(m.pitchDown, f.pitch);
+                m.left = std::max(m.left, f.balance);
+                m.right = std::min(m.right, f.balance);
+            }
+            m.swell = -quietest;
+            return m;
+        };
+        auto flyRig = [&](Rig& rig, RigEngine::Params p, bool onBusA = false)
+        {
+            rig.hold.loadFile(0, flyTone, error);
+            rig.hold.setSkipSilence(0, false);
+            rig.hold.setBusOverride(0, CargoHold::c_stowBus);
+            if (onBusA)
+            {
+                rig.hold.loadFile(1, busToneFile, error);
+                rig.hold.setSkipSilence(1, false);
+                rig.hold.setBusOverride(1, 0);
+            }
+            rig.start(p, 48000.0);
+        };
+        auto same = [](const juce::AudioBuffer<float>& a, const juce::AudioBuffer<float>& b)
+        {
+            float d = 0.0f;
+            for (int c = 0; c < 2; ++c)
+                for (int i = 0; i < a.getNumSamples(); ++i)
+                    d = std::max(d, std::abs(a.getSample(c, i) - b.getSample(c, i)));
+            return d;
+        };
+
+        // A steady tone on Stowaway, nothing else: in Fly it flies by (its pitch bends up on the way in and down on
+        // the way out, it crosses from one side to the other, and it swells); in Dry it does none of that (the control).
+        {
+            auto moved = [&](int mode, float width)
+            {
+                Rig rig;
+                auto p = plainParams();
+                p.stow.mode = mode;
+                p.stow.width = width;
+                flyRig(rig, p);
+                render(rig.engine, 1.0, 48000.0);
+                return motionOf(render(rig.engine, 20.0, 48000.0), 330.0, 48000.0);
+            };
+            const auto fly = moved(RigEngine::StowFly, 1.0f), narrow = moved(RigEngine::StowFly, 0.0f), dry = moved(RigEngine::StowDry, 1.0f);
+            auto cents = [](double ratio) { return 1200.0 * std::log2(ratio); };
+            std::cout << "  a 330 Hz tone over 20 s. Fly: pitch " << juce::String(cents(fly.pitchDown), 0) << " to +" << juce::String(cents(fly.pitchUp), 0) << " cents, left / right up to "
+                      << juce::String(fly.left, 1) << " / " << juce::String(fly.right, 1) << " dB, level moves " << juce::String(fly.swell, 1) << " dB. Width 0%: left / right " << juce::String(narrow.left, 2) << " / "
+                      << juce::String(narrow.right, 2) << " dB, pitch " << juce::String(cents(narrow.pitchDown), 0) << " to +" << juce::String(cents(narrow.pitchUp), 0) << ". Dry: pitch " << juce::String(cents(dry.pitchDown), 1)
+                      << " to +" << juce::String(cents(dry.pitchUp), 1) << " cents, left / right " << juce::String(dry.left, 2) << " / " << juce::String(dry.right, 2) << " dB, level moves " << juce::String(dry.swell, 1) << " dB" << std::endl;
+            check(cents(fly.pitchUp) > 100.0 && cents(fly.pitchDown) < -100.0 && std::abs(cents(dry.pitchUp)) < 2.0 && std::abs(cents(dry.pitchDown)) < 2.0,
+                  "fly: its passes bend the pitch, up on the way in and down on the way out");
+            check(fly.left > 6.0 && fly.right < -6.0 && dry.left < 0.01 && dry.right > -0.01, "fly: it moves across the stereo field");
+            check(fly.swell > 12.0 && dry.swell < 1.0, "fly: it swells and falls away with each pass");
+            check(narrow.left < 0.01 && narrow.right > -0.01 && cents(narrow.pitchUp) > 100.0, "fly: Width at 0% keeps the passes in the middle (they still bend)");
+        }
+
+        // The same seed gives the same passes, sample for sample; another seed gives others. And its draws are its
+        // own: bus A's and bus B's passes are where they are with the same track on Stowaway in Dry, which has no
+        // passes. (A track that plays draws its sounds from the engine's generator wherever it is, so the control
+        // is the same track, not an empty Stowaway.)
+        {
+            struct Run { juce::AudioBuffer<float> out; std::vector<float> busPasses; };
+            auto run = [&](std::uint32_t seed, int mode)
+            {
+                const bool onStow = true;
+                Rig rig;
+                RigEngine::Params p; // as the plug-in starts (Chaos 40%, Follow 70%)
+                p.stow.mode = mode;
+                rig.engine.setSeed(seed);
+                rig.hold.loadFile(1, busToneFile, error);
+                rig.hold.setSkipSilence(1, false);
+                rig.hold.setBusOverride(1, 0);
+                if (onStow)
+                {
+                    rig.hold.loadFile(0, flyTone, error);
+                    rig.hold.setSkipSilence(0, false);
+                    rig.hold.setBusOverride(0, CargoHold::c_stowBus);
+                }
+                rig.start(p, 48000.0);
+                Run r;
+                r.out = render(rig.engine, 12.0, 48000.0, [&](int)
+                {
+                    for (int f = 0; f < 4; ++f)
+                    {
+                        r.busPasses.push_back(rig.engine.getFlightView(f).age);
+                        r.busPasses.push_back(rig.engine.getFlightView(f).x);
+                        r.busPasses.push_back(rig.engine.getFlightView(f).closeness);
+                    }
+                });
+                return r;
+            };
+            const auto a = run(RigEngine::c_defaultSeed, RigEngine::StowFly), b = run(RigEngine::c_defaultSeed, RigEngine::StowFly), other = run(1234u, RigEngine::StowFly),
+                       without = run(RigEngine::c_defaultSeed, RigEngine::StowDry);
+            std::cout << "  two renders from the same seed differ by " << same(a.out, b.out) << "; from another seed by " << same(a.out, other.out) << "; peak " << peakOf(a.out) << std::endl;
+            check(peakOf(a.out) > 0.05f && same(a.out, b.out) == 0.0f && same(a.out, other.out) > 0.01f, "fly: the same seed gives the same render, sample for sample");
+            check(a.busPasses == without.busPasses && ! a.busPasses.empty(), "fly: its random draws are its own (bus A's and bus B's passes are where they were without it)");
+        }
+
+        // Follow ties its passes to bus A's. The markers say when each is at its closest: at 100% every one of Fly's
+        // falls on one of bus A's; at 0% they keep their own time.
+        {
+            auto apart = [&](float follow, int& count)
+            {
+                Rig rig;
+                RigEngine::Params p; // Chaos 40%: bus A's passes vary in length
+                p.rideOn = false;    // (bus A never dips so far that its passes go unmarked)
+                p.stow.mode = RigEngine::StowFly;
+                p.stow.follow = follow;
+                flyRig(rig, p, true);
+                std::vector<int> busA, fly;
+                render(rig.engine, 60.0, 48000.0, [&](int pos)
+                {
+                    for (int i = 0; i < rig.engine.getNumMarkers(); ++i)
+                    {
+                        const auto& m = rig.engine.getMarker(i);
+                        if (m.kind == RigEngine::MarkPassA)
+                            busA.push_back(pos + m.offset);
+                        else if (m.kind == RigEngine::MarkPassStow)
+                            fly.push_back(pos + m.offset);
+                    }
+                });
+                // How far each of Fly's closest points (after the first two, which were under way before Follow
+                // could place them) is from the nearest of bus A's, in ms: the median and the worst.
+                std::vector<double> ms;
+                for (size_t k = 2; k < fly.size(); ++k)
+                {
+                    int nearest = 1 << 30;
+                    for (const int at : busA)
+                        nearest = std::min(nearest, std::abs(at - fly[k]));
+                    ms.push_back(nearest / 48.0);
+                }
+                std::sort(ms.begin(), ms.end());
+                count = static_cast<int>(fly.size());
+                return ms.empty() ? std::pair<double, double> { 1.0e9, 1.0e9 } : std::pair<double, double> { ms[ms.size() / 2], ms.back() };
+            };
+            int tiedCount = 0, halfCount = 0, freeCount = 0;
+            const auto tied = apart(1.0f, tiedCount), half = apart(0.5f, halfCount), free = apart(0.0f, freeCount);
+            std::cout << "  Fly's closest points against bus A's over 60 s (median / worst, ms): Follow 100% " << juce::String(tied.first, 2) << " / " << juce::String(tied.second, 2) << " (" << tiedCount
+                      << " passes), 50% " << juce::String(half.first, 0) << " / " << juce::String(half.second, 0) << " (" << halfCount << "), 0% " << juce::String(free.first, 0) << " / " << juce::String(free.second, 0)
+                      << " (" << freeCount << ")" << std::endl;
+            check(tiedCount > 20 && tied.second < 1.0, "fly: Follow at 100% lands every pass on one of bus A's (within a millisecond)");
+            check(freeCount > 20 && free.first > 50.0 && half.first > tied.first && half.first < free.first, "fly: at 0% its passes keep their own time, and in between they are part of the way there");
+            // The law by itself.
+            const float own = RigEngine::flySegmentSeconds(1.5f, 1.2f, -1.0f, 1.6f, 0.0f), land = RigEngine::flySegmentSeconds(1.5f, 1.2f, -1.0f, 1.6f, 1.0f),
+                        mid = RigEngine::flySegmentSeconds(1.5f, 1.2f, -1.0f, 1.6f, 0.5f);
+            const float skip = RigEngine::flySegmentSeconds(1.5f, 0.1f, -1.0f, 1.6f, 1.0f), second = RigEngine::flySegmentSeconds(3.0f, 1.3f, 2.6f, 1.3f, 1.0f),
+                        first = RigEngine::flySegmentSeconds(1.5f, 1.3f, 2.6f, 1.3f, 1.0f);
+            std::cout << "  half a pass of 1.5 s with bus A's next peak 1.2 s off: " << own << " s at 0%, " << mid << " s at 50%, " << land << " s at 100%; with the peak 0.1 s off (too close, the next a guess): " << skip
+                      << " s; with peaks 1.3 and 2.6 s off: " << first << " s, and one of 3 s: " << second << " s" << std::endl;
+            check(std::abs(own - 1.5f) < 1.0e-5f && std::abs(land - 1.2f) < 1.0e-5f && std::abs(mid - std::sqrt(1.5f * 1.2f)) < 1.0e-4f && std::abs(skip - 1.7f) < 1.0e-4f && std::abs(first - 1.3f) < 1.0e-4f
+                      && std::abs(second - 2.6f) < 1.0e-4f,
+                  "fly: Follow picks the peak of bus A's nearest to where the pass would have ended by itself");
+        }
+
+        // A marker where each pass is at its closest: at every one, one of its two passes is half-way through.
+        // AIM leaves it alone, and LINK and Pass Mode do not reach it.
+        {
+            Rig rig;
+            auto p = plainParams();
+            p.stow.mode = RigEngine::StowFly;
+            p.chaos = 0.4f;
+            flyRig(rig, p);
+            int marks = 0, onPeak = 0;
+            render(rig.engine, 30.0, 48000.0, [&](int)
+            {
+                for (int i = 0; i < rig.engine.getNumMarkers(); ++i)
+                    if (rig.engine.getMarker(i).kind == RigEngine::MarkPassStow)
+                    {
+                        ++marks;
+                        if (std::min(std::abs(rig.engine.getStowFlight(0).age - 0.5f), std::abs(rig.engine.getStowFlight(1).age - 0.5f)) < 0.02f)
+                            ++onPeak;
+                    }
+            });
+            std::cout << "  30 s of Fly: " << marks << " Pass S markers, " << onPeak << " of them with a pass at its closest" << std::endl;
+            check(marks >= 8 && onPeak == marks, "fly: a marker at each pass's closest point");
+
+            // The hits, aimed at the buses' passes, land where they do with the same track on Stowaway in Dry.
+            auto hitMarks = [&](bool withFly)
+            {
+                Rig r;
+                RigEngine::Params q; // as the plug-in starts: AIM on
+                q.stow.mode = withFly ? RigEngine::StowFly : RigEngine::StowDry;
+                r.hold.loadFile(1, busToneFile, error);
+                r.hold.setSkipSilence(1, false);
+                r.hold.setBusOverride(1, 0);
+                r.hold.loadFile(2, writeWav(folder, "stow_fly_hit", tone(300.0, 0.3, 48000.0), 48000.0), error);
+                r.hold.setBusOverride(2, CargoHold::c_hitsBus);
+                r.hold.loadFile(0, flyTone, error);
+                r.hold.setSkipSilence(0, false);
+                r.hold.setBusOverride(0, CargoHold::c_stowBus);
+                r.start(q, 48000.0);
+                std::vector<int> at;
+                render(r.engine, 30.0, 48000.0, [&](int pos)
+                {
+                    for (int i = 0; i < r.engine.getNumMarkers(); ++i)
+                        if (r.engine.getMarker(i).kind == RigEngine::MarkHit)
+                            at.push_back(pos + r.engine.getMarker(i).offset);
+                });
+                return at;
+            };
+            const auto hitsWith = hitMarks(true), hitsWithout = hitMarks(false);
+            std::cout << "  aimed hits over 30 s: " << hitsWith.size() << " with a track flying on Stowaway, " << hitsWithout.size() << " with it there in Dry" << std::endl;
+            check(! hitsWithout.empty() && hitsWith == hitsWithout, "fly: AIM leaves it alone (the hits land where they did)");
+
+            auto alone = [&](bool link, int passMode)
+            {
+                Rig r;
+                auto q = plainParams();
+                q.stow.mode = RigEngine::StowFly;
+                q.chaos = 0.4f;
+                q.linkBuses = link;
+                for (auto& bus : q.buses)
+                    bus.passMode = passMode;
+                flyRig(r, q);
+                return render(r.engine, 8.0, 48000.0);
+            };
+            const auto plainFly = alone(false, 0);
+            const float byLink = same(alone(true, 0), plainFly), byPassMode = same(alone(false, 1), plainFly);
+            std::cout << "  LINK changes Fly's output by " << byLink << ", the buses' Pass Mode by " << byPassMode << " (peak " << peakOf(plainFly) << ")" << std::endl;
+            check(peakOf(plainFly) > 0.05f && byLink == 0.0f && byPassMode == 0.0f, "fly: LINK and Pass Mode do not apply to it");
+        }
+
+        // Low End, Filter and Drive colour it. White noise for Filter (what is left above 6 kHz with the tilt at the
+        // bottom, and under 150 Hz with it at the top); a 100 Hz tone for Low End (a note an octave down) and for
+        // Drive (overtones).
+        {
+            const auto noiseFile = writeWav(folder, "stow_fly_noise", whiteNoise(8.0, 48000.0, 21), 48000.0);
+            const auto lowTone = writeWav(folder, "stow_fly100", tone(100.0, 70.0, 48000.0, 0.3f), 48000.0);
+            auto spec = [&](const juce::File& file, float low, float filter, float drive)
+            {
+                Rig rig;
+                rig.hold.loadFile(0, file, error);
+                rig.hold.setSkipSilence(0, false);
+                rig.hold.setBusOverride(0, CargoHold::c_stowBus);
+                auto p = plainParams();
+                p.stow.mode = RigEngine::StowFly;
+                p.stow.width = 0.0f;
+                p.stow.low = low;
+                p.stow.filter = filter;
+                p.stow.drive = drive;
+                rig.start(p, 48000.0);
+                render(rig.engine, 1.0, 48000.0);
+                const auto out = render(rig.engine, 16.0, 48000.0);
+                return spectrum(out.getReadPointer(0), out.getNumSamples(), 48000.0, 14);
+            };
+            const auto open = spec(noiseFile, 0.0f, 0.5f, 0.0f), dark = spec(noiseFile, 0.0f, 0.0f, 0.0f), thin = spec(noiseFile, 0.0f, 1.0f, 0.0f);
+            const double top = dark.peak(6000.0, 12000.0) - open.peak(6000.0, 12000.0), bottom = thin.peak(40.0, 150.0) - open.peak(40.0, 150.0);
+            const auto clean = spec(lowTone, 0.0f, 0.5f, 0.0f), lowEnd = spec(lowTone, 1.0f, 0.5f, 0.0f), driven = spec(lowTone, 0.0f, 0.5f, 1.0f);
+            const double octave = lowEnd.peak(40.0, 60.0) - clean.peak(40.0, 60.0), third = driven.peak(270.0, 330.0) - clean.peak(270.0, 330.0);
+            std::cout << "  Filter at 0%: " << juce::String(top, 1) << " dB above 6 kHz; at 100%: " << juce::String(bottom, 1) << " dB under 150 Hz. A 100 Hz tone: Low End at 100% adds " << juce::String(octave, 1)
+                      << " dB around 50 Hz, Drive at 100% " << juce::String(third, 1) << " dB around 300 Hz" << std::endl;
+            check(top < -20.0 && bottom < -20.0, "fly: Filter tilts it (a low-pass below the middle, a high-pass above)");
+            check(octave > 20.0 && third > 20.0, "fly: Low End and Drive colour it");
+        }
+
+        // As loud as the same sound flying by on bus A (Fly-By, the same Doppler and Bend, no colours).
+        {
+            auto level = [&](bool onStow)
+            {
+                Rig rig;
+                auto p = plainParams();
+                p.stow.mode = RigEngine::StowFly;
+                p.buses[0].passMode = 1;
+                p.buses[0].doppler = RigEngine::c_flyDoppler;
+                p.buses[0].bend = RigEngine::c_flyBend;
+                p.buses[0].width = 1.0f;
+                rig.hold.loadFile(0, flyTone, error);
+                rig.hold.setSkipSilence(0, false);
+                rig.hold.setBusOverride(0, onStow ? CargoHold::c_stowBus : 0);
+                rig.start(p, 48000.0);
+                render(rig.engine, 2.0, 48000.0);
+                rig.engine.takeSectionLevels();
+                render(rig.engine, 60.0, 48000.0);
+                return 20.0 * std::log10(static_cast<double>(rig.engine.takeSectionLevels()[onStow ? RigEngine::SectionStow : RigEngine::SectionBusA]));
+            };
+            const double fly = level(true), busA = level(false);
+            std::cout << "  the same tone over 60 s: " << juce::String(fly, 2) << " dB flying on Stowaway, " << juce::String(busA, 2) << " dB as Fly-Bys on bus A" << std::endl;
+            check(fly > -40.0 && std::abs(fly - busA) < 1.0, "fly: it is as loud as the same sound flying by on bus A");
+        }
+
+        // It sleeps unless sound is in it: with no track on Stowaway (the output is then the same as in any other
+        // mode, sample for sample), and a few seconds after its tracks stop; it wakes when they play again.
+        // What it costs, awake and asleep.
+        {
+            auto bed = [&](Rig& rig, int mode, bool onStow)
+            {
+                RigEngine::Params p; // as the plug-in starts
+                p.stow.mode = mode;
+                rig.hold.loadFile(1, busToneFile, error);
+                rig.hold.setSkipSilence(1, false);
+                rig.hold.setBusOverride(1, 0);
+                rig.hold.loadFile(2, layerFile, error);
+                rig.hold.setSkipSilence(2, false);
+                rig.hold.setBusOverride(2, 1);
+                if (onStow)
+                {
+                    rig.hold.loadFile(0, flyTone, error);
+                    rig.hold.setSkipSilence(0, false);
+                    rig.hold.setBusOverride(0, CargoHold::c_stowBus);
+                }
+                rig.start(p, 48000.0);
+            };
+            // Seconds of processor time per second of sound: the quickest of five 10 s renders.
+            auto cost = [&](int mode, bool onStow, bool& awake)
+            {
+                double best = 1.0e9;
+                for (int rep = 0; rep < 5; ++rep)
+                {
+                    Rig rig;
+                    bed(rig, mode, onStow);
+                    render(rig.engine, 1.0, 48000.0);
+                    const double t0 = juce::Time::getMillisecondCounterHiRes();
+                    render(rig.engine, 10.0, 48000.0);
+                    best = std::min(best, (juce::Time::getMillisecondCounterHiRes() - t0) / 10000.0);
+                    awake = rig.engine.isFlyAwake();
+                }
+                return best;
+            };
+            bool awakeEmpty = true, awakeFlying = false, awakeSub = true, awakeDry = true;
+            const double emptySub = cost(RigEngine::StowSub, false, awakeSub), emptyFly = cost(RigEngine::StowFly, false, awakeEmpty);
+            const double flying = cost(RigEngine::StowFly, true, awakeFlying), dry = cost(RigEngine::StowDry, true, awakeDry);
+            Rig a, b;
+            bed(a, RigEngine::StowFly, false);
+            bed(b, RigEngine::StowSub, false);
+            const float emptyDiffers = same(render(a.engine, 6.0, 48000.0), render(b.engine, 6.0, 48000.0));
+            std::cout << "  cost at 48 kHz (% of one core): bus A + bus B with nothing on Stowaway " << juce::String(100.0 * emptySub, 2) << "% in Sub, " << juce::String(100.0 * emptyFly, 2)
+                      << "% in Fly; with a track on Stowaway " << juce::String(100.0 * flying, 2) << "% flying, " << juce::String(100.0 * dry, 2) << "% in Dry. Fly's own cost: "
+                      << juce::String(100.0 * (flying - emptyFly), 2) << "%. With nothing on it, Fly against Sub differs by " << emptyDiffers << std::endl;
+            check(! awakeEmpty && awakeFlying && ! awakeSub && ! awakeDry && emptyDiffers == 0.0f, "fly: with no track on Stowaway it sleeps, and the output is what it is in any other mode");
+            check(emptyFly < 1.25 * emptySub + 0.001, // (timing on a shared machine: the proof is the line above)
+                  "fly: with no track on Stowaway the engine costs what it did");
+
+            Rig rig;
+            auto p = plainParams();
+            p.stow.mode = RigEngine::StowFly;
+            flyRig(rig, p);
+            render(rig.engine, 2.0, 48000.0);
+            const bool playing = rig.engine.isFlyAwake();
+            rig.engine.setReleased(true);
+            const auto tail = render(rig.engine, 6.0, 48000.0);
+            const bool stopped = rig.engine.isFlyAwake();
+            const float quiet = peakOf(render(rig.engine, 0.5, 48000.0));
+            rig.engine.setReleased(false);
+            const float again = peakOf(render(rig.engine, 3.0, 48000.0));
+            std::cout << "  awake while it plays: " << playing << "; 6 s after Stop: " << stopped << " (output peak " << quiet << "; its passes rang out up to " << peakOf(tail) << "); playing again: "
+                      << rig.engine.isFlyAwake() << " (peak " << again << ")" << std::endl;
+            check(playing && ! stopped && quiet < 1.0e-6f && peakOf(tail) > 0.01f && rig.engine.isFlyAwake() && again > 0.05f, "fly: it sleeps once its passes have rung out after Stop, and wakes on Play");
+        }
+    }
+
+    //==========================================================================
     std::cout << "Every mode: hits, throws, changes of mode and of place" << std::endl;
     {
         // The hits duck Wake, Fly and Dry (not Sub: see above). A full Hit Duck under a steady hit.
@@ -1367,7 +1778,7 @@ int main(int argc, char* argv[])
             };
             const double sub = level(RigEngine::StowSub), wake = level(RigEngine::StowWake), fly = level(RigEngine::StowFly), dry = level(RigEngine::StowDry);
             std::cout << "  the same drone on Stowaway over 90 s, at the starting settings: Sub " << juce::String(sub, 1) << " dB, Wake " << juce::String(wake, 1) << " dB, Dry " << juce::String(dry, 1)
-                      << " dB (Fly, which passes it on for now: " << juce::String(fly, 1) << " dB)" << std::endl;
+                      << " dB (Fly, whose tracks are ridden and which is silent between passes: " << juce::String(fly, 1) << " dB)" << std::endl;
             check(std::abs(wake - sub) < 1.0 && std::abs(dry - sub) < 1.0 && std::abs(wake - dry) < 1.0, "modes: Sub, Wake and Dry are within 1 dB of each other on the same sound");
         }
     }

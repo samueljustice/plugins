@@ -374,7 +374,7 @@ The strip along the bottom of each bus's panel shows the last 3 seconds of what 
 
 ### Stowaway
 
-One extra bus beside Bus A and Bus B, for a layer that should not fly about with the others. A track gets there from its lane's bus tag (see [Choosing the bus](#choosing-the-bus)); Rumble goes there by itself while the Mode is Sub. **Stowaway Mode** and its five knobs, **Follow**, **Low End**, **Filter**, **Drive** and **Width**, are in the host's parameter list, and the knobs can be wired to the [modulators](#modulation). The knobs keep their names in every mode.
+One extra bus beside Bus A and Bus B, for a layer that should not fly about with the others, or that should fly on its own. A track gets there from its lane's bus tag (see [Choosing the bus](#choosing-the-bus)); Rumble goes there by itself while the Mode is Sub. **Stowaway Mode** and its five knobs, **Follow**, **Low End**, **Filter**, **Drive** and **Width**, are in the host's parameter list, and the knobs can be wired to the [modulators](#modulation). The knobs keep their names in every mode.
 
 #### Sub
 
@@ -421,15 +421,33 @@ Riding only. Stowaway's tracks play at their faders and rides and skip everythin
 | **Drive** | 0% | Not used. |
 | **Width** | 100% | How wide a stereo sound plays: 100% is as wide as the file, 0% is mono. A mono file is in the middle whatever the knob says. |
 
-A stereo file keeps its left and right in Dry while the track's **Vari** is on (a track with Vari off plays its mono sum, as on Bus B). In Sub and Wake a stereo file plays its mono sum.
+A stereo file keeps its left and right in Dry while the track's **Vari** is on (a track with Vari off plays its mono sum, as on Bus B). In Sub, Wake and Fly a stereo file plays its mono sum.
+
+#### Fly
+
+A third mover. Stowaway's tracks fly their own doppler passes, apart from Bus A's and Bus B's: one pass at a time, each a long approach, a peak as it goes by and a shorter tail, with the pitch bending up on the way in and down on the way out. Its tracks are ridden and take Fill echoes like any track on a bus. The passes have a fixed, medium doppler (there is no Doppler or Bend knob here); how fast they come follows **Rate** and how much they vary follows **Chaos**, as on the buses.
+
+| Knob | Starts at | What it does |
+|------|-----------|--------------|
+| **Follow** | 70% | How closely its passes are tied to Bus A's. At 0% they keep their own time. At 100% every pass is at its closest at the same moment as one of Bus A's, so the two go by together. In between, each pass is pulled part of the way towards landing on one of Bus A's. |
+| **Low End** | 0% | Adds a note an octave under its low band, its overtones, and a low lift of up to 5 dB. |
+| **Filter** | Open | The same tilt as in Wake: a low-pass below the middle, open in the middle, a high-pass above it. |
+| **Drive** | 0% | Thickens it. It works against the sound's own level, so it does the same to a quiet sound as to a loud one, and it does not turn it up. |
+| **Width** | 100% | How far across the stereo field each pass travels. At 0% the passes stay in the middle (they still swell and bend). |
+
+- **Its passes are its own.** How close each one comes and which way it goes are drawn from a random source of Fly's own, started from the same seed as the rest of the rig. So a bounce or a set of [Variations](#render-variations) repeats exactly, and nothing Fly does moves Bus A's or Bus B's passes.
+- **The colours come first.** Low End, Filter and Drive act on the sound before it flies, so the pass carries them with it.
+- **Aim, Link and Pass Mode leave it alone.** The hits are aimed at Bus A's and Bus B's passes only, Link is between those two buses, and Fly's passes are always Fly-Bys.
+- **A throw** is flown here as well: the same pass as on the buses, at the same moment, with Stowaway's Width.
+- **A marker** is written where each of its passes is at its closest (see [Markers](#recording)).
+- **It sleeps when it has nothing to play.** With no track on Stowaway, a silent one, or the rig stopped and its last passes rung out, Fly does no work at all. Flying, it costs under 1% of one processor core at 48 kHz (0.9% measured), a little less than one of the buses.
+- **How loud it is.** As loud as the same sound flying by on Bus A in Fly-By mode. It is silent between passes, so over a minute it measures about 7 dB under the other three modes on the same sound.
 
 #### Changing the Mode
 
 A change of Mode never clicks, by hand or under automation: Stowaway fades out over 30 ms, changes over while it is silent, and fades back in over 30 ms. A track that changes bus (by hand, or a Rumble as the Mode enters or leaves Sub) is faded across in the same way, over 10 ms.
 
-The modes are matched in level: with the same sound on Stowaway and everything where it starts, Sub, Wake and Dry come out within about 1 dB of each other.
-
-**Fly** passes the tracks on in the middle for now.
+The modes are matched in level: with the same sound on Stowaway and everything where it starts, Sub, Wake and Dry come out within about 1 dB of each other. Fly is matched to a Fly-By on Bus A instead (see [Fly](#fly)).
 
 ### Hits
 
@@ -548,7 +566,7 @@ Click **Settings** to open. Close it with Close, Esc, or a click outside the pan
 
 - **The tape (Arm).** Click to arm. Everything goes into one file until you click the tape again, press New or close Swooshbuckler. The Rec timer counts only what's been written. A take with no sound in it leaves no file behind.
 - **One File per Whoosh** (off by default, in Settings). The armed tape writes a separate file for each whoosh, so a session of riding leaves a folder of numbered whooshes and not one long take to cut up. A whoosh has ended when the output has sat about 25 dB under its recent peaks for three quarters of a second (the same test Skip Silence uses, and the quiet between whooshes is always left out), or when a thrown whoosh has rung out with the rig stopped. Each file keeps the quarter second before its sound and its tail. Sounds with less than a fifth of a second of level in them are not kept, so clicks and blips don't become files. Each file appears in [Takes](#takes) as its whoosh ends. Whooshes that overlap, with no quiet between them, share a file.
-- **Markers.** WAV takes carry cue points with labels, so a long take arrives already spotted in Reaper, Soundminer and other tools that read them: **Pass A** and **Pass B** where a doppler pass on that bus goes by at its closest (with Link on the two buses fly the same passes, so only Pass A is written), **Throw** at the peak of a thrown whoosh, and **Hit** where an aimed or synced hit lands or the hit gate opens. Markers that fall together are one cue, such as "Throw + Hit". They are placed in the file itself, so they stay on their sounds when Skip Silence has left stretches out. AIFF, FLAC and Last 60 s files have no markers.
+- **Markers.** WAV takes carry cue points with labels, so a long take arrives already spotted in Reaper, Soundminer and other tools that read them: **Pass A** and **Pass B** where a doppler pass on that bus goes by at its closest (with Link on the two buses fly the same passes, so only Pass A is written), **Pass S** where one of Stowaway's own passes does (in Fly), **Throw** at the peak of a thrown whoosh, and **Hit** where an aimed or synced hit lands or the hit gate opens. Markers that fall together are one cue, such as "Throw + Hit". They are placed in the file itself, so they stay on their sounds when Skip Silence has left stretches out. AIFF, FLAC and Last 60 s files have no markers.
 - **What each file says about itself.** Every file carries a description: the Swooshbuckler version, the preset, and Energy, Rate, Fill, Chaos, Pitch, Space, the Pass Modes, Morph and Aim as they were when the file was started. It also names the Creator from Settings and the software. In a WAV these are the broadcast-wave description and originator and the INFO comment, artist and software; in an AIFF, comments; in a FLAC, the DESCRIPTION, ARTIST and ENCODER tags.
 - **Skip Silence** (on by default, in Settings). The tape judges quiet against the recent peaks, not against a fixed level, because a rig with a bed in it never falls truly silent. It stops rolling once the output has sat about 25 dB under the recent peaks (or under about −56 dBFS) for three quarters of a second, and starts again when the sound comes back, keeping the quarter second before it so attacks survive. Each join is faded over 30 ms. The recent peak is remembered for about 10 seconds and then follows the level down, so a quieter passage is recorded once it is the new normal. After Stop the tape keeps the whole tail, and once the rig has come to rest the tape stops rolling until the next Play. How much is left out depends on the sound: deep, slow swells (a high Energy, few layers) leave gaps to skip, while a busy rig with a steady bed is recorded almost whole. Switch Skip Silence off for one continuous take.
 - **If the disk can't keep up**, the tape buffers about 3 seconds of audio at any sample rate before anything is lost, and the message that names the saved file says how much is missing.
