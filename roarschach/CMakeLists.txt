@@ -12,7 +12,7 @@ set(CMAKE_OSX_ARCHITECTURES "x86_64;arm64" CACHE STRING "Build architectures for
 
 # The one place the version lives. Release builds pass -DROARSCHACH_VERSION=x.y.z (from the
 # roarschach-vx.y.z tag); it ends up in the About panel, the bundles and the installers.
-set(ROARSCHACH_VERSION "1.1.0" CACHE STRING "Roarschach version (major.minor.patch)")
+set(ROARSCHACH_VERSION "1.2.0" CACHE STRING "Roarschach version (major.minor.patch)")
 project(Roarschach VERSION ${ROARSCHACH_VERSION})
 
 # The copyright year is the year it was built, so it never goes stale.
