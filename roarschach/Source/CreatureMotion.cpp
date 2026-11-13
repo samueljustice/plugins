@@ -113,7 +113,7 @@ namespace roar
             if (y < 0.0f)
             {
                 y = 0.0f;
-                v = -0.25f * v;   // the teeth meet: a small inelastic rebound
+                v = -0.25f * v;   // the jaw shuts: a small inelastic rebound
             }
             y = std::min (y, 1.05f);
         }
@@ -252,25 +252,6 @@ namespace roar
         }
     }
 
-    void AudioForces::vortices (double t, float aspect, float strengthScale, std::array<std::array<float, 4>, 6>& out)
-    {
-        const auto s = [t] (double period, double phase) { return (float) std::sin (6.283185307179586 * t / period + phase); };
-        const float half = 0.5f * std::max (1.0f, aspect);
-
-        // Pair A by the wing tips, pair B above the horns: mirror images, opposite spin.
-        const float ax = std::min (half - 0.18f, 0.80f + 0.10f * s (37.0, 0.0)), ay = 0.05f + 0.07f * s (53.0, 1.0);
-        const float bx = 0.55f + 0.07f * s (71.0, 0.4), by = 0.30f + 0.05f * s (97.0, 2.0);
-        const float aS = (0.20f + 0.04f * s (53.0, 2.5)) * strengthScale;
-        const float bS = (0.16f + 0.03f * s (37.0, 1.2)) * strengthScale;
-        out[0] = { ax, ay, 0.19f, aS };
-        out[1] = { -ax, ay, 0.19f, -aS };
-        out[2] = { bx, by, 0.13f, -bS };
-        out[3] = { -bx, by, 0.13f, bS };
-        // Two free ones wander the sky.
-        out[4] = { (half - 0.25f) * s (97.0, 0.3), -0.10f + 0.25f * s (71.0, 1.1), 0.24f, 0.17f * strengthScale };
-        out[5] = { -(half - 0.35f) * s (53.0, 2.1), 0.12f + 0.22f * s (37.0, 0.7), 0.17f, -0.14f * strengthScale };
-    }
-
     //==============================================================================================
     void QualityGovernor::reset (int start)
     {
@@ -347,30 +328,6 @@ namespace roar
     }
 
     // Integrated and entry-level parts start lower than the discrete ones in the same family.
-    float MistMotion::target (float sleep, float heat, float level)
-    {
-        const auto c01 = [] (float x) { return std::isfinite (x) ? std::min (1.0f, std::max (0.0f, x)) : 0.0f; };
-        const float s = c01 (sleep), awake = 1.0f - s;
-        const float loud = c01 (0.8f * c01 (heat) + 0.35f * std::max (0.0f, c01 (level) - 0.4f));
-        const float awakeA = c_awake + (c_roar - c_awake) * loud * loud * (3.0f - 2.0f * loud);
-        return std::max (c_min, awakeA * awake + c_asleep * s);
-    }
-
-    float MistMotion::step (float dt, float sleep, float heat, float level, double clock)
-    {
-        const float tgt = target (sleep, heat, level);
-        const float d = std::isfinite (dt) ? std::min (0.25f, std::max (0.0f, dt)) : 0.0f;
-        if (opacity < 0.0f || ! std::isfinite (opacity))
-            opacity = tgt;
-        else
-            opacity += (tgt - opacity) * (1.0f - std::exp (-d / (tgt < opacity ? c_thinSeconds : c_closeSeconds)));
-        // a slow wander: mostly sideways, a little rising (view heights per second)
-        const double c = std::isfinite (clock) ? clock : 0.0;
-        drift[0] = std::fmod (drift[0] + d * (0.010 + 0.004 * std::sin (c * 0.031)), 4096.0);
-        drift[1] = std::fmod (drift[1] + d * (0.004 + 0.003 * std::cos (c * 0.023)), 4096.0);
-        return opacity;
-    }
-
     int QualityGovernor::startTierFor (const char* renderer, const char* vendor)
     {
         std::string s = std::string (renderer != nullptr ? renderer : "") + " " + (vendor != nullptr ? vendor : "");

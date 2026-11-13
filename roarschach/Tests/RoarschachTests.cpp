@@ -3161,9 +3161,40 @@ namespace
         }
     }
 
+    bool savePng(const juce::Image& image, const juce::File& file);
+
     void testEditor()
     {
         std::printf("[editor] tooltips, menus, moves, drag, chips, value boxes, host moves\n");
+        {
+            // Without OpenGL the creature view shows a still cloud in its own tones and says why,
+            // not an empty dark box.
+            auto q = makeProcessor(48000.0, 512);
+            std::unique_ptr<juce::AudioProcessorEditor> base(q->createEditor());
+            auto& ed = *dynamic_cast<RoarschachAudioProcessorEditor*>(base.get());
+            ed.setSize(RoarschachAudioProcessorEditor::c_baseWidth, RoarschachAudioProcessorEditor::c_baseHeight);
+            auto& view = RoarschachEditorInspector::monster(ed);
+            view.showFallbackForTests();
+            const auto image = view.createComponentSnapshot(view.getLocalBounds(), true, 1.0f);
+            const auto keepDir = juce::SystemStats::getEnvironmentVariable("ROARSCHACH_INK_KEEP", {});
+            if (keepDir.isNotEmpty())
+                savePng(image, juce::File(keepDir).getChildFile("no-opengl-view.png"));
+            std::vector<float> lum;
+            int dark = 0;
+            for (int y = 0; y < image.getHeight(); y += 2)
+                for (int x = 0; x < image.getWidth(); x += 2)
+                {
+                    const auto c = image.getPixelAt(x, y);
+                    const float l = 0.3f * c.getFloatRed() + 0.59f * c.getFloatGreen() + 0.11f * c.getFloatBlue();
+                    lum.push_back(l);
+                    dark += l < 0.3f ? 1 : 0;
+                }
+            std::sort(lum.begin(), lum.end());
+            const float median = lum.empty() ? 0.0f : lum[lum.size() / 2];
+            std::printf("  without OpenGL: the view's median luma %.2f, %d dark pixels (the message and the readouts' backing)\n", median, dark);
+            check(image.isValid() && median > 0.55f && median < 0.92f && dark > 50,
+                  "editor: without OpenGL the creature view is a still pale cloud with a message (median luma " + juce::String(median, 2) + ")");
+        }
         auto p = makeProcessor(48000.0, 512);
         std::unique_ptr<juce::AudioProcessorEditor> editorBase(p->createEditor());
         auto& editor = *dynamic_cast<RoarschachAudioProcessorEditor*>(editorBase.get());
@@ -6540,59 +6571,6 @@ namespace
                   "governor: starting tier from the renderer name");
         }
 
-        // The top mist's opacity: ~0.88 awake, ~0.95 asleep, thins towards 0.70 on a roar, never
-        // clears, eases without pops at any frame rate, and survives garbage input.
-        {
-            using roar::MistMotion;
-            const float awakeT = MistMotion::target(0.0f, 0.0f, 0.2f);
-            const float asleepT = MistMotion::target(1.0f, 0.0f, 0.0f);
-            const float roarT = MistMotion::target(0.0f, 1.0f, 1.0f);
-            check(awakeT >= 0.85f && awakeT <= 0.90f, "mist: awake and quiet ~85-90 % (" + juce::String(awakeT, 3) + ")");
-            check(std::abs(asleepT - 0.95f) < 0.01f, "mist: asleep ~95 % (" + juce::String(asleepT, 3) + ")");
-            check(roarT >= MistMotion::c_min && roarT <= 0.72f, "mist: a loud roar thins it to ~70 %, never clear (" + juce::String(roarT, 3) + ")");
-            bool monotone = true, bounded = true;
-            for (int i = 0; i <= 20; ++i)
-            {
-                const float h = static_cast<float>(i) / 20.0f;
-                const float a = MistMotion::target(0.0f, h, 0.5f), b = MistMotion::target(0.0f, h + 0.05f, 0.5f);
-                monotone = monotone && b <= a + 1.0e-6f;
-                for (const float sl : { 0.0f, 0.5f, 1.0f })
-                {
-                    const float x = MistMotion::target(sl, h, h);
-                    bounded = bounded && x >= MistMotion::c_min && x <= 0.96f;
-                }
-            }
-            check(monotone && bounded, "mist: thins monotonically with heat and stays within its range");
-
-            std::map<double, float> at1s;
-            float worstStep = 0.0f;
-            for (const double fps : { 30.0, 60.0, 144.0 })
-            {
-                MistMotion m;
-                const float dt = static_cast<float>(1.0 / fps);
-                float prev = m.step(dt, 0.0f, 0.0f, 0.2f, 0.0);
-                const int n = static_cast<int>(3.0 * fps);
-                for (int i = 1; i < n; ++i)
-                {
-                    const double t = i / fps;
-                    const bool roar = t >= 0.5 && t < 2.0;   // a step in, a step out
-                    const float a = m.step(dt, 0.0f, roar ? 1.0f : 0.0f, roar ? 1.0f : 0.2f, t);
-                    worstStep = std::max(worstStep, std::abs(a - prev) * static_cast<float>(fps / 30.0));
-                    if (i == static_cast<int>(1.5 * fps)) at1s[fps] = a;
-                    prev = a;
-                }
-            }
-            check(worstStep < 0.03f, "mist: no pops (largest change per 1/30 s " + juce::String(worstStep, 4) + ")");
-            check(std::abs(at1s[30.0] - at1s[144.0]) < 0.01f && at1s[30.0] < 0.75f,
-                  "mist: thins within a second of a roar, the same at 30 and 144 fps (" + juce::String(at1s[30.0], 3) + ", " + juce::String(at1s[144.0], 3) + ")");
-            MistMotion bad;
-            const float g = bad.step(std::numeric_limits<float>::quiet_NaN(), std::numeric_limits<float>::quiet_NaN(),
-                                     std::numeric_limits<float>::infinity(), -5.0f, std::numeric_limits<double>::quiet_NaN());
-            const float g2 = bad.step(1.0e9f, 0.0f, 0.0f, 0.0f, 1.0);
-            check(std::isfinite(g) && std::isfinite(g2) && g >= MistMotion::c_min && g2 <= 0.96f
-                  && std::isfinite(bad.drift[0]) && std::isfinite(bad.drift[1]), "mist: garbage in stays finite and in range");
-        }
-
         // The baked noise.
         {
             const auto t = roar::NoiseTexture::bake(256);
@@ -6984,7 +6962,7 @@ namespace
     // tier, a tier change and a context loss leave nothing behind and nothing empty.
     void testRenderer()
     {
-        std::printf("[renderer] GL lifetime, tiers, first frame\n");
+        std::printf("[renderer] GL lifetime, tiers, first frame, palette and mood (the renderer on its own, fed a frame directly)\n");
         for (const bool core : { true, false })
         {
             CGLPixelFormatAttribute attrs[] = { kCGLPFAOpenGLProfile, static_cast<CGLPixelFormatAttribute>(core ? kCGLOGLPVersion_3_2_Core : kCGLOGLPVersion_Legacy),
@@ -7016,49 +6994,43 @@ namespace
             const auto& noise = roar::NoiseTexture::shared();
             const auto& logo = LogoSdf::shared();
             roar::MonsterFrame frame;
-            const auto p = roar::CreatureEvolution::evaluateAt(0.4f, { 0.25f, 0.25f, 0.25f, 0.25f }, 1.0f, 1u);
-            const auto u = roar::CreatureUniforms::pack(p, 1.0f, 0.25f, 0.3f, 0.7f);
+            using E = roar::CreatureEvolution;
+            const auto p = E::evaluateAt(0.6f, { 0.25f, 0.25f, 0.25f, 0.25f }, 1.0f, 1u);
             using roar::U;
             frame.set(U::uRes, static_cast<float>(W), static_cast<float>(H));
             frame.set(U::uPxScale, 0.5f);
+            frame.set(U::uRadius, 4.0f);   // (as the view sets it: with no radius the corner mask halves every pixel)
             frame.set(U::uJaw, 0.4f);
             frame.set(U::uRoar, 0.35f);
             frame.set(U::uSize, 0.35f);
-            frame.set(U::uEvoHead, u.head[0], u.head[1], u.head[2], u.head[3]);
-            frame.set(U::uEvoWing, u.wing[0], u.wing[1], u.wing[2], u.wing[3]);
-            frame.set(U::uEvoHorn, u.horn[0], u.horn[1], u.horn[2], u.horn[3]);
-            frame.set(U::uEvoEyes, u.eyes[0], u.eyes[1], u.eyes[2], u.eyes[3]);
-            frame.set(U::uEvoMaw, u.maw[0], u.maw[1], u.maw[2], u.maw[3]);
-            frame.set(U::uEvoInk, u.ink[0], u.ink[1], u.ink[2], u.ink[3]);
-            frame.set(U::uEvoFlow, u.flow[0], u.flow[1], u.flow[2], u.flow[3]);
-            frame.set(U::uEvoPal, u.pal[0], u.pal[1], u.pal[2], u.pal[3]);
-            frame.set(U::uEvoMisc, u.misc[0], u.misc[1], u.misc[2], u.misc[3]);
-            frame.set(U::uForm, u.form[0], u.form[1], u.form[2], u.form[3]);
-            frame.set(U::uCloud, u.cloud[0], u.cloud[1], u.cloud[2], u.cloud[3]);
-            frame.set(U::uSeed, u.seed[0], u.seed[1], u.seed[2], u.seed[3]);
-            frame.set(U::uColCloud, u.colCloud[0], u.colCloud[1], u.colCloud[2]);
-            frame.set(U::uColCloudLit, u.colCloudLit[0], u.colCloudLit[1], u.colCloudLit[2]);
-            frame.set(U::uColScope, 0.035f, 0.043f, 0.06f);
-            frame.set(U::uColOutput, 1.0f, 0.71f, 0.3f);
-            frame.set(U::uColRoar, 1.0f, 0.478f, 0.271f);      // (Theme::Colours::roar, as the view sets it: a roar's glow takes its hue)
-            frame.set(U::uColVocoder, 0.776f, 0.910f, 0.420f);  // (Theme::Colours::vocoder)
+            frame.set(U::uLevel, 0.3f);
+            frame.set(U::uStage, p[E::stageOut]);
+            frame.set(U::uEvoChar, p[E::charFluid], p[E::charBeast], p[E::charEldritch], p[E::charDeep]);
+            frame.set(U::uColCloudLit, p[E::cloudLitR], p[E::cloudLitG], p[E::cloudLitB]);
+            frame.set(U::uColOuter, 0.035f, 0.043f, 0.06f);
+            frame.inkFormation = 1.0f;
+            frame.inputLoud = 0.4f;
 
-            const auto meanLuma = [&]
+            const auto read = [&]
             {
                 std::vector<unsigned char> px(static_cast<size_t>(W * H * 4));
                 glBindFramebuffer(GL_FRAMEBUFFER, fbo);
                 glReadPixels(0, 0, W, H, GL_RGBA, GL_UNSIGNED_BYTE, px.data());
-                double s = 0.0;
+                return px;
+            };
+            const auto meanLuma = [&]
+            {
+                const auto px = read();
+                double sum = 0.0;
                 for (size_t i = 0; i < px.size(); i += 4)
-                    s += 0.3 * px[i] + 0.59 * px[i + 1] + 0.11 * px[i + 2];
-                return s / (W * H) / 255.0;
+                    sum += 0.3 * px[i] + 0.59 * px[i + 1] + 0.11 * px[i + 2];
+                return sum / (W * H) / 255.0;
             };
             const int vp[4] = { 0, 0, W, H };
             const auto draw = [&](roar::MonsterRenderer& r, int frames)
             {
                 for (int i = 0; i < frames; ++i)
                 {
-                    frame.clock += 1.0 / 30.0;
                     r.prepare(frame);
                     glBindFramebuffer(GL_FRAMEBUFFER, fbo);
                     glClearColor(0, 0, 0, 1);
@@ -7066,10 +7038,47 @@ namespace
                     r.render(frame, fbo, vp);
                 }
             };
+            // the cloud's median luma and saturation, its circular mean hue and its share of warm pixels
+            // (inside a margin: the rounded corners are the outside colour). The cloud is what the mood
+            // turns: the held ink stays near-neutral blue-black in every mood (the spec's colour rule),
+            // so pixels of ink (luma under 0.30) are left out.
+            const auto measure = [&](float& l50, float& s50, float& h50, float& redShare)
+            {
+                const auto px = read();
+                std::vector<float> lum, sat;
+                double hx = 0.0, hy = 0.0;
+                int red = 0, n = 0;
+                for (int y = H / 10; y < H - H / 10; ++y)
+                    for (int x = W / 20; x < W - W / 20; ++x)
+                    {
+                        const unsigned char* q = &px[(static_cast<size_t>(y) * static_cast<size_t>(W) + static_cast<size_t>(x)) * 4];
+                        const float rr = q[0] / 255.0f, gg = q[1] / 255.0f, bb = q[2] / 255.0f;
+                        const float mx = std::max(rr, std::max(gg, bb)), mn = std::min(rr, std::min(gg, bb));
+                        if (0.3f * rr + 0.59f * gg + 0.11f * bb < 0.30f)
+                            continue;
+                        lum.push_back(0.3f * rr + 0.59f * gg + 0.11f * bb);
+                        sat.push_back(mx > 1.0e-4f ? (mx - mn) / mx : 0.0f);
+                        ++n;
+                        red += rr > bb ? 1 : 0;
+                        if (mx > 1.0e-4f && (mx - mn) / mx > 0.05f)
+                        {
+                            const float d = mx - mn;
+                            const int top = rr >= gg && rr >= bb ? 0 : (gg >= bb ? 1 : 2);
+                            const float hh = 60.0f * (top == 0 ? std::fmod((gg - bb) / d + 6.0f, 6.0f) : top == 1 ? (bb - rr) / d + 2.0f : (rr - gg) / d + 4.0f);
+                            hx += std::cos(hh * 0.0174533f);
+                            hy += std::sin(hh * 0.0174533f);
+                        }
+                    }
+                std::sort(lum.begin(), lum.end());
+                std::sort(sat.begin(), sat.end());
+                l50 = lum[lum.size() / 2];
+                s50 = sat[sat.size() / 2];
+                h50 = static_cast<float>(std::fmod(std::atan2(hy, hx) * 57.29578 + 360.0, 360.0));
+                redShare = static_cast<float>(red) / static_cast<float>(std::max(1, n));
+            };
 
             roar::MonsterRenderer r;
-            r.setInkCreature(false);   // (these checks are of the creature before the ink one; the ink creature has its own)
-            r.setFixedStep(true, 30);
+            r.setFixedStep(true);
             const bool created = r.create(core, static_cast<float>(W) / H, logo.rgba, LogoSdf::c_size, noise.rgba, noise.size);
             check(created, "renderer: created" + tag);
             if (created)
@@ -7078,277 +7087,124 @@ namespace
                 std::printf("  %s: start tier %d, float probe %s, timers %s, %d texture units, programs built in %.0f ms\n", core ? "core" : "legacy",
                             st.startTier, st.probeOk ? "ok" : "failed", st.timers ? "yes" : "no", st.maxUnits, st.compileMs);
                 // A shared CI runner's virtual GPU may only run tier 0 (the plug-in falls back to it the same way),
-                // so the fluid-tier checks are reported, not gated, there. On a real machine they gate.
-                const bool fluidTiers = st.probeOk && st.startTier >= 1;
-                const bool fluidReportOnly = ! fluidTiers && std::getenv("CI") != nullptr;
-                const auto fluidCheck = [&](bool ok, const juce::String& what)
+                // so the buffer-tier checks are reported, not gated, there. On a real machine they gate.
+                const bool bufferTiers = st.startTier >= 1;
+                const bool reportOnly = ! bufferTiers && std::getenv("CI") != nullptr;
+                const auto bufferCheck = [&](bool ok, const juce::String& what)
                 {
-                    if (fluidReportOnly)
+                    if (reportOnly)
                         std::printf("  (reported only: this GPU runs tier 0) %s: %s\n", what.toRawUTF8(), ok ? "ok" : "no");
                     else
                         check(ok, what);
                 };
-                fluidCheck(fluidTiers, "renderer: half floats work and the fluid tiers are available" + tag);
+                bufferCheck(bufferTiers, "renderer: the ink buffer's tiers are available" + tag);
                 for (const int tier : { 3, 2, 1, 0 })
                 {
                     r.setForcedTier(tier);
-                    draw(r, 4);
+                    draw(r, 20);   // (past the half-second crossfade a tier change draws: then at most 3 draws a frame)
                     const double l = meanLuma();
-                    const juce::String what = "renderer: tier " + juce::String(tier) + " draws (mean " + juce::String(l, 3) + ")" + tag;
+                    const juce::String what = "renderer: tier " + juce::String(tier) + " draws (mean " + juce::String(l, 3) + ", " + juce::String(r.getStats().draws) + " draws)" + tag;
                     if (tier == 0)
                         check(r.getTier() == tier && l > 0.02 && l < 0.9, what);
                     else
-                        fluidCheck(r.getTier() == tier && l > 0.02 && l < 0.9, what);
+                        bufferCheck(r.getTier() == tier && l > 0.02 && l < 0.9 && r.getStats().draws <= 3, what);
                 }
-                // The atmosphere: prepare() fills the mist (eased, 85-90 % awake) and a near-white hue lean,
-                // and the drawn frame is high-key and cool (the palette's luma and saturation, loosely:
-                // this test scene is small and not the reference state).
                 {
-                    const float a = frame.get(U::uAtmo, 0);
                     const float* tint = frame.at(U::uAtmoTint);
-                    check(a >= 0.84f && a <= 0.90f && frame.get(U::uAtmo, 3) > 0.5f, "renderer: the top mist is on at ~85-90 % (" + juce::String(a, 3) + ")" + tag);
                     check(std::abs(tint[0] - 1.0f) < 0.25f && std::abs(tint[1] - 1.0f) < 0.25f && std::abs(tint[2] - 1.0f) < 0.25f,
                           "renderer: the stage's hue lean is subtle" + tag);
-                    frame.set(U::uRadius, 4.0f);   // (as the view sets it: with no radius the corner mask halves every pixel)
-                    for (const int tier : { 3, 0 })
-                    {
-                        r.setForcedTier(tier);
-                        draw(r, 8);
-                        std::vector<unsigned char> px(static_cast<size_t>(W * H * 4));
-                        glBindFramebuffer(GL_FRAMEBUFFER, fbo);
-                        glReadPixels(0, 0, W, H, GL_RGBA, GL_UNSIGNED_BYTE, px.data());
-                        std::vector<float> lum, sat, hues;
-                        double rs = 0.0, bs = 0.0;
-                        for (int y = H / 10; y < H - H / 10; ++y)
-                            for (int x = W / 20; x < W - W / 20; ++x)
-                            {
-                                const unsigned char* q = &px[(static_cast<size_t>(y) * static_cast<size_t>(W) + static_cast<size_t>(x)) * 4];
-                                const float rr = q[0] / 255.0f, gg = q[1] / 255.0f, bb = q[2] / 255.0f;
-                                const float mx = std::max(rr, std::max(gg, bb)), mn = std::min(rr, std::min(gg, bb));
-                                lum.push_back(0.3f * rr + 0.59f * gg + 0.11f * bb);
-                                sat.push_back(mx > 1.0e-4f ? (mx - mn) / mx : 0.0f);
-                                if (mx > 1.0e-4f && (mx - mn) / mx > 0.05f)
-                                {
-                                    const float d = mx - mn;
-                                    const int top = rr >= gg && rr >= bb ? 0 : (gg >= bb ? 1 : 2);
-                                    float hh = top == 0 ? std::fmod((gg - bb) / d + 6.0f, 6.0f) : top == 1 ? (bb - rr) / d + 2.0f : (rr - gg) / d + 4.0f;
-                                    hues.push_back(hh * 60.0f);
-                                }
-                                rs += rr;
-                                bs += bb;
-                            }
-                        std::sort(lum.begin(), lum.end());
-                        std::sort(sat.begin(), sat.end());
-                        const float l50 = lum[lum.size() / 2], s50 = sat[sat.size() / 2];
-                        check(l50 > 0.52f && l50 < 0.80f && s50 > 0.12f && s50 < 0.36f && bs > rs,
-                              "renderer: tier " + juce::String(tier) + " is high-key and cool (luma median " + juce::String(l50, 3) + ", saturation median " + juce::String(s50, 3) + ")" + tag);
-                        std::sort(hues.begin(), hues.end());
-                        const float h50 = hues.empty() ? 0.0f : hues[hues.size() / 2];
-                        check(h50 > 196.0f && h50 < 212.0f, "renderer: tier " + juce::String(tier) + " keeps the reference's blue-grey hue (median " + juce::String(h50, 1) + " degrees)" + tag);
-                    }
-                    // The colour mood: full aggression leans the drawn clouds and mist to ember red, full
-                    // machine to a clearly bluer, stronger blue, each keeping the high-key values and a bounded
-                    // saturation (and no mood leaves the frame as above).
-                    {
-                        const auto measure = [&](float& l50, float& s50, float& h50, float& redShare)
-                        {
-                            std::vector<unsigned char> px(static_cast<size_t>(W * H * 4));
-                            glBindFramebuffer(GL_FRAMEBUFFER, fbo);
-                            glReadPixels(0, 0, W, H, GL_RGBA, GL_UNSIGNED_BYTE, px.data());
-                            std::vector<float> lum, sat;
-                            double hx = 0.0, hy = 0.0;
-                            int red = 0, n = 0;
-                            for (int y = H / 10; y < H - H / 10; ++y)
-                                for (int x = W / 20; x < W - W / 20; ++x)
-                                {
-                                    const unsigned char* q = &px[(static_cast<size_t>(y) * static_cast<size_t>(W) + static_cast<size_t>(x)) * 4];
-                                    const float rr = q[0] / 255.0f, gg = q[1] / 255.0f, bb = q[2] / 255.0f;
-                                    const float mx = std::max(rr, std::max(gg, bb)), mn = std::min(rr, std::min(gg, bb));
-                                    lum.push_back(0.3f * rr + 0.59f * gg + 0.11f * bb);
-                                    sat.push_back(mx > 1.0e-4f ? (mx - mn) / mx : 0.0f);
-                                    ++n;
-                                    red += rr > bb ? 1 : 0;
-                                    if (mx > 1.0e-4f && (mx - mn) / mx > 0.05f)
-                                    {
-                                        const float d = mx - mn;
-                                        const int top = rr >= gg && rr >= bb ? 0 : (gg >= bb ? 1 : 2);
-                                        const float hh = 60.0f * (top == 0 ? std::fmod((gg - bb) / d + 6.0f, 6.0f) : top == 1 ? (bb - rr) / d + 2.0f : (rr - gg) / d + 4.0f);
-                                        hx += std::cos(hh * 0.0174533f);
-                                        hy += std::sin(hh * 0.0174533f);
-                                    }
-                                }
-                            std::sort(lum.begin(), lum.end());
-                            std::sort(sat.begin(), sat.end());
-                            l50 = lum[lum.size() / 2];
-                            s50 = sat[sat.size() / 2];
-                            h50 = static_cast<float>(std::fmod(std::atan2(hy, hx) * 57.29578 + 360.0, 360.0));   // (the circular mean)
-                            redShare = static_cast<float>(red) / static_cast<float>(std::max(1, n));
-                        };
-                        using M = roar::CreatureMood;
-                        frame.set(U::uRadius, 4.0f);
-                        for (const int tier : { 3, 0 })
-                        {
-                            r.setForcedTier(tier);
-                            float l0 = 0, s0 = 0, h0 = 0, r0 = 0;
-                            frame.set(U::uMood, 0.0f, 0.0f, 0.0f, 0.0f);
-                            draw(r, 6);
-                            measure(l0, s0, h0, r0);
-                            const auto k = M::shaderMood({ 1.0f, 0.0f, 0.0f, 0.0f });
-                            frame.set(U::uMood, k[0], k[1], k[2], 0.0f);
-                            draw(r, 6);
-                            float la = 0, sa = 0, ha = 0, ra = 0;
-                            measure(la, sa, ha, ra);
-                            const auto km = M::shaderMood({ 0.0f, 1.0f, 0.0f, 0.0f });
-                            frame.set(U::uMood, km[0], km[1], km[2], 0.0f);
-                            draw(r, 6);
-                            float lm = 0, sm = 0, hm = 0, rm = 0;
-                            measure(lm, sm, hm, rm);
-                            frame.set(U::uMood, 0.0f, 0.0f, 0.0f, 0.0f);
-                            const juce::String t = "renderer: tier " + juce::String(tier) + " ";
-                            std::printf("  tier %d mood: none hue %.0f sat %.2f luma %.2f | ember hue %.0f sat %.2f luma %.2f red %.2f | electric hue %.0f sat %.2f luma %.2f\n",
-                                        tier, h0, s0, l0, ha, sa, la, ra, hm, sm, lm);
-                            check((ha < 40.0f || ha > 340.0f) && ra > 0.6f && r0 < 0.1f,
-                                  t + "full aggression leans the clouds ember red (hue " + juce::String(ha, 0) + ", " + juce::String(ra * 100.0f, 0) + " % warm)" + tag);
-                            check(hm > h0 + 8.0f && hm < 240.0f && sm > s0 + 0.06f,
-                                  t + "full machine is a clearly bluer, stronger blue (hue " + juce::String(h0, 0) + " -> " + juce::String(hm, 0) + ", saturation " + juce::String(s0, 2) + " -> " + juce::String(sm, 2) + ")" + tag);
-                            check(la > 0.55f && la < 0.80f && lm > 0.55f && lm < 0.80f && std::abs(la - l0) < 0.04f && std::abs(lm - l0) < 0.04f,
-                                  t + "the mood keeps the high-key values (luma " + juce::String(l0, 3) + ", " + juce::String(la, 3) + ", " + juce::String(lm, 3) + ")" + tag);
-                            check(sa <= 0.45f && sm <= 0.45f, t + "the mood's saturation stays bounded (" + juce::String(sa, 2) + ", " + juce::String(sm, 2) + ")" + tag);
-                        }
-                    }
-                    // Roaring: the warm accents are veiled, not removed (some pixels stay warm), and the
-                    // throat's glow sits in a dark cavity (the warmest pixel is below the frame's median value).
-                    frame.set(U::uRoarDrive, 1.0f);
-                    frame.set(U::uRoar, 1.0f);
-                    frame.set(U::uJaw, 1.0f);
-                    frame.set(U::uLevel, 0.7f);
-                    for (const int tier : { 3, 0 })
-                    {
-                        r.setForcedTier(tier);
-                        draw(r, 12);
-                        std::vector<unsigned char> px(static_cast<size_t>(W * H * 4));
-                        glBindFramebuffer(GL_FRAMEBUFFER, fbo);
-                        glReadPixels(0, 0, W, H, GL_RGBA, GL_UNSIGNED_BYTE, px.data());
-                        int warm = 0;
-                        float bestRB = -1.0f, bestL = 0.0f;
-                        std::vector<float> lum;
-                        for (size_t i = 0; i < px.size(); i += 4)
-                        {
-                            const float rr = px[i] / 255.0f, gg = px[i + 1] / 255.0f, bb = px[i + 2] / 255.0f;
-                            const float l = 0.3f * rr + 0.59f * gg + 0.11f * bb;
-                            lum.push_back(l);
-                            warm += rr - bb > 0.04f ? 1 : 0;
-                            // (the throat: the warmest pixel below the centre line, under the eyes; GL rows run bottom up)
-                            if (static_cast<int>(i / 4) / W < H / 2 && rr - bb > bestRB) { bestRB = rr - bb; bestL = l; }
-                        }
-                        std::sort(lum.begin(), lum.end());
-                        const float l50 = lum[lum.size() / 2];
-                        check(warm >= 40 && bestRB < 0.25f, "renderer: tier " + juce::String(tier) + " roaring keeps veiled warm accents (" + juce::String(warm) + " pixels, R-B max " + juce::String(bestRB, 3) + ")" + tag);
-                        check(bestL < l50, "renderer: tier " + juce::String(tier) + " the throat glows in a dark cavity, not a pale fill (" + juce::String(bestL, 3) + " vs median " + juce::String(l50, 3) + ")" + tag);
-                    }
-                    frame.set(U::uRoarDrive, 0.0f);
-                    frame.set(U::uRoar, 0.35f);
-                    frame.set(U::uJaw, 0.4f);
-                    frame.set(U::uLevel, 0.0f);
                 }
-                // RING's muzzle blends into the face: no step in value across where the old
-                // rectangular plate's sides were (a feathered oval now). The luma step across that
-                // line, against the step just beside it on either side; a hard edge measured 3-18x.
-                // (Twice the size, so the muzzle's feather spans enough pixels to tell from an edge.)
+                // The palette: the drawn frame is high-key and cool, in the reference's blue-grey.
+                for (const int tier : { 3, 0 })
                 {
-                    const int W2 = W * 2, H2 = H * 2;
-                    GLuint fbo2 = 0, rb2 = 0;
-                    glGenFramebuffers(1, &fbo2);
-                    glBindFramebuffer(GL_FRAMEBUFFER, fbo2);
-                    glGenRenderbuffers(1, &rb2);
-                    glBindRenderbuffer(GL_RENDERBUFFER, rb2);
-                    glRenderbufferStorage(GL_RENDERBUFFER, GL_RGBA8, W2, H2);
-                    glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_RENDERBUFFER, rb2);
-                    const int vp2[4] = { 0, 0, W2, H2 };
-                    frame.set(U::uRes, static_cast<float>(W2), static_cast<float>(H2));
-                    frame.set(U::uPxScale, 1.0f);
-                    frame.set(U::uRadius, 8.0f);
-                    frame.set(U::uRing, 1.0f);
-                    frame.set(U::uRingBody, 0.6f);
-                    frame.set(U::uRingFlicker, 1.0f);
-                    {
-                        const juce::Colour accent(Params::module(Params::ModuleId::ring).accent);   // (as the view sets it)
-                        frame.set(U::uColRing, accent.getFloatRed(), accent.getFloatGreen(), accent.getFloatBlue());
-                    }
-                    for (const int tier : { 3, 0 })
-                        for (const float jaw : { 0.35f, 1.0f })
-                        {
-                            r.setForcedTier(tier);
-                            frame.set(U::uJaw, jaw);
-                            for (int i = 0; i < 8; ++i)
-                            {
-                                frame.clock += 1.0 / 30.0;
-                                r.prepare(frame);
-                                glBindFramebuffer(GL_FRAMEBUFFER, fbo2);
-                                glClearColor(0, 0, 0, 1);
-                                glClear(GL_COLOR_BUFFER_BIT);
-                                r.render(frame, fbo2, vp2);
-                            }
-                            std::vector<unsigned char> px(static_cast<size_t>(W2 * H2 * 4));
-                            glBindFramebuffer(GL_FRAMEBUFFER, fbo2);
-                            glReadPixels(0, 0, W2, H2, GL_RGBA, GL_UNSIGNED_BYTE, px.data());
-                            const auto L = [&](double x, double yUp)
-                            {
-                                const int xi = juce::jlimit(0, W2 - 1, static_cast<int>(std::lround(x)));
-                                const int yi = juce::jlimit(0, H2 - 1, static_cast<int>(std::lround(yUp)));
-                                const unsigned char* q = &px[(static_cast<size_t>(yi) * static_cast<size_t>(W2) + static_cast<size_t>(xi)) * 4];
-                                return (0.3 * q[0] + 0.59 * q[1] + 0.11 * q[2]) / 255.0;
-                            };
-                            // the head transform and the mouth, as the shader has them (GL rows run bottom up)
-                            const float* hd = frame.at(U::uHead);
-                            const float* cl = frame.at(U::uCloud);
-                            const float sizeV = frame.get(U::uSize);
-                            const float scale = 1.0f + juce::jlimit(-1.0f, 2.0f, -frame.get(U::uPitch) / 12.0f) * 0.065f + 0.014f * hd[3] * 0.35f + jaw * 0.025f + hd[1];
-                            const float offY = 0.025f + hd[0];
-                            const float eyeOuter = 0.135f * cl[1] + 0.056f * (1.0f + (frame.get(U::uEvoEyes, 3) - 1.0f) * 0.5f);
-                            const float mw = std::min((0.15f + 0.08f * sizeV) * frame.get(U::uEvoMaw, 0), eyeOuter * 0.92f) * (1.0f - 0.10f * jaw);
-                            const float open = 0.006f + std::pow(jaw, 1.6f) * (0.12f + 0.05f * (sizeV + frame.get(U::uEvoHead, 2)));
-                            const float mY = -0.075f, pw = mw * (1.12f + 0.08f * 0.6f), top = mY + 0.032f + 0.22f * open;
-                            double stepSum = 0.0, baseSum = 0.0;
-                            for (int k = 0; k < 30; ++k)
-                            {
-                                const float hy = (mY - 0.5f * open) + (top - (mY - 0.5f * open)) * (0.1f + 0.8f * k / 30.0f);
-                                const double y = H2 * 0.5 + (hy * scale + offY) * H2;
-                                for (const int sgn : { -1, 1 })
-                                {
-                                    const double x = W2 * 0.5 + sgn * pw * scale * H2;
-                                    const auto band = [&](double o0, double o1)
-                                    {
-                                        double s = 0.0;
-                                        for (double o = o0; o <= o1; o += 1.0)
-                                            s += L(x + sgn * o, y);
-                                        return s / (o1 - o0 + 1.0);
-                                    };
-                                    stepSum += std::abs(band(1, 3) - band(-3, -1));
-                                    baseSum += 0.5 * (std::abs(band(9, 11) - band(5, 7)) + std::abs(band(-7, -5) - band(-11, -9)));
-                                }
-                            }
-                            const double ratio = stepSum / std::max(baseSum, 1.0e-6);
-                            std::printf("  tier %d, jaw %.2f: RING muzzle, step across the old plate's side %.2fx the step beside it%s\n", tier, jaw, ratio, tag.toRawUTF8());
-                            check(ratio < 2.0, "renderer: tier " + juce::String(tier) + " RING's muzzle has no straight edge at jaw " + juce::String(jaw, 2)
-                                                   + " (step across the old plate's side " + juce::String(ratio, 2) + "x the step beside it)" + tag);
-                        }
-                    frame.set(U::uRing, 0.0f);
-                    frame.set(U::uRingBody, 0.0f);
-                    frame.set(U::uJaw, 0.4f);
-                    frame.set(U::uRes, static_cast<float>(W), static_cast<float>(H));
-                    frame.set(U::uPxScale, 0.5f);
-                    frame.set(U::uRadius, 4.0f);
-                    glDeleteRenderbuffers(1, &rb2);
-                    glDeleteFramebuffers(1, &fbo2);
+                    r.setForcedTier(tier);
+                    draw(r, 8);
+                    float l50 = 0, s50 = 0, h50 = 0, warm = 0;
+                    measure(l50, s50, h50, warm);
+                    std::printf("  tier %d: luma median %.3f, saturation median %.3f, hue %.1f, warm share %.2f\n", tier, l50, s50, h50, warm);
+                    check(l50 > 0.52f && l50 < 0.80f && s50 > 0.12f && s50 < 0.36f && warm < 0.5f,
+                          "renderer: tier " + juce::String(tier) + " is high-key and cool (luma median " + juce::String(l50, 3) + ", saturation median " + juce::String(s50, 3) + ")" + tag);
+                    check(h50 > 196.0f && h50 < 212.0f, "renderer: tier " + juce::String(tier) + " keeps the reference's blue-grey hue (" + juce::String(h50, 1) + " degrees)" + tag);
                 }
+                // The colour mood: full aggression leans the cloud to ember red, full machine to a
+                // clearly bluer, stronger blue, each keeping the high-key values and a bounded saturation.
+                {
+                    using M = roar::CreatureMood;
+                    for (const int tier : { 3, 0 })
+                    {
+                        r.setForcedTier(tier);
+                        float l0 = 0, s0 = 0, h0 = 0, r0 = 0;
+                        frame.set(U::uMood, 0.0f, 0.0f, 0.0f, 0.0f);
+                        draw(r, 6);
+                        measure(l0, s0, h0, r0);
+                        const auto k = M::shaderMood({ 1.0f, 0.0f, 0.0f, 0.0f });
+                        frame.set(U::uMood, k[0], k[1], k[2], 0.0f);
+                        draw(r, 6);
+                        float la = 0, sa = 0, ha = 0, ra = 0;
+                        measure(la, sa, ha, ra);
+                        const auto km = M::shaderMood({ 0.0f, 1.0f, 0.0f, 0.0f });
+                        frame.set(U::uMood, km[0], km[1], km[2], 0.0f);
+                        draw(r, 6);
+                        float lm = 0, sm = 0, hm = 0, rm = 0;
+                        measure(lm, sm, hm, rm);
+                        frame.set(U::uMood, 0.0f, 0.0f, 0.0f, 0.0f);
+                        const juce::String t = "renderer: tier " + juce::String(tier) + " ";
+                        std::printf("  tier %d mood: none hue %.0f sat %.2f luma %.2f | ember hue %.0f sat %.2f luma %.2f warm %.2f | electric hue %.0f sat %.2f luma %.2f\n",
+                                    tier, h0, s0, l0, ha, sa, la, ra, hm, sm, lm);
+                        check((ha < 40.0f || ha > 340.0f) && ra > 0.6f && r0 < 0.1f,
+                              t + "full aggression leans the cloud ember red (hue " + juce::String(ha, 0) + ", " + juce::String(ra * 100.0f, 0) + " % warm)" + tag);
+                        check(hm > h0 + 8.0f && hm < 240.0f && sm > s0 + 0.06f,
+                              t + "full machine is a clearly bluer, stronger blue (hue " + juce::String(h0, 0) + " -> " + juce::String(hm, 0) + ", saturation " + juce::String(s0, 2) + " -> " + juce::String(sm, 2) + ")" + tag);
+                        check(la > 0.52f && la < 0.80f && lm > 0.52f && lm < 0.80f && std::abs(la - l0) < 0.04f && std::abs(lm - l0) < 0.04f,
+                              t + "the mood keeps the high-key values (luma " + juce::String(l0, 3) + ", " + juce::String(la, 3) + ", " + juce::String(lm, 3) + ")" + tag);
+                        check(sa <= 0.45f && sm <= 0.45f, t + "the mood's saturation stays bounded (" + juce::String(sa, 2) + ", " + juce::String(sm, 2) + ")" + tag);
+                    }
+                }
+                // Roaring with the rift lit: the warm light is there and bounded. (The creature before
+                // this one had a glowing throat in a dark cavity and was held to R-B under 0.25 with
+                // its warmest pixel below the median; the rift's breath is lit vapour that the flow
+                // carries out into the cloud by design, so its warmest pixel is pale, and its shape is
+                // held by check 9 in the ink tests instead. The bound here was set from the first run
+                // of this check on the ink creature, which measured 0.37 at most.)
+                frame.set(U::uRoarDrive, 1.0f);
+                frame.set(U::uRoar, 1.0f);
+                frame.set(U::uJaw, 1.0f);
+                frame.set(U::uLevel, 0.7f);
+                r.setInkLight(1.0f);
+                for (const int tier : { 3, 0 })
+                {
+                    r.setForcedTier(tier);
+                    draw(r, 12);
+                    const auto px = read();
+                    int warm = 0;
+                    float bestRB = -1.0f, bestL = 0.0f;
+                    std::vector<float> lum;
+                    for (size_t i = 0; i < px.size(); i += 4)
+                    {
+                        const float rr = px[i] / 255.0f, gg = px[i + 1] / 255.0f, bb = px[i + 2] / 255.0f;
+                        const float l = 0.3f * rr + 0.59f * gg + 0.11f * bb;
+                        lum.push_back(l);
+                        warm += rr - bb > 0.04f ? 1 : 0;
+                        if (rr - bb > bestRB) { bestRB = rr - bb; bestL = l; }
+                    }
+                    std::sort(lum.begin(), lum.end());
+                    const float l50 = lum[lum.size() / 2];
+                    std::printf("  tier %d roaring: %d warm pixels, warmest R-B %.3f at luma %.3f (median %.3f)\n", tier, warm, bestRB, bestL, l50);
+                    check(warm >= 40 && bestRB < 0.45f, "renderer: tier " + juce::String(tier) + " roaring shows warm light, never a saturated patch (" + juce::String(warm) + " pixels, R-B max " + juce::String(bestRB, 3) + ")" + tag);
+                }
+                r.setInkLight(-1.0f);
+                frame.set(U::uRoarDrive, 0.0f);
+                frame.set(U::uRoar, 0.35f);
+                frame.set(U::uJaw, 0.4f);
+                frame.set(U::uLevel, 0.3f);
+
                 r.setForcedTier(3);
                 draw(r, 6);
                 std::vector<float> v;
                 int vw = 0, vh = 0;
-                bool finite = r.readTarget(roar::MonsterRenderer::Target::velocity, v, vw, vh);
+                bool finite = r.readTarget(roar::MonsterRenderer::Target::ink, v, vw, vh);
                 for (float x : v) finite = finite && std::isfinite(x);
-                fluidCheck(finite, "renderer: the fluid stays finite across tier changes" + tag);
+                bufferCheck(finite, "renderer: the ink buffer stays finite across tier changes" + tag);
                 const double before = meanLuma();
 
                 std::vector<unsigned int> tex, fbos, progs, bufs;

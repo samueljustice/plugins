@@ -4,15 +4,17 @@
 
 namespace roar::shaders
 {
-    /** The creature view's programs. The fluid tiers run every one but the single pass; tier 0 runs
-        only the single pass (today's look plus a stateless twirl). */
+    /** The creature view's programs: the ink creature's single pass (tier 0, no buffer), one step
+        of its ink buffer and the draw from that buffer (tiers 1 to 3), the upscale copy and the
+        half-float probe. The first three are built from one shared block, so the tiers cannot
+        drift apart. */
     enum class Program
     {
-        creatureField, emitter, advect, curl, forces, divergence, jacobi, gradient, dye, light,
-        bright, down, up, composite, copy, probe, singlePass,
-        inkSinglePass,   // the ink creature without any buffer (see c_inkCommon)
-        inkSim,          // one step of the ink buffer: the pigment rule
-        inkComposite,    // the ink creature drawn from the buffer
+        singlePass,   // the ink creature without any buffer
+        sim,          // one step of the ink buffer: the pigment rule
+        composite,    // the ink creature drawn from the buffer
+        copy,         // a texture onto the target (the half-size pass's upscale, the tier crossfade)
+        probe,        // writes known half-float values (can this GPU render to RGBA16F?)
         numPrograms
     };
 

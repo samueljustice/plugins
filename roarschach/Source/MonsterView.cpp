@@ -17,13 +17,10 @@ namespace
     constexpr float c_staleAfterSeconds = 0.5f;
     constexpr int c_frameHz = 30;                // GL frames per second while awake
     constexpr int c_idleSinglePassHz = 15;       // single pass: once asleep and settled (the clouds still drift; sound coming back is noticed)
-    constexpr int c_idleFluidHz = 24;            // fluid tiers asleep: an even 24 Hz (a moving fluid steps visibly at 15)
+    constexpr int c_idleBufferHz = 24;           // the ink buffer's tiers asleep: an even 24 Hz (moving ink steps visibly at 15)
     constexpr float c_stallSeconds = 0.25f;      // a gap this long is a stall (hidden, host busy), not a slow GPU
     constexpr int c_failAfterTicks = 3 * c_frameHz; // 3 s on screen without a GL context
     constexpr float c_maxFrameSeconds = 0.1f;   // a stalled frame doesn't make the animation jump
-    constexpr double c_timeWrapSeconds = 2048.0; // keeps the shader's time small enough for float precision
-    constexpr float c_detailBoostRangeDb = 24.0f;
-    constexpr float c_detailCutRangeDb = 18.0f;
 
     // One-pole smoothing coefficient for a time constant, given the frame time.
     float smoothing (float dt, float seconds)
@@ -45,12 +42,6 @@ namespace
             state = 0.0f;
     }
 
-    // Cloud advection, in cloud-field units per second (the back layer; the front one is 1.6x).
-    // About a hundredth of the view's height per second, a little downward (heavier with ink).
-    constexpr double c_windX = 0.013, c_windY = -0.004, c_windInkY = -0.006;
-    constexpr double c_driftWrap = 4096.0;     // offsets wrap (days apart at these rates) to keep float precision
-    constexpr double c_flowRadius = 64.0;      // the slow scrolls' circles in noise space (an hour or more round)
-    constexpr double c_bloomSeconds = 70.0;    // the bloom threshold's slow drift
     constexpr float c_logoBoxSize = 0.8f;      // of the view height, centred
 }
 
@@ -190,8 +181,8 @@ void MonsterView::timerCallback()
 {
     // GL frames: full rate while awake, an even slower rate once asleep and settled (the timer
     // itself is retimed, so the frames stay evenly spaced).
-    const bool fluid = m_tier.load (std::memory_order_relaxed) >= 1;
-    const int wantHz = m_idle.load (std::memory_order_relaxed) ? (fluid ? c_idleFluidHz : c_idleSinglePassHz) : c_frameHz;
+    const bool buffered = m_tier.load (std::memory_order_relaxed) >= 1;
+    const int wantHz = m_idle.load (std::memory_order_relaxed) ? (buffered ? c_idleBufferHz : c_idleSinglePassHz) : c_frameHz;
     if (wantHz != m_timerHz)
     {
         m_timerHz = wantHz;
@@ -285,11 +276,39 @@ void MonsterView::paint (juce::Graphics& g)
 
     if (m_failShown)
     {
-        g.setColour (scope);
-        g.fillRoundedRectangle (bounds, radius);
-        g.setColour (textDim);
+        // No GL: a still cloud in the creature view's own tones (lit above, shaded below, a few soft
+        // banks, mirrored as the cloud folds round the creature) with a line saying why nothing moves.
+        juce::Graphics::ScopedSaveState state (g);
+        juce::Path shape;
+        shape.addRoundedRectangle (bounds, radius);
+        g.reduceClipRegion (shape);
+        const auto cloudLit = juce::Colour::fromFloatRGBA (0.85f, 0.89f, 0.92f, 1.0f);
+        const auto cloudTone = juce::Colour::fromFloatRGBA (0.580f, 0.690f, 0.757f, 1.0f);   // the cloud's tone
+        g.setGradientFill (juce::ColourGradient (cloudLit, 0.0f, bounds.getY(), cloudTone, 0.0f, bounds.getBottom(), false));
+        g.fillRect (bounds);
+        const float h = bounds.getHeight(), cx = bounds.getCentreX();
+        struct Bank { float x, y, r; bool pale; };
+        const Bank banks[] = { { 0.18f, 0.30f, 0.55f, true }, { 0.52f, 0.62f, 0.70f, false }, { 0.95f, 0.38f, 0.60f, true },
+                               { 1.30f, 0.70f, 0.55f, false }, { 0.0f, 0.85f, 0.45f, false } };
+        for (const auto& b : banks)
+            for (const float side : { -1.0f, 1.0f })
+            {
+                const juce::Point<float> c (cx + side * b.x * h, bounds.getY() + b.y * h);
+                const auto inner = b.pale ? cloudLit.withAlpha (0.55f) : cloudTone.darker (0.25f).withAlpha (0.35f);
+                // (a round soft puff squashed to a bank: its edge fades to nothing all the way round)
+                juce::Graphics::ScopedSaveState squash (g);
+                g.addTransform (juce::AffineTransform::scale (1.0f, 0.6f, c.x, c.y));
+                g.setGradientFill (juce::ColourGradient (inner, c, inner.withAlpha (0.0f), c.translated (b.r * h, 0.0f), true));
+                g.fillEllipse (juce::Rectangle<float> (2.0f * b.r * h, 2.0f * b.r * h).withCentre (c));
+            }
         g.setFont (m_fonts->body (12.0f));
-        g.drawText ("OpenGL not available", bounds, juce::Justification::centred, false);
+        const juce::String message ("OpenGL not available");
+        const float w = juce::GlyphArrangement::getStringWidth (g.getCurrentFont(), message) + 24.0f;
+        const auto pill = bounds.withSizeKeepingCentre (w, 24.0f);
+        g.setColour (scope.withAlpha (0.6f));
+        g.fillRoundedRectangle (pill, 6.0f);
+        g.setColour (textDim);
+        g.drawText (message, pill, juce::Justification::centred, false);
     }
 
     auto row = bounds.reduced (16.0f, 12.0f).removeFromTop (16.0f);
@@ -365,7 +384,6 @@ void MonsterView::createRenderer (bool coreProfile)
     m_jawMotion.reset();
     m_head.reset();
     m_audioForces.reset();
-    m_prevFormation = -1.0f;
     m_evoSnap = true;
     m_shaderFailed.store (false, std::memory_order_relaxed);
     m_glReady.store (true, std::memory_order_relaxed);
@@ -430,9 +448,6 @@ void MonsterView::updateAnimation (float dt)
         const float t = juce::jlimit (0.0f, 1.0f, (juce::Decibels::gainToDecibels (input, -100.0f) + 30.0f) / 22.0f);
         follow (m_inputLoud, t * t * (3.0f - 2.0f * t), dt, 0.12f, 0.9f);
     }
-    // Either sign convention for the cut works: only the amount is drawn.
-    follow (m_boost, std::abs (safe (load (f.detailBoostDb), -c_detailBoostRangeDb, c_detailBoostRangeDb)) / c_detailBoostRangeDb, dt, 0.08f, 0.25f);
-    follow (m_cut, std::abs (safe (load (f.detailCutDb), -c_detailCutRangeDb, c_detailCutRangeDb)) / c_detailCutRangeDb, dt, 0.08f, 0.25f);
     follow (m_gravelOn, load (f.gravelActive) > 0.5f ? 1.0f : 0.0f, dt, 0.15f, 0.30f);
 
     for (size_t i = 0; i < m_bands.size(); ++i)
@@ -471,19 +486,17 @@ void MonsterView::updateAnimation (float dt)
     follow (m_ring, safe (load (f.ringAmount), 0.0f, 1.0f), dt, 0.1f, 0.2f);
     follow (m_ringBody, safe (load (f.ringBodyMix), 0.0f, 1.0f), dt, 0.1f, 0.2f);
     {
-        // The muzzle flickers at the carrier, halved until it is slow enough to watch (8 Hz or slower).
+        // The ripples move at the carrier, halved until it is slow enough to watch (8 Hz or slower).
         float rate = safe (load (f.ringHz), 0.0f, 20000.0f);
         while (rate > 8.0f)
             rate *= 0.5f;
         m_ringPhase = std::fmod (m_ringPhase + dt * rate, 1.0f);
     }
     follow (m_strain, std::abs (safe (load (f.limiterGrDb), -48.0f, 48.0f)) / 9.0f, dt, 0.03f, 0.35f);
-    m_strainPhase = std::fmod (m_strainPhase + dt * (1.1f + 1.6f * std::min (m_strain, 1.0f)), 1.0f);
     follow (m_clip, std::abs (safe (load (f.clipDb), -48.0f, 48.0f)) / 4.0f, dt, 0.01f, 0.25f);
 
-    // CHAMBER (kept subtle): while the room rings the head leaves a faint after-image, its wings and
-    // tendrils trailing each movement for about as long as the room's decay (more with Resonance);
-    // Boom adds a slow chest pulse that swells with the level.
+    // CHAMBER: how much the room rings, for about as long as its decay (more with Resonance); Boom
+    // adds a slow pulse that swells with the level.
     {
         const float decay = safe (load (f.chamberDecay), 0.0f, 2.0f);
         const float ring = safe (load (f.chamberRing), 0.0f, 1.0f) * (0.3f + 0.7f * safe (load (f.chamberResonance), 0.0f, 1.0f));
@@ -531,28 +544,26 @@ void MonsterView::updateAnimation (float dt)
         using E = roar::CreatureEvolution;
         const auto target = m_creature.read();
         const float k = m_evoSnap ? 1.0f : smoothing (dt, 0.15f);
-        // The blot offsets are positions in noise space: they are not smoothed. When they move (a
-        // reset, or a queued seed taking over) the glide between them is taken as published too:
-        // the published glide already moves smoothly, and an old glide value with new endpoints
-        // would show the new blot for a moment and swing back.
+        // The seeds the blots grow from are not smoothed. When they move (a reset, or a queued seed
+        // taking over) the glide between them is taken as published too: the published glide
+        // already moves smoothly, and an old glide value with new endpoints would show the new blot
+        // for a moment and swing back.
         const auto moved = [&target, this] (int i) { return std::abs (target[(size_t) i] - m_evo[(size_t) i]) > 1.0e-6f; };
-        const bool endpointsMoved = moved (E::seedAX) || moved (E::seedAY) || moved (E::seedBX) || moved (E::seedBY)
-                                 || moved (E::anatomyALo) || moved (E::anatomyAHi) || moved (E::anatomyBLo) || moved (E::anatomyBHi);
+        const bool endpointsMoved = moved (E::anatomyALo) || moved (E::anatomyAHi) || moved (E::anatomyBLo) || moved (E::anatomyBHi);
         for (size_t i = 0; i < m_evo.size(); ++i)
         {
-            const bool offset = i == (size_t) E::seedAX || i == (size_t) E::seedAY || i == (size_t) E::seedBX || i == (size_t) E::seedBY
-                             || (i >= (size_t) E::anatomyALo && i <= (size_t) E::anatomyBHi);   // (seeds: never smoothed)
-            const bool snap = offset || (endpointsMoved && i == (size_t) E::seedGlide);
+            const bool seed = i >= (size_t) E::anatomyALo && i <= (size_t) E::anatomyBHi;   // (never smoothed)
+            const bool snap = seed || (endpointsMoved && i == (size_t) E::seedGlide);
             m_evo[i] = snap ? target[i] : m_evo[i] + (target[i] - m_evo[i]) * k;
         }
 
-        // Formation: a roar pulls the face out of the cloud now, sleep disperses it again.
+        // Formation: a roar pulls the creature out of the cloud now, sleep disperses it again.
         const float loud = juce::jmap (juce::jlimit (-36.0f, -10.0f, juce::Decibels::gainToDecibels (m_level, -100.0f)), -36.0f, -10.0f, 0.0f, 1.0f);
         const float loudS = loud * loud * (3.0f - 2.0f * loud);
         if (m_evoSnap)
         {
             // (the ink creature opens on silence as it sleeps: cloud, not a blot that then dissolves)
-            if (m_renderer.isInkCreature() && input < c_quietLevel)
+            if (input < c_quietLevel)
             {
                 m_quietSeconds = c_sleepAfterSeconds;
                 m_sleep = 1.0f;
@@ -571,23 +582,6 @@ void MonsterView::updateAnimation (float dt)
         const float sleepTarget = juce::jlimit (0.0f, 1.0f, base + 0.35f * m_formation.fast * (1.0f - base)) * (1.0f - 0.85f * m_sleep);
         const bool settled = m_formation.fast < 0.01f && std::abs (m_formation.formation - sleepTarget) < 0.01f;
         m_idle.store (asleep && m_sleep > 0.98f && settled, std::memory_order_relaxed);
-
-        // The clouds drift (offsets wrap hours apart, in double, so they never jump in a session).
-        const double inky = m_evo[roar::CreatureEvolution::inkiness];
-        const auto advance = [dt] (double& v, double rate) { v = std::fmod (v + rate * dt, c_driftWrap); };
-        advance (m_driftBack[0], c_windX);
-        advance (m_driftBack[1], c_windY + c_windInkY * inky);
-        advance (m_driftFront[0], c_windX * 1.6);
-        advance (m_driftFront[1], (c_windY + c_windInkY * inky) * 1.6 - 0.002);
-        m_bloomPhase = std::fmod (m_bloomPhase + dt * juce::MathConstants<double>::twoPi / c_bloomSeconds, juce::MathConstants<double>::twoPi);
-
-        // The slow noise scrolls (blot, edge bleed, mist, veins): rates integrated here, so turning
-        // SHIMMER changes their speed and never their position, and each runs round a wide circle in
-        // noise space, so it never wraps.
-        const double lqRate = m_knobs.liquid;
-        const double rates[c_numFlows] = { 0.02 * lqRate, 0.04 + 0.25 * lqRate, 0.04, 0.05 * lqRate };
-        for (int i = 0; i < c_numFlows; ++i)
-            m_flowPhase[i] = std::fmod (m_flowPhase[i] + dt * rates[i] / c_flowRadius, juce::MathConstants<double>::twoPi);
     }
 
     // The jaw and the head: a heavy spring on the phrase, the lips carry the syllables.
@@ -611,25 +605,6 @@ void MonsterView::updateAnimation (float dt)
 
         m_head.step (dt, m_jawMotion.y, m_jawMotion.P, m_jawMotion.justEngaged, m_jawMotion.dPdt, m_jawMotion.roarHold,
                      m_audioForces.growl, m_sleep);
-        // The after-image: a slower copy of the wings' trail (the head's 0.35 s follow through a
-        // further 0.1 s, up to 0.5 s with a long decay), so blending towards it always lengthens the trail.
-        const float lag = 0.1f + 0.25f * safe (m_features.chamberDecay.load (std::memory_order_relaxed) * live, 0.0f, 1.6f);
-        follow (m_chamberLagY, m_head.follow, dt, lag, lag);
-
-        const float F = m_formation.formation;
-        m_formationRate = (m_prevFormation < 0.0f || dt <= 0.0f) ? 0.0f
-                        : 0.8f * m_formationRate + 0.2f * (F - m_prevFormation) / dt;
-        m_prevFormation = F;
-        m_clock = std::fmod (m_clock + (double) dt, 1.0e6);
-    }
-
-    // An occasional blink while awake.
-    m_blinkClock += dt;
-
-    if (m_blinkClock > m_nextBlink + 0.18f)
-    {
-        m_blinkClock = 0.0f;
-        m_nextBlink = 2.5f + 4.5f * m_random.nextFloat();
     }
 }
 
@@ -657,7 +632,7 @@ void MonsterView::renderOpenGL()
     if (! m_renderer.isCreated() || width <= 0 || height <= 0)
         return;
 
-    drawFrame (dt, std::fmod (std::chrono::duration<double> (now - m_startTime).count(), c_timeWrapSeconds), scale, width, height);
+    drawFrame (dt, scale, width, height);
 }
 
 void MonsterView::renderOffline (float dt, int width, int height, bool coreProfile)
@@ -670,8 +645,7 @@ void MonsterView::renderOffline (float dt, int width, int height, bool coreProfi
         return;
     m_lastInterval = dt;
     m_lastClamped = false;
-    m_offlineSeconds = std::fmod (m_offlineSeconds + (double) dt, c_timeWrapSeconds);
-    drawFrame (dt, m_offlineSeconds, 1.0f, width, height);
+    drawFrame (dt, 1.0f, width, height);
 }
 
 void MonsterView::releaseOffline()
@@ -680,15 +654,12 @@ void MonsterView::releaseOffline()
 }
 
 // One frame: the animation stepped by dt, the frame's uniforms, the renderer, the capture.
-void MonsterView::drawFrame (float dt, double seconds, float scale, int width, int height)
+void MonsterView::drawFrame (float dt, float scale, int width, int height)
 {
     using namespace juce::gl;
     using roar::U;
 
     updateAnimation (dt);
-
-    const float blinkPos = (m_blinkClock - m_nextBlink) / 0.18f;
-    const float blink = (blinkPos > 0.0f && blinkPos < 1.0f) ? 1.0f - std::abs (2.0f * blinkPos - 1.0f) : 0.0f;
 
     auto& fr = m_frame;
     const auto rgb = [&fr] (U u, juce::Colour c) { fr.set (u, c.getFloatRed(), c.getFloatGreen(), c.getFloatBlue()); };
@@ -696,21 +667,18 @@ void MonsterView::drawFrame (float dt, double seconds, float scale, int width, i
     fr.set (U::uRes, (float) width, (float) height);
     fr.set (U::uPxScale, scale);
     fr.set (U::uRadius, m_cornerRadius.load (std::memory_order_relaxed) * scale);
-    fr.set (U::uTime, (float) seconds);
     const float testJaw = m_testJaw.load (std::memory_order_relaxed);
     fr.set (U::uJaw, testJaw >= 0.0f ? testJaw : m_jawMotion.y);
     fr.set (U::uJawVel, m_jawMotion.v);
     fr.set (U::uLip, m_jawMotion.lip);
     fr.set (U::uRoarHold, m_jawMotion.roarHold);
     {
-        // CHAMBER: the wings trail towards the after-image; Boom's pulse in the chest (scale and breath).
-        const float echo = juce::jlimit (0.0f, 1.0f, m_chamberEcho) * 0.6f;
+        // the head's motion moves the blot up and down and breathes its scale; CHAMBER's Boom pulses in it
         const float pulse = 0.5f - 0.5f * std::cos (m_chamberPhase * juce::MathConstants<float>::twoPi);
         const float boom = juce::jlimit (0.0f, 1.0f, m_chamberBoom) * juce::jlimit (0.0f, 1.0f, m_level * 2.0f) * (1.0f - m_sleep);
-        fr.set (U::uHead, m_head.offY, m_head.scaleAdd + 0.008f * boom * pulse,
-                m_head.follow + echo * (m_chamberLagY - m_head.follow), m_head.breath + 0.6f * boom * pulse);
+        fr.set (U::uHead, m_head.offY, m_head.scaleAdd + 0.008f * boom * pulse, 0.0f, m_head.breath + 0.6f * boom * pulse);
     }
-    // (CHAMBER for the ink creature: the room's ringing, how much room there is, the ring's slow clock)
+    // (CHAMBER: the room's ringing, how much room there is, the ring's slow clock)
     fr.set (U::uChamber, juce::jlimit (0.0f, 1.0f, m_chamberEcho), juce::jlimit (0.0f, 1.0f, m_chamberBoom), m_chamberPhase, 0.0f);
     fr.set (U::uGrowl, m_knobs.growl);
     fr.set (U::uGrowlMod, juce::jlimit (0.0f, 1.0f, m_audioForces.growl));   // rectified and slow: a shiver, never a 20-80 Hz flicker
@@ -726,10 +694,7 @@ void MonsterView::drawFrame (float dt, double seconds, float scale, int width, i
     fr.set (U::uGravelOn, m_gravelOn * (0.35f + 0.65f * m_knobs.gravel));
     fr.set (U::uDetailLow, m_knobs.detailLow);
     fr.set (U::uDetailHigh, m_knobs.detailHigh);
-    fr.set (U::uBoost, m_boost);
-    fr.set (U::uCut, m_cut);
     fr.set (U::uSleep, m_sleep);
-    fr.set (U::uBlink, blink);
     fr.set (U::uLevel, juce::jlimit (0.0f, 1.0f, m_level * 2.0f));
     fr.setArray (U::uBands, m_bands.data(), c_numBands);
     fr.set (U::uSwirlNotch, m_swirlNotch);
@@ -746,74 +711,17 @@ void MonsterView::drawFrame (float dt, double seconds, float scale, int width, i
     fr.set (U::uRingFlicker, 0.5f + 0.5f * std::sin (m_ringPhase * juce::MathConstants<float>::twoPi));
     fr.set (U::uRingBody, m_ringBody);
     fr.set (U::uStrain, juce::jlimit (0.0f, 1.0f, m_strain));
-    fr.set (U::uStrainPulse, std::pow (0.5f + 0.5f * std::sin (m_strainPhase * juce::MathConstants<float>::twoPi), 3.0f));
-    fr.set (U::uClip, juce::jlimit (0.0f, 1.0f, m_clip));
+
+    rgb (U::uColOuter, juce::Colour (m_outsideArgb.load (std::memory_order_relaxed)));
 
     {
-        using namespace Theme::Colours;
-        rgb (U::uColScope, scope);
-        rgb (U::uColGrid, grid);
-        rgb (U::uColOuter, juce::Colour (m_outsideArgb.load (std::memory_order_relaxed)));
-        rgb (U::uColPitch, pitch);
-        rgb (U::uColGrowl, growl);
-        rgb (U::uColLiquid, liquid);
-        rgb (U::uColRoar, Theme::Colours::roar); // qualified: "roar" is also the DSP namespace
-        rgb (U::uColSub, sub);
-        rgb (U::uColDetail, Theme::Colours::detail);
-        rgb (U::uColVocoder, vocoder);
-        rgb (U::uColOutput, output);
-        rgb (U::uColText, text);
-        const auto accent = [] (::Params::ModuleId id) { return juce::Colour (::Params::module (id).accent); };
-        rgb (U::uColSwirl, accent (::Params::ModuleId::swirl));
-        rgb (U::uColOvertone, accent (::Params::ModuleId::overtone));
-        rgb (U::uColRing, accent (::Params::ModuleId::ring));
-        rgb (U::uColDeess, accent (::Params::ModuleId::deess));
-        rgb (U::uColEnsemble, accent (::Params::ModuleId::ensemble));
-    }
-
-    {
-        float formation = m_formation.formation;
-        float fog = roar::CreatureFormation::fogOpacity (m_evo[roar::CreatureEvolution::fogFront], m_formation.fast, m_sleep);
-        const float testFormation = m_testFormation.load (std::memory_order_relaxed);
-        const float testFog = m_testFog.load (std::memory_order_relaxed);
-        formation = testFormation >= 0.0f ? juce::jlimit (0.0f, 1.0f, testFormation) : formation;
-        fog = testFog >= 0.0f ? juce::jlimit (0.0f, 1.0f, testFog) : fog;
-
-        const auto u = roar::CreatureUniforms::pack (m_evo, formation, fog, m_formation.fast, (float) m_bloomPhase);
-        const auto set4 = [&fr] (U id, const roar::CreatureUniforms::Vec4& v) { fr.set (id, v[0], v[1], v[2], v[3]); };
-        const auto set3 = [&fr] (U id, const roar::CreatureUniforms::Vec3& v) { fr.set (id, v[0], v[1], v[2]); };
-        set4 (U::uEvoHead, u.head);
-        set4 (U::uEvoWing, u.wing);
-        set4 (U::uEvoHorn, u.horn);
-        set4 (U::uEvoEyes, u.eyes);
-        set4 (U::uEvoMaw, u.maw);
-        set4 (U::uEvoInk, u.ink);
-        set4 (U::uEvoFlow, u.flow);
-        set4 (U::uEvoPal, u.pal);
-        set4 (U::uEvoMisc, u.misc);
-        set4 (U::uForm, u.form);
-        set4 (U::uCloud, u.cloud);
-        set4 (U::uSeed, u.seed);
-        set4 (U::uSeedB, u.seedB);
-        set4 (U::uEvoChar, u.character);
-        fr.set (U::uDrift, (float) m_driftBack[0], (float) m_driftBack[1], (float) m_driftFront[0], (float) m_driftFront[1]);
-        // each scroll starts along its own axis (x for the veins, y for the rest)
-        const auto along = [this] (int i, bool alongX) -> std::array<float, 2>
-        {
-            const float a = (float) (c_flowRadius * std::sin (m_flowPhase[i])), b = (float) (c_flowRadius * (1.0 - std::cos (m_flowPhase[i])));
-            return alongX ? std::array<float, 2> { a, b } : std::array<float, 2> { b, a };
-        };
-        const auto blot = along (0, false), edge = along (1, false), mist = along (2, false), vein = along (3, true);
-        fr.set (U::uFlow, blot[0], blot[1], edge[0], edge[1]);
-        fr.set (U::uFlow2, mist[0], mist[1], vein[0], vein[1]);
-        set3 (U::uColCloud, u.colCloud);
-        set3 (U::uColCloudLit, u.colCloudLit);
-        set3 (U::uColUnderglow, u.colUnderglow);
-        set3 (U::uColRedInk, u.colRedInk);
-        set3 (U::uColWashA, u.colWashA);
-        set3 (U::uColWashB, u.colWashB);
+        // the evolved creature: its stage and characters (the anatomy), the cloud's light, the mark
+        using E = roar::CreatureEvolution;
+        fr.set (U::uStage, juce::jlimit (0.0f, 1.0f, m_evo[E::stageOut]));
+        fr.set (U::uEvoChar, m_evo[E::charFluid], m_evo[E::charBeast], m_evo[E::charEldritch], m_evo[E::charDeep]);
+        fr.set (U::uColCloudLit, m_evo[E::cloudLitR], m_evo[E::cloudLitG], m_evo[E::cloudLitB]);
         // No texture, no logo (the egg is skipped rather than drawn against an empty field).
-        fr.set (U::uEgg, m_renderer.hasLogo() ? u.egg : 0.0f);
+        fr.set (U::uEgg, m_renderer.hasLogo() ? m_evo[E::egg] : 0.0f);
         fr.set (U::uLogoBox, 0.0f, 0.0f, c_logoBoxSize, 0.0f);
     }
 
@@ -828,13 +736,9 @@ void MonsterView::drawFrame (float dt, double seconds, float scale, int width, i
     fr.dtClamped = m_lastClamped;
     fr.asleep = idle;
     fr.targetInterval = idle ? 1.0f / 24.0f : 1.0f / (float) c_frameHz;
-    fr.clock = m_clock;
-    fr.formationRate = m_formationRate;
-    fr.roarKnob = m_knobs.roar;
-    fr.swirlKnob = m_knobs.swirl;
     fr.forces = m_audioForces;
     {
-        // the ink creature: the seeds its anatomy grows from, and its own formation
+        // the seeds the anatomy grows from, and the creature's formation
         using E = roar::CreatureEvolution;
         const auto seedOf = [this] (int lo, int hi)
         {

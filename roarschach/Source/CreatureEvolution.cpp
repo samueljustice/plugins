@@ -33,73 +33,22 @@ namespace roar
         float toDb (float gain) { return 20.0f * std::log10 (std::max (gain, 1.0e-6f)); }
 
         //======================================================================
-        // The stage spine: six anchor forms at s = 0, 0.2, ..., 1. Every row is one parameter.
-        // (Internal names: dormant blot, moth spirit, horned beast, liquid horror, horned wyrm,
-        // eldritch crown.) Colours are sRGB 0..1 and blended in linear light.
+        // The stage spine: six anchors at s = 0, 0.2, ..., 1. Every row is one parameter. (What the
+        // stage means for the blot's shape is CreatureAnatomy's.) Colours are sRGB 0..1 and blended
+        // in linear light.
         struct Row { P param; float v[6]; };
 
         constexpr Row c_table[] = {
-            { P::cranScale,     { 0.85f, 0.92f, 1.00f, 1.04f, 1.06f, 1.10f } },
-            { P::snout,         { 0.0f,  0.0f,  0.0f,  0.1f,  0.8f,  0.5f } },
             { P::jawMass,       { 0.0f,  0.0f,  0.0f,  0.15f, 0.25f, 0.30f } },
-            { P::brow,          { 0.2f,  0.3f,  1.0f,  0.8f,  1.2f,  1.0f } },
-            { P::wingSpan,      { 1.10f, 1.25f, 1.00f, 0.95f, 1.15f, 1.20f } },
-            { P::wingLift,      { 0.0f,  0.18f, 0.0f, -0.05f, 0.12f, 0.10f } },
-            { P::eyespots,      { 0.0f,  1.0f,  0.2f,  0.0f,  0.0f,  0.4f } },
-            { P::fingers,       { 0.0f,  0.0f,  0.3f,  0.0f,  1.0f,  0.8f } },
-            { P::hornLength,    { 0.0f,  0.15f, 1.0f,  0.8f,  1.3f,  1.1f } },
-            { P::hornCurl,      { 0.0f,  0.0f,  0.0f,  0.3f,  0.6f,  0.4f } },
-            { P::hornTine,      { 0.0f,  0.0f,  0.0f,  0.0f,  1.0f,  0.6f } },
-            { P::crown,         { 0.0f,  0.0f,  0.0f,  0.1f,  0.35f, 1.0f } },
-            { P::browEyes,      { 0.0f,  0.0f,  0.0f,  0.2f,  0.5f,  1.0f } },
-            { P::cheekEyes,     { 0.0f,  0.0f,  0.0f,  0.0f,  0.2f,  1.0f } },
-            { P::centreEye,     { 0.0f,  0.0f,  0.0f,  0.0f,  0.0f,  1.0f } },
-            { P::eyeSize,       { 0.7f,  1.1f,  1.0f,  0.9f,  0.85f, 0.9f } },
-            { P::mawWidth,      { 0.80f, 0.85f, 1.00f, 1.20f, 1.12f, 1.15f } },   // never wider than the cheeks
-            { P::teethLength,   { 0.5f,  0.6f,  1.0f,  1.2f,  1.3f,  1.1f } },
-            { P::thirdRow,      { 0.0f,  0.0f,  0.0f,  1.0f,  0.6f,  0.8f } },
-            { P::cheekSpikes,   { 0.0f,  0.0f,  1.0f,  0.5f,  1.0f,  1.0f } },
-            { P::solidity,      { 0.45f, 0.55f, 0.75f, 0.85f, 0.85f, 0.80f } },
-            { P::bleed,         { 1.6f,  1.3f,  1.0f,  1.4f,  0.9f,  1.1f } },
-            { P::dryBrush,      { 0.8f,  0.5f,  0.3f,  0.0f,  0.4f,  0.2f } },
-            { P::gloss,         { 0.2f,  0.3f,  0.5f,  1.6f,  0.8f,  1.0f } },
-            { P::dripRate,      { 0.5f,  0.6f,  1.0f,  2.5f,  1.0f,  1.4f } },
-            { P::extraDrips,    { 0.0f,  0.0f,  0.0f,  1.0f,  0.3f,  0.5f } },
-            { P::extraTendrils, { 0.0f,  0.0f,  0.0f,  1.0f,  0.3f,  1.0f } },
-            { P::tendrilReach,  { 0.0f,  0.1f,  0.2f,  0.7f,  0.4f,  0.8f } },
-            { P::pastel,        { 0.15f, 0.8f,  0.1f,  0.0f,  0.0f,  0.6f } },
-            { P::redBlack,      { 0.0f,  0.0f,  0.15f, 0.8f,  0.6f,  0.4f } },
-            { P::glow,          { 0.35f, 0.6f,  1.0f,  1.1f,  1.3f,  1.6f } },
-            { P::bioLum,        { 0.0f,  0.3f,  0.0f,  0.2f,  0.0f,  1.0f } },
-            { P::antennae,      { 0.0f,  1.0f,  0.0f,  0.0f,  0.0f,  0.0f } },
-            { P::scales,        { 0.0f,  0.0f,  0.2f,  0.0f,  1.0f,  0.5f } },
-            { P::centralFigure, { 1.0f,  0.6f,  0.0f,  0.0f,  0.0f,  0.3f } },
-            { P::satellites,    { 1.0f,  0.8f,  0.6f,  1.0f,  0.5f,  0.7f } },
-            { P::inkiness,      { 0.35f, 0.30f, 0.25f, 0.60f, 0.30f, 0.40f } },
-            { P::fogFront,      { 0.35f, 0.30f, 0.25f, 0.22f, 0.20f, 0.18f } },
             { P::formFloor,     { 0.10f, 0.15f, 0.20f, 0.25f, 0.30f, 0.30f } },
             { P::formCeiling,   { 0.55f, 0.70f, 0.85f, 0.90f, 0.95f, 1.00f } },
-            { P::coffeeRing,    { 0.6f,  0.5f,  0.4f,  0.8f,  0.3f,  0.5f } },
-            { P::eyeSpacing,    { 1.0f,  1.0f,  1.0f,  1.0f,  1.0f,  1.0f } },
-            { P::crownSpread,   { 1.0f,  1.0f,  1.0f,  1.0f,  1.0f,  1.0f } },
-            { P::spare0,        { 0.0f,  0.0f,  0.0f,  0.0f,  0.0f,  0.0f } },
         };
 
-        // Cloud colours per anchor: cool blue-grey; with a pastel blush; with a faint ember
-        // underglow; slate with a red underglow; slate with a warm storm underglow; violet slate
-        // with a cyan scatter.
+        // The cloud's light per anchor: cool blue-grey; with a pastel blush; cooler; slate; warm
+        // slate; violet slate (only its hue reaches the picture, a small lean within the palette).
         struct Rgb { float r, g, b; };
-        constexpr Rgb c_cloud[6]     = { { 0.120f, 0.140f, 0.180f }, { 0.150f, 0.140f, 0.180f }, { 0.125f, 0.140f, 0.175f },
-                                         { 0.110f, 0.115f, 0.140f }, { 0.125f, 0.120f, 0.130f }, { 0.130f, 0.115f, 0.185f } };
         constexpr Rgb c_cloudLit[6]  = { { 0.400f, 0.440f, 0.520f }, { 0.470f, 0.430f, 0.500f }, { 0.390f, 0.420f, 0.480f },
                                          { 0.330f, 0.340f, 0.390f }, { 0.380f, 0.370f, 0.390f }, { 0.400f, 0.380f, 0.530f } };
-        constexpr Rgb c_underglow[6] = { { 0.120f, 0.140f, 0.190f }, { 0.320f, 0.170f, 0.230f }, { 0.340f, 0.130f, 0.050f },
-                                         { 0.440f, 0.050f, 0.060f }, { 0.460f, 0.220f, 0.060f }, { 0.100f, 0.380f, 0.450f } };
-        constexpr Rgb c_redInk = { 0.700f, 0.150f, 0.180f };   // crimson ink
-        constexpr Rgb c_logoRed = { 0.812f, 0.114f, 0.208f };  // the logo's cherry
-        // Pastel washes (two picked per creature)
-        constexpr Rgb c_washes[5] = { { 0.910f, 0.627f, 0.659f }, { 0.941f, 0.706f, 0.549f }, { 0.612f, 0.769f, 0.894f },
-                                      { 0.659f, 0.784f, 0.627f }, { 0.910f, 0.863f, 0.565f } };
 
         float toLinear (float c) { return std::pow (std::max (c, 0.0f), 2.2f); }
         float toDisplay (float c) { return std::pow (std::max (c, 0.0f), 1.0f / 2.2f); }
@@ -138,15 +87,7 @@ namespace roar
         }
 
         //======================================================================
-        // What one seed means: a blot shape (an offset into the mirrored noise), a cloud offset,
-        // a few percent of jitter on proportions, a hue nudge and a pair of washes.
-        struct SeedLook
-        {
-            float ax, ay, cx, cy;
-            float span, curl, spacing, spread, hue;
-            int washA, washB;
-        };
-
+        // What one seed means for the picture beyond its blot: a small hue nudge of the cloud's light.
         std::uint32_t splitmix (std::uint32_t& state)
         {
             std::uint32_t z = (state += 0x9e3779b9u);
@@ -155,71 +96,27 @@ namespace roar
             return z ^ (z >> 16);
         }
 
-        SeedLook lookOf (std::uint32_t seed)
+        float hueOf (std::uint32_t seed)
         {
             std::uint32_t s = seed;
             const auto uni = [&s] { return (float) (splitmix (s) >> 8) / 16777216.0f; };
-            SeedLook l {};
-            l.ax = uni() * 80.0f - 40.0f;
-            l.ay = uni() * 80.0f - 40.0f;
-            l.cx = uni() * 6.0f - 3.0f;
-            l.cy = uni() * 6.0f - 3.0f;
-            l.span = 1.0f + 0.08f * (2.0f * uni() - 1.0f);
-            l.curl = 1.0f + 0.08f * (2.0f * uni() - 1.0f);
-            l.spacing = 1.0f + 0.08f * (2.0f * uni() - 1.0f);
-            l.spread = 1.0f + 0.08f * (2.0f * uni() - 1.0f);
-            l.hue = 0.04f * (2.0f * uni() - 1.0f);
-            l.washA = std::min (4, (int) (uni() * 5.0f));
-            l.washB = (l.washA + 1 + std::min (3, (int) (uni() * 4.0f))) % 5;
-            return l;
+            for (int i = 0; i < 8; ++i)   // (the draws before it, so each seed keeps the hue it had)
+                uni();
+            return 0.04f * (2.0f * uni() - 1.0f);
         }
 
-        // Character offsets (fluid, beast, eldritch, deep), applied relative to a neutral mix. Each
-        // corner has its own silhouette cue (fluid: drips and hanging arms; beast: horns, spikes and
-        // scales; eldritch: eyes, crown and feelers; deep: wide wings, a heavy jaw and satellites)
-        // and its own light (below), so two creatures that worked differently look different by s 0.6.
+        // Character offsets (fluid, beast, eldritch, deep), applied relative to a neutral mix (the
+        // anatomy bends the blot itself by the same leans): deep weighs the jaw.
         struct Offset { P param; float d[4]; };
         constexpr Offset c_offsets[] = {
-            { P::extraTendrils, { 1.0f,  -0.3f, 0.0f,  0.0f } },
-            { P::tendrilReach,  { 0.7f,  0.0f,  0.0f,  0.0f } },
-            { P::dripRate,      { 2.0f,  0.0f,  0.0f,  0.0f } },
-            { P::extraDrips,    { 0.9f,  0.0f,  0.0f,  0.0f } },
-            { P::bleed,         { 0.5f,  -0.2f, 0.0f,  0.0f } },
-            { P::gloss,         { 0.15f, 0.0f,  0.0f,  0.0f } },
-            { P::pastel,        { 0.4f,  0.0f,  0.0f,  0.0f } },
-            { P::hornLength,    { -0.5f, 0.7f,  0.0f,  0.0f } },
-            { P::hornTine,      { 0.0f,  0.6f,  0.0f,  0.0f } },
-            { P::hornCurl,      { 0.4f,  0.0f,  0.0f,  0.0f } },
-            { P::inkiness,      { 0.25f, 0.0f,  0.0f,  0.0f } },
-            { P::teethLength,   { 0.0f,  0.4f,  0.0f,  0.0f } },
-            { P::cheekSpikes,   { 0.0f,  0.9f,  0.0f,  0.0f } },
-            { P::scales,        { 0.0f,  0.7f,  0.0f,  0.0f } },
-            { P::brow,          { 0.0f,  0.4f,  0.0f,  0.0f } },
-            { P::snout,         { 0.0f,  0.4f,  0.0f,  0.0f } },
-            { P::glow,          { 0.0f,  0.2f,  0.0f,  0.0f } },
-            { P::browEyes,      { 0.0f,  0.0f,  0.5f,  0.0f } },   // extra eyes open earlier
-            { P::cheekEyes,     { 0.0f,  0.0f,  0.5f,  0.0f } },
-            { P::centreEye,     { 0.0f,  0.0f,  0.45f, 0.0f } },
-            { P::crown,         { 0.0f,  0.0f,  0.7f,  0.0f } },
-            { P::antennae,      { 0.0f,  0.0f,  0.6f,  0.0f } },
-            { P::bioLum,        { 0.0f,  0.0f,  0.8f,  0.0f } },
-            { P::eyespots,      { 0.0f,  0.0f,  0.4f,  0.0f } },
-            { P::wingSpan,      { 0.0f,  -0.08f, 0.0f, 0.35f } },
             { P::jawMass,       { 0.0f,  0.0f,  0.0f,  0.45f } },
-            { P::fingers,       { 0.0f,  0.0f,  0.0f,  0.7f } },
-            { P::satellites,    { 0.0f,  0.0f,  0.0f,  0.7f } },
-            { P::centralFigure, { 0.0f,  0.0f,  0.0f,  0.5f } },
-            { P::redBlack,      { 0.0f,  0.0f,  0.0f,  0.3f } },
-            { P::fogFront,      { 0.0f,  0.0f,  0.0f,  0.12f } },
         };
 
-        // Each corner's light: the lit cloud and the underglow lean toward these (linear mix, up to
-        // c_cornerTint of the way at a pure corner). Fluid: cold sea-green; beast: ember; eldritch:
-        // violet; deep: abyssal blue.
+        // Each corner's light: the lit cloud leans toward these (linear mix, up to c_cornerTint of
+        // the way at a pure corner). Fluid: cold sea-green; beast: ember; eldritch: violet; deep:
+        // abyssal blue.
         constexpr Rgb c_cornerLit[4]  = { { 0.330f, 0.470f, 0.480f }, { 0.470f, 0.380f, 0.330f },
                                           { 0.430f, 0.360f, 0.540f }, { 0.250f, 0.320f, 0.450f } };
-        constexpr Rgb c_cornerGlow[4] = { { 0.080f, 0.400f, 0.400f }, { 0.520f, 0.170f, 0.040f },
-                                          { 0.360f, 0.120f, 0.520f }, { 0.050f, 0.150f, 0.420f } };
         constexpr float c_cornerTint = 0.45f;
 
         CreatureEvolution::Params blend (float s, const std::array<float, 4>& weights)
@@ -234,10 +131,7 @@ namespace roar
             for (const auto& row : c_table)
                 p[(size_t) row.param] = row.v[k] + (row.v[k + 1] - row.v[k]) * w;
 
-            setRgb (p, P::cloudR, mixLinear (c_cloud[k], c_cloud[k + 1], w));
             setRgb (p, P::cloudLitR, mixLinear (c_cloudLit[k], c_cloudLit[k + 1], w));
-            setRgb (p, P::underglowR, mixLinear (c_underglow[k], c_underglow[k + 1], w));
-            setRgb (p, P::redInkR, c_redInk);
 
             // Character shows only once there is a creature to show it.
             const float charScale = smoothstep (0.15f, 0.6f, s);
@@ -254,29 +148,10 @@ namespace roar
             {
                 const float t = clamp01 ((weights[f] - 0.25f) * (4.0f / 3.0f)) * charScale * c_cornerTint;
                 if (t > 0.0f)
-                {
                     setRgb (p, P::cloudLitR, mixLinear (getRgb (p, P::cloudLitR), c_cornerLit[f], t));
-                    setRgb (p, P::underglowR, mixLinear (getRgb (p, P::underglowR), c_cornerGlow[f], t));
-                    setRgb (p, P::cloudR, mixLinear (getRgb (p, P::cloudR), c_cornerLit[f], t * 0.12f));
-                }
             }
 
-            // Keep everything in range.
-            for (int i : { (int) P::snout, (int) P::jawMass, (int) P::brow, (int) P::eyespots, (int) P::fingers,
-                           (int) P::hornLength, (int) P::hornCurl, (int) P::hornTine, (int) P::crown,
-                           (int) P::teethLength, (int) P::thirdRow, (int) P::cheekSpikes, (int) P::dryBrush,
-                           (int) P::gloss, (int) P::dripRate, (int) P::extraDrips, (int) P::extraTendrils,
-                           (int) P::tendrilReach, (int) P::pastel, (int) P::redBlack, (int) P::glow, (int) P::bioLum,
-                           (int) P::antennae, (int) P::scales, (int) P::centralFigure, (int) P::satellites,
-                           (int) P::inkiness, (int) P::coffeeRing })
-                p[(size_t) i] = std::max (0.0f, p[(size_t) i]);
-
-            for (int i : { (int) P::browEyes, (int) P::cheekEyes, (int) P::centreEye, (int) P::extraDrips,
-                           (int) P::extraTendrils, (int) P::pastel, (int) P::redBlack, (int) P::bioLum, (int) P::crown,
-                           (int) P::inkiness })
-                p[(size_t) i] = std::min (1.0f, p[(size_t) i]);
-
-            p[P::fogFront] = std::min (0.45f, std::max (0.12f, p[P::fogFront]));
+            p[P::jawMass] = std::max (0.0f, p[P::jawMass]);
             p[P::stageOut] = s;
             return p;
         }
@@ -289,28 +164,10 @@ namespace roar
             p[P::anatomyAHi] = (float) (anatomyA >> 16);
             p[P::anatomyBLo] = (float) (anatomyB & 0xffffu);
             p[P::anatomyBHi] = (float) (anatomyB >> 16);
-            const auto a = lookOf (from), b = lookOf (to);
             const float g = smoothstep (0.0f, 1.0f, glide);
-            const auto lerp = [g] (float x, float y) { return x + (y - x) * g; };
-
-            p[P::seedAX] = a.ax;
-            p[P::seedAY] = a.ay;
-            p[P::seedBX] = b.ax;
-            p[P::seedBY] = b.ay;
             p[P::seedGlide] = g;
-            p[P::cloudX] = lerp (a.cx, b.cx);
-            p[P::cloudY] = lerp (a.cy, b.cy);
-            p[P::wingSpan] *= lerp (a.span, b.span);
-            p[P::hornCurl] *= lerp (a.curl, b.curl);
-            p[P::eyeSpacing] *= lerp (a.spacing, b.spacing);
-            p[P::crownSpread] *= lerp (a.spread, b.spread);
-
-            const float hue = lerp (a.hue, b.hue);
-            for (int c : { (int) P::cloudR, (int) P::cloudLitR, (int) P::underglowR })
-                setRgb (p, c, hueShift (getRgb (p, c), hue));
-
-            setRgb (p, P::washAR, mixLinear (c_washes[a.washA], c_washes[b.washA], g));
-            setRgb (p, P::washBR, mixLinear (c_washes[a.washB], c_washes[b.washB], g));
+            const float hue = hueOf (from) + (hueOf (to) - hueOf (from)) * g;
+            setRgb (p, P::cloudLitR, hueShift (getRgb (p, P::cloudLitR), hue));
         }
     }
 
@@ -583,18 +440,14 @@ namespace roar
     CreatureEvolution::Params CreatureEvolution::evaluate() const
     {
         const bool pinned = m_pinnedStage >= 0.0f;
-        const std::array<float, 4> neutral { 0.25f, 0.25f, 0.25f, 0.25f };
-        auto p = blend (pinned ? m_pinnedStage : m_stage, pinned ? neutral : getCharacterWeights());
+        auto p = blend (pinned ? m_pinnedStage : m_stage, pinned ? m_pinnedWeights : getCharacterWeights());
         applySeed (p, m_seedFrom, m_seedTo, m_seedGlide, m_hashFrom, m_hashTo);
 
         const float energy = pinned ? 1.0f : m_energy;
         p[P::formBase] = p[P::formFloor] + (p[P::formCeiling] - p[P::formFloor]) * smoothstep (0.0f, 1.0f, energy);
         p[P::energyOut] = energy;
 
-        const float g = getEggAmount();
-        p[P::egg] = g;
-        // The logo is drawn in the same inks: the red pulls toward the cherry's crimson.
-        setRgb (p, P::redInkR, mixLinear (getRgb (p, P::redInkR), c_logoRed, g));
+        p[P::egg] = getEggAmount();
         return p;
     }
 
@@ -750,42 +603,5 @@ namespace roar
     float CreatureFormation::inkFormation() const
     {
         return smoothstep (0.03f, 0.97f, finite (ink, 0.0f, 1.0f));
-    }
-
-    float CreatureFormation::fogOpacity (float stageFog, float fast, float sleep)
-    {
-        const float f = finite (stageFog, 0.0f, 1.0f) * (1.0f - 0.5f * finite (fast, 0.0f, 1.0f))
-                      * (0.7f + 0.3f * finite (sleep, 0.0f, 1.0f) * 1.6f);
-        return std::min (0.45f, std::max (0.12f, f));
-    }
-
-    CreatureUniforms CreatureUniforms::pack (const CreatureEvolution::Params& p, float formation, float fogA,
-                                             float formationFast, float bloomPhase)
-    {
-        CreatureUniforms u;
-        const auto v4 = [&p] (P a, P b, P c, P d) { return Vec4 { p[(size_t) a], p[(size_t) b], p[(size_t) c], p[(size_t) d] }; };
-        const auto v3 = [&p] (P a) { return Vec3 { p[(size_t) a], p[(size_t) a + 1], p[(size_t) a + 2] }; };
-        u.head = v4 (P::cranScale, P::snout, P::jawMass, P::brow);
-        u.wing = v4 (P::wingSpan, P::wingLift, P::eyespots, P::fingers);
-        u.horn = v4 (P::hornLength, P::hornCurl, P::hornTine, P::crown);
-        u.eyes = v4 (P::browEyes, P::cheekEyes, P::centreEye, P::eyeSize);
-        u.maw = v4 (P::mawWidth, P::teethLength, P::thirdRow, P::cheekSpikes);
-        u.ink = v4 (P::solidity, P::bleed, P::dryBrush, P::gloss);
-        u.flow = v4 (P::dripRate, P::extraDrips, P::extraTendrils, P::tendrilReach);
-        u.pal = v4 (P::pastel, P::redBlack, P::glow, P::bioLum);
-        u.misc = v4 (P::antennae, P::scales, P::centralFigure, P::satellites);
-        u.form = { formation, fogA, formationFast, p[P::coffeeRing] };
-        u.cloud = { p[P::inkiness], p[P::eyeSpacing], p[P::crownSpread], bloomPhase };
-        u.seed = { p[P::seedAX], p[P::seedAY], p[P::cloudX], p[P::cloudY] };
-        u.seedB = { p[P::seedBX], p[P::seedBY], p[P::seedGlide], p[P::stageOut] };
-        u.character = v4 (P::charFluid, P::charBeast, P::charEldritch, P::charDeep);
-        u.colCloud = v3 (P::cloudR);
-        u.colCloudLit = v3 (P::cloudLitR);
-        u.colUnderglow = v3 (P::underglowR);
-        u.colRedInk = v3 (P::redInkR);
-        u.colWashA = v3 (P::washAR);
-        u.colWashB = v3 (P::washBR);
-        u.egg = p[P::egg];
-        return u;
     }
 }

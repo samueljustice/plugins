@@ -661,7 +661,7 @@ namespace roar
             }
             const auto& l = g.lobes[(size_t) i];
             place (l.x, l.y, b[0], b[1]);
-            const float heavy = l.core ? 1.0f + 0.16f * beast : 1.0f;
+            const float heavy = l.core ? 1.0f + 0.30f * beast : 1.0f;
             const float sag = l.y < cy ? 1.0f + 0.12f * deep : 1.0f;
             // (the masses away from the trunk draw out as it grows: longer, a little leaner)
             const float draw = l.core ? 0.0f : stage - 0.5f;
@@ -682,7 +682,9 @@ namespace roar
             }
             const auto& l = g.limbs[(size_t) i];
             const float w = gateWeight (l.gate, gs);
-            const float k = (l.thread ? 1.0f : lenK) * w;
+            // (a branch keeps reaching out long after it arrives: the late stages' new structure)
+            const float reachOn = l.parent >= 0 ? 1.0f + 0.6f * smooth (l.gate + 0.15f, l.gate + 0.45f, gs) : 1.0f;
+            const float k = (l.thread ? 1.0f : lenK * reachOn * (1.0f - 0.12f * beast)) * w;
             float rx, ry;
             if (l.parent >= 0 && l.parent < i)
             {
@@ -759,7 +761,9 @@ namespace roar
 
         p.look = g.look;
         p.look.flow *= 1.0f + 0.25f * stage;
-        p.look.carry *= 1.0f + 0.25f * fluid;
+        p.look.carry *= (1.0f + 0.25f * fluid) * (1.0f + 0.35f * smooth (0.55f, 1.0f, stage));
+        // young, the blot is a dense mass the eddies barely tear; grown, they tear it into ribbons
+        p.look.ribbon = std::min (1.0f, p.look.ribbon * (0.55f + 0.45f * smooth (0.0f, 0.45f, stage)) + 0.40f * smooth (0.55f, 1.0f, stage));
         p.centreY = cy + drop;
         return p;
     }

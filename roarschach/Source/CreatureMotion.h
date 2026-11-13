@@ -77,9 +77,9 @@ namespace roar
     };
 
     /**
-     * The audio as forces on the fluid: followers (every one at least 40 ms up and 150 ms down), a
+     * The audio as forces on the ink: followers (every one at least 40 ms up and 150 ms down), a
      * sub onset detector (120 ms refractory), the exhale puff, the clip sparks and a flash limiter
-     * (at most 3 bloom-visible onsets a second), plus the six vortices' slow paths.
+     * (at most 3 visible onsets a second).
      */
     struct AudioForces
     {
@@ -99,7 +99,7 @@ namespace roar
         // outputs (followers)
         float roar = 0.0f, growl = 0.0f, sub = 0.0f, swirl = 0.0f, ensemble = 0.0f, clip = 0.0f, strain = 0.0f;
         float puff = 0.0f;          // exhale, decays in 0.4 s
-        float subPulse = 0.0f;      // divergence source strength right after an onset (decays in 0.12 s)
+        float subPulse = 0.0f;      // the sub's push right after an onset (decays in 0.12 s)
         float clipSparks = 0.0f;    // 0..1 spark strength this frame (limited)
         int sparkSeed = 0;          // changes each spark frame (the shader hashes it)
 
@@ -112,13 +112,8 @@ namespace roar
         void reset() { *this = AudioForces(); }
         void step (float dt, const Inputs& in);
 
-        /** A bloom-visible onset may happen now (at most 3 in any second); records it if so. */
+        /** A visible onset may happen now (at most 3 in any second); records it if so. */
         bool allowFlash();
-
-        /** The six vortices at time t (seconds): x, y in view heights from the centre (y up), core
-            radius in view heights, signed peak speed in view heights per second. Pairs 0/1 and 2/3
-            are mirror images with opposite spin; 4 and 5 wander. aspect = width / height. */
-        static void vortices (double t, float aspect, float strengthScale, std::array<std::array<float, 4>, 6>& out);
 
         static constexpr float c_attack = 0.040f, c_release = 0.150f;
         static constexpr float c_subRefractory = 0.120f, c_subOnsetJump = 0.15f;
@@ -126,36 +121,17 @@ namespace roar
     };
 
     /**
-     * The top mist layer's opacity (normal blend over everything): 0.88 awake and quiet, 0.95 asleep,
-     * thinning towards 0.70 as the roar's heat and the level rise; never below c_min. Eased (no step
-     * in the input shows as a pop): it thins in about 0.35 s and closes back in about 1.2 s. The
-     * drift is the layer's slow scroll in view heights (it wanders, so it never repeats visibly).
-     */
-    struct MistMotion
-    {
-        float opacity = -1.0f;   // < 0: not started (the first step lands on the target)
-        double drift[2] { 0.0, 0.0 };
-
-        /** sleep 0..1, heat 0..1 (the roar's), level 0..1; clock in seconds (the drift's wander). */
-        float step (float dt, float sleep, float heat, float level, double clock);
-        static float target (float sleep, float heat, float level);
-
-        static constexpr float c_awake = 0.88f, c_asleep = 0.95f, c_roar = 0.70f, c_min = 0.66f;
-        static constexpr float c_thinSeconds = 0.35f, c_closeSeconds = 1.2f;
-    };
-
-    /**
      * The renderer's quality tier, chosen from the GPU and stepped by measured cost.
      *
-     * Tiers: 3 full, 2 smaller sim and creature field, 1 half-resolution composite, 0 the single-pass
-     * stateless shader. Slow and fast are judged from the GPU timer's EMA when there is one (so a busy
+     * Tiers: 3 the largest ink buffer, 2 a smaller one, 1 the smallest with a half-resolution
+     * composite, 0 the single-pass stateless shader (no buffer). Slow and fast are judged from the GPU timer's EMA when there is one (so a busy
      * host message thread, which only stretches the frame interval, never costs quality), and from
      * the frame interval (over 1.4 times the target) only without timers. Down one tier after 20 slow
      * frames in a row (10 when the EMA is far over budget, and then two tiers at once), then 3 s before the next drop; up one
      * after 300 fast frames (EMA under 1.8 ms) and 30 s without a change, never above the starting
      * tier; an upgrade that turns slow within 5 s is reverted and upgrades stop for the context.
      * Measurement never goes below tier 1: the single pass (tier 0) costs more per pixel than tier 1,
-     * so it is only for a GPU without the fluid tiers' capabilities (a start tier of 0, final).
+     * so it is only for a GPU without the buffer's capabilities (a start tier of 0, final).
      * The first 2 s and stalled frames (a gap of a quarter second or more: hidden, host busy) are
      * ignored. GPU readings outside (0, 250] ms are ignored.
      */
