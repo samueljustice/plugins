@@ -32,6 +32,7 @@
 #include "Parameters.h"
 
 #include <cmath>
+#include <set>
 #include <iostream>
 
 namespace
@@ -1019,6 +1020,119 @@ int main(int argc, char* argv[])
                       && hold.getLocalBounds().contains(hold.m_dropZone),
                   "lanes: with one track the drop line sits right under it (" + juce::String(hole) + " px below the lane), not adrift at the panel's foot");
         }
+    }
+
+    // The sea ---------------------------------------------------------------------------------------------------
+    std::cout << "The sea" << std::endl;
+    {
+        auto base = makeProcessor();
+        auto& proc = *dynamic_cast<Proc*>(base.get());
+        proc.loadDemoSounds();
+        Rig rig(proc, 1.0f);
+        rig.open();
+        auto& ed = *rig.editor;
+        auto& sea = ed.m_sea;
+        proc.setPlaying(true);
+        rig.run(1.0);
+
+        // Comets: every flight belongs to a bus or to the throws, and none reaches past the end of the labels.
+        {
+            int worst = -1;
+            for (int flight = 0; flight < RigEngine::c_maxFlights; ++flight)
+                worst = juce::jmax(worst, SeaVisualiser::cometGroup(flight));
+            check(worst == RigEngine::c_maxBuses && worst < SeaVisualiser::c_cometGroups,
+                  "sea: every comet belongs to a bus or to the throws (the highest is " + juce::String(worst) + " of "
+                      + juce::String(SeaVisualiser::c_cometGroups) + ", so a thrown whoosh cannot label past the end)");
+        }
+
+        // The mark in the stars: brighter stars taken off the logo's own outline, joined into closed shapes.
+        {
+            const auto outline = sea.m_logo->createOutlinePath();
+            float furthest = 0.0f;
+            for (const auto& s : sea.m_constellation)
+            {
+                juce::Point<float> on;
+                outline.getNearestPoint(s.at, on);
+                furthest = juce::jmax(furthest, on.getDistanceFrom(s.at));
+            }
+            std::set<int> joined;
+            for (const auto& line : sea.m_constellationLines)
+            {
+                joined.insert(line.first);
+                joined.insert(line.second);
+            }
+            check(sea.m_constellation.size() >= 12 && sea.m_constellationLines.size() >= sea.m_constellation.size()
+                      && joined.size() == sea.m_constellation.size() && furthest < 0.01f,
+                  "sea: the constellation is " + juce::String((int) sea.m_constellation.size()) + " stars on the mark's outline (the furthest "
+                      + juce::String(furthest, 4) + " of a unit off it), every one joined by a line");
+        }
+
+        // It shows in open sky: clear of the moon, of the panel's name and of the Morph button, and above the water.
+        {
+            const auto area = sea.constellationArea();
+            const auto morph = sea.getLocalArea(&ed.m_morphButton, ed.m_morphButton.getLocalBounds()).toFloat();
+            const auto title = juce::Rectangle<float>(20.0f, 8.0f, 72.0f, 16.0f);
+            const auto moon = juce::Rectangle<float>(92.0f, 92.0f).withCentre({ sea.getWidth() * 0.26f, sea.getHeight() * 0.30f * 0.52f });
+            check(! area.intersects(morph) && ! area.intersects(title) && ! area.intersects(moon)
+                      && area.getBottom() <= sea.getHeight() * 0.30f + 2.0f && sea.getLocalBounds().toFloat().contains(area),
+                  "sea: the constellation sits in open sky, clear of the moon, the name and the Morph button");
+        }
+
+        // A take put away shows it; it fades away again on its own.
+        {
+            sea.m_constellationLeft = 0.0f;
+            sea.m_constellationOpacity = 0.0f;
+            sea.m_constellationHeld = false;
+            ed.toggleLog();
+            rig.run(0.4);
+            ed.toggleLog();           // a take is written
+            proc.timerCallback();
+            rig.run(0.6);
+            const float afterTake = sea.m_constellationOpacity;
+            sea.m_constellationLeft = 0.0f;
+            rig.run(8.0);
+            check(afterTake > 0.05f && sea.m_constellationOpacity < afterTake * 0.5f,
+                  "sea: saving a take brings the mark out (" + juce::String(afterTake, 2) + "), and it fades away again ("
+                      + juce::String(sea.m_constellationOpacity, 2) + ")");
+        }
+
+        // A label never sits on the name, the recording lamp or the Morph button, nor on another label.
+        {
+            const juce::Rectangle<float> keepOut[] = { { 20.0f, 8.0f, 72.0f, 16.0f }, { 94.0f, 8.0f, 44.0f, 16.0f },
+                                                       { 528.0f, 12.0f, 100.0f, 22.0f } };
+            juce::Rectangle<float> placed[3];
+            int numPlaced = 0;
+            bool clear = true;
+            // Three labels all wanting the same spot, right under the Morph button.
+            for (int i = 0; i < 3; ++i)
+            {
+                const auto want = juce::Rectangle<float>(100.0f, 14.0f).withCentre({ 560.0f, 20.0f });
+                const auto got = SeaVisualiser::clearOf(want, keepOut, 3, placed, numPlaced);
+                for (const auto& k : keepOut)
+                    clear = clear && ! got.intersects(k);
+                for (int p = 0; p < numPlaced; ++p)
+                    clear = clear && ! got.intersects(placed[p]);
+                placed[numPlaced++] = got;
+            }
+            check(clear, "sea: comet labels move down off the name, the recording lamp and the Morph button, and off each other");
+        }
+
+        // The morph pad is a dock over a corner of the sea, not a lid on it.
+        {
+            ed.m_morphButton.setToggleState(true, juce::dontSendNotification);
+            ed.syncMorphPad();
+            rig.run(0.2);
+            const auto dock = sea.getLocalArea(&ed.m_morphPad, ed.m_morphPad.getLocalBounds());
+            const double covered = (double) dock.getWidth() * dock.getHeight() / ((double) sea.getWidth() * sea.getHeight());
+            check(sea.getLocalBounds().contains(dock) && covered < 0.45 && dock.getBottom() > sea.getHeight() * 0.6
+                      && dock.getRight() > sea.getWidth() * 0.6 && ! sea.m_dock.isEmpty(),
+                  "sea: the morph pad docks over the lower right and leaves " + juce::String(juce::roundToInt(100.0 - covered * 100.0))
+                      + "% of the sea in view, dimmed behind it");
+            ed.m_morphButton.setToggleState(false, juce::dontSendNotification);
+            ed.syncMorphPad();
+        }
+
+        proc.setPlaying(false);
     }
 
     std::cout << (g_failures == 0 ? "ALL PASSED" : juce::String(g_failures) + " FAILED") << std::endl;

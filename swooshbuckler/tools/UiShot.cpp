@@ -1,13 +1,13 @@
 // UI shots: renders the real editor offline to PNG files, and checks every text it draws.
 //
 //   SwooshbucklerUiShot --out <dir> [--scale 0.6|1.0|1.5|2.0] [--seconds 3] [--state <session file>]
-//                       [--work <private dir>] [--list] [--no-images]
+//                       [--work <private dir>] [--list] [--no-images] [--constellation] [--sea]
 //
 // It makes the processor and its editor with no window on screen, loads the built-in demo sounds (or a session
 // file given with --state), plays for a few seconds so the sea, the rides, the scopes and the meters are alive
 // (the editor's timers are stepped by hand), and writes:
 //
-//   empty.png                 the first run: no sounds loaded
+//   empty.png sea-idle.png    the first run: no sounds loaded
 //   window.png                the whole window, playing
 //   header.png tracks.png lane.png sea.png ride.png bus-a.png bus-b.png hits.png output.png modulation.png
 //                             one crop per panel
@@ -17,6 +17,10 @@
 //                             the panels that open over the window
 //   menu.png                  the preset menu open
 //   name-dialog.png           the window that asks for a preset's name
+//
+// --sea adds one crop of the sea at each of its moments (a hit, a throw, a ripple with the swell up, recording,
+// the constellation showing) and prints what a frame of it costs to paint at 1x and 2x. --constellation holds
+// the constellation on for every picture.
 //
 // --list prints every text drawn in each of those states with the box it had to fit, and what the checker
 // (tools/UiProbe.h) has to say: a text that had to be cut, runs outside its box, is under the smallest size, sits
@@ -47,7 +51,7 @@ namespace
         juce::File out, work, state;
         float scale = 1.0f;
         double seconds = 3.0;
-        bool list = false, images = true;
+        bool list = false, images = true, constellation = false, sea = false;
     };
 
     /** One state of the window: its picture, and the texts in it. */
@@ -129,10 +133,12 @@ int main(int argc, char* argv[])
         else if (a == "--seconds") options.seconds = juce::jlimit(0.5, 30.0, next().getDoubleValue());
         else if (a == "--list") options.list = true;
         else if (a == "--no-images") options.images = false;
+        else if (a == "--constellation") options.constellation = true;
+        else if (a == "--sea") options.sea = true;
         else
         {
             std::cerr << "Unknown option " << a << "\nUsage: SwooshbucklerUiShot --out <dir> [--scale 1.0] [--seconds 3] [--state <session file>] "
-                         "[--work <dir>] [--list] [--no-images]" << std::endl;
+                         "[--work <dir>] [--list] [--no-images] [--constellation] [--sea]" << std::endl;
             return 2;
         }
     }
@@ -164,7 +170,7 @@ int main(int argc, char* argv[])
         // The first run: nothing loaded.
         rig.open();
         rig.run(0.3);
-        shots.shoot("empty");
+        shots.crop(shots.shoot("empty"), "sea-idle", rig.editor->m_sea.getBounds());
         rig.editor.reset();
 
         // The sounds: a session file, or the built-in demo sounds. The editor is made after them (there is no
@@ -184,6 +190,8 @@ int main(int argc, char* argv[])
         rig.open();
         auto& ed = *rig.editor;
         proc.setPlaying(true);
+        if (options.constellation)
+            ed.m_sea.showConstellation(true);
         rig.run(options.seconds);
 
         // The window and its panels.
@@ -227,6 +235,61 @@ int main(int argc, char* argv[])
                         std::cout << "FAULT in layout: " << panels[i].first << " " << panels[i].second.toString() << " runs into " << panels[j].first << " "
                                   << panels[j].second.toString() << std::endl;
                     }
+            }
+        }
+
+        // The sea at its moments: one crop each, so the hero can be looked at on its own. Everything the sea
+        // answers to is set here by hand, because none of it happens to order in three seconds of demo sounds.
+        if (options.sea)
+        {
+            auto seaShot = [&](const juce::String& name)
+            {
+                rig.run(0.1);
+                shots.crop(shots.shoot("window-" + name), name, ed.m_sea.getBounds());
+            };
+            auto& sea = ed.m_sea;
+            std::cout << "constellation: " << sea.m_constellation.size() << " stars, "
+                      << sea.m_constellationLines.size() << " lines" << std::endl;
+
+            sea.showConstellation(true);
+            seaShot("sea-constellation");
+            sea.showConstellation(false);
+            sea.m_constellationOpacity = 0.0f;
+
+            sea.m_hitFlash = sea.m_hitRing = 1.0f;
+            seaShot("sea-hit");
+
+            proc.throwWhoosh();
+            rig.run(0.8);
+            seaShot("sea-throw");
+
+            sea.m_ripples[0] = { 0.2f, 1.4f, 0.35f };
+            sea.m_swell = 1.0f;
+            seaShot("sea-ripple");
+            sea.m_swell = 0.0f;
+
+            ed.toggleLog();                 // arm the tape: the recording lamp
+            rig.run(0.6);
+            seaShot("sea-recording");
+            ed.toggleLog();
+            proc.timerCallback();
+            rig.run(0.2);
+
+            // What a frame of the sea costs, at the window's scale and at twice it.
+            for (float zoom : { 1.0f, 2.0f })
+            {
+                const auto size = (ed.m_sea.getLocalBounds().toFloat() * zoom).getSmallestIntegerContainer();
+                juce::Image image(juce::Image::ARGB, size.getWidth(), size.getHeight(), true);
+                constexpr int frames = 60;
+                juce::Graphics g(image);
+                g.addTransform(juce::AffineTransform::scale(zoom));
+                ed.m_sea.paint(g); // the sky image is built on the first paint at a new scale
+                const auto start = juce::Time::getHighResolutionTicks();
+                for (int i = 0; i < frames; ++i)
+                    ed.m_sea.paint(g);
+                std::cout << "sea paint at " << juce::String(zoom, 1) << "x: "
+                          << juce::String(juce::Time::highResolutionTicksToSeconds(juce::Time::getHighResolutionTicks() - start) * 1000.0 / frames, 2)
+                          << " ms a frame" << std::endl;
             }
         }
 

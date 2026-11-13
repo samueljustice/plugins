@@ -1403,8 +1403,12 @@ void SwooshbucklerAudioProcessorEditor::layoutContent()
     // Row 1: the tracks and the sea, side by side.
     m_hold.setBounds(Lay::left, Lay::topY, Lay::right - Lay::left - Lay::gutter - Lay::seaW, Lay::topH);
     m_sea.setBounds(Lay::right - Lay::seaW, Lay::topY, Lay::seaW, Lay::topH);
-    m_morphPad.setBounds(m_sea.getBounds().reduced(10).withTrimmedTop(22));
-    m_morphButton.setBounds(m_sea.getRight() - 216, m_sea.getY() + 10, 84, 22); // left of the moon, clear of the frame's corner plate
+    // The morph pad is a dock over the sea's lower right, so the sky, the moon and the comets stay in view; the
+    // Morph button that shows it sits in the sea's top right, directly over it and clear of the corner plate.
+    constexpr int morphW = 380, morphH = 214;
+    m_morphPad.setBounds(m_sea.getRight() - 10 - morphW, m_sea.getBottom() - 10 - morphH, morphW, morphH);
+    m_morphButton.setBounds(m_sea.getRight() - 20 - 100, m_sea.getY() + 12, 100, 22);
+    m_sea.setReservedArea(m_sea.getLocalArea(&m_morphButton, m_morphButton.getLocalBounds()));
 
     // A knob in its cell: the wheel of its size, whole, in the middle of the room it is given.
     auto placeKnob = [this](const char* id, juce::Rectangle<int> cell, WheelKnob::Size size)
@@ -2378,6 +2382,9 @@ void SwooshbucklerAudioProcessorEditor::syncMorphPad()
     if (on) m_morphButton.setColour(juce::TextButton::textColourOffId, TC::go);
     else    m_morphButton.removeColour(juce::TextButton::textColourOffId);
     m_sea.setLabelsShown(! shown);
+    // The pad is docked over the sea's lower right, not spread over all of it: the sea behind is dimmed so the
+    // pad reads, and the sky, the moon and the comets stay in view.
+    m_sea.setDimmedUnder(shown ? m_sea.getLocalArea(&m_morphPad, m_morphPad.getLocalBounds()) : juce::Rectangle<int>());
     if (m_morphPad.isVisible() != shown)
     {
         m_morphPad.setVisible(shown);

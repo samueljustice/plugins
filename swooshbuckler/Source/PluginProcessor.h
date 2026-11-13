@@ -182,6 +182,8 @@ public:
 
     /** Swell: while held, every track's fader rides up (button, space bar, MIDI notes). Any thread. */
     void setSwell(bool held) { m_uiSwell.store(held); }
+    /** Is Swell held right now (the sea raises its swell while it is). Any thread. */
+    bool isSwellHeld() const { return m_uiSwell.load(); }
 
     /** Load Demo Sounds: makes the four demo sounds (see DemoSounds) and puts them in the first empty tracks, as
         one undo step. Returns how many were loaded (0 when every track is in use). Message thread. */

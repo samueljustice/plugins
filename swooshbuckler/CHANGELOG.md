@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- **The sea is the hero, and it moves properly.** It runs on the screen's own frame clock, and the swell rolls away smoothly instead of stepping. Rows go colder and hazier towards the horizon, the near crests are drawn as curves, and the water has its own colours so nothing on it can be mistaken for a bus. The sky is kept in one picture and painted again only when the view changes shape, and after five seconds of quiet the sea steps at a third of the rate.
+- **The sea answers what it hears.** A pass leaves a bump in the water under it that rolls away with the swell; a hit fires a short cherry glow along the horizon and a ring on the water; a click drops a ripple where it landed; holding Swell raises the swell; and the moon's halo warms and widens while the limiter is holding the output down. A thrown whoosh is the same comet in brass, and brighter, labelled Throw.
+- **The moon moved to the left of the sky**, with its glitter path on the water below it, clear of the Morph button and the readouts.
+- **The mark in the stars.** Every so often, and whenever a take is put away, brighter stars pick out the outline of the logo in the sky, joined by faint lines. It twinkles for a few seconds and fades away. It replaces the outline that used to trace itself after a silence.
+- **Comet labels keep their distance** from the panel's name, the recording lamp, the Morph button and each other.
+- **One recording time.** The sea shows a blinking cherry lamp and the word Rec; the time is on the tape's own button in the header.
+- **An empty sea says what to do.** With no sounds loaded it is calm, with one line of hint.
+- **The morph pad docks** over the lower right of the sea on a plate of its own, with the sea dimmed behind it, instead of covering the whole picture. Two thirds of the sea stay in view.
 - **A landscape window, with the tracks and the sea on top.** The window is now 1520 x 900. Tracks and the sea sit side by side across the top two fifths, and the sea is over three times the size it was. Under them are Ride, Bus A and Bus B in one row, then Hits and Output, then Modulation along the bottom. Every control is still on the one screen.
 - **Knobs line up in columns.** Bus A, Bus B and the Hits share one knob spacing, and the Hits' seven knobs sit directly under bus A's.
 - **The header is in three groups**, with a thin rule between them: transport (Follow Host, Play, New), presets (Undo, Redo, the preset box, A / B, Randomise, its history and the star) and tape (the tape, Last 60 s, Variations, Takes). Settings is at the far right.
@@ -15,7 +23,7 @@
 - **Modulators are laid out the same way whatever their type**, and each says what it is wired to ("1 wire - Bus B Swirl"). Cables now leave their jack straight up, out of the top of the card.
 - **Bus B's Ducked and Filtered** sit in a tinted group marked From Bus A, and while Link is on its Doppler and Width read Linked To A.
 - **Peak Tremolo** has its switch and name along the top of its group, its two menus at the left and its three knobs beside them.
-- **The Morph button moved** left of the moon, so it no longer covers it.
+- **The Morph button sits in the sea's top right**, and the moon has moved across to the left of the sky, so neither is in the other's way.
 - **Window size.** The first time, the window opens at its full size or the largest that fits whole on your screen. It can be made smaller down to 85% and larger up to 200%.
 - **A new knob.** Every knob is a chunky, flat ship's wheel with six spokes, one of them a sand pointer you can't miss, inside a ring that fills with the value in its section's colour. There are two sizes on the whole screen, and the rows in Bus A, Bus B and the Hits sit on shared columns.
 - **Every knob shows its value all the time**, under its name, in its own units ("6.4 s", "+3.0 dB", "35%"). It updates as you drag. Typing a value (right-click or Alt-double-click) and double-click to reset work as before.

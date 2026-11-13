@@ -423,7 +423,8 @@ juce::Colour MorphPad::laneColour(int slot) const
 //==============================================================================
 void MorphPad::resized()
 {
-    auto b = getLocalBounds().reduced(2);
+    // A dock over the sea: a plate with its own padding, so nothing sits on the plate's pressed edge or bolts.
+    auto b = getLocalBounds().reduced(10);
 
     auto top = b.removeFromTop(22);
     m_enable.setBounds(top.removeFromLeft(40));
@@ -457,8 +458,20 @@ juce::Point<float> MorphPad::padToLocal(float x, float y) const
 
 void MorphPad::paint(juce::Graphics& g)
 {
+    // The dock: a plate bolted over the sea, near enough opaque so everything on it reads over the water.
+    {
+        const auto plate = getLocalBounds().toFloat();
+        g.setColour(Theme::Colours::panel.withAlpha(0.95f));
+        Theme::Plate::fill(g, plate, Theme::Cut::panel);
+        Theme::Plate::edge(g, plate, Theme::Cut::panel);
+        const float in = Theme::Plate::boltInset;
+        for (const auto& c : { plate.getTopLeft().translated(in, in), plate.getTopRight().translated(-in, in),
+                               plate.getBottomLeft().translated(in, -in), plate.getBottomRight().translated(-in, -in) })
+            Theme::Plate::drawBolt(g, c);
+    }
+
     // Pad
-    g.setColour(Theme::Colours::well.withAlpha(0.5f)); // the waves show through
+    g.setColour(Theme::Colours::well);
     Theme::Plate::fill(g, m_pad, Theme::Cut::control);
     Theme::Plate::wellEdge(g, m_pad, Theme::Cut::control);
 

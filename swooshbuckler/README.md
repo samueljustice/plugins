@@ -357,20 +357,24 @@ If the gain reduction number is coral all the time, back off Push or raise Ceili
 
 ![The sea](docs/images/sea.png)
 
-The Output view at the top right pictures what the rig is sending out:
+The sea at the top right pictures what the rig is sending out. It is the largest thing in the window, and it runs at the screen's own rate; after five seconds of quiet it steps more slowly to stay out of the way.
 
-- **The waves** are the output's spectrum, lows on the left and highs on the right. The newest wave is at the front, and older ones roll away towards the horizon.
-- **Each doppler pass** is a glowing ball that arcs across the sea, in its bus's colour (coral for bus A, turquoise for bus B). It comes closer the closer the pass, glows brighter the louder it is, and leaves a ripple as it crosses the middle. A label above it names the bus, and the track too when only one track plays on that bus ("Bus B · Energy Bed").
-- After a moment of silence, the Sweet Justice logo slowly draws itself in the sky.
-- While the tape records, a blinking red dot and a "Rec" timer show in the corner.
-- **Click the sea** for a short swell.
+- **The waves** are the output's spectrum, lows on the left and highs on the right. The newest wave is at the front, and older ones roll away towards the horizon, going colder and hazier with distance. The water has its own colours, so nothing on it is mistaken for a bus.
+- **Each doppler pass** is a glowing ball that arcs across the sea, in its bus's colour (coral for bus A, turquoise for bus B). It comes closer the closer the pass, glows brighter the louder it is, and leaves a bump in the water under it that rolls away with the swell. A label above it names the bus, and the track too when only one track plays on that bus ("Bus B · Energy Bed"). Labels keep off the panel's name, the recording lamp and the Morph button, and off each other.
+- **A thrown whoosh** is the same comet in brass, and brighter, labelled Throw.
+- **A hit** fires a short cherry glow along the horizon and a ring widening on the water.
+- **The moon** hangs in the left of the sky with its glitter path on the water below it. Its halo warms and widens while the limiter is holding the output down.
+- **Every so often the mark appears in the stars**: brighter stars on the outline of the logo, joined by faint lines. It twinkles for a few seconds and fades away. It also comes out when a take is put away.
+- While the tape records, a blinking cherry lamp and the word **Rec** show in the corner. The time itself is on the tape's own button in the header, so there is one of it in the window.
+- **Click the water** for a short swell, and a ripple where you clicked. Holding Swell raises the swell itself.
+- With no sounds loaded the sea is calm, with one line telling you what to do.
 - **Morph** (top right) shows or hides the [morph pad](#morph-pad). It reads **Morph On** in green while the morph is switched on.
 
 ### Morph pad
 
 ![Morph pad](docs/images/morph-pad.png)
 
-The morph blends bus A into bus B spectrally, so the two sounds trade tone and pitch rather than just crossfading. Click **Morph** over the sea to show the pad, then switch the morph on with **On**. The Morph button only shows and hides the pad; the morph keeps running when the pad is hidden.
+The morph blends bus A into bus B spectrally, so the two sounds trade tone and pitch rather than just crossfading. Click **Morph** over the sea to show the pad, then switch the morph on with **On**. The pad docks over the lower right of the sea on a plate of its own, with the sea dimmed behind it, so the sky, the moon and the comets stay in view. The Morph button only shows and hides the pad; the morph keeps running when the pad is hidden.
 
 - **On / Off** switches the morph itself, with a fade rather than a hard switch. The morph takes about 43 ms to do its work, so while it is on, what goes through it runs that much later; the fade is lined up with that, so you never hear the sound doubled while switching. While it's off the pad is veiled and dimmed, but everything still works, so you can set it up first.
 - **Blend / Glide / Cross** pick the mode. Changing mode crossfades, so it doesn't click.
@@ -387,7 +391,7 @@ The morph blends bus A into bus B spectrally, so the two sounds trade tone and p
   - The **speed slider**, along the bottom between the Bus A and Bus B labels, sets how fast it goes, from a slow drift to busy.
   - The **shape menu**, beside it, picks the path:
     - **Lorenz** (the default): a chaotic loop that swaps between two wings and never repeats.
-    - **Cherries**: the outline of the logo in the sky, a grenade with a pair of cherries.
+    - **Cherries**: the outline of the logo, a grenade with a pair of cherries.
     - **Figure Eight**, **Rose** and **Circle**: these turn slowly, one degree per lap, so they never repeat exactly.
     - **Butterfly**: the butterfly curve, two pairs of wings drawn in one closed line. It turns slowly like the others.
 - The **A** and **B** handles under the pad show the two sources. Each side is its whole bus (**Bus A**, **Bus B**) until you tie it to one track: see below.
