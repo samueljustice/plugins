@@ -11,6 +11,8 @@
  * editor glides the parameters to them on springs. A factory preset is a
  * complete look: anything it doesn't mention goes back to its default.
  * Randomise only moves what it rolls and leaves every other knob where it is.
+ * Stowaway's switch is the exception: a preset that uses Stowaway switches it
+ * on, and nothing here ever switches it off.
  * Track levels, input and the output stage are left alone (they belong to
  * your session).
  */
@@ -94,6 +96,10 @@ namespace Presets
             const bool listed = it != preset.values.end();
             const bool sessionButAllowed = listed && (id.startsWith("mod") || (outputStage && isOutputStageRoll(id)));
             if (isSessionParameter(id) ? ! sessionButAllowed : (! listed && unlisted == Unlisted::Keep))
+                continue;
+            // Stowaway's switch: a preset that uses Stowaway switches it on; nothing else moves it (tracks may be
+            // waiting on it, and a preset never takes a bus away).
+            if (id == ParamIDs::stowOn && ! (listed && it->second > 0.5f))
                 continue;
             out.emplace_back(param, listed ? param->convertTo0to1(param->getNormalisableRange().snapToLegalValue(it->second)) : param->getDefaultValue());
         }

@@ -35,9 +35,13 @@
  *   row 1  : TRACKS (each loops; start markers; the ride drawn live)   | the sea (what the rig sends out)
  *   row 2  : RIDE | BUS A (aggressive)  ->  BUS B (smooth, ducked and filtered by A)
  *   row 3  : HITS (gated at the loudest moments; its knobs under bus A's)  ->  OUTPUT
- *   row 4  : MODULATION: four modulators; drag a jack onto any knob to wire it (MegaMod style)
+ *   row 4  : STOWAWAY (the extra bus: a slim plate that opens to show its knobs) | MODULATION: four modulators;
+ *            drag a jack onto any knob to wire it (MegaMod style)
  *
- * One 12 px gutter between panels and around the window; bus A, bus B and the Hits share one knob column pitch.
+ * One 12 px gutter between panels and around the window; bus A, bus B, the Hits and Stowaway share one knob column
+ * pitch. Stowaway is optional, so its plate folds: folded it is its nameplate, switch, Mode and scope, and
+ * Modulation takes the width back; open, it shows its five wheels, dice and lock, and Modulation gives the width
+ * up. It is the one thing in the window that folds.
  */
 class SwooshbucklerAudioProcessorEditor : public juce::AudioProcessorEditor,
                                           public juce::FileDragAndDropTarget,
@@ -63,9 +67,10 @@ public:
 
     /** The design size: a landscape window. 1520 wide is the widest that still opens whole on a 1536-point laptop
         screen, and wide enough for the tracks and the sea to sit side by side over three panels of knobs on one
-        column pitch; 900 high keeps the mock-up's proportions. The window scales uniformly from here. */
+        column pitch; 924 high is the mock-up's proportions plus the room Stowaway's plate needs in the bottom row,
+        and at the smallest scale it is still whole on a 1440 x 900 laptop. The window scales uniformly from here. */
     static constexpr int c_width = 1520;
-    static constexpr int c_height = 900;
+    static constexpr int c_height = 924;
     /** The smallest and largest the window gets. At the smallest, the 10 px text is 8.5 px on screen. */
     static constexpr float c_minScale = 0.85f, c_maxScale = 2.0f;
     /** The width the window first opens at: the design size, or the largest that fits the screen it is on. */
@@ -248,6 +253,8 @@ private:
 
     void paintContent(juce::Graphics&);
     void layoutContent();
+    /** The bottom row: Stowaway's plate as far open as it is now, and Modulation in the width that leaves. */
+    void layoutBottomRow();
     void timerCallback() override;
 
     WheelKnob& addKnob(const char* paramId, const juce::String& caption, juce::Colour accent, const juce::String& tip);
@@ -329,7 +336,7 @@ private:
     IconButton m_rollBack { IconButton::Icon::Back, Theme::Colours::movement }, m_rollForward { IconButton::Icon::Forward, Theme::Colours::movement };
     IconButton m_keepRoll { IconButton::Icon::Star, Theme::Colours::movement };
     juce::TextButton m_abButton { "A" };
-    // A die and a lock in each section's title bar: Ride, Bus A, Bus B, Hits, Output.
+    // A die and a lock in each section's title bar: Ride, Bus A, Bus B, Hits, Output, Stowaway (while it is open).
     std::array<std::unique_ptr<IconButton>, Presets::numSections> m_sectionDice, m_sectionLocks;
     juce::TextButton m_retroButton { "Last 60 s" }, m_settingsButton { "Settings" }, m_takesButton { "Takes" };
     int m_retroShown = 0, m_takesShown = -1, m_takesSeen = -1, m_slowTick = 0; // what those two buttons last showed
@@ -370,6 +377,27 @@ private:
     std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> m_linkBusesAttachment;
     int m_linkShown = -1; // the Link state the bus B knobs were last shown for
     void showLinkedKnobs();
+
+    // Stowaway's plate: its switch, Mode and scope always; its five wheels, dice and lock when it is open.
+    juce::ToggleButton m_stowOn;
+    juce::ComboBox m_stowMode;
+    IconButton m_stowFold { IconButton::Icon::Next, Theme::Colours::stowaway };
+    std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> m_stowOnAttachment;
+    std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> m_stowModeAttachment;
+    std::unique_ptr<SectionScope> m_stowScope;
+    juce::Rectangle<int> m_stowPanel, m_stowNameplate, m_stowNote, m_stowStrip;
+    /** How far open the plate is: 0 folded, 1 open. It eases between them (180 ms); the first half of the way the
+        folded layout fades out, the second half the open one fades in. */
+    Motion::Fade m_stowOpen;
+    int m_stowShown = -1;      // the switch and Mode the plate's looks and tooltips were last set for
+    bool m_stowWasOn = false;  // the switch at the last frame: switching on opens the plate the first time
+    /** Folds or opens the plate (and remembers it in the session). */
+    void setStowawayOpen(bool open);
+    /** The frame's share of Stowaway: the plate easing open or shut, and its looks following the switch and Mode. */
+    void showStowaway(float dt);
+    static juce::String stowawayKnobTip(int control, int mode, bool on);
+    /** One line (or two) saying what Stowaway is right now: shown on the folded plate. */
+    static juce::String stowawayNote(int mode, bool on);
     std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> m_gateModeAttachment, m_duckModeAttachment;
     std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> m_takeTurnsAttachment;
     juce::Rectangle<int> m_gateModeLabel, m_duckModeLabel;

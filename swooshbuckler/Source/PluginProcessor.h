@@ -152,6 +152,17 @@ public:
     void setSectionLocked(int section, bool locked);
     unsigned getLockedSections() const { return m_lockedSections.load(); }
 
+    /** Stowaway's switch (ParamIDs::stowOn). Off, the bus is silent and the tracks sent to it wait. Any thread. */
+    bool isStowawayOn() const;
+    /** Switches Stowaway on or off as one host gesture (and one undo step). Message thread. */
+    void setStowawayOn(bool on);
+    /** Stowaway's Mode (ParamIDs::StowMode). Any thread. */
+    int getStowawayMode() const { return stowMode(); }
+    /** Stowaway's plate in the window: -1 not opened yet (it opens by itself the first time Stowaway is switched
+        on), 0 folded, 1 open. Saved with the session. */
+    int getStowawayPanel() const { return m_stowPanel.load(); }
+    void setStowawayPanel(int state) { m_stowPanel.store(juce::jlimit(-1, 1, state)); }
+
     // Your own presets: files in a folder beside the settings (see UserPresets).
     juce::File getPresetFolder() const;
     std::vector<juce::File> getUserPresets() const { return UserPresets::list(getPresetFolder()); }
@@ -395,6 +406,7 @@ private:
     Presets::Preset m_rollTarget;   // what stepRoll hands out
     juce::Random m_random;
     std::atomic<unsigned> m_lockedSections { 0 };
+    std::atomic<int> m_stowPanel { -1 }; // see getStowawayPanel
     std::array<Look, 2> m_ab;       // guarded by m_stateLock (a host may save from another thread)
     std::array<juce::String, 2> m_abNames;
     int m_abSlot = 0;               // guarded by m_stateLock for writes
@@ -454,6 +466,7 @@ private:
     void updateCcPump();
     int keysMode() const;
     int stowMode() const; // ParamIDs::StowMode
+    bool rumblesRideStowaway() const { return isStowawayOn() && stowMode() == ParamIDs::StowSub; }
     void parameterChanged(const juce::String& parameterID, float newValue) override; // any thread
     // Morph wander (audio thread): the dot's own flight, blended in over the X / Y controls.
     MorphWander m_wander;
@@ -500,7 +513,7 @@ private:
         std::atomic<float>* throwLength = nullptr, *play = nullptr, *keysMode = nullptr;
         std::atomic<float>* linkBuses = nullptr, *hitAim = nullptr;
         std::atomic<float>* passMode[ParamIDs::numBuses] {};
-        std::atomic<float>* stowMode = nullptr, *stow[ParamIDs::numStowControls] {};
+        std::atomic<float>* stowOn = nullptr, *stowMode = nullptr, *stow[ParamIDs::numStowControls] {};
         std::atomic<float>* tremOn = nullptr, *tremDepth = nullptr, *tremRate = nullptr, *tremThreshold = nullptr, *tremShape = nullptr, *tremTarget = nullptr;
         std::atomic<float>* masterTrim = nullptr;
         std::atomic<float>* modType[ParamIDs::numMods] {}, *modShape[ParamIDs::numMods] {}, *modKnob[ParamIDs::numMods] {},

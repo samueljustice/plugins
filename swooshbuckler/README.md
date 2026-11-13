@@ -78,10 +78,10 @@ Every knob is a ship's wheel with a sand pointer, and under it its name and its 
 2. Each track's **sound type** decides where it plays, unless you choose the bus yourself on the lane's bus tag:
    - **Bus A** gets Tonal Content, Crackle and Mixed Content.
    - **Bus B** gets Energy Bed and Air / Swish.
-   - **Stowaway** gets Rumble while its Mode is Sub. In its other modes, Rumble plays on Bus A.
+   - **Stowaway** gets Rumble while it is switched on and its Mode is Sub. Otherwise Rumble plays on Bus A.
    - **Hits** gets Impact.
 3. **Bus A and Bus B** each turn their tracks into moving sources: doppler passes that fly across the stereo field, with low end, swirl, an envelope filter and drive. Bus A is the key for Bus B: when A gets loud it ducks and darkens B, so the two don't pile up.
-4. **Stowaway** is one extra bus beside the two, and its **Mode** decides what it is. In **Sub** it is the rig's sub: only the low end of its tracks comes through, in mono, swelling with Bus A's passes. In **Wake** it is a trail: it opens as Bus A falls away, behind the pass that has just gone by. In **Dry** its tracks are only ridden, and go past Space straight to the output stage. A [throw](#throw) reaches it in every mode. The hits duck it like the buses, except in Sub, when the low end stays under the hit. See [Stowaway](#stowaway).
+4. **Stowaway** is one extra bus beside the two. It is optional: it starts switched off, and its plate has an **On / Off** switch. Its **Mode** decides what it is. In **Sub** it is the rig's sub: only the low end of its tracks comes through, in mono, swelling with Bus A's passes. In **Wake** it is a trail: it opens as Bus A falls away, behind the pass that has just gone by. In **Dry** its tracks are only ridden, and go past Space straight to the output stage. A [throw](#throw) reaches it in every mode. The hits duck it like the buses, except in Sub, when the low end stays under the hit. See [Stowaway](#stowaway).
 5. **Hits** only play when the hit gate opens. By default the gate opens at the loudest moments of the two buses, so the impacts land on the biggest swells and push the buses out of the way.
 6. **Output** adds echoes and reverb, makes it louder and denser, and limits it. The tape and Last 60 s record exactly what you hear.
 
@@ -89,7 +89,7 @@ The small brass arrows between the sections show this flow, and a strip along th
 
 ## A tour of the window
 
-The window is a landscape one. The header runs along the top. Under it, side by side, are **Tracks** on the left and **the sea** on the right, which together take the top two fifths. Then a row of **Ride**, **Bus A** and **Bus B**; then **Hits** and **Output**, with the Hits' seven knobs directly under Bus A's; and **Modulation** along the bottom, with a hint and message line under it. Bus A, Bus B and the Hits share one knob spacing, so their knobs line up in columns.
+The window is a landscape one. The header runs along the top. Under it, side by side, are **Tracks** on the left and **the sea** on the right, which together take the top two fifths. Then a row of **Ride**, **Bus A** and **Bus B**; then **Hits** and **Output**, with the Hits' seven knobs directly under Bus A's; and along the bottom **Stowaway** at the left and **Modulation** beside it, with a hint and message line under them. Bus A, Bus B, the Hits and Stowaway share one knob spacing, so their knobs line up in columns. Stowaway's plate is the one thing in the window that folds: folded it is slim and Modulation has the rest of the row; open, it shows its knobs and Modulation gives up the width (see [Stowaway](#stowaway)).
 
 The window resizes from its bottom right corner and keeps its shape; everything scales with it, from 85% up to 200%. The first time, it opens at its full size, or at the largest size that fits whole on your screen. After that it opens at the size you left it.
 
@@ -174,7 +174,7 @@ This is where your sounds live: up to ten files, each on its own looping lane. F
 |---|---|---|
 | Tonal Content | Sounds with a pitch or a voice: growls, squeals, creatures, tones. | Bus A |
 | Crackle | Busy, broken-up texture: fire, debris, sparks. | Bus A |
-| Rumble | Low end: sub, thunder, rumble. | Stowaway while its Mode is Sub, otherwise Bus A |
+| Rumble | Low end: sub, thunder, rumble. | Stowaway while it is on and its Mode is Sub, otherwise Bus A |
 | Mixed Content | A bit of everything, or no single clear type. | Bus A |
 | Energy Bed | Steady sound with body: wind, drones, engines, rain. | Bus B |
 | Air / Swish | Air movement: swishes, cloth, flaps, sword swings. | Bus B |
@@ -185,7 +185,7 @@ This is where your sounds live: up to ten files, each on its own looping lane. F
 A track plays on the bus its sound type picks until you say otherwise. Click the **bus tag** on its lane (or right-click the lane and open **Plays On**) and choose:
 
 - **Auto**: the bus the type picks, as in the table above. The menu says which that is. This is the default.
-- **Bus A**, **Bus B**, **Hits** or **Stowaway**: the track plays there whatever its type. The tag is marked ` *`. A Stowaway track's tag carries an **S**, and its lane takes Stowaway's kelp green.
+- **Bus A**, **Bus B**, **Hits** or **Stowaway**: the track plays there whatever its type. The tag is marked ` *`. A Stowaway track's tag carries an **S**, and its lane takes Stowaway's kelp green. Choosing Stowaway while it is switched off switches it on, and the status line says so. If Stowaway is switched off later, the tracks sent to it wait: they are not heard, on Stowaway or anywhere else, and their tags show a hollow **S** until it is switched on again.
 
 The type, and the name the track takes from it, stay as they are, so a growl can sit under the beds on Bus B, or a swish can go through the hit gate, and still be called what it is. The choice is saved with the session and can be undone. Dropping a new sound on the lane puts it back on Auto.
 
@@ -220,6 +220,7 @@ The sea at the top right pictures what the rig is sending out. It is the largest
 - **The waves** are the output's spectrum, lows on the left and highs on the right. The newest wave is at the front, and older ones roll away towards the horizon, going colder and hazier with distance. The water has its own colours, so nothing on it is mistaken for a bus.
 - **Each doppler pass** is a glowing ball that arcs across the sea, in its bus's colour (coral for Bus A, turquoise for Bus B). It comes closer the closer the pass, glows brighter the louder it is, and leaves a bump in the water under it that rolls away with the swell. A label above it names the bus, and the track too when only one track plays on that bus ("Bus B · Energy Bed"). Labels keep off the panel's name, the recording lamp and the Morph button, and off each other.
 - **A thrown whoosh** is the same comet in brass, and brighter, labelled Throw.
+- **Stowaway** shows in its kelp green, by its Mode, with its name (and its track's, when only one plays on it). In **Sub** the whole swell lifts with its level and the water takes its colour. In **Wake** a trail lies on the water where Bus A's comet has just been. In **Fly** it is a third comet. In **Dry**, which does not move, it is a lantern floating in the middle of the water that glows with its level. Switched off, it shows nothing.
 - **A hit** fires a short cherry glow along the horizon and a ring widening on the water.
 - **The moon** hangs in the left of the sky with its glitter path on the water below it. Its halo warms and widens while the limiter is holding the output down.
 - **Every so often the mark appears in the stars**: brighter stars on the outline of the logo, joined by faint lines. It twinkles for a few seconds and fades away. It also comes out when a take is put away.
@@ -374,7 +375,20 @@ The strip along the bottom of each bus's panel shows the last 3 seconds of what 
 
 ### Stowaway
 
-One extra bus beside Bus A and Bus B, for a layer that should not fly about with the others, or that should fly on its own. A track gets there from its lane's bus tag (see [Choosing the bus](#choosing-the-bus)); Rumble goes there by itself while the Mode is Sub. **Stowaway Mode** and its five knobs, **Follow**, **Low End**, **Filter**, **Drive** and **Width**, are in the host's parameter list, and the knobs can be wired to the [modulators](#modulation). The knobs keep their names in every mode.
+One extra bus beside Bus A and Bus B, for a layer that should not fly about with the others, or that should fly on its own. A track gets there from its lane's bus tag (see [Choosing the bus](#choosing-the-bus)); Rumble goes there by itself while Stowaway is on and its Mode is Sub. Its switch (**Stowaway**), **Stowaway Mode** and its five knobs, **Follow**, **Low End**, **Filter**, **Drive** and **Width**, are in the host's parameter list, and the knobs can be wired to the [modulators](#modulation). The knobs keep their names in every mode.
+
+#### On / Off, and the plate
+
+<img src="docs/images/stowaway.png" width="356" alt="Stowaway's plate, open"> <img src="docs/images/stowaway-folded.png" width="180" alt="Stowaway's plate, off and folded">
+
+Stowaway is optional, so it starts switched **off**, and its plate sits folded at the bottom left of the window, beside Modulation.
+
+- **On / Off** is the switch beside its name. Off, the whole plate rests: it is darker, the **S** on its nameplate is hollow and the window where its scope runs reads **Off**. Stowaway is then silent and does no work, and tracks sent to it wait unplayed (they do not move to Bus A or Bus B). On, the **S** and the switch light up in kelp green and a lit line runs along the top of the plate. Switching fades Stowaway in or out over 60 ms, so it never clicks. The switch can be automated.
+- **Sending a track to Stowaway switches it on.** Choosing Stowaway in a lane's bus menu while it is off turns it on in the same step (one Undo takes back both), so a track is never left waiting by accident.
+- **Presets and Randomise.** A preset that uses Stowaway switches it on. No preset, and no roll of the dice, ever switches it off.
+- **The chevron** at the right of the plate, or a click on the nameplate, opens and folds it. Folded, it shows the switch, the Mode, a line saying what Stowaway is at the moment, and its scope. Open, it shows the five knobs, its die and its lock as well, and Modulation gives up the room. It opens by itself the first time you switch Stowaway on. Whether it is open is saved with the session, and folding it changes nothing about the sound.
+- **A knob that does nothing in the current Mode rests** (hollow), and its tooltip says why: Width in Sub, Low End and Drive in Dry. While Stowaway is off all five rest, and can still be set.
+- **The strip** along the bottom of the plate shows the last 3 seconds of what Stowaway sends on.
 
 #### Sub
 
@@ -505,9 +519,9 @@ If the gain reduction number is coral all the time, back off Push or raise Ceili
 
 ### Modulation
 
-<img src="docs/images/modulation.png" width="1500" alt="Modulation">
+<img src="docs/images/modulation.png" width="1312" alt="Modulation">
 
-Four modulators run along the bottom: **Mod 1** (lilac), **Mod 2** (sky blue), **Mod 3** (rose) and **Mod 4** (lime). Each can be one of four types, picked from the upper of the two menus at the left of its card:
+Four modulators run along the bottom, beside Stowaway's plate: **Mod 1** (lilac), **Mod 2** (sky blue), **Mod 3** (rose) and **Mod 4** (lime). Each can be one of four types, picked from the upper of the two menus at the left of its card:
 
 | Type | What it does | Knob |
 |---|---|---|
@@ -532,7 +546,7 @@ The defaults are Mod 1: LFO (Sine), Mod 2: LFO (Triangle), Mod 3: Random, Mod 4:
   - **Right-click** a plug for a menu: Invert, Depth 25%, 50% or 100%, or Pull Out the Wire.
   - **Alt-click** a plug to pull the wire out straight away.
 - **Clear** on a card pulls out all of that modulator's wires.
-- **Cables** (at the left of the panel, under its name) shows or hides the cables. A cable leaves its jack straight up, out of the top of its card. The plugs stay on the knobs either way. A cable comes up beside a knob's name and value and turns in to its plug, so it never covers them. Put the mouse on a modulator's card, or on one of its plugs, and its cables stand out while the others fade.
+- **Cables** (at the right of the panel's title bar) shows or hides the cables. A cable leaves its jack straight up, out of the top of its card. The plugs stay on the knobs either way. A cable comes up beside a knob's name and value and turns in to its plug, so it never covers them. Put the mouse on a modulator's card, or on one of its plugs, and its cables stand out while the others fade.
 - Several wires on one knob add together. You can have up to 48 wires in all.
 - Wires only move the value that reaches the sound. The knob itself never moves, so your DAW automation stays clean.
 - Wires and modulator settings are saved with the session. Presets and Randomise don't touch them, and New pulls them all out.

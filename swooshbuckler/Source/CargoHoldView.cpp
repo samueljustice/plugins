@@ -355,7 +355,9 @@ public:
             // Where the track plays: a tag in that section's colour, right of the name. It follows the type until
             // a bus is chosen by hand (then it is marked *). A click opens the menu: the little arrow says so.
             const int bus = m_owner.m_hold.getBus(m_track);
-            const auto tagColour = busColour(bus);
+            // Sent to Stowaway while it is switched off: the track waits, and its tag rests (hollow) to say so.
+            const bool waits = bus == CargoHold::c_stowBus && ! m_owner.m_processor.isStowawayOn();
+            const auto tagColour = waits ? TC::textDim : busColour(bus);
             const auto tagText = busTag(bus) + (m_owner.m_hold.getBusOverride(m_track) < 0 ? "" : " *");
             // A tag: a small square plate with the bus's letter on a tally in the section's colour (H for the
             // hits), the bus's name beside it, and the chevron of a menu.
@@ -371,10 +373,13 @@ public:
             Theme::Plate::stroke(g, tag, 0.0f);
             const auto letter = tag.withWidth(static_cast<float>(tally));
             g.setColour(tagColour);
-            g.fillRect(letter);
-            g.setColour(TC::window);
+            if (waits)
+                g.drawRect(letter.reduced(0.5f), 1.0f);
+            else
+                g.fillRect(letter);
+            g.setColour(waits ? TC::textDim : TC::window);
             Theme::fitText(g, busLetter(bus), letter, fonts.title(), juce::Justification::centred);
-            g.setColour(tagColour.brighter(0.2f));
+            g.setColour(waits ? TC::textDim : tagColour.brighter(0.2f));
             Theme::fitText(g, tagText, tag.withTrimmedLeft(static_cast<float>(tally) + 5.0f).withTrimmedRight(static_cast<float>(arrowW) + 3.0f), tagFont, juce::Justification::centredLeft);
             juce::Path arrow;
             const float ax = tag.getRight() - 8.5f, ay = tag.getCentreY();
@@ -597,15 +602,7 @@ public:
         auto header = m_rows;
         if (hasData() && m_busTagArea.contains(pos))
         {
-            const int bus = m_owner.m_hold.getBus(m_track);
-            const bool byHand = m_owner.m_hold.getBusOverride(m_track) >= 0;
-            return juce::String("Bus\nWhere this track plays: ")
-                   + (bus == CargoHold::c_hitsBus ? juce::String("the hits, which only open at the biggest moments of buses A and B.")
-                      : bus == CargoHold::c_stowBus ? juce::String("Stowaway, the extra bus beside A and B. Its Mode decides what it does with the sound.")
-                                                   : busLabel(bus) + (bus == 0 ? ", the bus that leads and ducks bus B." : ", the bus that sits under bus A."))
-                   + (byHand ? " Chosen by hand (marked *): the sound type and the track's name stay as they are."
-                             : " On Auto it follows the sound type.")
-                   + "\nClick to choose: Auto, Bus A, Bus B, Hits or Stowaway.";
+            return busTooltip();
         }
         if (header.removeFromTop(18).contains(pos))
             return "Track Name\nNamed after its sound type, until you rename it."
@@ -616,6 +613,24 @@ public:
                    "With Skip Silence on, the bright parts are the sounds it plays and the faint parts are the gaps it skips.\n"
                    "Click or drag to move the start. Double-click to put it back at the top.";
         return {};
+    }
+
+    /** What the bus tag's tooltip says: where the track plays, and how to change it. */
+    juce::String busTooltip() const
+    {
+        {
+            const int bus = m_owner.m_hold.getBus(m_track);
+            const bool byHand = m_owner.m_hold.getBusOverride(m_track) >= 0;
+            const bool waits = bus == CargoHold::c_stowBus && ! m_owner.m_processor.isStowawayOn();
+            return juce::String("Bus\nWhere this track plays: ")
+                   + (bus == CargoHold::c_hitsBus ? juce::String("the hits, which only open at the biggest moments of buses A and B.")
+                      : waits ? juce::String("Stowaway, which is off, so this track waits and is not heard. Switch Stowaway on (the On / Off switch on its plate) to hear it.")
+                      : bus == CargoHold::c_stowBus ? juce::String("Stowaway, the extra bus beside A and B. Its Mode decides what it does with the sound.")
+                                                   : busLabel(bus) + (bus == 0 ? ", the bus that leads and ducks bus B." : ", the bus that sits under bus A."))
+                   + (byHand ? " Chosen by hand (marked *): the sound type and the track's name stay as they are."
+                             : " On Auto it follows the sound type.")
+                   + "\nClick to choose: Auto, Bus A, Bus B, Hits or Stowaway.";
+        }
     }
 
     // Mouse: click or drag on the waveform to place the start marker -----------------
@@ -705,6 +720,7 @@ public:
     }
 
 private:
+    friend class CargoHoldView; // applyBusChoice does what the bus menu does
     static constexpr int c_history = 240; // 8 s at 30 Hz
     std::array<float, c_history> m_history {};
     float m_stripe = 0.0f;      // the ride, smoothed, that the colour stripe breathes with
@@ -819,10 +835,17 @@ private:
     {
         if (result != 100 && ! CargoHold::isBusChoice(result - 101))
             return;
-        m_owner.m_processor.setTrackBus(m_track, result - 101);
+        // Sent to Stowaway while it is off: it is switched on with the same step, so the track is never left
+        // waiting on a bus that is not there.
+        auto& processor = m_owner.m_processor;
+        const bool switchesOn = result - 101 == CargoHold::c_stowBus && ! processor.isStowawayOn();
+        EditHistory::Group group(processor.getHistory(), "Track Bus");
+        processor.setTrackBus(m_track, result - 101);
+        if (switchesOn)
+            processor.setStowawayOn(true);
         const int bus = m_owner.m_hold.getBus(m_track);
         m_owner.status("\"" + m_owner.m_hold.getDisplayName(m_track) + "\" plays on " + busLabel(bus)
-                       + (result == 100 ? " (by its type)." : "."));
+                       + (result == 100 ? " (by its type)." : switchesOn ? ". Stowaway is switched on." : "."));
     }
 
     void showBusMenu()
@@ -1163,6 +1186,12 @@ void CargoHoldView::timerCallback()
         m_rumblesOnStowaway = rumbles;
         changeListenerCallback(nullptr);
     }
+    // Stowaway switched on or off: the tags of the tracks sent to it rest or wake.
+    if (const bool on = m_processor.isStowawayOn(); on != m_stowawayOn)
+    {
+        m_stowawayOn = on;
+        m_laneHolder.repaint();
+    }
 
     // Learn MIDI CC: the controller has moved.
     if (m_learnWaiting >= 0 && m_processor.getMidiLearnTarget() != m_learnWaiting)
@@ -1399,6 +1428,21 @@ bool CargoHoldView::laneAnchorScreen(int track, juce::Point<int>& screenPos) con
     point.y = juce::jlimit(4, juce::jmax(4, m_viewport.getHeight() - 4), point.y); // scrolled away: the rope ends at the list's edge
     screenPos = m_viewport.localPointToGlobal(point);
     return true;
+}
+
+bool CargoHoldView::applyBusChoice(int track, int busOrMinusOne)
+{
+    if (track < 0 || track >= CargoHold::c_numTracks || ! m_lanes[static_cast<size_t>(track)]->hasData())
+        return false;
+    m_lanes[static_cast<size_t>(track)]->applyBusItem(101 + busOrMinusOne);
+    return true;
+}
+
+juce::String CargoHoldView::busTagTooltip(int track) const
+{
+    if (track < 0 || track >= CargoHold::c_numTracks || ! m_lanes[static_cast<size_t>(track)]->hasData())
+        return {};
+    return m_lanes[static_cast<size_t>(track)]->busTooltip();
 }
 
 int CargoHoldView::trackAtScreenPosition(juce::Point<int> screenPos) const

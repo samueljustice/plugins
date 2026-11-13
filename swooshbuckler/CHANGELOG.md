@@ -22,6 +22,15 @@
 - **The hits duck Stowaway** in Wake, Fly and Dry, by Hit Duck like the buses. In Sub they leave it alone, so the low end stays under a hit.
 - **Randomise rolls Stowaway's five knobs and never its Mode.** A preset may set the Mode.
 - **A Follower can follow Stowaway**: the Follows menu reads Bus A, Bus B, Hits, Stowaway, Output, Master, Master Pitch, Master Brightness.
+- **Stowaway has its own plate in the window**, at the bottom left beside Modulation: its nameplate with an **S**, an **On / Off** switch, the **Mode** menu, five wheels (**Follow**, **Low End**, **Filter**, **Drive**, **Width**) with their values, a scope strip, a die and a lock. A wheel that does nothing in the current Mode rests, and every wheel's tooltip says what it does in that Mode.
+- **Stowaway has an On / Off switch, and starts off.** Off, it is silent and does no work, its whole plate rests (darker, a hollow **S**, **Off** in its scope's window), and tracks sent to it wait unplayed instead of moving to another bus; their tags show a hollow **S** and say so. Switching fades it in or out over 60 ms, so it never clicks. The switch is in the host's parameter list and can be automated.
+- **Sending a track to Stowaway switches it on.** Choosing Stowaway in a lane's bus menu while it is off turns it on in the same undo step, and the status line says so.
+- **Rumble goes to Stowaway only while it is on and its Mode is Sub.** In a new session, where Stowaway is off, a Rumble track on Auto plays on Bus A.
+- **Presets and Randomise never switch Stowaway off.** A preset that uses Stowaway switches it on; Randomise and the section dice leave the switch alone.
+- **Stowaway's plate folds.** Folded, it is a slim plate with the switch, the Mode, a line saying what Stowaway is now and its scope, and Modulation has the rest of the row. The chevron, or a click on the nameplate, opens it to show the wheels, the die and the lock, and Modulation gives up the width. It eases open and shut, opens by itself the first time Stowaway is switched on, and is remembered in the session.
+- **Stowaway shows in the sea**, in kelp green, with its name: a Sub lifts the whole swell and colours the water, a Wake lays a trail where Bus A's comet has just been, Fly is a third comet, and Dry is a lantern floating in the middle that glows with its level. Switched off, it shows nothing.
+- **The window is 1520 x 924**, 24 taller than before, to give the bottom row room for Stowaway's plate. At its smallest it still opens whole on a 1440 x 900 screen.
+- **Modulation is laid out as the other panels are**: its name, its hint and the **Cables** button in a title bar along the top, and the four modulators under it across the panel's width.
 
 ## 2.0.0
 

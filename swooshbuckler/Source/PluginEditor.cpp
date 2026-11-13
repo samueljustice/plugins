@@ -979,7 +979,8 @@ namespace
         constexpr int seaW = 648;                            // 1.8 : 1
         constexpr int row2Y = topY + topH + gutter, rowH = 156; // Ride, Bus A, Bus B
         constexpr int row3Y = row2Y + rowH + gutter;         // Hits, Output
-        constexpr int modY = row3Y + rowH + gutter, modH = 104;
+        constexpr int modY = row3Y + rowH + gutter, modH = 128; // Stowaway, Modulation
+        constexpr int modCardsY = 34, modCardsH = 88;        // Modulation: its title bar, then the four modulators
         constexpr int footerY = modY + modH + 6, footerH = 18;
         // Knobs: one column pitch for bus A, bus B and the Hits; a panel's knobs start a pad in from its edge.
         constexpr int pitch = 64, pad = 12;
@@ -987,6 +988,10 @@ namespace
         constexpr int busAX = left + rideW + gutter, busBX = busAX + busAW + gutter;
         constexpr int knobsY = 42;                           // from a panel's top to its knob cells
         constexpr int stripY = 134, stripH = 16;             // the scope strip along a panel's bottom
+        // Stowaway's plate, at the left of the bottom row: folded it is this wide (or as wide as its nameplate and
+        // its chevron need), open it holds five wheels on the shared pitch. Modulation has the rest of the row.
+        constexpr int stowFoldedW = 176, stowPad = 16, stowOpenW = 5 * pitch + 2 * stowPad;
+        constexpr int stowKnobsY = 35, stowStripY = 108, stowStripH = 14;
         static_assert(busBX + busBW == right, "row 2 fills the window's width");
         static_assert(footerY + footerH <= SwooshbucklerAudioProcessorEditor::c_height - 4, "the rows fit the window's height");
     }
@@ -1029,6 +1034,8 @@ SwooshbucklerAudioProcessorEditor::SwooshbucklerAudioProcessorEditor(Swooshbuckl
             m_about.setVisible(true);
             m_about.toFront(false);
         }
+        else if (m_stowNameplate.contains(e.getPosition()))
+            setStowawayOpen(m_processor.getStowawayPanel() != 1); // the nameplate folds and opens the plate, like its chevron
     };
 
     // Header ------------------------------------------------------------------
@@ -1100,7 +1107,7 @@ SwooshbucklerAudioProcessorEditor::SwooshbucklerAudioProcessorEditor(Swooshbuckl
             "bus B's Doppler, Width, Bend, Low End, Swirl, Filter, Drive, Ducked and Filtered",
             "Sensitivity, Boost, Release and Duck",
             "Space, and gently Inflate and Push",
-            "Stowaway's Follow, Low End, Filter, Drive and Width, never its Mode",
+            "Stowaway's Follow, Low End, Filter, Drive and Width, never its Mode or its switch",
         };
         static_assert(Presets::Stowaway == Presets::numSections - 1, "the die and lock of each section, in Presets' order");
         for (int section = 0; section < Presets::numSections; ++section)
@@ -1111,10 +1118,7 @@ SwooshbucklerAudioProcessorEditor::SwooshbucklerAudioProcessorEditor(Swooshbuckl
             die->setTooltip("Roll " + name + "\nRolls just this section: " + rolls[section] + ". Everything else stays where it is. "
                             "The roll joins the Randomise history, so the arrows by Randomise step back over it.");
             die->onClick = [this, section] { rollDice(section); };
-            // Stowaway has no panel to carry its die and lock yet: they exist (the lock follows the session) unseen.
-            const bool hasPanel = section != Presets::Stowaway;
-            if (hasPanel)
-                m_content.addAndMakeVisible(*die);
+            m_content.addAndMakeVisible(*die);
             auto& lock = m_sectionLocks[static_cast<size_t>(section)];
             lock = std::make_unique<IconButton>(IconButton::Icon::Lock, colours[section], true);
             lock->setClickingTogglesState(true);
@@ -1122,8 +1126,7 @@ SwooshbucklerAudioProcessorEditor::SwooshbucklerAudioProcessorEditor(Swooshbuckl
             lock->setTooltip("Lock " + name + "\nOn: the header's Randomise (and Randomise Everything in Render Variations) leaves this section "
                              "as it is. The section's own die still rolls it. The locks are saved with the session.");
             lock->onClick = [this, section] { m_processor.setSectionLocked(section, m_sectionLocks[static_cast<size_t>(section)]->getToggleState()); };
-            if (hasPanel)
-                m_content.addAndMakeVisible(*lock);
+            m_content.addAndMakeVisible(*lock);
         }
     }
     m_content.addAndMakeVisible(m_tape);
@@ -1323,6 +1326,48 @@ SwooshbucklerAudioProcessorEditor::SwooshbucklerAudioProcessorEditor(Swooshbuckl
         }
     }
 
+    // Stowaway: the extra bus. Its switch, its Mode, the chevron that opens and folds its plate, five wheels that
+    // keep their names in every mode, and its scope. What each wheel does (and whether it rests) follows the
+    // switch and the Mode: see showStowaway.
+    {
+        m_stowOn.setColour(juce::ToggleButton::tickColourId, TC::stowaway);
+        m_stowOn.setWantsKeyboardFocus(false);
+        m_stowOn.setTitle("Stowaway On / Off");
+        m_stowOn.setTooltip("Stowaway On / Off\nSwitches the extra bus on or off. Off (how a new session starts): Stowaway is silent and does no work, "
+                            "and a track sent to it waits unplayed, with a hollow S on its tag. On: it fades in, and off it fades out, so "
+                            "neither clicks. Sending a track to Stowaway from its lane's bus tag switches it on for you. Rumble sounds on Auto "
+                            "play here only while it is on and its Mode is Sub; otherwise they play on Bus A. Presets and Randomise never "
+                            "switch it off.");
+        m_content.addAndMakeVisible(m_stowOn);
+        m_stowOnAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment>(p.getState(), ParamIDs::stowOn, m_stowOn);
+
+        m_stowMode.addItemList(juce::StringArray(ParamIDs::stowModeNames, ParamIDs::numStowModes), 1);
+        m_stowMode.setWantsKeyboardFocus(false);
+        m_stowMode.setTooltip("Stowaway Mode\nWhat the extra bus is. Sub: only the low end of its tracks, in the middle, swelling with Bus A. "
+                              "Wake: a trail that opens behind each of Bus A's passes. Fly: a third mover, with doppler passes of its own. "
+                              "Dry: riding only, past Space and straight to the output. The five knobs keep their names in every mode, and "
+                              "one that does nothing in a mode rests. Changing the Mode never clicks. Randomise leaves it alone.");
+        m_content.addAndMakeVisible(m_stowMode);
+        m_stowModeAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment>(p.getState(), ParamIDs::stowMode, m_stowMode);
+
+        m_stowFold.onClick = [this] { setStowawayOpen(m_processor.getStowawayPanel() != 1); };
+        m_content.addAndMakeVisible(m_stowFold);
+
+        for (int k = 0; k < ParamIDs::numStowControls; ++k)
+            addKnob(ParamIDs::stow[k], ParamIDs::stowNames[k], TC::stowaway, stowawayKnobTip(k, p.getStowawayMode(), p.isStowawayOn()))
+                .setSize(WheelKnob::Size::Secondary);
+
+        m_stowScope = std::make_unique<SectionScope>(p.getEngine().getScope(RigEngine::SectionStow), TC::stowaway);
+        m_stowScope->setTooltip("Stowaway, the Last 3 Seconds\nWhat Stowaway sends on, after its Mode has done its work. The newest sound is at the right.");
+        m_content.addAndMakeVisible(*m_stowScope);
+
+        // A session that comes back with Stowaway on and its plate never opened opens it; otherwise as it was left.
+        if (p.isStowawayOn() && p.getStowawayPanel() < 0)
+            p.setStowawayPanel(1);
+        m_stowWasOn = p.isStowawayOn();
+        m_stowOpen.snap(p.getStowawayPanel() == 1 ? 1.0f : 0.0f);
+    }
+
     // Hits + output --------------------------------------------------------------
     addKnob(ParamIDs::hitSense, "Sensitivity", TC::record, "How easily the hits fire. With Aim on: which pass peaks get a hit (closer passes on a louder bus score higher). With Aim off: how easily the hit gate opens, by the Gate mode. Low: only the biggest moments fire the hits. High: they fire often.");
     addKnob(ParamIDs::hitBoost, "Boost", TC::record, "How loud the hit tracks come in when they fire, from 3 dB under their own level to 12 dB over it. More makes the hits punch out of the whoosh (the top end leans on the limiter).");
@@ -1498,6 +1543,7 @@ SwooshbucklerAudioProcessorEditor::SwooshbucklerAudioProcessorEditor(Swooshbuckl
         c->setFixedAspectRatio(static_cast<double>(c_width) / c_height);
 
     layoutContent();
+    showStowaway(0.0f);
     const int saved = p.savedEditorWidth;
     // The first time, the design size or the largest that is whole on the screen; after that, the size it was left at.
     const auto* display = juce::Desktop::getInstance().getDisplays().getPrimaryDisplay();
@@ -1635,8 +1681,8 @@ std::vector<std::pair<juce::String, juce::Rectangle<int>>> SwooshbucklerAudioPro
     return { { "Tracks", m_hold.getBounds() },         { "Sea", m_sea.getBounds() },
              { "Ride", m_performPanel },               { "Bus A", m_sections[0].bounds },
              { "Bus B", m_sections[1].bounds },        { "Hits", m_sections[2].bounds },
-             { "Output", m_sections[3].bounds },       { "Modulation", m_modSection },
-             { "Footer", m_footer } };
+             { "Output", m_sections[3].bounds },       { "Stowaway", m_stowPanel },
+             { "Modulation", m_modSection },           { "Footer", m_footer } };
 }
 
 void SwooshbucklerAudioProcessorEditor::layoutContent()
@@ -1856,11 +1902,9 @@ void SwooshbucklerAudioProcessorEditor::layoutContent()
         }
     }
 
-    // Row 4: modulation, across the full width: its name, hint and Cables at the left, then the four modulators.
-    m_modSection = { Lay::left, Lay::modY, Lay::right - Lay::left, Lay::modH };
-    m_cablesButton.setBounds(m_modSection.getX() + Lay::pad + 2, m_modSection.getBottom() - 10 - 22, 88, 22);
-    m_modPanel.setBounds(m_modSection.withTrimmedLeft(196).withTrimmedRight(Lay::pad).reduced(0, 8));
+    // Row 4: Stowaway's plate at the left, as far open as it is, and Modulation in the rest of the row.
     m_wires.setBounds(0, 0, c_width, c_height);
+    layoutBottomRow();
     {
         // Every knob a wire can reach, and each track's Semitones box.
         std::map<juce::String, ModTarget*> targets;
@@ -1880,6 +1924,157 @@ void SwooshbucklerAudioProcessorEditor::layoutContent()
         overlay->setBounds(0, 0, c_width, c_height);
         overlay->setVisible(false);
     }
+}
+
+void SwooshbucklerAudioProcessorEditor::layoutBottomRow()
+{
+    // Stowaway's plate eases between its two widths. The first half of the way it wears the folded layout (its
+    // switch and Mode under the nameplate, a line saying what it is), fading out; the second half the open one
+    // (switch and Mode in the title bar, the five wheels, dice and lock), fading in. A wheel shows once the plate
+    // has opened past it, so nothing ever stands outside the plate or on Modulation.
+    const float open = juce::jlimit(0.0f, 1.0f, m_stowOpen.value);
+    const bool openLayout = open >= 0.5f;
+    const float alpha = openLayout ? 2.0f * open - 1.0f : 1.0f - 2.0f * open;
+    const int titleEnd = SwooshLookAndFeel::titleEnd(*m_fonts, "Stowaway");
+    const int foldedW = juce::jmax(Lay::stowFoldedW, titleEnd + 8 + 20 + Lay::pad);
+    const int width = juce::roundToInt(static_cast<float>(foldedW) + static_cast<float>(Lay::stowOpenW - foldedW) * open);
+    m_stowPanel = { Lay::left, Lay::modY, width, Lay::modH };
+    const auto& s = m_stowPanel;
+    const int inside = s.getRight() - 6;
+
+    m_stowNameplate = { s.getX() + 18, s.getY() + 8, titleEnd - 18, 24 };
+    const bool opening = m_stowOpen.target() > 0.5f;
+    m_stowFold.setBounds(s.getRight() - Lay::pad - 20, s.getY() + 10, 20, 20);
+    m_stowFold.setIcon(opening ? IconButton::Icon::Previous : IconButton::Icon::Next);
+    m_stowFold.setTooltip(opening ? "Collapse Stowaway\nFolds the plate down to its switch, its Mode and its scope, and gives the room back to "
+                                    "Modulation. Its settings stay as they are, and it goes on playing. Clicking the nameplate does the same."
+                                  : "Expand Stowaway\nOpens the plate to show its five knobs, its die and its lock. It opens by itself the first "
+                                    "time Stowaway is switched on. Clicking the nameplate does the same.");
+    m_stowStrip = { s.getX() + Lay::pad, s.getY() + Lay::stowStripY, width - 2 * Lay::pad, Lay::stowStripH };
+    m_stowScope->setBounds(m_stowStrip);
+
+    auto& die = *m_sectionDice[Presets::Stowaway];
+    auto& lock = *m_sectionLocks[Presets::Stowaway];
+    lock.setBounds(m_stowFold.getX() - 4 - 20, s.getY() + 10, 20, 20);
+    die.setBounds(lock.getX() - 2 - 20, s.getY() + 10, 20, 20);
+    if (openLayout)
+    {
+        m_stowOn.setBounds(s.getX() + titleEnd + 8, s.getY() + 12, 30, 16);
+        m_stowMode.setBounds(m_stowOn.getRight() + 8, s.getY() + 9, 72, 22);
+        m_stowNote = {};
+    }
+    else
+    {
+        m_stowOn.setBounds(s.getX() + Lay::stowPad, s.getY() + 43, 30, 16);
+        m_stowMode.setBounds(m_stowOn.getRight() + 8, s.getY() + 40, width - (Lay::stowPad + 30 + 8) - Lay::pad, 22);
+        m_stowNote = { s.getX() + Lay::stowPad, s.getY() + 68, width - 2 * Lay::stowPad, 36 };
+    }
+    auto show = [alpha](juce::Component& c, bool visible)
+    {
+        c.setVisible(visible);
+        c.setAlpha(visible ? alpha : 1.0f);
+    };
+    show(m_stowOn, true);
+    show(m_stowMode, m_stowMode.getRight() <= die.getX() - 4 || ! openLayout);
+    show(die, openLayout && die.getX() >= m_stowMode.getRight() + 4);
+    show(lock, openLayout && die.isVisible());
+    for (int k = 0; k < ParamIDs::numStowControls; ++k)
+    {
+        auto* knob = m_controls[ParamIDs::stow[k]];
+        knob->setBounds(s.getX() + Lay::stowPad + k * Lay::pitch, s.getY() + Lay::stowKnobsY, Lay::pitch, WheelKnob::cellHeight(WheelKnob::Size::Secondary));
+        show(*knob, openLayout && knob->getRight() <= inside);
+    }
+
+    // Modulation: its title bar (the name, the hint, Cables at its right end), then the four modulators.
+    m_modSection = { s.getRight() + Lay::gutter, Lay::modY, Lay::right - (s.getRight() + Lay::gutter), Lay::modH };
+    m_cablesButton.setBounds(m_modSection.getRight() - Lay::pad - 88, m_modSection.getY() + 9, 88, 22);
+    m_modPanel.setBounds(m_modSection.getX() + Lay::pad, m_modSection.getY() + Lay::modCardsY, m_modSection.getWidth() - 2 * Lay::pad, Lay::modCardsH);
+    m_wires.rebuildSoon();
+    m_content.repaint(juce::Rectangle<int>(0, Lay::modY - 8, c_width, Lay::modH + 16));
+}
+
+void SwooshbucklerAudioProcessorEditor::setStowawayOpen(bool open)
+{
+    m_processor.setStowawayPanel(open ? 1 : 0);
+}
+
+juce::String SwooshbucklerAudioProcessorEditor::stowawayNote(int mode, bool on)
+{
+    if (! on)
+        return "Off. Switch it on for an extra bus.";
+    switch (mode)
+    {
+        case ParamIDs::StowWake: return "A trail behind each of Bus A's passes.";
+        case ParamIDs::StowFly:  return "A third mover, with passes of its own.";
+        case ParamIDs::StowDry:  return "Riding only, straight to the output.";
+        default:                 return "Low end only, swelling with Bus A.";
+    }
+}
+
+juce::String SwooshbucklerAudioProcessorEditor::stowawayKnobTip(int control, int mode, bool on)
+{
+    using namespace ParamIDs;
+    const juce::String modeName = stowModeNames[juce::jlimit(0, numStowModes - 1, mode)];
+    juce::String what;
+    if (! Params::stowControlInUse(mode, control))
+        what = mode == StowSub ? juce::String("Not used in Sub: a sub is mono, in the middle. It rests, and keeps its setting for the other modes.")
+                               : juce::String("Not used in Dry: its tracks are only ridden, with nothing added. It rests, and keeps its setting for the other modes.");
+    else if (control == StowFollow)
+        what = mode == StowSub  ? "How much the sub swells with Bus A's passes. 0%: a steady sub. 100%: it rises and falls as far as Bus A does. "
+                                  "With no track on Bus A it follows Bus B, and with none on either its own tracks are ridden instead."
+             : mode == StowWake ? "How far the trail shuts between Bus A's passes. 0%: a steady layer. 100%: silent until Bus A falls away."
+             : mode == StowFly  ? "How closely its passes keep time with Bus A's. 0%: they keep their own time. 100%: each one is at its closest "
+                                  "at the same moment as one of Bus A's."
+                                : "How much of the ride its tracks keep. 0%: they stay at their faders. 100%: they are ridden like any other track.";
+    else if (control == StowLow)
+        what = mode == StowSub ? "Weight, after the crossover: a note an octave down and overtones just above the crossover. A second low-pass keeps "
+                                 "what it adds within about an octave above the crossover."
+                               : "Weight: a note an octave down and a lift of the low end.";
+    else if (control == StowFilter)
+        what = mode == StowSub ? "The crossover, from 40 to 250 Hz. Only what is under it comes through, whatever is sent here: above it the sound "
+                                 "falls away at 48 dB per octave."
+                               : "A tilt. Open in the middle; turn it down to close a low-pass over the sound (as far as 150 Hz), or up to raise "
+                                 "a high-pass under it (as far as 2.5 kHz).";
+    else if (control == StowDrive)
+        what = mode == StowSub ? "Saturation, after the crossover: it thickens the sub and flattens its swell without turning it up."
+                               : "Saturation: grit and density, with the level kept steady.";
+    else
+        what = mode == StowWake ? "How far out to the side the trail sits, behind Bus A's pass. 0%: in the middle."
+             : mode == StowFly  ? "How far each of its passes travels across the stereo field. 0%: in the middle."
+                                : "How wide a stereo sound stays. 0%: mono. 100%: its own left and right.";
+    return juce::String("Stowaway: ") + stowNames[control] + "\nIn " + modeName + ": " + what
+           + (on ? "" : "\nStowaway is off, so this does nothing until it is switched on. It can still be set.");
+}
+
+void SwooshbucklerAudioProcessorEditor::showStowaway(float dt)
+{
+    const bool on = m_processor.isStowawayOn();
+    const int mode = m_processor.getStowawayMode();
+    // Switched on with a plate that has never been opened: it opens by itself, this once.
+    if (on && ! m_stowWasOn && m_processor.getStowawayPanel() < 0)
+        m_processor.setStowawayPanel(1);
+    m_stowWasOn = on;
+    m_stowOpen.to(m_processor.getStowawayPanel() == 1 ? 1.0f : 0.0f, Motion::Ms::overlayIn);
+    if (m_stowOpen.step(dt))
+        layoutBottomRow();
+
+    // The looks follow the switch and the Mode: off, everything on the plate rests (it can still be set up); on,
+    // a wheel that does nothing in this Mode rests, and each wheel's tooltip says what it does here.
+    const int shown = (on ? 1 : 0) + 2 * mode;
+    if (shown == m_stowShown)
+        return;
+    m_stowShown = shown;
+    Theme::setLook(m_stowMode, on ? Theme::Look::Normal : Theme::Look::Resting);
+    for (int k = 0; k < ParamIDs::numStowControls; ++k)
+        if (auto* knob = m_controls[ParamIDs::stow[k]])
+        {
+            Theme::setLook(*knob, on && Params::stowControlInUse(mode, k) ? Theme::Look::Normal : Theme::Look::Resting);
+            knob->setTooltip(stowawayKnobTip(k, mode, on));
+            if (auto* wheel = dynamic_cast<WheelKnob*>(knob))
+                wheel->valueTextChanged(); // its readout follows the Mode too (Filter: a crossover in Sub, a tilt otherwise)
+        }
+    m_stowScope->setVisible(on);
+    m_content.repaint(m_stowPanel);
 }
 
 void SwooshbucklerAudioProcessorEditor::paintContent(juce::Graphics& g)
@@ -1910,9 +2105,36 @@ void SwooshbucklerAudioProcessorEditor::paintContent(juce::Graphics& g)
     }
     for (const auto& sec : m_sections)
         SwooshLookAndFeel::drawPanel(g, sec.bounds.toFloat(), sec.title, sec.subtitle, sec.accent, f, sec.mark, static_cast<float>(sec.subtitleRight));
-    SwooshLookAndFeel::drawPanel(g, m_modSection.toFloat(), "Modulation", {}, TC::brass, f, Icons::Icon::Modulation);
-    Theme::fitLines(g, "Drag a jack onto any knob to wire it.",
-                    juce::Rectangle<int>(m_modSection.getX() + Lay::pad + 2, m_modSection.getY() + 38, 196 - Lay::pad - 14, 30), f.body(), TC::textFaint);
+    SwooshLookAndFeel::drawPanel(g, m_modSection.toFloat(), "Modulation", "Drag a jack onto any knob to wire it.", TC::brass, f,
+                                 Icons::Icon::Modulation, static_cast<float>(m_cablesButton.getX() - 8));
+
+    // Stowaway's plate. Off, the whole plate rests: darker, its tally hollow, its name dim, and its scope's window
+    // says Off. On, its tally is in its colour and a lit line runs along its top edge.
+    if (g.clipRegionIntersects(m_stowPanel.expanded(4, 6)))
+    {
+        const bool on = m_processor.isStowawayOn();
+        SwooshLookAndFeel::drawPanel(g, m_stowPanel.toFloat(), "Stowaway", {}, TC::stowaway, f, Icons::Icon::LetterS, 0.0f, ! on);
+        if (on)
+        {
+            g.setColour(TC::stowaway.withAlpha(0.85f));
+            g.fillRect(juce::Rectangle<float>(static_cast<float>(m_stowPanel.getX()) + 18.0f, static_cast<float>(m_stowPanel.getY()) + 1.0f,
+                                              static_cast<float>(m_stowPanel.getWidth()) - 36.0f, 2.0f));
+        }
+        else
+        {
+            SwooshLookAndFeel::drawWell(g, m_stowStrip.toFloat(), Theme::Cut::small);
+            g.setColour(TC::textFaint);
+            Theme::fitText(g, "Off", m_stowStrip, f.caption(), juce::Justification::centred);
+        }
+        // Folded: a line saying what it is now, under its switch and Mode.
+        if (! m_stowNote.isEmpty())
+        {
+            const float alpha = juce::jlimit(0.0f, 1.0f, 1.0f - 2.0f * m_stowOpen.value);
+            if (alpha > 0.01f)
+                Theme::fitLines(g, stowawayNote(m_processor.getStowawayMode(), on), m_stowNote, f.body(),
+                                (on ? TC::textDim : TC::textFaint).withMultipliedAlpha(alpha));
+        }
+    }
     g.setColour(TC::textDim);
     Theme::fitText(g, "Keys", m_keysLabel, f.caption(), juce::Justification::centredRight);
     Theme::fitText(g, "Gate", m_gateModeLabel, f.caption(), juce::Justification::centredLeft);
@@ -2927,6 +3149,7 @@ void SwooshbucklerAudioProcessorEditor::timerCallback()
 
     showLinkedKnobs();
     showAimControls();
+    showStowaway(dt);
     {
         // Peak Tremolo off: its knobs and menus rest (hollow), but stay usable so it can be set up before switching it on.
         const bool on = m_processor.getState().getRawParameterValue(ParamIDs::tremOn)->load() > 0.5f;

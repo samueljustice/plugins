@@ -6,6 +6,7 @@ namespace
     constexpr float c_halfWidth = 2.4f;
     constexpr float c_arcZ = 2.7f;      // cannonball passes start and end this far out
     constexpr float c_arcX = 1.75f;     // and this far either side
+    constexpr float c_subLift = 0.17f;  // how far a sub at full level lifts the water (the camera is 0.62 above it)
 
     // The water's own colours. Depth, not loudness, picks them, and none of them is a bus colour (coral,
     // turquoise, cherry): the buses own the comets, the water owns the distance.
@@ -170,50 +171,48 @@ void SeaVisualiser::step(float dt)
     const auto& engine = m_processor.getEngine();
     for (int i = 0; i < RigEngine::c_maxFlights; ++i)
     {
-        const auto v = engine.getFlightView(i);
-        auto& trail = m_trails[static_cast<size_t>(i)];
-        auto& env = m_flightEnv[static_cast<size_t>(i)];
-        if (v.active)
+        const auto ii = static_cast<size_t>(i);
+        anyFlight = stepFlight(engine.getFlightView(i), m_trails[ii], m_flightEnv[ii], m_flash[ii], m_lastX[ii], dt) || anyFlight;
+    }
+
+    // Stowaway: nothing while it is off. Its level shows in the Mode it is in; Fly's passes are comets of its own;
+    // a Wake remembers where bus A's comet has been over the water.
+    {
+        const bool on = m_processor.isStowawayOn();
+        const int mode = m_processor.getStowawayMode();
+        const float level = on ? engine.getStowLevel() : 0.0f;
+        for (int k = 0; k < ParamIDs::numStowModes; ++k)
         {
-            anyFlight = true;
-            env += (v.env - env) * juce::jmin(1.0f, 21.0f * dt);
-
-            // Each pass is a cannonball arcing across the sea, swinging in towards us at the pass.
-            const float across = juce::jlimit(-1.0f, 1.0f, v.x);
-            const float middle = 1.0f - std::abs(across);
-            const float zClose = juce::jmap(v.closeness, 2.4f, 1.2f);
-            const float z = juce::jmap(middle, c_arcZ, zClose);
-            const float y = 0.12f + (0.22f + 0.2f * env) * std::sin(juce::MathConstants<float>::pi * 0.5f * (across + 1.0f));
-            trail.push_back({ across * c_arcX, y, z });
-
-            if (static_cast<int>(trail.size()) > c_trail)
-                trail.pop_front();
-
-            // It splashes: a bump in the water under it, which then rolls away with the swell.
-            const float u = juce::jlimit(0.0f, 1.0f, (across * c_arcX / c_halfWidth + 1.0f) * 0.5f);
-            const int band = juce::jlimit(0, c_bands - 1, juce::roundToInt(u * static_cast<float>(c_bands - 1)));
-            for (int d = -3; d <= 3; ++d)
-            {
-                const int b = band + d;
-                if (b >= 0 && b < c_bands)
-                    m_wake[static_cast<size_t>(b)] = juce::jmax(m_wake[static_cast<size_t>(b)],
-                                                               0.55f * env * (1.0f - std::abs(static_cast<float>(d)) / 4.0f));
-            }
-
-            // Flash when it crosses in front of us
-            const float lastX = m_lastX[static_cast<size_t>(i)];
-            if ((lastX < 0.0f) != (v.x < 0.0f) && std::abs(v.x - lastX) < 0.5f)
-                m_flash[static_cast<size_t>(i)] = 1.0f;
-            m_lastX[static_cast<size_t>(i)] = v.x;
+            auto& shown = m_stowShown[static_cast<size_t>(k)];
+            const float want = k == mode ? level : 0.0f;
+            shown += (want - shown) * juce::jmin(1.0f, (want > shown ? 14.0f : 5.0f) * dt);
+            if (shown < 1.0e-4f)
+                shown = 0.0f;
         }
-        else
+        for (int h = 0; h < 2; ++h)
         {
-            env *= std::pow(0.03f, dt);
-            if (! trail.empty())
-                trail.pop_front();
-            m_lastX[static_cast<size_t>(i)] = -2.0f;
+            const auto hi = static_cast<size_t>(h);
+            auto view = engine.getStowFlight(h);
+            view.active = view.active && on && mode == ParamIDs::StowFly;
+            anyFlight = stepFlight(view, m_stowTrails[hi], m_stowEnv[hi], m_stowFlash[hi], m_stowLastX[hi], dt) || anyFlight;
         }
-        m_flash[static_cast<size_t>(i)] *= std::pow(0.02f, dt);
+        // The wake: bus A's louder comet lays it down as it goes, and it lingers behind the comet.
+        const float wake = m_stowShown[ParamIDs::StowWake];
+        int lead = -1;
+        for (int i = 0; i < 2; ++i)
+            if (! m_trails[static_cast<size_t>(i)].empty() && engine.getFlightView(i).active
+                && (lead < 0 || m_flightEnv[static_cast<size_t>(i)] > m_flightEnv[static_cast<size_t>(lead)]))
+                lead = i;
+        if (wake > 0.0f && lead >= 0)
+        {
+            const auto& at = m_trails[static_cast<size_t>(lead)].back();
+            m_wakeTrail.push_back({ at.x, at.z, wake });
+            if (static_cast<int>(m_wakeTrail.size()) > c_wakePoints)
+                m_wakeTrail.pop_front();
+        }
+        else if (! m_wakeTrail.empty())
+            m_wakeTrail.pop_front();
+        anyFlight = anyFlight || level > 0.01f;
     }
 
     // Hits: a flash on the horizon and a ring on the water when the gate opens.
@@ -265,6 +264,50 @@ void SeaVisualiser::step(float dt)
     m_quietSeconds = quiet ? m_quietSeconds + dt : 0.0f;
 
     repaint();
+}
+
+bool SeaVisualiser::stepFlight(const RigEngine::FlightView& v, std::deque<P3>& trail, float& env, float& flash, float& lastX, float dt)
+{
+    if (v.active)
+    {
+        env += (v.env - env) * juce::jmin(1.0f, 21.0f * dt);
+
+        // Each pass is a cannonball arcing across the sea, swinging in towards us at the pass.
+        const float across = juce::jlimit(-1.0f, 1.0f, v.x);
+        const float middle = 1.0f - std::abs(across);
+        const float zClose = juce::jmap(v.closeness, 2.4f, 1.2f);
+        const float z = juce::jmap(middle, c_arcZ, zClose);
+        const float y = 0.12f + (0.22f + 0.2f * env) * std::sin(juce::MathConstants<float>::pi * 0.5f * (across + 1.0f));
+        trail.push_back({ across * c_arcX, y, z });
+
+        if (static_cast<int>(trail.size()) > c_trail)
+            trail.pop_front();
+
+        // It splashes: a bump in the water under it, which then rolls away with the swell.
+        const float u = juce::jlimit(0.0f, 1.0f, (across * c_arcX / c_halfWidth + 1.0f) * 0.5f);
+        const int band = juce::jlimit(0, c_bands - 1, juce::roundToInt(u * static_cast<float>(c_bands - 1)));
+        for (int d = -3; d <= 3; ++d)
+        {
+            const int b = band + d;
+            if (b >= 0 && b < c_bands)
+                m_wake[static_cast<size_t>(b)] = juce::jmax(m_wake[static_cast<size_t>(b)],
+                                                           0.55f * env * (1.0f - std::abs(static_cast<float>(d)) / 4.0f));
+        }
+
+        // Flash when it crosses in front of us
+        if ((lastX < 0.0f) != (v.x < 0.0f) && std::abs(v.x - lastX) < 0.5f)
+            flash = 1.0f;
+        lastX = v.x;
+    }
+    else
+    {
+        env *= std::pow(0.03f, dt);
+        if (! trail.empty())
+            trail.pop_front();
+        lastX = -2.0f;
+    }
+    flash *= std::pow(0.02f, dt);
+    return v.active;
 }
 
 juce::Point<float> SeaVisualiser::project(P3 p) const
@@ -454,7 +497,11 @@ void SeaVisualiser::paintWater(juce::Graphics& g, float h)
         const float nearRow = depth < 1.0f ? h : fillBottom;
 
         float loudest = 0.0f;
-        const float swellGain = 1.0f + 1.8f * m_swell;
+        // A sub lifts the whole swell: every row rides higher and rolls deeper with Stowaway's level.
+        // (A quiet sub still shows: the lift goes by the root of its level.)
+        const float sub = std::sqrt(m_stowShown[ParamIDs::StowSub]);
+        const float lift = c_subLift * sub;
+        const float swellGain = 1.0f + 1.8f * m_swell + 1.6f * sub;
         for (int b = 0; b < c_bands; ++b)
         {
             const float u = static_cast<float>(b) / (c_bands - 1);
@@ -463,7 +510,7 @@ void SeaVisualiser::paintWater(juce::Graphics& g, float h)
                                            + 0.012f * std::sin(x * 5.3f - t * 0.9f + depth * 0.9f));
             const float height = row[static_cast<size_t>(b)];
             loudest = juce::jmax(loudest, height);
-            p[static_cast<size_t>(b)] = project({ x, height * 0.42f + swell, z });
+            p[static_cast<size_t>(b)] = project({ x, height * 0.42f + swell + lift, z });
         }
 
         // The crest is one smooth curve through the row rather than eighty straight segments. The shape that
@@ -494,9 +541,10 @@ void SeaVisualiser::paintWater(juce::Graphics& g, float h)
 
         // Each row fills over the rows behind it, so near waves hide far ones; both fill and line take their
         // colour from how far out the row is, so the sea has depth and the horizon fogs away.
-        g.setColour(c_hollow.interpolatedWith(c_fog, (1.0f - nearness) * 0.9f));
+        g.setColour(c_hollow.interpolatedWith(c_fog, (1.0f - nearness) * 0.9f).interpolatedWith(Theme::Colours::stowaway, 0.30f * sub * nearness));
         g.fillPath(fill);
-        g.setColour(waterColour(nearness, juce::jmin(1.0f, loudest)));
+        // (and the near crests take Stowaway's colour while it does, so it is plain what is lifting them)
+        g.setColour(waterColour(nearness, juce::jmin(1.0f, loudest)).interpolatedWith(Theme::Colours::stowaway, 0.8f * sub * nearness));
         g.strokePath(line, juce::PathStrokeType(depth < 1.0f ? 1.7f : 1.1f, juce::PathStrokeType::mitered, juce::PathStrokeType::butt));
     }
 }
@@ -528,6 +576,88 @@ void SeaVisualiser::refreshBusLabels()
         m_busLabels[static_cast<size_t>(b)] = want;
     }
     m_busLabels[RigEngine::c_maxBuses] = "Throw";
+    {
+        int count = 0, only = -1;
+        for (int t = 0; t < CargoHold::c_numTracks; ++t)
+            if (cargo.get(t) != nullptr && cargo.getBus(t) == CargoHold::c_stowBus)
+            {
+                ++count;
+                only = t;
+            }
+        const auto name = count == 1 ? cargo.getDisplayName(only) : juce::String();
+        m_busLabels[c_stowLabel] = juce::String("Stowaway")
+                                   + (name.isNotEmpty() ? (" " + juce::String::charToString(0x00b7) + " ") + name : juce::String());
+    }
+}
+
+void SeaVisualiser::paintStowaway(juce::Graphics& g, float h)
+{
+    namespace TC = Theme::Colours;
+    const auto colour = TC::stowaway;
+    m_stowLabelAlpha = 0.0f;
+
+    // Sub: the swell itself is lifted (see paintWater). Its name sits low over the near water it lifts.
+    // (and the body of the water takes its colour). Its name sits low, on the near water it lifts.
+    if (const float sub = m_stowShown[ParamIDs::StowSub]; sub > 0.01f)
+    {
+        m_stowLabelAt = { m_cx, h - 30.0f };
+        m_stowLabelAlpha = juce::jlimit(0.0f, 1.0f, (sub - 0.03f) * 6.0f);
+    }
+
+    // Wake: a trail on the water where bus A's comet has been, widest and brightest just behind it.
+    if (m_wakeTrail.size() >= 2)
+    {
+        const float count = static_cast<float>(m_wakeTrail.size());
+        for (size_t j = 1; j < m_wakeTrail.size(); ++j)
+        {
+            const auto& a = m_wakeTrail[j - 1];
+            const auto& b = m_wakeTrail[j];
+            const float age = static_cast<float>(j) / count; // 1 at the comet, 0 at the trail's far end
+            const float strength = juce::jmin(1.0f, 1.6f * b.strength);
+            const auto p0 = project({ a.x, 0.02f, a.z }), p1 = project({ b.x, 0.02f, b.z });
+            const float width = (3.0f + 16.0f * strength) * (0.35f + 0.65f * age) * (m_focal / (b.z * 260.0f));
+            g.setColour(colour.withAlpha(juce::jmin(1.0f, (0.18f + 0.55f * strength) * age)));
+            g.drawLine({ p0, p1 }, width);
+            // Foam along it: a short bright fleck every few points.
+            if (j % 4 == 0)
+            {
+                g.setColour(juce::Colour(0xfffff1d6).interpolatedWith(colour, 0.5f).withAlpha(0.6f * strength * age));
+                g.fillRect(juce::Rectangle<float>(width * 0.9f + 2.0f, 1.4f).withCentre(p1));
+            }
+        }
+        const auto& last = m_wakeTrail.back();
+        const auto at = project({ last.x, 0.02f, last.z });
+        m_stowLabelAt = { at.x, at.y + 14.0f };
+        m_stowLabelAlpha = juce::jlimit(0.0f, 1.0f, (m_stowShown[ParamIDs::StowWake] - 0.03f) * 6.0f);
+    }
+
+    // Dry does not move: a lantern floating in the middle of the water, glowing with its level.
+    if (const float dry = m_stowShown[ParamIDs::StowDry]; dry > 0.01f)
+    {
+        const float z = 1.7f, t = static_cast<float>(m_time);
+        const float bob = 0.012f * std::sin(t * 1.4f);
+        const auto base = project({ 0.0f, 0.03f + bob, z });
+        const float unit = m_focal / (z * 260.0f); // a pixel-ish at this distance
+        const float glow = (26.0f + 70.0f * dry) * unit;
+        juce::ColourGradient light(colour.withAlpha(0.20f + 0.50f * dry), base.x, base.y - 9.0f * unit,
+                                   colour.withAlpha(0.0f), base.x + glow, base.y - 9.0f * unit, true);
+        g.setGradientFill(light);
+        g.fillEllipse(juce::Rectangle<float>(glow * 2.0f, glow * 2.0f).withCentre({ base.x, base.y - 9.0f * unit }));
+        // Its light on the water under it.
+        g.setColour(colour.withAlpha(0.10f + 0.30f * dry));
+        g.fillEllipse(juce::Rectangle<float>(glow * 1.8f, glow * 0.22f).withCentre({ base.x, base.y + 3.0f * unit }));
+        // The lantern: a float, a square glass and a cap, hard-edged.
+        const float s = juce::jmax(1.0f, unit);
+        g.setColour(TC::edgeDark);
+        g.fillRect(juce::Rectangle<float>(16.0f * s, 3.0f * s).withCentre({ base.x, base.y }));
+        g.fillRect(juce::Rectangle<float>(10.0f * s, 3.0f * s).withCentre({ base.x, base.y - 17.0f * s }));
+        g.setColour(juce::Colour(0xfffff1d6).interpolatedWith(colour, 0.55f - 0.35f * dry).withAlpha(0.55f + 0.45f * dry));
+        g.fillRect(juce::Rectangle<float>(8.0f * s, 12.0f * s).withCentre({ base.x, base.y - 8.5f * s }));
+        g.setColour(TC::edgeDark);
+        g.drawRect(juce::Rectangle<float>(8.0f * s, 12.0f * s).withCentre({ base.x, base.y - 8.5f * s }), juce::jmax(1.0f, 0.8f * s));
+        m_stowLabelAt = { base.x, base.y - 19.0f * s - glow * 0.35f - 9.0f };
+        m_stowLabelAlpha = juce::jlimit(0.0f, 1.0f, (dry - 0.03f) * 6.0f);
+    }
 }
 
 void SeaVisualiser::paintComets(juce::Graphics& g, float w)
@@ -537,19 +667,11 @@ void SeaVisualiser::paintComets(juce::Graphics& g, float w)
     const auto& busLabels = m_busLabels;
 
     struct Label { float env = -1.0f, alpha = 0.0f; juce::Point<float> at; };
-    std::array<Label, c_cometGroups> labels; // one per bus, on its louder pass, and one for the throws
-    for (size_t i = 0; i < m_trails.size(); ++i)
+    std::array<Label, c_labels> labels; // one per bus, on its louder pass, one for the throws, and Stowaway's
+    auto comet = [&](const std::deque<P3>& trail, float env, float flash, juce::Colour colour, float bright, float whiteness, size_t group)
     {
-        const auto& trail = m_trails[i];
         if (trail.size() < 2)
-            continue;
-
-        // Two passes per bus, then the thrown whooshes: a throw is the same comet in brass, and brighter.
-        const size_t group = static_cast<size_t>(cometGroup(static_cast<int>(i)));
-        const bool thrown = static_cast<int>(group) == RigEngine::c_maxBuses;
-        const juce::Colour colour = thrown ? TC::brass : (group == 0 ? TC::busA : TC::busB);
-        const float bright = thrown ? 1.3f : 1.0f;
-        const float env = m_flightEnv[i];
+            return;
         // The tail fades as the square of its age, so its first third is below a tone anyone can see: it is not
         // drawn, and the reflection only follows the half of the trail that is bright enough to cast one.
         const size_t firstSeen = trail.size() / 3 < 1 ? 1 : trail.size() / 3;
@@ -578,20 +700,34 @@ void SeaVisualiser::paintComets(juce::Graphics& g, float w)
         juce::ColourGradient glow(colour.withAlpha(0.9f), p.x, p.y, colour.withAlpha(0.0f), p.x + radius * 2.2f, p.y, true);
         g.setGradientFill(glow);
         g.fillEllipse(juce::Rectangle<float>(radius * 4.4f, radius * 4.4f).withCentre(p));
-        g.setColour(juce::Colour(0xfffff1d6).interpolatedWith(colour, thrown ? 0.45f : 0.35f));
+        g.setColour(juce::Colour(0xfffff1d6).interpolatedWith(colour, whiteness));
         g.fillEllipse(juce::Rectangle<float>(radius * 0.9f, radius * 0.9f).withCentre(p));
 
         // Its label goes just above the glow (drawn below, once per group, on its louder pass).
         if (env > labels[group].env)
             labels[group] = { env, juce::jlimit(0.0f, 1.0f, (env - 0.04f) * 6.0f), { p.x, p.y - radius * 2.3f - 9.0f } };
 
-        if (m_flash[i] > 0.02f)
+        if (flash > 0.02f)
         {
-            const float ring = (1.0f - m_flash[i]) * m_focal * 0.5f / head.z;
-            g.setColour(colour.withAlpha(0.5f * m_flash[i]));
+            const float ring = (1.0f - flash) * m_focal * 0.5f / head.z;
+            g.setColour(colour.withAlpha(0.5f * flash));
             g.drawEllipse(juce::Rectangle<float>(ring * 2.0f, ring * 0.7f).withCentre(project({ head.x, 0.0f, head.z })), 1.5f);
         }
+    };
+    for (size_t i = 0; i < m_trails.size(); ++i)
+    {
+        // Two passes per bus, then the thrown whooshes: a throw is the same comet in brass, and brighter.
+        const size_t group = static_cast<size_t>(cometGroup(static_cast<int>(i)));
+        const bool thrown = static_cast<int>(group) == RigEngine::c_maxBuses;
+        comet(m_trails[i], m_flightEnv[i], m_flash[i], thrown ? TC::brass : (group == 0 ? TC::busA : TC::busB), thrown ? 1.3f : 1.0f,
+              thrown ? 0.45f : 0.35f, group);
     }
+    // Stowaway in Fly: a third comet, in its own colour.
+    for (size_t i = 0; i < m_stowTrails.size(); ++i)
+        comet(m_stowTrails[i], m_stowEnv[i], m_stowFlash[i], TC::stowaway, 1.0f, 0.35f, static_cast<size_t>(c_stowLabel));
+    // In its other modes its name goes where it shows (see paintStowaway).
+    if (labels[c_stowLabel].env < 0.0f && m_stowLabelAlpha > 0.01f)
+        labels[c_stowLabel] = { 0.0f, m_stowLabelAlpha, m_stowLabelAt };
 
     // The labels, fading in and out with the passes: kept apart from each other, and off the readouts and the
     // buttons the window puts over the sea.
@@ -599,7 +735,7 @@ void SeaVisualiser::paintComets(juce::Graphics& g, float w)
         return;
 
     const auto labelFont = m_fonts.caption();
-    std::array<juce::Rectangle<float>, c_cometGroups> placed;
+    std::array<juce::Rectangle<float>, c_labels> placed;
     size_t numPlaced = 0;
     for (size_t b = 0; b < labels.size(); ++b)
     {
@@ -617,7 +753,7 @@ void SeaVisualiser::paintComets(juce::Graphics& g, float w)
         if (numPlaced < placed.size())
             placed[numPlaced++] = area;
 
-        const juce::Colour colour = b == 0 ? TC::busA : (b == 1 ? TC::busB : TC::brass);
+        const juce::Colour colour = b == 0 ? TC::busA : (b == 1 ? TC::busB : (static_cast<int>(b) == c_stowLabel ? TC::stowaway : TC::brass));
         // A dark plate behind it, so it reads over the stars and the waves.
         g.setColour(TC::well.withAlpha(0.72f * label.alpha));
         Theme::Plate::fill(g, area.expanded(4.0f, 0.0f), Theme::Cut::small);
@@ -699,7 +835,7 @@ void SeaVisualiser::paint(juce::Graphics& g)
                 const float seed = static_cast<float>(k) * 1.7f + static_cast<float>(f) * 4.3f;
                 const float side = std::sin(seed * 2.11f) * (0.04f + 0.20f * nearness);
                 const float sway = 0.035f * std::sin(t * 1.9f + seed);
-                const auto at = project({ worldX + (side + sway) * z, height * 0.42f, z });
+                const auto at = project({ worldX + (side + sway) * z, height * 0.42f + c_subLift * std::sqrt(m_stowShown[ParamIDs::StowSub]), z });
                 const float len = 2.0f + 10.0f * nearness * (0.6f + 0.4f * std::abs(std::sin(seed)));
                 const float shine = 0.35f + 0.65f * std::abs(std::sin(t * 2.7f + seed * 1.3f));
                 const float lit = nearness * std::sqrt(nearness); // the far ones fade out rather than litter the horizon
@@ -745,6 +881,7 @@ void SeaVisualiser::paint(juce::Graphics& g)
         }
     }
 
+    paintStowaway(g, h);
     paintComets(g, w);
 
     // The panel's name, and the recording lamp. The time itself is on the tape's own button in the header, so

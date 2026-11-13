@@ -59,6 +59,7 @@ namespace
     constexpr float c_subPeakPasses = 2.16f;    // the peak a sub measures a bus's swell against falls back 12 dB per three passes
     constexpr float c_subBusSeconds = 0.1f;     // how fast it changes over between bus A, bus B and its own ride
     constexpr float c_stowFadeSeconds = 0.03f;  // a change of Stowaway's Mode: out, swap, back in
+    constexpr float c_stowGateSeconds = 0.06f;  // Stowaway switched on or off: in, or out
     constexpr float c_busFadeSeconds = 0.01f;   // a track changing place: out, swap, back in
     // Wake. How far bus A has fallen dies away with this time constant, in pass lengths (so a trail lasts with the
     // passes), and the trail is fully open once A has fallen this far.
@@ -333,6 +334,7 @@ void RigEngine::reset()
         s.now = m_params.stow;
         s.mode = s.now.mode = juce::jlimit(0, c_stowModes - 1, m_params.stow.mode);
         s.fade = 1.0f;
+        s.gate = m_params.stow.on ? 1.0f : 0.0f;
         s.fed = s.sideFed = s.sounding = s.ducked = false;
         s.pan = s.panFrom = 0.0f;
         s.throwKey = 0.0f;
@@ -1096,6 +1098,7 @@ void RigEngine::renderTracks(int frames)
     // The other modes: Wake's tracks are not ridden either (the trail is what moves it); Dry's keep as much of
     // their ride as Follow says; Fly's are ridden like any others.
     const int stowMode = m_stow.mode; // the mode in use
+    const bool stowShut = isStowShut();
     const bool subMode = stowMode == StowSub;
     float subRide = stowMode == StowWake ? 0.0f : stowMode == StowDry ? m_stow.now.follow : 1.0f; // how much of its ride (in dB) a track on Stowaway keeps
     if (subMode)
@@ -1166,6 +1169,11 @@ void RigEngine::renderTracks(int frames)
         const float busFade1 = m_busFade[ti];
         const int bus = m_busNow[ti];
         const bool onStow = bus == CargoHold::c_stowBus;
+        // Stowaway switched off (and faded out): the tracks sent there wait. They are not played, here or
+        // anywhere else, and start again like a sound just loaded when it is switched on.
+        const bool waits = onStow && busWanted == bus && stowShut;
+        if (waits)
+            data = nullptr;
         if (onStow && data != nullptr && subRide < 1.0f)
             ride = subRide <= 0.0f ? 1.0f : std::pow(ride, subRide);
         m_rideView[ti].store(ride, std::memory_order_relaxed);
@@ -1174,7 +1182,7 @@ void RigEngine::renderTracks(int frames)
         const float target = data != nullptr ? level * ride * laneGain * m_releaseGain : 0.0f;
         const float throwTarget = data != nullptr ? level * laneGain * m_throwOpen : 0.0f;
 
-        if (data == nullptr && m_gain[ti] < 1.0e-5f && m_throwGain[ti] < 1.0e-5f)
+        if (data == nullptr && (waits || (m_gain[ti] < 1.0e-5f && m_throwGain[ti] < 1.0e-5f)))
         {
             m_gain[ti] = 0.0f;
             m_throwGain[ti] = 0.0f;
@@ -1588,6 +1596,21 @@ void RigEngine::renderStow(int frames)
     // The mode. A change (by hand or by automation) fades what is sounding out, swaps at silence (see the end),
     // and fades the new mode in: about 30 ms each way. With nothing sounding it just changes.
     const int wanted = juce::jlimit(0, c_stowModes - 1, m_params.stow.mode);
+    // The switch. Off fades what is sounding out (60 ms) and then nothing here runs at all; on fades it back in.
+    const float gate0 = s.gate;
+    if (! m_params.stow.on && gate0 <= 0.0f)
+    {
+        s.leaveMode();
+        s.mode = s.now.mode = wanted;
+        s.fade = 1.0f;
+        s.sounding = false;
+        s.throwKey = 0.0f;
+        s.panFrom = s.pan = 0.0f;
+        s.env = s.follower.env = 0.0f;
+        return;
+    }
+    s.gate = m_params.stow.on ? std::min(1.0f, gate0 + seconds / c_stowGateSeconds) : std::max(0.0f, gate0 - seconds / c_stowGateSeconds);
+    const float gate1 = s.gate;
     if (wanted != s.mode && ! s.fed && ! (s.mode == StowSub && s.sub.on) && ! (s.mode == StowFly && s.fly.on))
     {
         s.leaveMode();
@@ -1662,13 +1685,15 @@ void RigEngine::renderStow(int frames)
         else if (mode == StowDry)
             renderDry(frames);
     }
-    if (fade0 < 1.0f || fade1 < 1.0f)
+    if (fade0 < 1.0f || fade1 < 1.0f || gate0 < 1.0f || gate1 < 1.0f)
     {
+        // The Mode's fade and the switch's, as one gain.
         const bool sides = mode == StowDry && s.dry.sideOn;
+        const float g0 = fade0 * gate0, g1 = fade1 * gate1;
         for (int i = 0; i < frames; ++i)
         {
             const auto ii = static_cast<size_t>(i);
-            const float g = fade0 + (fade1 - fade0) * static_cast<float>(i + 1) * invFrames;
+            const float g = g0 + (g1 - g0) * static_cast<float>(i + 1) * invFrames;
             s.mono[ii] *= g;
             if (sides)
                 s.side[ii] *= g;

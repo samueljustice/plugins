@@ -12,7 +12,12 @@
 //   header.png tracks.png lane.png sea.png ride.png bus-a.png bus-b.png hits.png output.png modulation.png
 //                             one crop per panel
 //   window-stowaway.png tracks-stowaway.png
-//                             a track sent to Stowaway by hand
+//                             a track sent to Stowaway by hand while it is off (its tag rests: the track waits)
+//   stowaway.png              Stowaway's plate as a new session has it: off, and folded
+//   stowaway-off-open.png     off, with the plate open (everything on it rests)
+//   stowaway-folded.png       on, and folded
+//   window-stowaway-<mode>.png stowaway-<mode>.png sea-stowaway-<mode>.png   (sub, wake, fly, dry)
+//                             on and open in each Mode, with a track playing on it: the plate, and the sea showing it
 //   morph.png                 the morph pad open over the sea
 //   cables.png                three wires, cables on, the buses linked (the Linked, Resting and Disabled looks)
 //   settings.png takes.png variations.png variations-rendering.png about.png update.png
@@ -26,7 +31,7 @@
 //
 // --docs writes, instead of all of the above, exactly the pictures the manual uses, under the names it uses
 // (screenshot.png, header.png, tracks.png, track-lane.png, track-master.png, ride.png, throw-keys.png,
-// bus-a.png, bus-b.png, hits.png, output.png, sea.png, morph-pad.png, morph-rope.png, modulation.png,
+// bus-a.png, bus-b.png, hits.png, output.png, stowaway.png, stowaway-folded.png, sea.png, morph-pad.png, morph-rope.png, modulation.png,
 // cables.png, settings.png, shortcuts.png, takes.png, variations.png, about.png). Run it as
 // tools/make-docs-images.sh does, at --scale 2.0, and the files go straight into docs/ and docs/images/.
 //
@@ -164,12 +169,33 @@ namespace
                 shots.crop(window, "hits", ed.m_sections[2].bounds, 2);
                 shots.crop(window, "output", ed.m_sections[3].bounds, 2);
                 shots.crop(window, "modulation", ed.m_modSection, 2);
+                shots.crop(window, "stowaway-folded", ed.m_stowPanel, 2);
                 for (auto* lane : ed.m_hold.m_laneHolder.getChildren())
                     if (lane->isVisible())
                     {
                         shots.crop(window, "track-lane", ed.m_content.getLocalArea(lane, lane->getLocalBounds()), 2);
                         break;
                     }
+            }
+
+            // Stowaway, switched on with a track sent to it, and its plate open. (Not through the lane's menu: its
+            // line in the Tracks title bar would still be there in the pictures that follow.)
+            {
+                proc.setTrackBus(1, CargoHold::c_stowBus);
+                proc.setStowawayOn(true);
+                ed.m_hold.historyStepped();
+                rig.run(0.1);
+                ed.m_stowOpen.snap(1.0f); // (it eases open over 180 ms of real time: the picture wants it open)
+                ed.layoutBottomRow();
+                rig.run(2.5);
+                shots.crop(shots.shoot("window-stowaway"), "stowaway", ed.m_stowPanel, 2);
+                proc.setTrackBus(1, -1);
+                proc.setStowawayOn(false);
+                proc.setStowawayPanel(-1);
+                ed.m_stowOpen.snap(0.0f);
+                ed.layoutBottomRow();
+                ed.m_hold.historyStepped();
+                rig.run(0.3);
             }
 
             // A throw on its way in: the Ride panel counting down to its peak, with Throw, Throw Length and Keys.
@@ -405,6 +431,7 @@ int main(int argc, char* argv[])
             shots.crop(window, "hits", ed.m_sections[2].bounds);
             shots.crop(window, "output", ed.m_sections[3].bounds);
             shots.crop(window, "modulation", ed.m_modSection);
+            shots.crop(window, "stowaway", ed.m_stowPanel);
 
             // The panels bolted to the window: listed, and none may run into another or leave the window.
             const auto panels = ed.panelBounds();
@@ -441,12 +468,54 @@ int main(int argc, char* argv[])
             rig.run(0.1);
         }
 
-        // A track sent to Stowaway by hand: its tag says so, with an S on its tally, and its lane takes Stowaway's colour.
+        // Stowaway. A track sent to it by hand while it is off waits: its tag rests, with a hollow S. Then the plate
+        // in each of its states, and (on, with the track playing on it) the sea showing it in each Mode.
         {
+            auto set = [&proc](const char* id, float plain)
+            {
+                auto* param = proc.getState().getParameter(id);
+                param->setValueNotifyingHost(param->convertTo0to1(plain));
+            };
+            // The plate eases open over 180 ms of real time; the pictures want it where it is going.
+            auto settle = [&](bool open)
+            {
+                proc.setStowawayPanel(open ? 1 : 0);
+                ed.m_stowOpen.snap(open ? 1.0f : 0.0f);
+                ed.layoutBottomRow();
+            };
+            auto plate = [&](const juce::String& name) { shots.crop(shots.shoot("window-" + name), name, ed.m_stowPanel.getUnion(ed.m_modSection.withWidth(120))); };
+
             proc.getCargo().setBusOverride(1, CargoHold::c_stowBus);
             ed.m_hold.historyStepped(); // the lanes take up the change (no message loop runs here)
             rig.run(0.3);
             shots.crop(shots.shoot("window-stowaway"), "tracks-stowaway", ed.m_hold.getBounds());
+
+            settle(true);
+            rig.run(0.2);
+            plate("stowaway-off-open");
+
+            set(ParamIDs::stowOn, 1.0f);
+            settle(false);
+            rig.run(1.0);
+            plate("stowaway-folded");
+
+            const char* names[ParamIDs::numStowModes] = { "sub", "wake", "fly", "dry" };
+            settle(true);
+            for (int mode = 0; mode < ParamIDs::numStowModes; ++mode)
+            {
+                set(ParamIDs::stowMode, static_cast<float>(mode));
+                rig.run(mode == ParamIDs::StowDry ? 1.5 : 3.0);
+                const juce::String name = juce::String("stowaway-") + names[mode];
+                const auto window = shots.shoot("window-" + name);
+                shots.crop(window, name, ed.m_stowPanel.getUnion(ed.m_modSection.withWidth(120)));
+                shots.crop(window, "sea-" + name, ed.m_sea.getBounds());
+            }
+
+            set(ParamIDs::stowMode, static_cast<float>(ParamIDs::StowSub));
+            set(ParamIDs::stowOn, 0.0f);
+            proc.setStowawayPanel(-1);
+            ed.m_stowOpen.snap(0.0f);
+            ed.layoutBottomRow();
             proc.getCargo().setBusOverride(1, -1);
             ed.m_hold.historyStepped();
             rig.run(0.1);

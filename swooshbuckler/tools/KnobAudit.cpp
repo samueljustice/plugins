@@ -13,10 +13,12 @@
 // Sources (synthetic, mono, routed by their type): growl = gappy tonal growls (Bus A), wind = an energy bed
 // (Bus B), hits = impacts (the hit gate), tone = a steady 330 Hz sine on Bus A (for pitch and distortion),
 // air = a hissy bed on Bus B (for filters and width), rumble = a wideband rumble (heavy under 100 Hz, with hiss
-// on top), which Stowaway takes by itself while its Mode is Sub; drone = a steady low drone (45 and 72 Hz with
-// a little hiss) of the Rumble type too, which has no movement of its own, so what moves it is the plug-in.
+// on top), which Stowaway takes by itself while it is on and its Mode is Sub; drone = a steady low drone (45 and
+// 72 Hz with a little hiss) of the Rumble type too, which has no movement of its own, so what moves it is the plug-in.
 // A source goes somewhere else with @: name@a (Bus A), name@b (Bus B), name@h (the hits), name@s (Stowaway),
 // e.g. --src growl,wind,air@s.
+// Stowaway starts switched off, as in a new session. A rumble, a drone or anything sent @s switches it on, so the
+// source is heard where it is meant to be; --set stowOn=0 or 1 says otherwise (it is applied afterwards).
 // --bands also prints each value's octave-band levels (dB against the whole), for filters.
 //
 // Each value is rendered `reps` times after different pre-rolls (so a different stretch of the rig's random
@@ -565,6 +567,9 @@ namespace
             else if (name == "hits") role = CargoRole::Impact;
             else if (name == "rumble" || name == "drone") role = CargoRole::Rumble;
             proc.getCargo().setRoleOverride(track, static_cast<int>(role));
+            if (role == CargoRole::Rumble || place == "s")
+                if (auto* on = proc.getState().getParameter(ParamIDs::stowOn))
+                    on->setValueNotifyingHost(1.0f);
             if (place.isNotEmpty())
             {
                 const int bus = place == "a" ? 0 : place == "b" ? 1 : place == "h" ? CargoHold::c_hitsBus : place == "s" ? CargoHold::c_stowBus : -1;

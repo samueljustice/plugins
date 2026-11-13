@@ -941,7 +941,7 @@ int main(int argc, char* argv[])
                                       << panels[j].second.toString() << std::endl;
                         }
                 }
-                check(panels.size() == 9 && touching == 0 && outside == 0,
+                check(panels.size() == 10 && touching == 0 && outside == 0,
                       "layout: the " + juce::String(static_cast<int>(panels.size())) + " panels are whole in the window and none runs into another" + at);
 
                 auto of = [&panels](const char* name)
@@ -952,9 +952,9 @@ int main(int argc, char* argv[])
                     return juce::Rectangle<int>();
                 };
                 const auto tracks = of("Tracks"), sea = of("Sea"), ride = of("Ride"), busA = of("Bus A"), busB = of("Bus B"), hits = of("Hits"),
-                           output = of("Output"), mod = of("Modulation");
+                           output = of("Output"), mod = of("Modulation"), stow = of("Stowaway");
                 const int gutter = Theme::Space::gutter;
-                check(E::c_width >= 1480 && E::c_width <= 1560 && E::c_height == 900, "layout: a landscape window, " + juce::String(E::c_width) + " x " + juce::String(E::c_height));
+                check(E::c_width >= 1480 && E::c_width <= 1560 && E::c_height == 924, "layout: a landscape window, " + juce::String(E::c_width) + " x " + juce::String(E::c_height));
                 check(tracks.getY() == sea.getY() && tracks.getHeight() == sea.getHeight() && sea.getX() - tracks.getRight() == gutter
                           && tracks.getX() == gutter && sea.getRight() == E::c_width - gutter,
                       "layout: the tracks and the sea share the top row, a gutter apart, a gutter in from the window's edges" + at);
@@ -971,8 +971,11 @@ int main(int argc, char* argv[])
                           && output.getX() - hits.getRight() == gutter && hits.getX() == ride.getX() && hits.getRight() == busA.getRight()
                           && output.getX() == busB.getX() && output.getRight() == busB.getRight(),
                       "layout: Hits (under Ride and Bus A) and Output (under Bus B) are the next row, on the same seams" + at);
-                check(mod.getY() - hits.getBottom() == gutter && mod.getX() == gutter && mod.getRight() == E::c_width - gutter && of("Footer").getY() >= mod.getBottom(),
-                      "layout: Modulation runs along the bottom, with the hint line under it" + at);
+                check(mod.getY() - hits.getBottom() == gutter && stow.getX() == gutter && stow.getY() == mod.getY() && stow.getHeight() == mod.getHeight()
+                          && mod.getX() - stow.getRight() == gutter && mod.getRight() == E::c_width - gutter && of("Footer").getY() >= mod.getBottom(),
+                      "layout: Stowaway and Modulation share the bottom row, a gutter apart, with the hint line under them" + at);
+                check(! proc.isStowawayOn() && proc.getStowawayPanel() == -1 && stow.getWidth() <= 200 && mod.getWidth() >= 1290,
+                      "stowaway: in a new session its plate is folded (" + juce::String(stow.getWidth()) + " px wide) and Modulation has the rest of the row" + at);
 
                 // The strips: what each section sends on, along the bottom of its panel; the ride's last 8 s in Ride.
                 bool strips = true;
@@ -1311,6 +1314,172 @@ int main(int argc, char* argv[])
         }
     }
 
+    // Stowaway's plate -------------------------------------------------------------------------------------------
+    std::cout << "Stowaway's plate" << std::endl;
+    {
+        using E = Editor;
+        auto base = makeProcessor();
+        auto& proc = *dynamic_cast<Proc*>(base.get());
+        proc.loadDemoSounds();
+        Rig rig(proc, 1.0f);
+        rig.open();
+        auto& ed = *rig.editor;
+        proc.setPlaying(true);
+        rig.run(0.3);
+        auto knob = [&ed](int k) { return dynamic_cast<WheelKnob*>(ed.m_controls[ParamIDs::stow[k]]); };
+        auto shownKnobs = [&]
+        {
+            int n = 0;
+            for (int k = 0; k < ParamIDs::numStowControls; ++k)
+                n += knob(k)->isVisible() ? 1 : 0;
+            return n;
+        };
+        // Nothing that is showing may overlap anything else, stand outside the window, or (on the bottom row) stand
+        // outside its own plate. Returns how many faults, and prints them.
+        auto faults = [&](const juce::String& state)
+        {
+            std::vector<juce::Component*> controls;
+            for (auto* child : ed.m_content.getChildren())
+                if (child->isVisible() && child != &ed.m_wires && child != &ed.m_hold && child != &ed.m_sea && child != &ed.m_morphPad
+                    && child != &ed.m_morphButton && ! child->getBounds().isEmpty()
+                    && child->getBounds() != juce::Rectangle<int>(0, 0, E::c_width, E::c_height))
+                    controls.push_back(child);
+            int found = 0;
+            const juce::Rectangle<int> window(0, 0, E::c_width, E::c_height);
+            const auto stow = ed.m_stowPanel, mod = ed.m_modSection;
+            for (size_t i = 0; i < controls.size(); ++i)
+            {
+                const auto b = controls[i]->getBounds();
+                bool bad = ! window.contains(b);
+                if (b.getY() >= stow.getY() && b.getBottom() <= stow.getBottom())
+                    bad = bad || ! (stow.contains(b) || mod.contains(b));
+                for (size_t j = i + 1; j < controls.size(); ++j)
+                    bad = bad || b.intersects(controls[j]->getBounds());
+                if (bad)
+                {
+                    ++found;
+                    std::cout << "         " << state << ": " << b.toString() << " overlaps something or is out of its plate" << std::endl;
+                }
+            }
+            found += stow.intersects(mod) || mod.getX() - stow.getRight() != Theme::Space::gutter || mod.getRight() != E::c_width - Theme::Space::gutter ? 1 : 0;
+            return found;
+        };
+        auto settle = [&](float open)
+        {
+            ed.m_stowOpen.snap(open);
+            ed.layoutBottomRow();
+        };
+
+        // Off, and folded: the switch, the Mode, the chevron and a window that says Off; no wheels, no dice.
+        const int foldedW = ed.m_stowPanel.getWidth();
+        check(! ed.m_stowOn.getToggleState() && ed.m_stowOn.isVisible() && ed.m_stowMode.isVisible() && ed.m_stowFold.isVisible() && shownKnobs() == 0
+                  && ! ed.m_sectionDice[Presets::Stowaway]->isVisible() && ! ed.m_sectionLocks[Presets::Stowaway]->isVisible() && ! ed.m_stowScope->isVisible()
+                  && ed.m_stowPanel.contains(ed.m_stowOn.getBounds()) && ed.m_stowPanel.contains(ed.m_stowMode.getBounds())
+                  && ed.m_stowPanel.contains(ed.m_stowFold.getBounds()) && ed.m_stowPanel.contains(ed.m_stowStrip) && faults("off, folded") == 0,
+              "plate: off and folded it is its nameplate, its switch, its Mode, its chevron and its scope's window, each whole in the plate");
+        check(Theme::getLook(ed.m_stowMode) == Theme::Look::Resting && Theme::getLook(*knob(ParamIDs::StowFollow)) == Theme::Look::Resting
+                  && knob(ParamIDs::StowFollow)->getTooltip().contains("Stowaway is off"),
+              "plate: off, its Mode and its wheels rest (they can still be set), and a wheel's tooltip says Stowaway is off");
+        int paintedOff = 0;
+        {
+            UiProbe::Recorder recorder;
+            recorder.paint(ed, 1.0f, 1.0f);
+            for (const auto& t : recorder.texts)
+                paintedOff += t.text == "Off" && ed.m_stowStrip.toFloat().expanded(2.0f).contains(t.box) ? 1 : 0;
+        }
+        check(paintedOff == 1, "plate: off, the scope's window on the plate reads Off");
+
+        // Switched on for the first time: the plate opens by itself, and the wheels are there.
+        proc.setStowawayOn(true);
+        rig.run(0.1);
+        check(proc.getStowawayPanel() == 1 && ed.m_stowOpen.target() == 1.0f && ed.m_stowOn.getToggleState(),
+              "plate: switching Stowaway on for the first time opens its plate");
+        settle(1.0f);
+        rig.run(0.1);
+        bool onPitch = true, inside = true;
+        for (int k = 0; k < ParamIDs::numStowControls; ++k)
+        {
+            onPitch = onPitch && knob(k)->getX() - knob(0)->getX() == 64 * k && knob(k)->getWidth() == 64 && knob(k)->getSize() == WheelKnob::Size::Secondary;
+            inside = inside && ed.m_stowPanel.contains(knob(k)->getBounds()) && ! knob(k)->getBounds().intersects(ed.m_stowStrip);
+        }
+        check(ed.m_stowPanel.getWidth() > foldedW + 150 && shownKnobs() == 5 && onPitch && inside && ed.m_stowScope->isVisible()
+                  && ed.m_sectionDice[Presets::Stowaway]->isVisible() && ed.m_sectionLocks[Presets::Stowaway]->isVisible() && faults("on, open") == 0,
+              "plate: open it shows its five wheels on the shared column pitch (64 px), its scope, its die and its lock, and Modulation gives up the width ("
+                  + juce::String(ed.m_stowPanel.getWidth()) + " px, Modulation " + juce::String(ed.m_modSection.getWidth()) + ")");
+        check(Theme::getLook(ed.m_stowMode) == Theme::Look::Normal && Theme::getLook(*knob(ParamIDs::StowFollow)) == Theme::Look::Normal
+                  && Theme::getLook(*knob(ParamIDs::StowWidth)) == Theme::Look::Resting && knob(ParamIDs::StowWidth)->getTooltip().contains("Not used in Sub"),
+              "plate: on, in Sub, Width rests and its tooltip says why; the others are live");
+        // The modulators still fit their cards at the narrower width.
+        {
+            const int texts = checkTexts("the window with Stowaway open", ed, 1.0f, 1.0f);
+            check(texts > 120, "plate: every text in the window still fits with the plate open (" + juce::String(texts) + " texts)");
+        }
+        // Each Mode: which wheels rest, and what a wheel's tooltip says.
+        bool rests = true, tips = true;
+        for (int mode = 0; mode < ParamIDs::numStowModes; ++mode)
+        {
+            auto* param = proc.getState().getParameter(ParamIDs::stowMode);
+            param->setValueNotifyingHost(param->convertTo0to1(static_cast<float>(mode)));
+            rig.run(0.1);
+            for (int k = 0; k < ParamIDs::numStowControls; ++k)
+            {
+                rests = rests && (Theme::getLook(*knob(k)) == Theme::Look::Resting) == ! Params::stowControlInUse(mode, k);
+                tips = tips && knob(k)->getTooltip().startsWith(juce::String("Stowaway: ") + ParamIDs::stowNames[k] + "\nIn " + ParamIDs::stowModeNames[mode] + ": ");
+            }
+        }
+        check(rests && tips, "plate: in every Mode the wheels that do nothing rest, and each wheel's tooltip says what it does in that Mode");
+
+        // On the way open and shut nothing stands outside the plate or on a neighbour.
+        int moving = 0;
+        for (const float open : { 0.1f, 0.3f, 0.49f, 0.5f, 0.6f, 0.75f, 0.9f, 0.99f })
+        {
+            settle(open);
+            moving += faults("at " + juce::String(open, 2) + " open");
+        }
+        check(moving == 0, "plate: on its way open and shut, nothing overlaps, leaves the plate or runs into Modulation");
+        settle(1.0f);
+
+        // Folding: the chevron and the nameplate both do it; it is remembered, and switching on again leaves it folded.
+        ed.m_stowFold.onClick();
+        rig.run(0.1);
+        const bool foldedByChevron = proc.getStowawayPanel() == 0 && ed.m_stowOpen.target() == 0.0f;
+        settle(0.0f);
+        check(foldedByChevron && shownKnobs() == 0 && ed.m_stowPanel.getWidth() == foldedW && ed.m_stowScope->isVisible() && faults("on, folded") == 0,
+              "plate: the chevron folds it: the wheels go, the switch, the Mode and the scope stay, and Modulation takes the width back");
+        ed.m_content.mouseDown(juce::MouseEvent(juce::Desktop::getInstance().getMainMouseSource(), ed.m_stowNameplate.getCentre().toFloat(), {}, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f,
+                                                &ed.m_content, &ed.m_content, {}, ed.m_stowNameplate.getCentre().toFloat(), {}, 1, false));
+        const bool openedByName = proc.getStowawayPanel() == 1;
+        ed.m_stowFold.onClick();
+        proc.setStowawayOn(false);
+        rig.run(0.1);
+        proc.setStowawayOn(true);
+        rig.run(0.1);
+        check(openedByName && proc.getStowawayPanel() == 0, "plate: the nameplate opens and folds it too, and a plate folded by hand stays folded when Stowaway is switched on again");
+
+        // The lane: sending a track to Stowaway from its bus menu while it is off switches it on, as one undo step.
+        proc.setStowawayOn(false);
+        rig.run(0.1);
+        Component* firstLane = nullptr;
+        for (auto* lane : ed.m_hold.m_laneHolder.getChildren())
+            if (lane->isVisible() && firstLane == nullptr)
+                firstLane = lane;
+        juce::String said;
+        ed.m_hold.onStatus = [&said](const juce::String& s) { said = s; };
+        check(firstLane != nullptr && ed.m_hold.applyBusChoice(0, CargoHold::c_stowBus) && proc.isStowawayOn() && proc.getCargo().getBus(0) == CargoHold::c_stowBus
+                  && said.contains("Stowaway is switched on"),
+              "lane: choosing Stowaway in a track's bus menu while it is off switches it on, and the status line says so (\"" + said + "\")");
+        juce::String what;
+        check(proc.undoEdit(&what) && what == "Track Bus" && ! proc.isStowawayOn() && proc.getCargo().getBusOverride(0) != CargoHold::c_stowBus,
+              "lane: and one Undo takes back both the move and the switch");
+        // By hand while it stays off (the processor's own call does not switch it on): the tag rests and its tooltip says so.
+        proc.setTrackBus(0, CargoHold::c_stowBus);
+        ed.m_hold.historyStepped();
+        rig.run(0.1);
+        check(! proc.isStowawayOn() && ed.m_hold.busTagTooltip(0).contains("Stowaway, which is off"),
+              "lane: a track on Stowaway while it is off waits, and its tag's tooltip says Stowaway is off");
+        proc.setTrackBus(0, -1);
+    }
+
     // The sea ---------------------------------------------------------------------------------------------------
     std::cout << "The sea" << std::endl;
     {
@@ -1323,6 +1492,69 @@ int main(int argc, char* argv[])
         auto& sea = ed.m_sea;
         proc.setPlaying(true);
         rig.run(1.0);
+
+        // Stowaway in the sea: nothing while it is off; on, it shows in the Mode it is in and in no other.
+        {
+            proc.getCargo().setBusOverride(1, CargoHold::c_stowBus); // the wind bed
+            rig.run(1.5);
+            bool nothing = sea.m_wakeTrail.empty() && sea.m_stowTrails[0].empty() && sea.m_stowTrails[1].empty() && sea.m_stowLabelAlpha == 0.0f;
+            for (int mode = 0; mode < ParamIDs::numStowModes; ++mode)
+                nothing = nothing && sea.stowawayShown(mode) == 0.0f;
+            check(nothing, "sea: with Stowaway off (a track waiting on it), the sea shows nothing of it");
+            proc.setStowawayOn(true);
+            auto* modeParam = proc.getState().getParameter(ParamIDs::stowMode);
+            bool onlyItsMode = true, subLifts = false, wakeTrails = false, flyComet = false, dryLantern = false, named = true;
+            for (int mode = 0; mode < ParamIDs::numStowModes; ++mode)
+            {
+                modeParam->setValueNotifyingHost(modeParam->convertTo0to1(static_cast<float>(mode)));
+                float most = 0.0f;
+                size_t longestWake = 0, longestTrail = 0;
+                bool labelled = false;
+                for (int i = 0; i < 40; ++i)
+                {
+                    rig.run(0.15);
+                    UiProbe::Recorder recorder;
+                    recorder.paint(ed.m_sea, 1.0f, 1.0f);
+                    most = juce::jmax(most, sea.stowawayShown(mode));
+                    longestWake = juce::jmax(longestWake, sea.m_wakeTrail.size());
+                    if (i >= 20) // (the comet of the Mode before takes a moment to burn out)
+                        longestTrail = juce::jmax(longestTrail, sea.m_stowTrails[0].size(), sea.m_stowTrails[1].size());
+                    for (const auto& t : recorder.texts)
+                        labelled = labelled || t.text.startsWith("Stowaway");
+                }
+                for (int other = 0; other < ParamIDs::numStowModes; ++other)
+                    if (other != mode)
+                        onlyItsMode = onlyItsMode && sea.stowawayShown(other) < 0.02f;
+                std::cout << "  " << ParamIDs::stowModeNames[mode] << ": shown up to " << most << ", wake trail " << longestWake << ", own comet trail " << longestTrail
+                          << (labelled ? ", named" : ", not named") << std::endl;
+                named = named && labelled;
+                if (mode == ParamIDs::StowSub)  subLifts = most > 0.02f && longestTrail == 0;
+                if (mode == ParamIDs::StowWake) wakeTrails = most > 0.02f && longestWake > 8 && longestTrail == 0;
+                if (mode == ParamIDs::StowFly)  flyComet = longestTrail > 8;
+                if (mode == ParamIDs::StowDry)  dryLantern = most > 0.02f && longestTrail == 0;
+            }
+            check(subLifts, "sea: a Sub lifts the swell with its level (and is no comet)");
+            check(wakeTrails, "sea: a Wake lays a trail on the water behind bus A's comet");
+            check(flyComet, "sea: Fly is a comet of its own");
+            check(dryLantern, "sea: Dry shows its level as a lantern on the water (and is no comet)");
+            check(onlyItsMode && named, "sea: it shows in the Mode it is in and no other, with its name (\"" + sea.m_busLabels[SeaVisualiser::c_stowLabel] + "\")");
+            check(sea.m_busLabels[SeaVisualiser::c_stowLabel].startsWith("Stowaway") && sea.m_busLabels[SeaVisualiser::c_stowLabel].contains("Energy Bed"),
+                  "sea: its label is Stowaway and, with one track on it, that track's name");
+            proc.setStowawayOn(false);
+            rig.run(3.0);
+            {
+                UiProbe::Recorder recorder;
+                recorder.paint(ed.m_sea, 1.0f, 1.0f);
+            }
+            bool gone = sea.m_stowLabelAlpha == 0.0f && sea.m_stowTrails[0].empty() && sea.m_stowTrails[1].empty() && sea.m_wakeTrail.empty();
+            for (int mode = 0; mode < ParamIDs::numStowModes; ++mode)
+                gone = gone && sea.stowawayShown(mode) < 0.02f;
+            check(gone, "sea: switched off, it leaves the sea");
+            proc.getCargo().setBusOverride(1, -1);
+            auto* reset = proc.getState().getParameter(ParamIDs::stowMode);
+            reset->setValueNotifyingHost(reset->getDefaultValue());
+            rig.run(0.5);
+        }
 
         // Comets: every flight belongs to a bus or to the throws, and none reaches past the end of the labels.
         {

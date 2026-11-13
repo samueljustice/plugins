@@ -858,8 +858,10 @@ int main(int argc, char* argv[])
         const auto file = writeWav(folder, "routing_stow_rumble", tone(60.0, 2.0));
         hold.loadFile(0, file, error);
         hold.setRoleOverride(0, static_cast<int>(CargoRole::Rumble));
-        check(hold.getRumbleToStowaway() && hold.getBus(0) == CargoHold::c_stowBus && hold.getBusOverride(0) == -1,
-              "rumble: on Auto a rumble plays on Stowaway (which starts as a sub)");
+        check(! hold.getRumbleToStowaway() && hold.getBus(0) == 0 && hold.getBusOverride(0) == -1,
+              "rumble: on Auto a rumble plays on bus A to begin with (Stowaway starts switched off)");
+        hold.setRumbleToStowaway(true);
+        check(hold.getBus(0) == CargoHold::c_stowBus, "rumble: with Stowaway on and a sub, it plays on Stowaway");
         hold.setRumbleToStowaway(false);
         check(hold.getBus(0) == 0, "rumble: with Stowaway not a sub, it plays on bus A");
         bool othersStay = true;
@@ -897,8 +899,14 @@ int main(int argc, char* argv[])
         auto& cargo = plug.proc.getCargo();
         cargo.setRoleOverride(0, static_cast<int>(CargoRole::Rumble));
         cargo.setRoleOverride(1, static_cast<int>(CargoRole::Tonal));
-        check(juce::roundToInt(plug.plain(ParamIDs::stowMode)) == ParamIDs::StowSub && cargo.getBus(0) == CargoHold::c_stowBus && cargo.getBus(1) == 0,
-              "rumble: in the plug-in, Stowaway starts in Sub and takes the rumble (a tonal sound stays on bus A)");
+        auto* onParam = dynamic_cast<juce::AudioParameterBool*>(plug.proc.getState().getParameter(ParamIDs::stowOn));
+        check(onParam != nullptr && ! onParam->get() && onParam->getName(64) == "Stowaway" && onParam->isAutomatable() && ! plug.proc.isStowawayOn(),
+              "on / off: Stowaway has a switch in the host's list, and a new session starts with it off");
+        check(juce::roundToInt(plug.plain(ParamIDs::stowMode)) == ParamIDs::StowSub && cargo.getBus(0) == 0 && cargo.getBus(1) == 0,
+              "rumble: in the plug-in, Stowaway starts off and in Sub, so a rumble on Auto plays on bus A (it is not left waiting)");
+        plug.set(ParamIDs::stowOn, 1.0f);
+        check(plug.proc.isStowawayOn() && cargo.getBus(0) == CargoHold::c_stowBus && cargo.getBus(1) == 0,
+              "rumble: switched on (and a sub), Stowaway takes the rumble at once (a tonal sound stays on bus A)");
         bool onlySub = true;
         for (int mode = ParamIDs::numStowModes - 1; mode >= 0; --mode)
         {
@@ -906,6 +914,9 @@ int main(int argc, char* argv[])
             onlySub = onlySub && cargo.getBus(0) == (mode == ParamIDs::StowSub ? CargoHold::c_stowBus : 0) && cargo.getBus(1) == 0;
         }
         check(onlySub, "rumble: it follows Stowaway's Mode: there in Sub, on bus A in Wake, Fly and Dry");
+        plug.set(ParamIDs::stowOn, 0.0f);
+        check(cargo.getBus(0) == 0, "rumble: switched off again, the rumble is back on bus A");
+        plug.set(ParamIDs::stowOn, 1.0f);
 
         // The parameters: where they are, what they are called, how they read.
         auto* modeParam = dynamic_cast<juce::AudioParameterChoice*>(plug.proc.getState().getParameter(ParamIDs::stowMode));
@@ -976,6 +987,32 @@ int main(int argc, char* argv[])
               "stowaway: the plug-in's Mode and knobs reach the engine");
         check(std::abs(now.drive - 0.8f) < 0.02f, "stowaway: a modulator wired to a knob moves it in the engine");
         check(plug.proc.getEngine().getStowLevel() > 0.01f && heard > 0.01f && cargo.getBus(0) == 0, "stowaway: a track sent there by hand is heard through the plug-in, in any mode");
+        {
+            // The switch through the plug-in: off, the same session goes silent (the only track that is heard here
+            // is the one on Stowaway: the other one is the rumble's file as a tonal sound on bus A, so mute it).
+            cargo.setMute(CargoHold::c_numBuiltIns + 0, true);
+            plug.set(ParamIDs::stowOn, 0.0f);
+            // (Space rings on for a few seconds after the last sound went into it: listen once it has.)
+            float off = 0.0f, back = 0.0f;
+            for (int i = 0; i < 900; ++i)
+            {
+                block.clear();
+                plug.proc.processBlock(block, midi);
+                if (i >= 840)
+                    off = std::max(off, block.getMagnitude(0, 512));
+            }
+            const float levelOff = plug.proc.getEngine().getStowLevel();
+            plug.set(ParamIDs::stowOn, 1.0f);
+            for (int i = 0; i < 120; ++i)
+            {
+                block.clear();
+                plug.proc.processBlock(block, midi);
+                back = std::max(back, block.getMagnitude(0, 512));
+            }
+            std::cout << "  the switch through the plug-in: " << off << " while off (level view " << levelOff << "), " << back << " back on" << std::endl;
+            check(off < 1.0e-4f && levelOff == 0.0f && back > 0.01f, "on / off: the plug-in's switch silences Stowaway and brings it back");
+            cargo.setMute(CargoHold::c_numBuiltIns + 0, false);
+        }
 
         // Saved and restored: the Mode, the knobs, the track's place, the wire, and the rumble routing that goes with the Mode.
         juce::MemoryBlock state;
@@ -1040,6 +1077,132 @@ int main(int argc, char* argv[])
               "stowaway: a Follower can listen to it");
         check(TapeRecorder::markerLabel(TapeRecorder::MarkPassStow) == "Pass S" && static_cast<int>(RigEngine::MarkPassStow) == static_cast<int>(TapeRecorder::MarkPassStow),
               "stowaway: its own passes have a marker of their own");
+    }
+
+    //==========================================================================
+    std::cout << "Stowaway on / off" << std::endl;
+    {
+        // A 300 Hz tone sent to Stowaway by hand, in Dry (the track as it is), steady faders.
+        CargoHold hold;
+        hold.loadFile(0, writeWav(folder, "routing_onoff_tone300", tone(300.0, 6.0, 0.4f)), error);
+        hold.setSkipSilence(0, false);
+        hold.setRoleOverride(0, static_cast<int>(CargoRole::Tonal));
+        hold.setBusOverride(0, CargoHold::c_stowBus);
+        auto p = plainParams();
+        p.stow.mode = RigEngine::StowDry;
+        check(RigEngine::StowParams().on, "on / off: an engine on its own has Stowaway on (the plug-in's switch is what starts off)");
+
+        auto peakOf = [](const juce::AudioBuffer<float>& a, double from, double to)
+        {
+            float m = 0.0f;
+            for (int i = static_cast<int>(from * c_fs); i < std::min(a.getNumSamples(), static_cast<int>(to * c_fs)); ++i)
+                m = std::max(m, std::max(std::abs(a.getSample(0, i)), std::abs(a.getSample(1, i))));
+            return m;
+        };
+        auto biggestStep = [](const juce::AudioBuffer<float>& a)
+        {
+            float m = std::abs(a.getSample(0, 0));
+            for (int i = 1; i < a.getNumSamples(); ++i)
+                m = std::max(m, std::abs(a.getSample(0, i) - a.getSample(0, i - 1)));
+            return m;
+        };
+
+        // Off from the start: silent, and the track is not played anywhere else.
+        p.stow.on = false;
+        RigEngine rig;
+        rig.setCargoHold(&hold);
+        rig.setParams(p);
+        rig.prepare(c_fs, c_block);
+        rig.setParams(p);
+        rig.takeSectionLevels();
+        const auto off = render(rig, 1.0);
+        const auto offLevels = rig.takeSectionLevels();
+        std::array<float, ScopeRing::c_points> lo {}, hi {};
+        rig.getScope(RigEngine::SectionStow).read(lo, hi);
+        float scopePeak = 0.0f;
+        for (const float v : hi)
+            scopePeak = std::max(scopePeak, v);
+        check(peakOf(off, 0.0, 1.0) == 0.0f, "on / off: switched off, a track sent to Stowaway is silent (exactly nothing at the output)");
+        check(offLevels[RigEngine::SectionBusA] == 0.0f && offLevels[RigEngine::SectionBusB] == 0.0f && offLevels[RigEngine::SectionHits] == 0.0f
+                  && offLevels[RigEngine::SectionStow] == 0.0f,
+              "on / off: the track waits: it does not fall through to bus A, bus B or the hits");
+        check(rig.isStowShut() && rig.getStowLevel() == 0.0f && rig.getStowEnv() == 0.0f && scopePeak == 0.0f && ! rig.isFlyAwake()
+                  && ! rig.getStowFlight(0).active && ! rig.getStowFlight(1).active,
+              "on / off: off, Stowaway does no work and shows nothing (its level, its scope, its Follower level and its passes are all at rest)");
+
+        // A throw from rest does not wake it either.
+        rig.throwWhoosh(0, 1.0f);
+        const auto thrownOff = render(rig, 3.0);
+        check(peakOf(thrownOff, 0.0, 3.0) == 0.0f && rig.isStowShut(), "on / off: a throw leaves a switched-off Stowaway silent");
+
+        // On: it fades in. The steepest a 300 Hz tone at 0.4 ever gets is 0.0157 a sample; a click would be far more.
+        const float toneStep = 0.4f * static_cast<float>(c_twoPi) * 300.0f / static_cast<float>(c_fs);
+        p.stow.on = true;
+        rig.setParams(p);
+        const auto in = render(rig, 1.0);
+        const float steady = peakOf(in, 0.5, 1.0);
+        std::cout << "  switched on: " << peakOf(in, 0.0, 0.004) << " in the first 4 ms, " << peakOf(in, 0.02, 0.03) << " at 20 to 30 ms, " << steady
+                  << " once in; biggest step " << biggestStep(in) << " (the tone's own " << toneStep << ")" << std::endl;
+        check(steady > 0.1f && peakOf(in, 0.0, 0.004) < 0.12f * steady && peakOf(in, 0.02, 0.03) > 0.2f * steady && peakOf(in, 0.02, 0.03) < 0.75f * steady,
+              "on / off: switched on, it fades in over about 60 ms");
+        check(biggestStep(in) < 1.25f * toneStep * steady / 0.4f, "on / off: switching on does not click");
+
+        // Off: it fades out, then it is exactly silent again and at rest.
+        p.stow.on = false;
+        rig.setParams(p);
+        const auto out = render(rig, 1.0);
+        std::cout << "  switched off: " << peakOf(out, 0.0, 0.004) << " in the first 4 ms, " << peakOf(out, 0.03, 0.04) << " at 30 to 40 ms, "
+                  << peakOf(out, 0.1, 1.0) << " after 100 ms; biggest step " << biggestStep(out) << std::endl;
+        check(peakOf(out, 0.0, 0.004) > 0.8f * steady && peakOf(out, 0.03, 0.04) < 0.6f * steady && peakOf(out, 0.1, 1.0) < 1.0e-5f
+                  && peakOf(out, 0.5, 1.0) < 1.0e-9f && rig.isStowShut(), // (the output's DC blocker lets go of the last of it)
+              "on / off: switched off, it fades out over about 60 ms and is then silent and at rest");
+        check(biggestStep(out) < 1.25f * toneStep * steady / 0.4f, "on / off: switching off does not click");
+
+        // The Mode can change while it is off, and it comes back in the new one (Sub: a 300 Hz tone is well down).
+        p.stow.mode = RigEngine::StowSub;
+        rig.setParams(p);
+        render(rig, 0.2);
+        p.stow.on = true;
+        rig.setParams(p);
+        const auto asSub = render(rig, 1.0);
+        check(rig.getStowNow().mode == RigEngine::StowSub && peakOf(asSub, 0.5, 1.0) < 0.1f * steady && allFinite(asSub),
+              "on / off: a Mode chosen while it was off is the one it comes back in");
+
+        // The plug-in: presets switch it on and never off; Randomise leaves it alone; it is saved with the session.
+        Plug plug;
+        const auto& params = plug.proc.getParameters();
+        auto targetOf = [&](const Presets::Preset& preset, Presets::Unlisted unlisted) -> float
+        {
+            for (const auto& [param, value] : Presets::targets(params, preset, unlisted))
+                if (param->getParameterID() == ParamIDs::stowOn)
+                    return value;
+            return -1.0f; // not moved
+        };
+        const Presets::Preset uses { "Uses Stowaway", { { ParamIDs::stowOn, 1.0f }, { ParamIDs::stowMode, static_cast<float>(ParamIDs::StowFly) } } };
+        const Presets::Preset says { "Says Off", { { ParamIDs::stowOn, 0.0f } } };
+        bool rollsLeaveIt = true;
+        juce::Random r(11);
+        for (int i = 0; i < 40; ++i)
+            rollsLeaveIt = rollsLeaveIt && Presets::roll(r).values.count(ParamIDs::stowOn) == 0 && Presets::rollSection(r, Presets::Stowaway).values.count(ParamIDs::stowOn) == 0
+                           && targetOf(Presets::roll(r), Presets::Unlisted::Keep) < 0.0f;
+        check(targetOf(uses, Presets::Unlisted::Default) == 1.0f, "on / off: a preset that uses Stowaway switches it on");
+        check(targetOf(Presets::factory()[0], Presets::Unlisted::Default) < 0.0f && targetOf(says, Presets::Unlisted::Default) < 0.0f,
+              "on / off: a preset that does not use it leaves the switch alone (it never switches Stowaway off)");
+        check(rollsLeaveIt, "on / off: Randomise and Stowaway's own die never move the switch");
+        plug.proc.applyLook(uses, Presets::Unlisted::Default, "Preset", "Uses Stowaway");
+        const bool onByPreset = plug.proc.isStowawayOn();
+        plug.proc.applyLook(Presets::factory()[0], Presets::Unlisted::Default, "Preset", Presets::factory()[0].name);
+        check(onByPreset && plug.proc.isStowawayOn(), "on / off: through the plug-in, the preset switches it on and the next preset leaves it on");
+
+        check(plug.proc.getStowawayPanel() == -1, "plate: a new session has not opened Stowaway's plate yet");
+        plug.proc.setStowawayPanel(0);
+        juce::MemoryBlock state;
+        plug.proc.getStateInformation(state);
+        Plug other;
+        other.proc.setStateInformation(state.getData(), static_cast<int>(state.getSize()));
+        check(other.proc.isStowawayOn() && other.proc.getStowawayPanel() == 0, "on / off: the switch, and whether the plate is folded, are saved with the session");
+        other.proc.newSession();
+        check(! other.proc.isStowawayOn() && other.proc.getStowawayPanel() == -1, "on / off: a new session starts with Stowaway off and its plate not yet opened");
     }
 
     //==========================================================================

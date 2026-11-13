@@ -25,7 +25,8 @@ namespace Icons
         Variations,         // a fan of copies
         Link,               // two links of a chain: this follows something else
         // The marks on the panels' nameplates.
-        Tracks, Ride, Hits, Output, Modulation, LetterA, LetterB
+        Tracks, Ride, Hits, Output, Modulation, LetterA, LetterB,
+        LetterS             // Stowaway: the extra bus, by the letter its tracks' tags carry
     };
 
     inline const juce::Identifier property { "icon" };

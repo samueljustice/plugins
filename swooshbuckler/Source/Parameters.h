@@ -41,6 +41,7 @@ namespace ParamIDs
 
     // Stowaway: one extra bus beside A and B. A Mode menu, and five knobs that keep their names and places in
     // every mode (what each does, and how it reads, follows the mode: see Params::stowText).
+    inline constexpr const char* stowOn = "stowOn";     // the bus is there at all: off, it is silent and its tracks wait
     inline constexpr const char* stowMode = "stowMode";
     enum StowMode { StowSub = 0, StowWake, StowFly, StowDry, numStowModes };
     inline constexpr const char* stowModeNames[numStowModes] = { "Sub", "Wake", "Fly", "Dry" };
@@ -268,7 +269,9 @@ namespace Params
                 if (ParamIDs::bus[b][k] != nullptr)
                     layout.add(pct(ParamIDs::bus[b][k], String("Bus ") + ParamIDs::busNames[b] + " " + controlNames[k], defaults[b][k]));
 
-        // Stowaway: the Mode, then the five knobs. Each knob reads by the mode in use (see stowText).
+        // Stowaway: its switch (off until it is wanted), the Mode, then the five knobs. Each knob reads by the mode
+        // in use (see stowText).
+        layout.add(std::make_unique<AudioParameterBool>(ParameterID { ParamIDs::stowOn, 4 }, "Stowaway", false));
         layout.add(std::make_unique<AudioParameterChoice>(ParameterID { ParamIDs::stowMode, 4 }, "Stowaway Mode",
                                                           StringArray(ParamIDs::stowModeNames, ParamIDs::numStowModes), ParamIDs::StowSub));
         const float stowDefaults[ParamIDs::numStowControls] = { 0.7f, 0.0f, 0.5f, 0.0f, 1.0f }; // Filter: 120 Hz in Sub, open otherwise

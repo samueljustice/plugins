@@ -95,6 +95,7 @@ public:
     enum StowKnob { StowFollow = 0, StowLow, StowFilter, StowDrive, StowWidth, c_stowKnobs };
     struct StowParams
     {
+        bool on = true;      // off: silent, and the tracks sent here wait (they are not played anywhere else)
         int mode = StowSub;
         float follow = 0.7f; // how much it goes by bus A
         float low = 0.0f;    // Low End
@@ -292,6 +293,8 @@ public:
     static float flySegmentSeconds(float free, float toPeak, float toSecond, float halfA, float follow);
     /** Audio thread, after process(): Fly is awake (sound is in its line). */
     bool isFlyAwake() const { return m_stow.fly.on; }
+    /** Audio thread: Stowaway is switched off and has faded right out. Its tracks are then not played at all. */
+    bool isStowShut() const { return ! m_params.stow.on && m_stow.gate <= 0.0f; }
     /** The average power a ridden fader is left at (1 = not ridden) when `exponent` of its ride (in dB) is kept,
         for a ride of this depth (0 = still .. 1 = full dips) at this Chaos. */
     static float ridePower(float depth, float chaos, float exponent);
@@ -569,6 +572,9 @@ private:
         // The mode in use. A change of Mode fades the sound out, swaps (here), and fades it back in.
         int mode = StowSub;
         float fade = 1.0f;
+        // The switch (StowParams::on): 1 open, 0 shut. It fades each way; shut, nothing here runs and the tracks
+        // sent here wait unplayed (see isStowShut).
+        float gate = 1.0f;
         // Dry: the side signals of the stereo tracks sent here, and what Filter and the hits left of them.
         std::array<float, c_chunk> sideIn {}, side {};
         bool sideFed = false;  // a track played into `sideIn` this chunk

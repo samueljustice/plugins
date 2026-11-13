@@ -201,7 +201,7 @@ public:
     static int busForRole(CargoRole role, bool rumbleToStowaway);
     /** The same, as this hold routes right now (see setRumbleToStowaway). Any thread. */
     int autoBus(CargoRole role) const { return busForRole(role, m_rumbleToStowaway.load(std::memory_order_relaxed)); }
-    /** Rumble-type sounds on Auto play on Stowaway (on: Stowaway is in its Sub mode) or on bus A. Any thread: it
+    /** Rumble-type sounds on Auto play on Stowaway (on: Stowaway is switched on and in its Sub mode) or on bus A. Any thread: it
         only stores a flag, and tells no listener. */
     void setRumbleToStowaway(bool on) { m_rumbleToStowaway.store(on, std::memory_order_relaxed); }
     bool getRumbleToStowaway() const { return m_rumbleToStowaway.load(std::memory_order_relaxed); }
@@ -384,7 +384,7 @@ private:
     std::int64_t m_undoByteLimit = c_undoByteLimit;
     std::array<std::atomic<bool>, c_numLanes> m_mute {}, m_solo {};   //
     std::atomic<int> m_soloCount { 0 };
-    std::atomic<bool> m_rumbleToStowaway { true };                    // see setRumbleToStowaway (Stowaway starts in Sub)
+    std::atomic<bool> m_rumbleToStowaway { false };                   // see setRumbleToStowaway (Stowaway starts switched off)
     std::atomic<int> m_master { -1 };                                 // see setMaster
     std::array<std::atomic<int>, 2> m_morphSource { { { -1 }, { -1 } } }; // see setMorphSource
     /** A track that is cleared stops being the Master and lets go of its ropes (undo brings them back). */

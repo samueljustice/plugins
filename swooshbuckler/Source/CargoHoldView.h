@@ -75,6 +75,13 @@ public:
     /** A track's colour: a shade of its bus's colour (Theme::laneShade), by its place among the tracks on that bus. */
     juce::Colour laneColour(int track) const;
 
+    /** Sends a track to a bus as its lane's bus menu does (-1 Auto, 0 bus A, 1 bus B, the hits or Stowaway), with
+        the status line that goes with it. Choosing Stowaway while it is off switches it on in the same undo step.
+        False when the track has no sound. */
+    bool applyBusChoice(int track, int busOrMinusOne);
+    /** What the tooltip of a track's bus tag says (empty when the track has no sound). */
+    juce::String busTagTooltip(int track) const;
+
     static bool isAudioFile(const juce::String& path);
 
     /** The track under a screen position (for the morph ropes), or -1. */
@@ -113,7 +120,8 @@ private:
     HitWindow m_hitWindow;      // hit sync's shared beat window (source seconds), for the aligned lanes
     float m_beatFlash = 0.0f;   // 1 on a sync beat, decays
     int m_lastBeat = 0;
-    bool m_rumblesOnStowaway = true; // CargoHold::getRumbleToStowaway as the lanes last showed it
+    bool m_rumblesOnStowaway = false; // CargoHold::getRumbleToStowaway as the lanes last showed it
+    bool m_stowawayOn = false;       // Stowaway's switch as the lanes' tags last showed it
     bool m_dragOver = false;
     juce::TextButton m_demo { "Load Demo Sounds" };
     int m_learnWaiting = -1; // the target Learn MIDI CC is waiting for a controller on (-1 = none)
