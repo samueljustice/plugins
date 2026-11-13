@@ -1077,6 +1077,59 @@ int main(int argc, char* argv[])
             check(wide < -60.0, "dry: at Width 100% a stereo sound is as wide as its file");
             check(std::abs(half - 20.0 * std::log10(1.0 / 3.0)) < 1.0 && std::abs(mono) < 0.5, "dry: Width narrows it evenly, down to mono at 0%");
             check(std::abs(wake) < 0.5, "dry: (the other modes play the mono sum)");
+
+            // The stereo sound stops being stereo on Stowaway while the host asks for blocks of every odd length:
+            // it leaves for bus A (where it plays its mono sum in the middle), or its VARI is turned off (the mono
+            // sum again). Once that has faded across, nothing of its sides is left behind, there or on bus B (what is left 40 ms on is
+            // the output stage's filters settling, far under a thousandth).
+            auto leftBehind = [&](bool byVari, float& with, float& without)
+            {
+                Rig rig;
+                rig.hold.loadFile(0, file, error);
+                rig.hold.setSkipSilence(0, false);
+                rig.hold.setBusOverride(0, CargoHold::c_stowBus);
+                // (A mono sound stays on Stowaway throughout, so Dry goes on playing.)
+                rig.hold.loadFile(1, writeWav(folder, "stow_mono200", tone(200.0, 30.0, 48000.0, 0.2f), 48000.0), error);
+                rig.hold.setSkipSilence(1, false);
+                rig.hold.setBusOverride(1, CargoHold::c_stowBus);
+                auto p = plainParams();
+                p.stow.mode = RigEngine::StowDry;
+                p.stow.filter = 0.5f;
+                p.buses[1].width = 1.0f;
+                rig.start(p, 48000.0);
+                const int blocks[] = { 48, 37, 53, 40, 19, 61, 45 };
+                with = without = 0.0f;
+                int at = 0;
+                for (int round = 0; round < 12; ++round)
+                {
+                    const bool stereo = round % 2 == 0;
+                    if (byVari)
+                    {
+                        p.trackVari[0] = stereo;
+                        rig.engine.setParams(p);
+                    }
+                    else
+                        rig.hold.setBusOverride(0, stereo ? CargoHold::c_stowBus : 0);
+                    juce::AudioBuffer<float> out(2, 19200);
+                    for (int pos = 0; pos < out.getNumSamples();)
+                    {
+                        const int n = std::min(blocks[at++ % 7], out.getNumSamples() - pos);
+                        rig.engine.process(nullptr, nullptr, out.getWritePointer(0, pos), out.getWritePointer(1, pos), n);
+                        pos += n;
+                    }
+                    // From 40 ms after the change to the end of the round.
+                    auto& worst = stereo ? with : without;
+                    for (int i = 1920; i < out.getNumSamples(); ++i)
+                        worst = std::max(worst, std::abs(out.getSample(0, i) - out.getSample(1, i)));
+                }
+            };
+            float movedWith = 0.0f, movedWithout = 0.0f, variWith = 0.0f, variWithout = 0.0f;
+            leftBehind(false, movedWith, movedWithout);
+            leftBehind(true, variWith, variWithout);
+            std::cout << "  a stereo sound in odd block lengths, left against right: " << movedWith << " on Stowaway and " << movedWithout << " once it has left for bus A; " << variWith << " with VARI on and "
+                      << variWithout << " with it off" << std::endl;
+            check(movedWith > 0.05f && movedWithout < 1.0e-3f, "dry: nothing of a stereo sound's sides is left behind when it leaves for another bus");
+            check(variWith > 0.05f && variWithout < 1.0e-3f, "dry: nothing of them is left behind when its VARI is turned off");
         }
     }
 

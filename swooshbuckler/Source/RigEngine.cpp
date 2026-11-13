@@ -697,8 +697,10 @@ void RigEngine::renderTracks(int frames)
     std::fill(m_hitsIn.begin(), m_hitsIn.begin() + frames, 0.0f);
     std::fill(m_stow.in.begin(), m_stow.in.begin() + frames, 0.0f);
     std::fill(m_stow.throwIn.begin(), m_stow.throwIn.begin() + frames, 0.0f);
+    // (The whole of it, not just this chunk's length: chunks differ in length, and Dry goes on reading it for a
+    // moment after the last stereo track stops, so nothing of a longer chunk may be left behind a shorter one.)
     if (m_stow.sideFed)
-        std::fill(m_stow.sideIn.begin(), m_stow.sideIn.begin() + frames, 0.0f);
+        m_stow.sideIn.fill(0.0f);
     m_stow.fed = m_stow.sideFed = false;
 
     // Energy: how deep each track's fader dips, even in dB across the knob (-4 dB per 10%, then silence at the top).
@@ -1189,7 +1191,9 @@ void RigEngine::renderTracks(int frames)
         // plays its mono sum.
         const bool dryStow = onStow && stowMode == StowDry;
         const bool wantSide = data != nullptr && data->hasSide() && (bus == static_cast<int>(c_sideBus) || dryStow) && vari;
-        const float sideGain0 = m_sideGain[ti];
+        // (A track that has just arrived somewhere that takes no sides brings none with it: they went out with the
+        // fade it left by, and must not carry on into bus B.)
+        const float sideGain0 = ! wantSide && busFade0 <= 0.0f ? 0.0f : m_sideGain[ti];
         const float sideGain1 = wantSide ? std::min(1.0f, sideGain0 + seconds / c_sideFadeSeconds)
                                          : std::max(0.0f, sideGain0 - seconds / c_sideFadeSeconds);
         m_sideGain[ti] = sideGain1;
