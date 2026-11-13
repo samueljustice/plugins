@@ -1931,7 +1931,6 @@ void SwooshbucklerAudioProcessorEditor::toast(const juce::String& text, juce::Fi
         return;
     }
     m_toast = Theme::localiseShortcuts(text);
-    m_toastFile = file;
     m_toastTime = juce::Time::getMillisecondCounterHiRes() * 0.001;
     m_content.repaint(m_footer);
 }
@@ -2658,7 +2657,6 @@ void SwooshbucklerAudioProcessorEditor::timerCallback()
         if (age > 8.0)
         {
             m_toast.clear();
-            m_toastFile = juce::File();
         }
         m_content.repaint(m_footer);
     }

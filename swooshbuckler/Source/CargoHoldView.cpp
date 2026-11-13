@@ -1084,7 +1084,9 @@ void CargoHoldView::resized()
     const int laneHeight = visible.empty() ? 0 : juce::jmin(110, laneArea / juce::jlimit(1, inView, count));
     const int shown = laneHeight * juce::jmin(count, inView);
 
-    m_viewport.setBounds(r.removeFromTop(visible.empty() ? 0 : laneArea).withHeight(shown));
+    // Only the room the lanes actually take is given to the list, so with one or two tracks the drop line stays
+    // directly under the last lane instead of floating at the panel's bottom with a hole above it.
+    m_viewport.setBounds(r.removeFromTop(visible.empty() ? 0 : shown));
     m_viewport.setSingleStepSizes(16, juce::jmax(1, laneHeight));
     const int holderWidth = m_viewport.getWidth() - (count > inView ? 10 : 0);
     m_laneHolder.setSize(holderWidth, laneHeight * count);

@@ -995,6 +995,30 @@ int main(int argc, char* argv[])
             proc.getState().getParameter(ParamIDs::morphOn)->setValueNotifyingHost(0.0f);
             proc.setPlaying(false);
         }
+
+        {
+            // Fewer than four tracks: the drop line stays directly under the last lane. (Given the whole of the
+            // room the four lanes would have taken, it floated at the panel's foot with a hole above it.)
+            Rig rig(proc, 1.0f);
+            rig.open();
+            auto& ed = *rig.editor;
+            auto& hold = ed.m_hold;
+            for (int track = 1; track < CargoHold::c_numTracks; ++track)
+                proc.getCargo().clear(track);
+            hold.changeListenerCallback(nullptr);
+            hold.resized();
+            int lanes = 0, laneHeight = 0;
+            for (auto* lane : hold.m_laneHolder.getChildren())
+                if (lane->isVisible())
+                {
+                    ++lanes;
+                    laneHeight = lane->getHeight();
+                }
+            const int hole = hold.m_dropZone.getY() - hold.m_viewport.getBottom();
+            check(lanes == 1 && hold.m_viewport.getHeight() == laneHeight && hole >= 0 && hole <= 8 && hold.m_dropZone.getHeight() <= 24
+                      && hold.getLocalBounds().contains(hold.m_dropZone),
+                  "lanes: with one track the drop line sits right under it (" + juce::String(hole) + " px below the lane), not adrift at the panel's foot");
+        }
     }
 
     std::cout << (g_failures == 0 ? "ALL PASSED" : juce::String(g_failures) + " FAILED") << std::endl;

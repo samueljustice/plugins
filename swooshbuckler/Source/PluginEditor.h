@@ -342,7 +342,6 @@ private:
     Morph m_morph;
 
     juce::String m_toast;
-    juce::File m_toastFile;
     double m_toastTime = 0.0;
     // Output meters: the bars, and the peak holds (the deepest reduction / highest level of the last moments).
     float m_grDb = 0.0f, m_outLevel = 0.0f, m_grHoldDb = 0.0f, m_outHold = 0.0f;
