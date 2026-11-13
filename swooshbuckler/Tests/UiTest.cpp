@@ -1421,6 +1421,57 @@ int main(int argc, char* argv[])
             ed.syncMorphPad();
         }
 
+        // A rope is tied under its handle's plate: it is drawn nowhere on the plate, so the letter and the name
+        // on it stay readable. The window is painted with the rope layer and without it, and the two must be the
+        // same inside both plates - and different somewhere else, or there was no rope to begin with.
+        {
+            ed.m_morphButton.setToggleState(true, juce::dontSendNotification);
+            ed.syncMorphPad();
+            proc.setMorphSource(0, 0); // the A side roped to the first track
+            ed.syncMorphPad();
+            ed.m_morphPad.ropesMoved();
+            rig.run(0.2);
+
+            auto* layer = ed.m_morphPad.ropeLayer();
+            juce::Image roped, bare;
+            {
+                UiProbe::Recorder shot;
+                roped = shot.paint(ed, 1.0f);
+                if (layer != nullptr)
+                    layer->setVisible(false);
+                bare = shot.paint(ed, 1.0f);
+                if (layer != nullptr)
+                    layer->setVisible(true);
+            }
+
+            const auto differs = [&roped, &bare](juce::Rectangle<int> area)
+            {
+                int n = 0;
+                for (int y = area.getY(); y < area.getBottom(); ++y)
+                    for (int x = area.getX(); x < area.getRight(); ++x)
+                        if (roped.getPixelAt(x, y) != bare.getPixelAt(x, y))
+                            ++n;
+                return n;
+            };
+
+            int onPlates = 0;
+            for (int slot = 0; slot < 2; ++slot)
+                onPlates += differs(ed.getLocalArea(&ed.m_morphPad, ed.m_morphPad.handlePlate(slot)).getSmallestIntegerContainer()
+                                        .getIntersection(ed.getLocalBounds()));
+            const int anywhere = differs(ed.getLocalBounds());
+
+            check(layer != nullptr && layer->isVisible() && anywhere > 200 && onPlates == 0,
+                  "morph: the rope is tied under its handle's plate (" + juce::String(anywhere) + " pixels of rope in the window, "
+                      + juce::String(onPlates) + " of them on a handle)");
+
+            proc.setMorphSource(0, -1);
+            ed.syncMorphPad();
+            ed.m_morphPad.ropesMoved();
+            ed.m_morphButton.setToggleState(false, juce::dontSendNotification);
+            ed.syncMorphPad();
+            rig.run(0.2);
+        }
+
         // The sea keeps time. Busy it steps on every frame, quiet it steps a third as often - but either way the
         // same number of frames must carry it the same distance, or the swell rolls fast whenever nothing plays.
         {

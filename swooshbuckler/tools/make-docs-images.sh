@@ -18,15 +18,27 @@ here=$(cd "$(dirname "$0")/.." && pwd)
 build=${1:-"$here/build"}
 out=$(mktemp -d)
 # Render Variations shows where its files would go, so the tool is given a short, plain scratch folder whose
-# recordings folder is called Desktop: the line in that picture then reads like anyone else's.
+# recordings folder is called Desktop: the line in that picture then reads like anyone else's. The folder is
+# emptied and made again on every run, so it has to be a scratch one: set SWOOSHBUCKLER_DOCS_WORK to another
+# path under /tmp (or under TMPDIR) if that name is taken.
 work=${SWOOSHBUCKLER_DOCS_WORK:-/tmp/Swooshbuckler Docs}
+case "$work" in
+    /tmp/?*|/private/tmp/?*|/var/folders/?*) ;;
+    *)
+        echo "make-docs-images.sh: the work folder is emptied on every run, so it must be under /tmp: '$work'" >&2
+        exit 1
+        ;;
+esac
 trap 'rm -rf "$out"' EXIT
 
 shot="$build/SwooshbucklerUiShot_artefacts/Release/SwooshbucklerUiShot"
 [ -x "$shot" ] || shot="$build/SwooshbucklerUiShot_artefacts/SwooshbucklerUiShot"
 if [ ! -x "$shot" ]; then
-    cmake -S "$here" -B "$build" -DSWOOSHBUCKLER_TOOLS=ON
-    cmake --build "$build" --target SwooshbucklerUiShot --parallel 8
+    # Build it where it stands first: a build folder that already knows the tools needs no configuring again,
+    # and configuring one that is set up some other way would change how everything else in it is built.
+    cmake --build "$build" --target SwooshbucklerUiShot --parallel 8 \
+        || { cmake -S "$here" -B "$build" -DSWOOSHBUCKLER_TOOLS=ON \
+             && cmake --build "$build" --target SwooshbucklerUiShot --parallel 8; }
     shot="$build/SwooshbucklerUiShot_artefacts/Release/SwooshbucklerUiShot"
     [ -x "$shot" ] || shot="$build/SwooshbucklerUiShot_artefacts/SwooshbucklerUiShot"
 fi

@@ -59,6 +59,13 @@ public:
     /** The lanes moved (scrolled, added, removed): the hanging ropes are drawn again. */
     void ropesMoved();
 
+    /** A rope handle's plate, in this component's own coordinates. No rope is ever drawn over one, so that the
+        letter and the name on it stay readable: the UI test paints the window with and without the rope layer
+        and compares what is inside these two plates. */
+    juce::Rectangle<float> handlePlate(int slot) const noexcept { return m_handles[static_cast<size_t>(slot)]; }
+    /** The layer the ropes hang on, or nullptr while no rope is shown. */
+    juce::Component* ropeLayer() const noexcept;
+
     /** While wandering: where the dot is now (0..1 across and up) and how far its shape has turned (radians). */
     std::function<void(float& x, float& y, float& rotation)> wanderPosition;
 

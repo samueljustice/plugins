@@ -106,8 +106,23 @@ public:
         Theme::fitText(g, slot == 0 ? "A" : "B", ring, owner.m_fonts.caption(), juce::Justification::centred);
     }
 
+    /** A handle's plate, in this layer's coordinates. */
+    juce::Rectangle<int> handleArea(int slot) const
+    {
+        const auto r = owner.m_handles[static_cast<size_t>(slot)];
+        const auto topLeft = getLocalPoint(nullptr, owner.localPointToGlobal(r.getTopLeft()));
+        const auto bottomRight = getLocalPoint(nullptr, owner.localPointToGlobal(r.getBottomRight()));
+        return juce::Rectangle<float>(topLeft, bottomRight).getSmallestIntegerContainer();
+    }
+
     void paint(juce::Graphics& g) override
     {
+        // Every rope is tied under its handle's plate: the plates are kept out of the way so that no rope is
+        // ever drawn over a handle's letter or the name of the track it is roped to.
+        juce::Graphics::ScopedSaveState clipped(g);
+        for (int slot = 0; slot < 2; ++slot)
+            g.excludeClipRegion(handleArea(slot));
+
         // The ropes that hang between a handle and its track (a little see-through: they cross other controls).
         for (int slot = 0; slot < 2; ++slot)
         {
@@ -373,6 +388,8 @@ void MorphPad::ropesMoved()
     if (m_overlay != nullptr && m_overlay->isVisible())
         m_overlay->update();
 }
+
+juce::Component* MorphPad::ropeLayer() const noexcept { return m_overlay.get(); }
 
 void MorphPad::visibilityChanged() { updateOverlay(); }
 void MorphPad::moved() { ropesMoved(); }
