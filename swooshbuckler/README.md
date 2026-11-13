@@ -63,7 +63,7 @@ No sounds to hand? Click **Load Demo Sounds** in the empty Tracks panel. It fill
 
 Hold **Swell**, the space bar or any MIDI note to push every fader up at once. Press **Throw** (or the F key) for one whoosh on demand, with the rig playing or stopped. Return is Play / Stop, R is Randomise, T arms the tape and L saves the last minute: see [Keyboard, mouse and MIDI](#keyboard-mouse-and-midi).
 
-Every control has a tooltip: hover over it to see what it does and how to use it.
+Every knob is a ship's wheel with a sand pointer, and under it its name and its value, always in its own units. The ring around the wheel fills with the value in its section's colour. Every control has a tooltip: hover over it to see what it does and how to use it.
 
 ## How it works
 
@@ -337,9 +337,9 @@ The last stage before your speakers and the tape. At its left is the **Peak Trem
 | **Inflate** | 0–100% (30%) | Louder and denser without new peaks, so quieter detail comes forward. Up to 70% it blends in; the last 30% makes it harder and grittier. At 0% the sound passes through untouched. It comes before Push, so it does the same wherever Push is. |
 | **Push** | 0 to +15 dB (+3 dB) | How hard the mix drives into the limiter, after Inflate. The ceiling stays put, so it can't clip. |
 | **Ceiling** | −6 to 0 dB (−0.3 dB) | The limiter's ceiling, finer near the top. It is a true-peak ceiling: the limiter reads the waveform between the samples as well as at them, so a take stays under the ceiling when it is converted to another sample rate or format, or played through a converter. The limiter is always on. |
-| **GR** | meter | How much the limiter is turning the sound down (a full bar is 12 dB, with marks at 3, 6 and 12). The bar falls back steadily and a line stays at the deepest recent reduction for a moment, so a short hit is easy to see. The number above the meters is that deepest recent reduction in dB, and turns coral while the limiter is working. |
-| **Out** | meter | The peak level going to tape, after the limiter and before Trim, with marks at 0, −6, −12, −24 and −48 dB. A line stays at the highest recent peak for a moment. Turning Trim down doesn't move it, because it doesn't change the take. |
-| **Trim** | silence to 0 dB (0 dB) | How loud you hear it (and what your DAW gets from the plug-in), after the limiter. The tape and Last 60 s record before it, at full level, so turning it down never makes a quieter take. Double-click to reset. |
+| **GR** | meter | How much the limiter is turning the sound down (a full bar is 12 dB, with marks at 3, 6 and 12). The bar falls back steadily and a line stays at the deepest recent reduction for a moment, so a short hit is easy to see. The number under the meter is that deepest recent reduction in dB, and turns coral while the limiter is working. |
+| **Out** | meter | The peak level going to tape, after the limiter and before Trim, with marks at 0, −6, −12, −24 and −48 dB. The bar is brass above −6 dB and cherry for the last decibel. A line stays at the highest recent peak for a moment, and the number under the meter is that peak in dB. Turning Trim down doesn't move it, because it doesn't change the take. |
+| **Trim** | silence to 0 dB (0 dB) | How loud you hear it (and what your DAW gets from the plug-in), after the limiter. The tape and Last 60 s record before it, at full level, so turning it down never makes a quieter take. The fader has marks at 0, −6, −12 and −24 dB, and the number under it is where it is set, in dB. Double-click to reset. |
 
 If the gain reduction number is coral all the time, back off Push or raise Ceiling.
 
@@ -421,15 +421,15 @@ The defaults are Mod 1: LFO (Sine), Mod 2: LFO (Triangle), Mod 3: Random, Mod 4:
 
 - **Drag from a modulator's jack** (the round socket at its top left) onto a knob. A cable follows the mouse, and the knob under it lights up; drop it there to wire it. Drop it anywhere else to cancel. Drag from the same jack again to wire more knobs.
 - You can wire every knob in Ride, Bus A, Bus B, Hits and Output (the Peak Tremolo's included), and each track's **Semitones** box, which modulates that track's pitch smoothly (a 100% wire swings two octaves). You can't wire the morph pad, the track faders, or the modulators' own knobs.
-- Each wire leaves a **plug**, a small coloured dot on the knob's rim, and draws an arc showing how far it moves the knob:
+- Each wire leaves a **plug**, a small coloured dot on the right of the knob's rim, and draws a thin ring outside the knob's value ring, in the modulator's colour, showing how far it moves the knob. Several wires on one knob stack their rings outwards, and a dot on the rings shows where the modulation has the value at this moment:
   - **Cmd-drag the control itself** (Ctrl-drag on Windows) to set the depth of its newest wire: up for more, down through zero for negative (the wire then moves the control the other way). A bubble shows the amount. Hold Shift for fine control. **Cmd-double-click** (Ctrl on Windows) sets it back to +50%.
   - Or **drag the plug up or down**, from −100% to +100%. New wires start at +50%. Hold Shift for fine control.
-  - A negative depth draws its arc **dashed**, so you can see at a glance which way a wire pushes.
+  - A negative depth draws its ring **dashed**, so you can see at a glance which way a wire pushes.
   - **Double-click** a plug to set it to +50%.
   - **Right-click** a plug for a menu: Invert, Depth 25%, 50% or 100%, or Pull Out the Wire.
   - **Alt-click** a plug to pull the wire out straight away.
 - **Clear** on a card pulls out all of that modulator's wires.
-- **Cables** (top right) shows or hides the cables. The plugs stay on the knobs either way.
+- **Cables** (top right) shows or hides the cables. The plugs stay on the knobs either way. A cable comes up beside a knob's name and value and turns in to its plug, so it never covers them. Put the mouse on a modulator's card, or on one of its plugs, and its cables stand out while the others fade.
 - Several wires on one knob add together. You can have up to 48 wires in all.
 - Wires only move the value that reaches the sound. The knob itself never moves, so your DAW automation stays clean.
 - Wires and modulator settings are saved with the session. Presets and Randomise don't touch them, and New pulls them all out.

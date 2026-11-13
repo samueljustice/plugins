@@ -14,6 +14,15 @@
 //     every tooltip starts with a heading in Title Case and shouts nowhere.
 //   - The three looks: a control that cannot be used is Disabled, one that waits for something else is Resting (and
 //     still usable), one that follows another is Linked; Peak Tremolo is a switch that moves its parameter.
+//   - The knobs: every one is one of two wheels (its ring's radius is its size's, whatever box it is given), whole
+//     in its box with the dial over its caption and its value; the rows of knobs are on two column pitches; the
+//     caption and the value are always drawn, and the value follows a drag; the wheel is where the value is while
+//     it is held, coasts when it is let go and comes back, and swings in on a spring when the value changes on its
+//     own; each wire is a ring outside the value ring in its modulator's colour, dashed when its depth is negative;
+//     plugs sit on the rim, clear of the text, and their cables come in beside it; the cables of the modulator
+//     under the mouse stand out and the others fade; the still part of the wheels is kept in a few images.
+//   - Faders and meters: no slider or scrollbar is drawn by JUCE's own look; the meters and the Trim fader have a
+//     number under them; Swell is the biggest thing in its panel and Throw sits under it.
 //
 // Usage: SwooshbucklerUi [scratch folder] (a folder in the temp directory if none is given). Nothing is read from
 // or written to the user's settings, and nothing goes on line.
@@ -74,6 +83,41 @@ namespace
               name + ": " + juce::String(static_cast<int>(recorder.texts.size())) + " texts, every one fits, is big enough, clear of the others and capitalised by the rule"
                   + (faults.empty() ? juce::String() : " (" + juce::String(static_cast<int>(faults.size())) + " faults)"));
         return static_cast<int>(recorder.texts.size());
+    }
+
+    template <typename Kind>
+    void collect(juce::Component& c, std::vector<Kind*>& found)
+    {
+        if (auto* k = dynamic_cast<Kind*>(&c); k != nullptr && Theme::isShownInWindow(c))
+            found.push_back(k);
+        for (auto* child : c.getChildren())
+            collect(*child, found);
+    }
+
+    /** A mouse event on a component, as the main mouse would send it. */
+    juce::MouseEvent mouseAt(juce::Component& c, juce::Point<float> position, juce::Point<float> down, bool dragged)
+    {
+        const auto now = juce::Time::getCurrentTime();
+        return juce::MouseEvent(juce::Desktop::getInstance().getMainMouseSource(), position, juce::ModifierKeys(juce::ModifierKeys::leftButtonModifier),
+                                juce::MouseInputSource::defaultPressure, juce::MouseInputSource::defaultOrientation, juce::MouseInputSource::defaultRotation,
+                                juce::MouseInputSource::defaultTiltX, juce::MouseInputSource::defaultTiltY, &c, &c, now, down, now, 1, dragged);
+    }
+
+    /** How much of a ring around a knob's dial is drawn in a colour, between two positions of its travel. */
+    float ringCoverage(const juce::Image& image, float imageScale, juce::Point<float> centre, float radius, float lo, float hi, juce::Colour colour)
+    {
+        const float start = juce::MathConstants<float>::pi * -0.75f, end = juce::MathConstants<float>::pi * 0.75f;
+        int hits = 0;
+        const int samples = 80;
+        for (int i = 0; i < samples; ++i)
+        {
+            const float p = lo + (hi - lo) * (0.06f + 0.88f * static_cast<float>(i) / static_cast<float>(samples - 1));
+            const float a = start + p * (end - start);
+            const int x = juce::roundToInt((centre.x + std::sin(a) * radius) * imageScale - 0.5f), y = juce::roundToInt((centre.y - std::cos(a) * radius) * imageScale - 0.5f);
+            if (image.getBounds().contains(x, y) && image.getPixelAt(x, y).getAlpha() > 128 && distance(image.getPixelAt(x, y), colour) < 0.16)
+                ++hits;
+        }
+        return static_cast<float>(hits) / static_cast<float>(samples);
     }
 
     /** Every tooltip under a component: its heading line in Title Case, and no word in capitals anywhere in it. */
@@ -512,6 +556,240 @@ int main(int argc, char* argv[])
                           && SwooshLookAndFeel::getStyle(ed.m_presetName) == SwooshLookAndFeel::ButtonStyle::Menu,
                       "header: the preset arrows are drawn icons, and the preset box is a menu");
             }
+            // The knobs: two wheels, whole in their boxes, on two column pitches.
+            {
+                std::vector<WheelKnob*> knobs;
+                collect(ed, knobs);
+                int whole = 0, primary = 0;
+                for (auto* k : knobs)
+                {
+                    const auto size = k->getSize();
+                    primary += size == WheelKnob::Size::Primary ? 1 : 0;
+                    const float ring = k->getRingRadius(), outer = ring + WheelKnob::c_modRoom;
+                    const auto centre = k->getDialCentre();
+                    const auto caption = k->getCaptionArea(), value = k->getValueArea();
+                    const auto box = k->getLocalBounds().toFloat();
+                    const bool ok = std::abs(ring - WheelKnob::ringFor(size)) < 1.0e-3f
+                                    && k->getWidth() >= WheelKnob::cellWidth(size) && k->getHeight() >= WheelKnob::cellHeight(size)
+                                    && centre.x - outer >= -0.01f && centre.x + outer <= box.getWidth() + 0.01f && centre.y - outer >= -0.01f
+                                    && centre.y + outer <= caption.getY() + 0.01f && caption.getBottom() <= value.getY() + 0.01f
+                                    && box.contains(caption) && box.contains(value) && caption.getHeight() >= 12.0f && value.getHeight() >= 12.0f;
+                    whole += ok ? 1 : 0;
+                    if (! ok)
+                        std::cout << "         " << k->caption << ": box " << k->getBounds().toString() << ", ring " << ring << std::endl;
+                }
+                const int count = static_cast<int>(knobs.size());
+                check(count >= 40 && whole == count && primary >= 20 && primary < count,
+                      "knobs: all " + juce::String(count) + " are one of two wheels (" + juce::String(primary) + " primary, " + juce::String(count - primary)
+                          + " secondary), whole in their boxes with the dial over the caption and the value," + at);
+
+                // Bus A, bus B and the Hits: each row on one pitch, and only two pitches between them.
+                std::vector<int> pitches;
+                bool even = true;
+                for (int section = 0; section < 3; ++section)
+                {
+                    std::vector<int> xs;
+                    for (auto* k : knobs)
+                        if (k->getParentComponent() == &ed.m_content && ed.m_sections[static_cast<size_t>(section)].bounds.contains(k->getBounds().getCentre()))
+                            xs.push_back(k->getBounds().getCentreX());
+                    std::sort(xs.begin(), xs.end());
+                    even = even && xs.size() >= 7;
+                    for (size_t i = 1; i < xs.size(); ++i)
+                    {
+                        even = even && xs[i] - xs[i - 1] == xs[1] - xs[0];
+                        if (std::find(pitches.begin(), pitches.end(), xs[i] - xs[i - 1]) == pitches.end())
+                            pitches.push_back(xs[i] - xs[i - 1]);
+                    }
+                }
+                check(even && pitches.size() == 2, "knobs: bus A, bus B and the Hits are rows on two column pitches (" + juce::String(static_cast<int>(pitches.size())) + ")" + at);
+
+                // Nothing is drawn by JUCE's own look: every slider and scrollbar has ours.
+                std::vector<juce::Slider*> sliders;
+                std::vector<juce::ScrollBar*> bars;
+                collect(ed, sliders);
+                collect(ed, bars);
+                int ours = 0, faders = 0;
+                for (auto* slider : sliders)
+                {
+                    const bool drawnByItself = dynamic_cast<ModTarget*>(slider) != nullptr;
+                    faders += drawnByItself ? 0 : 1;
+                    ours += (drawnByItself || (dynamic_cast<SwooshLookAndFeel*>(&slider->getLookAndFeel()) != nullptr && slider->getTextBoxPosition() == juce::Slider::NoTextBox
+                                               && (slider->getSliderStyle() == juce::Slider::LinearHorizontal || slider->getSliderStyle() == juce::Slider::LinearVertical))) ? 1 : 0;
+                }
+                for (auto* bar : bars)
+                    ours += dynamic_cast<SwooshLookAndFeel*>(&bar->getLookAndFeel()) != nullptr ? 1 : 0;
+                check(faders >= 4 && ours == static_cast<int>(sliders.size() + bars.size()),
+                      "faders: all " + juce::String(faders) + " faders and " + juce::String(static_cast<int>(bars.size())) + " scrollbars are drawn in the house style" + at);
+            }
+
+            if (scale == 1.0f)
+            {
+                auto& wires = ed.m_wires;
+                auto* doppler = dynamic_cast<WheelKnob*>(ed.m_controls[ParamIDs::bus[0][ParamIDs::Doppler]]);
+                auto* width = dynamic_cast<WheelKnob*>(ed.m_controls[ParamIDs::bus[0][ParamIDs::Width]]);
+
+                // The caption and the value are always drawn, and the value is the control's own text.
+                {
+                    auto textsOf = [](WheelKnob& k)
+                    {
+                        UiProbe::Recorder recorder;
+                        recorder.paint(k, 1.0f);
+                        juce::StringArray texts;
+                        for (const auto& t : recorder.texts)
+                            texts.add(t.text);
+                        return texts;
+                    };
+                    const auto before = textsOf(*width);
+                    const bool shown = before.size() == 2 && before[0] == "Width" && before[1] == width->getTextFromValue(width->getValue()) && before[1].isNotEmpty();
+                    width->setValue(width->getMinimum() + 0.25 * (width->getMaximum() - width->getMinimum()), juce::sendNotificationSync);
+                    const auto after = textsOf(*width);
+                    check(shown && after.size() == 2 && after[1] == width->getTextFromValue(width->getValue()) && after[1] != before[1],
+                          "knobs: the caption and the value are always drawn (\"" + before.joinIntoString(" / ") + "\", then \"" + after.joinIntoString(" / ") + "\")");
+                }
+
+                // A value that changes on its own swings the wheel in on a spring; under the hand the wheel is where
+                // the value is; let go while turning, it coasts on past the value and comes back to it.
+                {
+                    for (int i = 0; i < 400; ++i) width->timerCallback();
+                    const float start = width->getShownPosition();
+                    width->setValue(width->getMinimum() + 0.6 * (width->getMaximum() - width->getMinimum()), juce::sendNotificationSync);
+                    const float target = static_cast<float>(width->valueToProportionOfLength(width->getValue()));
+                    const bool lags = std::abs(width->getShownPosition() - start) < 1.0e-4f && std::abs(target - start) > 0.2f;
+                    width->timerCallback();
+                    const bool moving = std::abs(width->getShownPosition() - start) > 1.0e-4f && std::abs(width->getShownPosition() - target) > 0.05f;
+                    for (int i = 0; i < 400; ++i) width->timerCallback();
+                    check(lags && moving && std::abs(width->getShownPosition() - target) < 1.0e-4f, "wheel: a value that changes on its own swings in on the spring");
+
+                    const auto centre = width->getDialCentre();
+                    width->mouseDown(mouseAt(*width, centre, centre, false));
+                    bool oneToOne = true;
+                    float last = target;
+                    for (int step = 1; step <= 6; ++step)
+                    {
+                        juce::Thread::sleep(4);
+                        width->mouseDrag(mouseAt(*width, centre.translated(0.0f, -8.0f * static_cast<float>(step)), centre, true));
+                        const float now = static_cast<float>(width->valueToProportionOfLength(width->getValue()));
+                        oneToOne = oneToOne && now > last + 0.01f && std::abs(width->getShownPosition() - now) < 1.0e-6f;
+                        last = now;
+                    }
+                    width->mouseUp(mouseAt(*width, centre.translated(0.0f, -48.0f), centre, true));
+                    float furthest = 0.0f;
+                    for (int i = 0; i < 400; ++i)
+                    {
+                        width->timerCallback();
+                        furthest = juce::jmax(furthest, width->getShownPosition() - last);
+                    }
+                    check(oneToOne, "wheel: under the hand it is where the value is at every step of a drag, with no lag");
+                    check(furthest > 0.003f && furthest < 0.08f && std::abs(width->getShownPosition() - last) < 1.0e-4f,
+                          "wheel: let go while turning, it coasts on (" + juce::String(furthest * 100.0f, 1) + "% of its travel) and settles on the value");
+                }
+
+                // Rings: one for each wire outside the value ring, in the modulator's colour; a negative depth is dashed.
+                proc.getMods().connect(1, ParamIDs::bus[0][ParamIDs::Doppler], -0.4f);
+                wires.rebuild();
+                rig.run(0.1);
+                {
+                    const float imageScale = 3.0f;
+                    const auto image = doppler->createComponentSnapshot(doppler->getLocalBounds(), false, imageScale);
+                    const float ring = doppler->getRingRadius(), first = ring + 3.5f, second = first + 2.4f;
+                    const float p = static_cast<float>(doppler->valueToProportionOfLength(doppler->getValue()));
+                    const auto& arcs = doppler->m_modArcs;
+                    bool rings = arcs.size() == 2;
+                    float solid = 0.0f, dashed = 0.0f, inside = 0.0f;
+                    if (rings)
+                    {
+                        auto range = [p](const ModTarget::ModArc& m)
+                        {
+                            const float lo = m.bipolar ? p - 0.5f * std::abs(m.depth) : juce::jmin(p, p + m.depth), hi = m.bipolar ? p + 0.5f * std::abs(m.depth) : juce::jmax(p, p + m.depth);
+                            return std::pair<float, float>(juce::jmax(0.0f, lo), juce::jmin(1.0f, hi));
+                        };
+                        const auto r0 = range(arcs[0]), r1 = range(arcs[1]);
+                        solid = ringCoverage(image, imageScale, doppler->getDialCentre(), first, r0.first, r0.second, Theme::modColour(0));
+                        dashed = ringCoverage(image, imageScale, doppler->getDialCentre(), second, r1.first, r1.second, Theme::modColour(1));
+                        inside = ringCoverage(image, imageScale, doppler->getDialCentre(), ring, r0.first, r0.second, Theme::modColour(0));
+                    }
+                    check(rings && solid > 0.8f && dashed > 0.25f && dashed < 0.8f && inside < 0.05f,
+                          "rings: each wire is a ring outside the value ring in its modulator's colour (" + juce::String(solid, 2) + " of the first), dashed when its depth is negative ("
+                              + juce::String(dashed, 2) + ")");
+                }
+
+                // Plugs on the rim, clear of the caption and the value; cables come in beside the text.
+                {
+                    int plugs = 0, onRim = 0, clear = 0;
+                    const float plugRadius = 5.5f;
+                    for (const auto& plug : wires.m_plugs)
+                        if (auto* knob = dynamic_cast<WheelKnob*>(plug.knob))
+                        {
+                            ++plugs;
+                            const auto local = knob->getLocalPoint(&wires, plug.pos);
+                            const float d = local.getDistanceFrom(knob->getDialCentre());
+                            onRim += std::abs(d - (knob->getRingRadius() + 3.0f)) < 0.6f ? 1 : 0;
+                            const auto text = wires.getLocalArea(knob, knob->getCaptionArea().getUnion(knob->getValueArea()).getSmallestIntegerContainer()).toFloat();
+                            bool off = plug.hasGate && plug.pos.y + plugRadius <= text.getY() && ! text.contains(plug.gate);
+                            const auto jack = wires.getLocalPoint(wires.m_panel, wires.m_panel->getJackCentre(plug.route.source));
+                            const auto path = wires.cablePath(jack, plug.pos, &plug.gate);
+                            juce::PathFlatteningIterator it(path);
+                            while (it.next())
+                                off = off && ! text.reduced(1.0f).intersects(juce::Line<float>(it.x1, it.y1, it.x2, it.y2));
+                            clear += off ? 1 : 0;
+                        }
+                    check(plugs == 3 && onRim == plugs && clear == plugs && wires.m_plugs[0].pos.getDistanceFrom(wires.m_plugs.back().pos) > 2.0f * plugRadius - 1.5f,
+                          "plugs: all " + juce::String(plugs) + " sit on the wheel's rim, clear of the caption and the value, and their cables come in beside the text");
+                }
+
+                // The modulator under the mouse: its cables at full strength, the others faded.
+                {
+                    const auto* lilac = &wires.m_plugs.front(); // Mod 1 -> bus A's Doppler
+                    for (const auto& plug : wires.m_plugs)
+                        if (plug.route.source == 0)
+                            lilac = &plug;
+                    const auto jack = wires.getLocalPoint(wires.m_panel, wires.m_panel->getJackCentre(0));
+                    const auto path = wires.cablePath(jack, lilac->pos, lilac->hasGate ? &lilac->gate : nullptr);
+                    const auto mid = path.getPointAlongPath(path.getLength() * 0.3f);
+                    auto strength = [&]
+                    {
+                        int most = 0;
+                        for (int dx = -2; dx <= 2; ++dx)
+                            for (int dy = -2; dy <= 2; ++dy)
+                                most = juce::jmax(most, static_cast<int>(wires.m_cables.getPixelAt(juce::roundToInt(mid.x * wires.m_scale) + dx, juce::roundToInt(mid.y * wires.m_scale) + dy).getAlpha()));
+                        return most;
+                    };
+                    const int plain = strength();
+                    wires.setHoverCard(0);
+                    const int own = strength();
+                    const bool alphas = wires.cableAlpha(0) > 0.9f && wires.cableAlpha(1) < 0.3f;
+                    wires.setHoverCard(2);
+                    const int other = strength();
+                    wires.setHoverCard(-1);
+                    check(alphas && own > plain + 20 && other < plain - 80 && strength() == plain && wires.cableAlpha(0) == ModWires::c_cableAlpha,
+                          "cables: the modulator under the mouse stands out (" + juce::String(own) + " of 255) and the others fade (" + juce::String(other) + "), from " + juce::String(plain));
+                }
+
+                // The still part of the wheels is kept: a few images, and drawing again makes no more.
+                {
+                    UiProbe::Recorder first;
+                    first.paint(ed, 1.0f, scale);
+                    const int kept = WheelKnob::keptLayerCount();
+                    UiProbe::Recorder again;
+                    again.paint(ed, 1.0f, scale);
+                    check(kept >= 2 && kept <= 24 && WheelKnob::keptLayerCount() == kept, "wheel: the still part of all the knobs is " + juce::String(kept) + " kept images, and drawing again adds none");
+                }
+
+                // The meters and the Trim fader each have a number; Swell is the biggest thing in Ride, Throw under it.
+                {
+                    ed.m_trim.setValue(-12.0, juce::sendNotificationSync);
+                    const bool numbers = ed.m_grReadout.isNotEmpty() && ed.m_outReadout.isNotEmpty() && ed.m_trimReadout == "-12.0";
+                    ed.m_trim.setValue(0.0, juce::sendNotificationSync);
+                    check(numbers && ed.m_trimReadout == "0.0" && ed.m_trimValue.getWidth() >= 40 && ! ed.m_trimValue.intersects(ed.m_trim.getBounds()),
+                          "meters: GR, Out and Trim each have a number under them (\"" + ed.m_grReadout + "\", \"" + ed.m_outReadout + "\", \"" + ed.m_trimReadout + "\")");
+                    const auto swell = ed.m_swell.getBounds(), thrown = ed.m_throwButton.getBounds();
+                    check(swell.getWidth() >= 2 * WheelKnob::cellWidth(WheelKnob::Size::Secondary) && swell.getWidth() > WheelKnob::cellWidth(WheelKnob::Size::Primary)
+                              && ed.m_performPanel.contains(swell) && thrown.getX() >= swell.getX() && thrown.getRight() <= swell.getRight()
+                              && std::abs(thrown.getY() - swell.getBottom()) <= 12,
+                          "Swell: the biggest thing in Ride, with Throw right under it");
+                }
+            }
+
             proc.getState().getParameter(ParamIDs::linkBuses)->setValueNotifyingHost(0.0f);
             proc.getMods().clear();
 

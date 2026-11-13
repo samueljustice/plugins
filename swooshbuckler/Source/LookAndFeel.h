@@ -193,6 +193,9 @@ public:
         const float a = juce::degreesToRadians(38.0f + 24.0f * static_cast<float>(index));
         return getDialCentre() + juce::Point<float>(std::sin(a), -std::cos(a)) * (getDialRadius() + 5.0f);
     }
+    /** Where a cable turns in towards its plug, in this control's coordinates: it comes up to this point and
+        curves in from there, so it stays off the control's own caption and value. False: straight to the plug. */
+    virtual bool getCableGate(int index, juce::Point<float>& gate) const { juce::ignoreUnused(index, gate); return false; }
     /** A wire is being dragged over this control. */
     void setWireHover(juce::Colour c) { m_wireHover = c; repaint(); }
     /** Can a wire land on (and a plug be shown at) this control now: showing, enabled, not scrolled out of view. */
@@ -219,35 +222,85 @@ protected:
 };
 
 /**
- * Rotary knob drawn as a brass ship's wheel. The wheel chases the real value
- * on a damped spring, so every move (and every preset morph) swings in with a
- * little rubber-band overshoot.
+ * The knob: a chunky flat ship's wheel with six spokes, one of them the sand pointer, inside a ring that fills
+ * with its value in the section's colour. Under it, always, its caption and its value in its own units.
+ *
+ * There are two sizes on the whole screen (Size): the ring's radius is fixed by the size, never by the box the
+ * knob is given, so every knob of a size is the same wheel. A knob's box is the dial (the ring, and room outside
+ * it for the modulation rings) over two lines of text; cellWidth / cellHeight say how big that is.
+ *
+ * Modulation: one thin ring for each wire outside the value ring, in the modulator's colour, stacked outwards
+ * (dashed when the depth is negative), and a dot where the modulation has the value now. Plugs sit on the rim at
+ * the wheel's right, never on the text.
+ *
+ * Under the hand the wheel turns with the value, one to one; let go and it coasts on a moment and settles. A
+ * value that changes on its own (a preset, Randomise, automation) swings the wheel in on a spring.
+ *
+ * What does not move (the socket, the empty ring, the wheel's rim and hub) is kept as an image for each size,
+ * colour and screen scale, shared by every knob; a repaint draws that, the arc, the spokes and the text.
  */
 class WheelKnob : public ModTarget, private juce::Timer
 {
 public:
-    WheelKnob(const Theme::Fonts& fonts, juce::Colour accent);
+    enum class Size { Primary = 0, Secondary };
+    /** The value ring's radius for each size, the room outside it for the modulation rings, and the two text lines. */
+    static constexpr float c_ringPrimary = 24.0f, c_ringSecondary = 15.0f, c_modRoom = 7.0f;
+    static constexpr int c_lineHeight = 13, c_textHeight = 2 * c_lineHeight;
+    static constexpr float ringFor(Size size) { return size == Size::Primary ? c_ringPrimary : c_ringSecondary; }
+    /** The smallest box a knob of this size is whole in. */
+    static constexpr int cellWidth(Size size) { return static_cast<int>(2.0f * (ringFor(size) + c_modRoom)); }
+    static constexpr int cellHeight(Size size) { return cellWidth(size) + c_textHeight; }
 
+    WheelKnob(const Theme::Fonts& fonts, juce::Colour accent, Size size = Size::Primary);
+
+    void setSize(Size size) { m_size = size; repaint(); }
+    Size getSize() const { return m_size; }
     void setAccent(juce::Colour c) { m_accent = c; repaint(); }
     /** The colour of what this knob follows while it is Linked (Theme::Look). */
     void setLinkColour(juce::Colour c) { m_linkColour = c; repaint(); }
+    /** The value's text function was changed: read the value again. */
+    void valueTextChanged() { m_valueTextStale = true; repaint(); }
     void paint(juce::Graphics&) override;
     void valueChanged() override;
     void mouseEnter(const juce::MouseEvent&) override;
     void mouseExit(const juce::MouseEvent&) override;
+    void mouseDown(const juce::MouseEvent&) override;
+    void mouseUp(const juce::MouseEvent&) override;
 
-    /** The dial (without the caption), in this knob's coordinates. */
+    /** The dial (without the caption), in this knob's coordinates: its centre, and the outside of its value ring. */
     juce::Point<float> getDialCentre() const override;
     float getDialRadius() const override;
+    /** The value ring's radius: the size's own, unless the box is too small for it (a fault in the layout). */
+    float getRingRadius() const;
+    juce::Point<float> getPlugPosition(int index) const override;
+    bool getCableGate(int index, juce::Point<float>& gate) const override;
+    /** Where the caption and the value are drawn. */
+    juce::Rectangle<float> getCaptionArea() const;
+    juce::Rectangle<float> getValueArea() const;
+    /** How many images of the still part of a wheel are kept (one for each size, colour and screen scale in use). */
+    static int keptLayerCount();
+    /** Where the wheel is drawn now, 0..1 of its travel (the value, but for the spring and the coast). */
+    float getShownPosition() const { return m_shown; }
 
 protected:
-    juce::Rectangle<int> typingBounds() const override; // over the caption, under the dial
+    juce::Rectangle<int> typingBounds() const override; // over the caption and the value, under the dial
 
 private:
     void timerCallback() override;
+    float valuePosition() { return static_cast<float>(valueToProportionOfLength(getValue())); }
 
     const Theme::Fonts& m_fonts;
     juce::Colour m_accent, m_linkColour { Theme::Colours::textDim };
+    Size m_size = Size::Primary;
     float m_shown = 0.0f, m_velocity = 0.0f;
     bool m_hover = false;
+    // Under the hand: the wheel follows the value; how fast it was turning is kept for the coast.
+    bool m_held = false;
+    float m_dragVelocity = 0.0f, m_dragLast = 0.0f;
+    double m_dragTime = 0.0;
+    // The value's text, read when the value changes rather than at every repaint.
+    juce::String m_valueText;
+    double m_valueTextFor = 0.0;
+    bool m_valueTextStale = true;
+    juce::Path m_scratch; // the arcs are built in this one path
 };

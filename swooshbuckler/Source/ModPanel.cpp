@@ -44,7 +44,7 @@ class ModPanel::Card : public juce::Component, public juce::TooltipClient
 {
 public:
     Card(ModPanel& owner, int source)
-        : m_owner(owner), m_source(source), m_knob(owner.m_fonts, sourceColour(source)),
+        : m_owner(owner), m_source(source), m_knob(owner.m_fonts, sourceColour(source), WheelKnob::Size::Secondary),
           m_typeAttachment(owner.m_processor.getState(), ParamIDs::modType[source], m_type),
           m_shapeAttachment(owner.m_processor.getState(), ParamIDs::modShape[source], m_shape),
           m_followAttachment(owner.m_processor.getState(), ParamIDs::modFollow[source], m_follow),
@@ -104,7 +104,7 @@ public:
         m_type.setTooltip(typeTip(t));
         m_shape.setVisible(t == ModMatrix::Type::Lfo);
         m_follow.setVisible(t == ModMatrix::Type::Follower);
-        m_knob.repaint();
+        m_knob.valueTextChanged();
         repaint();
         // Bipolar (LFO / Random) or one-way (Follower / Macro) changes the arcs on the wired knobs.
         juce::MessageManager::callAsync([safe = juce::Component::SafePointer<ModWires>(&m_owner.m_wires)] { if (safe != nullptr) safe->rebuild(); });
@@ -130,7 +130,7 @@ public:
 
     void resized() override
     {
-        auto r = getLocalBounds().reduced(10, 8);
+        auto r = getLocalBounds().reduced(10, 7);
         auto top = r.removeFromTop(22);
         top.removeFromLeft(static_cast<int>(c_jackRadius * 2.0f) + 8 + 60);
         m_type.setBounds(top.removeFromRight(juce::jmin(104, top.getWidth())));
@@ -140,7 +140,8 @@ public:
         m_shape.setBounds(bottom.removeFromLeft(juce::jmin(104, bottom.getWidth())));
         m_follow.setBounds(m_shape.getBounds());
         r.removeFromBottom(6);
-        m_knob.setBounds(r.removeFromRight(juce::jmin(78, r.getWidth())));
+        const auto knob = r.removeFromRight(juce::jmin(78, r.getWidth()));
+        m_knob.setBounds(knob.withSizeKeepingCentre(knob.getWidth(), juce::jmin(knob.getHeight(), WheelKnob::cellHeight(WheelKnob::Size::Secondary))));
         r.removeFromRight(8);
         m_scopeArea = r;
     }
@@ -300,8 +301,14 @@ juce::Point<float> ModPanel::getJackCentre(int source) const
 
 void ModPanel::timerCallback()
 {
-    for (auto& c : m_cards)
-        c->push();
+    int hovered = -1;
+    for (size_t i = 0; i < m_cards.size(); ++i)
+    {
+        m_cards[i]->push();
+        if (m_cards[i]->isMouseOver(true))
+            hovered = static_cast<int>(i);
+    }
+    m_wires.setHoverCard(hovered); // the modulator under the mouse: its cables stand out
     m_wires.updateKnobs();
 }
 
@@ -343,15 +350,24 @@ ModTarget* ModWires::knobAt(juce::Point<float> p, juce::String* id) const
     return best;
 }
 
-juce::Path ModWires::cablePath(juce::Point<float> from, juce::Point<float> to) const
+juce::Path ModWires::cablePath(juce::Point<float> from, juce::Point<float> to, const juce::Point<float>* gate) const
 {
-    // A hanging cable: both handles pulled down by a sag that grows with the span.
-    const float span = from.getDistanceFrom(to);
+    // A hanging cable: both handles pulled down by a sag that grows with the span. One that goes to a knob comes
+    // up to the knob's gate (beside its caption and value, never over them) and curves in to its plug from there.
+    const auto end = gate != nullptr ? *gate : to;
+    const float span = from.getDistanceFrom(end);
     const float sag = 24.0f + span * 0.22f;
     juce::Path p;
     p.startNewSubPath(from);
-    p.cubicTo(from + (to - from) * 0.25f + juce::Point<float>(0.0f, sag),
-              from + (to - from) * 0.75f + juce::Point<float>(0.0f, sag * 0.8f), to);
+    if (gate == nullptr)
+    {
+        p.cubicTo(from + (to - from) * 0.25f + juce::Point<float>(0.0f, sag),
+                  from + (to - from) * 0.75f + juce::Point<float>(0.0f, sag * 0.8f), to);
+        return p;
+    }
+    const float rise = juce::jmax(8.0f, end.y - to.y);
+    p.cubicTo(from + (end - from) * 0.25f + juce::Point<float>(0.0f, sag), end + juce::Point<float>(0.0f, juce::jlimit(40.0f, 130.0f, sag * 0.9f)), end);
+    p.cubicTo(end - juce::Point<float>(0.0f, rise * 0.55f), { end.x, to.y }, to);
     return p;
 }
 
@@ -390,7 +406,17 @@ void ModWires::rebuild()
             continue; // scrolled out of view (a track lane): no plug or cable until it scrolls back
         // Plugs sit on the dial's upper right, one per wire, around the rim.
         const int k = plugCount[knob]++;
-        m_plugs.push_back({ r, getLocalPoint(knob, knob->getPlugPosition(k)), knob });
+        Plug plug;
+        plug.route = r;
+        plug.pos = getLocalPoint(knob, knob->getPlugPosition(k));
+        plug.knob = knob;
+        juce::Point<float> gate;
+        if (knob->getCableGate(k, gate))
+        {
+            plug.gate = getLocalPoint(knob, gate);
+            plug.hasGate = true;
+        }
+        m_plugs.push_back(plug);
     }
     for (const auto& [id, knob] : m_knobs)
         if (knob != nullptr)
@@ -399,6 +425,29 @@ void ModWires::rebuild()
             knob->setModArcs(it != arcs.end() ? it->second : std::vector<ModTarget::ModArc> {});
         }
 
+    drawCables();
+}
+
+int ModWires::hoverSource() const { return m_hoverPlug >= 0 ? m_hoverPlug : m_hoverCard; }
+
+void ModWires::setHover(int card, int plug)
+{
+    const int before = hoverSource();
+    m_hoverCard = card;
+    m_hoverPlug = plug;
+    if (hoverSource() != before && m_hasCables)
+        drawCables();
+}
+
+float ModWires::cableAlpha(int source) const
+{
+    // The modulator under the mouse (its card, or one of its plugs): its cables at full strength, the others faded.
+    const int hover = hoverSource();
+    return hover < 0 ? c_cableAlpha : (source == hover ? c_cableAlphaHovered : c_cableAlphaFaded);
+}
+
+void ModWires::drawCables()
+{
     // The cables, drawn once into an image at the screen's resolution.
     const float scale = m_scale; // physical pixels per unit, learnt in paint
     const int iw = juce::jmax(1, juce::roundToInt(static_cast<float>(getWidth()) * scale));
@@ -412,11 +461,17 @@ void ModWires::rebuild()
     {
         juce::Graphics g(m_cables);
         g.addTransform(juce::AffineTransform::scale(scale));
-        for (const auto& plug : m_plugs)
-        {
-            const auto jack = getLocalPoint(m_panel, m_panel->getJackCentre(plug.route.source));
-            drawCable(g, cablePath(jack, plug.pos), ModPanel::sourceColour(plug.route.source), 0.62f);
-        }
+        // The faded ones first, so the one that stands out lies over them.
+        const int hover = hoverSource();
+        for (int pass = 0; pass < 2; ++pass)
+            for (const auto& plug : m_plugs)
+            {
+                if ((plug.route.source == hover) != (pass == 1))
+                    continue;
+                const auto jack = getLocalPoint(m_panel, m_panel->getJackCentre(plug.route.source));
+                drawCable(g, cablePath(jack, plug.pos, plug.hasGate ? &plug.gate : nullptr), ModPanel::sourceColour(plug.route.source),
+                          cableAlpha(plug.route.source));
+            }
     }
     repaint();
 }
@@ -553,6 +608,14 @@ void ModWires::paint(juce::Graphics& g)
         g.fillEllipse(juce::Rectangle<float>(c_plugRadius * 2.4f, c_plugRadius * 2.4f).withCentre(m_dragTo));
     }
 }
+
+void ModWires::mouseMove(const juce::MouseEvent& e)
+{
+    const auto* plug = plugAt(e.position);
+    setHover(m_hoverCard, plug != nullptr ? plug->route.source : -1);
+}
+
+void ModWires::mouseExit(const juce::MouseEvent&) { setHover(m_hoverCard, -1); }
 
 bool ModWires::hitTest(int x, int y)
 {

@@ -1,6 +1,9 @@
 #include "LookAndFeel.h"
 #include "TypedValue.h"
 
+#include <map>
+#include <tuple>
+
 namespace TC = Theme::Colours;
 
 namespace
@@ -742,7 +745,92 @@ void SwooshLookAndFeel::drawCutlasses(juce::Graphics& g, juce::Rectangle<float> 
 }
 
 //==============================================================================
-WheelKnob::WheelKnob(const Theme::Fonts& fonts, juce::Colour accent) : m_fonts(fonts), m_accent(accent)
+namespace
+{
+    /** The wheel's own proportions, from its value ring's radius (so both sizes are the same wheel). */
+    struct WheelShape
+    {
+        explicit WheelShape(float ring)
+            : rim(ring * 0.54f), rimThick(juce::jmax(2.4f, ring * 0.14f)), spoke(juce::jmax(1.8f, ring * 0.105f)),
+              handleEnd(ring - 4.2f), hub(juce::jmax(2.4f, ring * 0.17f)), pointerEnd(ring - 2.2f)
+        {
+        }
+        float rim, rimThick; // the rim's centre line and how thick it is
+        float spoke;         // a spoke's thickness (its handle, outside the rim, is a little thicker)
+        float handleEnd, hub, pointerEnd;
+    };
+
+    constexpr float c_ringThick = 3.0f;
+
+    /** The part of a knob that never moves, kept as an image for each size, colour and screen scale. */
+    struct WheelLayers final : public juce::DeletedAtShutdown
+    {
+        struct Key
+        {
+            int ring = 0, scale = 0;
+            juce::uint32 wheel = 0, track = 0;
+            bool operator<(const Key& o) const noexcept { return std::tie(ring, scale, wheel, track) < std::tie(o.ring, o.scale, o.wheel, o.track); }
+        };
+        ~WheelLayers() override { slot() = nullptr; }
+        static WheelLayers*& slot()
+        {
+            static WheelLayers* layers = nullptr;
+            return layers;
+        }
+        std::map<Key, juce::Image> images;
+    };
+
+    /** The socket, the empty ring, the rim and the hub, centred on `centre`. */
+    void drawWheelBase(juce::Graphics& g, juce::Point<float> centre, float ring, juce::Colour wheel, juce::Colour track)
+    {
+        const WheelShape shape(ring);
+        auto disc = [&centre](float radius) { return juce::Rectangle<float>(radius * 2.0f, radius * 2.0f).withCentre(centre); };
+        // The socket the wheel sits in, and around it the groove the value fills: both pressed into the plate.
+        g.setColour(juce::Colour(0xff0c212b));
+        g.fillEllipse(disc(ring - c_ringThick * 0.5f - 1.0f));
+        juce::Path arc;
+        arc.addCentredArc(centre.x, centre.y, ring, ring, 0.0f, c_startAngle, c_endAngle, true);
+        g.setColour(track);
+        g.strokePath(arc, juce::PathStrokeType(c_ringThick, juce::PathStrokeType::curved, juce::PathStrokeType::butt)); // round object: a ring on the wheel
+        g.setColour(wheel);
+        g.drawEllipse(disc(shape.rim), shape.rimThick);
+        g.fillEllipse(disc(shape.hub));
+    }
+
+    /** That, from the kept image at the context's own resolution (pixel for pixel, so it stays crisp). */
+    void drawWheelLayer(juce::Graphics& g, juce::Point<float> centre, float ring, juce::Colour wheel, juce::Colour track)
+    {
+        const float scale = juce::jlimit(0.25f, 4.0f, g.getInternalContext().getPhysicalPixelScaleFactor());
+        auto*& layers = WheelLayers::slot();
+        if (layers == nullptr)
+            layers = new WheelLayers(); // deleted with JUCE (DeletedAtShutdown)
+        const WheelLayers::Key key { juce::roundToInt(ring * 100.0f), juce::roundToInt(scale * 1000.0f), wheel.getARGB(), track.getARGB() };
+        auto found = layers->images.find(key);
+        if (found == layers->images.end())
+        {
+            if (layers->images.size() >= 48) // a window being resized goes through many scales
+                layers->images.clear();
+            const float half = ring + c_ringThick * 0.5f + 2.0f;
+            const int side = 2 * static_cast<int>(std::ceil(half * scale));
+            juce::Image image(juce::Image::ARGB, side, side, true);
+            {
+                juce::Graphics ig(image);
+                ig.addTransform(juce::AffineTransform::scale(scale));
+                const float mid = static_cast<float>(side) * 0.5f / scale;
+                drawWheelBase(ig, { mid, mid }, ring, wheel, track);
+            }
+            found = layers->images.emplace(key, std::move(image)).first;
+        }
+        const auto& image = found->second;
+        const float half = static_cast<float>(image.getWidth()) * 0.5f / scale;
+        juce::Graphics::ScopedSaveState state(g);
+        g.setImageResamplingQuality(juce::Graphics::lowResamplingQuality); // one image pixel to one screen pixel
+        g.setOpacity(1.0f);
+        g.drawImageTransformed(image, juce::AffineTransform::scale(1.0f / scale).translated(centre.x - half, centre.y - half));
+    }
+}
+
+WheelKnob::WheelKnob(const Theme::Fonts& fonts, juce::Colour accent, Size size) : m_fonts(fonts), m_accent(accent), m_size(size)
 {
     setSliderStyle(juce::Slider::RotaryHorizontalVerticalDrag);
     setTextBoxStyle(juce::Slider::NoTextBox, false, 0, 0);
@@ -751,18 +839,49 @@ WheelKnob::WheelKnob(const Theme::Fonts& fonts, juce::Colour accent) : m_fonts(f
     setMouseDragSensitivity(220);
 }
 
-juce::Point<float> WheelKnob::getDialCentre() const
+int WheelKnob::keptLayerCount()
 {
-    auto bounds = getLocalBounds().toFloat();
-    bounds.removeFromBottom(26.0f);
-    return bounds.getCentre();
+    const auto* layers = WheelLayers::slot();
+    return layers != nullptr ? static_cast<int>(layers->images.size()) : 0;
 }
 
-float WheelKnob::getDialRadius() const
+float WheelKnob::getRingRadius() const
 {
-    auto bounds = getLocalBounds().toFloat();
-    bounds.removeFromBottom(26.0f);
-    return juce::jmin(bounds.getWidth(), bounds.getHeight()) * 0.5f - 2.0f;
+    const float room = juce::jmin(static_cast<float>(getWidth()), static_cast<float>(getHeight() - c_textHeight)) * 0.5f - c_modRoom;
+    return juce::jmax(4.0f, juce::jmin(ringFor(m_size), room));
+}
+
+juce::Point<float> WheelKnob::getDialCentre() const
+{
+    // The dial sits on the text: whatever spare height the box has is above it.
+    return { static_cast<float>(getWidth()) * 0.5f, static_cast<float>(getHeight() - c_textHeight) - c_modRoom - getRingRadius() };
+}
+
+float WheelKnob::getDialRadius() const { return getRingRadius() + c_ringThick * 0.5f; }
+
+juce::Point<float> WheelKnob::getPlugPosition(int index) const
+{
+    // On the rim at the wheel's right: the first at three o'clock, the next ones either side of it.
+    static const float offsets[] = { 0.0f, -34.0f, 34.0f, -68.0f, 68.0f, -102.0f };
+    const float a = juce::degreesToRadians(90.0f + offsets[juce::jlimit(0, 5, index)]);
+    return getDialCentre() + juce::Point<float>(std::sin(a), -std::cos(a)) * (getRingRadius() + 3.0f);
+}
+
+bool WheelKnob::getCableGate(int, juce::Point<float>& gate) const
+{
+    // Up the right edge of the knob's box, past its caption and value, and in from there.
+    gate = { static_cast<float>(getWidth()), static_cast<float>(getHeight()) + 2.0f };
+    return true;
+}
+
+juce::Rectangle<float> WheelKnob::getCaptionArea() const
+{
+    return juce::Rectangle<int>(0, getHeight() - c_textHeight, getWidth(), c_lineHeight).toFloat();
+}
+
+juce::Rectangle<float> WheelKnob::getValueArea() const
+{
+    return juce::Rectangle<int>(0, getHeight() - c_lineHeight, getWidth(), c_lineHeight).toFloat();
 }
 
 //==============================================================================
@@ -920,7 +1039,7 @@ void ValueSlider::mouseDoubleClick(const juce::MouseEvent& e)
 
 juce::Rectangle<int> WheelKnob::typingBounds() const
 {
-    return getLocalBounds().removeFromBottom(26).reduced(2, 3);
+    return getLocalBounds().removeFromBottom(c_textHeight).reduced(1, 3);
 }
 
 void ModTarget::setModLive(float normalised)
@@ -977,13 +1096,13 @@ void ModTarget::mouseDoubleClick(const juce::MouseEvent& e)
 void ModTarget::strokeModPath(juce::Graphics& g, const juce::Path& p, juce::Colour colour, float depth, float thickness)
 {
     g.setColour(colour);
-    const juce::PathStrokeType stroke(thickness, juce::PathStrokeType::curved, juce::PathStrokeType::rounded); // round object: an arc on the wheel
+    const juce::PathStrokeType stroke(thickness, juce::PathStrokeType::curved, juce::PathStrokeType::butt); // round object: a ring on the wheel
     if (depth >= 0.0f)
     {
         g.strokePath(p, stroke);
         return;
     }
-    const float dashes[] = { 3.0f, 2.6f };
+    const float dashes[] = { 2.6f, 2.2f };
     juce::Path dashed;
     stroke.createDashedStroke(dashed, p, dashes, 2);
     g.fillPath(dashed);
@@ -991,141 +1110,191 @@ void ModTarget::strokeModPath(juce::Graphics& g, const juce::Path& p, juce::Colo
 
 void WheelKnob::valueChanged()
 {
+    m_valueTextStale = true;
+    if (m_held)
+    {
+        // Under the hand the wheel is where the value is, with no lag; how fast it turns is kept for the coast.
+        const double now = juce::Time::getMillisecondCounterHiRes() * 0.001;
+        const float position = valuePosition();
+        const float dt = static_cast<float>(juce::jlimit(1.0 / 240.0, 0.25, now - m_dragTime));
+        m_dragVelocity += ((position - m_dragLast) / dt - m_dragVelocity) * 0.5f;
+        m_dragLast = position;
+        m_dragTime = now;
+        m_shown = position;
+        m_velocity = 0.0f;
+        stopTimer();
+        repaint();
+        return;
+    }
     if (! isTimerRunning())
         startTimerHz(60);
 }
 
 void WheelKnob::timerCallback()
 {
-    const auto target = static_cast<float>(valueToProportionOfLength(getValue()));
-    if (! springStep(m_shown, m_velocity, target))
+    const float before = m_shown;
+    if (m_held || ! springStep(m_shown, m_velocity, valuePosition()))
         stopTimer();
-    repaint();
+    if (! juce::exactlyEqual(m_shown, before))
+        repaint();
 }
 
 void WheelKnob::mouseEnter(const juce::MouseEvent& e) { m_hover = true; repaint(); Slider::mouseEnter(e); }
 void WheelKnob::mouseExit(const juce::MouseEvent& e) { m_hover = false; repaint(); Slider::mouseExit(e); }
 
+void WheelKnob::mouseDown(const juce::MouseEvent& e)
+{
+    m_held = true;
+    m_dragVelocity = 0.0f;
+    m_dragLast = valuePosition();
+    m_dragTime = juce::Time::getMillisecondCounterHiRes() * 0.001;
+    m_shown = m_dragLast;
+    m_velocity = 0.0f;
+    stopTimer();
+    ModTarget::mouseDown(e);
+}
+
+void WheelKnob::mouseUp(const juce::MouseEvent& e)
+{
+    ModTarget::mouseUp(e);
+    if (! std::exchange(m_held, false))
+        return;
+    // Let go while turning: the wheel carries on a little way and the spring brings it back to the value.
+    const double idle = juce::Time::getMillisecondCounterHiRes() * 0.001 - m_dragTime;
+    m_velocity = idle < 0.12 ? juce::jlimit(-2.5f, 2.5f, m_dragVelocity * 0.5f) : 0.0f;
+    m_shown = valuePosition();
+    if (std::abs(m_velocity) > 1.0e-3f)
+        startTimerHz(60);
+    repaint();
+}
+
 void WheelKnob::paint(juce::Graphics& g)
 {
-    if (! isTimerRunning() && std::abs(m_velocity) < 1.0e-6f)
-        m_shown = static_cast<float>(valueToProportionOfLength(getValue()));
+    const float position = valuePosition();
+    if (m_held || (! isTimerRunning() && std::abs(m_velocity) < 1.0e-6f))
+        m_shown = position;
 
-    auto bounds = getLocalBounds().toFloat();
-    auto textArea = bounds.removeFromBottom(26.0f);
     const auto centre = getDialCentre();
-    const float radius = getDialRadius();
-    const float angle = c_startAngle + m_shown * (c_endAngle - c_startAngle);
+    const float ring = getRingRadius();
+    const WheelShape shape(ring);
+    auto angleAt = [](float p) { return c_startAngle + juce::jlimit(0.0f, 1.0f, p) * (c_endAngle - c_startAngle); };
+    const float angle = c_startAngle + m_shown * (c_endAngle - c_startAngle); // the coast may carry it past an end
 
     // Three looks besides the usual one (Theme::Look). Disabled: drained of colour. Linked: drained, with a chain
     // link on its hub and a ring in the colour of what it follows. Resting: usable, so it keeps its shape and its
-    // caption, but its wheel is unlit and its arc is dashed until what it waits for is switched on.
+    // text, but its wheel is unlit and its arc is dashed until what it waits for is switched on.
     const auto look = Theme::getLook(*this);
     const bool drained = look == Theme::Look::Disabled || look == Theme::Look::Linked;
     const bool resting = look == Theme::Look::Resting;
-    const auto accent = drained ? TC::textFaint.withAlpha(0.4f) : (resting ? m_accent.withAlpha(0.6f) : m_accent);
+    const auto accent = drained ? TC::textFaint.withAlpha(0.4f) : (resting ? m_accent.withAlpha(0.7f) : m_accent);
+    const auto wheel = drained ? juce::Colour(0xff4a6670) : (resting ? juce::Colour(0xff8aa3aa) : TC::brass);
+    const auto pointer = drained ? juce::Colour(0xff7f989f) : TC::text;
 
-    const float arcR = radius - 2.0f;
-    juce::Path track;
-    track.addCentredArc(centre.x, centre.y, arcR, arcR, 0.0f, c_startAngle, c_endAngle, true);
-    g.setColour(drained ? TC::well.withAlpha(0.7f) : TC::well);
-    g.strokePath(track, juce::PathStrokeType(3.0f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded)); // round object: the wheel's arc
+    // What never moves, from the kept image.
+    drawWheelLayer(g, centre, ring, wheel, TC::well);
     if (look == Theme::Look::Linked)
     {
-        g.setColour(m_linkColour.withAlpha(0.55f));
-        g.strokePath(track, juce::PathStrokeType(1.2f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded)); // round object: the wheel's arc
+        m_scratch.clear();
+        m_scratch.addCentredArc(centre.x, centre.y, ring, ring, 0.0f, c_startAngle, c_endAngle, true);
+        g.setColour(m_linkColour.withAlpha(0.6f));
+        g.strokePath(m_scratch, juce::PathStrokeType(1.2f, juce::PathStrokeType::curved, juce::PathStrokeType::butt)); // round object: a ring on the wheel
     }
 
-    const float valueAngle = c_startAngle + static_cast<float>(valueToProportionOfLength(getValue())) * (c_endAngle - c_startAngle);
+    // The value: the ring filled from its start (from the top, when the value goes either side of zero).
+    const float valueAngle = angleAt(position);
     const bool bipolar = getMinimum() < 0.0 && getMaximum() > 0.0;
-    const float from = bipolar ? 0.0f : c_startAngle;
-    juce::Path arc;
-    arc.addCentredArc(centre.x, centre.y, arcR, arcR, 0.0f, juce::jmin(from, valueAngle), juce::jmax(from, valueAngle), true);
-    if (resting)
+    const float from = bipolar ? angleAt(static_cast<float>(valueToProportionOfLength(0.0))) : c_startAngle;
+    if (! drained && std::abs(valueAngle - from) > 0.01f)
     {
-        const float dashes[] = { 3.0f, 3.5f };
-        juce::Path dashed;
-        juce::PathStrokeType(2.0f).createDashedStroke(dashed, arc, dashes, 2);
+        m_scratch.clear();
+        m_scratch.addCentredArc(centre.x, centre.y, ring, ring, 0.0f, juce::jmin(from, valueAngle), juce::jmax(from, valueAngle), true);
         g.setColour(accent);
-        g.fillPath(dashed);
-    }
-    else if (! drained)
-    {
-        g.setColour(accent.withAlpha(0.22f));
-        g.strokePath(arc, juce::PathStrokeType(7.0f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded)); // round object: the wheel's arc
-        g.setColour(accent);
-        g.strokePath(arc, juce::PathStrokeType(3.0f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded)); // round object: the wheel's arc
+        const juce::PathStrokeType stroke(c_ringThick, juce::PathStrokeType::curved, juce::PathStrokeType::butt); // round object: a ring on the wheel
+        if (resting)
+        {
+            const float dashes[] = { 3.0f, 3.0f };
+            juce::Path dashed;
+            juce::PathStrokeType(2.0f, juce::PathStrokeType::curved, juce::PathStrokeType::butt).createDashedStroke(dashed, m_scratch, dashes, 2); // round object: a ring on the wheel
+            g.fillPath(dashed);
+        }
+        else
+            g.strokePath(m_scratch, stroke);
     }
 
-    // Modulation: each wire's reach as a thin arc just inside the ring, and the live position as a dot.
+    // The wheel: five brass spokes with their handles, and the pointer.
+    for (int i = 1; i < 6; ++i)
     {
-        const float base = static_cast<float>(valueToProportionOfLength(getValue()));
-        auto angleAt = [](float p) { return c_startAngle + juce::jlimit(0.0f, 1.0f, p) * (c_endAngle - c_startAngle); };
-        float r = arcR - 5.0f;
-        for (const auto& m : m_modArcs)
-        {
-            const float lo = m.bipolar ? base - 0.5f * std::abs(m.depth) : juce::jmin(base, base + m.depth);
-            const float hi = m.bipolar ? base + 0.5f * std::abs(m.depth) : juce::jmax(base, base + m.depth);
-            juce::Path p;
-            p.addCentredArc(centre.x, centre.y, r, r, 0.0f, angleAt(lo), angleAt(hi), true);
-            strokeModPath(g, p, m.colour.withAlpha(0.9f), m.depth, 2.0f); // dashed: negative depth
-            r -= 2.6f;
-            if (r < radius * 0.78f)
-                break;
-        }
-        if (m_modLive >= 0.0f && ! m_modArcs.empty())
-        {
-            const float a = angleAt(m_modLive);
-            const juce::Point<float> dot { centre.x + std::sin(a) * arcR, centre.y - std::cos(a) * arcR };
-            g.setColour(m_modArcs.front().colour.withAlpha(0.35f));
-            g.fillEllipse(juce::Rectangle<float>(10.0f, 10.0f).withCentre(dot));
-            g.setColour(TC::text);
-            g.fillEllipse(juce::Rectangle<float>(5.0f, 5.0f).withCentre(dot));
-        }
-        if (! m_wireHover.isTransparent())
-        {
-            g.setColour(m_wireHover.withAlpha(0.8f));
-            g.drawEllipse(juce::Rectangle<float>(radius * 2.0f + 4.0f, radius * 2.0f + 4.0f).withCentre(centre), 2.0f);
-        }
-    }
-
-    // Ship's wheel
-    const float rim = radius * 0.56f;
-    const float spokeEnd = radius * 0.74f;
-    const auto brass = drained ? TC::textFaint.withAlpha(0.45f) : (resting ? TC::textDim : TC::brass);
-    for (int i = 0; i < 8; ++i)
-    {
-        const float a = angle + juce::MathConstants<float>::twoPi * static_cast<float>(i) / 8.0f;
+        const float a = angle + juce::MathConstants<float>::twoPi * static_cast<float>(i) / 6.0f;
         const juce::Point<float> dir { std::sin(a), -std::cos(a) };
-        const auto inner = centre + dir * (rim * 0.25f);
-        const auto outer = centre + dir * spokeEnd;
-        g.setColour(i == 0 ? accent : brass.withMultipliedAlpha(0.85f));
-        g.drawLine(juce::Line<float>(inner, outer), i == 0 ? 2.6f : 1.8f);
-        const float handle = i == 0 ? 3.4f : 2.6f;
-        g.fillEllipse(juce::Rectangle<float>(handle * 2.0f, handle * 2.0f).withCentre(outer));
+        g.setColour(wheel);
+        g.drawLine(juce::Line<float>(centre + dir * (shape.hub * 0.6f), centre + dir * shape.handleEnd), shape.spoke);
+        g.drawLine(juce::Line<float>(centre + dir * (shape.rim + shape.rimThick * 0.5f - 0.5f), centre + dir * shape.handleEnd), shape.spoke + 1.4f);
     }
-
-    g.setColour(TC::panel);
-    g.fillEllipse(juce::Rectangle<float>(rim * 2.0f, rim * 2.0f).withCentre(centre).reduced(2.0f));
-    g.setColour(brass);
-    g.drawEllipse(juce::Rectangle<float>(rim * 2.0f, rim * 2.0f).withCentre(centre), 2.6f);
-    g.drawEllipse(juce::Rectangle<float>(rim * 1.2f, rim * 1.2f).withCentre(centre), 1.2f);
-
-    g.setColour(brass);
-    g.fillEllipse(juce::Rectangle<float>(rim * 0.42f, rim * 0.42f).withCentre(centre));
-    g.setColour(TC::panel);
-    g.fillEllipse(juce::Rectangle<float>(rim * 0.16f, rim * 0.16f).withCentre(centre));
+    {
+        const juce::Point<float> dir { std::sin(angle), -std::cos(angle) };
+        const float thick = shape.spoke + 0.8f;
+        g.setColour(TC::edgeDark.withAlpha(0.85f));
+        g.drawLine(juce::Line<float>(centre, centre + dir * (shape.pointerEnd + 0.8f)), thick + 2.0f);
+        g.setColour(pointer);
+        g.drawLine(juce::Line<float>(centre, centre + dir * shape.pointerEnd), thick);
+        g.drawLine(juce::Line<float>(centre + dir * (shape.rim + shape.rimThick * 0.5f), centre + dir * shape.pointerEnd), thick + 1.4f);
+        g.setColour(TC::edgeDark);
+        g.fillEllipse(juce::Rectangle<float>(shape.hub * 0.8f, shape.hub * 0.8f).withCentre(centre));
+    }
 
     if (look == Theme::Look::Linked)
     {
         // The chain link, on a dark disc over the hub.
-        g.setColour(TC::panel);
-        g.fillEllipse(juce::Rectangle<float>(rim * 1.5f, rim * 1.5f).withCentre(centre));
-        Icons::draw(g, Icons::Icon::Link, juce::Rectangle<float>(rim * 1.25f, rim * 1.25f).withCentre(centre), m_linkColour);
+        const float disc = shape.rim + shape.rimThick * 0.5f + 0.5f;
+        g.setColour(juce::Colour(0xff0c212b));
+        g.fillEllipse(juce::Rectangle<float>(disc * 2.0f, disc * 2.0f).withCentre(centre));
+        Icons::draw(g, Icons::Icon::Link, juce::Rectangle<float>(disc * 1.7f, disc * 1.7f).withCentre(centre), m_linkColour);
     }
 
-    const bool showValue = (m_hover || isMouseButtonDown()) && ! drained;
-    g.setColour(drained ? TC::textFaint.withAlpha(0.6f) : (showValue ? m_accent.brighter(0.3f) : TC::textDim));
-    Theme::fitText(g, showValue ? getTextFromValue(getValue()) : caption, textArea.reduced(1.0f, 0.0f).withTrimmedBottom(4.0f), m_fonts.caption(),
-                   juce::Justification::centred);
+    // Modulation: a ring for each wire outside the value ring, stacked outwards, and the live position as a dot.
+    if (! m_modArcs.empty())
+    {
+        const int count = static_cast<int>(m_modArcs.size());
+        const float first = ring + c_ringThick * 0.5f + 2.0f;
+        const float step = count > 1 ? juce::jmin(2.4f, (c_modRoom - c_ringThick * 0.5f - 2.8f) / static_cast<float>(count - 1)) : 0.0f;
+        const float thick = count > 1 ? juce::jlimit(1.0f, 1.6f, step - 0.5f) : 1.6f;
+        for (int i = 0; i < count; ++i)
+        {
+            const auto& m = m_modArcs[static_cast<size_t>(i)];
+            const float lo = m.bipolar ? position - 0.5f * std::abs(m.depth) : juce::jmin(position, position + m.depth);
+            const float hi = m.bipolar ? position + 0.5f * std::abs(m.depth) : juce::jmax(position, position + m.depth);
+            const float r = first + step * static_cast<float>(i);
+            m_scratch.clear();
+            m_scratch.addCentredArc(centre.x, centre.y, r, r, 0.0f, angleAt(lo), angleAt(hi), true);
+            strokeModPath(g, m_scratch, m.colour, m.depth, thick); // dashed: negative depth
+        }
+        if (m_modLive >= 0.0f)
+        {
+            const float a = angleAt(m_modLive);
+            const juce::Point<float> dot { centre.x + std::sin(a) * first, centre.y - std::cos(a) * first };
+            g.setColour(TC::edgeDark);
+            g.fillEllipse(juce::Rectangle<float>(6.6f, 6.6f).withCentre(dot));
+            g.setColour(TC::text);
+            g.fillEllipse(juce::Rectangle<float>(4.4f, 4.4f).withCentre(dot));
+        }
+    }
+    if (! m_wireHover.isTransparent())
+    {
+        const float r = ring + c_modRoom - 1.0f;
+        g.setColour(m_wireHover);
+        g.drawEllipse(juce::Rectangle<float>(r * 2.0f, r * 2.0f).withCentre(centre), 2.0f);
+    }
+
+    // The caption, and under it the value in the control's own units: always there, and live while it is dragged.
+    if (m_valueTextStale || ! juce::exactlyEqual(m_valueTextFor, getValue()))
+    {
+        m_valueText = getTextFromValue(getValue());
+        m_valueTextFor = getValue();
+        m_valueTextStale = false;
+    }
+    const auto font = m_fonts.caption();
+    g.setColour(drained ? TC::textFaint.withAlpha(0.7f) : TC::textDim);
+    Theme::fitText(g, caption, getCaptionArea().reduced(1.0f, 0.0f), font, juce::Justification::centred);
+    g.setColour(drained ? TC::textFaint.withAlpha(0.7f) : ((m_hover || m_held) ? m_accent.brighter(0.4f) : (resting ? TC::textDim : TC::text)));
+    Theme::fitText(g, m_valueText, getValueArea().reduced(1.0f, 0.0f), font, juce::Justification::centred);
 }

@@ -29,32 +29,46 @@ void SwooshbucklerAudioProcessorEditor::SwellButton::paint(juce::Graphics& g)
     const auto centre = b.getCentre();
     const float radius = juce::jmin(b.getWidth(), b.getHeight()) * 0.5f * 0.8f * m_scale;
 
-    juce::ColourGradient halo(TC::flight.withAlpha(0.35f * m_glow), centre.x, centre.y,
-                              TC::flight.withAlpha(0.0f), centre.x + radius * 1.25f, centre.y, true);
-    g.setGradientFill(halo);
-    g.fillEllipse(juce::Rectangle<float>(radius * 2.5f, radius * 2.5f).withCentre(centre));
+    auto disc = [&centre](float r) { return juce::Rectangle<float>(r * 2.0f, r * 2.0f).withCentre(centre); };
 
-    for (int i = 0; i < 8; ++i)
+    // The glow: it follows the energy of the ride.
+    if (m_glow > 0.01f)
     {
-        const float a = juce::MathConstants<float>::twoPi * static_cast<float>(i) / 8.0f + (1.0f - m_scale) * 2.0f;
-        const juce::Point<float> dir { std::sin(a), -std::cos(a) };
-        g.setColour(TC::brass.withAlpha(0.8f));
-        g.drawLine(juce::Line<float>(centre + dir * radius * 0.96f, centre + dir * radius * 1.13f), 2.5f);
-        g.fillEllipse(juce::Rectangle<float>(6.0f, 6.0f).withCentre(centre + dir * radius * 1.15f));
+        juce::ColourGradient halo(TC::flight.withAlpha(0.35f * m_glow), centre.x, centre.y,
+                                  TC::flight.withAlpha(0.0f), centre.x + radius * 1.25f, centre.y, true);
+        g.setGradientFill(halo);
+        g.fillEllipse(disc(radius * 1.25f));
     }
 
-    juce::ColourGradient body(TC::flight.brighter(0.2f), centre.x, centre.y - radius, TC::flight.darker(0.55f), centre.x, centre.y + radius, false);
-    g.setGradientFill(body);
-    g.fillEllipse(juce::Rectangle<float>(radius * 2.0f, radius * 2.0f).withCentre(centre));
-    g.setColour(TC::brass.brighter(0.3f));
-    g.drawEllipse(juce::Rectangle<float>(radius * 2.0f, radius * 2.0f).withCentre(centre), 2.5f);
+    // A big brass wheel boss, flat: eight block handles around it, a dark lip under it, a pressed line inside its edge.
+    for (int i = 0; i < 8; ++i)
+    {
+        // Turned half a step, so none points straight up at the nameplate or down at Throw.
+        const float a = juce::MathConstants<float>::twoPi * (static_cast<float>(i) + 0.5f) / 8.0f + (1.0f - m_scale) * 2.0f;
+        const juce::Point<float> dir { std::sin(a), -std::cos(a) };
+        g.setColour(TC::edgeDark);
+        g.drawLine(juce::Line<float>(centre + dir * radius * 0.9f, centre + dir * (radius * 1.15f + 1.0f)), 8.0f);
+        g.setColour(TC::brass);
+        g.drawLine(juce::Line<float>(centre + dir * radius * 0.9f, centre + dir * radius * 1.15f), 6.0f);
+    }
+    g.setColour(TC::edgeDark);
+    g.fillEllipse(disc(radius + 1.0f).translated(0.0f, 3.0f));
+    g.setColour(TC::brassDark);
+    g.fillEllipse(disc(radius).translated(0.0f, 2.5f));
+    g.setColour(TC::edgeDark);
+    g.fillEllipse(disc(radius + 1.0f));
+    g.setColour(TC::brass);
+    g.fillEllipse(disc(radius));
+    g.setColour(TC::brassDark.withAlpha(0.7f));
+    g.drawEllipse(disc(radius - 4.5f), 1.0f);
+    g.setColour(juce::Colours::white.withAlpha(0.3f));
+    g.drawEllipse(disc(radius - 5.5f), 1.0f);
 
     // The word is part of the drawing: it grows and shrinks with the button. The hint under it is ordinary text.
-    g.setColour(TC::window);
-    Theme::fitText(g, "Swell", juce::Rectangle<float>(radius * 1.8f, radius * 0.7f).withCentre(centre.translated(0.0f, -radius * 0.1f)),
-                   m_fonts.art(radius * 0.56f), juce::Justification::centred);
-    g.setColour(TC::window.withAlpha(0.8f));
-    Theme::fitText(g, "Hold or Space", juce::Rectangle<float>(radius * 1.7f, 14.0f).withCentre(centre.translated(0.0f, radius * 0.42f)),
+    Theme::stampText(g, "Swell", juce::Rectangle<float>(radius * 1.7f, radius * 0.7f).withCentre(centre.translated(0.0f, -radius * 0.1f)),
+                     m_fonts.art(radius * 0.56f), juce::Justification::centred, TC::window);
+    g.setColour(TC::window.withAlpha(0.85f));
+    Theme::fitText(g, "Hold or Space", juce::Rectangle<float>(radius * 1.6f, 14.0f).withCentre(centre.translated(0.0f, radius * 0.42f)),
                    m_fonts.caption(), juce::Justification::centred);
 }
 
@@ -1058,9 +1072,16 @@ SwooshbucklerAudioProcessorEditor::SwooshbucklerAudioProcessorEditor(Swooshbuckl
                       "The tape and Last 60 s record before it, at full level, so turning it down never makes a quieter take.\n"
                       "Drag it. Double-click to reset it to 0 dB. Right-click (or Alt-double-click) to type a value.");
     m_trim.setTypedParameter(p.getState().getParameter(ParamIDs::masterTrim), *m_fonts);
+    m_trim.onValueChange = [this]
+    {
+        m_trimReadout = juce::String(m_trim.getValue(), 1);
+        m_content.repaint(m_trimValue);
+    };
     m_trim.minTypingWidth = 54; // the fader is narrower than "-12.0 dB"
+    updateMeterReadouts();
     m_content.addAndMakeVisible(m_trim);
     m_trimAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(p.getState(), ParamIDs::masterTrim, m_trim);
+    m_trimReadout = juce::String(m_trim.getValue(), 1);
 
     // Modulation: the panel at the bottom, and the wires over everything (only their plugs take clicks).
     m_content.addAndMakeVisible(m_modPanel);
@@ -1239,17 +1260,25 @@ void SwooshbucklerAudioProcessorEditor::layoutContent()
     m_morphPad.setBounds(m_sea.getBounds().reduced(6).withTrimmedTop(18));
     m_morphButton.setBounds(m_sea.getRight() - 96, m_sea.getY() + 7, 80, 20); // clear of the frame's corner plate
     m_performPanel = { 912, 270, 352, 176 };
-    m_swell.setBounds(m_performPanel.getX() + 8, m_performPanel.getY() + 28, 100, 100);
+    m_swell.setBounds(m_performPanel.getX() + 8, m_performPanel.getY() + 25, 100, 100);
     // Under Swell: Throw, Auto Ride and Follow Master.
     m_throwButton.setBounds(m_performPanel.getX() + 14, m_performPanel.getY() + 121, 88, 16);
     m_rideButton.setBounds(m_performPanel.getX() + 14, m_performPanel.getY() + 139, 88, 16);
     m_followMasterButton.setBounds(m_performPanel.getX() + 14, m_performPanel.getY() + 157, 88, 16);
+    // A knob in its cell: the wheel of its size, whole, in the middle of the room it is given.
+    auto placeKnob = [this](const char* id, juce::Rectangle<int> cell, WheelKnob::Size size)
     {
-        constexpr int cw = 78, ch = 70;
-        const int x0 = m_performPanel.getX() + 108, y0 = m_performPanel.getY() + 34;
+        auto* control = m_controls[id];
+        if (auto* knob = dynamic_cast<WheelKnob*>(control))
+            knob->setSize(size);
+        control->setBounds(cell.withSizeKeepingCentre(cell.getWidth(), juce::jmin(cell.getHeight(), WheelKnob::cellHeight(size))));
+    };
+    {
+        constexpr int cw = 78, ch = WheelKnob::cellHeight(WheelKnob::Size::Secondary);
+        const int x0 = m_performPanel.getX() + 108, y0 = m_performPanel.getY() + 31;
         const char* ids[] = { ParamIDs::energy, ParamIDs::rate, ParamIDs::fill, ParamIDs::chaos, ParamIDs::pitch, ParamIDs::throwLength };
         for (int i = 0; i < 6; ++i)
-            m_controls[ids[i]]->setBounds(x0 + (i % 3) * cw, y0 + (i / 3) * ch, cw, ch);
+            placeKnob(ids[i], { x0 + (i % 3) * cw, y0 + (i / 3) * ch, cw, ch }, WheelKnob::Size::Secondary);
     }
     {
         // Keys (what MIDI notes do) at the right of the Ride title bar; the panel's subtitle line is between the two.
@@ -1267,12 +1296,13 @@ void SwooshbucklerAudioProcessorEditor::layoutContent()
     m_sections[2] = { 3, "Hits", "At the loudest moments", TC::hits, { 16, 638, 616, 158 }, Icons::Icon::Hits };
     m_sections[3] = { 4, "Output", "Space, loudness, limiter", TC::output, { 648, 638, 616, 158 }, Icons::Icon::Output };
 
-    auto row = [this](juce::Rectangle<int> panel, std::vector<const char*> ids, int rightReserve)
+    // A row of primary knobs, on one of the two column pitches: wide (bus A's seven) or narrow (bus B's nine, the Hits).
+    constexpr int pitchWide = 84, pitchNarrow = 65;
+    auto row = [&placeKnob](juce::Rectangle<int> panel, std::vector<const char*> ids, int pitch)
     {
-        auto r = panel.reduced(14, 0).withTrimmedTop(40).withTrimmedBottom(8).withTrimmedRight(rightReserve);
-        const int w = r.getWidth() / static_cast<int>(ids.size());
+        auto r = panel.reduced(14, 0).withTrimmedTop(40).withTrimmedBottom(8);
         for (const auto* id : ids)
-            m_controls[id]->setBounds(r.removeFromLeft(w).reduced(3, 0));
+            placeKnob(id, r.removeFromLeft(pitch), WheelKnob::Size::Primary);
     };
     for (int b = 0; b < ParamIDs::numBuses; ++b)
     {
@@ -1280,10 +1310,10 @@ void SwooshbucklerAudioProcessorEditor::layoutContent()
         for (int k = 0; k < ParamIDs::numBusControls; ++k)
             if (ParamIDs::bus[b][k] != nullptr)
                 ids.push_back(ParamIDs::bus[b][k]);
-        row(m_sections[static_cast<size_t>(b)].bounds, ids, 0);
+        row(m_sections[static_cast<size_t>(b)].bounds, ids, b == 0 ? pitchWide : pitchNarrow);
     }
     row(m_sections[2].bounds, { ParamIDs::hitSense, ParamIDs::hitBoost, ParamIDs::hitRelease, ParamIDs::hitHold, ParamIDs::hitFloor,
-                                ParamIDs::hitDuck, ParamIDs::duckReturn }, 120);
+                                ParamIDs::hitDuck, ParamIDs::duckReturn }, pitchNarrow);
     {
         // Modes in the Hits title bar, Take Turns in bus B's.
         const auto& hits = m_sections[2].bounds;
@@ -1333,27 +1363,30 @@ void SwooshbucklerAudioProcessorEditor::layoutContent()
     // and its two menus over its three knobs; then Space, Inflate, Push and Ceiling; then the meters and the trim fader.
     {
         const auto& out = m_sections[3].bounds;
-        m_tremGroup = { out.getX() + 12, out.getY() + 38, 240, out.getHeight() - 44 };
+        m_tremGroup = { out.getX() + 12, out.getY() + 38, 228, out.getHeight() - 44 };
         m_tremCaption = m_tremGroup.reduced(10, 0).withTrimmedTop(2).withHeight(13);
         auto menus = m_tremGroup.reduced(8, 0).withTrimmedTop(16).withHeight(20);
         m_tremOn.setBounds(menus.removeFromLeft(30));
         menus.removeFromLeft(6);
-        m_tremShape.setBounds(menus.removeFromLeft(76));
+        m_tremShape.setBounds(menus.removeFromLeft(72));
         menus.removeFromLeft(4);
         m_tremTarget.setBounds(menus);
-        auto knobs = m_tremGroup.reduced(4, 0).withTrimmedTop(38).withTrimmedBottom(1);
+        auto knobs = m_tremGroup.reduced(6, 0).withTrimmedTop(38).withTrimmedBottom(2);
         const int tw = knobs.getWidth() / 3;
         for (const auto* id : { ParamIDs::tremDepth, ParamIDs::tremRate, ParamIDs::tremThreshold })
-            m_controls[id]->setBounds(knobs.removeFromLeft(tw).reduced(2, 0));
+            placeKnob(id, knobs.removeFromLeft(tw), WheelKnob::Size::Secondary);
 
-        m_meterArea = { out.getRight() - 150, out.getY() + 44, 100, 100 };
-        m_trim.setBounds(m_meterArea.getRight() + 6, m_meterArea.getY() - 2, 30, m_meterArea.getHeight() - 16);
-        m_trimLabel = { m_trim.getX() - 6, m_trim.getBottom() + 1, 42, 14 };
-        auto rest = juce::Rectangle<int>(m_tremGroup.getRight() + 8, out.getY() + 40,
-                                         m_meterArea.getX() - 8 - (m_tremGroup.getRight() + 8), out.getHeight() - 48);
+        // The meters and the Trim fader: a name over each, the bars and the fader's slot, a number under each.
+        m_meterArea = { out.getRight() - 154, out.getY() + 42, 96, 108 };
+        const int textRow = 13;
+        m_trimLabel = { m_meterArea.getRight() + 2, m_meterArea.getY(), 44, textRow };
+        m_trimValue = { m_trimLabel.getX(), m_meterArea.getBottom() - textRow, m_trimLabel.getWidth(), textRow };
+        m_trim.setBounds(m_trimLabel.getCentreX() - 14, m_trimLabel.getBottom() + 1, 28, m_trimValue.getY() - m_trimLabel.getBottom() - 2);
+        auto rest = juce::Rectangle<int>(m_tremGroup.getRight() + 6, out.getY() + 40,
+                                         m_meterArea.getX() - 6 - (m_tremGroup.getRight() + 6), out.getHeight() - 48);
         const int ow = rest.getWidth() / 4;
         for (const auto* id : { ParamIDs::space, ParamIDs::inflate, ParamIDs::push, ParamIDs::ceiling })
-            m_controls[id]->setBounds(rest.removeFromLeft(ow).reduced(2, 0));
+            placeKnob(id, rest.removeFromLeft(ow), WheelKnob::Size::Secondary);
     }
 
     // Row 4: modulation (MegaMod style), across the full width
@@ -1458,75 +1491,114 @@ void SwooshbucklerAudioProcessorEditor::paintContent(juce::Graphics& g)
         Theme::fitText(g, "Peak Tremolo", m_tremCaption, f.caption(), juce::Justification::centredLeft);
     }
 
-    // Output meters
-    if (g.clipRegionIntersects(m_meterArea.getUnion(m_trimLabel)))
+    // Output meters: two slotted windows cut in the plate, with their scales, a held peak and a number under each.
+    if (g.clipRegionIntersects(m_meterArea.getUnion(m_trimLabel).getUnion(m_trimValue)))
     {
         auto m = m_meterArea.toFloat();
-        const auto readout = m.removeFromTop(16.0f); // the deepest recent gain reduction in dB, across the top
+        const auto names = m.removeFromTop(13.0f), numbers = m.removeFromBottom(13.0f);
         // Left to right: the GR scale, the GR bar, the Out bar, the Out scale.
-        auto bars = m.withTrimmedBottom(20.0f).reduced(0.0f, 2.0f);
-        const auto grScale = bars.removeFromLeft(17.0f);
-        const auto grBar = bars.removeFromLeft(20.0f);
-        bars.removeFromLeft(8.0f);
-        const auto outBar = bars.removeFromLeft(20.0f);
-        const auto outScale = bars.removeFromLeft(28.0f);
+        auto bars = m.reduced(0.0f, 3.0f);
+        const auto grScale = bars.removeFromLeft(16.0f);
+        const auto grBar = bars.removeFromLeft(18.0f);
+        bars.removeFromLeft(14.0f);
+        const auto outBar = bars.removeFromLeft(18.0f);
+        const auto outScale = bars.removeFromLeft(26.0f);
         for (auto bar : { grBar, outBar })
-            SwooshLookAndFeel::drawWell(g, bar, 0.0f); // a slot
+            SwooshLookAndFeel::drawWell(g, bar, 0.0f);
 
         // GR grows down from the top, 12 dB at the bottom; Out grows up from the bottom, 0 dBFS at the top.
-        auto grY = [&grBar](float db) { return grBar.getY() + grBar.getHeight() * juce::jlimit(0.0f, 1.0f, -db / 12.0f); };
-        auto outY = [&outBar](float db) { return outBar.getBottom() - outBar.getHeight() * outMeterPosition(db); };
+        const auto grIn = grBar.reduced(2.0f), outIn = outBar.reduced(2.0f);
+        auto grY = [&grIn](float db) { return grIn.getY() + grIn.getHeight() * juce::jlimit(0.0f, 1.0f, -db / 12.0f); };
+        auto outY = [&outIn](float db) { return outIn.getBottom() - outIn.getHeight() * outMeterPosition(db); };
 
-        g.setColour(TC::busA);
-        g.fillRect(grBar.reduced(1.0f).withBottom(juce::jmax(grBar.getY() + 1.0f, grY(m_grDb))));
+        if (m_grDb < -0.05f)
+        {
+            g.setColour(TC::busA);
+            g.fillRect(grIn.withBottom(grY(m_grDb)));
+        }
         const float outDb = juce::Decibels::gainToDecibels(m_outLevel, -60.0f);
-        g.setColour(TC::output);
-        g.fillRect(outBar.reduced(1.0f).withTop(juce::jmin(outBar.getBottom() - 2.0f, outY(outDb))));
+        if (outDb > -59.5f)
+        {
+            // Driftwood up to -6, brass above it, cherry for the last decibel.
+            const float top = outY(outDb), y6 = outY(-6.0f), y1 = outY(-1.0f);
+            g.setColour(TC::output);
+            g.fillRect(outIn.withTop(juce::jmax(top, y6)));
+            if (top < y6)
+            {
+                g.setColour(TC::brass);
+                g.fillRect(outIn.withTop(juce::jmax(top, y1)).withBottom(y6));
+            }
+            if (top < y1)
+            {
+                g.setColour(TC::hits);
+                g.fillRect(outIn.withTop(top).withBottom(y1));
+            }
+        }
+        // The slots: a dark line across each bar every third pixel.
+        g.setColour(TC::well);
+        for (const auto& in : { grIn, outIn })
+            for (float y = in.getBottom() - 3.0f; y > in.getY(); y -= 3.0f)
+                g.fillRect(juce::Rectangle<float>(in.getX(), y, in.getWidth(), 1.0f));
 
         // Peak holds: the deepest reduction and the highest level of the last moments stay as a line.
         if (m_grHoldDb < -0.05f)
         {
-            g.setColour(TC::busA.brighter(0.5f));
-            g.fillRect(juce::Rectangle<float>(grBar.getX() + 1.0f, juce::jmin(grY(m_grHoldDb), grBar.getBottom() - 1.5f), grBar.getWidth() - 2.0f, 1.5f));
+            g.setColour(TC::text);
+            g.fillRect(juce::Rectangle<float>(grIn.getX(), juce::jmin(grY(m_grHoldDb), grIn.getBottom() - 2.0f), grIn.getWidth(), 2.0f));
         }
         if (m_outHold > 0.001f)
         {
             const float holdDb = juce::Decibels::gainToDecibels(m_outHold, -60.0f);
-            g.setColour(TC::text);
-            g.fillRect(juce::Rectangle<float>(outBar.getX() + 1.0f, juce::jmax(outY(holdDb) - 0.75f, outBar.getY()), outBar.getWidth() - 2.0f, 1.5f));
+            g.setColour(holdDb > -1.0f ? TC::hits : TC::text);
+            g.fillRect(juce::Rectangle<float>(outIn.getX(), juce::jlimit(outIn.getY(), outIn.getBottom() - 2.0f, outY(holdDb) - 1.0f), outIn.getWidth(), 2.0f));
         }
 
         // Scales in dB: a tick against each bar, and a number beside the ticks that have room for one.
         const float row = 12.0f;
-        for (const int db : { 3, 6, 12 })
+        for (const int db : { 0, 3, 6, 12 })
         {
-            const float y = juce::jmin(grY(static_cast<float>(-db)), grBar.getBottom() - 0.5f);
+            const float y = juce::jlimit(grIn.getY() + 0.5f, grIn.getBottom() - 0.5f, grY(static_cast<float>(-db)));
             g.setColour(TC::stroke);
-            g.fillRect(juce::Rectangle<float>(grBar.getX() - 3.0f, y - 0.5f, 3.0f, 1.0f));
+            g.fillRect(juce::Rectangle<float>(grBar.getX() - 4.0f, y - 0.5f, 3.0f, 1.0f));
+            if (db == 3)
+                continue; // a tick only: its number would sit on its neighbours
             g.setColour(TC::textFaint);
-            Theme::fitText(g, juce::String(db), juce::Rectangle<float>(grScale.getX(), juce::jmin(y - row * 0.5f, grBar.getBottom() - row + 1.0f), grScale.getWidth() - 4.0f, row),
+            Theme::fitText(g, juce::String(db), juce::Rectangle<float>(grScale.getX(), juce::jlimit(grBar.getY() - 1.0f, grBar.getBottom() - row + 1.0f, y - row * 0.5f), grScale.getWidth() - 5.0f, row),
                            f.caption(), juce::Justification::centredRight);
         }
         for (const int db : { 0, 6, 12, 24, 48 })
         {
-            const float y = juce::jmax(outY(static_cast<float>(-db)), outBar.getY() + 0.5f);
+            const float y = juce::jlimit(outIn.getY() + 0.5f, outIn.getBottom() - 0.5f, outY(static_cast<float>(-db)));
             g.setColour(TC::stroke);
-            g.fillRect(juce::Rectangle<float>(outBar.getRight(), y - 0.5f, 3.0f, 1.0f));
+            g.fillRect(juce::Rectangle<float>(outBar.getRight() + 1.0f, y - 0.5f, 3.0f, 1.0f));
             if (db == 6)
                 continue; // a tick only: its number would sit on the 0 above it
             g.setColour(TC::textFaint);
             Theme::fitText(g, db == 0 ? juce::String("0") : "-" + juce::String(db),
-                           juce::Rectangle<float>(outScale.getX() + 5.0f, juce::jlimit(outBar.getY() - 1.0f, outBar.getBottom() - row + 1.0f, y - row * 0.5f), outScale.getWidth() - 5.0f, row),
+                           juce::Rectangle<float>(outScale.getX() + 6.0f, juce::jlimit(outBar.getY() - 1.0f, outBar.getBottom() - row + 1.0f, y - row * 0.5f), outScale.getWidth() - 6.0f, row),
                            f.caption(), juce::Justification::centredLeft);
         }
 
+        // The Trim fader's scale: a tick at 0, -6, -12 and -24 dB, left of its slot.
+        g.setColour(TC::stroke);
+        for (const double db : { 0.0, -6.0, -12.0, -24.0 })
+            g.fillRect(juce::Rectangle<float>(static_cast<float>(m_trim.getX()) + 2.0f, static_cast<float>(m_trim.getY()) + m_trim.getPositionOfValue(db) - 0.5f,
+                                              db == 0.0 ? 6.0f : 4.0f, 1.0f));
+
+        const auto grName = juce::Rectangle<float>(grBar.getX() - 9.0f, names.getY(), grBar.getWidth() + 18.0f, names.getHeight());
+        const auto outName = grName.withX(outBar.getX() - 9.0f);
         g.setColour(TC::textDim);
-        Theme::fitText(g, "GR", grBar.withY(grBar.getBottom() + 3.0f).withHeight(14.0f).expanded(10.0f, 0.0f), f.caption(), juce::Justification::centred);
-        Theme::fitText(g, "Out", outBar.withY(outBar.getBottom() + 3.0f).withHeight(14.0f).expanded(10.0f, 0.0f), f.caption(), juce::Justification::centred);
+        Theme::fitText(g, "GR", grName, f.caption(), juce::Justification::centred);
+        Theme::fitText(g, "Out", outName, f.caption(), juce::Justification::centred);
         Theme::fitText(g, "Trim", m_trimLabel, f.caption(), juce::Justification::centred);
 
-        g.setColour(m_grHoldDb < -0.05f ? TC::busA : TC::textFaint);
-        Theme::fitText(g, juce::String(m_grHoldDb, 1) + " dB", readout.withWidth(grScale.getWidth() + grBar.getWidth() + 28.0f), f.caption(), juce::Justification::centred);
+        // The numbers: the deepest recent reduction, the highest recent level, and where the fader is. In dB.
+        g.setColour(m_grHoldDb < -0.05f ? TC::busA.brighter(0.2f) : TC::textFaint);
+        Theme::fitText(g, m_grReadout, grName.withY(numbers.getY()), f.caption(), juce::Justification::centred);
+        g.setColour(m_outHold > 0.001f ? TC::text : TC::textFaint);
+        Theme::fitText(g, m_outReadout, outName.withY(numbers.getY()), f.caption(), juce::Justification::centred);
+        g.setColour(TC::text);
+        Theme::fitText(g, m_trimReadout, m_trimValue, f.caption(), juce::Justification::centred);
     }
 
     if (g.clipRegionIntersects(m_footer))
@@ -2188,6 +2260,23 @@ void SwooshbucklerAudioProcessorEditor::showAimControls()
     m_content.repaint(m_gateLamp.expanded(10));
 }
 
+void SwooshbucklerAudioProcessorEditor::updateMeterReadouts()
+{
+    // The numbers under the meters, written when they change (not at every repaint): one decimal, in dB.
+    const int gr = juce::roundToInt(m_grHoldDb * 10.0f);
+    const int out = juce::roundToInt(juce::Decibels::gainToDecibels(m_outHold, -60.0f) * 10.0f);
+    if (gr != m_grReadoutTenths || m_grReadout.isEmpty())
+    {
+        m_grReadoutTenths = gr;
+        m_grReadout = juce::String(static_cast<float>(gr) * 0.1f, 1);
+    }
+    if (out != m_outReadoutTenths || m_outReadout.isEmpty())
+    {
+        m_outReadoutTenths = out;
+        m_outReadout = out <= -600 ? juce::String("-60") : juce::String(static_cast<float>(out) * 0.1f, 1);
+    }
+}
+
 void SwooshbucklerAudioProcessorEditor::showLinkedKnobs()
 {
     // Linked, bus B's Doppler and Width follow bus A: they show a chain link in A's colour (and keep their own
@@ -2360,6 +2449,7 @@ void SwooshbucklerAudioProcessorEditor::timerCallback()
             m_outLevel = out;
             m_grHoldDb = grHold;
             m_outHold = outHold;
+            updateMeterReadouts();
             m_content.repaint(m_meterArea);
         }
     }

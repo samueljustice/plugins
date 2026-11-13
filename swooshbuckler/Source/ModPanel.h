@@ -70,6 +70,12 @@ public:
     void rebuild();
     /** The same, once, a moment later: for bursts like scrolling the track list. */
     void rebuildSoon() { triggerAsyncUpdate(); }
+    /** The modulator whose card the mouse is over (-1: none). Its cables are drawn at full strength and the others
+        fade; with the mouse on none (and on no plug) every cable is drawn alike. */
+    void setHoverCard(int source) { setHover(source, m_hoverPlug); }
+    /** How strongly a modulator's cables are drawn now. */
+    float cableAlpha(int source) const;
+    static constexpr float c_cableAlpha = 0.62f, c_cableAlphaHovered = 0.97f, c_cableAlphaFaded = 0.2f;
     /** At the UI rate: the knobs' live modulated values. */
     void updateKnobs();
 
@@ -80,6 +86,8 @@ public:
     void mouseDrag(const juce::MouseEvent&) override;
     void mouseUp(const juce::MouseEvent&) override;
     void mouseDoubleClick(const juce::MouseEvent&) override;
+    void mouseMove(const juce::MouseEvent&) override;
+    void mouseExit(const juce::MouseEvent&) override;
     juce::String getTooltip() override;
 
     std::function<void(const juce::String&)> onStatus;
@@ -92,6 +100,8 @@ private:
         ModMatrix::Route route;
         juce::Point<float> pos;
         ModTarget* knob = nullptr;
+        juce::Point<float> gate; // where its cable turns in to it (ModTarget::getCableGate)
+        bool hasGate = false;
     };
 
     juce::Rectangle<float> knobArea(ModTarget* knob) const;
@@ -99,7 +109,7 @@ private:
     static bool isTargetInView(const ModTarget* t);
     ModTarget* knobAt(juce::Point<float> p, juce::String* id = nullptr) const;
     const Plug* plugAt(juce::Point<float> p) const;
-    juce::Path cablePath(juce::Point<float> from, juce::Point<float> to) const;
+    juce::Path cablePath(juce::Point<float> from, juce::Point<float> to, const juce::Point<float>* gate = nullptr) const;
     static void drawCable(juce::Graphics&, const juce::Path&, juce::Colour, float alpha);
     void showPlugMenu(const Plug& plug);
     juce::String describe(const ModMatrix::Route& r) const;
@@ -117,6 +127,10 @@ private:
     void depthChanged(int slot, float depth);
     void updateArcs(ModTarget* knob);
     bool m_showCables = true;
+    void drawCables();
+    int m_hoverCard = -1, m_hoverPlug = -1; // the modulator under the mouse, by its card or by one of its plugs
+    void setHover(int card, int plug);
+    int hoverSource() const;
 
     // Live drag of a new wire
     int m_dragSource = -1;

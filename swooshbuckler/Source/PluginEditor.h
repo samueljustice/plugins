@@ -270,7 +270,10 @@ private:
     std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> m_tremShapeAttachment, m_tremTargetAttachment;
     ValueSlider m_trim;
     std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> m_trimAttachment;
-    juce::Rectangle<int> m_trimLabel;
+    juce::Rectangle<int> m_trimLabel, m_trimValue;
+    juce::String m_grReadout, m_outReadout, m_trimReadout; // the numbers under the meters and the fader, in dB
+    int m_grReadoutTenths = 0, m_outReadoutTenths = 0;
+    void updateMeterReadouts();
     std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> m_syncAttachment;
     // Gate and ducking options
     juce::ComboBox m_gateMode, m_duckMode;
