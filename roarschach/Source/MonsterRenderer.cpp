@@ -780,6 +780,16 @@ namespace roar
                                 * (1.0f - 0.8f * clamp01 (f.inputLoud) * awake);
         const float level = clamp01 (f.get (U::uLevel));
         const float glide = clamp01 (f.seedGlide);
+        // (the body swells with the roar at once and lets go of it over seconds: a breath taken in
+        // the middle of a roar does not shrink it)
+        if (heat >= m_inkSwell)
+        {
+            m_inkSwell += (heat - m_inkSwell) * (1.0f - std::exp (-dt / 0.6f));
+            m_inkSwellHold = 1.5f;
+        }
+        else if ((m_inkSwellHold -= dt) <= 0.0f)
+            m_inkSwell += (heat - m_inkSwell) * (1.0f - std::exp (-dt / 3.0f));
+        const float swell = clamp01 (m_inkSwell);
 
         // ---- the anatomy
         const auto& from = genomeFor (f.seedFrom, f.seedTo);
@@ -817,6 +827,71 @@ namespace roar
         pose.maw[2] = CreatureAnatomy::opening (jaw, stage) * awake * (1.0f - 0.85f * clamp01 (f.get (U::uGateClosed)))
                     * smooth (0.45f, 0.9f, clamp01 (f.inkFormation));
         pose.maw[3] = clamp01 (pose.maw[3] + 0.35f * std::min (1.0f, std::max (-1.0f, f.get (U::uLip))));
+        // ---- kept inside the view: with the jaw hanging open, the head moving and the roar's swell,
+        // the blot as posed is scaled about its middle and moved just as far as it needs (eased, so
+        // an opening jaw never jolts it)
+        {
+            float top = -9.0f, bottom = 9.0f;
+            // (as it would stand with the jaw hung well open: the fit does not follow the jaw, so the
+            // weight of the jaw is never taken back by it; the widest openings may hang into the band
+            // at the edge, where the ink gives way to cloud)
+            const float open = CreatureAnatomy::opening (0.75f, stage) * awake, mawY = pose.maw[0];
+            const auto reach = [&] (float y, float r)
+            {
+                // (the weighted jaw: what is under the rift hangs lower, what is over it lifts)
+                const float moved = y + open * (y < mawY ? -0.65f : 0.35f);
+                top = std::max (top, moved + r);
+                bottom = std::min (bottom, moved - r);
+            };
+            for (int i = 0; i < CreatureAnatomy::maxLobes; ++i)
+            {
+                const auto& b = pose.blob[(size_t) i];
+                const auto& r = pose.blobR[(size_t) i];
+                if (r[2] > 0.3f)
+                    reach (b[1], r[2] * std::sqrt (b[2] * r[1] * b[2] * r[1] + b[3] * r[0] * b[3] * r[0]));
+            }
+            for (int i = 0; i < CreatureAnatomy::maxLimbs; ++i)
+            {
+                const auto& a = pose.limbA[(size_t) i];
+                const auto& b = pose.limbB[(size_t) i];
+                if (b[2] > 0.004f)
+                {
+                    reach (a[3], 0.5f * (b[2] + b[3]));
+                    reach (b[1], b[3]);
+                }
+            }
+            float wantK = 1.0f, wantY = 0.0f;
+            if (top > bottom)
+            {
+                // (room for the carry, the feathered edge and the swell beyond the bare shape)
+                const float room = 0.40f - 0.04f * swell;
+                const float mid = 0.5f * (top + bottom), half = 0.5f * (top - bottom);
+                wantK = std::min (1.0f, room / std::max (0.05f, half));
+                const float cy = pose.centreY;
+                const float newMid = cy + (mid - cy) * wantK;
+                wantY = std::min (0.0f, room - (newMid + half * wantK)) + std::max (0.0f, -room - (newMid - half * wantK));
+            }
+            const float ease = dt > 0.0f ? 1.0f - std::exp (-dt / 0.3f) : 1.0f;
+            m_inkFitK += (wantK - m_inkFitK) * ease;
+            m_inkFitY += (wantY - m_inkFitY) * ease;
+            const float k = m_inkFitK, offY = m_inkFitY, cy = pose.centreY;
+            if (k < 0.999f || std::abs (offY) > 1.0e-4f)
+            {
+                const auto moveY = [=] (float y) { return cy + (y - cy) * k + offY; };
+                for (auto& b : pose.blob)
+                    b = { b[0] * k, moveY (b[1]), b[2] * k, b[3] * k };
+                for (auto& a : pose.limbA)
+                    a = { a[0] * k, moveY (a[1]), a[2] * k, moveY (a[3]) };
+                for (auto& b : pose.limbB)
+                    b = { b[0] * k, moveY (b[1]), b[2] * k, b[3] * k };
+                for (auto& b : pose.bay)
+                    b = { b[0] * k, moveY (b[1]), b[2] * k, b[3] };
+                pose.maw[0] = moveY (pose.maw[0]);
+                pose.maw[1] *= k;
+                pose.maw[2] *= k;
+                pose.centreY = moveY (cy);
+            }
+        }
         m_inkPose = pose;
         for (int i = 0; i < CreatureAnatomy::maxLobes; ++i)
         {
@@ -842,15 +917,24 @@ namespace roar
         // (the level moves with every syllable; the eddies follow it over a third of a second, so
         // a long carry does not shake)
         m_inkLevel += (level * awake - m_inkLevel) * (1.0f - std::exp (-dt / 0.35f));
-        fl.gain = CreatureFlow::gainFor (m_inkLevel, heat) * pose.look.flow * (1.0f - 0.3f * cDeep);
+        m_inkHeat += (heat - m_inkHeat) * (1.0f - std::exp (-dt / 0.35f));
+        const float heatE = m_inkHeat;
+        fl.gain = CreatureFlow::gainFor (m_inkLevel, heatE) * pose.look.flow * (1.0f - 0.3f * cDeep);
         fl.smallGain = 1.0f + 0.4f * cBeast - 0.3f * cFluid;
-        const float swirl = clamp01 (f.get (U::uSwirlAmt));
+        // (eased: the bound pair's strength moves the whole carry, and must not shake with the voice)
+        m_inkSwirl += (clamp01 (f.get (U::uSwirlAmt)) - m_inkSwirl) * (1.0f - std::exp (-dt / 0.5f));
+        const float swirl = m_inkSwirl;
         // (half gathered, the bound pair turns harder: the ink arrives turning, but never wound into
         // an arc round the pair, which is a drawn curve under whatever is above it)
-        fl.vortex = F * (0.02f + 0.03f * heat + 0.02f * cEld) + 0.12f * swirl * awake + 0.08f * F * un;
-        fl.vortexRadius = 0.24f;
-        fl.vortexX = 0.22f + 0.2f * clamp01 (f.get (U::uSwirlNotch));
-        fl.vortexY = pose.centreY;
+        fl.vortex = F * (0.02f + 0.03f * heatE + 0.02f * cEld) + 0.12f * swirl * awake + 0.08f * F * un;
+        // (wide of the fold: a pair of whorls close either side of it is a pair of sockets)
+        fl.vortexRadius = 0.30f;
+        // (the notch sweeps at the module's own rate; the pair's place follows it over a second, or
+        // the whole carried shape would be thrown about with it)
+        m_inkNotch += (clamp01 (f.get (U::uSwirlNotch)) - m_inkNotch) * (1.0f - std::exp (-dt / 1.0f));
+        fl.vortexX = 0.44f + 0.24f * m_inkNotch;
+        // (and under the rift: a whorl either side of it, level with it or above, is a pair of sockets)
+        fl.vortexY = std::min (pose.centreY, pose.maw[0]) - 0.12f;
         const double k = 0.42 + 0.10 * (double) fl.gain / (double) (CreatureFlow::c_restGain * std::max (0.5f, pose.look.flow));
         const auto scroll = [dt] (double& phase, double rate) { phase = phase + rate * (double) dt; phase -= std::floor (phase); };
         scroll (m_inkPhase[0], 0.011 * k);
@@ -865,7 +949,7 @@ namespace roar
         // (the jaw's speed is uneven frame to frame: the breath follows it over a fifth of a second)
         m_inkJet += (clamp01 (0.7f * heat + 0.5f * std::abs (f.get (U::uJawVel))) - m_inkJet) * (1.0f - std::exp (-dt / 0.2f));
         const float jet = clamp01 (m_inkJet);
-        scroll (m_inkPhase[9], 0.05 + 0.25 * (double) jet);   // the breath rises
+        scroll (m_inkPhase[9], 0.04 + 0.10 * (double) jet);   // the breath rises
         m_inkClock = std::fmod (m_inkClock + (double) dt, 4096.0);
         fl.o1x = (float) m_inkPhase[0] + pose.look.ox;
         fl.o1y = (float) m_inkPhase[1] + pose.look.oy;
@@ -878,13 +962,24 @@ namespace roar
 
         // ---- the carry: a distance the flow has carried the shape, as a time at the flow's speed
         const float speed = 0.035f * fl.gain / CreatureFlow::c_restGain;
-        const float reach = (0.045f + 0.02f * stage + 0.05f * heat) * pose.look.carry;
-        f.set (U::uCarry, reach / speed, un * CreatureFlow::c_restGain / fl.gain, un, (2.0f + 2.0f * heat) * CreatureFlow::c_restGain / fl.gain);
-        f.set (U::uInkF, F, heat, pose.look.feather, pose.look.density * (1.0f + 0.25f * heat));
+        const float reach = (0.045f + 0.02f * stage + 0.05f * swell) * pose.look.carry;
+        // (all in seconds of the flow at its rest pace, which is what the carry is traced through:
+        // how far the shape has been carried does not come and go with the level)
+        // (the single pass has no smoke to hang on in the cloud: what it lets go of is carried and
+        // eroded at a pace the eye can follow, a few seconds, as the buffer's smoke clears; it gathers
+        // as fast as the voice comes)
+        // (a formation set outright, not fallen to, is taken as it is)
+        if (un <= m_inkUnSingle || dt <= 0.0f || m_inkFPrev < 0.0f || m_inkFPrev - F > 0.1f)
+            m_inkUnSingle = un;
+        else
+            m_inkUnSingle = std::min (un, m_inkUnSingle + dt * (0.10f + 0.25f * m_inkUnSingle * m_inkUnSingle));
+        const float unC = m_tier == 0 ? m_inkUnSingle : un;
+        f.set (U::uCarry, reach / 0.035f, unC, unC, 2.0f + 2.0f * swell);
+        f.set (U::uInkF, F, swell, pose.look.feather, pose.look.density * (1.0f + 0.25f * swell));
         f.set (U::uInkO, pose.look.ox, pose.look.oy, (float) m_inkPhase[8], pose.look.ribbon);
 
         // ---- the cloud: its own picture asleep, folding with the blot as it forms; banks and gaps
-        f.set (U::uCloudK, 0.04f + 0.61f * F, pose.look.bank * m_inkFrontCloud, 0.10f * m_inkFrontCloud, 0.45f * heat);
+        f.set (U::uCloudK, 0.04f + 0.61f * F, pose.look.bank * m_inkFrontCloud, 0.10f * m_inkFrontCloud, 0.45f * swell);
         f.set (U::uCloudO, (float) m_inkPhase[4], (float) m_inkPhase[5], (float) m_inkPhase[6] + 0.61f, (float) m_inkPhase[7] + 0.61f);
         {
             // the far cloud's two carries, half a cycle apart; each has no share as it starts again
@@ -896,8 +991,8 @@ namespace roar
         // ---- the rift's light: by seed and by moment, from a dark tear to drifting lit breath
         const float t = (float) m_inkClock, ph = pose.look.ox * 40.0f;
         const float moment = m_inkMoment >= 0.0f ? clamp01 (m_inkMoment)
-                                                 : smooth (-0.35f, 0.55f, std::sin (t * 0.31f + ph) * std::cos (t * 0.17f + 1.3f * ph));
-        const float light = m_inkLight >= 0.0f ? clamp01 (m_inkLight) : pose.look.glow * moment * (0.45f + 0.55f * heat);
+                                                 : smooth (-0.12f, 0.30f, std::sin (t * 0.31f + ph) * std::cos (t * 0.17f + 1.3f * ph));
+        const float light = m_inkLight >= 0.0f ? clamp01 (m_inkLight) : pose.look.glow * moment * (0.35f + 0.65f * swell);
         f.set (U::uBreath, light * awake, jet, (float) m_inkPhase[9], level);
 
         // ---- the pigment rule: how fast free pigment turns into held ink and back, the pull on it
@@ -910,18 +1005,30 @@ namespace roar
             const float rising = clamp01 (m_inkFRate / 0.4f), falling = clamp01 (-m_inkFRate / 0.10f);
             // towards the body while it gathers (and a little always, awake: the pull keeps replacing
             // what the flow carries off), away from it while it lets go
-            const float drift = falling > 0.0f ? -0.10f * falling : 0.28f * rising + 0.05f * F;
+            // (and in the roar: the swelling body draws on the cloud round it as it did to form)
+            // (only while it swells: a roar held draws no more than the body has room for, and no
+            // bank of smoke piles up round it)
+            const float roarPull = 0.16f * smooth (0.35f, 0.8f, heat) * F * clamp01 ((heat - m_inkSwell + 0.06f) / 0.08f);
+            const float drift = falling > 0.0f ? -0.10f * falling : 0.28f * rising + 0.08f * F + roarPull;
             // the release's kick: small eddies that tear what was let go, for two seconds after
             m_inkKick = std::max (falling, m_inkKick * std::exp (-dt / 2.0f));
-            m_inkFalling = falling;
-            m_inkGather = drift > 0.0f ? 0.28f * rising / drift : 0.0f;
+            // (only as the body really goes: a formation that dips between two syllables and comes
+            // back has let nothing go, and the wisps round a formed body are never drawn as its smoke)
+            const float going = falling * smooth (0.01f, 0.10f, un);
+            m_inkFalling = going;
+            m_inkGather = drift > 0.0f ? (0.28f * rising + roarPull) / drift : 0.0f;
             // (awake, what the rim sheds is the pigment it was made of; let go, the ink spreads into smoke)
-            m_inkSmoke = mixf (1.0f / c_inkYield, 0.9f, clamp01 (std::max (2.0f * un, 1.5f * falling)));
+            // (let go, the ink is still ink where it hangs dense: drawn as heavy as it was held, and
+            // lighter over the next seconds as it is torn and spread, so it is smoke by six or seven)
+            m_inkLetGo = std::max (clamp01 (1.5f * going), m_inkLetGo * std::exp (-dt / (rising > 0.0f ? 0.4f : un < 0.02f ? 1.5f : 4.5f)));
+            m_inkSmoke = 1.0f + 1.8f * m_inkLetGo;   // (2.8: held ink is three times as dense as the pigment it was made of)
             // (the floor under the body comes in over seconds once it has formed: the gathering is
             // the pigment's alone)
             m_inkFloor += ((F > 0.9f ? 1.0f : 0.0f) - m_inkFloor) * (1.0f - std::exp (-dt / (F > 0.9f ? 2.0f : 0.3f)));
             const float kick = (0.25f + 0.75f * m_inkKick) * (0.3f + 0.7f * un) + 0.15f * heat;
-            f.set (U::uHold, 0.6f + 2.4f * F, 1.2f + 1.3f * un, drift, 0.45f + 0.25f * stage + 0.2f * heat);
+            // (the spec's release, 0.5 + 2.0 (1 - F) a second; swollen with the roar, the body is slower
+            // to let go of what the jaw's closing leaves outside it)
+            f.set (U::uHold, 0.6f + 2.4f * F, 0.5f - 0.25f * swell + 2.0f * un, drift, 0.45f + 0.25f * stage + 0.2f * heat);
             f.set (U::uPig, c_inkAmbient, m_inkBudget, kick, 0.008f);
             m_inkState = { F, pose.maw[2], heat, level, f.get (U::uBreath), reach / speed, drift, kick, 0.0f, 0.0f };
         }
@@ -931,7 +1038,19 @@ namespace roar
         // a spark through)
         {
             const auto& af = f.forces;
-            const float push = std::min (0.45f, 0.12f * af.subPulse * clamp01 (f.get (U::uSub) * 2.0f)) * awake * F;
+            float push = std::min (0.45f, 0.12f * af.subPulse * clamp01 (f.get (U::uSub) * 2.0f)) * awake * F;
+            // the force budget: what disperses the pigment (the breath's jet, the release's kick, the
+            // bound pair, the sub's push) shares one allowance, so with every module at work at once
+            // the ink is stirred and not thrown about
+            {
+                const float kickNow = f.get (U::uPig, 2), jetNow = f.get (U::uBreath, 1);
+                const float sum = 0.30f * jetNow + 0.25f * kickNow + 2.2f * fl.vortex + push;
+                const float allow = std::min (1.0f, 0.42f / std::max (1.0e-3f, sum));
+                push *= allow;
+                f.at (U::uPig)[2] = kickNow * allow;
+                f.at (U::uBreath)[1] = jetNow * allow;
+                m_inkState.kick = kickNow * allow;
+            }
             f.set (U::uSubPulse, pose.centreY, push, 0.30f + 0.15f * stage, 0.0f);
             m_inkSparkAge = std::min (9.0f, m_inkSparkAge + dt);
             // (only off a loud voice: the clipper is doing nothing to a quiet one)
@@ -945,10 +1064,10 @@ namespace roar
                     // from where that way crosses the rim
                     const float a = 3.14159265f * (0.08f + 0.84f * hashf ((float) af.sparkSeed * 0.6180339f + 0.37f * (float) i));
                     const float dx = std::sin (a), dy = std::cos (a) * (hashf ((float) af.sparkSeed * 0.754877f + 0.61f * (float) i) < 0.7f ? 1.0f : -1.0f);
-                    float r = 0.04f;
-                    while (r < 1.2f && CreatureAnatomy::sdf (pose, dx * r, pose.centreY + dy * r) < 0.0f)
-                        r += 0.02f;
-                    m_inkBead[(size_t) i] = { dx * r, pose.centreY + dy * r, dx, dy };
+                    float out = 0.04f;
+                    while (out < 1.2f && CreatureAnatomy::sdf (pose, dx * out, pose.centreY + dy * out) < 0.0f)
+                        out += 0.02f;
+                    m_inkBead[(size_t) i] = { dx * out, pose.centreY + dy * out, dx, dy };
                 }
             }
             // (a bead flies a tenth of a view height and is spent in a quarter of a second)
@@ -1265,7 +1384,6 @@ namespace roar
         const int hw = std::max (8, (vp[2] + 1) / 2), hh = std::max (8, (vp[3] + 1) / 2);
         const P single = m_ink ? P::inkSinglePass : P::singlePass;
         use (single, f);
-        bindRaw (S::logo, m_logoTex);
         bindRaw (S::noise, m_noiseTex);
         if (half)
         {
@@ -1322,9 +1440,6 @@ namespace roar
     bool MonsterRenderer::makeInkTex (int index, int w, int h)
     {
         auto& t = m_inkBuf[index];
-        if (m_inkTopFbo[index] != 0)
-            glDeleteFramebuffers (1, &m_inkTopFbo[index]);
-        m_inkTopFbo[index] = 0;
         if (! makeTex (t, w, h, ! m_inkBytes))
             return false;
         glBindTexture (GL_TEXTURE_2D, t.tex);
@@ -1339,16 +1454,6 @@ namespace roar
         m_inkTopLevel = 3;
         m_inkTopW = std::max (1, w >> m_inkTopLevel);
         m_inkTopH = std::max (1, h >> m_inkTopLevel);
-        glGenFramebuffers (1, &m_inkTopFbo[index]);
-        glBindFramebuffer (GL_FRAMEBUFFER, m_inkTopFbo[index]);
-        glFramebufferTexture2D (GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, t.tex, m_inkTopLevel);
-        if (glCheckFramebufferStatus (GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE)
-        {
-            glBindFramebuffer (GL_FRAMEBUFFER, m_hostFbo);
-            glDeleteFramebuffers (1, &m_inkTopFbo[index]);
-            m_inkTopFbo[index] = 0;   // (no budget on this driver: the gain stays at 1)
-        }
-        glBindFramebuffer (GL_FRAMEBUFFER, m_hostFbo);
         return true;
     }
 
@@ -1378,9 +1483,6 @@ namespace roar
     {
         for (int i = 0; i < 2; ++i)
         {
-            if (m_inkTopFbo[i] != 0)
-                glDeleteFramebuffers (1, &m_inkTopFbo[i]);
-            m_inkTopFbo[i] = 0;
             freeTex (m_inkBuf[i]);
         }
         if (m_inkPbo != 0)
@@ -1392,10 +1494,12 @@ namespace roar
     void MonsterRenderer::inkUniforms (float dt, bool fresh)
     {
         setR (R::uInkRes, (float) m_inkBuf[0].w, (float) m_inkBuf[0].h, 0.5f * m_aspect, dt);
-        setR (R::uInkStep, fresh ? 1.0f : 0.0f, m_inkBytes ? 1.0f : 0.0f, hashf ((float) (m_frame % 4093u) * 0.6180339f) * 64.0f, 0.0f);
+        // (the last: how far the pigment in the view is over what the cloud had, for the budget)
+        setR (R::uInkStep, fresh ? 1.0f : 0.0f, m_inkBytes ? 1.0f : 0.0f, hashf ((float) (m_frame % 4093u) * 0.6180339f) * 64.0f,
+              std::min (4.0f, std::max (-1.0f, 2.5f * (m_inkTotal - (m_inkTotal > 1.0f ? 1.08f : 0.92f)) * (m_inkTotal > 1.08f || m_inkTotal < 0.92f ? 1.0f : 0.0f))));
         setR (R::uInkRule, m_inkFloor, m_inkFalling, m_inkSmoke, m_inkGather);
         // the cloud by tier: three layers, the far one carried in two phases, and threads, from the second buffer tier up
-        setR (R::uInkTier, m_tier >= 2 ? 3.0f : 2.0f, m_tier >= 2 ? 1.0f : 0.0f, m_tier >= 2 ? 1.0f : 0.0f, 0.0f);
+        setR (R::uInkTier, m_tier >= 2 ? 3.0f : 2.0f, m_tier >= 2 ? 1.0f : 0.0f, m_tier >= 2 ? 1.0f : 0.0f, m_inkLetGo);
     }
 
     // One step of the buffer (fresh: filled as the shape stands and the cloud's own pigment, no history).
@@ -1419,9 +1523,7 @@ namespace roar
     void MonsterRenderer::inkResample (int toTier)
     {
         Tex src = m_inkBuf[m_inkCur];
-        const unsigned int srcTop = m_inkTopFbo[m_inkCur];
         m_inkBuf[m_inkCur] = Tex();
-        m_inkTopFbo[m_inkCur] = 0;
         const bool seedWas = m_needsSeed;
         const bool ok = allocInk (toTier);
         if (ok && src.tex != 0)
@@ -1437,8 +1539,6 @@ namespace roar
             glGenerateMipmap (GL_TEXTURE_2D);
             m_needsSeed = seedWas;
         }
-        if (srcTop != 0)
-            glDeleteFramebuffers (1, &srcTop);
         freeTex (src);
     }
 
@@ -1450,14 +1550,15 @@ namespace roar
             return;
         if (m_inkReadAge < 0)
         {
-            if ((m_frame & 15u) != 0 || m_inkTopFbo[m_inkCur] == 0 || m_inkTopW * m_inkTopH > c_inkReadTexels)
+            if ((m_frame & 15u) != 0 || m_inkTopW * m_inkTopH > c_inkReadTexels)
                 return;
-            glBindFramebuffer (GL_FRAMEBUFFER, m_inkTopFbo[m_inkCur]);
+            // (the mip itself, straight from the texture: a framebuffer on a level other than the
+            // first reads the first on some drivers)
+            glBindTexture (GL_TEXTURE_2D, m_inkBuf[m_inkCur].tex);
             glBindBuffer (GL_PIXEL_PACK_BUFFER, m_inkPbo);
             glPixelStorei (GL_PACK_ALIGNMENT, 1);
-            glReadPixels (0, 0, m_inkTopW, m_inkTopH, GL_RGBA, GL_FLOAT, nullptr);
+            glGetTexImage (GL_TEXTURE_2D, m_inkTopLevel, GL_RGBA, GL_FLOAT, nullptr);
             glBindBuffer (GL_PIXEL_PACK_BUFFER, 0);
-            glBindFramebuffer (GL_FRAMEBUFFER, m_hostFbo);
             m_inkReadAge = 0;
         }
         else if (++m_inkReadAge >= 3)
@@ -1481,8 +1582,13 @@ namespace roar
                 // (a read every half second: the total is followed, never jumped to, and the gain
                 // moves over several seconds)
                 m_inkTotal += std::min (0.3f, std::max (-0.3f, total - m_inkTotal));
-                const float step = m_inkTotal > 1.15f ? -0.25f * (m_inkTotal - 1.15f) : m_inkTotal < 0.85f ? 0.25f * (0.85f - m_inkTotal) : 0.1f * (1.0f - m_inkBudget);
-                m_inkBudget = std::min (1.3f, std::max (0.5f, m_inkBudget + step));
+                // (what the body holds was the cloud's: the cloud's own share is what is left)
+                const float bodyShare = (float) (heldSum / (double) c_inkYield) * k / c_inkAmbient;
+                // (but only part of it: the whole of it taken back from the cloud leaves too little
+                // loose pigment round the body for the pull to gather, and the body forms thin. The
+                // total is held in the spec's 0.8 to 1.3 of rest, not at rest exactly.)
+                const float want = std::min (1.1f, std::max (0.3f, 1.12f - 0.6f * bodyShare));
+                m_inkBudget += std::min (0.15f, std::max (-0.15f, want - m_inkBudget));
             }
         }
     }
@@ -1786,8 +1892,7 @@ namespace roar
                 setScale (R::uDyeS, m_dye[0], dyeW, dyeH);
                 setR (R::uDyeOn, dyeOn ? 1.0f : 0.0f);
                 bind (S::dye, m_dye[m_d]);
-                bindRaw (S::logo, m_logoTex);
-                draw (&m_cf, cfW, cfH, "creature field");
+                        draw (&m_cf, cfW, cfH, "creature field");
             };
 
             float dt = m_fixedStep ? 1.0f / 30.0f : std::min (c_maxDt, std::max (c_minDt, f.frameDt));
@@ -1982,8 +2087,6 @@ namespace roar
         if (m_logoTex != 0) textures.push_back (m_logoTex);
         for (const auto& p : m_progs)
             if (p.id != 0) programs.push_back (p.id);
-        for (auto fb : m_inkTopFbo)
-            if (fb != 0) framebuffers.push_back (fb);
         if (m_vbo != 0) buffers.push_back (m_vbo);
         if (m_inkPbo != 0) buffers.push_back (m_inkPbo);
         for (auto q : m_queries)

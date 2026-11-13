@@ -305,7 +305,6 @@ namespace roar
         double m_inkPhase[10] {};    // the eddies', the clouds' and the breath's slow scrolls (wrapped)
         double m_inkClock = 0.0;
         Tex m_inkBuf[2];             // the ink buffer's ping-pong pair (half the view, with its mips)
-        unsigned int m_inkTopFbo[2] {};   // ... a small mip of each, to read all its pigment at once
         unsigned int m_inkPbo = 0;   // the budget's read comes back through this, frames later
         int m_inkCur = 0, m_inkTopLevel = 0, m_inkTopW = 1, m_inkTopH = 1;
         int m_inkReadAge = -1;       // frames since the budget's read was asked for (-1: none pending)
@@ -313,9 +312,17 @@ namespace roar
         bool m_inkSimToggle = false;
         float m_inkSimDt = 0.0f;     // time the buffer has not been stepped for (asleep: every other frame)
         float m_inkTotal = 1.0f, m_inkBudget = 1.0f;
-        float m_inkFPrev = -1.0f, m_inkFRate = 0.0f, m_inkKick = 0.0f, m_inkFalling = 0.0f, m_inkFloor = 0.0f, m_inkSmoke = 0.33f, m_inkGather = 0.0f;
+        float m_inkFPrev = -1.0f, m_inkFRate = 0.0f, m_inkKick = 0.0f, m_inkFalling = 0.0f, m_inkFloor = 0.0f, m_inkSmoke = 1.0f, m_inkGather = 0.0f;
+        float m_inkLetGo = 0.0f;     // how lately the body was let go: up as the hold gives, down as it gathers again
+        float m_inkUnSingle = 0.0f;  // the single pass's own unformedness: it lets go no faster than the buffer's smoke clears
+        float m_inkSwellHold = 0.0f; // seconds the swell is held for yet
+        float m_inkFitK = 1.0f, m_inkFitY = 0.0f;   // the pose kept inside the view: its scale and shift, eased
+        float m_inkNotch = 0.0f;     // SWIRL's notch as the bound pair's place follows it (eased)
+        float m_inkHeat = 0.0f;      // the roar's heat as the eddies follow it (eased)
+        float m_inkSwirl = 0.0f;     // SWIRL's amount as the bound pair follows it (eased)
         float m_inkJet = 0.0f;       // the breath's jet, smoothed
         float m_inkLevel = 0.0f;     // the level the eddies follow, smoothed
+        float m_inkSwell = 0.0f;     // the roar's heat as the body follows it: up at once, down over seconds
         double m_inkCloudPhase = 0.0;   // the far cloud's carry, a cycle of nine seconds
         int m_inkSparkSeed = -1;     // the spark the beads were last thrown for
         float m_inkSparkAge = 9.0f;

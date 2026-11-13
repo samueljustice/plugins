@@ -4263,6 +4263,18 @@ namespace
             auto image = stage.createComponentSnapshot(editor.getBounds(), true, scale);
             if (frame.isValid())
             {
+                std::printf("  (the creature's frame: %d x %d pixels for a view of %d x %d, drawn on tier %d)\n", frame.getWidth(), frame.getHeight(), monster.getWidth(), monster.getHeight(),
+                            monster.getRendererForTests().getTier());
+                {
+                    const auto& r = monster.getRendererForTests();
+                    const auto& st = r.getInkState();
+                    const auto& g = r.getInkGenome();
+                    std::printf("  (the ink: formation %.2f, heat %.2f, opening %.3f, drift %.2f, pigment %.2f of rest, the cloud's share %.2f; the blot's middle at %.2f, %d lobes, %d limbs, seed %u)\n",
+                                static_cast<double>(st.formation), static_cast<double>(st.heat), static_cast<double>(st.opening), static_cast<double>(st.drift), static_cast<double>(r.getInkBudget()),
+                                static_cast<double>(r.getInkBudgetGain()), static_cast<double>(r.getInkPose().centreY), g.numLobes, g.numLimbs, g.seed);
+                }
+                if (const auto raw = juce::SystemStats::getEnvironmentVariable("ROARSCHACH_KEEP_FRAME", {}); raw.isNotEmpty())
+                    savePng(frame.rescaled(frame.getWidth() / 2, frame.getHeight() / 2), juce::File(raw));
                 juce::Graphics g(image);
                 const auto area = stage.getLocalArea(&monster, monster.getLocalBounds()).toFloat() * scale;
                 g.drawImage(frame, area);

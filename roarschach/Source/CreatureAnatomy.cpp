@@ -311,7 +311,15 @@ namespace roar
                 g.look.ribbon = r.uni();
                 g.look.density = r.rr (0.85f, 1.25f);
                 g.look.bank = r.rr (0.55f, 1.35f);
-                g.look.glow = r.chance (0.3f) ? 0.0f : r.rr (0.3f, 1.0f);   // some rifts are a dark tear and never lit
+                // some rifts are a dark tear and never lit (about one in five); the others' light is strong
+                // enough to be seen (the draws as they always were, so a blot's shape does not change)
+                if (r.chance (0.3f))
+                {
+                    std::uint32_t h = seed * 0x2c1b3c6du + 0x297a2d39u;
+                    g.look.glow = (float) (splitmix (h) >> 8) / 16777216.0f < 0.27f ? 0.6f : 0.0f;
+                }
+                else
+                    g.look.glow = 0.55f + 0.45f * (r.rr (0.3f, 1.0f) - 0.3f) / 0.7f;
                 g.look.flow = r.rr (0.8f, 1.3f);
             }
             return g;
@@ -339,6 +347,26 @@ namespace roar
 
         bool faceLayout (const A::Pose& p)
         {
+            // a head: a pair of limbs close beside the fold that rise from the body to above the top
+            // of the mass on the fold, ears or horns over a single round mass
+            {
+                float coreTop = -9.0f;
+                for (int i = 0; i < A::maxLobes; ++i)
+                {
+                    const auto& b = p.blob[(size_t) i];
+                    if (p.blobR[(size_t) i][2] >= 0.5f && b[0] <= 0.06f)
+                        coreTop = std::max (coreTop, b[1] + std::max (b[2], b[3]) * 0.8f);
+                }
+                for (int i = 0; i < A::maxLimbs; ++i)
+                {
+                    const auto& a = p.limbA[(size_t) i];
+                    const auto& b = p.limbB[(size_t) i];
+                    if (b[2] <= 0.004f)
+                        continue;
+                    if (b[0] < 0.32f && b[1] > coreTop - 0.02f && b[1] - a[1] > 0.07f && b[1] > p.maw[0] + 0.10f)
+                        return true;
+                }
+            }
             // the largest lobe above the rift is one of a mirrored pair near the fold, with a lobe on
             // the fold between the two
             int big = -1;
@@ -408,7 +436,7 @@ namespace roar
         // the rift: a tear on the fold, taller than wide when open, shut when the jaw is
         {
             const float mcx = x, mcy = y - (P.maw[0] - open * 0.15f);
-            const float mrx = P.maw[1] * (0.6f + 1.1f * smooth (0.0f, 0.12f, open)), mry = 0.004f + open * 0.75f;
+            const float mrx = P.maw[1] * (0.8f + 1.6f * smooth (0.0f, 0.12f, open)), mry = 0.005f + open * 1.25f;
             // (a crack, not an oval: pointed at both ends, its width uneven along its length)
             const float ty = std::min (1.0f, std::max (-1.0f, mcy / mry));
             float uneven = 0.5f;
@@ -417,7 +445,7 @@ namespace roar
             float torn = 0.5f;
             if (ragged)
                 torn = clamp01 ((NoiseSampler::shared().sample (x * 4.5f + P.look.oy, y * 4.5f + P.look.ox, 0.5f)[0] - 0.5f) * 1.45f + 0.5f);
-            const float rw = mrx * std::pow (1.0f - ty * ty, 0.75f) * (0.35f + 1.5f * uneven) * (0.55f + 0.9f * torn);
+            const float rw = mrx * std::pow (1.0f - ty * ty, 1.1f) * (0.35f + 1.5f * uneven) * (0.55f + 0.9f * torn);
             float rift = std::max (std::abs (mcx) - rw, std::abs (mcy) - mry) + (1.0f - smooth (0.0f, 0.02f, open)) * 0.25f;
             // strands of ink left across the rift, thinning as it opens: unevenly spaced and leaning
             float sx = x * (1.0f + 1.6f * (y - P.maw[0]));
@@ -427,14 +455,14 @@ namespace roar
             if (ragged)
             {
                 const auto& n = NoiseSampler::shared();
-                sx += (n.sample (y * 1.3f + P.look.ox, 0.37f + P.look.oy, 1.0f)[0] - 0.5f) * 0.09f;
+                sx += (n.sample (y * 1.3f + P.look.ox, 0.37f + P.look.oy, 1.0f)[0] - 0.5f) * 0.16f;
             }
             float f = sx / gap;
             f += 0.33f * std::sin (f * 2.1f + P.look.ox * 50.0f);
             if (ragged)
                 swell = NoiseSampler::shared().sample (std::floor (f) * 0.173f + P.look.oy, y * 2.3f + P.look.ox, 0.0f)[0];
             const float dist = std::abs (f - std::floor (f) - 0.5f) * gap;
-            const float thread = (0.0035f + (0.004f + 0.008f * P.maw[3]) * smooth (0.25f, 0.75f, swell)) * (1.0f - open * 3.2f) - dist;
+            const float thread = (-0.003f + (0.011f + 0.010f * P.maw[3]) * smooth (0.30f, 0.75f, swell)) * (1.0f - open * 2.6f) - dist;
             d = smax (d, -std::max (rift, thread), 0.03f);
         }
         // the bays: tapered cuts that widen towards the outside
@@ -544,7 +572,7 @@ namespace roar
                 if (cj < c_ny - 1) push (ci, cj + 1);
             }
             // (the rift is the one enclosed opening there may be: its own span is not counted)
-            const float riftX = p.maw[1] * 1.6f + 0.02f, riftTop = p.maw[0] + 0.60f * p.maw[2] + 0.03f, riftBottom = p.maw[0] - 0.90f * p.maw[2] - 0.03f;
+            const float riftX = p.maw[1] * 3.0f + 0.03f, riftTop = p.maw[0] + 1.10f * p.maw[2] + 0.03f, riftBottom = p.maw[0] - 1.40f * p.maw[2] - 0.03f;
             for (int k = 0; k < c_nx * c_ny; ++k)
                 if (g.ink[(size_t) k] == 0 && seen[(size_t) k] == 0)
                 {
@@ -683,6 +711,35 @@ namespace roar
             float mx, my;
             place (0.0f, g.mawY, mx, my);
             p.maw = { my, g.mawHalf * (1.0f + 0.45f * beast) * sizeK, 0.0f, g.strands };
+        }
+
+        // no head: a pair of limbs close beside the fold, rising over the mass on the fold, reads as
+        // ears or horns on a head. Such a limb is swung outwards and down, the more the closer it
+        // comes to that (smoothly, so a change of stage or a glide never jumps).
+        {
+            float coreTop = -9.0f;
+            for (int i = 0; i < maxLobes; ++i)
+            {
+                const auto& b = p.blob[(size_t) i];
+                if (p.blobR[(size_t) i][2] >= 0.5f && b[0] <= 0.06f)
+                    coreTop = std::max (coreTop, b[1] + std::max (b[2], b[3]) * 0.8f);
+            }
+            for (int i = 0; i < maxLimbs; ++i)
+            {
+                auto& a = p.limbA[(size_t) i];
+                auto& b = p.limbB[(size_t) i];
+                if (b[2] <= 0.004f)
+                    continue;
+                const float w = (1.0f - smooth (0.26f, 0.40f, b[0])) * smooth (coreTop - 0.10f, coreTop + 0.02f, b[1])
+                              * smooth (0.03f, 0.09f, b[1] - a[1]) * smooth (p.maw[0] + 0.04f, p.maw[0] + 0.12f, b[1]);
+                if (w <= 0.0f)
+                    continue;
+                const float lowTip = std::min (b[1], coreTop - 0.10f), lowBend = std::min (a[3], 0.5f * (a[1] + lowTip));
+                b[0] = std::min (c_maxX - 0.03f, b[0] + w * 0.26f);
+                b[1] += w * (lowTip - b[1]);
+                a[2] = std::min (c_maxX - 0.03f, a[2] + w * 0.13f);
+                a[3] += w * (lowBend - a[3]);
+            }
         }
 
         for (int i = 0; i < maxBays; ++i)
