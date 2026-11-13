@@ -1496,25 +1496,23 @@ int main(int argc, char* argv[])
                 }
                 rig.start(p, 48000.0);
             };
-            // Seconds of processor time per second of sound: the quickest of five 10 s renders.
-            auto cost = [&](int mode, bool onStow, bool& awake)
-            {
-                double best = 1.0e9;
-                for (int rep = 0; rep < 5; ++rep)
+            // Seconds of processor time per second of sound: the quickest of five 10 s renders. (The four cases take
+            // turns, so a machine that slows down part of the way through slows them all.)
+            struct Case { int mode; bool onStow; double best = 1.0e9; bool awake = false; };
+            std::array<Case, 4> cases { Case { RigEngine::StowSub, false }, Case { RigEngine::StowFly, false }, Case { RigEngine::StowFly, true }, Case { RigEngine::StowDry, true } };
+            for (int rep = 0; rep < 5; ++rep)
+                for (auto& c : cases)
                 {
                     Rig rig;
-                    bed(rig, mode, onStow);
+                    bed(rig, c.mode, c.onStow);
                     render(rig.engine, 1.0, 48000.0);
                     const double t0 = juce::Time::getMillisecondCounterHiRes();
                     render(rig.engine, 10.0, 48000.0);
-                    best = std::min(best, (juce::Time::getMillisecondCounterHiRes() - t0) / 10000.0);
-                    awake = rig.engine.isFlyAwake();
+                    c.best = std::min(c.best, (juce::Time::getMillisecondCounterHiRes() - t0) / 10000.0);
+                    c.awake = rig.engine.isFlyAwake();
                 }
-                return best;
-            };
-            bool awakeEmpty = true, awakeFlying = false, awakeSub = true, awakeDry = true;
-            const double emptySub = cost(RigEngine::StowSub, false, awakeSub), emptyFly = cost(RigEngine::StowFly, false, awakeEmpty);
-            const double flying = cost(RigEngine::StowFly, true, awakeFlying), dry = cost(RigEngine::StowDry, true, awakeDry);
+            const bool awakeSub = cases[0].awake, awakeEmpty = cases[1].awake, awakeFlying = cases[2].awake, awakeDry = cases[3].awake;
+            const double emptySub = cases[0].best, emptyFly = cases[1].best, flying = cases[2].best, dry = cases[3].best;
             Rig a, b;
             bed(a, RigEngine::StowFly, false);
             bed(b, RigEngine::StowSub, false);
@@ -1541,6 +1539,31 @@ int main(int argc, char* argv[])
             std::cout << "  awake while it plays: " << playing << "; 6 s after Stop: " << stopped << " (output peak " << quiet << "; its passes rang out up to " << peakOf(tail) << "); playing again: "
                       << rig.engine.isFlyAwake() << " (peak " << again << ")" << std::endl;
             check(playing && ! stopped && quiet < 1.0e-6f && peakOf(tail) > 0.01f && rig.engine.isFlyAwake() && again > 0.05f, "fly: it sleeps once its passes have rung out after Stop, and wakes on Play");
+
+            // A seeded restart in the middle of a run (what Render Variations and a host's transport start do):
+            // Fly starts again from the top, whatever it was doing, and flies the same passes.
+            {
+                Rig restarted;
+                RigEngine::Params q; // as the plug-in starts (Chaos 40%, Follow 70%)
+                q.stow.mode = RigEngine::StowFly;
+                flyRig(restarted, q, true);
+                auto take = [&](double playFirst)
+                {
+                    render(restarted.engine, playFirst, 48000.0);
+                    restarted.engine.restartSeeded();
+                    juce::AudioBuffer<float> o(2, static_cast<int>(6.0 * 48000.0));
+                    int tries = 0;
+                    do // 32 samples at a time (rendered over and over) until the old sound has faded and the new run starts
+                        restarted.engine.process(nullptr, nullptr, o.getWritePointer(0), o.getWritePointer(1), 32);
+                    while (restarted.engine.isRestarting() && ++tries < 4000);
+                    for (int pos = 32; pos < o.getNumSamples(); pos += c_block)
+                        restarted.engine.process(nullptr, nullptr, o.getWritePointer(0, pos), o.getWritePointer(1, pos), std::min(c_block, o.getNumSamples() - pos));
+                    return o;
+                };
+                const auto first = take(1.3), second = take(2.9);
+                std::cout << "  seeded restart with a track flying: two starts differ by " << same(first, second) << " (peak " << peakOf(first) << ")" << std::endl;
+                check(peakOf(first) > 0.05f && restarted.engine.isFlyAwake() && same(first, second) < 1.0e-5f, "fly: a seeded restart flies the same passes again");
+            }
         }
     }
 
