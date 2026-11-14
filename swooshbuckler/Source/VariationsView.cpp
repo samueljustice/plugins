@@ -48,8 +48,8 @@ namespace
         if (seconds < 1.5)
             return "Nearly done";
         if (seconds < 90.0)
-            return "About " + juce::String(juce::roundToInt(seconds)) + " s left";
-        return "About " + juce::String(juce::roundToInt(seconds / 60.0)) + " min left";
+            return "About " + juce::String(static_cast<int>(std::floor(seconds + 0.5))) + " s left";
+        return "About " + juce::String(static_cast<int>(std::floor(seconds / 60.0 + 0.5))) + " min left"; // halves round up, as in the estimate
     }
 }
 
@@ -445,7 +445,11 @@ void VariationsView::syncControls()
         case Files::PerVariation:
         default:                    m_firstLine = "First file: " + plan.firstName + extension + format; break;
     }
-    m_getLine = VariationRenderer::estimateText(j, m_processor.getVariations().estimate(j));
+    const auto estimate = m_processor.getVariations().estimate(j);
+    m_getLine = VariationRenderer::oneFileTooBig(j, estimate)
+                    ? juce::String("That one file would be over 4 GB, too big for markers. Make fewer or shorter ones, or use FLAC.")
+                    : VariationRenderer::estimateText(j, estimate);
+    m_syncedMinute = juce::Time::getCurrentTime().getMinutes();
     repaint();
 }
 
@@ -476,7 +480,9 @@ void VariationsView::timerCallback()
     m_shown = progress;
     if (ended)
         m_processor.refreshTakes(); // the last files are in Takes by the time Open Takes can be pressed
-    if (changed || ended)
+    // Date And Time names, and a dated folder, follow the clock: the First File line moves on with the minute.
+    const bool newMinute = progress.state != State::Rendering && juce::Time::getCurrentTime().getMinutes() != m_syncedMinute;
+    if (changed || ended || newMinute)
         syncControls();
 }
 

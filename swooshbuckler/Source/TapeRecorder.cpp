@@ -714,6 +714,7 @@ bool TapeRecorder::FileWriter::open(const juce::File& file, double rate, int num
     m_channels = numChannels;
     m_position = 0;
     m_ok = m_writer != nullptr;
+    m_markersAdded = true;
     return m_ok;
 }
 
@@ -758,11 +759,11 @@ bool TapeRecorder::FileWriter::close(const std::vector<Cue>& markers)
             break;
         }
         case FileType::Aiff:
-            appendAiffMarkers(m_file, markers);
+            m_markersAdded = appendAiffMarkers(m_file, markers);
             break;
         case FileType::Wav:
         default:
-            appendWavCues(m_file, markers);
+            m_markersAdded = appendWavCues(m_file, markers);
             break;
     }
     return true;

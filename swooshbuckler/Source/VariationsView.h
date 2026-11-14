@@ -73,6 +73,7 @@ private:
     enum class Repeat { New = 0, Last, Chosen };
     Repeat m_repeat = Repeat::New;
     std::uint32_t m_repeatNumber = 0;  // Chosen: which batch
+    int m_syncedMinute = -1;           // the minute the First File line was worked out in
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(VariationsView)
 };

@@ -190,6 +190,9 @@ public:
         std::int64_t position() const { return m_position; }
         /** Closes the file and adds the markers. False if anything written to it failed (the file is then deleted). */
         bool close(const std::vector<Cue>& markers);
+        /** After close(): false if the markers could not be added (a WAV or AIFF file of 4 GB or more has no room
+            for them), though the sound itself was written. */
+        bool markersAdded() const { return m_markersAdded; }
         /** Closes the file and deletes it. */
         void abandon();
 
@@ -202,6 +205,7 @@ public:
         int m_channels = 2;
         std::int64_t m_position = 0;
         bool m_ok = true;
+        bool m_markersAdded = true;
     };
 
 private:

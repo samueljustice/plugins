@@ -120,7 +120,12 @@ public:
         int files = 0;
         double soundSeconds = 0.0;   // every variation, and the gaps of the one file
         double renderSeconds = 0.0;  // going by how fast the last batch went on this machine
+        double oneFileBytes = 0.0;   // One File With Markers / Both: how big the one file comes to (0 otherwise)
     };
+    /** A WAV or AIFF file has no room for markers at 4 GB or more: the one file is kept under this, with room to spare
+        for the estimate being short. FLAC lists its markers in its comments and has no such limit. */
+    static constexpr double c_maxOneFileBytes = 0.9 * 4294967295.0;
+    static bool oneFileTooBig(const Job& job, const Estimate& estimate);
     Estimate estimate(const Job& job) const;
     /** "100 files, one whoosh each: about 5 minutes of sound, ready in about 20 seconds." */
     static juce::String estimateText(const Job& job, const Estimate& estimate);

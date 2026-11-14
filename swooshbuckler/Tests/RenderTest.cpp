@@ -636,6 +636,28 @@ int main(int argc, char* argv[])
             check(VariationRenderer::roughly(0.4) == "about a second" && VariationRenderer::roughly(89.0) == "about 89 seconds"
                       && VariationRenderer::roughly(150.0) == "about 3 minutes" && VariationRenderer::roughly(3.0 * 3600.0) == "about 3 hours",
                   "estimate: times are said roughly, in seconds, minutes or hours");
+
+            // One WAV or AIFF file of 4 GB or more has no room for markers: such a batch is refused before it starts.
+            auto big = makeJob(rig, out.getChildFile("too-big"), VariationRenderer::Mode::NewPasses, 1000, 3.0, 1);
+            big.each = VariationRenderer::Each::WholeRide;
+            big.rideSeconds = 120.0;
+            big.files = Files::OneWithMarkers;
+            big.options.bitDepth = 32;
+            juce::String refused;
+            const bool started = renderer.start(big, refused);
+            if (started)
+            {
+                renderer.cancel();
+                renderer.waitUntilDone(60000);
+            }
+            check(! started && refused.contains("4 GB") && ! out.getChildFile("too-big").getChildFile("Whoosh_All.wav").exists(),
+                  "estimate: one file over 4 GB is refused before anything is written (" + refused + ")");
+            check(VariationRenderer::oneFileTooBig(big, renderer.estimate(big)), "estimate: the panel can tell beforehand that the one file is too big");
+            big.options.type = TapeRecorder::FileType::Flac;
+            check(! VariationRenderer::oneFileTooBig(big, renderer.estimate(big)), "estimate: FLAC lists its markers in words, so it has no such limit");
+            big.options.type = TapeRecorder::FileType::Wav;
+            big.count = 4;
+            check(! VariationRenderer::oneFileTooBig(big, renderer.estimate(big)), "estimate: four rides of two minutes fit one file easily");
         }
 
         // The tape's format: FLAC, 16-bit, mono, 96 kHz.

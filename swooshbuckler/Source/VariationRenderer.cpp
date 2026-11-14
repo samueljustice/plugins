@@ -191,7 +191,18 @@ VariationRenderer::Estimate VariationRenderer::estimate(const Job& job) const
     e.files = job.files == Files::PerVariation ? count : job.files == Files::OneWithMarkers ? 1 : count + 1;
     e.soundSeconds = each * count + (job.files == Files::PerVariation ? 0.0 : job.gapSeconds * (count - 1));
     e.renderSeconds = each * count / speed;
+    if (job.files != Files::PerVariation)
+    {
+        const bool wav = job.options.type == TapeRecorder::FileType::Wav;
+        const int bits = ! wav && job.options.bitDepth == 32 ? 24 : job.options.bitDepth;
+        e.oneFileBytes = e.soundSeconds * job.rate * (job.options.mono ? 1.0 : 2.0) * bits / 8.0;
+    }
     return e;
+}
+
+bool VariationRenderer::oneFileTooBig(const Job& job, const Estimate& e)
+{
+    return job.files != Files::PerVariation && job.options.type != TapeRecorder::FileType::Flac && e.oneFileBytes > c_maxOneFileBytes;
 }
 
 juce::String VariationRenderer::estimateText(const Job& job, const Estimate& e)
@@ -303,6 +314,12 @@ bool VariationRenderer::start(const Job& job, juce::String& error)
     m_job.rate = job.rate > 0.0 ? job.rate : 48000.0;
     m_job.options.fileRate = 0.0; // the rig renders at the files' rate: nothing to convert
     m_job.options.perWhoosh = false;
+    if (oneFileTooBig(m_job, estimate(m_job)))
+    {
+        error = "One file with all of them would be over 4 GB, too big for markers. Make fewer or shorter variations, "
+                "choose FLAC in Settings, or choose One File Per Variation.";
+        return false;
+    }
     if (m_job.folder == juce::File() || (! m_job.folder.isDirectory() && ! m_job.folder.createDirectory()))
     {
         error = "Couldn't create the folder " + m_job.folder.getFullPathName();
@@ -626,9 +643,17 @@ void VariationRenderer::run()
             all.abandon();
         else if (all.close(markers))
         {
-            const juce::ScopedLock sl(m_lock);
-            m_files.push_back(plan.combined);
-            m_written.push_back({ plan.combined, seconds, static_cast<int>(markers.size()) });
+            const bool marked = all.markersAdded();
+            {
+                const juce::ScopedLock sl(m_lock);
+                m_files.push_back(plan.combined);
+                m_written.push_back({ plan.combined, seconds, marked ? static_cast<int>(markers.size()) : 0 });
+            }
+            if (! marked && outcome != State::Failed)
+            {
+                outcome = State::Failed;
+                failure = plan.combined.getFileName() + " holds every variation, but it came to 4 GB or more, too big for markers.";
+            }
         }
         else if (outcome == State::Finished)
         {

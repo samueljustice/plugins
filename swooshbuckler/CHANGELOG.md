@@ -69,6 +69,7 @@
 - **Batch** takes the place of the number you had to type: **New Batch Every Time**, **Repeat Last Batch**, or **Repeat Batch...** from the last six by name, date and time. A repeated batch gives the same files again with the same settings and sounds. The batch's number is still written into every file and shown in small print when a batch is done.
 - **File Names**: **Counter**, **Date And Time**, **Preset And Counter** or **Batch Name And Counter** (a name you type), with a line that shows what the first file will be called. Nothing is ever written over.
 - **Files**: **One File Per Variation**, **One File With Markers** (every variation in one long file with a named marker at the start of each and a gap of silence between, 0.5 s to start; cue points in WAV, markers in AIFF, a list in the comments of FLAC; one take in Takes), or **Both**.
+- A WAV or AIFF file has no room for markers once it reaches 4 GB, so a one-file batch that big is not started: the panel says so before you press Render and suggests fewer or shorter variations, or FLAC.
 - **Before you render, the panel says what you will get**: for example "100 files, one whoosh each: about 5 minutes of sound, ready in about 20 seconds."
 - Every menu item says beside it what it gives, and the tooltips say it in plain words.
 
