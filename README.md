@@ -21,6 +21,10 @@ Each plug-in's own files and older versions are on the <a href="https://github.c
 [![Built with JUCE](https://img.shields.io/badge/built%20with-JUCE-8DC63F?style=flat-square)](https://juce.com)
 ![Downloads](https://img.shields.io/github/downloads/samueljustice/plugins/total?style=flat-square&color=d00a35)
 
+If these get some use in your work and you'd like to chip in, toss a coin in the jar. Every bit goes towards more of them.
+
+[![Donate with PayPal](https://img.shields.io/badge/Donate-PayPal-00457C?style=for-the-badge&logo=paypal&logoColor=white)](https://www.paypal.com/donate/?business=sam%40samueljustice.net&no_recurring=1&item_name=Sammy+J%27s+Plugins)
+
 <br>
 
 | [<img src="swooshbuckler/docs/screenshot.png" width="400" alt="Swooshbuckler">](#swooshbuckler) | [<img src="subbertone/docs/screenshot.jpg" width="400" alt="Subbertone">](#subbertone) |
@@ -307,10 +311,6 @@ When a plug-in's release finishes, `build-release_bundle.yml` rebuilds the combi
 Creative Sound Supervisor at **[Sweet Justice](https://www.sweetjusticesound.com)**
 
 I taught myself C++ during the development of SOMA, but my knowledge only goes so far. These plug-ins are experiments: ideas that have been sitting in my head for a while, built with what I know and with help from Claude.
-
-If these get some use in your work and you'd like to chip in, toss a coin in the jar. Every bit goes towards more of them.
-
-[![Donate with PayPal](https://img.shields.io/badge/Donate-PayPal-00457C?style=for-the-badge&logo=paypal&logoColor=white)](https://www.paypal.com/donate/?business=sam%40samueljustice.net&no_recurring=1&item_name=Sammy+J%27s+Plugins)
 
 <sub>Found a bug or have an idea? <a href="https://github.com/samueljustice/plugins/issues">Open an issue</a>.</sub>
 
