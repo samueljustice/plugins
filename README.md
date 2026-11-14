@@ -5,12 +5,12 @@
 **Toys I've made for sound designers.**
 
 <!-- get-them-all:start (written by .github/workflows/build-release_bundle.yml; edits here are replaced) -->
-### Get them all (last built 13 Nov 2026, 18:39 UTC)
+### Get them all (last built 14 Nov 2026, 09:52 UTC)
 
-[![Get them all for macOS](https://img.shields.io/badge/Get_them_all-macOS-000000?style=for-the-badge&logo=apple&logoColor=white)](https://github.com/samueljustice/plugins/releases/download/bundle-v2026.11.13.120/SammyJ-Plugins-2026-11-13-1839-macOS.dmg)
-[![Get them all for Windows](https://img.shields.io/badge/Get_them_all-Windows-0078D6?style=for-the-badge&logo=windows&logoColor=white)](https://github.com/samueljustice/plugins/releases/download/bundle-v2026.11.13.120/SammyJ-Plugins-2026-11-13-1839-Windows-Installer.exe)
+[![Get them all for macOS](https://img.shields.io/badge/Get_them_all-macOS-000000?style=for-the-badge&logo=apple&logoColor=white)](https://github.com/samueljustice/plugins/releases/download/bundle-v2026.11.14.123/SammyJ-Plugins-2026-11-14-0952-macOS.dmg)
+[![Get them all for Windows](https://img.shields.io/badge/Get_them_all-Windows-0078D6?style=for-the-badge&logo=windows&logoColor=white)](https://github.com/samueljustice/plugins/releases/download/bundle-v2026.11.14.123/SammyJ-Plugins-2026-11-14-0952-Windows-Installer.exe)
 
-<sub>One installer with the newest version of every plug-in: Swooshbuckler 2.0.0 · Sound Advice 1.0.13 · Subbertone 1.3.2 · Pitch Flattener 2.4.0 · Reversinator 2.0.4 · Roarschach 1.1.0. The apps, the VST3s and (on macOS) the AUs. It removes older copies first, so nothing shows up twice in your host. To remove them again: on macOS, run Uninstall Sammy J's Plugins from the same disk image; on Windows, use Settings &gt; Apps.<br>
+<sub>One installer with the newest version of every plug-in: Swooshbuckler 2.1.0 · Sound Advice 1.0.13 · Subbertone 1.3.2 · Pitch Flattener 2.4.0 · Reversinator 2.0.4 · Roarschach 1.1.0. The apps, the VST3s and (on macOS) the AUs. It removes older copies first, so nothing shows up twice in your host. To remove them again: on macOS, run Uninstall Sammy J's Plugins from the same disk image; on Windows, use Settings &gt; Apps.<br>
 Want just one? Each plug-in's own download is below, or browse all <a href="https://github.com/samueljustice/plugins/releases">releases</a>.</sub>
 <!-- get-them-all:end -->
 
