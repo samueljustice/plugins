@@ -16,6 +16,10 @@
  * on the water; a click drops a ripple where it landed; the moon's halo warms and widens with the limiter; and
  * every so often the mark draws itself in the stars as a constellation.
  *
+ * Stowaway shows in its own colour, by its Mode, and not at all while it is switched off: a Sub lifts the whole
+ * swell with its level, a Wake is a trail on the water behind bus A's comet, Fly is a third comet, and Dry (which
+ * does not move) is a lantern floating in the middle that glows with its level.
+ *
  * Drawn with juce::Graphics. One frame clock: a VBlankAttachment when the window is on a screen, a 60 Hz timer
  * when it is not (the offline rigs in tools/ and Tests/ step timerCallback() by hand). After five seconds of
  * quiet the sea steps at a third of the rate.
@@ -52,6 +56,10 @@ public:
         return flight >= RigEngine::c_maxBuses * 2 ? RigEngine::c_maxBuses : flight / 2;
     }
     static constexpr int c_cometGroups = RigEngine::c_maxBuses + 1;
+    /** The names drawn over the sea: one for each comet group, and one for Stowaway. */
+    static constexpr int c_stowLabel = c_cometGroups, c_labels = c_cometGroups + 1;
+    /** How far Stowaway shows in each Mode right now (0..1; all nothing while it is off or silent). For the tests. */
+    float stowawayShown(int mode) const { return m_stowShown[static_cast<size_t>(juce::jlimit(0, ParamIDs::numStowModes - 1, mode))]; }
 
     /** Where the mark in the stars is drawn: open sky, clear of the moon and of anything over the sea. */
     juce::Rectangle<float> constellationArea() const;
@@ -80,6 +88,7 @@ private:
     void buildConstellation();
     void paintWater(juce::Graphics&, float h);
     void paintComets(juce::Graphics&, float w);
+    void paintStowaway(juce::Graphics&, float h);
     void paintConstellation(juce::Graphics&, float w);
 
     SwooshbucklerAudioProcessor& m_processor;
@@ -103,6 +112,16 @@ private:
     std::array<float, RigEngine::c_maxFlights> m_flightEnv {};
     std::array<float, RigEngine::c_maxFlights> m_flash {};
     std::array<float, RigEngine::c_maxFlights> m_lastX {};
+    // Stowaway. Fly's two passes are comets like the buses', kept beside theirs.
+    std::array<std::deque<P3>, 2> m_stowTrails;
+    std::array<float, 2> m_stowEnv {}, m_stowFlash {}, m_stowLastX {};
+    std::array<float, ParamIDs::numStowModes> m_stowShown {}; // its level, in the Mode it is in (the others fall away)
+    static constexpr int c_wakePoints = 64;
+    struct WakePoint { float x = 0.0f, z = 0.0f, strength = 0.0f; };
+    std::deque<WakePoint> m_wakeTrail;                         // where bus A's comet has been over the water (Wake)
+    juce::Point<float> m_stowLabelAt;                          // where Stowaway's name goes (set as it is painted)
+    float m_stowLabelAlpha = 0.0f;
+    bool stepFlight(const RigEngine::FlightView&, std::deque<P3>& trail, float& env, float& flash, float& lastX, float dt);
 
     // Hits: a flash on the horizon and a ring on the water.
     float m_hitFlash = 0.0f, m_hitRing = 0.0f, m_lastGate = 0.0f;
@@ -137,7 +156,7 @@ private:
     bool m_timerIsWatch = false;  // the timer has been put down to its watchdog rate (so it is not reset every frame)
 
     // The comets' names, kept rather than built in paint, and when they were last made up.
-    std::array<juce::String, RigEngine::c_maxBuses + 1> m_busLabels;
+    std::array<juce::String, c_labels> m_busLabels;
     double m_busLabelsAt = -1.0;
     void refreshBusLabels();
 

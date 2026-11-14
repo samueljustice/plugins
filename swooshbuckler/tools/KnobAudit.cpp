@@ -4,7 +4,7 @@
 //   SwooshbucklerAudit --param aDoppler [--steps 11 | --norms 0,0.25,1 | --plains -12,0,12]
 //                      [--set id=plain ...] [--setn id=normalised ...] [--wire source:paramId:depth ...]
 //                      [--src growl,wind,hits] [--seconds 20] [--reps 3] [--swell] [--wav dir] [--json file]
-//                      [--record-rate 96000]
+//                      [--record-rate 96000] [--bands]
 //
 // --record-rate renders with the Record Rate setting at that rate (the device stays at 48 kHz), so what is
 // measured is the monitor / host output: the high-rate render low-passed, downsampled and held to the Ceiling.
@@ -12,7 +12,14 @@
 //
 // Sources (synthetic, mono, routed by their type): growl = gappy tonal growls (Bus A), wind = an energy bed
 // (Bus B), hits = impacts (the hit gate), tone = a steady 330 Hz sine on Bus A (for pitch and distortion),
-// air = a hissy bed on Bus B (for filters and width).
+// air = a hissy bed on Bus B (for filters and width), rumble = a wideband rumble (heavy under 100 Hz, with hiss
+// on top), which Stowaway takes by itself while it is on and its Mode is Sub; drone = a steady low drone (45 and
+// 72 Hz with a little hiss) of the Rumble type too, which has no movement of its own, so what moves it is the plug-in.
+// A source goes somewhere else with @: name@a (Bus A), name@b (Bus B), name@h (the hits), name@s (Stowaway),
+// e.g. --src growl,wind,air@s.
+// Stowaway starts switched off, as in a new session. A rumble, a drone or anything sent @s switches it on, so the
+// source is heard where it is meant to be; --set stowOn=0 or 1 says otherwise (it is applied afterwards).
+// --bands also prints each value's octave-band levels (dB against the whole), for filters.
 //
 // Each value is rendered `reps` times after different pre-rolls (so a different stretch of the rig's random
 // passes is measured each time); the table shows the mean, and the step-to-step changes that are both larger
@@ -89,6 +96,36 @@ namespace
         return b;
     }
 
+    juce::AudioBuffer<float> rumble()
+    {
+        // Brown-ish noise (a corner near 50 Hz) that heaves slowly, with white hiss on top: mostly low end, but
+        // sound all the way up, so what a filter lets through shows.
+        juce::AudioBuffer<float> b(1, static_cast<int>(c_fs * 8.0));
+        juce::Random r(17);
+        float y = 0.0f;
+        for (int i = 0; i < b.getNumSamples(); ++i)
+        {
+            const float w = r.nextFloat() * 2.0f - 1.0f;
+            y += 0.0065f * (w - y);
+            const double t = i / c_fs;
+            b.setSample(0, i, (7.0f * y + 0.03f * w) * static_cast<float>(0.7 + 0.3 * std::sin(0.8 * t)));
+        }
+        return b;
+    }
+
+    juce::AudioBuffer<float> drone()
+    {
+        juce::AudioBuffer<float> b(1, static_cast<int>(c_fs * 8.0)); // whole cycles of both tones: it loops cleanly
+        juce::Random r(19);
+        for (int i = 0; i < b.getNumSamples(); ++i)
+        {
+            const double t = i / c_fs;
+            b.setSample(0, i, static_cast<float>(0.25 * std::sin(c_twoPi * 45.0 * t) + 0.18 * std::sin(c_twoPi * 72.0 * t))
+                                  + 0.01f * (r.nextFloat() * 2.0f - 1.0f));
+        }
+        return b;
+    }
+
     juce::AudioBuffer<float> hits()
     {
         juce::AudioBuffer<float> b(1, static_cast<int>(c_fs * 2.0));
@@ -149,11 +186,16 @@ namespace
     constexpr int c_numBands = 10; // octaves 31.5 Hz .. 16 kHz
     const double c_bandCentres[c_numBands] = { 31.5, 63, 125, 250, 500, 1000, 2000, 4000, 8000, 16000 };
 
+    // The low end in third-octaves (for --bands): fine enough to see a crossover move.
+    constexpr int c_numThirds = 16;
+    const double c_thirdCentres[c_numThirds] = { 20, 25, 31.5, 40, 50, 63, 80, 100, 125, 160, 200, 250, 315, 400, 500, 630 };
+
     struct Metrics
     {
         // name, value
         std::map<std::string, double> v;
         double band[c_numBands] {};
+        double third[c_numThirds] {}; // third-octave levels of the low end (dBFS), for --bands
     };
 
     // Metric names in print order, with the just-noticeable difference used to mark a step as audible.
@@ -179,11 +221,14 @@ namespace
         { "onsets",   4.0,  "transients per minute" },
         { "grAvg",    0.7,  "limiter gain reduction, mean (dB)" },
         { "grP95",    0.7,  "limiter gain reduction, P95 (dB)" },
+        { "stow",     0.7,  "Stowaway's own level, mean over its loud moments (dB)" },
+        { "stowMov",  1.0,  "Stowaway's own movement: its level P95-P10 (dB)" },
     };
 
     struct Probe
     {
         std::vector<float> gate, gr; // per block
+        std::vector<float> stow;     // per block: Stowaway's level (its envelope, linear)
     };
 
     Metrics analyse(const juce::AudioBuffer<float>& out, const Probe& probe, bool toneSource)
@@ -283,6 +328,41 @@ namespace
         }
         m.v["lowR"] = toDb(std::pow(10.0, m.band[0] / 10) + std::pow(10.0, m.band[1] / 10) + std::pow(10.0, m.band[2] / 10));
         m.v["highR"] = toDb(std::pow(10.0, m.band[7] / 10) + std::pow(10.0, m.band[8] / 10) + std::pow(10.0, m.band[9] / 10));
+
+        // The low end in third-octaves, from a longer transform (2.9 Hz bins).
+        {
+            constexpr int lowOrder = 14, lowSize = 1 << lowOrder;
+            juce::dsp::FFT lowFft(lowOrder);
+            std::vector<double> lowSpec(lowSize / 2 + 1, 0.0);
+            std::vector<float> lowBuf(2 * lowSize);
+            double windowPower = 0.0;
+            int frames = 0;
+            for (int s = 0; s + lowSize <= n; s += lowSize / 2)
+            {
+                std::fill(lowBuf.begin(), lowBuf.end(), 0.0f);
+                windowPower = 0.0;
+                for (int i = 0; i < lowSize; ++i)
+                {
+                    const double w = 0.5 - 0.5 * std::cos(c_twoPi * i / lowSize);
+                    lowBuf[static_cast<size_t>(i)] = 0.5f * (L[s + i] + R[s + i]) * static_cast<float>(w);
+                    windowPower += w * w;
+                }
+                lowFft.performFrequencyOnlyForwardTransform(lowBuf.data(), true);
+                for (int k = 0; k <= lowSize / 2; ++k) lowSpec[static_cast<size_t>(k)] += static_cast<double>(lowBuf[static_cast<size_t>(k)]) * lowBuf[static_cast<size_t>(k)];
+                ++frames;
+            }
+            for (int b = 0; b < c_numThirds; ++b)
+            {
+                double e = 0.0;
+                for (int k = 1; k <= lowSize / 2; ++k)
+                {
+                    const double f = k * c_fs / lowSize;
+                    if (f >= c_thirdCentres[b] * std::pow(2.0, -1.0 / 6.0) && f < c_thirdCentres[b] * std::pow(2.0, 1.0 / 6.0)) e += lowSpec[static_cast<size_t>(k)];
+                }
+                // Mean square of the band (the mid signal): a full-scale sine in the band reads -3 dB.
+                m.third[b] = frames > 0 ? toDb(2.0 * e / (std::max(1, frames) * windowPower * lowSize)) : -200.0;
+            }
+        }
 
         if (toneSource)
         {
@@ -431,6 +511,16 @@ namespace
             for (float g : probe.gr) gr.push_back(std::abs(static_cast<double>(g)));
             m.v["grAvg"] = gr.empty() ? 0.0 : std::accumulate(gr.begin(), gr.end(), 0.0) / static_cast<double>(gr.size());
             m.v["grP95"] = percentile(gr, 0.95);
+            // Stowaway, from the engine's own follower: the mean of the blocks within 40 dB of its loudest, and
+            // how far it moves.
+            double top = 0.0;
+            for (float e : probe.stow) top = std::max(top, static_cast<double>(e));
+            std::vector<double> stowDb;
+            double power = 0.0;
+            for (float e : probe.stow)
+                if (top > 1.0e-6 && e > top * 0.01) { stowDb.push_back(20.0 * std::log10(static_cast<double>(e))); power += static_cast<double>(e) * e; }
+            m.v["stow"] = stowDb.empty() ? -120.0 : 10.0 * std::log10(power / static_cast<double>(stowDb.size()));
+            m.v["stowMov"] = stowDb.empty() ? 0.0 : percentile(stowDb, 0.95) - percentile(stowDb, 0.10);
         }
         return m;
     }
@@ -464,16 +554,32 @@ namespace
         for (const auto& s : setup.sources)
         {
             juce::String err;
-            const auto f = setup.work.getChildFile("src_" + s + ".wav");
+            const auto name = s.upToFirstOccurrenceOf("@", false, false);
+            const auto place = s.fromFirstOccurrenceOf("@", false, false);
+            const auto f = setup.work.getChildFile("src_" + name + ".wav");
             if (! proc.getCargo().loadFile(track, f, err))
             {
                 std::cerr << "can't load " << s << ": " << err << std::endl;
                 return false;
             }
             CargoRole role = CargoRole::Tonal;
-            if (s == "wind" || s == "air") role = CargoRole::Bed;
-            else if (s == "hits") role = CargoRole::Impact;
+            if (name == "wind" || name == "air") role = CargoRole::Bed;
+            else if (name == "hits") role = CargoRole::Impact;
+            else if (name == "rumble" || name == "drone") role = CargoRole::Rumble;
             proc.getCargo().setRoleOverride(track, static_cast<int>(role));
+            if (role == CargoRole::Rumble || place == "s")
+                if (auto* on = proc.getState().getParameter(ParamIDs::stowOn))
+                    on->setValueNotifyingHost(1.0f);
+            if (place.isNotEmpty())
+            {
+                const int bus = place == "a" ? 0 : place == "b" ? 1 : place == "h" ? CargoHold::c_hitsBus : place == "s" ? CargoHold::c_stowBus : -1;
+                if (bus < 0)
+                {
+                    std::cerr << "unknown place @" << place << " (a, b, h or s)" << std::endl;
+                    return false;
+                }
+                proc.getCargo().setBusOverride(track, bus);
+            }
             ++track;
         }
         return true;
@@ -485,7 +591,8 @@ namespace
         auto& proc = *dynamic_cast<SwooshbucklerAudioProcessor*>(base.get());
         proc.setPlayConfigDetails(0, 2, c_fs, c_block);
         proc.overrideRecordRate(setup.recordRate); // never the saved setting: the measurements must not depend on it
-        loadSources(proc, setup);
+        if (! loadSources(proc, setup))
+            std::exit(2);
 
         for (const auto& [id, v] : setup.plains)
             if (auto* prm = findParam(proc, id)) prm->setValueNotifyingHost(prm->convertTo0to1(v));
@@ -525,12 +632,15 @@ namespace
             proc.processBlock(view, midi);
             probe.gate.push_back(proc.getEngine().getHitGate());
             probe.gr.push_back(proc.getGainReductionDb());
+            probe.stow.push_back(proc.getEngine().getStowEnv());
         }
         proc.setPlaying(false);
         proc.releaseResources();
         if (wavOut != juce::File())
             writeWav(wavOut, out);
-        const bool toneSource = std::find(setup.sources.begin(), setup.sources.end(), juce::String("tone")) != setup.sources.end();
+        bool toneSource = false;
+        for (const auto& s : setup.sources)
+            toneSource = toneSource || s.upToFirstOccurrenceOf("@", false, false) == "tone";
         return analyse(out, probe, toneSource);
     }
 
@@ -552,6 +662,7 @@ int main(int argc, char* argv[])
     std::vector<float> norms, plains;
     int steps = 11;
     juce::File wavDir, jsonFile;
+    bool printBands = false;
 
     for (int i = 1; i < argc; ++i)
     {
@@ -578,6 +689,7 @@ int main(int argc, char* argv[])
         else if (a == "--seconds") setup.seconds = next().getDoubleValue();
         else if (a == "--reps") setup.reps = std::max(1, next().getIntValue());
         else if (a == "--swell") setup.swell = true;
+        else if (a == "--bands") printBands = true;
         else if (a == "--record-rate") setup.recordRate = next().getIntValue();
         else if (a == "--wav") wavDir = juce::File(next());
         else if (a == "--json") jsonFile = juce::File(next());
@@ -592,6 +704,8 @@ int main(int argc, char* argv[])
     writeWav(setup.work.getChildFile("src_air.wav"), air());
     writeWav(setup.work.getChildFile("src_hits.wav"), hits());
     writeWav(setup.work.getChildFile("src_tone.wav"), tone());
+    writeWav(setup.work.getChildFile("src_rumble.wav"), rumble());
+    writeWav(setup.work.getChildFile("src_drone.wav"), drone());
     if (wavDir != juce::File()) wavDir.createDirectory();
 
     // The values to sweep, as knob positions (normalised).
@@ -623,7 +737,7 @@ int main(int argc, char* argv[])
     for (auto& w : setup.wires) std::cout << "  wire mod" << (w.source + 1) << "->" << w.param << "@" << w.depth;
     std::cout << std::endl;
 
-    struct Row { float norm; juce::String text; std::map<std::string, double> mean, sd; double band[c_numBands] {}; };
+    struct Row { float norm; juce::String text; std::map<std::string, double> mean, sd; double band[c_numBands] {}; double third[c_numThirds] {}; };
     std::vector<Row> rows;
     for (float nv : norms)
     {
@@ -648,6 +762,11 @@ int main(int argc, char* argv[])
         {
             double mean = 0; for (auto& m : ms) mean += m.band[b];
             row.band[b] = mean / static_cast<double>(ms.size());
+        }
+        for (int b = 0; b < c_numThirds; ++b)
+        {
+            double mean = 0; for (auto& m : ms) mean += m.third[b];
+            row.third[b] = mean / static_cast<double>(ms.size());
         }
         rows.push_back(row);
     }
@@ -699,6 +818,29 @@ int main(int argc, char* argv[])
         if (worst > info.jnd * 0.5) std::cout << "  " << info.name << "=" << std::setprecision(2) << worst;
     }
     std::cout << std::endl;
+
+    if (printBands)
+    {
+        std::cout << "octave bands (dB against the whole)\n" << std::setw(6) << "knob";
+        for (double c : c_bandCentres) std::cout << std::setw(8) << std::setprecision(c < 100 ? 1 : 0) << c;
+        std::cout << "\n";
+        for (auto& r : rows)
+        {
+            std::cout << std::setw(5) << juce::roundToInt(r.norm * 100.0f) << "%";
+            for (double b : r.band) std::cout << std::setw(8) << std::setprecision(1) << b;
+            std::cout << "\n";
+        }
+        std::cout << "the low end in third-octaves (dBFS)\n" << std::setw(6) << "knob";
+        for (double c : c_thirdCentres) std::cout << std::setw(8) << std::setprecision(c < 100 && c != std::floor(c) ? 1 : 0) << c;
+        std::cout << "\n";
+        for (auto& r : rows)
+        {
+            std::cout << std::setw(5) << juce::roundToInt(r.norm * 100.0f) << "%";
+            for (double b : r.third) std::cout << std::setw(8) << std::setprecision(1) << b;
+            std::cout << "\n";
+        }
+        std::cout << std::endl;
+    }
 
     if (jsonFile != juce::File())
     {

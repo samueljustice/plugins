@@ -456,8 +456,10 @@ void SwooshLookAndFeel::drawPopupMenuItem(juce::Graphics& g, const juce::Rectang
     {
         const auto key = Theme::localiseShortcuts(shortcutKeyText);
         const int width = juce::roundToInt(Theme::textWidth(m_fonts.caption(), key)) + 10;
+        // Half the row at least; more when the item's own name leaves it (a menu whose items say what they give).
+        const int room = juce::jmax(r.getWidth() / 2, r.getWidth() - juce::roundToInt(Theme::textWidth(m_fonts.control(), text)) - 20);
         g.setColour(isActive ? TC::textFaint : TC::textFaint.withAlpha(0.5f));
-        Theme::fitText(g, key, r.removeFromRight(juce::jmin(width, r.getWidth() / 2)).toFloat(),
+        Theme::fitText(g, key, r.removeFromRight(juce::jmin(width, room)).toFloat(),
                        m_fonts.caption(), juce::Justification::centredRight);
     }
     g.setColour(! isActive ? TC::textFaint.withAlpha(0.6f) : (isHighlighted ? TC::text : TC::text.withAlpha(0.9f)));
@@ -640,10 +642,10 @@ int SwooshLookAndFeel::titleEnd(const Theme::Fonts& fonts, const juce::String& t
 
 void SwooshLookAndFeel::drawPanel(juce::Graphics& g, juce::Rectangle<float> area, const juce::String& title,
                                   const juce::String& subtitle, juce::Colour accent, const Theme::Fonts& fonts,
-                                  Icons::Icon mark, float subtitleRight)
+                                  Icons::Icon mark, float subtitleRight, bool resting)
 {
     namespace Plate = Theme::Plate;
-    drawSurface(g, area);
+    drawSurface(g, area, Theme::Cut::panel, resting ? TC::panel.interpolatedWith(TC::window, 0.62f) : TC::panel);
     if (g.clipRegionIntersects(area.getSmallestIntegerContainer()))
         drawBolts(g, area);
     if (title.isEmpty())
@@ -660,17 +662,25 @@ void SwooshLookAndFeel::drawPanel(juce::Graphics& g, juce::Rectangle<float> area
     g.setColour(TC::well.interpolatedWith(TC::panel, 0.35f));
     Plate::fill(g, plate, Theme::Cut::control);
     auto tally = plate.withWidth(24.0f);
-    g.setColour(accent);
+    if (resting)
+    {
+        // Hollow: the tally's outline only, its mark in the dim text colour.
+        g.setColour(TC::textFaint);
+        g.drawRect(tally.reduced(1.5f), 1.0f);
+    }
+    else
     {
         // The tally fills the plate's left end.
+        g.setColour(accent);
         g.saveState();
         g.reduceClipRegion(tally.getSmallestIntegerContainer());
         Plate::fill(g, plate, Theme::Cut::control);
         g.restoreState();
     }
-    const auto ink = letteringOn(accent);
-    if (mark == Icons::Icon::LetterA || mark == Icons::Icon::LetterB)
-        Theme::stampText(g, mark == Icons::Icon::LetterA ? "A" : "B", tally, fonts.title(), juce::Justification::centred, ink);
+    const auto ink = resting ? TC::textDim : letteringOn(accent);
+    if (mark == Icons::Icon::LetterA || mark == Icons::Icon::LetterB || mark == Icons::Icon::LetterS)
+        Theme::stampText(g, mark == Icons::Icon::LetterA ? "A" : mark == Icons::Icon::LetterB ? "B" : "S", tally, fonts.title(),
+                         juce::Justification::centred, ink);
     else if (mark != Icons::Icon::None)
         Icons::draw(g, mark, tally.reduced(5.0f), ink);
     else
@@ -681,7 +691,8 @@ void SwooshLookAndFeel::drawPanel(juce::Graphics& g, juce::Rectangle<float> area
     Plate::edge(g, plate, Theme::Cut::control);
     Plate::drawRivet(g, { plate.getRight() - 6.0f, plate.getCentreY() });
 
-    Theme::stampText(g, title, juce::Rectangle<float>(x, area.getY() + 6.0f, titleWidth, 28.0f), fonts.display(), juce::Justification::centredLeft, TC::text);
+    Theme::stampText(g, title, juce::Rectangle<float>(x, area.getY() + 6.0f, titleWidth, 28.0f), fonts.display(), juce::Justification::centredLeft,
+                     resting ? TC::textDim : TC::text);
     if (subtitle.isNotEmpty())
     {
         const float sx = plate.getRight() + 10.0f;

@@ -24,7 +24,8 @@ class VariationRenderer;
  *   engine (sources -> flights -> rigging) -> inflate -> push -> limiter -> out
  *                                                                        \-> Captain's Log (tape)
  */
-class SwooshbucklerAudioProcessor : public juce::AudioProcessor, private juce::Timer
+class SwooshbucklerAudioProcessor : public juce::AudioProcessor, private juce::Timer,
+                                    private juce::AudioProcessorValueTreeState::Listener
 {
 public:
     SwooshbucklerAudioProcessor();
@@ -151,6 +152,20 @@ public:
     void setSectionLocked(int section, bool locked);
     unsigned getLockedSections() const { return m_lockedSections.load(); }
 
+    /** Stowaway's switch (ParamIDs::stowOn). Off, the bus is silent and the tracks sent to it wait. Any thread. */
+    bool isStowawayOn() const;
+    /** Switches Stowaway on or off as one host gesture (and one undo step). Message thread. */
+    void setStowawayOn(bool on);
+    /** Stowaway's Mode (ParamIDs::StowMode). Any thread. */
+    int getStowawayMode() const { return stowMode(); }
+    /** Message thread. Tells the host to read the parameters' texts again if Stowaway's Mode has changed since it
+        last did (Filter and Width read by the Mode). The processor's own timer calls it four times a second. */
+    void refreshHostReadouts();
+    /** Stowaway's plate in the window: -1 not opened yet (it opens by itself the first time Stowaway is switched
+        on), 0 folded, 1 open. Saved with the session. */
+    int getStowawayPanel() const { return m_stowPanel.load(); }
+    void setStowawayPanel(int state) { m_stowPanel.store(juce::jlimit(-1, 1, state)); }
+
     // Your own presets: files in a folder beside the settings (see UserPresets).
     juce::File getPresetFolder() const;
     std::vector<juce::File> getUserPresets() const { return UserPresets::list(getPresetFolder()); }
@@ -185,10 +200,6 @@ public:
     /** Is Swell held right now (the sea raises its swell while it is). Any thread. */
     bool isSwellHeld() const { return m_uiSwell.load(); }
 
-    /** Load Demo Sounds: makes the four demo sounds (see DemoSounds) and puts them in the first empty tracks, as
-        one undo step. Returns how many were loaded (0 when every track is in use). Message thread. */
-    int loadDemoSounds();
-
     // MIDI control: a track's fader, or Energy, follows a MIDI controller (CC) once it has been learned. There is
     // no mapping until you make one; the mappings are kept in the settings file (the same in every session).
     static constexpr int c_ccEnergy = ParamIDs::numCargoTracks;      // the targets: 0..9 the track faders, then Energy
@@ -218,6 +229,8 @@ public:
     bool arm(juce::String& error);
     bool isCapturing() const { return m_recorder.isCapturing(); }
     double getRecordedSeconds() const { return m_recorder.getRecordedSeconds(); }
+    /** Sound the tape's writer thread has been handed and not written yet (it may fall 3 s behind). Any thread. */
+    double getTapeBacklogSeconds() const { return m_recorder.getBacklogSeconds(); }
     juce::File getLastRecording() const { return m_recorder.getLastFile(); }
     juce::File getCurrentRecording() const { return m_recorder.getCurrentFile(); }
     bool saveRetro(juce::File& written, juce::String& error);
@@ -232,7 +245,7 @@ public:
     {
         int id = 0;
         juce::File file;
-        juce::String kind;      // "Tape", "Whoosh", "Last 60 s", ...
+        juce::String kind;      // "Tape", "Whoosh", "Last 60 s", "Variation", "Variations", ...
         double seconds = 0.0;
         int markers = 0;
         bool starred = false;   // kept: it stays in the list when newer takes push the others out
@@ -254,6 +267,8 @@ public:
     /** Plays a take through the output, on top of the rig (it is not recorded). Click again, or another, to stop. */
     bool auditionTake(int id, juce::String& error);
     void stopAudition() { m_audition.stop(); }
+    /** Reads the auditioned take ahead now (see TakeAudition::topUp). Not the audio thread. */
+    void topUpAudition() { m_audition.topUp(); }
     /** The take being played (-1 = none), and how far through it is (0..1). */
     int getAuditionTake() const;
     double getAuditionProgress() const { return m_audition.getProgress(); }
@@ -315,6 +330,10 @@ public:
     /** The folder batches go to; empty (the default) = a new dated folder inside the recordings folder each time. */
     juce::String getVariationFolder() const;
     void setVariationFolder(const juce::String& path);
+    /** Everything else the panel keeps between runs (which choice each menu is on, the batches rendered lately,
+        how fast the last batch went), each under a key of its own in the settings file. */
+    juce::String getVariationValue(const juce::String& key, const juce::String& fallback = {}) const;
+    void setVariationValue(const juce::String& key, const juce::String& value);
 
     /** A second rig for rendering offline: the same parameters, wires, mixer and samples as this one right now
         (the sample data is shared, not copied), stopped, with no tape, no timers and nothing saved to the
@@ -394,6 +413,7 @@ private:
     Presets::Preset m_rollTarget;   // what stepRoll hands out
     juce::Random m_random;
     std::atomic<unsigned> m_lockedSections { 0 };
+    std::atomic<int> m_stowPanel { -1 }; // see getStowawayPanel
     std::array<Look, 2> m_ab;       // guarded by m_stateLock (a host may save from another thread)
     std::array<juce::String, 2> m_abNames;
     int m_abSlot = 0;               // guarded by m_stateLock for writes
@@ -416,6 +436,7 @@ private:
     int m_mirrorWidth = 0;             // copies of the editor fields for saves off the message thread (m_stateLock)
     juce::String m_mirrorPreset { "Default" };
 
+    std::shared_ptr<Params::StowModeSource> m_stowModeSource = std::make_shared<Params::StowModeSource>(); // before m_state: its layout reads it
     juce::AudioProcessorValueTreeState m_state;
     CargoHold m_cargo;
     RigEngine m_engine;
@@ -425,6 +446,7 @@ private:
     // in the last block (audio thread).
     bool m_playParamWas = false;
     std::atomic<bool> m_followHost { true };
+    std::atomic<bool> m_stowReadoutsStale { false }; // Stowaway's Mode changed: the timer tells the host to read the knobs' texts again
     std::atomic<bool> m_hostStopped { false }; // the transport stopped the rig: the timer puts the Play parameter back
     bool m_hostWasPlaying = false;   // audio thread
     bool m_reseedPending = false;    // audio thread: the transport started, begin again from the seed
@@ -451,6 +473,9 @@ private:
     } m_ccPump { *this };
     void updateCcPump();
     int keysMode() const;
+    int stowMode() const; // ParamIDs::StowMode
+    bool rumblesRideStowaway() const { return isStowawayOn() && stowMode() == ParamIDs::StowSub; }
+    void parameterChanged(const juce::String& parameterID, float newValue) override; // any thread
     // Morph wander (audio thread): the dot's own flight, blended in over the X / Y controls.
     MorphWander m_wander;
     bool m_wanderOn = false;
@@ -496,6 +521,7 @@ private:
         std::atomic<float>* throwLength = nullptr, *play = nullptr, *keysMode = nullptr;
         std::atomic<float>* linkBuses = nullptr, *hitAim = nullptr;
         std::atomic<float>* passMode[ParamIDs::numBuses] {};
+        std::atomic<float>* stowOn = nullptr, *stowMode = nullptr, *stow[ParamIDs::numStowControls] {};
         std::atomic<float>* tremOn = nullptr, *tremDepth = nullptr, *tremRate = nullptr, *tremThreshold = nullptr, *tremShape = nullptr, *tremTarget = nullptr;
         std::atomic<float>* masterTrim = nullptr;
         std::atomic<float>* modType[ParamIDs::numMods] {}, *modShape[ParamIDs::numMods] {}, *modKnob[ParamIDs::numMods] {},

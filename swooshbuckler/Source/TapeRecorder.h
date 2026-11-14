@@ -60,7 +60,7 @@ public:
 
     /** Markers. Audio thread, before process(): a moment samplesFromNow samples into (or after) the next process()
         call. If the tape is writing at that moment the take gets a cue point there. */
-    enum MarkerKind { MarkPassA = 0, MarkPassB, MarkThrow, MarkHit, numMarkerKinds };
+    enum MarkerKind { MarkPassA = 0, MarkPassB, MarkThrow, MarkHit, MarkPassStow, numMarkerKinds };
     static juce::String markerLabel(int kind);
     void addMarker(int samplesFromNow, int kind);
 
@@ -77,7 +77,8 @@ public:
         message, once. */
     juce::String takeWriteError();
 
-    /** What a file says about itself (the description written by this class), and its cue points. For tests and tools. */
+    /** What a file says about itself (the description written by this class), and its cue points (a WAV file's)
+        or markers (an AIFF file's). For tests and tools. */
     static juce::String readDescription(const juce::File& file);
     struct Cue
     {
@@ -152,6 +153,11 @@ public:
     double getDroppedSeconds() const { return static_cast<double>(m_droppedSamples.load()) / juce::jmax(1.0, m_recordRate.load()); }
     /** How many samples the writer thread may fall behind by before audio is dropped (3 s at the session rate). */
     int getFifoSamples() const { return static_cast<int>(c_fifoSeconds * m_sampleRate); }
+    /** Samples handed to the writer thread that it has not put in a file yet. Any thread. Whatever feeds the tape
+        faster than real time (an offline render, the tests) waits on this rather than guessing how long the writer
+        needs. */
+    double getBacklogSeconds() const { return static_cast<double>(getBacklogSamples()) / juce::jmax(1.0, m_recordRate.load()); }
+    std::int64_t getBacklogSamples() const { return juce::jmax<std::int64_t>(0, m_handedSamples.load() - m_takenSamples.load()); }
 
     static juce::File defaultFolder();
 
@@ -162,6 +168,45 @@ public:
                           double rate, const Options& options, const Naming& naming, juce::String& error);
     /** ".wav", ".aif" or ".flac". */
     static juce::String extensionOf(FileType type);
+
+    /**
+     * A file written a piece at a time, with named markers: what Render Variations uses for one file that holds
+     * every variation. The same file types, bit depths, mono fold and description as writeFile(). The markers are
+     * WAV cue points with labels and AIFF markers; FLAC has no markers, so there the list of names and times goes
+     * into the file's comments. Marker positions are frames of the file, which are frames of what is written as
+     * long as options.fileRate is 0 or `rate`. Any thread but the audio thread.
+     */
+    class FileWriter
+    {
+    public:
+        FileWriter();
+        ~FileWriter(); // a file still open is closed without markers
+
+        bool open(const juce::File& file, double rate, int numChannels, const Options& options, const Naming& naming, juce::String& error);
+        bool isOpen() const { return m_writer != nullptr; }
+        bool write(const juce::AudioBuffer<float>& audio, int startSample, int numSamples);
+        bool writeSilence(int numSamples);
+        /** Frames written so far: where a marker for what is written next belongs. */
+        std::int64_t position() const { return m_position; }
+        /** Closes the file and adds the markers. False if anything written to it failed (the file is then deleted). */
+        bool close(const std::vector<Cue>& markers);
+        /** After close(): false if the markers could not be added (a WAV or AIFF file of 4 GB or more has no room
+            for them), though the sound itself was written. */
+        bool markersAdded() const { return m_markersAdded; }
+        /** Closes the file and deletes it. */
+        void abandon();
+
+    private:
+        std::unique_ptr<juce::AudioFormatWriter> m_writer;
+        juce::File m_file;
+        Options m_options;
+        Naming m_naming;
+        double m_rate = 48000.0;
+        int m_channels = 2;
+        std::int64_t m_position = 0;
+        bool m_ok = true;
+        bool m_markersAdded = true;
+    };
 
 private:
     class Sink;
@@ -227,6 +272,7 @@ private:
     std::atomic<bool> m_gateRestart { false }; // a new take: forget the last one's levels
     std::atomic<bool> m_streamRestart { false }; // a new take: its stream starts at 0
     std::atomic<bool> m_gateHold { false };    // see setGateHold
+    std::atomic<std::int64_t> m_handedSamples { 0 }, m_takenSamples { 0 }; // into the writer's FIFO, and out of it
     std::atomic<std::int64_t> m_droppedSamples { 0 };   //
     std::atomic<double> m_recordRate { 48000.0 };        // session rate the current take was opened at
     juce::File m_recordFolder;                           // for restarting a take on a rate change

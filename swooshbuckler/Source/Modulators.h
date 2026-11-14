@@ -79,11 +79,11 @@ public:
         int follow = 0;    // Follower: which input (an index into FollowerInputs)
     };
 
-    /** What a Follower can listen to. The first four are the RMS of the last block of each; the Master ones are
+    /** What a Follower can listen to. The first five are the RMS of the last block of each; the Master ones are
         the Master track's loudness, pitch and brightness where it is playing, already 0..1 over its own range. */
-    enum FollowerInput { FollowBusA = 0, FollowBusB, FollowHits, FollowOutput,
+    enum FollowerInput { FollowBusA = 0, FollowBusB, FollowHits, FollowStow, FollowOutput,
                          FollowMaster, FollowMasterPitch, FollowMasterBright, c_numFollowerInputs };
-    static juce::StringArray followerNames() { return { "Bus A", "Bus B", "Hits", "Output", "Master", "Master Pitch", "Master Brightness" }; }
+    static juce::StringArray followerNames() { return { "Bus A", "Bus B", "Hits", "Stowaway", "Output", "Master", "Master Pitch", "Master Brightness" }; }
     using FollowerInputs = std::array<float, c_numFollowerInputs>;
 
     void prepare(double sampleRate);

@@ -68,6 +68,7 @@ namespace Theme
         inline const juce::Colour busB        { 0xff3ccbc2 }; // turquoise
         inline const juce::Colour hits        { 0xffff4f6a }; // cherry
         inline const juce::Colour output      { 0xffd3c9b4 }; // driftwood
+        inline const juce::Colour stowaway    { 0xff9db04c }; // kelp
         inline const juce::Colour space       { 0xff8fd9b0 }; // sea glass (the Space knob)
         inline const juce::Colour go          { 0xff4fd68a }; // switched on and running (the morph)
         inline const juce::Colour filter      { 0xff86b4ff }; // sky blue (the morph pad)
@@ -102,10 +103,11 @@ namespace Theme
         inline const juce::Colour good        = space;
     }
 
-    /** The four modulators: lilac, sky, rose and lime. None is a section's colour or the brass. */
+    /** The four modulators: lilac, sky, rose and lemon. None is a section's colour or the brass. (The fourth is a
+        yellow and no green: Stowaway's kelp sits right beside the modulators, and its lanes are lighter kelps.) */
     inline juce::Colour modColour(int source)
     {
-        static const juce::uint32 colours[4] = { 0xffb9a2ff, 0xff6fb7ff, 0xfff48fc6, 0xffb7e36b };
+        static const juce::uint32 colours[4] = { 0xffb9a2ff, 0xff6fb7ff, 0xfff48fc6, 0xfff8f25c };
         return juce::Colour(colours[((source % 4) + 4) % 4]);
     }
 
@@ -396,6 +398,10 @@ namespace Theme
         const float m = mix[((step % 5) + 5) % 5];
         return m >= 0.0f ? bus.interpolatedWith(Colours::text, m) : bus.interpolatedWith(Colours::panel, -m);
     }
+
+    /** A lane at rest (its track waits on a bus that is switched off): its shade most of the way down to the plate
+        it lies on, so it is plainly not lit, with enough of the bus's colour left to say where it belongs. */
+    inline juce::Colour laneResting(juce::Colour shade) { return shade.interpolatedWith(Colours::raised, 0.68f); }
 
     /**
      * Typefaces, loaded once and shared by every editor instance (SharedResourcePointer), and the type scale.

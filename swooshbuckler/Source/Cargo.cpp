@@ -594,7 +594,7 @@ void CargoHold::setBusOverride(int track, int busOrMinusOne)
 {
     if (track < 0 || track >= c_numTracks)
         return;
-    const int v = (busOrMinusOne >= 0 && busOrMinusOne <= c_hitsBus) ? busOrMinusOne : -1;
+    const int v = isBusChoice(busOrMinusOne) ? busOrMinusOne : -1;
     if (m_tracks[static_cast<size_t>(track)].busOverride.exchange(v) != v)
         sendChangeMessage();
 }
@@ -1474,18 +1474,18 @@ void CargoHold::setStart(int track, float fraction)
     sendChangeMessage();
 }
 
-int CargoHold::busForRole(CargoRole role)
+int CargoHold::busForRole(CargoRole role, bool rumbleToStowaway)
 {
     switch (role)
     {
         case CargoRole::Impact:  return c_hitsBus;   // hits: opened at the loudest moments
         case CargoRole::Bed:
         case CargoRole::Air:     return 1;           // smooth bus
+        case CargoRole::Rumble:  return rumbleToStowaway ? c_stowBus : 0; // the low end, while Stowaway is a sub
         case CargoRole::Generic:
         case CargoRole::Tonal:
         case CargoRole::Crackle:
-        case CargoRole::Rumble:
-        default:                 return 0;           // aggressive bus: tonal, growls, crackle, rumble
+        default:                 return 0;           // aggressive bus: tonal, growls, crackle (and rumble otherwise)
     }
 }
 
@@ -1494,10 +1494,10 @@ int CargoHold::getBus(int track) const
     if (track >= 0 && track < c_numTracks)
     {
         const int chosen = m_tracks[static_cast<size_t>(track)].busOverride.load(std::memory_order_relaxed);
-        if (chosen >= 0 && chosen <= c_hitsBus)
+        if (isBusChoice(chosen))
             return chosen;
     }
-    return busForRole(getRole(track));
+    return autoBus(getRole(track));
 }
 
 void CargoHold::shareFrom(const CargoHold& other)
@@ -1530,6 +1530,7 @@ void CargoHold::shareFrom(const CargoHold& other)
     }
     // The Master's contours live in the shared data (made when it was chosen), so this hold reads the same ones.
     m_master = other.m_master.load();
+    m_rumbleToStowaway = other.m_rumbleToStowaway.load();
     for (size_t side = 0; side < m_morphSource.size(); ++side)
         m_morphSource[side] = other.m_morphSource[side].load();
     m_undoOrder.clear();
@@ -1597,7 +1598,7 @@ void CargoHold::fromValueTree(const juce::ValueTree& tree)
             const int role = node.getProperty("roleOverride", -1);
             t.roleOverride = (role >= 0 && role < c_numCargoRoles) ? role : -1;
             const int bus = node.getProperty("busOverride", -1);
-            t.busOverride = (bus >= 0 && bus <= c_hitsBus) ? bus : -1;
+            t.busOverride = isBusChoice(bus) ? bus : -1;
             t.userName = node.getProperty("userName", juce::String()).toString();
         }
 

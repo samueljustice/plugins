@@ -12,6 +12,7 @@
 // without one it writes nothing.
 
 #include <juce_audio_formats/juce_audio_formats.h>
+#include "TestClock.h"
 #include <juce_dsp/juce_dsp.h>
 
 #include "PitchShifter.h"
@@ -614,11 +615,11 @@ int main(int argc, char* argv[])
         for (auto& s : shifters)
             s.prepare(rate);
         Signal out(32);
-        const auto t0 = std::chrono::steady_clock::now();
+        const double t0 = TestClock::cpuMs();
         for (int i = 0; i + 32 <= static_cast<int>(src.size()); i += 32)
             for (size_t k = 0; k < shifters.size(); ++k)
                 shifters[k].process(src.data() + i, out.data(), 32, std::pow(2.0f, (static_cast<float>(k) - 4.5f) / 6.0f));
-        const double secs = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
+        const double secs = (TestClock::cpuMs() - t0) * 0.001;
         const double factor = 10.0 / secs;
         std::cout << "\n  speed: 10 instances x 10 s took " << secs << " s (" << factor << "x real time)" << std::endl;
         check(factor > 20.0, "ten shifting instances run faster than 20x real time");

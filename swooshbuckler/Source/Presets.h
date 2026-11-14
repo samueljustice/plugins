@@ -11,6 +11,8 @@
  * editor glides the parameters to them on springs. A factory preset is a
  * complete look: anything it doesn't mention goes back to its default.
  * Randomise only moves what it rolls and leaves every other knob where it is.
+ * Stowaway's switch is the exception: a preset that uses Stowaway switches it
+ * on, and nothing here ever switches it off.
  * Track levels, input and the output stage are left alone (they belong to
  * your session).
  */
@@ -39,6 +41,34 @@ namespace Presets
                                    { space, 0.7f }, { "aLow", 0.1f }, { "bLow", 0.05f } } },
             { "Heavy Hits",      { { energy, 0.63f }, { rate, 0.4f }, { hitSense, 0.7f }, { hitBoost, 10.0f }, { hitRelease, 0.55f },
                                    { hitDuck, 0.8f }, { "aLow", 0.6f } } },
+            // Stowaway's four modes. Each switches Stowaway on and sets its Mode. In Sub a Rumble track goes to it
+            // by itself; for the others, send a track to Stowaway from its lane's bus tag.
+            // A planted sub (crossover 100 Hz) that swells under Bus A's fly-bys.
+            { "Sub Under Jets",  { { energy, 0.36f }, { rate, 0.55f }, { "aDoppler", 0.9f }, { "bDoppler", 0.75f }, { "aSwirl", 0.48f },
+                                   { "bSwirl", 0.37f }, { "aLow", 0.3f }, { hitSense, 0.4f }, { passMode[0], 1.0f },
+                                   { stowOn, 1.0f }, { stowMode, static_cast<float>(StowSub) }, { stow[StowFollow], 0.9f },
+                                   { stow[StowLow], 0.35f }, { stow[StowFilter], Params::stowCrossoverKnob(100.0f) }, { stow[StowDrive], 0.2f } } },
+            // A slow, heavy one: the crossover down at 70 Hz, with plenty of Low End and Drive after it.
+            { "Deep Quake",      { { energy, 0.85f }, { rate, 0.2f }, { pitch, -5.0f }, { "aLow", 0.6f }, { "bLow", 0.4f }, { "aDrive", 0.3f },
+                                   { hitBoost, 8.0f }, { hitDuck, 0.7f }, { passMode[0], 1.0f },
+                                   { stowOn, 1.0f }, { stowMode, static_cast<float>(StowSub) }, { stow[StowFollow], 0.6f },
+                                   { stow[StowLow], 0.7f }, { stow[StowFilter], Params::stowCrossoverKnob(70.0f) }, { stow[StowDrive], 0.45f } } },
+            // Fly-bys on Bus A, each dragging a trail of whatever is on Stowaway: shut until the pass has gone by,
+            // well out to the side, with its low end thinned.
+            { "Debris Wake",     { { energy, 0.5f }, { rate, 0.5f }, { "aDoppler", 0.85f }, { "bDoppler", 0.6f }, { "aSwirl", 0.3f },
+                                   { space, 0.35f }, { passMode[0], 1.0f },
+                                   { stowOn, 1.0f }, { stowMode, static_cast<float>(StowWake) }, { stow[StowFollow], 1.0f },
+                                   { stow[StowLow], 0.1f }, { stow[StowFilter], 0.62f }, { stow[StowDrive], 0.15f }, { stow[StowWidth], 0.85f } } },
+            // Three things in the air: both buses on Fly-By and Stowaway flying passes in its own time.
+            { "Three Movers",    { { energy, 0.6f }, { rate, 0.75f }, { chaos, 0.65f }, { "aDoppler", 0.8f }, { "bDoppler", 0.7f },
+                                   { "bDuck", 0.2f }, { passMode[0], 1.0f }, { passMode[1], 1.0f },
+                                   { stowOn, 1.0f }, { stowMode, static_cast<float>(StowFly) }, { stow[StowFollow], 0.0f },
+                                   { stow[StowLow], 0.1f }, { stow[StowWidth], 1.0f } } },
+            // A layer that stays what it is (ridden a little, at full width) over a rig with plenty done to it.
+            { "Dry Rider",       { { energy, 0.45f }, { rate, 0.4f }, { "aSwirl", 0.5f }, { "bSwirl", 0.55f }, { "aDrive", 0.3f },
+                                   { "bFilter", 0.4f }, { space, 0.55f },
+                                   { stowOn, 1.0f }, { stowMode, static_cast<float>(StowDry) }, { stow[StowFollow], 0.6f },
+                                   { stow[StowWidth], 1.0f } } },
         };
         return presets;
     }
@@ -58,10 +88,10 @@ namespace Presets
     }
 
     /** The sections Randomise works in: each has its own die and its own lock in the window. */
-    enum Section { Ride = 0, BusA, BusB, Hits, Output, numSections };
+    enum Section { Ride = 0, BusA, BusB, Hits, Output, Stowaway, numSections };
     inline const char* sectionName(int section)
     {
-        static const char* names[numSections] = { "Ride", "Bus A", "Bus B", "Hits", "Output" };
+        static const char* names[numSections] = { "Ride", "Bus A", "Bus B", "Hits", "Output", "Stowaway" };
         return section >= 0 && section < numSections ? names[section] : "";
     }
 
@@ -94,6 +124,10 @@ namespace Presets
             const bool listed = it != preset.values.end();
             const bool sessionButAllowed = listed && (id.startsWith("mod") || (outputStage && isOutputStageRoll(id)));
             if (isSessionParameter(id) ? ! sessionButAllowed : (! listed && unlisted == Unlisted::Keep))
+                continue;
+            // Stowaway's switch: a preset that uses Stowaway switches it on; nothing else moves it (tracks may be
+            // waiting on it, and a preset never takes a bus away).
+            if (id == ParamIDs::stowOn && ! (listed && it->second > 0.5f))
                 continue;
             out.emplace_back(param, listed ? param->convertTo0to1(param->getNormalisableRange().snapToLegalValue(it->second)) : param->getDefaultValue());
         }
@@ -146,6 +180,16 @@ namespace Presets
                     p.values[inflate] = u(0.0f, 0.5f);
                     p.values[push] = u(0.0f, 6.0f);
                 }
+                break;
+            case Stowaway:
+                // The five knobs, never the Mode: that decides what Stowaway is (and where rumbles play), so only
+                // a preset or your own hand changes it. The ranges suit every mode: Filter stays around the
+                // middle (the Sub's crossover between about 85 and 165 Hz; open or gently closed otherwise).
+                p.values[stow[StowFollow]] = u(0.4f, 1.0f);
+                p.values[stow[StowLow]] = u(0.0f, 0.6f);
+                p.values[stow[StowFilter]] = u(0.3f, 0.7f);
+                p.values[stow[StowDrive]] = u(0.0f, 0.35f);
+                p.values[stow[StowWidth]] = u(0.4f, 1.0f);
                 break;
             default:
                 break;

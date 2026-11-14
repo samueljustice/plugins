@@ -1,13 +1,19 @@
 // Render test: Render Variations through the whole plug-in, offline.
 //
-//   - A batch of five in each mode: five files with the right names, lengths within reason, peaks under the
+//   - A batch of five for each What Varies: five files with the right names, lengths within reason, peaks under the
 //     Ceiling, a description in each, and no two files alike.
-//   - The same batch seed gives the same files again, sample for sample; another seed gives others.
+//   - The same batch number gives the same files again, sample for sample; another gives others. The batches
+//     rendered lately are remembered, and one of them rendered again from what was remembered is the same batch.
 //   - The rig that is rendered from is left exactly as it was.
 //   - Cancelling part-way keeps the finished files and leaves nothing half-written.
 //   - Numbers carry on after the files a folder already has; the files follow the tape's format.
+//   - File names: Counter, Date And Time, Preset And Counter, Batch Name And Counter.
+//   - One File With Markers: one file, a marker named after each variation at its start, the gap between them,
+//     the same sound as the separate files; Both; AIFF markers and FLAC comments; never written over.
+//   - Whole Ride: files of exactly the length asked for that do not start from silence, repeat and differ.
+//   - The estimate shown before rendering.
 //   - A rig with nothing to play fails with a message instead of writing empty files.
-//   - The files join the Takes.
+//   - The files join the Takes (the one file as one take).
 //   - How fast a batch renders (--bench: 100 whooshes of 3 s).
 //
 // Usage: SwooshbucklerRender [scratch folder] [--bench]. Nothing is read from or written to the user's settings.
@@ -17,6 +23,7 @@
 #include "Parameters.h"
 #include "VariationRenderer.h"
 
+#include <algorithm>
 #include <cmath>
 #include <iostream>
 
@@ -226,7 +233,7 @@ namespace
                 ends = ends && a.samples.getMagnitude(a.samples.getNumSamples() - 48, 48) < juce::Decibels::decibelsToGain(-60.0f);
             }
             const auto text = TapeRecorder::readDescription(files[i]);
-            described = described && text.contains("Variation " + juce::String(i + 1) + " of 5") && text.contains("Batch Seed 4711")
+            described = described && text.contains("Variation " + juce::String(i + 1) + " of 5") && text.contains("Batch 4711") && ! text.containsIgnoreCase("seed")
                      && text.contains(label) && text.contains("Energy ");
             report << juce::String(s, 2) << " s " << juce::String(db(a.peak()), 1) << " dB" << (i + 1 < files.size() ? ", " : "");
         }
@@ -286,7 +293,27 @@ int main(int argc, char* argv[])
         {
             const auto job = renderer.defaultJob();
             check(job.count == 100, "defaults: 100 variations");
-            check(job.mode == VariationRenderer::Mode::RandomiseEverything, "defaults: Randomise Everything");
+            check(job.mode == VariationRenderer::Mode::NewPasses && VariationRenderer::modeName(job.mode) == "My Settings, New Passes",
+                  "defaults: My Settings, New Passes");
+            check(job.each == VariationRenderer::Each::OneWhoosh && job.names == VariationRenderer::Names::Counter
+                      && job.files == VariationRenderer::Files::PerVariation && job.gapSeconds == 0.5 && job.rideSeconds == 10.0,
+                  "defaults: One Whoosh, Counter names, One File Per Variation, a gap of 0.5 s, rides of 10 s");
+            {
+                juce::StringArray words;
+                for (int i = 0; i < 3; ++i)
+                    words.add(VariationRenderer::modeName(static_cast<VariationRenderer::Mode>(i)));
+                for (int i = 0; i < 2; ++i)
+                    words.add(VariationRenderer::eachName(static_cast<VariationRenderer::Each>(i)));
+                for (int i = 0; i < 4; ++i)
+                    words.add(VariationRenderer::namesName(static_cast<VariationRenderer::Names>(i)));
+                for (int i = 0; i < 3; ++i)
+                    words.add(VariationRenderer::filesName(static_cast<VariationRenderer::Files>(i)));
+                const auto all = words.joinIntoString(" / ");
+                bool plain = true;
+                for (const auto* word : { "seed", "roll", "jitter", "offline", "instance" })
+                    plain = plain && ! all.containsIgnoreCase(word);
+                check(plain && words.size() == 12, "wording: no choice is called a seed, a roll, jitter, offline or an instance (" + all + ")");
+            }
             check(std::abs(job.seconds - Params::throwSeconds(0.0f, rig.proc.getState().getRawParameterValue(ParamIDs::rate)->load())) < 1.0e-3,
                   "defaults: the length is Throw Length (here Rate's pass length, " + juce::String(job.seconds, 2) + " s)");
             check(job.folder.getParentDirectory() == out && job.folder.getFileName().startsWith("Swooshbuckler Variations 20"),
@@ -307,15 +334,15 @@ int main(int argc, char* argv[])
         const auto before = rig.values();
         batchTest(rig, out.getChildFile("randomise"), VariationRenderer::Mode::RandomiseEverything, 1.0);
         batchTest(rig, out.getChildFile("small"), VariationRenderer::Mode::SmallChanges, 1.0);
-        batchTest(rig, out.getChildFile("seed"), VariationRenderer::Mode::SeedOnly, 1.0);
+        batchTest(rig, out.getChildFile("seed"), VariationRenderer::Mode::NewPasses, 1.0);
         check(rig.values() == before, "the rig that was rendered from is exactly as it was (every parameter and start marker)");
         check(! rig.proc.isPlaying() && ! rig.proc.isRecording(), "the rig was neither started nor recorded");
 
         // The same batch seed again: the same files. Another seed: other files.
-        for (const auto mode : { VariationRenderer::Mode::RandomiseEverything, VariationRenderer::Mode::SmallChanges, VariationRenderer::Mode::SeedOnly })
+        for (const auto mode : { VariationRenderer::Mode::RandomiseEverything, VariationRenderer::Mode::SmallChanges, VariationRenderer::Mode::NewPasses })
         {
             const auto label = VariationRenderer::modeName(mode);
-            const char* folders[] = { "randomise", "small", "seed" };
+            const char* folders[] = { "seed", "small", "randomise" };
             const auto first = filesIn(out.getChildFile(folders[static_cast<int>(mode)]));
             const auto againFolder = out.getChildFile("again");
             againFolder.deleteRecursively();
@@ -339,16 +366,304 @@ int main(int argc, char* argv[])
         // Numbers carry on after the files a folder already has.
         {
             const auto seedFolder = out.getChildFile("seed");
-            const auto progress = render(rig, makeJob(rig, seedFolder, VariationRenderer::Mode::SeedOnly, 2, 0.5, 9));
+            const auto progress = render(rig, makeJob(rig, seedFolder, VariationRenderer::Mode::NewPasses, 2, 0.5, 9));
             const auto files = filesIn(seedFolder);
             check(progress.done == 2 && files.size() == 7 && files[5].getFileName() == "Whoosh_006.wav" && files[6].getFileName() == "Whoosh_007.wav",
                   "a second batch into the same folder carries on at Whoosh_006 and writes over nothing");
         }
 
+        // The batches rendered lately are remembered, newest first, and one rendered again from what was remembered
+        // is the same batch (Repeat Last Batch, Repeat Batch...).
+        {
+            const auto firstFolder = out.getChildFile("repeat-first"), againFolder = out.getChildFile("repeat-again");
+            auto job = makeJob(rig, firstFolder, VariationRenderer::Mode::SmallChanges, 3, 0.7, 31337);
+            job.amount = 0.45f;
+            render(rig, job);
+            render(rig, makeJob(rig, out.getChildFile("repeat-other"), VariationRenderer::Mode::NewPasses, 1, 0.5, 31338));
+            const auto recent = renderer.recentBatches();
+            check(recent.size() >= 2 && recent[0].number == 31338u && recent[1].number == 31337u && recent[1].name == "Whoosh" && recent[1].count == 3
+                      && recent[1].mode == VariationRenderer::Mode::SmallChanges && std::abs(recent[1].amount - 0.45f) < 1.0e-3f
+                      && std::abs(recent[1].seconds - 0.7) < 1.0e-3 && static_cast<int>(recent.size()) <= VariationRenderer::c_maxBatches,
+                  "batches: the last ones are remembered, newest first, with what they were made of (" + juce::String(static_cast<int>(recent.size())) + " kept)");
+            check(recent.size() >= 2 && VariationRenderer::batchTitle(recent[1]).startsWith("Whoosh, ") && VariationRenderer::batchTitle(recent[1]).contains(":"),
+                  "batches: each is listed by name, date and time (" + (recent.size() >= 2 ? VariationRenderer::batchTitle(recent[1]) : juce::String()) + ")");
+            if (recent.size() >= 2)
+            {
+                // What the panel does for Repeat Batch: a job for now, with the remembered batch's number and makings.
+                auto again = makeJob(rig, againFolder, recent[1].mode, recent[1].count, recent[1].seconds, recent[1].number);
+                again.amount = recent[1].amount;
+                again.each = recent[1].each;
+                render(rig, again);
+                const auto a = filesIn(firstFolder), b = filesIn(againFolder);
+                double worst = a.size() == 3 && b.size() == 3 ? 0.0 : 1.0;
+                for (int i = 0; i < juce::jmin(a.size(), b.size()); ++i)
+                    worst = juce::jmax(worst, difference(readFile(a[i]), readFile(b[i])));
+                check(worst == 0.0, "batches: a remembered batch rendered again gives the same files, sample for sample");
+                const auto after = renderer.recentBatches();
+                int times = 0;
+                for (const auto& batch : after)
+                    times += batch.number == 31337u ? 1 : 0;
+                check(! after.empty() && after[0].number == 31337u && times == 1, "batches: a repeated batch moves to the front of the list and is listed once");
+            }
+            for (std::uint32_t n = 0; n < 8; ++n)
+                render(rig, makeJob(rig, out.getChildFile("repeat-other"), VariationRenderer::Mode::NewPasses, 1, 0.3, 500 + n));
+            check(static_cast<int>(renderer.recentBatches().size()) == VariationRenderer::c_maxBatches && renderer.recentBatches()[0].number == 507u,
+                  "batches: only the last " + juce::String(VariationRenderer::c_maxBatches) + " are kept");
+        }
+
+        // File names: the four stamps, and what a batch really writes for each.
+        {
+            auto job = makeJob(rig, out.getChildFile("names"), VariationRenderer::Mode::NewPasses, 2, 0.3, 77);
+            job.when = juce::Time(2026, 10, 13, 14, 32, 5); // 13 November 2026, 14:32
+            job.preset = "Jet Passes";
+            job.batchName = "Dragon Wings";
+            using Names = VariationRenderer::Names;
+            const std::pair<Names, const char*> expected[] = { { Names::Counter, "Whoosh_001" }, { Names::DateAndTime, "Whoosh_2026-11-13_1432_001" },
+                                                               { Names::PresetAndCounter, "Jet Passes_001" }, { Names::BatchNameAndCounter, "Dragon Wings_001" } };
+            for (const auto& [names, first] : expected)
+            {
+                job.names = names;
+                const auto planned = VariationRenderer::planOf(job).firstName;
+                render(rig, job);
+                const auto second = juce::String(first).dropLastCharacters(1) + "2";
+                check(planned == first && job.folder.getChildFile(juce::String(first) + ".wav").existsAsFile() && job.folder.getChildFile(second + ".wav").existsAsFile(),
+                      "names: " + VariationRenderer::namesName(names) + " gives " + first + " (planned " + planned + ")");
+            }
+            check(filesIn(job.folder).size() == 8, "names: the four batches wrote eight files side by side");
+            job.names = Names::DateAndTime;
+            check(VariationRenderer::planOf(job).firstName == "Whoosh_2026-11-13_1432_003", "names: a second batch in the same minute carries on at 003");
+            job.names = Names::BatchNameAndCounter;
+            job.batchName = "  ";
+            check(VariationRenderer::planOf(job).firstName == "Batch_001", "names: with no batch name typed the files are called Batch");
+            job.batchName = "A/B: Take?";
+            check(VariationRenderer::planOf(job).firstName == "AB Take_001", "names: a typed name keeps only what a file name may have");
+        }
+
+        // One File With Markers: every variation in one file, a marker with its name at the start of each, a gap between.
+        {
+            using Files = VariationRenderer::Files;
+            const auto separateFolder = out.getChildFile("one-separate"), oneFolder = out.getChildFile("one");
+            render(rig, makeJob(rig, separateFolder, VariationRenderer::Mode::NewPasses, 4, 0.5, 2024));
+            const auto separate = filesIn(separateFolder);
+            auto job = makeJob(rig, oneFolder, VariationRenderer::Mode::NewPasses, 4, 0.5, 2024);
+            job.files = Files::OneWithMarkers;
+            job.gapSeconds = 0.5;
+            const auto progress = render(rig, job);
+            const auto files = filesIn(oneFolder);
+            check(progress.state == VariationRenderer::State::Finished && progress.done == 4 && progress.files == 1 && files.size() == 1
+                      && files[0].getFileName() == "Whoosh_All.wav" && progress.combinedFile == "Whoosh_All.wav",
+                  "one file: four variations make one file, Whoosh_All.wav (" + juce::String(files.size()) + " files)");
+            const auto all = files.size() == 1 ? readFile(files[0]) : Audio {};
+            const auto cues = files.size() == 1 ? TapeRecorder::readCues(files[0]) : std::vector<TapeRecorder::Cue> {};
+            const int gap = static_cast<int>(0.5 * c_fs);
+            bool names = cues.size() == 4, places = cues.size() == 4 && separate.size() == 4, same = places, quiet = places;
+            std::int64_t at = 0;
+            juce::String where;
+            for (size_t i = 0; i < cues.size() && i < static_cast<size_t>(separate.size()); ++i)
+            {
+                const auto one = readFile(separate[static_cast<int>(i)]);
+                const int n = one.samples.getNumSamples();
+                names = names && cues[i].label == "Whoosh_00" + juce::String(static_cast<int>(i) + 1);
+                places = places && cues[i].frame == at;
+                where << juce::String(static_cast<double>(cues[i].frame) / c_fs, 3) << " s " << cues[i].label << (i + 1 < cues.size() ? ", " : "");
+                if (at + n <= all.samples.getNumSamples())
+                {
+                    // The same samples as the variation's own file, then nothing at all until the next marker.
+                    for (int ch = 0; ch < 2 && same; ++ch)
+                        for (int k = 0; k < n && same; ++k)
+                            same = all.samples.getSample(ch, static_cast<int>(at) + k) == one.samples.getSample(ch, k);
+                    if (i + 1 < cues.size())
+                        quiet = quiet && at + n + gap <= all.samples.getNumSamples() && all.samples.getMagnitude(static_cast<int>(at) + n, gap) == 0.0f;
+                }
+                else
+                    same = false;
+                at += n + gap;
+            }
+            check(cues.size() == 4, "one file: it has four markers (" + juce::String(static_cast<int>(cues.size())) + ")");
+            check(names, "one file: each marker has its variation's name, Whoosh_001 to Whoosh_004 (" + where + ")");
+            check(places, "one file: each marker is at the first sample of its variation, half a second of gap after the one before");
+            check(same, "one file: between the markers is the same sound as the separate files, sample for sample");
+            check(quiet, "one file: the gaps are silence");
+            check(places && all.samples.getNumSamples() == static_cast<int>(at) - gap, "one file: it ends with the last variation, with no gap after it");
+            check(files.size() == 1 && TapeRecorder::readDescription(files[0]).contains("4 variations") && TapeRecorder::readDescription(files[0]).contains("Batch 2024"),
+                  "one file: its description says what it holds and which batch it is");
+            rig.proc.refreshTakes();
+            const auto& takes = rig.proc.getTakes();
+            check(! takes.empty() && takes[0].kind == "Variations" && takes[0].markers == 4 && takes[0].file.getFileName() == "Whoosh_All.wav"
+                      && std::abs(takes[0].seconds - all.seconds()) < 0.01,
+                  "one file: the Takes list shows it as one take");
+
+            // Another gap; and Both: the separate files and the one file, twice into the same folder with nothing written over.
+            const auto bothFolder = out.getChildFile("both");
+            job.folder = bothFolder;
+            job.files = Files::Both;
+            job.gapSeconds = 1.25;
+            const auto first = render(rig, job);
+            const auto firstAll = bothFolder.getChildFile("Whoosh_All.wav");
+            const auto before = firstAll.loadFileAsString().hashCode64();
+            const auto bothCues = TapeRecorder::readCues(firstAll);
+            const auto firstOne = readFile(bothFolder.getChildFile("Whoosh_001.wav"));
+            check(first.files == 5 && filesIn(bothFolder).size() == 5 && bothCues.size() == 4
+                      && bothCues[1].frame == firstOne.samples.getNumSamples() + static_cast<int>(1.25 * c_fs),
+                  "both: four files and the one file with them all, its gap the 1.25 s asked for");
+            const auto second = render(rig, job);
+            const auto bothFiles = filesIn(bothFolder);
+            const auto secondCues = TapeRecorder::readCues(bothFolder.getChildFile("Whoosh_All_2.wav"));
+            check(second.files == 5 && bothFiles.size() == 10 && bothFolder.getChildFile("Whoosh_008.wav").existsAsFile()
+                      && bothFolder.getChildFile("Whoosh_All_2.wav").existsAsFile() && firstAll.loadFileAsString().hashCode64() == before
+                      && secondCues.size() == 4 && secondCues[0].label == "Whoosh_005",
+                  "both: a second batch carries on at Whoosh_005 and Whoosh_All_2, and writes over nothing (" + juce::String(bothFiles.size()) + " files)");
+
+            // AIFF has markers of its own; FLAC has none, so there the names and times go into the comments.
+            const auto aiffFolder = out.getChildFile("one-aiff"), flacFolder = out.getChildFile("one-flac");
+            job.files = Files::OneWithMarkers;
+            job.gapSeconds = 0.5;
+            job.folder = aiffFolder;
+            job.options.type = TapeRecorder::FileType::Aiff;
+            render(rig, job);
+            const auto aiffCues = TapeRecorder::readCues(aiffFolder.getChildFile("Whoosh_All.aif"));
+            const auto aiff = readFile(aiffFolder.getChildFile("Whoosh_All.aif"));
+            bool aiffOk = aiffCues.size() == 4 && cues.size() == 4 && aiff.samples.getNumSamples() == all.samples.getNumSamples();
+            for (size_t i = 0; i < aiffCues.size() && aiffOk; ++i)
+                aiffOk = aiffCues[i].frame == cues[i].frame && aiffCues[i].label == cues[i].label;
+            check(aiffOk, "one file: an AIFF file has the same four named markers in the same places, and the same length");
+            check(TapeRecorder::readDescription(aiffFolder.getChildFile("Whoosh_All.aif")).contains("4 variations"), "one file: an AIFF file keeps its description");
+            job.folder = flacFolder;
+            job.options.type = TapeRecorder::FileType::Flac;
+            render(rig, job);
+            const auto flacFile = flacFolder.getChildFile("Whoosh_All.flac");
+            juce::MemoryBlock raw;
+            flacFile.loadFileAsData(raw);
+            // The comments sit among binary bytes (zeros included), so they are looked for as bytes.
+            const std::string text(static_cast<const char*>(raw.getData()), std::min(raw.getSize(), static_cast<size_t>(16384)));
+            auto has = [&text](const char* what) { return text.find(what) != std::string::npos; };
+            const auto flac = readFile(flacFile);
+            check(flac.samples.getNumSamples() == all.samples.getNumSamples() && TapeRecorder::readDescription(flacFile).contains("4 variations")
+                      && has("MARKER=0:00.000 Whoosh_001") && has(" Whoosh_004"),
+                  "one file: a FLAC file lists the names and times in its comments");
+        }
+
+        // Whole Ride: each file is the rig playing for the length asked for, not a throw from silence.
+        {
+            using Each = VariationRenderer::Each;
+            const auto rideFolder = out.getChildFile("ride");
+            auto job = makeJob(rig, rideFolder, VariationRenderer::Mode::NewPasses, 3, 1.0, 808);
+            job.each = Each::WholeRide;
+            job.rideSeconds = 2.5;
+            const auto progress = render(rig, job);
+            const auto files = filesIn(rideFolder);
+            const float ceiling = juce::Decibels::decibelsToGain(rig.proc.getState().getRawParameterValue(ParamIDs::ceiling)->load());
+            std::vector<Audio> audio;
+            bool lengths = files.size() == 3, starts = lengths, edges = lengths, peaks = lengths, described = lengths;
+            juce::String report;
+            for (int i = 0; i < files.size(); ++i)
+            {
+                audio.push_back(readFile(files[i]));
+                const auto& a = audio.back();
+                const int n = a.samples.getNumSamples();
+                lengths = lengths && n == static_cast<int>(2.5 * c_fs);
+                if (n < 9600)
+                    continue;
+                // Sound from the start: the first fifth of a second is nowhere near silence, though the very first
+                // sample is (a 10 ms fade in, so the cut does not click), and the end is faded too.
+                const float opening = juce::jmax(a.samples.getRMSLevel(0, 0, 9600), a.samples.getRMSLevel(1, 0, 9600));
+                starts = starts && opening > juce::Decibels::decibelsToGain(-50.0f);
+                edges = edges && a.samples.getMagnitude(0, 4) < 0.01f && a.samples.getMagnitude(n - 4, 4) < 0.01f;
+                peaks = peaks && a.peak() <= ceiling * 1.001f && a.peak() > juce::Decibels::decibelsToGain(-30.0f);
+                const auto text = TapeRecorder::readDescription(files[i]);
+                described = described && text.contains("Whole Ride, Length 2.5 s") && text.contains("Variation " + juce::String(i + 1) + " of 3");
+                report << juce::String(a.seconds(), 2) << " s, first 0.2 s " << juce::String(db(opening), 1) << " dB RMS, peak " << juce::String(db(a.peak()), 1)
+                       << " dB" << (i + 1 < files.size() ? "; " : "");
+            }
+            std::cout << "         Whole Ride: " << report << "  (" << juce::String(progress.audioSeconds / juce::jmax(0.001, progress.elapsedSeconds), 1)
+                      << "x real time)" << std::endl;
+            check(progress.state == VariationRenderer::State::Finished && progress.done == 3 && files.size() == 3 && files[0].getFileName() == "Whoosh_001.wav",
+                  "whole ride: three rides make three files");
+            check(lengths, "whole ride: every file is exactly the 2.5 s asked for");
+            check(starts, "whole ride: no file starts from silence (the first 0.2 s is over -50 dB RMS)");
+            check(edges, "whole ride: both ends are faded, so neither clicks");
+            check(peaks, "whole ride: every file has sound in it, under the Ceiling");
+            check(described, "whole ride: every file says it is a ride, how long, and which variation");
+            double least = 10.0;
+            for (size_t i = 0; i < audio.size(); ++i)
+                for (size_t k = i + 1; k < audio.size(); ++k)
+                    least = juce::jmin(least, difference(audio[i], audio[k]));
+            check(audio.size() == 3 && least > 0.1, "whole ride: no two rides are alike (the closest pair differ by " + juce::String(juce::roundToInt(100.0 * least)) + "% RMS)");
+
+            const auto againFolder = out.getChildFile("ride-again");
+            job.folder = againFolder;
+            render(rig, job);
+            const auto again = filesIn(againFolder);
+            double worst = again.size() == 3 && files.size() == 3 ? 0.0 : 1.0;
+            for (int i = 0; i < juce::jmin(files.size(), again.size()); ++i)
+                worst = juce::jmax(worst, difference(readFile(files[i]), readFile(again[i])));
+            check(worst == 0.0, "whole ride: the same batch again gives the same rides, sample for sample");
+            check(! rig.proc.isPlaying(), "whole ride: the rig you hear was not started");
+
+            // A whoosh, by contrast, opens at its first sound: far quieter over the same stretch.
+            const auto whoosh = readFile(out.getChildFile("seed").getChildFile("Whoosh_001.wav"));
+            if (whoosh.samples.getNumSamples() > 480 && ! audio.empty())
+                std::cout << "         (a whoosh's first 10 ms: " << juce::String(db(whoosh.samples.getRMSLevel(0, 0, 480)), 1) << " dB RMS; a ride's: "
+                          << juce::String(db(audio[0].samples.getRMSLevel(0, 480, 480)), 1) << " dB RMS)" << std::endl;
+        }
+
+        // The estimate shown before rendering.
+        {
+            auto job = makeJob(rig, out.getChildFile("estimate"), VariationRenderer::Mode::NewPasses, 100, 3.0, 1);
+            using Files = VariationRenderer::Files;
+            VariationRenderer::Estimate e { 100, 300.0, 20.0 };
+            check(VariationRenderer::estimateText(job, e) == "100 files, one whoosh each: about 5 minutes of sound, ready in about 20 seconds.",
+                  "estimate: " + VariationRenderer::estimateText(job, e));
+            const auto real = renderer.estimate(job);
+            check(real.files == 100 && real.soundSeconds >= 300.0 && real.soundSeconds <= 900.0 && real.renderSeconds > 0.5 && real.renderSeconds < 600.0,
+                  "estimate: 100 whooshes of 3 s come to " + juce::String(real.soundSeconds, 0) + " s of sound, ready in about " + juce::String(real.renderSeconds, 0) + " s");
+            job.files = Files::OneWithMarkers;
+            const auto one = renderer.estimate(job);
+            check(one.files == 1 && std::abs(one.soundSeconds - (real.soundSeconds + 99 * 0.5)) < 1.0e-6
+                      && VariationRenderer::estimateText(job, one).startsWith("1 file with 100 whooshes in it: "),
+                  "estimate: one file with markers is 1 file, and the gaps count (" + VariationRenderer::estimateText(job, one) + ")");
+            job.files = Files::Both;
+            check(renderer.estimate(job).files == 101 && VariationRenderer::estimateText(job, renderer.estimate(job)).startsWith("101 files (100 whooshes, and one file with all of them): "),
+                  "estimate: both is 101 files");
+            job.files = Files::PerVariation;
+            job.each = VariationRenderer::Each::WholeRide;
+            job.rideSeconds = 30.0;
+            job.count = 20;
+            const auto rides = renderer.estimate(job);
+            check(rides.files == 20 && std::abs(rides.soundSeconds - 600.0) < 1.0e-6
+                      && VariationRenderer::estimateText(job, rides).startsWith("20 files, one ride each: about 10 minutes of sound, ready in "),
+                  "estimate: " + VariationRenderer::estimateText(job, rides));
+            check(VariationRenderer::roughly(0.4) == "about a second" && VariationRenderer::roughly(89.0) == "about 89 seconds"
+                      && VariationRenderer::roughly(150.0) == "about 3 minutes" && VariationRenderer::roughly(3.0 * 3600.0) == "about 3 hours",
+                  "estimate: times are said roughly, in seconds, minutes or hours");
+
+            // One WAV or AIFF file of 4 GB or more has no room for markers: such a batch is refused before it starts.
+            auto big = makeJob(rig, out.getChildFile("too-big"), VariationRenderer::Mode::NewPasses, 1000, 3.0, 1);
+            big.each = VariationRenderer::Each::WholeRide;
+            big.rideSeconds = 120.0;
+            big.files = Files::OneWithMarkers;
+            big.options.bitDepth = 32;
+            juce::String refused;
+            const bool started = renderer.start(big, refused);
+            if (started)
+            {
+                renderer.cancel();
+                renderer.waitUntilDone(60000);
+            }
+            check(! started && refused.contains("4 GB") && ! out.getChildFile("too-big").getChildFile("Whoosh_All.wav").exists(),
+                  "estimate: one file over 4 GB is refused before anything is written (" + refused + ")");
+            check(VariationRenderer::oneFileTooBig(big, renderer.estimate(big)), "estimate: the panel can tell beforehand that the one file is too big");
+            big.options.type = TapeRecorder::FileType::Flac;
+            check(! VariationRenderer::oneFileTooBig(big, renderer.estimate(big)), "estimate: FLAC lists its markers in words, so it has no such limit");
+            big.options.type = TapeRecorder::FileType::Wav;
+            big.count = 4;
+            check(! VariationRenderer::oneFileTooBig(big, renderer.estimate(big)), "estimate: four rides of two minutes fit one file easily");
+        }
+
         // The tape's format: FLAC, 16-bit, mono, 96 kHz.
         {
             const auto formatFolder = out.getChildFile("format");
-            auto job = makeJob(rig, formatFolder, VariationRenderer::Mode::SeedOnly, 1, 0.5, 9);
+            auto job = makeJob(rig, formatFolder, VariationRenderer::Mode::NewPasses, 1, 0.5, 9);
             job.rate = 96000.0;
             job.options.bitDepth = 16;
             job.options.type = TapeRecorder::FileType::Flac;
@@ -394,13 +709,37 @@ int main(int argc, char* argv[])
         }
     }
 
+    // Cancelling a batch that goes into one file: the file is closed whole, with a marker for each variation it has.
+    {
+        Rig rig(sources);
+        auto& renderer = rig.proc.getVariations();
+        const auto cancelFolder = out.getChildFile("cancel-one");
+        auto job = makeJob(rig, cancelFolder, VariationRenderer::Mode::NewPasses, 400, 1.0, 6);
+        job.files = VariationRenderer::Files::OneWithMarkers;
+        juce::String error;
+        check(renderer.start(job, error), "cancel, one file: a batch of 400 starts");
+        const auto began = juce::Time::getMillisecondCounter();
+        while (renderer.getProgress().done < 3 && juce::Time::getMillisecondCounter() - began < 120000)
+            juce::Thread::sleep(2);
+        renderer.cancel();
+        renderer.waitUntilDone(60000);
+        const auto progress = renderer.getProgress();
+        const auto files = filesIn(cancelFolder);
+        const auto cues = files.size() == 1 ? TapeRecorder::readCues(files[0]) : std::vector<TapeRecorder::Cue> {};
+        const auto a = files.size() == 1 ? readFile(files[0]) : Audio {};
+        check(progress.state == VariationRenderer::State::Cancelled && progress.done >= 3 && files.size() == 1 && static_cast<int>(cues.size()) == progress.done
+                  && a.seconds() > 3.0 && cues.back().frame < a.samples.getNumSamples() && std::abs(a.seconds() - (progress.audioSeconds + 0.5 * (progress.done - 1))) < 0.01,
+              "cancel, one file: the file is kept whole, with " + juce::String(static_cast<int>(cues.size())) + " markers for the " + juce::String(progress.done)
+                  + " variations it has");
+    }
+
     // Nothing to play: a message, and no empty files.
     {
         Rig rig(sources, false);
         for (int lane = 0; lane < CargoHold::c_numLanes; ++lane)
             rig.proc.getCargo().setMute(lane, true);
         const auto silentFolder = out.getChildFile("silent");
-        const auto progress = render(rig, makeJob(rig, silentFolder, VariationRenderer::Mode::SeedOnly, 5, 0.5, 1));
+        const auto progress = render(rig, makeJob(rig, silentFolder, VariationRenderer::Mode::NewPasses, 5, 0.5, 1));
         check(progress.state == VariationRenderer::State::Failed && progress.done == 0 && progress.error.isNotEmpty() && filesIn(silentFolder).isEmpty(),
               "a rig with nothing to play fails with a message and writes no files (\"" + progress.error + "\")");
     }
@@ -409,7 +748,7 @@ int main(int argc, char* argv[])
     if (bench)
     {
         Rig rig(sources);
-        for (const auto mode : { VariationRenderer::Mode::SeedOnly, VariationRenderer::Mode::RandomiseEverything })
+        for (const auto mode : { VariationRenderer::Mode::NewPasses, VariationRenderer::Mode::RandomiseEverything })
         {
             const auto benchFolder = out.getChildFile("bench");
             benchFolder.deleteRecursively();
@@ -425,7 +764,7 @@ int main(int argc, char* argv[])
     {
         Rig rig(sources);
         const auto takesFolder = out.getChildFile("takes");
-        render(rig, makeJob(rig, takesFolder, VariationRenderer::Mode::SeedOnly, 3, 0.5, 2));
+        render(rig, makeJob(rig, takesFolder, VariationRenderer::Mode::NewPasses, 3, 0.5, 2));
         rig.proc.refreshTakes();
         const auto& takes = rig.proc.getTakes();
         check(takes.size() == 3 && takes[0].kind == "Variation" && takes[0].file.getFileName() == "Whoosh_003.wav" && takes[0].seconds > 0.25,

@@ -31,7 +31,7 @@ Swooshbuckler is a standalone app for macOS and Windows, and also a VST3 plug-in
 
 ## Download
 
-[![Download Swooshbuckler v2.0.0](https://img.shields.io/badge/download-v2.0.0-d00a35?style=for-the-badge)](https://github.com/samueljustice/plugins/releases/tag/swooshbuckler-v2.0.0)
+[![Download Swooshbuckler v2.1.0](https://img.shields.io/badge/download-v2.1.0-d00a35?style=for-the-badge)](https://github.com/samueljustice/plugins/releases/tag/swooshbuckler-v2.1.0)
 
 Or get every Sammy J plug-in at once, Swooshbuckler included, with one installer that always has the newest version of each (its file names carry the date and time it was built):
 
@@ -53,9 +53,7 @@ What's changed in each version is in the [changelog](CHANGELOG.md).
 
 ## Quick start
 
-No sounds to hand? Click **Load Demo Sounds** in the empty Tracks panel. It fills four tracks with a growl, a wind bed, air swishes and hits, so you can press Play and hear the rig straight away.
-
-1. **Drop sounds into Tracks**, or click the drop zone to browse. Anything works: cloth, air, engines, animals, metal, voices. Each file gets its own looping track. Swooshbuckler finds the separate sounds in it, guesses what type of sound it is, and sends it to Bus A, Bus B or the Hits.
+1. **Drop sounds into Tracks**, or click the drop zone to browse. Anything works: cloth, air, engines, animals, metal, voices. Each file gets its own looping track. Swooshbuckler finds the separate sounds in it, guesses what type of sound it is, and sends it to Bus A, Bus B, Stowaway or the Hits.
 2. **Press Play.** With **Auto Ride** on (it is by default), every track's fader moves by itself at its own speed. When the layers swell together you get a whoosh.
 3. **Shape it** with Energy, Rate and Chaos, or try a preset or **Randomise**.
 4. **Arm the tape** (Arm). It records whenever there's sound and skips the quiet stretches. Click again to stop and close the file.
@@ -68,25 +66,28 @@ Every knob is a ship's wheel with a sand pointer, and under it its name and its 
 ## How it works
 
 ```
- Tracks ─┬─> Bus A (tonal, crackle, rumble, mixed) ─┐
-         ├─> Bus B (beds, air)  <── ducked by A ────┼─> Output ─> tape
+ Tracks ─┬─> Bus A (tonal, crackle, mixed) ─────────┐
+         ├─> Bus B (beds, air)  <── ducked by A ────┤
+         ├─> Stowaway (rumble) ─────────────────────┼─> Output ─> tape
          └─> Hits (impacts) <── gate opens on A + B ┘
 ```
 
 1. **Tracks** loop your sounds. The ride moves each track's fader, so the layers rise and fall on their own.
 2. Each track's **sound type** decides where it plays, unless you choose the bus yourself on the lane's bus tag:
-   - **Bus A** gets Tonal Content, Crackle, Rumble and Mixed Content.
+   - **Bus A** gets Tonal Content, Crackle and Mixed Content.
    - **Bus B** gets Energy Bed and Air / Swish.
+   - **Stowaway** gets Rumble while it is switched on and its Mode is Sub. Otherwise Rumble plays on Bus A.
    - **Hits** gets Impact.
 3. **Bus A and Bus B** each turn their tracks into moving sources: doppler passes that fly across the stereo field, with low end, swirl, an envelope filter and drive. Bus A is the key for Bus B: when A gets loud it ducks and darkens B, so the two don't pile up.
-4. **Hits** only play when the hit gate opens. By default the gate opens at the loudest moments of the two buses, so the impacts land on the biggest swells and push the buses out of the way.
-5. **Output** adds echoes and reverb, makes it louder and denser, and limits it. The tape and Last 60 s record exactly what you hear.
+4. **Stowaway** is one extra bus beside the two. It is optional: it starts switched off, and its plate has an **On / Off** switch. Its **Mode** decides what it is. In **Sub** it is the rig's sub: only the low end of its tracks comes through, in mono, swelling with Bus A's passes. In **Wake** it is a trail: it opens as Bus A falls away, behind the pass that has just gone by. In **Fly** it is a third mover, with doppler passes of its own. In **Dry** its tracks are only ridden, and go past Space straight to the output stage. A [throw](#throw) reaches it in every mode. The hits duck it like the buses, except in Sub, when the low end stays under the hit. See [Stowaway](#stowaway).
+5. **Hits** only play when the hit gate opens. By default the gate opens at the loudest moments of the two buses, so the impacts land on the biggest swells and push the buses out of the way.
+6. **Output** adds echoes and reverb, makes it louder and denser, and limits it. The tape and Last 60 s record exactly what you hear.
 
 The small brass arrows between the sections show this flow, and a strip along the bottom of each section's panel shows the last 3 seconds of what it sends on.
 
 ## A tour of the window
 
-The window is a landscape one. The header runs along the top. Under it, side by side, are **Tracks** on the left and **the sea** on the right, which together take the top two fifths. Then a row of **Ride**, **Bus A** and **Bus B**; then **Hits** and **Output**, with the Hits' seven knobs directly under Bus A's; and **Modulation** along the bottom, with a hint and message line under it. Bus A, Bus B and the Hits share one knob spacing, so their knobs line up in columns.
+The window is a landscape one. The header runs along the top. Under it, side by side, are **Tracks** on the left and **the sea** on the right, which together take the top two fifths. Then a row of **Ride**, **Bus A** and **Bus B**; then **Hits** and **Output**, with the Hits' seven knobs directly under Bus A's; and along the bottom **Stowaway** at the left and **Modulation** beside it, with a hint and message line under them. Bus A, Bus B and the Hits share one knob spacing, so their knobs line up in columns; Stowaway's knobs keep the same spacing. Stowaway's plate is the one thing in the window that folds: folded it is slim and Modulation has the rest of the row; open, it shows its knobs and Modulation gives up the width (see [Stowaway](#stowaway)).
 
 The window resizes from its bottom right corner and keeps its shape; everything scales with it, from 85% up to 200%. The first time, it opens at its full size, or at the largest size that fits whole on your screen. After that it opens at the size you left it.
 
@@ -119,7 +120,7 @@ From left to right, in three groups with a thin rule between them: the transport
 | The star | **Keep This Roll**: saves the settings as they are as a preset of your own, called Roll, Roll 2 and so on. |
 | Tape (**Arm**) | The tape machine. See [Recording](#recording). It reads **Arm**, **Armed** (with a blinking red dot, waiting for sound) or **Rec mm:ss** (recording, reels spinning). |
 | **Last 60 s** | Saves the last minute of output to a file, even if the tape wasn't armed. With **Keep the Last** in Settings at 3 or 5 minutes it reads Last 3 Min or Last 5 Min and saves that much. |
-| **Variations** | Opens [Render Variations](#render-variations): a batch of whooshes rendered straight to files. While a batch renders it lights up and reads **Render 37%**. |
+| **Variations** | Opens [Render Variations](#render-variations): lots of versions of your sound rendered straight to files. While a batch renders it lights up and reads **Render 37%**. |
 | **Takes** | Opens [Takes](#takes): the recordings of this run, to hear, drag out, keep or delete. The number beside it is how many there are. |
 | **Settings** | Opens [Settings](#settings-and-recording): where recordings go and how they're written, and the audio device in the app. |
 
@@ -133,7 +134,6 @@ This is where your sounds live: up to ten files, each on its own looping lane. F
 
 **Loading sounds**
 
-- **Load Demo Sounds**, the button in the empty drop zone, fills four tracks with sounds Swooshbuckler makes on the spot (nothing is read from disk): **Demo Growl**, a creature's voice in five phrases, on Bus A; **Demo Wind Bed**, eight seconds of gusting wind in stereo that loops without a seam, on Bus B; **Demo Swish**, six air swishes of different lengths, on Bus B; and **Demo Hit**, a thump, a crack, a clang and a boom, on the Hits. They are the same every time, they behave like any sound you load, and one Undo (Cmd+Z) takes all four out again. With fewer than four tracks free it loads as many as fit.
 - Drag audio files onto the drop zone, or anywhere in the window, or click the drop zone to browse. You can pick several files at once.
 - Each file takes the next empty track. Drop a file onto a lane that already has a sound to replace it.
 - Swooshbuckler reads WAV, AIFF, FLAC, OGG and MP3, and on macOS also CAF and M4A.
@@ -171,7 +171,7 @@ This is where your sounds live: up to ten files, each on its own looping lane. F
 |---|---|---|
 | Tonal Content | Sounds with a pitch or a voice: growls, squeals, creatures, tones. | Bus A |
 | Crackle | Busy, broken-up texture: fire, debris, sparks. | Bus A |
-| Rumble | Low end: sub, thunder, rumble. | Bus A |
+| Rumble | Low end: sub, thunder, rumble. | Stowaway while it is on and its Mode is Sub, otherwise Bus A |
 | Mixed Content | A bit of everything, or no single clear type. | Bus A |
 | Energy Bed | Steady sound with body: wind, drones, engines, rain. | Bus B |
 | Air / Swish | Air movement: swishes, cloth, flaps, sword swings. | Bus B |
@@ -182,7 +182,7 @@ This is where your sounds live: up to ten files, each on its own looping lane. F
 A track plays on the bus its sound type picks until you say otherwise. Click the **bus tag** on its lane (or right-click the lane and open **Plays On**) and choose:
 
 - **Auto**: the bus the type picks, as in the table above. The menu says which that is. This is the default.
-- **Bus A**, **Bus B** or **Hits**: the track plays there whatever its type. The tag is marked ` *`.
+- **Bus A**, **Bus B**, **Hits** or **Stowaway**: the track plays there whatever its type. The tag is marked ` *`. A Stowaway track's tag carries an **S**, and its lane takes Stowaway's kelp green. Choosing Stowaway while it is switched off switches it on, and the status line says so. If Stowaway is switched off later, the tracks sent to it wait: they are not heard, on Stowaway or anywhere else. A waiting lane rests, so it is plain why it is silent: its colour is dimmed, its ride line lies still along the bottom, no playhead runs over it and its tag shows a hollow **S**, until Stowaway is switched on again.
 
 The type, and the name the track takes from it, stay as they are, so a growl can sit under the beds on Bus B, or a swish can go through the hit gate, and still be called what it is. The choice is saved with the session and can be undone. Dropping a new sound on the lane puts it back on Auto.
 
@@ -217,6 +217,7 @@ The sea at the top right pictures what the rig is sending out. It is the largest
 - **The waves** are the output's spectrum, lows on the left and highs on the right. The newest wave is at the front, and older ones roll away towards the horizon, going colder and hazier with distance. The water has its own colours, so nothing on it is mistaken for a bus.
 - **Each doppler pass** is a glowing ball that arcs across the sea, in its bus's colour (coral for Bus A, turquoise for Bus B). It comes closer the closer the pass, glows brighter the louder it is, and leaves a bump in the water under it that rolls away with the swell. A label above it names the bus, and the track too when only one track plays on that bus ("Bus B · Energy Bed"). Labels keep off the panel's name, the recording lamp and the Morph button, and off each other.
 - **A thrown whoosh** is the same comet in brass, and brighter, labelled Throw.
+- **Stowaway** shows in its kelp green, by its Mode, with its name (and its track's, when only one plays on it). In **Sub** the whole swell lifts with its level and the water takes its colour. In **Wake** a trail lies on the water where Bus A's comet has just been. In **Fly** it is a third comet. In **Dry**, which does not move, it is a lantern floating in the middle of the water that glows with its level. Switched off, it shows nothing.
 - **A hit** fires a short cherry glow along the horizon and a ring widening on the water.
 - **The moon** hangs in the left of the sky with its glitter path on the water below it. Its halo warms and widens while the limiter is holding the output down.
 - **Every so often the mark appears in the stars**: brighter stars on the outline of the logo, joined by faint lines. It twinkles for a few seconds and fades away. It also comes out when a take is put away.
@@ -343,6 +344,7 @@ A wide ambience should stay wide. When a stereo sound plays on **Bus B** with **
 - **Width** scales it too: at 0% everything sits in the middle, mono. A pass that has travelled far to one side narrows on its way out, so the bed is never wider than its source.
 - Low End, Swirl, Filter and Drive work on the mono sum, as they do for every sound; the width is added back after them at a matching level.
 - Bus A, the Hits, thrown whooshes and Fly-By passes always play the mono sum: a fly-by is one point going past. So do a track with **Vari** off and a sound that is being morphed.
+- [Stowaway](#stowaway) in **Dry** keeps a stereo sound's width as well, by its own Width knob.
 - A mono file is not touched by any of this. A session stores the extra stereo information only for the sounds that have it.
 
 Bus A ("growls, tones, crackle, rumble - and the key for B") is the aggressive bus. Bus B ("air and beds, ducked and filtered by A") sits under it.
@@ -367,6 +369,105 @@ Ducked and Filtered are what Bus A does to Bus B, so they sit in a tinted group 
 All the knobs run from 0 to 100%. How Bus B gets out of the way (turned down, darkened or just its mids) follows the **Duck** box in the Hits section, and how fast it comes back follows the Hits **Return** knob.
 
 The strip along the bottom of each bus's panel shows the last 3 seconds of what that bus sends on. Bus B's is drawn after A has ducked and filtered it, so a thin line under a busy Bus A means the ducking is working.
+
+### Stowaway
+
+One extra bus beside Bus A and Bus B, for a layer that should not fly about with the others, or that should fly on its own. A track gets there from its lane's bus tag (see [Choosing the bus](#choosing-the-bus)); Rumble goes there by itself while Stowaway is on and its Mode is Sub. Its switch (**Stowaway**), **Stowaway Mode** and its five knobs, **Follow**, **Low End**, **Filter**, **Drive** and **Width**, are in the host's parameter list, and the knobs can be wired to the [modulators](#modulation). The knobs keep their names in every mode, and read by the mode in use: when the Mode changes the host is told to read them again, and a value typed in the host is understood as the knob shows it in that mode (`95 Hz`, `Under 1 kHz`, `Over 300 Hz`, `Open`, `35%`).
+
+| Mode | What it is for | How a track gets there |
+|------|----------------|------------------------|
+| **Sub** | The low end under everything: planted in the middle, mono, swelling with Bus A. Only the low end of what you send it comes through. | A Rumble track goes there by itself. Any other track: choose Stowaway on its bus tag. |
+| **Wake** | A trail behind each of Bus A's passes: debris, spray, a tail of air. | Choose Stowaway on the track's bus tag. |
+| **Fly** | A third thing in the air, with doppler passes of its own. | Choose Stowaway on the track's bus tag. |
+| **Dry** | A layer that stays what it is: ridden, and nothing else. | Choose Stowaway on the track's bus tag. |
+
+To hear it straight away, load a low rumble and switch Stowaway on: it moves there and becomes the sub. Five of the [factory presets](#presets-and-randomise) are built around it, one or two for each mode. How far each knob goes in each mode is measured in the [knob audit](docs/knob-audit.md#stowaway).
+
+#### On / Off, and the plate
+
+<img src="docs/images/stowaway.png" width="356" alt="Stowaway's plate, open"> <img src="docs/images/stowaway-folded.png" width="180" alt="Stowaway's plate, off and folded">
+
+Stowaway is optional, so it starts switched **off**, and its plate sits folded at the bottom left of the window, beside Modulation.
+
+- **On / Off** is the switch beside its name, with the word **On** or **Off** next to it. Off, the whole plate rests: it is darker, the **S** on its nameplate is hollow and the window where its scope runs reads **Off**. Stowaway is then silent and does no work, and tracks sent to it wait unplayed (they do not move to Bus A or Bus B). On, the **S** and the switch light up in kelp green and a lit line runs along the top of the plate. Switching fades Stowaway in or out over 60 ms, so it never clicks. The switch can be automated.
+- **Sending a track to Stowaway switches it on.** Choosing Stowaway in a lane's bus menu while it is off turns it on in the same step (one Undo takes back both), so a track is never left waiting by accident.
+- **Presets and Randomise.** A preset that uses Stowaway switches it on. No preset, and no roll of the dice, ever switches it off.
+- **The chevron** at the right of the plate, or a click on the nameplate, opens and folds it. Folded, it shows the switch, the Mode, a line saying what Stowaway is at the moment, and its scope. Open, it shows the five knobs, its die and its lock as well, and Modulation gives up the room. It opens by itself the first time you switch Stowaway on. Whether it is open is saved with the session, and folding it changes nothing about the sound.
+- **A knob that does nothing in the current Mode rests** (hollow), and its tooltip says why: Width in Sub, Low End and Drive in Dry. While Stowaway is off all five rest, and can still be set.
+- **The strip** along the bottom of the plate shows the last 3 seconds of what Stowaway sends on.
+
+#### Sub
+
+The mode Stowaway starts in. It is planted in the middle with no doppler, and whatever you send it, only its low end comes through: a full-range roar on Stowaway gives you its rumble and nothing else. In order: a 20 Hz high-pass, the crossover, Low End, Drive, a safety low-pass, then Follow.
+
+| Knob | Starts at | What it does |
+|------|-----------|--------------|
+| **Follow** | 70% | How much the sub swells with Bus A's passes. At 0% it is a steady sub. At 100% it rises and falls as far as Bus A does, and each 10% takes on a tenth of that swell. The sub is turned up as Follow rises, by as much as the swell it is following takes away (about 4.5 dB at 100% under a typical bed, never more than 6 dB), so on average it stays as loud and only its movement changes. |
+| **Low End** | 0% | Adds a note an octave below what came through the crossover, and overtones just above it, which is what lets a small speaker hear the sub. |
+| **Filter** | 120 Hz | The crossover, from 40 to 250 Hz. It is steep: 48 dB per octave, and with the low-pass that follows it sound one octave above the crossover is more than 60 dB down (62 to 68 dB, measured with white noise) and two octaves above it is gone (more than 140 dB down). |
+| **Drive** | 0% | Thickens the sub and flattens its swell. It works against the sub's own level, so it does the same to a quiet rumble as to a loud one, and it turns the sub up by less than 2 dB over its whole travel (it sounds like more, because the overtones it adds are easier to hear than the sub under them). |
+| **Width** | Mono | Not used: a sub is mono, the same in both speakers. |
+
+- **What Follow goes by.** Bus A's level against its own recent peak and, the stiller the faders are, how near Bus A's pass is. While the sub has a bus to follow, its own tracks are not ridden: Bus A is its swell. If no track is playing on Bus A it follows Bus B the same way. If none is playing on either, its tracks are ridden like any others and Follow sets how deep, so the sub is never stuck silent.
+- **Low End and Drive cannot brighten it.** They come after the crossover and are followed by a second low-pass at 1.6 times the crossover, so what they add stays within about an octave above it.
+- **Mono, before Space.** The sub itself is one signal, the same in both speakers. It then goes through [Space](#output) with the rest of the rig, and Space's echoes and reverb spread a little of it to the sides (about 20 dB under the sub with Space at 30%). With Space at 0% the left and right are identical.
+- **Its delay.** A filter this steep holds the low end back by about two cycles of the crossover frequency: 15 ms at 120 Hz, 50 ms at 40 Hz. Follow is applied after the filter, so the swell itself is never late.
+
+#### Wake
+
+A trail behind Bus A. Stowaway is shut while a pass of Bus A's comes in and goes by, opens just behind it as Bus A falls away, and fades as the pass leaves, so every pass drags its own wake. Its tracks are not ridden: the trail is what moves them.
+
+| Knob | Starts at | What it does |
+|------|-----------|--------------|
+| **Follow** | 70% | How far the trail shuts between passes. At 0% it is a steady layer; at 100% it is silent until Bus A falls away. Each 10% shuts it about as much further. The trail is turned up as Follow rises (never by more than 12 dB), so on average it stays as loud wherever the knob is. |
+| **Low End** | 0% | Adds a note an octave under the trail's low band, its overtones, and a low lift of up to 5 dB. |
+| **Filter** | Open | A tilt. In the middle it is open. Below the middle it is a low-pass that closes from 18 kHz down to 150 Hz; above the middle it is a high-pass that rises from 20 Hz to 2.5 kHz. The readout says what gets through: **Under 670 Hz**, **Open**, **Over 550 Hz**. |
+| **Drive** | 0% | Thickens the trail. It works against the trail's own level, so it does the same to a quiet sound as to a loud one, and it does not turn it up. |
+| **Width** | 100% | How far out the trail sits. At 0% it is in the middle. |
+
+- **What it goes by.** Two things. Bus A's level: every drop opens the trail (fully once Bus A is 12 dB down from where it was) and every rise shuts it. And Bus A's passes: the trail blooms over the first quarter of a pass's way out and fades over the rest. The passes count for everything in Fly-By, and in Bed for more the stiller the faders are, since a ridden bed rises and falls with its rides. With no sound on Bus A at all the passes are all there is to go by, so Wake is never stuck silent.
+- **Where it sits.** On the side Bus A's outgoing pass is heading, half as far out as the pass has got, so it is always behind it. Width scales that.
+- **A throw leaves a trail too**: it blooms behind the throw's peak and is gone with its tail, with the rig playing or from rest.
+
+#### Dry
+
+Riding only. Stowaway's tracks play at their faders and rides and skip everything else: no movement, no Fill echoes, no Space, and the Everything tremolo leaves them alone. They join the mix after Space, straight into the output stage (Loudness, Density and the limiter still act on them). Use it for a layer that must stay exactly what it is: a voice, a production sound, a guide.
+
+| Knob | Starts at | What it does |
+|------|-----------|--------------|
+| **Follow** | 70% | How much of the ride its tracks keep. At 0% they sit still at their faders; at 100% they are ridden as deep as any other track. They are turned up to match, so on average they stay as loud. |
+| **Low End** | 0% | Not used. |
+| **Filter** | Open | The same tilt as in Wake: a low-pass below the middle, open in the middle, a high-pass above it. |
+| **Drive** | 0% | Not used. |
+| **Width** | 100% | How wide a stereo sound plays: 100% is as wide as the file, 0% is mono. A mono file is in the middle whatever the knob says. |
+
+A stereo file keeps its left and right in Dry while the track's **Vari** is on (a track with Vari off plays its mono sum, as on Bus B). In Sub, Wake and Fly a stereo file plays its mono sum.
+
+#### Fly
+
+A third mover. Stowaway's tracks fly their own doppler passes, apart from Bus A's and Bus B's: one pass at a time, each a long approach, a peak as it goes by and a shorter tail, with the pitch bending up on the way in and down on the way out. Its tracks are ridden and take Fill echoes like any track on a bus. The passes have a fixed, medium doppler (there is no Doppler or Bend knob here); how fast they come follows **Rate** and how much they vary follows **Chaos**, as on the buses.
+
+| Knob | Starts at | What it does |
+|------|-----------|--------------|
+| **Follow** | 70% | How closely its passes are tied to Bus A's. At 0% they keep their own time. At 100% every pass is at its closest at the same moment as one of Bus A's, so the two go by together. In between, each pass is pulled part of the way towards landing on one of Bus A's. |
+| **Low End** | 0% | Adds a note an octave under its low band, its overtones, and a low lift of up to 5 dB. |
+| **Filter** | Open | The same tilt as in Wake: a low-pass below the middle, open in the middle, a high-pass above it. |
+| **Drive** | 0% | Thickens it. It works against the sound's own level, so it does the same to a quiet sound as to a loud one, and it does not turn it up. |
+| **Width** | 100% | How far across the stereo field each pass travels. At 0% the passes stay in the middle (they still swell and bend). |
+
+- **Its passes are its own.** How close each one comes and which way it goes are drawn from a random source of Fly's own, started from the same seed as the rest of the rig. So a bounce or a set of [Variations](#render-variations) repeats exactly, and nothing Fly does moves Bus A's or Bus B's passes.
+- **The colours come first.** Low End, Filter and Drive act on the sound before it flies, so the pass carries them with it.
+- **Aim, Link and Pass Mode leave it alone.** The hits are aimed at Bus A's and Bus B's passes only, Link is between those two buses, and Fly's passes are always Fly-Bys.
+- **A throw** is flown here as well: the same pass as on the buses, at the same moment, with Stowaway's Width.
+- **A marker** is written where each of its passes is at its closest (see [Markers](#recording)).
+- **It sleeps when it has nothing to play.** With no track on Stowaway, a silent one, or the rig stopped and its last passes rung out, Fly does no work at all. Flying, it costs under 1% of one processor core at 48 kHz (0.9% measured), a little less than one of the buses.
+- **How loud it is.** Over time, as loud as the other three modes are with the same sound. It is silent between passes and its tracks are ridden, so each pass is louder to make up for both: at the starting settings about 7 dB louder than the same sound flying by on Bus A. Pull the track's fader down if its passes stand too far out.
+
+#### Changing the Mode
+
+A change of Mode never clicks, by hand or under automation: Stowaway fades out over 30 ms, changes over while it is silent, and fades back in over 30 ms. A track that changes bus (by hand, or a Rumble as the Mode enters or leaves Sub) is faded across in the same way, over 10 ms.
+
+The modes are matched in level: with the same sound on Stowaway and everything where it starts, all four come out within about 1.5 dB of each other over a minute and a half (measured on a low drone, a low bed and gappy low bursts: 0.4, 1.2 and 0.8 dB apart). So changing the Mode changes what Stowaway does, not how loud it is.
 
 ### Hits
 
@@ -424,15 +525,15 @@ If the gain reduction number is coral all the time, back off Push or raise Ceili
 
 ### Modulation
 
-<img src="docs/images/modulation.png" width="1500" alt="Modulation">
+<img src="docs/images/modulation.png" width="1312" alt="Modulation">
 
-Four modulators run along the bottom: **Mod 1** (lilac), **Mod 2** (sky blue), **Mod 3** (rose) and **Mod 4** (lime). Each can be one of four types, picked from the upper of the two menus at the left of its card:
+Four modulators run along the bottom, beside Stowaway's plate: **Mod 1** (lilac), **Mod 2** (sky blue), **Mod 3** (rose) and **Mod 4** (lemon). Each can be one of four types, picked from the upper of the two menus at the left of its card:
 
 | Type | What it does | Knob |
 |---|---|---|
 | **LFO** | A repeating wave that swings each wired knob up and down. The shape menu offers Sine, Triangle, Ramp (rises then drops), Square and Steps (a new random value every cycle). | **Rate**: one cycle every 20 s (0.05 Hz) to 8 Hz |
 | **Random** | A smooth random wander up and down, never the same twice. | **Rate**: as above |
-| **Follower** | Follows the loudness of **Bus A**, **Bus B**, the **Hits** or the whole **Output**, or the [Master track](#the-master-track): **Master** (its loudness), **Master Pitch** or **Master Brightness**, each read where the Master is playing and spread over that sound's own range. Pick which in the menu under the type. It turns its knobs one way only. The Master inputs rest until a track is the Master. | **Speed**: slow and smooth (2 s) to fast and jumpy (15 ms) |
+| **Follower** | Follows the loudness of **Bus A**, **Bus B**, the **Hits**, **Stowaway** or the whole **Output**, or the [Master track](#the-master-track): **Master** (its loudness), **Master Pitch** or **Master Brightness**, each read where the Master is playing and spread over that sound's own range. Pick which in the menu under the type. It turns its knobs one way only. The Master inputs rest until a track is the Master. | **Speed**: slow and smooth (2 s) to fast and jumpy (15 ms) |
 | **Macro** | One knob that turns every knob it's wired to, each by its own depth. It's a host parameter, so you can automate it. | **Amount** |
 
 The defaults are Mod 1: LFO (Sine), Mod 2: LFO (Triangle), Mod 3: Random, Mod 4: Follower (Bus A). Every card is laid out the same way. Along its top are its jack, its name, a line that says what it is wired to ("1 wire - Bus B Swirl", or "No wires") and Clear. Under that are its two menus, a scope of what the modulator has done over the last few seconds, and its knob.
@@ -451,7 +552,7 @@ The defaults are Mod 1: LFO (Sine), Mod 2: LFO (Triangle), Mod 3: Random, Mod 4:
   - **Right-click** a plug for a menu: Invert, Depth 25%, 50% or 100%, or Pull Out the Wire.
   - **Alt-click** a plug to pull the wire out straight away.
 - **Clear** on a card pulls out all of that modulator's wires.
-- **Cables** (at the left of the panel, under its name) shows or hides the cables. A cable leaves its jack straight up, out of the top of its card. The plugs stay on the knobs either way. A cable comes up beside a knob's name and value and turns in to its plug, so it never covers them. Put the mouse on a modulator's card, or on one of its plugs, and its cables stand out while the others fade.
+- **Cables** (at the right of the panel's title bar) shows or hides the cables. A cable leaves its jack straight up, out of the top of its card. The plugs stay on the knobs either way. A cable comes up beside a knob's name and value and turns in to its plug, so it never covers them. Put the mouse on a modulator's card, or on one of its plugs, and its cables stand out while the others fade.
 - Several wires on one knob add together. You can have up to 48 wires in all.
 - Wires only move the value that reaches the sound. The knob itself never moves, so your DAW automation stays clean.
 - Wires and modulator settings are saved with the session. Presets and Randomise don't touch them, and New pulls them all out.
@@ -485,7 +586,7 @@ Click **Settings** to open. Close it with Close, Esc, or a click outside the pan
 
 - **The tape (Arm).** Click to arm. Everything goes into one file until you click the tape again, press New or close Swooshbuckler. The Rec timer counts only what's been written. A take with no sound in it leaves no file behind.
 - **One File per Whoosh** (off by default, in Settings). The armed tape writes a separate file for each whoosh, so a session of riding leaves a folder of numbered whooshes and not one long take to cut up. A whoosh has ended when the output has sat about 25 dB under its recent peaks for three quarters of a second (the same test Skip Silence uses, and the quiet between whooshes is always left out), or when a thrown whoosh has rung out with the rig stopped. Each file keeps the quarter second before its sound and its tail. Sounds with less than a fifth of a second of level in them are not kept, so clicks and blips don't become files. Each file appears in [Takes](#takes) as its whoosh ends. Whooshes that overlap, with no quiet between them, share a file.
-- **Markers.** WAV takes carry cue points with labels, so a long take arrives already spotted in Reaper, Soundminer and other tools that read them: **Pass A** and **Pass B** where a doppler pass on that bus goes by at its closest (with Link on the two buses fly the same passes, so only Pass A is written), **Throw** at the peak of a thrown whoosh, and **Hit** where an aimed or synced hit lands or the hit gate opens. Markers that fall together are one cue, such as "Throw + Hit". They are placed in the file itself, so they stay on their sounds when Skip Silence has left stretches out. AIFF, FLAC and Last 60 s files have no markers.
+- **Markers.** WAV takes carry cue points with labels, so a long take arrives already spotted in Reaper, Soundminer and other tools that read them: **Pass A** and **Pass B** where a doppler pass on that bus goes by at its closest (with Link on the two buses fly the same passes, so only Pass A is written), **Pass S** where one of Stowaway's own passes does (in Fly), **Throw** at the peak of a thrown whoosh, and **Hit** where an aimed or synced hit lands or the hit gate opens. Markers that fall together are one cue, such as "Throw + Hit". They are placed in the file itself, so they stay on their sounds when Skip Silence has left stretches out. AIFF, FLAC and Last 60 s files have no markers.
 - **What each file says about itself.** Every file carries a description: the Swooshbuckler version, the preset, and Energy, Rate, Fill, Chaos, Pitch, Space, the Pass Modes, Morph and Aim as they were when the file was started. It also names the Creator from Settings and the software. In a WAV these are the broadcast-wave description and originator and the INFO comment, artist and software; in an AIFF, comments; in a FLAC, the DESCRIPTION, ARTIST and ENCODER tags.
 - **Skip Silence** (on by default, in Settings). The tape judges quiet against the recent peaks, not against a fixed level, because a rig with a bed in it never falls truly silent. It stops rolling once the output has sat about 25 dB under the recent peaks (or under about −56 dBFS) for three quarters of a second, and starts again when the sound comes back, keeping the quarter second before it so attacks survive. Each join is faded over 30 ms. The recent peak is remembered for about 10 seconds and then follows the level down, so a quieter passage is recorded once it is the new normal. After Stop the tape keeps the whole tail, and once the rig has come to rest the tape stops rolling until the next Play. How much is left out depends on the sound: deep, slow swells (a high Energy, few layers) leave gaps to skip, while a busy rig with a steady bed is recorded almost whole. Switch Skip Silence off for one continuous take.
 - **If the disk can't keep up**, the tape buffers about 3 seconds of audio at any sample rate before anything is lost, and the message that names the saved file says how much is missing.
@@ -504,7 +605,7 @@ Click **Takes** in the header (or a "Saved ..." message) to open the list of thi
 |---|---|
 | Star | Keeps the take in the list. When the list is full the oldest take without a star leaves first. Leaving the list never deletes a file. |
 | Waveform and name | Click to hear the take; click again, or another take, to stop. It plays over whatever the rig is doing, after the tape, so it is never recorded. A line shows where it is. Drag the row out to the Finder or Explorer, or straight onto a track in your DAW, to copy the file there. |
-| Tag and length | What it is (Tape, Whoosh, Last 60s, Variation) and how long. A file that has been moved or deleted since reads Missing. |
+| Tag and length | What it is (Tape, Whoosh, Last 60s, Variation, or Variations for one file that holds a whole batch) and how long. A file that has been moved or deleted since reads Missing. |
 | **Show** | Shows the file in the Finder or Explorer. |
 | Bin | Moves the file to the system trash and takes it off the list. |
 
@@ -514,26 +615,31 @@ Click **Takes** in the header (or a "Saved ..." message) to open the list of thi
 
 <img src="docs/images/variations.png" width="1520" alt="Render Variations">
 
-Click **Variations** in the header to render a batch of whooshes straight to files, without playing them. Each file is one thrown whoosh (the same [Throw](#throw) as the Ride panel's), rendered from silence until its echoes and Space have rung out, with the silence in front taken off and a short fade at the very end. The files go through the same output stage as the tape (Inflate, Push, the limiter and its Ceiling, the tremolo, Space) and are not affected by Master Trim.
+Click **Variations** in the header to make lots of versions of your sound as files, without playing them. Spend twenty minutes dialling in a sound you like, then ask for 100 of it: the same settings, wires and modulation, with different passes each time.
 
-The batch renders in the background, much faster than real time (on the machine this was written on, 100 whooshes of 3 seconds take about 20 seconds), through a second copy of the rig made from your session at the moment you press Render. The rig you hear is never touched: it keeps playing, you can keep working, and nothing you change afterwards reaches the batch.
+The batch renders in the background, much faster than real time (on the machine this was written on, 100 whooshes of 3 seconds take about 20 seconds), through a second copy of the rig made from your session at the moment you press Render. The rig you hear is never touched: it keeps playing, you can keep working, and nothing you change afterwards reaches the batch. Every file goes through the same output stage as the tape (Inflate, Push, the limiter and its Ceiling, the tremolo, Space) and is not affected by Master Trim.
 
 | Control | What it does |
 |---|---|
-| **Count** | How many whooshes to render, from 1 to 1000. It starts at 100 and remembers what you set. |
-| **Length** | How long each thrown whoosh is, from 0.3 to 6 seconds; it peaks half-way through. It starts out as the Ride panel's Throw Length. Every file runs on after its whoosh until the tail has rung out (six seconds at the most), so the files are longer than this. |
-| **Batch Seed** | The number every file's random draws come from. The same seed, with the same settings and samples, renders the same batch again, sample for sample (16-bit files differ only in their dither); another seed renders another batch. **New Seed** draws a new one, and a new one is drawn after every batch unless you typed your own. |
-| **What Varies** | **Randomise Everything**: a fresh Randomise roll for every file, so the ride, the buses, the Hits and the space all change; your tracks, their levels, the output, every knob a roll doesn't name and any section you have locked stay as they are. **Small Changes**: every file starts from the settings as they are, nudges each of those controls by up to Amount, and starts each track a little further into its sample: a family of whooshes around one you like. **Seed Only**: the settings stay exactly as they are and only the rig's own dice change: how each pass flies, how close it comes and which sound of each track it picks. |
-| **Amount** | How far Small Changes may move each control: at 100%, up to half of its travel either way, and up to four semitones of Pitch. |
-| **Folder** | Where the files go. **Dated Folder** (the default) gives every batch a new folder of its own inside the recordings folder, named after the take name and the date and time. **Choose...** picks a folder that stays; numbers carry on after the files already there, so nothing is ever written over. |
+| **How Many** | How many variations to make, from 1 to 1000. It starts at 100 and remembers what you set. |
+| **What Each File Is** | **One Whoosh**: a single pass, like pressing [Throw](#throw): it starts from silence and runs until its echoes and Space have rung out, with the silence in front taken off and a short fade at the very end. **Whole Ride**: a stretch of the rig as you hear it with Play on, with the ride, the passes, the hits and the modulators all running. Two seconds are played first and left out, so a file never opens on the rig starting up from silence, and each end has a short fade so neither clicks. |
+| **Length** | One Whoosh: how long each whoosh takes to go by, from 0.3 to 6 seconds (it starts out as the Ride panel's Throw Length); the file runs on until the tail has rung out, so it is longer than this. Whole Ride: how many seconds go into each file, from 1 to 120. |
+| **What Varies** | **My Settings, New Passes** (where it starts): every knob, wire and modulator stays exactly as you set it; only the passes differ: how each one flies, how close it comes and which sound of each track it plays. **My Settings, Small Changes**: your settings with every sound-shaping knob moved a little either way, by up to How Different, and each track starting a little further into its sample: a family of sounds around the one you dialled in. **Randomise Everything**: a fresh Randomise for every file, so each is a different sound; your tracks, their levels, the output, every knob Randomise doesn't touch and any section you have locked stay as they are. |
+| **How Different** | Used with My Settings, Small Changes: how far each file may stray from your sound. Low keeps the files close cousins of what you dialled in; at 100% each knob can move up to half of its travel either way, and Pitch up to four semitones. |
+| **Batch** | **New Batch Every Time** (where it starts): every Render makes variations you have not had before. **Repeat Last Batch**: the same variations as the last batch again, sample for sample (16-bit files differ only in their dither), as long as your settings and sounds are the same: handy for the same whooshes in another file type, or with one knob changed. **Repeat Batch...** lists the last six batches by name, date and time. Repeating a batch also sets How Many, What Each File Is, Length and What Varies back to what that batch had. |
+| **File Names** | What the files are called: **Counter** (`Whoosh_001`, after the Take Name from Settings, or the preset's), **Date And Time** (`Whoosh_2026-11-13_1432_001`), **Preset And Counter** (`Jet Passes_001`) or **Batch Name And Counter** (a name you type in **Batch Name**: `Dragon Wings_001`). A batch that reaches 1000 gets four digits. The line under the folder shows what the first file will be called. Nothing is ever written over: numbers carry on after the files already in the folder. |
+| **Files** | **One File Per Variation** (where it starts), **One File With Markers**: every variation in one long file (`<name>_All`, or `<name>_All_2` and so on if that is taken), with a marker at the start of each named after the variation and **Gap** seconds of silence between them (0.5 s to start, up to 10 s), or **Both**. WAV files get cue points with labels and AIFF files markers, which DAWs and editors show; FLAC has no markers, so there the names and times are written into the file's comments. A WAV or AIFF file has no room for markers at 4 GB or more, so a long file that big is not started (FLAC has no such limit). In [Takes](#takes) the long file is one take. |
+| **Folder** | Where the files go. **Dated Folder** (the default) gives every batch a new folder of its own inside the recordings folder, named after the take name and the date and time. **Choose...** picks a folder that stays. |
 | **Render** | Starts the batch. |
-| **Cancel** | Stops it. The files already rendered are kept; the one in hand is dropped, so nothing half-written is left. |
+| **Cancel** | Stops it. The files already made are kept, and the long file is closed with the variations it has; the one in hand is dropped, so nothing half-written is left. |
 | **Show in Finder** / **Show in Explorer** | Shows the batch's folder. |
 | **Open Takes** | Opens [Takes](#takes), where the newest 20 of the rendered files can be heard, starred and dragged out. |
 
-While a batch renders the panel shows a progress bar with the percentage, which file it is on ("37 of 100" and the file's name) and an estimate of the time left. You can close the panel; the header button keeps showing the percentage, and the status line says when the batch is done. When it has finished the panel reads "100 files in" and the folder's name, with the batch seed underneath.
+Before you press Render the panel says what you will get: the first file's name and format, then how much it comes to, for example "100 files, one whoosh each: about 5 minutes of sound, ready in about 20 seconds." The time goes by how fast the last batch went on your machine. Under it a sentence says what the chosen What Varies gives.
 
-Files are named `<Name>_001`, `<Name>_002` and so on (four digits for a batch that reaches 1000), where the name is the Take Name from Settings, or the preset's. The file type, bit depth, sample rate and mono or stereo are the tape's, from Settings. Every file carries a description: which variation of which batch it is, the batch seed, and the value of every control it was made with, so a favourite can be dialled in again by hand or rendered again from its seed.
+While a batch renders the panel shows a progress bar with the percentage, which variation it is on ("37 of 100" and its name) and roughly how long is left. You can close the panel; the header button keeps showing the percentage, and the status line says when the batch is done. When it has finished the panel says what was made and where, with the batch's number in small print underneath.
+
+The file type, bit depth, sample rate and mono or stereo are the tape's, from Settings. Every file carries a description: which variation of which batch it is, the batch's number, and the value of every control it was made with, so a favourite can be dialled in again by hand.
 
 If the rig has nothing to play (no samples loaded and every lane muted, say) the batch stops with a message and writes no files.
 
@@ -564,7 +670,7 @@ Click the **Swooshbuckler** title or the version number to open it. It shows the
 
 ## In a DAW
 
-- **Put it on an instrument track.** Swooshbuckler is an instrument (a generator): it makes sound from the tracks you load into it, not from the audio of the track it sits on. Use an instrument or software-instrument track (VST3 or AU), then open the window and drop your sounds in, or click Load Demo Sounds.
+- **Put it on an instrument track.** Swooshbuckler is an instrument (a generator): it makes sound from the tracks you load into it, not from the audio of the track it sits on. Use an instrument or software-instrument track (VST3 or AU), then open the window and drop your sounds in.
 - **Follow Host** (in the header, on by default) starts and stops the rig with the transport. Every start begins the ride from the same place, so a bounce of the same project is the same every time, including the modulators and the morph's Wander.
 - **The tail is bounced too.** Swooshbuckler tells the host its tail can last up to 6.5 seconds, so a bounce or a freeze that respects plug-in tails keeps the ring-out after the transport stops.
 - **Play is a parameter.** Automate it to start and stop the rig at exact places, with Follow Host on or off.
@@ -577,11 +683,23 @@ Click the **Swooshbuckler** title or the version number to open it. It shows the
 
 ## Presets and Randomise
 
-The factory presets are **Steady Energy**, **Jet Passes**, **Monster Swells**, **Gentle Breeze**, **Fast and Furious**, **Magic Dust** and **Heavy Hits**. Pick one from the preset name, or step through them with **<** and **>**. Every control glides to its new setting while it plays, so you can switch mid-whoosh. Grab a knob during the glide and your move wins.
+The factory presets are **Steady Energy**, **Jet Passes**, **Monster Swells**, **Gentle Breeze**, **Fast and Furious**, **Magic Dust** and **Heavy Hits**, and five built around [Stowaway](#stowaway): **Sub Under Jets**, **Deep Quake**, **Debris Wake**, **Three Movers** and **Dry Rider**. Pick one from the preset name, or step through them with **<** and **>**. Every control glides to its new setting while it plays, so you can switch mid-whoosh. Grab a knob during the glide and your move wins.
 
-A preset is a complete look: every control it owns that it doesn't set goes back to its default. The presets set Pass too: **Jet Passes**, **Monster Swells** and **Fast and Furious** put Bus A on Fly-By, and the others use Bed on both buses.
+A preset is a complete look: every control it owns that it doesn't set goes back to its default. The presets set Pass too: **Jet Passes**, **Monster Swells**, **Fast and Furious**, **Sub Under Jets**, **Deep Quake** and **Debris Wake** put Bus A on Fly-By, **Three Movers** puts both buses on Fly-By, and the others use Bed on both buses.
 
-**Randomise** rolls Energy, Rate, Fill, Chaos and Pitch (whole semitones from −7 to +7), the bus knobs (Doppler, Width, Bend, Low End, Swirl, Filter and Drive, plus Ducked and Filtered on B), the hit knobs (Sensitivity, Boost, Release and Duck) and Space. Width stays between 35% and 100% and Bend between 30% and 90%, so a roll never leaves a pass stuck in the middle or screaming. Only those knobs move. Everything a roll doesn't name stays exactly where you set it: Hold, Floor, Return, each bus's Pass menu, Throw Length, the morph's dot and mode.
+The five Stowaway presets switch Stowaway on and set its Mode and knobs. A preset never moves a track, so in Wake, Fly and Dry there is nothing on Stowaway until you send a track there from its lane's bus tag; in Sub a Rumble track goes by itself. Until then Stowaway is on and silent, and the rest of the preset plays as it is. Choosing one of these presets with nothing on Stowaway says so in the status line (**Stowaway is on with nothing on it: send it a track from a lane's bus tag**), so it is never a mystery.
+
+| Preset | Stowaway | What to put on it |
+|--------|----------|-------------------|
+| **Sub Under Jets** | **Sub**, crossover 100 Hz, Follow 90%, a little Low End and Drive. Bus A flies fast fly-bys over it. | A rumble, or anything with weight: only its low end is used. |
+| **Deep Quake** | **Sub**, crossover 70 Hz, Low End 70%, Drive 45%, under slow, deep swells pitched down. | The same. |
+| **Debris Wake** | **Wake**, Follow 100%, Width 85%, the Filter thinning its low end. Bus A on Fly-By, so every pass drags a trail. | Debris, spray, rattle, a tail of air. |
+| **Three Movers** | **Fly**, Follow 0% (its own time), Width 100%, with both buses on Fly-By. | A third source to fly: another engine, a voice, a tone. |
+| **Dry Rider** | **Dry**, Follow 60%, Width 100%, over buses with plenty of Swirl, Drive and Space. | Whatever must stay itself: a voice, a production sound. |
+
+The other seven leave Stowaway's switch where it is, and put its Mode back to Sub and its knobs back where they start.
+
+**Randomise** rolls Energy, Rate, Fill, Chaos and Pitch (whole semitones from −7 to +7), the bus knobs (Doppler, Width, Bend, Low End, Swirl, Filter and Drive, plus Ducked and Filtered on B), the hit knobs (Sensitivity, Boost, Release and Duck), Space, and Stowaway's five knobs (never its Mode or its switch). Width stays between 35% and 100% and Bend between 30% and 90%, so a roll never leaves a pass stuck in the middle or screaming. Only those knobs move. Everything a roll doesn't name stays exactly where you set it: Hold, Floor, Return, each bus's Pass menu, Throw Length, the morph's dot and mode.
 
 Presets and Randomise set the sound, not your session. They leave these alone:
 
@@ -597,7 +715,7 @@ Presets and Randomise set the sound, not your session. They leave these alone:
 
 ### Section dice and locks
 
-Each of Ride, Bus A, Bus B, Hits and Output has a small die and a small padlock in its title bar.
+Each of Ride, Bus A, Bus B, Hits and Output has a small die and a small padlock in its title bar, and so has Stowaway while its plate is open.
 
 - **The die** rolls just that section and leaves everything else where it is. The Output die rolls Space and, gently, Inflate (up to 50%) and Push (up to +6 dB); the header's Randomise never touches those two.
 - **The lock** keeps that section out of the header's Randomise, and out of Randomise Everything in [Render Variations](#render-variations). Lock the bus you like and keep rolling the rest. A locked section's own die still rolls it. The locks are saved with the session.
@@ -677,7 +795,7 @@ Esc closes Settings, Takes, Render Variations or About; a batch that is renderin
 | Cmd-drag a knob (Ctrl on Windows) | Sets the depth of its newest wire. See [Modulation](#modulation). |
 | Double-click a track name | Renames it. |
 | Double-click a waveform | Puts the start flag back at the top. |
-| Click a lane's bus tag | Chooses the track's bus: **Auto**, **Bus A**, **Bus B** or **Hits**. See [Choosing the bus](#choosing-the-bus). |
+| Click a lane's bus tag | Chooses the track's bus: **Auto**, **Bus A**, **Bus B**, **Hits** or **Stowaway**. See [Choosing the bus](#choosing-the-bus). |
 | Click a lane's star | Makes that track the [Master](#the-master-track). |
 | Right-click a track lane | The track's menu: **Master Track**, **Match Pitch to Master** and **Plays On**. |
 | Drag from the **A** or **B** handle under the morph pad onto a track | Ropes that side of the morph to the track. Double-click the handle to let the rope go. See [Morph pad](#morph-pad). |
@@ -706,6 +824,7 @@ Right-click a knob (or hold Alt and double-click it) and a small box opens on it
 - Units are optional and are the ones the knob shows: `-12 dB`, `4.2 s`, `35%`, or just `-12`, `4.2`, `35`.
 - Milliseconds and seconds are converted, so `0.3 s` on a knob that shows `300 ms` is understood, and a bare number is read in the unit showing at that moment.
 - Words the knob shows work too: `Rate` on Throw Length, `Off` on Duck, `-inf` on a fader.
+- Stowaway's Filter outside Sub reads which side it is on, and takes the same: `Under 1 kHz`, `Over 300 Hz` or `Open`. A number alone (`1 kHz`) is found on the side the knob is on, or on the other when only that side reaches it.
 - A value out of the knob's range goes to the nearest end. Text that isn't a value changes nothing.
 - A typed value is one Undo step.
 
@@ -752,7 +871,7 @@ cmake -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build --config Release
 ```
 
-This builds the app, the VST3 and the AU (macOS) into `build/Swooshbuckler_artefacts/Release/`, along with the offline test programs: `SwooshbucklerRig`, `SwooshbucklerCargo`, `SwooshbucklerClassify`, `SwooshbucklerPitch`, `SwooshbucklerMorph`, `SwooshbucklerMaster`, `SwooshbucklerSession`, `SwooshbucklerRender`, `SwooshbucklerKeep`, `SwooshbucklerRouting`, `SwooshbucklerFirstRun` and `SwooshbucklerUi`. Pass `-DSWOOSHBUCKLER_TESTS=OFF` to skip the tests, or `-DSWOOSHBUCKLER_FORMATS="Standalone;VST3"` to choose the formats.
+This builds the app, the VST3 and the AU (macOS) into `build/Swooshbuckler_artefacts/Release/`, along with the offline test programs: `SwooshbucklerRig`, `SwooshbucklerCargo`, `SwooshbucklerClassify`, `SwooshbucklerPitch`, `SwooshbucklerMorph`, `SwooshbucklerMaster`, `SwooshbucklerSession`, `SwooshbucklerRender`, `SwooshbucklerKeep`, `SwooshbucklerRouting`, `SwooshbucklerStowaway`, `SwooshbucklerFirstRun` and `SwooshbucklerUi`. Pass `-DSWOOSHBUCKLER_TESTS=OFF` to skip the tests, or `-DSWOOSHBUCKLER_FORMATS="Standalone;VST3"` to choose the formats.
 
 ### Version
 
@@ -760,7 +879,7 @@ The version lives in one place, `SWOOSHBUCKLER_VERSION` in [CMakeLists.txt](CMak
 
 ### Looking at the interface
 
-`SwooshbucklerUiShot` draws the real window offline, with the demo sounds playing, and writes PNG files: the whole window, one picture per panel, and every panel and menu that opens over it. It also checks every text it draws: that it fits its box, is no smaller than the smallest size, sits on no other text and is capitalised by the one rule (Title Case for control names, sentence case for sentences, capitals only for single letters and acronyms). It exits with an error when a text fails, so run it after changing anything you can see. `SwooshbucklerUi`, one of the test programs, runs the same checks at three window sizes.
+`SwooshbucklerUiShot` draws the real window offline, with five sounds of its own playing (made in the tool, in [tools/DemoSounds.cpp](tools/DemoSounds.cpp); the app and plug-in have none of them), and writes PNG files: the whole window, one picture per panel, and every panel and menu that opens over it. It also checks every text it draws: that it fits its box, is no smaller than the smallest size, sits on no other text and is capitalised by the one rule (Title Case for control names, sentence case for sentences, capitals only for single letters and acronyms). It exits with an error when a text fails, so run it after changing anything you can see. `SwooshbucklerUi`, one of the test programs, runs the same checks at three window sizes.
 
 ```bash
 cmake -B build -DSWOOSHBUCKLER_TOOLS=ON
@@ -768,7 +887,7 @@ cmake --build build --target SwooshbucklerUiShot
 ./build/SwooshbucklerUiShot_artefacts/Release/SwooshbucklerUiShot --out ui-shots --scale 1.0 --list
 ```
 
-`--scale` takes 0.5 to 2.0, `--list` prints every text with its box and every panel with its bounds (a panel that runs into another, or out of the window, is a fault), `--sea` adds a picture of the sea at each of its moments and times a frame of it, and `--state` opens a session file instead of the demo sounds. The colours, spacing and type sizes all live in [Source/Theme.h](Source/Theme.h).
+`--scale` takes 0.5 to 2.0, `--list` prints every text with its box and every panel with its bounds (a panel that runs into another, or out of the window, is a fault), `--sea` adds a picture of the sea at each of its moments and times a frame of it, and `--state` opens a session file instead of the tool's own sounds. The colours, spacing and type sizes all live in [Source/Theme.h](Source/Theme.h).
 
 ### The pictures in this manual
 

@@ -1,8 +1,9 @@
 // First-run test: the real plug-in (no window) and the pieces behind the first-run features.
 //
-//   - Demo sounds: each of the four is typed correctly from its audio alone (no file name to help), has the
-//     regions it should, is the same every time, and the bed loops without a step. Load Demo Sounds fills four
-//     tracks on the right buses as ONE undo step, and Play then makes sound.
+//   - Demo sounds: each of the five is typed correctly from its audio alone (no file name to help), has the
+//     regions it should, is the same every time, and the bed and the rumble loop without a step. Load Demo Sounds
+//     fills five tracks on the right buses as ONE undo step, and Play then makes sound. The rumble plays on bus A
+//     while Stowaway is off, and is Stowaway's sub (low end only) from the moment it is switched on.
 //   - Typed values: for every knob and fader, typing a readout back gives a position that reads the same; the
 //     units ("-12 dB", "4.2 s", "35%", a bare number, ms against s), the words ("Rate", "Off") and the ends.
 //   - MIDI control: Learn takes the next controller, the fader follows it (playing or stopped) without making undo
@@ -13,6 +14,7 @@
 // from or written to the user's settings.
 
 #include <JuceHeader.h>
+#include "TestClock.h"
 #include "PluginProcessor.h"
 #include "Parameters.h"
 #include "DemoSounds.h"
@@ -107,16 +109,17 @@ int main(int argc, char* argv[])
     // Demo sounds: the audio itself ------------------------------------------------------------------------------
     std::cout << "Demo sounds" << std::endl;
     {
-        const auto started = juce::Time::getMillisecondCounterHiRes();
+        const auto started = TestClock::cpuMs();
         const auto sounds = DemoSounds::all();
-        const double madeIn = juce::Time::getMillisecondCounterHiRes() - started;
-        check(static_cast<int>(sounds.size()) == DemoSounds::c_count, "demo: four sounds");
+        const double madeIn = TestClock::cpuMs() - started;
+        check(static_cast<int>(sounds.size()) == DemoSounds::c_count, "demo: five sounds");
         std::cout << "         made in " << juce::String(madeIn, 1) << " ms" << std::endl;
-        check(madeIn < 1500.0, "demo: making the four takes well under a second and a half (" + juce::String(madeIn, 0) + " ms)");
+        check(madeIn < 1500.0, "demo: making the five takes well under a second and a half (" + juce::String(madeIn, 0) + " ms)");
 
         struct Expect { CargoRole role; int regions; double minSeconds; int channels; };
-        const Expect expected[] = { { CargoRole::Tonal, 5, 6.0, 1 }, { CargoRole::Bed, 1, 7.5, 2 }, { CargoRole::Air, 6, 5.0, 1 }, { CargoRole::Impact, 4, 4.0, 1 } };
-        for (size_t i = 0; i < sounds.size() && i < 4; ++i)
+        const Expect expected[] = { { CargoRole::Tonal, 5, 6.0, 1 }, { CargoRole::Bed, 1, 7.5, 2 }, { CargoRole::Air, 6, 5.0, 1 }, { CargoRole::Impact, 4, 4.0, 1 },
+                                    { CargoRole::Rumble, 1, 7.5, 1 } };
+        for (size_t i = 0; i < sounds.size() && i < 5; ++i)
         {
             const auto& sound = sounds[i];
             const auto& want = expected[i];
@@ -164,6 +167,33 @@ int main(int argc, char* argv[])
             largest = juce::jmax(largest, std::abs(l[i] - l[i - 1]));
         check(std::abs(l[0] - l[n - 1]) <= largest, "demo: the bed's end runs into its start (seam step "
                                                     + juce::String(std::abs(l[0] - l[n - 1]), 4) + ", largest step inside " + juce::String(largest, 4) + ")");
+        // So does the rumble, and nearly all of it is low: what is above 500 Hz is more than 20 dB under the whole.
+        {
+            const auto& rumble = sounds[4].audio;
+            const float* x = rumble.getReadPointer(0);
+            const int len = rumble.getNumSamples();
+            float biggest = 0.0f;
+            for (int i = 1; i < len; ++i)
+                biggest = juce::jmax(biggest, std::abs(x[i] - x[i - 1]));
+            check(std::abs(x[0] - x[len - 1]) <= biggest, "demo: the rumble's end runs into its start (seam step "
+                                                          + juce::String(std::abs(x[0] - x[len - 1]), 4) + ", largest step inside " + juce::String(biggest, 4) + ")");
+            // Two one-pole high-passes at 500 Hz in a row (12 dB an octave).
+            const float a = static_cast<float>(1.0 - std::exp(-2.0 * juce::MathConstants<double>::pi * 500.0 / c_fs));
+            float z1 = 0.0f, z2 = 0.0f;
+            double all = 0.0, high = 0.0;
+            for (int i = 0; i < len; ++i)
+            {
+                z1 += a * (x[i] - z1);
+                const float h1 = x[i] - z1;
+                z2 += a * (h1 - z2);
+                const float h2 = h1 - z2;
+                all += static_cast<double>(x[i]) * x[i];
+                high += static_cast<double>(h2) * h2;
+            }
+            const double highDb = 10.0 * std::log10(juce::jmax(1.0e-12, high) / all);
+            check(highDb < -20.0, "demo: the rumble is low end (above 500 Hz it is " + juce::String(highDb, 1) + " dB under the whole)");
+        }
+
         // It is wide: the two sides differ, and the mono sum keeps most of the level.
         double sumL = 0.0, sumR = 0.0, sumM = 0.0, sumS = 0.0;
         const float* r = bed.getReadPointer(1);
@@ -184,9 +214,13 @@ int main(int argc, char* argv[])
         Rig rig;
         auto& hold = rig.proc.getCargo();
         check(rig.tracksLoaded() == 0 && ! rig.proc.getHistory().canUndo(), "load: the rig starts empty");
-        check(rig.proc.loadDemoSounds() == 4 && rig.tracksLoaded() == 4, "load: Load Demo Sounds fills four tracks");
+        check(DemoSounds::loadInto(rig.proc) == 5 && rig.tracksLoaded() == 5, "load: Load Demo Sounds fills five tracks");
         check(hold.getRole(0) == CargoRole::Tonal && hold.getRole(1) == CargoRole::Bed && hold.getRole(2) == CargoRole::Air && hold.getRole(3) == CargoRole::Impact,
-              "load: they are typed Tonal Content, Energy Bed, Air / Swish and Impact");
+              "load: the first four are typed Tonal Content, Energy Bed, Air / Swish and Impact");
+        check(hold.getRole(4) == CargoRole::Rumble && hold.get(4) != nullptr && hold.get(4)->name == "Demo Rumble" && ! hold.get(4)->hasSide(),
+              "load: the fifth is Demo Rumble, typed Rumble, in mono");
+        check(hold.getBus(4) == 0 && ! rig.param(ParamIDs::stowOn)->getValue(),
+              "load: with Stowaway off, as in a new session, the rumble plays on bus A");
         check(hold.getBus(0) == 0 && hold.getBus(1) == 1 && hold.getBus(2) == 1 && hold.getBus(3) == CargoHold::c_hitsBus,
               "load: the growl plays on bus A, the bed and the swishes on bus B, the hits on the hits");
         check(hold.get(1) != nullptr && hold.get(1)->hasSide() && hold.get(0) != nullptr && ! hold.get(0)->hasSide(), "load: the bed keeps its width, the growl is mono");
@@ -198,17 +232,86 @@ int main(int argc, char* argv[])
         rig.proc.setPlaying(false);
         check(peak > 0.05f, "load: Play then makes sound (peak " + juce::String(peak, 2) + ")");
 
-        // One undo step for the four, and redo brings them back.
+        // One undo step for the five, and redo brings them back.
         juce::String what;
-        check(rig.proc.undoEdit(&what) && rig.tracksLoaded() == 0, "load: one Undo takes all four out (\"" + what + "\")");
+        check(rig.proc.undoEdit(&what) && rig.tracksLoaded() == 0, "load: one Undo takes all five out (\"" + what + "\")");
         check(! rig.proc.getHistory().canUndo(), "load: and nothing else is left to undo");
-        check(rig.proc.redoEdit() && rig.tracksLoaded() == 4, "load: Redo brings all four back");
+        check(rig.proc.redoEdit() && rig.tracksLoaded() == 5, "load: Redo brings all five back");
+
+        // Stowaway has something to play: switched on (it starts as a Sub), it takes the rumble by itself and
+        // sends its low end on; switched off, the rumble is back on bus A.
+        rig.proc.setPlaying(true);
+        rig.runSeconds(3.0);
+        float offEnv = 0.0f;
+        for (int i = 0; i < 100; ++i)
+        {
+            rig.run();
+            offEnv = juce::jmax(offEnv, rig.proc.getEngine().getStowEnv());
+        }
+        rig.param(ParamIDs::stowOn)->setValueNotifyingHost(1.0f);
+        rig.runSeconds(3.0);
+        const int busOn = hold.getBus(4);
+        float onEnv = 0.0f;
+        for (int i = 0; i < 400; ++i)
+        {
+            rig.run();
+            onEnv = juce::jmax(onEnv, rig.proc.getEngine().getStowEnv());
+        }
+        std::cout << "         Stowaway's level with the demo sounds: off " << juce::String(offEnv, 4) << ", on " << juce::String(onEnv, 4) << std::endl;
+        check(busOn == CargoHold::c_stowBus && hold.getBus(0) == 0 && hold.getBus(1) == 1, "stowaway: switched on, it takes Demo Rumble and nothing else");
+        check(offEnv < 1.0e-5f && onEnv > 0.02f, "stowaway: silent while off, and it has a sub to play as soon as it is on (level "
+                                                 + juce::String(juce::Decibels::gainToDecibels(onEnv), 1) + " dB)");
+        rig.param(ParamIDs::stowOn)->setValueNotifyingHost(0.0f);
+        rig.runSeconds(1.0);
+        check(hold.getBus(4) == 0, "stowaway: switched off again, the rumble is back on bus A");
+        rig.proc.setPlaying(false);
 
         // With only two tracks free, two are loaded; with none, none.
-        for (int t = 4; t < 8; ++t)
+        for (int t = 5; t < 8; ++t)
             hold.loadBuffer(t, DemoSounds::hit(), c_fs, "Filler");
-        check(rig.proc.loadDemoSounds() == 2 && rig.tracksLoaded() == 10, "load: with two tracks free, two demo sounds go in");
-        check(rig.proc.loadDemoSounds() == 0, "load: with every track in use, nothing is loaded and nothing is replaced");
+        check(DemoSounds::loadInto(rig.proc) == 2 && rig.tracksLoaded() == 10, "load: with two tracks free, two demo sounds go in");
+        check(DemoSounds::loadInto(rig.proc) == 0, "load: with every track in use, nothing is loaded and nothing is replaced");
+    }
+
+    // The rumble under the other four, with Stowaway off (it flies on bus A): it adds weight and does not take over.
+    {
+        auto measure = [](bool withRumble, double& rmsDb, double& lowDb)
+        {
+            Rig rig;
+            DemoSounds::loadInto(rig.proc);
+            if (! withRumble)
+                rig.proc.getCargo().clear(4);
+            rig.proc.setPlaying(true);
+            rig.runSeconds(2.0);
+            double sum = 0.0, low = 0.0;
+            float z = 0.0f;
+            const float a = static_cast<float>(1.0 - std::exp(-2.0 * juce::MathConstants<double>::pi * 120.0 / c_fs));
+            int count = 0;
+            for (int i = 0; i < static_cast<int>(20.0 * c_fs / 512.0); ++i)
+            {
+                rig.run();
+                const float* l = rig.block.getReadPointer(0);
+                const float* r = rig.block.getReadPointer(1);
+                for (int n = 0; n < 512; ++n)
+                {
+                    const float m = 0.5f * (l[n] + r[n]);
+                    z += a * (m - z);
+                    sum += 0.5 * (static_cast<double>(l[n]) * l[n] + static_cast<double>(r[n]) * r[n]);
+                    low += static_cast<double>(z) * z;
+                    ++count;
+                }
+            }
+            rmsDb = 10.0 * std::log10(juce::jmax(1.0e-12, sum / count));
+            lowDb = 10.0 * std::log10(juce::jmax(1.0e-12, low / count));
+        };
+        double rms4 = 0.0, low4 = 0.0, rms5 = 0.0, low5 = 0.0;
+        measure(false, rms4, low4);
+        measure(true, rms5, low5);
+        std::cout << "         20 s of the demo sounds playing: without the rumble " << juce::String(rms4, 1) << " dB RMS (" << juce::String(low4, 1)
+                  << " dB under 120 Hz), with it " << juce::String(rms5, 1) << " dB RMS (" << juce::String(low5, 1) << " dB under 120 Hz)" << std::endl;
+        check(std::abs(rms5 - rms4) < 2.0 && low5 > low4 + 3.0,
+              "load: the rumble adds low end (" + juce::String(low5 - low4, 1) + " dB under 120 Hz) and leaves the level about where it was ("
+              + juce::String(rms5 - rms4, 1) + " dB)");
     }
 
     // Typed values ---------------------------------------------------------------------------------------------
@@ -265,6 +368,80 @@ int main(int argc, char* argv[])
         check(typed(pitch, "-3,5") == "-3.5 st", "typed: a decimal comma is a decimal point");
         check(TypedValue::toNormalised(readout(energy), "loud", 0.5f) < 0.0f && TypedValue::toNormalised(readout(energy), "", 0.5f) < 0.0f,
               "typed: text that is neither a number nor a readout is refused (the control stays put)");
+
+        // Stowaway's knobs read by its Mode. In the window (typing into the wheel) and in a host (which hands the
+        // text to the parameter itself), in every mode: what is shown, typed back, reads the same; a word says
+        // which side of Filter; a number alone is looked for on the side the knob is on.
+        auto* mode = rig.param(ParamIDs::stowMode);
+        auto* filter = rig.param(ParamIDs::stow[ParamIDs::StowFilter]);
+        auto* width = rig.param(ParamIDs::stow[ParamIDs::StowWidth]);
+        auto setMode = [&](int m) { mode->setValueNotifyingHost(mode->convertTo0to1(static_cast<float>(m))); };
+        auto host = [](juce::RangedAudioParameter* p, const juce::String& text) { return p->getText(p->getValueForText(text), 0); };
+        int wrongInHost = 0, tried = 0;
+        juce::String firstWrongInHost;
+        for (int m = 0; m < ParamIDs::numStowModes; ++m)
+        {
+            setMode(m);
+            for (int k = 0; k < ParamIDs::numStowControls; ++k)
+            {
+                auto* knob = rig.param(ParamIDs::stow[k]);
+                for (const float n : { 0.0f, 0.02f, 0.1f, 0.25f, 0.4f, 0.5f, 0.61f, 0.73f, 0.9f, 0.98f, 1.0f })
+                {
+                    const auto text = knob->getText(n, 0);
+                    ++tried;
+                    if (host(knob, text) != text || typed(knob, text, 0.5f) != text)
+                    {
+                        ++wrongInHost;
+                        if (firstWrongInHost.isEmpty())
+                            firstWrongInHost = knob->getName(40) + " in " + ParamIDs::stowModeNames[m] + ": \"" + text + "\" came back as \"" + host(knob, text) + "\" in a host and \""
+                                               + typed(knob, text, 0.5f) + "\" in the window";
+                    }
+                }
+            }
+        }
+        check(wrongInHost == 0, "typed: every readout of Stowaway's knobs in every Mode, typed back in a host or in the window, reads the same (" + juce::String(tried) + " tried"
+                                    + (wrongInHost > 0 ? ", " + juce::String(wrongInHost) + " wrong, first: " + firstWrongInHost : juce::String()) + ")");
+        setMode(ParamIDs::StowSub);
+        check(filter->getText(filter->getValue(), 0) == "120 Hz" && host(filter, "95 Hz") == "95 Hz" && host(filter, "95") == "95 Hz" && host(filter, "0.2 kHz") == "200 Hz"
+                  && host(filter, "20") == "40 Hz" && typed(filter, "70") == "70 Hz",
+              "typed: Stowaway's Filter in Sub takes the crossover in Hz (\"95 Hz\", \"95\", \"0.2 kHz\"; out of reach goes to the nearest end)");
+        const float widthBefore = width->getValue();
+        check(width->getText(0.3f, 0) == "Mono" && same(width->getValueForText("Mono"), widthBefore) && same(width->getValueForText("40%"), 0.4f),
+              "typed: Width in Sub reads Mono everywhere, so \"Mono\" from a host leaves it where it is, and a number is the width the other modes will have");
+        setMode(ParamIDs::StowWake);
+        check(filter->getText(filter->getValue(), 0) == "Open" && host(filter, "Under 1 kHz") == "Under 1.0 kHz" && host(filter, "Over 1 kHz") == "Over 1.0 kHz"
+                  && host(filter, "over 300 hz") == "Over 300 Hz" && host(filter, "Open") == "Open" && typed(filter, "Under 1 kHz") == "Under 1.0 kHz"
+                  && typed(filter, "Over 1 kHz") == "Over 1.0 kHz",
+              "typed: Stowaway's Filter in the other modes takes \"Under 1 kHz\", \"Over 1 kHz\" and \"Open\", in a host and in the window (\"Over 1 kHz\" gave \""
+                  + host(filter, "Over 1 kHz") + "\")");
+        check(typed(filter, "1 kHz", 0.2f) == "Under 1.0 kHz" && typed(filter, "1 kHz", 0.8f) == "Over 1.0 kHz" && typed(filter, "10 kHz", 0.8f) == "Under 10 kHz"
+                  && typed(filter, "Over 10 kHz", 0.2f) == "Over 2.5 kHz",
+              "typed: a number alone is found on the side Filter is on (or the other, when only that reaches it); a side asked for by name is kept to");
+        filter->setValueNotifyingHost(0.85f);
+        const bool hostSide = host(filter, "1 kHz") == "Over 1.0 kHz";
+        filter->setValueNotifyingHost(0.15f);
+        check(hostSide && host(filter, "1 kHz") == "Under 1.0 kHz", "typed: and in a host too, from where the knob is");
+        filter->setValueNotifyingHost(filter->getDefaultValue());
+
+        // A change of Mode changes what Filter and Width read: the host is told to read its parameters again.
+        struct Heard : juce::AudioProcessorListener
+        {
+            void audioProcessorParameterChanged(juce::AudioProcessor*, int, float) override {}
+            void audioProcessorChanged(juce::AudioProcessor*, const ChangeDetails& details) override { infoChanged += details.parameterInfoChanged ? 1 : 0; }
+            int infoChanged = 0;
+        } heard;
+        rig.proc.refreshHostReadouts(); // (the changes of Mode above)
+        rig.proc.addListener(&heard);
+        rig.proc.refreshHostReadouts();
+        const int idle = heard.infoChanged;
+        setMode(ParamIDs::StowSub);
+        const int beforeTimer = heard.infoChanged;
+        rig.proc.refreshHostReadouts();
+        const int afterChange = heard.infoChanged;
+        rig.proc.refreshHostReadouts();
+        check(idle == 0 && beforeTimer == 0 && afterChange == 1 && heard.infoChanged == 1 && filter->getText(filter->getValue(), 0) == "120 Hz",
+              "host: a change of Stowaway's Mode tells the host, once and from the timer, that its parameters read differently (" + juce::String(heard.infoChanged) + " told)");
+        rig.proc.removeListener(&heard);
     }
 
     // MIDI control ---------------------------------------------------------------------------------------------

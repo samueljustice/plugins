@@ -49,7 +49,7 @@ rm -rf "$work"
 
 mkdir -p "$here/docs/images"
 mv "$out/screenshot.png" "$here/docs/screenshot.png"
-for f in header tracks track-lane track-master ride throw-keys bus-a bus-b hits output sea \
+for f in header tracks track-lane track-master ride throw-keys bus-a bus-b hits output stowaway stowaway-folded sea \
          morph-pad morph-rope modulation cables settings shortcuts takes variations about; do
     mv "$out/$f.png" "$here/docs/images/$f.png"
 done

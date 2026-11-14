@@ -5,6 +5,7 @@
 #include "ScopeRing.h"
 #include "PitchShifter.h"
 #include "DspUtils.h"
+#include "SubFilter.h"
 #include "SpectralMorph.h"
 #include "SpaceReverb.h"
 
@@ -32,6 +33,32 @@
  *                 the middle the pass is (a pass far to one side is a point). It skips the colour chain and is
  *                 added back after it, level-matched to what the chain did. Everything else plays the mono sum.
  *   side-chains:  A ducks B, and A's level low-passes B
+ *   stowaway:     one extra, lighter bus beside A and B (not a third rig bus: it has no bus colour chain, morph
+ *                 side, Take Turns or LINK of its own, and only Fly has passes). Tracks sent to it, and their throw
+ *                 feed, arrive in StowState; it renders after bus B (bus A's level and passes are final by then)
+ *                 and before the hits, as one mono stream with a position (in Fly: one stream and its two passes'
+ *                 positions), and joins the mix. A throw's share is shaped by the throw's own pass. The hits duck
+ *                 it in every mode but Sub.
+ *                 Sub: planted in the middle, mono. 20 Hz high-pass -> crossover (48 dB per octave low-pass at
+ *                 Filter, 40 .. 250 Hz) -> Low End (sub octave, overtones) -> Drive -> safety low-pass just
+ *                 above the crossover -> Follow (it swells with bus A: A's level against its recent peak and how
+ *                 near A's pass is; with no track on A it goes by bus B, and with none there either by its own
+ *                 tracks' ride). See SubFilter and renderSub.
+ *                 Wake: opens as bus A falls away (how far A's level has dropped from what it was and, as far as the passes
+ *                 are what moves A, how far out its outgoing pass is), so each pass leaves a trail; placed behind
+ *                 that pass by Width. Its tracks are not ridden. Low End, Filter (a tilt) and Drive colour it. See
+ *                 renderWake.
+ *                 Dry: the tracks at their faders and rides (Follow: how much of the ride), no Fill echoes, through
+ *                 Filter only, and added after Space and the Everything tremolo. A stereo sound keeps its sides
+ *                 (by Width). See renderDry.
+ *                 Fly: a third mover. The tracks (ridden, with their Fill echoes) are coloured by Low End, Filter
+ *                 (the tilt) and Drive, and that one stream is flown by Stowaway's own two passes, always shaped
+ *                 like Fly-Bys, through the same doppler core the buses use: its own delay line, its own random
+ *                 draws (so nothing it does moves bus A's or bus B's passes), a fixed doppler, Width for how far
+ *                 across it travels. Follow ties its passes to bus A's: 0% they keep their own time, 100% each is
+ *                 at its closest as one of A's is. It sleeps while nothing sounds in it. See renderFly.
+ *                 A change of Mode fades it out (30 ms), swaps, and fades it back in; a track that changes place
+ *                 (by hand, or a rumble as Stowaway becomes a sub or stops being one) is faded across (10 ms).
  *   hit sync:     optional: every hit track fires its next sound on a shared beat, transients aligned
  *                 (the beat is as long as the longest hit, so none is cut short).
  *   hits:         a gate on A + B opens only at the loudest moments (a boost with hold
@@ -63,6 +90,20 @@ public:
     static constexpr int c_maxFlights = c_maxBuses * 2 + c_throws; // two doppler passes per bus, then the throws (the visualiser's comets)
     static constexpr int c_maxKeys = 16;                // held MIDI keys that set pitches
 
+    /** Stowaway: what the extra bus is, and its five knobs (the same names in every mode). */
+    enum StowMode { StowSub = 0, StowWake, StowFly, StowDry, c_stowModes };
+    enum StowKnob { StowFollow = 0, StowLow, StowFilter, StowDrive, StowWidth, c_stowKnobs };
+    struct StowParams
+    {
+        bool on = true;      // off: silent, and the tracks sent here wait (they are not played anywhere else)
+        int mode = StowSub;
+        float follow = 0.7f; // how much it goes by bus A
+        float low = 0.0f;    // Low End
+        float filter = 0.5f; // Sub: the crossover (::Params::stowCrossoverHz); otherwise a tilt, open in the middle
+        float drive = 0.0f;
+        float width = 1.0f;
+    };
+
     struct BusParams
     {
         float doppler = 0.5f;   // how dramatic each pass is (closeness, loudness swell, air)
@@ -92,12 +133,14 @@ public:
         // spring, so a fast modulator isn't smoothed away by the glide meant for turning the knob.
         float energyMod = 0.0f, pitchMod = 0.0f, fillMod = 0.0f, spaceMod = 0.0f;
         std::array<std::array<float, 9>, c_maxBuses> busMod {}; // doppler width bend low swirl filter drive duck key
+        std::array<float, c_stowKnobs> stowMod {};              // follow low filter drive width
         std::array<float, c_tracks> levels { 0.9f, 0.9f, 0.9f, 0.9f, 0.9f, 0.9f, 0.9f, 0.9f, 0.9f, 0.9f }; // gain (fader law applied)
         std::array<float, c_tracks> trackPitch {}; // semitones (cents included), each track on its own
         std::array<bool, c_tracks> trackVari { true, true, true, true, true, true, true, true, true, true }; // off = keep the speed
 
         std::array<BusParams, c_maxBuses> buses { BusParams { 0.55f, 0.7f, 0.7f, 0.35f, 0.3f, 0.3f, 0.2f, 0.0f, 0.0f },
                                                   BusParams { 0.4f, 0.7f, 0.6f, 0.3f, 0.3f, 0.4f, 0.0f, 0.35f, 0.3f } };
+        StowParams stow;
 
         float hitSense = 0.5f; // how easily the hit gate opens
         float hitBoost = 6.0f; // dB when open (-3 .. +12)
@@ -175,7 +218,7 @@ public:
         that bus sounds and the rig plays; a linked bus B flies bus A's passes, so only A's are told), a throw at
         its peak, and a hit: an aimed or synced hit where its transients land, or the hit gate opening. offset is
         the sample of that call. Audio thread, after process(). */
-    enum MarkerKind { MarkPassA = 0, MarkPassB, MarkThrow, MarkHit };
+    enum MarkerKind { MarkPassA = 0, MarkPassB, MarkThrow, MarkHit, MarkPassStow }; // MarkPassStow: Stowaway's own pass (Fly) at its closest
     struct Marker
     {
         int offset = 0;
@@ -203,9 +246,58 @@ public:
     /** The beat window the engine used last, in SOURCE seconds (pitch and caps applied), 0 = no beat yet. */
     double getHitPre() const { return m_hitPreView.load(std::memory_order_relaxed); }
     double getHitPost() const { return m_hitPostView.load(std::memory_order_relaxed); }
-    /** Little waveforms for the section scopes: 0 = bus A, 1 = bus B, 2 = the hits (what each adds to the mix). */
-    const ScopeRing& getScope(int which) const { return m_scopes[static_cast<size_t>(std::clamp(which, 0, 2))]; }
-    float getBusLevel(int bus) const { return m_busView[static_cast<size_t>(bus)].load(std::memory_order_relaxed); }
+    /** The sections that add to the mix, as getScope and takeSectionLevels number them. */
+    enum Section { SectionBusA = 0, SectionBusB, SectionHits, SectionStow, c_sections };
+    /** Little waveforms for the section scopes: what each Section adds to the mix. */
+    const ScopeRing& getScope(int which) const { return m_scopes[static_cast<size_t>(std::clamp(which, 0, c_sections - 1))]; }
+    float getBusLevel(int bus) const { return m_busView[static_cast<size_t>(std::clamp(bus, 0, c_maxBuses - 1))].load(std::memory_order_relaxed); }
+    /** Stowaway, for the UI (any thread): its level (0..1, as getBusLevel), and where its sound sits (-1 left ..
+        1 right). */
+    float getStowLevel() const { return m_stowLevelView.load(std::memory_order_relaxed); }
+    float getStowPan() const { return m_stowPanView.load(std::memory_order_relaxed); }
+    /** Audio thread, after process(): Stowaway's mode and knobs as the last chunk used them (the knobs after
+        their glides, with the modulators' offsets; the mode is the one in use, which a change of Mode reaches
+        once the old one has faded out). */
+    const StowParams& getStowNow() const { return m_stow.now; }
+    /** Audio thread, after process(): Stowaway's level at the end of the last chunk (its own follower, not
+        scaled or clamped for a meter as getStowLevel is). */
+    float getStowEnv() const { return m_stow.env; }
+    /** Sub mode's Follow: Stowaway's gain for the swell it goes by (0 nothing .. 1 the loudest moment). The knob
+        is how much of that swell, in dB, the sub takes on (0% none: a steady sub; 100% all of it). */
+    static float subFollowGain(float follow, float key);
+    /** The make-up that goes with Follow: the more of the swell the sub takes on, the longer it spends down in the
+        dips, so it is turned up to match. On average it stays as loud wherever the knob is; what changes is how far
+        it moves. How much that takes is measured as it plays (see FollowMakeup): 4.5 dB at 100% under a typical
+        bed, which is where it starts, and never more than 6 dB. */
+    static constexpr float c_subFollowTypicalDb = 4.5f;
+    static constexpr float c_subFollowMakeupDb = 6.0f;
+    /** Wake: how far open the trail is (0 shut .. 1 open) for a pass this far on its way out (0 = at its closest,
+        1 = gone): it blooms just behind the pass and fades as the pass leaves. */
+    static float wakeBloom(float out);
+    /** Wake: the most the make-up that goes with Follow may turn the trail up (see renderWake: on average the
+        trail is as loud wherever the knob is). */
+    static constexpr float c_wakeFollowMakeupDb = 12.0f;
+    /** Audio thread, after process(): how far open Wake's trail was at the end of the last chunk (0..1; 0 in the
+        other modes). */
+    float getWakeAmount() const { return m_stow.wake.amount; }
+    /** Any thread: Stowaway's own two passes (Fly), as getFlightView gives the buses' (nothing in the other
+        modes, or while Fly sleeps). Kept apart from those so the buses' and the throws' numbers stay as they are. */
+    FlightView getStowFlight(int head) const;
+    /** Fly: its passes' fixed Doppler and Bend (it has no knobs for them). */
+    static constexpr float c_flyDoppler = 0.6f, c_flyBend = 0.7f;
+    /** Fly's Follow: how long the next half of a pass is (seconds). free: the length its own draw gave. toPeak:
+        how long until bus A's next pass is at its closest. toSecond: until the one after that, if that is known
+        yet (otherwise < 0). halfA: half of bus A's pass in flight (the best guess at how far apart A's later
+        peaks are). At 0% it is `free`; at 100% it ends on the peak of A's nearest to where `free` would have
+        ended (so the pass lands with A's); in between, part of the way there. */
+    static float flySegmentSeconds(float free, float toPeak, float toSecond, float halfA, float follow);
+    /** Audio thread, after process(): Fly is awake (sound is in its line). */
+    bool isFlyAwake() const { return m_stow.fly.on; }
+    /** Audio thread: Stowaway is switched off and has faded right out. Its tracks are then not played at all. */
+    bool isStowShut() const { return ! m_params.stow.on && m_stow.gate <= 0.0f; }
+    /** The average power a ridden fader is left at (1 = not ridden) when `exponent` of its ride (in dB) is kept,
+        for a ride of this depth (0 = still .. 1 = full dips) at this Chaos. */
+    static float ridePower(float depth, float chaos, float exponent);
     /** A track's own VARI speed (1 = as the global Pitch plays it; 1 for VARI off), for the hit sync view. */
     float getTrackSpeed(int track) const { return m_trackSpeedView[static_cast<size_t>(track)].load(std::memory_order_relaxed); }
     /** The fill echo times of a track, in seconds (tap 0..2). Every track has its own, so layered tracks don't
@@ -219,9 +311,9 @@ public:
         Chaos: 1 from the default ride depth up, lower as the faders move less (they then sit at full level). */
     static float rideMakeup(float depth, float chaos);
 
-    /** Audio thread: RMS of bus A, bus B and the hits (what each adds to the mix) since the last call, for the
-        Follower modulators. */
-    std::array<float, 3> takeSectionLevels();
+    /** Audio thread: RMS of each Section (what it adds to the mix) since the last call, for the Follower
+        modulators. */
+    std::array<float, c_sections> takeSectionLevels();
     /** Audio thread, after process(): the Master track where it is playing now: its loudness, pitch and
         brightness, each 0..1 over the sound's own range (see CargoContours). All 0 with no Master; the loudness
         is 0 while the rig is stopped. */
@@ -258,6 +350,87 @@ private:
         }
     };
 
+    /** The doppler core: one instant of a pass. It is the pass as a point in space (how far through it is, where
+        it is across the field, how near it is) and what that does to its sound (how long ago the sound heard now
+        was sent, and the band limit reading it there needs). Bus A, bus B, the throws and Stowaway's Fly all fly
+        their passes through it. For stereo the two ears read the line either side of `base` (hearPass); a room
+        reads it once, at `base`, and places that one stream by `az` and `nearness` itself. */
+    struct PassPoint
+    {
+        float u = 0.0f;        // how far through the pass (0..1, 0.5 = closest)
+        float az = 0.0f;       // where it is across the field (-1 left .. 1 right), after Width
+        float nearness = 0.0f; // its closest distance over its distance now (1 at its closest)
+        float panL = 0.0f, panR = 0.0f; // that place as stereo gains (constant power, 0.707 each in the middle)
+        double base = 0.0;     // seconds: how long ago the sound heard now was sent
+        double ear = 0.0;      // seconds: the left ear hears it this much later, the right this much sooner
+        double stretch = 1.0;  // the band limit for the read (sj::SincKernel::stretchFor)
+    };
+    /** Width's law: how far a pass travels across the field for a Width of 0..1. */
+    static float passWidthLaw(float width);
+    /** Where a pass is across the field (-1 left .. 1 right) at progress u, flying in direction dir. */
+    static float passAzimuth(float u, float dir, float widthLaw);
+    /** The pass h at progress u (h.progress(), which the caller has already). */
+    static PassPoint passPoint(const Head& h, float u, float widthLaw);
+    /** Air, set once per chunk: the pass dulls with distance (by `doppler`), and the ear turned away from it hears
+        it duller still. sides: also for a stereo bed's side signal. */
+    static void passAir(Head& h, float doppler, float widthLaw, float fs, bool sides);
+    /** The pass at pt, heard in stereo from `line` and added to l and r: each ear's band-limited read (back:
+        how many samples before the newest one in the line this sample is), its air, the gain and the pan. */
+    void hearPass(Head& h, const sj::DelayLine& line, const PassPoint& pt, double back, float gain, float& l, float& r) const;
+
+    /** What Low End adds under a low band: a note an octave below it and its overtones. The buses feed it their
+        low band (under 130 Hz); Stowaway's Sub feeds it what its crossover let through. */
+    struct LowAdd
+    {
+        sj::Svf detectHp, subA, subB, harm;
+        sj::Follower follower;
+        float flip = 1.0f;
+        bool armed = false; // the sub octave's trigger: armed below the low band's level, fires above it
+
+        /** detectHz: under this the trigger does not listen. subHz: the sub octave's own low-pass. harmHz: where
+            the overtones are centred. */
+        void tune(float detectHz, float subHz, float harmHz, float fs)
+        {
+            detectHp.set(detectHz, 0.7071f, fs);
+            subA.set(subHz, 0.7071f, fs);
+            subB.set(subHz, 0.7071f, fs);
+            harm.set(harmHz, 0.8f, fs);
+        }
+        void prepare(float fs)
+        {
+            tune(40.0f, 90.0f, 170.0f, fs);
+            follower.set(5.0f, 90.0f, fs);
+        }
+        void reset()
+        {
+            for (auto* f : { &detectHp, &subA, &subB, &harm })
+                f->reset();
+            follower.env = 0.0f;
+            flip = 1.0f;
+            armed = false;
+        }
+        /** One sample of the low band in, what to add to it out (before the Low End amount). */
+        float process(float low)
+        {
+            const float level = follower.process(low);
+            // The sub octave flips once per cycle of the low band. The trigger has to swing a tenth of the band's
+            // level below zero and then above it, so ripples and noise riding on the wave don't flip it at random
+            // (which is heard as rumble instead of a note an octave down).
+            const float detect = detectHp.highpass(low);
+            const float swing = 0.1f * level + 1.0e-6f;
+            if (detect < -swing)
+                armed = true;
+            else if (armed && detect > swing)
+            {
+                flip = -flip;
+                armed = false;
+            }
+            const float sub = subB.lowpass(subA.lowpass(flip * level));
+            const float overtones = harm.bandpass(sj::fastTanh(4.0f * std::abs(low)));
+            return 1.3f * sub + 0.45f * overtones;
+        }
+    };
+
     struct BusState
     {
         sj::DelayLine line;
@@ -267,10 +440,8 @@ private:
         std::array<Head, c_throws> throwHeads;
         std::array<float, c_chunk> throwIn {};
         // low end
-        sj::Svf lowA, lowB, lowHp, subA, subB, harm, shelfL, shelfR;
-        sj::Follower lowFollower;
-        float flip = 1.0f;
-        bool subArmed = false; // the sub octave's trigger: armed below the low band's level, fires above it
+        sj::Svf lowA, lowB, shelfL, shelfR;
+        LowAdd lowAdd;
         // swirl
         std::array<sj::Allpass1, 6> phL, phR;
         float phFbL = 0, phFbR = 0, lfo = 0;
@@ -313,8 +484,196 @@ private:
         float sidePre = 0.0f, sidePost = 0.0f, sideMatch = 1.0f;
     };
 
+    /** Stowaway's Filter outside Sub, on one stream: open in the middle of the knob, a low-pass that closes towards
+        the bottom and a high-pass that rises towards the top (::Params::stowLowpassHz, stowHighpassHz; 12 dB per
+        octave each). Either side comes in and goes out over a few milliseconds, so crossing the middle never
+        steps. */
+    struct StowTilt
+    {
+        sj::Svf lp, hp;
+        float lpMix = 0.0f, hpMix = 0.0f; // how far each side is in (0..1) at the end of the last chunk
+        void reset()
+        {
+            lp.reset();
+            hp.reset();
+            lpMix = hpMix = 0.0f;
+        }
+        /** snap: nothing to glide from (the stream starts here). */
+        void process(float* x, int frames, float knob, float fs, bool snap);
+    };
+    /** Stowaway's Drive, on one stream. The stream is driven against its own level (a slow measure of it), so the
+        knob does the same to a quiet sound as to a loud one, and its travel is even: the gain into the saturator
+        rises 2 dB per 10%, from all but clean to squared off. The result is brought back to the level it went in
+        at: Drive thickens the sound and flattens its swell, it does not turn it up. */
+    struct StowSaturator
+    {
+        float pre = 0.0f, post = 0.0f, gain = 1.0f; // the level before and after (slow mean squares), and the level match
+        void reset()
+        {
+            pre = post = 0.0f;
+            gain = 1.0f;
+        }
+        void process(float* x, int frames, float drive, float fs);
+    };
+    /** Low End, Filter and Drive for one moving stream of Stowaway's (Wake): the buses' low end (a note an octave
+        under the low band, its overtones and a lift), the tilt, and the drive. */
+    struct StowColour
+    {
+        sj::Svf lowA, lowB, shelf;
+        LowAdd lowAdd;
+        bool lowOn = false;     // Low End holds state
+        float lowAmount = 0.0f; // Low End at the end of the last chunk
+        StowTilt tilt;
+        StowSaturator drive;
+        void prepare(float fs);
+        void reset();
+        void process(float* x, int frames, const StowParams& now, float fs, bool snap);
+    };
+
+    /** The make-up that goes with Follow in Sub and Wake. Follow shuts the sound down between the moments it opens
+        for, and how much quieter that leaves it on average depends on what it follows. So that is measured: a slow
+        average of the power of the sound before Follow, and of what Follow at 25, 50, 75 and 100% would keep of it,
+        gives what the knob costs at each of those. The make-up is the cost at the knob's place: it answers the knob
+        at once, and only learns the material slowly. */
+    struct FollowMakeup
+    {
+        float sent = 0.0f;            // the power before Follow (a slow average; 0 = nothing measured yet)
+        std::array<float, 4> kept {}; // and of what Follow at 25, 50, 75 and 100% keeps of it
+        void reset()
+        {
+            sent = 0.0f;
+            kept = {};
+        }
+        /** inSq: this chunk's mean square before Follow. keeps: the share of its power Follow at 25, 50, 75 and
+            100% keeps now. typicalDb: what those cost a typical sound (where the measure starts from). c: the
+            averages' coefficient for this chunk. */
+        void measure(float inSq, const float keeps[4], const float typicalDb[4], float c);
+        /** What Follow at this place costs, in dB (0 with nothing measured). */
+        float costDb(float follow) const;
+    };
+
+    // Stowaway. Beside the two rig buses, not one of them: nothing that loops over m_buses (the hit gate's
+    // detector, AIM, LINK, Take Turns, the morph, the passes' random draws) knows it is there.
+    struct StowState
+    {
+        // In: the tracks sent here (ridden, with their Fill echoes), and the same tracks at their fader levels
+        // while a throw's sources are open.
+        std::array<float, c_chunk> in {}, throwIn {};
+        bool fed = false;      // a track played into `in` or `throwIn` this chunk
+        bool sounding = false; // this chunk's output holds sound (otherwise it is left out of the mix altogether)
+        // Out: one mono stream and where it sits (-1 left .. 1 right, the end of the chunk; panFrom is where it
+        // was at the start), and the stereo made of the two, which is what the mix takes. Kept apart so a room
+        // can place the stream itself (and send a Sub to its LFE) instead of taking the stereo.
+        std::array<float, c_chunk> mono {}, l {}, r {};
+        float pan = 0.0f, panFrom = 0.0f;
+        StowParams now;        // see getStowNow
+        std::array<sj::Spring, c_stowKnobs> springs; // follow low filter drive width
+        float throwKey = 0.0f; // the loudest throw's own swell (its pass window x its level) at the end of the last chunk
+        // The mode in use. A change of Mode fades the sound out, swaps (here), and fades it back in.
+        int mode = StowSub;
+        float fade = 1.0f;
+        // The switch (StowParams::on): 1 open, 0 shut. It fades each way; shut, nothing here runs and the tracks
+        // sent here wait unplayed (see isStowShut).
+        float gate = 1.0f;
+        // Dry: the side signals of the stereo tracks sent here, and what Filter and the hits left of them.
+        std::array<float, c_chunk> sideIn {}, side {};
+        bool sideFed = false;  // a track played into `sideIn` this chunk
+        BusState::Duck byHits; // ducked by the hits (not in Sub)
+        bool ducked = false;   // byHits holds something
+        sj::Follower follower;
+        float env = 0.0f;
+        // Sub. `mono` is then the sub itself: one stem, in the middle (a room sends it to its LFE).
+        struct Sub
+        {
+            SubFilter filter;
+            LowAdd low;
+            sj::Svf lowHp;          // keeps what Low End adds above 20 Hz (the octave under a 30 Hz note is 15 Hz)
+            bool on = false;        // the filters hold state (cleared when Sub is left, or once its tail has rung out)
+            int tail = 0;           // samples the filters may still ring for after the last track played in
+            float hz = 0.0f;        // the crossover the filters are set to
+            float lowAmount = 0.0f; // Low End at the end of the last chunk
+            float gain = 0.0f;      // Follow's gain at the end of the last chunk
+            float key = 1.0f;       // what Follow goes by (0..1), smoothed
+            float busA = 0.0f, busB = 0.0f; // how far bus A and bus B hold tracks to follow (0..1, glides)
+            std::array<float, c_maxBuses> peak { 1.0e-3f, 1.0e-3f }; // each bus's recent peak, as the sub measures its swell
+            FollowMakeup makeup;
+            StowSaturator drive;
+            void reset();
+        } sub;
+        // Wake. `mono` is the trail and `pan` where it sits (behind bus A's outgoing pass).
+        struct Wake
+        {
+            StowColour colour;
+            bool on = false;     // it holds state
+            float envDb = -60.0f; // bus A's level at the end of the last chunk (dB, never under -60)
+            float fall = 0.0f;    // how far bus A has fallen from what it was (dB): drops add, rises take away, time lets it go
+            float amount = 0.0f; // how far open the trail is (0..1), smoothed
+            float gain = 0.0f;   // Follow's gain at the end of the last chunk
+            FollowMakeup makeup;
+            float pan = 0.0f;    // where the trail sits before Width (-1..1), smoothed
+            void reset();
+        } wake;
+        // Dry. `mono` is the tracks' sum and `side` their side signals: left = mono + side, right = mono - side.
+        struct Dry
+        {
+            StowTilt filter, sideFilter;
+            bool on = false;       // it holds state
+            bool sideOn = false;   // the side filter holds state
+            int sideTail = 0;      // samples the side filter may still ring for after the last side signal
+            float gain = 1.0f;     // the make-up at the end of the last chunk
+            float width = 1.0f;    // Width at the end of the last chunk
+            float power = 1.0f, powerDepth = -1.0f, powerChaos = -1.0f, powerFollow = -1.0f; // ridePower, and what it was worked out for
+            void reset();
+        } dry;
+        // Fly. One stream (the tracks, coloured) in `line`, and two passes that read it: where each is, is in
+        // its Head, and passPoint gives its place and delay sample by sample (that is all a room needs to place it
+        // itself). Here they are heard in stereo, straight into `l` and `r` (placeStow leaves those alone).
+        struct Fly
+        {
+            sj::DelayLine line, throwLine;          // the stream, and its tracks at their fader levels for a throw
+            std::array<Head, 2> heads;
+            std::array<Head, c_throws> throwHeads;  // bus A's throws, flown here at Fly's own Bend
+            sj::Random rng;                         // its own draws: seeded with the engine, never shared
+            StowColour colour, throwColour;
+            bool on = false;       // it is awake: the lines, heads and colours hold state
+            bool throwOn = false;  // throwColour holds state
+            int hold = 0;          // samples its lines still hold sound for
+            int throwHold = 0;     // and the throw line
+            // The passes' clock: half-passes, one after the other. At the end of each the head on its way in is at
+            // its closest, the other has gone and sets off again, and the length of the next half is chosen (Follow).
+            double segTime = 0.0;  // seconds into the half in progress
+            float segLen = 1.5f;   // how long it is
+            int inbound = 0;       // the head on its way in
+            float inGain = 0.0f;   // the stream's way into the line: it fades in from sleep, so the line never starts on a step
+            float level = 1.0f;    // its passes' make-up (see renderFly), glided
+            float power = 1.0f, powerDepth = -1.0f, powerChaos = -1.0f; // ridePower, and what it was worked out for
+            void reset();
+        } fly;
+        /** Leave the mode in use: everything it holds is cleared. */
+        void leaveMode();
+    };
+    /** Fly: what was sent here, coloured, flown by Stowaway's own two passes into m_stow.l and m_stow.r. */
+    void renderFly(int frames);
+    /** Sub: m_stow.mono (what was sent here this chunk) through the sub's filters, colours and Follow. */
+    void renderSub(int frames);
+    /** Wake: what was sent here, opened as bus A falls away, coloured, and where it sits. key0 .. key1: the throws'
+        own trail across the chunk (their share arrives in throwIn). */
+    void renderWake(int frames, float key0, float key1);
+    /** Dry: m_stow.mono and m_stow.side (the tracks and their sides) through Filter, at the ride's make-up. */
+    void renderDry(int frames);
+    /** The mono stream and its place for this chunk, from what was sent here (and what bus A did). */
+    void renderStow(int frames);
+    /** The stream at its place, as the stereo the mix takes. After the hits have ducked it. */
+    void placeStow(int frames);
+    /** Where a track's sound goes for the place it plays on (CargoHold::getBus): bus A, bus B, the hits or
+        Stowaway, each by name. Anything else is bus A. */
+    float* trackInput(int bus);
+    /** The same for its feed into a throw. The hits have no throw line: nullptr. */
+    float* throwInput(int bus);
+
     /** lenIn: how long the approach is, or < 0 to draw a whole new pass length (the first head of a bus). */
-    void startPass(Head& h, const BusParams& p, float lenIn = -1.0f);
+    /** rng: whose draws the pass is made of (nullptr: the buses', m_rng). */
+    void startPass(Head& h, const BusParams& p, float lenIn = -1.0f, sj::Random* rng = nullptr);
     /** A pass's length before Chaos varies it: follows Rate (6 s .. 1.6 s). */
     float nominalPassSeconds() const;
     void startThrows(int frames);
@@ -395,6 +754,7 @@ private:
     // The modulator offsets, glided per chunk (the modulators update once per host block; a step would click).
     float m_energyModNow = 0.0f, m_pitchModNow = 0.0f, m_fillModNow = 0.0f, m_spaceModNow = 0.0f;
     std::array<std::array<float, 9>, c_maxBuses> m_busModNow {};
+    std::array<float, c_stowKnobs> m_stowModNow {};
     float m_morphMixNow = 0.0f; // how far the morph is in (B isn't ducked or filtered by A while morphing)
     // Morph ropes. A roped track is rendered into its side's tap instead of its bus; the morph works on the tap and
     // what it leaves of the dry sound goes back to the track's bus. A change of rope while the morph is in fades
@@ -413,12 +773,17 @@ private:
     std::atomic<float> m_masterView { 0.0f };
     void glideMods(int frames);
     std::array<float, c_chunk> m_trackScratch {}, m_sideScratch {};
-    std::array<float, c_tracks> m_sideGain {};      // each track's side signal into bus B (0..1, fades in and out)
+    std::array<float, c_tracks> m_sideGain {};      // each track's side signal into bus B or Stowaway (0..1, fades in and out)
+    // Where each track plays (CargoHold::getBus) as it is in use, -1 = not known yet. A change of place fades the
+    // track out, swaps, and fades it back in, so nothing steps in the bus it leaves or the one it joins.
+    std::array<int, c_tracks> m_busNow {};
+    std::array<float, c_tracks> m_busFade {};
     MorphInsert m_morph;
     sj::Spring m_morphMix;
 
     // Buses
     std::array<BusState, c_maxBuses> m_buses;
+    StowState m_stow;
     std::array<float, c_chunk> m_hitsIn {}, m_hitsL {}, m_hitsR {};
     sj::Follower m_detect, m_hitsFollower;
     float m_slowEnv = 0.0f;
@@ -476,11 +841,13 @@ private:
     std::array<std::atomic<float>, c_maxFlights * 4> m_viewData {};
     std::array<std::atomic<float>, c_tracks> m_rideView {};
     std::array<std::atomic<float>, c_maxBuses> m_busView {};
+    std::atomic<float> m_stowLevelView { 0.0f }, m_stowPanView { 0.0f };
+    std::array<std::atomic<float>, 2 * 4> m_stowFlightView {}; // Fly's two passes: env, x, closeness, age each
     std::atomic<float> m_energyView { 0.0f }, m_gateView { 0.0f };
     std::array<std::atomic<int>, c_tracks> m_hitRegionView {};
     std::atomic<int> m_hitBeatView { 0 };
     std::atomic<double> m_hitPreView { 0.0 }, m_hitPostView { 0.0 };
-    std::array<ScopeRing, 3> m_scopes;
+    std::array<ScopeRing, c_sections> m_scopes;
     std::array<Head, 2> m_leadStart {}; // bus A's passes at the start of the chunk (linked buses)
     bool m_linkNow = false;             // the link in use: a change fades bus B out, swaps, and fades it back in
     float m_linkFade = 1.0f;
@@ -494,9 +861,9 @@ private:
     std::array<bool, c_tracks> m_shifterUsed {};     // the shifter holds sound (flushed once when the track empties)
     std::array<std::atomic<float>, c_tracks> m_trackSpeedView {};
     float trackSpeed(int track) const;               // VARI ratio of a track right now (1 when VARI is off)
-    std::array<double, 3> m_sectionSquares {}; // sums for takeSectionLevels()
+    std::array<double, c_sections> m_sectionSquares {}; // sums for takeSectionLevels()
     int m_sectionSamples = 0;
-    std::array<float, 3> m_sectionLevels {};
+    std::array<float, c_sections> m_sectionLevels {};
     // The cued beat, shown once its transients play.
     double m_beatViewWait = -1.0;   // samples until the cued beat is heard (< 0 = nothing pending)
     std::array<int, c_tracks> m_pendingHitRegion {};

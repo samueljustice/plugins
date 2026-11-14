@@ -189,13 +189,24 @@ public:
 
     static constexpr int c_maxBuses = 2; // rig buses A and B
     static constexpr int c_hitsBus = 2;  // "bus" index meaning: the hit gate
+    static constexpr int c_stowBus = 3;  // "bus" index meaning: Stowaway, the extra bus beside A and B
+    /** A place a track can be sent by hand: bus A, bus B, the hits or Stowaway. */
+    static constexpr bool isBusChoice(int bus) { return bus >= 0 && bus <= c_stowBus; }
 
-    /** Which rig bus a track feeds: the bus chosen for it by hand, else the one its type picks (impacts -> hits,
-        beds and air -> bus B, everything else -> bus A). Any thread. */
+    /** Where a track plays: the place chosen for it by hand, else the one its type picks (see busForRole).
+        Any thread. */
     int getBus(int track) const;
-    static int busForRole(CargoRole role);
-    /** The bus chosen by hand: -1 = Auto (by type), 0 = bus A, 1 = bus B, c_hitsBus = the hits. The type and
-        the track's name stay as they are. Any thread. */
+    /** Where a type plays on Auto: impacts -> hits, beds and air -> bus B, everything else -> bus A; and with
+        rumbleToStowaway, rumbles -> Stowaway. */
+    static int busForRole(CargoRole role, bool rumbleToStowaway);
+    /** The same, as this hold routes right now (see setRumbleToStowaway). Any thread. */
+    int autoBus(CargoRole role) const { return busForRole(role, m_rumbleToStowaway.load(std::memory_order_relaxed)); }
+    /** Rumble-type sounds on Auto play on Stowaway (on: Stowaway is switched on and in its Sub mode) or on bus A. Any thread: it
+        only stores a flag, and tells no listener. */
+    void setRumbleToStowaway(bool on) { m_rumbleToStowaway.store(on, std::memory_order_relaxed); }
+    bool getRumbleToStowaway() const { return m_rumbleToStowaway.load(std::memory_order_relaxed); }
+    /** The place chosen by hand: -1 = Auto (by type), 0 = bus A, 1 = bus B, c_hitsBus = the hits, c_stowBus =
+        Stowaway. The type and the track's name stay as they are. Any thread. */
     int getBusOverride(int track) const { return m_tracks[static_cast<size_t>(track)].busOverride.load(std::memory_order_relaxed); }
     void setBusOverride(int track, int busOrMinusOne);     // message thread
 
@@ -235,7 +246,7 @@ public:
     void setSkipSilence(int track, bool skip);
 
     bool loadFile(int track, const juce::File& file, juce::String& error);
-    /** Loads audio made in memory (the demo sounds) into a track, exactly as a file of that name would be: analysed,
+    /** Loads audio made in memory (the tools' and tests' demo sounds) into a track, exactly as a file of that name would be: analysed,
         typed, routed, and one undo step. One channel, or two (left and right). Message thread. */
     bool loadBuffer(int track, const juce::AudioBuffer<float>& audio, double sampleRate, const juce::String& name);
 
@@ -373,6 +384,7 @@ private:
     std::int64_t m_undoByteLimit = c_undoByteLimit;
     std::array<std::atomic<bool>, c_numLanes> m_mute {}, m_solo {};   //
     std::atomic<int> m_soloCount { 0 };
+    std::atomic<bool> m_rumbleToStowaway { false };                   // see setRumbleToStowaway (Stowaway starts switched off)
     std::atomic<int> m_master { -1 };                                 // see setMaster
     std::array<std::atomic<int>, 2> m_morphSource { { { -1 }, { -1 } } }; // see setMorphSource
     /** A track that is cleared stops being the Master and lets go of its ropes (undo brings them back). */

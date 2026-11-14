@@ -41,6 +41,16 @@ public:
                     on || (down && m_icon == Icon::Star), Icons::getPips(*this));
     }
 
+    /** Changes the picture (a button whose meaning turns over, such as one that opens and then folds a plate). */
+    void setIcon(Icon icon)
+    {
+        if (icon != m_icon)
+        {
+            m_icon = icon;
+            repaint();
+        }
+    }
+
 private:
     Icon m_icon;
     bool m_quiet;

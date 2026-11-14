@@ -1,6 +1,5 @@
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
-#include "DemoSounds.h"
 #include "VariationRenderer.h"
 #include "Version.h"
 
@@ -24,7 +23,7 @@ SwooshbucklerAudioProcessor::SwooshbucklerAudioProcessor(juce::PropertiesFile* o
     // Sample-based instrument: no audio input (so no feedback loop, no microphone), MIDI in, stereo out.
     : AudioProcessor(BusesProperties().withOutput("Output", juce::AudioChannelSet::stereo(), true))
     , m_offline(offlineSettings != nullptr)
-    , m_state(*this, nullptr, "Swooshbuckler", Params::createLayout())
+    , m_state(*this, nullptr, "Swooshbuckler", Params::createLayout(m_stowModeSource))
 {
     auto raw = [this](const char* id) { return m_state.getRawParameterValue(id); };
     for (int i = 0; i < ParamIDs::numCargoTracks; ++i)
@@ -47,6 +46,20 @@ SwooshbucklerAudioProcessor::SwooshbucklerAudioProcessor(juce::PropertiesFile* o
             m_raw.bus[b][k] = ParamIDs::bus[b][k] != nullptr ? raw(ParamIDs::bus[b][k]) : nullptr;
     for (int b = 0; b < ParamIDs::numBuses; ++b)
         m_raw.passMode[b] = raw(ParamIDs::passMode[b]);
+    m_raw.stowOn = raw(ParamIDs::stowOn);
+    m_raw.stowMode = raw(ParamIDs::stowMode);
+    m_stowModeSource->mode.store(m_raw.stowMode); // the Stowaway knobs read by the mode from here on
+    for (int k = 0; k < ParamIDs::numStowControls; ++k)
+    {
+        m_raw.stow[k] = raw(ParamIDs::stow[k]);
+        m_stowModeSource->knobs[static_cast<size_t>(k)].store(m_raw.stow[k]);
+    }
+    // Rumbles ride with Stowaway while it is switched on and a sub. The hold is told as soon as the switch or the
+    // Mode moves, on whichever thread moves it (a flag, nothing else), so the routing is right with or without the
+    // audio running.
+    m_state.addParameterListener(ParamIDs::stowOn, this);
+    m_state.addParameterListener(ParamIDs::stowMode, this);
+    m_cargo.setRumbleToStowaway(rumblesRideStowaway());
     m_raw.hitSense = raw(ParamIDs::hitSense);
     m_raw.hitBoost = raw(ParamIDs::hitBoost);
     m_raw.hitRelease = raw(ParamIDs::hitRelease);
@@ -137,6 +150,8 @@ SwooshbucklerAudioProcessor::SwooshbucklerAudioProcessor(juce::PropertiesFile* o
 
 SwooshbucklerAudioProcessor::~SwooshbucklerAudioProcessor()
 {
+    m_state.removeParameterListener(ParamIDs::stowOn, this);
+    m_state.removeParameterListener(ParamIDs::stowMode, this);
     m_variations.reset(); // stops its thread and lets go of its copy of this rig first
     m_cargo.onUndoableEdit = nullptr;
     m_history.reset();
@@ -210,7 +225,8 @@ void SwooshbucklerAudioProcessor::renderAtRenderRate(const float* inL, const flo
     m_engine.process(inL, inR, l, r, n);
     // The pass peaks and hits of this block, for the take's markers: they reach the tape after the limiter's look-ahead.
     static_assert(static_cast<int>(RigEngine::MarkPassA) == static_cast<int>(TapeRecorder::MarkPassA)
-                  && static_cast<int>(RigEngine::MarkHit) == static_cast<int>(TapeRecorder::MarkHit), "the same marker kinds");
+                  && static_cast<int>(RigEngine::MarkHit) == static_cast<int>(TapeRecorder::MarkHit)
+                  && static_cast<int>(RigEngine::MarkPassStow) == static_cast<int>(TapeRecorder::MarkPassStow), "the same marker kinds");
     for (int i = 0; i < m_engine.getNumMarkers() && ! m_offline; ++i)
         m_recorder.addMarker(m_engine.getMarker(i).offset + m_master.getLatencySamples(), m_engine.getMarker(i).kind);
     const bool throwing = m_engine.isThrowing(); // a throw with the rig stopped: its tail is waited for afterwards
@@ -357,6 +373,20 @@ void SwooshbucklerAudioProcessor::updateEngineParams()
         d.duck = get(ParamIDs::Duck);
         d.key = get(ParamIDs::Key);
         d.passMode = juce::jlimit(0, 1, juce::roundToInt(m_raw.passMode[b]->load()));
+    }
+    {
+        static_assert(static_cast<int>(RigEngine::c_stowModes) == static_cast<int>(ParamIDs::numStowModes)
+                      && static_cast<int>(RigEngine::c_stowKnobs) == static_cast<int>(ParamIDs::numStowControls)
+                      && static_cast<int>(RigEngine::StowWidth) == static_cast<int>(ParamIDs::StowWidth), "the same Stowaway modes and knobs");
+        p.stow.on = isStowawayOn();
+        p.stow.mode = stowMode();
+        float* const knobs[ParamIDs::numStowControls] = { &p.stow.follow, &p.stow.low, &p.stow.filter, &p.stow.drive, &p.stow.width };
+        for (int k = 0; k < ParamIDs::numStowControls; ++k)
+        {
+            *knobs[k] = m_raw.stow[k]->load();
+            p.stowMod[static_cast<size_t>(k)] = modDelta(m_raw.stow[k]);
+        }
+        m_cargo.setRumbleToStowaway(p.stow.on && p.stow.mode == ParamIDs::StowSub);
     }
     p.hitSense = modValue(m_raw.hitSense);
     p.hitBoost = modValue(m_raw.hitBoost);
@@ -623,6 +653,7 @@ void SwooshbucklerAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
         m_followerLevels[ModMatrix::FollowBusA] = sections[0];
         m_followerLevels[ModMatrix::FollowBusB] = sections[1];
         m_followerLevels[ModMatrix::FollowHits] = sections[2];
+        m_followerLevels[ModMatrix::FollowStow] = sections[RigEngine::SectionStow];
         const auto& master = m_engine.getMasterFollow();
         m_followerLevels[ModMatrix::FollowMaster] = master[0];
         m_followerLevels[ModMatrix::FollowMasterPitch] = master[1];
@@ -631,6 +662,47 @@ void SwooshbucklerAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
     }
     // A take being auditioned: on top of the output, after the tape, the meters and the trim.
     m_audition.process(buffer, 0, n);
+}
+
+int SwooshbucklerAudioProcessor::stowMode() const
+{
+    return juce::jlimit(0, ParamIDs::numStowModes - 1, juce::roundToInt(m_raw.stowMode->load()));
+}
+
+bool SwooshbucklerAudioProcessor::isStowawayOn() const
+{
+    return m_raw.stowOn->load() > 0.5f;
+}
+
+void SwooshbucklerAudioProcessor::setStowawayOn(bool on)
+{
+    if (auto* param = m_state.getParameter(ParamIDs::stowOn); param != nullptr && (param->getValue() > 0.5f) != on)
+    {
+        param->beginChangeGesture();
+        param->setValueNotifyingHost(on ? 1.0f : 0.0f);
+        param->endChangeGesture();
+    }
+}
+
+void SwooshbucklerAudioProcessor::parameterChanged(const juce::String& parameterID, float newValue)
+{
+    // The one that changed is read from newValue, the other from the parameter.
+    if (parameterID == ParamIDs::stowMode)
+    {
+        m_cargo.setRumbleToStowaway(isStowawayOn() && juce::roundToInt(newValue) == ParamIDs::StowSub);
+        // Filter and Width read by the Mode ("120 Hz" or "Open", "Mono" or "100%"): the host is told to read its
+        // parameters' texts again. That has to be said on the message thread, so the timer says it.
+        m_stowReadoutsStale.store(true);
+    }
+    else if (parameterID == ParamIDs::stowOn)
+        m_cargo.setRumbleToStowaway(newValue > 0.5f && stowMode() == ParamIDs::StowSub);
+}
+
+void SwooshbucklerAudioProcessor::refreshHostReadouts()
+{
+    // Stowaway's Mode changed: its knobs read differently now, and the host shows what they read.
+    if (m_stowReadoutsStale.exchange(false))
+        updateHostDisplay(ChangeDetails().withParameterInfoChanged(true));
 }
 
 int SwooshbucklerAudioProcessor::keysMode() const
@@ -840,6 +912,7 @@ void SwooshbucklerAudioProcessor::newSession()
         std::array<bool, CargoHold::c_numLanes> mute {}, solo {};
         juce::String sessionPath, presetName;
         unsigned locks = 0;
+        int stowPanel = -1;
         std::array<Look, 2> ab;
         std::array<juce::String, 2> abNames;
         int abSlot = 0;
@@ -855,6 +928,7 @@ void SwooshbucklerAudioProcessor::newSession()
         }
         e.presetName = currentPresetName;
         e.locks = m_lockedSections.load();
+        e.stowPanel = m_stowPanel.load();
         const juce::ScopedLock sl(m_stateLock);
         e.sessionPath = m_sessionPath;
         e.ab = m_ab;
@@ -872,6 +946,7 @@ void SwooshbucklerAudioProcessor::newSession()
         }
         currentPresetName = e.presetName;
         m_lockedSections.store(e.locks);
+        m_stowPanel.store(e.stowPanel);
         const juce::ScopedLock sl(m_stateLock);
         m_sessionPath = e.sessionPath;
         m_ab = e.ab;
@@ -903,6 +978,7 @@ void SwooshbucklerAudioProcessor::newSession()
     m_mods.clear();
     currentPresetName = "Default";
     m_lockedSections.store(0);
+    m_stowPanel.store(-1);
     {
         const juce::ScopedLock sl(m_stateLock);
         m_sessionPath.clear();
@@ -1053,25 +1129,6 @@ bool SwooshbucklerAudioProcessor::saveUserPreset(const juce::String& name, bool 
     written = file;
     currentPresetName = legal;
     return true;
-}
-
-//==============================================================================
-int SwooshbucklerAudioProcessor::loadDemoSounds()
-{
-    if (m_cargo.firstEmptyTrack() < 0)
-        return 0;
-    // One undo step for the four of them.
-    EditHistory::Group group(*m_history, "Load Demo Sounds");
-    int loaded = 0;
-    for (const auto& sound : DemoSounds::all())
-    {
-        const int track = m_cargo.firstEmptyTrack();
-        if (track < 0)
-            break;
-        if (m_cargo.loadBuffer(track, sound.audio, DemoSounds::c_sampleRate, sound.name))
-            ++loaded;
-    }
-    return loaded;
 }
 
 //==============================================================================
@@ -1401,6 +1458,14 @@ float SwooshbucklerAudioProcessor::getVariationAmount() const { return juce::jli
 void SwooshbucklerAudioProcessor::setVariationAmount(float amount) { m_settings->setValue("variationAmount", static_cast<double>(juce::jlimit(0.0f, 1.0f, amount))); m_settings->saveIfNeeded(); }
 juce::String SwooshbucklerAudioProcessor::getVariationFolder() const { return m_settings->getValue("variationFolder").trim(); }
 void SwooshbucklerAudioProcessor::setVariationFolder(const juce::String& path) { m_settings->setValue("variationFolder", path.trim()); m_settings->saveIfNeeded(); }
+juce::String SwooshbucklerAudioProcessor::getVariationValue(const juce::String& key, const juce::String& fallback) const { return m_settings->getValue("variation" + key, fallback); }
+void SwooshbucklerAudioProcessor::setVariationValue(const juce::String& key, const juce::String& value)
+{
+    if (m_settings->getValue("variation" + key) == value && m_settings->containsKey("variation" + key))
+        return;
+    m_settings->setValue("variation" + key, value);
+    m_settings->saveIfNeeded();
+}
 
 std::unique_ptr<SwooshbucklerAudioProcessor> SwooshbucklerAudioProcessor::makeOfflineCopy()
 {
@@ -1412,6 +1477,7 @@ std::unique_ptr<SwooshbucklerAudioProcessor> SwooshbucklerAudioProcessor::makeOf
     copy->m_state.replaceState(state);
     copy->m_mods.fromValueTree(m_mods.toValueTree());
     copy->currentPresetName = currentPresetName;
+    copy->m_stowPanel.store(m_stowPanel.load());
     copy->m_lockedSections.store(m_lockedSections.load()); // Randomise Everything leaves locked sections alone too
     // Stopped, and Master Trim out of the way: what it renders is what the tape would get.
     if (auto* play = copy->m_state.getParameter(ParamIDs::play))
@@ -1539,7 +1605,7 @@ void SwooshbucklerAudioProcessor::refreshTakes()
     }
     if (m_variations != nullptr)
         for (const auto& written : m_variations->takeWritten())
-            registerTake(written.file, "Variation", written.seconds);
+            registerTake(written.file, written.markers > 0 ? "Variations" : "Variation", written.seconds, written.markers); // one file that holds them all is one take
 }
 
 void SwooshbucklerAudioProcessor::registerTake(const juce::File& fileToAdd, const juce::String& kindToShow, double seconds, int markers)
@@ -1695,6 +1761,8 @@ void SwooshbucklerAudioProcessor::timerCallback()
     if (m_hostStopped.exchange(false) && ! m_playing.load())
         setPlaying(false);
 
+    refreshHostReadouts();
+
     // The tape: the files it has closed go into the takes, and the next file is named and described by the
     // settings as they are now.
     refreshTakes();
@@ -1792,6 +1860,7 @@ void SwooshbucklerAudioProcessor::getStateInformation(juce::MemoryBlock& destDat
     state.setProperty("presetName", preset, nullptr);
     state.setProperty("followHost", getFollowHost(), nullptr);
     state.setProperty("sectionLocks", static_cast<int>(m_lockedSections.load()), nullptr);
+    state.setProperty("stowawayPanel", m_stowPanel.load(), nullptr);
     if (sessionPath.isNotEmpty())
         state.setProperty("sessionFile", sessionPath, nullptr);
     else
@@ -1831,6 +1900,7 @@ void SwooshbucklerAudioProcessor::restoreStateTree(juce::ValueTree tree)
     tree.removeProperty("throwPath", nullptr); // v2 sessions
     m_followHost.store(canFollowHost() && static_cast<bool>(tree.getProperty("followHost", true)));
     m_lockedSections.store(static_cast<unsigned>(static_cast<int>(tree.getProperty("sectionLocks", 0))) & ((1u << Presets::numSections) - 1u));
+    m_stowPanel.store(juce::jlimit(-1, 1, static_cast<int>(tree.getProperty("stowawayPanel", -1))));
     {
         // The session's file, and the A/B sets (a state without them has none).
         const juce::ScopedLock sl(m_stateLock);

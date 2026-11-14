@@ -12,6 +12,7 @@
 // from or written to the user's settings.
 
 #include <JuceHeader.h>
+#include "TestClock.h"
 #include "PluginProcessor.h"
 #include "Parameters.h"
 #include "MorphPad.h"
@@ -127,8 +128,11 @@ namespace
                 juce::AudioBuffer<float> view(out.getArrayOfWritePointers(), 2, pos, c_block);
                 view.clear();
                 proc.processBlock(view, midi);
-                if ((pos / c_block) % 32 == 31)
-                    juce::Thread::sleep(1); // offline is far faster than real time: let the tape's writer keep up
+                // Offline is far faster than real time: wait for the tape's writer whenever it is a second behind (it
+                // may fall three behind), however slow the machine is.
+                if (proc.getTapeBacklogSeconds() > 1.0)
+                    for (int tries = 0; tries < 60000 && proc.getTapeBacklogSeconds() > 0.25; ++tries)
+                        juce::Thread::sleep(1);
             }
             return out;
         }
@@ -383,7 +387,8 @@ int main(int argc, char* argv[])
         }
         check(p.isRecording() && ! p.isCapturing(), "harvest: the tape is still armed, waiting for the next whoosh");
         // The files of the first whooshes are closed and in the takes while the tape is still armed.
-        for (int tries = 0; tries < 100 && p.getTakes().size() < 3; ++tries)
+        // (A wait for the writer thread to finish, not a pause of a fixed length: it ends as soon as they are there.)
+        for (int tries = 0; tries < 3000 && p.getTakes().size() < 3; ++tries)
         {
             juce::Thread::sleep(20);
             p.refreshTakes(); // (the processor's own timer does this in the app; no message loop runs here)
@@ -448,22 +453,25 @@ int main(int argc, char* argv[])
             check(p.auditionTake(takes.front().id, error) && p.getAuditionTake() == takes.front().id, "audition: a take starts playing " + error);
             juce::AudioBuffer<float> heard(2, 0);
             double progressMid = 0.0;
-            for (int k = 0; k < 12 && p.getAuditionTake() >= 0; ++k)
+            // The playback keeps a second read ahead, topped up by a reader thread in real time. Rendering here is far
+            // faster than that, so the test reads ahead itself before each quarter second: what is heard then does
+            // not depend on how quick the machine or that thread is.
+            for (int k = 0; k < 40 && p.getAuditionTake() >= 0; ++k)
             {
-                const auto part = rig.run(0.5);
+                p.topUpAudition();
+                const auto part = rig.run(0.25);
                 const int had = heard.getNumSamples();
                 heard.setSize(2, had + part.getNumSamples(), true);
                 for (int ch = 0; ch < 2; ++ch)
                     heard.copyFrom(ch, had, part, ch, 0, part.getNumSamples());
-                if (k == 1)
+                if (k == 3)
                     progressMid = p.getAuditionProgress();
-                juce::Thread::sleep(30); // the reader thread tops the playback up
             }
             juce::AudioBuffer<float> original;
             readFile(takes.front().file, original);
             const float heardPeak = heard.getMagnitude(0, heard.getNumSamples()), filePeak = original.getMagnitude(0, original.getNumSamples());
             const double heardSeconds = lastSound(heard);
-            check(std::abs(heardPeak - filePeak) < 0.05f * filePeak && std::abs(heardSeconds - takes.front().seconds) < 0.3 && p.getAuditionTake() == -1,
+            check(std::abs(heardPeak - filePeak) < 0.05f * filePeak && std::abs(heardSeconds - takes.front().seconds) < 0.05 && p.getAuditionTake() == -1,
                   "audition: the whole take is heard at its own level, then it stops (" + juce::String(heardSeconds, 2) + " s of "
                       + juce::String(takes.front().seconds, 2) + " s, peak " + juce::String(heardPeak, 3) + " of " + juce::String(filePeak, 3) + ")");
             check(progressMid > 0.1 && progressMid < 0.9, "audition: it says how far through it is (" + juce::String(progressMid, 2) + ")");
@@ -765,9 +773,9 @@ int main(int argc, char* argv[])
 
         // A parameter moves: one save, done on another thread (tick returns at once).
         setNorm(p, ParamIDs::energy, 0.8f);
-        const double t0 = juce::Time::getMillisecondCounterHiRes();
+        const double t0 = TestClock::cpuMs();
         autosave->tick();
-        const double tickMs = juce::Time::getMillisecondCounterHiRes() - t0;
+        const double tickMs = TestClock::cpuMs() - t0;
         check(waitForSave(1, 60000) && file.existsAsFile(), "autosave: a changed parameter is saved");
         const double firstMs = autosave->getLastSaveMs();
         check(tickMs < 100.0, "autosave: the save does not run on the calling thread (the check took " + juce::String(tickMs, 2) + " ms)");
@@ -790,15 +798,19 @@ int main(int argc, char* argv[])
         // Only edits count. Wander moves the morph dot by itself for as long as it is on: switching it on is saved
         // once, the moving dot is not saved over and over. A new audio device (a latency change) is no edit either.
         {
+            // At least `ms` of time going by, as a fixed number of checks 20 ms apart (so what `during` does is done the
+            // same number of times on any machine: a slow one just takes longer over it).
             auto idle = [&](int ms, const std::function<void()>& during)
             {
-                const auto start = juce::Time::getMillisecondCounter();
-                while (juce::Time::getMillisecondCounter() - start < static_cast<juce::uint32>(ms))
+                for (int k = 0; k < ms / 20; ++k)
                 {
                     if (during) during();
                     autosave->tick();
                     juce::Thread::sleep(20);
                 }
+                // A save that was started in that time is counted, however long a slow disk takes over it.
+                for (int tries = 0; tries < 3000 && autosave->isSaving(); ++tries)
+                    juce::Thread::sleep(20);
             };
             auto moveDot = [&](float x)
             {
@@ -855,7 +867,7 @@ int main(int argc, char* argv[])
             check(autosave->getSaveCount() == settled, "autosave: nothing more to save");
             const auto routes = p.getMods().getRoutes();
             check(! routes.empty() && p.getMods().setDepth(routes.front().slot, -0.6f), "autosave: a wire's depth changes");
-            check(waitForSave(settled + 1, 5000), "autosave: a dragged wire depth is saved");
+            check(waitForSave(settled + 1, 60000), "autosave: a dragged wire depth is saved");
             idle(600, {});
             check(! routes.empty() && p.getMods().setDepth(routes.front().slot, -0.6f) && (idle(600, {}), autosave->getSaveCount() == settled + 1),
                   "autosave: the same depth again is not a change");

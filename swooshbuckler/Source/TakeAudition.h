@@ -31,6 +31,11 @@ public:
     /** How far through the file it is, 0..1. */
     double getProgress() const;
 
+    /** Reads ahead now, as the reader thread does every few milliseconds. Not the audio thread. For whatever runs
+        the audio faster than real time (an offline render, the tests), where that thread cannot be counted on to
+        keep ahead. */
+    void topUp();
+
     /** Audio thread: adds the playback to numSamples samples of every channel of out from sample start. */
     void process(juce::AudioBuffer<float>& out, int start, int numSamples);
 

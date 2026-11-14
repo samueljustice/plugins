@@ -154,6 +154,44 @@ namespace sj
         float highpass(float x) { process(x); return hp; }
     };
 
+    /**
+     * The same filter with double coefficients and state, for a very low cutoff at a high sample rate (40 Hz at
+     * 192 kHz), where single precision leaves a noise floor about 80 dB under the passband: not enough for a steep
+     * crossover's stopband.
+     */
+    struct Svf64
+    {
+        double g = 0.0, k = 1.0, a1 = 0.0, a2 = 0.0, a3 = 0.0;
+        double ic1 = 0.0, ic2 = 0.0;
+        double lp = 0.0, hp = 0.0;
+
+        void set(double cutoff, double q, double sampleRate)
+        {
+            cutoff = std::clamp(cutoff, 5.0, sampleRate * 0.45);
+            g = std::tan(3.14159265358979323846 * cutoff / sampleRate);
+            k = 1.0 / std::max(0.05, q);
+            a1 = 1.0 / (1.0 + g * (g + k));
+            a2 = g * a1;
+            a3 = g * a2;
+        }
+
+        void reset() { ic1 = ic2 = lp = hp = 0.0; }
+
+        void process(double x)
+        {
+            const double v3 = x - ic2;
+            const double v1 = a1 * ic1 + a2 * v3;
+            const double v2 = ic2 + a2 * ic1 + a3 * v3;
+            ic1 = 2.0 * v1 - ic1;
+            ic2 = 2.0 * v2 - ic2;
+            lp = v2;
+            hp = x - k * v1 - v2;
+        }
+
+        double lowpass(double x) { process(x); return lp; }
+        double highpass(double x) { process(x); return hp; }
+    };
+
     /** One-pole lowpass with a cutoff in Hz. */
     struct OnePole
     {

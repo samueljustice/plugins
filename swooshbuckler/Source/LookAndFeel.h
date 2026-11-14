@@ -86,10 +86,12 @@ public:
     /** The face of a control plate inside its bounds: above its lip, or down on it when pressed. */
     static juce::Rectangle<float> plateFace(juce::Rectangle<float> area, bool down);
     /** A panel: a bolted plate with its nameplate (a tally with the section's mark, then the title) and a one-line
-        subtitle in the title bar. The subtitle is kept left of subtitleRight (0 = the panel's own edge). */
+        subtitle in the title bar. The subtitle is kept left of subtitleRight (0 = the panel's own edge).
+        resting: the section is switched off. Its plate is darker, its tally hollow and its name dim, so the whole
+        plate reads as off and not just its switch. */
     static void drawPanel(juce::Graphics&, juce::Rectangle<float> area, const juce::String& title,
                           const juce::String& subtitle, juce::Colour accent, const Theme::Fonts& fonts,
-                          Icons::Icon mark = Icons::Icon::None, float subtitleRight = 0.0f);
+                          Icons::Icon mark = Icons::Icon::None, float subtitleRight = 0.0f, bool resting = false);
     /** Where a panel's title starts, and where its nameplate ends, from the panel's left edge (for laying things
         out after it). */
     static constexpr int c_titleX = 50, c_plateTail = 13;

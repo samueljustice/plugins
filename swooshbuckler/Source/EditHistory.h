@@ -60,6 +60,10 @@ public:
             *what = m_manager.getRedoDescription();
         return m_manager.redo();
     }
+    /** The clock (milliseconds) that tells quick moves in a row from separate ones. The tests set their own, so
+        they need not wait in real time; left unset it is the system's. */
+    void setClock(std::function<juce::uint32()> clock) { m_clock = std::move(clock); }
+
     void clear()
     {
         m_open.clear();
@@ -267,7 +271,7 @@ private:
         }
         Changes changes;
         changes.swap(m_pending);
-        const auto now = juce::Time::getMillisecondCounter();
+        const auto now = m_clock ? m_clock() : juce::Time::getMillisecondCounter();
         const bool loose = m_depth == 0 && ! m_join;
         if (loose)
         {
@@ -294,6 +298,7 @@ private:
     Changes m_pending;             // ended gestures waiting for the others to end
     int m_depth = 0;               // open Groups
     bool m_join = false;           // the next commit belongs to the step a Group began
+    std::function<juce::uint32()> m_clock;
     juce::uint32 m_looseAt = 0;    // when the last loose parameter step was recorded (0 = the last step wasn't one)
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(EditHistory)

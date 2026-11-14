@@ -3,7 +3,7 @@
 //   SwooshbucklerUiShot --out <dir> [--scale 0.6|1.0|1.5|2.0] [--seconds 3] [--state <session file>]
 //                       [--work <private dir>] [--list] [--no-images] [--constellation] [--sea]
 //
-// It makes the processor and its editor with no window on screen, loads the built-in demo sounds (or a session
+// It makes the processor and its editor with no window on screen, loads its own demo sounds (or a session
 // file given with --state), plays for a few seconds so the sea, the rides, the scopes and the meters are alive
 // (the editor's timers are stepped by hand), and writes:
 //
@@ -11,10 +11,19 @@
 //   window.png                the whole window, playing
 //   header.png tracks.png lane.png sea.png ride.png bus-a.png bus-b.png hits.png output.png modulation.png
 //                             one crop per panel
+//   window-stowaway.png tracks-stowaway.png
+//                             a track sent to Stowaway by hand while it is off (its tag rests: the track waits)
+//   stowaway.png              Stowaway's plate as a new session has it: off, and folded
+//   stowaway-off-open.png     off, with the plate open (everything on it rests)
+//   stowaway-folded.png       on, and folded
+//   window-stowaway-<mode>.png stowaway-<mode>.png sea-stowaway-<mode>.png   (sub, wake, fly, dry)
+//                             on and open in each Mode, with a track playing on it: the plate, and the sea showing it
 //   morph.png                 the morph pad open over the sea
 //   cables.png                three wires, cables on, the buses linked (the Linked, Resting and Disabled looks)
 //   settings.png takes.png variations.png variations-rendering.png about.png update.png
 //                             the panels that open over the window
+//   variations-cancelled.png variations-choices.png variations-repeat.png variations-finished.png
+//                             Render Variations cancelled part-way, with its other choices, repeating a batch, and done
 //   menu.png                  the preset menu open
 //   name-dialog.png           the window that asks for a preset's name
 //
@@ -24,7 +33,7 @@
 //
 // --docs writes, instead of all of the above, exactly the pictures the manual uses, under the names it uses
 // (screenshot.png, header.png, tracks.png, track-lane.png, track-master.png, ride.png, throw-keys.png,
-// bus-a.png, bus-b.png, hits.png, output.png, sea.png, morph-pad.png, morph-rope.png, modulation.png,
+// bus-a.png, bus-b.png, hits.png, output.png, stowaway.png, stowaway-folded.png, sea.png, morph-pad.png, morph-rope.png, modulation.png,
 // cables.png, settings.png, shortcuts.png, takes.png, variations.png, about.png). Run it as
 // tools/make-docs-images.sh does, at --scale 2.0, and the files go straight into docs/ and docs/images/.
 //
@@ -37,6 +46,7 @@
 
 #include "UiRig.h"
 #include "UiProbe.h"
+#include "DemoSounds.h"
 
 #include <iostream>
 
@@ -141,7 +151,7 @@ namespace
             recordings.createDirectory();
             proc.setRecordFolder(recordings);
             proc.setVariationFolder({}); // Dated Folder: the default
-            proc.loadDemoSounds();
+            DemoSounds::loadInto(proc);
 
             Rig rig(proc, options.scale);
             Shots shots { rig, options };
@@ -162,12 +172,33 @@ namespace
                 shots.crop(window, "hits", ed.m_sections[2].bounds, 2);
                 shots.crop(window, "output", ed.m_sections[3].bounds, 2);
                 shots.crop(window, "modulation", ed.m_modSection, 2);
+                shots.crop(window, "stowaway-folded", ed.m_stowPanel, 2);
                 for (auto* lane : ed.m_hold.m_laneHolder.getChildren())
                     if (lane->isVisible())
                     {
                         shots.crop(window, "track-lane", ed.m_content.getLocalArea(lane, lane->getLocalBounds()), 2);
                         break;
                     }
+            }
+
+            // Stowaway, switched on with a track sent to it, and its plate open. (Not through the lane's menu: its
+            // line in the Tracks title bar would still be there in the pictures that follow.)
+            {
+                proc.setTrackBus(1, CargoHold::c_stowBus);
+                proc.setStowawayOn(true);
+                ed.m_hold.historyStepped();
+                rig.run(0.1);
+                ed.m_stowOpen.snap(1.0f); // (it eases open over 180 ms of real time: the picture wants it open)
+                ed.layoutBottomRow();
+                rig.run(2.5);
+                shots.crop(shots.shoot("window-stowaway"), "stowaway", ed.m_stowPanel, 2);
+                proc.setTrackBus(1, -1);
+                proc.setStowawayOn(false);
+                proc.setStowawayPanel(-1);
+                ed.m_stowOpen.snap(0.0f);
+                ed.layoutBottomRow();
+                ed.m_hold.historyStepped();
+                rig.run(0.3);
             }
 
             // A throw on its way in: the Ride panel counting down to its peak, with Throw, Throw Length and Keys.
@@ -363,7 +394,7 @@ int main(int argc, char* argv[])
         shots.crop(shots.shoot("empty"), "sea-idle", rig.editor->m_sea.getBounds());
         rig.editor.reset();
 
-        // The sounds: a session file, or the built-in demo sounds. The editor is made after them (there is no
+        // The sounds: a session file, or the tool's own demo sounds (tools/DemoSounds.cpp). The editor is made after them (there is no
         // message loop to tell an open one).
         if (options.state != juce::File())
         {
@@ -375,7 +406,7 @@ int main(int argc, char* argv[])
             }
         }
         else
-            proc.loadDemoSounds();
+            DemoSounds::loadInto(proc);
 
         rig.open();
         auto& ed = *rig.editor;
@@ -403,6 +434,7 @@ int main(int argc, char* argv[])
             shots.crop(window, "hits", ed.m_sections[2].bounds);
             shots.crop(window, "output", ed.m_sections[3].bounds);
             shots.crop(window, "modulation", ed.m_modSection);
+            shots.crop(window, "stowaway", ed.m_stowPanel);
 
             // The panels bolted to the window: listed, and none may run into another or leave the window.
             const auto panels = ed.panelBounds();
@@ -434,8 +466,65 @@ int main(int argc, char* argv[])
             rig.run(0.4);
             const auto window = shots.shoot("toast");
             shots.crop(window, "toast-plate", ed.m_toastPill.expanded(40, 24), 0);
+            // The longest thing it says: a preset has switched Stowaway on with nothing sent to it.
+            ed.toast("Stowaway is on with nothing on it: send it a track from a lane's bus tag");
+            rig.run(0.4);
+            shots.crop(shots.shoot("toast-stowaway"), "toast-stowaway-plate", ed.m_toastPill.expanded(40, 24), 0);
             ed.m_toast.clear();
             ed.m_toastRise.snap(0.0f);
+            rig.run(0.1);
+        }
+
+        // Stowaway. A track sent to it by hand while it is off waits: its tag rests, with a hollow S. Then the plate
+        // in each of its states, and (on, with the track playing on it) the sea showing it in each Mode.
+        {
+            auto set = [&proc](const char* id, float plain)
+            {
+                auto* param = proc.getState().getParameter(id);
+                param->setValueNotifyingHost(param->convertTo0to1(plain));
+            };
+            // The plate eases open over 180 ms of real time; the pictures want it where it is going.
+            auto settle = [&](bool open)
+            {
+                proc.setStowawayPanel(open ? 1 : 0);
+                ed.m_stowOpen.snap(open ? 1.0f : 0.0f);
+                ed.layoutBottomRow();
+            };
+            auto plate = [&](const juce::String& name) { shots.crop(shots.shoot("window-" + name), name, ed.m_stowPanel.getUnion(ed.m_modSection.withWidth(120))); };
+
+            proc.getCargo().setBusOverride(1, CargoHold::c_stowBus);
+            ed.m_hold.historyStepped(); // the lanes take up the change (no message loop runs here)
+            rig.run(0.3);
+            shots.crop(shots.shoot("window-stowaway"), "tracks-stowaway", ed.m_hold.getBounds());
+
+            settle(true);
+            rig.run(0.2);
+            plate("stowaway-off-open");
+
+            set(ParamIDs::stowOn, 1.0f);
+            settle(false);
+            rig.run(1.0);
+            plate("stowaway-folded");
+
+            const char* names[ParamIDs::numStowModes] = { "sub", "wake", "fly", "dry" };
+            settle(true);
+            for (int mode = 0; mode < ParamIDs::numStowModes; ++mode)
+            {
+                set(ParamIDs::stowMode, static_cast<float>(mode));
+                rig.run(mode == ParamIDs::StowDry ? 1.5 : 3.0);
+                const juce::String name = juce::String("stowaway-") + names[mode];
+                const auto window = shots.shoot("window-" + name);
+                shots.crop(window, name, ed.m_stowPanel.getUnion(ed.m_modSection.withWidth(120)));
+                shots.crop(window, "sea-" + name, ed.m_sea.getBounds());
+            }
+
+            set(ParamIDs::stowMode, static_cast<float>(ParamIDs::StowSub));
+            set(ParamIDs::stowOn, 0.0f);
+            proc.setStowawayPanel(-1);
+            ed.m_stowOpen.snap(0.0f);
+            ed.layoutBottomRow();
+            proc.getCargo().setBusOverride(1, -1);
+            ed.m_hold.historyStepped();
             rig.run(0.1);
         }
 
@@ -556,7 +645,39 @@ int main(int argc, char* argv[])
             shots.shoot("variations-rendering", &ed.m_variations);
             proc.getVariations().cancel();
             proc.getVariations().waitUntilDone(60000);
+            rig.run(0.2);
+            ed.m_variations.timerCallback();
+            shots.shoot("variations-cancelled", &ed.m_variations);
+
+            // The other choices: a whole ride, small changes, a typed batch name and one file with markers...
+            auto& v = ed.m_variations;
+            auto pick = [](juce::ComboBox& box, int id) { box.setSelectedId(id, juce::sendNotificationSync); };
+            pick(v.m_each, 2);
+            pick(v.m_mode, 2);
+            pick(v.m_names, 4);
+            v.m_batchName.setText("Dragon Wings", true);
+            pick(v.m_files, 2);
             rig.run(0.1);
+            shots.shoot("variations-choices", &v);
+            // ...date and time, both kinds of file, Randomise Everything and a batch to repeat...
+            pick(v.m_names, 2);
+            pick(v.m_files, 3);
+            pick(v.m_batch, 2); // takes the count, lengths and What Varies of the batch it repeats
+            rig.run(0.1);
+            shots.shoot("variations-repeat", &v);
+            // ...and a small batch that has finished.
+            pick(v.m_batch, 1);
+            pick(v.m_each, 1);
+            pick(v.m_files, 1);
+            pick(v.m_mode, 1);
+            pick(v.m_names, 1);
+            v.m_count.setText("3", true);
+            v.startBatch();
+            proc.getVariations().waitUntilDone(120000);
+            rig.run(0.3);
+            v.timerCallback();
+            shots.shoot("variations-finished", &v);
+            v.m_count.setText("100", true);
             ed.m_variations.setVisible(false);
 
             ed.m_about.setVisible(true);
