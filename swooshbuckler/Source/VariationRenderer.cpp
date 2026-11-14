@@ -394,7 +394,7 @@ juce::String VariationRenderer::describeHow() const
 {
     juce::String how = modeName(m_job.mode);
     if (m_job.mode == Mode::SmallChanges)
-        how << " " << juce::roundToInt(100.0f * m_job.amount) << "%";
+        how << ", How Different " << juce::roundToInt(100.0f * m_job.amount) << "%";
     how << ", Batch " << juce::String(m_job.batchSeed) << ", " << eachName(m_job.each) << ", Length "
         << juce::String(m_job.each == Each::WholeRide ? m_job.rideSeconds : m_job.seconds, 1) << " s";
     return how;

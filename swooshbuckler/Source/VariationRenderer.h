@@ -27,7 +27,7 @@ class SwooshbucklerAudioProcessor;
  * What makes the files differ (Mode):
  *   My Settings, New Passes    : the settings as they are; only the rig's random draws differ (which passes, how
  *                                close, which sound of each track)
- *   My Settings, Small Changes : the settings as they are, each sound-shaping control nudged by up to Amount, each
+ *   My Settings, Small Changes : the settings as they are, each sound-shaping control nudged by up to How Different, each
  *                                track starting a little further into its sample
  *   Randomise Everything       : a fresh Randomise for every file (Presets::roll)
  *

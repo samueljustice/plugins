@@ -64,7 +64,7 @@
 
 ### Render Variations
 
-- **What Varies says what you get**: **My Settings, New Passes** (where it starts: every knob, wire and modulator exactly as you set it, only the passes differ), **My Settings, Small Changes** (with Amount) and **Randomise Everything**.
+- **What Varies says what you get**: **My Settings, New Passes** (where it starts: every knob, wire and modulator exactly as you set it, only the passes differ), **My Settings, Small Changes** (with **How Different**, how far each file may stray from your sound) and **Randomise Everything**.
 - **What Each File Is**: **One Whoosh**, a single thrown whoosh from silence until it rings out, or **Whole Ride**, a set number of seconds (1 to 120) of the rig as you hear it with Play on, ride, passes, hits and modulation running. A ride is taken after two seconds of playing, so it never starts from silence, and fades for a moment at each end.
 - **Batch** takes the place of the number you had to type: **New Batch Every Time**, **Repeat Last Batch**, or **Repeat Batch...** from the last six by name, date and time. A repeated batch gives the same files again with the same settings and sounds. The batch's number is still written into every file and shown in small print when a batch is done.
 - **File Names**: **Counter**, **Date And Time**, **Preset And Counter** or **Batch Name And Counter** (a name you type), with a line that shows what the first file will be called. Nothing is ever written over.

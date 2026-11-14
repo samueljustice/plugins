@@ -160,8 +160,8 @@ VariationsView::VariationsView(SwooshbucklerAudioProcessor& processor, const The
     m_amount.setDoubleClickReturnValue(true, 0.3);
     m_amount.setWantsKeyboardFocus(false);
     m_amount.textFromValueFunction = [](double v) { return juce::String(juce::roundToInt(100.0 * v)) + "%"; };
-    m_amount.setTooltip("Amount\nHow far Small Changes may move each knob. At 30% the files stay close to your sound; at 100% a knob can move up to "
-                        "half of its travel.");
+    m_amount.setTooltip("How Different\nHow far each file may stray from your sound. Low: close cousins of what you dialled in. High: each knob can "
+                        "move up to half its travel, so the files go further afield. Used only with My Settings, Small Changes.");
     // The batch reads the slider itself; the settings file is written once the drag is over, not at every step of it.
     m_amount.onValueChange = [this] { syncControls(); };
     m_amount.onDragEnd = [this] { m_processor.setVariationAmount(static_cast<float>(m_amount.getValue())); };
@@ -383,7 +383,7 @@ juce::String VariationsView::whatVariesSentence(Mode mode, float amount)
     switch (mode)
     {
         case Mode::SmallChanges:
-            return "Each one uses your settings with every knob moved a little (Amount is at " + juce::String(juce::roundToInt(100.0f * amount)) + "%).";
+            return "Each one uses your settings with every knob moved a little (How Different is at " + juce::String(juce::roundToInt(100.0f * amount)) + "%).";
         case Mode::RandomiseEverything:
             return "Each one is a fresh Randomise: a different sound every time.";
         case Mode::NewPasses:
@@ -418,7 +418,7 @@ void VariationsView::syncControls()
     m_length.setTooltip(ride ? "Length\nHow many seconds of the rig playing go into each file, from 1 to 120."
                              : "Length\nHow long each whoosh takes to go by, from 0.3 to 6 seconds. The file runs a little longer, until the sound has rung out.");
     m_mode.setTooltip(j.mode == Mode::SmallChanges
-                          ? "What Varies\nYour settings, with each knob moved a little either way, by up to Amount. A family of sounds around the one you dialled in."
+                          ? "What Varies\nYour settings, with each knob moved a little either way, by up to How Different. A family of sounds around the one you dialled in."
                           : j.mode == Mode::RandomiseEverything
                                 ? "What Varies\nA fresh Randomise for every file, so each one is a different sound. Your tracks, their levels and any locked section stay as they are."
                                 : "What Varies\nEvery knob, wire and modulator stays exactly as you set it. Only the passes differ: how each one flies, how close it comes "
@@ -531,7 +531,7 @@ void VariationsView::resized()
         m_lengthUnit = length.withTrimmedLeft(6);
         m_mode.setBounds(line.take(line.controls.getWidth(), 0));
     }
-    // Amount, Batch
+    // How Different, Batch
     {
         auto line = row();
         auto amount = line.take(246);
@@ -586,7 +586,7 @@ void VariationsView::paint(juce::Graphics& g)
     SwooshLookAndFeel::drawPanel(g, m_panel.toFloat(), "Render Variations", "Lots of versions of your sound, straight to files", TC::brass, m_fonts,
                                  Icons::Icon::Variations);
 
-    const char* captions[] = { "How Many", "What Each File Is", "Length", "What Varies", "Amount", "Batch",
+    const char* captions[] = { "How Many", "What Each File Is", "Length", "What Varies", "How Different", "Batch",
                                "File Names", "Batch Name", "Files", "Gap", "Folder" };
     const auto mode = static_cast<Mode>(juce::jlimit(0, 2, m_mode.getSelectedId() - 1));
     const bool small = mode == Mode::SmallChanges;
