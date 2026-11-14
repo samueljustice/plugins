@@ -1,11 +1,12 @@
 name: Build and Release Roarschach
 
-# Push a tag like roarschach-v1.1.0 to build, test, sign, notarise and publish a release.
+# Push a tag like roarschach-v1.2.0 to build, sign, notarise and publish a release.
 # The version lives in roarschach/CMakeLists.txt (ROARSCHACH_VERSION); the tag must match it,
 # so a mis-tagged release fails early. It ends up in the About panel, the bundles and the installers.
 # Run it by hand (workflow_dispatch) to get the same artefacts without a release.
-# Pull requests that touch Roarschach build, test, sign and package too (no release),
-# so problems show up before a tag is pushed.
+# Pull requests that touch Roarschach build, sign and package too (no release),
+# so problems show up before a tag is pushed. The test suite (RoarschachTests) is run locally
+# before merging, not here: it draws real visualiser frames and takes hours on hosted Macs.
 #
 # Secrets (the same ones the other plug-ins use):
 #   APPLE_DEVELOPER_CERTIFICATE_P12_BASE64, APPLE_DEVELOPER_CERTIFICATE_PASSWORD
@@ -285,12 +286,12 @@ jobs:
           -DCMAKE_OSX_ARCHITECTURES="x86_64;arm64" \
           -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0 \
           -DROARSCHACH_VERSION="$VERSION" \
-          -DROARSCHACH_TESTS=ON \
+          -DROARSCHACH_TESTS=OFF \
           -DBUILD_TIMESTAMP="$(date -u "+%Y-%m-%d %H:%M UTC")" \
           -DSAMMYJ_AAX=ON -DAAX_SDK_PATH="${{ steps.aax.outputs.path }}" \
           -DROARSCHACH_IR_DIR="${{ steps.irs.outputs.path }}"
 
-    - name: Build AU, VST3 and tests
+    - name: Build AU, VST3 and AAX
       run: |
         cd roarschach
         # Bounded: a bare --parallel is "make -j" with no limit, which starts every JUCE module at once
@@ -302,13 +303,6 @@ jobs:
       if: always() && steps.irs.outputs.path != ''
       shell: bash
       run: rm -rf "$RUNNER_TEMP/roarschach-irs" roarschach/build/chamber_irs/ir.key roarschach/build/chamber_irs/RoarschachIrKey.h
-
-    - name: Run the offline tests
-      run: |
-        cd roarschach
-        exe=$(find build -name RoarschachTests -type f -perm +111 | head -1)
-        [[ -n "$exe" ]] || { echo "RoarschachTests not built"; exit 1; }
-        "$exe"
 
     # Unsigned AAX, for testing in Pro Tools Developer only (PACE wraptool signing comes later).
     # It is a build artifact: not signed, notarised, packaged or released with the VST3/AU.
