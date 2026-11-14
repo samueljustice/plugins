@@ -4341,8 +4341,18 @@ namespace
         int failures = 0;
         const auto save = [&](const juce::Image& image, const juce::String& name) { failures += savePng(image, dir.getChildFile(name)) ? 0 : 1; };
 
+        // A picture is of the formed blot: after a preset change the blot glides to the preset's own
+        // and is half let go on the way, and a frame taken then is shreds that have not gathered.
+        const auto waitFormed = [&]
+        {
+            for (int k = 0; k < 150 && monster.getRendererForTests().getInkState().formation < 0.95f; ++k)
+                play(0.2);
+            play(1.0);
+        };
+
         // 1. Init, playing.
         play(2.5);
+        waitFormed();
         save(editorPicture(1.0f), "01-editor.png");
         {
             const auto picture = editorPicture(2.0f);
@@ -4364,6 +4374,7 @@ namespace
                 continue;
             p->setCurrentProgram(index);
             play(2.0);
+            waitFormed();
             strip.finishAnimations();
             const auto picture = editorPicture(2.0f);
             {
