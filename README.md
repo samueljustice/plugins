@@ -4,16 +4,6 @@
 
 **Toys I've made for sound designers.**
 
-<!-- get-them-all:start (written by .github/workflows/build-release_bundle.yml; edits here are replaced) -->
-### Get them all (last built 14 Nov 2026, 15:03 UTC)
-
-[![Get them all for macOS](https://img.shields.io/badge/Get_them_all-macOS-000000?style=for-the-badge&logo=apple&logoColor=white)](https://github.com/samueljustice/plugins/releases/download/bundle-v2026.11.14.150/SammyJ-Plugins-2026-11-14-1503-macOS.dmg)
-[![Get them all for Windows](https://img.shields.io/badge/Get_them_all-Windows-0078D6?style=for-the-badge&logo=windows&logoColor=white)](https://github.com/samueljustice/plugins/releases/download/bundle-v2026.11.14.150/SammyJ-Plugins-2026-11-14-1503-Windows-Installer.exe)
-
-<sub>One installer with the newest version of every plug-in: Swooshbuckler 2.1.0 · Sound Advice 1.0.13 · Subbertone 1.3.2 · Pitch Flattener 2.4.0 · Reversinator 2.0.4 · Roarschach 1.2.0. The apps, the VST3s, the AUs (macOS) and the signed AAX for Pro Tools. It removes older copies first, so nothing shows up twice in your host. To remove them again: on macOS, run Uninstall Sammy J's Plugins from the same disk image; on Windows, use Settings &gt; Apps.<br>
-Each plug-in's own files and older versions are on the <a href="https://github.com/samueljustice/plugins/releases">releases</a> page.</sub>
-<!-- get-them-all:end -->
-
 ![VST3](https://img.shields.io/badge/VST3-222?style=flat-square)
 ![AU](https://img.shields.io/badge/AU-222?style=flat-square)
 ![Standalone](https://img.shields.io/badge/Standalone-222?style=flat-square)
@@ -21,32 +11,32 @@ Each plug-in's own files and older versions are on the <a href="https://github.c
 [![Built with JUCE](https://img.shields.io/badge/built%20with-JUCE-8DC63F?style=flat-square)](https://juce.com)
 ![Downloads](https://img.shields.io/github/downloads/samueljustice/plugins/total?style=flat-square&color=d00a35)
 
+<!-- get-them-all:start (written by .github/workflows/build-release_bundle.yml; edits here are replaced) -->
+### Get them all
+
+[![Get them all for macOS](https://img.shields.io/badge/Get_them_all-macOS-000000?style=for-the-badge&logo=apple&logoColor=white)](https://github.com/samueljustice/plugins/releases/download/bundle-v2026.11.14.150/SammyJ-Plugins-2026-11-14-1503-macOS.dmg)
+[![Get them all for Windows](https://img.shields.io/badge/Get_them_all-Windows-0078D6?style=for-the-badge&logo=windows&logoColor=white)](https://github.com/samueljustice/plugins/releases/download/bundle-v2026.11.14.150/SammyJ-Plugins-2026-11-14-1503-Windows-Installer.exe)
+
+<sub>One installer with the newest version of every plug-in: Swooshbuckler 2.1.0 · Sound Advice 1.0.13 · Subbertone 1.3.2 · Pitch Flattener 2.4.0 · Reversinator 2.0.4 · Roarschach 1.2.0.<br>
+Apps, VST3, AU and signed AAX for Pro Tools. It replaces older copies, and comes with an uninstaller (macOS: on the disk image; Windows: Settings &gt; Apps).<br>
+Built 14 Nov 2026, 15:03 UTC. Older versions are on the <a href="https://github.com/samueljustice/plugins/releases">releases</a> page.</sub>
+<!-- get-them-all:end -->
+
 <sub>If these get some use in your work and you'd like to chip in, you can <a href="https://www.paypal.com/donate/?business=sam%40samueljustice.net&no_recurring=1&item_name=Sammy+J%27s+Plugins">toss a coin in the jar</a> on PayPal. Every bit goes towards more of them.</sub>
 
 <br>
 
-[<img src="roarschach/docs/hero.gif" width="812" alt="Roarschach">](#roarschach)<br>
-**[Roarschach](#roarschach)**<br>![Work in progress](https://img.shields.io/badge/WORK_IN_PROGRESS-D00000?style=for-the-badge)<br>A modular voice processor for exploration and fun
+| [Roarschach](#roarschach) | [Swooshbuckler](#swooshbuckler) | [Tonal Recall](#tonal-recall) |
+|:---:|:---:|:---:|
+| [<img src="roarschach/docs/hero.gif" width="250" alt="Roarschach">](#roarschach) | [<img src="swooshbuckler/docs/screenshot.png" width="250" alt="Swooshbuckler">](#swooshbuckler) | [<img src="tonalrecall/docs/screenshot.png" width="250" alt="Tonal Recall">](#tonal-recall) |
+| <sub>A modular voice processor for exploration and fun<br>![Work in progress](https://img.shields.io/badge/work_in_progress-D00000?style=flat-square)</sub> | <sub>Generates whooshes from up to ten sounds</sub> | <sub>Pitch-matches sound effects to music in Pro Tools AudioSuite<br>![Work in progress](https://img.shields.io/badge/work_in_progress-D00000?style=flat-square)</sub> |
 
-[<img src="swooshbuckler/docs/screenshot.png" width="812" alt="Swooshbuckler">](#swooshbuckler)<br>
-**[Swooshbuckler](#swooshbuckler)**<br>Generates whooshes from up to ten sounds
-
-[<img src="tonalrecall/docs/screenshot.png" width="812" alt="Tonal Recall">](#tonal-recall)<br>
-**[Tonal Recall](#tonal-recall)**<br>![Work in progress](https://img.shields.io/badge/WORK_IN_PROGRESS-D00000?style=for-the-badge)<br>Pitch-matches sound effects to music, offline in Pro Tools AudioSuite
-
-| [<img src="reversinator/docs/screenshot.png" width="400" alt="Reversinator">](#reversinator) | [<img src="soundadvice/docs/screenshot.png" width="400" alt="Sound Advice">](#sound-advice) |
-|:---:|:---:|
-| **[Reversinator](#reversinator)**<br>Real-time reverse effects, recreating Backwards Machine | **[Sound Advice](#sound-advice)**<br>Advice from film, TV and game sound professionals and other creative people |
-
-#### Work in progress
-
-| [<img src="subbertone/docs/screenshot.jpg" width="400" alt="Subbertone">](#subbertone) | [<img src="pitchflattener/docs/screenshot.png" width="400" alt="Pitch Flattener">](#pitch-flattener) |
-|:---:|:---:|
-| **[Subbertone](#subbertone)**<br>Adds a pitch-tracked sub and harmonics to bass | **[Pitch Flattener](#pitch-flattener)**<br>Removes pitch movement from Doppler passes, sirens and vibrato |
+| [Reversinator](#reversinator) | [Sound Advice](#sound-advice) | [Subbertone](#subbertone) | [Pitch Flattener](#pitch-flattener) |
+|:---:|:---:|:---:|:---:|
+| [<img src="reversinator/docs/screenshot.png" width="180" alt="Reversinator">](#reversinator) | [<img src="soundadvice/docs/screenshot.png" width="180" alt="Sound Advice">](#sound-advice) | [<img src="subbertone/docs/screenshot.jpg" width="180" alt="Subbertone">](#subbertone) | [<img src="pitchflattener/docs/screenshot.png" width="180" alt="Pitch Flattener">](#pitch-flattener) |
+| <sub>Real-time reverse effects</sub> | <sub>Advice from sound professionals</sub> | <sub>Sub and harmonics for bass<br>![Work in progress](https://img.shields.io/badge/work_in_progress-D00000?style=flat-square)</sub> | <sub>Flattens Doppler, sirens and vibrato<br>![Work in progress](https://img.shields.io/badge/work_in_progress-D00000?style=flat-square)</sub> |
 
 </div>
-
----
 
 ## Roarschach
 
@@ -84,11 +74,8 @@ Roarschach is a modular voice processor built for exploration and fun. Fifteen m
 </p>
 </details>
 
-**VST3** (macOS, Windows) · **AU** (macOS) · **AAX** &nbsp;&nbsp;
-[![Get Roarschach with Sammy J's Plugins](https://img.shields.io/badge/get_it-Sammy_J's_Plugins-d00a35?style=flat-square)](https://github.com/samueljustice/plugins/releases/latest) &nbsp;
-[Read the manual →](roarschach/README.md)
-
----
+**VST3** (macOS, Windows) · **AU** (macOS) · **AAX**<br>
+[Get it in the installer](https://github.com/samueljustice/plugins/releases/latest) · [Read the manual →](roarschach/README.md)
 
 ## Swooshbuckler
 
@@ -123,11 +110,8 @@ Drop in up to ten sounds (cloth, air, engines, creatures, metal) and Swooshbuckl
 </p>
 </details>
 
-**App** (macOS, Windows) · **VST3** · **AU** · **AAX** &nbsp;&nbsp;
-[![Get Swooshbuckler with Sammy J's Plugins](https://img.shields.io/badge/get_it-Sammy_J's_Plugins-d00a35?style=flat-square)](https://github.com/samueljustice/plugins/releases/latest) &nbsp;
-[Read the manual →](swooshbuckler/README.md)
-
----
+**App** (macOS, Windows) · **VST3** · **AU** · **AAX**<br>
+[Get it in the installer](https://github.com/samueljustice/plugins/releases/latest) · [Read the manual →](swooshbuckler/README.md)
 
 ## Tonal Recall
 
@@ -161,18 +145,15 @@ Tonal Recall is made for trailer sound design: stings, tails and hits that shoul
 </p>
 </details>
 
-**AAX AudioSuite** (macOS, Windows) · **VST3** and **AU** for offline use in other hosts &nbsp;&nbsp;
-[![Get Tonal Recall with Sammy J's Plugins](https://img.shields.io/badge/get_it-Sammy_J's_Plugins-d00a35?style=flat-square)](https://github.com/samueljustice/plugins/releases/latest) &nbsp;
-[Read the manual →](tonalrecall/README.md)
-
----
+**AAX AudioSuite** (macOS, Windows) · **VST3** and **AU** for offline use in other hosts<br>
+[Get it in the installer](https://github.com/samueljustice/plugins/releases/latest) · [Read the manual →](tonalrecall/README.md)
 
 ## Reversinator
 
 > Real-time reverse effects, recreating Backwards Machine's three modes.
 
 <p align="center">
-  <img src="reversinator/docs/screenshot.png" alt="Reversinator" width="760">
+  <img src="reversinator/docs/screenshot.png" alt="Reversinator" width="820">
 </p>
 
 A real-time reverser that faithfully recreates Backwards Machine's three effects, **Reverse Playback**, **Forward Backwards** and **Reverse Repeat**, rebuilt from a study of the original's signal flow. It lives in a new resizable interface with a live display of each read head sweeping backwards through your audio, and it fixes the original's glitches, so every change is click-free.
@@ -193,11 +174,8 @@ A real-time reverser that faithfully recreates Backwards Machine's three effects
 </p>
 </details>
 
-**VST3** (macOS, Windows) · **AU** (macOS) · **AAX** &nbsp;&nbsp;
-[![Get Reversinator with Sammy J's Plugins](https://img.shields.io/badge/get_it-Sammy_J's_Plugins-d00a35?style=flat-square)](https://github.com/samueljustice/plugins/releases/latest) &nbsp;
-[Read the manual →](reversinator/README.md)
-
----
+**VST3** (macOS, Windows) · **AU** (macOS) · **AAX**<br>
+[Get it in the installer](https://github.com/samueljustice/plugins/releases/latest) · [Read the manual →](reversinator/README.md)
 
 ## Sound Advice
 
@@ -216,11 +194,8 @@ A page of advice from people who work on film, TV, game and trailer sound: re-re
 - **Paper by day, ink by night**, with keyboard shortcuts and right-click to copy
 - **Audio passes straight through**, so it can sit on a mix bus, or run as an app on a second screen
 
-**App** (macOS, Windows) · **VST3** · **AU** · **AAX** &nbsp;&nbsp;
-[![Get Sound Advice with Sammy J's Plugins](https://img.shields.io/badge/get_it-Sammy_J's_Plugins-9a5a3a?style=flat-square)](https://github.com/samueljustice/plugins/releases/latest) &nbsp;
-[Read the manual →](soundadvice/README.md)
-
----
+**App** (macOS, Windows) · **VST3** · **AU** · **AAX**<br>
+[Get it in the installer](https://github.com/samueljustice/plugins/releases/latest) · [Read the manual →](soundadvice/README.md)
 
 ## Work in progress
 
@@ -260,9 +235,8 @@ Subbertone follows the pitch of your bass, engine or drone and adds a clean sub 
 </p>
 </details>
 
-**VST3** (macOS, Windows) · **AU** (macOS) · **AAX** &nbsp;&nbsp;
-[![Get Subbertone with Sammy J's Plugins](https://img.shields.io/badge/get_it-Sammy_J's_Plugins-d00a35?style=flat-square)](https://github.com/samueljustice/plugins/releases/latest) &nbsp;
-[Read the manual →](subbertone/README.md)
+**VST3** (macOS, Windows) · **AU** (macOS) · **AAX**<br>
+[Get it in the installer](https://github.com/samueljustice/plugins/releases/latest) · [Read the manual →](subbertone/README.md)
 
 ---
 
@@ -271,7 +245,7 @@ Subbertone follows the pitch of your bass, engine or drone and adds a clean sub 
 > Removes pitch movement from Doppler passes, sirens and vibrato.
 
 <p align="center">
-  <img src="pitchflattener/docs/screenshot.png" alt="Pitch Flattener" width="680">
+  <img src="pitchflattener/docs/screenshot.png" alt="Pitch Flattener" width="820">
 </p>
 
 Pitch Flattener takes the pitch movement out of a sound and keeps its energy and character: the Doppler sweep from a pass-by, the wail from a siren, the vibrato from a voice. Or lock a warbling tone to one note. Pick a Source Type and it loads a pitch detector built for that kind of sound, looks about 2.6 seconds ahead, and lines the correction up with the audio sample-accurately. Made for offline rendering: the Soundminer DSP rack, a DAW bounce or AudioSuite-style processing.
@@ -295,11 +269,8 @@ Pitch Flattener takes the pitch movement out of a sound and keeps its energy and
 </p>
 </details>
 
-**VST3** (macOS, Windows) · **AU** (macOS) · **AAX** &nbsp;&nbsp;
-[![Get Pitch Flattener with Sammy J's Plugins](https://img.shields.io/badge/get_it-Sammy_J's_Plugins-d00a35?style=flat-square)](https://github.com/samueljustice/plugins/releases/latest) &nbsp;
-[Read the manual →](pitchflattener/README.md)
-
----
+**VST3** (macOS, Windows) · **AU** (macOS) · **AAX**<br>
+[Get it in the installer](https://github.com/samueljustice/plugins/releases/latest) · [Read the manual →](pitchflattener/README.md)
 
 ## For developers
 
