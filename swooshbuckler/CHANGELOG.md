@@ -1,6 +1,6 @@
 # Swooshbuckler changelog
 
-## Unreleased
+## 2.1.0
 
 ### Stowaway: one extra bus
 
