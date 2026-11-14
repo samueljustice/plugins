@@ -2723,7 +2723,7 @@ inline void testInkCloudAndRift()
             };
             std::vector<double> lit;
             double lens = 0.0, lensArea = 0.0, tearLuma = 0.0, fill = 0.0;
-            int rowsCrossed = 0, mostRuns = 0, lensFrames = 0;
+            int rowsCrossed = 0, rowsParted = 0, rowsLit = 0, mostRuns = 0, lensFrames = 0;
             hold(0.0f, 3.0);
             for (const float jaw : { 0.0f, 0.25f, 0.5f, 0.75f, 1.0f })
             {
@@ -2759,6 +2759,8 @@ inline void testInkCloudAndRift()
                             for (int x = 0; x < bw; ++x)
                                 runs += m[static_cast<size_t>(y * bw + x)] != 0 && (x == 0 || m[static_cast<size_t>(y * bw + x - 1)] == 0) ? 1 : 0;
                             rowsCrossed += runs >= 3 ? 1 : 0;
+                            rowsParted += runs >= 4 ? 1 : 0;
+                            rowsLit += runs >= 1 ? 1 : 0;
                             mostRuns = std::max(mostRuns, runs);
                         }
                     }
@@ -2801,8 +2803,8 @@ inline void testInkCloudAndRift()
             const double wideLit = 0.5 * (lit[3] + lit[4]);
             lessWhenWide += wideLit >= lit[2] ? 0 : 1;
             const bool rises = wideLit > 20.0 && wideLit >= 3.0 * lit[1] && lit[1] >= lit[0];
-            std::printf("  tier %d seed %u rift: cells the light brightens %.0f %.0f %.0f %.0f %.0f by the jaw; unlit, the tear there is luma %.2f; against a disc of its area %.2f; it fills %.0f %% of the box's middle third at most; rows where the light is parted in three or more %d (most runs of light in a row %d; reported)\n",
-                        tier, seed, lit[0], lit[1], lit[2], lit[3], lit[4], tearLuma, lens, 100.0 * fill, rowsCrossed, mostRuns);
+            std::printf("  tier %d seed %u rift: cells the light brightens %.0f %.0f %.0f %.0f %.0f by the jaw; unlit, the tear there is luma %.2f; against a disc of its area %.2f; it fills %.0f %% of the box's middle third at most; of %d lit rows, %d are parted in three or more and %d in four or more (most runs of light in a row %d)\n",
+                        tier, seed, lit[0], lit[1], lit[2], lit[3], lit[4], tearLuma, lens, 100.0 * fill, rowsLit, rowsCrossed, rowsParted, mostRuns);
             pictureCheck(rises, "ink rift: lit, the light in the rift grows with the jaw" + tag);
             pictureCheck(lit[0] < 0.1 * wideLit, "ink rift: shut, the rift has no light" + tag);
             pictureCheck(tearLuma < 0.30, "ink rift: unlit it is a dark tear (luma " + juce::String(tearLuma, 2) + " where the light would be)" + tag);
@@ -2810,9 +2812,13 @@ inline void testInkCloudAndRift()
             pictureCheck(fill < 0.75, "ink rift: the light never fills the tear (" + juce::String(static_cast<int>(100.0 * fill)) + " % of the box's middle)" + tag);
             // (a check here once asked for at least two strands of ink across the light. Strands across
             // a lit tear are a row of teeth, so the tear has none now.)
-            // The count of rows the light is parted in is still printed above, but not gated: the light
-            // is ragged wisps by design and is parted into 4 to 7 runs in some row on every blot, so
-            // the count cannot tell wisps from bars. What keeps bars out is that the shader has none.
+            // The light is one ragged glow: a row of it parted into several runs is slats or teeth, and
+            // small lit dabs side by side are eyes. Bounds from the first run of the one glow (at most
+            // 5 runs in a row, and 1.6 % of the lit rows parted in four or more, on these twelve blots),
+            // with a little room for the vapour's drift; the light drawn in wisps had been parted into
+            // 4 to 7 runs on every blot, in up to a fifth of its rows.
+            pictureCheck(mostRuns <= 6, "ink rift: the light is one glow, never parted into slats (at most " + juce::String(mostRuns) + " runs of light in a row)" + tag);
+            pictureCheck(rowsParted * 100 <= 3 * std::max(1, rowsLit), "ink rift: the light is one glow, seldom parted (" + juce::String(rowsParted) + " of " + juce::String(rowsLit) + " lit rows in four or more runs)" + tag);
         }
         pictureCheck(lessWhenWide <= 1, "ink rift: well open holds no less light than half open, on five blots in six (" + juce::String(lessWhenWide) + " of 6 hold less) (tier " + juce::String(tier) + ")");
     }
