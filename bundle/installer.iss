@@ -4,7 +4,8 @@
 ; files out as windows-package\<id>\vst3\<Bundle>.vst3 and windows-package\<id>\app\<App>.exe and passes:
 ;   iscc /DBundleVersion=2026.11.7.1 /DSwooshbucklerVersion=1.0.0 /DSoundAdviceVersion=1.0.0
 ;        /DSubbertoneVersion=1.2.0 /DPitchFlattenerVersion=2.0.0 /DReversinatorVersion=2.0.0
-;        /DRoarschachVersion=1.0.0 installer.iss
+;        /DRoarschachVersion=1.0.0 /DTonalRecallVersion=1.0.0 installer.iss
+; A plug-in with no release yet gets no <Name>Version define and is left out (Tonal Recall is wrapped for that).
 ; plus /D<Name>AAX for each plug-in whose release has a signed AAX (windows-package\<id>\aax\<Bundle>.aaxplugin).
 ;
 ; Old versions: before installing a plug-in it silently runs that plug-in's own (stand-alone) uninstaller
@@ -104,6 +105,13 @@ Name: "roarschach\vst3"; Description: "VST3 plug-in"; Types: full
 #ifdef RoarschachAAX
 Name: "roarschach\aax"; Description: "AAX plug-in (Pro Tools)"; Types: full
 #endif
+#ifdef TonalRecallVersion
+Name: "tonalrecall"; Description: "Tonal Recall {#TonalRecallVersion}"; Types: full
+Name: "tonalrecall\vst3"; Description: "VST3 plug-in"; Types: full
+#ifdef TonalRecallAAX
+Name: "tonalrecall\aax"; Description: "AAX plug-in (Pro Tools)"; Types: full
+#endif
+#endif
 
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Components: swooshbuckler\app soundadvice\app; Flags: unchecked
@@ -123,6 +131,10 @@ Type: filesandordirs; Name: "{#VST3Dir}\SammyJs Reversinator.vst3"; Components: 
 Type: filesandordirs; Name: "{#UserVST3Dir}\SammyJs Reversinator.vst3"; Components: reversinator\vst3
 Type: filesandordirs; Name: "{#VST3Dir}\Roarschach.vst3"; Components: roarschach\vst3
 Type: filesandordirs; Name: "{#UserVST3Dir}\Roarschach.vst3"; Components: roarschach\vst3
+#ifdef TonalRecallVersion
+Type: filesandordirs; Name: "{#VST3Dir}\SammyJs Tonal Recall.vst3"; Components: tonalrecall\vst3
+Type: filesandordirs; Name: "{#UserVST3Dir}\SammyJs Tonal Recall.vst3"; Components: tonalrecall\vst3
+#endif
 #ifdef SwooshbucklerAAX
 Type: filesandordirs; Name: "{#AAXDir}\Swooshbuckler.aaxplugin"; Components: swooshbuckler\aax
 #endif
@@ -141,6 +153,9 @@ Type: filesandordirs; Name: "{#AAXDir}\SammyJs Reversinator.aaxplugin"; Componen
 #ifdef RoarschachAAX
 Type: filesandordirs; Name: "{#AAXDir}\Roarschach.aaxplugin"; Components: roarschach\aax
 #endif
+#ifdef TonalRecallAAX
+Type: filesandordirs; Name: "{#AAXDir}\SammyJs Tonal Recall.aaxplugin"; Components: tonalrecall\aax
+#endif
 
 [UninstallDelete]
 ; Per-user copies of the plug-ins (the installer removes these too, so hosts don't list them twice), and
@@ -151,6 +166,9 @@ Type: filesandordirs; Name: "{#UserVST3Dir}\SammyJs Subbertone.vst3"
 Type: filesandordirs; Name: "{#UserVST3Dir}\SammyJs Pitch Flattener.vst3"
 Type: filesandordirs; Name: "{#UserVST3Dir}\SammyJs Reversinator.vst3"
 Type: filesandordirs; Name: "{#UserVST3Dir}\Roarschach.vst3"
+#ifdef TonalRecallVersion
+Type: filesandordirs; Name: "{#UserVST3Dir}\SammyJs Tonal Recall.vst3"
+#endif
 Type: dirifempty; Name: "{app}\Swooshbuckler"
 Type: dirifempty; Name: "{app}\Sound Advice"
 Type: dirifempty; Name: "{app}"
@@ -164,6 +182,9 @@ Source: "windows-package\subbertone\vst3\SammyJs Subbertone.vst3\*"; DestDir: "{
 Source: "windows-package\pitchflattener\vst3\SammyJs Pitch Flattener.vst3\*"; DestDir: "{#VST3Dir}\SammyJs Pitch Flattener.vst3"; Components: pitchflattener\vst3; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "windows-package\reversinator\vst3\SammyJs Reversinator.vst3\*"; DestDir: "{#VST3Dir}\SammyJs Reversinator.vst3"; Components: reversinator\vst3; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "windows-package\roarschach\vst3\Roarschach.vst3\*"; DestDir: "{#VST3Dir}\Roarschach.vst3"; Components: roarschach\vst3; Flags: ignoreversion recursesubdirs createallsubdirs
+#ifdef TonalRecallVersion
+Source: "windows-package\tonalrecall\vst3\SammyJs Tonal Recall.vst3\*"; DestDir: "{#VST3Dir}\SammyJs Tonal Recall.vst3"; Components: tonalrecall\vst3; Flags: ignoreversion recursesubdirs createallsubdirs
+#endif
 #ifdef SwooshbucklerAAX
 Source: "windows-package\swooshbuckler\aax\Swooshbuckler.aaxplugin\*"; DestDir: "{#AAXDir}\Swooshbuckler.aaxplugin"; Components: swooshbuckler\aax; Flags: ignoreversion recursesubdirs createallsubdirs
 #endif
@@ -181,6 +202,9 @@ Source: "windows-package\reversinator\aax\SammyJs Reversinator.aaxplugin\*"; Des
 #endif
 #ifdef RoarschachAAX
 Source: "windows-package\roarschach\aax\Roarschach.aaxplugin\*"; DestDir: "{#AAXDir}\Roarschach.aaxplugin"; Components: roarschach\aax; Flags: ignoreversion recursesubdirs createallsubdirs
+#endif
+#ifdef TonalRecallAAX
+Source: "windows-package\tonalrecall\aax\SammyJs Tonal Recall.aaxplugin\*"; DestDir: "{#AAXDir}\SammyJs Tonal Recall.aaxplugin"; Components: tonalrecall\aax; Flags: ignoreversion recursesubdirs createallsubdirs
 #endif
 
 [Icons]
@@ -252,6 +276,9 @@ begin
     RemoveUserFolder(Data + '\SammyJs\Subbertone');
     RemoveUserFolder(Data + '\SammyJs\PitchFlattener');
     RemoveUserFolder(Data + '\SammyJs\Roarschach');
+    RemoveUserFile(Data + '\SammyJ\Logs\TonalRecall.log');
+    DeleteIfEmpty(Data + '\SammyJ\Logs');
+    DeleteIfEmpty(Data + '\SammyJ');
     { The vendor folders are shared with other plug-ins, so they go only when nothing is left in them. }
     RemoveUserFile(Data + '\Sammy J\Updates.settings');
     DeleteIfEmpty(Data + '\Sammy J');
@@ -299,5 +326,13 @@ begin
   if WizardIsComponentSelected('roarschach\vst3') then
 #endif
     RunOldUninstaller('{EDA89529-4B87-433C-AC72-15F7FBDFC421}');
+#ifdef TonalRecallVersion
+#ifdef TonalRecallAAX
+  if WizardIsComponentSelected('tonalrecall\vst3 or tonalrecall\aax') then
+#else
+  if WizardIsComponentSelected('tonalrecall\vst3') then
+#endif
+    RunOldUninstaller('{EF1F4626-7D52-436E-8123-40DF1704FEA0}');
+#endif
   Result := '';
 end;

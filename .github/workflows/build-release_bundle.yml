@@ -29,6 +29,7 @@ on:
       - Build and Release Pitch Flattener
       - Build and Release Reversinator
       - Build and Release Roarschach
+      - Build and Release Tonal Recall
       # And once a release's AAX are signed, so the installer picks them up.
       - AAX signing
     types: [completed]
@@ -235,7 +236,7 @@ jobs:
           if ($line -match '^\s*(#|$)') { continue }
           $id, $prefix, $name, $bundle, $app = $line.Split('|')
           $r = $releases[$id]
-          if (-not $r) { throw "No release resolved for $id" }
+          if (-not $r) { Write-Host "== ${name}: no release yet, left out"; continue }
           Write-Host "== $name $($r.version) ($($r.tag))"
           $dl = "dl\$id"
           $patterns = @('-p', '*Windows-VST3.zip')

@@ -43,7 +43,7 @@ if [ -n "\$user" ] && [ "\$user" != "root" ]; then
   fi
 fi
 # The old stand-alone installer's receipt for this file; this package owns it now.
-for r in \$(pkgutil --pkgs 2>/dev/null | grep -F "$oldreceipt" || true); do
+for r in \$(pkgutil --pkgs 2>/dev/null | grep -F -e "$oldreceipt" -e "${pkgid/.sammyj./.}" || true); do
   pkgutil --forget "\$r" >/dev/null 2>&1 || true
 done
 exit 0
@@ -88,7 +88,11 @@ check_bundle() {
 
 while IFS='|' read -r id prefix name bundle app; do
   [[ -z "$id" || "$id" == \#* ]] && continue
-  line=$(grep "^$id|" "$releases")
+  line=$(grep "^$id|" "$releases" || true)
+  if [[ -z "$line" ]]; then
+    echo "== $name: no release yet, left out"
+    continue
+  fi
   tag=$(cut -d'|' -f2 <<< "$line")
   ver=$(cut -d'|' -f3 <<< "$line")
   echo "== $name $ver ($tag)"
