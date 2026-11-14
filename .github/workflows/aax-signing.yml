@@ -1,0 +1,147 @@
+name: AAX signing
+run-name: AAX signing · ${{ github.event.workflow_run.head_branch || inputs.tag }}
+
+# Pro Tools only loads AAX plug-ins signed with PACE's wraptool, and that needs Samuel's iLok, which is
+# moved by hand between his Mac and his PC. So after each release this run walks through the two stages
+# and waits for each:
+#
+#   Sign on the Mac  plug the iLok into the Mac and run `sign-aax`; done when the notarised
+#                    <Name>-<version>-macOS-AAX.zip is on the release (Notarise AAX publishes it)
+#   Sign on the PC   move the iLok to the PC and run `sign-aax` there; done when
+#                    <Name>-<version>-Windows-AAX.zip is on the release (only while the repository
+#                    variable AAX_WINDOWS_SIGNING is "true")
+#
+# `sign-aax` asks GitHub which releases are waiting at its machine's stage and signs those, so one iLok
+# swap covers every release made together. Each stage waits AAX_SIGN_WAIT_MINUTES (default 30) and then
+# fails, which sends a GitHub email. Run this workflow by hand with a release tag to sign that release again.
+on:
+  workflow_run:
+    # Must match the plug-in workflows' "name:" lines.
+    workflows:
+      - Build and Release Swooshbuckler
+      - Build and Release Sound Advice
+      - Build and Release Subbertone
+      - Build and Release Pitch Flattener
+      - Build and Release Reversinator
+      - Build and Release Roarschach
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag to sign, e.g. reversinator-v2.0.4
+        required: true
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: aax-signing-${{ github.event.workflow_run.head_branch || inputs.tag }}
+  cancel-in-progress: true
+
+env:
+  GH_TOKEN: ${{ github.token }}
+  TAG: ${{ github.event.workflow_run.head_branch || inputs.tag }}
+  WAIT_MINUTES: ${{ vars.AAX_SIGN_WAIT_MINUTES || '30' }}
+
+jobs:
+  release:
+    name: Release
+    # A tagged release that built (tags look like <plugin>-v1.2.3), or a hand-started run.
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push' &&
+       contains(github.event.workflow_run.head_branch, '-v'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      mac: ${{ steps.find.outputs.mac }}
+      windows: ${{ steps.find.outputs.windows }}
+    steps:
+    - name: Find the release and its unsigned AAX
+      id: find
+      run: |
+        gh release view "$TAG" -R "$GITHUB_REPOSITORY" --json name --jq .name > /dev/null \
+          || { echo "::error::No release $TAG"; exit 1; }
+        prefix="${TAG%-v*}"
+        run=$(gh run list -R "$GITHUB_REPOSITORY" --workflow "build-release_$prefix.yml" --branch "$TAG" \
+                --status success --limit 1 --json databaseId --jq '.[0].databaseId // empty')
+        artifacts=""
+        [[ -n "$run" ]] && artifacts=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run/artifacts" --jq '.artifacts[].name')
+        mac=false; windows=false
+        grep -q -- '-macOS-AAX-unsigned$' <<< "$artifacts" && mac=true
+        grep -q -- '-Windows-AAX-unsigned$' <<< "$artifacts" && [[ "${{ vars.AAX_WINDOWS_SIGNING }}" == "true" ]] && windows=true
+        echo "mac=$mac" >> "$GITHUB_OUTPUT"
+        echo "windows=$windows" >> "$GITHUB_OUTPUT"
+        {
+          echo "## AAX signing · \`$TAG\`"
+          echo
+          if [[ "$mac" == "false" && "$windows" == "false" ]]; then
+            echo "This release's build made no AAX, so there's nothing to sign."
+          else
+            echo "| Stage | What to do |"
+            echo "|---|---|"
+            [[ "$mac" == "true" ]] && echo "| 1. Sign on the Mac | Plug the iLok into the Mac and run \`sign-aax\` (or click **Sign** in the prompt). |"
+            [[ "$windows" == "true" ]] && echo "| 2. Sign on the PC | Move the iLok to the PC and run \`sign-aax\` there. |"
+            echo
+            echo "Each stage waits $WAIT_MINUTES minutes. To sign later, run this workflow again with the tag \`$TAG\`."
+          fi
+        } >> "$GITHUB_STEP_SUMMARY"
+
+  mac:
+    name: Sign on the Mac
+    needs: release
+    if: needs.release.outputs.mac == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+    - name: Plug the iLok into the Mac and run sign-aax
+      run: |
+        deadline=$(( $(date +%s) + WAIT_MINUTES * 60 ))
+        said_uploaded=""
+        while :; do
+          assets=$(gh release view "$TAG" -R "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name' 2>/dev/null || true)
+          if grep -q -- '-macOS-AAX\.zip$' <<< "$assets"; then
+            echo "Published: $(grep -- '-macOS-AAX\.zip$' <<< "$assets")"
+            echo "- Signed on the Mac: macOS AAX notarised and published." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          if [[ -z "$said_uploaded" ]] && grep -q -- '-macOS-AAX-unnotarized\.zip$' <<< "$assets"; then
+            said_uploaded=1
+            echo "$(date -u +%H:%M) Signed on the Mac; waiting for the Notarise AAX workflow."
+          fi
+          if (( $(date +%s) >= deadline )); then
+            if [[ -n "$said_uploaded" ]]; then
+              echo "::error::Signed on the Mac but not published within $WAIT_MINUTES minutes: check the Notarise AAX workflow."
+            else
+              echo "::error::Not signed on the Mac within $WAIT_MINUTES minutes. Plug the iLok into the Mac, run sign-aax, then re-run this workflow for $TAG."
+            fi
+            exit 1
+          fi
+          sleep 30
+        done
+
+  windows:
+    name: Sign on the PC
+    needs: [release, mac]
+    # After the Mac stage (or straight away if the release has no macOS AAX).
+    if: always() && needs.release.outputs.windows == 'true' && (needs.mac.result == 'success' || needs.mac.result == 'skipped')
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+    - name: Move the iLok to the PC and run sign-aax
+      run: |
+        deadline=$(( $(date +%s) + WAIT_MINUTES * 60 ))
+        while :; do
+          assets=$(gh release view "$TAG" -R "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name' 2>/dev/null || true)
+          if grep -q -- '-Windows-AAX\.zip$' <<< "$assets"; then
+            echo "Published: $(grep -- '-Windows-AAX\.zip$' <<< "$assets")"
+            echo "- Signed on the PC: Windows AAX published." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          if (( $(date +%s) >= deadline )); then
+            echo "::error::Not signed on the PC within $WAIT_MINUTES minutes. Move the iLok to the PC, run sign-aax there, then re-run this workflow for $TAG."
+            exit 1
+          fi
+          sleep 30
+        done
