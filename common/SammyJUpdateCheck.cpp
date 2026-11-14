@@ -10,6 +10,7 @@ namespace sammyj
 namespace
 {
     const char* const releasesUrl = "https://api.github.com/repos/samueljustice/plugins/releases?per_page=100";
+    const char* const installerUrl = "https://github.com/samueljustice/plugins/releases/latest";
     constexpr juce::int64 checkIntervalMs = 24 * 60 * 60 * 1000; // once a day per plug-in
     constexpr int timeoutMs = 5000;
 
@@ -51,8 +52,9 @@ namespace
 
 void UpdateInfo::openDownloadPage() const
 {
-    if (downloadUrl.startsWith("https://github.com/"))
-        juce::URL(downloadUrl).launchInDefaultBrowser();
+    // The Sammy J's Plugins installer: every plug-in's newest version (it's the repository's Latest release).
+    // New versions are still found by each plug-in's own release tag (see run()), so those stay published.
+    juce::URL(installerUrl).launchInDefaultBrowser();
 }
 
 bool UpdateCheck::isNewer(const juce::String& candidate, const juce::String& current)

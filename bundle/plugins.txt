@@ -9,3 +9,4 @@ subbertone|subbertone-v|Subbertone|SammyJs Subbertone|
 pitchflattener|pitchflattener-v|Pitch Flattener|SammyJs Pitch Flattener|
 reversinator|reversinator-v|Reversinator|SammyJs Reversinator|
 roarschach|roarschach-v|Roarschach|Roarschach|
+tonalrecall|tonalrecall-v|Tonal Recall|SammyJs Tonal Recall|

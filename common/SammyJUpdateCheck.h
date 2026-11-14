@@ -30,9 +30,9 @@ struct UpdateInfo
     juce::String pluginId;        // "subbertone"
     juce::String currentVersion;  // "1.3.1"
     juce::String latestVersion;   // "1.4.0"
-    juce::String downloadUrl;     // the release's GitHub page, with its downloads
+    juce::String downloadUrl;     // the plug-in's own release page on GitHub
 
-    // Opens the download page in the default browser.
+    // Opens the Sammy J's Plugins installer's download page (the repository's Latest release) in the browser.
     void openDownloadPage() const;
 };
 

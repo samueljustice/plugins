@@ -52,7 +52,7 @@ case "$mode" in
       if [[ -z "$root" ]]; then
         # This installer's receipts, and the ones the plug-in's own stand-alone installer left.
         pkgutil --pkgs 2>/dev/null \
-          | grep -E "^(com\.samueljustice\.sammyj|com\.sweetjusticesound)\.$id\." \
+          | grep -E "^(com\.samueljustice\.sammyj|com\.samueljustice|com\.sweetjusticesound)\.$id\." \
           | while read -r r; do pkgutil --forget "$r" >/dev/null 2>&1 && echo "Forgot receipt $r"; done
       fi
     done
