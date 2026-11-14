@@ -84,6 +84,7 @@ namespace Presets
             || id == morphOn || id == morphWander || id == morphShape || id == morphSpeed
             || id == play || id == keysMode || id == throwLength // the transport, what MIDI keys do, how long a throw is
             || id == rideFollowMaster // needs this session's Master track
+            || id.startsWith("room") // the room's own settings go with the speakers, not with a look (the Flight Paths are part of a look)
             || id.startsWith("mod"); // the modulators and their wires belong to the session, not to a preset
     }
 
@@ -165,6 +166,7 @@ namespace Presets
                     p.values[bus[b][Duck]] = u(0.1f, 0.7f);
                     p.values[bus[b][Key]] = u(0.0f, 0.6f);
                 }
+                p.values[flightPath[b]] = static_cast<float>(r.nextInt(numFlightPaths)); // (heard in a room: Quad and wider)
                 break;
             }
             case Hits:
@@ -190,6 +192,7 @@ namespace Presets
                 p.values[stow[StowFilter]] = u(0.3f, 0.7f);
                 p.values[stow[StowDrive]] = u(0.0f, 0.35f);
                 p.values[stow[StowWidth]] = u(0.4f, 1.0f);
+                p.values[stowFlightPath] = static_cast<float>(r.nextInt(numFlightPaths)); // Fly's, in a room
                 break;
             default:
                 break;

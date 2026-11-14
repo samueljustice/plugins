@@ -563,6 +563,8 @@ private:
         std::atomic<float>* throwLength = nullptr, *play = nullptr, *keysMode = nullptr;
         std::atomic<float>* linkBuses = nullptr, *hitAim = nullptr;
         std::atomic<float>* passMode[ParamIDs::numBuses] {};
+        std::atomic<float>* flightPath[ParamIDs::numBuses] {}, *stowFlightPath = nullptr;
+        std::atomic<float>* roomSpread = nullptr, *roomHeight = nullptr, *roomCentre = nullptr;
         std::atomic<float>* stowOn = nullptr, *stowMode = nullptr, *stow[ParamIDs::numStowControls] {};
         std::atomic<float>* tremOn = nullptr, *tremDepth = nullptr, *tremRate = nullptr, *tremThreshold = nullptr, *tremShape = nullptr, *tremTarget = nullptr;
         std::atomic<float>* masterTrim = nullptr;

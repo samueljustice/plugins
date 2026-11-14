@@ -40,6 +40,16 @@ namespace ParamIDs
     inline constexpr const char* busNames[numBuses] = { "A", "B" };
     // Pass Mode: Bed (two overlapped passes, a steady level) / Fly-By (one pass at a time). Linked: B uses A's.
     inline constexpr const char* passMode[numBuses] = { "aPassMode", "bPassMode" };
+    // Flight Path: where a bus's passes fly in a room (Quad and wider). Linked: B uses A's. Stowaway's is Fly's.
+    inline constexpr const char* flightPath[numBuses] = { "aFlightPath", "bFlightPath" };
+    inline constexpr const char* stowFlightPath = "stowFlightPath";
+    inline constexpr int numFlightPaths = 4;
+    inline constexpr const char* flightPathNames[numFlightPaths] = { "Across", "Through", "Overhead", "Around" };
+    // The room itself (Quad and wider): how far a sound bleeds into the other speakers, how much of its height
+    // reaches the top speakers, and whether the centre speaker is used.
+    inline constexpr const char* roomSpread = "roomSpread";
+    inline constexpr const char* roomHeight = "roomHeight";
+    inline constexpr const char* roomCentre = "roomCentre";
 
     // Stowaway: one extra bus beside A and B. A Mode menu, and five knobs that keep their names and places in
     // every mode (what each does, and how it reads, follows the mode: see Params::stowText).
@@ -398,6 +408,20 @@ namespace Params
             layout.add(std::make_unique<AudioParameterChoice>(ParameterID { ParamIDs::modFollow[m], 2 }, name + " Follows",
                                                               StringArray { "Bus A", "Bus B", "Hits", "Stowaway", "Output", "Master", "Master Pitch", "Master Brightness" }, 0));
         }
+
+        // The room (Quad and wider): each bus's Flight Path, Stowaway's (Fly), and the room's own settings.
+        for (int b = 0; b < ParamIDs::numBuses; ++b)
+            layout.add(std::make_unique<AudioParameterChoice>(ParameterID { ParamIDs::flightPath[b], 5 }, String("Bus ") + ParamIDs::busNames[b] + " Flight Path",
+                                                              StringArray(ParamIDs::flightPathNames, ParamIDs::numFlightPaths), 0));
+        layout.add(std::make_unique<AudioParameterChoice>(ParameterID { ParamIDs::stowFlightPath, 5 }, "Stowaway Flight Path",
+                                                          StringArray(ParamIDs::flightPathNames, ParamIDs::numFlightPaths), 0));
+        layout.add(std::make_unique<P>(ParameterID { ParamIDs::roomSpread, 5 }, "Room Spread", NormalisableRange<float>(0.0f, 1.0f), 0.0f,
+                                       AudioParameterFloatAttributes().withStringFromValueFunction(
+                                           [](float v, int) { return String(roundToInt(v * 100.0f)) + "%"; })));
+        layout.add(std::make_unique<P>(ParameterID { ParamIDs::roomHeight, 5 }, "Room Height", NormalisableRange<float>(0.0f, 1.0f), 1.0f,
+                                       AudioParameterFloatAttributes().withStringFromValueFunction(
+                                           [](float v, int) { return String(roundToInt(v * 100.0f)) + "%"; })));
+        layout.add(std::make_unique<AudioParameterBool>(ParameterID { ParamIDs::roomCentre, 5 }, "Centre Speaker", false));
 
         // Added later: kept at the end, so every parameter before them keeps its place in the host's list.
         for (int b = 0; b < ParamIDs::numBuses; ++b)

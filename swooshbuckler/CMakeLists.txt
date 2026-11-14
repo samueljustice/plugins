@@ -256,6 +256,20 @@ if(SWOOSHBUCKLER_TESTS)
     target_compile_definitions(SwooshbucklerRoom PRIVATE $<TARGET_PROPERTY:Swooshbuckler,COMPILE_DEFINITIONS>)
     target_link_libraries(SwooshbucklerRoom PRIVATE Swooshbuckler)
 
+    # Surround test: the rig in a room (Quad to 7.1.4). Every pass, throw and hit as an object: at 5.1, 7.1 and
+    # 7.1.4 a pass's energy goes through the speakers in its Flight Path's order, an object is as loud wherever it
+    # is, nothing clicks when a pass starts again or the path, the width or the room's settings change mid-pass, the
+    # LFE stays silent, LINK, Take Turns, the morph, AIM, the tremolo, throws and Swell work, Stowaway and stereo
+    # beds are placed, Stereo is the stereo engine, and what 7.1.4 costs against Stereo at 48, 96 and 192 kHz.
+    juce_add_console_app(SwooshbucklerSurround PRODUCT_NAME "SwooshbucklerSurround")
+    juce_generate_juce_header(SwooshbucklerSurround)
+    target_sources(SwooshbucklerSurround PRIVATE Tests/SurroundTest.cpp ${SWOOSHBUCKLER_DSP_SOURCES})
+    target_include_directories(SwooshbucklerSurround PRIVATE Source)
+    target_compile_definitions(SwooshbucklerSurround PRIVATE JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JUCE_USE_MP3AUDIOFORMAT=1)
+    target_link_libraries(SwooshbucklerSurround
+        PRIVATE juce::juce_audio_utils juce::juce_dsp
+        PUBLIC juce::juce_recommended_config_flags juce::juce_recommended_warning_flags)
+
     # Wide test: the plug-in at every room width. The seven layouts accepted (and only those; the app stays
     # Stereo), the AAX plug-in ID of each, the output stage's two limiters (the main channels linked, the LFE on
     # its own) and its latency on every channel, and the whole plug-in at each width carrying the Stereo render

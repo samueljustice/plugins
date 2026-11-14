@@ -46,7 +46,14 @@ SwooshbucklerAudioProcessor::SwooshbucklerAudioProcessor(juce::PropertiesFile* o
         for (int k = 0; k < ParamIDs::numBusControls; ++k)
             m_raw.bus[b][k] = ParamIDs::bus[b][k] != nullptr ? raw(ParamIDs::bus[b][k]) : nullptr;
     for (int b = 0; b < ParamIDs::numBuses; ++b)
+    {
         m_raw.passMode[b] = raw(ParamIDs::passMode[b]);
+        m_raw.flightPath[b] = raw(ParamIDs::flightPath[b]);
+    }
+    m_raw.stowFlightPath = raw(ParamIDs::stowFlightPath);
+    m_raw.roomSpread = raw(ParamIDs::roomSpread);
+    m_raw.roomHeight = raw(ParamIDs::roomHeight);
+    m_raw.roomCentre = raw(ParamIDs::roomCentre);
     m_raw.stowOn = raw(ParamIDs::stowOn);
     m_raw.stowMode = raw(ParamIDs::stowMode);
     m_stowModeSource->mode.store(m_raw.stowMode); // the Stowaway knobs read by the mode from here on
@@ -224,6 +231,7 @@ void SwooshbucklerAudioProcessor::prepareInternal()
         peak.store(0.0f, std::memory_order_relaxed);
 
     updateEngineParams();
+    m_engine.setWidth(RoomMaster::pipeWidth(m_width)); // Quad and wider: every pass is an object in the room
     m_engine.prepare(m_renderRate, m_blockSize);
     m_master.prepare(m_renderRate, m_width);
     if (! m_offline)
@@ -401,7 +409,13 @@ void SwooshbucklerAudioProcessor::updateEngineParams()
         d.duck = get(ParamIDs::Duck);
         d.key = get(ParamIDs::Key);
         d.passMode = juce::jlimit(0, 1, juce::roundToInt(m_raw.passMode[b]->load()));
+        d.path = juce::jlimit(0, ParamIDs::numFlightPaths - 1, juce::roundToInt(m_raw.flightPath[b]->load()));
     }
+    static_assert(ParamIDs::numFlightPaths == room::c_numPaths, "the same Flight Paths");
+    p.stow.path = juce::jlimit(0, ParamIDs::numFlightPaths - 1, juce::roundToInt(m_raw.stowFlightPath->load()));
+    p.roomSpread = m_raw.roomSpread->load();
+    p.roomHeight = m_raw.roomHeight->load();
+    p.roomCentre = m_raw.roomCentre->load() > 0.5f;
     {
         static_assert(static_cast<int>(RigEngine::c_stowModes) == static_cast<int>(ParamIDs::numStowModes)
                       && static_cast<int>(RigEngine::c_stowKnobs) == static_cast<int>(ParamIDs::numStowControls)

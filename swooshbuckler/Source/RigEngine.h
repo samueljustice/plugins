@@ -8,6 +8,7 @@
 #include "SubFilter.h"
 #include "SpectralMorph.h"
 #include "SpaceReverb.h"
+#include "Room.h"
 
 #include <array>
 #include <atomic>
@@ -78,6 +79,27 @@
  *      the output stage about as loud as the ridden rig) -> space (echoes, reverb, width)
  *   -> out (the processor adds inflate + limiter)
  *
+ * THE ROOM. At Mono and Stereo the above is all there is: each pass is heard by two ears (a delay between them,
+ * the far one duller). At Quad and wider (setWidth) nothing makes a stereo image. Every pass, throw and hit is one
+ * mono stream with a place in the room (room::Position), and room::pan() puts it on the speakers:
+ *   a bus      keeps its passes apart as LANES all the way to the mix: lane 1 is its first pass, lane 2 its second,
+ *              lane 3 its throws, lane 4 the sides of a stereo bed. Each pass is read from the line once (no ear
+ *              delays, no head shadow: real speakers and a real head do that), with the same doppler, swell and air.
+ *              The colour chain works on the lanes as it works on left and right in stereo (so Filter and Drive act
+ *              on a whole pass, and it costs what it costs in stereo); ducking, the tremolo and the fades are gains
+ *              on the lanes. Only the mix pans, with gains that are ramped across each chunk.
+ *   Flight Path where a bus's passes fly (room::flight): Across, Through, Overhead, Around. Width is how much of
+ *              the path a pass travels (0%: it stays at the path's half-way point). A change of path glides.
+ *              Around has no approach: the pass keeps one distance, so it has no doppler bend and no swell of its own.
+ *   hits       one stream, at the front (a phantom centre, or the centre speaker with Centre Speaker on); with AIM,
+ *              at the closest point of the pass or throw they were aimed at.
+ *   Stowaway   Sub: at the front, equal in L and R, and its stem is kept for an LFE (getSubStem). Wake: on bus A's
+ *              path, behind its outgoing pass. Fly: its own passes on its own Flight Path. Dry: straight to L and R.
+ *   stereo beds  the side signal stays a left / right pair: at the front, and with Spread on every left and right
+ *              speaker of the floor.
+ *   Space      for now the echoes and the reverb are sent a stereo fold of the room and come back in L and R.
+ * The LFE channel is left silent here.
+ *
  * Every continuous control is chased by a damped spring (rubber banding).
  * No allocation, locks or I/O on the audio thread.
  */
@@ -102,6 +124,7 @@ public:
         float filter = 0.5f; // Sub: the crossover (::Params::stowCrossoverHz); otherwise a tilt, open in the middle
         float drive = 0.0f;
         float width = 1.0f;
+        int path = 0;        // Fly's Flight Path in a room (room::Path)
     };
 
     struct BusParams
@@ -113,6 +136,7 @@ public:
         float duck = 0.4f;  // ducked by bus A (ignored on bus A)
         float key = 0.3f;   // low-passed by bus A (ignored on bus A)
         int passMode = 0;   // 0 Bed (two overlapped passes, a steady level), 1 Fly-By (one pass at a time). Linked: bus A's.
+        int path = 0;       // Flight Path in a room (room::Path): 0 Across, 1 Through, 2 Overhead, 3 Around. Linked: bus A's.
     };
 
     struct Params
@@ -167,6 +191,11 @@ public:
         float space = 0.3f;
         bool swell = false;    // held: every fader rides up
 
+        // The room (Quad and wider; nothing at Mono and Stereo).
+        float roomSpread = 0.0f;  // how far every object bleeds into the other speakers (0 a point .. 1 everywhere)
+        float roomHeight = 1.0f;  // how much of an object's height reaches the top speakers
+        bool roomCentre = false;  // the centre speaker is used (off: a phantom centre between L and R)
+
         // Morph: buses A and B are fed a spectral morph of the two (split back between them by X)
         bool morphOn = false;
         float morphX = 0.5f, morphY = 0.5f;
@@ -211,17 +240,23 @@ public:
     void throwWhoosh(int delaySamples, float velocity);
     /** A throw is waiting, in flight, or its sources are still open. Audio thread. */
     bool isThrowing() const;
+    /** The width to render: Mono and Stereo are the stereo engine (a Mono output folds it itself); Quad and wider
+        is the room. Before prepare(), or on the audio thread between process() calls: from one room width to
+        another the speakers' gains glide across the next chunk; between stereo and a room the output fades out
+        (5 ms), swaps, and fades back in. */
+    void setWidth(room::Width width) { m_widthWanted = width; }
+    /** The width in use (the wanted one once a change has gone through). */
+    room::Width getWidth() const { return m_width; }
     void process(const float* inL, const float* inR, float* outL, float* outR, int numSamples);
-    /** The same into a room of numChannels (2 or more) in its processing order (room::layout): for now the
-        stereo render goes to L and R, which are channels 0 and 1 at every width from Stereo up, and every other
-        channel is silent. */
-    void process(const float* inL, const float* inR, float* const* out, int numChannels, int numSamples)
-    {
-        jassert(numChannels >= 2);
-        process(inL, inR, out[0], out[1], numSamples);
-        for (int ch = 2; ch < numChannels; ++ch)
-            std::fill_n(out[ch], numSamples, 0.0f);
-    }
+    /** The same into numChannels (2 or more) channels in the width's processing order (room::layout): the first
+        two are L and R at every width from Stereo up. Channels the width does not have are silent, and so is its
+        LFE. Fewer channels than the width has: the rest of the room is not written. */
+    void process(const float* inL, const float* inR, float* const* out, int numChannels, int numSamples);
+    /** Audio thread, after process(), in a room: Stowaway's Sub as one stem, for an LFE: the same samples that
+        went to L and R (each got exactly this), before the Everything tremolo and Space. Silent in every other
+        mode and at Mono and Stereo. Valid for the samples of the last process() call (up to c_stemSamples). */
+    const float* getSubStem() const { return m_subStem.data(); }
+    static constexpr int c_stemSamples = 8192;
     float getLatencySamples() const;
 
     /** The moments of the last process() call worth a marker in a recording: a doppler pass at its closest (while
@@ -236,6 +271,19 @@ public:
     };
     int getNumMarkers() const { return m_numMarkers; }
     const Marker& getMarker(int index) const { return m_markers[static_cast<size_t>(index)]; }
+
+    /** The objects of the room: what is where right now, and how loud (any thread). Bus A's two passes, bus B's,
+        the four throws (bus A's copy: every bus flies the same one), the hits, and Stowaway (Fly: its two passes;
+        Sub, Wake and Dry: the first only). Nothing is active at Mono and Stereo. */
+    enum Object { ObjPassA1 = 0, ObjPassA2, ObjPassB1, ObjPassB2, ObjThrow1, ObjThrow2, ObjThrow3, ObjThrow4,
+                  ObjHits, ObjStow1, ObjStow2, c_objects };
+    struct ObjectView
+    {
+        bool active = false;
+        float x = 0.0f, y = 1.0f, z = 0.0f; // room::Position
+        float level = 0.0f;                 // 0..1, as the meters read (getBusLevel): its share of its section's level
+    };
+    ObjectView getObject(int object) const;
 
     // UI (any thread)
     FlightView getFlightView(int index) const;
@@ -347,6 +395,8 @@ private:
         float machBase = 0.2f; // the pass's speed before Bend (a linked bus applies its own Bend to the shared pass)
         float machRef = 0.2f;  // that speed within the limits: the swell and the air filter follow it, whatever Bend is
         bool aimed = false;    // AIM has decided about this pass's peak
+        float side = 1.0f;     // a room: which side of the listener it passes (Through, Overhead) or where it starts (Around); it alternates
+        double lastBase = 0.0; // a room: the delay it was read at last (for the read's speed while a path glides)
         sj::OnePole airL, airR;
         sj::OnePole airSL, airSR; // the same air on a stereo bed's side signal, at each ear
         float view = 0.0f, x = 0.0f, age = 0.0f;
@@ -387,6 +437,57 @@ private:
     /** The pass at pt, heard in stereo from `line` and added to l and r: each ear's band-limited read (back:
         how many samples before the newest one in the line this sample is), its air, the gain and the pan. */
     void hearPass(Head& h, const sj::DelayLine& line, const PassPoint& pt, double back, float gain, float& l, float& r) const;
+
+    // The room.
+    /** A bus's Flight Path as it is in use: a change glides from the old path to the new one (c_pathSeconds),
+        and the next change waits for that to finish. */
+    struct PathGlide
+    {
+        int from = 0, to = 0;
+        float mix = 1.0f; // how far the glide has got (1 = arrived)
+        void snap(int path) { from = to = path; mix = 1.0f; }
+        void step(int wanted, float seconds);
+        /** How far along the glide the pass is (eased). */
+        float blend() const { return mix * mix * (3.0f - 2.0f * mix); }
+        /** How far the path in use is Around (see Place::orbit). */
+        float orbit() const
+        {
+            const float a = from == static_cast<int>(room::Path::Around) ? 1.0f : 0.0f;
+            const float b = to == static_cast<int>(room::Path::Around) ? 1.0f : 0.0f;
+            return a + (b - a) * blend();
+        }
+    };
+    /** Where a pass is in the room, and what the room makes of its flight. */
+    struct Place
+    {
+        room::Position position;
+        float distance = 1.0f; // from the listener, in room units
+        float orbit = 0.0f;    // how far the path is Around (0..1): no approach, so no bend and no swell
+    };
+    /** The pass h at progress u on a path: Width (its law) is how much of the path it travels. */
+    static Place placeOf(const Head& h, float u, float widthLaw, const PathGlide& path);
+    /** The speakers' gains for a stream at a place (they carry the +3 dB a centred stream has in stereo, so a
+        stream at the phantom centre is as loud in L and R as it is in the stereo engine). An object near the
+        listener bleeds into more speakers, on top of Spread. */
+    void roomGains(const room::Position& position, float distance, room::Gains& gains) const;
+    /** The same pass point for a room: by `orbit`, the delay, the read's band limit and the nearness go to those
+        of a pass that keeps its distance. Keeps h.lastBase. */
+    PassPoint roomPoint(Head& h, float u, float widthLaw, float orbit) const;
+    /** Air for a room: the pass dulls with distance as in stereo, with no head shadow (one filter, airL). */
+    static void roomAir(Head& h, float doppler, float orbit, float fs, bool sides);
+    /** The throws' lane: the speaker gains of the voices in flight (heads: this bus's copies), blended by their
+        power. at: where each is, if wanted. False with none in flight (the lane keeps the gains it had). */
+    bool throwGains(const std::array<Head, c_throws>& heads, float widthLaw, room::Gains& gains, room::Position* at) const;
+    /** x, ramped from gains `from` to gains `to`, added to the room's mix. */
+    void addToRoom(const float* x, const room::Gains& from, const room::Gains& to, int frames);
+    /** The width in use follows the wanted one (see setWidth); returns the output's fade across this chunk. */
+    void stepWidth(int frames, float& fade0, float& fade1);
+    /** The room's settings glide, and the hits move to their place. */
+    void stepRoom(int frames);
+    /** A room's mix: every lane to its speakers. */
+    void mixRoom(int frames, bool stowSounds, bool stowDry);
+    /** Space for a room, until it has a reverb of its own: see the class comment. */
+    void renderSpaceRoom(int frames);
 
     /** What Low End adds under a low band: a note an octave below it and its overtones. The buses feed it their
         low band (under 130 Hz); Stowaway's Sub feeds it what its crossover let through. */
@@ -479,11 +580,39 @@ private:
         struct Duck
         {
             float amount = 0.0f;              // applied attenuation 0..1 (after the return glide)
-            float lp[2] {};
-            sj::Svf band[2];                  // Mids: the 250 Hz .. 4 kHz band (centred on 1 kHz)
+            float lp[4] {};                   // per channel: left and right, or a room's lanes
+            sj::Svf band[4];                  // Mids: the 250 Hz .. 4 kHz band (centred on 1 kHz)
+            void reset()
+            {
+                amount = 0.0f;
+                for (auto& x : lp) x = 0.0f;
+                for (auto& b : band) b.reset();
+            }
         };
         Duck byBus, byHits;
+        // l and r: left and right in stereo. In a room they are lanes: l is the first pass, r the second, t the
+        // throws, and sideL the sides of a stereo bed (see the class comment).
         std::array<float, c_chunk> l {}, r {}, in {};
+        std::array<float, c_chunk> t {};
+        // The third lane's own colour chain (the same filters l and r have), whether it holds state, and how many
+        // more samples it is left to ring for after the last throw.
+        sj::Svf shelfT, fT, keyT;
+        std::array<sj::Allpass1, 6> phT;
+        float phFbT = 0.0f, flFbT = 0.0f, swAT = 0.0f, swMsT = 0.3f;
+        sj::DelayLine flT;
+        sj::OnePole toneT;
+        bool thirdOn = false;
+        int thirdTail = 0;
+        int lanes = 2; // the lanes the mix takes this chunk: 2, or 4 (t and sideL too, silent when not in use)
+        std::array<float, 3> lowShare { 0.5f, 0.5f, 0.0f }; // each lane's share of what Low End adds (by its power), at the end of the last chunk
+        PathGlide path;
+        // Each lane's speaker gains at the end of the last chunk and of this one (lane 3: the throws, blended by
+        // their power), and whether the last chunk's are known.
+        std::array<room::Gains, 3> gain {}, gainTo {};
+        bool placed = false;
+        // The passes and throws as objects: where each is at the end of this chunk.
+        std::array<room::Position, 2 + c_throws> at {};
+        void resetThird();
         // Stereo beds (bus B): the tracks' side signals, their own delay line for the passes to read, what the
         // passes made of them this chunk, how many more samples the line still holds sound for, the amount it
         // was mixed in at the end of the last chunk, and the level match across the colour chain.
@@ -576,6 +705,15 @@ private:
         // can place the stream itself (and send a Sub to its LFE) instead of taking the stereo.
         std::array<float, c_chunk> mono {}, l {}, r {};
         float pan = 0.0f, panFrom = 0.0f;
+        // A room. Sub and Dry go to L and R as in stereo. Wake is `mono` at a place. Fly is three lanes: l its
+        // first pass, r its second, mono its throws. The lanes' speaker gains at the end of the last chunk and of
+        // this one, and whether the last chunk's are known.
+        std::array<room::Gains, 3> gain {}, gainTo {};
+        bool placed = false;
+        PathGlide path;                       // Fly's Flight Path
+        std::array<room::Position, 2> at {};  // where it is (Fly: its two passes)
+        room::Position wakeAt;                // Wake: its place, smoothed
+        float wakeDistance = 1.0f;
         StowParams now;        // see getStowNow
         std::array<sj::Spring, c_stowKnobs> springs; // follow low filter drive width
         float throwKey = 0.0f; // the loudest throw's own swell (its pass window x its level) at the end of the last chunk
@@ -702,7 +840,8 @@ private:
     static void followPass(Head& h, const Head& from, float bend, bool newPass);
     static void snapBus(BusState& bus, const BusParams& p);
     void renderHits(int frames);
-    void renderSpace(int frames);
+    /** l, r: the stereo mix, in place. Returns false when Space is off (nothing done). */
+    bool renderSpace(int frames, float* l, float* r);
     void publishViews();
 
     double m_sampleRate = 48000.0;
@@ -745,6 +884,7 @@ private:
     std::array<float, c_tracks> m_throwGain {};     // each track's gain into the throw lines at the end of the last chunk
     float m_throwOpen = 0.0f;                       // 0..1: the throw's sources are open
     float m_throwDoppler = 0.5f, m_throwWidthLaw = 0.7f; // bus A's Doppler and Width this chunk: a throw is one pass on both buses
+    float m_throwOrbit0 = 0.0f, m_throwOrbit1 = 0.0f;    // and how far bus A's Flight Path is Around, at the chunk's start and end
     std::atomic<float> m_throwPeakView { -1.0f };
     std::atomic<int> m_throwCountView { 0 };
     std::array<std::atomic<float>, c_tracks> m_keyPitchView {};
@@ -802,7 +942,13 @@ private:
 
     float duckReturnCoef() const;
     /** full: the amount at which Darken reaches its darkest (the deepest the caller ever asks for). */
-    void duckSample(BusState::Duck& d, float target, float returnCoef, float full, float& l, float& r);
+    /** ch: one sample of each channel (left and right, or a room's lanes), n of them (up to 4). */
+    void duckSample(BusState::Duck& d, float target, float returnCoef, float full, float* const* ch, int n);
+    void duckSample(BusState::Duck& d, float target, float returnCoef, float full, float& l, float& r)
+    {
+        float* ch[2] = { &l, &r };
+        duckSample(d, target, returnCoef, full, ch, 2);
+    }
     float m_peakRef = 1.0e-3f, m_average = 0.0f, m_gate = 0.0f, m_hold = 0.0f;
     double m_hitClock = 0.0;     // samples to the next synced hit
     // Peak tremolo, one per thing it can shake: 0 the whole mix, 1 bus A, 2 bus B, 3 the hits.
@@ -817,7 +963,9 @@ private:
     float m_tremAttack = 0.0f, m_tremRelease = 0.0f, m_tremPeakDecay = 0.0f, m_tremDepthUp = 0.0f, m_tremDepthDown = 0.0f;
     /** selected: this is what the tremolo shakes now. The others keep following their level and their LFO so a switch
         (or turning it on) starts from the present, and they fade out instead of stopping dead. */
-    void applyTremolo(PeakTremolo& t, float* l, float* r, int frames, bool selected);
+    /** ch: the n channels it shakes (left and right, a room's lanes, or its speakers). detect: what it listens
+        to instead of the loudest of them (a room's whole mix as one stream), or nullptr. */
+    void applyTremolo(PeakTremolo& t, float* const* ch, int n, int frames, bool selected, const float* detect = nullptr);
 
     // Markers (see getMarker): those of this process() call, the cued hits still on their way (samples until their
     // transients land, < 0 = free), and where the chunk being rendered starts in the call.
@@ -837,14 +985,35 @@ private:
     sj::Svf m_hitsTone;
 
     // Mix + space
-    std::array<float, c_chunk> m_mixL {}, m_mixR {};
+    std::array<std::array<float, c_chunk>, room::c_maxChannels> m_mix {}; // 0 and 1 are L and R at every width
     sj::DelayLine m_echoL, m_echoR;
     sj::OnePole m_echoLpL, m_echoLpR, m_echoHpL, m_echoHpR;
     SpaceReverb m_reverb;
     float m_echoDriftL = 0.0f, m_echoDriftR = 0.5f; // phases (-1..1) of the slow drift of the two echo times
     float m_spaceDry = 1.0f, m_spaceWet = 0.0f;     // the reverb's dry and wet gains at the end of the last chunk
     bool m_spaceOn = false; // the echoes and reverb hold sound (cleared once when Space reaches 0)
-    sj::DcBlock m_dcL, m_dcR;
+    std::array<sj::DcBlock, room::c_maxChannels> m_dc;
+
+    // The room (see the class comment).
+    room::Width m_width = room::Width::Stereo, m_widthWanted = room::Width::Stereo;
+    bool m_room = false;           // the width in use is a room (Quad or wider)
+    float m_widthFade = 1.0f;      // the output's gain around a change between stereo and a room
+    // The channels the room's mix holds: the width's, and for a moment after a change to a narrower room the
+    // old width's too, while the speakers that have gone fade out (m_liveHold: samples left of that).
+    int m_liveChannels = 2, m_liveHold = 0;
+    float m_spreadNow = 0.0f, m_heightNow = 1.0f, m_centreNow = 0.0f; // the room's settings, glided
+    bool m_roomSnap = true;        // nothing to glide from: the next chunk's gains start where they end
+    // The hits: where they are, where they are going (AIM), and their speaker gains at the end of the last chunk.
+    room::Position m_hitsAt, m_hitsTo;
+    float m_hitsDistance = 1.0f, m_hitsDistanceTo = 1.0f;
+    room::Gains m_hitsGain {};
+    // The sides of a stereo bed: plus on the left speakers, minus on the right (see mixRoom).
+    room::Gains m_sidesGain {};
+    std::array<float, c_chunk> m_roomMono {}, m_spaceL {}, m_spaceR {}; // the mix as one stream; Space's send
+    float m_spaceDryFrom = 1.0f;   // the reverb's dry gain at the start of the chunk renderSpace just did
+    std::vector<float> m_subStem;  // see getSubStem
+    std::array<float, c_objects> m_objectLevel {};
+    std::array<std::atomic<float>, c_objects * 4> m_objectView {}; // x, y, z, level each
     sj::Follower m_mixFollower;
 
     // Views

@@ -7,10 +7,12 @@
 //   - The output stage (RoomMaster): the same latency on every channel at every width; the Ceiling held on every
 //     channel; the main channels share one gain; the LFE has a limiter of its own (a loud LFE leaves the room
 //     alone, and the other way round). Its CPU at 12 channels against 2.
-//   - The whole plug-in at each width: no crash, the room's width and meters follow the bus, L and R carry the
-//     same sound as the Stereo render (Mono: its fold), every other channel is silent, the latency is the same
-//     at every width, rendering above the device rate too, and the tape records the room at its width: every
-//     channel of a 7.1.4 take, read back in the room's order, is the output's.
+//   - The whole plug-in at each width: no crash, the room's width and meters follow the bus, Mono is the Stereo
+//     render folded, and from Quad up (where every pass is an object on the speakers) every main speaker sounds,
+//     the LFE is silent, the Ceiling holds on every speaker, the room is about as loud as the Stereo render, the
+//     latency is the same at every width, rendering above the device rate too, and the tape records the room at
+//     its width: every channel of a 7.1.4 take, read back in the room's order, is the output's. What the whole
+//     plug-in costs at 7.1.4 against Stereo, rendering at 48, 96 and 192 kHz.
 //
 // Usage: SwooshbucklerWide [scratch folder]. Run it from a scratch folder; nothing is read from or written to the
 // user's settings.
@@ -21,6 +23,7 @@
 #include "Room.h"
 #include "RoomMaster.h"
 #include "TakeFile.h"
+#include "TestClock.h"
 
 #include <chrono>
 #include <cmath>
@@ -112,7 +115,18 @@ namespace
                     check(false, "loads " + juce::String(names[t]) + ": " + error);
                 proc.getCargo().setRoleOverride(t, static_cast<int>(roles[t]));
             }
+            // In a room: bus A's passes fly Overhead (so the tops sound where there are any), everything bleeds a
+            // little into every speaker of its layer, and the centre speaker is in use: every main speaker sounds.
+            setPlain(ParamIDs::flightPath[0], 2.0f);
+            setPlain(ParamIDs::roomSpread, 0.3f);
+            setPlain(ParamIDs::roomCentre, 1.0f);
             proc.prepareToPlay(c_fs, c_block);
+        }
+
+        void setPlain(const char* id, float plain)
+        {
+            auto* param = proc.getState().getParameter(id);
+            param->setValueNotifyingHost(param->convertTo0to1(plain));
         }
 
         /** Plays for `seconds`, the output in a buffer as wide as the bus. */
@@ -453,34 +467,62 @@ int main(int argc, char* argv[])
                 for (int i = 0; i < len; ++i)
                     finite = finite && std::isfinite(out.getSample(ch, i));
             const bool shaped = out.getNumChannels() == lay.numChannels && p.getRoomWidth() == w && p.getMeterChannels() == lay.numChannels;
-            float lr = 0.0f, others = 0.0f;
+            check(finite && shaped, nameOf(w) + at + ": renders, and the room width and the meters follow the bus");
+            check(p.getLatencySamples() == refLatency, nameOf(w) + at + ": the same latency as Stereo");
             if (w == room::Width::Mono)
             {
+                // Mono is the stereo engine, folded.
                 std::vector<float> folded(static_cast<size_t>(len));
                 for (int i = 0; i < len; ++i)
                     folded[static_cast<size_t>(i)] = 0.5f * (reference.getSample(0, i) + reference.getSample(1, i));
-                lr = maxDiff(out.getReadPointer(0), folded.data(), len);
+                const float apart = maxDiff(out.getReadPointer(0), folded.data(), len);
+                bool meters = p.getChannelPeak(0) > 0.0f && p.takeChannelPeak(0) > 0.0f;
+                for (int ch = 1; ch < room::c_maxChannels; ++ch)
+                    meters = meters && p.takeChannelPeak(ch) == 0.0f && p.getChannelPeak(ch) == 0.0f;
+                std::cout << "         Mono" << at << ": against the Stereo render folded " << juce::String(db(apart), 1) << " dB" << std::endl;
+                check(apart < 1.0e-5f, "Mono" + at + ": the one channel is the Stereo render folded");
+                check(meters, "Mono" + at + ": the one speaker meter shows the sound");
+                continue;
             }
-            else
+            // A room: every pass and hit is an object on the speakers (the Surround test says where). Here: every
+            // main speaker sounds, the LFE is silent, the Ceiling holds on every channel after the two limiters,
+            // the meters show it, and the room is about as loud as the Stereo render of the same session.
+            float quietest = 1.0f, loudest = 0.0f, lfe = 0.0f;
+            double power = 0.0, refPower = 0.0;
+            bool meters = true;
+            for (int ch = 0; ch < room::c_maxChannels; ++ch)
             {
-                lr = std::max(maxDiff(out.getReadPointer(0), reference.getReadPointer(0), len), maxDiff(out.getReadPointer(1), reference.getReadPointer(1), len));
-                for (int ch = 2; ch < out.getNumChannels(); ++ch)
-                    others = std::max(others, maxAbs(out.getReadPointer(ch), len));
+                const float meterNow = p.getChannelPeak(ch), meterHeld = p.takeChannelPeak(ch);
+                if (ch >= lay.numChannels)
+                {
+                    meters = meters && meterNow == 0.0f && meterHeld == 0.0f;
+                    continue;
+                }
+                const float peak = maxAbs(out.getReadPointer(ch), len);
+                if (ch == lay.lfe)
+                {
+                    lfe = peak;
+                    meters = meters && meterNow == 0.0f && meterHeld == 0.0f;
+                    continue;
+                }
+                quietest = std::min(quietest, peak);
+                loudest = std::max(loudest, peak);
+                meters = meters && meterHeld > 0.0f;
+                for (int i = 0; i < len; ++i)
+                    power += static_cast<double>(out.getSample(ch, i)) * out.getSample(ch, i);
             }
-            // The speaker meters: L and R (Mono's one) show the sound, the rest nothing.
-            bool meters = p.getChannelPeak(0) > 0.0f && p.takeChannelPeak(0) > 0.0f;
-            for (int ch = 1; ch < room::c_maxChannels; ++ch)
-            {
-                const bool sounding = ch == 1 && w != room::Width::Mono;
-                meters = meters && (sounding ? p.takeChannelPeak(ch) > 0.0f : p.takeChannelPeak(ch) == 0.0f && p.getChannelPeak(ch) == 0.0f);
-            }
-            std::cout << "         " << nameOf(w) << at << ": " << out.getNumChannels() << " channels, L / R against Stereo "
-                      << juce::String(db(lr), 1) << " dB, the others " << juce::String(db(others), 1) << " dB, latency " << p.getLatencySamples() << std::endl;
-            check(finite && shaped, nameOf(w) + at + ": renders, and the room width and the meters follow the bus");
-            check(lr < 1.0e-5f, nameOf(w) + at + (w == room::Width::Mono ? ": the one channel is the Stereo render folded" : ": L and R carry the Stereo render"));
-            check(others == 0.0f, nameOf(w) + at + ": every other channel is silent");
-            check(p.getLatencySamples() == refLatency, nameOf(w) + at + ": the same latency as Stereo");
-            check(meters, nameOf(w) + at + ": the speaker meters show L and R sounding and the rest silent");
+            for (int ch = 0; ch < 2; ++ch)
+                for (int i = 0; i < len; ++i)
+                    refPower += static_cast<double>(reference.getSample(ch, i)) * reference.getSample(ch, i);
+            const float against = static_cast<float>(10.0 * std::log10(power / refPower));
+            std::cout << "         " << nameOf(w) << at << ": " << out.getNumChannels() << " channels, the loudest speaker peaks at "
+                      << juce::String(db(loudest), 2) << " dB, the quietest at " << juce::String(db(quietest), 1) << " dB, the LFE at " << juce::String(db(lfe), 1)
+                      << " dB; all speakers together " << juce::String(against, 1) << " dB against the Stereo render; latency " << p.getLatencySamples() << std::endl;
+            check(quietest > 1.0e-3f, nameOf(w) + at + ": every main speaker sounds");
+            check(lfe == 0.0f, nameOf(w) + at + ": the LFE is silent");
+            check(loudest <= juce::Decibels::decibelsToGain(-0.3f) * 1.0001f, nameOf(w) + at + ": the Ceiling holds on every speaker");
+            check(std::abs(against) < 3.0f, nameOf(w) + at + ": the room is about as loud as the Stereo render (within 3 dB)");
+            check(meters, nameOf(w) + at + ": the speaker meters show every main speaker sounding, and nothing on the LFE or past the width");
         }
     }
 
@@ -526,10 +568,37 @@ int main(int argc, char* argv[])
                 best = std::min(best, d);
             }
         }
-        std::cout << "         take: " << file.getNumChannels() << " channels, " << file.getNumSamples() << " samples, against the output "
+        int sounding = 0;
+        for (int ch = 0; ch < file.getNumChannels(); ++ch)
+            if (maxAbs(file.getReadPointer(ch), file.getNumSamples()) > 1.0e-3f)
+                ++sounding;
+        std::cout << "         take: " << file.getNumChannels() << " channels (" << sounding << " sounding), " << file.getNumSamples() << " samples, against the output "
                   << juce::String(db(best), 1) << " dB" << std::endl;
-        check(file.getNumChannels() == 12 && file.getNumSamples() > 48000 * 2 && best < 1.0e-5f,
-              "7.1.4: the tape records all twelve channels, each as it is played");
+        check(file.getNumChannels() == 12 && file.getNumSamples() > 48000 * 2 && best < 1.0e-5f && sounding == 11,
+              "7.1.4: the tape records all twelve channels, each as it is played (eleven sounding, the LFE silent)");
+    }
+
+    //==========================================================================
+    std::cout << "Speed: the whole plug-in at 7.1.4 against Stereo" << std::endl;
+    {
+        // Engine, output stage and, rendering above the device's 48 kHz, the downsampler and the monitor limiter.
+        for (int recordRate : { 0, 96000, 192000 })
+        {
+            double percent[2] = { 0.0, 0.0 };
+            int which = 0;
+            for (auto w : { room::Width::Stereo, room::Width::Surround714 })
+            {
+                Plug plug(sources, w, recordRate);
+                plug.proc.setPlaying(true);
+                plug.run(1.0);
+                const double t0 = TestClock::cpuMs();
+                plug.run(8.0);
+                percent[which++] = 100.0 * (TestClock::cpuMs() - t0) / 8000.0;
+            }
+            std::cout << "         rendering at " << (recordRate > 0 ? recordRate / 1000 : 48) << " kHz: Stereo " << juce::String(percent[0], 1) << "% of a core, 7.1.4 "
+                      << juce::String(percent[1], 1) << "%" << std::endl;
+            check(percent[1] < 100.0, "7.1.4 runs in real time rendering at " + juce::String(recordRate > 0 ? recordRate / 1000 : 48) + " kHz");
+        }
     }
 
     Proc::useSettings(nullptr);
