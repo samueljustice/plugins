@@ -77,7 +77,10 @@ namespace
     // its level against the other modes (measured: see StowawayTest).
     constexpr float c_flyHalfMin = 0.35f, c_flyHalfMax = 6.0f;
     constexpr float c_flyQuiet = 1.0e-7f;
-    constexpr float c_flyLevel = 1.0f;
+    // Fly against the other modes, on top of its ride make-up (see renderFly): +1.3 dB. Measured: the same sound in
+    // each mode over a minute and a half, on a drone, a bed and a gappy sound, with Energy at 0%, where it starts
+    // and at 100% (see StowawayTest: "modes: all four").
+    constexpr float c_flyLevel = 1.16f;
     constexpr std::uint32_t c_flySeed = 0x0F1Bu; // its draws start here, from the engine's seed
 
     float coef(float ms, float fs) { return 1.0f - std::exp(-1.0f / (0.001f * ms * fs)); }
@@ -1567,6 +1570,7 @@ void RigEngine::StowState::Fly::reset()
     on = throwOn = false;
     hold = throwHold = 0;
     inGain = 0.0f;
+    level = 1.0f;
     segTime = 0.0;
     segLen = 1.5f;
     inbound = 0;
@@ -1830,6 +1834,20 @@ void RigEngine::renderFly(int frames)
     std::fill(s.r.begin(), s.r.begin() + frames, 0.0f);
     for (auto& h : f.heads)
         passAir(h, c_flyDoppler, law, fs, false);
+    // How loud: on average as loud as the other modes are with the same sound. Its tracks are ridden like any
+    // others, and the deeper they dip the quieter they are on average, so a make-up brings them back to their
+    // fader level as Dry's does (never by more than 6 dB); c_flyLevel then makes up for the passes themselves.
+    // (A throw is not ridden and is one pass, the same on every bus: it keeps its own level, below.)
+    if (std::abs(m_makeupDepth - f.powerDepth) > 1.0e-4f || std::abs(m_makeupChaos - f.powerChaos) > 1.0e-4f)
+    {
+        f.powerDepth = m_makeupDepth;
+        f.powerChaos = m_makeupChaos;
+        f.power = ridePower(f.powerDepth, f.powerChaos, 1.0f);
+    }
+    const float level1 = c_flyLevel * std::min(2.0f, 1.0f / std::sqrt(std::max(f.power, 1.0e-3f)));
+    const float level0 = starting ? level1 : f.level;
+    f.level = starting ? level1 : f.level + (level1 - f.level) * glide(frames, 0.05f, fs);
+    const float levelStep = (f.level - level0) / static_cast<float>(frames);
     const bool marks = m_releaseGain > 0.0f && s.env >= 0.002f;
     for (int i = 0; i < frames; ++i)
     {
@@ -1861,7 +1879,7 @@ void RigEngine::renderFly(int frames)
             if (window > 0.0f)
             {
                 const PassPoint pt = passPoint(h, u, law);
-                const float gain = c_flyLevel * window * c_flyMakeup * (1.0f + 0.8f * c_flyDoppler * (pt.nearness - 0.35f));
+                const float gain = (level0 + levelStep * static_cast<float>(i + 1)) * window * c_flyMakeup * (1.0f + 0.8f * c_flyDoppler * (pt.nearness - 0.35f));
                 hearPass(h, f.line, pt, back, gain, s.l[static_cast<size_t>(i)], s.r[static_cast<size_t>(i)]);
             }
         }
@@ -1895,7 +1913,7 @@ void RigEngine::renderFly(int frames)
             followPass(h, a, c_flyBend, true);
             h.time = a.time - static_cast<double>(frames) * dt;
             passAir(h, c_flyDoppler, law, fs, false);
-            const float level = c_flyLevel * m_throws[v].level;
+            const float level = m_throws[v].level;
             for (int i = 0; i < frames; ++i)
             {
                 const float u = h.progress();

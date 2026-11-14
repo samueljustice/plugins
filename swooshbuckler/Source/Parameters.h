@@ -2,6 +2,8 @@
 
 #include <JuceHeader.h>
 
+#include "TypedValue.h"
+
 /** Parameter IDs and the layout, in signal order: tracks -> ride -> bus A / bus B -> Stowaway -> hits -> output. */
 namespace ParamIDs
 {
@@ -203,16 +205,40 @@ namespace Params
     }
 
     /** Where the Stowaway knobs' readouts find the Mode in use: the owner of the parameters points `mode` at the
-        Mode parameter's value once it exists (until then they read as in Sub). */
+        Mode parameter's value once it exists (until then they read as in Sub), and `knobs` at the five knobs'
+        own values (what a typed value that does not say where on the knob it means is read against). */
     struct StowModeSource
     {
         std::atomic<const std::atomic<float>*> mode { nullptr };
+        std::array<std::atomic<const std::atomic<float>*>, ParamIDs::numStowControls> knobs {};
         int get() const
         {
             const auto* raw = mode.load(std::memory_order_relaxed);
             return raw != nullptr ? std::clamp(juce::roundToInt(raw->load(std::memory_order_relaxed)), 0, ParamIDs::numStowModes - 1) : 0;
         }
+        /** A knob's position now (its default until the parameters exist). */
+        float knob(int control, float fallback) const
+        {
+            const auto* raw = knobs[static_cast<size_t>(control)].load(std::memory_order_relaxed);
+            return raw != nullptr ? std::clamp(raw->load(std::memory_order_relaxed), 0.0f, 1.0f) : fallback;
+        }
     };
+    /** The position of a Stowaway knob that reads as `text` in a mode: what a host hands back when a value is typed
+        into its own parameter list or automation lane. Read off the readouts themselves (TypedValue), so "95 Hz",
+        "Under 2.4 kHz", "Over 320 Hz", "Open" and "35%" all work. A number with no "Under" or "Over" is looked for
+        on the side of Filter the knob is on now, then on the other. Text that says nothing about where (Width's
+        "Mono" in Sub, or something that can't be read) leaves the knob where it is. */
+    inline float stowValueFromText(int mode, int control, const juce::String& text, float current)
+    {
+        if (control == ParamIDs::StowWidth && mode == ParamIDs::StowSub)
+        {
+            // Every position reads "Mono" here: a number is still taken as the width it will have in the other modes.
+            const auto typed = TypedValue::parse(text);
+            return typed.isNumber ? std::clamp(static_cast<float>(typed.value) / 100.0f, 0.0f, 1.0f) : current;
+        }
+        const float n = TypedValue::toNormalised([mode, control](float v) { return stowText(mode, control, v); }, text, current);
+        return n >= 0.0f ? n : current;
+    }
 
     inline juce::AudioProcessorValueTreeState::ParameterLayout createLayout(std::shared_ptr<StowModeSource> stowModeSource = std::make_shared<StowModeSource>())
     {
@@ -278,8 +304,12 @@ namespace Params
         for (int k = 0; k < ParamIDs::numStowControls; ++k)
             layout.add(std::make_unique<P>(ParameterID { ParamIDs::stow[k], 4 }, String("Stowaway ") + ParamIDs::stowNames[k],
                                            NormalisableRange<float>(0.0f, 1.0f), stowDefaults[k],
-                                           AudioParameterFloatAttributes().withStringFromValueFunction(
-                                               [stowModeSource, k](float v, int) { return stowText(stowModeSource->get(), k, v); })));
+                                           AudioParameterFloatAttributes()
+                                               .withStringFromValueFunction([stowModeSource, k](float v, int) { return stowText(stowModeSource->get(), k, v); })
+                                               .withValueFromStringFunction([stowModeSource, k, fallback = stowDefaults[k]](const String& t)
+                                               {
+                                                   return stowValueFromText(stowModeSource->get(), k, t, stowModeSource->knob(k, fallback));
+                                               })));
 
         layout.add(pct(ParamIDs::hitSense, "Hit Sensitivity", 0.5f));
         layout.add(std::make_unique<P>(ParameterID { ParamIDs::hitBoost, 2 }, "Hit Boost", NormalisableRange<float>(-3.0f, 12.0f), 6.0f,

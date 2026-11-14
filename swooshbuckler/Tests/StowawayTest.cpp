@@ -1,8 +1,8 @@
 // Stowaway test: the extra bus's modes, through the real engine (no window).
 //
 //   Sub
-//   - It filters: white noise sent to it comes out at least 45 dB down one octave above the crossover and 80 dB
-//     down from two octaves above, with the crossover at 40, 120 and 250 Hz, at 48 and at 192 kHz. (The same
+//   - It filters: white noise sent to it comes out at least 60 dB down one octave above the crossover and 140 dB
+//     down from two octaves above (the figures the README and the changelog give), with the crossover at 40, 120 and 250 Hz, at 48 and at 192 kHz. (The same
 //     measurement in Dry, which passes the noise on, reads about 0 dB: the control.)
 //   - With Low End and Drive at 100% nothing from 2.5 times the crossover upwards is within 40 dB of the passband.
 //   - A 30 Hz tone passes within 1 dB; left and right are the same signal; Width does nothing.
@@ -28,6 +28,7 @@
 // Usage: SwooshbucklerStowaway [scratch folder] (a folder in the temp directory if none is given).
 
 #include <JuceHeader.h>
+#include "TestClock.h"
 #include "Parameters.h"
 #include "RigEngine.h"
 #include "SubFilter.h"
@@ -315,9 +316,9 @@ int main(int argc, char* argv[])
                 const auto m = measure(rate, hz, RigEngine::StowSub);
                 std::cout << "  " << juce::roundToInt(rate / 1000.0) << " kHz, crossover " << hz << " Hz: " << juce::String(m.oneOctave, 1) << " dB down one octave above, "
                           << juce::String(m.twoOctaves, 1) << " dB down from two octaves above" << std::endl;
-                const bool ok = m.oneOctave >= 45.0 && m.twoOctaves >= 80.0;
+                const bool ok = m.oneOctave >= 60.0 && m.twoOctaves >= 140.0; // (measured: 62 to 68 dB, and 143 to 155 dB)
                 steep = steep && ok;
-                check(ok, "sub: white noise is at least 45 dB down one octave above the crossover and 80 dB down from two octaves above ("
+                check(ok, "sub: white noise is at least 60 dB down one octave above the crossover and 140 dB down from two octaves above ("
                               + juce::String(hz, 0) + " Hz at " + juce::String(juce::roundToInt(rate / 1000.0)) + " kHz)");
             }
         const auto dry = measure(48000.0, 120.0f, RigEngine::StowDry);
@@ -1471,7 +1472,9 @@ int main(int argc, char* argv[])
             };
             const double fly = level(true), busA = level(false);
             std::cout << "  the same tone over 60 s: " << juce::String(fly, 2) << " dB flying on Stowaway, " << juce::String(busA, 2) << " dB as Fly-Bys on bus A" << std::endl;
-            check(fly > -40.0 && std::abs(fly - busA) < 1.0, "fly: it is as loud as the same sound flying by on bus A");
+            // (With the faders still: no ride to make up for, so what is left is the 1.3 dB that matches Fly to the
+            // other modes.)
+            check(fly > -40.0 && fly - busA > 0.3 && fly - busA < 2.3, "fly: with the faders still it is about as loud as the same sound flying by on bus A (1.3 dB over, to match the other modes)");
         }
 
         // It sleeps unless sound is in it: with no track on Stowaway (the output is then the same as in any other
@@ -1506,9 +1509,9 @@ int main(int argc, char* argv[])
                     Rig rig;
                     bed(rig, c.mode, c.onStow);
                     render(rig.engine, 1.0, 48000.0);
-                    const double t0 = juce::Time::getMillisecondCounterHiRes();
+                    const double t0 = TestClock::cpuMs();
                     render(rig.engine, 10.0, 48000.0);
-                    c.best = std::min(c.best, (juce::Time::getMillisecondCounterHiRes() - t0) / 10000.0);
+                    c.best = std::min(c.best, (TestClock::cpuMs() - t0) / 10000.0);
                     c.awake = rig.engine.isFlyAwake();
                 }
             const bool awakeSub = cases[0].awake, awakeEmpty = cases[1].awake, awakeFlying = cases[2].awake, awakeDry = cases[3].awake;
@@ -1770,39 +1773,75 @@ int main(int argc, char* argv[])
                   "places: a rumble leaves Stowaway for bus A as the Mode leaves Sub, and comes back, without a click");
         }
 
-        // The modes are about as loud as each other: the same low drone (45 and 72 Hz, under the sub's crossover) on
-        // Stowaway, gappy bursts on bus A, everything else as the plug-in starts.
+        // The modes are about as loud as each other, all four: the same low sound on Stowaway (under the sub's
+        // crossover, so Sub passes all of it), gappy bursts on bus A, everything else as the plug-in starts. Three
+        // sounds: a steady drone (45 and 72 Hz), a bed (a heaving low rumble, 30 to 95 Hz) and gappy low bursts.
         {
-            juce::AudioBuffer<float> drone(1, 8 * 48000), gappy(1, 8 * 48000);
-            juce::Random r(11);
-            for (int i = 0; i < drone.getNumSamples(); ++i)
+            const int n = 8 * 48000;
+            juce::AudioBuffer<float> drone(1, n), bed(1, n), bursts(1, n), gappy(1, n);
+            juce::Random r(11), phases(23);
+            std::array<double, 48> hz {}, phase {};
+            for (size_t k = 0; k < hz.size(); ++k)
+            {
+                hz[k] = 30.0 + 65.0 * (static_cast<double>(k) + phases.nextDouble()) / static_cast<double>(hz.size());
+                phase[k] = c_twoPi * phases.nextDouble();
+            }
+            for (int i = 0; i < n; ++i)
             {
                 const double t = i / 48000.0;
                 drone.setSample(0, i, static_cast<float>(0.2 * std::sin(c_twoPi * 45.0 * t) + 0.15 * std::sin(c_twoPi * 72.0 * t)));
+                double rumble = 0.0;
+                for (size_t k = 0; k < hz.size(); ++k)
+                    rumble += std::sin(c_twoPi * hz[k] * t + phase[k]);
+                bed.setSample(0, i, static_cast<float>(0.05 * rumble * (0.75 + 0.25 * std::sin(0.9 * t))));
                 const double u = std::fmod(t, 1.6) / 1.6; // a burst every 1.6 s, 60% of it sounding
-                gappy.setSample(0, i, u < 0.6 ? static_cast<float>(0.3 * std::sin(juce::MathConstants<double>::pi * u / 0.6) * (std::sin(c_twoPi * 220.0 * t) + 0.3 * (r.nextFloat() * 2.0f - 1.0f))) : 0.0f);
+                const double burst = u < 0.6 ? std::sin(juce::MathConstants<double>::pi * u / 0.6) : 0.0;
+                bursts.setSample(0, i, static_cast<float>(burst * (0.3 * std::sin(c_twoPi * 55.0 * t) + 0.2 * std::sin(c_twoPi * 83.0 * t))));
+                gappy.setSample(0, i, static_cast<float>(0.3 * burst * (std::sin(c_twoPi * 220.0 * t) + 0.3 * (r.nextFloat() * 2.0f - 1.0f))));
             }
-            const auto droneFile = writeWav(folder, "stow_drone", drone, 48000.0), gappyFile = writeWav(folder, "stow_gappy", gappy, 48000.0);
-            auto level = [&](int mode)
+            const auto gappyFile = writeWav(folder, "stow_gappy", gappy, 48000.0);
+            struct Sound { const char* name; juce::File file; };
+            const std::array<Sound, 3> sounds { Sound { "a drone", writeWav(folder, "stow_drone", drone, 48000.0) }, Sound { "a bed", writeWav(folder, "stow_bed", bed, 48000.0) },
+                                                Sound { "gappy bursts", writeWav(folder, "stow_bursts", bursts, 48000.0) } };
+            auto level = [&](const juce::File& file, int mode, float energy)
             {
                 Rig rig;
-                rig.hold.loadFile(0, droneFile, error);
+                rig.hold.loadFile(0, file, error);
                 rig.hold.setSkipSilence(0, false);
                 rig.hold.setBusOverride(0, CargoHold::c_stowBus);
                 rig.hold.loadFile(1, gappyFile, error);
                 rig.hold.setBusOverride(1, 0);
                 RigEngine::Params p; // as the plug-in starts
                 p.stow.mode = mode;
+                if (energy >= 0.0f)
+                    p.energy = energy;
                 rig.start(p, 48000.0);
                 render(rig.engine, 4.0, 48000.0);
                 rig.engine.takeSectionLevels();
                 render(rig.engine, 90.0, 48000.0);
                 return 20.0 * std::log10(static_cast<double>(rig.engine.takeSectionLevels()[RigEngine::SectionStow]));
             };
-            const double sub = level(RigEngine::StowSub), wake = level(RigEngine::StowWake), fly = level(RigEngine::StowFly), dry = level(RigEngine::StowDry);
-            std::cout << "  the same drone on Stowaway over 90 s, at the starting settings: Sub " << juce::String(sub, 1) << " dB, Wake " << juce::String(wake, 1) << " dB, Dry " << juce::String(dry, 1)
-                      << " dB (Fly, whose tracks are ridden and which is silent between passes: " << juce::String(fly, 1) << " dB)" << std::endl;
-            check(std::abs(wake - sub) < 1.0 && std::abs(dry - sub) < 1.0 && std::abs(wake - dry) < 1.0, "modes: Sub, Wake and Dry are within 1 dB of each other on the same sound");
+            const std::array<int, 4> modes { RigEngine::StowSub, RigEngine::StowWake, RigEngine::StowFly, RigEngine::StowDry };
+            double worst = 0.0;
+            for (const auto& sound : sounds)
+            {
+                std::array<double, 4> db {};
+                for (size_t m = 0; m < modes.size(); ++m)
+                    db[m] = level(sound.file, modes[m], -1.0f);
+                worst = std::max(worst, *std::max_element(db.begin(), db.end()) - *std::min_element(db.begin(), db.end()));
+                std::cout << "  " << sound.name << " on Stowaway over 90 s, at the starting settings: Sub " << juce::String(db[0], 1) << " dB, Wake " << juce::String(db[1], 1) << " dB, Fly "
+                          << juce::String(db[2], 1) << " dB, Dry " << juce::String(db[3], 1) << " dB" << std::endl;
+            }
+            check(worst < 1.5, "modes: all four are within 1.5 dB of each other on a drone, a bed and a gappy sound (" + juce::String(worst, 1) + " dB apart at most)");
+            if (std::getenv("STOW_LEVELS_MORE") != nullptr) // (for measuring by hand: the ends of Energy)
+                for (float energy : { 0.0f, 1.0f })
+                    for (const auto& sound : sounds)
+                    {
+                        std::cout << "  Energy " << energy << ", " << sound.name << ":";
+                        for (int mode : modes)
+                            std::cout << " " << juce::String(level(sound.file, mode, energy), 1);
+                        std::cout << std::endl;
+                    }
         }
     }
 

@@ -20,6 +20,7 @@
 // Usage: SwooshbucklerRouting [scratch folder] (a folder in the temp directory if none is given).
 
 #include <JuceHeader.h>
+#include "TestClock.h"
 #include "PluginProcessor.h"
 #include "Parameters.h"
 #include "RigEngine.h"
@@ -297,9 +298,9 @@ int main(int argc, char* argv[])
         {
             const auto minute = swellingTone(220.0, 60.0);
             const auto r = CargoData::detectRegions(minute.getReadPointer(0), minute.getNumSamples(), c_fs);
-            const double started = juce::Time::getMillisecondCounterHiRes();
+            const double started = TestClock::cpuMs();
             const auto mc = SampleClassifier::extractContours(minute.getReadPointer(0), minute.getNumSamples(), c_fs, r);
-            const double ms = juce::Time::getMillisecondCounterHiRes() - started;
+            const double ms = TestClock::cpuMs() - started;
             std::cout << "  contours of 60 s of sound: " << ms << " ms (" << mc.size() << " values)" << std::endl;
             check(ms < 3000.0, "contours: a minute of sound takes well under 3 seconds");
         }

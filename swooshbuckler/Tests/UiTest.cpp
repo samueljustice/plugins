@@ -161,7 +161,7 @@ int main(int argc, char* argv[])
               "surfaces: each step of tone is big enough to see without an outline (" + juce::String(contrast(TC::panel, TC::window), 2) + ", "
                   + juce::String(contrast(TC::raised, TC::panel), 2) + ")");
 
-        const juce::Colour sections[] = { TC::busA, TC::busB, TC::hits, TC::output, TC::brass, TC::space };
+        const juce::Colour sections[] = { TC::busA, TC::busB, TC::hits, TC::stowaway, TC::output, TC::brass, TC::space };
         double nearest = 1.0;
         for (int m = 0; m < 4; ++m)
         {
@@ -172,6 +172,21 @@ int main(int argc, char* argv[])
             check(contrast(Theme::modColour(m), TC::raised) >= 4.5, "modulators: colour " + juce::String(m + 1) + " reads on its card");
         }
         check(nearest > 0.14, "modulators: none of the four is close to a section's colour, the brass or each other (nearest " + juce::String(nearest, 2) + ")");
+        {
+            // Stowaway's plate sits beside the modulators and their cables land on its knobs: its kelp, and every
+            // shade a lane of it takes, is well away from all four.
+            double plate = 1.0, lanes = 1.0;
+            for (int m = 0; m < 4; ++m)
+            {
+                plate = juce::jmin(plate, distance(TC::stowaway, Theme::modColour(m)));
+                for (int step = 0; step < 5; ++step)
+                    lanes = juce::jmin(lanes, distance(Theme::laneShade(TC::stowaway, step), Theme::modColour(m)));
+            }
+            check(plate > 0.2 && lanes > 0.14, "modulators: none of the four is close to Stowaway's kelp (nearest " + juce::String(plate, 2) + ") or to a lane in a shade of it (nearest "
+                                                   + juce::String(lanes, 2) + ")");
+            check(distance(TC::stowaway, TC::busA) > 0.2 && distance(TC::stowaway, TC::busB) > 0.2 && distance(TC::stowaway, TC::hits) > 0.2 && distance(TC::stowaway, TC::brass) > 0.12,
+                  "sections: Stowaway's kelp is none of the buses' colours, the hits' or the brass");
+        }
         check(distance(TC::busA, TC::busB) > 0.3 && distance(TC::busA, TC::hits) > 0.1 && distance(TC::busB, TC::hits) > 0.3,
               "sections: coral, turquoise and cherry are three different colours");
         check(TC::flight == TC::brass && TC::accent == TC::brass, "chrome: one accent (the old gold is the brass)");
@@ -237,7 +252,7 @@ int main(int argc, char* argv[])
               "edges: the pressed line is darker than anything it is drawn on, and the light line beside it is faint");
         {
             // The lit plates: the lettering on a plate in a section's colour, the brass or a modulator's colour.
-            const juce::Colour lit[] = { TC::brass, TC::busA, TC::busB, TC::hits, TC::output, TC::go, TC::space, TC::filter,
+            const juce::Colour lit[] = { TC::brass, TC::busA, TC::busB, TC::hits, TC::stowaway, TC::output, TC::go, TC::space, TC::filter,
                                          Theme::modColour(0), Theme::modColour(1), Theme::modColour(2), Theme::modColour(3) };
             for (const auto& plate : lit)
                 check(plate.getPerceivedBrightness() > 0.5f && contrast(TC::window, plate) >= 4.5,
@@ -246,7 +261,7 @@ int main(int argc, char* argv[])
                 check(contrast(TC::window, Theme::trackColour(lane)) >= 4.5, "lit plates: dark lettering reads on track colour " + juce::String(lane + 1));
             // A lane is a shade of its bus's colour: every shade takes dark lettering, reads on a well, and
             // neighbouring shades of one bus can be told apart.
-            for (const auto& bus : { TC::busA, TC::busB, TC::hits })
+            for (const auto& bus : { TC::busA, TC::busB, TC::hits, TC::stowaway })
             {
                 bool reads = Theme::laneShade(bus, 0) == bus, apart = true;
                 for (int step = 0; step < 5; ++step)
@@ -1481,7 +1496,101 @@ int main(int argc, char* argv[])
         rig.run(0.1);
         check(! proc.isStowawayOn() && ed.m_hold.busTagTooltip(0).contains("Stowaway, which is off"),
               "lane: a track on Stowaway while it is off waits, and its tag's tooltip says Stowaway is off");
+        // And the lane rests, so it is plain why it is silent: with the rig playing, nothing in it moves (its ride
+        // line lies still, no playhead runs) and its colour is dimmed. Switched on, it is lit and rides again.
+        {
+            auto picture = [&] { return firstLane->createComponentSnapshot(firstLane->getLocalBounds(), false, 1.0f); };
+            auto differ = [](const juce::Image& a, const juce::Image& b)
+            {
+                int count = 0;
+                for (int y = 0; y < a.getHeight(); ++y)
+                    for (int x = 0; x < a.getWidth(); ++x)
+                        count += a.getPixelAt(x, y) != b.getPixelAt(x, y) ? 1 : 0;
+                return count;
+            };
+            // How much of the lane is in a colour: pixels as lit as the lane's own shade (well above the plates).
+            auto lit = [&](const juce::Image& image, juce::Colour shade)
+            {
+                int count = 0;
+                for (int y = 0; y < image.getHeight(); ++y)
+                    for (int x = 0; x < image.getWidth(); ++x)
+                        count += distance(image.getPixelAt(x, y), shade) < 0.08 ? 1 : 0;
+                return count;
+            };
+            const bool wasPlaying = proc.isPlaying();
+            proc.setPlaying(true);
+            rig.run(0.5);
+            const auto shade = ed.m_hold.laneColour(0);
+            const auto restA = picture();
+            rig.run(0.7);
+            const auto restB = picture();
+            const int restMoved = differ(restA, restB), restLit = lit(restB, shade);
+            proc.setStowawayOn(true);
+            rig.run(0.5);
+            const auto onA = picture();
+            rig.run(0.7);
+            const auto onB = picture();
+            const int onMoved = differ(onA, onB), onLit = lit(onB, shade);
+            proc.setStowawayOn(false);
+            rig.run(0.3);
+            proc.setPlaying(wasPlaying);
+            const auto dim = Theme::laneResting(shade);
+            std::cout << "         a lane on Stowaway, the rig playing: off, " << restMoved << " pixels change in 0.7 s and " << restLit << " are in its colour; on, " << onMoved
+                      << " change and " << onLit << " are in its colour. Its colour at rest is " << juce::String(contrast(dim, TC::raised), 2) << ":1 on the plate (lit: "
+                      << juce::String(contrast(shade, TC::raised), 2) << ":1)" << std::endl;
+            check(ed.m_hold.trackWaits(0) && restMoved == 0 && onMoved > 50, "lane: a track waiting on a switched-off Stowaway lies still (no ride line moving, no playhead), and moves again once Stowaway is on");
+            check(restLit == 0 && onLit > 50 && contrast(dim, TC::raised) < 0.5 * contrast(shade, TC::raised) && contrast(dim, TC::raised) >= 1.3,
+                  "lane: waiting, its colour is dimmed (still told from the plate), and lit again once Stowaway is on");
+        }
         proc.setTrackBus(0, -1);
+
+        // Presets never move a track. One that switches Stowaway on while nothing is sent to it says so (and how to
+        // put something there); with a track there already, or a rumble for a sub, it has nothing to say.
+        {
+            auto preset = [](const char* name) -> const Presets::Preset&
+            {
+                return *std::find_if(Presets::factory().begin(), Presets::factory().end(), [name](const Presets::Preset& p) { return p.name == name; });
+            };
+            auto choose = [&](const char* name)
+            {
+                ed.m_toast.clear();
+                const auto& p = preset(name);
+                ed.applyLook(p, Presets::Unlisted::Default, p.name, p.name);
+                rig.run(0.1);
+                ed.m_morph.finish();
+                return ed.m_toast;
+            };
+            // (The demo sounds have a rumble, which a sub takes by itself: it is called a bed while "nothing there" is tried.)
+            const int roleBefore = proc.getCargo().getRoleOverride(0);
+            std::vector<std::pair<int, int>> rumbles;
+            for (int t = 0; t < ParamIDs::numCargoTracks; ++t)
+                if (proc.getCargo().get(t) != nullptr && proc.getCargo().getRole(t) == CargoRole::Rumble)
+                {
+                    rumbles.emplace_back(t, proc.getCargo().getRoleOverride(t));
+                    proc.getCargo().setRoleOverride(t, static_cast<int>(CargoRole::Bed));
+                }
+            const auto dryEmpty = choose("Dry Rider"), subEmpty = choose("Sub Under Jets"), plain = choose("Jet Passes");
+            for (const auto& [t, role] : rumbles)
+                proc.getCargo().setRoleOverride(t, role);
+            const bool fits = Theme::textWidth(ed.m_fonts->body(), dryEmpty) + 30.0f <= 560.0f && Theme::textWidth(ed.m_fonts->body(), subEmpty) + 30.0f <= 560.0f;
+            proc.setTrackBus(0, CargoHold::c_stowBus);
+            const auto dryFed = choose("Dry Rider"), flyFed = choose("Three Movers");
+            proc.setTrackBus(0, -1);
+            proc.getCargo().setRoleOverride(0, static_cast<int>(CargoRole::Rumble));
+            const auto subFed = choose("Sub Under Jets"), wakeRumble = choose("Debris Wake");
+            proc.getCargo().setRoleOverride(0, roleBefore);
+            check(dryEmpty.contains("nothing on it") && dryEmpty.contains("bus tag") && subEmpty.contains("nothing on it") && subEmpty.contains("Rumble") && fits,
+                  "presets: one that switches Stowaway on with nothing sent to it says so, and how to put a track there (\"" + dryEmpty + "\"; \"" + subEmpty + "\")");
+            check(plain.isEmpty() && dryFed.isEmpty() && flyFed.isEmpty() && subFed.isEmpty() && wakeRumble.contains("nothing on it"),
+                  "presets: with a track on Stowaway (or a rumble, for a sub) it has nothing to say; a rumble on Auto does not count for the other modes, where it plays on bus A");
+            const Presets::Preset defaults { "Default", {} };
+            ed.applyLook(defaults, Presets::Unlisted::Default, "Back to Defaults", "Default");
+            rig.run(0.1);
+            ed.m_morph.finish();
+            proc.setStowawayOn(false);
+            ed.m_toast.clear();
+            rig.run(0.2);
+        }
     }
 
     // The sea ---------------------------------------------------------------------------------------------------

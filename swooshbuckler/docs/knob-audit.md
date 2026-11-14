@@ -127,6 +127,8 @@ SwooshbucklerAudit --param stowFilter --steps 11 --src wind@s --set stowMode=1 -
 | **Width** | Not measurable here: the tool's sources are mono, and on a mono sound Width does nothing in Dry (measured: no change at any setting). The stereo case is checked by `SwooshbucklerStowaway`. |
 | **Low End**, **Drive** | Not used. The knobs rest. |
 
+The four modes against each other, the same low drone on Stowaway over growls and wind at the starting settings: the output is −9.2 LUFS in Sub, −9.0 in Wake, −9.5 in Fly and −9.0 in Dry. Stowaway's own level over 90 s, checked by `SwooshbucklerStowaway` on a drone, a bed and gappy bursts, is within 1.2 dB across the four (0.4, 1.2 and 0.8 dB).
+
 The factory presets were rendered too, on growls, wind, hits and a rumble with Stowaway switched on as a sub: the seven older presets come out within 1.1 LU of where they are without it (−9.5 to −11.2 LUFS), with the sub at −15 to −17 dB under them. The five Stowaway presets come out between −7.5 and −11.3 LUFS, depending on what is sent to Stowaway.
 
 ## Modulators and Morph

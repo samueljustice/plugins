@@ -74,6 +74,9 @@ public:
     std::function<void()> onTakeNoteClicked;
     /** A track's colour: a shade of its bus's colour (Theme::laneShade), by its place among the tracks on that bus. */
     juce::Colour laneColour(int track) const;
+    /** A track sent to Stowaway while Stowaway is switched off: it waits (it is not heard there or anywhere else).
+        Its lane rests to say so: its colour is dimmed, its ride line lies still at the bottom and its tag is hollow. */
+    bool trackWaits(int track) const;
 
     /** Sends a track to a bus as its lane's bus menu does (-1 Auto, 0 bus A, 1 bus B, the hits or Stowaway), with
         the status line that goes with it. Choosing Stowaway while it is off switches it on in the same undo step.

@@ -60,11 +60,20 @@ namespace
 
     using Proc = SwooshbucklerAudioProcessor;
 
+    // The undo history joins moves made within 400 ms of each other. The tests give it their own clock and move
+    // that on, so a "pause" takes no time and is the same length on any machine.
+    juce::uint32 g_clockMs = 1000;
+    void pause(int ms) { g_clockMs += static_cast<juce::uint32>(ms); }
+
     struct Rig
     {
         std::unique_ptr<juce::AudioProcessor> base { createPluginFilter() };
         Proc& proc { *dynamic_cast<Proc*>(base.get()) };
-        Rig() { proc.setPlayConfigDetails(0, 2, c_fs, 512); }
+        Rig()
+        {
+            proc.setPlayConfigDetails(0, 2, c_fs, 512);
+            proc.getHistory().setClock([] { return g_clockMs; });
+        }
 
         juce::RangedAudioParameter* param(const juce::String& id) const
         {
@@ -423,7 +432,7 @@ int main(int argc, char* argv[])
 
         // One knob move is one step.
         rig.move(ParamIDs::energy, 0.8f);
-        juce::Thread::sleep(450); // slower than the quick-moves window: the next move is its own step
+        pause(450); // slower than the quick-moves window: the next move is its own step
         rig.move(ParamIDs::rate, 0.9f);
         juce::String what;
         check(rig.proc.undoEdit(&what) && near(rig.plain(ParamIDs::rate), 0.4f) && near(rig.plain(ParamIDs::energy), 0.8f) && what == "Rate",
@@ -433,7 +442,7 @@ int main(int argc, char* argv[])
               "redo: brings both back");
 
         // Quick moves in a row (the mouse wheel, the pad's X then Y) are one step.
-        juce::Thread::sleep(450);
+        pause(450);
         rig.move(ParamIDs::morphX, 0.2f);
         rig.move(ParamIDs::morphY, 0.3f);
         rig.move(ParamIDs::morphX, 0.25f);
@@ -442,7 +451,7 @@ int main(int argc, char* argv[])
               "undo: quick moves in a row are one step");
 
         // The transport is not an edit; a change without a gesture (automation) is not recorded.
-        juce::Thread::sleep(450);
+        pause(450);
         rig.proc.setPlaying(true);
         rig.proc.setPlaying(false);
         rig.param(ParamIDs::fill)->setValueNotifyingHost(0.77f);
@@ -452,7 +461,7 @@ int main(int argc, char* argv[])
 
         // A preset that glides: the gestures open together and land at different times; that is one step.
         rig.move(ParamIDs::energy, 0.5f);
-        juce::Thread::sleep(450);
+        pause(450);
         const auto before = rig.proc.captureLook();
         const auto& preset = Presets::factory()[1];
         std::vector<std::pair<juce::RangedAudioParameter*, float>> glide;
@@ -481,7 +490,7 @@ int main(int argc, char* argv[])
                     glide[i].first = nullptr;
                 }
             }
-            juce::Thread::sleep(120);
+            pause(120);
         }
         check(glide.size() > 6 && rig.proc.currentPresetName == preset.name && near(rig.plain(ParamIDs::energy), 0.36f),
               "undo: a preset glided " + juce::String(static_cast<int>(glide.size())) + " controls into place");
@@ -509,7 +518,7 @@ int main(int argc, char* argv[])
         rig.move(ParamIDs::energy, 0.7f);
         rig.proc.getCargo().erase(0, 0, full / 2);
         const int half = rig.length(0);
-        juce::Thread::sleep(450);
+        pause(450);
         rig.move(ParamIDs::chaos, 0.9f);
         check(full > 0 && half < full, "undo: a track loaded, a knob moved, half the track deleted, another knob moved");
         rig.proc.undoEdit();

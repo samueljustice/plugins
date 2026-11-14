@@ -116,6 +116,13 @@ double TakeAudition::getProgress() const
     return m_stream != nullptr ? juce::jlimit(0.0, 1.0, static_cast<double>(m_stream->played.load()) / static_cast<double>(m_stream->total)) : 0.0;
 }
 
+void TakeAudition::topUp()
+{
+    const juce::ScopedLock sl(m_streamLock);
+    if (m_stream != nullptr && ! m_stream->finished.load() && ! m_stream->stopping.load())
+        fill(*m_stream);
+}
+
 int TakeAudition::useTimeSlice()
 {
     const juce::ScopedLock sl(m_streamLock);

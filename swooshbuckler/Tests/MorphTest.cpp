@@ -10,6 +10,7 @@
 // Prints how fast the morph runs at 48 and 192 kHz. Writes no files.
 
 #include <juce_dsp/juce_dsp.h>
+#include "TestClock.h"
 
 #include "SpectralMorph.h"
 
@@ -384,14 +385,14 @@ namespace
                 m.setParams(p);
                 m.reset(true);
                 Signal wa(64), wb(64);
-                const auto t0 = std::chrono::steady_clock::now();
+                const double t0 = TestClock::cpuMs();
                 for (size_t i = 0; i + 64 <= a.size(); i += 64)
                 {
                     std::copy(a.begin() + static_cast<long>(i), a.begin() + static_cast<long>(i + 64), wa.begin());
                     std::copy(b.begin() + static_cast<long>(i), b.begin() + static_cast<long>(i + 64), wb.begin());
                     m.process(wa.data(), wb.data(), 64, 1.0f);
                 }
-                const double secs = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
+                const double secs = (TestClock::cpuMs() - t0) * 0.001;
                 const double factor = seconds / secs;
                 std::cout << "  " << SpectralMorph::modeName(mode) << " at " << rate / 1000.0 << " kHz (frame " << m.getLatencySamples()
                           << "): " << factor << "x real time (" << 100.0 / factor << " % of one core)" << std::endl;

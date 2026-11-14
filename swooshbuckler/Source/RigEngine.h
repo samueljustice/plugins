@@ -645,6 +645,8 @@ private:
             float segLen = 1.5f;   // how long it is
             int inbound = 0;       // the head on its way in
             float inGain = 0.0f;   // the stream's way into the line: it fades in from sleep, so the line never starts on a step
+            float level = 1.0f;    // its passes' make-up (see renderFly), glided
+            float power = 1.0f, powerDepth = -1.0f, powerChaos = -1.0f; // ridePower, and what it was worked out for
             void reset();
         } fly;
         /** Leave the mode in use: everything it holds is cleared. */

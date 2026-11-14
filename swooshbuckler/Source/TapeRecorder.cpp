@@ -503,6 +503,7 @@ public:
                 m_inner->writeFromFloatArrays(chans, channels, count);
             }
             m_consumed += count;
+            m_owner.m_takenSamples.fetch_add(count, std::memory_order_relaxed);
             done += count;
         }
         return true;
@@ -895,6 +896,7 @@ void TapeRecorder::process(const float* const* channels, int numChannels, int nu
                 if (m_activeWriter->write(data, n))
                 {
                     m_samplesWritten += n;
+                    m_handedSamples.fetch_add(n, std::memory_order_relaxed);
                     m_streamPos += n;
                 }
                 else
@@ -1122,6 +1124,8 @@ bool TapeRecorder::start(const juce::File& folder, const Options& options, juce:
 
     m_samplesWritten = 0;
     m_droppedSamples = 0;
+    m_handedSamples = 0;
+    m_takenSamples = 0;
     m_recordRate = m_sampleRate;
     m_recordFolder = folder;
     m_recordOptions = options;

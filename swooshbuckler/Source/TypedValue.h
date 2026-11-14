@@ -19,6 +19,9 @@
  *  - A readout that shows a minus sign for a positive amount (a duck of "-4.8 dB") accepts the amount without it.
  *  - Words are matched against the readouts too ("Off", "Rate", "Full"), in any case.
  *  - Where several positions read the same ("35%"), the middle of them is used, so 35% is exactly 0.35.
+ *  - A readout may say which side of a control it is on with a word before the number ("Under 2.4 kHz",
+ *    "Over 320 Hz"), and one number can then be read on both. The word typed picks the side; a number typed
+ *    without one is looked for on the side showing now, then anywhere.
  */
 namespace TypedValue
 {
@@ -75,6 +78,20 @@ namespace TypedValue
         return q;
     }
 
+    /** The word a readout or a typed value puts before its number ("under" in "Under 2.4 kHz"), in lower case;
+        empty when there is none, or no number. */
+    inline juce::String wordBefore(const juce::String& text)
+    {
+        const auto t = text.trim().toLowerCase();
+        int i = 0;
+        while (i < t.length() && ! juce::CharacterFunctions::isDigit(t[i]))
+            ++i;
+        if (i >= t.length())
+            return {};
+        const auto word = t.substring(0, i).trimCharactersAtEnd(" -+.");
+        return word.containsOnly("abcdefghijklmnopqrstuvwxyz ") ? word : juce::String();
+    }
+
     /**
      * The position (0..1) whose readout is what was typed, or -1 when the text can't be understood.
      * textFor: the control's readout at a position. current: its position now (for the unit of a bare number).
@@ -107,9 +124,50 @@ namespace TypedValue
         const auto shown = parse(textFor(juce::jlimit(0.0f, 1.0f, current)));
         auto target = parse(wanted, shown.isNumber ? shown.unit : juce::String());
         const double nan = std::numeric_limits<double>::quiet_NaN();
+
+        // Which side of the control, when its readouts name one (see wordBefore): only positions that read with
+        // that word are looked at.
+        bool sided = false;
+        juce::String side;
+        {
+            // Whether any position reads a number with this word, and whether one of them can read the target.
+            const auto reach = [&](const juce::String& word, bool& canRead)
+            {
+                bool found = false;
+                double low = std::numeric_limits<double>::max(), high = std::numeric_limits<double>::lowest();
+                for (int i = 0; i <= c_steps; ++i)
+                {
+                    const auto text = textFor(at(i));
+                    if (wordBefore(text) != word)
+                        continue;
+                    if (const auto q = parse(text); q.isNumber)
+                    {
+                        found = true;
+                        low = std::min(low, q.value);
+                        high = std::max(high, q.value);
+                    }
+                }
+                canRead = found && target.value >= low && target.value <= high;
+                return found;
+            };
+            bool canRead = false;
+            if (const auto typedWord = wordBefore(wanted); typedWord.isNotEmpty())
+            {
+                sided = reach(typedWord, canRead);
+                side = typedWord;
+            }
+            else if (const auto showing = wordBefore(textFor(juce::jlimit(0.0f, 1.0f, current))); showing.isNotEmpty())
+            {
+                sided = reach(showing, canRead) && canRead;
+                side = showing;
+            }
+        }
         const auto valueAt = [&](float n)
         {
-            const auto q = parse(textFor(n));
+            const auto text = textFor(n);
+            if (sided && wordBefore(text) != side)
+                return nan;
+            const auto q = parse(text);
             return q.isNumber ? q.value : nan;
         };
 

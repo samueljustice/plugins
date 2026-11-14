@@ -6,6 +6,7 @@
 // mixer (mute / solo), session save / restore, the tape recorder, presets.
 
 #include <JuceHeader.h>
+#include "TestClock.h"
 #include "Cargo.h"
 #include "MasterProcessor.h"
 #include "Presets.h"
@@ -68,6 +69,15 @@ namespace
         for (int i = 0; i < n; ++i)
             s += static_cast<double>(x[i]) * x[i];
         return std::sqrt(s / juce::jmax(1, n));
+    }
+
+    /** The tests hand the tape sound far faster than real time. Waits for its writer thread whenever it is a second
+        behind (it may fall three behind before sound is dropped), however slow the machine is. */
+    void keepUp(const TapeRecorder& tape)
+    {
+        if (tape.getBacklogSeconds() > 1.0)
+            for (int tries = 0; tries < 60000 && tape.getBacklogSeconds() > 0.25; ++tries)
+                juce::Thread::sleep(1);
     }
 
     /** One second of a sine track through a CargoPlayer (looping, 48 kHz session) at a steady speed. */
@@ -690,7 +700,7 @@ int main(int argc, char* argv[])
         std::vector<float> out(c_block);
         sj::Random rng;
         float sum = 0.0f;
-        const auto t0 = juce::Time::getMillisecondCounterHiRes();
+        const auto t0 = TestClock::cpuMs();
         for (int track = 0; track < 10; ++track)
         {
             CargoPlayer player;
@@ -701,7 +711,7 @@ int main(int argc, char* argv[])
                 sum += out[0];
             }
         }
-        const double seconds = (juce::Time::getMillisecondCounterHiRes() - t0) * 0.001;
+        const double seconds = (TestClock::cpuMs() - t0) * 0.001;
         check(std::isfinite(sum) && seconds < 1.25, "playback: ten pitched tracks x 10 s took " + juce::String(seconds, 3) + " s ("
                                                         + juce::String(static_cast<int>(10.0 / seconds)) + "x real time, need 8x)");
     }
@@ -884,8 +894,7 @@ int main(int argc, char* argv[])
                     block.setSample(1, i, v);
                 }
                 t.process(block.getArrayOfReadPointers(), 2, c_block);
-                if ((pos / c_block) % 64 == 63)
-                    juce::Thread::sleep(2); // let the writer thread keep up
+                keepUp(t);
             }
         };
         {
@@ -988,8 +997,7 @@ int main(int argc, char* argv[])
                     for (int ch = 0; ch < 2; ++ch)
                         block.setSample(ch, i, static_cast<float>(amp * std::sin(w * (pos + i))));
                 dithered.process(block.getArrayOfReadPointers(), 2, c_block);
-                if ((pos / c_block) % 64 == 63)
-                    juce::Thread::sleep(2); // let the writer thread keep up
+                keepUp(dithered);
             }
             dithered.stop();
             juce::AudioBuffer<float> audio;
@@ -1060,13 +1068,12 @@ int main(int argc, char* argv[])
                     for (int ch = 0; ch < 2; ++ch)
                         block.setSample(ch, i, level * static_cast<float>(std::sin(0.05 * (startAt + pos + i))));
                 t.process(block.getArrayOfReadPointers(), 2, c_block);
-                if ((pos / c_block) % 64 == 63)
-                    juce::Thread::sleep(2); // let the writer thread keep up
+                keepUp(t);
             }
         };
         auto waitForFiles = [](TapeRecorder& t, std::vector<TapeRecorder::FinishedTake>& into, size_t count)
         {
-            for (int tries = 0; tries < 200 && into.size() < count; ++tries)
+            for (int tries = 0; tries < 6000 && into.size() < count; ++tries) // (a wait that ends when they are there)
             {
                 for (auto& f : t.takeFinishedTakes())
                     into.push_back(f);
@@ -1204,8 +1211,7 @@ int main(int argc, char* argv[])
                         for (int ch = 0; ch < 2; ++ch)
                             block.setSample(ch, i, 0.25f * static_cast<float>(std::sin(0.05 * (from + i))));
                     t.process(block.getArrayOfReadPointers(), 2, c_block);
-                    if (k % 64 == 63)
-                        juce::Thread::sleep(2);
+                    keepUp(t);
                 }
                 t.stop();
                 const auto cues = TapeRecorder::readCues(t.getLastFile());

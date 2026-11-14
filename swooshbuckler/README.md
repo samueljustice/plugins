@@ -185,7 +185,7 @@ This is where your sounds live: up to ten files, each on its own looping lane. F
 A track plays on the bus its sound type picks until you say otherwise. Click the **bus tag** on its lane (or right-click the lane and open **Plays On**) and choose:
 
 - **Auto**: the bus the type picks, as in the table above. The menu says which that is. This is the default.
-- **Bus A**, **Bus B**, **Hits** or **Stowaway**: the track plays there whatever its type. The tag is marked ` *`. A Stowaway track's tag carries an **S**, and its lane takes Stowaway's kelp green. Choosing Stowaway while it is switched off switches it on, and the status line says so. If Stowaway is switched off later, the tracks sent to it wait: they are not heard, on Stowaway or anywhere else, and their tags show a hollow **S** until it is switched on again.
+- **Bus A**, **Bus B**, **Hits** or **Stowaway**: the track plays there whatever its type. The tag is marked ` *`. A Stowaway track's tag carries an **S**, and its lane takes Stowaway's kelp green. Choosing Stowaway while it is switched off switches it on, and the status line says so. If Stowaway is switched off later, the tracks sent to it wait: they are not heard, on Stowaway or anywhere else. A waiting lane rests, so it is plain why it is silent: its colour is dimmed, its ride line lies still along the bottom, no playhead runs over it and its tag shows a hollow **S**, until Stowaway is switched on again.
 
 The type, and the name the track takes from it, stay as they are, so a growl can sit under the beds on Bus B, or a swish can go through the hit gate, and still be called what it is. The choice is saved with the session and can be undone. Dropping a new sound on the lane puts it back on Auto.
 
@@ -375,7 +375,7 @@ The strip along the bottom of each bus's panel shows the last 3 seconds of what 
 
 ### Stowaway
 
-One extra bus beside Bus A and Bus B, for a layer that should not fly about with the others, or that should fly on its own. A track gets there from its lane's bus tag (see [Choosing the bus](#choosing-the-bus)); Rumble goes there by itself while Stowaway is on and its Mode is Sub. Its switch (**Stowaway**), **Stowaway Mode** and its five knobs, **Follow**, **Low End**, **Filter**, **Drive** and **Width**, are in the host's parameter list, and the knobs can be wired to the [modulators](#modulation). The knobs keep their names in every mode.
+One extra bus beside Bus A and Bus B, for a layer that should not fly about with the others, or that should fly on its own. A track gets there from its lane's bus tag (see [Choosing the bus](#choosing-the-bus)); Rumble goes there by itself while Stowaway is on and its Mode is Sub. Its switch (**Stowaway**), **Stowaway Mode** and its five knobs, **Follow**, **Low End**, **Filter**, **Drive** and **Width**, are in the host's parameter list, and the knobs can be wired to the [modulators](#modulation). The knobs keep their names in every mode, and read by the mode in use: when the Mode changes the host is told to read them again, and a value typed in the host is understood as the knob shows it in that mode (`95 Hz`, `Under 1 kHz`, `Over 300 Hz`, `Open`, `35%`).
 
 | Mode | What it is for | How a track gets there |
 |------|----------------|------------------------|
@@ -407,7 +407,7 @@ The mode Stowaway starts in. It is planted in the middle with no doppler, and wh
 |------|-----------|--------------|
 | **Follow** | 70% | How much the sub swells with Bus A's passes. At 0% it is a steady sub. At 100% it rises and falls as far as Bus A does, and each 10% takes on a tenth of that swell. The sub is turned up as Follow rises, by as much as the swell it is following takes away (about 4.5 dB at 100% under a typical bed, never more than 6 dB), so on average it stays as loud and only its movement changes. |
 | **Low End** | 0% | Adds a note an octave below what came through the crossover, and overtones just above it, which is what lets a small speaker hear the sub. |
-| **Filter** | 120 Hz | The crossover, from 40 to 250 Hz. It is steep: 48 dB per octave, so sound one octave above the crossover is more than 45 dB down and two octaves above it is gone. |
+| **Filter** | 120 Hz | The crossover, from 40 to 250 Hz. It is steep: 48 dB per octave, and with the low-pass that follows it sound one octave above the crossover is more than 60 dB down (62 to 68 dB, measured with white noise) and two octaves above it is gone (more than 140 dB down). |
 | **Drive** | 0% | Thickens the sub and flattens its swell. It works against the sub's own level, so it does the same to a quiet rumble as to a loud one, and it turns the sub up by less than 2 dB over its whole travel (it sounds like more, because the overtones it adds are easier to hear than the sub under them). |
 | **Width** | Mono | Not used: a sub is mono, the same in both speakers. |
 
@@ -464,13 +464,13 @@ A third mover. Stowaway's tracks fly their own doppler passes, apart from Bus A'
 - **A throw** is flown here as well: the same pass as on the buses, at the same moment, with Stowaway's Width.
 - **A marker** is written where each of its passes is at its closest (see [Markers](#recording)).
 - **It sleeps when it has nothing to play.** With no track on Stowaway, a silent one, or the rig stopped and its last passes rung out, Fly does no work at all. Flying, it costs under 1% of one processor core at 48 kHz (0.9% measured), a little less than one of the buses.
-- **How loud it is.** As loud as the same sound flying by on Bus A in Fly-By mode. It is silent between passes, so over a minute it measures about 7 dB under the other three modes on the same sound.
+- **How loud it is.** Over time, as loud as the other three modes are with the same sound. It is silent between passes and its tracks are ridden, so each pass is louder to make up for both: at the starting settings about 7 dB louder than the same sound flying by on Bus A. Pull the track's fader down if its passes stand too far out.
 
 #### Changing the Mode
 
 A change of Mode never clicks, by hand or under automation: Stowaway fades out over 30 ms, changes over while it is silent, and fades back in over 30 ms. A track that changes bus (by hand, or a Rumble as the Mode enters or leaves Sub) is faded across in the same way, over 10 ms.
 
-The modes are matched in level: with the same sound on Stowaway and everything where it starts, Sub, Wake and Dry come out within about 1 dB of each other. Fly is matched to a Fly-By on Bus A instead (see [Fly](#fly)).
+The modes are matched in level: with the same sound on Stowaway and everything where it starts, all four come out within about 1.5 dB of each other over a minute and a half (measured on a low drone, a low bed and gappy low bursts: 0.4, 1.2 and 0.8 dB apart). So changing the Mode changes what Stowaway does, not how loud it is.
 
 ### Hits
 
@@ -530,7 +530,7 @@ If the gain reduction number is coral all the time, back off Push or raise Ceili
 
 <img src="docs/images/modulation.png" width="1312" alt="Modulation">
 
-Four modulators run along the bottom, beside Stowaway's plate: **Mod 1** (lilac), **Mod 2** (sky blue), **Mod 3** (rose) and **Mod 4** (lime). Each can be one of four types, picked from the upper of the two menus at the left of its card:
+Four modulators run along the bottom, beside Stowaway's plate: **Mod 1** (lilac), **Mod 2** (sky blue), **Mod 3** (rose) and **Mod 4** (lemon). Each can be one of four types, picked from the upper of the two menus at the left of its card:
 
 | Type | What it does | Knob |
 |---|---|---|
@@ -685,7 +685,7 @@ The factory presets are **Steady Energy**, **Jet Passes**, **Monster Swells**, *
 
 A preset is a complete look: every control it owns that it doesn't set goes back to its default. The presets set Pass too: **Jet Passes**, **Monster Swells**, **Fast and Furious**, **Sub Under Jets**, **Deep Quake** and **Debris Wake** put Bus A on Fly-By, **Three Movers** puts both buses on Fly-By, and the others use Bed on both buses.
 
-The five Stowaway presets switch Stowaway on and set its Mode and knobs. A preset never moves a track, so in Wake, Fly and Dry there is nothing on Stowaway until you send a track there from its lane's bus tag; in Sub a Rumble track goes by itself.
+The five Stowaway presets switch Stowaway on and set its Mode and knobs. A preset never moves a track, so in Wake, Fly and Dry there is nothing on Stowaway until you send a track there from its lane's bus tag; in Sub a Rumble track goes by itself. Until then Stowaway is on and silent, and the rest of the preset plays as it is. Choosing one of these presets with nothing on Stowaway says so in the status line (**Stowaway is on with nothing on it: send it a track from a lane's bus tag**), so it is never a mystery.
 
 | Preset | Stowaway | What to put on it |
 |--------|----------|-------------------|
@@ -822,6 +822,7 @@ Right-click a knob (or hold Alt and double-click it) and a small box opens on it
 - Units are optional and are the ones the knob shows: `-12 dB`, `4.2 s`, `35%`, or just `-12`, `4.2`, `35`.
 - Milliseconds and seconds are converted, so `0.3 s` on a knob that shows `300 ms` is understood, and a bare number is read in the unit showing at that moment.
 - Words the knob shows work too: `Rate` on Throw Length, `Off` on Duck, `-inf` on a fader.
+- Stowaway's Filter outside Sub reads which side it is on, and takes the same: `Under 1 kHz`, `Over 300 Hz` or `Open`. A number alone (`1 kHz`) is found on the side the knob is on, or on the other when only that side reaches it.
 - A value out of the knob's range goes to the nearest end. Text that isn't a value changes nothing.
 - A typed value is one Undo step.
 

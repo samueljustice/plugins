@@ -463,6 +463,10 @@ int main(int argc, char* argv[])
             rig.run(0.4);
             const auto window = shots.shoot("toast");
             shots.crop(window, "toast-plate", ed.m_toastPill.expanded(40, 24), 0);
+            // The longest thing it says: a preset has switched Stowaway on with nothing sent to it.
+            ed.toast("Stowaway is on with nothing on it: send it a track from a lane's bus tag");
+            rig.run(0.4);
+            shots.crop(shots.shoot("toast-stowaway"), "toast-stowaway-plate", ed.m_toastPill.expanded(40, 24), 0);
             ed.m_toast.clear();
             ed.m_toastRise.snap(0.0f);
             rig.run(0.1);

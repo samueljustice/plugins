@@ -152,6 +152,11 @@ public:
     double getDroppedSeconds() const { return static_cast<double>(m_droppedSamples.load()) / juce::jmax(1.0, m_recordRate.load()); }
     /** How many samples the writer thread may fall behind by before audio is dropped (3 s at the session rate). */
     int getFifoSamples() const { return static_cast<int>(c_fifoSeconds * m_sampleRate); }
+    /** Samples handed to the writer thread that it has not put in a file yet. Any thread. Whatever feeds the tape
+        faster than real time (an offline render, the tests) waits on this rather than guessing how long the writer
+        needs. */
+    double getBacklogSeconds() const { return static_cast<double>(getBacklogSamples()) / juce::jmax(1.0, m_recordRate.load()); }
+    std::int64_t getBacklogSamples() const { return juce::jmax<std::int64_t>(0, m_handedSamples.load() - m_takenSamples.load()); }
 
     static juce::File defaultFolder();
 
@@ -227,6 +232,7 @@ private:
     std::atomic<bool> m_gateRestart { false }; // a new take: forget the last one's levels
     std::atomic<bool> m_streamRestart { false }; // a new take: its stream starts at 0
     std::atomic<bool> m_gateHold { false };    // see setGateHold
+    std::atomic<std::int64_t> m_handedSamples { 0 }, m_takenSamples { 0 }; // into the writer's FIFO, and out of it
     std::atomic<std::int64_t> m_droppedSamples { 0 };   //
     std::atomic<double> m_recordRate { 48000.0 };        // session rate the current take was opened at
     juce::File m_recordFolder;                           // for restarting a take on a rate change

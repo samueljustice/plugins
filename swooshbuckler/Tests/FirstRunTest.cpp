@@ -14,6 +14,7 @@
 // from or written to the user's settings.
 
 #include <JuceHeader.h>
+#include "TestClock.h"
 #include "PluginProcessor.h"
 #include "Parameters.h"
 #include "DemoSounds.h"
@@ -108,9 +109,9 @@ int main(int argc, char* argv[])
     // Demo sounds: the audio itself ------------------------------------------------------------------------------
     std::cout << "Demo sounds" << std::endl;
     {
-        const auto started = juce::Time::getMillisecondCounterHiRes();
+        const auto started = TestClock::cpuMs();
         const auto sounds = DemoSounds::all();
-        const double madeIn = juce::Time::getMillisecondCounterHiRes() - started;
+        const double madeIn = TestClock::cpuMs() - started;
         check(static_cast<int>(sounds.size()) == DemoSounds::c_count, "demo: five sounds");
         std::cout << "         made in " << juce::String(madeIn, 1) << " ms" << std::endl;
         check(madeIn < 1500.0, "demo: making the five takes well under a second and a half (" + juce::String(madeIn, 0) + " ms)");
@@ -367,6 +368,80 @@ int main(int argc, char* argv[])
         check(typed(pitch, "-3,5") == "-3.5 st", "typed: a decimal comma is a decimal point");
         check(TypedValue::toNormalised(readout(energy), "loud", 0.5f) < 0.0f && TypedValue::toNormalised(readout(energy), "", 0.5f) < 0.0f,
               "typed: text that is neither a number nor a readout is refused (the control stays put)");
+
+        // Stowaway's knobs read by its Mode. In the window (typing into the wheel) and in a host (which hands the
+        // text to the parameter itself), in every mode: what is shown, typed back, reads the same; a word says
+        // which side of Filter; a number alone is looked for on the side the knob is on.
+        auto* mode = rig.param(ParamIDs::stowMode);
+        auto* filter = rig.param(ParamIDs::stow[ParamIDs::StowFilter]);
+        auto* width = rig.param(ParamIDs::stow[ParamIDs::StowWidth]);
+        auto setMode = [&](int m) { mode->setValueNotifyingHost(mode->convertTo0to1(static_cast<float>(m))); };
+        auto host = [](juce::RangedAudioParameter* p, const juce::String& text) { return p->getText(p->getValueForText(text), 0); };
+        int wrongInHost = 0, tried = 0;
+        juce::String firstWrongInHost;
+        for (int m = 0; m < ParamIDs::numStowModes; ++m)
+        {
+            setMode(m);
+            for (int k = 0; k < ParamIDs::numStowControls; ++k)
+            {
+                auto* knob = rig.param(ParamIDs::stow[k]);
+                for (const float n : { 0.0f, 0.02f, 0.1f, 0.25f, 0.4f, 0.5f, 0.61f, 0.73f, 0.9f, 0.98f, 1.0f })
+                {
+                    const auto text = knob->getText(n, 0);
+                    ++tried;
+                    if (host(knob, text) != text || typed(knob, text, 0.5f) != text)
+                    {
+                        ++wrongInHost;
+                        if (firstWrongInHost.isEmpty())
+                            firstWrongInHost = knob->getName(40) + " in " + ParamIDs::stowModeNames[m] + ": \"" + text + "\" came back as \"" + host(knob, text) + "\" in a host and \""
+                                               + typed(knob, text, 0.5f) + "\" in the window";
+                    }
+                }
+            }
+        }
+        check(wrongInHost == 0, "typed: every readout of Stowaway's knobs in every Mode, typed back in a host or in the window, reads the same (" + juce::String(tried) + " tried"
+                                    + (wrongInHost > 0 ? ", " + juce::String(wrongInHost) + " wrong, first: " + firstWrongInHost : juce::String()) + ")");
+        setMode(ParamIDs::StowSub);
+        check(filter->getText(filter->getValue(), 0) == "120 Hz" && host(filter, "95 Hz") == "95 Hz" && host(filter, "95") == "95 Hz" && host(filter, "0.2 kHz") == "200 Hz"
+                  && host(filter, "20") == "40 Hz" && typed(filter, "70") == "70 Hz",
+              "typed: Stowaway's Filter in Sub takes the crossover in Hz (\"95 Hz\", \"95\", \"0.2 kHz\"; out of reach goes to the nearest end)");
+        const float widthBefore = width->getValue();
+        check(width->getText(0.3f, 0) == "Mono" && same(width->getValueForText("Mono"), widthBefore) && same(width->getValueForText("40%"), 0.4f),
+              "typed: Width in Sub reads Mono everywhere, so \"Mono\" from a host leaves it where it is, and a number is the width the other modes will have");
+        setMode(ParamIDs::StowWake);
+        check(filter->getText(filter->getValue(), 0) == "Open" && host(filter, "Under 1 kHz") == "Under 1.0 kHz" && host(filter, "Over 1 kHz") == "Over 1.0 kHz"
+                  && host(filter, "over 300 hz") == "Over 300 Hz" && host(filter, "Open") == "Open" && typed(filter, "Under 1 kHz") == "Under 1.0 kHz"
+                  && typed(filter, "Over 1 kHz") == "Over 1.0 kHz",
+              "typed: Stowaway's Filter in the other modes takes \"Under 1 kHz\", \"Over 1 kHz\" and \"Open\", in a host and in the window (\"Over 1 kHz\" gave \""
+                  + host(filter, "Over 1 kHz") + "\")");
+        check(typed(filter, "1 kHz", 0.2f) == "Under 1.0 kHz" && typed(filter, "1 kHz", 0.8f) == "Over 1.0 kHz" && typed(filter, "10 kHz", 0.8f) == "Under 10 kHz"
+                  && typed(filter, "Over 10 kHz", 0.2f) == "Over 2.5 kHz",
+              "typed: a number alone is found on the side Filter is on (or the other, when only that reaches it); a side asked for by name is kept to");
+        filter->setValueNotifyingHost(0.85f);
+        const bool hostSide = host(filter, "1 kHz") == "Over 1.0 kHz";
+        filter->setValueNotifyingHost(0.15f);
+        check(hostSide && host(filter, "1 kHz") == "Under 1.0 kHz", "typed: and in a host too, from where the knob is");
+        filter->setValueNotifyingHost(filter->getDefaultValue());
+
+        // A change of Mode changes what Filter and Width read: the host is told to read its parameters again.
+        struct Heard : juce::AudioProcessorListener
+        {
+            void audioProcessorParameterChanged(juce::AudioProcessor*, int, float) override {}
+            void audioProcessorChanged(juce::AudioProcessor*, const ChangeDetails& details) override { infoChanged += details.parameterInfoChanged ? 1 : 0; }
+            int infoChanged = 0;
+        } heard;
+        rig.proc.refreshHostReadouts(); // (the changes of Mode above)
+        rig.proc.addListener(&heard);
+        rig.proc.refreshHostReadouts();
+        const int idle = heard.infoChanged;
+        setMode(ParamIDs::StowSub);
+        const int beforeTimer = heard.infoChanged;
+        rig.proc.refreshHostReadouts();
+        const int afterChange = heard.infoChanged;
+        rig.proc.refreshHostReadouts();
+        check(idle == 0 && beforeTimer == 0 && afterChange == 1 && heard.infoChanged == 1 && filter->getText(filter->getValue(), 0) == "120 Hz",
+              "host: a change of Stowaway's Mode tells the host, once and from the timer, that its parameters read differently (" + juce::String(heard.infoChanged) + " told)");
+        rig.proc.removeListener(&heard);
     }
 
     // MIDI control ---------------------------------------------------------------------------------------------

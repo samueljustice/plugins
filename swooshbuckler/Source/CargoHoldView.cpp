@@ -219,10 +219,12 @@ public:
         applyColour();
     }
 
-    /** The lane's colour (a shade of its bus), given to everything in the lane that carries it. */
+    /** The lane's colour (a shade of its bus; dimmed while its track waits on a switched-off Stowaway), given to
+        everything in the lane that carries it. */
     void applyColour()
     {
-        const auto colour = m_owner.laneColour(m_track);
+        const auto shade = m_owner.laneColour(m_track);
+        const auto colour = m_owner.trackWaits(m_track) ? Theme::laneResting(shade) : shade;
         if (colour == m_colour)
             return;
         m_colour = colour;
@@ -328,7 +330,9 @@ public:
     {
         const auto& fonts = m_owner.m_fonts;
         const bool active = m_owner.m_active == m_track;
-        const auto colour = m_colour;
+        // Waiting on a switched-off Stowaway: the lane rests. Its colour is dimmed, and its ride line lies still.
+        const bool resting = hasData() && m_owner.trackWaits(m_track);
+        const auto colour = m_colour; // (dimmed while it rests: see applyColour)
         auto bounds = getLocalBounds().toFloat().reduced(0.0f, 2.0f);
 
         // A lane is a plate of its own; the one in hand is lighter and its edge is in its colour.
@@ -356,7 +360,7 @@ public:
             // a bus is chosen by hand (then it is marked *). A click opens the menu: the little arrow says so.
             const int bus = m_owner.m_hold.getBus(m_track);
             // Sent to Stowaway while it is switched off: the track waits, and its tag rests (hollow) to say so.
-            const bool waits = bus == CargoHold::c_stowBus && ! m_owner.m_processor.isStowawayOn();
+            const bool waits = resting;
             const auto tagColour = waits ? TC::textDim : busColour(bus);
             const auto tagText = busTag(bus) + (m_owner.m_hold.getBusOverride(m_track) < 0 ? "" : " *");
             // A tag: a small square plate with the bus's letter on a tally in the section's colour (H for the
@@ -413,7 +417,7 @@ public:
             renderCache(wf, scale, skip, colour);
         g.drawImage(m_cache, wf);
 
-        const float gainNow = m_history[static_cast<size_t>((m_historyHead + c_history - 1) % c_history)];
+        const float gainNow = resting ? 0.0f : m_history[static_cast<size_t>((m_historyHead + c_history - 1) % c_history)];
         // The waveform brightens and dims with the fader as the ride moves it.
         g.setColour(TC::scope.withAlpha(0.55f * (1.0f - juce::jlimit(0.0f, 1.0f, gainNow))));
         g.fillRect(wf);
@@ -442,7 +446,7 @@ public:
             const float top = wf.getY() + 4.0f, bottom = wf.getBottom() - 6.0f;
             for (int k = 0; k < c_history; ++k)
             {
-                const float v = juce::jlimit(0.0f, 1.0f, m_history[static_cast<size_t>((m_historyHead + k) % c_history)]);
+                const float v = resting ? 0.0f : juce::jlimit(0.0f, 1.0f, m_history[static_cast<size_t>((m_historyHead + k) % c_history)]);
                 const float x = wf.getX() + wf.getWidth() * static_cast<float>(k) / static_cast<float>(c_history - 1);
                 const float y = bottom - (bottom - top) * v;
                 if (k == 0) ride.startNewSubPath(x, y); else ride.lineTo(x, y);
@@ -481,7 +485,7 @@ public:
         for (int h = 0; h < 2; ++h)
         {
             const float pos = m_owner.m_hold.playheads[static_cast<size_t>(m_track)][static_cast<size_t>(h)].load();
-            if (pos < 0.0f) continue;
+            if (pos < 0.0f || resting) continue; // (a waiting track is not played: no playhead runs over it)
             const float px = xForFraction(pos);
             if (px < wf.getX() || px > wf.getRight()) continue;
             g.setColour(TC::text.withAlpha(0.75f));
@@ -1031,6 +1035,11 @@ void CargoHoldView::showTakeNote(const juce::String& text)
     repaint(m_statusArea);
 }
 
+bool CargoHoldView::trackWaits(int track) const
+{
+    return m_hold.getBus(track) == CargoHold::c_stowBus && ! m_processor.isStowawayOn();
+}
+
 juce::Colour CargoHoldView::laneColour(int track) const
 {
     const int bus = m_hold.getBus(track);
@@ -1190,6 +1199,8 @@ void CargoHoldView::timerCallback()
     if (const bool on = m_processor.isStowawayOn(); on != m_stowawayOn)
     {
         m_stowawayOn = on;
+        for (auto& lane : m_lanes)
+            lane->applyColour();
         m_laneHolder.repaint();
     }
 
@@ -1222,7 +1233,8 @@ void CargoHoldView::timerCallback()
     {
         const int t = lane->getTrack();
         const float level = Params::faderGain(m_processor.getState().getParameter(ParamIDs::cargoTrack[t])->getValue()); // the gain, not the fader position
-        lane->pushRide(engine.getRide(t) * level * m_hold.laneGain(CargoHold::c_numBuiltIns + t));
+        // (A track waiting on a switched-off Stowaway is not played: nothing rides it.)
+        lane->pushRide(trackWaits(t) ? 0.0f : engine.getRide(t) * level * m_hold.laneGain(CargoHold::c_numBuiltIns + t));
     }
     for (auto& lane : m_lanes)
         if (lane->isVisible())

@@ -9,6 +9,7 @@
 // moments only, A ducking B, and speed (faster than real time).
 
 #include <JuceHeader.h>
+#include "TestClock.h"
 #include "Cargo.h"
 #include "MasterProcessor.h"
 #include "RigEngine.h"
@@ -133,7 +134,7 @@ int main(int argc, char* argv[])
     const int total = static_cast<int>(seconds * c_rate);
     juce::AudioBuffer<float> out(2, total);
     int gateBlocks = 0, blocks = 0;
-    const auto t0 = juce::Time::getMillisecondCounterHiRes();
+    const auto t0 = TestClock::cpuMs();
     for (int pos = 0; pos < total; pos += c_block)
     {
         const int n = juce::jmin(c_block, total - pos);
@@ -145,7 +146,7 @@ int main(int argc, char* argv[])
         ++blocks;
         if (rig.getHitGate() > 0.5f) ++gateBlocks;
     }
-    const double ms = juce::Time::getMillisecondCounterHiRes() - t0;
+    const double ms = TestClock::cpuMs() - t0;
     writeWav(folder, "rig_energy_60s", out);
 
     // Analyse in 100 ms windows (skip the first 2 s)

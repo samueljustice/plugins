@@ -158,6 +158,9 @@ public:
     void setStowawayOn(bool on);
     /** Stowaway's Mode (ParamIDs::StowMode). Any thread. */
     int getStowawayMode() const { return stowMode(); }
+    /** Message thread. Tells the host to read the parameters' texts again if Stowaway's Mode has changed since it
+        last did (Filter and Width read by the Mode). The processor's own timer calls it four times a second. */
+    void refreshHostReadouts();
     /** Stowaway's plate in the window: -1 not opened yet (it opens by itself the first time Stowaway is switched
         on), 0 folded, 1 open. Saved with the session. */
     int getStowawayPanel() const { return m_stowPanel.load(); }
@@ -230,6 +233,8 @@ public:
     bool arm(juce::String& error);
     bool isCapturing() const { return m_recorder.isCapturing(); }
     double getRecordedSeconds() const { return m_recorder.getRecordedSeconds(); }
+    /** Sound the tape's writer thread has been handed and not written yet (it may fall 3 s behind). Any thread. */
+    double getTapeBacklogSeconds() const { return m_recorder.getBacklogSeconds(); }
     juce::File getLastRecording() const { return m_recorder.getLastFile(); }
     juce::File getCurrentRecording() const { return m_recorder.getCurrentFile(); }
     bool saveRetro(juce::File& written, juce::String& error);
@@ -266,6 +271,8 @@ public:
     /** Plays a take through the output, on top of the rig (it is not recorded). Click again, or another, to stop. */
     bool auditionTake(int id, juce::String& error);
     void stopAudition() { m_audition.stop(); }
+    /** Reads the auditioned take ahead now (see TakeAudition::topUp). Not the audio thread. */
+    void topUpAudition() { m_audition.topUp(); }
     /** The take being played (-1 = none), and how far through it is (0..1). */
     int getAuditionTake() const;
     double getAuditionProgress() const { return m_audition.getProgress(); }
@@ -439,6 +446,7 @@ private:
     // in the last block (audio thread).
     bool m_playParamWas = false;
     std::atomic<bool> m_followHost { true };
+    std::atomic<bool> m_stowReadoutsStale { false }; // Stowaway's Mode changed: the timer tells the host to read the knobs' texts again
     std::atomic<bool> m_hostStopped { false }; // the transport stopped the rig: the timer puts the Play parameter back
     bool m_hostWasPlaying = false;   // audio thread
     bool m_reseedPending = false;    // audio thread: the transport started, begin again from the seed

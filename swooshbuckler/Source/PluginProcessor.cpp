@@ -51,7 +51,10 @@ SwooshbucklerAudioProcessor::SwooshbucklerAudioProcessor(juce::PropertiesFile* o
     m_raw.stowMode = raw(ParamIDs::stowMode);
     m_stowModeSource->mode.store(m_raw.stowMode); // the Stowaway knobs read by the mode from here on
     for (int k = 0; k < ParamIDs::numStowControls; ++k)
+    {
         m_raw.stow[k] = raw(ParamIDs::stow[k]);
+        m_stowModeSource->knobs[static_cast<size_t>(k)].store(m_raw.stow[k]);
+    }
     // Rumbles ride with Stowaway while it is switched on and a sub. The hold is told as soon as the switch or the
     // Mode moves, on whichever thread moves it (a flag, nothing else), so the routing is right with or without the
     // audio running.
@@ -686,9 +689,21 @@ void SwooshbucklerAudioProcessor::parameterChanged(const juce::String& parameter
 {
     // The one that changed is read from newValue, the other from the parameter.
     if (parameterID == ParamIDs::stowMode)
+    {
         m_cargo.setRumbleToStowaway(isStowawayOn() && juce::roundToInt(newValue) == ParamIDs::StowSub);
+        // Filter and Width read by the Mode ("120 Hz" or "Open", "Mono" or "100%"): the host is told to read its
+        // parameters' texts again. That has to be said on the message thread, so the timer says it.
+        m_stowReadoutsStale.store(true);
+    }
     else if (parameterID == ParamIDs::stowOn)
         m_cargo.setRumbleToStowaway(newValue > 0.5f && stowMode() == ParamIDs::StowSub);
+}
+
+void SwooshbucklerAudioProcessor::refreshHostReadouts()
+{
+    // Stowaway's Mode changed: its knobs read differently now, and the host shows what they read.
+    if (m_stowReadoutsStale.exchange(false))
+        updateHostDisplay(ChangeDetails().withParameterInfoChanged(true));
 }
 
 int SwooshbucklerAudioProcessor::keysMode() const
@@ -1757,6 +1772,8 @@ void SwooshbucklerAudioProcessor::timerCallback()
     // session is opened otherwise).
     if (m_hostStopped.exchange(false) && ! m_playing.load())
         setPlaying(false);
+
+    refreshHostReadouts();
 
     // The tape: the files it has closed go into the takes, and the next file is named and described by the
     // settings as they are now.

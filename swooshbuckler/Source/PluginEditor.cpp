@@ -2873,6 +2873,23 @@ void SwooshbucklerAudioProcessorEditor::applyLook(const Presets::Preset& look, P
         m_morph.items.push_back({ param, param->getValue(), 0.0f, target, 0.0f });
     }
     stagger();
+
+    // A preset never moves a track. One that switches Stowaway on with nothing there to play says so, or it would
+    // look like a preset that does nothing: Stowaway only sounds once a track is sent to it.
+    if (const auto on = look.values.find(ParamIDs::stowOn); presetName.isNotEmpty() && on != look.values.end() && on->second > 0.5f)
+    {
+        const auto mode = look.values.find(ParamIDs::stowMode);
+        const bool sub = mode == look.values.end() || juce::roundToInt(mode->second) == ParamIDs::StowSub;
+        const auto& hold = m_processor.getCargo();
+        bool any = false;
+        for (int t = 0; t < ParamIDs::numCargoTracks; ++t)
+            if (hold.get(t) != nullptr)
+                any = any || hold.getBusOverride(t) == CargoHold::c_stowBus
+                      || (hold.getBusOverride(t) < 0 && sub && hold.getRole(t) == CargoRole::Rumble); // (a rumble goes to a sub by itself)
+        if (! any)
+            toast(sub ? "Stowaway is on with nothing on it: send it a track, or load a Rumble"
+                      : "Stowaway is on with nothing on it: send it a track from a lane's bus tag");
+    }
 }
 
 void SwooshbucklerAudioProcessorEditor::stagger()
