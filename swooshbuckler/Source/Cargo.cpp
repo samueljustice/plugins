@@ -1756,6 +1756,12 @@ void CargoPlayer::reseatHeads(const CargoData& d, bool skipSilence)
     }
 }
 
+void CargoPlayer::letGoOfShots()
+{
+    for (auto& s : m_shots)
+        s = Shot {};
+}
+
 void CargoPlayer::resetShots()
 {
     for (auto& s : m_shots)

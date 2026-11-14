@@ -96,6 +96,7 @@ target_sources(Swooshbuckler
     Source/MorphPad.cpp
     Source/MorphWander.cpp
     Source/LogoOutline.cpp
+    Source/LogoConstellation.cpp
     Source/ModPanel.cpp
     Source/UpdatePopup.cpp
     Source/TakeAudition.cpp
@@ -222,10 +223,11 @@ if(SWOOSHBUCKLER_TESTS)
     target_link_libraries(SwooshbucklerKeep PRIVATE Swooshbuckler)
 
     # Render test: Render Variations through the whole plug-in. A batch's files (names, lengths, peaks, each one
-    # different), cancelling, the same batch seed giving the same files, and how fast a batch renders.
+    # different), cancelling, the same batch seed giving the same files, how far the whooshes of one batch differ
+    # (--variety: a batch of ten with the demo sounds, measured file by file), and how fast a batch renders.
     juce_add_console_app(SwooshbucklerRender PRODUCT_NAME "SwooshbucklerRender")
-    target_sources(SwooshbucklerRender PRIVATE Tests/RenderTest.cpp)
-    target_include_directories(SwooshbucklerRender PRIVATE Source ${CMAKE_CURRENT_BINARY_DIR}/Swooshbuckler_artefacts/JuceLibraryCode $<TARGET_PROPERTY:Swooshbuckler,INCLUDE_DIRECTORIES>)
+    target_sources(SwooshbucklerRender PRIVATE Tests/RenderTest.cpp tools/DemoSounds.cpp) # the demo sounds are only in the tools and tests
+    target_include_directories(SwooshbucklerRender PRIVATE Source tools ${CMAKE_CURRENT_BINARY_DIR}/Swooshbuckler_artefacts/JuceLibraryCode $<TARGET_PROPERTY:Swooshbuckler,INCLUDE_DIRECTORIES>)
     target_compile_definitions(SwooshbucklerRender PRIVATE $<TARGET_PROPERTY:Swooshbuckler,COMPILE_DEFINITIONS>)
     target_link_libraries(SwooshbucklerRender PRIVATE Swooshbuckler)
 

@@ -257,11 +257,41 @@ public:
     std::uint32_t getSeed() const { return m_seed; }
     /** A seeded restart has been asked for and the old sound is still fading out. Audio thread. */
     bool isRestarting() const { return m_reseedPending; }
+    /** How a thrown whoosh flies, beyond what its velocity says. As it is made (and as the Throw button and MIDI
+        throw): half the Throw Length coming in, as close and as loud as the bus draws it, the tracks at their
+        fader levels. Render Variations flies each whoosh of a batch differently with it. */
+    struct ThrowFlight
+    {
+        float approach = 0.5f; // the share of Throw Length spent coming in (0.2 .. 0.8), so where the closest point falls
+        float nearer = 0.0f;   // -1 .. 1: nearer than the bus draws it (louder, brighter, a steeper bend), or further off
+        bool ridden = false;   // the tracks in the balance their rides have them in when it is thrown: each at a moment
+                               // of its own swell, the loudest at its fader and none more than 9 dB under its own;
+                               // with Auto Ride off that is every track at its fader, as without it
+    };
     /** Throw one whoosh: a single pass, the same on both buses, that starts delaySamples from the start of the
-        next process() call and peaks half a Throw Length later. velocity 0..1 sets how close and how loud it is;
-        below 0 the pass is as close as the bus would draw it (Doppler and Chaos). With every throw voice in
-        flight it is dropped. Audio thread, before process(). */
+        next process() call and peaks half a Throw Length later (or as `flight` says). velocity 0..1 sets how close
+        and how loud it is; below 0 the pass is as close as the bus would draw it (Doppler and Chaos), moved by
+        flight.nearer. With every throw voice in flight it is dropped. Audio thread, before process(). */
+    void throwWhoosh(int delaySamples, float velocity, const ThrowFlight& flight);
     void throwWhoosh(int delaySamples, float velocity);
+
+    /** Where every track is in its sounds (the players), and where each fader's ride is. Render Variations takes it
+        at the end of one render of a batch and gives it back for the next, so a batch carries on through the sounds
+        the way the rig does when you throw several in a row, instead of every render starting from the start
+        markers. Not on a live rig: only on one no other thread runs, between process() calls. */
+    struct Places
+    {
+        std::array<CargoPlayer, c_tracks> players;
+        std::array<double, c_tracks> ridePhase {};
+        std::array<float, c_tracks> rideDepth {};
+    };
+    Places getPlaces() const;
+    /** After prepare(): the tracks carry on from these places (one-shots still sounding are let go) and the rides
+        from theirs. */
+    void setPlaces(const Places& places);
+    /** After prepare(): every fader's ride from a moment drawn from `seed` (where it is in its swell, and how big the
+        swell is), so a throw that is ridden (ThrowFlight::ridden) gets the balance of the tracks at that moment. */
+    void scatterRide(std::uint32_t seed);
     /** A throw is waiting, in flight, or its sources are still open. Audio thread. */
     bool isThrowing() const;
     /** The width to render: Mono and Stereo are the stereo engine (a Mono output folds it itself); Quad and wider
@@ -916,10 +946,17 @@ private:
         bool pending = false;
         int delay = 0;
         float velocity = -1.0f;
+        ThrowFlight flight;
     };
     std::array<ThrowVoice, c_throws> m_throws;
     std::array<QueuedThrow, c_throws> m_throwQueue;
     std::array<float, c_tracks> m_throwGain {};     // each track's gain into the throw lines at the end of the last chunk
+    // A ridden throw (ThrowFlight::ridden): each track's share of the throw, from the ride as it is thrown (the
+    // loudest track at 1). 1 for every track otherwise. Taken from the ride of the chunk the throw starts in
+    // (renderTracks works it out track by track) and used from the next, while the throw's sources are still opening.
+    std::array<float, c_tracks> m_throwBalance {};
+    std::array<float, c_tracks> m_throwBalanceRide {};
+    bool m_throwBalanceWanted = false;
     float m_throwOpen = 0.0f;                       // 0..1: the throw's sources are open
     float m_throwDoppler = 0.5f, m_throwWidthLaw = 0.7f; // bus A's Doppler and Width this chunk: a throw is one pass on both buses
     float m_throwOrbit0 = 0.0f, m_throwOrbit1 = 0.0f;    // and how far bus A's Flight Path is Around, at the chunk's start and end

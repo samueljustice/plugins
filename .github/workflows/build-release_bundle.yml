@@ -49,11 +49,12 @@ permissions:
 jobs:
   resolve:
     # After a plug-in workflow: only when it succeeded on a release tag (not a pull request or manual run).
-    # After AAX signing: when both stages finished, so the signed AAX are on the release.
+    # After AAX signing: when both stages finished, so the signed AAX are on the release. (Matched by file:
+    # its runs are titled "AAX signing · <tag>", and that title is what workflow_run.name reports.)
     if: >-
       github.event_name != 'workflow_run' ||
       (github.event.workflow_run.conclusion == 'success' &&
-       (github.event.workflow_run.name == 'AAX signing' ||
+       (github.event.workflow_run.path == '.github/workflows/aax-signing.yml' ||
         (github.event.workflow_run.event == 'push' && contains(github.event.workflow_run.head_branch, '-v'))))
     runs-on: ubuntu-latest
     outputs:

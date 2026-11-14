@@ -475,6 +475,10 @@ public:
     /** Index into d.regions of the first sound reaching past the start marker. */
     static int firstRegion(const CargoData& d, float startFraction);
 
+    /** Every one-shot still sounding or waiting stops at once; which sound comes next is kept. For a player that
+        carries on from where another left off (RigEngine::setPlaces), not for one that is heard. */
+    void letGoOfShots();
+
     /** Index (into regionAt) of the region of the newest one-shot, -1 = none yet. */
     int getShotRegion() const { return m_shotRegion; }
 

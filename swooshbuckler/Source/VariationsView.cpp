@@ -117,9 +117,16 @@ VariationsView::VariationsView(SwooshbucklerAudioProcessor& processor, const The
     m_gap.setTooltip("Gap\nThe silence between one variation and the next in the one long file, from 0 to 10 seconds.");
     m_gap.onTextChange = [this] { syncControls(); };
     m_gap.onFocusLost = [this] { m_gap.setText(oneDecimal(job().gapSeconds), false); keepChoices(); syncControls(); };
-    m_batchName.setTooltip("Batch Name\nThe name your files start with. For example, Dragon Wings gives Dragon Wings_001, Dragon Wings_002 and so on.");
-    m_batchName.setTextToShowWhenEmpty("Type a name", TC::textFaint);
-    m_batchName.onTextChange = [this] { syncControls(); };
+    m_batchName.setTooltip("Batch Name\nType a name here and your files start with it. For example, Dragon Wings gives Dragon Wings_001, Dragon Wings_002 and "
+                           "so on. Typing a name sets File Names to Batch Name And Counter for you.");
+    m_batchName.setTextToShowWhenEmpty("Type a name for your files", TC::textFaint);
+    m_batchName.onTextChange = [this]
+    {
+        // Typing a name is asking for named files: nobody should have to find the File Names menu first.
+        if (m_batchName.getText().trim().isNotEmpty() && m_names.getSelectedId() - 1 != static_cast<int>(Names::BatchNameAndCounter))
+            m_names.setSelectedId(static_cast<int>(Names::BatchNameAndCounter) + 1, juce::sendNotificationSync);
+        syncControls();
+    };
     m_batchName.onFocusLost = [this] { keepChoices(); syncControls(); };
 
     for (auto* box : { &m_each, &m_mode, &m_batch, &m_names, &m_files })
@@ -219,7 +226,7 @@ void VariationsView::fillMenus()
          { { VariationRenderer::eachName(Each::OneWhoosh), "A single pass, from silence until it has rung out" },
            { VariationRenderer::eachName(Each::WholeRide), "A stretch of the rig playing, as you hear it with Play on" } });
     fill(m_mode, static_cast<int>(defaults.mode),
-         { { VariationRenderer::modeName(Mode::NewPasses), "Your sound exactly as you set it; only the passes differ" },
+         { { VariationRenderer::modeName(Mode::NewPasses), "Your settings as they are; every pass flies its own way" },
            { VariationRenderer::modeName(Mode::SmallChanges), "Your sound, with every knob moved a little" },
            { VariationRenderer::modeName(Mode::RandomiseEverything), "A different sound in every file" } });
     // The names as they would be for this session, so each item shows what it gives.
@@ -388,7 +395,7 @@ juce::String VariationsView::whatVariesSentence(Mode mode, float amount)
             return "Each one is a fresh Randomise: a different sound every time.";
         case Mode::NewPasses:
         default:
-            return "Each one uses your settings exactly as they are. Only the passes differ.";
+            return "Your settings stay exactly as they are. Each one plays on from where the last one stopped, and flies its own way.";
     }
 }
 
@@ -405,7 +412,9 @@ void VariationsView::syncControls()
         c.setAlpha(used ? 1.0f : 0.35f);
     };
     dim(m_amount, j.mode == Mode::SmallChanges);
-    dim(m_batchName, j.names == Names::BatchNameAndCounter);
+    // The name box is always there to type in. A name left in it while another File Names choice is in use is shown fainter.
+    m_batchName.setEnabled(! rendering);
+    m_batchName.setAlpha(j.names == Names::BatchNameAndCounter || m_batchName.isEmpty() ? 1.0f : 0.45f);
     dim(m_gap, j.files != Files::PerVariation);
     m_dated.setToggleState(m_processor.getVariationFolder().isEmpty(), juce::dontSendNotification);
     m_cancel.setEnabled(rendering);
@@ -421,8 +430,9 @@ void VariationsView::syncControls()
                           ? "What Varies\nYour settings, with each knob moved a little either way, by up to How Different. A family of sounds around the one you dialled in."
                           : j.mode == Mode::RandomiseEverything
                                 ? "What Varies\nA fresh Randomise for every file, so each one is a different sound. Your tracks, their levels and any locked section stay as they are."
-                                : "What Varies\nEvery knob, wire and modulator stays exactly as you set it. Only the passes differ: how each one flies, how close it comes "
-                                  "and which part of each sound it plays.");
+                                : "What Varies\nEvery knob, wire and modulator stays exactly as you set it. Each file carries on through your sounds from "
+                                  "where the last one stopped, and each pass flies its own way: how near it comes, when it is closest, and the balance "
+                                  "of your tracks as the ride moves them.");
     m_batch.setTooltip(m_repeat == Repeat::New
                            ? "Batch\nEvery press of Render makes variations you have not had before."
                            : "Batch\nRender makes the same variations as that batch again, as long as your settings and sounds are the same. Handy for the same "
@@ -590,11 +600,10 @@ void VariationsView::paint(juce::Graphics& g)
                                "File Names", "Batch Name", "Files", "Gap", "Folder" };
     const auto mode = static_cast<Mode>(juce::jlimit(0, 2, m_mode.getSelectedId() - 1));
     const bool small = mode == Mode::SmallChanges;
-    const bool named = m_names.getSelectedId() - 1 == static_cast<int>(Names::BatchNameAndCounter);
     const bool gapped = m_files.getSelectedId() - 1 != static_cast<int>(Files::PerVariation);
     for (size_t i = 0; i < m_captions.size(); ++i)
     {
-        const bool used = (i != 4 || small) && (i != 7 || named) && (i != 9 || gapped);
+        const bool used = (i != 4 || small) && (i != 9 || gapped);
         g.setColour(used ? TC::textDim : TC::textFaint);
         Theme::fitText(g, captions[i], m_captions[i], m_fonts.caption(), juce::Justification::centredLeft);
     }

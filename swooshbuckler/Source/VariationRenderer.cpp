@@ -6,6 +6,9 @@
 namespace
 {
     constexpr int c_block = SwooshbucklerAudioProcessor::c_maxSection;
+    // How near or far a whoosh may fly against the bus's own draw (RigEngine::ThrowFlight::nearer) with Chaos at
+    // none; at full Chaos, all the way either way.
+    constexpr float c_nearerAtNoChaos = 0.35f;
 
     juce::String safeName(const juce::String& name)
     {
@@ -256,6 +259,7 @@ void VariationRenderer::releaseCopy()
     if (isThreadRunning())
         return;
     m_take.setSize(0, 0); // the render buffer (seconds of audio) is only held while a batch runs
+    m_places.reset();     // and where it had got to in the sounds
     if (m_copy != nullptr)
     {
         m_copy.reset();
@@ -343,6 +347,7 @@ bool VariationRenderer::start(const Job& job, juce::String& error)
     m_baseStarts.clear();
     for (int t = 0; t < CargoHold::c_numTracks; ++t)
         m_baseStarts.push_back(m_copy->getCargo().getStart(t));
+    m_places.reset(); // the batch's first render starts at the start markers
 
     {
         const juce::ScopedLock sl(m_lock);
@@ -416,6 +421,13 @@ juce::String VariationRenderer::describeSettings() const
 int VariationRenderer::renderOne(int index, int& first, juce::String& description)
 {
     auto& rig = *m_copy;
+    // Where this render left the tracks and the rides, for the next one to carry on from.
+    auto keepPlaces = [this, &rig]
+    {
+        if (m_places == nullptr)
+            m_places = std::make_unique<RigEngine::Places>();
+        *m_places = rig.getPlaces();
+    };
     juce::Random random(static_cast<juce::int64>(seedOf(m_job.batchSeed, index)));
     const auto engineSeed = static_cast<std::uint32_t>(random.nextInt()) | 1u;
 
@@ -465,11 +477,37 @@ int VariationRenderer::renderOne(int index, int& first, juce::String& descriptio
     if (auto* length = rig.getState().getParameter(ParamIDs::throwLength); length != nullptr && ! ride)
         length->setValueNotifyingHost(length->convertTo0to1(static_cast<float>(m_job.seconds)));
 
+    // How this whoosh flies, with the settings left as they are: where its closest point falls (a third to two thirds
+    // of the way through), how near it comes (further either way the higher Chaos is, and some way even at none), and
+    // the balance of the tracks from a moment of the ride. And the moment each modulator and ride starts from.
+    RigEngine::ThrowFlight flight;
+    flight.approach = (1.0f + random.nextFloat()) / 3.0f;
+    const float chaos = juce::jlimit(0.0f, 1.0f, rig.getState().getRawParameterValue(ParamIDs::chaos)->load());
+    flight.nearer = (c_nearerAtNoChaos + (1.0f - c_nearerAtNoChaos) * chaos) * (2.0f * random.nextFloat() - 1.0f);
+    flight.ridden = true;
+    const auto moment = static_cast<std::uint32_t>(random.nextInt()) | 1u;
+
     // What the file says about itself: which variation of which batch it is, then the settings it was made with.
     description = "Swooshbuckler " + Version::number() + ". Variation " + juce::String(index + 1) + " of " + juce::String(m_job.count)
                 + ", " + describeHow() + ". Preset: " + preset + ". " + describeSettings();
 
     rig.prepareOffline(m_job.rate, engineSeed);
+    // Every render after the first carries on through the sounds from where the one before stopped (the first
+    // starts at the start markers), as the rig does when you throw several in a row; the rides carry on too
+    // (Whole Ride) or start from a moment of their own (One Whoosh: the balance its throw takes).
+    if (ride)
+    {
+        rig.scatter(moment); // the modulators from a moment of their own (the rides then carry on)
+        rig.setPlaying(true);
+        if (m_places != nullptr)
+            rig.carryOn(*m_places);
+    }
+    else
+    {
+        if (m_places != nullptr)
+            rig.carryOn(*m_places);
+        rig.scatter(moment); // the modulators and the rides from a moment of their own
+    }
     juce::MidiBuffer midi;
     const int capacity = m_take.getNumSamples();
     int length = 0;
@@ -481,7 +519,6 @@ int VariationRenderer::renderOne(int index, int& first, juce::String& descriptio
         // then the length asked for, with a short fade at each end because both ends are cut out of running sound.
         const int preRoll = juce::roundToInt(c_ridePreRollSeconds * m_job.rate);
         const int wanted = juce::roundToInt(m_job.rideSeconds * m_job.rate);
-        rig.setPlaying(true);
         while (length < preRoll + wanted && length + c_block <= capacity)
         {
             if (threadShouldExit())
@@ -490,6 +527,7 @@ int VariationRenderer::renderOne(int index, int& first, juce::String& descriptio
             rig.processBlock(block, midi);
             length += c_block;
         }
+        keepPlaces();
         first = preRoll;
         const int samples = juce::jmin(wanted, length - preRoll);
         bool sound = false;
@@ -508,7 +546,7 @@ int VariationRenderer::renderOne(int index, int& first, juce::String& descriptio
     }
 
     // One thrown whoosh, from silence until the rig has rung out and come to rest.
-    rig.throwWhoosh();
+    rig.throwWhoosh(flight);
     while (length + c_block <= capacity)
     {
         if (threadShouldExit())
@@ -519,6 +557,7 @@ int VariationRenderer::renderOne(int index, int& first, juce::String& descriptio
         if (rig.isAtRest())
             break;
     }
+    keepPlaces();
 
     // The silence in front comes off, and what is left of the rest at the end.
     for (first = 0; first < length && ! loud(first, c_silence); ++first) {}

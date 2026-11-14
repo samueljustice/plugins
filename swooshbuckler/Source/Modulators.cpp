@@ -243,6 +243,18 @@ void ModMatrix::reset()
         v.store(-1.0f, std::memory_order_relaxed);
 }
 
+void ModMatrix::scatter(juce::Random& random)
+{
+    for (auto& s : m_state)
+    {
+        s.phase = random.nextDouble();
+        s.from = random.nextFloat() * 2.0f - 1.0f;
+        s.to = random.nextFloat() * 2.0f - 1.0f;
+        s.held = random.nextFloat() * 2.0f - 1.0f;
+        s.env = random.nextFloat();
+    }
+}
+
 void ModMatrix::process(const std::array<SourceSettings, c_numSources>& settings, int numSamples, const FollowerInputs& followerInputs)
 {
     const double dt = static_cast<double>(numSamples) / m_sampleRate;

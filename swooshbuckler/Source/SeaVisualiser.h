@@ -1,6 +1,7 @@
 #pragma once
 
 #include <JuceHeader.h>
+#include "LogoConstellation.h"
 #include "LogoOutline.h"
 #include "PluginProcessor.h"
 #include "Theme.h"
@@ -75,17 +76,19 @@ private:
     static constexpr int c_bands = 80;
     static constexpr int c_rows = 34;
     static constexpr int c_trail = 34;
-    static constexpr float c_rowsPerSecond = 20.0f; // how fast the swell rolls away (rows are drawn between steps)
+    static constexpr float c_rowsPerSecond = 12.0f; // how fast the waves roll away along the sea's lines (which stay put)
     static constexpr float c_stepSeconds = 1.0f / 75.0f;  // never step more often than this, however fast the screen is
     static constexpr float c_idleStepSeconds = 1.0f / 20.0f; // and after five seconds of quiet, only this often
 
     struct P3 { float x, y, z; };
 
     void step(float dt);
+    float rowHeight(int k, int band) const;
     void analyse();
     juce::Point<float> project(P3 p) const;
     void buildSky(float pixelScale);
     void buildConstellation();
+    void buildConstellationHaze(float pixelScale);
     void paintWater(juce::Graphics&, float h);
     void paintComets(juce::Graphics&, float w);
     void paintStowaway(juce::Graphics&, float h);
@@ -131,10 +134,13 @@ private:
     struct Star { float x, y, size, phase; };
     std::vector<Star> m_stars;    // the twinkling few; the rest are in the sky image
 
-    // The mark in the stars: brighter stars on the logo's outline, joined by faint lines.
-    struct ConstellationStar { juce::Point<float> at; float size, phase; };
+    // The mark in the stars: brighter stars on the logo's corners, joined by faint lines, over the faintest glow of
+    // the grenade and the cherry themselves (like the haze a nebula leaves between the stars).
+    struct ConstellationStar { juce::Point<float> at; float size, phase, weight; bool cherry; };
+    juce::Image m_constellationHaze;                         // made with the sky, at the sky's scale
     std::vector<ConstellationStar> m_constellation;          // normalised, centred, y-up
-    std::vector<std::pair<int, int>> m_constellationLines;
+    std::vector<LogoConstellation::Line> m_constellationLines;
+    juce::Rectangle<float> m_constellationBounds;            // of the stars, in the same coordinates
     float m_constellationOpacity = 0.0f, m_constellationTime = 0.0f, m_constellationLeft = 0.0f, m_constellationNext = 20.0f;
     bool m_constellationHeld = false;
     int m_takesSeen = -1;
