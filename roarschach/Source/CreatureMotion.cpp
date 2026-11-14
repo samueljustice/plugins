@@ -113,7 +113,7 @@ namespace roar
             if (y < 0.0f)
             {
                 y = 0.0f;
-                v = -0.25f * v;   // the teeth meet: a small inelastic rebound
+                v = -0.25f * v;   // the jaw shuts: a small inelastic rebound
             }
             y = std::min (y, 1.05f);
         }
@@ -203,6 +203,14 @@ namespace roar
         return true;
     }
 
+    bool AudioForces::flashedWithin (float seconds) const
+    {
+        for (const float t : flashTimes)
+            if (clock - t >= 0.0f && clock - t < seconds)
+                return true;
+        return false;
+    }
+
     void AudioForces::step (float dt, const Inputs& in)
     {
         dt = cleanDt (dt, 0.1f);
@@ -252,23 +260,78 @@ namespace roar
         }
     }
 
-    void AudioForces::vortices (double t, float aspect, float strengthScale, std::array<std::array<float, 4>, 6>& out)
+    //==============================================================================================
+    void SurfaceRipples::step (float dt, int hits, float strength, float rumble, float awake, AudioForces& forces)
     {
-        const auto s = [t] (double period, double phase) { return (float) std::sin (6.283185307179586 * t / period + phase); };
-        const float half = 0.5f * std::max (1.0f, aspect);
+        dt = cleanDt (dt, 0.1f);
+        strength = clean (strength, 0.0f, 1.0f);
+        awake = clean (awake, 0.0f, 1.0f);
 
-        // Pair A by the wing tips, pair B above the horns: mirror images, opposite spin.
-        const float ax = std::min (half - 0.18f, 0.80f + 0.10f * s (37.0, 0.0)), ay = 0.05f + 0.07f * s (53.0, 1.0);
-        const float bx = 0.55f + 0.07f * s (71.0, 0.4), by = 0.30f + 0.05f * s (97.0, 2.0);
-        const float aS = (0.20f + 0.04f * s (53.0, 2.5)) * strengthScale;
-        const float bS = (0.16f + 0.03f * s (37.0, 1.2)) * strengthScale;
-        out[0] = { ax, ay, 0.19f, aS };
-        out[1] = { -ax, ay, 0.19f, -aS };
-        out[2] = { bx, by, 0.13f, -bS };
-        out[3] = { -bx, by, 0.13f, bS };
-        // Two free ones wander the sky.
-        out[4] = { (half - 0.25f) * s (97.0, 0.3), -0.10f + 0.25f * s (71.0, 1.1), 0.24f, 0.17f * strengthScale };
-        out[5] = { -(half - 0.35f) * s (53.0, 2.1), 0.12f + 0.22f * s (37.0, 0.7), 0.17f, -0.14f * strengthScale };
+        for (auto& r : rings)
+            if (r.age >= 0.0f)
+            {
+                r.age += dt;
+                if (r.age > c_lifeSeconds)
+                    r = Ring();
+            }
+
+        // a new hit (the count moved on by a few: one ring, the latest hit's strength)
+        const int moved = hits - lastHits;
+        if (seen && moved > 0 && moved < 64 && strength >= c_minStrength && awake > 0.1f)
+        {
+            if (forces.flashedWithin (0.1f) || forces.allowFlash())
+            {
+                size_t slot = 0;
+                for (size_t i = 0; i < rings.size(); ++i)
+                {
+                    if (rings[i].age < 0.0f)
+                    {
+                        slot = i;
+                        break;
+                    }
+                    if (rings[i].age > rings[slot].age)
+                        slot = i;
+                }
+                // (its middle a little above or below the body's, never twice the same: the rings cross)
+                const float u = std::fmod ((float) (started + 1) * 0.6180339f, 1.0f);
+                rings[slot] = Ring { 0.0f, strength * awake, 0.07f * (2.0f * u - 1.0f) };
+                ++started;
+            }
+            else
+            {
+                ++refused;
+            }
+        }
+        lastHits = hits;
+        seen = true;
+
+        follow (tremble, clean (rumble, 0.0f, 1.0f) * awake, dt, 0.60f, 0.40f);   // (sustained: a hit's own low end is a ring, not a tremble)
+        trembleClock = std::fmod (trembleClock + dt, 64.0f);
+    }
+
+    float SurfaceRipples::radius (int i) const
+    {
+        const auto& r = rings[(size_t) std::clamp (i, 0, c_maxRings - 1)];
+        return r.age >= 0.0f ? c_speed * r.age : 0.0f;
+    }
+
+    float SurfaceRipples::amplitude (int i) const
+    {
+        const auto& r = rings[(size_t) std::clamp (i, 0, c_maxRings - 1)];
+        if (r.age < 0.0f)
+            return 0.0f;
+        // (struck at once, damped as it goes and thinned as it spreads; gone smoothly at its end)
+        const float rad = c_speed * r.age;
+        const float end = 1.0f - std::clamp ((r.age - (c_lifeSeconds - 0.4f)) / 0.4f, 0.0f, 1.0f);
+        return c_peak * r.strength * std::exp (-r.age / c_decaySeconds) / std::sqrt (1.0f + rad / 0.25f) * end;
+    }
+
+    int SurfaceRipples::live() const
+    {
+        int n = 0;
+        for (const auto& r : rings)
+            n += r.age >= 0.0f ? 1 : 0;
+        return n;
     }
 
     //==============================================================================================
@@ -279,13 +342,42 @@ namespace roar
         tier = startTier;
     }
 
-    void QualityGovernor::resume (int start, int settled, bool locked)
+    void QualityGovernor::resume (int start, int settled, bool locked, double settledPixels, int settledRelief)
     {
         reset (start);
         tier = std::min (startTier, std::max (floorTier(), settled));
         upgradesLocked = locked;
+        relief = tier == floorTier() ? std::min (3, std::max (0, settledRelief)) : 0;
+        lockPixels = std::isfinite (settledPixels) ? std::max (0.0, settledPixels) : 0.0;
+        resumed = lockPixels > 0.0;
         if (tier < startTier)
             cooldown = c_dropCooldownSeconds;
+    }
+
+    void QualityGovernor::noteLoad (double viewPixels)
+    {
+        if (! std::isfinite (viewPixels) || viewPixels <= 0.0)
+            return;
+        pixels = viewPixels;
+        if (resumed)
+        {
+            // what was remembered was settled on a much larger view: this one starts from the top
+            resumed = false;
+            if (pixels < c_lighterLoad * lockPixels)
+            {
+                const int start = startTier, changed = changes;
+                reset (start);
+                pixels = viewPixels;
+                changes = changed + 1;
+                return;
+            }
+        }
+        // a lock set on a much larger view does not hold this one down
+        if (upgradesLocked && lockPixels > 0.0 && pixels < c_lighterLoad * lockPixels)
+        {
+            upgradesLocked = false;
+            lockPixels = 0.0;
+        }
     }
 
     int QualityGovernor::step (float interval, float target, float gpuMs, bool stalled)
@@ -295,7 +387,7 @@ namespace roar
         elapsed += interval;
 
         if (startTier <= 0)
-            return tier = 0;
+            tier = 0;
 
         cooldown = std::max (0.0f, cooldown - interval);
         sinceChange = std::min (sinceChange + interval, 1.0e9f);
@@ -304,7 +396,8 @@ namespace roar
         if (elapsed < c_warmupSeconds || stalled)
             return tier;
 
-        if (std::isfinite (gpuMs) && gpuMs > 0.0f && gpuMs <= 250.0f)
+        // (the single pass is not timed: where it is all there is, only the frame interval is a measure)
+        if (startTier > 0 && std::isfinite (gpuMs) && gpuMs > 0.0f && gpuMs <= 250.0f)
         {
             ema = emaValid ? 0.9f * ema + 0.1f * gpuMs : gpuMs;
             emaValid = true;
@@ -325,19 +418,48 @@ namespace roar
         if (slowFrames >= needed && (cooldown <= 0.0f || failedUpgrade) && tier > floorTier())
         {
             if (failedUpgrade)
+            {
                 upgradesLocked = true;
+                lockPixels = pixels;
+            }
             const int by = farOver ? 2 : 1;
             tier = std::max (floorTier(), tier - by);
             cooldown = c_dropCooldownSeconds;
             sinceChange = 0.0f;
             sinceUpgrade = 1.0e9f;
             slowFrames = fastFrames = 0;
-            emaValid = false;   // (the new tier's first reading replaces it: no second drop on the old tier's cost)
+            emaValid = false;   // (the new tier's first reading replaces it: no second drop on the cost of the tier just left)
             ++changes;
         }
-        else if (fastFrames >= c_fastFramesToRise && sinceChange >= c_cooldownSeconds && ! upgradesLocked && tier < startTier)
+        else if (slowFrames >= c_slowFramesToRelieve && (cooldown <= 0.0f || failedUpgrade) && tier == floorTier() && relief < 3
+                 // (the last step is a slower frame rate still, which costs smoothness: only where a
+                 // frame is far over budget, or still overruns with no timer to say by how much)
+                 && (relief < 2 || (emaValid ? ema > c_reliefFarMs : slowInterval)))
         {
-            ++tier;
+            // still slow on the lowest tier: relief (a step of it taken back too soon is given again, and kept)
+            if (failedUpgrade)
+            {
+                upgradesLocked = true;
+                lockPixels = pixels;
+            }
+            ++relief;
+            cooldown = c_dropCooldownSeconds;
+            sinceChange = 0.0f;
+            sinceUpgrade = 1.0e9f;
+            slowFrames = fastFrames = 0;
+            // (a smaller draw costs less: its first reading replaces the average. A slower rate
+            // costs the same a frame, and the average stands.)
+            if (relief == 1)
+                emaValid = false;
+            ++changes;
+        }
+        else if (fastFrames >= c_fastFramesToRise && sinceChange >= c_cooldownSeconds && ! upgradesLocked && (tier < startTier || relief > 0))
+        {
+            // (relief is taken back first, a step at a time, then the tiers are climbed)
+            if (relief > 0)
+                --relief;
+            else
+                ++tier;
             sinceChange = 0.0f;
             sinceUpgrade = 0.0f;
             slowFrames = fastFrames = 0;
@@ -347,30 +469,6 @@ namespace roar
     }
 
     // Integrated and entry-level parts start lower than the discrete ones in the same family.
-    float MistMotion::target (float sleep, float heat, float level)
-    {
-        const auto c01 = [] (float x) { return std::isfinite (x) ? std::min (1.0f, std::max (0.0f, x)) : 0.0f; };
-        const float s = c01 (sleep), awake = 1.0f - s;
-        const float loud = c01 (0.8f * c01 (heat) + 0.35f * std::max (0.0f, c01 (level) - 0.4f));
-        const float awakeA = c_awake + (c_roar - c_awake) * loud * loud * (3.0f - 2.0f * loud);
-        return std::max (c_min, awakeA * awake + c_asleep * s);
-    }
-
-    float MistMotion::step (float dt, float sleep, float heat, float level, double clock)
-    {
-        const float tgt = target (sleep, heat, level);
-        const float d = std::isfinite (dt) ? std::min (0.25f, std::max (0.0f, dt)) : 0.0f;
-        if (opacity < 0.0f || ! std::isfinite (opacity))
-            opacity = tgt;
-        else
-            opacity += (tgt - opacity) * (1.0f - std::exp (-d / (tgt < opacity ? c_thinSeconds : c_closeSeconds)));
-        // a slow wander: mostly sideways, a little rising (view heights per second)
-        const double c = std::isfinite (clock) ? clock : 0.0;
-        drift[0] = std::fmod (drift[0] + d * (0.010 + 0.004 * std::sin (c * 0.031)), 4096.0);
-        drift[1] = std::fmod (drift[1] + d * (0.004 + 0.003 * std::cos (c * 0.023)), 4096.0);
-        return opacity;
-    }
-
     int QualityGovernor::startTierFor (const char* renderer, const char* vendor)
     {
         std::string s = std::string (renderer != nullptr ? renderer : "") + " " + (vendor != nullptr ? vendor : "");
@@ -394,7 +492,12 @@ namespace roar
             if (d + 2 < s.size() && (s[d] == '4' || s[d] == '5') && digit (d + 1) && digit (d + 2) && ! digit (d + 3))
                 return 2;
         }
-        if (has ("apple") || has ("nvidia") || has ("geforce") || has ("quadro") || has ("amd") || has ("radeon") || has ("ati "))
+        // Apple's own parts: the base ones (no Pro, Max or Ultra in the name) and the device a virtual
+        // machine shows start one tier down. Only the largest of the family has been measured, and a
+        // part that starts too high pays for it with its first seconds on screen.
+        if (has ("apple"))
+            return has (" pro") || has (" max") || has (" ultra") ? 3 : 2;
+        if (has ("nvidia") || has ("geforce") || has ("quadro") || has ("amd") || has ("radeon") || has ("ati "))
             return 3;
         if (has ("intel"))
             return ((has ("iris") && has ("xe")) || has (" arc")) ? 2 : 1;

@@ -77,9 +77,9 @@ namespace roar
     };
 
     /**
-     * The audio as forces on the fluid: followers (every one at least 40 ms up and 150 ms down), a
+     * The audio as forces on the ink: followers (every one at least 40 ms up and 150 ms down), a
      * sub onset detector (120 ms refractory), the exhale puff, the clip sparks and a flash limiter
-     * (at most 3 bloom-visible onsets a second), plus the six vortices' slow paths.
+     * (at most 3 visible onsets a second).
      */
     struct AudioForces
     {
@@ -96,10 +96,10 @@ namespace roar
             float awake = 1.0f;
         };
 
-        // outputs (followers)
+        // outputs (followers; the view reads growl, swirl, subPulse and the sparks, the rest are read by the tests)
         float roar = 0.0f, growl = 0.0f, sub = 0.0f, swirl = 0.0f, ensemble = 0.0f, clip = 0.0f, strain = 0.0f;
         float puff = 0.0f;          // exhale, decays in 0.4 s
-        float subPulse = 0.0f;      // divergence source strength right after an onset (decays in 0.12 s)
+        float subPulse = 0.0f;      // the sub's push right after an onset (decays in 0.12 s)
         float clipSparks = 0.0f;    // 0..1 spark strength this frame (limited)
         int sparkSeed = 0;          // changes each spark frame (the shader hashes it)
 
@@ -112,13 +112,10 @@ namespace roar
         void reset() { *this = AudioForces(); }
         void step (float dt, const Inputs& in);
 
-        /** A bloom-visible onset may happen now (at most 3 in any second); records it if so. */
+        /** A visible onset may happen now (at most 3 in any second); records it if so. */
         bool allowFlash();
-
-        /** The six vortices at time t (seconds): x, y in view heights from the centre (y up), core
-            radius in view heights, signed peak speed in view heights per second. Pairs 0/1 and 2/3
-            are mirror images with opposite spin; 4 and 5 wander. aspect = width / height. */
-        static void vortices (double t, float aspect, float strengthScale, std::array<std::array<float, 4>, 6>& out);
+        /** A visible onset was allowed this recently (seconds): one event seen two ways is one flash. */
+        bool flashedWithin (float seconds) const;
 
         static constexpr float c_attack = 0.040f, c_release = 0.150f;
         static constexpr float c_subRefractory = 0.120f, c_subOnsetJump = 0.15f;
@@ -126,36 +123,75 @@ namespace roar
     };
 
     /**
-     * The top mist layer's opacity (normal blend over everything): 0.88 awake and quiet, 0.95 asleep,
-     * thinning towards 0.70 as the roar's heat and the level rise; never below c_min. Eased (no step
-     * in the input shows as a pop): it thins in about 0.35 s and closes back in about 1.2 s. The
-     * drift is the layer's slow scroll in view heights (it wanders, so it never repeats visibly).
+     * Hits ripple the picture like a struck water surface. Each hit the processor counts
+     * (HitDetector) starts a ring from the middle of the body, a little above or below it on the
+     * fold, that grows at a fixed speed and dies away as it spreads; at most four are in flight (a
+     * fifth replaces the earliest), and as their middles differ a little they cross. Each ring's
+     * strength is the hit's; a weak one starts no ring at all. Rings count against the flash limit
+     * (AudioForces::allowFlash), unless an onset was just allowed for the same moment. A sustained
+     * low end trembles the surface finely instead (tremble, with its own clock).
+     *
+     * The shader reads the picture a little along the radius from each ring's middle: a surface
+     * wave, never a drawn line (MonsterShaders).
      */
-    struct MistMotion
+    struct SurfaceRipples
     {
-        float opacity = -1.0f;   // < 0: not started (the first step lands on the target)
-        double drift[2] { 0.0, 0.0 };
+        static constexpr int c_maxRings = 4;
+        struct Ring
+        {
+            float age = -1.0f;       // seconds since the hit (< 0: none)
+            float strength = 0.0f;   // the hit's, 0..1
+            float offsetY = 0.0f;    // its middle above (+) or below the body's, view heights
+        };
 
-        /** sleep 0..1, heat 0..1 (the roar's), level 0..1; clock in seconds (the drift's wander). */
-        float step (float dt, float sleep, float heat, float level, double clock);
-        static float target (float sleep, float heat, float level);
+        std::array<Ring, c_maxRings> rings {};
+        float tremble = 0.0f;        // the low end's fine tremble, 0..1 (followed)
+        float trembleClock = 0.0f;   // its own clock, wrapped
+        int lastHits = 0;
+        bool seen = false;           // a count has been read (the first is taken as it is)
+        int started = 0, refused = 0;   // counters (tests): rings started, hits the flash limit held back
 
-        static constexpr float c_awake = 0.88f, c_asleep = 0.95f, c_roar = 0.70f, c_min = 0.66f;
-        static constexpr float c_thinSeconds = 0.35f, c_closeSeconds = 1.2f;
+        void reset() { *this = SurfaceRipples(); }
+
+        /** hits: the detector's count; strength: the latest hit's; rumble: the low end, 0..1;
+            awake: 0 asleep .. 1; forces: the flash limit. */
+        void step (float dt, int hits, float strength, float rumble, float awake, AudioForces& forces);
+
+        /** A ring's radius and its displacement's amplitude, view heights (0 for none). */
+        float radius (int i) const;
+        float amplitude (int i) const;
+        int live() const;
+
+        static constexpr float c_speed = 0.75f;        // view heights a second
+        static constexpr float c_decaySeconds = 1.3f;  // the wave's own damping
+        static constexpr float c_lifeSeconds = 2.6f;
+        static constexpr float c_peak = 0.04f;         // the displacement of the strongest ring at its start, view heights
+        static constexpr float c_minStrength = 0.12f;  // a hit weaker than this starts no ring
     };
 
     /**
      * The renderer's quality tier, chosen from the GPU and stepped by measured cost.
      *
-     * Tiers: 3 full, 2 smaller sim and creature field, 1 half-resolution composite, 0 the single-pass
-     * stateless shader. Slow and fast are judged from the GPU timer's EMA when there is one (so a busy
+     * Tiers: 3 the largest ink buffer, 2 a smaller one, 1 the smallest with a half-resolution
+     * composite, 0 the single-pass stateless shader (no buffer). Slow and fast are judged from the GPU timer's EMA when there is one (so a busy
      * host message thread, which only stretches the frame interval, never costs quality), and from
      * the frame interval (over 1.4 times the target) only without timers. Down one tier after 20 slow
      * frames in a row (10 when the EMA is far over budget, and then two tiers at once), then 3 s before the next drop; up one
      * after 300 fast frames (EMA under 1.8 ms) and 30 s without a change, never above the starting
      * tier; an upgrade that turns slow within 5 s is reverted and upgrades stop for the context.
      * Measurement never goes below tier 1: the single pass (tier 0) costs more per pixel than tier 1,
-     * so it is only for a GPU without the fluid tiers' capabilities (a start tier of 0, final).
+     * so it is only for a GPU without the buffer's capabilities (a start tier of 0, final).
+     *
+     * Relief at the floor: a GPU that is still slow on its lowest tier (tier 1, or the single pass
+     * where that is all it has, judged there from the frame interval: the single pass has no timer)
+     * is given relief in three steps, each after 60 slow frames: the composite (or the single pass)
+     * drawn at a third of the view's size instead of half, then 20 frames a second awake instead of
+     * 30, then 15 where a frame still costs over 8 ms (or still overruns). Relief is taken back a
+     * step at a time by the same rule that raises a tier, before any tier is raised.
+     *
+     * A lock on upgrades belongs to the load it was measured at: it is dropped when the view has
+     * fewer than 0.7 times the pixels it had when the upgrade failed, and a settled tier remembered
+     * from a view that much larger is not resumed at all (the smaller view starts from the top).
      * The first 2 s and stalled frames (a gap of a quarter second or more: hidden, host busy) are
      * ignored. GPU readings outside (0, 250] ms are ignored.
      */
@@ -168,12 +204,24 @@ namespace roar
         float elapsed = 0.0f, cooldown = 0.0f, sinceChange = 1.0e9f, sinceUpgrade = 1.0e9f;
         bool upgradesLocked = false;
         int changes = 0;
+        int relief = 0;                 // 0 none; 1 a third-size draw; 2 and 20 Hz; 3 and 15 Hz (only on the lowest tier)
+        double pixels = 0.0;            // the view's pixels now (0: not told)
+        double lockPixels = 0.0;        // ... when the upgrade lock was set, or when the resumed tier was settled on
+        bool resumed = false;           // started from a remembered tier, its load not yet compared with this view's
 
         void reset (int start);
+        /** The view's size in pixels, each frame before step(): a lock or a remembered tier measured
+            on a much larger view does not hold a smaller one down. */
+        void noteLoad (double viewPixels);
+        /** The lowest tier's draw is at 1 / this of the view's size (2, or 3 in relief). */
+        int lowDivisor() const { return relief >= 1 ? 3 : 2; }
+        /** Frames a second awake (30, or 20 or 15 in relief). */
+        int awakeHz() const { return relief >= 3 ? 15 : relief == 2 ? 20 : 30; }
         /** The lowest tier measurement can reach: 1 (0 only when 0 is where it starts). */
         int floorTier() const { return startTier >= 1 ? 1 : 0; }
-        /** Starts at the tier this GPU settled on before (capped by start), keeping its upgrade lock. */
-        void resume (int start, int settled, bool locked);
+        /** Starts at the tier this GPU settled on before (capped by start), keeping its upgrade lock
+            and its relief; settledPixels: the view's size it settled at (0: not known). */
+        void resume (int start, int settled, bool locked, double settledPixels = 0.0, int settledRelief = 0);
         /** One frame. interval and target in seconds; gpuMs < 0 when there is no reading; stalled: the
             frame came after a long gap (not a measurement). Returns the tier. */
         int step (float interval, float target, float gpuMs, bool stalled);
@@ -181,7 +229,9 @@ namespace roar
         static constexpr float c_warmupSeconds = 2.0f, c_cooldownSeconds = 30.0f, c_dropCooldownSeconds = 3.0f;
         static constexpr float c_failedUpgradeSeconds = 5.0f;
         static constexpr float c_slowMs = 4.0f, c_fastMs = 1.8f, c_slowIntervalRatio = 1.4f, c_farOverRatio = 2.5f;
-        static constexpr int c_slowFramesToDrop = 20, c_fastFramesToRise = 300;
+        static constexpr int c_slowFramesToDrop = 20, c_fastFramesToRise = 300, c_slowFramesToRelieve = 60;
+        static constexpr float c_reliefFarMs = 8.0f;     // the last step of relief: a frame still costs over this
+        static constexpr double c_lighterLoad = 0.7;      // a view with fewer than this share of the pixels is another load
 
         /** The starting tier for a GL_RENDERER / GL_VENDOR string (0 for software renderers). */
         static int startTierFor (const char* renderer, const char* vendor);

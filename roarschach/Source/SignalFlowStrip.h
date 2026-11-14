@@ -130,6 +130,8 @@ private:
     class DragShadow;
 
     void timerCallback() override;
+    /** Dims the knobs of a module that its current settings do not use. */
+    void updateKnobUse(int module);
 
     void layoutTiles(bool animate, double durationMs);
     void animateTile(int module, juce::Rectangle<int> target, double durationMs);

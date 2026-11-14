@@ -17,6 +17,14 @@ namespace roar
         constexpr double c_lowestCentreHz = 80.0;
         constexpr double c_highestCentreHz = 12000.0;
 
+        // The analysis bands are never narrower than this many ERBs (24.7 (4.37 f / 1000 + 1) Hz):
+        // a constant-Q band at 80 Hz is 13 Hz wide and rings for tens of milliseconds, so the
+        // weight of a syllable would trail its consonant. The synthesis bands keep their width.
+        // No analysis band reaches below c_analysisLowEdgeHz (the lowest one widens upwards
+        // instead), which keeps mains hum out of the envelopes.
+        constexpr double c_analysisMinErbs = 1.45;
+        constexpr double c_analysisLowEdgeHz = 70.0;
+
         constexpr int c_subBlock = 16;              // control-rate updates (pitch, U/V, mapping)
         constexpr float c_maxWet = 0.85f;           // dry is kept so the words stay readable
         constexpr float c_fadeSeconds = 0.02f;
@@ -36,6 +44,7 @@ namespace roar
         constexpr float c_vibratoCents = 6.0f;
         constexpr float c_driftCents = 3.0f;
         constexpr float c_minCarrierHz = 12.0f, c_maxCarrierHz = 1200.0f;
+        constexpr float c_minF0Hz = 20.0f, c_maxF0Hz = 2000.0f;   // pitches the carrier follows
 
         // U/V: band-energy tilt above 4 kHz vs below 1 kHz, with hysteresis.
         constexpr float c_uvOn = 0.55f, c_uvOff = 0.3f;
@@ -97,6 +106,7 @@ namespace roar
     {
         m_fade.reset();
         m_engine.clearState();
+        m_engine.resetPitchGate();
     }
 
     void VocoderModule::setParams (const VocoderSettings& s)
@@ -115,7 +125,7 @@ namespace roar
         m_fade.captureDry (l, r, n, stereo);
         if (! m_fade.isActive())
         {
-            m_engine.holdPitch (voice, n);
+            m_engine.holdPitch (l, stereo ? r : nullptr, n, voice);
             m_fade.outputDry (l, r, n, stereo);
             return;
         }
@@ -221,7 +231,42 @@ namespace roar
                     ++section;
                 }
             }
-            m_bankGain[(size_t) b] = (float) gain;
+
+            // The analysis band: on the same centre (so the band mapping and the read-out stay
+            // put), at least c_analysisMinErbs wide. A wider band passes more of a broadband voice, so
+            // its envelope is scaled by sqrt (synthesis width / analysis width) to hold the level.
+            {
+                const double erbHz = 24.7 * (4.37 * fc / 1000.0 + 1.0);
+                const double widthHz = std::max (fh - fl, c_analysisMinErbs * erbHz);
+                const double lowEdge = std::max (c_analysisLowEdgeHz, std::sqrt (fc * fc + 0.25 * widthHz * widthHz) - 0.5 * widthHz);
+                const double fhA = std::min (lowEdge + widthHz, 0.45 * fs);
+                const double flA = std::min (lowEdge, 0.9 * fhA);
+                const double wlA = 2.0 * fs * std::tan (c_pi * flA / fs);
+                const double whA = 2.0 * fs * std::tan (c_pi * fhA / fs);
+                const double w0A = std::sqrt (wlA * whA);
+                const double bwA = whA - wlA;
+                int sectionA = 0;
+                double gainA = 1.0;
+                for (const auto& p : lpPoles)
+                {
+                    const auto pb = p * bwA;
+                    const auto disc = std::sqrt (pb * pb - 4.0 * w0A * w0A);
+                    for (const auto& root : { (pb + disc) * 0.5, (pb - disc) * 0.5 })
+                    {
+                        const auto s = root.imag() >= 0.0 ? root : std::conj (root);
+                        const double w = std::abs (s);
+                        const double k = -2.0 * s.real() / w;
+                        const double g = w / (2.0 * fs);
+                        const double a1 = 1.0 / (1.0 + g * (g + k));
+                        m_an1[sectionA][b] = (float) a1;
+                        m_an2[sectionA][b] = (float) (g * a1);
+                        m_an3[sectionA][b] = (float) (g * g * a1);
+                        gainA *= bwA / w;
+                        ++sectionA;
+                    }
+                }
+                m_analysisGain[(size_t) b] = (float) (gainA * std::sqrt ((fh - fl) / (fhA - flA)));
+            }
 
             // Expected band RMS of the pulse stack: a pulse harmonic n has mean power
             // ~ 0.5 * (2 / (pi n))^2 * 0.5 and the band holds bw / f harmonics, so
@@ -239,7 +284,7 @@ namespace roar
             // envelope (so it adds nothing to the U/V tilt or the band display) and no carrier.
             if (fc * edge > 0.45 * fs)
             {
-                m_bankGain[(size_t) b] = 0.0f;
+                m_analysisGain[(size_t) b] = 0.0f;
                 m_pulseGainBase[(size_t) b] = 0.0f;
                 m_noiseGainBase[(size_t) b] = 0.0f;
             }
@@ -279,6 +324,8 @@ namespace roar
         m_glideCoeff = 1.0f - (float) std::exp (-(double) c_subBlock / (static_cast<double> (c_glideSeconds) * fs));
         m_characterCoeff = 1.0f - (float) std::exp (-(double) c_subBlock / (static_cast<double> (c_characterSeconds) * fs));
         m_makeup = c_makeup;
+        m_pitchGate.prepare (fs, c_subBlock);
+        m_gatePeak = 0.0f;
         m_prepared = true;
 
         m_active = false;
@@ -323,16 +370,29 @@ namespace roar
         m_targetShift = std::isfinite (formantShiftBands) ? std::clamp (-formantShiftBands, 0.0f, 4.0f) : 0.0f;
     }
 
+    bool VocoderModule::Engine::followPitch (const VoiceFrame& voice)
+    {
+        // Hold the last pitch through unvoiced passages, silence, the noise floor and the quiet
+        // tail of a word (CarrierPitchGate): the next phrase then starts from a real pitch.
+        const auto decision = m_pitchGate.tick (m_gatePeak, voice, c_minF0Hz, c_maxF0Hz);
+        m_gatePeak = 0.0f;
+        if (decision.accepted)
+            m_heldF0 = voice.f0Hz;
+        else if (decision.restHz > 0.0f)
+            m_heldF0 = decision.restHz;   // in a pause: wait at the voice's usual pitch
+        return decision.phraseStart;
+    }
+
     void VocoderModule::Engine::updateVoice (const VoiceFrame& voice)
     {
-        // Hold the last pitch through unvoiced passages and silence.
-        if (voice.voiced && voice.f0Hz > 20.0f && voice.f0Hz < 2000.0f)
-            m_heldF0 = voice.f0Hz;
+        const bool phraseStart = followPitch (voice);
         m_detectorVoiced = voice.voiced;
         m_detectorConfidence = voice.confidence;
 
         const float octave = m_octaveIndex == 0 ? 0.5f : 0.25f;
         m_carrierTargetHz = std::clamp (m_heldF0 * octave, c_minCarrierHz, c_maxCarrierHz);
+        if (phraseStart)
+            m_carrierHz = m_carrierTargetHz;   // a new phrase starts on its own pitch: no glide from the last one
     }
 
     void VocoderModule::Engine::activate (const VoiceFrame& voice)
@@ -352,13 +412,19 @@ namespace roar
         m_active = true;
     }
 
-    void VocoderModule::Engine::holdPitch (const VoiceFrameView& voice, int numSamples)
+    void VocoderModule::Engine::holdPitch (const float* left, const float* right, int numSamples, const VoiceFrameView& voice)
     {
-        for (int i = 0; i < numSamples; i = voice.frameEnd (i, numSamples))
+        // The same gate on the same control grid as the active path, so the pitch the carrier
+        // starts from does not depend on when (or in which blocks) the engine was idle.
+        if (! m_prepared || left == nullptr)
+            return;
+        for (int i = 0; i < numSamples; ++i)
         {
-            const VoiceFrame& f = voice.atSample (i);
-            if (f.voiced && f.f0Hz > 20.0f && f.f0Hz < 2000.0f)
-                m_heldF0 = f.f0Hz;
+            if (m_subCounter == 0)
+                followPitch (voice.atSample (i));
+            m_subCounter = (m_subCounter + 1) % c_subBlock;
+            const float x = right != nullptr ? 0.5f * (sanitize (left[i]) + sanitize (right[i])) : sanitize (left[i]);
+            m_gatePeak = std::max (m_gatePeak, std::abs (x));
         }
     }
 
@@ -460,15 +526,15 @@ namespace roar
         }
     }
 
-    void VocoderModule::Engine::runBank (Bank& bank, float* lanes) const
+    void VocoderModule::Engine::runBank (Bank& bank, float* lanes, bool analysis) const
     {
         for (int s = 0; s < c_numSections; ++s)
         {
             float* ic1 = bank.ic1[s];
             float* ic2 = bank.ic2[s];
-            const float* a1 = m_a1[s];
-            const float* a2 = m_a2[s];
-            const float* a3 = m_a3[s];
+            const float* a1 = analysis ? m_an1[s] : m_a1[s];
+            const float* a2 = analysis ? m_an2[s] : m_a2[s];
+            const float* a3 = analysis ? m_an3[s] : m_a3[s];
             for (int b = 0; b < c_numBands; ++b)
             {
                 const float v3 = lanes[b] - ic2[b];
@@ -486,7 +552,7 @@ namespace roar
         float* lanes = m_lanesSynth.data();
         for (int b = 0; b < c_numBands; ++b)
             lanes[b] = carrierIn[b];
-        runBank (m_synth, lanes);
+        runBank (m_synth, lanes, false);
 
         const float* pad = m_envPad.data() + m_shiftInt;
         const float frac = m_shiftFrac;
@@ -559,7 +625,7 @@ namespace roar
         {
             if (wetTarget <= 0.0f)
             {
-                holdPitch (voice, numSamples);
+                holdPitch (left, useStereo ? right : nullptr, numSamples, voice);
                 return;   // Gravel 0: no CPU, signal untouched
             }
             activate (voice.atSample (0));
@@ -585,17 +651,18 @@ namespace roar
             const float dryL = sanitize (left[i]);
             const float dryR = useStereo ? sanitize (right[i]) : dryL;
             const float x = useStereo ? 0.5f * (dryL + dryR) : dryL;
+            m_gatePeak = std::max (m_gatePeak, std::abs (x));
 
             // Analysis bank and followers.
             for (int b = 0; b < c_numBands; ++b)
                 lanes[b] = x;
-            runBank (m_analysis, lanes);
+            runBank (m_analysis, lanes, true);
 
             const float att = m_attackCoeff, rel = m_releaseCoeff, lowC = m_envLowCoeff, boost = m_rippleBoost;
             float* env = m_env.data();
             float* envLow = m_envLow.data();
             float* pad = m_envPad.data();
-            const float* gain = m_bankGain.data();
+            const float* gain = m_analysisGain.data();
             for (int b = 0; b < c_numBands; ++b)
             {
                 const float r = std::abs (lanes[b]) * gain[b];

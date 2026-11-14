@@ -4,9 +4,9 @@
 
 A VST3/AU modular voice processor by **Samuel Justice**, built for exploration and fun. One insert holds fifteen modules (pitch and size, a small speaker in a resonant room, clean-up, de-essing, detail, a vocoder, a ring modulator, shimmer, growl, a phaser, tube roar, an ensemble, a top-end tamer, a tracked sub and overtones) that run in any order, between an input stage and a level-matched output with a limiter and a clipper. Use a few lightly for a bigger, wider voice, or stack them into creatures, machines and anything in between.
 
-### Latest Release v1.1.0 - [Download Here](https://github.com/samueljustice/plugins/releases/tag/roarschach-v1.1.0)
+### Latest Release v1.2.0 - [Download Here](https://github.com/samueljustice/plugins/releases/tag/roarschach-v1.2.0)
 
-<img src="docs/screenshot.jpg" alt="The Roarschach window with the Kaiju preset: the creature, a horned head of dark ink smoke with slit amber eyes and a maw of needle teeth, roaring through a pale mist tinted ember red by its drive and growl, and the chain of fifteen modules in two rows between IN and OUTPUT below, with a die beside the preset name, on every module and after the last module" width="880">
+<img src="docs/hero.gif" alt="The Roarschach window with the Kaiju preset, in motion: lit ember-red cloud drifts in the view above the chain of modules; a voice starts and dark ink gathers out of the cloud by flow into a wide mirrored blot with marbled, swept-back wings, while the meters and the vocoder's band display move; a roar sends a ripple through the ink and the cloud; the voice stops and the blot tears back into smoke" width="880">
 
 ## Features
 
@@ -19,11 +19,11 @@ A VST3/AU modular voice processor by **Samuel Justice**, built for exploration a
 - **Weight**: SUB adds a tracked octave below the voice; OVERTONE turns the low end into overtones so the weight carries on small speakers.
 - **Control**: CLEAN (tone EQ, gate and a leveller), DE-ESS, DETAIL (lifts the quiet parts and pushes the loud parts into a soft ceiling) and TAME (holds back harsh top end).
 - **A finished output**: OUTPUT matches the level to the input, then Push drives a true-peak-safe limiter with a clipper after it. Attack and Release set how clean or crunchy the limiting is, and Auto release keeps it clean. MIX blends in the dry voice, phase-matched to the processed one.
-- **A creature that reacts**: an OpenGL creature that forms out of drifting cloud, whose jaw, eyes, skin and throat follow the voice and every module. It softens back into fog when the input goes quiet, slowly evolves with sustained intensity, and its clouds drift towards a colour that suits your settings.
+- **A creature that reacts**: an abstract ink blot drawn in OpenGL that gathers out of lit cloud when the voice comes in, swirls and tears open with it, ripples on hits and dissolves back into smoke when it stops. Every module leaves its own trace on it, every session grows a different one, it slowly evolves with sustained intensity, and its clouds drift towards a colour that suits your settings.
 - **Dice**: one die loads a random factory preset, one rolls a whole new creature, and one on each module rolls just that module, always inside each knob's useful range. Every roll can be undone.
 - **Presets**: 51 factory presets (Init plus six groups: Creatures, Voices, Machines, Signal Flow, Vocoder, Utility). Save your own with SAVE. They are plain files, easy to back up and share.
 - **Full recall**: every parameter, the module order, the preset name and the window size are saved with your session, and the factory presets are exposed to the host as programs.
-- **Resizable interface**: drag the corner to scale the whole window from 50% to 125% (never larger than the screen).
+- **Resizable interface**: drag the corner to scale the whole window from 65% to 125% (never larger than the screen). A new window opens as large as the display comfortably allows, and the size you choose is remembered.
 - **Constant latency** of about 46 ms (2192 samples at 48 kHz), the same for every setting and every module order, reported to the host so it is compensated. Host bypass stays in time and switches without clicks. Mono or stereo, full DAW automation.
 
 ## How it works
@@ -90,7 +90,7 @@ Roarschach runs at the host's sample rate and never resamples the audio. PITCH r
 
 ## Controls
 
-Every control has a tooltip: hover over it to see what it does, and where its useful range is. The footer of each module shows what the module is doing right now (hover over it for an explanation). Double-click any knob to reset it to its default. The mode chip under the knobs opens a menu of the module's choices, and the die beside it rolls the module; the ••• button moves the module.
+Every control has a tooltip: hover over it to see what it does, and where its useful range is. A knob the current settings do not use is dimmed, and still turns (SHIMMER's Rate at Amount 0, for example, or GROWL's Rate with the Throat shape); one that does only a little is half-dimmed. A module that is Off is dimmed as a whole. The footer of each module shows what the module is doing right now (hover over it for an explanation). Double-click any knob to reset it to its default. The mode chip under the knobs opens a menu of the module's choices, and the die beside it rolls the module; the ••• button moves the module.
 
 <img src="docs/tooltip.png" alt="The tooltip over RING's Freq knob: The carrier frequency. 110-450 Hz gives a metallic voice; below about 50 Hz it becomes a tremolo; above about 1.3 kHz it squeaks." width="583">
 
@@ -104,7 +104,7 @@ Three kinds of die roll new settings: one beside the preset name, one after the 
 
 <img src="docs/dice-module-tooltip.png" alt="PITCH's small die, beside its SHIFT · FOLLOW mode chip, under the pointer with its tooltip: Rolls new settings for PITCH: its knobs and modes, each inside its useful range. Its On switch and its place in the chain stay as they are." width="556">
 
-Each roll is one step you can take back: right-click any die for **Undo** and **Redo** (with the keyboard, Shift+F10 on a die opens the same menu), or press Cmd+Z (Ctrl+Z on Windows) straight after clicking a die, and Shift+Cmd+Z (Shift+Ctrl+Z) to redo. Once you use another control, these keys go back to the host's own undo; some hosts keep them for themselves anyway, and the right-click menu always works. Undo takes back only what the roll changed, and a knob you turned afterwards stays where you put it, even one the roll had changed. Loading a preset or session, even the same one again, ends the history. The host sees every control a roll changes, so it records the roll and its automation follows.
+Each roll is one step you can take back: right-click any die for **Undo** and **Redo** (with the keyboard, Shift+F10 on a die opens the same menu), or press Cmd+Z (Ctrl+Z on Windows) straight after clicking a die, and Shift+Cmd+Z (Shift+Ctrl+Z) to redo. Once you use another control, these keys go back to the host's own undo; some hosts keep them for themselves anyway, and the right-click menu always works. Undo takes back only what the roll changed, and a knob you turned afterwards stays where you put it, even one the roll had changed. A preset loaded from the preset bar (the list, the arrows or the preset die) is a step in the same history (see [Presets](#presets)); a preset or session loaded any other way, from the host's program list or a session recall, even the same one again, ends it. The host sees every control a roll changes, so it records the roll and its automation follows.
 
 - **Random preset** (the die beside the preset name): loads a random factory preset, never the one showing. Every factory preset comes up once before any comes up again.
 - **Randomise all** (the die after the last module): a new creature. It turns three to seven modules on and the rest off (at least two of them ones that change the voice, not only CLEAN, DE-ESS, DETAIL and TAME), and gives every module's knobs and modes new settings. The preset name shows `*`, as for any edit.
@@ -112,11 +112,11 @@ Each roll is one step you can take back: right-click any die for **Undo** and **
 
 <img src="docs/dice-undo-menu.png" alt="The menu from right-clicking RANDOMISE ALL straight after a roll: Undo Roll All, and Redo Roll greyed out" width="200">
 
-One RANDOMISE ALL roll from the Big Bad Narrator preset. Before, PITCH, CLEAN, DE-ESS, DETAIL, ROAR, TAME, SUB, OVERTONE and CHAMBER are on; after, CLEAN, VOCODER, RING, SHIMMER and ENSEMBLE are, every module has new settings, the preset name shows `*`, and the creature has a faint dark metal muzzle round its mouth from RING. The module order, IN and OUTPUT are as they were.
+One RANDOMISE ALL roll from the Big Bad Narrator preset. Before, PITCH, CHAMBER, CLEAN, DE-ESS, DETAIL, ROAR, TAME, SUB and OVERTONE are on; after, DETAIL, VOCODER, SWIRL, ROAR and ENSEMBLE are, every module has new settings, the preset name shows `*`, and the ink blot has taken a new shape. The module order, IN and OUTPUT are as they were.
 
-<img src="docs/roll-before.jpg" alt="The whole window with the Big Bad Narrator preset playing a voice: PITCH, CHAMBER, CLEAN, DE-ESS, DETAIL, ROAR, TAME, SUB and OVERTONE switched on, and the creature in pale blue-grey mist" width="880">
+<img src="docs/roll-before.jpg" alt="The whole window with the Big Bad Narrator preset playing a voice: PITCH, CHAMBER, CLEAN, DE-ESS, DETAIL, ROAR, TAME, SUB and OVERTONE switched on, and a dark mirrored ink blot with ragged arms in pale blue-grey cloud" width="880">
 
-<img src="docs/roll-after.jpg" alt="The same window after one RANDOMISE ALL roll: the preset name reads Big Bad Narrator *, and CLEAN, VOCODER, RING, SHIMMER and ENSEMBLE are on with new settings while the other modules are off; the clouds have drifted to a cold electric blue, and the creature has a faint dark metal muzzle round its mouth" width="880">
+<img src="docs/roll-after.jpg" alt="The same window after one RANDOMISE ALL roll: the preset name reads Big Bad Narrator *, and DETAIL, VOCODER, SWIRL, ROAR and ENSEMBLE are on with new settings while the other modules are off; the cloud has drifted to a cooler blue, and the blot has gathered into a broad shield of ink with marbled wings" width="880">
 
 A roll only lands where a knob is useful: each knob rolls inside the range the [parameter audit](docs/parameter-audit.md) found usable, never into its dead or harmful ends (PITCH −14 to −2 st, Swirl up to 50% and its Deep 6 circuit up to 30%, Ring Freq 60–450 Hz, Chamber 15–65%, and so on), and each mode is picked evenly from its options (Boom leaves out Heavy). The dice never move a module or touch IN or OUTPUT, so the level stays safe: on five real voice takes, 200 rolls each, 998 of the 1,000 rolls played within 3 LU of Init (the other two 3.0 and 3.8 LU quieter), and none went over the ceiling. Knobs glide to their new values and modules fade in and out, so a roll does not click while audio plays.
 
@@ -351,36 +351,70 @@ The meters show the output level (with the ceiling marked), the limiter's gain r
 
 ## Visualiser
 
-The creature above the chain is drawn live in OpenGL from the audio and the controls. It forms out of slowly swirling cloud, all of it seen through a drifting veil of pale mist, a cool blue-grey at the default settings: when the voice comes in, its eyes and mouth glow through first, then the brow and teeth, then the head, and the cloud condenses into a mirror-symmetric blot of ink smoke that reads through the mist as a soft dark shape. The mist thins a little around the eyes and on loud roars but never clears. When it goes quiet the face softens back into fog, with the eyes the last to fade.
+The view above the chain is drawn live in OpenGL from the audio and the controls: an abstract ink creature, a mirrored blot that the voice gathers out of a cloudy sky. It is not a face or a figure; what it looks like is left to you.
 
-<img src="docs/view-asleep.jpg" alt="Silence, at Init: pale blue-grey cloud drifting under a thick veil of mist, with no face in it" width="400"> <img src="docs/view-forming.jpg" alt="The voice comes in: two small amber eyes and the line of a mouth gather out of the mist first" width="400">
-<img src="docs/view-talking.jpg" alt="Early on, talking: a round smoky head in the mist with slit amber eyes and a small mouth of teeth glowing orange in its throat" width="400"> <img src="docs/view-liquid.jpg" alt="After a few minutes of roaring with Liquid Beast, the clouds turned violet: a dark, smoky head seen through the mist with swept-out wisps of smoke at its sides, slit eyes and a wide maw of needle teeth around a glowing throat" width="400">
-<img src="docs/view-horned.jpg" alt="Later, with Kaiju, the clouds ember red: a heavier head with broad smoke wings spreading through the mist, faint creases on its brow and the vocoder's fan of ridges under its jaw" width="400"> <img src="docs/view-crown.jpg" alt="After a long, loud session, still ember red: extra eyes open on its brow, and its smoke wings spread wide with ragged edges" width="400">
+**Asleep**, the view is a slow sky of lit cloud in three layers, with banks, gaps and shaded undersides, a cool blue-grey at the default settings. The cloud is faintly grey because it carries a little ink everywhere.
 
-**It evolves.** Sustained intensity (loud, heated, growling, driven sound, not just high knob settings) slowly grows it from a pale pressed blot into something larger: a soft moth-like spirit, a horned beast, a dripping liquid horror, a winged and horned wyrm, and finally a many-eyed thing with a crown of spines. The stages blend into each other and never switch: horns and spines grow out of the head, extra eyes open from creases in the skin, and the change takes minutes, not seconds. Quiet lets it cool and settle back over minutes. A long, hard session leaves its mark: it only drifts all the way home after a long stretch of quiet. Which modules carry the sound also leans its character: SHIMMER, SWIRL and ENSEMBLE make it more fluid, ROAR, GROWL and the clipper more bestial, the VOCODER, RING and OVERTONE more eldritch, and SUB, a low PITCH and a straining limiter heavier and darker. Every instance grows its own creature, and the creature and how far it has evolved are saved with the session.
+**When a voice comes in**, the cloud near the middle starts to turn, and the ink in it streams inwards along mirrored eddies, leaving the cloud it came from paler. It gathers first as dark shreds in several places, then they join into one folded mass: a body on the middle line, lobes and limbs to both sides, bays where the cloud shows through. Where the ink is densest the cloud in front of it parts. Until a new instance first hears sound, one line of help appears at the bottom of the view after a moment of quiet.
 
-**Its colour follows your settings.** The clouds and the mist lean slowly towards a colour that suits the sound you have set up. Heavier ROAR, GROWL, PITCH Drive, a deeper pitch, SUB Drive, OUTPUT Push and Clip and CHAMBER's Edge warm it towards ember red. The VOCODER, RING, SHIMMER, Snap or Mono pitch, the Radio tone and the metal rooms turn it a clear electric blue. SWIRL, ENSEMBLE and OVERTONE tint it violet. A big CHAMBER room (a high Amount and a long Reson) leans it to a lichen green-grey on its own, and turns the other colours towards stone. Mixed settings mix their colours: heavy drive with the vocoder is a rust, drive with SWIRL a crimson rose, the vocoder with SWIRL an indigo, drive in a big room a warm stone and the vocoder in one a teal. Only the modules that are on and how far their knobs are turned count, not where they sit in the chain. Init and light settings keep the pale blue-grey, and so does Mix at 0%. Only the hue and its strength move: the mist stays as pale and as thick, and the eyes and throat keep a warm glow that stands apart from the clouds, turning a hotter gold when the clouds are warm. The colour never jumps: after a preset change, a roll of the dice or a turned knob it drifts to the new colour over several seconds, turning round the colour wheel no faster than a twelfth of the way each second, through soft tones rather than grey.
+<img src="docs/view-forming.gif" alt="Pale blue-grey cloud drifts; a voice starts and streaks of dark ink gather out of it by flow, folding into a mirrored blot with curling plumes of smoke rising from it" width="720">
 
-<img src="docs/colour-moods.jpg" alt="The same creature with its colour settled for four presets: Init in the default pale blue-grey (top left), Hellhound in ember red (top right), Angry Pepper Pot in electric blue (bottom left) and Liquid Beast in violet (bottom right)" width="604">
+**While it sounds**, the mass never holds a pose. The flow keeps carrying its edge off as smoke and the voice keeps pulling more ink in, so its inside is marbled by where the ink came from, and banks of cloud drift across parts of it. Louder sound stirs the eddies faster.
 
-Right-click the creature for **Evolution: Live** (it keeps evolving), **Evolution: Frozen** (it holds its current form and colour, also after the editor is closed or the project reloaded; it still moves with the voice) and **Reset creature** (it eases back to a blot over a few seconds and grows a new one).
+**A roar** tears a ragged rift open down its middle. The rift follows the phrase with weight, rather than snapping open on every syllable, and the blot swells larger and darker while the roar lasts, letting the swell go over seconds afterwards. In some blots the rift is lit from inside by a warm glow, with lit breath drifting out into the cloud; in others it stays a dark tear onto the shaded cloud behind. The light comes and goes.
 
-<img src="docs/creature-menu.jpg" alt="The creature's right-click menu under the lower-left corner of the ember-red view: a Creature heading, Evolution: Live (ticked), Evolution: Frozen and Reset creature" width="420">
+<img src="docs/view-roar.gif" alt="A broad mirrored blot of dark ink swirling in pale blue-grey cloud with a quiet voice; a roar starts, a ripple runs out through the ink and the cloud, and the blot's edges tear and curl" width="720">
 
-On top of whatever form it has taken, every module still shows on it:
+**When the voice stops**, the ink lets go: its limbs tear into ribbons first, then smoke, then the grey of the cloud, and a few seconds later nothing of its outline is left. After 1.5 seconds of silence the label ASLEEP appears; the creature gathers itself again as soon as sound comes back.
 
-- Its jaw opens with the voice; PITCH and SIZE make its head and jaw bigger.
-- GROWL stirs the smoke and shivers its lips, SHIMMER ripples its skin and drips ink, SWIRL spins a pair of eddies through the smoke and sweeps a sheen up and down its face, and ENSEMBLE stretches the smoke out to the sides.
-- ROAR heats its eyes and throat, SUB sends rings out of its throat, the VOCODER lights a fan of 32 ridges under its jaw (one per band), and OVERTONE lights one rib per overtone under its chin (hollow in Replace).
-- RING puts a flickering dark metal muzzle round its mouth, DE-ESS glints on its teeth, TAME dims its crown, and CLEAN's gate closes its lips between words.
-- CHAMBER leaves an after-image: while the room rings, its wings and tendrils trail each movement for longer, and Boom adds a slow swell to its breathing.
-- At the output, the limiter throbs at its temples and the clipper throws sparks off its edges.
+<img src="docs/view-dissolving.gif" alt="The voice has stopped: the blot loosens, its middle clears unevenly and the ink tears into grey smoke that drifts back into the cloud" width="720">
 
-The top corners show the voice's pitch (F0) and how much DETAIL is lifting and holding. After 1.5 seconds of silence the creature falls asleep, dissolving into fog, and the label ASLEEP appears; it gathers itself again as soon as sound comes back.
+**Every blot is different.** Each instance grows its blot from its own seed, and each preset gives it a different one, so the same preset looks different in another session. The seed and how far the creature has evolved are saved with the session.
+
+**It evolves.** Sustained intensity (loud, heated, growling, driven sound, not just high knob settings) slowly grows it: a young blot is a dense mass the eddies barely tear; as it grows, more lobes and limbs arrive one at a time, the eddies tear it into ribbons, and branches keep reaching outwards. The change takes minutes, not seconds, and never jumps. Quiet lets it settle back over minutes; after a long, hard session it only drifts all the way back after a long stretch of quiet. Which modules carry the sound also leans its character: SHIMMER, SWIRL and ENSEMBLE make its limbs longer, looser and droopier; ROAR, GROWL and the clipper make its middle heavier and its rift wider; the VOCODER, RING and OVERTONE make it branch earlier and reach further; SUB and a low PITCH make it hang lower and move more slowly.
+
+<img src="docs/view-evolution.gif" alt="The same blot seed at four stages of growth in turn, swirling in pale blue-grey cloud with a quiet voice: a compact dense blot, then larger ones with more lobes and with curls of ink reaching out to the sides" width="720">
+
+**Its colour follows your settings.** The clouds lean slowly towards a colour that suits the sound you have set up. Heavier ROAR, GROWL, PITCH Drive, a deeper pitch, SUB Drive, OUTPUT Push and Clip and CHAMBER's Edge warm it towards ember red. The VOCODER, RING, SHIMMER, Snap or Mono pitch, the Radio tone and the metal rooms turn it a clear electric blue. SWIRL, ENSEMBLE and OVERTONE tint it violet. A big CHAMBER room (a high Amount and a long Reson) leans it to a lichen green-grey on its own, and turns the other colours towards stone. Mixed settings mix their colours: heavy drive with the vocoder is a rust, drive with SWIRL a crimson rose, the vocoder with SWIRL an indigo, drive in a big room a warm stone and the vocoder in one a teal. Only the modules that are on and how far their knobs are turned count, not where they sit in the chain. Init and light settings keep the pale blue-grey, and so does Mix at 0%. The dense ink stays near black in every colour; its thin edges and the loose ink in the cloud take a little of the hue, and the light in the rift keeps a warm glow of its own. The colour never jumps: after a preset change, a roll of the dice or a turned knob it drifts to the new colour over several seconds, turning round the colour wheel no faster than a twelfth of the way each second, through soft tones rather than grey.
+
+<img src="docs/colour-moods.gif" alt="One blot seed with three presets in turn, each with its colour settled: Init in the default pale blue-grey, Kaiju in ember red and Iron Tyrant in warm stone; each preset also gives the blot a different shape" width="720">
+
+Right-click the creature for **Evolution: Live** (it keeps evolving), **Evolution: Frozen** (it holds its current form and colour, also after the editor is closed or the project reloaded; it still moves with the voice) and **Reset creature** (it eases back to a young blot over a few seconds and grows a new one).
+
+<img src="docs/creature-menu.jpg" alt="The creature's right-click menu over the lower-left of the ember-red view: a Creature heading, Evolution: Live (ticked), Evolution: Frozen and Reset creature" width="420">
+
+Whatever form it has taken, every module leaves its own trace on it, each a different kind of change to the shape, the flow or the ink, and each as strong as the module is working (nothing while it is Off). The traces on the shape share one limit, so with many modules on at once they still bend one blot.
+
+- **PITCH** sets its weight: shifted down the mass is wider and lower and its loose ink sinks; shifted up it is taller and thinner and the ink rises. SIZE makes it larger.
+- **CLEAN** tidies it: the frayed edge pulls back to a clean one, and while the gate is shut the limbs draw back towards the body and the rift closes.
+- **DE-ESS**: each S throws a fine spray of ink off the rim round the rift, drawn back in as the de-esser acts.
+- **DETAIL** sets the edge's fingers: Low gives it broad scallops, High a hairline fringe.
+- **VOCODER** lays layers through the ink along the way it is carried, from its 32 bands; Gravel makes the ink clot.
+- **RING** sends ripples through the shape from the rift, spaced by the carrier.
+- **SHIMMER** sends small pale beads rising through the dark ink.
+- **GROWL** runs an uneven ruffle along the edge at the growl's own rate and depth.
+- **SWIRL** turns a pair of whorls either side of the body that wind its limbs into spiral arms, with the cloud turning round them; the sweep moves them in and out.
+- **ROAR** tears the rift wider and swells and darkens the body, with faster eddies.
+- **ENSEMBLE** leaves pale echoes of the outline stepped outwards, in drifting patches, spaced by its Width.
+- **TAME** pulls the limbs in and rounds the edge off, and the body darkens while it holds back.
+- **SUB** heaves the whole mass slowly at the sub's own pace, hangs a dark pool of ink under it, and each new low note pushes the ink outwards once.
+- **OVERTONE** draws thin wisps of ink up out of the top of the body, one for each overtone, as long as that overtone is loud, bent by the flow and torn at the tips; in Replace the body thins as they grow. Below about 10% of Amount it draws none, and they reach their full length from about a third.
+- **CHAMBER** turns the cloud into the room: the near cloud thickens into walls at the edges of the view, the room's ringing sends slow bands outwards through the cloud, and the blot's shadow in it grows long and soft.
+- **OUTPUT**: a limiter working hard darkens the body, and a clipped peak throws a few beads of ink off its rim.
+
+<img src="docs/view-modules.gif" alt="The Possessed preset with a quiet voice: a dark mirrored blot in lavender-blue cloud, its arms streaming and curling and smoke lifting off its top as the modules stir the ink" width="720">
+
+**Hits ripple it.** A hit in the sound (a stomp, a thump, a plosive, the start of a roar) ripples the picture like a struck water surface: rings spread outwards through the cloud and the ink, wider than they are tall and broken up by the cloud, so the picture heaves and settles without any line being drawn. The syllables of steady talking and a held tone do not; a sustained low end makes the surface tremble finely instead.
+
+<img src="docs/view-ripple.gif" alt="A dark mirrored blot swirling in pale blue-grey cloud with a quiet voice; two short loud bursts each send a ring rippling outwards through the ink and the cloud" width="720">
+
+The top corners show the voice's pitch (F0) and how much DETAIL is lifting and holding. On slower graphics cards the creature lowers its own detail to stay smooth; without OpenGL the view shows a still cloud.
 
 ## Presets
 
 Use the arrows either side of the preset name to step through presets, or click the name for the full list, grouped by category. The die after the arrows loads a random factory preset (see [The dice](#the-dice)). SAVE stores the current settings as a user preset, and the list also has Save As, Delete and Show Presets Folder.
+
+A preset load from the preset bar can be undone: choose **Undo Load** in the list, or press Cmd+Z (Ctrl+Z on Windows) straight after loading, to get back the sound you had, edits and all. **Redo Load** loads the preset again, so you can compare the two. Loads and dice rolls share one history.
 
 <img src="docs/header.png" alt="The preset bar: the previous and next arrows, the preset name (Kaiju), the random-preset die, SAVE and the About button" width="500">
 
@@ -411,12 +445,12 @@ Six character presets are each built around one technique, and each works best w
 - **Angry Pepper Pot** (Machines): a furious voice in a metal shell. A low ring modulator chops the voice into a staccato electronic stutter, and nothing else colours it. Shout, and pitch your delivery up to hector.
 - **Ball Bearing** (Machines): a small, chirpy machine. The voice is raised an octave and stepped to semitones, with a faint synthetic buzz, a quick warble and a tiny speaker. Coo and chirp short syllables rather than speaking.
 
-A few contrasting presets, each playing the same voice (the creature is shown at a different stage of growth in each, with its colour settled for the preset):
+A few contrasting presets, each playing the same voice, with the colour settled for the preset:
 
-<img src="docs/preset-simple-size.jpg" alt="Simple Size: PITCH at -1 st, CLEAN, DE-ESS, TAME and CHAMBER on and everything else off; a soft early creature in pale blue-grey mist, light settings keeping the default colour" width="440"> <img src="docs/preset-cyber-commander.jpg" alt="Cyber Commander: CLEAN, RING, PITCH, ROAR, DE-ESS, DETAIL, GROWL and TAME on, with CLEAN and RING moved ahead of PITCH; the creature has RING's faint dark metal muzzle round its mouth, in a cold blue mist" width="440">
-<img src="docs/preset-symbiote.jpg" alt="Symbiote: PITCH, CLEAN, DE-ESS, SHIMMER, GROWL, SWIRL, ROAR, ENSEMBLE, TAME and SUB on; a dark smoky head with spreading wings and a wide maw of teeth, in a rose-violet mist" width="440"> <img src="docs/preset-iron-tyrant.jpg" alt="Iron Tyrant: CHAMBER after ROAR in Steel Box with the Horn speaker, and PITCH, CLEAN, DE-ESS, DETAIL, GROWL, TAME and SUB on; a horned head with broad wings and a glowing maw, in a warm stone-coloured mist" width="440">
-<img src="docs/preset-upside-down.jpg" alt="Upside Down: CLEAN, DE-ESS, DETAIL, PITCH at 0 st, ROAR, TAME, SUB at Tight, ENSEMBLE and CHAMBER last in Concrete Room; a broad head in a green-grey mist with amber eyes and an open, glowing maw" width="440"> <img src="docs/preset-spore-throat.jpg" alt="Spore Throat: no pitch change and no room, with CLEAN on Radio, DE-ESS, DETAIL, GROWL on Rattle, ROAR on Mic and OVERTONE on Speaker, Lean; a horned head with wide wings and a toothed maw, in a crimson rose mist" width="440">
-<img src="docs/preset-ball-bearing.jpg" alt="Ball Bearing: PITCH at +12 st on Snap, CLEAN, VOCODER, RING, SHIMMER, DE-ESS, DETAIL, CHAMBER in Padded Cell with the Tiny speaker and OVERTONE on; an early creature with amber eyes and a small open mouth, in a teal mist" width="440"> <img src="docs/preset-stairwell-stalker.jpg" alt="Stairwell Stalker: PITCH at -4 st, CLEAN, DE-ESS, DETAIL, SHIMMER, GROWL on Rattle, SWIRL, ROAR, ENSEMBLE, TAME, SUB and CHAMBER last in Tower Block at full width; a head in a slate-blue mist with amber eyes and a long row of teeth" width="440">
+<img src="docs/preset-simple-size.gif" alt="Simple Size: PITCH at -1 st, CLEAN, DE-ESS, TAME and CHAMBER on and everything else off; a dark mirrored blot with curling arms in pale blue-grey cloud, light settings keeping the default colour" width="440"> <img src="docs/preset-cyber-commander.gif" alt="Cyber Commander: CLEAN, RING, PITCH, ROAR, DE-ESS, DETAIL, GROWL and TAME on, with CLEAN and RING moved ahead of PITCH; a wide blot with long marbled wings that reach to the edges, in cold blue cloud" width="440">
+<img src="docs/preset-symbiote.gif" alt="Symbiote: PITCH, CLEAN, DE-ESS, SHIMMER, GROWL, SWIRL, ROAR, ENSEMBLE, TAME and SUB on; a compact blot of two heavy lobes with a faint glow in its fold, in rose-violet cloud" width="440"> <img src="docs/preset-iron-tyrant.gif" alt="Iron Tyrant: CHAMBER after ROAR in Steel Box with the Horn speaker, and PITCH, CLEAN, DE-ESS, DETAIL, GROWL, TAME and SUB on; a heavy, square blot with ragged lower edges, in warm stone-coloured cloud" width="440">
+<img src="docs/preset-upside-down.gif" alt="Upside Down: CLEAN, DE-ESS, DETAIL, PITCH at 0 st, ROAR, TAME, SUB at Tight, ENSEMBLE and CHAMBER last in Concrete Room; a blot with two broad arched wings, in green-grey cloud" width="440"> <img src="docs/preset-spore-throat.gif" alt="Spore Throat: no pitch change and no room, with CLEAN on Radio, DE-ESS, DETAIL, GROWL on Rattle, ROAR on Mic and OVERTONE on Speaker, Lean; a blot with spiky, curling arms, in crimson rose cloud" width="440">
+<img src="docs/preset-ball-bearing.gif" alt="Ball Bearing: PITCH at +12 st on Snap, CLEAN, VOCODER, RING, SHIMMER, DE-ESS, DETAIL, CHAMBER in Padded Cell with the Tiny speaker and OVERTONE on; a broad blot with thin streaming plumes of smoke, in teal cloud" width="440"> <img src="docs/preset-stairwell-stalker.gif" alt="Stairwell Stalker: PITCH at -4 st, CLEAN, DE-ESS, DETAIL, SHIMMER, GROWL on Rattle, SWIRL, ROAR, ENSEMBLE, TAME, SUB and CHAMBER last in Tower Block at full width; a low, wide blot with wisps lifting off its top, in slate-blue cloud" width="440">
 
 Each preset's settings sit in the useful part of every knob's travel, as measured in [docs/parameter-audit.md](docs/parameter-audit.md), and every preset except the deliberately loud Utility ones (Loud & Contained, Crunch Lift and Smashed) plays within about 1.5 LU of Init.
 
@@ -440,9 +474,9 @@ Each preset is a small `.roarschachpreset` XML file. Any control a preset doesn'
 
 ## About and updates
 
-Click **?** at the top right to open the About window, with the credits, the version and the license. CHECK FOR UPDATES asks GitHub for the latest Roarschach release and tells you if a newer one is out. Roarschach only checks when you click it.
+Click **?** at the top right to open the About window, with the credits, a five-step quick start, the latency the plug-in reports to the host (in milliseconds and samples, at the current sample rate), the version and the license. CHECK FOR UPDATES asks GitHub for the latest Roarschach release and tells you if a newer one is out. Roarschach only checks when you click it.
 
-<img src="docs/about.png" alt="The About window: created by Samuel Justice, with the CHECK FOR UPDATES button and the MIT license" width="500">
+<img src="docs/about.png" alt="The About window: created by Samuel Justice, a five-step quick start with the latency the plug-in reports (45.7 ms, 2192 samples at 48 kHz), the CHECK FOR UPDATES button and the MIT license" width="500">
 
 ## Quick start
 

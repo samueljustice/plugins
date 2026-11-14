@@ -309,6 +309,7 @@ namespace roar
             v->assign (size, 0.0f);
 
         m_levelRelease = static_cast<float> (dsp::poleFromTau (c_outputLevelReleaseSeconds, m_fs));
+        m_hits.prepare (m_fs);
         m_reorderCount = 0;
         reset();
     }
@@ -327,6 +328,7 @@ namespace roar
         m_waitLeft = 0;
         m_snap = true;
         m_outputLevel = 0.0f;
+        m_hits.reset();
     }
 
     Topology CreatureChain::topologyFor (const ChainSettings& s)
@@ -526,6 +528,7 @@ namespace roar
             level = x > level ? x : level * m_levelRelease;
         }
         m_outputLevel = dsp::flushTiny (level);
+        m_hits.process (outL, outR, n);
 
         m_in.publishFeatures (f);
         const int front = frontSet();
@@ -533,6 +536,9 @@ namespace roar
         m_output.publishFeatures (f);
         f.clipDb.store (m_output.getClipDb(), std::memory_order_relaxed);
         f.outputLevel.store (std::min (m_outputLevel, 1.0f), std::memory_order_relaxed);
+        f.hitStrength.store (m_hits.strength(), std::memory_order_relaxed);
+        f.rumble.store (m_hits.rumble(), std::memory_order_relaxed);
+        f.hits.store (m_hits.hits(), std::memory_order_relaxed);
 
         int mask = 0;
         for (int m = 0; m < c_numModules; ++m)

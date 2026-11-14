@@ -15,16 +15,48 @@ namespace
     constexpr int c_stripHeight = 336;
     constexpr int c_sectionGap = 12;
     constexpr float c_viewRadius = 8.0f;
-    constexpr float c_minScale = 0.5f, c_maxScale = 1.25f, c_defaultScale = 0.8f;
+    constexpr int c_displayReserve = 40;      // the least a display keeps for menus and a title bar
+    constexpr int c_hostFrameReserve = 110;   // a host's plug-in window: title bar and its own header
+    constexpr float c_hostWidthShare = 0.95f; // ... and the share of the display's width a first window takes
+    constexpr double c_rememberAfterMs = 800.0;
 
     const juce::Identifier c_viewEditorScale { "viewEditorScale" };
+    const juce::Identifier c_viewHintDone { "viewHintDone" };
+    const char* const c_settingsScaleKey = "editorScale";
+    const juce::Identifier c_undoFocus { "undoFocus" };   // a control Cmd+Z works from while it has the focus
+
+    const char* const c_hintText = "Play a voice through it to wake the creature. Pick a preset or roll a die to change it.";
+
+    juce::InterProcessLock& settingsLock()
+    {
+        static juce::InterProcessLock lock("SammyJRoarschachSettings");
+        return lock;
+    }
+
+    juce::PropertiesFile::Options settingsOptions()
+    {
+        juce::PropertiesFile::Options options;
+        options.applicationName = "Roarschach";
+        options.folderName = "Sammy J";
+        options.filenameSuffix = "settings";
+        options.osxLibrarySubFolder = "Application Support";
+        options.commonToAllUsers = false;
+        options.millisecondsBeforeSaving = -1; // saved explicitly
+        options.processLock = &settingsLock();
+        return options;
+    }
+
+    bool hasUndoFocus(const juce::Component* c)
+    {
+        return c != nullptr && (dynamic_cast<const DiceButton*>(c) != nullptr || c->getProperties().contains(c_undoFocus));
+    }
 
     const juce::String c_title = "ROARSCHACH";
     const juce::String c_taglineText = juce::String(Theme::tagline) + "  /";
 
     // Preset menu item IDs: factory presets are 1..getNumFactory() (they lead the preset list in a
     // fixed order, so their index is stable), user presets count up from c_firstUserItemId.
-    constexpr int c_saveAsItemId = 1001, c_deleteItemId = 1002, c_revealItemId = 1003;
+    constexpr int c_saveAsItemId = 1001, c_deleteItemId = 1002, c_revealItemId = 1003, c_undoItemId = 1004, c_redoItemId = 1005;
     constexpr int c_firstUserItemId = 100000;
 }
 
@@ -49,12 +81,18 @@ RoarschachAudioProcessorEditor::RoarschachAudioProcessorEditor(RoarschachAudioPr
     m_monsterView.setCreatureFrozen = [&audioProcessor](bool frozen) { audioProcessor.setCreatureFrozen(frozen); };
     m_monsterView.resetCreature = [&audioProcessor] { audioProcessor.resetCreature(); };
     m_monsterView.keepCreatureColour = [&audioProcessor](std::optional<roar::CreatureMood::Axes> colour) { audioProcessor.setCreatureColour(colour); };
+    // One line of help until this instance has heard audio once (kept with the session, so it stays away).
+    if (!static_cast<bool>(audioProcessor.getViewValue(c_viewHintDone, false)))
+    {
+        m_monsterView.setHint(c_hintText);
+        m_monsterView.onAudioHeard = [&audioProcessor] { audioProcessor.setViewValue(c_viewHintDone, true); };
+    }
     updateMonsterParams();
     m_content.addAndMakeVisible(m_monsterView);
     m_content.addAndMakeVisible(m_strip);
 
     m_aboutButton.setButtonText("?");
-    m_aboutButton.setTooltip("About Roarschach");
+    m_aboutButton.setTooltip("About Roarschach, and a quick start");
     m_aboutButton.onClick = [this] { showAboutWindow(); };
     m_content.addAndMakeVisible(m_aboutButton);
 
@@ -77,16 +115,31 @@ RoarschachAudioProcessorEditor::RoarschachAudioProcessorEditor(RoarschachAudioPr
         for (const auto& display : juce::Desktop::getInstance().getDisplays().displays)
         {
             const auto area = display.userArea;
-            if (area.getWidth() > 0 && area.getHeight() > 40)
+            if (area.getWidth() > 0 && area.getHeight() > c_displayReserve)
                 fits = std::max(fits, std::min(static_cast<float>(area.getWidth()) / static_cast<float>(c_baseWidth),
-                                               static_cast<float>(area.getHeight() - 40) / static_cast<float>(c_baseHeight)));
+                                               static_cast<float>(area.getHeight() - c_displayReserve) / static_cast<float>(c_baseHeight)));
         }
         if (fits > 0.0f)
             maxScale = juce::jlimit(c_minScale, c_maxScale, fits);
     }
-    const auto savedScale = static_cast<double>(m_audioProcessor.getViewValue(c_viewEditorScale, c_defaultScale));
-    const float scale = std::isfinite(savedScale) ? static_cast<float>(juce::jlimit<double>(c_minScale, maxScale, savedScale))
-                                                  : std::min(c_defaultScale, maxScale);
+    // Only in a host or the standalone app: tests and tools build the editor around a bare processor
+    // and must neither read nor change the size this computer remembers.
+    m_useMachineSettings = audioProcessor.wrapperType != juce::AudioProcessor::wrapperType_Undefined;
+
+    // This instance's own size (a session), else the size last chosen on this computer, else the
+    // largest default that leaves room on the main display.
+    const auto usable = [](double v) { return std::isfinite(v) && v > 0.0; };
+    double wanted = static_cast<double>(m_audioProcessor.getViewValue(c_viewEditorScale, 0.0));
+    if (!usable(wanted) && m_useMachineSettings)
+        wanted = static_cast<double>(readRememberedScale(getSettingsFile()));
+    if (!usable(wanted))
+    {
+        wanted = c_smallestDefaultScale;
+        if (const auto* display = juce::Desktop::getInstance().getDisplays().getPrimaryDisplay())
+            wanted = defaultScaleForDisplay(display->userArea.getWidth(), display->userArea.getHeight());
+    }
+    const float scale = static_cast<float>(juce::jlimit<double>(c_minScale, maxScale, wanted));
+    m_openedScale = scale;
     setResizable(true, true);
     setResizeLimits(juce::roundToInt(c_baseWidth * c_minScale), juce::roundToInt(c_baseHeight * c_minScale),
                     juce::roundToInt(c_baseWidth * maxScale), juce::roundToInt(c_baseHeight * maxScale));
@@ -109,6 +162,7 @@ RoarschachAudioProcessorEditor::~RoarschachAudioProcessorEditor()
 {
     stopTimer();
     removeMouseListener(&m_diceFocusRelease);
+    rememberSizeNow();
 
     // The update check first (its thread stops, its callback never runs), then its popup.
     m_updateCheck.reset();
@@ -151,7 +205,17 @@ void RoarschachAudioProcessorEditor::resized()
     m_content.setTransform(juce::AffineTransform::scale(scale));
 
     if (m_sizeRestored)
+    {
         m_audioProcessor.setViewValue(c_viewEditorScale, scale);
+
+        // A size the user chose is also the size the next new instance opens at (written once the
+        // drag has come to rest, not on every step of it).
+        if (std::abs(scale - m_openedScale) > 0.004f)
+        {
+            m_scaleToRemember = scale;
+            m_rememberAtMs = juce::Time::getMillisecondCounterHiRes() + c_rememberAfterMs;
+        }
+    }
 
     if (m_updatePopup != nullptr)
         m_updatePopup->setBounds(getLocalBounds()); // the card stays centred
@@ -227,6 +291,66 @@ void RoarschachAudioProcessorEditor::timerCallback()
 {
     updatePresetDisplay();
     updateMonsterParams();
+
+    if (m_scaleToRemember > 0.0f && juce::Time::getMillisecondCounterHiRes() >= m_rememberAtMs)
+        rememberSizeNow();
+}
+
+//==============================================================================
+// The window size
+//==============================================================================
+float RoarschachAudioProcessorEditor::defaultScaleForDisplay(int workAreaWidth, int workAreaHeight) noexcept
+{
+    if (workAreaWidth <= 0 || workAreaHeight <= c_hostFrameReserve)
+        return c_smallestDefaultScale;
+
+    const float fits = std::min(c_hostWidthShare * static_cast<float>(workAreaWidth) / static_cast<float>(c_baseWidth),
+                                static_cast<float>(workAreaHeight - c_hostFrameReserve) / static_cast<float>(c_baseHeight));
+    // In steps of 5 %, so the type lands on the same sizes from one display to the next.
+    const float stepped = std::floor(fits * 20.0f + 0.001f) / 20.0f;
+    return juce::jlimit(c_smallestDefaultScale, c_largestDefaultScale, stepped);
+}
+
+juce::File RoarschachAudioProcessorEditor::getSettingsFile()
+{
+    return settingsOptions().getDefaultFile();
+}
+
+float RoarschachAudioProcessorEditor::readRememberedScale(const juce::File& settingsFile)
+{
+    if (!settingsFile.existsAsFile())
+        return 0.0f;
+
+    juce::PropertiesFile settings(settingsFile, settingsOptions());
+    const double scale = settings.getDoubleValue(c_settingsScaleKey, 0.0);
+    return std::isfinite(scale) && scale > 0.0 ? juce::jlimit(c_minScale, c_maxScale, static_cast<float>(scale)) : 0.0f;
+}
+
+bool RoarschachAudioProcessorEditor::rememberScale(const juce::File& settingsFile, float scale)
+{
+    if (!std::isfinite(scale) || scale <= 0.0f)
+        return false;
+
+    juce::PropertiesFile settings(settingsFile, settingsOptions());
+    settings.setValue(c_settingsScaleKey, static_cast<double>(juce::jlimit(c_minScale, c_maxScale, scale)));
+    return settings.save();
+}
+
+void RoarschachAudioProcessorEditor::rememberSizeNow()
+{
+    const float scale = std::exchange(m_scaleToRemember, 0.0f);
+    if (scale > 0.0f && m_useMachineSettings)
+        rememberScale(getSettingsFile(), scale);
+}
+
+juce::String RoarschachAudioProcessorEditor::latencyNote(int latencySamples, double sampleRate)
+{
+    if (latencySamples <= 0 || !std::isfinite(sampleRate) || sampleRate <= 0.0)
+        return {};
+
+    const double kHz = sampleRate / 1000.0;
+    return juce::String(1000.0 * latencySamples / sampleRate, 1) + " ms (" + juce::String(latencySamples) + " samples at "
+         + (std::abs(kHz - std::round(kHz)) < 0.001 ? juce::String(juce::roundToInt(kHz)) : juce::String(kHz, 1)) + " kHz)";
 }
 
 void RoarschachAudioProcessorEditor::updateMonsterParams()
@@ -253,8 +377,12 @@ void RoarschachAudioProcessorEditor::updateMonsterParams()
     params.swirl = on(Params::swirlOn) * effect(view::swirl, Params::swirl);
     params.ensemble = on(Params::ensembleOn) * effect(view::ensemble, Params::ensemble);
     params.overtone = on(Params::overtoneOn) * effect(view::overtone, Params::overtone);
+    // (the knob's own travel too: the wisps are drawn only once it is turned up)
+    params.overtoneTravel = on(Params::overtoneOn) * percent(Params::overtone);
     params.ring = on(Params::ringOn) * percent(Params::ring);
     params.cleanOn = on(Params::cleanOn);
+    // (the edge is tidied only by containment beyond the usual fifth: the usual setting leaves the ink as it is)
+    params.clean = on(Params::cleanOn) * juce::jlimit(0.0f, 1.0f, (percent(Params::cleanContain) - 0.22f) / 0.78f);
     params.roar = on(Params::roarOn) * effect(view::roar, Params::roar);
     params.sub = on(Params::subOn) * effect(view::sub, Params::sub);
     params.gravel = on(Params::vocoderOn) * effect(view::gravel, Params::gravel);
@@ -280,7 +408,8 @@ void RoarschachAudioProcessorEditor::showAboutWindow()
         return;
     }
 
-    m_aboutWindow = std::make_unique<AboutWindow>(m_lookAndFeel, [this] { m_aboutWindow.reset(); });
+    m_aboutWindow = std::make_unique<AboutWindow>(m_lookAndFeel, [this] { m_aboutWindow.reset(); },
+                                                  latencyNote(m_audioProcessor.getLatencySamples(), m_audioProcessor.getSampleRate()));
 }
 
 void RoarschachAudioProcessorEditor::showUpdatePopup(const sammyj::UpdateInfo& info)
@@ -317,13 +446,19 @@ void RoarschachAudioProcessorEditor::setupPresetBar()
 
     m_presetPrevButton.setButtonText("<");
     m_presetPrevButton.setTooltip("Previous preset");
-    m_presetPrevButton.onClick = [this] { m_audioProcessor.getPresetManager().loadPrevious(); updatePresetDisplay(); };
+    m_presetPrevButton.onClick = [this] { m_audioProcessor.getDice().loadPrevious(); afterPresetLoad(false); };
 
     m_presetNextButton.setButtonText(">");
     m_presetNextButton.setTooltip("Next preset");
-    m_presetNextButton.onClick = [this] { m_audioProcessor.getPresetManager().loadNext(); updatePresetDisplay(); };
+    m_presetNextButton.onClick = [this] { m_audioProcessor.getDice().loadNext(); afterPresetLoad(false); };
 
-    m_presetNameButton.setTooltip("Choose a preset, or save, delete and find your presets");
+   #if JUCE_MAC
+    const juce::String undoKey = "Cmd+Z";
+   #else
+    const juce::String undoKey = "Ctrl+Z";
+   #endif
+    m_presetNameButton.setTooltip("Choose a preset, or save, delete and find your presets. Undo Load in this menu (or " + undoKey
+                                  + " straight after loading) brings back the sound you had, edits and all.");
     m_presetNameButton.onClick = [this] { showPresetMenu(); };
 
     m_presetSaveButton.setButtonText("SAVE");
@@ -344,6 +479,8 @@ void RoarschachAudioProcessorEditor::setupPresetBar()
 
     for (auto* b : { &m_presetPrevButton, &m_presetNameButton, &m_presetNextButton, &m_presetSaveButton })
         m_content.addAndMakeVisible(b);
+    for (auto* b : { &m_presetPrevButton, &m_presetNameButton, &m_presetNextButton })
+        b->getProperties().set(c_undoFocus, true);
 
     presets.refresh();
     updatePresetDisplay();
@@ -404,21 +541,47 @@ void RoarschachAudioProcessorEditor::showDiceMenu(juce::Component& die)
 
 bool RoarschachAudioProcessorEditor::diceUndoKey(bool redo)
 {
-    // Only the dice's own history: anything else is the host's to undo.
+    // Only the plug-in's own history (rolls and preset loads): anything else is the host's to undo.
     auto& dice = m_audioProcessor.getDice();
     const bool done = redo ? dice.redo() : dice.undo();
     afterRoll();
     return done;
 }
 
+bool RoarschachAudioProcessorEditor::undoKeyPressed(const juce::KeyPress& key)
+{
+    const bool isUndo = key == juce::KeyPress('z', juce::ModifierKeys::commandModifier, 0);
+    const bool isRedo = key == juce::KeyPress('z', juce::ModifierKeys::commandModifier | juce::ModifierKeys::shiftModifier, 0);
+    return (isUndo || isRedo) && diceUndoKey(isRedo);
+}
+
+bool RoarschachAudioProcessorEditor::keyPressed(const juce::KeyPress& key)
+{
+    // Keys reach the editor from a focused control that did not use them. A text field uses Cmd+Z
+    // itself (and never passes it on); from a knob's value box or any other control it is the host's.
+    // Only straight after a preset load (the preset bar still has the focus) is it the load's.
+    auto* focused = juce::Component::getCurrentlyFocusedComponent();
+    if (dynamic_cast<juce::TextEditor*>(focused) != nullptr || !(focused == this || hasUndoFocus(focused)))
+        return false;
+    return undoKeyPressed(key);
+}
+
+void RoarschachAudioProcessorEditor::afterPresetLoad(bool fromMenu)
+{
+    afterRoll();
+    // The menu took the focus while it was up: back to the preset name, so Cmd+Z takes the load back.
+    if (fromMenu && m_presetNameButton.isShowing())
+        m_presetNameButton.grabKeyboardFocus();
+}
+
 void RoarschachAudioProcessorEditor::DiceFocusRelease::release(const juce::MouseEvent& e)
 {
     auto* focused = juce::Component::getCurrentlyFocusedComponent();
-    if (dynamic_cast<DiceButton*>(focused) == nullptr || e.eventComponent == nullptr)
+    if (!hasUndoFocus(focused) || e.eventComponent == nullptr)
         return;
     for (auto* c = e.eventComponent; c != nullptr; c = c->getParentComponent())
-        if (dynamic_cast<DiceButton*>(c) != nullptr)
-            return;   // a die itself (it takes the focus)
+        if (hasUndoFocus(c))
+            return;   // a die or the preset bar itself (it takes the focus)
     focused->giveAwayKeyboardFocus();
 }
 
@@ -506,6 +669,15 @@ void RoarschachAudioProcessorEditor::showPresetMenu()
     // Delete is bound to the preset named here, even if another one is current by the time it is confirmed.
     const auto fileToDelete = snapshot.currentIsUser ? snapshot.currentFile : juce::File();
 
+    // The last roll or preset load, and back again (the same history as the dice's menu).
+    {
+        auto& dice = m_audioProcessor.getDice();
+        auto& undo = dice.getUndoManager();
+        menu.addSeparator();
+        menu.addItem(c_undoItemId, dice.canUndo() ? "Undo " + undo.getUndoDescription() : juce::String("Undo Load"), dice.canUndo());
+        menu.addItem(c_redoItemId, dice.canRedo() ? "Redo " + undo.getRedoDescription() : juce::String("Redo Load"), dice.canRedo());
+    }
+
     menu.addSeparator();
     menu.addItem(c_saveAsItemId, "Save As...");
     menu.addItem(c_deleteItemId, "Delete \"" + currentMenuName + "\"", fileToDelete != juce::File());
@@ -520,7 +692,12 @@ void RoarschachAudioProcessorEditor::showPresetMenu()
 
         auto& presetManager = safe->m_audioProcessor.getPresetManager();
 
-        if (result == c_saveAsItemId)
+        if (result == c_undoItemId || result == c_redoItemId)
+        {
+            safe->diceUndoKey(result == c_redoItemId);
+            safe->afterPresetLoad(true);
+        }
+        else if (result == c_saveAsItemId)
         {
             safe->promptSavePreset(presetManager.isCurrentUserPreset() ? presetManager.getCurrentName() : juce::String());
         }
@@ -537,14 +714,14 @@ void RoarschachAudioProcessorEditor::showPresetMenu()
         else if (result >= c_firstUserItemId)
         {
             if (const int i = result - c_firstUserItemId; i < userFiles.size())
-                presetManager.loadUserPreset(userFiles[i]);
+                safe->m_audioProcessor.getDice().loadUserPreset(userFiles[i]);
 
-            safe->updatePresetDisplay();
+            safe->afterPresetLoad(true);
         }
         else if (result >= 1 && result <= PresetManager::getNumFactory())
         {
-            presetManager.loadPreset(result - 1); // factory presets lead the list, in a fixed order
-            safe->updatePresetDisplay();
+            safe->m_audioProcessor.getDice().loadPreset(result - 1); // factory presets lead the list, in a fixed order
+            safe->afterPresetLoad(true);
         }
     });
 }

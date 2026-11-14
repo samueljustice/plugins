@@ -2,6 +2,8 @@
 
 #include <JuceHeader.h>
 
+#include "CreatureAnatomy.h"
+#include "CreatureFlow.h"
 #include "CreatureMotion.h"
 #include "MonsterShaders.h"
 
@@ -11,33 +13,29 @@
 
 namespace roar
 {
-    // The per-frame uniforms every program may read: name, components (1..4), array length.
-    // The creature's own uniforms first (as the single-pass shader always had them), then the head
-    // and jaw motion, then the medium's forces, light and post (filled by MonsterRenderer::prepare).
+    // The per-frame uniforms every program may read: name, components (1..4), array length. The
+    // view's readings first (the jaw, the modules, the colours), then the creature's own (form, seed,
+    // stage, characters, mood, the mark), then what prepare() fills: the anatomy, the flow, the
+    // carry, the cloud, the breath and the pigment rule's rates. A few are only read on the CPU
+    // (prepare() turns them into the ones the shaders read).
     #define ROAR_FRAME_UNIFORMS(X) \
-        X (uRes, 2, 1) X (uPxScale, 1, 1) X (uRadius, 1, 1) X (uTime, 1, 1) X (uJaw, 1, 1) X (uGrowl, 1, 1) \
-        X (uGrowlMod, 1, 1) X (uLiquid, 1, 1) X (uLiquidPhase, 1, 1) X (uRoar, 1, 1) X (uRoarDrive, 1, 1) \
+        X (uRes, 2, 1) X (uPxScale, 1, 1) X (uRadius, 1, 1) X (uJaw, 1, 1) X (uGrowl, 1, 1) \
+        X (uGrowlMod, 1, 1) X (uLiquid, 1, 1) X (uRoar, 1, 1) X (uRoarDrive, 1, 1) \
         X (uSub, 1, 1) X (uSubLevel, 1, 1) X (uSubPhase, 1, 1) X (uPitch, 1, 1) X (uSize, 1, 1) X (uGravelOn, 1, 1) \
-        X (uDetailLow, 1, 1) X (uDetailHigh, 1, 1) X (uBoost, 1, 1) X (uCut, 1, 1) X (uSleep, 1, 1) X (uBlink, 1, 1) \
+        X (uDetailLow, 1, 1) X (uDetailHigh, 1, 1) X (uSleep, 1, 1) \
         X (uLevel, 1, 1) X (uBands, 1, 32) X (uSwirlNotch, 1, 1) X (uSwirlAmt, 1, 1) X (uEnsWidth, 1, 1) \
         X (uDeess, 1, 1) X (uTame, 1, 1) X (uGateClosed, 1, 1) X (uOvLevel, 1, 1) X (uOvHarm, 1, 5) \
         X (uOvReplace, 1, 1) X (uRing, 1, 1) X (uRingFlicker, 1, 1) X (uRingBody, 1, 1) X (uStrain, 1, 1) \
-        X (uStrainPulse, 1, 1) X (uClip, 1, 1) \
-        X (uColScope, 3, 1) X (uColGrid, 3, 1) X (uColOuter, 3, 1) X (uColPitch, 3, 1) X (uColGrowl, 3, 1) \
-        X (uColLiquid, 3, 1) X (uColRoar, 3, 1) X (uColSub, 3, 1) X (uColDetail, 3, 1) X (uColVocoder, 3, 1) \
-        X (uColOutput, 3, 1) X (uColText, 3, 1) X (uColSwirl, 3, 1) X (uColOvertone, 3, 1) X (uColRing, 3, 1) \
-        X (uColDeess, 3, 1) X (uColEnsemble, 3, 1) \
-        X (uEvoHead, 4, 1) X (uEvoWing, 4, 1) X (uEvoHorn, 4, 1) X (uEvoEyes, 4, 1) X (uEvoMaw, 4, 1) \
-        X (uEvoInk, 4, 1) X (uEvoFlow, 4, 1) X (uEvoPal, 4, 1) X (uEvoMisc, 4, 1) X (uForm, 4, 1) X (uCloud, 4, 1) \
-        X (uSeed, 4, 1) X (uSeedB, 4, 1) X (uEvoChar, 4, 1) X (uDrift, 4, 1) X (uFlow, 4, 1) X (uFlow2, 4, 1) \
-        X (uColCloud, 3, 1) X (uColCloudLit, 3, 1) X (uColUnderglow, 3, 1) X (uColRedInk, 3, 1) \
-        X (uColWashA, 3, 1) X (uColWashB, 3, 1) X (uEgg, 1, 1) X (uLogoBox, 4, 1) \
-        X (uHead, 4, 1) X (uLip, 1, 1) X (uJawVel, 1, 1) X (uRoarHold, 1, 1) X (uAspect, 1, 1) X (uVort, 4, 8) \
-        X (uAmb, 4, 1) X (uSimK, 4, 1) X (uBuoy, 4, 1) X (uGather, 4, 1) X (uSplat, 4, 8) X (uSplatDir, 4, 8) \
-        X (uFrill, 4, 1) X (uEns, 4, 1) X (uDiv, 4, 3) X (uGatherD, 4, 1) X (uInk, 4, 1) X (uFogD, 4, 1) \
-        X (uEyeP, 4, 1) X (uLightDir, 4, 1) X (uEmit, 4, 4) X (uThroat, 4, 1) X (uEyeCol, 3, 1) X (uThroatCol, 3, 1) \
-        X (uEmitCol, 3, 1) X (uBloomK, 4, 1) X (uComp, 4, 1) X (uGrain, 4, 1) X (uSpark, 4, 1) X (uFormK, 1, 1) \
-        X (uAtmo, 4, 1) X (uAtmoTint, 3, 1) X (uMood, 4, 1)
+        X (uColOuter, 3, 1) X (uColCloudLit, 3, 1) \
+        X (uStage, 1, 1) X (uEvoChar, 4, 1) X (uEgg, 1, 1) X (uLogoBox, 4, 1) \
+        X (uHead, 4, 1) X (uLip, 1, 1) X (uJawVel, 1, 1) X (uAspect, 1, 1) \
+        X (uAtmoTint, 3, 1) X (uMood, 4, 1) \
+        X (uBlob, 4, 8) X (uBlobR, 4, 8) X (uLimbA, 4, 6) X (uLimbB, 4, 6) X (uMaw, 4, 1) X (uBay, 4, 2) \
+        X (uFlowK, 4, 1) X (uFlowO, 4, 1) X (uFlowC, 4, 1) X (uCarry, 4, 1) X (uInkF, 4, 1) X (uInkO, 4, 1) \
+        X (uCloudK, 4, 1) X (uCloudO, 4, 1) X (uBreath, 4, 1) X (uHold, 4, 1) X (uPig, 4, 1) \
+        X (uCloudT, 4, 1) X (uSubPulse, 4, 1) X (uSparkP, 4, 3) \
+        X (uModA, 4, 1) X (uModB, 4, 1) X (uModC, 4, 1) X (uModD, 4, 1) X (uModE, 4, 1) X (uClean, 1, 1) X (uChamber, 4, 1) X (uSpine, 4, 5) \
+        X (uRippleR, 4, 1) X (uRippleA, 4, 1) X (uRippleY, 4, 1) X (uRippleT, 4, 1)
 
     enum class U : int
     {
@@ -88,29 +86,34 @@ namespace roar
         float interval = 1.0f / 30.0f;      // the measured frame interval (governor)
         float targetInterval = 1.0f / 30.0f;
         bool dtClamped = false;             // the frame time was clamped (a stall): not a measurement
-        bool asleep = false;                // asleep and settled (the pressure solve may run every other frame)
-        double clock = 0.0;                 // seconds since the view started (slow paths)
-        float formationRate = 0.0f;         // dF/dt, 1/s
-        float roarKnob = 0.35f;
-        float swirlKnob = 0.0f;
+        bool asleep = false;                // asleep and settled (the ink buffer may step every other frame)
         AudioForces forces;                 // the force envelopes (stepped by the view)
+        // the ink creature: the blot's seed (and the one it is gliding to), and its own formation
+        std::uint32_t seedFrom = 1, seedTo = 1;
+        float seedGlide = 1.0f;             // 0..1 between them
+        float inkFormation = 1.0f;          // 0 cloud .. 1 formed (InkFormation, from the view)
+        float inputLoud = 0.0f;             // how loud the voice coming in is, 0..1
+        float overtoneAmount = 1.0f;        // OVERTONE's Amount as set, 0..1 (its wisps are drawn only once it is turned up)
     };
 
     /**
-     * The creature view's renderer: the creature as a field, a small fluid sim carrying the cloud,
-     * the fog, heat and red ink, one light pass, bloom and a full-resolution composite; or, on GPUs
-     * that can't (or are too slow), the single-pass stateless shader. No Component dependency, so the
-     * offline harness drives it directly.
+     * The creature view's renderer: the ink creature. On tiers 1 to 3 a half-domain ink buffer
+     * (held ink, free pigment, marbling, breath) is stepped by the pigment rule and drawn with the
+     * lit cloud round it; on tier 0 (software and virtual GPUs, and any context without what the
+     * buffer needs: measured cost never sends a GPU there) one stateless pass draws the same
+     * creature from the same shared shader block. No Component
+     * dependency, so the offline harness drives it directly.
      *
-     * GL thread only. create() in newOpenGLContextCreated (programs, fixed-size targets, probe),
-     * render() per frame (window-sized targets on the first frame and after a size change), release()
-     * in openGLContextClosing (every object deleted, every id zeroed). Nothing is allocated on the
-     * heap after create() except the window-sized textures when the window changes size.
+     * GL thread only. create() in newOpenGLContextCreated (programs, the buffer, probe), render() per
+     * frame (window-sized targets on the first frame and after a size change), release() in
+     * openGLContextClosing (every object deleted, every id zeroed). Nothing is allocated on the heap
+     * after create() except the window-sized textures when the window changes size, and the buffer
+     * when the tier changes.
      */
     class MonsterRenderer
     {
     public:
-        enum class Target { creatureField, emitter, velocity, pressure, dye, light, bloom, numTargets };
+        enum class Target { ink };
 
         struct PassTimer
         {
@@ -140,6 +143,40 @@ namespace roar
         bool isCreated() const { return m_created; }
         bool hasLogo() const { return m_logoTex != 0; }
 
+        /** The ink creature's single pass at the view's own size (1) or at half size and upscaled
+            (0); -1: by the GPU (full size on one that is known to be fast). */
+        void setInkFullSize (int full) { m_inkFullForced = full; }
+        /** Tests: the cloud in front of the ink at this share of its opacity (0: the ink bare). */
+        void setInkFrontCloud (float share) { m_inkFrontCloud = share; }
+        /** Tests: the rift's light held at this share of the blot's own (0 a dark moment, 1 a lit one; < 0: live). */
+        void setInkMoment (float moment) { m_inkMoment = moment; }
+        /** Tests: the rift's light itself (0 a dark tear .. 1 lit breath), whatever the blot's own is (< 0: the blot's). */
+        void setInkLight (float light) { m_inkLight = light; }
+        /** Tests: the modules' traces left out of the picture (what each module does to the voice
+            still reaches it), so a trace can be told from the voice it changed. */
+        void setInkTracesOff (bool off) { m_inkTracesOff = off; }
+        bool isInkFullSize() const { return m_inkFullForced >= 0 ? m_inkFullForced != 0 : m_inkFull; }
+        /** The ink creature as the last prepare() posed it (tests: the shader's inputs, for the C++ twins). */
+        const CreatureAnatomy::Pose& getInkPose() const { return m_inkPose; }
+        const CreatureFlow::Params& getInkFlow() const { return m_inkFlow; }
+        const CreatureAnatomy::Genome& getInkGenome() const { return m_genomes[(size_t) m_genomeNow]; }
+        /** What drove the ink creature's last frame (tests and the screenshot tool's log). */
+        struct InkState { float formation = 0.0f, opening = 0.0f, heat = 0.0f, level = 0.0f, light = 0.0f, carry = 0.0f, drift = 0.0f, kick = 0.0f, push = 0.0f, beads = 0.0f; };
+        const InkState& getInkState() const { return m_inkState; }
+        /** Tests: the ink buffer as bytes even where half floats work. Takes effect at the next create(). */
+        void setInkBytes (bool bytes) { m_inkBytesForced = bytes; }
+        bool isInkBytes() const { return m_inkBytes; }
+        /** The ink buffer's size on the tier being drawn (0 on the single pass). */
+        int inkColumns() const { return m_tier >= 1 ? m_inkBuf[0].w : 0; }
+        int inkRows() const { return m_tier >= 1 ? m_inkBuf[0].h : 0; }
+        /** All the pigment in the buffer against the cloud's own at rest, as last read back (1 at rest). */
+        float getInkBudget() const { return m_inkTotal; }
+        float getInkBudgetGain() const { return m_inkBudget; }
+        /** The cloud's own pigment, at rest. */
+        static constexpr float c_inkAmbient = 0.15f;
+        /** How much held ink one part of free pigment condenses into. */
+        static constexpr float c_inkYield = 3.0f;
+
         /** Fills the medium's uniforms (forces, light, emitters) from the creature's ones and the forces. */
         void prepare (MonsterFrame&);
 
@@ -149,17 +186,46 @@ namespace roar
         int getTier() const { return m_tier; }
         /** Harness and tests: hold a tier (-1 = the governor decides). */
         void setForcedTier (int tier) { m_forcedTier = tier; }
-        /** Harness and tests: a fixed 1/30 s step and a longer warm-up on the first frame. */
-        void setFixedStep (bool fixed, int warmupSteps = 120) { m_fixedStep = fixed; m_warmupSteps = warmupSteps; }
+        /** Harness and tests: a fixed 1/30 s step whatever the wall clock says. */
+        void setFixedStep (bool fixed) { m_fixedStep = fixed; }
         void requestReseed() { m_needsSeed = true; }
         void setPassTimer (PassTimer* t) { m_passTimer = t; }
         const Stats& getStats() const { return m_stats; }
         const QualityGovernor& getGovernor() const { return m_governor; }
-        int simRows() const { return m_simH; }
+        /** Tests: the governor itself (to script its readings). */
+        QualityGovernor& governorForTests() { return m_governor; }
+        /** Relief on the lowest tier (see QualityGovernor): none while a test holds a tier, unless a
+            test holds the relief too (-1: the governor's). */
+        void setForcedRelief (int relief) { m_forcedRelief = relief; }
+        int reliefNow() const { return m_forcedRelief >= 0 ? m_forcedRelief : (m_forcedTier >= 0 ? 0 : m_governor.relief); }
+        /** The lowest tier's draw is at 1 / this of the view's size. */
+        int lowDivisor() const { return reliefNow() >= 1 ? 3 : 2; }
+        /** Frames a second the view should ask for awake (30, or fewer in relief). */
+        int awakeHz() const { const int r = reliefNow(); return r >= 3 ? 15 : r == 2 ? 20 : 30; }
+        /** Tests: what this process remembers of each GPU's settled tier is forgotten. */
+        static void forgetTiersForTests();
 
-        /** Tests (allocates): every GL object this renderer holds. */
-        void collectObjectIds (std::vector<unsigned int>& textures, std::vector<unsigned int>& framebuffers,
-                               std::vector<unsigned int>& programs, std::vector<unsigned int>& buffers) const;
+        /** Tests: the longest of OVERTONE's wisps as last posed, view heights (0: none). */
+        float inkWispLengthForTests() const
+        {
+            float longest = 0.0f;
+            for (const auto& s : m_inkSpine)
+                longest = std::max (longest, s[1]);
+            return longest;
+        }
+        /** Tests: the slow scrolls moved on as this many seconds would move them (at rest). */
+        void advanceInkScrollsForTests (double seconds);
+        /** Tests: seconds (at rest) until this slow scroll next wraps; inkScrollCount of them. */
+        double inkScrollWrapInForTests (int index) const;
+        static constexpr int inkScrollCount = 13;
+
+        /** Tests (allocates): every GL object this renderer holds, each kind in its own list. */
+        struct ObjectIds
+        {
+            std::vector<unsigned int> textures, framebuffers, programs, buffers, queries, vertexArrays;
+            bool timers = false;   // it has timer queries (then queries is not empty)
+        };
+        void collectObjectIds (ObjectIds&) const;
 
         /** Harness only (allocates): the active rectangle of a target as RGBA floats, rows bottom up. */
         bool readTarget (Target, std::vector<float>& rgba, int& w, int& h);
@@ -171,20 +237,9 @@ namespace roar
             int w = 0, h = 0;
         };
 
-        struct TierSpec
-        {
-            int simW, dyeMul, cfDiv, sunSteps, emitTaps, bloomLevels, jacobi;
-            bool cubic, corrected, halfComposite;
-        };
+        enum class R : int { uSrcS, uDither, uInkRes, uInkStep, uInkRule, uInkTier, numR };
 
-        enum class R : int
-        {
-            uOutRes, uSimTexel, uSimRes, uSimS, uDt, uFirst, uDiss, uSeedMode, uWarm, uDyeS, uCFS, uLightS,
-            uBloomS, uSrcS, uSrcTexel, uDyeTexel, uDyeRes, uCFTexel, uDyeOn, uSteps, uUpGain, uDivK, uDither,
-            numR
-        };
-
-        enum class S : int { dye, v, e, cf, light, noise, bloom, logo, wc, p, dv, src, numS };
+        enum class S : int { noise, logo, src, ink, numS };
 
         struct Prog
         {
@@ -195,12 +250,15 @@ namespace roar
             std::uint32_t uploaded = 0xffffffffu;
         };
 
-        static const TierSpec& spec (int tier);
+        static double inkScrollRate (int index, double eddyPace, double jet);
+        static double inkScrollPeriod (int index);
+        void stepInkScrolls (double dt, double eddyPace, double jet);
         bool buildProgram (shaders::Program, Prog&);
+        void prepareInk (MonsterFrame&);
+        const CreatureAnatomy::Genome& genomeFor (std::uint32_t seed, std::uint32_t keep);
         bool makeTex (Tex&, int w, int h, bool halfFloat, bool repeat = false, const void* rgba8 = nullptr);
         void freeTex (Tex&);
         bool probeFloat();
-        void ensureWindowTargets (int w, int h, float dt);
         void use (shaders::Program, const MonsterFrame&);
         void bind (S, const Tex&);
         void bindRaw (S, unsigned int tex);
@@ -209,51 +267,90 @@ namespace roar
         void setR (R, float a, float b, float c, float d);
         void setScale (R, const Tex&, int activeW, int activeH);
         void draw (const Tex* dst, int w, int h, const char* passName);
-        /** One sim step of dt. emitDt: the time since the emitter last ran (its obstacle speed is the
-            distance change over that), or <= 0 to keep the last emitter output (later substeps).
-            divDt: the time the divergence sources stand for (all the time since the last pressure solve). */
-        void simStep (const MonsterFrame&, float dt, bool solvePressure, float emitDt, float divDt);
-        bool allocSim();
-        void freeFluid();
         void rememberTier();
-        void seed (const MonsterFrame&);
-        void resampleTier (int from, int to);
-        void drawSinglePass (const MonsterFrame&, unsigned int hostFbo, const int vp[4], float alpha);
-        bool ensureQ0Target (int w, int h);
+        void drawSinglePass (const MonsterFrame&, unsigned int hostFbo, const int vp[4]);
+        // the ink creature's buffer (tiers 1 to 3)
+        static int inkWidthFor (int tier) { return tier >= 3 ? 512 : (tier == 2 ? 384 : 256); }
+        bool allocInk (int tier);
+        bool makeInkTex (int index, int w, int h);
+        void freeInk();
+        void inkUniforms (float dt, bool fresh);
+        void inkStep (const MonsterFrame&, float dt, bool fresh);
+        void inkResample (int toTier);
+        void inkBudgetRead();
+        void ensureInkWindowTargets (int w, int h, float dt, int div);
+        void renderInkTier (const MonsterFrame&, int tier, unsigned int hostFbo, const int vp[4]);
+        bool ensureQ0Target (int w, int h, int div);
         void readTimers();
-        void sizesFor (int tier, int& simW, int& simH, int& dyeW, int& dyeH) const;
 
-        bool m_created = false, m_core = true, m_simOk = false;
+        bool m_created = false, m_core = true, m_simOk = false;   // (m_simOk: the buffer's tiers can run here)
+        bool m_textureLod = true;    // the noise can be read at an explicit level of detail
+        bool m_inkFull = false;      // this GPU draws the ink creature's single pass at full size
+        int m_inkFullForced = -1;
+        float m_inkFrontCloud = 1.0f;
+        // the ink creature (GL thread; fixed storage: a new seed never allocates)
+        std::array<CreatureAnatomy::Genome, 2> m_genomes {};
+        std::array<bool, 2> m_genomeValid {};
+        int m_genomeNow = 0;
+        CreatureAnatomy::Pose m_inkPose;
+        CreatureFlow::Params m_inkFlow;
+        InkState m_inkState;
+        static constexpr int c_inkScrolls = 13;
+        double m_inkPhase[c_inkScrolls] {};   // the slow scrolls (see stepInkScrolls): each wrapped at its own period
+        Tex m_inkBuf[2];             // the ink buffer's ping-pong pair (half the view, with its mips)
+        unsigned int m_inkPbo = 0;   // the budget's read comes back through this, frames later
+        int m_inkCur = 0, m_inkTopLevel = 0, m_inkTopW = 1, m_inkTopH = 1;
+        int m_inkReadAge = -1;       // frames since the budget's read was asked for (-1: none pending)
+        bool m_inkBytes = false, m_inkBytesForced = false;
+        bool m_inkSimToggle = false;
+        float m_inkSimDt = 0.0f;     // time the buffer has not been stepped for (asleep: every other frame)
+        float m_inkTotal = 1.0f, m_inkBudget = 1.0f;
+        float m_inkFPrev = -1.0f, m_inkFRate = 0.0f, m_inkKick = 0.0f, m_inkFalling = 0.0f, m_inkFloor = 0.0f, m_inkSmoke = 1.0f, m_inkGather = 0.0f;
+        float m_inkLetGo = 0.0f;     // how lately the body was let go: up as the hold gives, down as it gathers again
+        float m_inkQuiet = 0.0f, m_inkHush = 0.0f;   // how long the voice has been still, and the hush that lets the rim go
+        float m_inkUnSingle = 0.0f;  // the single pass's own unformedness: it lets go no faster than the buffer's smoke clears
+        float m_inkSwellHold = 0.0f; // seconds the swell is held for yet
+        float m_inkFitK = 1.0f, m_inkFitY = 0.0f;   // the pose kept inside the view: its scale and shift, eased
+        float m_inkNotch = 0.0f;     // SWIRL's notch as the bound pair's place follows it (eased)
+        float m_inkBands[32] {};     // VOCODER's band levels as the strata follow them (eased)
+        float m_inkSpine[5][2] {};   // OVERTONE's spines as they follow the body's top: root height, length (eased)
+        float m_inkGate = 0.0f, m_inkTame = 0.0f;   // CLEAN's gate and TAME as the limbs follow them (eased)
+        float m_inkTidy = 0.0f;      // CLEAN's tidiness, as the edge follows it (eased)
+        float m_inkTraceK = 1.0f;    // the trace budget's scale (eased)
+        double m_inkModPhase[4] {};  // the modules' own clocks: RING's ripples, GROWL's ruffle, SHIMMER's beads, CHAMBER's bands
+        float m_inkHeat = 0.0f;      // the roar's heat as the eddies follow it (eased)
+        float m_inkSwirl = 0.0f;     // SWIRL's amount as the bound pair follows it (eased)
+        float m_inkJet = 0.0f;       // the breath's jet, smoothed
+        float m_inkLevel = 0.0f;     // the level the eddies follow, smoothed
+        float m_inkSwell = 0.0f;     // the roar's heat as the body follows it: up at once, down over seconds
+        double m_inkCloudPhase = 0.0;   // the far cloud's carry, a cycle of nine seconds
+        int m_inkSparkSeed = -1;     // the spark the beads were last thrown for
+        float m_inkSparkAge = 9.0f;
+        std::array<std::array<float, 4>, 3> m_inkBead {};   // each bead: where it left the rim xy, its way xy
+        float m_inkLight = -1.0f;    // tests: the rift's light, whatever the blot's own (< 0: the blot's)
+        float m_inkMoment = -1.0f;   // tests: the rift's light held at this moment's share (< 0: live)
+        bool m_inkTracesOff = false; // tests: no module traces
         float m_aspect = 3.27f;
-        int m_simH = 78;       // rows of the Q3 sim
         std::array<Prog, (size_t) shaders::Program::numPrograms> m_progs {};
         Prog* m_cur = nullptr;
         unsigned int m_vbo = 0, m_vao = 0, m_logoTex = 0, m_noiseTex = 0;
-        Tex m_E[2], m_V[2], m_P[2], m_dye[2], m_Wc, m_Dv, m_light;
-        Tex m_cf, m_bloom[4], m_half, m_fade;
-        Tex m_q0;                    // the single pass at half resolution (grown, never shrunk; RGBA8)
+        Tex m_half, m_fade;          // the half-size composite (tier 1; a third in relief) and the tier crossfade's kept frame
+        Tex m_q0;                    // the single pass at half resolution, or a third (grown, never shrunk; RGBA8)
         bool m_q0HalfFailed = false; // no half-resolution target here: the single pass draws at full size
-        int m_e = 0, m_v = 0, m_p = 0, m_d = 0;
-        int m_winW = 0, m_winH = 0, m_pendW = 0, m_pendH = 0;
+        int m_winW = 0, m_winH = 0, m_pendW = 0, m_pendH = 0, m_halfDiv = 2;
+        int m_forcedRelief = -1;
         float m_pendSeconds = 0.0f;
-        bool m_needsSeed = true, m_firstEmitter = true;
+        bool m_needsSeed = true;
         int m_tier = 0, m_prevTier = -1, m_forcedTier = -1, m_capTier = 3;
         bool m_fixedStep = false;
-        int m_warmupSteps = 30;
-        float m_fadeQ0 = -1.0f;      // >= 0: crossfading into the single pass (seconds into it)
-        bool m_tierCapture = false;  // the old tier drew once more and was kept, for the crossfade
+        bool m_tierCapture = false;  // the tier being left drew once more and was kept, for the crossfade
         float m_tierFade = -1.0f;    // >= 0: crossfading from the kept frame (seconds into it)
         bool m_fadeUnsupported = false;  // the crossfade blit failed once: tier changes switch outright
-        bool m_fluidFreed = false;   // settled on the single pass: the fluid's textures are given back
-        float m_divDt = 0.0f;        // time since the last pressure solve (the divergence sources' share)
         char m_rendererKey[128] {};  // GL_RENDERER + GL_VENDOR (the settled tier is remembered per GPU)
         float m_freshGpuMs = -1.0f;  // a timer reading that arrived this frame (-1 = none)
         std::uint32_t m_frame = 0;
-        bool m_pressureToggle = false;
-        double m_amb[4] {};
         PassTimer* m_passTimer = nullptr;
         QualityGovernor m_governor;
-        MistMotion m_mist;           // the top mist layer (kept across a context loss: no pop)
         Stats m_stats;
         // the one-query-per-frame GPU timer ring
         std::array<unsigned int, 4> m_queries {};

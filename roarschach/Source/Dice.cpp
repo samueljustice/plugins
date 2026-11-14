@@ -149,7 +149,13 @@ void DiceRoller::applyRealValues(const Params::Random::Values& values)
     }
 }
 
-void DiceRoller::commit(State before, const juce::String& name)
+DiceRoller::State DiceRoller::begin()
+{
+    historyApplies();
+    return capture();
+}
+
+void DiceRoller::commit(State before, const juce::String& name, bool newFace)
 {
     m_undo.beginNewTransaction(name);
     auto after = capture();
@@ -157,7 +163,38 @@ void DiceRoller::commit(State before, const juce::String& name)
     m_historyGeneration = m_presets.getLoadGeneration();
     m_undo.perform(new RollAction(*this, std::move(before), std::move(after)));
     m_undo.beginNewTransaction();
-    m_face = 1 + Params::Random::uniformInt(m_rng, 6);
+    if (newFace)
+        m_face = 1 + Params::Random::uniformInt(m_rng, 6);
+}
+
+//==============================================================================
+bool DiceRoller::load(const std::function<bool()>& loadIt)
+{
+    auto before = begin();
+    if (!loadIt())
+        return false;
+    commit(std::move(before), "Load", false);
+    return true;
+}
+
+bool DiceRoller::loadPreset(int index)
+{
+    return load([this, index] { return m_presets.loadPreset(index); });
+}
+
+bool DiceRoller::loadUserPreset(const juce::File& file)
+{
+    return load([this, &file] { return m_presets.loadUserPreset(file); });
+}
+
+bool DiceRoller::loadNext()
+{
+    return load([this] { return m_presets.loadNext(); });
+}
+
+bool DiceRoller::loadPrevious()
+{
+    return load([this] { return m_presets.loadPrevious(); });
 }
 
 //==============================================================================
@@ -199,7 +236,7 @@ int DiceRoller::pickPreset(int current)
 
 int DiceRoller::rollPreset()
 {
-    auto before = capture();
+    auto before = begin();
     const int pick = pickPreset(m_presets.getCurrentFactoryIndex());
     // Factory presets lead the preset list, so a factory index is also its list index.
     if (pick < 0 || !m_presets.loadPreset(pick))
@@ -210,7 +247,7 @@ int DiceRoller::rollPreset()
 
 void DiceRoller::rollAll()
 {
-    auto before = capture();
+    auto before = begin();
     Params::Random::Values values;
     Params::Random::rollAll(m_rng, values);
     applyRealValues(values);
@@ -221,7 +258,7 @@ void DiceRoller::rollModule(int module)
 {
     if (!juce::isPositiveAndBelow(module, Params::numModules))
         return;
-    auto before = capture();
+    auto before = begin();
     Params::Random::Values values;
     Params::Random::rollModule(m_rng, module, values);
     applyRealValues(values);

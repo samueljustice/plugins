@@ -2,6 +2,7 @@
 
 #include "../Params.h"
 #include "DryPhaseMatch.h"
+#include "HitDetector.h"
 #include "MonsterFeatures.h"
 #include "common/DelayLine.h"
 #include "common/Module.h"
@@ -252,6 +253,7 @@ namespace roar
         std::vector<float> m_dryL, m_dryR, m_monoIn, m_aL, m_aR, m_bL, m_bR, m_scratchR;
 
         float m_outputLevel = 0.0f;
+        HitDetector m_hits;          // hits in the output, for the picture's ripples
         float m_levelRelease = 0.999f;
         int m_generation = 0;
     };

@@ -9,7 +9,7 @@ namespace
     constexpr int c_connectionTimeoutMs = 5000;
     constexpr int c_stopTimeoutMs = 10000; // a cancelled request unwinds in milliseconds; this is a backstop
 
-    // Layout of the About window's content (500 x 650), in the editor's design units.
+    // Layout of the About window's content (500 x 760), in the editor's design units.
     constexpr int c_margin = 16;
     constexpr int c_headerBlockHeight = 66;  // mark + name, tagline, version
     constexpr int c_panelGap = 12;
@@ -17,6 +17,9 @@ namespace
     constexpr int c_creditsHeight = 98;
     constexpr int c_textInset = 26;          // body text lines up with the panel title, after its dot
     constexpr int c_linkHeight = 22;
+    constexpr int c_quickNumberWidth = 18;   // the step numbers' column
+    constexpr int c_quickLineGap = 5;
+    constexpr int c_quickBottomPad = 10;
 
     // Release tags of this plug-in in the shared repository: "roarschach-v1.2.3".
     const char* const c_tagPrefix = "roarschach-v";
@@ -34,10 +37,10 @@ namespace
 //-----------------------------------------------------------------
 // AboutWindow
 //-----------------------------------------------------------------
-AboutWindow::AboutWindow(RoarschachLookAndFeel& editorLookAndFeel, std::function<void()> onClose)
+AboutWindow::AboutWindow(RoarschachLookAndFeel& editorLookAndFeel, std::function<void()> onClose, const juce::String& latencyNote)
     : DocumentWindow("About Roarschach", Theme::Colours::background, DocumentWindow::closeButton)
     , m_onClose(std::move(onClose))
-    , m_content(editorLookAndFeel)
+    , m_content(editorLookAndFeel, latencyNote)
 {
     setLookAndFeel(&editorLookAndFeel); // the editor's: it outlives this window (the editor deletes it first)
     RoarschachLookAndFeel::showFocusRingsAfterTab(*this);
@@ -45,7 +48,10 @@ AboutWindow::AboutWindow(RoarschachLookAndFeel& editorLookAndFeel, std::function
     setUsingNativeTitleBar(true);
     setContentNonOwned(&m_content, false);
 
-    centreWithSize(500, 650);
+    int height = c_height;
+    if (const auto* display = juce::Desktop::getInstance().getDisplays().getPrimaryDisplay())
+        height = heightForDisplay(display->userArea.getHeight());
+    centreWithSize(c_width, height);
     setVisible(true);
     setResizable(false, false);
     setAlwaysOnTop(true);
@@ -57,6 +63,42 @@ AboutWindow::~AboutWindow()
     m_content.stopUpdateCheck(); // aborts a request in flight and joins its thread
     clearContentComponent();
     setLookAndFeel(nullptr);
+}
+
+int AboutWindow::heightForDisplay(int workAreaHeight) noexcept
+{
+    // Room for the title bar. On a short display the licence panel gives up the height (it scrolls).
+    return workAreaHeight > 0 ? juce::jlimit(c_minHeight, c_height, workAreaHeight - c_titleBarReserve) : c_height;
+}
+
+juce::StringArray AboutWindow::quickStartLines()
+{
+   #if JUCE_MAC
+    const juce::String undoKey = "Cmd+Z";
+   #else
+    const juce::String undoKey = "Ctrl+Z";
+   #endif
+    return {
+        "Put it on a voice track and play. The creature wakes when it hears sound.",
+        "Pick a preset from the name at the top, step with < and >, or roll the die beside them.",
+        "Each tile is one module: its light switches it on, its knobs shape it, its chip picks a mode.",
+        "Drag a tile by its header to move it in the chain. A tile's die gives that module new settings.",
+        undoKey + " straight after a roll or a preset load brings back the sound you had. OUTPUT sets the level."
+    };
+}
+
+juce::String AboutWindow::latencyLine(const juce::String& latencyNote)
+{
+    return latencyNote.isNotEmpty()
+         ? "Latency: " + latencyNote + ". The host lines the track up with it; monitoring live, you hear yourself that much late."
+         : juce::String("Latency: the plug-in reports its delay to the host, which lines the track up with it; monitoring live, you hear yourself late.");
+}
+
+std::unique_ptr<juce::Component> AboutWindow::createContent(RoarschachLookAndFeel& editorLookAndFeel, const juce::String& latencyNote)
+{
+    auto content = std::make_unique<AboutContent>(editorLookAndFeel, latencyNote);
+    content->setSize(c_width, c_height);
+    return content;
 }
 
 void AboutWindow::closeButtonPressed()
@@ -206,8 +248,9 @@ AboutWindow::UpdateCheck::Result AboutWindow::UpdateCheck::interpret(const juce:
 //-----------------------------------------------------------------
 // AboutContent
 //-----------------------------------------------------------------
-AboutWindow::AboutContent::AboutContent(RoarschachLookAndFeel& editorLookAndFeel)
+AboutWindow::AboutContent::AboutContent(RoarschachLookAndFeel& editorLookAndFeel, const juce::String& latencyNote)
     : m_lookAndFeel(editorLookAndFeel)
+    , m_latencyLine(latencyLine(latencyNote))
     , m_updateCheck(juce::URL(c_releasesUrl), JucePlugin_VersionString, [this](const UpdateCheck::Result& result)
       {
           m_updateStatusLabel.setText(result.text, juce::dontSendNotification);
@@ -325,6 +368,7 @@ void AboutWindow::AboutContent::paint(juce::Graphics& g)
 
     // Panels like the editor's sections.
     m_lookAndFeel.drawPanel(g, m_creditsPanel.toFloat(), "CREATED BY", output);
+    m_lookAndFeel.drawPanel(g, m_quickStartPanel.toFloat(), "QUICK START", Theme::Colours::pitch);
     m_lookAndFeel.drawPanel(g, m_updatesPanel.toFloat(), "UPDATES", input, static_cast<float>(m_updatesPanel.getHeight()));
     m_lookAndFeel.drawPanel(g, m_licencePanel.toFloat(), "LICENSE", master);
 
@@ -339,6 +383,60 @@ void AboutWindow::AboutContent::paint(juce::Graphics& g)
     g.drawText("/", juce::Rectangle<int>(m_websiteButton.getRight(), m_websiteButton.getY(),
                                          m_emailButton.getX() - m_websiteButton.getRight(), m_websiteButton.getHeight()).toFloat(),
                juce::Justification::centred, false);
+
+    // Quick start: numbered steps, then the latency line (no number, dimmer).
+    {
+        const float left = static_cast<float>(m_quickStartPanel.getX() + c_textInset);
+        float y = static_cast<float>(m_quickStartPanel.getY() + c_panelHeaderHeight + 4);
+        const int steps = static_cast<int>(m_quickStart.size()) - 1;
+        for (int i = 0; i < static_cast<int>(m_quickStart.size()); ++i)
+        {
+            const auto& layout = m_quickStart[static_cast<size_t>(i)];
+            if (i < steps)
+            {
+                g.setFont(m_fonts->label(11.0f));
+                g.setColour(output);
+                g.drawText(juce::String(i + 1), juce::Rectangle<float>(left, y, static_cast<float>(c_quickNumberWidth), 15.0f),
+                           juce::Justification::topLeft, false);
+            }
+            else
+            {
+                y += 3.0f;
+                g.setColour(outlineSoft);
+                g.fillRect(juce::Rectangle<float>(left, y, static_cast<float>(m_quickStartPanel.getRight() - 12) - left, 1.0f));
+                y += 3.0f + static_cast<float>(c_quickLineGap);
+            }
+            const float textLeft = i < steps ? left + static_cast<float>(c_quickNumberWidth) : left;
+            layout.draw(g, juce::Rectangle<float>(textLeft, y, layout.getWidth(), layout.getHeight()));
+            y += layout.getHeight() + static_cast<float>(c_quickLineGap);
+        }
+    }
+}
+
+int AboutWindow::AboutContent::layoutQuickStart(int width)
+{
+    m_quickStart.clear();
+    const auto font = m_fonts->body(11.5f);
+    const float textWidth = static_cast<float>(width - c_textInset - 12);
+    float height = static_cast<float>(c_panelHeaderHeight + 4);
+
+    const auto add = [&](const juce::String& line, juce::Colour colour, float lineWidth)
+    {
+        juce::AttributedString text;
+        text.setJustification(juce::Justification::topLeft);
+        text.setLineSpacing(2.0f);
+        text.append(line, font, colour);
+        juce::TextLayout layout;
+        layout.createLayout(text, lineWidth);
+        height += layout.getHeight() + static_cast<float>(c_quickLineGap);
+        m_quickStart.push_back(std::move(layout));
+    };
+
+    for (const auto& line : quickStartLines())
+        add(line, Theme::Colours::text.withAlpha(0.9f), textWidth - static_cast<float>(c_quickNumberWidth));
+    height += 6.0f + static_cast<float>(c_quickLineGap);   // the rule above the latency line
+    add(m_latencyLine, Theme::Colours::textDim, textWidth);
+    return juce::roundToInt(std::ceil(height)) + c_quickBottomPad - c_quickLineGap;
 }
 
 void AboutWindow::AboutContent::resized()
@@ -347,6 +445,8 @@ void AboutWindow::AboutContent::resized()
     area.removeFromTop(c_headerBlockHeight + 14);
 
     m_creditsPanel = area.removeFromTop(c_creditsHeight);
+    area.removeFromTop(c_panelGap);
+    m_quickStartPanel = area.removeFromTop(layoutQuickStart(area.getWidth()));
     area.removeFromTop(c_panelGap);
     m_updatesPanel = area.removeFromTop(c_panelHeaderHeight);
     area.removeFromTop(c_panelGap);

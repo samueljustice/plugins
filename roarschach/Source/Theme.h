@@ -25,9 +25,13 @@ namespace Theme
         inline const juce::Colour outline     { 0xff262b37 };
         inline const juce::Colour outlineSoft { 0xff1d212b };
 
+        // Text, by rank. Contrast against the panel colour: 14.8, 7.0 and 4.65 to 1 (the faintest is
+        // still at least 4.2 to 1 on a raised panel), so the smallest labels read at any window size.
         inline const juce::Colour text        { 0xffece9e3 };
-        inline const juce::Colour textDim     { 0xff8d92a0 };
-        inline const juce::Colour textFaint   { 0xff565b68 };
+        inline const juce::Colour textDim     { 0xff9da2b0 };
+        inline const juce::Colour textFaint   { 0xff7c8291 };
+        // Small marks that are not text (the chain's arrows, a bar's centre tick, an unlit lamp).
+        inline const juce::Colour mark        { 0xff565b68 };
 
         inline const juce::Colour input       { 0xff5ec8d8 }; // teal
         inline const juce::Colour harmonics   { 0xffef6f8e }; // rose

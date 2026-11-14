@@ -18,8 +18,10 @@ namespace roar
      * quantity moves continuously. Four character accumulators (fluid, beast, eldritch, deep) bend
      * the anatomy by which modules have been doing the work.
      *
-     * evaluate() blends six anchor forms along the spine and the character offsets on top, and
-     * returns every shader parameter: the GL side never branches on a stage.
+     * evaluate() returns the stage, the character leans, the seeds the blot grows from and the few
+     * values blended along the spine (the jaw's weight, how far the creature forms, the light of the
+     * cloud). What a stage means for the blot itself is CreatureAnatomy's: it switches structure in
+     * as the stage rises (CreatureAnatomy::evaluate).
      *
      * Rarely, after a long stay at the top of the spine, a fresh shout lets the ink flow into the
      * maker's logo for a few seconds and back (the egg state machine below).
@@ -53,39 +55,25 @@ namespace roar
             bool eggVisible = true;      // a view is open that can draw the logo
         };
 
-        /** Every parameter the shader is given, blended on the CPU. */
+        /** What the view is given, blended on the CPU. */
         enum Param : int
         {
-            cranScale, snout, jawMass, brow,
-            wingSpan, wingLift, eyespots, fingers,
-            hornLength, hornCurl, hornTine, crown,
-            browEyes, cheekEyes, centreEye, eyeSize,
-            mawWidth, teethLength, thirdRow, cheekSpikes,
-            solidity, bleed, dryBrush, gloss,
-            dripRate, extraDrips, extraTendrils, tendrilReach,
-            pastel, redBlack, glow, bioLum,
-            antennae, scales, centralFigure, satellites,
-            inkiness, fogFront, formFloor, formCeiling,
-            coffeeRing, eyeSpacing, crownSpread, spare0,
-            cloudR, cloudG, cloudB,
-            cloudLitR, cloudLitG, cloudLitB,
-            underglowR, underglowG, underglowB,
-            redInkR, redInkG, redInkB,
-            washAR, washAG, washAB,
-            washBR, washBG, washBB,
+            jawMass,           // the jaw's weight (its spring)
+            formFloor, formCeiling,   // how far the creature forms, cool and hot
+            cloudLitR, cloudLitG, cloudLitB,   // the light of the cloud at this stage and character
             // derived
             formBase,          // formation the stage and heat allow (before the GL side's fast roar term)
             egg,               // 0..1 logo amount
-            seedAX, seedAY,    // mirrored-noise offset of the current blot
-            seedBX, seedBY,    // ... of the blot being glided to
-            seedGlide,         // 0..1 between them
-            cloudX, cloudY,    // offset of the (unmirrored) cloud field
+            seedGlide,         // 0..1 from the current blot to the one being glided to
             stageOut, energyOut,
             charFluid, charBeast, charEldritch, charDeep,   // how far each character leans, -1/3..1 (0 neutral)
+            // the seed the anatomy is grown from (the session's seed and the preset's hash), as two
+            // 16-bit halves each (exact in a float): the current blot, the one glided to
+            anatomyALo, anatomyAHi, anatomyBLo, anatomyBHi,
             numParams
         };
 
-        static constexpr int numStageParams = washBB + 1;   // the rows of the stage table
+        static constexpr int numStageParams = cloudLitB + 1;   // the rows blended along the spine
         using Params = std::array<float, numParams>;
 
         /** The slowly-changing state that is saved with a session. */
@@ -118,6 +106,12 @@ namespace roar
         float getSeedGlide() const { return m_seedGlide; }
         /** Instant (a session load): no glide. */
         void setSeed (std::uint32_t seed);
+        /** The preset's hash (CreatureAnatomy::hashName; 0 none): each preset has its own blot on an
+            instance's seed. glide: over the seed glide's 8 s (a preset change); false: at once (a load). */
+        void setPresetHash (std::uint32_t hash, bool glide);
+        std::uint32_t getPresetHash() const { return m_hasQueuedSeed ? m_queuedHash : m_hashTo; }
+        /** The seed the blot's anatomy is grown from (the one being glided to, during a glide). */
+        std::uint32_t getAnatomySeed() const;
 
         /** What a save stores: the current growth, or the dormant end state while a reset runs. */
         Persisted getPersisted() const;
@@ -142,6 +136,9 @@ namespace roar
         void setTimeScaleForTests (float scale) { m_timeScale = scale > 0.0f ? scale : 1.0f; }
         /** Tests and snapshots: evaluate() reports this stage with a neutral character (< 0 = live). */
         void setPinnedStageForTests (float stage) { m_pinnedStage = stage; }
+        /** Tests and the screenshot tool: the character weights a pinned stage is shown with
+            (fluid, beast, eldritch, deep; summing to 1, a quarter each is neutral). */
+        void setPinnedCharactersForTests (const std::array<float, 4>& weights) { m_pinnedWeights = weights; }
         /** Tests: start the egg now (as if armed and shouted at). */
         void triggerEggForTests();
 
@@ -166,6 +163,7 @@ namespace roar
         Mode m_mode = Mode::live;
         float m_timeScale = 1.0f;
         float m_pinnedStage = -1.0f;
+        std::array<float, 4> m_pinnedWeights { 0.25f, 0.25f, 0.25f, 0.25f };
 
         float m_intensity = 0.0f;
         float m_burst = 0.0f, m_energy = 0.0f, m_experience = 0.0f;
@@ -182,6 +180,7 @@ namespace roar
         float m_seedGlide = 1.0f;
         std::uint32_t m_queuedSeed = 0;
         bool m_hasQueuedSeed = false;
+        std::uint32_t m_hashFrom = 0, m_hashTo = 0, m_queuedHash = 0;   // the preset's hash, glided with the seed
 
         // Egg
         EggState m_eggState = EggState::idle;
@@ -207,30 +206,18 @@ namespace roar
         CreatureEvolution::Params read() const;
     };
 
-    /** The fast, per-frame part of the formation (GL thread): a roar pulls the face together now,
-        sleep lets it disperse back into cloud. Gathers in ~3 s, disperses in ~4 s. */
+    /** The fast, per-frame part of the formation (GL thread): a roar pulls the creature together
+        now, sleep lets it disperse back into cloud. Gathers in ~3 s, disperses in ~4 s. */
     struct CreatureFormation
     {
         float fast = 0.0f;        // 0..1, follows the loudest of jaw, level and heat (0.25 s up, 2 s down)
-        float formation = 0.0f;   // 0..1, the F the shader draws (1.2 s up, 4 s down)
+        float formation = 0.0f;   // 0..1, how far the stage and the voice let it form (1.2 s up, 4 s down)
 
         void step (float dt, float jaw, float loud, float heat, float sleep, float formBase, float egg);
-        /** Front fog opacity: the stage's veil, pushed back by loud moments, closing in when quiet. */
-        static float fogOpacity (float stageFog, float fast, float sleep);
-    };
-
-    /** The shader's uniform block, packed from the parameters (shared by the view and the harness). */
-    struct CreatureUniforms
-    {
-        using Vec4 = std::array<float, 4>;
-        using Vec3 = std::array<float, 3>;
-        Vec4 head, wing, horn, eyes, maw, ink, flow, pal, misc, form, cloud, seed, seedB;
-        Vec4 character;   // fluid, beast, eldritch, deep leans (the medium's look and flow); seedB.w is the stage
-        Vec3 colCloud, colCloudLit, colUnderglow, colRedInk, colWashA, colWashB;
-        float egg = 0.0f;
-
-        /** formation, fogA, fast formation and the slow bloom phase come from the GL side. */
-        static CreatureUniforms pack (const CreatureEvolution::Params& p, float formation, float fogA,
-                                      float formationFast, float bloomPhase);
+        /** The creature's gathering: 0 asleep (only cloud) .. 1 awake, at any stage (the stage adds
+            structure, never opacity). It follows waking in about a second and sleep in a few. */
+        float ink = 0.0f;
+        /** The formation the renderer draws, 0 cloud .. 1 formed, eased at both ends. */
+        float inkFormation() const;
     };
 }
