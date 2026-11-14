@@ -13,7 +13,10 @@
 //   the LFE      Off silent; Discrete is exactly Stowaway's Sub through the LFE's low-pass, and only when Stowaway
 //                sounds in Sub; nothing above the low-pass beyond its slope; Mixdown follows the mains' low end;
 //                the mains are the same in every mode; bass management (mains + LFE 10 dB hotter) adds 3.5 dB and
-//                never cancels, where the same copies without the phase match would; LFE Level and Mode glide
+//                never cancels, where the same copies without the phase match would; LFE Level and Mode glide;
+//                the filters at every sample rate (120 Hz, 48 dB an octave; the phase match has the low-pass's
+//                phase); the LFE's copy of the Sub is shaken by the Everything tremolo and eased by Space exactly
+//                as L's and R's is; no click when the width changes with the LFE sounding
 //   the plug-in  the LFE's limiter does not move the mains; no Inflate on the LFE; LFE Mode and Level as
 //                parameters (Off, the Unity mark); which widths have an LFE; a fold drops the LFE (the mains
 //                already carry it)
@@ -767,6 +770,51 @@ int main(int argc, char* argv[])
     }
 
     //==================================================================================================================
+    std::cout << "The LFE's filters at every sample rate" << std::endl;
+    {
+        // A sine through each, measured against the sine itself: the low-pass is 6 dB down at 120 Hz and 48 dB at
+        // 240 Hz; the phase match changes no level and has the low-pass's phase.
+        for (double rate : { 44100.0, 48000.0, 88200.0, 96000.0, 192000.0 })
+        {
+            double worstPhase = 0.0, worstLevel = 0.0, at30 = 0.0, at120 = 0.0, at240 = 0.0;
+            for (double f : { 30.0, 60.0, 90.0, 120.0, 160.0, 240.0 })
+            {
+                lfe::LowPass lp;
+                lfe::PhaseMatch pm;
+                lp.prepare(rate);
+                pm.prepare(rate);
+                const int n = static_cast<int>(rate), from = n / 2;
+                double lpRe = 0.0, lpIm = 0.0, pmRe = 0.0, pmIm = 0.0;
+                for (int i = 0; i < n; ++i)
+                {
+                    const double ph = c_twoPi * f * i / rate;
+                    const auto x = static_cast<float>(std::sin(ph));
+                    const double a = lp.process(x), b = pm.process(x);
+                    if (i >= from) // half a second: a whole number of cycles of every frequency here
+                    {
+                        lpRe += a * std::sin(ph); lpIm += a * std::cos(ph);
+                        pmRe += b * std::sin(ph); pmIm += b * std::cos(ph);
+                    }
+                }
+                const double scale = 2.0 / (n - from);
+                const double lpLevel = 20.0 * std::log10(scale * std::hypot(lpRe, lpIm)), pmLevel = 20.0 * std::log10(scale * std::hypot(pmRe, pmIm));
+                double apart = std::atan2(lpIm, lpRe) - std::atan2(pmIm, pmRe);
+                apart = std::abs(std::remainder(apart, c_twoPi));
+                worstPhase = std::max(worstPhase, apart);
+                worstLevel = std::max(worstLevel, std::abs(pmLevel));
+                if (f == 30.0) at30 = lpLevel;
+                if (f == 120.0) at120 = lpLevel;
+                if (f == 240.0) at240 = lpLevel;
+            }
+            std::cout << "         " << num(rate / 1000.0, 1) << " kHz: the low-pass " << num(at30, 2) << " dB at 30 Hz, " << num(at120, 2) << " dB at 120 Hz, "
+                      << num(at240, 1) << " dB at 240 Hz; the phase match's level within " << num(worstLevel, 4) << " dB, its phase within "
+                      << num(worstPhase * 360.0 / c_twoPi, 3) << " degrees of the low-pass's (30 - 240 Hz)" << std::endl;
+            check(std::abs(at30) < 0.05 && std::abs(at120 + 6.02) < 0.1 && at240 < -47.0 && worstLevel < 0.01 && worstPhase < 0.01,
+                  num(rate / 1000.0, 1) + " kHz: the LFE's low-pass is 120 Hz at 48 dB an octave, and the phase match has its phase and changes no level");
+        }
+    }
+
+    //==================================================================================================================
     std::cout << "The LFE" << std::endl;
     {
         const double rumbleSeconds = 8.0;
@@ -930,6 +978,89 @@ int main(int argc, char* argv[])
                 worst = std::max(worst, std::abs(x[i] - 2.0f * x[i - 1] + x[i - 2]));
             std::cout << "         5.1, LFE Mode and Level changing: largest change of step " << num(100.0 * worst / std::max(1.0e-9f, peakOf(x)), 3) << "% of the peak" << std::endl;
             check(peakOf(x) > 0.02f && worst < 0.002f * peakOf(x), "LFE Mode and LFE Level glide (no step in the LFE)");
+        }
+        // The LFE's copy of the Sub takes what the mains' copy takes on its way out, so the two keep their balance
+        // (and stay in step for bass management) with the Everything tremolo shaking and with Space up.
+        {
+            const size_t lfe = 3;
+            const float level = juce::Decibels::decibelsToGain(-10.0f);
+            // The tremolo: L carries the Sub alone here, through the phase match; the LFE is the Sub through the
+            // low-pass. Filters commute, so the low-pass of L is the phase match of the LFE, sample for sample,
+            // if and only if both copies were shaken alike before the filters.
+            auto shaken = [](RigEngine::Params& p) { p.tremOn = true; p.tremDepth = 1.0f; p.tremRate = 0.5f; p.tremThreshold = 0.0f; p.tremTarget = 0; };
+            const Take plain = subScene(room::Width::Surround51, RigEngine::LfeDiscrete, -10.0f);
+            const Take trem = subScene(room::Width::Surround51, RigEngine::LfeDiscrete, -10.0f, shaken);
+            auto apart = [&](const Take& t, float& peak)
+            {
+                lfe::LowPass lp;
+                lfe::PhaseMatch pm;
+                lp.prepare(c_fs);
+                pm.prepare(c_fs);
+                float worst = 0.0f;
+                peak = 0.0f;
+                for (size_t i = 0; i < t.samples(); ++i)
+                {
+                    const float a = level * lp.process(t.ch[0][i]), b = pm.process(t.ch[lfe][i]);
+                    worst = std::max(worst, std::abs(a - b));
+                    peak = std::max(peak, std::abs(b));
+                }
+                return worst;
+            };
+            float peakPlain = 0.0f, peakTrem = 0.0f;
+            const float apartPlain = apart(plain, peakPlain), apartTrem = apart(trem, peakTrem);
+            float moved = 0.0f;
+            for (size_t i = 0; i < trem.samples(); ++i)
+                moved = std::max(moved, std::abs(trem.ch[lfe][i] - plain.ch[lfe][i]));
+            std::cout << "         5.1 Discrete, Everything tremolo: the LFE against L's own low end apart by " << num(100.0 * apartTrem / peakTrem, 4)
+                      << "% of the peak (no tremolo: " << num(100.0 * apartPlain / peakPlain, 4) << "%); the tremolo moves the LFE by "
+                      << num(100.0 * moved / peakPlain, 1) << "% of its peak" << std::endl;
+            check(moved > 0.1f * peakPlain && apartTrem < 1.0e-3f * peakTrem && apartPlain < 1.0e-3f * peakPlain,
+                  "Discrete: the Everything tremolo shakes the LFE's copy of the Sub exactly as it shakes L's and R's");
+
+            // Space: the dry is eased down in the mains, and in the LFE's copy by as much.
+            constexpr float space = 0.6f;
+            const Take roomy = subScene(room::Width::Surround51, RigEngine::LfeDiscrete, -10.0f, [](RigEngine::Params& p) { p.space = space; });
+            lfe::LowPass lp;
+            lp.prepare(c_fs);
+            sj::DcBlock dc;
+            dc.set(8.0f, static_cast<float>(c_fs));
+            const float dry = 1.0f - c_spaceDryTrim * space * space;
+            float worst = 0.0f;
+            for (size_t i = 0; i < roomy.samples(); ++i)
+                worst = std::max(worst, std::abs(dc.process(lp.process(level * dry * roomy.stem[i])) - roomy.ch[lfe][i]));
+            std::cout << "         5.1 Discrete, Space 60%: the LFE against the Sub stem eased as the dry is (x " << num(dry, 3) << ") and low-passed: apart by "
+                      << worst << " (peak " << num(peakOf(roomy.ch[lfe]), 3) << ")" << std::endl;
+            check(peakOf(roomy.ch[lfe]) > 0.02f && worst < 1.0e-4f, "Discrete: Space eases the LFE's copy of the Sub down as it eases the dry in L and R");
+        }
+        // The room changes width (to Quad and back too, where channel 3 is a speaker) and goes to Stereo and back
+        // with the LFE sounding: nothing steps in any channel.
+        for (int which = 0; which < 2; ++which)
+        {
+            Scene scene;
+            scene.load(0, src.tone60, 0);
+            scene.p.lfeMode = RigEngine::LfeMixdown;
+            scene.p.lfeLevelDb = 0.0f;
+            scene.p.buses[0].path = static_cast<int>(room::Path::Through);
+            scene.start(room::Width::Surround714);
+            const room::Width widths[] = { room::Width::Surround51, room::Width::Quad, room::Width::Surround71, room::Width::Quad, room::Width::Surround712, room::Width::Surround714 };
+            const Take take = scene.run(24.0, [&](int b)
+            {
+                if (which == 0 && b % 131 == 0)
+                    scene.rig.setWidth(widths[(b / 131) % 6]);
+                if (which == 1 && b % 211 == 0)
+                    scene.rig.setWidth((b / 211) % 2 == 1 ? room::Width::Stereo : room::Width::Surround51);
+            });
+            float peak = 0.0f, worst = 0.0f, lfePeak = peakOf(take.ch[3]);
+            for (const auto& x : take.ch)
+            {
+                peak = std::max(peak, peakOf(x));
+                for (size_t i = 4800; i < x.size(); ++i)
+                    worst = std::max(worst, std::abs(x[i] - 2.0f * x[i - 1] + x[i - 2]));
+            }
+            const char* what = which == 0 ? "the room changes width (Quad too)" : "the width goes to Stereo and back";
+            std::cout << "         LFE Mixdown at 0 dB, " << what << ": largest change of step " << num(100.0 * worst / peak, 3) << "% of the peak (LFE peak "
+                      << num(lfePeak, 3) << ")" << std::endl;
+            check(lfePeak > 0.05f && worst < 0.005f * peak, juce::String("no click when ") + what + " with the LFE sounding");
         }
         // Quad has no LFE: the mode does nothing there.
         {
