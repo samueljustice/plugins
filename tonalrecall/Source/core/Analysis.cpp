@@ -303,7 +303,7 @@ MusicAnalysis analyseMusic(const float* mono, int numSamples, double sampleRate)
         }
 
         // The strongest partial within the tolerance of a frequency (its index, or -1).
-        const auto partialNear = [&](double hz, double toleranceCents = kToleranceCents)
+        const auto partialNear = [&](double hz, double toleranceCents)
         {
             const double lo = hz * std::exp2(-toleranceCents / 1200.0), hi = hz * std::exp2(toleranceCents / 1200.0);
             auto it = std::lower_bound(work.begin(), work.end(), lo, [](const Peak& p, double v) { return static_cast<double>(p.hz) < v; });
@@ -325,7 +325,7 @@ MusicAnalysis analyseMusic(const float* mono, int numSamples, double sampleRate)
                 const double f0 = midiToHz(kFineLow + static_cast<double>(bin) / kFinePerSemitone);
                 // A note must have its fundamental: without this, every note would also be found
                 // an octave below itself, where only the even "harmonics" exist.
-                const int fundamental = partialNear(f0);
+                const int fundamental = partialNear(f0, kToleranceCents);
                 if (fundamental < 0)
                     continue;
                 const float a1 = work[static_cast<std::size_t>(fundamental)].amp;
