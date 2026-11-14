@@ -14,7 +14,10 @@
 //   - One Whoosh, My Settings, New Passes: ten whooshes whose loudest points and levels spread, each carrying on
 //     through the sounds from where the one before stopped (a slow sweep as the source says where each one played),
 //     the same again for the same batch, the length asked for, from silence, under the Ceiling.
-//     --variety <folder>: such a batch of ten from the demo sounds, into that folder, measured file by file.
+//     With Chaos and Energy at 100% none of thirty is feeble; with Follow Master on the other tracks are still heard.
+//     --variety <folder> [--count 30] [--batch 777] [--set id=value ...] [--master track]: such a batch from the
+//     demo sounds, into that folder, measured file by file (loudest point, levels, direction, brightness, and how
+//     alike the swell of each file is to the one before).
 //   - The estimate shown before rendering.
 //   - A rig with nothing to play fails with a message instead of writing empty files.
 //   - The files join the Takes (the one file as one take).
@@ -212,6 +215,8 @@ namespace
         float peakDb = -200.0f, levelDb = -200.0f;  // its highest sample; the RMS of the whole file
         float pan = 0.0f;                           // where it is across after its peak, less where it was before (-2..2)
         double hz = 0.0;                            // how fast the sound swings round its loudest 60 ms (zero crossings)
+        double brightHz = 0.0;                      // and over the loudest half second: how bright the whoosh is at its closest
+        std::vector<float> envelope;                // its level every 20 ms, from the start (the shape of the swell)
         bool leftToRight() const { return pan > 0.0f; }
     };
 
@@ -275,6 +280,20 @@ namespace
             sign = now;
         }
         s.hz = to > from ? 0.5 * crossings * a.rate / (to - from) : 0.0;
+        {
+            const int from2 = juce::jlimit(0, n, middle - static_cast<int>(0.25 * a.rate)), to2 = juce::jlimit(0, n, middle + static_cast<int>(0.25 * a.rate));
+            int count = 0;
+            for (int i = from2 + 1; i < to2; ++i)
+                if ((x.getSample(0, i) + x.getSample(1, i) >= 0.0f) != (x.getSample(0, i - 1) + x.getSample(1, i - 1) >= 0.0f))
+                    ++count;
+            s.brightHz = to2 > from2 ? 0.5 * count * a.rate / (to2 - from2) : 0.0;
+        }
+        for (int at = 0; at + win <= n; at += win)
+        {
+            float l = 0.0f, r = 0.0f;
+            energy(at, win, l, r);
+            s.envelope.push_back(std::sqrt((l + r) / static_cast<float>(2 * win)));
+        }
         return s;
     }
 
@@ -313,16 +332,58 @@ namespace
         return s;
     }
 
+    /** How alike the swells of two whooshes are: the correlation of their levels every 20 ms, from their starts
+        (1 = the same shape at the same times, whatever the level). */
+    double alike(const Shape& a, const Shape& b)
+    {
+        const size_t n = juce::jmin(a.envelope.size(), b.envelope.size());
+        if (n < 4)
+            return 0.0;
+        double ma = 0.0, mb = 0.0;
+        for (size_t i = 0; i < n; ++i)
+        {
+            ma += a.envelope[i];
+            mb += b.envelope[i];
+        }
+        ma /= static_cast<double>(n);
+        mb /= static_cast<double>(n);
+        double ab = 0.0, aa = 0.0, bb = 0.0;
+        for (size_t i = 0; i < n; ++i)
+        {
+            ab += (a.envelope[i] - ma) * (b.envelope[i] - mb);
+            aa += (a.envelope[i] - ma) * (a.envelope[i] - ma);
+            bb += (b.envelope[i] - mb) * (b.envelope[i] - mb);
+        }
+        return aa > 0.0 && bb > 0.0 ? ab / std::sqrt(aa * bb) : 0.0;
+    }
+
     void printShapes(const std::vector<Shape>& shapes)
     {
-        std::cout << "         | File | Length | Loudest at | Peak | Overall | Direction |" << std::endl;
-        std::cout << "         |---|---|---|---|---|---|" << std::endl;
+        std::cout << "         | File | Length | Loudest at | Peak | Overall | Direction | Brightness | Swell like the last |" << std::endl;
+        std::cout << "         |---|---|---|---|---|---|---|---|" << std::endl;
         for (size_t i = 0; i < shapes.size(); ++i)
         {
             const auto& s = shapes[i];
             std::cout << "         | " << (i + 1) << " | " << juce::String(s.seconds, 2) << " s | " << juce::String(s.peakAt, 2) << " s | "
-                      << juce::String(s.peakDb, 1) << " dB | " << juce::String(s.levelDb, 1) << " dB | " << (s.leftToRight() ? "L to R" : "R to L") << " |" << std::endl;
+                      << juce::String(s.peakDb, 1) << " dB | " << juce::String(s.levelDb, 1) << " dB | " << (s.leftToRight() ? "L to R" : "R to L") << " | "
+                      << juce::String(s.brightHz / 1000.0, 2) << " kHz | " << (i > 0 ? juce::String(alike(shapes[i - 1], s), 2) : juce::String("-")) << " |" << std::endl;
         }
+        const auto bright = spreadOf(shapes, [](const Shape& s) { return s.brightHz; });
+        int leftToRight = 0;
+        for (const auto& s : shapes)
+            leftToRight += s.leftToRight() ? 1 : 0;
+        double likest = -1.0, sum = 0.0;
+        int pairs = 0;
+        for (size_t i = 0; i < shapes.size(); ++i)
+            for (size_t j = i + 1; j < shapes.size(); ++j, ++pairs)
+            {
+                const double c = alike(shapes[i], shapes[j]);
+                likest = juce::jmax(likest, c);
+                sum += c;
+            }
+        std::cout << "         brightness " << juce::String(bright.least / 1000.0, 2) << " .. " << juce::String(bright.most / 1000.0, 2) << " kHz; " << leftToRight << " of "
+                  << shapes.size() << " go left to right; the swells of two files: " << juce::String(pairs > 0 ? sum / pairs : 0.0, 2) << " alike on average, the likest pair "
+                  << juce::String(likest, 2) << " (1 = the same swell)" << std::endl;
         const auto at = spreadOf(shapes, [](const Shape& s) { return s.peakAt; });
         const auto peak = spreadOf(shapes, [](const Shape& s) { return static_cast<double>(s.peakDb); });
         const auto level = spreadOf(shapes, [](const Shape& s) { return static_cast<double>(s.levelDb); });
@@ -450,6 +511,50 @@ namespace
             worst = juce::jmax(worst, difference(readFile(files[i]), readFile(again[i])));
         check(worst == 0.0, "variety: the same batch again gives the same ten files, sample for sample");
 
+        // Chaos and Energy all the way up: the passes fly as far apart as they ever do and the ride's dips are at
+        // their deepest, and still no whoosh of thirty is feeble.
+        {
+            Rig wild(sources);
+            auto& state = wild.proc.getState();
+            for (const auto* id : { ParamIDs::chaos, ParamIDs::energy })
+                if (auto* param = state.getParameter(id))
+                    param->setValueNotifyingHost(1.0f);
+            const auto wildFolder = out.getChildFile("variety-wild");
+            wildFolder.deleteRecursively();
+            render(wild, makeJob(wild, wildFolder, VariationRenderer::Mode::NewPasses, 30, seconds, 99));
+            const auto shapes2 = shapesIn(wildFolder);
+            const auto wildLevel = spreadOf(shapes2, [](const Shape& s) { return static_cast<double>(s.levelDb); });
+            const auto wildPeak = spreadOf(shapes2, [](const Shape& s) { return static_cast<double>(s.peakDb); });
+            check(shapes2.size() == 30 && wildLevel.range() < 10.0 && wildPeak.range() < 8.0,
+                  "variety: with Chaos and Energy at 100% no whoosh of thirty is feeble (overall levels within " + juce::String(wildLevel.range(), 1)
+                      + " dB, under 10 dB; peaks within " + juce::String(wildPeak.range(), 1) + " dB, under 8 dB)");
+        }
+
+        // Follow Master: a throw starts from rest, before the Master has played, so its balance comes from each
+        // track's own swell and the other tracks are still in the whoosh (the wind, by far the brightest of the
+        // test's sounds, is heard in at least some of them as it is with Follow Master off).
+        {
+            double brightest[2] = { 0.0, 0.0 };
+            for (int follow = 0; follow < 2; ++follow)
+            {
+                Rig rig2(sources);
+                auto& state = rig2.proc.getState();
+                if (auto* param = state.getParameter(ParamIDs::energy))
+                    param->setValueNotifyingHost(1.0f);
+                if (auto* param = state.getParameter(ParamIDs::rideFollowMaster))
+                    param->setValueNotifyingHost(follow == 1 ? 1.0f : 0.0f);
+                rig2.proc.setMasterTrack(0); // the growl
+                const auto followFolder = out.getChildFile(follow == 1 ? "variety-follow" : "variety-own");
+                followFolder.deleteRecursively();
+                render(rig2, makeJob(rig2, followFolder, VariationRenderer::Mode::NewPasses, 8, seconds, 4321));
+                for (const auto& shape : shapesIn(followFolder))
+                    brightest[follow] = juce::jmax(brightest[follow], shape.brightHz);
+            }
+            check(brightest[1] > 0.7 * brightest[0],
+                  "variety: with Follow Master on the other tracks are still in the whooshes (the brightest is " + juce::String(brightest[1] / 1000.0, 2)
+                      + " kHz at its loudest, " + juce::String(brightest[0] / 1000.0, 2) + " kHz with Follow Master off)");
+        }
+
         // Which stretch of a sound each whoosh plays: a source that is a slow sweep says where in it the sound at the
         // loudest point came from. Nothing on the way changes the pitch there (no Bend, no Fill echoes, no Space, no
         // Low End, Swirl or Drive), so each file's pitch at its peak is its place in the sweep.
@@ -497,6 +602,9 @@ int main(int argc, char* argv[])
     juce::ScopedJuceInitialiser_GUI init;
     juce::File folder = juce::File::getSpecialLocation(juce::File::tempDirectory).getChildFile("SwooshbucklerRenderTest");
     juce::File variety;
+    int varietyCount = 10, varietyMaster = -1;
+    std::uint32_t varietyBatch = 4242;
+    juce::StringArray varietySets; // "id=value", in the units the knob shows
     bool bench = false;
     for (int i = 1; i < argc; ++i)
     {
@@ -504,6 +612,14 @@ int main(int argc, char* argv[])
             bench = true;
         else if (juce::String(argv[i]) == "--variety" && i + 1 < argc)
             variety = juce::File(argv[++i]);
+        else if (juce::String(argv[i]) == "--count" && i + 1 < argc)
+            varietyCount = juce::jlimit(1, 1000, juce::String(argv[++i]).getIntValue());
+        else if (juce::String(argv[i]) == "--batch" && i + 1 < argc)
+            varietyBatch = static_cast<std::uint32_t>(juce::String(argv[++i]).getLargeIntValue());
+        else if (juce::String(argv[i]) == "--set" && i + 1 < argc)
+            varietySets.add(argv[++i]);
+        else if (juce::String(argv[i]) == "--master" && i + 1 < argc)
+            varietyMaster = juce::String(argv[++i]).getIntValue();
         else
             folder = juce::File(argv[i]);
     }
@@ -531,10 +647,19 @@ int main(int argc, char* argv[])
     {
         Rig rig(sources, false);
         check(DemoSounds::loadInto(rig.proc) == DemoSounds::c_count, "variety: the five demo sounds are loaded");
+        for (const auto& set : varietySets)
+        {
+            auto* param = rig.proc.getState().getParameter(set.upToFirstOccurrenceOf("=", false, false));
+            check(param != nullptr, "variety: --set " + set);
+            if (param != nullptr)
+                param->setValueNotifyingHost(param->convertTo0to1(set.fromFirstOccurrenceOf("=", false, false).getFloatValue()));
+        }
+        if (varietyMaster >= 0)
+            rig.proc.setMasterTrack(varietyMaster);
         variety.deleteRecursively();
         const double seconds = rig.proc.getVariations().defaultJob().seconds;
-        const auto progress = render(rig, makeJob(rig, variety, VariationRenderer::Mode::NewPasses, 10, seconds, 4242));
-        std::cout << "         variety: batch 4242, ten whooshes of " << juce::String(seconds, 2) << " s into " << variety.getFullPathName() << " ("
+        const auto progress = render(rig, makeJob(rig, variety, VariationRenderer::Mode::NewPasses, varietyCount, seconds, varietyBatch));
+        std::cout << "         variety: batch " << varietyBatch << ", " << varietyCount << " whooshes of " << juce::String(seconds, 2) << " s into " << variety.getFullPathName() << " ("
                   << progress.done << " files)" << std::endl;
         printShapes(shapesIn(variety));
         SwooshbucklerAudioProcessor::useSettings(nullptr);

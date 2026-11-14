@@ -211,8 +211,9 @@ public:
     {
         float approach = 0.5f; // the share of Throw Length spent coming in (0.2 .. 0.8), so where the closest point falls
         float nearer = 0.0f;   // -1 .. 1: nearer than the bus draws it (louder, brighter, a steeper bend), or further off
-        bool ridden = false;   // the tracks in the balance the ride has them in when it is thrown (the loudest at its
-                               // fader); with Auto Ride off that is every track at its fader, as without it
+        bool ridden = false;   // the tracks in the balance their rides have them in when it is thrown: each at a moment
+                               // of its own swell, the loudest at its fader and none more than 9 dB under its own;
+                               // with Auto Ride off that is every track at its fader, as without it
     };
     /** Throw one whoosh: a single pass, the same on both buses, that starts delaySamples from the start of the
         next process() call and peaks half a Throw Length later (or as `flight` says). velocity 0..1 sets how close

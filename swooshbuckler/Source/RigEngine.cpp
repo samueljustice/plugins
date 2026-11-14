@@ -41,7 +41,10 @@ namespace
     constexpr float c_throwSoftCloseness = 0.3f, c_throwSoftLevel = 0.35f;
     // ThrowFlight::nearer at 1 (or -1): how much closer (further off) than the bus draws the pass, and how much
     // louder (quieter) that makes it. More quieter than louder, so a near pass does not lean on the limiter.
-    constexpr float c_throwNearerCloseness = 0.35f, c_throwNearerDb = 1.5f, c_throwFurtherDb = 5.0f;
+    constexpr float c_throwNearerCloseness = 0.35f, c_throwNearerDb = 1.5f, c_throwFurtherDb = 4.0f;
+    // A ridden throw (ThrowFlight::ridden): no track is taken further under its fader than this (-9 dB), however
+    // deep the ride's dips are, so a whoosh never loses the sounds that carry it.
+    constexpr float c_throwBalanceFloor = 0.355f;
     constexpr float c_reseedFadeSeconds = 0.005f;
     constexpr float c_flyMakeup = 1.23f; // +1.8 dB: Fly-By measured against Bed (integrated loudness, steady and gappy sources)
     // Head shadow: at full azimuth the far ear's air filter is this many octaves lower, but never under the floor (Hz).
@@ -1200,6 +1203,7 @@ void RigEngine::renderTracks(int frames)
         const float shaped = std::pow(lfo, 1.0f + 1.85f * energy);
         const float drift = m_rideDrift[ti].next(frames);
         float r = sj::clamp(shaped * (1.0f - 0.6f * chaos * m_rideDepth[ti]) * (1.0f + 0.2f * chaos * drift), 0.0f, 1.0f);
+        const float ownSwell = r; // the track's own swell, whatever the Master says
         if (m_followMix > 0.0f)
             r = sj::lerp(r, t == master ? 1.0f : followRide, m_followMix);
         float ride = sj::lerp(1.0f, r, energy);
@@ -1240,7 +1244,15 @@ void RigEngine::renderTracks(int frames)
             ride = subRide <= 0.0f ? 1.0f : std::pow(ride, subRide);
         m_rideView[ti].store(ride, std::memory_order_relaxed);
         if (m_throwBalanceWanted)
-            m_throwBalanceRide[ti] = data != nullptr ? ride : 0.0f;
+        {
+            // A ridden throw's balance: each track at a moment of its own swell. Not of Follow Master's, which says
+            // nothing as a throw starts from rest: the Master has not played yet, and every other track would be
+            // held down by the whole of Energy in every throw.
+            float own = sj::lerp(sj::lerp(1.0f, ownSwell, energy), 1.0f, swell);
+            if (onStow && subRide < 1.0f)
+                own = subRide <= 0.0f ? 1.0f : std::pow(own, subRide);
+            m_throwBalanceRide[ti] = data != nullptr ? own : 0.0f;
+        }
 
         const float laneGain = m_cargo != nullptr ? m_cargo->laneGain(CargoHold::c_numBuiltIns + t) : 1.0f;
         const float target = data != nullptr ? level * ride * laneGain * m_releaseGain : 0.0f;
@@ -1404,7 +1416,7 @@ void RigEngine::renderTracks(int frames)
         m_throwBalanceWanted = false;
         const float loudest = *std::max_element(m_throwBalanceRide.begin(), m_throwBalanceRide.end());
         for (size_t t = 0; t < m_throwBalance.size(); ++t)
-            m_throwBalance[t] = loudest > 1.0e-4f ? m_throwBalanceRide[t] / loudest : 1.0f;
+            m_throwBalance[t] = loudest > 1.0e-4f ? std::max(c_throwBalanceFloor, m_throwBalanceRide[t] / loudest) : 1.0f;
     }
 
     // Tell the hold which sample data the players still read, so data replaced by an edit is never freed while a
