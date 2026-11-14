@@ -64,13 +64,15 @@ EOF
   # instead of installing to the plug-in folder. Not version-checked: always lay down the version this
   # installer carries, even over a newer build someone installed by hand.
   pkgbuild --analyze --root "$root" "$work/pkgs/$pkgid.plist" >/dev/null
-  local n
-  n=$(/usr/libexec/PlistBuddy -c "Print" "$work/pkgs/$pkgid.plist" | grep -c "RootRelativeBundlePath" || true)
-  for ((i = 0; i < n; i++)); do
+  # One entry per top-level bundle (a nested bundle, like a PACE-signed AAX's __Pace_Eden.bundle, is listed
+  # inside its parent's ChildBundles, not at the top level).
+  local i=0
+  while /usr/libexec/PlistBuddy -c "Print :$i:RootRelativeBundlePath" "$work/pkgs/$pkgid.plist" >/dev/null 2>&1; do
     /usr/libexec/PlistBuddy -c "Delete :$i:BundleIsRelocatable" "$work/pkgs/$pkgid.plist" 2>/dev/null || true
     /usr/libexec/PlistBuddy -c "Add :$i:BundleIsRelocatable bool false" "$work/pkgs/$pkgid.plist"
     /usr/libexec/PlistBuddy -c "Delete :$i:BundleIsVersionChecked" "$work/pkgs/$pkgid.plist" 2>/dev/null || true
     /usr/libexec/PlistBuddy -c "Add :$i:BundleIsVersionChecked bool false" "$work/pkgs/$pkgid.plist"
+    i=$((i + 1))
   done
 
   pkgbuild --identifier "$pkgid" --version "$version" --root "$root" \
@@ -120,6 +122,20 @@ while IFS='|' read -r id prefix name bundle app; do
     kinds="app vst3 au"
   fi
 
+  # The PACE-signed, notarised AAX, once it's on the release (signed by hand with sign-aax after the release).
+  assets=$(gh release view "$tag" --json assets --jq '.assets[].name')
+  if grep -q -- '-macOS-AAX\.zip$' <<< "$assets"; then
+    gh release download "$tag" -p '*-macOS-AAX.zip' -D "$dl"
+    mkdir -p "$r/aax"
+    ditto -x -k "$(ls "$dl"/*-macOS-AAX.zip)" "$r/aax"
+    [[ -d "$r/aax/$bundle.aaxplugin" ]] || { echo "$bundle.aaxplugin not in $tag's AAX zip"; exit 1; }
+    check_bundle "$r/aax/$bundle.aaxplugin"
+    make_pkg "com.samueljustice.sammyj.$id.aax" "$r/aax" "/Library/Application Support/Avid/Audio/Plug-Ins" "$bundle.aaxplugin" "com.sweetjusticesound.$id.aax"
+    kinds="$kinds aax"
+  else
+    echo "   no signed AAX on $tag yet"
+  fi
+
   outline+="        <line choice=\"$id\">"$'\n'
   choices+="    <choice id=\"$id\" title=\"$name $ver\"/>"$'\n'
   for k in $kinds; do
@@ -127,6 +143,7 @@ while IFS='|' read -r id prefix name bundle app; do
       app) title="$app app (Applications)" ;;
       vst3) title="VST3 plug-in" ;;
       au) title="Audio Unit plug-in" ;;
+      aax) title="AAX plug-in (Pro Tools)" ;;
     esac
     pkgid="com.samueljustice.sammyj.$id.$k"
     outline+="            <line choice=\"$id.$k\"/>"$'\n'
@@ -136,6 +153,7 @@ while IFS='|' read -r id prefix name bundle app; do
   outline+="        </line>"$'\n'
   formats="VST3, AU"
   [[ -n "$app" ]] && formats="app, VST3, AU"
+  [[ " $kinds " == *" aax "* ]] && formats="$formats, AAX"
   welcome_rows+="<li><b>$name</b> $ver <span>($formats)</span></li>"$'\n'
 done < "$here/plugins.txt"
 

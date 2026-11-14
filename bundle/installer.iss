@@ -1,9 +1,11 @@
-; Sammy J's Plugins for Windows: every plug-in's VST3, and the apps that have one, in one installer.
+; Sammy J's Plugins for Windows: every plug-in's VST3, its PACE-signed AAX once that's on the release, and the
+; apps that have one, in one installer.
 ; Built by .github/workflows/build-release_bundle.yml from each plug-in's newest release, which lays the
 ; files out as windows-package\<id>\vst3\<Bundle>.vst3 and windows-package\<id>\app\<App>.exe and passes:
 ;   iscc /DBundleVersion=2026.11.7.1 /DSwooshbucklerVersion=1.0.0 /DSoundAdviceVersion=1.0.0
 ;        /DSubbertoneVersion=1.2.0 /DPitchFlattenerVersion=2.0.0 /DReversinatorVersion=2.0.0
 ;        /DRoarschachVersion=1.0.0 installer.iss
+; plus /D<Name>AAX for each plug-in whose release has a signed AAX (windows-package\<id>\aax\<Bundle>.aaxplugin).
 ;
 ; Old versions: before installing a plug-in it silently runs that plug-in's own (stand-alone) uninstaller
 ; if one is registered, then deletes the old .vst3 folders, so no stale files or duplicate plug-ins are
@@ -36,6 +38,7 @@
 #define MyAppURL "https://github.com/samueljustice/plugins"
 #define VST3Dir "{commoncf64}\VST3"
 #define UserVST3Dir "{localappdata}\Programs\Common\VST3"
+#define AAXDir "{commoncf64}\Avid\Audio\Plug-Ins"
 
 [Setup]
 AppId={{E6B1C7D4-2A9F-4F3E-8B5C-7D0A1E9F4C62}
@@ -72,13 +75,35 @@ Name: "custom"; Description: "Choose plug-ins"; Flags: iscustom
 Name: "swooshbuckler"; Description: "Swooshbuckler {#SwooshbucklerVersion}"; Types: full
 Name: "swooshbuckler\app"; Description: "App"; Types: full
 Name: "swooshbuckler\vst3"; Description: "VST3 plug-in"; Types: full
+#ifdef SwooshbucklerAAX
+Name: "swooshbuckler\aax"; Description: "AAX plug-in (Pro Tools)"; Types: full
+#endif
 Name: "soundadvice"; Description: "Sound Advice {#SoundAdviceVersion}"; Types: full
 Name: "soundadvice\app"; Description: "App"; Types: full
 Name: "soundadvice\vst3"; Description: "VST3 plug-in"; Types: full
-Name: "subbertone"; Description: "Subbertone {#SubbertoneVersion} (VST3)"; Types: full
-Name: "pitchflattener"; Description: "Pitch Flattener {#PitchFlattenerVersion} (VST3)"; Types: full
-Name: "reversinator"; Description: "Reversinator {#ReversinatorVersion} (VST3)"; Types: full
-Name: "roarschach"; Description: "Roarschach {#RoarschachVersion} (VST3)"; Types: full
+#ifdef SoundAdviceAAX
+Name: "soundadvice\aax"; Description: "AAX plug-in (Pro Tools)"; Types: full
+#endif
+Name: "subbertone"; Description: "Subbertone {#SubbertoneVersion}"; Types: full
+Name: "subbertone\vst3"; Description: "VST3 plug-in"; Types: full
+#ifdef SubbertoneAAX
+Name: "subbertone\aax"; Description: "AAX plug-in (Pro Tools)"; Types: full
+#endif
+Name: "pitchflattener"; Description: "Pitch Flattener {#PitchFlattenerVersion}"; Types: full
+Name: "pitchflattener\vst3"; Description: "VST3 plug-in"; Types: full
+#ifdef PitchFlattenerAAX
+Name: "pitchflattener\aax"; Description: "AAX plug-in (Pro Tools)"; Types: full
+#endif
+Name: "reversinator"; Description: "Reversinator {#ReversinatorVersion}"; Types: full
+Name: "reversinator\vst3"; Description: "VST3 plug-in"; Types: full
+#ifdef ReversinatorAAX
+Name: "reversinator\aax"; Description: "AAX plug-in (Pro Tools)"; Types: full
+#endif
+Name: "roarschach"; Description: "Roarschach {#RoarschachVersion}"; Types: full
+Name: "roarschach\vst3"; Description: "VST3 plug-in"; Types: full
+#ifdef RoarschachAAX
+Name: "roarschach\aax"; Description: "AAX plug-in (Pro Tools)"; Types: full
+#endif
 
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Components: swooshbuckler\app soundadvice\app; Flags: unchecked
@@ -90,14 +115,32 @@ Type: filesandordirs; Name: "{#VST3Dir}\Swooshbuckler.vst3"; Components: swooshb
 Type: filesandordirs; Name: "{#UserVST3Dir}\Swooshbuckler.vst3"; Components: swooshbuckler\vst3
 Type: filesandordirs; Name: "{#VST3Dir}\Sound Advice.vst3"; Components: soundadvice\vst3
 Type: filesandordirs; Name: "{#UserVST3Dir}\Sound Advice.vst3"; Components: soundadvice\vst3
-Type: filesandordirs; Name: "{#VST3Dir}\SammyJs Subbertone.vst3"; Components: subbertone
-Type: filesandordirs; Name: "{#UserVST3Dir}\SammyJs Subbertone.vst3"; Components: subbertone
-Type: filesandordirs; Name: "{#VST3Dir}\SammyJs Pitch Flattener.vst3"; Components: pitchflattener
-Type: filesandordirs; Name: "{#UserVST3Dir}\SammyJs Pitch Flattener.vst3"; Components: pitchflattener
-Type: filesandordirs; Name: "{#VST3Dir}\SammyJs Reversinator.vst3"; Components: reversinator
-Type: filesandordirs; Name: "{#UserVST3Dir}\SammyJs Reversinator.vst3"; Components: reversinator
-Type: filesandordirs; Name: "{#VST3Dir}\Roarschach.vst3"; Components: roarschach
-Type: filesandordirs; Name: "{#UserVST3Dir}\Roarschach.vst3"; Components: roarschach
+Type: filesandordirs; Name: "{#VST3Dir}\SammyJs Subbertone.vst3"; Components: subbertone\vst3
+Type: filesandordirs; Name: "{#UserVST3Dir}\SammyJs Subbertone.vst3"; Components: subbertone\vst3
+Type: filesandordirs; Name: "{#VST3Dir}\SammyJs Pitch Flattener.vst3"; Components: pitchflattener\vst3
+Type: filesandordirs; Name: "{#UserVST3Dir}\SammyJs Pitch Flattener.vst3"; Components: pitchflattener\vst3
+Type: filesandordirs; Name: "{#VST3Dir}\SammyJs Reversinator.vst3"; Components: reversinator\vst3
+Type: filesandordirs; Name: "{#UserVST3Dir}\SammyJs Reversinator.vst3"; Components: reversinator\vst3
+Type: filesandordirs; Name: "{#VST3Dir}\Roarschach.vst3"; Components: roarschach\vst3
+Type: filesandordirs; Name: "{#UserVST3Dir}\Roarschach.vst3"; Components: roarschach\vst3
+#ifdef SwooshbucklerAAX
+Type: filesandordirs; Name: "{#AAXDir}\Swooshbuckler.aaxplugin"; Components: swooshbuckler\aax
+#endif
+#ifdef SoundAdviceAAX
+Type: filesandordirs; Name: "{#AAXDir}\Sound Advice.aaxplugin"; Components: soundadvice\aax
+#endif
+#ifdef SubbertoneAAX
+Type: filesandordirs; Name: "{#AAXDir}\SammyJs Subbertone.aaxplugin"; Components: subbertone\aax
+#endif
+#ifdef PitchFlattenerAAX
+Type: filesandordirs; Name: "{#AAXDir}\SammyJs Pitch Flattener.aaxplugin"; Components: pitchflattener\aax
+#endif
+#ifdef ReversinatorAAX
+Type: filesandordirs; Name: "{#AAXDir}\SammyJs Reversinator.aaxplugin"; Components: reversinator\aax
+#endif
+#ifdef RoarschachAAX
+Type: filesandordirs; Name: "{#AAXDir}\Roarschach.aaxplugin"; Components: roarschach\aax
+#endif
 
 [UninstallDelete]
 ; Per-user copies of the plug-ins (the installer removes these too, so hosts don't list them twice), and
@@ -117,10 +160,28 @@ Source: "windows-package\swooshbuckler\app\Swooshbuckler.exe"; DestDir: "{app}\S
 Source: "windows-package\swooshbuckler\vst3\Swooshbuckler.vst3\*"; DestDir: "{#VST3Dir}\Swooshbuckler.vst3"; Components: swooshbuckler\vst3; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "windows-package\soundadvice\app\Sound Advice.exe"; DestDir: "{app}\Sound Advice"; Components: soundadvice\app; Flags: ignoreversion
 Source: "windows-package\soundadvice\vst3\Sound Advice.vst3\*"; DestDir: "{#VST3Dir}\Sound Advice.vst3"; Components: soundadvice\vst3; Flags: ignoreversion recursesubdirs createallsubdirs
-Source: "windows-package\subbertone\vst3\SammyJs Subbertone.vst3\*"; DestDir: "{#VST3Dir}\SammyJs Subbertone.vst3"; Components: subbertone; Flags: ignoreversion recursesubdirs createallsubdirs
-Source: "windows-package\pitchflattener\vst3\SammyJs Pitch Flattener.vst3\*"; DestDir: "{#VST3Dir}\SammyJs Pitch Flattener.vst3"; Components: pitchflattener; Flags: ignoreversion recursesubdirs createallsubdirs
-Source: "windows-package\reversinator\vst3\SammyJs Reversinator.vst3\*"; DestDir: "{#VST3Dir}\SammyJs Reversinator.vst3"; Components: reversinator; Flags: ignoreversion recursesubdirs createallsubdirs
-Source: "windows-package\roarschach\vst3\Roarschach.vst3\*"; DestDir: "{#VST3Dir}\Roarschach.vst3"; Components: roarschach; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "windows-package\subbertone\vst3\SammyJs Subbertone.vst3\*"; DestDir: "{#VST3Dir}\SammyJs Subbertone.vst3"; Components: subbertone\vst3; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "windows-package\pitchflattener\vst3\SammyJs Pitch Flattener.vst3\*"; DestDir: "{#VST3Dir}\SammyJs Pitch Flattener.vst3"; Components: pitchflattener\vst3; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "windows-package\reversinator\vst3\SammyJs Reversinator.vst3\*"; DestDir: "{#VST3Dir}\SammyJs Reversinator.vst3"; Components: reversinator\vst3; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "windows-package\roarschach\vst3\Roarschach.vst3\*"; DestDir: "{#VST3Dir}\Roarschach.vst3"; Components: roarschach\vst3; Flags: ignoreversion recursesubdirs createallsubdirs
+#ifdef SwooshbucklerAAX
+Source: "windows-package\swooshbuckler\aax\Swooshbuckler.aaxplugin\*"; DestDir: "{#AAXDir}\Swooshbuckler.aaxplugin"; Components: swooshbuckler\aax; Flags: ignoreversion recursesubdirs createallsubdirs
+#endif
+#ifdef SoundAdviceAAX
+Source: "windows-package\soundadvice\aax\Sound Advice.aaxplugin\*"; DestDir: "{#AAXDir}\Sound Advice.aaxplugin"; Components: soundadvice\aax; Flags: ignoreversion recursesubdirs createallsubdirs
+#endif
+#ifdef SubbertoneAAX
+Source: "windows-package\subbertone\aax\SammyJs Subbertone.aaxplugin\*"; DestDir: "{#AAXDir}\SammyJs Subbertone.aaxplugin"; Components: subbertone\aax; Flags: ignoreversion recursesubdirs createallsubdirs
+#endif
+#ifdef PitchFlattenerAAX
+Source: "windows-package\pitchflattener\aax\SammyJs Pitch Flattener.aaxplugin\*"; DestDir: "{#AAXDir}\SammyJs Pitch Flattener.aaxplugin"; Components: pitchflattener\aax; Flags: ignoreversion recursesubdirs createallsubdirs
+#endif
+#ifdef ReversinatorAAX
+Source: "windows-package\reversinator\aax\SammyJs Reversinator.aaxplugin\*"; DestDir: "{#AAXDir}\SammyJs Reversinator.aaxplugin"; Components: reversinator\aax; Flags: ignoreversion recursesubdirs createallsubdirs
+#endif
+#ifdef RoarschachAAX
+Source: "windows-package\roarschach\aax\Roarschach.aaxplugin\*"; DestDir: "{#AAXDir}\Roarschach.aaxplugin"; Components: roarschach\aax; Flags: ignoreversion recursesubdirs createallsubdirs
+#endif
 
 [Icons]
 Name: "{group}\Swooshbuckler"; Filename: "{app}\Swooshbuckler\Swooshbuckler.exe"; Components: swooshbuckler\app
@@ -202,17 +263,41 @@ end;
 function PrepareToInstall(var NeedsRestart: Boolean): String;
 begin
   { The AppIds of each plug-in's own installer.iss. }
+#ifdef SwooshbucklerAAX
+  if WizardIsComponentSelected('swooshbuckler\app or swooshbuckler\vst3 or swooshbuckler\aax') then
+#else
   if WizardIsComponentSelected('swooshbuckler\app or swooshbuckler\vst3') then
+#endif
     RunOldUninstaller('{7D3E5B1A-4C2F-4E8B-9A61-5B2C8D0F3E47}');
+#ifdef SoundAdviceAAX
+  if WizardIsComponentSelected('soundadvice\app or soundadvice\vst3 or soundadvice\aax') then
+#else
   if WizardIsComponentSelected('soundadvice\app or soundadvice\vst3') then
+#endif
     RunOldUninstaller('{C2A8E6F1-3B9D-4A57-8E2C-6D1F0B7A9C35}');
-  if WizardIsComponentSelected('subbertone') then
+#ifdef SubbertoneAAX
+  if WizardIsComponentSelected('subbertone\vst3 or subbertone\aax') then
+#else
+  if WizardIsComponentSelected('subbertone\vst3') then
+#endif
     RunOldUninstaller('{B4F3A2C1-8D7E-4F5A-9B6C-1A2E3D4C5B6A}');
-  if WizardIsComponentSelected('pitchflattener') then
+#ifdef PitchFlattenerAAX
+  if WizardIsComponentSelected('pitchflattener\vst3 or pitchflattener\aax') then
+#else
+  if WizardIsComponentSelected('pitchflattener\vst3') then
+#endif
     RunOldUninstaller('{85CA9E2F-3B5A-4D1B-9C5E-8F5A7B2C3D4E}');
-  if WizardIsComponentSelected('reversinator') then
+#ifdef ReversinatorAAX
+  if WizardIsComponentSelected('reversinator\vst3 or reversinator\aax') then
+#else
+  if WizardIsComponentSelected('reversinator\vst3') then
+#endif
     RunOldUninstaller('{A5D8E3F2-4C6B-5E2D-8F6C-9B3A5D1E7F8B}');
-  if WizardIsComponentSelected('roarschach') then
+#ifdef RoarschachAAX
+  if WizardIsComponentSelected('roarschach\vst3 or roarschach\aax') then
+#else
+  if WizardIsComponentSelected('roarschach\vst3') then
+#endif
     RunOldUninstaller('{EDA89529-4B87-433C-AC72-15F7FBDFC421}');
   Result := '';
 end;

@@ -10,14 +10,14 @@
 [![Get them all for macOS](https://img.shields.io/badge/Get_them_all-macOS-000000?style=for-the-badge&logo=apple&logoColor=white)](https://github.com/samueljustice/plugins/releases/download/bundle-v2026.11.14.123/SammyJ-Plugins-2026-11-14-0952-macOS.dmg)
 [![Get them all for Windows](https://img.shields.io/badge/Get_them_all-Windows-0078D6?style=for-the-badge&logo=windows&logoColor=white)](https://github.com/samueljustice/plugins/releases/download/bundle-v2026.11.14.123/SammyJ-Plugins-2026-11-14-0952-Windows-Installer.exe)
 
-<sub>One installer with the newest version of every plug-in: Swooshbuckler 2.1.0 · Sound Advice 1.0.13 · Subbertone 1.3.2 · Pitch Flattener 2.4.0 · Reversinator 2.0.4 · Roarschach 1.1.0. The apps, the VST3s and (on macOS) the AUs. It removes older copies first, so nothing shows up twice in your host. To remove them again: on macOS, run Uninstall Sammy J's Plugins from the same disk image; on Windows, use Settings &gt; Apps.<br>
-Want just one? Each plug-in's own download is below, or browse all <a href="https://github.com/samueljustice/plugins/releases">releases</a>.</sub>
+<sub>One installer with the newest version of every plug-in: Swooshbuckler 2.1.0 · Sound Advice 1.0.13 · Subbertone 1.3.2 · Pitch Flattener 2.4.0 · Reversinator 2.0.4 · Roarschach 1.1.0. The apps, the VST3s, the AUs (macOS) and the signed AAX for Pro Tools. It removes older copies first, so nothing shows up twice in your host. To remove them again: on macOS, run Uninstall Sammy J's Plugins from the same disk image; on Windows, use Settings &gt; Apps.<br>
+Each plug-in's own files and older versions are on the <a href="https://github.com/samueljustice/plugins/releases">releases</a> page.</sub>
 <!-- get-them-all:end -->
 
 ![VST3](https://img.shields.io/badge/VST3-222?style=flat-square)
 ![AU](https://img.shields.io/badge/AU-222?style=flat-square)
 ![Standalone](https://img.shields.io/badge/Standalone-222?style=flat-square)
-![AAX coming soon](https://img.shields.io/badge/AAX-coming_soon-555?style=flat-square)
+![AAX](https://img.shields.io/badge/AAX-222?style=flat-square)
 [![Built with JUCE](https://img.shields.io/badge/built%20with-JUCE-8DC63F?style=flat-square)](https://juce.com)
 ![Downloads](https://img.shields.io/github/downloads/samueljustice/plugins/total?style=flat-square&color=d00a35)
 
@@ -72,8 +72,8 @@ Drop in up to ten sounds (cloth, air, engines, creatures, metal) and Swooshbuckl
 </p>
 </details>
 
-**App** (macOS, Windows) · **VST3** · **AU** &nbsp;&nbsp;
-[![Download Swooshbuckler](https://img.shields.io/badge/download-v2.1.0-d00a35?style=flat-square)](https://github.com/samueljustice/plugins/releases/tag/swooshbuckler-v2.1.0) &nbsp;
+**App** (macOS, Windows) · **VST3** · **AU** · **AAX** &nbsp;&nbsp;
+[![Get Swooshbuckler with Sammy J's Plugins](https://img.shields.io/badge/get_it-Sammy_J's_Plugins-d00a35?style=flat-square)](https://github.com/samueljustice/plugins/releases/latest) &nbsp;
 [Read the manual →](swooshbuckler/README.md)
 
 ---
@@ -112,8 +112,8 @@ Subbertone follows the pitch of your bass, engine or drone and adds a clean sub 
 </p>
 </details>
 
-**VST3** (macOS, Windows) · **AU** (macOS) &nbsp;&nbsp;
-[![Download Subbertone](https://img.shields.io/badge/download-v1.3.2-d00a35?style=flat-square)](https://github.com/samueljustice/plugins/releases/tag/subbertone-v1.3.2) &nbsp;
+**VST3** (macOS, Windows) · **AU** (macOS) · **AAX** &nbsp;&nbsp;
+[![Get Subbertone with Sammy J's Plugins](https://img.shields.io/badge/get_it-Sammy_J's_Plugins-d00a35?style=flat-square)](https://github.com/samueljustice/plugins/releases/latest) &nbsp;
 [Read the manual →](subbertone/README.md)
 
 ---
@@ -149,8 +149,8 @@ Pitch Flattener takes the pitch movement out of a sound and keeps its energy and
 </p>
 </details>
 
-**VST3** (macOS, Windows) · **AU** (macOS) &nbsp;&nbsp;
-[![Download Pitch Flattener](https://img.shields.io/badge/download-v2.4.0-d00a35?style=flat-square)](https://github.com/samueljustice/plugins/releases/tag/pitchflattener-v2.4.0) &nbsp;
+**VST3** (macOS, Windows) · **AU** (macOS) · **AAX** &nbsp;&nbsp;
+[![Get Pitch Flattener with Sammy J's Plugins](https://img.shields.io/badge/get_it-Sammy_J's_Plugins-d00a35?style=flat-square)](https://github.com/samueljustice/plugins/releases/latest) &nbsp;
 [Read the manual →](pitchflattener/README.md)
 
 ---
@@ -181,8 +181,8 @@ A real-time reverser that faithfully recreates Backwards Machine's three effects
 </p>
 </details>
 
-**VST3** (macOS, Windows) · **AU** (macOS) &nbsp;&nbsp;
-[![Download Reversinator](https://img.shields.io/badge/download-v2.0.4-d00a35?style=flat-square)](https://github.com/samueljustice/plugins/releases/tag/reversinator-v2.0.4) &nbsp;
+**VST3** (macOS, Windows) · **AU** (macOS) · **AAX** &nbsp;&nbsp;
+[![Get Reversinator with Sammy J's Plugins](https://img.shields.io/badge/get_it-Sammy_J's_Plugins-d00a35?style=flat-square)](https://github.com/samueljustice/plugins/releases/latest) &nbsp;
 [Read the manual →](reversinator/README.md)
 
 ---
@@ -223,8 +223,8 @@ Roarschach is a modular voice processor built for exploration and fun. Fifteen m
 </p>
 </details>
 
-**VST3** (macOS, Windows) · **AU** (macOS) &nbsp;&nbsp;
-[![Download Roarschach](https://img.shields.io/badge/download-v1.2.0-d00a35?style=flat-square)](https://github.com/samueljustice/plugins/releases/tag/roarschach-v1.2.0) &nbsp;
+**VST3** (macOS, Windows) · **AU** (macOS) · **AAX** &nbsp;&nbsp;
+[![Get Roarschach with Sammy J's Plugins](https://img.shields.io/badge/get_it-Sammy_J's_Plugins-d00a35?style=flat-square)](https://github.com/samueljustice/plugins/releases/latest) &nbsp;
 [Read the manual →](roarschach/README.md)
 
 ---
@@ -246,8 +246,8 @@ A page of advice from people who work on film, TV, game and trailer sound: re-re
 - **Paper by day, ink by night**, with keyboard shortcuts and right-click to copy
 - **Audio passes straight through**, so it can sit on a mix bus, or run as an app on a second screen
 
-**App** (macOS, Windows) · **VST3** · **AU** &nbsp;&nbsp;
-[![Download Sound Advice](https://img.shields.io/badge/download-v1.0.13-9a5a3a?style=flat-square)](https://github.com/samueljustice/plugins/releases/tag/soundadvice-v1.0.13) &nbsp;
+**App** (macOS, Windows) · **VST3** · **AU** · **AAX** &nbsp;&nbsp;
+[![Get Sound Advice with Sammy J's Plugins](https://img.shields.io/badge/get_it-Sammy_J's_Plugins-9a5a3a?style=flat-square)](https://github.com/samueljustice/plugins/releases/latest) &nbsp;
 [Read the manual →](soundadvice/README.md)
 
 ---
@@ -275,7 +275,7 @@ cmake --build build --config Release
 
 See each project's README for its own options.
 
-**AAX:** add `-DSAMMYJ_AAX=ON` to build the AAX format too (macOS and Windows), and `-DAAX_SDK_PATH=<folder>` to use Avid's AAX SDK instead of the one bundled with JUCE (see [`cmake/AAX.cmake`](cmake/AAX.cmake)). The SDK isn't in this repository: it's Avid's. The release workflows fetch it from a private repository and upload each plug-in's AAX as a build artifact. That build is unsigned: Pro Tools needs it signed with PACE's wraptool, which needs the iLok, so signing is done by hand on the machine the iLok is plugged into. After each release, the **AAX signing** workflow waits at two stages: *Sign on the Mac* (plug the iLok into the Mac and run `sign-aax`; Notarise AAX then publishes `<Name>-<version>-macOS-AAX.zip`) and *Sign on the PC* (move the iLok to the PC and run `sign-aax` there; publishes `<Name>-<version>-Windows-AAX.zip`). Each stage waits 30 minutes; re-run the workflow with the tag to sign later. `sign-aax` signs every release waiting at its stage, so one iLok swap covers releases made together. `bundle/install-aax-signer.sh` installs it on the Mac, with a Sign AAX app to click (keep it in the Dock), and `bundle/install-aax-signer-windows.ps1` on the PC, with a Sign AAX shortcut to click (on the Desktop and in the Start menu; pin it to the taskbar), each with a prompt that asks when signing is waiting. On the PC, `sign-aax` runs `bundle/sign-aax-windows.ps1`, which signs with a code-signing certificate instead of a Developer ID and uploads the zip straight to the release (there's no notarisation on Windows). The *Sign on the PC* stage only runs while the repository variable `AAX_WINDOWS_SIGNING` is `true`.
+**AAX:** add `-DSAMMYJ_AAX=ON` to build the AAX format too (macOS and Windows), and `-DAAX_SDK_PATH=<folder>` to use Avid's AAX SDK instead of the one bundled with JUCE (see [`cmake/AAX.cmake`](cmake/AAX.cmake)). The SDK isn't in this repository: it's Avid's. The release workflows fetch it from a private repository and upload each plug-in's AAX as a build artifact. That build is unsigned: Pro Tools needs it signed with PACE's wraptool, which needs the iLok, so signing is done by hand on the machine the iLok is plugged into. After each release, the **AAX signing** workflow waits at two stages: *Sign on the Mac* (plug the iLok into the Mac and run `sign-aax`; Notarise AAX then publishes `<Name>-<version>-macOS-AAX.zip`) and *Sign on the PC* (move the iLok to the PC and run `sign-aax` there; publishes `<Name>-<version>-Windows-AAX.zip`). Each stage waits 30 minutes; re-run the workflow with the tag to sign later. When both stages are done, the Sammy J's Plugins installer rebuilds with the signed AAX, so it always carries every plug-in's AAX; the per-plug-in pages all link to that installer. `sign-aax` signs every release waiting at its stage, so one iLok swap covers releases made together. `bundle/install-aax-signer.sh` installs it on the Mac, with a Sign AAX app to click (keep it in the Dock), and `bundle/install-aax-signer-windows.ps1` on the PC, with a Sign AAX shortcut to click (on the Desktop and in the Start menu; pin it to the taskbar), each with a prompt that asks when signing is waiting. On the PC, `sign-aax` runs `bundle/sign-aax-windows.ps1`, which signs with a code-signing certificate instead of a Developer ID and uploads the zip straight to the release (there's no notarisation on Windows). The *Sign on the PC* stage only runs while the repository variable `AAX_WINDOWS_SIGNING` is `true`.
 
 </details>
 

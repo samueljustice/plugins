@@ -29,6 +29,8 @@ on:
       - Build and Release Pitch Flattener
       - Build and Release Reversinator
       - Build and Release Roarschach
+      # And once a release's AAX are signed, so the installer picks them up.
+      - AAX signing
     types: [completed]
   pull_request:
     paths:
@@ -47,11 +49,12 @@ permissions:
 jobs:
   resolve:
     # After a plug-in workflow: only when it succeeded on a release tag (not a pull request or manual run).
+    # After AAX signing: when both stages finished, so the signed AAX are on the release.
     if: >-
       github.event_name != 'workflow_run' ||
       (github.event.workflow_run.conclusion == 'success' &&
-       github.event.workflow_run.event == 'push' &&
-       contains(github.event.workflow_run.head_branch, '-v'))
+       (github.event.workflow_run.name == 'AAX signing' ||
+        (github.event.workflow_run.event == 'push' && contains(github.event.workflow_run.head_branch, '-v'))))
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.v.outputs.version }}
@@ -246,7 +249,19 @@ jobs:
             Expand-Archive (Get-ChildItem "$dl\*Windows-App.zip").FullName -DestinationPath "$dest\app" -Force
             if (-not (Test-Path "$dest\app\$app.exe")) { throw "$app.exe not in $($r.tag)'s Windows app zip" }
           }
-          # Inno Setup define names: "Sound Advice" -> SoundAdviceVersion
+          # The PACE-signed AAX, once it's on the release (signed by hand with sign-aax after the release).
+          $assets = gh release view $r.tag --json assets --jq '.assets[].name'
+          if ($assets -match '-Windows-AAX\.zip$') {
+            gh release download $r.tag -p '*-Windows-AAX.zip' -D $dl
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            Expand-Archive (Get-ChildItem "$dl\*-Windows-AAX.zip").FullName -DestinationPath "$dest\aax" -Force
+            if (-not (Test-Path "$dest\aax\$bundle.aaxplugin\Contents\x64\$bundle.aaxplugin")) { throw "$bundle.aaxplugin not in $($r.tag)'s Windows AAX zip" }
+            $defines += "/D$($name -replace '[^A-Za-z]', '')AAX"
+            Write-Host "   with its signed AAX"
+          } else {
+            Write-Host "   no signed AAX on $($r.tag) yet"
+          }
+          # Inno Setup define names: "Sound Advice" -> SoundAdviceVersion (and SoundAdviceAAX)
           $defines += "/D$($name -replace '[^A-Za-z]', '')Version=$($r.version)"
         }
         "ISCC_DEFINES=$($defines -join ' ')" | Out-File -FilePath $env:GITHUB_ENV -Append
@@ -345,8 +360,8 @@ jobs:
           echo "Built $BUILT."
           echo
           echo "### Downloads"
-          echo "- **macOS** (\`.dmg\`): the installer, with every app, VST3 and AU (choose Customize to pick), and **Uninstall Sammy J's Plugins**, which removes them again. Signed and notarised; Universal (Apple silicon and Intel), macOS 11 or later. The \`.pkg\` is the same installer on its own."
-          echo "- **Windows** (\`.exe\`): every VST3, plus the Swooshbuckler and Sound Advice apps. 64-bit Windows 10 or later. Uninstall from Settings > Apps (or the Start menu), which can also remove your settings and presets."
+          echo "- **macOS** (\`.dmg\`): the installer, with every app, VST3, AU and signed AAX (choose Customize to pick), and **Uninstall Sammy J's Plugins**, which removes them again. Signed and notarised; Universal (Apple silicon and Intel), macOS 11 or later. The \`.pkg\` is the same installer on its own."
+          echo "- **Windows** (\`.exe\`): every VST3 and signed AAX, plus the Swooshbuckler and Sound Advice apps. 64-bit Windows 10 or later. Uninstall from Settings > Apps (or the Start menu), which can also remove your settings and presets."
         } > notes.md
         cat notes.md
 
