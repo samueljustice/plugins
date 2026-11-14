@@ -397,6 +397,7 @@ void RigEngine::reset()
     m_heightNow = sj::clamp(m_params.roomHeight, 0.0f, 1.0f);
     m_centreNow = m_params.roomCentre ? 1.0f : 0.0f;
     m_roomSnap = true;
+    m_spaceFoldSet = false;
     m_hitsAt = m_hitsTo = room::Position {};
     m_hitsDistance = m_hitsDistanceTo = 1.0f;
     m_objectLevel.fill(0.0f);
@@ -3078,6 +3079,7 @@ void RigEngine::renderBus(BusState& bus, int frames, float key, bool isKeyBus,
 
     // What the mix takes: left and right, or a room's lanes (all four once the throws or a bed's sides sound).
     bus.lanes = room && (third || sideHeard) ? 4 : 2;
+    bus.sidesOn = room && sideHeard;
     if (bus.lanes == 4 && ! third)
         std::fill(bus.t.begin(), bus.t.begin() + frames, 0.0f);
     if (bus.lanes == 4 && ! sideHeard)
@@ -3366,17 +3368,32 @@ void RigEngine::renderSpaceRoom(int frames)
 {
     // Until the room has a reverb of its own: the echoes and the reverb hear the room folded to stereo, and what
     // they add comes back in L and R. The dry sound is eased down in every speaker as it is in stereo.
+    // The fold's gains glide as the speakers' do (see mixRoom): a change of width gives the channels other
+    // speakers, and a fold that changed at once would put a step into the echoes.
     const int channels = room::layout(m_width).numChannels;
     const auto& fold = room::fold(m_width, room::Width::Stereo);
+    const auto foldFrom = m_spaceFold;
+    const float mostStep = static_cast<float>(frames) / (c_gainSeconds * m_fs);
+    for (size_t side = 0; side < 2; ++side)
+        for (size_t ch = 0; ch < m_spaceFold[side].size(); ++ch)
+        {
+            const float target = static_cast<int>(ch) < channels ? fold.gain[side][ch] : 0.0f;
+            m_spaceFold[side][ch] = m_spaceFoldSet ? m_spaceFold[side][ch] + sj::clamp(target - m_spaceFold[side][ch], -mostStep, mostStep) : target;
+        }
+    const auto fold0 = m_spaceFoldSet ? foldFrom : m_spaceFold;
+    m_spaceFoldSet = true;
     float dryL[c_chunk], dryR[c_chunk];
+    const float foldStep = 1.0f / static_cast<float>(frames);
     for (int i = 0; i < frames; ++i)
     {
+        const float t = static_cast<float>(i + 1) * foldStep;
         float l = 0.0f, r = 0.0f;
-        for (int ch = 0; ch < channels; ++ch)
+        for (int ch = 0; ch < m_liveChannels; ++ch)
         {
-            const float x = m_mix[static_cast<size_t>(ch)][static_cast<size_t>(i)];
-            l += fold.gain[0][static_cast<size_t>(ch)] * x;
-            r += fold.gain[1][static_cast<size_t>(ch)] * x;
+            const auto c = static_cast<size_t>(ch);
+            const float x = m_mix[c][static_cast<size_t>(i)];
+            l += (fold0[0][c] + (m_spaceFold[0][c] - fold0[0][c]) * t) * x;
+            r += (fold0[1][c] + (m_spaceFold[1][c] - fold0[1][c]) * t) * x;
         }
         m_spaceL[static_cast<size_t>(i)] = dryL[i] = l;
         m_spaceR[static_cast<size_t>(i)] = dryR[i] = r;
@@ -3680,6 +3697,17 @@ void RigEngine::process(const float* inL, const float* inR, float* const* out, i
                 speakers[ch] = m_mix[ch].data();
             applyTremolo(m_trem[0], speakers, roomChannels, frames, m_params.tremTarget == 0, room ? m_roomMono.data() : nullptr);
         }
+        // Around a change between stereo and a room the mix fades here as well as at the output (below): what the
+        // echoes and the reverb are sent is then silent at the swap too, and nothing in it steps. (This fade is
+        // level where the output's begins, so the two together start no more sharply than the output's alone.)
+        if (widthFade0 < 1.0f || widthFade1 < 1.0f)
+            for (int i = 0; i < frames; ++i)
+            {
+                const float g = widthFade0 + (widthFade1 - widthFade0) * static_cast<float>(i + 1) / static_cast<float>(frames);
+                const float send = g * (2.0f - g);
+                for (int ch = 0; ch < roomChannels; ++ch)
+                    m_mix[static_cast<size_t>(ch)][static_cast<size_t>(i)] *= send;
+            }
         if (room)
             renderSpaceRoom(frames);
         else
@@ -4036,6 +4064,7 @@ void RigEngine::stepWidth(int frames, float& fade0, float& fade1)
             }
             m_stow.placed = false;
             m_roomSnap = true;
+            m_spaceFoldSet = false;
             m_liveChannels = room::layout(m_width).numChannels;
             m_liveHold = 0;
             std::fill(m_subStem.begin(), m_subStem.end(), 0.0f);
@@ -4118,6 +4147,14 @@ void RigEngine::mixRoom(int frames, bool stowSounds, bool stowDry)
             sidesTo[static_cast<size_t>(ch)] = (s.x < 0.0f ? 1.0f : -1.0f) * std::sqrt(power);
         }
     }
+    // Their gains this chunk, the same for every bus that has sides (a bus with four lanes may have them for its
+    // throws alone: its sides lane is silent then, and it must not stand in for the bus whose bed is playing).
+    room::Gains sidesFrom = m_sidesGain, sidesNext = sidesTo;
+    if (m_roomSnap)
+        sidesFrom = sidesTo;
+    else
+        for (size_t ch = 0; ch < sidesNext.size(); ++ch)
+            sidesNext[ch] = sidesFrom[ch] + sj::clamp(sidesTo[ch] - sidesFrom[ch], -mostStep, mostStep);
     bool sidesHeard = false;
 
     for (size_t b = 0; b < m_buses.size(); ++b)
@@ -4131,9 +4168,9 @@ void RigEngine::mixRoom(int frames, bool stowSounds, bool stowDry)
             lane(bus.t.data(), bus.gain[2], bus.gainTo[2], snap);
         else
             bus.gain[2] = bus.gainTo[2]; // silent: the next throw starts where it is
-        if (four && ! sidesHeard) // (only one bus keeps a bed's sides)
+        if (four && bus.sidesOn)
         {
-            lane(bus.sideL.data(), m_sidesGain, sidesTo, m_roomSnap);
+            addToRoom(bus.sideL.data(), sidesFrom, sidesNext, frames);
             sidesHeard = true;
         }
         bus.placed = true;
@@ -4147,8 +4184,7 @@ void RigEngine::mixRoom(int frames, bool stowSounds, bool stowDry)
             m_roomMono[ii] += mono;
         }
     }
-    if (! sidesHeard)
-        m_sidesGain = sidesTo;
+    m_sidesGain = sidesHeard ? sidesNext : sidesTo; // silent: they start from where they belong
 
     // Stowaway. Sub and Dry: equal in L and R (Dry with its sides), exactly as placeStow made them for stereo.
     // Wake: one lane at its place. Fly: its two passes and its throws, three lanes.

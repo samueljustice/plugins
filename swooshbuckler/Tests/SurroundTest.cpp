@@ -622,6 +622,20 @@ int main(int argc, char* argv[])
         std::cout << "         Quad, 5.1, 7.1, 7.1.2, 7.1.4 against each other: whole take within " << num(worst, 2) << " dB, any tenth of a second within "
                   << num(mean, 2) << " dB" << std::endl;
         check(worst < 0.1f && mean < 0.6f, "the same passes are as loud at every width (the take within 0.1 dB, any tenth of a second within 0.6 dB)");
+
+        // And against the stereo engine's render of the same rig: not the same sound (two ears there, speakers
+        // here), but about as loud over the take, all channels together.
+        {
+            Scene scene;
+            scene.load(0, src.hissA, 0);
+            scene.load(1, src.hissB, 1);
+            scene.start(room::Width::Stereo);
+            Take stereo;
+            scene.run(stereo, static_cast<int>(20.0 * c_fs / c_block));
+            const float apart = db(meanPower(takes[1])) - db(meanPower(stereo));
+            std::cout << "         5.1 against the Stereo render of the same rig: " << num(apart, 2) << " dB over the take" << std::endl;
+            check(std::abs(apart) < 1.5f, "a room is about as loud as Stereo (all its speakers together within 1.5 dB over the take)");
+        }
     }
 
     //==================================================================================================================
@@ -630,10 +644,11 @@ int main(int argc, char* argv[])
         // A 60 Hz tone on bus A, no colours: from one sample to the next it moves by under 1% of its peak, so a
         // step in any speaker's gain shows. Measured: the largest step, and the largest change of step.
         enum Change { Nothing, Paths, RoomKnobs, Widths, StereoAndBack, Everything };
-        auto played = [&](int passMode, Change change)
+        auto played = [&](int passMode, Change change, float space = 0.0f)
         {
             Scene scene;
             scene.load(0, src.tone60, 0);
+            scene.p.space = space;
             scene.p.buses[0].passMode = passMode;
             scene.p.buses[0].path = static_cast<int>(room::Path::Through);
             scene.start(room::Width::Surround714);
@@ -678,6 +693,17 @@ int main(int argc, char* argv[])
                           << "% of the peak, largest change of step " << num(100.0f * s.second / s.peak, 3) << "%" << std::endl;
                 check(allFinite(take) && s.peak > 0.2f && s.first < 0.015f * s.peak && s.second < 0.005f * s.peak,
                       juce::String(modes[passMode]) + ": no click when " + what + " mid-pass");
+            }
+            // With Space up (the echoes and the reverb are sent a fold of the room, and a step in what they are
+            // sent comes back as a click an echo later).
+            for (const auto& [change, what] : { std::pair<Change, const char*> { Widths, "the room changes width" }, { StereoAndBack, "the width goes to Stereo and back" } })
+            {
+                const auto take = played(passMode, change, 0.5f);
+                const auto s = stepsOf(take, 4800);
+                std::cout << "         " << modes[passMode] << ", Space at 50%, " << what << ": largest step " << num(100.0f * s.first / s.peak, 2)
+                          << "% of the peak, largest change of step " << num(100.0f * s.second / s.peak, 3) << "%" << std::endl;
+                check(allFinite(take) && s.peak > 0.2f && s.first < 0.015f * s.peak && s.second < 0.005f * s.peak,
+                      juce::String(modes[passMode]) + ": no click when " + what + " mid-pass with Space up");
             }
         }
     }
@@ -1049,6 +1075,45 @@ int main(int argc, char* argv[])
         check(frontStereo.first < frontMono.first - 0.2, "a stereo bed is wider across the front pair than the same bed with both sides alike");
         check(rearStereo.first < rearMono.first - 0.2 && rearStereo.first < rearStereoPoint.first - 0.1 && rearStereo.second > 0.01f,
               "Spread takes its sides into the surrounds too: it widens into the room");
+
+        // A throw must not take the bed's sides away. With Spread at 100% every pass and throw is the same in L
+        // and R, so L minus R is the bed's sides alone: they carry on, as loud, while a throw flies and after it.
+        {
+            Scene scene;
+            scene.load(0, src.stereoBed, 1);
+            scene.p.buses[1].passMode = 0;
+            scene.p.buses[1].doppler = 0.2f;
+            scene.p.roomSpread = 1.0f;
+            scene.start(width);
+            Take take;
+            const int perSecond = static_cast<int>(c_fs / c_block);
+            scene.run(take, 12 * perSecond, [&](int b)
+            {
+                if (b == 6 * perSecond)
+                    scene.rig.throwWhoosh(17, 0.9f);
+            });
+            const auto& l = take.ch[static_cast<size_t>(spk.layout.indexOf(room::Speaker::L))];
+            const auto& r = take.ch[static_cast<size_t>(spk.layout.indexOf(room::Speaker::R))];
+            auto sides = [&](int fromBlock, int toBlock, bool least)
+            {
+                double best = least ? 1.0e30 : 0.0, sum = 0.0;
+                for (int b = fromBlock; b < toBlock; ++b)
+                {
+                    double p = 0.0;
+                    for (int i = b * c_block; i < (b + 1) * c_block; ++i)
+                        p += static_cast<double>(l[static_cast<size_t>(i)] - r[static_cast<size_t>(i)]) * (l[static_cast<size_t>(i)] - r[static_cast<size_t>(i)]);
+                    best = std::min(best, p);
+                    sum += p;
+                }
+                return least ? best : sum / (toBlock - fromBlock);
+            };
+            const double before = sides(2 * perSecond, 6 * perSecond, false), leastBefore = sides(2 * perSecond, 6 * perSecond, true);
+            const double leastDuring = sides(6 * perSecond, 12 * perSecond, true), during = sides(6 * perSecond, 12 * perSecond, false);
+            std::cout << "         the bed's sides (L minus R): " << num(db(during) - db(before), 1) << " dB with a throw in flight against before it; quietest block "
+                      << num(db(leastDuring) - db(before), 1) << " dB (before the throw " << num(db(leastBefore) - db(before), 1) << " dB)" << std::endl;
+            check(before > 1.0e-6 && std::abs(db(during) - db(before)) < 3.0f && db(leastDuring) > db(leastBefore) - 6.0f,
+                  "a stereo bed keeps its sides while a throw flies");
+        }
     }
 
     //==================================================================================================================

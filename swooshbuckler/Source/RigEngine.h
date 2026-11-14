@@ -604,6 +604,7 @@ private:
         bool thirdOn = false;
         int thirdTail = 0;
         int lanes = 2; // the lanes the mix takes this chunk: 2, or 4 (t and sideL too, silent when not in use)
+        bool sidesOn = false; // a room: sideL holds a stereo bed's sides this chunk
         std::array<float, 3> lowShare { 0.5f, 0.5f, 0.0f }; // each lane's share of what Low End adds (by its power), at the end of the last chunk
         PathGlide path;
         // Each lane's speaker gains at the end of the last chunk and of this one (lane 3: the throws, blended by
@@ -1011,6 +1012,8 @@ private:
     room::Gains m_sidesGain {};
     std::array<float, c_chunk> m_roomMono {}, m_spaceL {}, m_spaceR {}; // the mix as one stream; Space's send
     float m_spaceDryFrom = 1.0f;   // the reverb's dry gain at the start of the chunk renderSpace just did
+    std::array<std::array<float, room::c_maxChannels>, 2> m_spaceFold {}; // Space's send: each channel's gain into its left and its right, glided
+    bool m_spaceFoldSet = false;   // (false: nothing to glide from)
     std::vector<float> m_subStem;  // see getSubStem
     std::array<float, c_objects> m_objectLevel {};
     std::array<std::atomic<float>, c_objects * 4> m_objectView {}; // x, y, z, level each
