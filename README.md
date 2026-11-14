@@ -308,6 +308,10 @@ Creative Sound Supervisor at **[Sweet Justice](https://www.sweetjusticesound.com
 
 I taught myself C++ during the development of SOMA, but my knowledge only goes so far. These plug-ins are experiments: ideas that have been sitting in my head for a while, built with what I know and with help from Claude.
 
+If these get some use in your work and you'd like to chip in, toss a coin in the jar. Every bit goes towards more of them.
+
+[![Donate with PayPal](https://img.shields.io/badge/Donate-PayPal-00457C?style=for-the-badge&logo=paypal&logoColor=white)](https://www.paypal.com/donate/?business=sam%40samueljustice.net&item_name=Sammy+J%27s+Plugins)
+
 <sub>Found a bug or have an idea? <a href="https://github.com/samueljustice/plugins/issues">Open an issue</a>.</sub>
 
 </div>
