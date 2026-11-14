@@ -877,6 +877,37 @@ namespace
                 check(nullDb(out.l, voice, p->getLatencySamples(), 0) < -200.0, juce::String(sr) + " Hz bypass is not a pure delay");
             }
 
+            // The views are told: the flag is set by every bypassed block and cleared by every
+            // processed one, at any block size (an empty block included), while the chain runs on.
+            for (const int block : { 0, 1, 16, 333, 512, 4096 })
+            {
+                auto p = makeProcessor(sr, std::max(block, 1));
+                const auto& f = p->getMonsterFeatures();
+                juce::AudioBuffer<float> buffer(2, block);
+                juce::MidiBuffer midi;
+                bool ok = ! f.hostBypassed.load();
+                for (int k = 0; k < 6; ++k)
+                {
+                    const bool bypass = k % 3 != 2;
+                    buffer.clear();
+                    if (block > 0)
+                        buffer.setSample(0, 0, 0.5f);
+                    if (bypass)
+                        p->processBlockBypassed(buffer, midi);
+                    else
+                        p->processBlock(buffer, midi);
+                    ok = ok && f.hostBypassed.load() == bypass;
+                }
+                check(ok, juce::String(sr) + " Hz, blocks of " + juce::String(block) + ": the host-bypass flag follows processBlockBypassed / processBlock");
+            }
+            {
+                auto p = makeProcessor(sr, 512);
+                const int before = p->getMonsterFeatures().generation.load();
+                render(*p, in, 512, true);
+                check(p->getMonsterFeatures().generation.load() != before && p->getMonsterFeatures().hostBypassed.load(),
+                      juce::String(sr) + " Hz: in bypass the chain runs on underneath and says it is bypassed");
+            }
+
             // Reference: every module Off (OUTPUT linear: no auto gain, no Ride, no filters, Push 0).
             const auto prepareLinear = [](RoarschachAudioProcessor& p)
             {
@@ -3167,6 +3198,36 @@ namespace
     void testEditor()
     {
         std::printf("[editor] tooltips, menus, moves, drag, chips, value boxes, host moves\n");
+        {
+            // Host bypass: the chain runs on underneath, but the strip's activity readouts rest.
+            auto q = makeProcessor(48000.0, 512);
+            setValues(*q, { { Params::cleanOn, 1.0f }, { Params::deessOn, 1.0f }, { Params::detailOn, 1.0f }, { Params::roarOn, 1.0f } });
+            std::unique_ptr<juce::AudioProcessorEditor> base(q->createEditor());
+            auto& ed = *dynamic_cast<RoarschachAudioProcessorEditor*>(base.get());
+            auto& strip = RoarschachEditorInspector::strip(ed);
+            const auto voice = dual(makeVoice(48000.0, 1.5, 110.0));
+            const auto activity = [&strip]
+            {
+                float a = 0.0f;
+                for (const auto id : { Params::ModuleId::clean, Params::ModuleId::deess, Params::ModuleId::detail, Params::ModuleId::roar })
+                {
+                    const auto v = strip.getReadoutForTests(static_cast<int>(id));
+                    a += std::abs(v[0]) + std::abs(v[1]);
+                }
+                return a;
+            };
+            render(*q, voice, 512, false);
+            strip.refresh();
+            const float playing = activity();
+            render(*q, voice, 512, true);
+            strip.refresh();
+            const float bypassed = activity();
+            render(*q, voice, 512, false);
+            strip.refresh();
+            const float back = activity();
+            check(playing > 0.0f && bypassed <= 0.0f && back > 0.0f, "strip: in host bypass the module readouts rest, and read again after (" + juce::String(playing, 2) + ", "
+                                                                      + juce::String(bypassed, 2) + ", " + juce::String(back, 2) + ")");
+        }
         {
             // Without OpenGL the creature view shows a still cloud in its own tones and says why,
             // not an empty dark box.

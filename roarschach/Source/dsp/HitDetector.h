@@ -3,6 +3,7 @@
 #include "common/DspMath.h"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 
 namespace roar
@@ -20,8 +21,18 @@ namespace roar
      * from how far it rose, how loud it got and how suddenly. A voice's syllables and the start of
      * a sung phrase rise over tens of milliseconds and are counted weak (no ring is started for
      * them); a stomp or a thump rises in a few and is counted strong, and so is the onset of a loud
-     * roar however it rises. After one, 150 ms pass before the next can arm (after a weak one, none). Also published: the rumble, the low end's own level (under 120 Hz, 0.3 s), for
-     * a fine tremble while it is sustained.
+     * roar however it rises. After one, 150 ms pass before the next can arm (after a weak one, none).
+     *
+     * A brief, clear hit never feeds its own baseline. Clear: strength 0.3 and up, and its low end
+     * -24 dB or louder (a stomp, not a voice's syllable). Brief: it reached its top within 120 ms
+     * of arming, and 150 ms after arming it has fallen 3 dB or more below that (a stomp or a thump,
+     * however the chain has spread it; a roar is still going). The slow follower then goes back to
+     * where it stood when the hit armed and holds still for 300 ms, so a run of equal stomps is a
+     * run of equal hits instead of each one rising over the tail of the last. Everything else
+     * feeds it as before: the level of steady talking is what keeps its syllables from counting.
+     *
+     * Also published: the rumble, the low end's own level (under 120 Hz, 0.3 s), for a fine tremble
+     * while it is sustained.
      *
      * Every time is in seconds and every filter is set from the sample rate, and the state is per
      * sample, so the same audio gives the same hits at any rate and in any size of block. Audio
@@ -44,6 +55,8 @@ namespace roar
             m_rumbleEnvPole = pole (0.3);
             m_windowSamples = static_cast<int> (std::lround (c_windowSeconds * m_fs));
             m_refractorySamples = static_cast<int> (std::lround (c_refractorySeconds * m_fs));
+            m_holdSamples = static_cast<int> (std::lround (c_holdSeconds * m_fs));
+            m_earlySamples = static_cast<int> (std::lround (c_earlySeconds * m_fs));
             reset();
         }
 
@@ -53,6 +66,8 @@ namespace roar
             m_fast = m_mid = m_slow = m_rumbleEnv = 0.0f;
             m_armedLeft = -1;
             m_sinceHit = m_refractorySamples;
+            m_holdLeft = m_checkLeft = m_hitPeakAt = 0;
+            m_slowAtArm = m_hitPeak = 0.0f;
             m_peakJump = m_peakFast = m_peakSteep = 0.0f;
             // (the count goes on: a reader that saw it change would take a reset for a hit)
         }
@@ -73,7 +88,24 @@ namespace roar
                 const float e = w * w;
                 m_fast += (1.0f - (e > m_fast ? m_fastUp : m_fastDown)) * (e - m_fast);
                 m_mid += (1.0f - (e > m_mid ? m_midUp : m_midDown)) * (e - m_mid);
-                m_slow += (1.0f - m_slowPole) * (e - m_slow);
+                // (held after a brief, clear hit: see the class notes)
+                if (m_holdLeft > 0)
+                    --m_holdLeft;
+                else
+                    m_slow += (1.0f - m_slowPole) * (e - m_slow);
+                if (m_checkLeft > 0)
+                {
+                    if (m_fast > m_hitPeak)
+                    {
+                        m_hitPeak = m_fast;
+                        m_hitPeakAt = m_sinceHit;
+                    }
+                    if (--m_checkLeft == 0 && m_hitPeakAt <= m_earlySamples && m_fast < c_briefRatio * m_hitPeak)
+                    {
+                        m_slow = std::min (m_slow, m_slowAtArm);
+                        m_holdLeft = m_holdSamples;
+                    }
+                }
                 // the rumble: under 120 Hz only
                 m_ru1 += (1.0f - m_rumblePole) * (x - m_ru1);
                 m_ru2 += (1.0f - m_rumblePole) * (m_ru1 - m_ru2);
@@ -88,6 +120,8 @@ namespace roar
                         && m_fast > c_steepRatio * (m_mid + 1.0e-9f))
                     {
                         m_armedLeft = m_windowSamples;
+                        m_slowAtArm = m_slow;
+                        m_checkLeft = 0;
                         m_sinceHit = 0;
                         m_peakJump = m_peakFast = m_peakSteep = 0.0f;
                     }
@@ -103,8 +137,16 @@ namespace roar
                         // (a weak one holds nothing back: a syllable just before a stomp must not hide it)
                         if (m_strength < c_weak)
                             m_sinceHit = m_refractorySamples;
+                        if (m_strength >= c_clear && m_peakFast >= c_clearPeak)
+                        {
+                            // (is it brief? asked when its refractory time ends)
+                            m_hitPeak = m_peakFast;
+                            m_hitPeakAt = 0;
+                            m_checkLeft = std::max (1, m_refractorySamples - m_windowSamples);
+                        }
                         ++m_hits;
                         m_hits &= 0x3fffffff;
+                        m_recent[static_cast<size_t> (m_hits % c_numRecent)] = m_strength;
                     }
                 }
             }
@@ -122,6 +164,12 @@ namespace roar
         int hits() const noexcept { return m_hits; }
         /** The latest hit's strength, 0..1. */
         float strength() const noexcept { return m_strength; }
+        /** Hit number `count`'s strength, for one of the last c_numRecent counted (0 for an older one). */
+        float strengthOf (int count) const noexcept
+        {
+            const int back = (m_hits - count) & 0x3fffffff;
+            return back < c_numRecent ? m_recent[static_cast<size_t> (count % c_numRecent)] : 0.0f;
+        }
         /** The low end's level, 0 (-32 dB or less) .. 1 (-12 dB). */
         float rumble() const noexcept
         {
@@ -144,8 +192,13 @@ namespace roar
         }
 
         static constexpr double c_lowHz = 150.0, c_rumbleHz = 120.0;
-        static constexpr double c_windowSeconds = 0.030, c_refractorySeconds = 0.150;
+        static constexpr double c_windowSeconds = 0.030, c_refractorySeconds = 0.150, c_holdSeconds = 0.300;
+        static constexpr int c_numRecent = 8;
         static constexpr float c_weak = 0.1f;   // a hit this weak has no refractory time after it
+        static constexpr float c_clear = 0.3f;  // a hit this strong, and brief, keeps out of the baseline
+        static constexpr float c_clearPeak = 4.0e-3f;   // clear: a peak of -24 dB and up (a stomp's low end, not a voice's)
+        static constexpr float c_briefRatio = 0.5f;     // brief: 3 dB under its top when the refractory time ends,
+        static constexpr double c_earlySeconds = 0.120; // and its top reached within this time of arming
         static constexpr float c_jumpRatio = 7.94f, c_steepRatio = 3.16f, c_floorPower = 3.16e-5f;
 
     private:
@@ -154,10 +207,12 @@ namespace roar
         float m_fastUp = 0.0f, m_fastDown = 0.0f, m_midUp = 0.0f, m_midDown = 0.0f, m_slowPole = 0.0f, m_rumbleEnvPole = 0.0f;
         float m_lo1 = 0.0f, m_lo2 = 0.0f, m_ru1 = 0.0f, m_ru2 = 0.0f;
         float m_fast = 0.0f, m_mid = 0.0f, m_slow = 0.0f, m_rumbleEnv = 0.0f;
-        int m_windowSamples = 1440, m_refractorySamples = 7200;
-        int m_armedLeft = -1, m_sinceHit = 0;
+        int m_windowSamples = 1440, m_refractorySamples = 7200, m_holdSamples = 14400, m_earlySamples = 5760;
+        int m_armedLeft = -1, m_sinceHit = 0, m_holdLeft = 0, m_checkLeft = 0, m_hitPeakAt = 0;
         float m_peakJump = 0.0f, m_peakFast = 0.0f, m_peakSteep = 0.0f;
+        float m_slowAtArm = 0.0f, m_hitPeak = 0.0f;
         int m_hits = 0;
         float m_strength = 0.0f;
+        std::array<float, c_numRecent> m_recent {};
     };
 }

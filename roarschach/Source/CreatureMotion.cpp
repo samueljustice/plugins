@@ -275,8 +275,9 @@ namespace roar
                     r = Ring();
             }
 
-        // a new hit (the count moved on by a few: one ring, the latest hit's strength)
-        const int moved = hits - lastHits;
+        // a new hit (the count moved on by a few: one ring, at the strongest of their strengths;
+        // the count wraps at 2^30)
+        const int moved = (hits - lastHits) & 0x3fffffff;
         if (seen && moved > 0 && moved < 64 && strength >= c_minStrength && awake > 0.1f)
         {
             if (forces.flashedWithin (0.1f) || forces.allowFlash())

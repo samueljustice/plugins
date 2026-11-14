@@ -452,8 +452,12 @@ void MonsterView::updateAnimation (float dt)
         m_staleSeconds = std::min (m_staleSeconds + dt, 60.0f);
     }
 
-    // Stale features read as silence: the creature closes its mouth and drifts off to sleep.
-    const bool stale = m_staleSeconds >= c_staleAfterSeconds;
+    // Stale features (the host stopped calling the plug-in) and host bypass (the chain still runs
+    // and publishes underneath, unheard) read as silence: the creature closes its mouth and goes to
+    // sleep at once, without the 1.5 s a quiet input waits; no ripples, no tremble. It wakes with
+    // the first sound once the host processes again. (Mix at 0 % is not silence: the picture shows
+    // what the chain is doing, whatever share of it is heard.)
+    const bool stale = m_staleSeconds >= c_staleAfterSeconds || f.hostBypassed.load (std::memory_order_relaxed);
     m_stale.store (stale, std::memory_order_relaxed);
     const float live = stale ? 0.0f : 1.0f;
     const auto load = [live] (const std::atomic<float>& a) { return a.load (std::memory_order_relaxed) * live; };
@@ -462,6 +466,8 @@ void MonsterView::updateAnimation (float dt)
 
     // Asleep after 1.5 s of silence; wakes quickly when sound comes back.
     m_quietSeconds = input < c_quietLevel ? std::min (m_quietSeconds + dt, 60.0f) : 0.0f;
+    if (stale)
+        m_quietSeconds = std::max (m_quietSeconds, c_sleepAfterSeconds);
     const bool asleep = m_quietSeconds >= c_sleepAfterSeconds;
     follow (m_sleep, asleep ? 1.0f : 0.0f, dt, 0.9f, 0.15f);
     m_asleep.store (asleep, std::memory_order_relaxed);
@@ -638,7 +644,10 @@ void MonsterView::updateAnimation (float dt)
         // hits ripple the picture; a sustained low end trembles it (stale features: neither)
         // (a voice alone, a faint shimmer)
         const float shimmer = load (f.rumble) + 0.12f * juce::jlimit (0.0f, 1.0f, m_level * 2.0f);
-        m_ripples.step (dt, f.hits.load (std::memory_order_relaxed), load (f.hitStrength), shimmer, in.awake * live, m_audioForces);
+        // (the count first, then the strongest of the hits it moved past: never another hit's strength)
+        const int hits = f.hits.load (std::memory_order_acquire);
+        const float hitStrength = f.strongestHitSince (m_ripples.lastHits, hits) * live;
+        m_ripples.step (dt, hits, hitStrength, shimmer, in.awake * live, m_audioForces);
 
         m_head.step (dt, m_jawMotion.y, m_jawMotion.P, m_jawMotion.justEngaged, m_jawMotion.dPdt, m_jawMotion.roarHold,
                      m_audioForces.growl, m_sleep);

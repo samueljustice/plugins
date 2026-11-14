@@ -144,6 +144,13 @@ public:
     void renderOffline (float dt, int width, int height, bool coreProfile = true);
     void releaseOffline();
     const roar::MonsterRenderer& getRendererForTests() const { return m_renderer; }
+    /** Tests: the features read as silence (not published lately, or the host is bypassing), the
+        creature asleep, and asleep with frames coming slowly, as the last frame stepped them. */
+    bool readsSilenceForTests() const { return m_stale.load (std::memory_order_relaxed); }
+    bool isAsleepForTests() const { return m_asleep.load (std::memory_order_relaxed); }
+    bool isIdleForTests() const { return m_idle.load (std::memory_order_relaxed); }
+    /** Tests: the readouts as the last refreshOverlay() wrote them ("F0 ... | DETAIL ..."). Message thread. */
+    juce::String getReadoutsForTests() const { return m_f0Text + " | " + m_detailText; }
     /** Tests: the ripples from hits as the last frame stepped them. */
     const roar::SurfaceRipples& getRipplesForTests() const { return m_ripples; }
     /** Tests and snapshots: the ripples and the tremble left out of the picture (they are still stepped). */
@@ -199,7 +206,7 @@ private:
     std::atomic<bool> m_shaderFailed { false };
     std::atomic<bool> m_glReady { false };   // a context was created and the shader built
     std::atomic<bool> m_asleep { false };
-    std::atomic<bool> m_stale { false };     // the audio thread stopped publishing (host not processing)
+    std::atomic<bool> m_stale { false };     // the features read as silence: not published lately, or the host is bypassing
     std::atomic<bool> m_idle { false };      // asleep and fully settled: frames can come slowly
     std::atomic<int> m_tier { -1 };          // the renderer's tier (the idle frame rate depends on it)
     std::atomic<int> m_awakeHz { 30 };       // frames a second awake (fewer where the GPU is given relief)

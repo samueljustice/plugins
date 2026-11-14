@@ -106,6 +106,8 @@ public:
     //==============================================================================
     // For the tests and the snapshot harness
     juce::Component* getModuleTile(int module) const;
+    /** A module tile's readout values as the last refresh() set them (all 0 for an unknown module). */
+    std::array<float, 34> getReadoutForTests(int module) const;
     juce::Component* getInTile() const;
     juce::Component* getOutputTile() const;
     juce::Button* getModeChip(int module) const;   // nullptr for a module without choices

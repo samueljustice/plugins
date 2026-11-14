@@ -153,7 +153,7 @@ namespace roar
 
         void reset() { *this = SurfaceRipples(); }
 
-        /** hits: the detector's count; strength: the latest hit's; rumble: the low end, 0..1;
+        /** hits: the detector's count; strength: the strongest of the hits since the last step's count; rumble: the low end, 0..1;
             awake: 0 asleep .. 1; forces: the flash limit. */
         void step (float dt, int hits, float strength, float rumble, float awake, AudioForces& forces);
 

@@ -406,6 +406,8 @@ struct InkRig
     int frames = 0;
     int position = 0;
     int drawsPerFrame = 1;
+    bool bypassed = false;    // the host bypasses the plug-in (processBlockBypassed)
+    bool hostCalls = true;    // false: the host stops calling the plug-in (the audio still moves on)
 
     InkRig(int width, int height, std::uint32_t seed, float pinnedStage = -1.0f, const juce::String& preset = {}, bool core = true)
         : gl(width, height, core)
@@ -461,7 +463,12 @@ struct InkRig
                         buffer.setSample(ch, i, src[static_cast<size_t>(position + i)] * gain);
                 }
             position += block;
-            p->processBlock(buffer, midi);
+            if (! hostCalls)
+                continue;
+            if (bypassed)
+                p->processBlockBypassed(buffer, midi);
+            else
+                p->processBlock(buffer, midi);
         }
         if (frames % 3 == 0)
             p->stepCreatureForTests(0.1f);   // (the creature's clock: ten times a second)
@@ -3947,7 +3954,7 @@ struct InkHits
                     if (static_cast<double>(i + n) / sr < from)
                         continue;
                     at.push_back(static_cast<double>(i + n) / sr);
-                    strength.push_back(d.strength());
+                    strength.push_back(d.strengthOf(k + 1));
                 }
                 seen = d.hits();
             }
@@ -3993,8 +4000,9 @@ inline void testInkRippleModel()
                 reference = h.strength;
             bool same = h.strength.size() == reference.size();
             for (size_t k = 0; same && k < reference.size(); ++k)
-                same = std::abs(h.strength[k] - reference[k]) < 0.06f && h.strength[k] >= 0.5f;
-            check(same, "ripples: the thumps are as strong at " + juce::String(sr / 1000.0, 1) + " kHz in blocks of " + juce::String(block) + " (strong hits, within 0.06 of 44.1 kHz in blocks of 16)");
+                same = std::abs(h.strength[k] - reference[k]) < 0.06f && h.strength[k] >= 0.8f;
+            // (each of the four measures 1.00: a hit no longer rises over the tail of the one before)
+            check(same, "ripples: the thumps are as strong at " + juce::String(sr / 1000.0, 1) + " kHz in blocks of " + juce::String(block) + " (each 0.8 or more, within 0.06 of 44.1 kHz in blocks of 16)");
         }
     std::printf("  ripples: four thumps found at four rates and three block sizes, strengths %.2f..%.2f, counted at most %.0f ms after each starts\n",
                 reference.empty() ? 0.0 : static_cast<double>(*std::min_element(reference.begin(), reference.end())),
@@ -4051,7 +4059,7 @@ inline void testInkRippleModel()
                 const int now = f.hits.load();
                 if (now != seen)
                 {
-                    const float st = f.hitStrength.load();
+                    const float st = f.strongestHitSince(seen, now);
                     const double t = static_cast<double>(start) / sr;
                     list << juce::String(t, 2) << " s " << juce::String(st, 2) << ", ";
                     if (st >= roar::SurfaceRipples::c_minStrength && t >= 0.4)
@@ -4163,6 +4171,98 @@ inline void testInkRippleModel()
         weak.step(0.1f, 0, 0.0f, 0.0f, 1.0f, f);
         weak.step(0.1f, 1, 0.5f * roar::SurfaceRipples::c_minStrength, 0.0f, 1.0f, f);
         check(asleep.live() == 0 && weak.live() == 0, "ripples: no ring while asleep, and none from a weak hit");
+    }
+
+    // ---- a run of equal thumps: equal hits (a hit never feeds its own baseline), at every rate
+    for (const double sr : c_rates)
+        for (const float amp : { 0.5f, 0.15f })
+            for (const double gap : { 0.7, 0.4, 0.25 })
+            {
+                Signal s(static_cast<size_t>((1.0 + 10.0 * gap) * sr), 0.0f);
+                for (int k = 0; k < 10; ++k)
+                    addThump(s, sr, 0.5 + gap * k, amp);
+                const InkHits h(s, sr, 512);
+                // (the first rises out of silence; each after it over the tail of the one before, which
+                // makes it a little less sudden: the run after the first is one strength, not a fade)
+                const float first = h.strength.empty() ? 0.0f : h.strength.front();
+                const float lo = h.strength.size() < 2 ? 0.0f : *std::min_element(h.strength.begin() + 1, h.strength.end());
+                const float hi = h.strength.size() < 2 ? 0.0f : *std::max_element(h.strength.begin() + 1, h.strength.end());
+                if (sr == 48000.0)
+                {
+                    std::printf("  ripples: ten equal thumps (%.0f dBFS) %.2f s apart are %d hits of strength", 20.0 * std::log10(static_cast<double>(amp)), gap, static_cast<int>(h.strength.size()));
+                    for (const float x : h.strength)
+                        std::printf(" %.2f", static_cast<double>(x));
+                    std::printf("\n");
+                }
+                check(h.strength.size() == 10 && lo >= 0.8f * first && hi - lo <= 0.03f, "ripples: ten equal thumps " + juce::String(gap, 2) + " s apart are ten hits of one strength, not a fade ("
+                                                                                           + juce::String(sr / 1000.0, 1) + " kHz: " + juce::String(static_cast<int>(h.strength.size())) + " hits, the first "
+                                                                                           + juce::String(first, 2) + ", the rest " + juce::String(lo, 2) + ".." + juce::String(hi, 2) + ")");
+            }
+
+    // ---- the published hits: a count is never read with another hit's strength
+    {
+        using F = roar::MonsterFeatures;
+        F f;
+        f.publishHit(1, 0.9f);
+        const int early = f.hits.load();   // (a reader that read the count here, before the next hit)
+        f.publishHit(2, 0.05f);
+        const float atEarly = f.strongestHitSince(0, early), both = f.strongestHitSince(0, 2), second = f.strongestHitSince(1, 2), none = f.strongestHitSince(2, 2);
+        check(std::abs(atEarly - 0.9f) < 0.002f && std::abs(both - 0.9f) < 0.002f && std::abs(second - 0.05f) < 0.002f && none == 0.0f,
+              "ripples: a published hit's strength is its own, and a frame that saw several takes the strongest (" + juce::String(atEarly, 3) + ", " + juce::String(both, 3) + ", "
+                  + juce::String(second, 3) + ")");
+        for (int c = 3; c <= 9; ++c)
+            f.publishHit(c, c == 4 ? 1.0f : 0.3f);
+        check(std::abs(f.strongestHitSince(2, 9) - 0.3f) < 0.002f, "ripples: hits overwritten in the log are not read with a later hit's count");
+        F w;
+        w.publishHit(F::hitCountMask, 0.2f);
+        w.publishHit(F::hitCountMask + 1, 0.7f);   // (wraps to 0)
+        roar::SurfaceRipples r;
+        roar::AudioForces forces;
+        r.step(1.0f / 30.0f, F::hitCountMask, 0.0f, 0.0f, 1.0f, forces);
+        const int now = w.hits.load();
+        r.step(1.0f / 30.0f, now, w.strongestHitSince(r.lastHits, now), 0.0f, 1.0f, forces);
+        check(now == 0 && r.started == 1 && std::abs(r.rings[0].strength - 0.7f) < 0.002f, "ripples: the hit count wraps without losing a hit");
+    }
+
+    // ---- ten equal thumps through the plug-in and the view's read: ten rings of the same strength
+    for (const int block : { 64, 4096 })
+    {
+        const double sr = 48000.0, gap = 0.4;
+        Signal s(static_cast<size_t>((1.0 + 10.0 * gap) * sr), 0.0f);
+        for (int k = 0; k < 10; ++k)
+            addThump(s, sr, 0.5 + gap * k, 0.5f, 31u + static_cast<unsigned>(k));
+        auto p = makeProcessor(sr, block);
+        const auto& f = p->getMonsterFeatures();
+        roar::SurfaceRipples r;
+        roar::AudioForces forces;
+        double lastFrame = 0.0;
+        juce::String list;
+        render(*p, dual(s), block, false, [&](int start)
+        {
+            // (a frame at most 30 times a second, between host blocks, as the view reads the features)
+            const double t = static_cast<double>(start) / sr;
+            if (t - lastFrame < 1.0 / 30.0)
+                return;
+            const auto dt = static_cast<float>(t - lastFrame);
+            lastFrame = t;
+            forces.step(dt, {});
+            const int hits = f.hits.load(std::memory_order_acquire);
+            const float strength = f.strongestHitSince(r.lastHits, hits);
+            if (hits != r.lastHits)
+                list << juce::String(t, 2) << " s " << juce::String(strength, 2) << ", ";
+            r.step(dt, hits, strength, 0.0f, 1.0f, forces);
+        });
+        float lo = 1.0f, hi = 0.0f;
+        for (const auto& ring : r.rings)
+            if (ring.age >= 0.0f)
+            {
+                lo = std::min(lo, ring.strength);
+                hi = std::max(hi, ring.strength);
+            }
+        std::printf("  ripples: ten equal thumps %.1f s apart through the plug-in in blocks of %d: %d rings started (%d held back), the last ones %.2f..%.2f; hits read at %s\n", gap, block, r.started,
+                    r.refused, static_cast<double>(lo), static_cast<double>(hi), list.toRawUTF8());
+        check(r.started == 10 && r.refused == 0 && lo >= 0.6f && hi - lo <= 0.15f, "ripples: ten equal thumps through the plug-in start ten rings of the same strength (blocks of "
+                                                                                        + juce::String(block) + ": " + juce::String(r.started) + " rings)");
     }
 }
 
@@ -4293,6 +4393,89 @@ inline void testInkRipplePictures()
     pictureCheck(pairs * 4 <= n && pairs <= pairsOff + n / 10, "ripples: the rings open no pair of pale regions above the rift (" + juce::String(pairs) + " of " + juce::String(n) + ", " + juce::String(pairsOff) + " without)");
     pictureCheck(domes * 20 <= n, "ripples: the blot in the rings is not one round mass on the fold (" + juce::String(domes) + " of " + juce::String(n) + ")");
 }
+
+/** Host bypass: the chain runs on underneath (leaving bypass is seamless) and keeps publishing,
+    but the view reads it as silence: asleep at once, no ring, the readouts at rest, the creature
+    not growing; it wakes with the sound when the host processes again. A host that stops calling
+    the plug-in puts it to sleep too, half a second later. */
+inline void testInkBypass()
+{
+    const InkScript script;
+    const double from = 4.0, to = 9.0;   // (the voice, with thumps in it)
+    const auto audio = inkRippleAudio(script, { 5.3, 5.7, 6.1, 6.5 });
+    InkRig rig(288, 80, 3u), plain(288, 80, 3u), cut(288, 80, 3u);
+    if (! rig.ok() || ! plain.ok() || ! cut.ok())
+        return;
+    for (auto* r : { &rig, &plain, &cut })
+        r->p->withCreatureForTests([](roar::CreatureEvolution& e) { e.setTimeScaleForTests(4.0f); });
+    rig.run(from, &audio);
+    plain.run(from, &audio);
+    cut.run(from, &audio);
+    const bool awakeBefore = ! rig.monster->isAsleepForTests() && ! rig.monster->readsSilenceForTests();
+    float stageRig = 0.0f, stagePlain = 0.0f;
+    rig.p->withCreatureForTests([&stageRig](roar::CreatureEvolution& e) { stageRig = e.getStage(); });
+    plain.p->withCreatureForTests([&stagePlain](roar::CreatureEvolution& e) { stagePlain = e.getStage(); });
+    const float stageRigBefore = stageRig, stagePlainBefore = stagePlain;
+    const int startedBefore = rig.monster->getRipplesForTests().started, plainStartedBefore = plain.monster->getRipplesForTests().started;
+
+    rig.bypassed = true;
+    cut.hostCalls = false;
+    double asleepAfter = -1.0, idleAfter = -1.0, cutAsleepAfter = -1.0, cutIdleAfter = -1.0;
+    float intensity = 0.0f, plainIntensity = 0.0f;
+    bool silentAll = true, flagAll = true;
+    for (int i = 0; rig.frames < static_cast<int>(std::lround(to * 30.0)); ++i)
+    {
+        rig.step(&audio);
+        plain.step(&audio);
+        cut.step(&audio);
+        const double t = static_cast<double>(i + 1) / 30.0;
+        silentAll = silentAll && rig.monster->readsSilenceForTests();
+        flagAll = flagAll && rig.p->getMonsterFeatures().hostBypassed.load();
+        if (asleepAfter < 0.0 && rig.monster->isAsleepForTests())
+            asleepAfter = t;
+        if (idleAfter < 0.0 && rig.monster->isIdleForTests())
+            idleAfter = t;
+        if (cutAsleepAfter < 0.0 && cut.monster->isAsleepForTests())
+            cutAsleepAfter = t;
+        if (cutIdleAfter < 0.0 && cut.monster->isIdleForTests())
+            cutIdleAfter = t;
+        rig.p->withCreatureForTests([&intensity](roar::CreatureEvolution& e) { intensity = std::max(intensity, e.getIntensity()); });
+        plain.p->withCreatureForTests([&plainIntensity](roar::CreatureEvolution& e) { plainIntensity = std::max(plainIntensity, e.getIntensity()); });
+    }
+    rig.monster->refreshOverlay(0.0f);
+    plain.monster->refreshOverlay(0.0f);
+    const auto readouts = rig.monster->getReadoutsForTests(), plainReadouts = plain.monster->getReadoutsForTests();
+    rig.p->withCreatureForTests([&stageRig](roar::CreatureEvolution& e) { stageRig = e.getStage(); });
+    plain.p->withCreatureForTests([&stagePlain](roar::CreatureEvolution& e) { stagePlain = e.getStage(); });
+    const int rings = rig.monster->getRipplesForTests().started - startedBefore, plainRings = plain.monster->getRipplesForTests().started - plainStartedBefore;
+    const float tremble = rig.monster->getRipplesForTests().tremble;
+
+    rig.bypassed = false;
+    double wokeAfter = -1.0;
+    for (int i = 0; i < 15; ++i)
+    {
+        rig.step(&audio);
+        if (wokeAfter < 0.0 && ! rig.monster->isAsleepForTests() && ! rig.monster->readsSilenceForTests())
+            wokeAfter = static_cast<double>(i + 1) / 30.0;
+    }
+
+    std::printf("  host bypass over the voice with four thumps: asleep after %.2f s, idle after %.2f s (-1: not within the run), %d rings (%d without bypass), tremble %.2f; readouts \"%s\" (without: \"%s\");"
+                " stage %.4f -> %.4f (without bypass %.4f -> %.4f), intensity at most %.2f (%.2f); awake again %.2f s after; host stops calling: asleep after %.2f s, idle after %.2f s\n",
+                asleepAfter, idleAfter, rings, plainRings, static_cast<double>(tremble), readouts.toRawUTF8(), plainReadouts.toRawUTF8(), static_cast<double>(stageRigBefore),
+                static_cast<double>(stageRig), static_cast<double>(stagePlainBefore), static_cast<double>(stagePlain), static_cast<double>(intensity),
+                static_cast<double>(plainIntensity), wokeAfter, cutAsleepAfter, cutIdleAfter);
+    check(awakeBefore && flagAll && silentAll, "bypass: the view reads the features as silence on every frame the host bypasses");
+    // (the frames slow only once the formation has settled, as after any silence: reported, not checked)
+    check(asleepAfter > 0.0 && asleepAfter <= 0.1, "bypass: the creature is asleep at once (" + juce::String(asleepAfter, 2) + " s)");
+    check(rings == 0 && plainRings > 0 && tremble < 0.01f, "bypass: no ring and no tremble (" + juce::String(rings) + " rings; " + juce::String(plainRings) + " without bypass)");
+    check(readouts == "F0 -- | DETAIL 0.0 / 0.0 dB", "bypass: the readouts rest (" + readouts + ")");
+    // (nothing new feeds the growth; what was already in flight settles as when the transport stops)
+    check(intensity <= 0.0f && plainIntensity > 0.1f && stageRig - stageRigBefore < 0.5f * (stagePlain - stagePlainBefore),
+          "bypass: the sound does not grow the creature, as it does unbypassed (intensity " + juce::String(intensity, 2) + " against " + juce::String(plainIntensity, 2) + "; stage "
+              + juce::String(stageRig - stageRigBefore, 4) + " against " + juce::String(stagePlain - stagePlainBefore, 4) + ")");
+    check(wokeAfter > 0.0 && wokeAfter <= 0.3, "bypass: leaving it wakes the creature within 0.3 s (" + juce::String(wokeAfter, 2) + " s)");
+    check(cutAsleepAfter > 0.0 && cutAsleepAfter <= 0.6, "bypass: a host that stops calling the plug-in puts it to sleep within 0.6 s (" + juce::String(cutAsleepAfter, 2) + " s)");
+}
 #endif
 
 inline void testInkRipples()
@@ -4334,6 +4517,8 @@ inline void testInk()
         testInkRelief();
     if (wanted("wisps"))
         testInkWisps();
+    if (wanted("bypass"))
+        testInkBypass();
    #endif
     if (wanted("ripples"))
         testInkRipples();
