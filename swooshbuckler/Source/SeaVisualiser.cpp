@@ -478,6 +478,16 @@ void SeaVisualiser::buildSky(float pixelScale)
 }
 
 //==============================================================================
+float SeaVisualiser::rowHeight(int k, int band) const
+{
+    // Line k, between two steps: its own row, with the row arriving from nearer the camera blended in as the
+    // step goes by. The nearest line's arriving row is the sound as it is now.
+    const auto b = static_cast<size_t>(band);
+    const float own = m_rows[static_cast<size_t>((m_rowHead - k + c_rows) % c_rows)][b];
+    const float arriving = k > 0 ? m_rows[static_cast<size_t>((m_rowHead - k + 1 + c_rows) % c_rows)][b] : m_smooth[b] + m_wake[b];
+    return own + (arriving - own) * m_rowPhase;
+}
+
 void SeaVisualiser::paintWater(juce::Graphics& g, float h)
 {
     juce::Path line, fill;
@@ -485,9 +495,11 @@ void SeaVisualiser::paintWater(juce::Graphics& g, float h)
 
     for (int k = c_rows - 1; k >= 0; --k)
     {
-        const auto& row = m_rows[static_cast<size_t>((m_rowHead - k + c_rows) % c_rows)];
-        // The row sits between two steps: it rolls away smoothly instead of jumping once per step.
-        const float depth = static_cast<float>(k) + m_rowPhase;
+        // The lines of the sea stay where they are: only the waves travel along them. (Lines that slide away to
+        // the horizon all the time make the whole picture rush backwards, which is hard to look at.) Between two
+        // steps a line shows a blend of its own row and the one arriving from nearer the camera, so the waves
+        // still roll away smoothly instead of jumping once per step.
+        const float depth = static_cast<float>(k);
         const float z = m_zNear + depth * m_zStep;
         const float nearness = juce::jlimit(0.0f, 1.0f, 1.0f - depth / static_cast<float>(c_rows));
         const float t = static_cast<float>(m_time);
@@ -508,7 +520,7 @@ void SeaVisualiser::paintWater(juce::Graphics& g, float h)
             const float x = (u * 2.0f - 1.0f) * c_halfWidth;
             const float swell = swellGain * (0.022f * std::sin(x * 2.6f + t * 1.4f + depth * 0.55f)
                                            + 0.012f * std::sin(x * 5.3f - t * 0.9f + depth * 0.9f));
-            const float height = row[static_cast<size_t>(b)];
+            const float height = rowHeight(k, b);
             loudest = juce::jmax(loudest, height);
             p[static_cast<size_t>(b)] = project({ x, height * 0.42f + swell + lift, z });
         }
@@ -818,13 +830,13 @@ void SeaVisualiser::paint(juce::Graphics& g)
         constexpr int rows = c_rows;
         for (int k = 0; k < rows; ++k)
         {
-            const float depth = static_cast<float>(k) + m_rowPhase;
+            const float depth = static_cast<float>(k);
             const float z = m_zNear + depth * m_zStep;
             const float nearness = juce::jlimit(0.0f, 1.0f, 1.0f - depth / static_cast<float>(rows));
             const float worldX = (moonAt.x - m_cx) * z / m_focal;
             const float u = juce::jlimit(0.0f, 1.0f, (worldX / c_halfWidth + 1.0f) * 0.5f);
             const int band = juce::jlimit(0, c_bands - 1, juce::roundToInt(u * static_cast<float>(c_bands - 1)));
-            const float height = m_rows[static_cast<size_t>((m_rowHead - k + c_rows) % c_rows)][static_cast<size_t>(band)];
+            const float height = rowHeight(k, band);
             // A few flecks on each row, scattered across a path that widens towards the camera: the offsets are
             // in world units scaled by depth, so a fleck is the same few pixels wherever it is. They are lights
             // on the water, so they brighten quickly with nearness and sit on the lit crests: far out they fade

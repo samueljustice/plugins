@@ -1,5 +1,10 @@
 # Swooshbuckler changelog
 
+## Unreleased
+
+- **A calmer sea.** The lines of the sea stay where they are and only the waves travel along them, more slowly than before. The lines used to slide away to the horizon all the time, which made the whole picture rush backwards.
+- **Render Variations: just type a name.** The Batch Name box is always there to type in, and typing a name sets File Names to Batch Name And Counter for you.
+
 ## 2.1.0
 
 ### Stowaway: one extra bus

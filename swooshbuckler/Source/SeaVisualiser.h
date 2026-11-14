@@ -75,13 +75,14 @@ private:
     static constexpr int c_bands = 80;
     static constexpr int c_rows = 34;
     static constexpr int c_trail = 34;
-    static constexpr float c_rowsPerSecond = 20.0f; // how fast the swell rolls away (rows are drawn between steps)
+    static constexpr float c_rowsPerSecond = 12.0f; // how fast the waves roll away along the sea's lines (which stay put)
     static constexpr float c_stepSeconds = 1.0f / 75.0f;  // never step more often than this, however fast the screen is
     static constexpr float c_idleStepSeconds = 1.0f / 20.0f; // and after five seconds of quiet, only this often
 
     struct P3 { float x, y, z; };
 
     void step(float dt);
+    float rowHeight(int k, int band) const;
     void analyse();
     juce::Point<float> project(P3 p) const;
     void buildSky(float pixelScale);
