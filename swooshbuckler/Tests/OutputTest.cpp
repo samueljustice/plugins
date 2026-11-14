@@ -647,6 +647,27 @@ int main(int argc, char* argv[])
             std::cout << "         with the centre speaker in use (front wall, three places): third harmonic within " << num(worst, 2)
                       << " dB of Stereo's, gain reduction within " << num(worstGrC, 2) << " dB" << std::endl;
             check(worst < 3.2 && worstGrC < 3.2, "a sound in or near the centre speaker is shaped about as its phantom would be (within 3 dB; limited up to 3 dB sooner)");
+
+            // Below the limiter the centre speaker's sound and its phantom are the same sound to Inflate: the speaker
+            // counts half to each side, which is what each Stereo channel carries of a centred sound. (The check
+            // above cannot tell: its limiter is working, and that alone moves the harmonics by up to 3 dB.)
+            Signal quiet = tone;
+            for (auto& v : quiet)
+                v *= 0.5f;
+            Take stereo = placed(quiet, room::Width::Stereo, { 0.0f, 1.0f, 0.0f }, pan);
+            const auto sg = runStage(stereo, room::Width::Stereo, stageParams(0.0f, 1.0f));
+            double apart = 0.0, deepest = sg.deepestDb;
+            for (auto w : { room::Width::Surround51, room::Width::Surround71, room::Width::Surround714 })
+            {
+                Take wide = placed(quiet, w, { 0.0f, 1.0f, 0.0f }, pan);
+                const auto wg = runStage(wide, w, stageParams(0.0f, 1.0f));
+                deepest = std::min(deepest, wg.deepestDb);
+                for (double hz : { 1000.0, 3000.0, 5000.0 })
+                    apart = std::max(apart, std::abs(db(toneInMains(wide, w, hz, settle) / toneInMains(stereo, room::Width::Stereo, hz, settle))));
+            }
+            std::cout << "         a quieter sound in the centre speaker alone against its phantom in Stereo: the tone and its third and fifth harmonics within "
+                      << num(apart, 3) << " dB (no limiting: " << num(deepest, 2) << " dB)" << std::endl;
+            check(apart < 0.05 && deepest > -0.01, "below the limiter a sound in the centre speaker gets exactly the Inflate its phantom gets (within 0.05 dB)");
         }
     }
 
