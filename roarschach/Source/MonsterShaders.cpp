@@ -69,7 +69,7 @@ uniform vec4 uMaw;       // the rift: height on the fold, half width, opening, h
 uniform vec4 uBay[2];    // bays: centre xy, radius, direction
 uniform vec4 uFlowK;     // eddy gain, small-eddy share, bound pair strength, 1 / its radius squared
 uniform vec4 uFlowO;     // where the large eddies are read xy, the small ones xy
-uniform vec4 uFlowC;     // the bound pair's centre xy, spare, the body's centre height
+uniform vec4 uFlowC;     // the bound pair's centre xy, which side tears first (-1 or +1, 0 half way through a glide), the body's centre height
 uniform vec4 uCarry;     // carry time formed, extra carry unformed, how unformed (0 formed .. 1 cloud), the smoke's further carry
 uniform vec4 uInkF;      // formation, roar (capacity), feather, density
 uniform vec4 uInkO;      // the blot's noise offset xy, a slow scroll, ribbon
@@ -822,9 +822,10 @@ void main()
     // its mirror image, or two remnants left either side of the fold, are a pair of eyes.
     {
         vec4 an = NZ (p * vec2 (0.42, 0.55) + uCloudO.xy * 0.8 + 0.71, 2.5);
-        // (which side goes first is the blot's own, and glides with it: a hard either-or of a
-        // value that glides during a preset change swapped the torn patches in one frame)
-        float sideFirst = clamp (1.8 * sin (6.2832 * (uInkO.x * 7.31 + uInkO.y * 3.17)), -1.0, 1.0);
+        // (which side goes first is the blot's own, worked out from its settled look offsets on the
+        // CPU: deriving it here from the offsets while they glide swapped the torn patches in one
+        // frame of a preset change; the CPU crossfades it through 0 instead)
+        float sideFirst = uFlowC.z;
         float tornAway = smoothstep (0.47, 0.63, sv (an) + 0.11 * sgn * sideFirst * smoothstep (0.02, 0.30, un));
 #ifdef INK_BUFFER
         float smallMass = 1.0 - smoothstep (0.06, 0.18, roundInk);

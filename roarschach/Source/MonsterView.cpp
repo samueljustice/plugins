@@ -39,21 +39,24 @@ namespace
     }
 
    #if JUCE_MAC
-    // The window holding this view reports none of it visible: covered by other windows, on another
-    // desktop, minimised, or its app hidden. (NSWindowOcclusionStateVisible is bit 1.)
-    bool windowReportsCovered (void* nsView)
+    // What the window holding this view reports: some of it visible, or none (covered by other
+    // windows, on another desktop, minimised, or its app hidden), or nothing to say (no window, or
+    // one without the report). window: the window asked. (NSWindowOcclusionStateVisible is bit 1.)
+    enum class Occlusion { unknown, visible, covered };
+    Occlusion windowOcclusion (void* nsView, void*& window)
     {
+        window = nullptr;
         if (nsView == nullptr)
-            return false;
+            return Occlusion::unknown;
         using ObjectMsg = void* (*) (void*, SEL);
         using UnsignedMsg = unsigned long (*) (void*, SEL);
-        void* window = reinterpret_cast<ObjectMsg> (objc_msgSend) (nsView, sel_registerName ("window"));
+        window = reinterpret_cast<ObjectMsg> (objc_msgSend) (nsView, sel_registerName ("window"));
         if (window == nullptr)
-            return false;
+            return Occlusion::unknown;
         const SEL occlusion = sel_registerName ("occlusionState");
         if (! class_respondsToSelector (object_getClass ((id) window), occlusion))
-            return false;
-        return (reinterpret_cast<UnsignedMsg> (objc_msgSend) (window, occlusion) & (1ul << 1)) == 0;
+            return Occlusion::unknown;
+        return (reinterpret_cast<UnsignedMsg> (objc_msgSend) (window, occlusion) & (1ul << 1)) != 0 ? Occlusion::visible : Occlusion::covered;
     }
    #endif
 
@@ -161,65 +164,80 @@ MonsterView::Visualiser MonsterView::visualiserForAll()
     return static_cast<Visualiser> (juce::jlimit (0, 2, visualiserChoice().load (std::memory_order_relaxed)));
 }
 
+juce::PopupMenu MonsterView::buildCreatureMenu() const
+{
+    juce::PopupMenu menu;
+    if (! isCreatureFrozen || ! setCreatureFrozen || ! resetCreature)
+        return menu;
+
+    const bool isFrozen = isCreatureFrozen();
+    menu.addSectionHeader ("Creature");
+    menu.addItem (menuLive, "Evolution: Live", true, ! isFrozen);
+    menu.addItem (menuFrozen, "Evolution: Frozen", true, isFrozen);
+    menu.addSeparator();
+    menu.addItem (menuReset, "Reset creature");
+    // (on this computer, for every instance: Low and Off leave the graphics card to the session)
+    menu.addSectionHeader ("Visualiser");
+    menu.addItem (menuDrawFull, "Full: as smooth as the graphics card allows", true, m_visualiser == Visualiser::full);
+    menu.addItem (menuDrawLow, "Low: lighter on the graphics card, 15 frames a second", true, m_visualiser == Visualiser::low);
+    menu.addItem (menuDrawOff, "Off: a still cloud, no graphics card work", true, m_visualiser == Visualiser::off);
+    return menu;
+}
+
 void MonsterView::showCreatureMenu()
 {
     if (! isCreatureFrozen || ! setCreatureFrozen || ! resetCreature)
         return;
 
-    enum { live = 1, frozen, reset, drawFull, drawLow, drawOff };
-    const bool isFrozen = isCreatureFrozen();
-    juce::PopupMenu menu;
-    menu.addSectionHeader ("Creature");
-    menu.addItem (live, "Evolution: Live", true, ! isFrozen);
-    menu.addItem (frozen, "Evolution: Frozen", true, isFrozen);
-    menu.addSeparator();
-    menu.addItem (reset, "Reset creature");
-    // (on this computer, for every instance: Low and Off leave the graphics card to the session)
-    menu.addSectionHeader ("Visualiser");
-    menu.addItem (drawFull, "Full: as smooth as the graphics card allows", true, m_visualiser == Visualiser::full);
-    menu.addItem (drawLow, "Low: lighter on the graphics card, 15 frames a second", true, m_visualiser == Visualiser::low);
-    menu.addItem (drawOff, "Off: a still cloud, no graphics card work", true, m_visualiser == Visualiser::off);
+    auto menu = buildCreatureMenu();
     menu.showMenuAsync (RoarschachLookAndFeel::menuOptionsFor (*this),
                         [safe = juce::Component::SafePointer<MonsterView> (this)] (int item)
                         {
-                            if (safe == nullptr || item == 0)
-                                return;
-                            if (item >= drawFull && item <= drawOff)
-                            {
-                                const auto v = static_cast<Visualiser> (item - drawFull);
-                                setVisualiserForAll (v);
-                                safe->setVisualiser (v);
-                                if (safe->onVisualiserChosen)
-                                    safe->onVisualiserChosen (v);
-                                return;
-                            }
-                            // (a Frozen creature keeps its colour with the session: the colour on screen
-                            // when it is frozen, the settings' colour after a reset)
-                            const auto keep = [&safe] (const std::array<std::atomic<float>, roar::CreatureMood::numAxes>& from)
-                            {
-                                roar::CreatureMood::Axes axes {};
-                                for (size_t i = 0; i < axes.size(); ++i)
-                                    axes[i] = from[i].load (std::memory_order_relaxed);
-                                if (safe->keepCreatureColour)
-                                    safe->keepCreatureColour (axes);
-                            };
-                            if (item == live || item == frozen)
-                            {
-                                const bool wasFrozen = safe->isCreatureFrozen();
-                                safe->setCreatureFrozen (item == frozen);
-                                if (item == frozen && ! wasFrozen)
-                                    keep (safe->m_moodShown);
-                                else if (item == live && safe->keepCreatureColour)
-                                    safe->keepCreatureColour (std::nullopt);
-                            }
-                            else if (item == reset)
-                            {
-                                safe->resetCreature();
-                                safe->m_moodResets.fetch_add (1, std::memory_order_relaxed);
-                                if (safe->isCreatureFrozen())
-                                    keep (safe->m_moodTarget);
-                            }
+                            if (safe != nullptr && item != 0)
+                                safe->menuItemChosen (item);
                         });
+}
+
+void MonsterView::menuItemChosen (int item)
+{
+    if (! isCreatureFrozen || ! setCreatureFrozen || ! resetCreature)
+        return;
+    if (item >= menuDrawFull && item <= menuDrawOff)
+    {
+        const auto v = static_cast<Visualiser> (item - menuDrawFull);
+        setVisualiserForAll (v);
+        setVisualiser (v);
+        if (onVisualiserChosen)
+            onVisualiserChosen (v);
+        return;
+    }
+    // (a Frozen creature keeps its colour with the session: the colour on screen when it is frozen,
+    // the settings' colour after a reset. While no frames are drawn (Off, or no OpenGL) the colour
+    // on screen is not stepped, so the settings' colour is kept then too.)
+    const auto keep = [this] (const std::array<std::atomic<float>, roar::CreatureMood::numAxes>& from)
+    {
+        roar::CreatureMood::Axes axes {};
+        for (size_t i = 0; i < axes.size(); ++i)
+            axes[i] = from[i].load (std::memory_order_relaxed);
+        if (keepCreatureColour)
+            keepCreatureColour (axes);
+    };
+    if (item == menuLive || item == menuFrozen)
+    {
+        const bool wasFrozen = isCreatureFrozen();
+        setCreatureFrozen (item == menuFrozen);
+        if (item == menuFrozen && ! wasFrozen)
+            keep (drawsFrames() && m_glReady.load (std::memory_order_relaxed) ? m_moodShown : m_moodTarget);
+        else if (item == menuLive && keepCreatureColour)
+            keepCreatureColour (std::nullopt);
+    }
+    else if (item == menuReset)
+    {
+        resetCreature();
+        m_moodResets.fetch_add (1, std::memory_order_relaxed);
+        if (isCreatureFrozen())
+            keep (m_moodTarget);
+    }
 }
 
 juce::Image MonsterView::takeCapture()
@@ -265,7 +283,7 @@ void MonsterView::setVisualiser (Visualiser v)
     repaint();
 }
 
-MonsterView::Seen MonsterView::whetherSeen() const
+MonsterView::Seen MonsterView::whetherSeen()
 {
     if (m_testSeen >= 0)
         return m_testSeen == 0 ? Seen::yes : (m_testSeen == 2 ? Seen::covered : Seen::no);
@@ -273,7 +291,15 @@ MonsterView::Seen MonsterView::whetherSeen() const
     if (! isShowing())
         return Seen::no;
    #if JUCE_MAC
-    if (windowReportsCovered (getWindowHandle()))
+    // (believed only from a window that has said it is visible since the view was put in it: one
+    // drawn into from another process may never say so, and would leave the picture at 2 Hz)
+    void* window = nullptr;
+    const auto occlusion = windowOcclusion (getWindowHandle(), window);
+    if (window != m_coverWindow && occlusion != Occlusion::visible)
+        m_coverWindow = nullptr;
+    if (occlusion == Occlusion::visible)
+        m_coverWindow = window;
+    if (occlusion == Occlusion::covered && window == m_coverWindow)
         return Seen::covered;
    #endif
     return Seen::yes;
@@ -356,6 +382,42 @@ void MonsterView::refreshOverlay (float seconds)
     const bool voiced = m_features.voiced.load (std::memory_order_relaxed) > 0.5f;
     const float boost = m_features.detailBoostDb.load (std::memory_order_relaxed);
     const float cut = m_features.detailCutDb.load (std::memory_order_relaxed);
+
+    // While no GL frames are drawn (Off, or no OpenGL) nothing else steps the silence and the
+    // sleep the readouts follow: the same rules as the frames' (updateAnimation), at the timer's rate.
+    if (! drawsFrames())
+    {
+        const int generation = m_features.generation.load (std::memory_order_relaxed);
+        const float dt = std::max (0.0f, seconds);
+        if (! m_overlayTracks)
+        {
+            // (from where the frames left them)
+            m_overlayTracks = true;
+            m_overlayGeneration = generation;
+            m_overlayStaleSeconds = m_stale.load (std::memory_order_relaxed) ? c_staleAfterSeconds : 0.0f;
+            m_overlayQuietSeconds = m_asleep.load (std::memory_order_relaxed) ? c_sleepAfterSeconds : 0.0f;
+        }
+        if (generation != m_overlayGeneration)
+        {
+            m_overlayGeneration = generation;
+            m_overlayStaleSeconds = 0.0f;
+        }
+        else
+        {
+            m_overlayStaleSeconds = std::min (m_overlayStaleSeconds + dt, 60.0f);
+        }
+        const bool silent = m_overlayStaleSeconds >= c_staleAfterSeconds || m_features.hostBypassed.load (std::memory_order_relaxed);
+        const float input = silent ? 0.0f : safe (m_features.inputLevel.load (std::memory_order_relaxed), 0.0f, 4.0f);
+        m_overlayQuietSeconds = input < c_quietLevel ? std::min (m_overlayQuietSeconds + dt, 60.0f) : 0.0f;
+        if (silent)
+            m_overlayQuietSeconds = std::max (m_overlayQuietSeconds, c_sleepAfterSeconds);
+        m_stale.store (silent, std::memory_order_relaxed);
+        m_asleep.store (m_overlayQuietSeconds >= c_sleepAfterSeconds, std::memory_order_relaxed);
+    }
+    else
+    {
+        m_overlayTracks = false;
+    }
 
     const bool stale = m_stale.load (std::memory_order_relaxed);
     const bool live = ! stale && voiced && std::isfinite (f0) && f0 > 0.0f && f0 < 20000.0f;

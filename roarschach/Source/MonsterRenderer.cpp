@@ -64,6 +64,10 @@ namespace roar
         constexpr float c_atmoTintShare = 0.22f;           // how much of the stage's own hue the grade keeps
         constexpr float c_atmoHueLean = 3.0f;              // at most this many degrees of hue off the palette's
         constexpr float c_minDt = 1.0f / 120.0f, c_maxDt = 1.0f / 20.0f;
+        // The ink buffer's own clock covers the whole frame down to 10 frames a second (Low draws 15),
+        // in steps of at most about 1/24 s; a longer stall is not caught up.
+        constexpr float c_maxInkFrameDt = 1.0f / 10.0f, c_inkStepsPerSecond = 24.0f;
+        constexpr int c_maxInkSteps = 4;
 
         const char* const c_rNames[] = { "uSrcS", "uDither", "uInkRes", "uInkStep", "uInkRule", "uInkTier" };
         const char* const c_sNames[] = { "uNoise", "uLogoSdf", "uSrc", "uInkTex" };
@@ -863,7 +867,7 @@ namespace roar
         const float r = std::max (1.0e-2f, fl.vortexRadius);
         f.set (U::uFlowK, fl.gain * CreatureFlow::c_scale, fl.smallGain, fl.vortex * 2.3316f / r, 1.0f / (r * r));
         f.set (U::uFlowO, fl.o1x, fl.o1y, fl.o2x, fl.o2y);
-        f.set (U::uFlowC, fl.vortexX, fl.vortexY, pose.look.strandGap, pose.centreY);
+        f.set (U::uFlowC, fl.vortexX, fl.vortexY, pose.look.side, pose.centreY);
 
         // ---- the carry: a distance the flow has carried the shape, as a time at the flow's speed
         const float speed = 0.035f * fl.gain / CreatureFlow::c_restGain;
@@ -1381,13 +1385,15 @@ namespace roar
             m_inkSimDt = 0.0f;
         }
         // (asleep and settled, the buffer steps every other frame)
-        m_inkSimDt = std::min (0.1f, m_inkSimDt + dt);
+        const float inkDt = m_fixedStep ? 1.0f / 30.0f : std::min (c_maxInkFrameDt, std::max (c_minDt, f.frameDt));
+        m_inkSimDt = std::min (2.0f * c_maxInkFrameDt, m_inkSimDt + inkDt);
         m_inkSimToggle = ! m_inkSimToggle;
         if (! f.asleep || m_inkSimToggle)
         {
-            const int steps = m_inkSimDt > 1.0f / 24.0f ? 2 : 1;
+            const int steps = juce::jlimit (1, c_maxInkSteps, (int) std::ceil (m_inkSimDt * c_inkStepsPerSecond - 0.01f));
             for (int s = 0; s < steps; ++s)
                 inkStep (f, m_inkSimDt / (float) steps, false);
+            m_inkSimSeconds += (double) m_inkSimDt;
             m_inkSimDt = 0.0f;
         }
         inkBudgetRead();

@@ -482,6 +482,7 @@ struct InkRig
     int frames = 0;
     int position = 0;
     int drawsPerFrame = 1;
+    float frameSeconds = 1.0f / 30.0f;   // each frame's time (the audio moves on by as much)
     bool bypassed = false;    // the host bypasses the plug-in (processBlockBypassed)
     bool hostCalls = true;    // false: the host stops calling the plug-in (the audio still moves on)
 
@@ -527,7 +528,8 @@ struct InkRig
     /** One frame; audio (nullptr: silence) is read from `position` on, at this gain. */
     void step(const Stereo* audio, float gain = 1.0f)
     {
-        for (int done = 0; done < frameSamples; done += block)
+        const int samples = static_cast<int>(std::lround(static_cast<double>(frameSeconds) * sr));   // (frameSamples at 30 Hz)
+        for (int done = 0; done < samples; done += block)
         {
             buffer.clear();
             if (audio != nullptr)
@@ -553,7 +555,7 @@ struct InkRig
         juce::gl::glViewport(0, 0, gl.w, gl.h);
         // (drawsPerFrame: the display's own pace, when it redraws the view more often than 30 times a second)
         for (int k = 0; k < drawsPerFrame; ++k)
-            monster->renderOffline(1.0f / 30.0f / static_cast<float>(drawsPerFrame), gl.w, gl.h, gl.core);
+            monster->renderOffline(frameSeconds / static_cast<float>(drawsPerFrame), gl.w, gl.h, gl.core);
         ++frames;
     }
 
@@ -4252,6 +4254,39 @@ inline void testInkRippleModel()
         check(found == 3 && d.rings() == 3, "ripples: thumps into steady speech start a ring each, and the speech none (" + juce::String(found) + " of 3, " + juce::String(d.rings()) + " rings)");
     }
 
+    // ---- a bright onset as sudden and as loud as a thump (a sung consonant at full level) is
+    // counted but weighed by its low end, too little for a ring; a thump after it starts one
+    {
+        const double sr = 48000.0;
+        Signal s(static_cast<size_t>(5.0 * sr), 0.0f);
+        for (int k = 0; k < 3; ++k)
+        {
+            const double from = 0.5 + 1.2 * static_cast<double>(k);
+            for (int i = 0; i < static_cast<int>(0.4 * sr); ++i)
+            {
+                const double t = static_cast<double>(i) / sr;
+                const double saw = 2.0 * std::fmod(t * (330.0 + 40.0 * k), 1.0) - 1.0;
+                s[static_cast<size_t>(from * sr) + static_cast<size_t>(i)] += static_cast<float>(0.6 * std::min(1.0, t / 0.001) * std::exp(-t / 0.2) * saw);
+            }
+        }
+        addThump(s, sr, 4.2, 0.6f, 17u);
+        const InkHits h(s, sr, 512);
+        float bright = 0.0f, thump = 0.0f;
+        int brightRings = 0, thumpRings = 0;
+        for (size_t k = 0; k < h.at.size(); ++k)
+        {
+            const bool isThump = h.at[k] > 4.15;
+            (isThump ? thump : bright) = std::max(isThump ? thump : bright, h.strength[k]);
+            (isThump ? thumpRings : brightRings) += h.strength[k] >= roar::SurfaceRipples::c_minStrength ? 1 : 0;
+        }
+        std::printf("  ripples: three bright onsets as sudden as a thump, %d hits, strongest %.2f; a thump after them %.2f (the low end's weight: %.2f at -2 dB, %.2f at -5 dB, %.2f at -8 dB)\n",
+                    static_cast<int>(h.at.size()) - (thump > 0.0f ? 1 : 0), static_cast<double>(bright), static_cast<double>(thump),
+                    static_cast<double>(roar::HitDetector::lowWeightOf(0.631f)), static_cast<double>(roar::HitDetector::lowWeightOf(0.316f)),
+                    static_cast<double>(roar::HitDetector::lowWeightOf(0.158f)));
+        check(brightRings == 0 && thumpRings == 1 && thump >= 0.8f, "ripples: a bright onset, sudden and loud but mostly above the low end, starts no ring; a thump does ("
+                                                                     + juce::String(bright, 2) + " against " + juce::String(thump, 2) + ")");
+    }
+
     // ---- through the plug-in, at its defaults, in host blocks of 16 and 4096: thumps into the
     // script's voice are hits, the voice's own syllables are not (from 0.4 s on: its first syllable
     // out of silence is an onset). The thumps fall between syllables: one that lands on a loud
@@ -4651,8 +4686,9 @@ inline void testInkRipplePictures()
         // tenth of a second after the thump already shows it)
         pictureCheck(diffs.front().second > 3.0 * before + 0.006, "ripples: the ring shows within a few frames of the hit (tier " + juce::String(tier) + ", " + juce::String(1000.0 * diffs.front().second, 1) + " per mille at 0.1 s)");
         // (the crest catches its own light: it reads on pale cloud while it travels. Measured on
-        // this thump, a full-strength hit, on both tiers: 11 to 13 % at 0.3 s and about 6 % at 0.8 s;
-        // the swell before this change lifted the cloud by 1 to 2 %)
+        // this thump on both tiers: about 9 % at 0.3 s and 6 % at 0.8 s (it lands in the voice, so a
+        // little of its peak is the voice's, and its strength is weighed by its low end's share);
+        // a swell drawn at 1 to 2 % could not be seen)
         pictureCheck(lift03 >= 0.08 && lift08 >= 0.04, "ripples: the swell's crest lights the open cloud it crosses (tier " + juce::String(tier) + ", " + juce::String(100.0 * lift03, 1) + " % at 0.3 s, "
                                                          + juce::String(100.0 * lift08, 1) + " % at 0.8 s)");
         // (a voice coming out of silence is an onset and may start a weak ring: drawn by its
@@ -4800,11 +4836,30 @@ inline void testInkLowQuality()
     rig.run(1.0, &script.audio);
     const int lowTier = rig.monster->getQualityTier();
     const int governedLow = rig.monster->getRendererForTests().getGovernor().tier;
+    // (Low's own pace, 15 frames a second, with the frames' own time: the ink keeps time with the
+    // view, awake and asleep, as it does at 30)
+    const auto inkClock = [&rig, &script](int hz, bool sound)
+    {
+        rig.monster->setFixedStepForTests(false);
+        rig.frameSeconds = 1.0f / static_cast<float>(hz);
+        const double before = rig.monster->getRendererForTests().getInkSecondsForTests();
+        for (int i = 0; i < 2 * hz; ++i)
+            rig.step(sound ? &script.audio : nullptr);
+        rig.frameSeconds = 1.0f / 30.0f;
+        rig.monster->setFixedStepForTests(true);
+        return rig.monster->getRendererForTests().getInkSecondsForTests() - before;
+    };
+    const double inkAwake15 = inkClock(15, true), inkAsleep15 = inkClock(15, false), inkAwake30 = inkClock(30, true);
     rig.monster->setVisualiser(MonsterView::Visualiser::full);
     rig.run(1.0, &script.audio);
     const int backTier = rig.monster->getQualityTier();
-    std::printf("  visualiser: Full draws tier %d (the governor's %d), Low tier %d (the governor still at %d), Full again tier %d\n", fullTier, governed, lowTier, governedLow, backTier);
+    std::printf("  visualiser: Full draws tier %d (the governor's %d), Low tier %d (the governor still at %d), Full again tier %d;"
+                " 2 s of frames move the ink by %.3f s at 15 Hz awake, %.3f s at 15 Hz asleep, %.3f s at 30 Hz\n",
+                fullTier, governed, lowTier, governedLow, backTier, inkAwake15, inkAsleep15, inkAwake30);
     check(lowTier == std::min(1, fullTier) && governedLow == governed && backTier == fullTier, "visualiser: Low draws the lightest buffered tier and leaves the governor as it was");
+    check(std::abs(inkAwake15 - 2.0) < 0.15 && std::abs(inkAsleep15 - 2.0) < 0.15 && std::abs(inkAwake30 - 2.0) < 0.15,
+          "visualiser: at 15 frames a second the ink moves at its own speed, as at 30 (" + juce::String(inkAwake15, 3) + " s, "
+              + juce::String(inkAsleep15, 3) + " s asleep, " + juce::String(inkAwake30, 3) + " s in 2 s)");
 }
 #endif
 

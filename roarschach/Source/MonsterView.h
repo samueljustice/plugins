@@ -34,9 +34,10 @@
  * the view draws (Visualiser: Full, Low or Off).
  *
  * It draws nothing while it cannot be seen: no frames at all while it is not showing (hidden, or
- * its window minimised where the window can say so), and two a second where the window reports
- * itself covered or on another desktop (some hosts show the view from another process, where that
- * report may be wrong: then the picture slows rather than stops).
+ * its window minimised where the window can say so), and on macOS two a second while its window
+ * reports itself covered or on another desktop. That report is believed only from a window that has
+ * reported itself visible since the view was put in it: a window that never has (a host that shows
+ * the view from another process, through a window of its own) is taken as seen, at full rate.
  *
  * Threads: the audio thread writes MonsterFeatures (atomics); the message thread writes the knob
  * values with setParams() (atomics); the GL thread reads both in renderOpenGL() and keeps its own
@@ -96,6 +97,8 @@ public:
 
     void mouseDown (const juce::MouseEvent&) override;
     void visibilityChanged() override;
+    /** The menu a right-click opens (empty until the editor has set the actions above). */
+    juce::PopupMenu buildCreatureMenu() const;
 
     /** One quiet line of help at the bottom of the view, shown while no audio has arrived yet and
         the creature has slept through 1.5 s of silence. The first sound takes it away for good and
@@ -125,6 +128,8 @@ public:
     bool isSlowedForTests() const noexcept { return m_seen == Seen::covered; }
     int frameRateForTests() const noexcept { return m_timerHz; }
     void setSeenForTests (int seen) { m_testSeen = seen; }
+    /** Tests: the creature menu's Evolution: Frozen chosen, as a click on it does. */
+    void chooseFrozenForTests() { menuItemChosen (menuFrozen); }
 
     /** Tests and snapshots: a fixed 1/30 s step, so frames repeat. */
     void setFixedStepForTests (bool fixed) { m_testFixedStep.store (fixed, std::memory_order_relaxed); }
@@ -202,8 +207,11 @@ private:
     void drawFrame (float dt, float scale, int width, int height);
     void updateAnimation (float dt);
     void showCreatureMenu();
+    enum MenuItem { menuLive = 1, menuFrozen, menuReset, menuDrawFull, menuDrawLow, menuDrawOff };
+    void menuItemChosen (int item);
+    bool drawsFrames() const { return m_visualiser != Visualiser::off && ! m_glGivenUp; }
     enum class Seen { yes, covered, no };
-    Seen whetherSeen() const;
+    Seen whetherSeen();
 
     static constexpr int c_numBands = roar::MonsterFeatures::numBands;
 
@@ -229,7 +237,7 @@ private:
     std::atomic<int> m_moodResets { 0 };     // bumped by the menu's reset (message thread)
     std::array<std::atomic<float>, roar::CreatureMood::numAxes> m_moodKept {};   // the saved frozen colour
     std::atomic<bool> m_moodHasKept { false };
-    std::array<std::atomic<float>, roar::CreatureMood::numAxes> m_moodShown {};  // written on the GL thread
+    std::array<std::atomic<float>, roar::CreatureMood::numAxes> m_moodShown {};  // written on the GL thread (only while it draws)
     std::atomic<int> m_width { 0 }, m_height { 0 };
     std::atomic<float> m_cornerRadius { 8.0f };
     std::atomic<juce::uint32> m_outsideArgb { Theme::Colours::background.getARGB() };
@@ -237,6 +245,8 @@ private:
     // Written on the GL thread, read by the overlay.
     std::atomic<bool> m_shaderFailed { false };
     std::atomic<bool> m_glReady { false };   // a context was created and the shader built
+    // (these two by the overlay instead, on the message thread, while no GL frames are drawn: Off,
+    // or no OpenGL)
     std::atomic<bool> m_asleep { false };
     std::atomic<bool> m_stale { false };     // the features read as silence: not published lately, or the host is bypassing
     std::atomic<bool> m_idle { false };      // asleep and fully settled: frames can come slowly
@@ -299,6 +309,11 @@ private:
     bool m_offShown = false;   // Visualiser: Off, painted as a still cloud
     Seen m_seen = Seen::yes;   // whether the view can be seen (frames stop or slow while it cannot)
     int m_testSeen = -1;
+    void* m_coverWindow = nullptr;   // the window whose covered report is believed (it has reported itself visible)
+    // The readouts' own silence and sleep, while no GL frames step them (see refreshOverlay).
+    bool m_overlayTracks = false;
+    int m_overlayGeneration = -1;
+    float m_overlayStaleSeconds = 0.0f, m_overlayQuietSeconds = 0.0f;
     int m_framesRequested = 0;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (MonsterView)

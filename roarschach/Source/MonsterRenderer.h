@@ -196,6 +196,8 @@ namespace roar
         void setPassTimer (PassTimer* t) { m_passTimer = t; }
         const Stats& getStats() const { return m_stats; }
         const QualityGovernor& getGovernor() const { return m_governor; }
+        /** Tests: the time the ink buffer has been stepped by since it was made. */
+        double getInkSecondsForTests() const { return m_inkSimSeconds; }
         /** Tests: the governor itself (to script its readings). */
         QualityGovernor& governorForTests() { return m_governor; }
         /** Relief on the lowest tier (see QualityGovernor): none while a test holds a tier, unless a
@@ -308,6 +310,7 @@ namespace roar
         bool m_inkBytes = false, m_inkBytesForced = false;
         bool m_inkSimToggle = false;
         float m_inkSimDt = 0.0f;     // time the buffer has not been stepped for (asleep: every other frame)
+        double m_inkSimSeconds = 0.0;   // the buffer's own clock: all the time it has been stepped by
         float m_inkTotal = 1.0f, m_inkBudget = 1.0f;
         float m_inkFPrev = -1.0f, m_inkFRate = 0.0f, m_inkKick = 0.0f, m_inkFalling = 0.0f, m_inkFloor = 0.0f, m_inkSmoke = 1.0f, m_inkGather = 0.0f;
         float m_inkLetGo = 0.0f;     // how lately the body was let go: up as the hold gives, down as it gathers again
