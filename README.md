@@ -53,6 +53,7 @@ Drop in up to ten sounds (cloth, air, engines, creatures, metal) and Swooshbuckl
 - **Smart loading** finds the separate sounds in each file, skips the gaps and guesses what each one is from the audio and the file name
 - **Per-track pitch** in semitones and cents, with **Vari** on for tape-style varispeed or off to change the pitch and keep the speed
 - **Two Doppler buses** with Width, Bend, Low End, Swirl, an envelope filter and Drive. Bus A can duck and darken Bus B, or they **Take Turns**
+- **Stowaway**, an optional third bus: the rig's **Sub**, a **Wake** behind Bus A's passes, a third mover (**Fly**) or a layer that is only ridden (**Dry**)
 - **Spectral morph pad** blends A into B (Blend, Glide or vocoder-style Cross), and can wander along a Lorenz loop, a rose or a figure eight
 - **Aim** lands your impacts right on the peak of each pass, or a **hit gate** fires them at the biggest swells; **Sync Hits** stacks their transients into one huge hit
 - **Throw** fires one whoosh on demand, playing or stopped, and **Render Variations** writes a batch of them straight to files
@@ -130,7 +131,9 @@ Subbertone follows the pitch of your bass, engine or drone and adds a clean sub 
 Pitch Flattener takes the pitch movement out of a sound and keeps its energy and character: the Doppler sweep from a pass-by, the wail from a siren, the vibrato from a voice. Or lock a warbling tone to one note. Pick a Source Type and it loads a pitch detector built for that kind of sound, looks about 2.6 seconds ahead, and lines the correction up with the audio sample-accurately. Made for offline rendering: the Soundminer DSP rack, a DAW bounce or AudioSuite-style processing.
 
 - **Nine Source Types** (Vocal, Instrument, Siren, Whistle, Engine / Doppler, Engine Run-up, Drone, Noisy Field, Custom), each with its own tuned detector; Siren runs two at once, so fast yelps and sirens in traffic both track
+- **ANALYSE**: play a sound once and it picks the Source Type, learns the sound's pitch line, and follows that line on later plays even where live tracking would hop to another partial
 - **Lookahead tracking** fixes octave errors, bridges gaps and smooths with zero lag, so the very first syllable or rev is already flat
+- **Shift Below** leaves everything above a set frequency unshifted, so an engine's fixed resonances don't dive as the correction grows
 - **Latch, Fixed or Auto**: hold each sound at the pitch it starts on, flatten everything to one note (type `A4`), or take out only the vibrato and keep the melody
 - **Live pitch display**: eight seconds of detection, track, target and corrected output over a spectrogram
 - **Wobble warning**: a red warning when the output isn't coming out flat, suggesting the Source Type that would do better
@@ -188,13 +191,13 @@ A real-time reverser that faithfully recreates Backwards Machine's three effects
 
 ![Work in progress](https://img.shields.io/badge/WORK_IN_PROGRESS-D00000?style=for-the-badge)
 
-> *Fifteen modules, any order. See where your voice ends up.*
+> A modular voice processor: fifteen modules in any order, with an ink creature that reacts to the voice.
 
 <p align="center">
   <img src="roarschach/docs/hero.gif" alt="Roarschach" width="820">
 </p>
 
-Roarschach is a modular voice processor built for exploration and fun. Fifteen modules (PITCH, CHAMBER, CLEAN, DE-ESS, DETAIL, VOCODER, RING, SHIMMER, GROWL, SWIRL, ROAR, ENSEMBLE, TAME, SUB and OVERTONE) run between an input stage and a level-matched output, in any order. Use a few lightly for a bigger, wider voice, or stack them into creatures, machines and anything in between, and a creature drawn in OpenGL reacts to every sound and every knob.
+Roarschach is a modular voice processor built for exploration and fun. Fifteen modules (PITCH, CHAMBER, CLEAN, DE-ESS, DETAIL, VOCODER, RING, SHIMMER, GROWL, SWIRL, ROAR, ENSEMBLE, TAME, SUB and OVERTONE) run between an input stage and a level-matched output, in any order. Use a few lightly for a bigger, wider voice, or stack them into creatures, machines and anything in between, and an ink creature drawn in OpenGL reacts to every sound and every knob.
 
 - **Pitch and size, separately**: shift the voice up to two octaves down, then give it a bigger throat. Native-rate processing brings a 96 or 192 kHz recording's ultrasonic detail down into the voice
 - **Texture and weight**: a growling chop, a liquid wobble, a phaser, tube saturation, an ensemble, a tracked sub and overtones that carry the low end on small speakers
@@ -203,7 +206,7 @@ Roarschach is a modular voice processor built for exploration and fun. Fifteen m
 - **Any order**: drag any module by its header, or use its ••• menu, to anywhere in the chain. Moves are click-free
 - **A finished output**: Push into a true-peak-safe limiter and an oversampled clipper, with Attack, Release and Auto to choose between clean limiting and low-end crunch
 - **Dice**: one die loads a random factory preset, one rolls a whole new creature, and one on each module rolls just that module, always inside each knob's useful range. Every roll can be undone
-- **A living creature** that forms out of drifting cloud, opens its jaw, glows, shakes and drips with the voice, softens back into fog in silence, and slowly evolves the harder you push it. Its clouds drift towards a colour that suits your settings: ember red for drive and growl, electric blue for the vocoder and ring, violet for the phaser, chorus and overtones
+- **An ink creature** that gathers out of lit cloud, swirls with the voice, tears open on a roar and ripples on every hit, a different blot each session. Its clouds drift towards a colour that suits your settings: ember red for drive and growl, electric blue for the vocoder and ring, violet for the phaser, chorus and overtones
 - **51 factory presets**: Init plus six groups (Creatures, Voices, Machines, Signal Flow, Vocoder and Utility), and your own saved as plain files
 
 <details>
