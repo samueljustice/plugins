@@ -14,6 +14,9 @@ namespace
     constexpr float c_echoDriftSeconds = 0.004f, c_echoDriftHzL = 0.11f, c_echoDriftHzR = 0.17f;
     // Space: the reverb's wet level at 100%, and how much of the dry is taken away there.
     constexpr float c_spaceWet = 0.9f, c_spaceDryTrim = 0.45f;
+    // Space in a room: how much of the reverb follows where the room's sound has been (the rest is shared evenly),
+    // and over how long that is smoothed.
+    constexpr float c_spaceLean = 0.5f, c_spaceLeanSeconds = 0.3f;
     // Every track rides at its own speed (offset speeds keep the layers from moving together).
     constexpr std::array<float, RigEngine::c_tracks> c_rideOffsets { 1.0f, 1.37f, 0.71f, 1.62f, 0.87f, 1.19f, 0.79f, 1.48f, 0.93f, 1.27f };
 
@@ -265,6 +268,10 @@ void RigEngine::prepare(double sampleRate, int maxBlockSize)
     m_echoLpL.set(4500.0f, m_fs); m_echoLpR.set(4500.0f, m_fs);
     m_echoHpL.set(220.0f, m_fs);  m_echoHpR.set(220.0f, m_fs);
     m_reverb.prepare(sampleRate);
+    m_roomReverb.prepare(sampleRate);
+    m_lfeLow.prepare(sampleRate);
+    for (auto& f : m_lfePhase)
+        f.prepare(sampleRate);
     for (auto& dc : m_dc)
         dc.set(8.0f, m_fs);
     m_subStem.assign(static_cast<size_t>(c_stemSamples), 0.0f);
@@ -388,7 +395,17 @@ void RigEngine::reset()
     m_echoL.reset(); m_echoR.reset();
     m_echoLpL.reset(); m_echoLpR.reset(); m_echoHpL.reset(); m_echoHpR.reset();
     m_reverb.reset();
+    m_roomReverb.reset();
+    m_spaceLean.fill(0.0f);
+    m_roomTapsSnap = true;
+    m_echoSend = 1.0f;
     m_spaceOn = false;
+    m_lfeLow.reset();
+    for (auto& f : m_lfePhase)
+        f.reset();
+    m_lfeSnap = true;
+    m_lfeChannel = room::layout(m_width).lfe;
+    m_stem.fill(0.0f);
     m_echoDriftL = 0.0f; m_echoDriftR = 0.5f; // the same start every time, so a bounce repeats
     m_spaceDry = 1.0f; m_spaceWet = 0.0f;
     for (auto& dc : m_dc)
@@ -3306,12 +3323,13 @@ void RigEngine::applyTremolo(PeakTremolo& t, float* const* ch, int n, int frames
     }
 }
 
-bool RigEngine::renderSpace(int frames, float* left, float* right)
+float RigEngine::stepSpace(int frames, bool& wasOn)
 {
     const float s = sj::clamp(m_spaceSpring.step(static_cast<float>(frames) / m_fs) + m_spaceModNow, 0.0f, 1.0f);
+    wasOn = m_spaceOn;
     if (s < 1.0e-4f)
     {
-        // Space is off. Empty the echoes and the reverb once, so old sound isn't kept to come back when Space is
+        // Space is off. Empty the echoes and the reverbs once, so old sound isn't kept to come back when Space is
         // turned up again (their send is silent by now: nothing is cut off audibly).
         if (m_spaceOn)
         {
@@ -3319,17 +3337,26 @@ bool RigEngine::renderSpace(int frames, float* left, float* right)
             m_echoL.reset(); m_echoR.reset();
             m_echoLpL.reset(); m_echoLpR.reset(); m_echoHpL.reset(); m_echoHpR.reset();
             m_reverb.reset();
+            m_roomReverb.reset();
+            m_roomTapsSnap = true;
         }
-        return false;
+        return -1.0f;
     }
-    const bool wasOn = m_spaceOn;
     m_spaceOn = true;
+    return s;
+}
 
+void RigEngine::renderEchoes(int frames, float* left, float* right, float s, bool wasOn)
+{
     // Ping-pong echo. The two times are not a simple ratio of each other and each drifts by a few milliseconds,
-    // so the repeats never settle into a fixed pattern.
+    // so the repeats never settle into a fixed pattern. Coming on, the send fades in (10 ms): fed from the middle
+    // of a wave, the lines would start with a step that is heard an echo later as a click.
     const float fb = 0.25f + 0.4f * s;
     const float wet = 0.35f * s;
     const float driftStep = 2.0f / m_fs;
+    if (! wasOn)
+        m_echoSend = 0.0f;
+    const float sendStep = 1.0f / (0.01f * m_fs);
     for (int i = 0; i < frames; ++i)
     {
         auto& l = left[i];
@@ -3341,15 +3368,19 @@ bool RigEngine::renderSpace(int frames, float* left, float* right)
         const float tL = (c_echoSecondsL + c_echoDriftSeconds * 4.0f * m_echoDriftL * (1.0f - std::abs(m_echoDriftL))) * m_fs;
         const float tR = (c_echoSecondsR + c_echoDriftSeconds * 4.0f * m_echoDriftR * (1.0f - std::abs(m_echoDriftR))) * m_fs;
         const float wl = m_echoL.read(static_cast<double>(tL)), wr = m_echoR.read(static_cast<double>(tR));
-        m_echoL.push(l + fb * m_echoLpR.lowpass(m_echoHpR.highpass(wr)));
-        m_echoR.push(r + fb * m_echoLpL.lowpass(m_echoHpL.highpass(wl)));
+        if (m_echoSend < 1.0f)
+            m_echoSend = std::min(1.0f, m_echoSend + sendStep);
+        m_echoL.push(m_echoSend * l + fb * m_echoLpR.lowpass(m_echoHpR.highpass(wr)));
+        m_echoR.push(m_echoSend * r + fb * m_echoLpL.lowpass(m_echoHpL.highpass(wl)));
         l += wet * wl;
         r += wet * wr;
     }
+}
 
-    // Reverb, after the echoes (so they trail into it). Its tail grows with Space; the dry is eased down a little
-    // as the wet comes up, so more Space is more room and not more level into the limiter.
-    m_reverb.setDecay(SpaceReverb::decaySecondsFor(s));
+float RigEngine::stepSpaceGains(float s, bool wasOn)
+{
+    // The reverb's tail grows with Space; the dry is eased down a little as the wet comes up, so more Space is
+    // more room and not more level into the limiter.
     const float dryGain = 1.0f - c_spaceDryTrim * s * s;
     const float wetGain = c_spaceWet * s;
     if (! wasOn)
@@ -3358,18 +3389,124 @@ bool RigEngine::renderSpace(int frames, float* left, float* right)
         m_spaceWet = wetGain;
     }
     m_spaceDryFrom = m_spaceDry;
-    m_reverb.process(left, right, frames, m_spaceDry, dryGain, m_spaceWet, wetGain);
+    const float wetFrom = m_spaceWet;
     m_spaceDry = dryGain;
     m_spaceWet = wetGain;
+    return wetFrom;
+}
+
+bool RigEngine::renderSpace(int frames, float* left, float* right)
+{
+    bool wasOn = false;
+    const float s = stepSpace(frames, wasOn);
+    if (s < 0.0f)
+        return false;
+    renderEchoes(frames, left, right, s, wasOn);
+    // Reverb, after the echoes (so they trail into it).
+    m_reverb.setDecay(SpaceReverb::decaySecondsFor(s));
+    const float wetFrom = stepSpaceGains(s, wasOn);
+    m_reverb.process(left, right, frames, m_spaceDryFrom, m_spaceDry, wetFrom, m_spaceWet);
     return true;
 }
 
-void RigEngine::renderSpaceRoom(int frames)
+void RigEngine::roomReverbTaps(int frames, RoomReverb::Taps& taps)
 {
-    // Until the room has a reverb of its own: the echoes and the reverb hear the room folded to stereo, and what
-    // they add comes back in L and R. The dry sound is eased down in every speaker as it is in stereo.
-    // The fold's gains glide as the speakers' do (see mixRoom): a change of width gives the channels other
-    // speakers, and a fold that changed at once would put a step into the echoes.
+    // Which rows of the reverb's lines each speaker reads: L and R as the stereo reverb's L and R (a mid row plus
+    // or minus 0.8 of a side row), every other speaker a row of its own. Speakers that never share a width share
+    // a row (Ls and Lss, the tops of 7.1.2 and the front tops of 7.1.4), so a channel that turns from one into
+    // the other in a change of width keeps reading the same reverb.
+    struct Rows { int a; int b; float bSign; };
+    auto rowsOf = [](room::Speaker s) -> Rows
+    {
+        using S = room::Speaker;
+        switch (s)
+        {
+            case S::L:   return { 1, 2, 1.0f };
+            case S::R:   return { 1, 2, -1.0f };
+            case S::C:   return { 3, -1, 0.0f };
+            case S::Ls:  case S::Lss: return { 4, -1, 0.0f };
+            case S::Rs:  case S::Rss: return { 5, -1, 0.0f };
+            case S::Lsr: return { 6, -1, 0.0f };
+            case S::Rsr: return { 7, -1, 0.0f };
+            case S::Ltf: case S::Ltm: return { 8, -1, 0.0f };
+            case S::Rtf: case S::Rtm: return { 9, -1, 0.0f };
+            case S::Ltr: return { 10, -1, 0.0f };
+            case S::Rtr: return { 11, -1, 0.0f };
+            case S::Lfe: break;
+        }
+        return { -1, -1, 0.0f };
+    };
+    constexpr float c_side = 0.8f, c_pairNorm = 0.78086881f; // 1 / sqrt(1 + 0.8^2): L and R each read one row's power
+
+    // Where the room's sound has been: each channel's power, smoothed over about a third of a second.
+    const auto& layout = room::layout(m_width);
+    const int channels = layout.numChannels;
+    const float leanGlide = glide(frames, c_spaceLeanSeconds, m_fs);
+    for (int ch = 0; ch < m_liveChannels; ++ch)
+    {
+        double sum = 0.0;
+        for (int i = 0; i < frames; ++i)
+            sum += static_cast<double>(m_mix[static_cast<size_t>(ch)][static_cast<size_t>(i)]) * m_mix[static_cast<size_t>(ch)][static_cast<size_t>(i)];
+        auto& e = m_spaceLean[static_cast<size_t>(ch)];
+        e += (static_cast<float>(sum / frames) - e) * leanGlide;
+    }
+
+    // Each speaker's share: half evenly (the tops as far as Height lets them, the centre as far as Centre Speaker
+    // does), half by where the sound has been. With nothing heard yet, all of it evenly.
+    std::array<float, room::c_maxChannels> even {}, lean {};
+    float evenSum = 0.0f, leanSum = 0.0f;
+    for (int ch = 0; ch < channels; ++ch)
+    {
+        const auto speaker = layout.speakers[static_cast<size_t>(ch)];
+        const auto& info = room::info(speaker);
+        const float w = info.role == room::Role::Lfe ? 0.0f
+                      : info.role == room::Role::Height ? m_heightNow
+                      : speaker == room::Speaker::C ? m_centreNow : 1.0f;
+        even[static_cast<size_t>(ch)] = w;
+        lean[static_cast<size_t>(ch)] = w * m_spaceLean[static_cast<size_t>(ch)];
+        evenSum += w;
+        leanSum += lean[static_cast<size_t>(ch)];
+    }
+    const float leanShare = leanSum > 1.0e-12f ? c_spaceLean : 0.0f;
+
+    taps = {};
+    for (int ch = 0; ch < channels; ++ch)
+    {
+        const auto c = static_cast<size_t>(ch);
+        const Rows rows = rowsOf(layout.speakers[c]);
+        if (rows.a < 0)
+            continue;
+        const float share = (1.0f - leanShare) * even[c] / std::max(evenSum, 1.0e-6f)
+                          + (leanShare > 0.0f ? leanShare * lean[c] / leanSum : 0.0f);
+        const float g = std::sqrt(share * RoomReverb::c_stereoTapPower);
+        if (rows.b < 0)
+            taps[c][static_cast<size_t>(rows.a)] = g;
+        else
+        {
+            taps[c][static_cast<size_t>(rows.a)] = g * c_pairNorm;
+            taps[c][static_cast<size_t>(rows.b)] = rows.bSign * c_side * g * c_pairNorm;
+        }
+    }
+
+    // Glide: no tap moves faster than from nothing to its fullest in 50 ms (a change of width hands a channel to
+    // another speaker; Height and Centre Speaker glide already, and the lean is smoothed).
+    if (m_roomTapsSnap)
+    {
+        m_roomTapsSnap = false;
+        return;
+    }
+    const auto& from = m_roomReverb.taps();
+    const float mostStep = std::sqrt(RoomReverb::c_stereoTapPower) * static_cast<float>(frames) / (0.05f * m_fs);
+    for (size_t c = 0; c < taps.size(); ++c)
+        for (size_t r = 0; r < taps[c].size(); ++r)
+            taps[c][r] = from[c][r] + sj::clamp(taps[c][r] - from[c][r], -mostStep, mostStep);
+}
+
+bool RigEngine::renderSpaceRoom(int frames)
+{
+    // The echoes hear the room folded to stereo, and what they add comes back in L and R. The fold's gains glide
+    // as the speakers' do (see mixRoom): a change of width gives the channels other speakers, and a fold that
+    // changed at once would put a step into the echoes.
     const int channels = room::layout(m_width).numChannels;
     const auto& fold = room::fold(m_width, room::Width::Stereo);
     const auto foldFrom = m_spaceFold;
@@ -3382,6 +3519,12 @@ void RigEngine::renderSpaceRoom(int frames)
         }
     const auto fold0 = m_spaceFoldSet ? foldFrom : m_spaceFold;
     m_spaceFoldSet = true;
+
+    bool wasOn = false;
+    const float s = stepSpace(frames, wasOn);
+    if (s < 0.0f)
+        return false;
+
     float dryL[c_chunk], dryR[c_chunk];
     const float foldStep = 1.0f / static_cast<float>(frames);
     for (int i = 0; i < frames; ++i)
@@ -3398,19 +3541,78 @@ void RigEngine::renderSpaceRoom(int frames)
         m_spaceL[static_cast<size_t>(i)] = dryL[i] = l;
         m_spaceR[static_cast<size_t>(i)] = dryR[i] = r;
     }
-    if (! renderSpace(frames, m_spaceL.data(), m_spaceR.data()))
-        return;
-    const float dry0 = m_spaceDryFrom, dry1 = m_spaceDry;
+    renderEchoes(frames, m_spaceL.data(), m_spaceR.data(), s, wasOn);
+    for (int i = 0; i < frames; ++i)
+    {
+        m_mix[0][static_cast<size_t>(i)] += m_spaceL[static_cast<size_t>(i)] - dryL[i];
+        m_mix[1][static_cast<size_t>(i)] += m_spaceR[static_cast<size_t>(i)] - dryR[i];
+    }
+
+    // The room's reverb, after the echoes (so they trail into it), on every speaker.
+    if (! wasOn)
+        m_roomTapsSnap = true;
+    RoomReverb::Taps taps;
+    roomReverbTaps(frames, taps);
+    m_roomReverb.setDecay(SpaceReverb::decaySecondsFor(s));
+    const float wetFrom = stepSpaceGains(s, wasOn);
+    float* speakers[room::c_maxChannels];
+    for (size_t ch = 0; ch < m_mix.size(); ++ch)
+        speakers[ch] = m_mix[ch].data();
+    if (! wasOn)
+        m_roomReverb.snapTaps(taps); // coming on: the reverb is empty, so the taps start where they belong
+    m_roomReverb.process(speakers, m_liveChannels, frames, m_spaceDryFrom, m_spaceDry, wetFrom, m_spaceWet, taps);
+    return true;
+}
+
+void RigEngine::renderLfe(int frames)
+{
+    // The LFE is fed in a width with one; it is channel 3 in all of them. Leaving for Quad (where channel 3 is a
+    // surround speaker), it glides out there as any speaker does.
+    const auto& layout = room::layout(m_width);
+    if (layout.lfe >= 0)
+        m_lfeChannel = layout.lfe;
+    const int into = m_lfeChannel;
+
+    // Each source's gain into the LFE: LFE Level, for the source LFE Mode chooses. Mixdown takes half the sum of
+    // the main speakers, so a sound in the middle of the front pair (each of L and R carrying it at -3 dB) reaches
+    // the LFE at the level each of them carries, as the Sub does in Discrete. They glide (30 ms), so a change of
+    // mode or level never steps.
+    const float level = juce::Decibels::decibelsToGain(sj::clamp(m_params.lfeLevelDb, c_lfeMinDb, c_lfeMaxDb));
+    const bool fed = layout.lfe >= 0;
+    const float discreteTo = fed && m_params.lfeMode == LfeDiscrete ? level : 0.0f;
+    const float mixdownTo = fed && m_params.lfeMode == LfeMixdown ? 0.5f * level : 0.0f;
+    const float g = m_lfeSnap ? 1.0f : glide(frames, 0.03f, m_fs);
+    const float discrete0 = m_lfeSnap ? discreteTo : m_lfeDiscrete, mixdown0 = m_lfeSnap ? mixdownTo : m_lfeMixdown;
+    m_lfeSnap = false;
+    m_lfeDiscrete = discrete0 + (discreteTo - discrete0) * g;
+    m_lfeMixdown = mixdown0 + (mixdownTo - mixdown0) * g;
+    if (m_lfeDiscrete < 1.0e-6f && discreteTo <= 0.0f) m_lfeDiscrete = 0.0f;
+    if (m_lfeMixdown < 1.0e-6f && mixdownTo <= 0.0f) m_lfeMixdown = 0.0f;
+    const bool sounds = into >= 0 && into < m_liveChannels && (discrete0 > 0.0f || mixdown0 > 0.0f || m_lfeDiscrete > 0.0f || m_lfeMixdown > 0.0f);
+
     const float step = 1.0f / static_cast<float>(frames);
     for (int i = 0; i < frames; ++i)
     {
-        const float dry = dry0 + (dry1 - dry0) * static_cast<float>(i + 1) * step;
-        const float wetL = m_spaceL[static_cast<size_t>(i)] - dry * dryL[i], wetR = m_spaceR[static_cast<size_t>(i)] - dry * dryR[i];
+        const auto ii = static_cast<size_t>(i);
+        // Every channel through the phase match (in every mode and every room width, so the mains are the same
+        // whatever the mode, and in step with the LFE whenever it sounds; the LFE's own channel holds nothing
+        // here but a speaker gliding out after a change of width). The mains' sum for Mixdown before it.
+        float sum = 0.0f;
         for (int ch = 0; ch < m_liveChannels; ++ch)
-            m_mix[static_cast<size_t>(ch)][static_cast<size_t>(i)] *= dry;
-        m_mix[0][static_cast<size_t>(i)] += wetL;
-        m_mix[1][static_cast<size_t>(i)] += wetR;
+        {
+            auto& x = m_mix[static_cast<size_t>(ch)][ii];
+            if (ch != into)
+                sum += x;
+            x = m_lfePhase[static_cast<size_t>(ch)].process(x);
+        }
+        if (! sounds)
+            continue;
+        const float t = static_cast<float>(i + 1) * step;
+        const float in = (discrete0 + (m_lfeDiscrete - discrete0) * t) * m_stem[ii] + (mixdown0 + (m_lfeMixdown - mixdown0) * t) * sum;
+        m_mix[static_cast<size_t>(into)][ii] += m_lfeLow.process(in);
     }
+    if (! sounds)
+        m_lfeLow.reset(); // nothing in it (its input has been silent since the gains reached 0)
 }
 
 //==============================================================================
@@ -3679,23 +3881,31 @@ void RigEngine::process(const float* inL, const float* inR, float* const* out, i
                 }
             else
                 m_makeup = 1.0f;
-            // A room: Stowaway's Sub as a stem (see getSubStem): what L and R each got of it, make-up and all.
+            // A room: Stowaway's Sub as a stem (see getSubStem): what L and R each got of it, make-up and all. The
+            // LFE's copy (m_stem) goes on to take what L and R take after this: the tremolo, the fades and Space's dry.
             if (room)
             {
                 const bool sub = stowSounds && m_stow.now.mode == StowSub;
-                for (int i = 0; i < frames && offset + i < c_stemSamples; ++i)
-                    m_subStem[static_cast<size_t>(offset + i)] = ! sub ? 0.0f
+                for (int i = 0; i < frames; ++i)
+                {
+                    const float x = ! sub ? 0.0f
                         : m_stow.mono[static_cast<size_t>(i)] * (eased ? g0 + (m_makeup - g0) * static_cast<float>(i + 1) / static_cast<float>(frames) : 1.0f);
+                    m_stem[static_cast<size_t>(i)] = x;
+                    if (offset + i < c_stemSamples)
+                        m_subStem[static_cast<size_t>(offset + i)] = x;
+                }
             }
         }
         // Peak tremolo on everything (by the mix's level), before Space so the echoes and reverb carry it. A room's
         // speakers shake as one, by the mix as one stream (the loudest speaker would dip as a pass crosses from
         // one speaker to the next).
         {
-            float* speakers[room::c_maxChannels];
+            // (The LFE's copy of the Sub shakes with them: it rides along as one more channel.)
+            float* speakers[room::c_maxChannels + 1];
             for (size_t ch = 0; ch < m_mix.size(); ++ch)
                 speakers[ch] = m_mix[ch].data();
-            applyTremolo(m_trem[0], speakers, roomChannels, frames, m_params.tremTarget == 0, room ? m_roomMono.data() : nullptr);
+            speakers[roomChannels] = m_stem.data();
+            applyTremolo(m_trem[0], speakers, room ? roomChannels + 1 : roomChannels, frames, m_params.tremTarget == 0, room ? m_roomMono.data() : nullptr);
         }
         // Around a change between stereo and a room the mix fades here as well as at the output (below): what the
         // echoes and the reverb are sent is then silent at the swap too, and nothing in it steps. (This fade is
@@ -3707,9 +3917,19 @@ void RigEngine::process(const float* inL, const float* inR, float* const* out, i
                 const float send = g * (2.0f - g);
                 for (int ch = 0; ch < roomChannels; ++ch)
                     m_mix[static_cast<size_t>(ch)][static_cast<size_t>(i)] *= send;
+                m_stem[static_cast<size_t>(i)] *= send;
             }
         if (room)
-            renderSpaceRoom(frames);
+        {
+            if (renderSpaceRoom(frames))
+            {
+                // Space eased the dry sound down in every speaker: the LFE's copy of the Sub with it.
+                const float dry0 = m_spaceDryFrom, dry1 = m_spaceDry;
+                const float step = 1.0f / static_cast<float>(frames);
+                for (int i = 0; i < frames; ++i)
+                    m_stem[static_cast<size_t>(i)] *= dry0 + (dry1 - dry0) * static_cast<float>(i + 1) * step;
+            }
+        }
         else
             renderSpace(frames, m_mix[0].data(), m_mix[1].data());
         // Stowaway in Dry: past the Everything tremolo and Space, straight to the output stage.
@@ -3719,6 +3939,9 @@ void RigEngine::process(const float* inL, const float* inR, float* const* out, i
                 m_mix[0][static_cast<size_t>(i)] += m_stow.l[static_cast<size_t>(i)];
                 m_mix[1][static_cast<size_t>(i)] += m_stow.r[static_cast<size_t>(i)];
             }
+
+        if (room)
+            renderLfe(frames);
 
         const int written = std::min(numChannels, roomChannels);
         if (room)
@@ -4068,6 +4291,17 @@ void RigEngine::stepWidth(int frames, float& fade0, float& fade1)
             m_liveChannels = room::layout(m_width).numChannels;
             m_liveHold = 0;
             std::fill(m_subStem.begin(), m_subStem.end(), 0.0f);
+            // The reverbs start empty in the new width (the output is silent here): the other one's tail would
+            // otherwise wait to come back the next time the width changes.
+            m_reverb.reset();
+            m_roomReverb.reset();
+            m_spaceLean.fill(0.0f);
+            m_roomTapsSnap = true;
+            m_lfeLow.reset();
+            for (auto& f : m_lfePhase)
+                f.reset();
+            m_lfeSnap = true;
+            m_lfeChannel = room::layout(m_width).lfe;
             m_widthFade = std::min(1.0f, step);
         }
         else

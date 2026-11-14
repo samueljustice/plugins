@@ -50,6 +50,21 @@ namespace ParamIDs
     inline constexpr const char* roomSpread = "roomSpread";
     inline constexpr const char* roomHeight = "roomHeight";
     inline constexpr const char* roomCentre = "roomCentre";
+    // The LFE (widths with one: 5.1 and wider; the others ignore both). What feeds it, and how loud it is.
+    inline constexpr const char* roomLfeMode = "roomLfeMode";
+    inline constexpr const char* roomLfeLevel = "roomLfeLevel";
+    inline constexpr int numLfeModes = 3;
+    inline constexpr const char* lfeModeNames[numLfeModes] = { "Off", "Discrete", "Mixdown" };
+    inline constexpr float lfeLevelMinDb = -40.0f, lfeLevelMaxDb = 0.0f;
+    inline constexpr float lfeLevelUnityDb = -10.0f; // a calibrated room plays the LFE 10 dB hotter: here it is as loud as a main speaker
+    // Tooltips for the LFE controls (for the room strip).
+    inline constexpr const char* lfeModeTip =
+        "What plays from the LFE (the subwoofer channel). Off: nothing. Discrete: Stowaway's Sub, when Stowaway is "
+        "on in Sub mode; it stays in the front speakers too, so nothing is lost without a subwoofer. Mixdown: the "
+        "low end of the whole mix. Either way only what is under 120 Hz. Only at 5.1 and wider.";
+    inline constexpr const char* lfeLevelTip =
+        "How loud the LFE is. At -10 dB (marked Unity) it plays as loud as the main speakers do in a calibrated "
+        "room, which turns the LFE up by 10 dB. Higher adds weight; 0 dB is 10 dB louder than the mains.";
 
     // Stowaway: one extra bus beside A and B. A Mode menu, and five knobs that keep their names and places in
     // every mode (what each does, and how it reads, follows the mode: see Params::stowText).
@@ -181,6 +196,13 @@ namespace Params
         if (hz < 999.5f)
             return juce::String(juce::roundToInt(hz)) + " Hz";
         return (hz < 9950.0f ? juce::String(hz / 1000.0f, 1) : juce::String(juce::roundToInt(hz / 1000.0f))) + " kHz";
+    }
+    /** How LFE Level reads: "-10.0 dB (Unity)" at the reference, so it is easy to find; "-18.5 dB" elsewhere. */
+    inline juce::String lfeLevelText(float db)
+    {
+        const float v = std::round(std::clamp(db, ParamIDs::lfeLevelMinDb, ParamIDs::lfeLevelMaxDb) * 10.0f) / 10.0f;
+        const juce::String text = juce::String(v, 1) + " dB";
+        return std::abs(v - ParamIDs::lfeLevelUnityDb) < 0.05f ? text + " (Unity)" : text;
     }
     /** How a Stowaway knob reads at position v in a mode (ParamIDs::StowMode, ParamIDs::StowControl). The knobs
         keep their names; Filter reads the Sub's crossover in Hz, and otherwise what it lets through ("Under 2.4 kHz"
@@ -422,6 +444,18 @@ namespace Params
                                        AudioParameterFloatAttributes().withStringFromValueFunction(
                                            [](float v, int) { return String(roundToInt(v * 100.0f)) + "%"; })));
         layout.add(std::make_unique<AudioParameterBool>(ParameterID { ParamIDs::roomCentre, 5 }, "Centre Speaker", false));
+        layout.add(std::make_unique<AudioParameterChoice>(ParameterID { ParamIDs::roomLfeMode, 5 }, "LFE Mode",
+                                                          StringArray(ParamIDs::lfeModeNames, ParamIDs::numLfeModes), 0));
+        layout.add(std::make_unique<P>(ParameterID { ParamIDs::roomLfeLevel, 5 }, "LFE Level",
+                                       NormalisableRange<float>(ParamIDs::lfeLevelMinDb, ParamIDs::lfeLevelMaxDb, 0.1f), ParamIDs::lfeLevelUnityDb,
+                                       AudioParameterFloatAttributes().withLabel("dB")
+                                           .withStringFromValueFunction([](float v, int) { return lfeLevelText(v); })
+                                           .withValueFromStringFunction([](const String& t)
+                                           {
+                                               if (t.trim().equalsIgnoreCase("unity") || t.containsIgnoreCase("unity"))
+                                                   return ParamIDs::lfeLevelUnityDb;
+                                               return jlimit(ParamIDs::lfeLevelMinDb, ParamIDs::lfeLevelMaxDb, t.retainCharacters("-.0123456789").getFloatValue());
+                                           })));
 
         // Added later: kept at the end, so every parameter before them keeps its place in the host's list.
         for (int b = 0; b < ParamIDs::numBuses; ++b)

@@ -25,6 +25,7 @@
 #include "RigEngine.h"
 #include "Room.h"
 #include "DspUtils.h"
+#include "LfeFilter.h"
 
 #include <functional>
 
@@ -933,12 +934,14 @@ int main(int argc, char* argv[])
             const auto& l = take.ch[static_cast<size_t>(left)];
             const auto& r = take.ch[static_cast<size_t>(right)];
             float apart = 0.0f, stemApart = 0.0f;
-            sj::DcBlock dc; // the engine's last stage, which the stem is taken before
-            dc.set(8.0f, static_cast<float>(c_fs));
+            sj::DcBlock dc; // the engine's last stages, which the stem is taken before: every main speaker of a room
+            dc.set(8.0f, static_cast<float>(c_fs)); // goes through the LFE's phase match, then the DC blocker
+            lfe::PhaseMatch phase;
+            phase.prepare(c_fs);
             for (size_t i = 0; i < l.size(); ++i)
             {
                 apart = std::max(apart, std::abs(l[i] - r[i]));
-                stemApart = std::max(stemApart, std::abs(dc.process(take.stem[i]) - l[i]));
+                stemApart = std::max(stemApart, std::abs(dc.process(phase.process(take.stem[i])) - l[i]));
             }
             std::cout << "         " << nameOf(width) << " Sub: L peak " << num(peakOf(l), 3) << ", L against R " << num(apart, 7) << ", the stem against L "
                       << num(stemApart, 7) << ", every other channel " << num(othersPeak(take), 7) << std::endl;

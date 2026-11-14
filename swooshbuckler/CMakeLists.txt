@@ -280,6 +280,15 @@ if(SWOOSHBUCKLER_TESTS)
     target_compile_definitions(SwooshbucklerWide PRIVATE $<TARGET_PROPERTY:Swooshbuckler,COMPILE_DEFINITIONS>)
     target_link_libraries(SwooshbucklerWide PRIVATE Swooshbuckler)
 
+    # Space and LFE test: the reverb in a room (as loud as in Stereo, uncorrelated returns on every main speaker,
+    # Height, the lean, folds without combs), what feeds the LFE (Off, Discrete, Mixdown; the low-pass; the mains
+    # untouched; bass management in step), the LFE's own limiter and no Inflate on it, and the CPU.
+    juce_add_console_app(SwooshbucklerSpaceLfe PRODUCT_NAME "SwooshbucklerSpaceLfe")
+    target_sources(SwooshbucklerSpaceLfe PRIVATE Tests/SpaceLfeTest.cpp)
+    target_include_directories(SwooshbucklerSpaceLfe PRIVATE Source ${CMAKE_CURRENT_BINARY_DIR}/Swooshbuckler_artefacts/JuceLibraryCode $<TARGET_PROPERTY:Swooshbuckler,INCLUDE_DIRECTORIES>)
+    target_compile_definitions(SwooshbucklerSpaceLfe PRIVATE $<TARGET_PROPERTY:Swooshbuckler,COMPILE_DEFINITIONS>)
+    target_link_libraries(SwooshbucklerSpaceLfe PRIVATE Swooshbuckler)
+
     # Files test: takes of every room width on disk. Every width, Channel Order (Pro Tools (Film), SMPTE / WAV),
     # File Layout (Interleaved, Multi-Mono) and file type written and read back with the test's own parser (the WAV
     # speaker mask, the channel names, each channel's sound in its slot, the markers, Multi-Mono sets complete and

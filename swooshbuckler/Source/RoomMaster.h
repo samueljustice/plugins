@@ -10,7 +10,9 @@
  * channel, with two limiters instead of one.
  *
  *   main channels (every speaker but the LFE) --> MasterProcessor, one gain linked across all of them
- *   LFE                                        --> its own MasterProcessor, the same settings, its own gain
+ *   LFE                                        --> its own MasterProcessor: Push and the Ceiling as the mains
+ *                                                  have them, no Inflate (it would add harmonics above the LFE's
+ *                                                  low-pass), its own gain
  *
  * The main channels share one gain, so a pass that moves from speaker to speaker is never pulled about by the
  * limiter: the room keeps its balance. The LFE has its own, so a loud sub never pulls the room down (and the room
@@ -32,7 +34,7 @@ public:
 
     void prepare(double sampleRate, room::Width width); // allocates
     void reset();
-    void setParameters(const MasterProcessor::Parameters& p); // both limiters; once per block, audio thread
+    void setParameters(const MasterProcessor::Parameters& p); // both limiters (the LFE's without Inflate); once per block, audio thread
 
     /** In place. numChannels is pipeChannels(width) as prepared (fewer is allowed: the missing ones are skipped). */
     void process(float* const* channels, int numChannels, int numSamples);

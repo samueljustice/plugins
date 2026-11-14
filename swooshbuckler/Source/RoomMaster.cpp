@@ -22,7 +22,12 @@ void RoomMaster::reset()
 void RoomMaster::setParameters(const MasterProcessor::Parameters& p)
 {
     m_mains.setParameters(p);
-    m_lfeStage.setParameters(p);
+    // The LFE: no Inflate (its harmonics would put back above the LFE's low-pass what the low-pass took out).
+    // Push stays, so the LFE keeps its balance with the mains as they are driven; its own limiter holds the Ceiling.
+    auto lfe = p;
+    lfe.inflateEffect = 0.0f;
+    lfe.inflateCurve = 0.0f;
+    m_lfeStage.setParameters(lfe);
 }
 
 void RoomMaster::process(float* const* channels, int numChannels, int numSamples)

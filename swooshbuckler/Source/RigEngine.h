@@ -8,6 +8,7 @@
 #include "SubFilter.h"
 #include "SpectralMorph.h"
 #include "SpaceReverb.h"
+#include "LfeFilter.h"
 #include "Room.h"
 
 #include <array>
@@ -97,8 +98,23 @@
  *              path, behind its outgoing pass. Fly: its own passes on its own Flight Path. Dry: straight to L and R.
  *   stereo beds  the side signal stays a left / right pair: at the front, and with Spread on every left and right
  *              speaker of the floor.
- *   Space      for now the echoes and the reverb are sent a stereo fold of the room and come back in L and R.
- * The LFE channel is left silent here.
+ *   Space      the echoes are sent a stereo fold of the room and come back in L and R. The reverb is the room's
+ *              own (RoomReverb): the Space knob's reverb with a return on every main speaker, each uncorrelated
+ *              with the others, fed by the room's mix. A pass's reverb leans toward where the pass is (half the
+ *              reverb is shared by where the room's sound has been over the last third of a second, half evenly)
+ *              and fills the room. The tops get their share as far as Height lets them, the centre speaker only
+ *              with Centre Speaker on, the LFE never. All speakers together carry as much reverb as L and R do in
+ *              stereo at the same Space.
+ *   LFE        (renderLfe; widths with an LFE) LFE Mode: Off (silent); Discrete: Stowaway's Sub, which stays in L
+ *              and R as well; Mixdown: half the sum of the main speakers (a sound in the middle of the front pair
+ *              reaches it at the level each of the pair carries). Either way through the LFE's own fixed low-pass
+ *              (lfe::LowPass, 120 Hz, 48 dB an octave) and LFE Level. The main speakers go through the matching
+ *              all-pass (lfe::PhaseMatch), so the LFE and the mains' copy of the same low end are in phase at every
+ *              frequency: bass management adds them, never cancels them (every room width's mains go through it,
+ *              Quad's too, so a change of width never switches it). With LFE Level at its reference (-10 dB,
+ *              which a calibrated room plays as loud as a main speaker) Discrete adds 3.5 dB under 80 Hz to what
+ *              the mains' two copies give together: the Sub is weighted, not doubled. The mains are the same
+ *              whatever the LFE Mode.
  *
  * Every continuous control is chased by a damped spring (rubber banding).
  * No allocation, locks or I/O on the audio thread.
@@ -111,6 +127,12 @@ public:
     static constexpr int c_throws = 4;                  // thrown whooshes that can be in flight at once
     static constexpr int c_maxFlights = c_maxBuses * 2 + c_throws; // two doppler passes per bus, then the throws (the visualiser's comets)
     static constexpr int c_maxKeys = 16;                // held MIDI keys that set pitches
+
+    /** LFE Mode, and LFE Level's reference: at -10 dB the LFE plays as loud as a main speaker in a calibrated room
+        (which plays the LFE 10 dB hotter). */
+    enum LfeMode { LfeOff = 0, LfeDiscrete, LfeMixdown, c_lfeModes };
+    static constexpr float c_lfeReferenceDb = -10.0f;
+    static constexpr float c_lfeMinDb = -40.0f, c_lfeMaxDb = 0.0f;
 
     /** Stowaway: what the extra bus is, and its five knobs (the same names in every mode). */
     enum StowMode { StowSub = 0, StowWake, StowFly, StowDry, c_stowModes };
@@ -195,6 +217,8 @@ public:
         float roomSpread = 0.0f;  // how far every object bleeds into the other speakers (0 a point .. 1 everywhere)
         float roomHeight = 1.0f;  // how much of an object's height reaches the top speakers
         bool roomCentre = false;  // the centre speaker is used (off: a phantom centre between L and R)
+        int lfeMode = LfeOff;     // what feeds the LFE (widths with one): see the class comment
+        float lfeLevelDb = c_lfeReferenceDb; // the LFE's gain, -40 .. 0 dB
 
         // Morph: buses A and B are fed a spectral morph of the two (split back between them by X)
         bool morphOn = false;
@@ -252,8 +276,9 @@ public:
         two are L and R at every width from Stereo up. Channels the width does not have are silent, and so is its
         LFE. Fewer channels than the width has: the rest of the room is not written. */
     void process(const float* inL, const float* inR, float* const* out, int numChannels, int numSamples);
-    /** Audio thread, after process(), in a room: Stowaway's Sub as one stem, for an LFE: the same samples that
-        went to L and R (each got exactly this), before the Everything tremolo and Space. Silent in every other
+    /** Audio thread, after process(), in a room: Stowaway's Sub as one stem: the same samples that went to L and
+        R (each got exactly this), before the Everything tremolo and Space. (The LFE in Discrete is fed from its
+        own copy, which goes on through those as L and R do: see renderLfe.) Silent in every other
         mode and at Mono and Stereo. Valid for the samples of the last process() call (up to c_stemSamples). */
     const float* getSubStem() const { return m_subStem.data(); }
     static constexpr int c_stemSamples = 8192;
@@ -486,8 +511,20 @@ private:
     void stepRoom(int frames);
     /** A room's mix: every lane to its speakers. */
     void mixRoom(int frames, bool stowSounds, bool stowDry);
-    /** Space for a room, until it has a reverb of its own: see the class comment. */
-    void renderSpaceRoom(int frames);
+    /** Space for a room: see the class comment. Returns false when Space is off (nothing done). */
+    bool renderSpaceRoom(int frames);
+    /** Space's amount for this chunk (the knob's spring stepped, plus its modulation), or -1 when Space is off:
+        then the echoes and the reverbs are emptied once. wasOn: Space was on before this chunk. */
+    float stepSpace(int frames, bool& wasOn);
+    /** The ping-pong echoes, in place on a stereo pair. */
+    void renderEchoes(int frames, float* left, float* right, float s, bool wasOn);
+    /** The reverb's dry and wet gains for Space s: sets m_spaceDryFrom, m_spaceDry, m_spaceWet. Returns the
+        wet gain at the start of the chunk. */
+    float stepSpaceGains(float s, bool wasOn);
+    /** The room's reverb taps this chunk: each speaker's share (see the class comment), glided. */
+    void roomReverbTaps(int frames, RoomReverb::Taps& taps);
+    /** A room: the mains through the phase match, and (a width with an LFE) the LFE channel from LFE Mode. */
+    void renderLfe(int frames);
 
     /** What Low End adds under a low band: a note an octave below it and its overtones. The buses feed it their
         low band (under 130 Hz); Stowaway's Sub feeds it what its crossover let through. */
@@ -990,6 +1027,17 @@ private:
     sj::DelayLine m_echoL, m_echoR;
     sj::OnePole m_echoLpL, m_echoLpR, m_echoHpL, m_echoHpR;
     SpaceReverb m_reverb;
+    RoomReverb m_roomReverb;       // a room's (see the class comment)
+    std::array<float, room::c_maxChannels> m_spaceLean {}; // each channel's power, smoothed: where the room's sound has been
+    bool m_roomTapsSnap = true;    // the room reverb's taps have nothing to glide from
+    float m_echoSend = 1.0f;       // the echoes' send: faded in when Space comes on, so they never start mid-wave
+    // The LFE (see renderLfe).
+    lfe::LowPass m_lfeLow;
+    std::array<lfe::PhaseMatch, room::c_maxChannels> m_lfePhase;
+    float m_lfeDiscrete = 0.0f, m_lfeMixdown = 0.0f; // each source's gain into the LFE, glided
+    bool m_lfeSnap = true;
+    int m_lfeChannel = -1;           // the channel the LFE is fed into (kept while leaving for a width without one)
+    std::array<float, c_chunk> m_stem {}; // Stowaway's Sub as L and R each carry it, this chunk (Discrete's source)
     float m_echoDriftL = 0.0f, m_echoDriftR = 0.5f; // phases (-1..1) of the slow drift of the two echo times
     float m_spaceDry = 1.0f, m_spaceWet = 0.0f;     // the reverb's dry and wet gains at the end of the last chunk
     bool m_spaceOn = false; // the echoes and reverb hold sound (cleared once when Space reaches 0)

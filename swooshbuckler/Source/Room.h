@@ -94,6 +94,9 @@ namespace room
 
     const Layout& layout(Width width) noexcept;
 
+    /** The width has an LFE channel (5.1, 7.1, 7.1.2, 7.1.4). */
+    inline bool hasLfe(Width width) noexcept { return layout(width).lfe >= 0; }
+
     /** JUCE's own set for the width: mono, stereo, quadraphonic, create5point1, create7point1 (the film 7.1 with
         sides and rears), create7point1point2, create7point1point4. */
     juce::AudioChannelSet channelSet(Width width);
@@ -213,9 +216,11 @@ namespace room
     // so that a sound panned half way between them keeps its level).
     //
     // THE LFE is kept where the narrower width has one and dropped where it has none (LfeFold::Drop, the default):
-    // the mains already carry the low end, so nothing is lost. LfeFold::IntoFronts adds it to L and R at -3 dB
-    // each instead. That keeps its level as it is in the file; a calibrated room plays the LFE 10 dB louder than a
-    // main speaker, and the fold does not add those 10 dB (it would clip).
+    // the mains already carry the low end, so nothing is lost. That holds for everything this plug-in puts in the
+    // LFE: in Discrete the Sub stays in L and R as well, and Mixdown is made from the mains themselves. Folding it
+    // in as well would count that low end twice. LfeFold::IntoFronts (for an LFE that carries what the mains do
+    // not) adds it to L and R at -3 dB each instead. That keeps its level as it is in the file; a calibrated room
+    // plays the LFE 10 dB louder than a main speaker, and the fold does not add those 10 dB (it would clip).
     //
     // WHAT A FOLD DOES TO THE LEVEL of one full-scale sound placed anywhere by pan() (measured by the Room test
     // over every position, Centre and Spread setting, for every pair of widths, and pinned there):

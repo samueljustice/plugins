@@ -54,6 +54,8 @@ SwooshbucklerAudioProcessor::SwooshbucklerAudioProcessor(juce::PropertiesFile* o
     m_raw.roomSpread = raw(ParamIDs::roomSpread);
     m_raw.roomHeight = raw(ParamIDs::roomHeight);
     m_raw.roomCentre = raw(ParamIDs::roomCentre);
+    m_raw.roomLfeMode = raw(ParamIDs::roomLfeMode);
+    m_raw.roomLfeLevel = raw(ParamIDs::roomLfeLevel);
     m_raw.stowOn = raw(ParamIDs::stowOn);
     m_raw.stowMode = raw(ParamIDs::stowMode);
     m_stowModeSource->mode.store(m_raw.stowMode); // the Stowaway knobs read by the mode from here on
@@ -416,6 +418,9 @@ void SwooshbucklerAudioProcessor::updateEngineParams()
     p.roomSpread = m_raw.roomSpread->load();
     p.roomHeight = m_raw.roomHeight->load();
     p.roomCentre = m_raw.roomCentre->load() > 0.5f;
+    static_assert(ParamIDs::numLfeModes == RigEngine::c_lfeModes, "the same LFE modes"); // (the levels: checked by the SpaceLfe test)
+    p.lfeMode = juce::jlimit(0, ParamIDs::numLfeModes - 1, juce::roundToInt(m_raw.roomLfeMode->load()));
+    p.lfeLevelDb = m_raw.roomLfeLevel->load();
     {
         static_assert(static_cast<int>(RigEngine::c_stowModes) == static_cast<int>(ParamIDs::numStowModes)
                       && static_cast<int>(RigEngine::c_stowKnobs) == static_cast<int>(ParamIDs::numStowControls)

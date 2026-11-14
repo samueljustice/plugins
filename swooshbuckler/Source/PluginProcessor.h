@@ -388,6 +388,9 @@ public:
     /** How wide the output is. In a plug-in host it is the track's width (the output bus); the app is Stereo for
         now. Set when the processor is prepared. Any thread. */
     room::Width getRoomWidth() const { return static_cast<room::Width>(m_roomWidth.load(std::memory_order_relaxed)); }
+    /** The width has an LFE (5.1 and wider): LFE Mode and LFE Level do something. Mono, Stereo and Quad ignore them
+        (the room strip dims them there). */
+    bool roomHasLfe() const { return room::hasLfe(getRoomWidth()); }
     /** How many speaker meters the width has (room::layout(getRoomWidth()).numChannels), in its processing order. */
     int getMeterChannels() const { return room::layout(getRoomWidth()).numChannels; }
     /** One speaker's level, as getOutputPeak is for the whole output (after the limiter, before Master Trim);
@@ -565,6 +568,7 @@ private:
         std::atomic<float>* passMode[ParamIDs::numBuses] {};
         std::atomic<float>* flightPath[ParamIDs::numBuses] {}, *stowFlightPath = nullptr;
         std::atomic<float>* roomSpread = nullptr, *roomHeight = nullptr, *roomCentre = nullptr;
+        std::atomic<float>* roomLfeMode = nullptr, *roomLfeLevel = nullptr;
         std::atomic<float>* stowOn = nullptr, *stowMode = nullptr, *stow[ParamIDs::numStowControls] {};
         std::atomic<float>* tremOn = nullptr, *tremDepth = nullptr, *tremRate = nullptr, *tremThreshold = nullptr, *tremShape = nullptr, *tremTarget = nullptr;
         std::atomic<float>* masterTrim = nullptr;
