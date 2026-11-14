@@ -6,7 +6,7 @@ A VST3/AU modular voice processor by **Samuel Justice**, built for exploration a
 
 ### [Get it with Sammy J's Plugins](https://github.com/samueljustice/plugins/releases/latest), the installer for every Sammy J plug-in
 
-<img src="docs/hero.gif" alt="The Roarschach window with the Kaiju preset, in motion: lit ember-red cloud drifts in the view above the chain of modules; a voice starts and dark ink gathers out of the cloud by flow into a wide mirrored blot with marbled, swept-back wings, while the meters and the vocoder's band display move; a roar sends a ripple through the ink and the cloud; the voice stops and the blot tears back into smoke" width="880">
+<img src="docs/hero.gif" alt="The Roarschach window with the Kaiju preset, in motion: lit ember-red cloud drifts in the view above the chain of modules; a voice starts and dark ink gathers out of the cloud by flow into a wide mirrored blot whose wings hang low and curl up at their tips, while the meters and the vocoder's band display move; a hit as the roar starts sends a lit swell out through the cloud, and a warm light opens in the rift down the blot's middle; the voice stops and the blot tears back into smoke" width="880">
 
 ## Features
 
@@ -363,9 +363,11 @@ The view above the chain is drawn live in OpenGL from the audio and the controls
 
 **A roar** tears a ragged rift open down its middle. The rift follows the phrase with weight, rather than snapping open on every syllable, and the blot swells larger and darker while the roar lasts, letting the swell go over seconds afterwards. In some blots the rift is lit from inside by a warm glow, with lit breath drifting out into the cloud; in others it stays a dark tear onto the shaded cloud behind. The light comes and goes.
 
-<img src="docs/view-roar.gif" alt="A broad mirrored blot of dark ink swirling in pale blue-grey cloud with a quiet voice; a roar starts, a ripple runs out through the ink and the cloud, and the blot's edges tear and curl" width="720">
+<img src="docs/view-roar.gif" alt="A broad mirrored blot of dark ink swirling in pale blue-grey cloud with a quiet voice; a roar starts, the blot swells darker and its edges tear and curl, and a warm light opens in the rift down its middle" width="720">
 
 **When the voice stops**, the ink lets go: its limbs tear into ribbons first, then smoke, then the grey of the cloud, and a few seconds later nothing of its outline is left. After 1.5 seconds of silence the label ASLEEP appears; the creature gathers itself again as soon as sound comes back.
+
+**While the host bypasses the plug-in**, the creature sleeps. The chain keeps running underneath so that leaving bypass is seamless, but the view treats what it does as silence: the ink lets go at once, nothing ripples it, the F0 and DETAIL readouts and the chain's meters rest, and the unheard sound does not grow the creature. It also goes to sleep at once when the host stops sending audio. As soon as the host processes sound again, the creature wakes with it.
 
 <img src="docs/view-dissolving.gif" alt="The voice has stopped: the blot loosens, its middle clears unevenly and the ink tears into grey smoke that drifts back into the cloud" width="720">
 
@@ -379,7 +381,7 @@ The view above the chain is drawn live in OpenGL from the audio and the controls
 
 <img src="docs/colour-moods.gif" alt="One blot seed with three presets in turn, each with its colour settled: Init in the default pale blue-grey, Kaiju in ember red and Iron Tyrant in warm stone; each preset also gives the blot a different shape" width="720">
 
-Right-click the creature for **Evolution: Live** (it keeps evolving), **Evolution: Frozen** (it holds its current form and colour, also after the editor is closed or the project reloaded; it still moves with the voice) and **Reset creature** (it eases back to a young blot over a few seconds and grows a new one). Under **Visualiser**, **Full** draws the creature as smoothly as the graphics card allows, **Low** draws it at a lighter quality and at most 15 frames a second, and **Off** shows a still cloud and leaves the graphics card alone; the choice is kept on this computer and applies to every instance. The view draws nothing while it is hidden. On macOS it also stops while its window is minimised, and slows to two frames a second while its window is covered or on another desktop.
+Right-click the creature for **Evolution: Live** (it keeps evolving), **Evolution: Frozen** (it holds its current form and colour, also after the editor is closed or the project reloaded; it still moves with the voice) and **Reset creature** (it eases back to a young blot over a few seconds and grows a new one). Under **Visualiser**, **Full** draws the creature as smoothly as the graphics card allows, **Low** draws it at a lighter quality and at most 15 frames a second, and **Off** shows a still cloud and leaves the graphics card alone (the readouts and the ASLEEP label still follow the sound); the choice is kept on this computer and applies to every instance. The view draws nothing while it is hidden. On macOS it also stops while its window is minimised, and slows to two frames a second while its window is covered or on another desktop.
 
 <img src="docs/creature-menu.jpg" alt="The creature's right-click menu over the pale ember-tinted view: a Creature heading with Evolution: Live (ticked), Evolution: Frozen and Reset creature, then a Visualiser heading with Full (ticked), Low and Off, each with a short description" width="523">
 
@@ -404,9 +406,9 @@ Whatever form it has taken, every module leaves its own trace on it, each a diff
 
 <img src="docs/view-modules.gif" alt="The Possessed preset with a quiet voice: a dark mirrored blot in lavender-blue cloud, its arms streaming and curling and smoke lifting off its top as the modules stir the ink" width="720">
 
-**Hits ripple it.** A hit in the sound (a stomp, a thump, a plosive, the start of a roar) ripples the picture like a struck water surface: rings spread outwards through the cloud and the ink, wider than they are tall and broken up by the cloud, so the picture heaves and settles without any line being drawn. The syllables of steady talking and a held tone do not; a sustained low end makes the surface tremble finely instead.
+**Hits ripple it.** A hit with weight in the low end (a stomp, a thump, a heavy low attack at the start of a roar) ripples the picture like a struck water surface: one broad swell leaves the body's edge at once, fast at first and slowing as it spreads, and settles over about two seconds. Its slope catches the light, lifted where it faces up and shaded where it faces down, so the cloud heaves visibly without any line being drawn; it is wider than it is tall, and the cloud bends and breaks it up. A stronger hit makes a larger swell. A hit that follows close behind adds to the swell already spreading rather than starting another. The syllables of steady talking, sung notes, bright consonants and a held tone do not ripple it; a sustained low end makes the surface tremble finely instead.
 
-<img src="docs/view-ripple.gif" alt="A dark mirrored blot swirling in pale blue-grey cloud with a quiet voice; two short loud bursts each send a ring rippling outwards through the ink and the cloud" width="720">
+<img src="docs/view-ripple.gif" alt="A dark mirrored blot swirling in pale blue-grey cloud with a quiet voice; two heavy thumps each send one lit swell out from the blot's edge through the cloud, which heaves and settles" width="720">
 
 The top corners show the voice's pitch (F0) and how much DETAIL is lifting and holding. On slower graphics cards the creature lowers its own detail to stay smooth; without OpenGL the view shows a still cloud.
 
