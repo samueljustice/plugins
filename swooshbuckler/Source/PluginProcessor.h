@@ -200,10 +200,6 @@ public:
     /** Is Swell held right now (the sea raises its swell while it is). Any thread. */
     bool isSwellHeld() const { return m_uiSwell.load(); }
 
-    /** Load Demo Sounds: makes the five demo sounds (see DemoSounds) and puts them in the first empty tracks, as
-        one undo step. Returns how many were loaded (0 when every track is in use). Message thread. */
-    int loadDemoSounds();
-
     // MIDI control: a track's fader, or Energy, follows a MIDI controller (CC) once it has been learned. There is
     // no mapping until you make one; the mappings are kept in the settings file (the same in every session).
     static constexpr int c_ccEnergy = ParamIDs::numCargoTracks;      // the targets: 0..9 the track faders, then Energy

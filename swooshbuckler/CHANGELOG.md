@@ -46,11 +46,11 @@
 - **The hits duck Stowaway** in Wake, Fly and Dry, by Hit Duck like the buses. In Sub they leave it alone, so the low end stays under a hit.
 - **A Follower can follow Stowaway**: the Follows menu reads Bus A, Bus B, Hits, Stowaway, Output, Master, Master Pitch, Master Brightness.
 
-### Presets, Randomise and the demo sounds
+### Presets, Randomise and the empty start
 
 - **Five new factory presets built around Stowaway**: **Sub Under Jets** (a planted sub under fast fly-bys), **Deep Quake** (a low, driven sub under slow swells), **Debris Wake** (a trail behind every fly-by), **Three Movers** (both buses and Stowaway all flying) and **Dry Rider** (an untouched layer riding over a heavily worked rig). Each switches Stowaway on and sets its Mode. A preset never moves a track, so in Wake, Fly and Dry there is nothing on Stowaway until you send a track there, and the two Sub presets want a Rumble track (or any track sent there). When a preset switches Stowaway on with nothing on it, the status line says so and how to put a track there.
 - **Presets and Randomise never switch Stowaway off.** The other presets leave the switch where it is and put the Mode and knobs back where they start. Randomise and Stowaway's own die roll its five knobs and never its Mode.
-- **Load Demo Sounds has a fifth sound, Demo Rumble**: eight seconds of deep rumble that loops without a seam. It plays on Bus A while Stowaway is off and becomes the sub the moment Stowaway is switched on. With the rumble, the demo sounds play about 1 dB louder, with 5 dB more under 120 Hz.
+- **Swooshbuckler starts empty.** The Tracks panel opens on the plain drop zone: drop your own sounds in, or click it to browse. The Load Demo Sounds button is gone, and no demo sounds are built into the app or the plug-in.
 
 ### Stowaway on the screen
 

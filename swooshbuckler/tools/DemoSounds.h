@@ -4,9 +4,12 @@
 
 #include <vector>
 
+class SwooshbucklerAudioProcessor;
+
 /**
- * The demo sounds: five sources made from nothing when Load Demo Sounds is clicked (there are no recordings in
- * the app), so that Play makes a whoosh on a first run. One of each kind the rig is built around:
+ * The demo sounds: five sources made from nothing, for our own tools and tests only (the picture tool, the
+ * README pictures and the tests that need the rig playing). They are not part of the app or the plug-in, which
+ * start empty. One of each kind the rig is built around:
  *
  *   Demo Growl      a creature's growl in five phrases (a pitched voice through moving formants)   -> Tonal Content, bus A
  *   Demo Wind Bed   eight seconds of gusting wind, in stereo, that loops without a seam             -> Energy Bed, bus B
@@ -36,4 +39,8 @@ namespace DemoSounds
 
     /** All five, in the order they are loaded. */
     std::vector<Sound> all();
+
+    /** Makes the five and puts them in the processor's first empty tracks, as one undo step ("Load Demo Sounds").
+        Returns how many were loaded (0 when every track is in use). Message thread. */
+    int loadInto(SwooshbucklerAudioProcessor& processor);
 }

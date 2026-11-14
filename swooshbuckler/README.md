@@ -53,8 +53,6 @@ What's changed in each version is in the [changelog](CHANGELOG.md).
 
 ## Quick start
 
-No sounds to hand? Click **Load Demo Sounds** in the empty Tracks panel. It fills five tracks with a growl, a wind bed, air swishes, hits and a rumble, so you can press Play and hear the rig straight away. Switch [Stowaway](#stowaway) on and the rumble becomes the rig's sub.
-
 1. **Drop sounds into Tracks**, or click the drop zone to browse. Anything works: cloth, air, engines, animals, metal, voices. Each file gets its own looping track. Swooshbuckler finds the separate sounds in it, guesses what type of sound it is, and sends it to Bus A, Bus B, Stowaway or the Hits.
 2. **Press Play.** With **Auto Ride** on (it is by default), every track's fader moves by itself at its own speed. When the layers swell together you get a whoosh.
 3. **Shape it** with Energy, Rate and Chaos, or try a preset or **Randomise**.
@@ -136,7 +134,6 @@ This is where your sounds live: up to ten files, each on its own looping lane. F
 
 **Loading sounds**
 
-- **Load Demo Sounds**, the button in the empty drop zone, fills five tracks with sounds Swooshbuckler makes on the spot (nothing is read from disk): **Demo Growl**, a creature's voice in five phrases, on Bus A; **Demo Wind Bed**, eight seconds of gusting wind in stereo that loops without a seam, on Bus B; **Demo Swish**, six air swishes of different lengths, on Bus B; **Demo Hit**, a thump, a crack, a clang and a boom, on the Hits; and **Demo Rumble**, eight seconds of deep rumble that loops without a seam. The rumble is there for [Stowaway](#stowaway): it plays on Bus A while Stowaway is off, and the moment you switch Stowaway on it moves there and becomes the rig's sub. They are the same every time, they behave like any sound you load, and one Undo (Cmd+Z) takes all five out again. With fewer than five tracks free it loads as many as fit. Four lanes are in view at a time, so Demo Rumble is one scroll down the list.
 - Drag audio files onto the drop zone, or anywhere in the window, or click the drop zone to browse. You can pick several files at once.
 - Each file takes the next empty track. Drop a file onto a lane that already has a sound to replace it.
 - Swooshbuckler reads WAV, AIFF, FLAC, OGG and MP3, and on macOS also CAF and M4A.
@@ -384,7 +381,7 @@ One extra bus beside Bus A and Bus B, for a layer that should not fly about with
 | **Fly** | A third thing in the air, with doppler passes of its own. | Choose Stowaway on the track's bus tag. |
 | **Dry** | A layer that stays what it is: ridden, and nothing else. | Choose Stowaway on the track's bus tag. |
 
-To hear it straight away, click **Load Demo Sounds** and switch Stowaway on: **Demo Rumble** moves to it and becomes the sub. Five of the [factory presets](#presets-and-randomise) are built around it, one or two for each mode. How far each knob goes in each mode is measured in the [knob audit](docs/knob-audit.md#stowaway).
+To hear it straight away, load a low rumble and switch Stowaway on: it moves there and becomes the sub. Five of the [factory presets](#presets-and-randomise) are built around it, one or two for each mode. How far each knob goes in each mode is measured in the [knob audit](docs/knob-audit.md#stowaway).
 
 #### On / Off, and the plate
 
@@ -673,7 +670,7 @@ Click the **Swooshbuckler** title or the version number to open it. It shows the
 
 ## In a DAW
 
-- **Put it on an instrument track.** Swooshbuckler is an instrument (a generator): it makes sound from the tracks you load into it, not from the audio of the track it sits on. Use an instrument or software-instrument track (VST3 or AU), then open the window and drop your sounds in, or click Load Demo Sounds.
+- **Put it on an instrument track.** Swooshbuckler is an instrument (a generator): it makes sound from the tracks you load into it, not from the audio of the track it sits on. Use an instrument or software-instrument track (VST3 or AU), then open the window and drop your sounds in.
 - **Follow Host** (in the header, on by default) starts and stops the rig with the transport. Every start begins the ride from the same place, so a bounce of the same project is the same every time, including the modulators and the morph's Wander.
 - **The tail is bounced too.** Swooshbuckler tells the host its tail can last up to 6.5 seconds, so a bounce or a freeze that respects plug-in tails keeps the ring-out after the transport stops.
 - **Play is a parameter.** Automate it to start and stop the rig at exact places, with Follow Host on or off.
@@ -882,7 +879,7 @@ The version lives in one place, `SWOOSHBUCKLER_VERSION` in [CMakeLists.txt](CMak
 
 ### Looking at the interface
 
-`SwooshbucklerUiShot` draws the real window offline, with the demo sounds playing, and writes PNG files: the whole window, one picture per panel, and every panel and menu that opens over it. It also checks every text it draws: that it fits its box, is no smaller than the smallest size, sits on no other text and is capitalised by the one rule (Title Case for control names, sentence case for sentences, capitals only for single letters and acronyms). It exits with an error when a text fails, so run it after changing anything you can see. `SwooshbucklerUi`, one of the test programs, runs the same checks at three window sizes.
+`SwooshbucklerUiShot` draws the real window offline, with five sounds of its own playing (made in the tool, in [tools/DemoSounds.cpp](tools/DemoSounds.cpp); the app and plug-in have none of them), and writes PNG files: the whole window, one picture per panel, and every panel and menu that opens over it. It also checks every text it draws: that it fits its box, is no smaller than the smallest size, sits on no other text and is capitalised by the one rule (Title Case for control names, sentence case for sentences, capitals only for single letters and acronyms). It exits with an error when a text fails, so run it after changing anything you can see. `SwooshbucklerUi`, one of the test programs, runs the same checks at three window sizes.
 
 ```bash
 cmake -B build -DSWOOSHBUCKLER_TOOLS=ON
@@ -890,7 +887,7 @@ cmake --build build --target SwooshbucklerUiShot
 ./build/SwooshbucklerUiShot_artefacts/Release/SwooshbucklerUiShot --out ui-shots --scale 1.0 --list
 ```
 
-`--scale` takes 0.5 to 2.0, `--list` prints every text with its box and every panel with its bounds (a panel that runs into another, or out of the window, is a fault), `--sea` adds a picture of the sea at each of its moments and times a frame of it, and `--state` opens a session file instead of the demo sounds. The colours, spacing and type sizes all live in [Source/Theme.h](Source/Theme.h).
+`--scale` takes 0.5 to 2.0, `--list` prints every text with its box and every panel with its bounds (a panel that runs into another, or out of the window, is a fault), `--sea` adds a picture of the sea at each of its moments and times a frame of it, and `--state` opens a session file instead of the tool's own sounds. The colours, spacing and type sizes all live in [Source/Theme.h](Source/Theme.h).
 
 ### The pictures in this manual
 

@@ -46,6 +46,7 @@
 
 #include "UiRig.h"
 #include "UiProbe.h"
+#include "DemoSounds.h"
 
 #include <iostream>
 
@@ -150,7 +151,7 @@ namespace
             recordings.createDirectory();
             proc.setRecordFolder(recordings);
             proc.setVariationFolder({}); // Dated Folder: the default
-            proc.loadDemoSounds();
+            DemoSounds::loadInto(proc);
 
             Rig rig(proc, options.scale);
             Shots shots { rig, options };
@@ -405,7 +406,7 @@ int main(int argc, char* argv[])
             }
         }
         else
-            proc.loadDemoSounds();
+            DemoSounds::loadInto(proc);
 
         rig.open();
         auto& ed = *rig.editor;

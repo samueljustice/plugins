@@ -23,7 +23,6 @@
  *    inside to select; double-click a region to grab it.
  *  - Every edit joins the rig's one undo history (Cmd+Z and Shift+Cmd+Z,
  *    handled by the window). Space holds Swell; the other keys are the window's.
- *  - Empty, the drop zone offers Load Demo Sounds (five sounds made on the spot).
  *  - A right-click on a track's fader types a value or learns a MIDI controller
  *    for it (showControlMenu, which the Energy knob uses too).
  */
@@ -53,8 +52,6 @@ public:
     /** The menu of a control a MIDI controller can move (target: a track, or SwooshbucklerAudioProcessor::c_ccEnergy):
         Type a Value, Learn MIDI CC and Forget. What happens is said in the status line. */
     void showControlMenu(int target, ValueSlider& control);
-    /** Load Demo Sounds (the button in the empty drop zone). */
-    void loadDemo();
 
     /** An undo or redo has just run (from the header buttons or the keys): shows the track it brought back. */
     void historyStepped();
@@ -126,7 +123,6 @@ private:
     bool m_rumblesOnStowaway = false; // CargoHold::getRumbleToStowaway as the lanes last showed it
     bool m_stowawayOn = false;       // Stowaway's switch as the lanes' tags last showed it
     bool m_dragOver = false;
-    juce::TextButton m_demo { "Load Demo Sounds" };
     int m_learnWaiting = -1; // the target Learn MIDI CC is waiting for a controller on (-1 = none)
     std::unique_ptr<juce::FileChooser> m_chooser;
     juce::String m_status, m_takeNote;

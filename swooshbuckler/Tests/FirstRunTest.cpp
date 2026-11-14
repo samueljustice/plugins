@@ -214,7 +214,7 @@ int main(int argc, char* argv[])
         Rig rig;
         auto& hold = rig.proc.getCargo();
         check(rig.tracksLoaded() == 0 && ! rig.proc.getHistory().canUndo(), "load: the rig starts empty");
-        check(rig.proc.loadDemoSounds() == 5 && rig.tracksLoaded() == 5, "load: Load Demo Sounds fills five tracks");
+        check(DemoSounds::loadInto(rig.proc) == 5 && rig.tracksLoaded() == 5, "load: Load Demo Sounds fills five tracks");
         check(hold.getRole(0) == CargoRole::Tonal && hold.getRole(1) == CargoRole::Bed && hold.getRole(2) == CargoRole::Air && hold.getRole(3) == CargoRole::Impact,
               "load: the first four are typed Tonal Content, Energy Bed, Air / Swish and Impact");
         check(hold.getRole(4) == CargoRole::Rumble && hold.get(4) != nullptr && hold.get(4)->name == "Demo Rumble" && ! hold.get(4)->hasSide(),
@@ -269,8 +269,8 @@ int main(int argc, char* argv[])
         // With only two tracks free, two are loaded; with none, none.
         for (int t = 5; t < 8; ++t)
             hold.loadBuffer(t, DemoSounds::hit(), c_fs, "Filler");
-        check(rig.proc.loadDemoSounds() == 2 && rig.tracksLoaded() == 10, "load: with two tracks free, two demo sounds go in");
-        check(rig.proc.loadDemoSounds() == 0, "load: with every track in use, nothing is loaded and nothing is replaced");
+        check(DemoSounds::loadInto(rig.proc) == 2 && rig.tracksLoaded() == 10, "load: with two tracks free, two demo sounds go in");
+        check(DemoSounds::loadInto(rig.proc) == 0, "load: with every track in use, nothing is loaded and nothing is replaced");
     }
 
     // The rumble under the other four, with Stowaway off (it flies on bus A): it adds weight and does not take over.
@@ -278,7 +278,7 @@ int main(int argc, char* argv[])
         auto measure = [](bool withRumble, double& rmsDb, double& lowDb)
         {
             Rig rig;
-            rig.proc.loadDemoSounds();
+            DemoSounds::loadInto(rig.proc);
             if (! withRumble)
                 rig.proc.getCargo().clear(4);
             rig.proc.setPlaying(true);

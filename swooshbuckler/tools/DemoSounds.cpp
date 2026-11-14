@@ -1,5 +1,7 @@
 #include "DemoSounds.h"
 
+#include "PluginProcessor.h"
+
 #include <cmath>
 
 namespace
@@ -384,4 +386,23 @@ std::vector<DemoSounds::Sound> DemoSounds::all()
     sounds.push_back({ "Demo Hit", hit() });
     sounds.push_back({ "Demo Rumble", rumble() });
     return sounds;
+}
+
+int DemoSounds::loadInto(SwooshbucklerAudioProcessor& processor)
+{
+    auto& cargo = processor.getCargo();
+    if (cargo.firstEmptyTrack() < 0)
+        return 0;
+    // One undo step for all of them.
+    EditHistory::Group group(processor.getHistory(), "Load Demo Sounds");
+    int loaded = 0;
+    for (const auto& sound : all())
+    {
+        const int track = cargo.firstEmptyTrack();
+        if (track < 0)
+            break;
+        if (cargo.loadBuffer(track, sound.audio, c_sampleRate, sound.name))
+            ++loaded;
+    }
+    return loaded;
 }

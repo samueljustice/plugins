@@ -990,15 +990,6 @@ CargoHoldView::CargoHoldView(SwooshbucklerAudioProcessor& processor, const Theme
         m_lanes[static_cast<size_t>(t)]->refresh();
     }
 
-    // The empty state's way to hear the rig at once: five made-up sounds, one of each main kind.
-    m_demo.setColour(juce::TextButton::buttonOnColourId, TC::sources);
-    m_demo.setWantsKeyboardFocus(false);
-    m_demo.setTooltip("Load Demo Sounds\nFills five tracks with sounds made on the spot: a growl, a wind bed, air swishes, hits and "
-                      "a rumble, one for each part of the rig. Press Play (or Return) and you have a whoosh to shape. "
-                      "Undo takes them out again, and you can drop your own sounds in beside them or over them.");
-    m_demo.onClick = [this] { loadDemo(); };
-    addChildComponent(m_demo);
-
     m_viewport.setViewedComponent(&m_laneHolder, false);
     m_viewport.onMoved = [this] { if (onLanesMoved) onLanesMoved(); };
     m_viewport.setScrollBarsShown(true, false);
@@ -1094,9 +1085,9 @@ void CargoHoldView::paint(juce::Graphics& g)
                            m_dropZone.reduced(10, 0), m_fonts.body(), juce::Justification::centred, Theme::Fit::Sentence);
             return;
         }
-        // Empty: two lines a little above the middle, with Load Demo Sounds under them.
+        // Empty: two lines in the middle.
         g.setColour(m_dragOver ? TC::sources : TC::text);
-        const int middle = m_dropZone.getCentreY() - 22;
+        const int middle = m_dropZone.getCentreY();
         Theme::fitText(g, "Drop Sounds Here", juce::Rectangle<int>(m_dropZone.getX() + 8, middle - 18, m_dropZone.getWidth() - 16, 18),
                        m_fonts.title(), juce::Justification::centred);
         g.setColour(TC::textFaint);
@@ -1166,9 +1157,6 @@ void CargoHoldView::resized()
     {
         m_dropZone = {};
     }
-    // Load Demo Sounds: under the two lines of the empty drop zone.
-    m_demo.setVisible(visible.empty() && m_dropZone.getHeight() >= 110);
-    m_demo.setBounds(juce::Rectangle<int>(170, 26).withCentre({ m_dropZone.getCentreX(), m_dropZone.getCentreY() + 26 }));
     if (onLanesMoved)
         onLanesMoved(); // lanes appear, go and change size: their plugs move
 }
@@ -1372,20 +1360,6 @@ juce::String CargoHoldView::loadFiles(const juce::StringArray& files, int track)
     resized();
     updateButtons();
     return text.startsWith("!") ? text.substring(1) : text;
-}
-
-void CargoHoldView::loadDemo()
-{
-    const int loaded = m_processor.loadDemoSounds();
-    for (auto& lane : m_lanes)
-        lane->refresh();
-    for (auto& lane : m_lanes)
-        if (lane->hasData()) { m_active = lane->getTrack(); break; }
-    status(loaded > 0 ? "Demo sounds loaded. Press Play to hear them, and switch Stowaway on for a sub. Undo takes them out."
-                      : "!Every track is in use: remove one to make room for the demo sounds.");
-    resized();
-    updateButtons();
-    repaint();
 }
 
 void CargoHoldView::showControlMenu(int target, ValueSlider& control)

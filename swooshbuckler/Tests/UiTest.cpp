@@ -29,6 +29,7 @@
 
 #include "UiRig.h"
 #include "UiProbe.h"
+#include "DemoSounds.h"
 #include "Parameters.h"
 
 #include <cmath>
@@ -649,6 +650,24 @@ int main(int argc, char* argv[])
                       && SwooshLookAndFeel::getStyle(rig.editor->m_playButton) == SwooshLookAndFeel::ButtonStyle::Primary,
                   "header: Play is the one filled button, with its glyph");
 
+            // It starts empty: the drop zone is all there is, with no demo sounds offered anywhere on screen.
+            {
+                int demoMentions = 0;
+                std::function<void(juce::Component&)> walk = [&](juce::Component& c)
+                {
+                    juce::String text;
+                    if (auto* button = dynamic_cast<juce::Button*>(&c)) text << button->getButtonText();
+                    if (auto* tip = dynamic_cast<juce::SettableTooltipClient*>(&c)) text << " " << tip->getTooltip();
+                    if (text.containsIgnoreCase("demo"))
+                        ++demoMentions;
+                    for (auto* child : c.getChildren())
+                        walk(*child);
+                };
+                walk(*rig.editor);
+                check(demoMentions == 0 && proc.getCargo().firstEmptyTrack() == 0,
+                      "first run: it starts empty, and nothing on screen offers demo sounds (" + juce::String(demoMentions) + " found)");
+            }
+
             // The window that asks for a preset's name is a plate like the rest: square, filled to its corners
             // (its window is opaque), with a bolt in each corner.
             {
@@ -672,7 +691,7 @@ int main(int argc, char* argv[])
             }
         }
 
-        proc.loadDemoSounds();
+        DemoSounds::loadInto(proc);
         for (const float scale : { 0.6f, 1.0f, 1.5f })
         {
             Rig rig(proc, scale);
@@ -1337,7 +1356,7 @@ int main(int argc, char* argv[])
         using E = Editor;
         auto base = makeProcessor();
         auto& proc = *dynamic_cast<Proc*>(base.get());
-        proc.loadDemoSounds();
+        DemoSounds::loadInto(proc);
         Rig rig(proc, 1.0f);
         rig.open();
         auto& ed = *rig.editor;
@@ -1598,7 +1617,7 @@ int main(int argc, char* argv[])
     {
         auto base = makeProcessor();
         auto& proc = *dynamic_cast<Proc*>(base.get());
-        proc.loadDemoSounds();
+        DemoSounds::loadInto(proc);
         Rig rig(proc, 1.0f);
         rig.open();
         auto& ed = *rig.editor;

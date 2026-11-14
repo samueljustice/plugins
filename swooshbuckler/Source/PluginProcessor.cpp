@@ -1,6 +1,5 @@
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
-#include "DemoSounds.h"
 #include "VariationRenderer.h"
 #include "Version.h"
 
@@ -1130,25 +1129,6 @@ bool SwooshbucklerAudioProcessor::saveUserPreset(const juce::String& name, bool 
     written = file;
     currentPresetName = legal;
     return true;
-}
-
-//==============================================================================
-int SwooshbucklerAudioProcessor::loadDemoSounds()
-{
-    if (m_cargo.firstEmptyTrack() < 0)
-        return 0;
-    // One undo step for all of them.
-    EditHistory::Group group(*m_history, "Load Demo Sounds");
-    int loaded = 0;
-    for (const auto& sound : DemoSounds::all())
-    {
-        const int track = m_cargo.firstEmptyTrack();
-        if (track < 0)
-            break;
-        if (m_cargo.loadBuffer(track, sound.audio, DemoSounds::c_sampleRate, sound.name))
-            ++loaded;
-    }
-    return loaded;
 }
 
 //==============================================================================

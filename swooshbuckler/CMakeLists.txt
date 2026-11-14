@@ -100,7 +100,6 @@ target_sources(Swooshbuckler
     Source/VariationRenderer.cpp
     Source/VariationsView.cpp
     Source/UserPresets.cpp
-    Source/DemoSounds.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/../common/SammyJUpdateCheck.cpp
 )
 
@@ -247,8 +246,8 @@ if(SWOOSHBUCKLER_TESTS)
     # First-run test: the demo sounds (typed right from their audio, one undo step, Play makes sound), typed
     # values against every knob's readout, MIDI controllers learned and kept, and file names cut in the middle.
     juce_add_console_app(SwooshbucklerFirstRun PRODUCT_NAME "SwooshbucklerFirstRun")
-    target_sources(SwooshbucklerFirstRun PRIVATE Tests/FirstRunTest.cpp)
-    target_include_directories(SwooshbucklerFirstRun PRIVATE Source ${CMAKE_CURRENT_BINARY_DIR}/Swooshbuckler_artefacts/JuceLibraryCode $<TARGET_PROPERTY:Swooshbuckler,INCLUDE_DIRECTORIES>)
+    target_sources(SwooshbucklerFirstRun PRIVATE Tests/FirstRunTest.cpp tools/DemoSounds.cpp) # the demo sounds are only in the tools and tests
+    target_include_directories(SwooshbucklerFirstRun PRIVATE Source tools ${CMAKE_CURRENT_BINARY_DIR}/Swooshbuckler_artefacts/JuceLibraryCode $<TARGET_PROPERTY:Swooshbuckler,INCLUDE_DIRECTORIES>)
     target_compile_definitions(SwooshbucklerFirstRun PRIVATE $<TARGET_PROPERTY:Swooshbuckler,COMPILE_DEFINITIONS>)
     target_link_libraries(SwooshbucklerFirstRun PRIVATE Swooshbuckler)
 
@@ -257,7 +256,7 @@ if(SWOOSHBUCKLER_TESTS)
     # three window scales and in each of its states, with every text checked: it fits its box, is big enough,
     # sits on no other text and follows the rule. The checker is tools/UiProbe.h, shared with SwooshbucklerUiShot.
     juce_add_console_app(SwooshbucklerUi PRODUCT_NAME "SwooshbucklerUi")
-    target_sources(SwooshbucklerUi PRIVATE Tests/UiTest.cpp)
+    target_sources(SwooshbucklerUi PRIVATE Tests/UiTest.cpp tools/DemoSounds.cpp) # the demo sounds are only in the tools and tests
     target_include_directories(SwooshbucklerUi PRIVATE Source tools ${CMAKE_CURRENT_SOURCE_DIR}/../common ${CMAKE_CURRENT_BINARY_DIR}/Swooshbuckler_artefacts/JuceLibraryCode $<TARGET_PROPERTY:Swooshbuckler,INCLUDE_DIRECTORIES>)
     target_compile_definitions(SwooshbucklerUi PRIVATE $<TARGET_PROPERTY:Swooshbuckler,COMPILE_DEFINITIONS>
         SWOOSH_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/Source") # the hard-edge check reads the sources
@@ -286,7 +285,7 @@ if(SWOOSHBUCKLER_TOOLS)
     # state, and checks that every text fits its box and is capitalised by the one rule (tools/UiShot.cpp,
     # tools/UiProbe.h). Exits non-zero when a text does not fit.
     juce_add_console_app(SwooshbucklerUiShot PRODUCT_NAME "SwooshbucklerUiShot")
-    target_sources(SwooshbucklerUiShot PRIVATE tools/UiShot.cpp)
+    target_sources(SwooshbucklerUiShot PRIVATE tools/UiShot.cpp tools/DemoSounds.cpp) # the demo sounds are only in the tools and tests
     target_include_directories(SwooshbucklerUiShot PRIVATE Source tools ${CMAKE_CURRENT_SOURCE_DIR}/../common ${CMAKE_CURRENT_BINARY_DIR}/Swooshbuckler_artefacts/JuceLibraryCode $<TARGET_PROPERTY:Swooshbuckler,INCLUDE_DIRECTORIES>)
     target_compile_definitions(SwooshbucklerUiShot PRIVATE $<TARGET_PROPERTY:Swooshbuckler,COMPILE_DEFINITIONS>)
     target_link_libraries(SwooshbucklerUiShot PRIVATE Swooshbuckler)
