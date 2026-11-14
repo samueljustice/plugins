@@ -354,7 +354,7 @@ When Clip already removes the overload, the limiter idles and Attack, Release an
 | 13 | Overtone Lean/Replace at low Amount acted as a plain high-pass | The cut follows Amount |
 | 14 | Clip Shape did nothing below 1 − 2·cap | New knee mapping |
 | 15 | With Auto on, Release below about 12 ms was identical | Piecewise-log fast stage |
-| 16 | DC after the asymmetric clipper: −39.6 dBFS mean at Push 24 on a heavy preset | 10 Hz DC blockers on the limiter's gain reduction and on the clipper's residual |
+| 16 | DC after the asymmetric clipper: −39.6 dBFS mean at Push 24 on a heavy preset | 2.5 Hz DC blockers on the limiter's gain reduction and on the clipper's residual |
 | 17 | Ceiling also acted as a drive control | Push relative to the ceiling |
 | 18 | The dry signal in Mix was not level-matched, and 0–20 % dipped in loudness | Matched, equal-power mix |
 | 19 | Square ring carrier: +6–7 dB of fizz above 8 kHz | Band-limited at 10 kHz |
@@ -413,7 +413,7 @@ Parameter IDs, order and kinds do not change. "u" is the knob value as 0–1.
 | Attack | 0.05–10 ms, power skew | 0.2–10 ms, log taper | Dead bottom |
 | Release | Power skew; Auto fast stage = R/4, at least 3 ms | Log taper; Auto fast stage piecewise-log, 3–250 ms | Dead bottom; dead with Auto on |
 | Mix | Raw dry, linear crossfade | Level-matched dry, equal-power crossfade | Loudness dip, flamming |
-| Output | No DC removal after the clipper | 10 Hz DC blockers on the gain reductions and the clipper residual | DC offset at extreme Push |
+| Output | No DC removal after the clipper | 2.5 Hz DC blockers on the gain reductions and the clipper residual | DC offset at extreme Push |
 
 ### Factory presets
 
@@ -540,7 +540,7 @@ Where the build differs from the plan above, or fills in a detail, it does so fo
 - **Rattle.** The R − 12 dB threshold drives only Rattle's rate push. The +30 % envelope depth push keeps R + 6, so no other shape changes.
 - **Grind.** At +12 dB, Grind's curve flattened the open part of the cycle, and its tremolo read 27 % shallower than Warm's. Grind's depth is now scaled by 1.2. The 27 Hz modulation peak then sits at 0.90 / 1.04 / 1.09 × Warm's at Depth 25 / 50 / 80 %.
 - **Detail's gate guard.** When CLEAN runs before DETAIL, DETAIL reads CLEAN's gate gain sample by sample. Between −1 and −5 dB of gate reduction, it removes the net boost. Since it works per sample, it does not depend on the host's block size.
-- **DC.** The DC came mostly from the limiter's gain following an asymmetric wave, not only from the clipper. So the limiter's reduction, (g − 1)·x, and the clipper's residual each go through a 10 Hz one-pole high-pass. Material the output stage leaves alone still passes bit-exactly, so the null and latency tests are unchanged. The safety stage stays unfiltered: filtering it let peaks through to the final clamp. Smashed at Push 24 measures a mean of −0.00016 on the real recording and −0.00003 on the reference take. In 1.0.0 these were −0.0088 and −0.0039. On the test suite's synthetic voice it is 0.0005, where the plan asked for 0.0001. The test allows 0.001.
+- **DC.** The DC came mostly from the limiter's gain following an asymmetric wave, not only from the clipper. So the limiter's reduction, (g − 1)·x, and the clipper's residual each go through a 2.5 Hz one-pole high-pass. The corner sits that low because at 10 Hz the high-pass turned the reduction's phase by 11 degrees at 50 Hz, so the sum overshot and the safety stage rode the bass waveform; at 2.5 Hz a 50 Hz tone at Push 12 has −56 dB of distortion (−34 dB at 10 Hz), and the safety stage works about a fifth as often on a voice with a sub. Material the output stage leaves alone still passes bit-exactly, so the null and latency tests are unchanged. The safety stage stays unfiltered: filtering it let peaks through to the final clamp. Smashed at Push 24 measures a mean of −0.00016 on the real recording and −0.00003 on the reference take. In 1.0.0 these were −0.0088 and −0.0039. On the test suite's synthetic voice it is 0.0005, where the plan asked for 0.0001. The test allows 0.001.
 - **Mix.** The dry is multiplied by the same Push gain as the wet, and the blend is cos/sin. At Mix 100 % the wet passes exactly as before.
 - **ROAR makeup.** The table was recalibrated so that every (Drive, Tone) knob position keeps the loudness the 1.0.0 table gave it. It was measured with the previous and the new laws on the reference take and on voice-shaped pink noise. Above 50 % Drive the new table adds up to 6.4 dB, which absorbs the steeper drive.
 - **Ring Freq centre.** The log taper's mid point is √(20 × 4000) = 283 Hz. 150 Hz sits at 38 % of the travel.

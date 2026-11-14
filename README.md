@@ -221,7 +221,7 @@ Roarschach is a modular voice processor built for exploration and fun. Fifteen m
 </details>
 
 **VST3** (macOS, Windows) · **AU** (macOS) &nbsp;&nbsp;
-[![Download Roarschach](https://img.shields.io/badge/download-v1.1.0-d00a35?style=flat-square)](https://github.com/samueljustice/plugins/releases/tag/roarschach-v1.1.0) &nbsp;
+[![Download Roarschach](https://img.shields.io/badge/download-v1.2.0-d00a35?style=flat-square)](https://github.com/samueljustice/plugins/releases/tag/roarschach-v1.2.0) &nbsp;
 [Read the manual →](roarschach/README.md)
 
 ---
