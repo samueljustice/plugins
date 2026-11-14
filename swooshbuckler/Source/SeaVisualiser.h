@@ -88,6 +88,7 @@ private:
     juce::Point<float> project(P3 p) const;
     void buildSky(float pixelScale);
     void buildConstellation();
+    void buildConstellationHaze(float pixelScale);
     void paintWater(juce::Graphics&, float h);
     void paintComets(juce::Graphics&, float w);
     void paintStowaway(juce::Graphics&, float h);
@@ -133,8 +134,10 @@ private:
     struct Star { float x, y, size, phase; };
     std::vector<Star> m_stars;    // the twinkling few; the rest are in the sky image
 
-    // The mark in the stars: brighter stars on the logo's silhouette, joined by faint lines.
-    struct ConstellationStar { juce::Point<float> at; float size, phase; bool cherry; };
+    // The mark in the stars: brighter stars on the logo's corners, joined by faint lines, over the faintest glow of
+    // the grenade and the cherry themselves (like the haze a nebula leaves between the stars).
+    struct ConstellationStar { juce::Point<float> at; float size, phase, weight; bool cherry; };
+    juce::Image m_constellationHaze;                         // made with the sky, at the sky's scale
     std::vector<ConstellationStar> m_constellation;          // normalised, centred, y-up
     std::vector<std::pair<int, int>> m_constellationLines;
     juce::Rectangle<float> m_constellationBounds;            // of the stars, in the same coordinates

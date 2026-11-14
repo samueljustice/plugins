@@ -16,6 +16,9 @@ namespace
     const juce::Colour c_hollow    { 0xff071820 };  // the water between two rows
     const juce::Colour c_moonlight { 0xfff3e3c0 };
 
+    constexpr float c_glowGrenade = 0.085f, c_glowCherry = 0.12f;  // how much of the mark's own shapes shows behind its stars
+    constexpr float c_hazeMargin = 2.0f;
+
     /** The water at a distance: 1 at the camera, 0 at the horizon. */
     juce::Colour waterColour(float nearness, float height)
     {
@@ -324,20 +327,41 @@ void SeaVisualiser::buildConstellation()
     if (m_logo == nullptr || ! m_logo->isLoaded())
         return;
 
-    // The mark as stars: its silhouette (the grenade's body, cap and lever, the pull ring, the cherry and the two
-    // stems), with a star on every corner and a few round every curve. The sharper the corner, the bigger the star.
-    // Worked out once for the whole program (it takes a few hundredths of a second, and the mark never changes).
-    static const LogoConstellation mark = LogoConstellation::build(*m_logo);
+    // The mark as stars: a few heavy ones on the corners the shape hangs on, light ones to carry the curves round.
+    const auto mark = LogoConstellation::build(*m_logo);
     juce::Random r(1337);
     juce::Point<float> low { 1.0e6f, 1.0e6f }, high { -1.0e6f, -1.0e6f };
     for (const auto& s : mark.stars)
     {
-        m_constellation.push_back({ s.at, 1.3f + 1.3f * s.weight + 0.35f * r.nextFloat(), r.nextFloat() * 6.28f, s.cherry });
+        m_constellation.push_back({ s.at, 1.15f + 1.9f * s.weight + 0.2f * r.nextFloat(), r.nextFloat() * 6.28f, s.weight, s.cherry });
         low = { juce::jmin(low.x, s.at.x), juce::jmin(low.y, s.at.y) };
         high = { juce::jmax(high.x, s.at.x), juce::jmax(high.y, s.at.y) };
     }
     m_constellationBounds = m_constellation.empty() ? juce::Rectangle<float>() : juce::Rectangle<float>(low, high);
     m_constellationLines = mark.lines;
+}
+
+void SeaVisualiser::buildConstellationHaze(float pixelScale)
+{
+    m_constellationHaze = juce::Image();
+    if (m_constellation.empty() || m_logo == nullptr)
+        return;
+
+    const auto area = constellationArea().expanded(c_hazeMargin);
+    const float unit = (area.getWidth() - 2.0f * c_hazeMargin) / juce::jmax(0.1f, m_constellationBounds.getWidth());
+    const auto middle = m_constellationBounds.getCentre();
+    m_constellationHaze = juce::Image(juce::Image::ARGB, juce::jmax(1, juce::roundToInt(area.getWidth() * pixelScale)),
+                                      juce::jmax(1, juce::roundToInt(area.getHeight() * pixelScale)), true);
+    juce::Graphics g(m_constellationHaze);
+    const auto toImage = juce::AffineTransform::translation(-middle.x, -middle.y).scaled(unit, -unit)
+                             .translated(0.5f * area.getWidth(), 0.5f * area.getHeight()).scaled(pixelScale);
+    const juce::Colour glows[2] = { juce::Colour(0xffa9c6dc), juce::Colour(0xffe8455c) };   // the grenade, the cherry
+    const float glowAlpha[2] = { c_glowGrenade, c_glowCherry };
+    for (int k = 0; k < 2; ++k)
+    {
+        g.setColour(glows[k].withAlpha(glowAlpha[k]));
+        g.fillPath(m_logo->createOutlinePath(k == 1), toImage);
+    }
 }
 
 juce::Rectangle<float> SeaVisualiser::clearOf(juce::Rectangle<float> area, const juce::Rectangle<float>* keepOut, int numKeepOut,
@@ -370,7 +394,7 @@ juce::Rectangle<float> SeaVisualiser::constellationArea() const
     // Taken from the sea's shape, not from the last frame, so it can be asked for before anything is painted.
     // It is as tall as the sky lets it be: the mark has to be big enough to be known for what it is.
     const float horizon = static_cast<float>(getHeight()) * 0.30f;
-    const float top = c_frame + 4.0f, bottom = horizon - 5.0f;   // under the frame, over the water
+    const float top = c_frame + 4.0f, bottom = horizon - 7.0f;   // under the frame, over the water
     const float shapeW = juce::jmax(0.1f, m_constellationBounds.getWidth()), shapeH = juce::jmax(0.1f, m_constellationBounds.getHeight());
     const float unit = juce::jmax(40.0f, juce::jmin((bottom - top) / shapeH, static_cast<float>(getWidth()) * 0.28f / shapeW));
     return juce::Rectangle<float>(unit * shapeW, unit * shapeH)
@@ -390,23 +414,34 @@ void SeaVisualiser::paintConstellation(juce::Graphics& g, float w)
 
     const float alpha = juce::jlimit(0.0f, 1.0f, m_constellationOpacity);
     const float t = m_constellationTime;
-    const juce::Colour colours[2] = { c_moonlight, c_moonlight.interpolatedWith(juce::Colour(0xffff8f7a), 0.42f) }; // the cherry: a little warm
+    // The grenade is cold starlight, the cherry is rosy: the two colours of the mark, as far as a night sky has them.
+    const juce::Colour colours[2] = { juce::Colour(0xffdbe9f6), juce::Colour(0xffff8a86) };
+
+    // The haze first: the two shapes themselves, barely there, so the stars read as a grenade and a cherry and
+    // not as rings of wire. It is a picture made when the sky is (filling the shapes every frame would cost).
+    if (m_constellationHaze.isValid())
+    {
+        g.setOpacity(alpha);
+        g.drawImage(m_constellationHaze, area.expanded(c_hazeMargin));
+    }
 
     for (const auto& line : m_constellationLines)
     {
         const auto& from = m_constellation[static_cast<size_t>(line.first)];
         const auto& to = m_constellation[static_cast<size_t>(line.second)];
-        g.setColour(colours[from.cherry && to.cherry ? 1 : 0].withAlpha(0.21f * alpha));
-        g.drawLine({ place(from.at), place(to.at) }, 0.8f);
+        const bool faint = from.weight <= 0.0f || to.weight <= 0.0f;   // the ring is fine wire
+        g.setColour(colours[from.cherry && to.cherry ? 1 : 0].withAlpha((faint ? 0.20f : 0.30f) * alpha));
+        g.drawLine({ place(from.at), place(to.at) }, faint ? 0.7f : 0.9f);
     }
     for (const auto& s : m_constellation)
     {
         const float twinkle = 0.55f + 0.45f * std::sin(t * 2.1f + s.phase);
         const auto p = place(s.at);
         const auto colour = colours[s.cherry ? 1 : 0];
-        g.setColour(colour.withAlpha(0.20f * alpha * twinkle));
+        const float lit = 0.6f + 0.4f * s.weight;
+        g.setColour(colour.withAlpha(0.22f * alpha * twinkle * lit));
         g.fillEllipse(juce::Rectangle<float>(s.size * 3.0f, s.size * 3.0f).withCentre(p));
-        g.setColour(colour.withAlpha(juce::jmin(1.0f, 0.55f + 0.35f * twinkle) * alpha));
+        g.setColour(colour.withAlpha(juce::jmin(1.0f, 0.55f + 0.35f * twinkle) * alpha * lit));
         g.fillEllipse(juce::Rectangle<float>(s.size, s.size).withCentre(p));
     }
 }
@@ -414,6 +449,8 @@ void SeaVisualiser::paintConstellation(juce::Graphics& g, float w)
 //==============================================================================
 void SeaVisualiser::buildSky(float pixelScale)
 {
+    buildConstellationHaze(pixelScale);
+
     const auto bounds = getLocalBounds().toFloat();
     const int iw = juce::jmax(1, juce::roundToInt(bounds.getWidth() * pixelScale));
     const int ih = juce::jmax(1, juce::roundToInt(bounds.getHeight() * pixelScale));

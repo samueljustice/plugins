@@ -1698,16 +1698,25 @@ int main(int argc, char* argv[])
                       + juce::String(SeaVisualiser::c_cometGroups) + ", so a thrown whoosh cannot label past the end)");
         }
 
-        // The mark in the stars: stars on the logo's silhouette, joined by lines. On its outer edges they sit on the
-        // outline itself; on the ring, the stems and the lever's tail they run down the middle, half a line's width off it.
+        // The mark in the stars: a few dozen stars on the logo's corners and round its curves, joined by lines. They sit
+        // on the artwork (on the ring and the stems they run down the middle, half a line's width off the outline).
+        // Few enough to be a constellation and not a dotted drawing, and a handful of them heavy: the corners the
+        // shape hangs on.
         {
             const auto outline = sea.m_logo->createOutlinePath();
             float furthest = 0.0f;
+            int heavy = 0, light = 0, furthestStar = -1;
             for (const auto& s : sea.m_constellation)
             {
                 juce::Point<float> on;
                 outline.getNearestPoint(s.at, on);
-                furthest = juce::jmax(furthest, on.getDistanceFrom(s.at));
+                if (on.getDistanceFrom(s.at) > furthest)
+                {
+                    furthest = on.getDistanceFrom(s.at);
+                    furthestStar = (int) (&s - sea.m_constellation.data());
+                }
+                heavy += s.weight >= 0.6f ? 1 : 0;
+                light += s.weight <= 0.3f ? 1 : 0;
             }
             std::set<int> joined;
             for (const auto& line : sea.m_constellationLines)
@@ -1716,10 +1725,11 @@ int main(int argc, char* argv[])
                 joined.insert(line.second);
             }
             const int stars = (int) sea.m_constellation.size();
-            check(stars >= 45 && stars <= 90 && (int) sea.m_constellationLines.size() >= stars - 6
-                      && (int) joined.size() == stars && furthest < 0.02f,
-                  "sea: the constellation is " + juce::String(stars) + " stars on the mark (the furthest "
-                      + juce::String(furthest, 4) + " of a unit off its outline), every one joined by a line");
+            check(stars >= 28 && stars <= 45 && (int) sea.m_constellationLines.size() >= stars
+                      && (int) joined.size() == stars && furthest < 0.012f && heavy >= 5 && heavy <= 10 && light * 2 >= stars,
+                  "sea: the constellation is " + juce::String(stars) + " stars on the mark (the furthest, star "
+                      + juce::String(furthestStar) + ", " + juce::String(furthest, 4) + " of a unit off its outline), every one joined by a line; "
+                      + juce::String(heavy) + " are heavy and " + juce::String(light) + " light");
         }
 
         // It is the whole mark, not a corner of it: the stars reach to every side of the logo, the cherry is drawn all

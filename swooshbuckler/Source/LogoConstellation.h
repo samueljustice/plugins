@@ -8,25 +8,24 @@
 #include <vector>
 
 /**
- * The logo as a constellation: a few dozen stars on the shapes that make the mark what it is, joined by lines.
+ * The logo as a constellation: three dozen stars on the corners that make the mark what it is, joined by lines.
  *
- * The logo's outline has a contour for every fill and every gap in the artwork, which is far too much for a
- * handful of stars to say. What a person recognises is the silhouette, so that is what is traced here:
- *  - the cherry's whole outline (it hangs in front of the grenade);
- *  - the pull ring, as a clean circle;
- *  - the grenade's outer edge (the round body, the cap and the lever), wherever the cherry and the ring do not
- *    cover it;
- *  - the two stems and the lever's tail, each down its middle, as single lines.
- * Stars sit on the corners and are spaced around the curves; the sharper the corner, the heavier the star.
- *
- * Built once (it rasterises the mark into a small mask and traces that); drawing only reads the result.
+ * A constellation is a few stars and long straight lines, so the stars are placed by hand, on the artwork, where
+ * a person drawing the mark from memory would put them:
+ *  - the cherry, all the way round (it hangs in front of the grenade), with the notch its stem sits in;
+ *  - the grenade's cap as the angular block it is, with the lever running from it down the left to its tip;
+ *  - the pull ring, a small circle of faint stars hanging on the lever;
+ *  - the round body, from the ring round the bottom to where the cherry hides it;
+ *  - the two stems, parting from one bright star at the top.
+ * The stars that hold the shape (the top, the cap's corners, the lever's tip, the bottom of the body, the cherry's
+ * notch) are heavy; the ones that only carry a curve round are light.
  */
 struct LogoConstellation
 {
     struct Star
     {
         juce::Point<float> at;   // normalised, centred, y-up (the logo's longer side is 1)
-        float weight = 0.0f;     // 0 on a gentle curve, 1 on a sharp corner or at the end of a line
+        float weight = 0.0f;     // 0 for a star that only carries a curve round, 1 for one the shape hangs on
         bool cherry = false;
     };
 
