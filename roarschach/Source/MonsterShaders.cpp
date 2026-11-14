@@ -1047,10 +1047,14 @@ void main()
     float up = (1.0 - smoothstep (-0.75 + 0.85 * ragB + 0.5 * (fray - 0.5), -0.05 + 0.85 * ragB + 0.5 * (fray - 0.5), riftAt.y)) * smoothstep (-1.0, -0.80, riftAt.y);
     // (a small tear holds an ember, not a lamp)
     float tearSize = smoothstep (0.035, 0.11, 0.005 + open * (0.80 + 0.45 * uInkF.y));
-    float glow = breathAmt * across * up * (0.60 + 0.40 * ragA) * (0.25 + 0.75 * tearSize);
+    float glow = breathAmt * across * up * (0.60 + 0.40 * ragA) * (0.45 + 0.55 * tearSize);
     // (and where it thins, it thins in shreds of its own, so its bound is frayed all round, the top
     // included; inside it stays whole)
-    glow *= mix (0.15 + 1.2 * fray, 1.0, smoothstep (0.35, 0.75, across * up));
+    float core = smoothstep (0.35, 0.75, across * up);
+    glow *= mix (0.15 + 1.2 * fray, 1.0, core);
+    // (its middle whole and bright wherever the breath is: a product of several shares, each under
+    // one, left a lit tear a dull patch darker than the cloud round the blot, easy to miss)
+    glow = max (glow, 0.85 * min (1.0, 1.4 * breathAmt) * core);
     // (and no second light above it: a lit plume over a lit tear, whatever its shape, was a mark
     // above a mark on the fold, a brow over a mouth or a skull's two hollows over its nose)
     // (what shows through the tear is the cloud deep behind the body, in its shade: unlit, a tear
@@ -1058,12 +1062,13 @@ void main()
     // shape of its own on the fold, with a mirrored outline: a bridge, a blade, a small figure.)
     // (never one flat tone: its dim banks drift with the breath)
     col *= 1.0 - min (1.0, 1.6 * hole) * (0.95 - 0.07 * smoothstep (0.38, 0.70, 0.55 * sv (ga) + 0.45 * sv (gn) + 0.2 * (rnv - 0.5)));
-    // (lit vapour, warm and dim at its edges: never a white lamp)
+    // (lit vapour, warm and dim at its edges, its core as bright as the cloud or a little brighter:
+    // never a white lamp)
     // (warm in every mood: breath lit pale as the cloud is a bone-white mark on the dark)
     // (laid over everything else at the end, the cloud in front excepted: drawn here, under the
     // pigment, the folded smoke, the echoes and the haze over the tear still marked it, and the
     // light stood parted by a mirrored V, slats and a bridge)
-    vec3 glowCol = mix (light, vec3 (1.0), 0.3) * mix (vec3 (1.0), accent, 0.80 + 0.15 * (1.0 - glow)) * (0.46 + 0.34 * glow);
+    vec3 glowCol = mix (light, vec3 (1.0), 0.3) * mix (vec3 (1.0), accent, 0.80 + 0.15 * (1.0 - glow)) * (0.60 + 0.55 * glow);
     // (only in the tear as it is cut: where the ink round it is too thin for a tear, the light
     // showed through the thin rim alone, a lit hood round a dark face)
     float glowK = clamp (glow, 0.0, 1.0) * hole;
