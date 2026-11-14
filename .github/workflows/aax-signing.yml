@@ -24,6 +24,7 @@ on:
       - Build and Release Pitch Flattener
       - Build and Release Reversinator
       - Build and Release Roarschach
+      - Build and Release Tonal Recall
     types: [completed]
   workflow_dispatch:
     inputs:
