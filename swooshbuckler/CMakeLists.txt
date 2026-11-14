@@ -79,6 +79,7 @@ set(SWOOSHBUCKLER_DSP_SOURCES
     Source/Modulators.cpp
     Source/PitchShifter.cpp
     Source/SpaceReverb.cpp
+    Source/Room.cpp
 )
 
 target_sources(Swooshbuckler
@@ -242,6 +243,16 @@ if(SWOOSHBUCKLER_TESTS)
     target_include_directories(SwooshbucklerStowaway PRIVATE Source ${CMAKE_CURRENT_BINARY_DIR}/Swooshbuckler_artefacts/JuceLibraryCode $<TARGET_PROPERTY:Swooshbuckler,INCLUDE_DIRECTORIES>)
     target_compile_definitions(SwooshbucklerStowaway PRIVATE $<TARGET_PROPERTY:Swooshbuckler,COMPILE_DEFINITIONS>)
     target_link_libraries(SwooshbucklerStowaway PRIVATE Swooshbuckler)
+
+    # Room test: the maths of surround output with no engine. The seven widths against JUCE's channel sets, the
+    # panner (constant power, a sound at a speaker plays from it alone, no gain jumps along any flight path), the
+    # four flight paths, the fold-down matrices and what they do to the level, and every file channel order,
+    # speaker mask and Multi-Mono suffix.
+    juce_add_console_app(SwooshbucklerRoom PRODUCT_NAME "SwooshbucklerRoom")
+    target_sources(SwooshbucklerRoom PRIVATE Tests/RoomTest.cpp)
+    target_include_directories(SwooshbucklerRoom PRIVATE Source ${CMAKE_CURRENT_BINARY_DIR}/Swooshbuckler_artefacts/JuceLibraryCode $<TARGET_PROPERTY:Swooshbuckler,INCLUDE_DIRECTORIES>)
+    target_compile_definitions(SwooshbucklerRoom PRIVATE $<TARGET_PROPERTY:Swooshbuckler,COMPILE_DEFINITIONS>)
+    target_link_libraries(SwooshbucklerRoom PRIVATE Swooshbuckler)
 
     # First-run test: the demo sounds (typed right from their audio, one undo step, Play makes sound), typed
     # values against every knob's readout, MIDI controllers learned and kept, and file names cut in the middle.
