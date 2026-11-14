@@ -53,6 +53,25 @@ public:
     void setParameters(const Parameters& p);            // called once per block from the audio thread
     void process(float* const* channels, int numChannels, int numSamples); // in place, any block size
 
+    /** SIDES: for a room of speakers. Without them (the default after prepare(): Mono, Stereo, the LFE) every
+        channel is shaped by its own level and the limiter reads each channel's own peak.
+
+        In a room one sound is shared between several speakers, so each speaker carries less of it than a Stereo
+        channel would, and a shaper or limiter that looked at each speaker alone would do less the more speakers
+        the sound is spread over. With sides, the speakers of each side of the room are treated as the ONE Stereo
+        channel they stand in for: the level that drives the Inflate curve, and the peak the limiter reads, are the
+        side's speakers summed by power, sample by sample (for one sound shared between them that is exactly the
+        sound's own waveform, whatever the number of speakers), and every speaker of the side takes the gain that
+        level gives. So a pass gets the Inflate, the Push and the limiting it would get in Stereo, at every width
+        and Spread. A centre speaker (side 0) counts half to each side, as a centre folds into L and R, and takes
+        the mean of the two sides' shaping; the limiter also reads its own peak. Each channel's peak is never
+        above its side's, so the Ceiling holds on every channel.
+
+        side[c]: below 0 left, above 0 right, 0 centre; numChannels of them (channels past that are left). Pass
+        nullptr to go back to every channel on its own. Allocation-free; not while process() runs. */
+    void setSides(const float* side, int numChannels);
+    bool hasSides() const { return m_sided; }
+
     /** Constant after prepare(); independent of every parameter. */
     int getLatencySamples() const { return m_latency; }
 
@@ -67,6 +86,9 @@ public:
         three points between x[n] and x[n+1]. `window` holds c_detectorTaps samples, x[n - c_detectorTaps/2 + 1]
         first (tests). */
     static float detectPeak(const float* window);
+    /** The same four readings one by one, signed: x[n] and the three points after it (detectPeak is the largest
+        of their sizes). */
+    static void detectPoints(const float* window, float points[4]);
     static constexpr int c_detectorTaps = 48;       // samples each in-between point is read from
 
     /** How often the final safety clamp has had to act since reset() (diagnostics; expected to stay 0). */
@@ -142,6 +164,8 @@ private:
         float history[2 * c_detectorTaps] {}; // the detector's last samples, written twice so a window is contiguous
         float dcIn = 0.0f;        // AC coupling of the even (asymmetric) part
         float dcOut = 0.0f;
+        float left = 0.0f;        // with sides: how much of this channel counts to the left side and the right
+        float right = 0.0f;       // (1 and 0, 0 and 1, or a half each for a centre)
     };
 
     void updateReleaseCoefficients();
@@ -150,6 +174,9 @@ private:
     void pushAndDetect(float* data, Channel& channel, int numFrames);
     void computeGain(int numFrames);
     void applyGain(float* data, Channel& channel, int numFrames, int delayPosition);
+    void inflateSides(float* const* channels, int numChannels, int offset, int numFrames);
+    void pushAndDetectSides(float* data, Channel& channel, int numFrames);
+    void finishSidePeaks(int numFrames);
 
     static constexpr int c_blockSize = 64;
 
@@ -203,4 +230,8 @@ private:
     float m_framePeak[c_blockSize] {};
     float m_frameGain[c_blockSize] {};
     float m_frameClamp[c_blockSize] {};
+
+    // Sides (see setSides): per frame and side, the four readings' power sums for the limiter.
+    bool m_sided = false;
+    float m_frameSidePower[2][c_blockSize][4] {};
 };

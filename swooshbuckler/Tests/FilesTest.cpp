@@ -741,10 +741,17 @@ int main(int argc, char* argv[])
         // 7.1.4 on Stereo: the room's fold.
         const bool folded = play(dir.getChildFile("Wide.wav"), W::Stereo, out);
         const auto& f = room::fold(W::Surround714, W::Stereo);
-        float l = 0.0f;
+        float l = 0.0f, r = 0.0f;
         for (int ch = 0; ch < 12; ++ch)
+        {
             l += f.gain[0][static_cast<size_t>(ch)] * levelOf(ch);
-        check(folded && std::abs(out.getSample(0, 2000) - l) < 1.0e-4f, "7.1.4 on a stereo output plays the room's fold");
+            r += f.gain[1][static_cast<size_t>(ch)] * levelOf(ch);
+        }
+        // These levels fold to more than full scale (L 0.96, R 1.12): the fold is held under the Ceiling, both
+        // channels by the one gain (see the Output test for the limiter itself).
+        const float held = juce::jmin(1.0f, juce::Decibels::decibelsToGain(-0.3f) / juce::jmax(l, r));
+        check(folded && r > 1.0f && std::abs(out.getSample(0, 2000) - held * l) < 1.0e-3f && std::abs(out.getSample(1, 2000) - held * r) < 1.0e-3f,
+              "7.1.4 on a stereo output plays the room's fold, held under the Ceiling");
         const auto monoOnStereo = TakeAudition::mixFor(1, W::Stereo);
         const auto stereoOnMono = TakeAudition::mixFor(2, W::Mono);
         check(monoOnStereo.gain[0][0] == 1.0f && monoOnStereo.gain[1][0] == 1.0f && stereoOnMono.gain[0][0] == 0.5f && stereoOnMono.gain[0][1] == 0.5f,

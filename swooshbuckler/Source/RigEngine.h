@@ -475,6 +475,7 @@ private:
         float u = 0.0f;        // how far through the pass (0..1, 0.5 = closest)
         float az = 0.0f;       // where it is across the field (-1 left .. 1 right), after Width
         float nearness = 0.0f; // its closest distance over its distance now (1 at its closest)
+        float loud = 0.0f;     // the nearness its level is taken from: nearness itself, but for a pass going Around
         float panL = 0.0f, panR = 0.0f; // that place as stereo gains (constant power, 0.707 each in the middle)
         double base = 0.0;     // seconds: how long ago the sound heard now was sent
         double ear = 0.0;      // seconds: the left ear hears it this much later, the right this much sooner

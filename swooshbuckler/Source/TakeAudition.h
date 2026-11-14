@@ -2,6 +2,7 @@
 
 #include <JuceHeader.h>
 
+#include "MasterProcessor.h"
 #include "Room.h"
 
 #include <array>
@@ -20,6 +21,11 @@
  * output, a wider take is folded down (room::fold), and a narrower one's speakers that the output does not have go
  * to their neighbours (5.1's surrounds to the sides and rears of 7.1, 7.1.2's tops to the tops of 7.1.4). Mono
  * plays from L and R, as it always did.
+ *
+ * A fold can add channels up past full scale (a 7.1.4 take of unrelated full-scale channels folds to Stereo up to
+ * 11.5 dB over), so whenever the mix can come out louder than the take, the playback goes through a limiter at
+ * the Ceiling (one gain for all its channels) before it joins the output. Takes that are not folded play
+ * sample for sample as they are.
  */
 class TakeAudition : private juce::TimeSliceClient
 {
@@ -31,6 +37,9 @@ public:
         the old ones. */
     void prepare(double deviceRate, room::Width outputWidth = room::Width::Stereo);
 
+    /** The Ceiling a folded take is held under (dB, the output stage's). Any thread. */
+    void setCeilingDb(float db) { m_ceilingDb.store(db, std::memory_order_relaxed); }
+
     /** How much of each take channel (processing order) reaches each output channel: gain[out][take]. */
     struct Mix
     {
@@ -39,6 +48,8 @@ public:
     };
     /** takeChannels that are not one of the widths' counts play their first two channels as L and R. */
     static Mix mixFor(int takeChannels, room::Width outputWidth);
+    /** True when a mix can come out louder than the take: some output channel's gains add up to more than 1. */
+    static bool needsLimiter(const Mix& mix);
 
     /** Message thread. play() replaces whatever was playing. */
     bool play(const juce::File& file, juce::String& error);
@@ -80,6 +91,11 @@ private:
         std::atomic<juce::int64> played { 0 };
         juce::int64 total = 1;              // device samples in the whole file
         float gain = 0.0f;                  // audio thread: fades in at the start and out at a stop
+        // A folded take: its mix, limited at the Ceiling, before it is added to the output (audio thread).
+        bool limited = false;
+        MasterProcessor limiter;
+        juce::AudioBuffer<float> mixed;     // outChannels x c_piece
+        int drain = 0;                      // the limiter's look-ahead still to play out after the take's last sample
     };
 
     int useTimeSlice() override;
@@ -88,6 +104,7 @@ private:
     juce::TimeSliceThread m_thread { "Swooshbuckler audition" };
     double m_deviceRate = 48000.0;
     room::Width m_outputWidth = room::Width::Stereo;
+    std::atomic<float> m_ceilingDb { -0.3f };
     mutable juce::CriticalSection m_streamLock; // the message thread and the fill thread
     std::shared_ptr<Stream> m_stream;           // guarded by m_streamLock
     juce::SpinLock m_liveLock;                  // the audio thread tries it; the message thread holds it to swap

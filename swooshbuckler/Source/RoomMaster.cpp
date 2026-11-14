@@ -11,6 +11,19 @@ void RoomMaster::prepare(double sampleRate, room::Width width)
     m_mains.prepare(sampleRate, m_numChannels - (m_lfe >= 0 ? 1 : 0));
     m_lfeStage.prepare(sampleRate, 1); // prepared at every width, so the latency never depends on it
     m_mainPtrs.fill(nullptr);
+
+    // A room (Quad and wider): the speakers of each side are shaped and limited as the one Stereo channel they
+    // stand in for (MasterProcessor::setSides). Stereo, and Mono carried as Stereo, stay a channel each.
+    m_sided = layout.numChannels > 2;
+    if (m_sided)
+    {
+        std::array<float, room::c_maxChannels> sides {};
+        int mains = 0;
+        for (int ch = 0; ch < layout.numChannels; ++ch)
+            if (ch != m_lfe)
+                sides[static_cast<size_t>(mains++)] = room::info(layout.speakers[static_cast<size_t>(ch)]).x;
+        m_mains.setSides(sides.data(), mains);
+    }
 }
 
 void RoomMaster::reset()

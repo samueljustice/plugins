@@ -4,6 +4,7 @@
 namespace
 {
     constexpr int c_fadeSamples = 256;
+    constexpr int c_piece = 256; // a folded take is mixed and limited in pieces of this many samples
 }
 
 TakeAudition::TakeAudition() = default;
@@ -78,6 +79,19 @@ TakeAudition::Mix TakeAudition::mixFor(int takeChannels, room::Width outputWidth
     return mix;
 }
 
+bool TakeAudition::needsLimiter(const Mix& mix)
+{
+    for (int o = 0; o < mix.numOut; ++o)
+    {
+        float sum = 0.0f;
+        for (int i = 0; i < mix.numIn; ++i)
+            sum += std::abs(mix.gain[static_cast<size_t>(o)][static_cast<size_t>(i)]);
+        if (sum > 1.0001f)
+            return true;
+    }
+    return false;
+}
+
 void TakeAudition::prepare(double deviceRate, room::Width outputWidth)
 {
     {
@@ -108,6 +122,13 @@ bool TakeAudition::play(const juce::File& file, juce::String& error)
             for (int i = 0; i < mix.numIn; ++i)
                 if (const float g = mix.gain[static_cast<size_t>(o)][static_cast<size_t>(i)]; g != 0.0f)
                     stream->routes[static_cast<size_t>(stream->numRoutes++)] = { o, i, g };
+        stream->limited = needsLimiter(mix);
+        if (stream->limited)
+        {
+            stream->limiter.prepare(m_deviceRate, stream->outChannels);
+            stream->mixed.setSize(stream->outChannels, c_piece);
+            stream->drain = stream->limiter.getLatencySamples();
+        }
     }
     stream->ratio = stream->reader->sampleRate / m_deviceRate;
     stream->total = juce::jmax<juce::int64>(1, static_cast<juce::int64>(static_cast<double>(stream->reader->lengthInSamples) / stream->ratio));
@@ -247,31 +268,82 @@ void TakeAudition::process(juce::AudioBuffer<float>& out, int start, int numSamp
     const float step = 1.0f / static_cast<float>(c_fadeSamples);
     const int channels = out.getNumChannels();
     const bool routed = channels == s.outChannels; // the width it was started for (else: its first two as L and R)
-    for (int i = 0; i < got; ++i)
+    // The file has been played to its end (nothing more will come).
+    const bool ended = got < numSamples && s.sourceDone.load(std::memory_order_relaxed) && s.fifo->getNumReady() == got;
+    bool over = ended || (stopping && s.gain <= 0.0f);
+    if (routed && s.limited)
     {
-        const int at = i < size1 ? start1 + i : start2 + (i - size1);
-        s.gain = stopping ? juce::jmax(0.0f, s.gain - step) : juce::jmin(1.0f, s.gain + step);
-        if (routed)
+        // A folded take: mixed on its own, held under the Ceiling, then added. After the take's last sample the
+        // limiter's look-ahead plays out, so the end of the take is heard too.
+        MasterProcessor::Parameters limit;
+        limit.limiterOn = true;
+        limit.ceilingDb = m_ceilingDb.load(std::memory_order_relaxed);
+        limit.releaseMs = 50.0f;
+        s.limiter.setParameters(limit);
+        const int tail = over ? juce::jmin(numSamples - got, s.drain) : 0;
+        s.drain -= tail;
+        int faded = 0; // samples fed to the limiter after a stop's fade reached silence
+        float* mixed[room::c_maxChannels] {};
+        for (int ch = 0; ch < s.outChannels; ++ch)
+            mixed[ch] = s.mixed.getWritePointer(ch);
+        for (int done = 0; done < got + tail; done += c_piece)
         {
-            for (int k = 0; k < s.numRoutes; ++k)
+            const int len = juce::jmin(c_piece, got + tail - done);
+            for (int ch = 0; ch < s.outChannels; ++ch)
+                juce::FloatVectorOperations::clear(mixed[ch], len);
+            for (int j = 0; j < len && done + j < got; ++j)
             {
-                const auto& route = s.routes[static_cast<size_t>(k)];
-                out.addSample(route.out, start + i, route.gain * s.gain * s.ring.getSample(route.in, at));
+                const int i = done + j;
+                const int at = i < size1 ? start1 + i : start2 + (i - size1);
+                s.gain = stopping ? juce::jmax(0.0f, s.gain - step) : juce::jmin(1.0f, s.gain + step);
+                if (stopping && s.gain <= 0.0f)
+                {
+                    ++faded;
+                    continue;
+                }
+                for (int k = 0; k < s.numRoutes; ++k)
+                {
+                    const auto& route = s.routes[static_cast<size_t>(k)];
+                    mixed[route.out][j] += route.gain * s.gain * s.ring.getSample(route.in, at);
+                }
             }
-            continue;
+            s.limiter.process(mixed, s.outChannels, len);
+            for (int ch = 0; ch < s.outChannels; ++ch)
+                juce::FloatVectorOperations::add(out.getWritePointer(ch, start + done), mixed[ch], len);
         }
-        const float l = s.ring.getSample(0, at) * s.gain, r = s.ring.getSample(juce::jmin(1, s.channels - 1), at) * s.gain;
-        if (channels >= 2)
+        // Over once the look-ahead has played out what came before the end (or before the fade reached silence).
+        s.drain -= faded;
+        over = (ended || (stopping && s.gain <= 0.0f)) && s.drain <= 0;
+    }
+    else
+    {
+        for (int i = 0; i < got; ++i)
         {
-            out.addSample(0, start + i, l);
-            out.addSample(1, start + i, r);
+            const int at = i < size1 ? start1 + i : start2 + (i - size1);
+            s.gain = stopping ? juce::jmax(0.0f, s.gain - step) : juce::jmin(1.0f, s.gain + step);
+            if (routed)
+            {
+                for (int k = 0; k < s.numRoutes; ++k)
+                {
+                    const auto& route = s.routes[static_cast<size_t>(k)];
+                    out.addSample(route.out, start + i, route.gain * s.gain * s.ring.getSample(route.in, at));
+                }
+                continue;
+            }
+            const float l = s.ring.getSample(0, at) * s.gain, r = s.ring.getSample(juce::jmin(1, s.channels - 1), at) * s.gain;
+            if (channels >= 2)
+            {
+                out.addSample(0, start + i, l);
+                out.addSample(1, start + i, r);
+            }
+            else if (channels == 1)
+                out.addSample(0, start + i, 0.5f * (l + r));
         }
-        else if (channels == 1)
-            out.addSample(0, start + i, 0.5f * (l + r));
+        over = ended || (stopping && s.gain <= 0.0f);
     }
     s.fifo->finishedRead(got);
     s.played.fetch_add(got, std::memory_order_relaxed);
     // Over: the fade out has finished, or the file has been played to its end.
-    if ((stopping && s.gain <= 0.0f) || (got < numSamples && s.sourceDone.load(std::memory_order_relaxed) && s.fifo->getNumReady() == 0))
+    if (over)
         s.finished.store(true, std::memory_order_relaxed);
 }

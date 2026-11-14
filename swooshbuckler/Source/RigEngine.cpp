@@ -100,6 +100,11 @@ namespace
     constexpr float c_hitsMoveSeconds = 0.004f;  // the hits moving to where they were aimed (they are there before they sound)
     constexpr float c_nearSpread = 0.5f;         // an object right at the listener bleeds this far into every speaker
     constexpr float c_orbitNearness = 0.6f;      // Around: the pass's nearness, all the way round
+    // Around: the nearness its level is taken at. A pass on the other paths swells to its closest point and falls
+    // away again; one going Around holds one level all the way, and held at c_orbitNearness's it was louder over
+    // the whole pass than the others are (1.1 dB at the Doppler the buses open with). This is the nearness whose
+    // level, held, is as loud as a crossing pass is over its swell (measured by the Output test at every width).
+    constexpr float c_orbitLoudness = 0.25f;
     constexpr float c_thirdTailSeconds = 0.25f;  // a bus's throw lane is left to ring out this long after the last throw
     constexpr float c_shareSeconds = 0.01f;      // how fast Low End's shares follow the lanes' levels
     constexpr float c_gainSeconds = 0.01f;       // a speaker's gain never goes from nothing to full faster than this
@@ -2065,7 +2070,7 @@ void RigEngine::renderFly(int frames)
             if (window > 0.0f && room)
             {
                 const PassPoint pt = roomPoint(h, u, law, orbitFrom + orbitStep * static_cast<float>(i + 1));
-                const float gain = (level0 + levelStep * static_cast<float>(i + 1)) * window * c_flyMakeup * (1.0f + 0.8f * c_flyDoppler * (pt.nearness - 0.35f));
+                const float gain = (level0 + levelStep * static_cast<float>(i + 1)) * window * c_flyMakeup * (1.0f + 0.8f * c_flyDoppler * (pt.loud - 0.35f));
                 auto& lane = &h == &f.heads[0] ? s.l : s.r;
                 lane[static_cast<size_t>(i)] += h.airL.lowpass(f.line.readSinc(pt.base * m_sampleRate + back, pt.stretch, kernel)) * gain;
             }
@@ -2126,7 +2131,7 @@ void RigEngine::renderFly(int frames)
                 {
                     // A throw flies bus A's Flight Path wherever it is heard.
                     const PassPoint pt = roomPoint(h, u, law, m_throwOrbit0 + throwOrbitStep * static_cast<float>(i + 1));
-                    const float gain = window * c_flyMakeup * (1.0f + 0.8f * c_flyDoppler * (pt.nearness - 0.35f)) * level;
+                    const float gain = window * c_flyMakeup * (1.0f + 0.8f * c_flyDoppler * (pt.loud - 0.35f)) * level;
                     s.mono[static_cast<size_t>(i)] += h.airL.lowpass(f.throwLine.readSinc(pt.base * m_sampleRate + static_cast<double>(frames - 1 - i), pt.stretch, kernel)) * gain;
                 }
                 else if (window > 0.0f)
@@ -2530,6 +2535,7 @@ RigEngine::PassPoint RigEngine::passPoint(const Head& h, float u, float widthLaw
     const float xRef = h.machRef * static_cast<float>(s);
     const float distRef = std::sqrt(xRef * xRef + h.closest * h.closest);
     pt.nearness = h.closest / std::max(distRef, 1.0e-6f);
+    pt.loud = pt.nearness;
     const float theta = (0.95f * pt.az + 1.0f) * (sj::c_pi * 0.25f);
     pt.panL = std::cos(theta);
     pt.panR = std::sin(theta);
@@ -2735,7 +2741,7 @@ void RigEngine::renderBus(BusState& bus, int frames, float key, bool isKeyBus,
             const float nearness = pt.nearness;
             // Fly-By's passes don't overlap, so the bus is quieter between them: a little make-up keeps it as loud
             // as Bed on the same material.
-            const float gain = window * (1.0f + (c_flyMakeup - 1.0f) * shapeNow) * (1.0f + 0.8f * p.doppler * (nearness - 0.35f));
+            const float gain = window * (1.0f + (c_flyMakeup - 1.0f) * shapeNow) * (1.0f + 0.8f * p.doppler * (pt.loud - 0.35f));
             if (i == frames - 1)
                 proximity = std::max(proximity, window * (0.1f + 0.9f * std::sqrt(std::min(nearness, 1.0f))));
             if (room)
@@ -2802,7 +2808,7 @@ void RigEngine::renderBus(BusState& bus, int frames, float key, bool isKeyBus,
                 const PassPoint pt = room ? roomPoint(h, u, law, m_throwOrbit0 + throwOrbitStep * static_cast<float>(i + 1))
                                           : passPoint(h, u, law);
                 const float nearness = pt.nearness;
-                const float gain = window * c_flyMakeup * (1.0f + 0.8f * doppler * (nearness - 0.35f)) * level;
+                const float gain = window * c_flyMakeup * (1.0f + 0.8f * doppler * (pt.loud - 0.35f)) * level;
                 if (i == frames - 1)
                     proximity = std::max(proximity, window * (0.1f + 0.9f * std::sqrt(std::min(nearness, 1.0f))));
                 if (room) // every throw into the throws' lane (a throw flies bus A's Flight Path on every bus)
@@ -4263,6 +4269,7 @@ RigEngine::PassPoint RigEngine::roomPoint(Head& h, float u, float widthLaw, floa
         const double still = static_cast<double>(c_baseDelay) + static_cast<double>(h.closest);
         pt.base += static_cast<double>(orbit) * (still - pt.base);
         pt.nearness += orbit * (c_orbitNearness - pt.nearness);
+        pt.loud += orbit * (c_orbitLoudness - pt.loud);
         const double speed = orbit >= 1.0f ? 1.0 : 1.0 - (pt.base - h.lastBase) * m_sampleRate;
         pt.stretch = sj::SincKernel::stretchFor(sj::clamp(static_cast<float>(speed), 0.0f, 4.0f));
     }

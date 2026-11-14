@@ -14,6 +14,23 @@
  *                                                  have them, no Inflate (it would add harmonics above the LFE's
  *                                                  low-pass), its own gain
  *
+ * THE SAME AT EVERY WIDTH. Inflate (a curve) and the limiter depend on level, and in a room one pass is shared
+ * between speakers: each carries less of it than a Stereo channel would, so shaping and limiting speaker by
+ * speaker would do less the wider the room and the more a pass is spread. In a room (Quad and wider) the mains
+ * are therefore worked BY SIDE (MasterProcessor::setSides): the left speakers together are treated as the Stereo
+ * left channel they stand in for, the right speakers as the right, the centre speaker half to each. The level
+ * that drives Inflate, and the peak the limiter reads, are the side's speakers summed by power, which for a pass
+ * shared between them is the pass itself. The room's panner shares power between left and right exactly as a
+ * stereo pan does, wherever the pass is in depth and height and whatever the Spread, so a pass gets the Inflate,
+ * Push and limiting it gets in Stereo. Stereo (and Mono, carried as Stereo) is a channel a side already and runs
+ * as it always did.
+ *
+ * What follows from it: a pass spread over four speakers of one side reaches the Ceiling together, as its sum,
+ * not when one speaker does, so each speaker's own peak then sits below the Ceiling (6 dB for four equal
+ * speakers) and the room is as loud as the Stereo render, not louder. No channel is ever above the Ceiling: a
+ * channel's peak is never more than its side's, and the centre speaker's own peak is read as well (a sound in
+ * the centre speaker alone is therefore limited 3 dB sooner than the same sound as a phantom centre).
+ *
  * The main channels share one gain, so a pass that moves from speaker to speaker is never pulled about by the
  * limiter: the room keeps its balance. The LFE has its own, so a loud sub never pulls the room down (and the room
  * never pulls the sub down). Both run at the same rate with the same look-ahead, so every channel is delayed by
@@ -43,6 +60,8 @@ public:
     int getLatencySamples() const { return m_mains.getLatencySamples(); }
     int getNumChannels() const { return m_numChannels; }
     int getLfeChannel() const { return m_lfe; } // -1 when the width has none
+    /** A room: the mains are shaped and limited by side (see the class comment). False at Mono and Stereo. */
+    bool isSided() const { return m_sided; }
 
     /** The main channels' limiter: deepest reduction of the last block, and since the last call (see MasterProcessor). */
     float getGainReductionDb() const { return m_mains.getGainReductionDb(); }
@@ -56,5 +75,6 @@ private:
     room::Width m_width = room::Width::Stereo;
     int m_numChannels = 2;
     int m_lfe = -1;
+    bool m_sided = false;
     std::array<float*, room::c_maxChannels> m_mainPtrs {};
 };

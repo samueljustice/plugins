@@ -291,6 +291,16 @@ if(SWOOSHBUCKLER_TESTS)
     target_compile_definitions(SwooshbucklerSpaceLfe PRIVATE $<TARGET_PROPERTY:Swooshbuckler,COMPILE_DEFINITIONS>)
     target_link_libraries(SwooshbucklerSpaceLfe PRIVATE Swooshbuckler)
 
+    # Output stage test: Inflate, Push and the limiter do the same to a pass at every room width (a room's speakers
+    # worked by side, against the Stereo render), the Ceiling on every channel with every speaker sounding, the
+    # LFE's own limiter, loudness at every width, Master Trim and the Everything tremolo on every channel alike,
+    # the limiter on an auditioned fold-down, LFE Level as typed, and the CPU.
+    juce_add_console_app(SwooshbucklerOutput PRODUCT_NAME "SwooshbucklerOutput")
+    target_sources(SwooshbucklerOutput PRIVATE Tests/OutputTest.cpp)
+    target_include_directories(SwooshbucklerOutput PRIVATE Source ${CMAKE_CURRENT_BINARY_DIR}/Swooshbuckler_artefacts/JuceLibraryCode $<TARGET_PROPERTY:Swooshbuckler,INCLUDE_DIRECTORIES>)
+    target_compile_definitions(SwooshbucklerOutput PRIVATE $<TARGET_PROPERTY:Swooshbuckler,COMPILE_DEFINITIONS>)
+    target_link_libraries(SwooshbucklerOutput PRIVATE Swooshbuckler)
+
     # Files test: takes of every room width on disk. Every width, Channel Order (Pro Tools (Film), SMPTE / WAV),
     # File Layout (Interleaved, Multi-Mono) and file type written and read back with the test's own parser (the WAV
     # speaker mask, the channel names, each channel's sound in its slot, the markers, Multi-Mono sets complete and

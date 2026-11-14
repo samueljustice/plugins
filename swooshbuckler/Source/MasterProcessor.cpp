@@ -311,6 +311,44 @@ float MasterProcessor::detectPeak(const float* window)
     return peak;
 }
 
+void MasterProcessor::detectPoints(const float* window, float points[4])
+{
+    const DetectorTable& table = detectorTable();
+    float sumA[4] {}, sumB[4] {}, sumC[4] {};
+
+    for (int j = 0; j < c_taps; j += 4)
+    {
+        for (int k = 0; k < 4; ++k)
+        {
+            const float x = window[j + k];
+            sumA[k] += x * table.phase[0][j + k];
+            sumB[k] += x * table.phase[1][j + k];
+            sumC[k] += x * table.phase[2][j + k];
+        }
+    }
+
+    points[0] = window[c_centre];
+    points[1] = (sumA[0] + sumA[1]) + (sumA[2] + sumA[3]);
+    points[2] = (sumB[0] + sumB[1]) + (sumB[2] + sumB[3]);
+    points[3] = (sumC[0] + sumC[1]) + (sumC[2] + sumC[3]);
+}
+
+//==============================================================================
+void MasterProcessor::setSides(const float* side, int numChannels)
+{
+    m_sided = side != nullptr && numChannels > 0;
+    for (size_t ch = 0; ch < m_channels.size(); ++ch)
+    {
+        Channel& channel = m_channels[ch];
+        channel.left = channel.right = 0.0f;
+        if (! m_sided || static_cast<int>(ch) >= numChannels)
+            continue;
+        const float s = side[ch];
+        channel.left = s < 0.0f ? 1.0f : (s > 0.0f ? 0.0f : 0.5f);
+        channel.right = 1.0f - channel.left;
+    }
+}
+
 //==============================================================================
 void MasterProcessor::prepare(double sampleRate, int maxChannels)
 {
@@ -324,6 +362,7 @@ void MasterProcessor::prepare(double sampleRate, int maxChannels)
     detectorTable(); // built here, not on the audio thread
 
     m_channels.assign(static_cast<size_t>(m_numChannels), Channel {});
+    m_sided = false; // every channel on its own until setSides()
     for (auto& channel : m_channels)
         channel.delay.assign(static_cast<size_t>(m_latency), 0.0f);
 
@@ -366,7 +405,7 @@ void MasterProcessor::reset()
     {
         std::fill(channel.delay.begin(), channel.delay.end(), 0.0f);
         std::fill(std::begin(channel.history), std::end(channel.history), 0.0f);
-        channel.dcIn = channel.dcOut = 0.0f;
+        channel.dcIn = channel.dcOut = 0.0f; // (the sides stay: they are the layout, not state)
     }
 
     m_delayPosition = 0;
@@ -476,14 +515,28 @@ void MasterProcessor::process(float* const* channels, int numChannels, int numSa
 
         std::fill_n(m_framePeak, numFrames, 0.0f);
 
-        for (int ch = 0; ch < activeChannels; ++ch)
+        if (m_sided)
         {
-            Channel& channel = m_channels[static_cast<size_t>(ch)];
-
+            // A room: each side's speakers as the one Stereo channel they stand in for (see setSides).
             if (m_inflateActive)
-                inflate(channels[ch] + offset, channel, numFrames);
+                inflateSides(channels, activeChannels, offset, numFrames);
 
-            pushAndDetect(channels[ch] + offset, channel, numFrames);
+            std::fill_n(&m_frameSidePower[0][0][0], 2 * c_blockSize * 4, 0.0f);
+            for (int ch = 0; ch < activeChannels; ++ch)
+                pushAndDetectSides(channels[ch] + offset, m_channels[static_cast<size_t>(ch)], numFrames);
+            finishSidePeaks(numFrames);
+        }
+        else
+        {
+            for (int ch = 0; ch < activeChannels; ++ch)
+            {
+                Channel& channel = m_channels[static_cast<size_t>(ch)];
+
+                if (m_inflateActive)
+                    inflate(channels[ch] + offset, channel, numFrames);
+
+                pushAndDetect(channels[ch] + offset, channel, numFrames);
+            }
         }
 
         m_historyPosition = (m_historyPosition + numFrames) % c_taps;
@@ -584,6 +637,143 @@ void MasterProcessor::inflate(float* data, Channel& channel, int numFrames)
 
     channel.dcIn = dcIn;
     channel.dcOut = dcOut;
+}
+
+//==============================================================================
+// Sides. The curve written as a gain on x: with r the level of the whole sound,
+//
+//   odd part    w(r) * x * (alpha + beta * r^2)   = x * [ w * (alpha + beta * r^2) ]
+//   even part   w(r) * mu * x^2                   = x * [ w * mu * s ],   s = the whole sound, signed
+//
+// For one channel on its own r^2 = x^2 and s = x, which is the curve as inflate() computes it. For a side of a
+// room, r^2 is the side's speakers summed by power (sum of x_c^2) and s = sum of x_c |x_c| / r: when one sound
+// is shared between the speakers with gains g_c (their squares adding up to 1), x_c = g_c * sound, so r^2 is
+// sound^2 and s is the sound itself, and each speaker comes out as g_c * f(sound): the sound shaped whole, then
+// shared. Sounds that are unrelated from speaker to speaker (the reverb) are shaped by their combined level, as
+// the Stereo channel that carried them all would be. r^2 is a polynomial in the samples, so the odd part is the
+// same 7th-order polynomial as in Stereo and makes no harmonics higher than Stereo's does.
+void MasterProcessor::inflateSides(float* const* channels, int numChannels, int offset, int numFrames)
+{
+    float power[2][c_blockSize] {}, sign[2][c_blockSize] {};
+    for (int ch = 0; ch < numChannels; ++ch)
+    {
+        const Channel& channel = m_channels[static_cast<size_t>(ch)];
+        const float* const data = channels[ch] + offset;
+        const float left = channel.left, right = channel.right;
+        for (int i = 0; i < numFrames; ++i)
+        {
+            const float x = data[i];
+            const float x2 = x * x, xa = x * std::abs(x);
+            power[0][i] += left * x2;
+            power[1][i] += right * x2;
+            sign[0][i] += left * xa;
+            sign[1][i] += right * xa;
+        }
+    }
+
+    float odd[2][c_blockSize], even[2][c_blockSize];
+    for (int side = 0; side < 2; ++side)
+        for (int i = 0; i < numFrames; ++i)
+        {
+            const float r2 = power[side][i];
+            float o = 0.0f, e = 0.0f;
+            if (r2 < 1.0f) // false for NaN too
+            {
+                const float w = (1.0f - r2) * (1.0f - r2);
+                o = w * (m_frameAlpha[i] + m_frameBeta[i] * r2);
+                if (m_frameMu[i] > 0.0f && r2 > 1.0e-20f)
+                    e = w * m_frameMu[i] * sign[side][i] / std::sqrt(r2);
+            }
+            odd[side][i] = o;
+            even[side][i] = e;
+        }
+
+    for (int ch = 0; ch < numChannels; ++ch)
+    {
+        Channel& channel = m_channels[static_cast<size_t>(ch)];
+        float* const data = channels[ch] + offset;
+        const float left = channel.left, right = channel.right;
+        float dcIn = channel.dcIn;
+        float dcOut = channel.dcOut;
+        const float dcCoeff = m_dcCoeff;
+
+        for (int i = 0; i < numFrames; ++i)
+        {
+            const float x = data[i];
+            const float o = x * (left * odd[0][i] + right * odd[1][i]);
+            float e = x * (left * even[0][i] + right * even[1][i]);
+            if (! (e == e))
+                e = 0.0f; // a NaN sample stays out of the coupling filter
+
+            const float evenAc = e - dcIn + dcCoeff * dcOut;
+            dcIn = e;
+            dcOut = evenAc;
+
+            data[i] = x + m_frameEffect[i] * (o + evenAc);
+        }
+
+        if (std::abs(dcOut) < 1.0e-20f)
+            dcOut = 0.0f;
+
+        channel.dcIn = dcIn;
+        channel.dcOut = dcOut;
+    }
+}
+
+// The limiter's reading with sides: the true peak of each side's speakers summed by power. Each of the four
+// readings (the sample and the three points after it) is taken per speaker and summed by power per side, so the
+// side's level is followed between the samples as well as at them. A centre speaker's own peak is read too (it
+// counts only half to each side).
+void MasterProcessor::pushAndDetectSides(float* data, Channel& channel, int numFrames)
+{
+    float* const history = channel.history;
+    int position = m_historyPosition;
+    const float left = channel.left, right = channel.right;
+    const bool centre = left > 0.0f && right > 0.0f;
+
+    for (int i = 0; i < numFrames; ++i)
+    {
+        const float y = data[i] * m_framePush[i];
+        data[i] = y;
+
+        history[position] = y;
+        history[position + c_taps] = y;
+
+        if (++position == c_taps)
+            position = 0;
+
+        float points[4];
+        detectPoints(history + position, points);
+        float own = 0.0f;
+        for (int k = 0; k < 4; ++k)
+        {
+            const float p2 = points[k] * points[k];
+            m_frameSidePower[0][i][k] += left * p2;
+            m_frameSidePower[1][i][k] += right * p2;
+            own = p2 > own || p2 != p2 ? p2 : own;
+        }
+        if (centre)
+        {
+            const float peak = std::sqrt(own);
+            m_framePeak[i] = peak > m_framePeak[i] || peak != peak ? peak : m_framePeak[i];
+        }
+    }
+}
+
+void MasterProcessor::finishSidePeaks(int numFrames)
+{
+    for (int i = 0; i < numFrames; ++i)
+    {
+        float most = 0.0f;
+        for (int side = 0; side < 2; ++side)
+            for (int k = 0; k < 4; ++k)
+            {
+                const float v = m_frameSidePower[side][i][k];
+                most = v > most || v != v ? v : most;
+            }
+        const float peak = std::sqrt(most); // NaN and infinity pass through: computeGain reads them as a huge peak
+        m_framePeak[i] = peak > m_framePeak[i] || peak != peak ? peak : m_framePeak[i];
+    }
 }
 
 void MasterProcessor::computeGain(int numFrames)

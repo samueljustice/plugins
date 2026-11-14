@@ -204,6 +204,15 @@ namespace Params
         const juce::String text = juce::String(v, 1) + " dB";
         return std::abs(v - ParamIDs::lfeLevelUnityDb) < 0.05f ? text + " (Unity)" : text;
     }
+    /** What a typed LFE Level means. The level is never above 0 dB, so a number typed without its minus sign is
+        read as that many dB down ("10" is -10 dB, not a clamp to 0); "Unity" finds the reference. */
+    inline float lfeLevelFromText(const juce::String& text)
+    {
+        if (text.containsIgnoreCase("unity"))
+            return ParamIDs::lfeLevelUnityDb;
+        const float typed = text.retainCharacters("-.0123456789").getFloatValue();
+        return juce::jlimit(ParamIDs::lfeLevelMinDb, ParamIDs::lfeLevelMaxDb, -std::abs(typed));
+    }
     /** How a Stowaway knob reads at position v in a mode (ParamIDs::StowMode, ParamIDs::StowControl). The knobs
         keep their names; Filter reads the Sub's crossover in Hz, and otherwise what it lets through ("Under 2.4 kHz"
         for the low-pass side, "Over 320 Hz" for the high-pass side, "Open" between), and Width says Mono in Sub
@@ -450,12 +459,7 @@ namespace Params
                                        NormalisableRange<float>(ParamIDs::lfeLevelMinDb, ParamIDs::lfeLevelMaxDb, 0.1f), ParamIDs::lfeLevelUnityDb,
                                        AudioParameterFloatAttributes().withLabel("dB")
                                            .withStringFromValueFunction([](float v, int) { return lfeLevelText(v); })
-                                           .withValueFromStringFunction([](const String& t)
-                                           {
-                                               if (t.trim().equalsIgnoreCase("unity") || t.containsIgnoreCase("unity"))
-                                                   return ParamIDs::lfeLevelUnityDb;
-                                               return jlimit(ParamIDs::lfeLevelMinDb, ParamIDs::lfeLevelMaxDb, t.retainCharacters("-.0123456789").getFloatValue());
-                                           })));
+                                           .withValueFromStringFunction([](const String& t) { return lfeLevelFromText(t); })));
 
         // Added later: kept at the end, so every parameter before them keeps its place in the host's list.
         for (int b = 0; b < ParamIDs::numBuses; ++b)

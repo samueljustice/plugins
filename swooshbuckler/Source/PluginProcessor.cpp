@@ -505,6 +505,7 @@ void SwooshbucklerAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
     const int n = buffer.getNumSamples();
     if (n == 0)
         return;
+    m_audition.setCeilingDb(m_raw.ceiling->load()); // a folded take being auditioned is held under the Ceiling too
 
     // The Play parameter moved (host automation, or a restored session): start or stop.
     {
