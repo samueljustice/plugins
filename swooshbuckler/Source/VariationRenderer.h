@@ -2,6 +2,7 @@
 
 #include <JuceHeader.h>
 #include "TapeRecorder.h"
+#include "RigEngine.h"
 
 #include <vector>
 
@@ -28,8 +29,15 @@ class SwooshbucklerAudioProcessor;
  *   My Settings, New Passes    : the settings as they are; only the rig's random draws differ (which passes, how
  *                                close, which sound of each track)
  *   My Settings, Small Changes : the settings as they are, each sound-shaping control nudged by up to How Different, each
- *                                track starting a little further into its sample
+ *                                track's start marker a little further into its sample
  *   Randomise Everything       : a fresh Randomise for every file (Presets::roll)
+ * Whatever the Mode, the files of a batch carry on through the sounds: each render starts every track where the one
+ * before left it (RigEngine::Places), as the rig does when you throw several in a row, and the first starts at the
+ * start markers. A whoosh also flies its own way (RigEngine::ThrowFlight, drawn from the file's random source): where
+ * its closest point falls (a third to two thirds of the way through), how near it comes (Chaos sets how far that
+ * varies), and the balance of the tracks from a moment of the ride; and every modulator starts from a moment of its
+ * cycle. A ride carries the faders' rides on as well. The batch is rendered in order on one thread, so the same
+ * number, settings and samples still give the same files.
  *
  * Every batch has a number (the panel never shows it as something to set: it offers "New Batch Every Time" or the
  * batches rendered lately to repeat). Every variation's random draws come from the batch's number and its place in
@@ -205,6 +213,7 @@ private:
     std::vector<float> m_base;                           // and where each was when Render was pressed
     std::vector<float> m_baseStarts;                     // the tracks' start markers likewise
     juce::AudioBuffer<float> m_take;                     // one render: a whoosh and the longest tail, or a pre-roll and a ride
+    std::unique_ptr<RigEngine::Places> m_places;         // where the last render left the tracks and rides (none: the batch's first)
     std::atomic<bool> m_rendering { false };
 
     mutable juce::CriticalSection m_lock;

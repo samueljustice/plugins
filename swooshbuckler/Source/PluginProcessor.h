@@ -345,6 +345,23 @@ public:
         every random source drawn from `seed`, Master Trim out of the way (files get the level the tape gets) and
         the rig stopped. The same seed and settings give the same samples. The thread that calls processBlock. */
     void prepareOffline(double sampleRate, std::uint32_t seed);
+    /** Offline copies only, the thread that calls processBlock, between blocks. Where every track is in its sounds
+        and where each fader's ride is, so the next render of a batch can carry on from there (see carryOn). */
+    RigEngine::Places getPlaces() const { return m_engine.getPlaces(); }
+    /** Offline copies only, after prepareOffline (and after setPlaying, whose return to the start markers it takes
+        the place of): the tracks carry on from these places, and the rides from theirs. */
+    void carryOn(const RigEngine::Places& places);
+    /** Offline copies only, after prepareOffline: every modulator, and every fader's ride, from a moment drawn
+        from `seed` (see ModMatrix::scatter and RigEngine::scatterRide). */
+    void scatter(std::uint32_t seed);
+    /** Offline copies only: throws one whoosh that flies as `flight` says (the Throw button's flies as
+        RigEngine::ThrowFlight is made). The thread that calls processBlock. */
+    void throwWhoosh(const RigEngine::ThrowFlight& flight)
+    {
+        jassert(m_offline);
+        m_offlineFlight = flight;
+        m_uiThrows.fetch_add(1);
+    }
     /** The rig is stopped, has rung out and has faded: the next block would be silence. The thread that calls
         processBlock, after a block. */
     bool isAtRest() const { return ! m_playing.load() && m_uiThrows.load() == 0 && m_transportGain <= 0.0f && m_drainLeft <= 0; }
@@ -451,6 +468,7 @@ private:
     bool m_hostWasPlaying = false;   // audio thread
     bool m_reseedPending = false;    // audio thread: the transport started, begin again from the seed
     std::atomic<int> m_uiThrows { 0 };
+    RigEngine::ThrowFlight m_offlineFlight; // how those throws fly: as made, except in an offline copy (throwWhoosh(flight))
     // MIDI keys (audio thread): down right now, and for Throw the keys of the last chord (they keep its pitches
     // after the keys are let go, until the next one starts).
     std::array<std::uint64_t, 2> m_keysDown {}, m_keysLatched {};

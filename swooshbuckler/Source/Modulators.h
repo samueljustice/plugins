@@ -91,6 +91,10 @@ public:
     /** Starts the Random and Steps modulators' draws again from this seed (offline renders that must repeat).
         Before prepare() or reset(), not while process() runs. */
     void setSeed(juce::int64 seed) { m_rng.setSeed(seed); }
+    /** Every modulator from a moment of its cycle drawn from `random`: where an LFO is in its wave (and the value
+        Steps holds), where Random is between its two values, how far a Follower has risen. Offline renders, so each
+        whoosh of a batch starts from another moment. After prepare() or reset(), not while process() runs. */
+    void scatter(juce::Random& random);
     /** Advances the modulators by numSamples and sums the offsets. */
     void process(const std::array<SourceSettings, c_numSources>& settings, int numSamples, const FollowerInputs& followerInputs);
     /** Normalised offset for a target (sum of its wires, smoothed). 0 when nothing is wired to it. */

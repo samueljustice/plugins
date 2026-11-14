@@ -1,6 +1,8 @@
 #include "RigEngine.h"
 #include "Parameters.h"
 
+#include <algorithm>
+
 namespace
 {
     constexpr float c_lineSeconds = 4.6f;
@@ -37,6 +39,9 @@ namespace
     constexpr float c_throwOpenSeconds = 0.005f, c_throwCloseSeconds = 0.06f;
     // Velocity: how close the softest throw comes (the hardest comes right by), and how loud it is against the hardest.
     constexpr float c_throwSoftCloseness = 0.3f, c_throwSoftLevel = 0.35f;
+    // ThrowFlight::nearer at 1 (or -1): how much closer (further off) than the bus draws the pass, and how much
+    // louder (quieter) that makes it. More quieter than louder, so a near pass does not lean on the limiter.
+    constexpr float c_throwNearerCloseness = 0.35f, c_throwNearerDb = 1.5f, c_throwFurtherDb = 5.0f;
     constexpr float c_reseedFadeSeconds = 0.005f;
     constexpr float c_flyMakeup = 1.23f; // +1.8 dB: Fly-By measured against Bed (integrated loudness, steady and gappy sources)
     // Head shadow: at full azimuth the far ear's air filter is this many octaves lower, but never under the floor (Hz).
@@ -282,6 +287,8 @@ void RigEngine::reset()
     m_throwGain.fill(0.0f);
     m_sideGain.fill(0.0f);
     m_throwOpen = 0.0f;
+    m_throwBalance.fill(1.0f);
+    m_throwBalanceWanted = false;
     for (auto& v : m_throws) v = ThrowVoice {};
     for (auto& q : m_throwQueue) q = QueuedThrow {};
     m_throwPeakView.store(-1.0f, std::memory_order_relaxed);
@@ -477,14 +484,52 @@ void RigEngine::reseedNow()
 
 void RigEngine::throwWhoosh(int delaySamples, float velocity)
 {
+    throwWhoosh(delaySamples, velocity, ThrowFlight {});
+}
+
+void RigEngine::throwWhoosh(int delaySamples, float velocity, const ThrowFlight& flight)
+{
     for (auto& q : m_throwQueue)
         if (! q.pending)
         {
             q.pending = true;
             q.delay = std::max(0, delaySamples);
             q.velocity = velocity;
+            q.flight = flight;
             return;
         }
+}
+
+RigEngine::Places RigEngine::getPlaces() const
+{
+    Places places;
+    places.players = m_players;
+    places.ridePhase = m_ridePhase;
+    places.rideDepth = m_rideDepth;
+    return places;
+}
+
+void RigEngine::setPlaces(const Places& places)
+{
+    m_players = places.players;
+    for (auto& p : m_players)
+        p.letGoOfShots();
+    m_ridePhase = places.ridePhase;
+    m_rideDepth = places.rideDepth;
+    if (m_cargo != nullptr) // the data the players read again is in use again
+        for (int t = 0; t < c_tracks; ++t)
+            m_cargo->markInUse(t, m_players[static_cast<size_t>(t)].getData(), m_players[static_cast<size_t>(t)].getPending());
+}
+
+void RigEngine::scatterRide(std::uint32_t seed)
+{
+    sj::Random draw;
+    draw.seed(seed);
+    for (size_t t = 0; t < m_ridePhase.size(); ++t)
+    {
+        m_ridePhase[t] = static_cast<double>(draw.unipolar());
+        m_rideDepth[t] = draw.unipolar();
+    }
 }
 
 bool RigEngine::isThrowing() const
@@ -518,14 +563,17 @@ void RigEngine::startThrows(int frames)
             continue; // every voice is in flight
 
         // One pass, the same on every bus (bus A's Doppler; each bus bends it by its own Bend), as long as Throw
-        // Length says: half of it is the approach, so the peak is heard half a Throw Length from now.
+        // Length says: half of it is the approach (or the flight's share), so the peak is heard that far from now.
         auto knobNow = [this](size_t bus, size_t k) { return sj::clamp(m_buses[bus].springs[k].value + m_busModNow[bus][k], 0.0f, 1.0f); };
         BusParams lead;
         lead.doppler = knobNow(0, 0);
         lead.bend = knobNow(0, 2);
         const float seconds = ::Params::throwSeconds(m_params.throwSeconds, m_params.rate);
+        const auto& flight = q.flight;
         auto& first = m_buses[0].throwHeads[voice];
-        startPass(first, lead, 0.5f * seconds);
+        startPass(first, lead, sj::clamp(flight.approach, 0.2f, 0.8f) * seconds);
+        first.lenOut = seconds - first.lenIn;
+        first.length = seconds;
         auto& v = m_throws[voice];
         v = ThrowVoice {};
         if (q.velocity >= 0.0f)
@@ -535,6 +583,17 @@ void RigEngine::startThrows(int frames)
             first.closest = 0.004f * std::exp2(5.0f * (1.0f - first.closeness));
             v.level = sj::lerp(c_throwSoftLevel, 1.0f, vel);
         }
+        else if (const float nearer = sj::clamp(flight.nearer, -1.0f, 1.0f); std::abs(nearer) > 0.0f)
+        {
+            // Nearer or further off than the bus drew it: closer is louder, brighter and bends more steeply.
+            first.closeness = sj::clamp(first.closeness + c_throwNearerCloseness * nearer, 0.05f, 1.0f);
+            first.closest = 0.004f * std::exp2(5.0f * (1.0f - first.closeness));
+            v.level = sj::dbToGain(nearer * (nearer > 0.0f ? c_throwNearerDb : c_throwFurtherDb));
+        }
+        // Ridden: the tracks' balance is taken from the ride on the next chunk; otherwise every track at its fader.
+        m_throwBalanceWanted = flight.ridden;
+        if (! flight.ridden)
+            m_throwBalance.fill(1.0f);
         const double wait = static_cast<double>(q.delay) / m_sampleRate;
         first.time = -wait;
         for (size_t b = 1; b < m_buses.size(); ++b)
@@ -1180,10 +1239,12 @@ void RigEngine::renderTracks(int frames)
         if (onStow && data != nullptr && subRide < 1.0f)
             ride = subRide <= 0.0f ? 1.0f : std::pow(ride, subRide);
         m_rideView[ti].store(ride, std::memory_order_relaxed);
+        if (m_throwBalanceWanted)
+            m_throwBalanceRide[ti] = data != nullptr ? ride : 0.0f;
 
         const float laneGain = m_cargo != nullptr ? m_cargo->laneGain(CargoHold::c_numBuiltIns + t) : 1.0f;
         const float target = data != nullptr ? level * ride * laneGain * m_releaseGain : 0.0f;
-        const float throwTarget = data != nullptr ? level * laneGain * m_throwOpen : 0.0f;
+        const float throwTarget = data != nullptr ? level * laneGain * m_throwOpen * m_throwBalance[ti] : 0.0f;
 
         if (data == nullptr && (waits || (m_gain[ti] < 1.0e-5f && m_throwGain[ti] < 1.0e-5f)))
         {
@@ -1335,6 +1396,15 @@ void RigEngine::renderTracks(int frames)
             }
         }
         m_gain[ti] = target;
+    }
+
+    // A ridden throw: the balance of the tracks as the ride has them now, the loudest at its fader.
+    if (m_throwBalanceWanted)
+    {
+        m_throwBalanceWanted = false;
+        const float loudest = *std::max_element(m_throwBalanceRide.begin(), m_throwBalanceRide.end());
+        for (size_t t = 0; t < m_throwBalance.size(); ++t)
+            m_throwBalance[t] = loudest > 1.0e-4f ? m_throwBalanceRide[t] / loudest : 1.0f;
     }
 
     // Tell the hold which sample data the players still read, so data replaced by an edit is never freed while a

@@ -551,7 +551,7 @@ void SwooshbucklerAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
     else if (m_restartPending.exchange(false))
         m_engine.restart();
     if (m_uiThrows.exchange(0) > 0)
-        m_engine.throwWhoosh(0, -1.0f); // as close as the bus draws it
+        m_engine.throwWhoosh(0, -1.0f, m_offlineFlight); // as close as the bus draws it
 
     // Hosts may send more than the prepared block size (offline / freewheel). Never reallocate here: work in
     // sections of the prepared size instead.
@@ -1517,6 +1517,21 @@ void SwooshbucklerAudioProcessor::prepareOffline(double sampleRate, std::uint32_
     m_wanderBlend = 0.0f;
     m_morphX = m_raw.morphX->load();
     m_morphY = m_raw.morphY->load();
+}
+
+void SwooshbucklerAudioProcessor::carryOn(const RigEngine::Places& places)
+{
+    jassert(m_offline);
+    m_restartPending.store(false);
+    m_engine.setPlaces(places);
+}
+
+void SwooshbucklerAudioProcessor::scatter(std::uint32_t seed)
+{
+    jassert(m_offline);
+    juce::Random random(static_cast<juce::int64>(seed));
+    m_mods.scatter(random);
+    m_engine.scatterRide(static_cast<std::uint32_t>(random.nextInt()) | 1u);
 }
 
 //==============================================================================

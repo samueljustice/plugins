@@ -226,7 +226,7 @@ void VariationsView::fillMenus()
          { { VariationRenderer::eachName(Each::OneWhoosh), "A single pass, from silence until it has rung out" },
            { VariationRenderer::eachName(Each::WholeRide), "A stretch of the rig playing, as you hear it with Play on" } });
     fill(m_mode, static_cast<int>(defaults.mode),
-         { { VariationRenderer::modeName(Mode::NewPasses), "Your sound exactly as you set it; only the passes differ" },
+         { { VariationRenderer::modeName(Mode::NewPasses), "Your settings as they are; every pass flies its own way" },
            { VariationRenderer::modeName(Mode::SmallChanges), "Your sound, with every knob moved a little" },
            { VariationRenderer::modeName(Mode::RandomiseEverything), "A different sound in every file" } });
     // The names as they would be for this session, so each item shows what it gives.
@@ -395,7 +395,7 @@ juce::String VariationsView::whatVariesSentence(Mode mode, float amount)
             return "Each one is a fresh Randomise: a different sound every time.";
         case Mode::NewPasses:
         default:
-            return "Each one uses your settings exactly as they are. Only the passes differ.";
+            return "Your settings stay exactly as they are. Each whoosh plays on from where the last one stopped, and flies its own way.";
     }
 }
 
@@ -430,8 +430,9 @@ void VariationsView::syncControls()
                           ? "What Varies\nYour settings, with each knob moved a little either way, by up to How Different. A family of sounds around the one you dialled in."
                           : j.mode == Mode::RandomiseEverything
                                 ? "What Varies\nA fresh Randomise for every file, so each one is a different sound. Your tracks, their levels and any locked section stay as they are."
-                                : "What Varies\nEvery knob, wire and modulator stays exactly as you set it. Only the passes differ: how each one flies, how close it comes "
-                                  "and which part of each sound it plays.");
+                                : "What Varies\nEvery knob, wire and modulator stays exactly as you set it. Each whoosh carries on through your sounds from "
+                                  "where the last one stopped, and each pass flies its own way: how near it comes, when it is closest, and the balance "
+                                  "of your tracks as the ride moves them.");
     m_batch.setTooltip(m_repeat == Repeat::New
                            ? "Batch\nEvery press of Render makes variations you have not had before."
                            : "Batch\nRender makes the same variations as that batch again, as long as your settings and sounds are the same. Handy for the same "
