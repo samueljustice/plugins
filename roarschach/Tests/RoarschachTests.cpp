@@ -877,6 +877,37 @@ namespace
                 check(nullDb(out.l, voice, p->getLatencySamples(), 0) < -200.0, juce::String(sr) + " Hz bypass is not a pure delay");
             }
 
+            // The views are told: the flag is set by every bypassed block and cleared by every
+            // processed one, at any block size (an empty block included), while the chain runs on.
+            for (const int block : { 0, 1, 16, 333, 512, 4096 })
+            {
+                auto p = makeProcessor(sr, std::max(block, 1));
+                const auto& f = p->getMonsterFeatures();
+                juce::AudioBuffer<float> buffer(2, block);
+                juce::MidiBuffer midi;
+                bool ok = ! f.hostBypassed.load();
+                for (int k = 0; k < 6; ++k)
+                {
+                    const bool bypass = k % 3 != 2;
+                    buffer.clear();
+                    if (block > 0)
+                        buffer.setSample(0, 0, 0.5f);
+                    if (bypass)
+                        p->processBlockBypassed(buffer, midi);
+                    else
+                        p->processBlock(buffer, midi);
+                    ok = ok && f.hostBypassed.load() == bypass;
+                }
+                check(ok, juce::String(sr) + " Hz, blocks of " + juce::String(block) + ": the host-bypass flag follows processBlockBypassed / processBlock");
+            }
+            {
+                auto p = makeProcessor(sr, 512);
+                const int before = p->getMonsterFeatures().generation.load();
+                render(*p, in, 512, true);
+                check(p->getMonsterFeatures().generation.load() != before && p->getMonsterFeatures().hostBypassed.load(),
+                      juce::String(sr) + " Hz: in bypass the chain runs on underneath and says it is bypassed");
+            }
+
             // Reference: every module Off (OUTPUT linear: no auto gain, no Ride, no filters, Push 0).
             const auto prepareLinear = [](RoarschachAudioProcessor& p)
             {
@@ -3168,6 +3199,36 @@ namespace
     {
         std::printf("[editor] tooltips, menus, moves, drag, chips, value boxes, host moves\n");
         {
+            // Host bypass: the chain runs on underneath, but the strip's activity readouts rest.
+            auto q = makeProcessor(48000.0, 512);
+            setValues(*q, { { Params::cleanOn, 1.0f }, { Params::deessOn, 1.0f }, { Params::detailOn, 1.0f }, { Params::roarOn, 1.0f } });
+            std::unique_ptr<juce::AudioProcessorEditor> base(q->createEditor());
+            auto& ed = *dynamic_cast<RoarschachAudioProcessorEditor*>(base.get());
+            auto& strip = RoarschachEditorInspector::strip(ed);
+            const auto voice = dual(makeVoice(48000.0, 1.5, 110.0));
+            const auto activity = [&strip]
+            {
+                float a = 0.0f;
+                for (const auto id : { Params::ModuleId::clean, Params::ModuleId::deess, Params::ModuleId::detail, Params::ModuleId::roar })
+                {
+                    const auto v = strip.getReadoutForTests(static_cast<int>(id));
+                    a += std::abs(v[0]) + std::abs(v[1]);
+                }
+                return a;
+            };
+            render(*q, voice, 512, false);
+            strip.refresh();
+            const float playing = activity();
+            render(*q, voice, 512, true);
+            strip.refresh();
+            const float bypassed = activity();
+            render(*q, voice, 512, false);
+            strip.refresh();
+            const float back = activity();
+            check(playing > 0.0f && bypassed <= 0.0f && back > 0.0f, "strip: in host bypass the module readouts rest, and read again after (" + juce::String(playing, 2) + ", "
+                                                                      + juce::String(bypassed, 2) + ", " + juce::String(back, 2) + ")");
+        }
+        {
             // Without OpenGL the creature view shows a still cloud in its own tones and says why,
             // not an empty dark box.
             auto q = makeProcessor(48000.0, 512);
@@ -3213,6 +3274,139 @@ namespace
             std::printf("  without OpenGL: the view's median luma %.2f, %d dark pixels (the message and the readouts' backing)\n", median, dark);
             check(image.isValid() && median > 0.55f && median < 0.92f && dark > 50,
                   "editor: without OpenGL the creature view is a still pale cloud with a message (median luma " + juce::String(median, 2) + ")");
+        }
+        {
+            // The visualiser: Full asks for frames, Off keeps no context and asks for none (a still
+            // cloud, no message), Low asks for at most 15 a second; a view that cannot be seen asks
+            // for none, and one its window reports covered two a second. The choice reaches every
+            // open view on its next tick.
+            using V = MonsterView::Visualiser;
+            auto q = makeProcessor(48000.0, 512);
+            std::unique_ptr<juce::AudioProcessorEditor> base(q->createEditor()), base2(q->createEditor());
+            auto& ed = *dynamic_cast<RoarschachAudioProcessorEditor*>(base.get());
+            auto& ed2 = *dynamic_cast<RoarschachAudioProcessorEditor*>(base2.get());
+            ed.setSize(RoarschachAudioProcessorEditor::c_baseWidth, RoarschachAudioProcessorEditor::c_baseHeight);
+            ed2.setSize(RoarschachAudioProcessorEditor::c_baseWidth, RoarschachAudioProcessorEditor::c_baseHeight);
+            auto& view = RoarschachEditorInspector::monster(ed);
+            auto& other = RoarschachEditorInspector::monster(ed2);
+            view.setSeenForTests(0);
+            other.setSeenForTests(0);
+            const auto ticks = [](MonsterView& v, int n) { const int before = v.framesRequestedForTests(); for (int i = 0; i < n; ++i) v.tickForTests(); return v.framesRequestedForTests() - before; };
+            const int full = ticks(view, 10);
+            const bool fullAttached = view.hasGLContextForTests();
+            const int fullHz = view.frameRateForTests();
+            MonsterView::setVisualiserForAll(V::low);
+            const int low = ticks(view, 10);
+            const int lowHz = view.frameRateForTests();
+            MonsterView::setVisualiserForAll(V::off);
+            const int off = ticks(view, 10);
+            ticks(other, 1);
+            const bool offDetached = ! view.hasGLContextForTests() && ! other.hasGLContextForTests() && other.getVisualiser() == V::off;
+            const auto still = view.createComponentSnapshot(view.getLocalBounds(), true, 1.0f);
+            double sum = 0.0;
+            int n = 0, dark = 0;
+            for (int y = 0; y < still.getHeight(); y += 2)
+                for (int x = 0; x < still.getWidth(); x += 2, ++n)
+                {
+                    const auto c = still.getPixelAt(x, y);
+                    sum += static_cast<double>(c.getBrightness());
+                    // (in the middle, where the no-OpenGL message would stand; the readouts' backing is at the edges)
+                    const bool middle = std::abs(x - still.getWidth() / 2) < 150 && std::abs(y - still.getHeight() / 2) < 30;
+                    dark += middle && 0.3f * c.getFloatRed() + 0.59f * c.getFloatGreen() + 0.11f * c.getFloatBlue() < 0.3f ? 1 : 0;
+                }
+            std::unique_ptr<juce::AudioProcessorEditor> base3(q->createEditor());
+            auto& opened = RoarschachEditorInspector::monster(*dynamic_cast<RoarschachAudioProcessorEditor*>(base3.get()));
+            const bool openedOff = opened.getVisualiser() == V::off && ! opened.hasGLContextForTests();
+            base3.reset();
+            MonsterView::setVisualiserForAll(V::full);
+            const int back = ticks(view, 10);
+            const bool backAttached = view.hasGLContextForTests();
+            view.setSeenForTests(1);
+            const int unseen = ticks(view, 10);
+            const int unseenHz = view.frameRateForTests();
+            view.setSeenForTests(2);
+            const int covered = ticks(view, 10);
+            const int coveredHz = view.frameRateForTests();
+            view.setSeenForTests(0);
+            const int seenAgain = ticks(view, 10);
+            std::printf("  creature view, frames asked for in 10 ticks: full %d (%d Hz), low %d (%d Hz), off %d, full again %d; not seen %d (%d Hz), covered %d (%d Hz), seen again %d;"
+                        " off: mean brightness %.2f, %d dark pixels of %d\n", full, fullHz, low, lowHz, off, back, unseen, unseenHz, covered, coveredHz, seenAgain, n > 0 ? sum / n : 0.0, dark, n);
+            check(full == 10 && fullAttached && fullHz >= 15, "creature view: Full draws a frame on every tick");
+            check(low == 10 && lowHz <= 15, "creature view: Low draws at most 15 frames a second (" + juce::String(lowHz) + ")");
+            check(off == 0 && offDetached && openedOff, "creature view: Off keeps no OpenGL context and draws no frames, in every open view and the next one opened");
+            check(n > 0 && sum / n > 0.5 && dark == 0, "creature view: Off shows the still cloud without the no-OpenGL message (mean brightness " + juce::String(n > 0 ? sum / n : 0.0, 2) + ", "
+                                                                + juce::String(dark) + " dark pixels in the middle)");
+            check(back == 10 && backAttached, "creature view: back from Off it attaches its context and draws again");
+            check(unseen == 0 && covered == 10 && coveredHz <= 2 && seenAgain == 10, "creature view: no frames while it cannot be seen, two a second while its window reports it covered, all again once seen");
+        }
+        {
+            // Off, from the moment the editor opens (no GL frame ever drawn): the readouts and the
+            // ASLEEP tag still follow the sound, host bypass and silence on the timer's ticks alone;
+            // and Evolution: Frozen keeps the settings' colour, not a colour never drawn.
+            using V = MonsterView::Visualiser;
+            MonsterView::setVisualiserForAll(V::off);
+            auto r = makeProcessor(48000.0, 512);
+            std::unique_ptr<juce::AudioProcessorEditor> base(r->createEditor());
+            auto& view = RoarschachEditorInspector::monster(*dynamic_cast<RoarschachAudioProcessorEditor*>(base.get()));
+            view.setSeenForTests(0);
+            juce::AudioBuffer<float> buffer(2, 512);
+            juce::MidiBuffer midi;
+            double phase = 0.0;
+            // (each tick a tenth of a second of audio: a 140 Hz sawtooth, or silence; bypassed or not)
+            const auto feed = [&](bool bypassed, bool sound, int ticks)
+            {
+                for (int t = 0; t < ticks; ++t)
+                {
+                    view.tickForTests();
+                    for (int done = 0; done < 4800; done += 512)
+                    {
+                        for (int i = 0; i < 512; ++i)
+                        {
+                            const float s = sound ? 0.3f * static_cast<float>(2.0 * phase - 1.0) : 0.0f;
+                            phase = std::fmod(phase + 140.0 / 48000.0, 1.0);
+                            buffer.setSample(0, i, s);
+                            buffer.setSample(1, i, s);
+                        }
+                        if (bypassed)
+                            r->processBlockBypassed(buffer, midi);
+                        else
+                            r->processBlock(buffer, midi);
+                    }
+                }
+                view.tickForTests();
+            };
+            const juce::String rest = "F0 -- | DETAIL 0.0 / 0.0 dB";
+            feed(false, true, 20);
+            const auto voiced = view.getReadoutsForTests();
+            const bool awake = !view.isAsleepForTests() && !view.readsSilenceForTests();
+            feed(true, true, 20);
+            const auto bypassed = view.getReadoutsForTests();
+            const bool bypassedAsleep = view.isAsleepForTests() && view.readsSilenceForTests();
+            feed(false, false, 40);   // (the input meter falls to -60 dB in about 1.7 s, then 1.5 s of quiet)
+            const bool quietAsleep = view.isAsleepForTests();
+            feed(false, true, 5);
+            const auto again = view.getReadoutsForTests();
+            const bool awakeAgain = !view.isAsleepForTests() && !view.readsSilenceForTests();
+            std::printf("  Off from the start: readouts \"%s\" over a voice, \"%s\" in host bypass, \"%s\" with the voice back; asleep after silence %d, awake again %d\n",
+                        voiced.toRawUTF8(), bypassed.toRawUTF8(), again.toRawUTF8(), quietAsleep ? 1 : 0, awakeAgain ? 1 : 0);
+            check(awake && voiced.startsWith("F0 ") && !voiced.startsWith("F0 --"), "creature view, Off: the readouts follow the voice without GL frames (" + voiced + ")");
+            check(bypassedAsleep && bypassed == rest, "creature view, Off: in host bypass the readouts rest and the view reads asleep (" + bypassed + ")");
+            check(quietAsleep && awakeAgain && again.startsWith("F0 ") && !again.startsWith("F0 --"),
+                  "creature view, Off: asleep after silence, awake and live again with the voice (" + again + ")");
+
+            r->setCreatureFrozen(false);
+            r->setCreatureColour(std::nullopt);
+            MonsterView::Params settings;
+            settings.mood = { 0.7f, 0.2f, 0.4f, 0.9f };
+            view.setParams(settings);
+            view.chooseFrozenForTests();
+            const auto kept = r->getCreatureColour();
+            bool same = kept.has_value() && r->isCreatureFrozen();
+            for (size_t i = 0; same && i < settings.mood.size(); ++i)
+                same = std::abs((*kept)[i] - settings.mood[i]) < 1.0e-4f;
+            check(same, "creature view, Off: Evolution: Frozen keeps the settings' colour with the session");
+            base.reset();
+            MonsterView::setVisualiserForAll(V::full);
         }
         auto p = makeProcessor(48000.0, 512);
         std::unique_ptr<juce::AudioProcessorEditor> editorBase(p->createEditor());
@@ -3778,13 +3972,26 @@ namespace
                                   .getChildFile("roarschach-ui-test-" + juce::String::toHexString(juce::Random::getSystemRandom().nextInt()) + ".settings");
             file.deleteFile();
             check(Editor::readRememberedScale(file) == 0.0f, "no remembered size without a settings file");
+            check(Editor::readRememberedVisualiser(file) == MonsterView::Visualiser::full && !file.exists(), "no settings file: the visualiser is Full");
             check(Editor::rememberScale(file, 0.9f) && near(Editor::readRememberedScale(file), 0.9f), "the chosen size is remembered");
             check(Editor::rememberScale(file, 3.0f) && near(Editor::readRememberedScale(file), Editor::c_maxScale), "a remembered size above the largest is clamped");
             check(Editor::rememberScale(file, 0.1f) && near(Editor::readRememberedScale(file), Editor::c_minScale), "a remembered size below the smallest is clamped");
             check(!Editor::rememberScale(file, std::numeric_limits<float>::quiet_NaN()) && near(Editor::readRememberedScale(file), Editor::c_minScale),
                   "a non-finite size is not remembered");
+            {
+                using V = MonsterView::Visualiser;
+                check(Editor::readRememberedVisualiser(file) == V::full, "a settings file without the choice gives the visualiser Full");
+                bool all = true;
+                for (const auto v : { V::low, V::off, V::full, V::off })
+                    all = all && Editor::rememberVisualiser(file, v) && Editor::readRememberedVisualiser(file) == v;
+                check(all, "the visualiser chosen is remembered (Full, Low and Off)");
+                check(near(Editor::readRememberedScale(file), Editor::c_minScale), "remembering the visualiser keeps the remembered size");
+                Editor::rememberScale(file, 0.9f);
+                check(Editor::readRememberedVisualiser(file) == V::off, "remembering the size keeps the visualiser");
+            }
             file.replaceWithText("not a settings file");
             check(Editor::readRememberedScale(file) == 0.0f, "a damaged settings file gives no remembered size");
+            check(Editor::readRememberedVisualiser(file) == MonsterView::Visualiser::full, "a damaged settings file gives the visualiser Full");
             file.deleteFile();
             check(Editor::getSettingsFile().getFileName() == "Roarschach.settings"
                       && Editor::getSettingsFile().getParentDirectory().getFileName() == "Sammy J",
@@ -4390,6 +4597,43 @@ namespace
             save(picture.getClippedImage(face), "03-face-" + slug + "@2x.png");
         }
         save(stage.createComponentSnapshot(stripArea(), true, 2.0f), "04-strip-last-preset@2x.png");
+        {
+            // The creature's right-click menu over the view (the last preset's colour), opened where
+            // the pointer is drawn: the view's GL frame first, then the menu painted over it.
+            const auto picture = editorPicture(2.0f);
+            const auto view = stage.getLocalArea(&monster, monster.getLocalBounds());
+            juce::Component at;   // (in the view, so the menu takes the editor's look)
+            monster.addAndMakeVisible(at);
+            at.setBounds(monster.getWidth() / 2 - 330, 40, 1, 1);
+            const auto click = stage.getLocalArea(&at, at.getLocalBounds());
+            auto menu = monster.buildCreatureMenu();
+            menu.setLookAndFeel(&RoarschachEditorInspector::lookAndFeel(editor));
+            menu.showMenuAsync(RoarschachLookAndFeel::menuOptionsFor(at).withParentComponent(&stage));
+            runLoop(30);
+            juce::Component* shown = nullptr;
+            for (auto* c : stage.getChildren())
+                if (c != &editor && c->isVisible())
+                    shown = c;
+            if (shown == nullptr)
+                std::printf("  (the creature menu did not open in time: run the tool again with nothing in front of it)\n");
+            if (shown != nullptr)
+            {
+                auto image = picture;
+                const auto menuArea = shown->getBounds();
+                {
+                    juce::Graphics g(image);
+                    g.drawImage(shown->createComponentSnapshot(shown->getLocalBounds(), true, 2.0f), (menuArea * 2).toFloat());
+                    g.addTransform(juce::AffineTransform::scale(2.0f));
+                    drawPointer(g, click.getPosition().toFloat());
+                }
+                const auto area = menuArea.getUnion(click).expanded(40, 28).getIntersection(view);
+                save(image.getClippedImage(area * 2), "creature-menu@2x.png");
+                std::printf("  the creature menu: %d x %d at %d, %d in the view's %d x %d\n", menuArea.getWidth(), menuArea.getHeight(), menuArea.getX() - view.getX(),
+                            menuArea.getY() - view.getY(), view.getWidth(), view.getHeight());
+            }
+            juce::PopupMenu::dismissAllActiveMenus();
+            runLoop(200);
+        }
         // The preset bar with its die (Kaiju showing), and ROLL ALL in the slot after the last module.
         save(stage.createComponentSnapshot({ baseW - 500, 0, 500, 56 }, true, 2.0f), "header@2x.png");
         save(stage.createComponentSnapshot(stage.getLocalArea(&strip, strip.getSlotBounds(Params::numModules)), true, 2.0f), "panel-roll-all@2x.png");

@@ -884,6 +884,8 @@ public:
         }
     }
 
+    const std::array<float, 34>& getValues() const noexcept { return m_values; }
+
     /** New readout values (from the timer); repaints the footer when they changed. */
     void setValues(const std::array<float, 34>& values)
     {
@@ -1240,6 +1242,11 @@ void SignalFlowStrip::setParameter(const char* id, float plainValue)
 juce::Component* SignalFlowStrip::getModuleTile(int module) const
 {
     return juce::isPositiveAndBelow(module, Params::numModules) ? m_tiles[static_cast<size_t>(module)].get() : nullptr;
+}
+
+std::array<float, 34> SignalFlowStrip::getReadoutForTests(int module) const
+{
+    return juce::isPositiveAndBelow(module, Params::numModules) ? m_tiles[static_cast<size_t>(module)]->getValues() : std::array<float, 34> {};
 }
 
 juce::Component* SignalFlowStrip::getInTile() const { return m_inTile.get(); }
@@ -1950,6 +1957,11 @@ void SignalFlowStrip::timerCallback()
     }
 
     const auto& f = m_features;
+    // While the host bypasses, the chain still runs underneath (so leaving bypass is seamless) and
+    // keeps publishing: the meters and the activity readouts rest as in silence. What is set (the
+    // shift, the carrier, the OVERTONE bands, the room's decay) still reads.
+    const float heard = f.hostBypassed.load(std::memory_order_relaxed) ? 0.0f : 1.0f;
+    const auto act = [heard](const std::atomic<float>& a) { return load(a) * heard; };
     for (int m = 0; m < Params::numModules; ++m)
     {
         auto& tile = *m_tiles[static_cast<size_t>(m)];
@@ -1968,15 +1980,15 @@ void SignalFlowStrip::timerCallback()
         switch (static_cast<Params::ModuleId>(m))
         {
             case Params::ModuleId::pitch:    v[0] = std::round(load(f.pitchSt) * 100.0f) / 100.0f; break;
-            case Params::ModuleId::clean:    v[0] = juce::jlimit(0.0f, 1.0f, load(f.gateOpen));
-                                             v[1] = std::round(load(f.cleanGrDb) * 10.0f) / 10.0f; break;
-            case Params::ModuleId::deess:    v[0] = std::round(load(f.deessGrDb) * 10.0f) / 10.0f; break;
-            case Params::ModuleId::tame:     v[0] = std::round(load(f.tameGrDb) * 10.0f) / 10.0f; break;
-            case Params::ModuleId::detail:   v[0] = std::round(load(f.detailBoostDb) * 10.0f) / 10.0f;
-                                             v[1] = std::round(load(f.detailCutDb) * 10.0f) / 10.0f; break;
+            case Params::ModuleId::clean:    v[0] = juce::jlimit(0.0f, 1.0f, act(f.gateOpen));
+                                             v[1] = std::round(act(f.cleanGrDb) * 10.0f) / 10.0f; break;
+            case Params::ModuleId::deess:    v[0] = std::round(act(f.deessGrDb) * 10.0f) / 10.0f; break;
+            case Params::ModuleId::tame:     v[0] = std::round(act(f.tameGrDb) * 10.0f) / 10.0f; break;
+            case Params::ModuleId::detail:   v[0] = std::round(act(f.detailBoostDb) * 10.0f) / 10.0f;
+                                             v[1] = std::round(act(f.detailCutDb) * 10.0f) / 10.0f; break;
             case Params::ModuleId::vocoder:
                 for (int b = 0; b < roar::MonsterFeatures::numBands; ++b)
-                    v[static_cast<size_t>(b)] = std::round(juce::jlimit(0.0f, 1.0f, load(f.vocoderBands[static_cast<size_t>(b)])) * 32.0f) / 32.0f;
+                    v[static_cast<size_t>(b)] = std::round(juce::jlimit(0.0f, 1.0f, act(f.vocoderBands[static_cast<size_t>(b)])) * 32.0f) / 32.0f;
                 break;
             case Params::ModuleId::ring:
             {
@@ -1987,19 +1999,19 @@ void SignalFlowStrip::timerCallback()
                 float rate = hz;
                 while (rate > 8.0f)
                     rate *= 0.5f;
-                tile.m_blinkPhase = std::fmod(tile.m_blinkPhase + dt * std::max(rate, 0.0f), 1.0f);
+                tile.m_blinkPhase = std::fmod(tile.m_blinkPhase + dt * heard * std::max(rate, 0.0f), 1.0f);
                 v[0] = std::round(hz);
-                v[1] = hz > 0.0f && tile.m_blinkPhase < 0.5f ? 1.0f : 0.0f;
+                v[1] = hz > 0.0f && heard > 0.0f && tile.m_blinkPhase < 0.5f ? 1.0f : 0.0f;
                 v[2] = follow ? 1.0f : 0.0f;
                 v[3] = rawValue(Params::ringRatio);
                 break;
             }
-            case Params::ModuleId::shimmer:  v[0] = load(f.shimmerPhase); break;
-            case Params::ModuleId::growl:    v[0] = std::round(load(f.growlMod) * 50.0f) / 50.0f; break;
-            case Params::ModuleId::swirl:    v[0] = std::round(load(f.swirlNotch) * 100.0f) / 100.0f; break;
-            case Params::ModuleId::roar:     v[0] = std::round(load(f.roarHeat) * 100.0f) / 100.0f; break;
-            case Params::ModuleId::ensemble: v[0] = std::round(load(f.ensembleWidth) * 100.0f) / 100.0f; break;
-            case Params::ModuleId::sub:      v[0] = std::round(load(f.subLevel) * 50.0f) / 50.0f;
+            case Params::ModuleId::shimmer:  v[0] = act(f.shimmerPhase); break;
+            case Params::ModuleId::growl:    v[0] = std::round(act(f.growlMod) * 50.0f) / 50.0f; break;
+            case Params::ModuleId::swirl:    v[0] = std::round(act(f.swirlNotch) * 100.0f) / 100.0f; break;
+            case Params::ModuleId::roar:     v[0] = std::round(act(f.roarHeat) * 100.0f) / 100.0f; break;
+            case Params::ModuleId::ensemble: v[0] = std::round(act(f.ensembleWidth) * 100.0f) / 100.0f; break;
+            case Params::ModuleId::sub:      v[0] = std::round(act(f.subLevel) * 50.0f) / 50.0f;
                                              v[1] = std::round(load(f.subHz)); break;
             case Params::ModuleId::overtone:
                 v[0] = std::round(load(f.overtoneBandHz[0]));
@@ -2010,7 +2022,7 @@ void SignalFlowStrip::timerCallback()
                 v[5] = juce::roundToInt(rawValue(Params::overtoneMode)) == 2 ? 1.0f : 0.0f;
                 break;
             case Params::ModuleId::chamber:
-                v[0] = std::round(juce::jlimit(0.0f, 1.0f, load(f.chamberRing)) * 50.0f) / 50.0f;
+                v[0] = std::round(juce::jlimit(0.0f, 1.0f, act(f.chamberRing)) * 50.0f) / 50.0f;
                 v[1] = std::round(load(f.chamberDecay) * 100.0f) / 100.0f;
                 v[2] = static_cast<float>(juce::roundToInt(rawValue(Params::chamberRoom)));
                 break;
@@ -2023,7 +2035,7 @@ void SignalFlowStrip::timerCallback()
     m_outTile->setKnobUse(Params::outAttack, rawValue(Params::outAuto) >= 0.5f ? Tile::KnobUse::weak : Tile::KnobUse::full);
 
     const float f0 = load(f.f0Hz);
-    m_inTile->update(juce::jlimit(0.0f, 4.0f, load(f.inputLevel)), load(f.voiced) > 0.5f && f0 > 0.0f && f0 < 20000.0f ? f0 : 0.0f);
-    m_outTile->update(juce::jlimit(0.0f, 4.0f, load(f.outputLevel)), std::round(load(f.limiterGrDb) * 10.0f) / 10.0f,
-                      std::round(load(f.clipDb) * 10.0f) / 10.0f, rawValue(Params::outCeiling), now);
+    m_inTile->update(juce::jlimit(0.0f, 4.0f, act(f.inputLevel)), act(f.voiced) > 0.5f && f0 > 0.0f && f0 < 20000.0f ? f0 : 0.0f);
+    m_outTile->update(juce::jlimit(0.0f, 4.0f, act(f.outputLevel)), std::round(act(f.limiterGrDb) * 10.0f) / 10.0f,
+                      std::round(act(f.clipDb) * 10.0f) / 10.0f, rawValue(Params::outCeiling), now);
 }

@@ -23,6 +23,7 @@ namespace
     const juce::Identifier c_viewEditorScale { "viewEditorScale" };
     const juce::Identifier c_viewHintDone { "viewHintDone" };
     const char* const c_settingsScaleKey = "editorScale";
+    const char* const c_settingsVisualiserKey = "visualiser";
     const juce::Identifier c_undoFocus { "undoFocus" };   // a control Cmd+Z works from while it has the focus
 
     const char* const c_hintText = "Play a voice through it to wake the creature. Pick a preset or roll a die to change it.";
@@ -125,6 +126,15 @@ RoarschachAudioProcessorEditor::RoarschachAudioProcessorEditor(RoarschachAudioPr
     // Only in a host or the standalone app: tests and tools build the editor around a bare processor
     // and must neither read nor change the size this computer remembers.
     m_useMachineSettings = audioProcessor.wrapperType != juce::AudioProcessor::wrapperType_Undefined;
+
+    // How much the creature view draws: chosen in its menu, kept on this computer, and the same for
+    // every instance (the open ones follow at once, new ones read it here).
+    if (m_useMachineSettings)
+    {
+        MonsterView::setVisualiserForAll(readRememberedVisualiser(getSettingsFile()));
+        m_monsterView.onVisualiserChosen = [](MonsterView::Visualiser v) { rememberVisualiser(getSettingsFile(), v); };
+    }
+    m_monsterView.setVisualiser(MonsterView::visualiserForAll());
 
     // This instance's own size (a session), else the size last chosen on this computer, else the
     // largest default that leaves room on the main display.
@@ -333,6 +343,23 @@ bool RoarschachAudioProcessorEditor::rememberScale(const juce::File& settingsFil
 
     juce::PropertiesFile settings(settingsFile, settingsOptions());
     settings.setValue(c_settingsScaleKey, static_cast<double>(juce::jlimit(c_minScale, c_maxScale, scale)));
+    return settings.save();
+}
+
+MonsterView::Visualiser RoarschachAudioProcessorEditor::readRememberedVisualiser(const juce::File& settingsFile)
+{
+    if (!settingsFile.existsAsFile())
+        return MonsterView::Visualiser::full;
+
+    juce::PropertiesFile settings(settingsFile, settingsOptions());
+    const auto text = settings.getValue(c_settingsVisualiserKey, "full");
+    return text == "low" ? MonsterView::Visualiser::low : text == "off" ? MonsterView::Visualiser::off : MonsterView::Visualiser::full;
+}
+
+bool RoarschachAudioProcessorEditor::rememberVisualiser(const juce::File& settingsFile, MonsterView::Visualiser visualiser)
+{
+    juce::PropertiesFile settings(settingsFile, settingsOptions());
+    settings.setValue(c_settingsVisualiserKey, visualiser == MonsterView::Visualiser::low ? "low" : visualiser == MonsterView::Visualiser::off ? "off" : "full");
     return settings.save();
 }
 

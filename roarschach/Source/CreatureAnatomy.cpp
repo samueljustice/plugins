@@ -892,6 +892,10 @@ namespace roar
         p.look.feather *= 1.0f + 0.45f * smooth (0.50f, 1.0f, stage);
         // young, the blot is a dense mass the eddies barely tear; grown, they tear it into ribbons
         p.look.ribbon = std::min (1.0f, p.look.ribbon * (0.55f + 0.45f * smooth (0.0f, 0.45f, stage)) + 0.40f * smooth (0.55f, 1.0f, stage));
+        {
+            const float v = g.look.ox * 7.31f + g.look.oy * 3.17f;
+            p.look.side = v - std::floor (v) < 0.5f ? -1.0f : 1.0f;
+        }
         p.centreY = cy + drop;
         return p;
     }
@@ -961,6 +965,7 @@ namespace roar
         p.look.strandGap = lerp (la.strandGap, lb.strandGap, t);
         p.look.ox = lerp (la.ox, lb.ox, t);
         p.look.oy = lerp (la.oy, lb.oy, t);
+        p.look.side = lerp (la.side, lb.side, t);   // (two blots that tear on opposite sides pass through even)
         p.centreY = lerp (a.centreY, b.centreY, t);
         // the glide keeps the blot's weight: half way, where the two blots' masses pass each other
         // and each is still moving to its place, the union of them is far smaller than either blot.

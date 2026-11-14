@@ -8,6 +8,11 @@
 #include <cmath>
 #include <vector>
 
+#if JUCE_MAC
+ #include <objc/message.h>
+ #include <objc/runtime.h>
+#endif
+
 namespace
 {
     constexpr float c_quietLevel = 0.001f;      // -60 dBFS: below this the input counts as silence
@@ -21,6 +26,39 @@ namespace
     constexpr float c_stallSeconds = 0.25f;      // a gap this long is a stall (hidden, host busy), not a slow GPU
     constexpr int c_failAfterTicks = 3 * c_frameHz; // 3 s on screen without a GL context
     constexpr float c_maxFrameSeconds = 0.1f;   // a stalled frame doesn't make the animation jump
+    constexpr int c_lowHz = 15;                  // Visualiser: Low, at most
+    constexpr int c_coveredHz = 2;               // the window reports the view covered or on another desktop
+    constexpr int c_notShownHz = 4;              // not showing: no frames, the timer only notices it come back
+    constexpr int c_offHz = 10;                  // Visualiser: Off, the readouts only
+
+    // The Visualiser choice, the same for every view in the process (message thread).
+    std::atomic<int>& visualiserChoice()
+    {
+        static std::atomic<int> choice { 0 };
+        return choice;
+    }
+
+   #if JUCE_MAC
+    // What the window holding this view reports: some of it visible, or none (covered by other
+    // windows, on another desktop, minimised, or its app hidden), or nothing to say (no window, or
+    // one without the report). window: the window asked. (NSWindowOcclusionStateVisible is bit 1.)
+    enum class Occlusion { unknown, visible, covered };
+    Occlusion windowOcclusion (void* nsView, void*& window)
+    {
+        window = nullptr;
+        if (nsView == nullptr)
+            return Occlusion::unknown;
+        using ObjectMsg = void* (*) (void*, SEL);
+        using UnsignedMsg = unsigned long (*) (void*, SEL);
+        window = reinterpret_cast<ObjectMsg> (objc_msgSend) (nsView, sel_registerName ("window"));
+        if (window == nullptr)
+            return Occlusion::unknown;
+        const SEL occlusion = sel_registerName ("occlusionState");
+        if (! class_respondsToSelector (object_getClass ((id) window), occlusion))
+            return Occlusion::unknown;
+        return (reinterpret_cast<UnsignedMsg> (objc_msgSend) (window, occlusion) & (1ul << 1)) != 0 ? Occlusion::visible : Occlusion::covered;
+    }
+   #endif
 
     // One-pole smoothing coefficient for a time constant, given the frame time.
     float smoothing (float dt, float seconds)
@@ -65,7 +103,12 @@ MonsterView::MonsterView (const roar::MonsterFeatures& features, const roar::Cre
     // display rate (up to 120 Hz) costs a lot of GPU for no visible gain. The timer below asks for
     // frames at 30 Hz, and at 15 Hz once the creature is asleep and settled.
     m_context.setContinuousRepainting (false);
-    m_context.attachTo (*this);
+    // (with the visualiser off, no context at all: the view paints its still cloud itself)
+    m_visualiser = visualiserForAll();
+    m_lowQuality.store (m_visualiser == Visualiser::low, std::memory_order_relaxed);
+    if (m_visualiser != Visualiser::off)
+        m_context.attachTo (*this);
+    m_offShown = m_visualiser == Visualiser::off;
 
     // The timer also refreshes the overlay text, which only repaints when it changes.
     startTimerHz (c_frameHz);
@@ -111,51 +154,90 @@ void MonsterView::mouseDown (const juce::MouseEvent& event)
         showCreatureMenu();
 }
 
+void MonsterView::setVisualiserForAll (Visualiser v)
+{
+    visualiserChoice().store (juce::jlimit (0, 2, static_cast<int> (v)), std::memory_order_relaxed);
+}
+
+MonsterView::Visualiser MonsterView::visualiserForAll()
+{
+    return static_cast<Visualiser> (juce::jlimit (0, 2, visualiserChoice().load (std::memory_order_relaxed)));
+}
+
+juce::PopupMenu MonsterView::buildCreatureMenu() const
+{
+    juce::PopupMenu menu;
+    if (! isCreatureFrozen || ! setCreatureFrozen || ! resetCreature)
+        return menu;
+
+    const bool isFrozen = isCreatureFrozen();
+    menu.addSectionHeader ("Creature");
+    menu.addItem (menuLive, "Evolution: Live", true, ! isFrozen);
+    menu.addItem (menuFrozen, "Evolution: Frozen", true, isFrozen);
+    menu.addSeparator();
+    menu.addItem (menuReset, "Reset creature");
+    // (on this computer, for every instance: Low and Off leave the graphics card to the session)
+    menu.addSectionHeader ("Visualiser");
+    menu.addItem (menuDrawFull, "Full: as smooth as the graphics card allows", true, m_visualiser == Visualiser::full);
+    menu.addItem (menuDrawLow, "Low: lighter on the graphics card, 15 frames a second", true, m_visualiser == Visualiser::low);
+    menu.addItem (menuDrawOff, "Off: a still cloud, no graphics card work", true, m_visualiser == Visualiser::off);
+    return menu;
+}
+
 void MonsterView::showCreatureMenu()
 {
     if (! isCreatureFrozen || ! setCreatureFrozen || ! resetCreature)
         return;
 
-    enum { live = 1, frozen, reset };
-    const bool isFrozen = isCreatureFrozen();
-    juce::PopupMenu menu;
-    menu.addSectionHeader ("Creature");
-    menu.addItem (live, "Evolution: Live", true, ! isFrozen);
-    menu.addItem (frozen, "Evolution: Frozen", true, isFrozen);
-    menu.addSeparator();
-    menu.addItem (reset, "Reset creature");
+    auto menu = buildCreatureMenu();
     menu.showMenuAsync (RoarschachLookAndFeel::menuOptionsFor (*this),
                         [safe = juce::Component::SafePointer<MonsterView> (this)] (int item)
                         {
-                            if (safe == nullptr || item == 0)
-                                return;
-                            // (a Frozen creature keeps its colour with the session: the colour on screen
-                            // when it is frozen, the settings' colour after a reset)
-                            const auto keep = [&safe] (const std::array<std::atomic<float>, roar::CreatureMood::numAxes>& from)
-                            {
-                                roar::CreatureMood::Axes axes {};
-                                for (size_t i = 0; i < axes.size(); ++i)
-                                    axes[i] = from[i].load (std::memory_order_relaxed);
-                                if (safe->keepCreatureColour)
-                                    safe->keepCreatureColour (axes);
-                            };
-                            if (item == live || item == frozen)
-                            {
-                                const bool wasFrozen = safe->isCreatureFrozen();
-                                safe->setCreatureFrozen (item == frozen);
-                                if (item == frozen && ! wasFrozen)
-                                    keep (safe->m_moodShown);
-                                else if (item == live && safe->keepCreatureColour)
-                                    safe->keepCreatureColour (std::nullopt);
-                            }
-                            else if (item == reset)
-                            {
-                                safe->resetCreature();
-                                safe->m_moodResets.fetch_add (1, std::memory_order_relaxed);
-                                if (safe->isCreatureFrozen())
-                                    keep (safe->m_moodTarget);
-                            }
+                            if (safe != nullptr && item != 0)
+                                safe->menuItemChosen (item);
                         });
+}
+
+void MonsterView::menuItemChosen (int item)
+{
+    if (! isCreatureFrozen || ! setCreatureFrozen || ! resetCreature)
+        return;
+    if (item >= menuDrawFull && item <= menuDrawOff)
+    {
+        const auto v = static_cast<Visualiser> (item - menuDrawFull);
+        setVisualiserForAll (v);
+        setVisualiser (v);
+        if (onVisualiserChosen)
+            onVisualiserChosen (v);
+        return;
+    }
+    // (a Frozen creature keeps its colour with the session: the colour on screen when it is frozen,
+    // the settings' colour after a reset. While no frames are drawn (Off, or no OpenGL) the colour
+    // on screen is not stepped, so the settings' colour is kept then too.)
+    const auto keep = [this] (const std::array<std::atomic<float>, roar::CreatureMood::numAxes>& from)
+    {
+        roar::CreatureMood::Axes axes {};
+        for (size_t i = 0; i < axes.size(); ++i)
+            axes[i] = from[i].load (std::memory_order_relaxed);
+        if (keepCreatureColour)
+            keepCreatureColour (axes);
+    };
+    if (item == menuLive || item == menuFrozen)
+    {
+        const bool wasFrozen = isCreatureFrozen();
+        setCreatureFrozen (item == menuFrozen);
+        if (item == menuFrozen && ! wasFrozen)
+            keep (drawsFrames() && m_glReady.load (std::memory_order_relaxed) ? m_moodShown : m_moodTarget);
+        else if (item == menuLive && keepCreatureColour)
+            keepCreatureColour (std::nullopt);
+    }
+    else if (item == menuReset)
+    {
+        resetCreature();
+        m_moodResets.fetch_add (1, std::memory_order_relaxed);
+        if (isCreatureFrozen())
+            keep (m_moodTarget);
+    }
 }
 
 juce::Image MonsterView::takeCapture()
@@ -178,21 +260,83 @@ void MonsterView::resized()
     m_height.store (getHeight(), std::memory_order_relaxed);
 }
 
+void MonsterView::setVisualiser (Visualiser v)
+{
+    if (v == m_visualiser)
+        return;
+    const auto was = m_visualiser;
+    m_visualiser = v;
+    m_lowQuality.store (v == Visualiser::low, std::memory_order_relaxed);
+    if (v == Visualiser::off)
+    {
+        // (no context kept alive: the view paints its still cloud itself)
+        if (m_context.getTargetComponent() != nullptr)
+            m_context.detach();
+        m_creature.eggVisible.store (false, std::memory_order_relaxed);
+    }
+    else if (was == Visualiser::off && ! m_glGivenUp)
+    {
+        m_ticksWithoutGL = 0;
+        m_context.attachTo (*this);
+    }
+    refreshOverlay (0.0f);
+    repaint();
+}
+
+MonsterView::Seen MonsterView::whetherSeen()
+{
+    if (m_testSeen >= 0)
+        return m_testSeen == 0 ? Seen::yes : (m_testSeen == 2 ? Seen::covered : Seen::no);
+    // (hidden, or a window that says it is minimised: no frames at all)
+    if (! isShowing())
+        return Seen::no;
+   #if JUCE_MAC
+    // (believed only from a window that has said it is visible since the view was put in it: one
+    // drawn into from another process may never say so, and would leave the picture at 2 Hz)
+    void* window = nullptr;
+    const auto occlusion = windowOcclusion (getWindowHandle(), window);
+    if (window != m_coverWindow && occlusion != Occlusion::visible)
+        m_coverWindow = nullptr;
+    if (occlusion == Occlusion::visible)
+        m_coverWindow = window;
+    if (occlusion == Occlusion::covered && window == m_coverWindow)
+        return Seen::covered;
+   #endif
+    return Seen::yes;
+}
+
 void MonsterView::timerCallback()
 {
+    // The choice made in any instance's menu
+    setVisualiser (visualiserForAll());
+
     // GL frames: full rate while awake, an even slower rate once asleep and settled (the timer
-    // itself is retimed, so the frames stay evenly spaced).
+    // itself is retimed, so the frames stay evenly spaced). None while the view cannot be seen, and
+    // two a second while its window reports it covered. Coming back, the first frame's step is
+    // clamped and not measured, so the creature carries on from where it was, without a jump.
+    m_seen = whetherSeen();
     const bool buffered = m_tier.load (std::memory_order_relaxed) >= 1;
     // (a GPU still slow on its lowest tier is given fewer frames: see QualityGovernor)
-    const int awakeHz = juce::jlimit (10, c_frameHz, m_awakeHz.load (std::memory_order_relaxed));
-    const int wantHz = m_idle.load (std::memory_order_relaxed) ? std::min (awakeHz, buffered ? c_idleBufferHz : c_idleSinglePassHz) : awakeHz;
+    int awakeHz = juce::jlimit (10, c_frameHz, m_awakeHz.load (std::memory_order_relaxed));
+    if (m_visualiser == Visualiser::low)
+        awakeHz = std::min (awakeHz, c_lowHz);
+    int wantHz = m_idle.load (std::memory_order_relaxed) ? std::min (awakeHz, buffered ? c_idleBufferHz : c_idleSinglePassHz) : awakeHz;
+    if (m_visualiser == Visualiser::off)
+        wantHz = c_offHz;
+    else if (m_seen == Seen::no)
+        wantHz = c_notShownHz;
+    else if (m_seen == Seen::covered)
+        wantHz = c_coveredHz;
     if (wantHz != m_timerHz)
     {
         m_timerHz = wantHz;
         startTimerHz (wantHz);
     }
-    if (! m_glGivenUp)
+    if (! m_glGivenUp && m_visualiser != Visualiser::off && m_seen != Seen::no)
+    {
         m_context.triggerRepaint();
+        ++m_framesRequested;
+    }
     refreshOverlay (1.0f / static_cast<float> (m_timerHz));
 }
 
@@ -239,6 +383,42 @@ void MonsterView::refreshOverlay (float seconds)
     const float boost = m_features.detailBoostDb.load (std::memory_order_relaxed);
     const float cut = m_features.detailCutDb.load (std::memory_order_relaxed);
 
+    // While no GL frames are drawn (Off, or no OpenGL) nothing else steps the silence and the
+    // sleep the readouts follow: the same rules as the frames' (updateAnimation), at the timer's rate.
+    if (! drawsFrames())
+    {
+        const int generation = m_features.generation.load (std::memory_order_relaxed);
+        const float dt = std::max (0.0f, seconds);
+        if (! m_overlayTracks)
+        {
+            // (from where the frames left them)
+            m_overlayTracks = true;
+            m_overlayGeneration = generation;
+            m_overlayStaleSeconds = m_stale.load (std::memory_order_relaxed) ? c_staleAfterSeconds : 0.0f;
+            m_overlayQuietSeconds = m_asleep.load (std::memory_order_relaxed) ? c_sleepAfterSeconds : 0.0f;
+        }
+        if (generation != m_overlayGeneration)
+        {
+            m_overlayGeneration = generation;
+            m_overlayStaleSeconds = 0.0f;
+        }
+        else
+        {
+            m_overlayStaleSeconds = std::min (m_overlayStaleSeconds + dt, 60.0f);
+        }
+        const bool silent = m_overlayStaleSeconds >= c_staleAfterSeconds || m_features.hostBypassed.load (std::memory_order_relaxed);
+        const float input = silent ? 0.0f : safe (m_features.inputLevel.load (std::memory_order_relaxed), 0.0f, 4.0f);
+        m_overlayQuietSeconds = input < c_quietLevel ? std::min (m_overlayQuietSeconds + dt, 60.0f) : 0.0f;
+        if (silent)
+            m_overlayQuietSeconds = std::max (m_overlayQuietSeconds, c_sleepAfterSeconds);
+        m_stale.store (silent, std::memory_order_relaxed);
+        m_asleep.store (m_overlayQuietSeconds >= c_sleepAfterSeconds, std::memory_order_relaxed);
+    }
+    else
+    {
+        m_overlayTracks = false;
+    }
+
     const bool stale = m_stale.load (std::memory_order_relaxed);
     const bool live = ! stale && voiced && std::isfinite (f0) && f0 > 0.0f && f0 < 20000.0f;
     const auto f0Text = live ? "F0 " + juce::String (juce::roundToInt (f0)) + " Hz" : juce::String ("F0 --");
@@ -255,23 +435,25 @@ void MonsterView::refreshOverlay (float seconds)
     // attachTo() succeeds even when the native context can't be made, and then no GL callback ever
     // runs: give it a few seconds on screen before showing the fallback.
     const bool glReady = m_glReady.load (std::memory_order_relaxed);
-    m_ticksWithoutGL = (glReady || ! isShowing()) ? 0 : std::min (m_ticksWithoutGL + 1, c_failAfterTicks);
+    const bool off = m_visualiser == Visualiser::off;
+    m_ticksWithoutGL = (glReady || off || ! isShowing()) ? 0 : std::min (m_ticksWithoutGL + 1, c_failAfterTicks);
     // No context after all: the view lets go of OpenGL. While it is attached the component is drawn
     // through the context's own cached image, which without a native context draws nothing, and
     // paint() (the still cloud and the line that says why) would never be reached.
     if (! m_glGivenUp && ! glReady && m_ticksWithoutGL >= c_failAfterTicks)
         giveUpOnGL();
-    const bool failed = m_shaderFailed.load (std::memory_order_relaxed) || m_glGivenUp || ! m_context.isAttached()
-                     || m_ticksWithoutGL >= c_failAfterTicks;
+    const bool failed = ! off && (m_shaderFailed.load (std::memory_order_relaxed) || m_glGivenUp || ! m_context.isAttached()
+                                  || m_ticksWithoutGL >= c_failAfterTicks);
 
     if (f0Text != m_f0Text || detailText != m_detailText || gravel != m_gravelShown
-        || asleep != m_sleepShown || failed != m_failShown)
+        || asleep != m_sleepShown || failed != m_failShown || off != m_offShown)
     {
         m_f0Text = f0Text;
         m_detailText = detailText;
         m_gravelShown = gravel;
         m_sleepShown = asleep;
         m_failShown = failed;
+        m_offShown = off;
         repaint();
     }
 }
@@ -288,7 +470,7 @@ void MonsterView::giveUpOnGL()
 // that may have a context): one more try.
 void MonsterView::visibilityChanged()
 {
-    if (m_glGivenUp && isShowing())
+    if (m_glGivenUp && isShowing() && m_visualiser != Visualiser::off)
     {
         m_glGivenUp = false;
         m_ticksWithoutGL = 0;
@@ -303,10 +485,11 @@ void MonsterView::paint (juce::Graphics& g)
     const auto bounds = getLocalBounds().toFloat();
     const float radius = m_cornerRadius.load (std::memory_order_relaxed);
 
-    if (m_failShown)
+    if (m_failShown || m_offShown)
     {
         // No GL: a still cloud in the creature view's own tones (lit above, shaded below, a few soft
-        // banks, mirrored as the cloud folds round the creature) with a line saying why nothing moves.
+        // banks, mirrored as the cloud folds round the creature), with a line saying why nothing
+        // moves where OpenGL could not run (none when the visualiser is simply off).
         juce::Graphics::ScopedSaveState state (g);
         juce::Path shape;
         shape.addRoundedRectangle (bounds, radius);
@@ -330,14 +513,17 @@ void MonsterView::paint (juce::Graphics& g)
                 g.setGradientFill (juce::ColourGradient (inner, c, inner.withAlpha (0.0f), c.translated (b.r * h, 0.0f), true));
                 g.fillEllipse (juce::Rectangle<float> (2.0f * b.r * h, 2.0f * b.r * h).withCentre (c));
             }
-        g.setFont (m_fonts->body (12.0f));
-        const juce::String message ("OpenGL not available");
-        const float w = juce::GlyphArrangement::getStringWidth (g.getCurrentFont(), message) + 24.0f;
-        const auto pill = bounds.withSizeKeepingCentre (w, 24.0f);
-        g.setColour (scope.withAlpha (0.6f));
-        g.fillRoundedRectangle (pill, 6.0f);
-        g.setColour (textDim);
-        g.drawText (message, pill, juce::Justification::centred, false);
+        if (m_failShown)
+        {
+            g.setFont (m_fonts->body (12.0f));
+            const juce::String message ("OpenGL not available");
+            const float w = juce::GlyphArrangement::getStringWidth (g.getCurrentFont(), message) + 24.0f;
+            const auto pill = bounds.withSizeKeepingCentre (w, 24.0f);
+            g.setColour (scope.withAlpha (0.6f));
+            g.fillRoundedRectangle (pill, 6.0f);
+            g.setColour (textDim);
+            g.drawText (message, pill, juce::Justification::centred, false);
+        }
     }
 
     auto row = bounds.reduced (16.0f, 12.0f).removeFromTop (16.0f);
@@ -452,8 +638,12 @@ void MonsterView::updateAnimation (float dt)
         m_staleSeconds = std::min (m_staleSeconds + dt, 60.0f);
     }
 
-    // Stale features read as silence: the creature closes its mouth and drifts off to sleep.
-    const bool stale = m_staleSeconds >= c_staleAfterSeconds;
+    // Stale features (the host stopped calling the plug-in) and host bypass (the chain still runs
+    // and publishes underneath, unheard) read as silence: the creature closes its mouth and goes to
+    // sleep at once, without the 1.5 s a quiet input waits; no ripples, no tremble. It wakes with
+    // the first sound once the host processes again. (Mix at 0 % is not silence: the picture shows
+    // what the chain is doing, whatever share of it is heard.)
+    const bool stale = m_staleSeconds >= c_staleAfterSeconds || f.hostBypassed.load (std::memory_order_relaxed);
     m_stale.store (stale, std::memory_order_relaxed);
     const float live = stale ? 0.0f : 1.0f;
     const auto load = [live] (const std::atomic<float>& a) { return a.load (std::memory_order_relaxed) * live; };
@@ -462,6 +652,8 @@ void MonsterView::updateAnimation (float dt)
 
     // Asleep after 1.5 s of silence; wakes quickly when sound comes back.
     m_quietSeconds = input < c_quietLevel ? std::min (m_quietSeconds + dt, 60.0f) : 0.0f;
+    if (stale)
+        m_quietSeconds = std::max (m_quietSeconds, c_sleepAfterSeconds);
     const bool asleep = m_quietSeconds >= c_sleepAfterSeconds;
     follow (m_sleep, asleep ? 1.0f : 0.0f, dt, 0.9f, 0.15f);
     m_asleep.store (asleep, std::memory_order_relaxed);
@@ -613,7 +805,9 @@ void MonsterView::updateAnimation (float dt)
         const float base = m_evo[roar::CreatureEvolution::formBase];
         const float sleepTarget = juce::jlimit (0.0f, 1.0f, base + 0.35f * m_formation.fast * (1.0f - base)) * (1.0f - 0.85f * m_sleep);
         const bool settled = m_formation.fast < 0.01f && std::abs (m_formation.formation - sleepTarget) < 0.01f;
-        m_idle.store (asleep && m_sleep > 0.98f && settled, std::memory_order_relaxed);
+        // (read as silence, the host stopped or bypassing, it is idle as soon as it sleeps: the
+        // cloud's slow dispersal is drawn at the idle rate, so a bypassed plug-in costs no more)
+        m_idle.store (asleep && m_sleep > 0.98f && (settled || stale), std::memory_order_relaxed);
     }
 
     // The jaw and the head: a heavy spring on the phrase, the lips carry the syllables.
@@ -638,7 +832,10 @@ void MonsterView::updateAnimation (float dt)
         // hits ripple the picture; a sustained low end trembles it (stale features: neither)
         // (a voice alone, a faint shimmer)
         const float shimmer = load (f.rumble) + 0.12f * juce::jlimit (0.0f, 1.0f, m_level * 2.0f);
-        m_ripples.step (dt, f.hits.load (std::memory_order_relaxed), load (f.hitStrength), shimmer, in.awake * live, m_audioForces);
+        // (the count first, then the strongest of the hits it moved past: never another hit's strength)
+        const int hits = f.hits.load (std::memory_order_acquire);
+        const float hitStrength = f.strongestHitSince (m_ripples.lastHits, hits) * live;
+        m_ripples.step (dt, hits, hitStrength, shimmer, in.awake * live, m_audioForces);
 
         m_head.step (dt, m_jawMotion.y, m_jawMotion.P, m_jawMotion.justEngaged, m_jawMotion.dPdt, m_jawMotion.roarHold,
                      m_audioForces.growl, m_sleep);
@@ -747,13 +944,14 @@ void MonsterView::drawFrame (float dt, float scale, int width, int height)
     fr.set (U::uRingBody, m_ringBody);
     fr.set (U::uStrain, juce::jlimit (0.0f, 1.0f, m_strain));
     {
-        // the ripples: each ring's radius, amplitude and middle (above or below the body's), the tremble
+        // the ripples: each ring's radius, amplitude, middle (above or below the body's) and light, the tremble
         const auto& rp = m_ripples;
         const float on = m_testRipplesOff.load (std::memory_order_relaxed) ? 0.0f : 1.0f;
         fr.set (U::uRippleR, rp.radius (0), rp.radius (1), rp.radius (2), rp.radius (3));
         fr.set (U::uRippleA, on * rp.amplitude (0), on * rp.amplitude (1), on * rp.amplitude (2), on * rp.amplitude (3));
         fr.set (U::uRippleY, rp.rings[0].offsetY, rp.rings[1].offsetY, rp.rings[2].offsetY, rp.rings[3].offsetY);
-        fr.set (U::uRippleT, m_testTrembleOff.load (std::memory_order_relaxed) ? 0.0f : rp.tremble, rp.trembleClock, 0.0f, 0.0f);
+        fr.set (U::uRippleL, on * rp.light (0), on * rp.light (1), on * rp.light (2), on * rp.light (3));
+        fr.set (U::uRippleT, m_testTrembleOff.load (std::memory_order_relaxed) ? 0.0f : rp.trembleDrawn(), rp.trembleClock, 0.0f, 0.0f);
     }
 
     rgb (U::uColOuter, juce::Colour (m_outsideArgb.load (std::memory_order_relaxed)));
@@ -780,7 +978,8 @@ void MonsterView::drawFrame (float dt, float scale, int width, int height)
     fr.dtClamped = m_lastClamped;
     fr.asleep = idle;
     {
-        const int awakeHz = juce::jlimit (10, c_frameHz, m_awakeHz.load (std::memory_order_relaxed));
+        const int awakeHz = std::min (juce::jlimit (10, c_frameHz, m_awakeHz.load (std::memory_order_relaxed)),
+                                      m_lowQuality.load (std::memory_order_relaxed) ? c_lowHz : c_frameHz);
         const int idleHz = m_tier.load (std::memory_order_relaxed) >= 1 ? c_idleBufferHz : c_idleSinglePassHz;
         fr.targetInterval = 1.0f / (float) (idle ? std::min (awakeHz, idleHz) : awakeHz);
     }
@@ -803,6 +1002,7 @@ void MonsterView::drawFrame (float dt, float scale, int width, int height)
     }
 
     m_renderer.setFixedStep (m_testFixedStep.load (std::memory_order_relaxed));
+    m_renderer.setLowQuality (m_lowQuality.load (std::memory_order_relaxed));
     m_renderer.prepare (fr);
 
     GLint hostFbo = 0;

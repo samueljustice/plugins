@@ -51,6 +51,8 @@ namespace roar
             float flow = 1.0f;      // the eddies' gain
             float strandGap = 0.6f; // (a draw the generator still makes, so a seed's other draws stay where they were; nothing reads it)
             float ox = 0.0f, oy = 0.0f;   // where this blot reads its noise
+            float side = 0.0f;      // which side tears first while the ink gathers or leaves: -1 or +1, from ox and oy
+                                    // (set by evaluate, not drawn; a glide crossfades it through 0)
         };
 
         struct Genome
