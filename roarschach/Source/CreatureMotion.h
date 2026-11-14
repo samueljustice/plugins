@@ -114,10 +114,59 @@ namespace roar
 
         /** A visible onset may happen now (at most 3 in any second); records it if so. */
         bool allowFlash();
+        /** A visible onset was allowed this recently (seconds): one event seen two ways is one flash. */
+        bool flashedWithin (float seconds) const;
 
         static constexpr float c_attack = 0.040f, c_release = 0.150f;
         static constexpr float c_subRefractory = 0.120f, c_subOnsetJump = 0.15f;
         static constexpr int c_maxFlashesPerSecond = 3;
+    };
+
+    /**
+     * Hits ripple the picture like a struck water surface. Each hit the processor counts
+     * (HitDetector) starts a ring from the middle of the body, a little above or below it on the
+     * fold, that grows at a fixed speed and dies away as it spreads; at most four are in flight (a
+     * fifth replaces the earliest), and as their middles differ a little they cross. Each ring's
+     * strength is the hit's; a weak one starts no ring at all. Rings count against the flash limit
+     * (AudioForces::allowFlash), unless an onset was just allowed for the same moment. A sustained
+     * low end trembles the surface finely instead (tremble, with its own clock).
+     *
+     * The shader reads the picture a little along the radius from each ring's middle: a surface
+     * wave, never a drawn line (MonsterShaders).
+     */
+    struct SurfaceRipples
+    {
+        static constexpr int c_maxRings = 4;
+        struct Ring
+        {
+            float age = -1.0f;       // seconds since the hit (< 0: none)
+            float strength = 0.0f;   // the hit's, 0..1
+            float offsetY = 0.0f;    // its middle above (+) or below the body's, view heights
+        };
+
+        std::array<Ring, c_maxRings> rings {};
+        float tremble = 0.0f;        // the low end's fine tremble, 0..1 (followed)
+        float trembleClock = 0.0f;   // its own clock, wrapped
+        int lastHits = 0;
+        bool seen = false;           // a count has been read (the first is taken as it is)
+        int started = 0, refused = 0;   // counters (tests): rings started, hits the flash limit held back
+
+        void reset() { *this = SurfaceRipples(); }
+
+        /** hits: the detector's count; strength: the latest hit's; rumble: the low end, 0..1;
+            awake: 0 asleep .. 1; forces: the flash limit. */
+        void step (float dt, int hits, float strength, float rumble, float awake, AudioForces& forces);
+
+        /** A ring's radius and its displacement's amplitude, view heights (0 for none). */
+        float radius (int i) const;
+        float amplitude (int i) const;
+        int live() const;
+
+        static constexpr float c_speed = 0.75f;        // view heights a second
+        static constexpr float c_decaySeconds = 1.3f;  // the wave's own damping
+        static constexpr float c_lifeSeconds = 2.6f;
+        static constexpr float c_peak = 0.04f;         // the displacement of the strongest ring at its start, view heights
+        static constexpr float c_minStrength = 0.12f;  // a hit weaker than this starts no ring
     };
 
     /**

@@ -86,6 +86,12 @@ uniform vec4 uModD;      // OVERTONE: the core's thinning; DE-ESS: spray; SUB: t
 uniform vec4 uModE;      // CLEAN: tidiness; the wisps' sway (a phase); spare
 uniform vec4 uChamber;   // CHAMBER: the room's ringing, its walls, the bands' phase, the shadow's length
 uniform vec4 uSpine[5];  // OVERTONE: each wisp's root xy, length, lean
+// hits: each ring's radius, the amplitude it reads the picture aside by, and its middle above or
+// below the body's (view heights); the low end's tremble and its clock
+uniform vec4 uRippleR;
+uniform vec4 uRippleA;
+uniform vec4 uRippleY;
+uniform vec4 uRippleT;
 // the maker's mark, hidden: now and then the ink gathers into it
 uniform float uEgg;
 uniform vec4 uLogoBox;   // centre xy, box size
@@ -628,10 +634,73 @@ void main()
 // ---- The single pass: the whole creature without any buffer. The held ink is the target itself,
 // per pixel; a halo and a smoke fringe stand in for the free pigment; two cloud layers.
 const char* const c_inkSingle = R"GLSL(
+// ---- hits ripple the picture like a struck water surface. No line is drawn: the cloud and the
+// ink are read a little aside along each ring's radius, a short train of crests behind its front
+// that widens as it spreads, so the picture itself heaves and settles. Seen across a surface, the
+// rings are wider than they are tall; their front is bent and their strength broken by the cloud's
+// own noise, so no ring is a clean circle, and none shows within the body's middle, where rings
+// round one point would be a target. Read folded, the two sides ripple as each other's mirror
+// image. A sustained low end trembles the surface finely instead.
+float gRippleShade = 0.0;   // the light the slopes catch (added to the picture at the end)
+
+vec2 rippleWave (float x, float radius, float amp)
+{
+    // (x: how far behind the front; returns the displacement and its slope)
+    float w = 0.07 + 0.12 * radius;
+    float k = 6.2832 / (0.11 + 0.09 * radius);
+    // (never so steep that the picture folds over on itself: a crest, not a crease)
+    float env = exp (-x * x / (w * w)) * min (amp, 0.7 / k);
+    return env * vec2 (sin (k * x), k * cos (k * x));
+}
+
+float rippleRing (vec2 p, float radius, float amp, float offsetY, float bend, inout vec2 shift)
+{
+    // (one ring: the picture read aside along its radius, measured across the surface; returns its slope)
+    if (amp <= 0.0)
+        return 0.0;
+    vec2 d = vec2 (p.x, (p.y - uFlowC.w - offsetY) * 1.45);
+    float r = length (d);
+    vec2 wv = rippleWave (r + bend - radius, radius, amp);
+    shift += wv.x * vec2 (d.x, 1.45 * d.y) / max (r, 1.0e-3);
+    return wv.y;
+}
+
+vec2 rippleAt (vec2 p)
+{
+    float struck = uRippleA.x + uRippleA.y + uRippleA.z + uRippleA.w;
+    vec2 shift = vec2 (0.0);
+    vec2 q = vec2 (abs (p.x), p.y);
+    if (struck > 0.0)
+    {
+        vec4 n = NZ (q * vec2 (1.9, 2.6) + uCloudO.xy * 0.7 + 0.53, 1.5);
+        float bend = 0.12 * (sv (n) - 0.5);
+        float patchy = 0.25 + 0.75 * smoothstep (0.30, 0.70, n.a);
+        // (where two rings cross, the surface is pushed both ways at once)
+        float slope = rippleRing (p, uRippleR.x, uRippleA.x, uRippleY.x, bend, shift)
+                    + rippleRing (p, uRippleR.y, uRippleA.y, uRippleY.y, bend, shift)
+                    + rippleRing (p, uRippleR.z, uRippleA.z, uRippleY.z, bend, shift)
+                    + rippleRing (p, uRippleR.w, uRippleA.w, uRippleY.w, bend, shift);
+        // (nothing in the body's middle: no target round one point; and faint where a ring crosses
+        // the fold, so it never stands over the body as one arch: it spreads out to the sides)
+        float away = smoothstep (0.04, 0.24, length (vec2 (p.x, (p.y - uFlowC.w) * 1.45))) * (0.2 + 0.8 * smoothstep (0.05, 0.45, abs (p.x)));
+        shift *= patchy * away;
+        gRippleShade = clamp (slope * patchy * away, -1.0, 1.0);
+    }
+    if (uRippleT.x > 0.002)
+    {
+        // (the tremble: fine, quick, and as small as a pixel or two)
+        vec4 tn = NZ (q * vec2 (9.0, 11.0) + vec2 (5.3 * uRippleT.y, -4.1 * uRippleT.y), 0.5);
+        vec2 j = vec2 ((sv (tn) - 0.5) * (p.x < 0.0 ? -1.0 : 1.0) * smoothstep (0.0, 0.03, abs (p.x)), tn.a - 0.5);
+        shift += uRippleT.x * 0.003 * j;
+    }
+    return shift;
+}
+
 void main()
 {
     vec2 frag = gl_FragCoord.xy;
     vec2 p = (frag - 0.5 * uRes) / uRes.y;               // view heights, the centre at 0
+    p += rippleAt (p);
     // the fold is not ruled: close to it the picture is read a little aside, by the view's own
     // noise (not folded), so what meets its mirror image there meets it unevenly. Thin ink that met
     // itself exactly on a straight line stood as chevrons, a dashed column or a seam.
@@ -1177,6 +1246,10 @@ void main()
     // rim of a dark mass on the fold, a hood round a dark face. It fades out past the body, over a
     // wide round, so no rim is drawn and no light hangs in the open cloud)
     col = vec3 (1.0) - (vec3 (1.0) - col) * (vec3 (1.0) - 0.70 * vapour * 0.30 * smoothstep (0.10, 0.35, halo) * light * mix (vec3 (1.0), accent, 0.7));
+
+    // the light the ripples' slopes catch: a heave of the surface, never a lit line (the crests
+    // catch less than the troughs lose: lit, a ring round the body stood over it as a pale arch)
+    col *= 1.0 + 0.38 * gRippleShade * (gRippleShade > 0.0 ? 0.45 : 1.0);
 
     // vignette, grain, dither
     vec2 uvq = frag / uRes;

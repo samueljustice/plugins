@@ -413,6 +413,7 @@ void MonsterView::createRenderer (bool coreProfile)
     m_jawMotion.reset();
     m_head.reset();
     m_audioForces.reset();
+    m_ripples.reset();
     m_evoSnap = true;
     m_shaderFailed.store (false, std::memory_order_relaxed);
     m_glReady.store (true, std::memory_order_relaxed);
@@ -431,6 +432,7 @@ void MonsterView::releaseGL()
     m_jawMotion.reset();
     m_head.reset();
     m_audioForces.reset();
+    m_ripples.reset();
     m_tier.store (-1, std::memory_order_relaxed);
 }
 
@@ -633,6 +635,11 @@ void MonsterView::updateAnimation (float dt)
         in.awake = 1.0f - m_sleep;
         m_audioForces.step (dt, in);
 
+        // hits ripple the picture; a sustained low end trembles it (stale features: neither)
+        // (a voice alone, a faint shimmer)
+        const float shimmer = load (f.rumble) + 0.12f * juce::jlimit (0.0f, 1.0f, m_level * 2.0f);
+        m_ripples.step (dt, f.hits.load (std::memory_order_relaxed), load (f.hitStrength), shimmer, in.awake * live, m_audioForces);
+
         m_head.step (dt, m_jawMotion.y, m_jawMotion.P, m_jawMotion.justEngaged, m_jawMotion.dPdt, m_jawMotion.roarHold,
                      m_audioForces.growl, m_sleep);
     }
@@ -739,6 +746,15 @@ void MonsterView::drawFrame (float dt, float scale, int width, int height)
     fr.set (U::uRingFlicker, 0.5f + 0.5f * std::sin (m_ringPhase * juce::MathConstants<float>::twoPi));
     fr.set (U::uRingBody, m_ringBody);
     fr.set (U::uStrain, juce::jlimit (0.0f, 1.0f, m_strain));
+    {
+        // the ripples: each ring's radius, amplitude and middle (above or below the body's), the tremble
+        const auto& rp = m_ripples;
+        const float on = m_testRipplesOff.load (std::memory_order_relaxed) ? 0.0f : 1.0f;
+        fr.set (U::uRippleR, rp.radius (0), rp.radius (1), rp.radius (2), rp.radius (3));
+        fr.set (U::uRippleA, on * rp.amplitude (0), on * rp.amplitude (1), on * rp.amplitude (2), on * rp.amplitude (3));
+        fr.set (U::uRippleY, rp.rings[0].offsetY, rp.rings[1].offsetY, rp.rings[2].offsetY, rp.rings[3].offsetY);
+        fr.set (U::uRippleT, m_testTrembleOff.load (std::memory_order_relaxed) ? 0.0f : rp.tremble, rp.trembleClock, 0.0f, 0.0f);
+    }
 
     rgb (U::uColOuter, juce::Colour (m_outsideArgb.load (std::memory_order_relaxed)));
 

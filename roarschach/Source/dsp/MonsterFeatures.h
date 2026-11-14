@@ -62,6 +62,9 @@ namespace roar
         std::atomic<float> limiterGrDb { 0.0f };   // maximizer gain reduction, dB (<= 0)
         std::atomic<float> pushDb { 0.0f };        // the Push setting in effect, dB
         std::atomic<float> clipDb { 0.0f };        // clipper activity: peak dB flattened per chunk (>= 0)
+        std::atomic<int> hits { 0 };               // hits in the output so far (HitDetector; the picture's ripples)
+        std::atomic<float> hitStrength { 0.0f };   // the latest hit's strength, 0..1
+        std::atomic<float> rumble { 0.0f };        // the output's low end, 0..1 (a fine tremble while it is sustained)
 
         // Bit m (Params::ModuleId order) set while module m is On.
         std::atomic<int> moduleOnMask { 0 };

@@ -34,7 +34,8 @@ namespace roar
         X (uFlowK, 4, 1) X (uFlowO, 4, 1) X (uFlowC, 4, 1) X (uCarry, 4, 1) X (uInkF, 4, 1) X (uInkO, 4, 1) \
         X (uCloudK, 4, 1) X (uCloudO, 4, 1) X (uBreath, 4, 1) X (uHold, 4, 1) X (uPig, 4, 1) \
         X (uCloudT, 4, 1) X (uSubPulse, 4, 1) X (uSparkP, 4, 3) \
-        X (uModA, 4, 1) X (uModB, 4, 1) X (uModC, 4, 1) X (uModD, 4, 1) X (uModE, 4, 1) X (uClean, 1, 1) X (uChamber, 4, 1) X (uSpine, 4, 5)
+        X (uModA, 4, 1) X (uModB, 4, 1) X (uModC, 4, 1) X (uModD, 4, 1) X (uModE, 4, 1) X (uClean, 1, 1) X (uChamber, 4, 1) X (uSpine, 4, 5) \
+        X (uRippleR, 4, 1) X (uRippleA, 4, 1) X (uRippleY, 4, 1) X (uRippleT, 4, 1)
 
     enum class U : int
     {

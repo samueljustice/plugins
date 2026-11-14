@@ -203,6 +203,14 @@ namespace roar
         return true;
     }
 
+    bool AudioForces::flashedWithin (float seconds) const
+    {
+        for (const float t : flashTimes)
+            if (clock - t >= 0.0f && clock - t < seconds)
+                return true;
+        return false;
+    }
+
     void AudioForces::step (float dt, const Inputs& in)
     {
         dt = cleanDt (dt, 0.1f);
@@ -250,6 +258,80 @@ namespace roar
             sparkSeed = (sparkSeed + 1) & 0xffff;
             clipSparks = clip;
         }
+    }
+
+    //==============================================================================================
+    void SurfaceRipples::step (float dt, int hits, float strength, float rumble, float awake, AudioForces& forces)
+    {
+        dt = cleanDt (dt, 0.1f);
+        strength = clean (strength, 0.0f, 1.0f);
+        awake = clean (awake, 0.0f, 1.0f);
+
+        for (auto& r : rings)
+            if (r.age >= 0.0f)
+            {
+                r.age += dt;
+                if (r.age > c_lifeSeconds)
+                    r = Ring();
+            }
+
+        // a new hit (the count moved on by a few: one ring, the latest hit's strength)
+        const int moved = hits - lastHits;
+        if (seen && moved > 0 && moved < 64 && strength >= c_minStrength && awake > 0.1f)
+        {
+            if (forces.flashedWithin (0.1f) || forces.allowFlash())
+            {
+                size_t slot = 0;
+                for (size_t i = 0; i < rings.size(); ++i)
+                {
+                    if (rings[i].age < 0.0f)
+                    {
+                        slot = i;
+                        break;
+                    }
+                    if (rings[i].age > rings[slot].age)
+                        slot = i;
+                }
+                // (its middle a little above or below the body's, never twice the same: the rings cross)
+                const float u = std::fmod ((float) (started + 1) * 0.6180339f, 1.0f);
+                rings[slot] = Ring { 0.0f, strength * awake, 0.07f * (2.0f * u - 1.0f) };
+                ++started;
+            }
+            else
+            {
+                ++refused;
+            }
+        }
+        lastHits = hits;
+        seen = true;
+
+        follow (tremble, clean (rumble, 0.0f, 1.0f) * awake, dt, 0.60f, 0.40f);   // (sustained: a hit's own low end is a ring, not a tremble)
+        trembleClock = std::fmod (trembleClock + dt, 64.0f);
+    }
+
+    float SurfaceRipples::radius (int i) const
+    {
+        const auto& r = rings[(size_t) std::clamp (i, 0, c_maxRings - 1)];
+        return r.age >= 0.0f ? c_speed * r.age : 0.0f;
+    }
+
+    float SurfaceRipples::amplitude (int i) const
+    {
+        const auto& r = rings[(size_t) std::clamp (i, 0, c_maxRings - 1)];
+        if (r.age < 0.0f)
+            return 0.0f;
+        // (struck at once, damped as it goes and thinned as it spreads; gone smoothly at its end)
+        const float rad = c_speed * r.age;
+        const float end = 1.0f - std::clamp ((r.age - (c_lifeSeconds - 0.4f)) / 0.4f, 0.0f, 1.0f);
+        return c_peak * r.strength * std::exp (-r.age / c_decaySeconds) / std::sqrt (1.0f + rad / 0.25f) * end;
+    }
+
+    int SurfaceRipples::live() const
+    {
+        int n = 0;
+        for (const auto& r : rings)
+            n += r.age >= 0.0f ? 1 : 0;
+        return n;
     }
 
     //==============================================================================================

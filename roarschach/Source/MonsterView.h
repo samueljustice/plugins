@@ -144,6 +144,12 @@ public:
     void renderOffline (float dt, int width, int height, bool coreProfile = true);
     void releaseOffline();
     const roar::MonsterRenderer& getRendererForTests() const { return m_renderer; }
+    /** Tests: the ripples from hits as the last frame stepped them. */
+    const roar::SurfaceRipples& getRipplesForTests() const { return m_ripples; }
+    /** Tests and snapshots: the ripples and the tremble left out of the picture (they are still stepped). */
+    void setRipplesOffForTests (bool off) { m_testRipplesOff.store (off, std::memory_order_relaxed); m_testTrembleOff.store (off, std::memory_order_relaxed); }
+    /** Tests: the tremble alone left out of the picture. */
+    void setTrembleOffForTests (bool off) { m_testTrembleOff.store (off, std::memory_order_relaxed); }
     /** Tests and the screenshot tool (their own thread is the GL thread): hold a tier, read the ink buffer. */
     roar::MonsterRenderer& rendererForTests() { return m_renderer; }
 
@@ -168,6 +174,7 @@ private:
     const LogoSdf& m_logo { LogoSdf::shared() };            // built once per process (on the first editor)
     std::atomic<float> m_testFormation { -1.0f }, m_testJaw { -1.0f };
     std::atomic<bool> m_testFixedStep { false };
+    std::atomic<bool> m_testRipplesOff { false }, m_testTrembleOff { false };
     juce::OpenGLContext m_context;
     juce::SharedResourcePointer<Theme::Fonts> m_fonts;
 
@@ -208,6 +215,7 @@ private:
     roar::JawMotion m_jawMotion;
     roar::HeadMotion m_head;
     roar::AudioForces m_audioForces;
+    roar::SurfaceRipples m_ripples;
     float m_jawFast = 0.0f;
     float m_lastInterval = 1.0f / 30.0f;
     bool m_lastClamped = false;

@@ -46,6 +46,7 @@
 #include "PluginEditor.h"
 #include "PluginProcessor.h"
 #include "PresetManager.h"
+#include "dsp/HitDetector.h"
 #include "dsp/common/ChaCha20Poly1305.h"
 #include "dsp/common/IrPack.h"
 #include "dsp/common/ZeroLatencyConvolver.h"
