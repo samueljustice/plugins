@@ -616,7 +616,7 @@ int main(int argc, char* argv[])
         }
     }
 
-    // The app: its own rig stays Stereo (WideTest), but Render Variations' second rig is no app and renders any
+    // The app: its own rig plays its Listening width only (AppTest), but Render Variations' second rig is no app and renders any
     // width. A stretch of the Whole Ride in 5.1 and a whoosh in 7.1.4 from an app's rig: the right channels, sound
     // outside L and R, and every channel faded in and out (no channel left to start or stop at full level).
     std::cout << "Render Variations in the app, and a Whole Ride in a room" << std::endl;
@@ -627,7 +627,7 @@ int main(int argc, char* argv[])
         auto wide = rig.proc.getBusesLayout();
         wide.outputBuses.getReference(0) = room::channelSet(W::Surround51);
         check(rig.proc.wrapperType == juce::AudioProcessor::wrapperType_Standalone && ! rig.proc.checkBusesLayoutSupported(wide),
-              "the app's own rig refuses a 5.1 output");
+              "the app's own rig refuses a 5.1 output while Listening is Stereo");
         auto edges = [](const Audio& a, int& sounding)
         {
             // The loudest of every channel's first and last sample, against the file's peak; and how many channels carry sound.

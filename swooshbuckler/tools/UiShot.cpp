@@ -30,6 +30,10 @@
 //   settings-714.png settings-714-stereo-fold.png settings-714-flac.png takes-714.png
 //                             the rig in a 7.1.4 room: the tape's settings (as played, folded to Stereo, FLAC refused)
 //                             and the Takes list with a 7.1.4 take, a Stereo fold, a Multi-Mono set and 7.1.4 variations
+//   settings-app.png settings-app-51.png settings-app-714-folded.png audio-device-51.png audio-device-714-folded.png
+//   window-app-folded.png footer-app-folded.png
+//                             the app, played from a pretend audio device: Listening in Settings (Stereo, 5.1, and
+//                             7.1.4 on a two-output device), the audio device dialog, and the footer saying it is folded
 //   menu.png                 the preset menu open
 //   name-dialog.png           the window that asks for a preset's name
 //
@@ -52,6 +56,8 @@
 
 #include "UiRig.h"
 #include "UiProbe.h"
+#include "AppOutput.h"
+#include "FakeAudioDevice.h"
 #include "DemoSounds.h"
 
 #include <iostream>
@@ -806,6 +812,97 @@ int main(int argc, char* argv[])
         faults = shots.faults;
         texts = shots.texts;
         rig.editor.reset();
+    }
+
+    // The app: its own rig, played through AppOutput from a pretend audio device (tools/FakeAudioDevice.h), as
+    // the standalone app plays it. Listening in Settings, the audio device dialog, and the footer saying when the
+    // room is folded down because the device has too few outputs.
+    {
+        juce::AudioProcessor::setTypeOfNextNewPlugin(juce::AudioProcessor::wrapperType_Standalone);
+        std::unique_ptr<juce::AudioProcessor> base(createPluginFilter());
+        juce::AudioProcessor::setTypeOfNextNewPlugin(juce::AudioProcessor::wrapperType_Undefined);
+        auto& proc = *dynamic_cast<Proc*>(base.get());
+        proc.setListening(room::Width::Stereo);
+        proc.setRecordFolder(options.work.getChildFile("Recordings"));
+        DemoSounds::loadInto(proc);
+
+        juce::AudioDeviceManager devices;
+        devices.addAudioDeviceType(std::make_unique<FakeAudio::Type>());
+        devices.initialise(0, 2, nullptr, true);
+        FakeAudio::choose(devices, "Fake 16", 2);
+        juce::AudioProcessorPlayer player;
+        devices.addAudioCallback(&player);
+        auto audio = std::make_unique<AppAudio>(proc, devices, player);
+        audio->start();
+        Proc::showAudioSettings = [] {}; // the app has an Audio Device button
+
+        Rig rig(proc, options.scale);
+        Shots shots { rig, options };
+        rig.open();
+        auto& ed = *rig.editor;
+        // Plays from the pretend device, the window's timers stepped as it goes.
+        auto run = [&](double seconds)
+        {
+            juce::AudioBuffer<float> block;
+            const int blocks = static_cast<int>(seconds * FakeAudio::c_rate / FakeAudio::c_buffer);
+            for (int i = 0; i < blocks; ++i)
+            {
+                if (auto* device = FakeAudio::current(devices))
+                    device->pull(block);
+                if ((i & 3) == 0)
+                    tick(rig.editor.get());
+            }
+            tick(rig.editor.get());
+        };
+        auto listen = [&](room::Width width)
+        {
+            proc.setListening(width);
+            for (int i = 0; i < 8 && ! audio->output().isFadedOut(); ++i)
+                run(FakeAudio::c_buffer / FakeAudio::c_rate);
+            audio->finishChange();
+        };
+        auto settingsShot = [&](const juce::String& name)
+        {
+            run(0.5);
+            ed.m_settings.refresh();
+            ed.m_settings.setVisible(true);
+            ed.m_settings.toFront(false);
+            shots.shoot(name, &ed.m_settings);
+            ed.m_settings.setVisible(false);
+        };
+        auto deviceShot = [&](const juce::String& name)
+        {
+            AppAudio::DevicePanel panel(devices, proc);
+            UiProbe::Recorder recorder;
+            const auto image = recorder.paint(panel, rig.scale);
+            shots.report(name, recorder);
+            if (options.images)
+                save(image, options.out.getChildFile(name + ".png"));
+        };
+        proc.setPlaying(true);
+        run(1.0);
+        settingsShot("settings-app");                     // Stereo on the first two of sixteen outputs
+        listen(room::Width::Surround51);
+        settingsShot("settings-app-51");                  // 5.1: outputs 1 to 6 switched on for it
+        deviceShot("audio-device-51");
+        FakeAudio::choose(devices, "Fake 2", 2);
+        audio->deviceChanged();
+        listen(room::Width::Surround714);
+        settingsShot("settings-app-714-folded");          // 7.1.4 on a two-output device: the fold, said in brass
+        deviceShot("audio-device-714-folded");
+        {
+            run(0.5);
+            const auto window = shots.shoot("window-app-folded");
+            shots.crop(window, "footer-app-folded", ed.m_footer, 4);
+        }
+        proc.setPlaying(false);
+        faults += shots.faults;
+        texts += shots.texts;
+        rig.editor.reset();
+        Proc::showAudioSettings = nullptr;
+        audio.reset();
+        devices.removeAudioCallback(&player);
+        devices.closeAudioDevice();
     }
     std::cout << texts << " texts checked at scale " << juce::String(options.scale, 2) << ": "
               << (faults == 0 ? juce::String("every one fits its box and follows the capitals rule.") : juce::String(faults) + " faults.") << std::endl;

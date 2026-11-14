@@ -593,6 +593,42 @@ SwooshbucklerAudioProcessorEditor::SettingsPanel::SettingsPanel(SwooshbucklerAud
         b.onClick = [this, value] { m_owner.m_processor.setRetroMinutes(value); refresh(); };
     }
 
+    // Listening: what the app plays in. Each choice prepares the rig again at that width.
+    {
+        const char* what[room::c_numWidths] = {
+            "One channel: the Stereo rig folded to mono, played on the first two outputs. The tape records the one channel.",
+            "Two speakers, left and right.",
+            "Four speakers: left and right in front, two surrounds behind. Every pass is a sound flying through the room.",
+            "Left, centre and right in front, two surrounds and the LFE. Every pass is a sound flying through the room.",
+            "Left, centre and right in front, two side and two rear surrounds, and the LFE.",
+            "7.1 with two speakers overhead.",
+            "7.1 with four speakers overhead, two in front and two behind." };
+        for (int i = 0; i < room::c_numWidths; ++i)
+        {
+            auto& b = m_listen[static_cast<size_t>(i)];
+            setup(b);
+            const auto width = static_cast<room::Width>(i);
+            const auto& room = room::layout(width);
+            b.setButtonText(room.name);
+            b.setTooltip(juce::String(room.name) + "\n" + what[i]
+                         + (room.numChannels > 1 ? " It needs " + juce::String(room.numChannels) + " outputs on the audio device; with fewer you hear it "
+                                                   "folded down to stereo, and the tape and Render Variations still get the whole room."
+                                                 : juce::String()));
+            b.onClick = [this, width]
+            {
+                if (m_owner.m_processor.getListening() == width)
+                    return refresh();
+                if (m_owner.m_processor.isRecording())
+                {
+                    m_owner.toast("Stop the tape to change what you are listening on");
+                    return refresh();
+                }
+                m_owner.m_processor.setListening(width);
+                refresh();
+            };
+        }
+    }
+
     m_audio.setVisible(static_cast<bool>(SwooshbucklerAudioProcessor::showAudioSettings));
     m_audio.onClick = [] { if (SwooshbucklerAudioProcessor::showAudioSettings) SwooshbucklerAudioProcessor::showAudioSettings(); };
     m_close.onClick = [this] { setVisible(false); };
@@ -664,6 +700,14 @@ void SwooshbucklerAudioProcessorEditor::SettingsPanel::refresh()
     m_retroLengths[1].setToggleState(p.getRetroMinutes() == 3, juce::dontSendNotification);
     m_retroLengths[2].setToggleState(p.getRetroMinutes() == 5, juce::dontSendNotification);
     m_audio.setVisible(static_cast<bool>(SwooshbucklerAudioProcessor::showAudioSettings)); // standalone only
+    {
+        const bool app = p.isApp();
+        for (int i = 0; i < room::c_numWidths; ++i)
+        {
+            m_listen[static_cast<size_t>(i)].setVisible(app);
+            m_listen[static_cast<size_t>(i)].setToggleState(app && static_cast<int>(p.getListening()) == i, juce::dontSendNotification);
+        }
+    }
     repaint();
 }
 
@@ -675,7 +719,7 @@ void SwooshbucklerAudioProcessorEditor::SettingsPanel::mouseDown(const juce::Mou
 
 void SwooshbucklerAudioProcessorEditor::SettingsPanel::resized()
 {
-    m_panel = getLocalBounds().withSizeKeepingCentre(1060, 770);
+    m_panel = getLocalBounds().withSizeKeepingCentre(1060, 850);
     auto r = m_panel.reduced(28, 0);
     r.removeFromTop(56);
 
@@ -781,10 +825,25 @@ void SwooshbucklerAudioProcessorEditor::SettingsPanel::resized()
     }
     r.removeFromTop(6);
     m_captions[5] = r.removeFromTop(44);
+    {
+        // Listening: the seven rooms and the audio device beside them, then where the speakers go (or the fold).
+        r.removeFromTop(6);
+        m_listenCaption = r.removeFromTop(20);
+        m_listenRow = r.removeFromTop(28);
+        r.removeFromTop(4);
+        m_listenLine = r.removeFromTop(38);
+        auto row = m_listenRow;
+        for (auto& b : m_listen)
+        {
+            b.setBounds(row.removeFromLeft(62));
+            row.removeFromLeft(6);
+        }
+        row.removeFromLeft(6);
+        m_audio.setBounds(row.removeFromLeft(150));
+    }
 
     auto bottom = m_panel.reduced(28, 18).removeFromBottom(30).withTrimmedRight(360); // the keys' column is to the right
     m_close.setBounds(bottom.removeFromRight(100));
-    m_audio.setBounds(bottom.removeFromLeft(150));
 }
 
 void SwooshbucklerAudioProcessorEditor::SettingsPanel::paint(juce::Graphics& g)
@@ -849,6 +908,24 @@ void SwooshbucklerAudioProcessorEditor::SettingsPanel::paint(juce::Graphics& g)
             note << "  Recordings are converted down from the device's " << juce::String(p.getDeviceRate() / 1000.0, 1) << " kHz.";
     }
     Theme::fitLines(g, note, m_captions[5], f.body(), TC::textFaint);
+
+    // Listening: the app's choice, or in a host the track's width as a read-out.
+    g.setColour(TC::textDim);
+    Theme::fitText(g, "Listening", m_listenCaption, f.caption(), juce::Justification::centredLeft);
+    if (p.isApp())
+    {
+        const auto line = SwooshbucklerAudioProcessor::listeningLine(p.getListening(), p.getDeviceOutputs(), p.getDeviceOutputsAvailable());
+        Theme::fitLines(g, line, m_listenLine, f.body(), p.isListeningFolded() ? TC::brass : TC::textDim);
+    }
+    else
+    {
+        const juce::String name(room::layout(p.getRoomWidth()).name);
+        g.setColour(TC::text);
+        Theme::fitText(g, name, m_listenRow.withWidth(120), f.control(), juce::Justification::centredLeft);
+        Theme::fitLines(g, "In a plug-in the track decides what you listen on: this track is " + name
+                               + ". Change the track's width in the host to change it.",
+                        m_listenLine, f.body(), TC::textDim);
+    }
 }
 
 //==============================================================================
@@ -2411,9 +2488,10 @@ void SwooshbucklerAudioProcessorEditor::paintContent(juce::Graphics& g)
 
     if (g.clipRegionIntersects(m_footer))
     {
-        g.setColour(TC::textFaint);
-        // The key named here is the one Swell has now: the line is written in refreshShortcuts, not here.
-        Theme::fitText(g, m_footerHint,
+        // The key named here is the one Swell has now: the line is written in refreshShortcuts, not here. The app
+        // playing a fold-down says so here instead, for as long as it does.
+        g.setColour(m_listeningStatus.isNotEmpty() ? TC::brass : TC::textFaint);
+        Theme::fitText(g, m_listeningStatus.isNotEmpty() ? m_listeningStatus : m_footerHint,
                        m_footer.withWidth(m_footer.getWidth() / 2 - 12), f.body(), juce::Justification::centredLeft, Theme::Fit::Sentence);
         if (m_toast.isNotEmpty())
         {
@@ -3402,6 +3480,21 @@ void SwooshbucklerAudioProcessorEditor::timerCallback()
         m_rideStatus = status;
         m_content.repaint(m_rideStatusArea);
     }
+    if (const auto status = m_processor.listeningStatus(); status != m_listeningStatus)
+    {
+        m_listeningStatus = status;
+        m_content.repaint(m_footer);
+    }
+    if (m_processor.isApp())
+        if (const auto line = SwooshbucklerAudioProcessor::listeningLine(m_processor.getListening(), m_processor.getDeviceOutputs(),
+                                                                         m_processor.getDeviceOutputsAvailable())
+                                  + juce::String(static_cast<int>(m_processor.getRoomWidth()));
+            line != m_listeningLine)
+        {
+            m_listeningLine = line;
+            if (m_settings.isVisible())
+                m_settings.refresh(); // the room's own Channels button too, once the rig is prepared at the new width
+        }
 
     const float gate = m_processor.getEngine().getHitGate();
     if (std::abs(gate - m_gate) > 0.01f)

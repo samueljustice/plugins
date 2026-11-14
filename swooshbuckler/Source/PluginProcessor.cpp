@@ -146,6 +146,7 @@ SwooshbucklerAudioProcessor::SwooshbucklerAudioProcessor(juce::PropertiesFile* o
         m_settings = m_ownSettings.get();
     }
     m_recorder.setRetroSeconds(getRetroMinutes() * 60);
+    m_listening.store(juce::jlimit(0, room::c_numWidths - 1, m_settings->getIntValue("listening", static_cast<int>(room::Width::Stereo))));
     // The learned MIDI controllers: "target:cc" pairs.
     for (const auto& pair : juce::StringArray::fromTokens(m_settings->getValue("midiControls"), ",", ""))
     {
@@ -175,13 +176,13 @@ bool SwooshbucklerAudioProcessor::isBusesLayoutSupported(const BusesLayout& layo
     // Any of the room's seven widths (Mono, Stereo, Quad, 5.1, 7.1, 7.1.2, 7.1.4) as JUCE's own channel set. In
     // AAX each one becomes a stem format with a plug-in ID of its own (JUCE's default IDs come from a fixed table
     // of channel sets, so Mono and Stereo keep theirs); VST3 and AU map them to their speaker arrangements.
-    // The app stays Stereo (or Mono): its audio device would otherwise be matched to a surround layout by its
-    // output count, unasked, and channels the device does not have would be lost.
+    // The app takes its Listening width and no other: AppOutput sets it, and the audio device is never matched to
+    // the rig by its output count (a device with six outputs would otherwise make a Stereo listener's rig 5.1).
     const auto width = room::widthFor(layouts.getMainOutputChannelSet());
     if (! width.has_value())
         return false;
     // (An offline copy has no device: Render Variations prepares it at any width, in the app too.)
-    if (! m_offline && wrapperType == wrapperType_Standalone && *width != room::Width::Stereo && *width != room::Width::Mono)
+    if (isApp() && *width != getListening())
         return false;
     return layouts.getMainInputChannelSet().isDisabled();
 }
@@ -1538,6 +1539,63 @@ room::Width SwooshbucklerAudioProcessor::getTapeWidth() const
         case TapeFold::AsPlayed:
         default:               return room;
     }
+}
+
+void SwooshbucklerAudioProcessor::setListening(room::Width width)
+{
+    if (! isApp())
+        return; // in a host the track decides
+    m_listening.store(static_cast<int>(width));
+    m_settings->setValue("listening", static_cast<int>(width));
+    m_settings->saveIfNeeded();
+    if (onListeningChanged)
+        onListeningChanged();
+}
+
+void SwooshbucklerAudioProcessor::setDeviceOutputs(int switchedOn, int available)
+{
+    m_deviceOutputs.store(juce::jmax(0, switchedOn), std::memory_order_relaxed);
+    m_deviceOutputsAvailable.store(juce::jmax(0, available), std::memory_order_relaxed);
+}
+
+bool SwooshbucklerAudioProcessor::listeningFolded(room::Width width, int deviceOutputs)
+{
+    return deviceOutputs > 0 && deviceOutputs < room::layout(width).numChannels;
+}
+
+juce::String SwooshbucklerAudioProcessor::listeningStatus() const
+{
+    return isApp() ? listeningStatus(getListening(), getDeviceOutputs(), getDeviceOutputsAvailable()) : juce::String();
+}
+
+juce::String SwooshbucklerAudioProcessor::listeningStatus(room::Width width, int deviceOutputs, int available)
+{
+    if (! listeningFolded(width, deviceOutputs))
+        return {};
+    juce::String s;
+    s << "Playing " << room::layout(width).name << " folded to " << (deviceOutputs >= 2 ? "stereo" : "mono") << ": ";
+    if (available > deviceOutputs)
+        s << deviceOutputs << " of this audio device's " << available << " outputs are switched on.";
+    else
+        s << "this audio device has " << deviceOutputs << (deviceOutputs == 1 ? " output." : " outputs.");
+    return s;
+}
+
+juce::String SwooshbucklerAudioProcessor::listeningLine(room::Width width, int deviceOutputs, int available)
+{
+    const auto& room = room::layout(width);
+    if (deviceOutputs <= 0)
+        return "No audio device is playing. Choose one with Audio Device.";
+    if (listeningFolded(width, deviceOutputs))
+        return listeningStatus(width, deviceOutputs, available) + " The tape and Render Variations still get all "
+               + juce::String(room.numChannels) + " channels.";
+    if (width == room::Width::Mono)
+        return deviceOutputs >= 2 ? "The one channel plays on the first two outputs switched on."
+                                  : "The one channel plays on the one output.";
+    juce::String order;
+    for (int ch = 0; ch < room.numChannels; ++ch)
+        order << (ch > 0 ? " " : "") << room::info(room.speakers[static_cast<size_t>(ch)]).name;
+    return "Plays on the first " + juce::String(room.numChannels) + " outputs switched on, in this order: " + order + ".";
 }
 
 room::FileOrder SwooshbucklerAudioProcessor::getChannelOrder() const

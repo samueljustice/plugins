@@ -197,6 +197,9 @@ private:
         juce::TextEditor m_name, m_creator;
         std::array<juce::TextButton, 2> m_nameStyles;
         std::array<juce::TextButton, 3> m_retroLengths;
+        // Listening (the app): what you are listening on, Mono to 7.1.4. In a host a read-out: the track decides.
+        std::array<juce::TextButton, room::c_numWidths> m_listen;
+        juce::Rectangle<int> m_listenCaption, m_listenRow, m_listenLine;
         std::unique_ptr<juce::FileChooser> m_chooser;
         juce::Rectangle<int> m_panel;
         std::array<juce::Rectangle<int>, 6> m_captions;
@@ -450,6 +453,8 @@ private:
     /** The line along the foot of the window. It names the key Swell has, so it is written in refreshShortcuts
         rather than in paint. */
     juce::String m_footerHint;
+    juce::String m_listeningStatus; // the app playing a fold-down: shown in the footer in place of the hint
+    juce::String m_listeningLine;   // what Settings says under Listening, as last drawn
     juce::String m_toast;
     double m_toastTime = 0.0;
     /** The toast's plate: it rises 8 px and fades in at the top of the open water, holds, and fades out. It is a

@@ -1,9 +1,12 @@
 // The standalone app. Same as JUCE's default, except the window uses the normal native
 // title bar (no JUCE "Options" bar); the audio device settings live in Swooshbuckler's
-// own Settings panel instead.
+// own Settings panel instead. JUCE's player plays AppOutput, not the rig itself, so the
+// rig plays the room the Listening setting chooses, whatever outputs the device has
+// (AppOutput.h).
 
 #include <JuceHeader.h>
 #include <juce_audio_plugin_client/Standalone/juce_StandaloneFilterWindow.h>
+#include "AppOutput.h"
 #include "PluginProcessor.h"
 #include "SessionAutosave.h"
 
@@ -44,10 +47,15 @@ namespace
                 if (auto* button = dynamic_cast<juce::TextButton*>(child))
                     button->setVisible(false);
 
+            if (auto* rig = dynamic_cast<SwooshbucklerAudioProcessor*>(m_window->pluginHolder->processor.get()))
+            {
+                m_audio = std::make_unique<AppAudio>(*rig, m_window->pluginHolder->deviceManager, m_window->pluginHolder->player);
+                m_audio->start();
+            }
             SwooshbucklerAudioProcessor::showAudioSettings = [this]
             {
-                if (m_window != nullptr && m_window->pluginHolder != nullptr)
-                    m_window->pluginHolder->showAudioSettingsDialog();
+                if (m_audio != nullptr)
+                    m_audio->showDialog();
             };
             m_window->setVisible(true);
 
@@ -87,6 +95,7 @@ namespace
             if (m_autosave != nullptr && saved)
                 m_autosave->finish(); // the copy is only for runs that don't get this far
             m_autosave = nullptr;
+            m_audio = nullptr; // the player lets go of AppOutput before the rig goes
             m_window = nullptr;
             SwooshbucklerAudioProcessor::useSettings(nullptr);
             m_properties.saveIfNeeded();
@@ -102,6 +111,7 @@ namespace
     private:
         juce::ApplicationProperties m_properties;
         std::unique_ptr<juce::StandaloneFilterWindow> m_window;
+        std::unique_ptr<AppAudio> m_audio;
         std::unique_ptr<SessionAutosave> m_autosave;
         struct TitleTimer : juce::Timer
         {

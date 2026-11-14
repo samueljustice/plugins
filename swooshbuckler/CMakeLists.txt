@@ -104,6 +104,7 @@ target_sources(Swooshbuckler
     Source/VariationRenderer.cpp
     Source/VariationsView.cpp
     Source/UserPresets.cpp
+    Source/AppOutput.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/../common/SammyJUpdateCheck.cpp
 )
 
@@ -322,6 +323,16 @@ if(SWOOSHBUCKLER_TESTS)
     target_include_directories(SwooshbucklerExport PRIVATE Source ${CMAKE_CURRENT_BINARY_DIR}/Swooshbuckler_artefacts/JuceLibraryCode $<TARGET_PROPERTY:Swooshbuckler,INCLUDE_DIRECTORIES>)
     target_compile_definitions(SwooshbucklerExport PRIVATE $<TARGET_PROPERTY:Swooshbuckler,COMPILE_DEFINITIONS>)
     target_link_libraries(SwooshbucklerExport PRIVATE Swooshbuckler)
+
+    # App test: the standalone app's Listening setting (Stereo when new, remembered, the rig's only width), the rig
+    # prepared again at each width, every speaker on its own output, the fold-down under the Ceiling when the device
+    # has fewer outputs, a change of width without a click, the status texts, and the whole chain through JUCE's
+    # device manager and player with a pretend audio device (tools/FakeAudioDevice.h).
+    juce_add_console_app(SwooshbucklerApp PRODUCT_NAME "SwooshbucklerApp")
+    target_sources(SwooshbucklerApp PRIVATE Tests/AppTest.cpp)
+    target_include_directories(SwooshbucklerApp PRIVATE Source tools ${CMAKE_CURRENT_BINARY_DIR}/Swooshbuckler_artefacts/JuceLibraryCode $<TARGET_PROPERTY:Swooshbuckler,INCLUDE_DIRECTORIES>)
+    target_compile_definitions(SwooshbucklerApp PRIVATE $<TARGET_PROPERTY:Swooshbuckler,COMPILE_DEFINITIONS>)
+    target_link_libraries(SwooshbucklerApp PRIVATE Swooshbuckler)
 
     # First-run test: the demo sounds (typed right from their audio, one undo step, Play makes sound), typed
     # values against every knob's readout, MIDI controllers learned and kept, and file names cut in the middle.

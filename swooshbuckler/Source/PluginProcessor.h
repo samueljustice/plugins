@@ -414,9 +414,36 @@ public:
     float takeOutputPeak() { return m_outputPeakHold.exchange(0.0f, std::memory_order_relaxed); }
 
     // The room ------------------------------------------------------------------
-    /** How wide the output is. In a plug-in host it is the track's width (the output bus); the app is Stereo for
-        now. Set when the processor is prepared. Any thread. */
+    /** How wide the output is. In a plug-in host it is the track's width (the output bus); in the app it is the
+        Listening setting (AppOutput sets the bus to it). Set when the processor is prepared. Any thread. */
     room::Width getRoomWidth() const { return static_cast<room::Width>(m_roomWidth.load(std::memory_order_relaxed)); }
+
+    // Listening (the app) --------------------------------------------------------
+    /** The app itself, not a plug-in in a host and not Render Variations' offline copy. */
+    bool isApp() const { return wrapperType == wrapperType_Standalone && ! m_offline; }
+    /** What the app plays in: Mono, Stereo, Quad, 5.1, 7.1, 7.1.2 or 7.1.4 (settings key "listening", Stereo on a
+        fresh install). The app's rig takes this width and no other (isBusesLayoutSupported). In a host the track
+        decides and this is not used. Any thread. */
+    room::Width getListening() const { return static_cast<room::Width>(m_listening.load(std::memory_order_relaxed)); }
+    /** Chooses it and remembers it; then onListeningChanged (the app fades the sound out, opens the outputs the
+        room needs and prepares the rig again at the new width). Message thread. */
+    void setListening(room::Width width);
+    /** Set by the app (AppAudio); called by setListening on the message thread. */
+    std::function<void()> onListeningChanged;
+    /** The app's audio device: how many outputs are switched on (0: no device playing) and how many it has.
+        Set by AppOutput when it is prepared and by AppAudio when the device changes. Any thread. */
+    void setDeviceOutputs(int switchedOn, int available);
+    int getDeviceOutputs() const { return m_deviceOutputs.load(std::memory_order_relaxed); }
+    int getDeviceOutputsAvailable() const { return m_deviceOutputsAvailable.load(std::memory_order_relaxed); }
+    /** The app plays a fold-down of the room: the device has fewer outputs switched on than the room needs. */
+    bool isListeningFolded() const { return isApp() && listeningFolded(getListening(), getDeviceOutputs()); }
+    static bool listeningFolded(room::Width width, int deviceOutputs);
+    /** The status line when the app plays a fold-down ("Playing 7.1.4 folded to stereo: this audio device has 2
+        outputs."), empty otherwise and in a host. */
+    juce::String listeningStatus() const;
+    static juce::String listeningStatus(room::Width width, int deviceOutputs, int available);
+    /** The line under the Listening choice in Settings: where the speakers go, or the fold and why. */
+    static juce::String listeningLine(room::Width width, int deviceOutputs, int available);
     /** The width has an LFE (5.1 and wider): LFE Mode and LFE Level do something. Mono, Stereo and Quad ignore them
         (the room strip dims them there). */
     bool roomHasLfe() const { return room::hasLfe(getRoomWidth()); }
@@ -563,6 +590,8 @@ private:
     // The room (set in prepareInternal, while nothing is processed). The pipe is the width the audio is carried
     // at, Mono carried as Stereo and folded at the output (see RoomMaster).
     std::atomic<int> m_roomWidth { static_cast<int>(room::Width::Stereo) };
+    std::atomic<int> m_listening { static_cast<int>(room::Width::Stereo) }; // the app's Listening (from the settings)
+    std::atomic<int> m_deviceOutputs { 0 }, m_deviceOutputsAvailable { 0 };  // the app's audio device
     room::Width m_width = room::Width::Stereo;
     int m_pipeChannels = 2;
     std::array<float, room::c_maxChannels> m_loudnessWeight {}; // per pipe channel, BS.1770 (room::loudnessWeight)

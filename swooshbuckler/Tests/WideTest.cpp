@@ -1,7 +1,7 @@
 // Wide test: the plug-in carries every room width end to end.
 //
 //   - Layouts: the output accepts the seven widths as JUCE's own channel sets (Mono, Stereo, Quad, 5.1, the film
-//     7.1, 7.1.2, 7.1.4) and nothing else; the app stays Stereo or Mono. In AAX each width gets its own plug-in
+//     7.1, 7.1.2, 7.1.4) and nothing else; the app takes its Listening width only (Stereo when new). In AAX each width gets its own plug-in
 //     ID, pinned here (Mono and Stereo keep the IDs they always had).
 //   - Loudness weights: ITU-R BS.1770-4's, from where each speaker stands.
 //   - The output stage (RoomMaster): the same latency on every channel at every width; the Ceiling held on every
@@ -240,7 +240,7 @@ int main(int argc, char* argv[])
         withInput.inputBuses.add(juce::AudioChannelSet::stereo());
         check(! base->checkBusesLayoutSupported(withInput), "a layout with an audio input is refused");
 
-        // The app: Stereo and Mono only (its device would otherwise be matched to a surround layout unasked).
+        // The app: its Listening width only, Stereo on a fresh install (AppTest goes through the others).
         juce::AudioProcessor::setTypeOfNextNewPlugin(juce::AudioProcessor::wrapperType_Standalone);
         std::unique_ptr<juce::AudioProcessor> app { createPluginFilter() };
         juce::AudioProcessor::setTypeOfNextNewPlugin(juce::AudioProcessor::wrapperType_Undefined);
@@ -250,8 +250,8 @@ int main(int argc, char* argv[])
                 wide = wide || app->checkBusesLayoutSupported(layoutFor(room::channelSet(w)));
         check(app->wrapperType == juce::AudioProcessor::wrapperType_Standalone && ! wide
                   && app->checkBusesLayoutSupported(layoutFor(juce::AudioChannelSet::stereo()))
-                  && app->checkBusesLayoutSupported(layoutFor(juce::AudioChannelSet::mono())),
-              "the app stays Stereo or Mono");
+                  && ! app->checkBusesLayoutSupported(layoutFor(juce::AudioChannelSet::mono())),
+              "the app takes its Listening width only: Stereo, as a fresh install has it");
 
         // AAX: one plug-in ID per width, from JUCE's fixed table (the plug-in keeps the default extensions).
         // Pinned, so a change of JUCE that would move them (and lose Pro Tools sessions) is caught here.
