@@ -139,7 +139,7 @@ private:
     struct ConstellationStar { juce::Point<float> at; float size, phase, weight; bool cherry; };
     juce::Image m_constellationHaze;                         // made with the sky, at the sky's scale
     std::vector<ConstellationStar> m_constellation;          // normalised, centred, y-up
-    std::vector<std::pair<int, int>> m_constellationLines;
+    std::vector<LogoConstellation::Line> m_constellationLines;
     juce::Rectangle<float> m_constellationBounds;            // of the stars, in the same coordinates
     float m_constellationOpacity = 0.0f, m_constellationTime = 0.0f, m_constellationLeft = 0.0f, m_constellationNext = 20.0f;
     bool m_constellationHeld = false;

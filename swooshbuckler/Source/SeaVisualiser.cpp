@@ -16,7 +16,9 @@ namespace
     const juce::Colour c_hollow    { 0xff071820 };  // the water between two rows
     const juce::Colour c_moonlight { 0xfff3e3c0 };
 
-    constexpr float c_glowGrenade = 0.085f, c_glowCherry = 0.12f;  // how much of the mark's own shapes shows behind its stars
+    // How much of the mark's own shapes shows behind its stars: the grenade is the solid thing in the mark, so it
+    // is the heavier of the two; the cherry in front of it cuts a dark line round itself out of the grenade.
+    constexpr float c_glowGrenade = 0.15f, c_glowCherry = 0.10f, c_keyline = 1.6f;
     constexpr float c_hazeMargin = 2.0f;
 
     /** The water at a distance: 1 at the camera, 0 at the horizon. */
@@ -355,13 +357,29 @@ void SeaVisualiser::buildConstellationHaze(float pixelScale)
     juce::Graphics g(m_constellationHaze);
     const auto toImage = juce::AffineTransform::translation(-middle.x, -middle.y).scaled(unit, -unit)
                              .translated(0.5f * area.getWidth(), 0.5f * area.getHeight()).scaled(pixelScale);
-    const juce::Colour glows[2] = { juce::Colour(0xffa9c6dc), juce::Colour(0xffe8455c) };   // the grenade, the cherry
-    const float glowAlpha[2] = { c_glowGrenade, c_glowCherry };
-    for (int k = 0; k < 2; ++k)
+    const auto grenade = m_logo->createOutlinePath(false), cherry = m_logo->createOutlinePath(true);
+
+    // What the cherry hides: itself and a keyline round it.
+    juce::Image hidden(juce::Image::SingleChannel, m_constellationHaze.getWidth(), m_constellationHaze.getHeight(), true);
     {
-        g.setColour(glows[k].withAlpha(glowAlpha[k]));
-        g.fillPath(m_logo->createOutlinePath(k == 1), toImage);
+        juce::Graphics mask(hidden);
+        mask.setColour(juce::Colours::white);
+        mask.fillPath(cherry, toImage);
+        mask.strokePath(cherry, juce::PathStrokeType(2.0f * c_keyline / juce::jmax(0.1f, unit)), toImage);
     }
+
+    g.setColour(juce::Colour(0xffa9c6dc).withAlpha(c_glowGrenade));
+    g.fillPath(grenade, toImage);
+    {
+        juce::Image::BitmapData haze(m_constellationHaze, juce::Image::BitmapData::readWrite);
+        const juce::Image::BitmapData cut(hidden, juce::Image::BitmapData::readOnly);
+        for (int y = 0; y < haze.height; ++y)
+            for (int x = 0; x < haze.width; ++x)
+                if (const auto covered = *cut.getPixelPointer(x, y))
+                    reinterpret_cast<juce::PixelARGB*>(haze.getPixelPointer(x, y))->multiplyAlpha(255 - static_cast<int>(covered));
+    }
+    g.setColour(juce::Colour(0xffe8455c).withAlpha(c_glowCherry));
+    g.fillPath(cherry, toImage);
 }
 
 juce::Rectangle<float> SeaVisualiser::clearOf(juce::Rectangle<float> area, const juce::Rectangle<float>* keepOut, int numKeepOut,
@@ -425,13 +443,16 @@ void SeaVisualiser::paintConstellation(juce::Graphics& g, float w)
         g.drawImage(m_constellationHaze, area.expanded(c_hazeMargin));
     }
 
+    // The outlines are the strong lines and the ring the strongest; the cap and stems are quieter, the lever and
+    // the cherry's dimple quieter still.
+    static constexpr float lineAlpha[4] = { 0.20f, 0.27f, 0.38f, 0.46f }, lineWidth[4] = { 0.7f, 0.85f, 1.0f, 1.1f };
     for (const auto& line : m_constellationLines)
     {
         const auto& from = m_constellation[static_cast<size_t>(line.first)];
         const auto& to = m_constellation[static_cast<size_t>(line.second)];
-        const bool faint = from.weight <= 0.0f || to.weight <= 0.0f;   // the ring is fine wire
-        g.setColour(colours[from.cherry && to.cherry ? 1 : 0].withAlpha((faint ? 0.20f : 0.30f) * alpha));
-        g.drawLine({ place(from.at), place(to.at) }, faint ? 0.7f : 0.9f);
+        const auto tier = static_cast<size_t>(juce::jlimit(0, 3, line.tier));
+        g.setColour(colours[from.cherry && to.cherry ? 1 : 0].withAlpha(lineAlpha[tier] * alpha));
+        g.drawLine({ place(from.at), place(to.at) }, lineWidth[tier]);
     }
     for (const auto& s : m_constellation)
     {

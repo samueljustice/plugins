@@ -1700,8 +1700,8 @@ int main(int argc, char* argv[])
 
         // The mark in the stars: a few dozen stars on the logo's corners and round its curves, joined by lines. They sit
         // on the artwork (on the ring and the stems they run down the middle, half a line's width off the outline).
-        // Few enough to be a constellation and not a dotted drawing, and a handful of them heavy: the corners the
-        // shape hangs on.
+        // Few enough to be a constellation and not a dotted drawing, and only a handful of them heavy: the star the
+        // stems part from, the cap's corners, the ring's eyelet, the cherry's dimple.
         {
             const auto outline = sea.m_logo->createOutlinePath();
             float furthest = 0.0f;
@@ -1715,7 +1715,7 @@ int main(int argc, char* argv[])
                     furthest = on.getDistanceFrom(s.at);
                     furthestStar = (int) (&s - sea.m_constellation.data());
                 }
-                heavy += s.weight >= 0.6f ? 1 : 0;
+                heavy += s.weight >= 0.45f ? 1 : 0;
                 light += s.weight <= 0.3f ? 1 : 0;
             }
             std::set<int> joined;
@@ -1726,10 +1726,47 @@ int main(int argc, char* argv[])
             }
             const int stars = (int) sea.m_constellation.size();
             check(stars >= 28 && stars <= 45 && (int) sea.m_constellationLines.size() >= stars
-                      && (int) joined.size() == stars && furthest < 0.012f && heavy >= 5 && heavy <= 10 && light * 2 >= stars,
+                      && (int) joined.size() == stars && furthest < 0.012f && heavy >= 3 && heavy <= 8 && light * 2 >= stars,
                   "sea: the constellation is " + juce::String(stars) + " stars on the mark (the furthest, star "
                       + juce::String(furthestStar) + ", " + juce::String(furthest, 4) + " of a unit off its outline), every one joined by a line; "
                       + juce::String(heavy) + " are heavy and " + juce::String(light) + " light");
+        }
+
+        // The pull ring is a ring: its own stars, eight or more, all one distance from their middle and evenly spaced
+        // round it, joined in the figure's strongest line. The outlines of the body and the cherry are the next
+        // strongest; nothing else is drawn as strongly as those.
+        {
+            std::set<int> onRing;
+            int ringLines = 0, outlineLines = 0, quietLines = 0;
+            for (const auto& line : sea.m_constellationLines)
+            {
+                if (line.tier == LogoConstellation::ring)
+                {
+                    onRing.insert(line.first);
+                    onRing.insert(line.second);
+                    ++ringLines;
+                }
+                outlineLines += line.tier == LogoConstellation::silhouette ? 1 : 0;
+                quietLines += line.tier < LogoConstellation::silhouette ? 1 : 0;
+            }
+            juce::Point<float> middle;
+            for (int i : onRing)
+                middle += sea.m_constellation[(size_t) i].at / (float) juce::jmax(1, (int) onRing.size());
+            float nearest = 1.0e6f, farthest = 0.0f;
+            for (int i : onRing)
+            {
+                const float d = sea.m_constellation[(size_t) i].at.getDistanceFrom(middle);
+                nearest = juce::jmin(nearest, d);
+                farthest = juce::jmax(farthest, d);
+            }
+            const float markWidth = sea.m_logo->createOutlinePath().getBounds().getWidth();
+            check(onRing.size() >= 8 && ringLines == (int) onRing.size() && farthest - nearest < 0.02f * farthest
+                      && 2.0f * farthest > 0.2f * markWidth && 2.0f * farthest < 0.35f * markWidth
+                      && outlineLines >= 16 && quietLines >= 8 && quietLines < outlineLines + ringLines,
+                  "sea: the constellation's pull ring is a circle of " + juce::String((int) onRing.size()) + " stars ("
+                      + juce::String(juce::roundToInt(200.0f * farthest / markWidth)) + "% of the mark across, round to within "
+                      + juce::String(100.0f * (farthest - nearest) / juce::jmax(1.0e-6f, farthest), 1) + "%) in the strongest line; "
+                      + juce::String(outlineLines) + " outline lines, " + juce::String(quietLines) + " quieter ones");
         }
 
         // It is the whole mark, not a corner of it: the stars reach to every side of the logo, the cherry is drawn all

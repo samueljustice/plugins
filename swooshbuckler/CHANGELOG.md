@@ -4,7 +4,7 @@
 
 - **A calmer sea.** The lines of the sea stay where they are and only the waves travel along them, more slowly than before. The lines used to slide away to the horizon all the time, which made the whole picture rush backwards.
 - **Render Variations: just type a name.** The Batch Name box is always there to type in, and typing a name sets File Names to Batch Name And Counter for you.
-- **The constellation in the sea's sky is the logo now.** A few dozen stars draw the grenade (its angular cap, pull ring, lever and round body), the cherry in rosy stars and the two stems, over the faintest haze of the two shapes, and it is nearly twice the size, so you can tell what it is. It used to be a small tangle.
+- **The constellation in the sea's sky is the logo now.** Some forty stars draw the grenade (a clear circle for the pull ring, the cap as one block, the lever and the round body), the cherry in front of it in rosy stars and the two stems, over a faint haze of the two shapes, and it is nearly twice the size, so you can tell what it is. It used to be a small tangle.
 
 ## 2.1.0
 
