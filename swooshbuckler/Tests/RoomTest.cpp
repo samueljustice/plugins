@@ -18,6 +18,7 @@
 #include <algorithm>
 #include <cmath>
 #include <iostream>
+#include <limits>
 #include <string>
 #include <vector>
 
@@ -206,6 +207,26 @@ namespace
             const auto wild = panned(w, -7.0f, 5.0f, 3.0f, 4.0f, -2.0f, 9.0f);
             const auto wall = panned(w, -1.0f, 1.0f, 1.0f, 1.0f, 0.0f, 1.0f);
             check(wild == wall, name(w) + ": positions and settings outside their range are held at the limit");
+
+            // A position or setting that is not a number (or is infinite) never reaches the gains: they stay
+            // finite with a power of 1. A NaN gain would silence or wreck every channel it touches.
+            {
+                const float nan = std::numeric_limits<float>::quiet_NaN(), inf = std::numeric_limits<float>::infinity();
+                bool sane = true;
+                for (int bad = 0; bad < 6; ++bad)
+                    for (const float v : { nan, inf, -inf })
+                    {
+                        std::array<float, 6> in { 0.3f, -0.4f, 0.6f, 0.2f, 0.5f, 1.0f };
+                        in[static_cast<size_t>(bad)] = v;
+                        const auto g = panned(w, in[0], in[1], in[2], in[3], in[4], in[5]);
+                        for (const float gain : g)
+                            sane = sane && std::isfinite(gain) && gain >= 0.0f && gain <= 1.00001f;
+                        sane = sane && std::abs(powerDb(power(g))) < 0.001;
+                    }
+                const auto allNan = panned(w, nan, nan, nan, nan, nan, nan);
+                sane = sane && allNan == panned(w, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f);
+                check(sane, name(w) + ": a position or setting that is not a number is read as 0; the gains stay finite with a power of 1");
+            }
 
             // Left-right symmetry: mirroring x swaps each pair of speakers and leaves C alone.
             double worstMirror = 0.0;
@@ -508,6 +529,17 @@ namespace
                         clamped = clamped && is(under, start.position.x, start.position.y, start.position.z) && is(over, end.position.x, end.position.y, end.position.z);
                     }
         check(inside && clamped, "every path stays inside the room, and progress outside 0..1 holds at the ends");
+        {
+            const float nan = std::numeric_limits<float>::quiet_NaN();
+            bool sane = true;
+            for (const auto path : c_paths)
+            {
+                const auto f = room::flight(path, nan, nan, nan, nan);
+                const auto zero = room::flight(path, 0.0f, 0.0f, 1.0f, 1.0f);
+                sane = sane && std::isfinite(f.distance) && is(f, zero.position.x, zero.position.y, zero.position.z) && near(f.distance, zero.distance);
+            }
+            check(sane, "progress or closeness that is not a number is read as 0: the position and distance stay finite");
+        }
         check(sidesMirror, "Through and Overhead on the other side are the mirror image");
         check(worstJump < 0.004, "positions and distances move without jumps (largest step " + num(worstJump, 5) + " per 1/2000 of a pass)");
         check(distanceOk, "distance is the length of (x, y) on the floor, and of (x, y, the arch's real height) for Overhead");
@@ -684,7 +716,7 @@ namespace
                             continue;
                         }
                         if (from == to)
-                            identity = identity && g == (r == c ? 1.0f : 0.0f) && gf == g;
+                            identity = identity && juce::exactlyEqual(g, r == c ? 1.0f : 0.0f) && juce::exactlyEqual(gf, g);
                         // Every coefficient is a whole number of -3 dB steps (or the Mono average of two of them).
                         const double steps = std::log(std::max(1.0e-9, static_cast<double>(g))) / std::log(h);
                         exact = exact && (g == 0.0f || near(steps, std::round(steps), 1.0e-4) || to == Width::Mono);
@@ -698,7 +730,7 @@ namespace
                             lfeFolded = lfeFolded && near(gf, front ? h : 0.0, 1.0e-6);
                         }
                         if (! lfeIn)
-                            lfeFolded = lfeFolded && gf == g; // the option changes nothing but the LFE's own column
+                            lfeFolded = lfeFolded && juce::exactlyEqual(gf, g); // the option changes nothing but the LFE's own column
                         const int mr = out.indexOf(room::mirrored(out.speakers[static_cast<size_t>(r)]));
                         const int mc = in.indexOf(room::mirrored(in.speakers[static_cast<size_t>(c)]));
                         mirror = mirror && near(g, m.gain[static_cast<size_t>(mr)][static_cast<size_t>(mc)], 1.0e-7);

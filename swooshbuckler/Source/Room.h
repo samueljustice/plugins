@@ -140,7 +140,8 @@ namespace room
     using Gains = std::array<float, c_maxChannels>;
 
     /** One gain per processing channel (zero past the width's channel count and on the LFE). Out-of-range positions
-        and settings are clamped. Mono is always 1; Stereo uses x alone. */
+        and settings are clamped, and one that is not a number is read as 0, so the gains are always finite and
+        their power is always 1. Mono is always 1; Stereo uses x alone. */
     void pan(Width width, Position position, const PanSettings& settings, Gains& gains) noexcept;
 
     //==================================================================================================================
@@ -183,6 +184,8 @@ namespace room
         float distance = 1.0f;
     };
 
+    /** Progress and closeness outside 0..1 are held at the ends (not a number is read as 0), so the position is
+        always inside the room. */
     Flight flight(Path path, float progress, float closeness, float direction, float side) noexcept;
 
     //==================================================================================================================

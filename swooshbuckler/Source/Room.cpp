@@ -67,8 +67,10 @@ namespace
 
     int index(Width width) noexcept { return std::clamp(static_cast<int>(width), 0, c_numWidths - 1); }
 
-    float clamp01(float v) noexcept { return v < 0.0f ? 0.0f : (v > 1.0f ? 1.0f : v); }
-    float clamp11(float v) noexcept { return v < -1.0f ? -1.0f : (v > 1.0f ? 1.0f : v); }
+    // Written so that a value that is not a number comes out as 0 (every comparison with it is false): a bad
+    // position or setting must never reach the gains, which multiply the audio.
+    float clamp01(float v) noexcept { return v > 0.0f ? (v < 1.0f ? v : 1.0f) : 0.0f; }
+    float clamp11(float v) noexcept { return v > 0.0f ? (v < 1.0f ? v : 1.0f) : (v < 0.0f ? (v > -1.0f ? v : -1.0f) : 0.0f); }
 
     // Which processing channel each place in the room is, for the panner: -1 where the width has no such speaker.
     struct PanMap
