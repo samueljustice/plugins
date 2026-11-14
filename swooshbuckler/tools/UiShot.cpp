@@ -30,10 +30,10 @@
 //   settings-714.png settings-714-stereo-fold.png settings-714-flac.png takes-714.png
 //                             the rig in a 7.1.4 room: the tape's settings (as played, folded to Stereo, FLAC refused)
 //                             and the Takes list with a 7.1.4 take, a Stereo fold, a Multi-Mono set and 7.1.4 variations
-//   settings-app.png settings-app-51.png settings-app-714-folded.png audio-device-51.png audio-device-714-folded.png
-//   window-app-folded.png footer-app-folded.png
-//                             the app, played from a pretend audio device: Listening in Settings (Stereo, 5.1, and
-//                             7.1.4 on a two-output device), the audio device dialog, and the footer saying it is folded
+//   settings-app.png settings-app-51.png settings-app-714.png settings-app-714-folded.png audio-device-51.png
+//   audio-device-714.png audio-device-714-folded.png window-app-folded.png footer-app-folded.png
+//                             the app, played from a pretend audio device: Listening in Settings (Stereo, 5.1, 7.1.4,
+//                             and 7.1.4 on a two-output device), the audio device dialog, and the footer saying it is folded
 //   menu.png                 the preset menu open
 //   name-dialog.png           the window that asks for a preset's name
 //
@@ -885,9 +885,11 @@ int main(int argc, char* argv[])
         listen(room::Width::Surround51);
         settingsShot("settings-app-51");                  // 5.1: outputs 1 to 6 switched on for it
         deviceShot("audio-device-51");
+        listen(room::Width::Surround714);
+        settingsShot("settings-app-714");                 // 7.1.4 on twelve of the sixteen outputs
+        deviceShot("audio-device-714");
         FakeAudio::choose(devices, "Fake 2", 2);
         audio->deviceChanged();
-        listen(room::Width::Surround714);
         settingsShot("settings-app-714-folded");          // 7.1.4 on a two-output device: the fold, said in brass
         deviceShot("audio-device-714-folded");
         {

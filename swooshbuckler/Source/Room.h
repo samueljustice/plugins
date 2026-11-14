@@ -305,4 +305,34 @@ namespace room
     /** The suffix of one channel's file in a Multi-Mono set (".L", ".Lss", ".Ltm"), by processing channel. Mono
         has none: it is one file already. */
     const char* multiMonoSuffix(Width width, int processingChannel) noexcept;
+
+    //==================================================================================================================
+    // THE ORDER TO AN AUDIO DEVICE (the app)
+    //
+    // The speakers at ear level and the LFE first, in processing order, then the speakers overhead:
+    //       Quad    L R Ls Rs
+    //       5.1     L R C LFE Ls Rs
+    //       7.1     L R C LFE Lss Rss Lsr Rsr
+    //       7.1.2   L R C LFE Lss Rss Lsr Rsr Ltm Rtm
+    //       7.1.4   L R C LFE Lss Rss Lsr Rsr Ltf Rtf Ltr Rtr
+    // This is how a monitor controller or interface is wired for 5.1, 7.1 and Dolby Atmos rooms (and Core Audio's
+    // own 7.1.4 layout), and each room's outputs are the next narrower room's with speakers added, so a room wired
+    // for 7.1 keeps every speaker where it is when four tops are added. It is the processing order for every width
+    // but 7.1.4, where JUCE puts the rear surrounds after the tops.
+    //==================================================================================================================
+
+    /** For each output of the device (of those switched on, lowest first), the processing channel it plays:
+        output[i] = processing[deviceChannels(width)[i]]. Entries past the width's channels are -1. */
+    inline std::array<int, c_maxChannels> deviceChannels(Width width) noexcept
+    {
+        const Layout& l = layout(width);
+        std::array<int, c_maxChannels> order;
+        order.fill(-1);
+        size_t next = 0;
+        for (const bool overhead : { false, true })
+            for (int ch = 0; ch < l.numChannels; ++ch)
+                if ((info(l.speakers[static_cast<size_t>(ch)]).role == Role::Height) == overhead)
+                    order[next++] = ch;
+        return order;
+    }
 }

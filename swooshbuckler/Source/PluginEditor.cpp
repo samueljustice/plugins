@@ -616,14 +616,8 @@ SwooshbucklerAudioProcessorEditor::SettingsPanel::SettingsPanel(SwooshbucklerAud
                                                  : juce::String()));
             b.onClick = [this, width]
             {
-                if (m_owner.m_processor.getListening() == width)
-                    return refresh();
-                if (m_owner.m_processor.isRecording())
-                {
+                if (! m_owner.m_processor.setListening(width))
                     m_owner.toast("Stop the tape to change what you are listening on");
-                    return refresh();
-                }
-                m_owner.m_processor.setListening(width);
                 refresh();
             };
         }

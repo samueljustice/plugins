@@ -426,8 +426,9 @@ public:
         decides and this is not used. Any thread. */
     room::Width getListening() const { return static_cast<room::Width>(m_listening.load(std::memory_order_relaxed)); }
     /** Chooses it and remembers it; then onListeningChanged (the app fades the sound out, opens the outputs the
-        room needs and prepares the rig again at the new width). Message thread. */
-    void setListening(room::Width width);
+        room needs and prepares the rig again at the new width). Refused (false) in a host and while the tape
+        records: a take is written at the room's width. Message thread. */
+    bool setListening(room::Width width);
     /** Set by the app (AppAudio); called by setListening on the message thread. */
     std::function<void()> onListeningChanged;
     /** The app's audio device: how many outputs are switched on (0: no device playing) and how many it has.

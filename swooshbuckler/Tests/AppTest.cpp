@@ -4,8 +4,9 @@
 //     settings file on disk), and the app's rig takes that width and no other. In a host the track decides:
 //     the setting is not used and every width is taken.
 //   - AppOutput (what JUCE's player plays in the app): the rig is prepared again at each of the seven widths from
-//     the setting; with enough outputs every speaker goes to its own output, bit for bit, and the outputs past the
-//     room are silent (Mono plays its one channel on the first two). With fewer outputs the room is folded down
+//     the setting; with enough outputs every speaker goes to its own output, bit for bit, in the order a room is
+//     wired (typed here by hand: the tops last, so 7.1.4's rears stay on 7 and 8 where 7.1 has them), and the
+//     outputs past the room are silent (Mono plays its one channel on the first two). With fewer outputs the room is folded down
 //     (to stereo, or to mono on a one-output device), equal to room::fold of what the rig played when it is quiet,
 //     and held under the Ceiling when it is loud (the unlimited fold goes over).
 //   - A change of width while playing: out in 10 ms, the rig prepared again, in over 10 ms, and no click (the
@@ -30,8 +31,10 @@
 #include "Room.h"
 #include "TakeFile.h"
 
+#include <algorithm>
 #include <cmath>
 #include <iostream>
+#include <vector>
 
 namespace
 {
@@ -166,6 +169,31 @@ namespace
         return peak > 0.0f ? m / peak : 0.0f;
     }
 
+    /** The order a room is wired in, output by output, typed by hand (not read from the code under test): the
+        ear-level speakers and the LFE as 5.1, 7.1 and Dolby Atmos monitoring have them, then the tops. */
+    using S = room::Speaker;
+    std::vector<S> wiring(W w)
+    {
+        switch (w)
+        {
+            case W::Mono:        return { S::C };
+            case W::Stereo:      return { S::L, S::R };
+            case W::Quad:        return { S::L, S::R, S::Ls, S::Rs };
+            case W::Surround51:  return { S::L, S::R, S::C, S::Lfe, S::Ls, S::Rs };
+            case W::Surround71:  return { S::L, S::R, S::C, S::Lfe, S::Lss, S::Rss, S::Lsr, S::Rsr };
+            case W::Surround712: return { S::L, S::R, S::C, S::Lfe, S::Lss, S::Rss, S::Lsr, S::Rsr, S::Ltm, S::Rtm };
+            case W::Surround714: return { S::L, S::R, S::C, S::Lfe, S::Lss, S::Rss, S::Lsr, S::Rsr, S::Ltf, S::Rtf, S::Ltr, S::Rtr };
+        }
+        return {};
+    }
+    juce::String wiringText(W w)
+    {
+        juce::String s;
+        for (auto speaker : wiring(w))
+            s << (s.isEmpty() ? "" : " ") << room::info(speaker).name;
+        return s;
+    }
+
     /** The room the rig played, folded down to `to` with room::fold. */
     juce::AudioBuffer<float> fold(const juce::AudioBuffer<float>& roomAudio, W from, W to)
     {
@@ -249,12 +277,19 @@ int main(int argc, char* argv[])
             const int from = 4 * c_block; // after the look-ahead and the 10 ms fade-in
             float routed = 0.0f, past = 0.0f;
             int sounding = 0;
+            bool distinct = true; // every speaker of the room is on one output and no two outputs share one
+            std::vector<int> used;
             for (int ch = 0; ch < 12; ++ch)
             {
-                const int roomCh = w == W::Mono ? 0 : ch;
                 const bool carries = ch < n || (w == W::Mono && ch == 1);
+                // The speaker this output must play, from the order typed above, as the rig's own channel.
+                const int roomCh = ! carries ? -1 : w == W::Mono ? 0 : room::layout(w).indexOf(wiring(w)[static_cast<size_t>(ch)]);
                 if (carries)
                 {
+                    distinct = distinct && roomCh >= 0 && (w == W::Mono || std::find(used.begin(), used.end(), roomCh) == used.end());
+                    used.push_back(roomCh);
+                    if (roomCh < 0)
+                        continue;
                     routed = std::max(routed, diffOf(played.device.getReadPointer(ch), played.room.getReadPointer(roomCh), played.device.getNumSamples(), from));
                     if (peakOf(played.device, ch, from) > 1.0e-3f)
                         ++sounding;
@@ -264,9 +299,9 @@ int main(int argc, char* argv[])
             }
             const int mains = (w == W::Mono ? 2 : n) - (room::hasLfe(w) ? 1 : 0); // LFE Off: the LFE is silent
             check(rig->getRoomWidth() == w && rig->getTotalNumOutputChannels() == n && out.getMonitor() == AppOutput::Monitor::Direct
-                      && routed == 0.0f && past == 0.0f && sounding == mains,
+                      && routed == 0.0f && past == 0.0f && sounding == mains && distinct,
                   nameOf(w) + ": the rig is " + nameOf(rig->getRoomWidth()) + " with " + juce::String(rig->getTotalNumOutputChannels())
-                      + " channels; each speaker on its own output bit for bit (largest difference " + juce::String(routed)
+                      + " channels; each speaker on its own output in the order " + wiringText(w) + ", bit for bit (largest difference " + juce::String(routed)
                       + "), " + juce::String(sounding) + " outputs sounding, the rest silent (" + juce::String(past) + ")"
                       + (w == W::Mono ? ", the one channel on the first two" : ""));
         }
@@ -419,16 +454,38 @@ int main(int argc, char* argv[])
               "nothing to say with enough outputs, for Mono on one, or with no device");
         check(Proc::listeningLine(W::Surround51, 6, 6) == "Plays on the first 6 outputs switched on, in this order: L R C LFE Ls Rs.", "5.1's line spells out the order");
         check(Proc::listeningLine(W::Surround714, 12, 12)
-                  == "Plays on the first 12 outputs switched on, in this order: L R C LFE Lss Rss Ltf Rtf Ltr Rtr Lsr Rsr.",
-              "7.1.4's line: the rears come last, as JUCE orders them");
+                  == "Plays on the first 12 outputs switched on, in this order: L R C LFE Lss Rss Lsr Rsr Ltf Rtf Ltr Rtr.",
+              "7.1.4's line: the rears on 7 and 8, the tops last");
+        check(Proc::listeningLine(W::Surround71, 8, 8) == "Plays on the first 8 outputs switched on, in this order: L R C LFE Lss Rss Lsr Rsr."
+                  && Proc::listeningLine(W::Surround712, 10, 10) == "Plays on the first 10 outputs switched on, in this order: L R C LFE Lss Rss Lsr Rsr Ltm Rtm.",
+              "7.1 and 7.1.2 keep the same eight, 7.1.2 adds its two tops");
+        {
+            // The dialog: each speaker beside the number of the output it really plays on (a number and its speaker
+            // are held together on one line by a no-break space, shown here as a plain one).
+            auto first = [](int count) { juce::BigInteger b; b.setRange(0, count, true); return b; };
+            auto text = [](W w, const juce::BigInteger& active, int available)
+            {
+                return AppAudio::dialogText(w, active, available).replaceCharacter(juce::juce_wchar(0x00a0), ' ');
+            };
+            check(text(W::Surround714, first(12), 12)
+                      == "Listening: 7.1.4, 12 outputs. The speakers play on these outputs: 1 L, 2 R, 3 C, 4 LFE, 5 Lss, 6 Rss, 7 Lsr, 8 Rsr, 9 Ltf, 10 Rtf, 11 Ltr, 12 Rtr.",
+                  "the dialog numbers 7.1.4's outputs in the same order");
+            juce::BigInteger picked; // outputs 3, 4 and 9 to 12 of sixteen, switched on by hand
+            picked.setRange(2, 2, true);
+            picked.setRange(8, 4, true);
+            check(text(W::Surround51, picked, 16) == "Listening: 5.1, 6 outputs. The speakers play on these outputs: 3 L, 4 R, 9 C, 10 LFE, 11 Ls, 12 Rs.",
+                  "outputs picked by hand: the dialog names the outputs the speakers really play on");
+            check(text(W::Surround51, first(2), 2)
+                      == "Listening: 5.1, 6 outputs. The speakers go out in this order, lowest output first: L R C LFE Ls Rs.\n"
+                         "Playing 5.1 folded to stereo: this audio device has 2 outputs. Switch on more outputs below, or choose a device that has them.",
+                  "too few outputs: the dialog gives the order and says it is folded");
+            check(text(W::Mono, first(2), 2) == "Listening: Mono, one channel, played on the first two outputs switched on.", "the dialog for Mono");
+        }
         check(Proc::listeningLine(W::Surround714, 2, 2)
                   == "Playing 7.1.4 folded to stereo: this audio device has 2 outputs. The tape and Render Variations still get all 12 channels.",
               "folded: the line says the tape still gets the room");
         check(Proc::listeningLine(W::Mono, 2, 2) == "The one channel plays on the first two outputs switched on.", "Mono's line");
         check(Proc::listeningLine(W::Stereo, 0, 0) == "No audio device is playing. Choose one with Audio Device.", "no device");
-        check(AppAudio::dialogText(W::Surround51, 2, 2).contains("1 L, 2 R, 3 C, 4 LFE, 5 Ls, 6 Rs")
-                  && AppAudio::dialogText(W::Surround51, 2, 2).contains("Playing 5.1 folded to stereo"),
-              "the dialog numbers the outputs and says when it folds");
     }
 
     //==========================================================================
@@ -536,6 +593,19 @@ int main(int argc, char* argv[])
                 }
                 check(channels == 12 && tapeSounding == 11, "the tape records all 12 channels of the room (" + juce::String(channels) + ", "
                                                               + juce::String(tapeSounding) + " sounding) while you hear it folded");
+            }
+
+            // While the tape records, Listening stays as it is: a take is written at the room's width.
+            {
+                juce::String error;
+                check(rig->arm(error), "the tape arms again " + error);
+                pull(0.5);
+                const bool refused = ! rig->setListening(W::Surround51);
+                check(refused && rig->getListening() == W::Surround714 && ! audio.output().isFadedOut() && rig->getRoomWidth() == W::Surround714,
+                      "Listening cannot change while the tape records: refused, nothing fades, the rig stays 7.1.4");
+                rig->stopRecording();
+                for (int wait = 0; wait < 200 && rig->isRecording(); ++wait)
+                    juce::Thread::sleep(10);
             }
 
             // Back to the big device: a device chosen anew gets the room's outputs; outputs switched off by hand on

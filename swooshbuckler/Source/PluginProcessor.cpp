@@ -1541,15 +1541,20 @@ room::Width SwooshbucklerAudioProcessor::getTapeWidth() const
     }
 }
 
-void SwooshbucklerAudioProcessor::setListening(room::Width width)
+bool SwooshbucklerAudioProcessor::setListening(room::Width width)
 {
     if (! isApp())
-        return; // in a host the track decides
+        return false; // in a host the track decides
+    if (width == getListening())
+        return true;
+    if (isRecording())
+        return false; // the tape is written at the room's width: it cannot change under a take
     m_listening.store(static_cast<int>(width));
     m_settings->setValue("listening", static_cast<int>(width));
     m_settings->saveIfNeeded();
     if (onListeningChanged)
         onListeningChanged();
+    return true;
 }
 
 void SwooshbucklerAudioProcessor::setDeviceOutputs(int switchedOn, int available)
@@ -1593,8 +1598,9 @@ juce::String SwooshbucklerAudioProcessor::listeningLine(room::Width width, int d
         return deviceOutputs >= 2 ? "The one channel plays on the first two outputs switched on."
                                   : "The one channel plays on the one output.";
     juce::String order;
+    const auto channels = room::deviceChannels(width);
     for (int ch = 0; ch < room.numChannels; ++ch)
-        order << (ch > 0 ? " " : "") << room::info(room.speakers[static_cast<size_t>(ch)]).name;
+        order << (ch > 0 ? " " : "") << room::info(room.speakers[static_cast<size_t>(channels[static_cast<size_t>(ch)])]).name;
     return "Plays on the first " + juce::String(room.numChannels) + " outputs switched on, in this order: " + order + ".";
 }
 

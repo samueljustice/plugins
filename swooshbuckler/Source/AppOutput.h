@@ -20,8 +20,9 @@ class SwooshbucklerAudioProcessor;
  *                                                   +--> fold to Stereo --> limiter at the Ceiling --> L R (Stereo)
  *                                                   +--> fold to Mono   --> limiter at the Ceiling --> 1   (Mono)
  *
- * Direct when the device has as many outputs switched on as the room has speakers: room channel i goes to the
- * i-th output switched on, in the rig's processing order (room::layout); outputs past the room are silent, and a
+ * Direct when the device has as many outputs switched on as the room has speakers: the i-th output switched on
+ * plays the i-th speaker in the order a room is wired (room::deviceChannels: the ear-level speakers and the LFE,
+ * then the tops, so 7.1.4 is L R C LFE Lss Rss Lsr Rsr Ltf Rtf Ltr Rtr); outputs past the room are silent, and a
  * Mono room plays its one channel on the first two. With fewer outputs the room is folded down (room::fold) and
  * held under the rig's Ceiling, because a fold adds speakers together (a 7.1.4 fold can reach +11.5 dB).
  *
@@ -83,6 +84,7 @@ private:
     room::Width m_room = room::Width::Stereo;
     Monitor m_monitor = Monitor::Direct;
     int m_roomChannels = 2;
+    std::array<int, room::c_maxChannels> m_order {}; // the processing channel each output plays (room::deviceChannels)
     const room::FoldMatrix* m_fold = nullptr;
     juce::AudioBuffer<float> m_roomBuffer, m_foldBuffer;
     juce::MidiBuffer m_chunkMidi;
@@ -127,9 +129,10 @@ public:
         outputs from its lowest one up (or from the first) added until the room fits. */
     static juce::BigInteger outputsFor(const juce::BigInteger& active, int available, int needed);
 
-    /** What the dialog shows under the device's settings: the room, how many outputs it needs, which speaker goes
-        to which output, and the fold when there are too few. */
-    static juce::String dialogText(room::Width width, int deviceOutputs, int available);
+    /** What the dialog says above the device's settings: the room and how many outputs it needs; with enough
+        outputs switched on (`active`, of the device's `available`), each speaker beside the number of the output it
+        plays on; with too few, the order the speakers go out in, and on a second line the fold and what to do. */
+    static juce::String dialogText(room::Width width, const juce::BigInteger& active, int available);
 
     /** The dialog's content (public so the UI shots can draw it). */
     class DevicePanel;
@@ -160,12 +163,15 @@ public:
     void paint(juce::Graphics&) override;
     void resized() override;
     void childBoundsChanged(juce::Component* child) override;
-    static constexpr int c_width = 560, c_textHeight = 96;
+    static constexpr int c_width = 560;
 
 private:
     void changeListenerCallback(juce::ChangeBroadcaster*) override { refresh(); }
     void timerCallback() override { refresh(); }
     void refresh();
+    void fit();
+    int textHeight() const;
+    static constexpr int c_margin = 18, c_title = 44, c_orderHeight = 34, c_warningHeight = 34, c_gap = 8, c_foot = 24;
     juce::AudioDeviceManager& m_devices;
     SwooshbucklerAudioProcessor& m_rig;
     juce::AudioDeviceSelectorComponent m_selector;

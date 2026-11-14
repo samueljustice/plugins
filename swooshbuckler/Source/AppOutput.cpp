@@ -34,6 +34,7 @@ void AppOutput::prepareToPlay(double sampleRate, int samplesPerBlock)
     // The rig plays the Listening room, at its width whatever the device has (set here, while nothing is processed).
     m_room = m_rig.getListening();
     m_roomChannels = room::layout(m_room).numChannels;
+    m_order = room::deviceChannels(m_room);
     {
         auto layout = m_rig.getBusesLayout();
         layout.outputBuses.getReference(0) = room::channelSet(m_room);
@@ -108,8 +109,9 @@ void AppOutput::play(juce::AudioBuffer<float>& out, int start, int numSamples, j
     int written = 0; // outputs 0 .. written-1 carry sound; the rest are silent
     if (m_monitor == Monitor::Direct)
     {
+        // Speaker for speaker, in the order a room is wired (room::deviceChannels: the tops last).
         for (int ch = 0; ch < outs && ch < m_roomChannels; ++ch)
-            out.copyFrom(ch, start, roomBlock, ch, 0, numSamples);
+            out.copyFrom(ch, start, roomBlock, m_order[static_cast<size_t>(ch)], 0, numSamples);
         written = juce::jmin(outs, m_roomChannels);
         if (m_roomChannels == 1 && outs >= 2)
         {
@@ -145,7 +147,7 @@ void AppOutput::play(juce::AudioBuffer<float>& out, int start, int numSamples, j
         for (int ch = 0; ch < written; ++ch)
             out.clear(ch, start, numSamples); // faded out: silent until prepared again
     }
-    else if (m_gain != target)
+    else if (! juce::exactlyEqual(m_gain, target))
     {
         for (int i = 0; i < numSamples; ++i)
         {
@@ -198,6 +200,9 @@ juce::BigInteger AppAudio::outputsFor(const juce::BigInteger& active, int availa
 
 void AppAudio::start()
 {
+    // The player lets go of the rig first (JUCE's holder gave it the rig itself): were it still the player's when
+    // AppOutput is given, the player would release the rig after AppOutput had prepared it.
+    m_player.setProcessor(nullptr);
     openRoomOutputs();
     m_player.setProcessor(&m_output);
     publish();
@@ -283,21 +288,37 @@ void AppAudio::deviceChanged()
     publish();
 }
 
-juce::String AppAudio::dialogText(room::Width width, int deviceOutputs, int available)
+juce::String AppAudio::dialogText(room::Width width, const juce::BigInteger& active, int available)
 {
     const auto& room = room::layout(width);
+    const int on = active.countNumberOfSetBits();
+    const auto order = room::deviceChannels(width);
+    const auto nameAt = [&](int slot) { return juce::String(room::info(room.speakers[static_cast<size_t>(order[static_cast<size_t>(slot)])]).name); };
+    const juce::String glue = juce::String::charToString(0x00a0); // a number stays on the line of its speaker
     juce::String s;
     s << "Listening: " << room.name << ", ";
     if (width == room::Width::Mono)
         s << "one channel, played on the first two outputs switched on.";
-    else
+    else if (on >= room.numChannels)
     {
-        s << room.numChannels << " outputs. The speakers go out in this order, to the outputs switched on below, lowest first: ";
-        for (int ch = 0; ch < room.numChannels; ++ch)
-            s << (ch > 0 ? ", " : "") << (ch + 1) << " " << room::info(room.speakers[static_cast<size_t>(ch)]).name;
+        // Each speaker beside the number of the output it plays on (the device's own numbering).
+        s << room.numChannels << " outputs. The speakers play on these outputs: ";
+        int output = -1;
+        for (int slot = 0; slot < room.numChannels; ++slot)
+        {
+            output = active.findNextSetBit(output + 1);
+            s << (slot > 0 ? ", " : "") << (output + 1) << glue << nameAt(slot);
+        }
         s << ".";
     }
-    if (const auto status = SwooshbucklerAudioProcessor::listeningStatus(width, deviceOutputs, available); status.isNotEmpty())
+    else
+    {
+        s << room.numChannels << " outputs. The speakers go out in this order, lowest output first: ";
+        for (int slot = 0; slot < room.numChannels; ++slot)
+            s << (slot > 0 ? " " : "") << nameAt(slot);
+        s << ".";
+    }
+    if (const auto status = SwooshbucklerAudioProcessor::listeningStatus(width, on, available); status.isNotEmpty())
         s << "\n" << status << " Switch on more outputs below, or choose a device that has them.";
     return s;
 }
@@ -326,8 +347,8 @@ AppAudio::DevicePanel::DevicePanel(juce::AudioDeviceManager& devices, Swooshbuck
 {
     addAndMakeVisible(m_selector);
     m_devices.addChangeListener(this);
-    setSize(c_width, 44 + c_textHeight + 8 + 36 + juce::jmax(m_selector.getHeight(), 100) + 24);
     refresh();
+    fit();
     startTimer(500); // the fold's status follows the device as it starts again
 }
 
@@ -338,29 +359,51 @@ AppAudio::DevicePanel::~DevicePanel()
 
 void AppAudio::DevicePanel::refresh()
 {
-    const auto text = dialogText(m_rig.getListening(), m_rig.getDeviceOutputs(), m_rig.getDeviceOutputsAvailable());
-    if (text != m_text)
+    juce::BigInteger active;
+    int available = 0;
+    if (auto* device = m_devices.getCurrentAudioDevice())
     {
-        m_text = text;
-        repaint();
+        active = device->getActiveOutputChannels();
+        available = device->getOutputChannelNames().size();
     }
+    const auto text = dialogText(m_rig.getListening(), active, available);
+    if (text == m_text)
+        return;
+    const bool hadWarning = m_text.containsChar('\n');
+    m_text = text;
+    if (hadWarning != m_text.containsChar('\n'))
+        fit(); // the fold's line comes and goes: the panel is as tall as what it says
+    repaint();
+}
+
+int AppAudio::DevicePanel::textHeight() const
+{
+    return m_text.containsChar('\n') ? c_orderHeight + c_gap + c_warningHeight : c_orderHeight;
+}
+
+void AppAudio::DevicePanel::fit()
+{
+    // The plate's title bar, what the room needs and where it goes, then JUCE's device settings, which take the
+    // height they need (the panel follows them: childBoundsChanged).
+    const int height = c_margin + c_title + textHeight() + c_gap + juce::jmax(m_selector.getHeight(), 100) + c_foot;
+    if (height != getHeight() || getWidth() != c_width)
+        setSize(c_width, height);
+    else
+        resized();
 }
 
 void AppAudio::DevicePanel::resized()
 {
-    // The plate's title bar, what the room needs and where it goes, then JUCE's device settings, which take the
-    // height they need (the panel follows them: childBoundsChanged).
-    auto r = getLocalBounds().reduced(18);
-    r.removeFromTop(44);
-    m_textArea = r.removeFromTop(c_textHeight);
-    r.removeFromTop(8);
+    auto r = getLocalBounds().reduced(c_margin, 0).withTrimmedTop(c_margin + c_title);
+    m_textArea = r.removeFromTop(textHeight());
+    r.removeFromTop(c_gap);
     m_selector.setBounds(r.withHeight(juce::jmax(m_selector.getHeight(), 100)));
 }
 
 void AppAudio::DevicePanel::childBoundsChanged(juce::Component* child)
 {
     if (child == &m_selector)
-        setSize(c_width, m_selector.getBottom() + 24);
+        fit();
 }
 
 void AppAudio::DevicePanel::paint(juce::Graphics& g)
@@ -371,7 +414,7 @@ void AppAudio::DevicePanel::paint(juce::Graphics& g)
                                  Theme::Colours::brass, *fonts, Icons::Icon::Settings);
     const auto lines = juce::StringArray::fromLines(m_text);
     auto area = m_textArea.reduced(8, 0);
-    Theme::fitLines(g, lines[0], area.removeFromTop(lines.size() > 1 ? 54 : area.getHeight()), fonts->body(), Theme::Colours::textDim);
+    Theme::fitLines(g, lines[0], area.removeFromTop(c_orderHeight), fonts->body(), Theme::Colours::textDim);
     if (lines.size() > 1)
-        Theme::fitLines(g, lines[1], area.withTrimmedTop(4), fonts->body(), Theme::Colours::brass);
+        Theme::fitLines(g, lines[1], area.withTrimmedTop(c_gap), fonts->body(), Theme::Colours::brass);
 }

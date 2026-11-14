@@ -63,6 +63,9 @@ SwooshLookAndFeel::SwooshLookAndFeel(const Theme::Fonts& fonts) : m_fonts(fonts)
     setColour(juce::Slider::textBoxOutlineColourId, juce::Colours::transparentBlack);
     setColour(juce::HyperlinkButton::textColourId, TC::textDim);
     setColour(juce::ScrollBar::thumbColourId, TC::stroke);
+    setColour(juce::ListBox::backgroundColourId, TC::well);
+    setColour(juce::ListBox::outlineColourId, TC::stroke);
+    setColour(juce::ListBox::textColourId, TC::text);
 }
 
 //==============================================================================
@@ -305,6 +308,23 @@ juce::Font SwooshLookAndFeel::getTextButtonFont(juce::TextButton& button, int)
 {
     // Low buttons and chips are set in the caption size; the rest in the control size.
     return button.getHeight() < 20 ? m_fonts.caption() : m_fonts.control();
+}
+
+void SwooshLookAndFeel::drawTickBox(juce::Graphics& g, juce::Component&, float x, float y, float w, float h, bool ticked, bool isEnabled,
+                                    bool over, bool)
+{
+    // A list's tick (the audio device's outputs and MIDI inputs): a square well with a block in it when on.
+    const float side = std::floor(juce::jmin(w, h)) - 2.0f;
+    const juce::Rectangle<float> box(std::floor(x + (w - side) * 0.5f), std::floor(y + (h - side) * 0.5f), side, side);
+    g.setColour(TC::well.withAlpha(isEnabled ? 1.0f : 0.5f));
+    g.fillRect(box);
+    g.setColour(! isEnabled ? TC::stroke.withAlpha(0.5f) : ticked ? TC::brass.withAlpha(over ? 1.0f : 0.75f) : over ? TC::stroke.brighter(0.3f) : TC::stroke);
+    g.drawRect(box, 1.0f);
+    if (ticked)
+    {
+        g.setColour(isEnabled ? TC::brass : TC::textFaint.withAlpha(0.5f));
+        g.fillRect(box.reduced(std::floor(side * 0.28f)));
+    }
 }
 
 void SwooshLookAndFeel::drawToggleButton(juce::Graphics& g, juce::ToggleButton& button, bool over, bool)
