@@ -180,7 +180,8 @@ bool SwooshbucklerAudioProcessor::isBusesLayoutSupported(const BusesLayout& layo
     const auto width = room::widthFor(layouts.getMainOutputChannelSet());
     if (! width.has_value())
         return false;
-    if (wrapperType == wrapperType_Standalone && *width != room::Width::Stereo && *width != room::Width::Mono)
+    // (An offline copy has no device: Render Variations prepares it at any width, in the app too.)
+    if (! m_offline && wrapperType == wrapperType_Standalone && *width != room::Width::Stereo && *width != room::Width::Mono)
         return false;
     return layouts.getMainInputChannelSet().isDisabled();
 }

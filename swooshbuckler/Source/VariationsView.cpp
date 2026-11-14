@@ -499,12 +499,20 @@ void VariationsView::syncControls()
     const auto plan = VariationRenderer::planOf(j);
     const auto extension = TapeRecorder::extensionOf(j.options.type);
     const auto format = " (" + formatLine() + ", as chosen in Settings)";
+    // The names as they will be on disk: a Multi-Mono set's first file ends .L before the extension.
+    auto onDisk = [&j](const juce::File& file)
+    {
+        const auto files = TapeRecorder::filesFor(file, room::layout(j.width).numChannels, j.options);
+        return files.isEmpty() ? file.getFileName() : files[0].getFileName();
+    };
+    const auto firstName = onDisk(plan.combined.getSiblingFile(plan.firstName + extension));
+    const auto combinedName = onDisk(plan.combined);
     switch (j.files)
     {
-        case Files::OneWithMarkers: m_firstLine = "The file: " + plan.combined.getFileName() + format; break;
-        case Files::Both:           m_firstLine = "First file: " + plan.firstName + extension + ", and all of them in " + plan.combined.getFileName() + format; break;
+        case Files::OneWithMarkers: m_firstLine = "The file: " + combinedName + format; break;
+        case Files::Both:           m_firstLine = "First file: " + firstName + ", and all of them in " + combinedName + format; break;
         case Files::PerVariation:
-        default:                    m_firstLine = "First file: " + plan.firstName + extension + format; break;
+        default:                    m_firstLine = "First file: " + firstName + format; break;
     }
     const auto estimate = m_processor.getVariations().estimate(j);
     const auto problem = VariationRenderer::formatProblem(j);

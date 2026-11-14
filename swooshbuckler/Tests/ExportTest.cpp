@@ -616,6 +616,57 @@ int main(int argc, char* argv[])
         }
     }
 
+    // The app: its own rig stays Stereo (WideTest), but Render Variations' second rig is no app and renders any
+    // width. A stretch of the Whole Ride in 5.1 and a whoosh in 7.1.4 from an app's rig: the right channels, sound
+    // outside L and R, and every channel faded in and out (no channel left to start or stop at full level).
+    std::cout << "Render Variations in the app, and a Whole Ride in a room" << std::endl;
+    {
+        juce::AudioProcessor::setTypeOfNextNewPlugin(juce::AudioProcessor::wrapperType_Standalone);
+        Rig rig(sources);
+        juce::AudioProcessor::setTypeOfNextNewPlugin(juce::AudioProcessor::wrapperType_Undefined);
+        auto wide = rig.proc.getBusesLayout();
+        wide.outputBuses.getReference(0) = room::channelSet(W::Surround51);
+        check(rig.proc.wrapperType == juce::AudioProcessor::wrapperType_Standalone && ! rig.proc.checkBusesLayoutSupported(wide),
+              "the app's own rig refuses a 5.1 output");
+        auto edges = [](const Audio& a, int& sounding)
+        {
+            // The loudest of every channel's first and last sample, against the file's peak; and how many channels carry sound.
+            float edge = 0.0f;
+            sounding = 0;
+            for (int ch = 0; ch < a.channels(); ++ch)
+            {
+                edge = juce::jmax(edge, std::abs(a.samples.getSample(ch, 0)), std::abs(a.samples.getSample(ch, a.length() - 1)));
+                if (a.samples.getMagnitude(ch, 0, a.length()) > 1.0e-3f)
+                    ++sounding;
+            }
+            const float peak = a.samples.getMagnitude(0, a.length());
+            return peak > 0.0f ? edge / peak : 1.0f;
+        };
+        auto job = makeJob(rig, out.getChildFile("app-ride"), W::Surround51, 2, 31);
+        job.each = VariationRenderer::Each::WholeRide;
+        job.rideSeconds = 1.5;
+        render(rig, job);
+        const auto ride = readFile(job.folder.getChildFile("Whoosh_001.wav"));
+        int sounding = 0;
+        const float rideEdge = ride.length() > 0 ? edges(ride, sounding) : 1.0f;
+        // (The LFE is off by default and the centre speaker too: L, R, Ls and Rs carry the sound.)
+        check(ride.channels() == 6 && std::abs(ride.length() - juce::roundToInt(1.5 * c_fs)) <= 1 && sounding == 4 && rideEdge < 0.01f,
+              "the app: a Whole Ride in 5.1 has 6 channels, sound in the surrounds, and every channel fades in and out (edges "
+                  + num(100.0 * rideEdge, 2) + "% of the peak, " + juce::String(sounding) + " channels with sound)");
+        job = makeJob(rig, out.getChildFile("app-714"), W::Surround714, 1, 31);
+        render(rig, job);
+        const auto whoosh = readFile(job.folder.getChildFile("Whoosh_001.wav"));
+        const float whooshEnd = [&]
+        {
+            float e = 0.0f;
+            for (int ch = 0; ch < whoosh.channels(); ++ch)
+                e = juce::jmax(e, std::abs(whoosh.samples.getSample(ch, whoosh.length() - 1)));
+            return whoosh.length() > 0 ? e / juce::jmax(1.0e-9f, whoosh.samples.getMagnitude(0, whoosh.length())) : 1.0f;
+        }();
+        check(whoosh.channels() == 12 && whooshEnd < 0.01f,
+              "the app: a whoosh in 7.1.4 has 12 channels and ends in silence on every one (" + num(100.0 * whooshEnd, 2) + "% of the peak)");
+    }
+
     // The tape in a 7.1.4 room.
     std::cout << "The tape in a 7.1.4 room" << std::endl;
     {
