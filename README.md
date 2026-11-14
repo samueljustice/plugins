@@ -5,12 +5,12 @@
 **Toys I've made for sound designers.**
 
 <!-- get-them-all:start (written by .github/workflows/build-release_bundle.yml; edits here are replaced) -->
-### Get them all (last built 13 Nov 2026, 18:39 UTC)
+### Get them all (last built 14 Nov 2026, 09:52 UTC)
 
-[![Get them all for macOS](https://img.shields.io/badge/Get_them_all-macOS-000000?style=for-the-badge&logo=apple&logoColor=white)](https://github.com/samueljustice/plugins/releases/download/bundle-v2026.11.13.120/SammyJ-Plugins-2026-11-13-1839-macOS.dmg)
-[![Get them all for Windows](https://img.shields.io/badge/Get_them_all-Windows-0078D6?style=for-the-badge&logo=windows&logoColor=white)](https://github.com/samueljustice/plugins/releases/download/bundle-v2026.11.13.120/SammyJ-Plugins-2026-11-13-1839-Windows-Installer.exe)
+[![Get them all for macOS](https://img.shields.io/badge/Get_them_all-macOS-000000?style=for-the-badge&logo=apple&logoColor=white)](https://github.com/samueljustice/plugins/releases/download/bundle-v2026.11.14.123/SammyJ-Plugins-2026-11-14-0952-macOS.dmg)
+[![Get them all for Windows](https://img.shields.io/badge/Get_them_all-Windows-0078D6?style=for-the-badge&logo=windows&logoColor=white)](https://github.com/samueljustice/plugins/releases/download/bundle-v2026.11.14.123/SammyJ-Plugins-2026-11-14-0952-Windows-Installer.exe)
 
-<sub>One installer with the newest version of every plug-in: Swooshbuckler 2.0.0 · Sound Advice 1.0.13 · Subbertone 1.3.2 · Pitch Flattener 2.4.0 · Reversinator 2.0.4 · Roarschach 1.1.0. The apps, the VST3s and (on macOS) the AUs. It removes older copies first, so nothing shows up twice in your host. To remove them again: on macOS, run Uninstall Sammy J's Plugins from the same disk image; on Windows, use Settings &gt; Apps.<br>
+<sub>One installer with the newest version of every plug-in: Swooshbuckler 2.1.0 · Sound Advice 1.0.13 · Subbertone 1.3.2 · Pitch Flattener 2.4.0 · Reversinator 2.0.4 · Roarschach 1.1.0. The apps, the VST3s and (on macOS) the AUs. It removes older copies first, so nothing shows up twice in your host. To remove them again: on macOS, run Uninstall Sammy J's Plugins from the same disk image; on Windows, use Settings &gt; Apps.<br>
 Want just one? Each plug-in's own download is below, or browse all <a href="https://github.com/samueljustice/plugins/releases">releases</a>.</sub>
 <!-- get-them-all:end -->
 
@@ -272,7 +272,7 @@ cmake --build build --config Release
 
 See each project's README for its own options.
 
-**AAX:** add `-DSAMMYJ_AAX=ON` to build the AAX format too (macOS and Windows), and `-DAAX_SDK_PATH=<folder>` to use Avid's AAX SDK instead of the one bundled with JUCE (see [`cmake/AAX.cmake`](cmake/AAX.cmake)). The SDK isn't in this repository: it's Avid's. The release workflows fetch it from a private repository and upload each plug-in's AAX as a build artifact. That build is unsigned. Pro Tools needs it signed with PACE's wraptool, which goes through an iLok account, so the signing runs on a Mac: after a release, run `bundle/sign-aax.sh` (all plug-ins, or name some). It signs each plug-in's macOS AAX with the hardened runtime, then the Notarise AAX workflow notarises it and adds `<Name>-<version>-macOS-AAX.zip` to the release. Windows AAX signing needs a Windows code-signing certificate, so Windows AAX aren't published yet.
+**AAX:** add `-DSAMMYJ_AAX=ON` to build the AAX format too (macOS and Windows), and `-DAAX_SDK_PATH=<folder>` to use Avid's AAX SDK instead of the one bundled with JUCE (see [`cmake/AAX.cmake`](cmake/AAX.cmake)). The SDK isn't in this repository: it's Avid's. The release workflows fetch it from a private repository and upload each plug-in's AAX as a build artifact. That build is unsigned. Pro Tools needs it signed with PACE's wraptool, which goes through an iLok account, so the signing runs on a Mac with the iLok: `bundle/install-aax-signer.sh` installs a background job there that signs each new release's AAX within about 10 minutes (or run `bundle/sign-aax.sh` by hand, for all plug-ins or named ones). The AAX signing watchdog workflow fails if a release's signed AAX isn't published within 4 hours. It signs each plug-in's macOS AAX with the hardened runtime, then the Notarise AAX workflow notarises it and adds `<Name>-<version>-macOS-AAX.zip` to the release. Windows AAX signing needs a Windows code-signing certificate, so Windows AAX aren't published yet.
 
 </details>
 
