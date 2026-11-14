@@ -27,170 +27,26 @@ If these get some use in your work and you'd like to chip in, toss a coin in the
 
 <br>
 
-| [<img src="swooshbuckler/docs/screenshot.png" width="400" alt="Swooshbuckler">](#swooshbuckler) | [<img src="subbertone/docs/screenshot.jpg" width="400" alt="Subbertone">](#subbertone) |
-|:---:|:---:|
-| **[Swooshbuckler](#swooshbuckler)**<br>Generates whooshes from up to ten sounds | **[Subbertone](#subbertone)**<br>![Work in progress](https://img.shields.io/badge/WORK_IN_PROGRESS-D00000?style=for-the-badge)<br>Adds a pitch-tracked sub and harmonics to bass |
-| [<img src="pitchflattener/docs/screenshot.png" width="400" alt="Pitch Flattener">](#pitch-flattener) | [<img src="reversinator/docs/screenshot.png" width="400" alt="Reversinator">](#reversinator) |
-| **[Pitch Flattener](#pitch-flattener)**<br>![Work in progress](https://img.shields.io/badge/WORK_IN_PROGRESS-D00000?style=for-the-badge)<br>Removes pitch movement from Doppler passes, sirens and vibrato | **[Reversinator](#reversinator)**<br>Real-time reverse effects, recreating Backwards Machine |
-
 [<img src="roarschach/docs/hero.gif" width="812" alt="Roarschach">](#roarschach)<br>
 **[Roarschach](#roarschach)**<br>![Work in progress](https://img.shields.io/badge/WORK_IN_PROGRESS-D00000?style=for-the-badge)<br>A modular voice processor for exploration and fun
+
+[<img src="swooshbuckler/docs/screenshot.png" width="812" alt="Swooshbuckler">](#swooshbuckler)<br>
+**[Swooshbuckler](#swooshbuckler)**<br>Generates whooshes from up to ten sounds
 
 [<img src="tonalrecall/docs/screenshot.png" width="812" alt="Tonal Recall">](#tonal-recall)<br>
 **[Tonal Recall](#tonal-recall)**<br>![Work in progress](https://img.shields.io/badge/WORK_IN_PROGRESS-D00000?style=for-the-badge)<br>Pitch-matches sound effects to music, offline in Pro Tools AudioSuite
 
-[<img src="soundadvice/docs/screenshot.png" width="812" alt="Sound Advice">](#sound-advice)<br>
-**[Sound Advice](#sound-advice)**<br>Advice from film, TV and game sound professionals and other creative people
+| [<img src="reversinator/docs/screenshot.png" width="400" alt="Reversinator">](#reversinator) | [<img src="soundadvice/docs/screenshot.png" width="400" alt="Sound Advice">](#sound-advice) |
+|:---:|:---:|
+| **[Reversinator](#reversinator)**<br>Real-time reverse effects, recreating Backwards Machine | **[Sound Advice](#sound-advice)**<br>Advice from film, TV and game sound professionals and other creative people |
+
+#### Work in progress
+
+| [<img src="subbertone/docs/screenshot.jpg" width="400" alt="Subbertone">](#subbertone) | [<img src="pitchflattener/docs/screenshot.png" width="400" alt="Pitch Flattener">](#pitch-flattener) |
+|:---:|:---:|
+| **[Subbertone](#subbertone)**<br>Adds a pitch-tracked sub and harmonics to bass | **[Pitch Flattener](#pitch-flattener)**<br>Removes pitch movement from Doppler passes, sirens and vibrato |
 
 </div>
-
----
-
-## Swooshbuckler
-
-> Generates whooshes from up to ten sounds, and records them.
-
-<p align="center">
-  <img src="swooshbuckler/docs/screenshot.png" alt="Swooshbuckler" width="820">
-</p>
-
-Drop in up to ten sounds (cloth, air, engines, creatures, metal) and Swooshbuckler works out what each one is and sends it to Bus A, Bus B or the Hits. Then it rides every fader by itself, so the layers swell, fly past as Doppler passes and fall away. Hold **Swell** (the space bar, a MIDI note or a click on the sea) to push it all harder. Arm the tape and it records every whoosh into one file and skips the silence. Missed one? **Last 60 s** grabs the last minute anyway.
-
-- **Auto Ride** across up to ten looping tracks, each fader on its own path, shaped by Energy, Rate, Fill, Chaos and Pitch
-- **Smart loading** finds the separate sounds in each file, skips the gaps and guesses what each one is from the audio and the file name
-- **Per-track pitch** in semitones and cents, with **Vari** on for tape-style varispeed or off to change the pitch and keep the speed
-- **Two Doppler buses** with Width, Bend, Low End, Swirl, an envelope filter and Drive. Bus A can duck and darken Bus B, or they **Take Turns**
-- **Stowaway**, an optional third bus: the rig's **Sub**, a **Wake** behind Bus A's passes, a third mover (**Fly**) or a layer that is only ridden (**Dry**)
-- **Spectral morph pad** blends A into B (Blend, Glide or vocoder-style Cross), and can wander along a Lorenz loop, a rose or a figure eight
-- **Aim** lands your impacts right on the peak of each pass, or a **hit gate** fires them at the biggest swells; **Sync Hits** stacks their transients into one huge hit
-- **Throw** fires one whoosh on demand, playing or stopped, and **Render Variations** writes a batch of them straight to files
-- **Takes** keeps this run's recordings to hear, drag out or bin, and the whole session saves to a file of its own
-- **Four drag-a-cable modulators** (LFO, Random, Follower, Macro), plus **7 factory presets**, your own presets, A / B, Undo and **Randomise** with a history
-
-<details>
-<summary>More screenshots</summary>
-<br>
-<p align="center">
-  <img src="swooshbuckler/docs/images/morph-pad.png" alt="Swooshbuckler spectral morph pad" width="400">
-  <img src="swooshbuckler/docs/images/sea.png" alt="Swooshbuckler the sea" width="400">
-</p>
-<p align="center">
-  <img src="swooshbuckler/docs/images/tracks.png" alt="Swooshbuckler tracks" width="820">
-</p>
-</details>
-
-**App** (macOS, Windows) · **VST3** · **AU** · **AAX** &nbsp;&nbsp;
-[![Get Swooshbuckler with Sammy J's Plugins](https://img.shields.io/badge/get_it-Sammy_J's_Plugins-d00a35?style=flat-square)](https://github.com/samueljustice/plugins/releases/latest) &nbsp;
-[Read the manual →](swooshbuckler/README.md)
-
----
-
-## Subbertone
-
-![Work in progress](https://img.shields.io/badge/WORK_IN_PROGRESS-D00000?style=for-the-badge)
-
-> Adds a pitch-tracked sub an octave down, plus harmonics, saturation, filtering and limiting.
-
-<p align="center">
-  <img src="subbertone/docs/screenshot.jpg" alt="Subbertone" width="820">
-</p>
-
-Subbertone follows the pitch of your bass, engine or drone and adds a clean sub one octave below. That's only the start: build its harmonics bar by bar, from pure sub reinforcement, to the trick that makes a bass audible on speakers that can't play a sub, to a growling, talking octave-down monster. Saturation, a resonant filter and a mastering stage finish it off, with about 2 ms of latency that your host compensates for.
-
-- **Phase Align** lines the new harmonics up with your bass's own, so they add up instead of cancelling. Notes thin out far less, repeat hits land at the same level, and it adds no latency
-- **16-bar harmonic editor** with a live meter on every bar: H1 is the sub, H2 to H16 its harmonics. Draw them, pick a pattern, or switch the **sub off** and keep only the harmonics for small speakers
-- **Six saturation types** (Tape, Valve, Console, Transformer, Rectifier, Wavefolder) into a **resonant, envelope-swept filter** that makes the bass talk
-- **Master stage**: Inflate with a Curve control, then a look-ahead brickwall limiter with a ceiling and a gain-reduction meter
-- **Steady tracking**: octave jumps are confirmed before the sub follows, dropouts are held, Glide tames wandering engines, and a Lo Cut keeps a very low sub from eating your headroom
-- **32 factory presets** in five groups, including engines from inline-4 to V12, V-twin and 2-stroke
-
-<details>
-<summary>More screenshots</summary>
-<br>
-<p align="center">
-  <img src="subbertone/docs/harmonics.png" alt="Subbertone harmonic editor with Phase Align on" width="787">
-</p>
-<p align="center">
-  <img src="subbertone/docs/output-master.jpg" alt="Subbertone OUTPUT and MASTER sections" width="626">
-</p>
-<p align="center">
-  <img src="subbertone/docs/presets.png" alt="Subbertone presets menu" width="400">
-  <img src="subbertone/docs/patterns.png" alt="Subbertone patterns menu" width="400">
-</p>
-</details>
-
-**VST3** (macOS, Windows) · **AU** (macOS) · **AAX** &nbsp;&nbsp;
-[![Get Subbertone with Sammy J's Plugins](https://img.shields.io/badge/get_it-Sammy_J's_Plugins-d00a35?style=flat-square)](https://github.com/samueljustice/plugins/releases/latest) &nbsp;
-[Read the manual →](subbertone/README.md)
-
----
-
-## Pitch Flattener
-
-![Work in progress](https://img.shields.io/badge/WORK_IN_PROGRESS-D00000?style=for-the-badge)
-
-> Removes pitch movement from Doppler passes, sirens and vibrato.
-
-<p align="center">
-  <img src="pitchflattener/docs/screenshot.png" alt="Pitch Flattener" width="680">
-</p>
-
-Pitch Flattener takes the pitch movement out of a sound and keeps its energy and character: the Doppler sweep from a pass-by, the wail from a siren, the vibrato from a voice. Or lock a warbling tone to one note. Pick a Source Type and it loads a pitch detector built for that kind of sound, looks about 2.6 seconds ahead, and lines the correction up with the audio sample-accurately. Made for offline rendering: the Soundminer DSP rack, a DAW bounce or AudioSuite-style processing.
-
-- **Nine Source Types** (Vocal, Instrument, Siren, Whistle, Engine / Doppler, Engine Run-up, Drone, Noisy Field, Custom), each with its own tuned detector; Siren runs two at once, so fast yelps and sirens in traffic both track
-- **ANALYSE**: play a sound once and it picks the Source Type, learns the sound's pitch line, and follows that line on later plays even where live tracking would hop to another partial
-- **Lookahead tracking** fixes octave errors, bridges gaps and smooths with zero lag, so the very first syllable or rev is already flat
-- **Shift Below** leaves everything above a set frequency unshifted, so an engine's fixed resonances don't dive as the correction grows
-- **Latch, Fixed or Auto**: hold each sound at the pitch it starts on, flatten everything to one note (type `A4`), or take out only the vibrato and keep the melody
-- **Live pitch display**: eight seconds of detection, track, target and corrected output over a spectrogram
-- **Wobble warning**: a red warning when the output isn't coming out flat, suggesting the Source Type that would do better
-- **Measured, not guessed**: the test suite flattens a siren wail to within 2 cents and an engine pass-by to within 1 cent
-- **Amount** for half-flattened results, **Formant** for natural-sounding voices, and presets you can save
-
-<details>
-<summary>More screenshots</summary>
-<br>
-<p align="center">
-  <img src="pitchflattener/docs/display-engine.png" alt="Pitch Flattener display on an engine pass-by" width="400">
-  <img src="pitchflattener/docs/display-voice.png" alt="Pitch Flattener display on a voice" width="400">
-</p>
-</details>
-
-**VST3** (macOS, Windows) · **AU** (macOS) · **AAX** &nbsp;&nbsp;
-[![Get Pitch Flattener with Sammy J's Plugins](https://img.shields.io/badge/get_it-Sammy_J's_Plugins-d00a35?style=flat-square)](https://github.com/samueljustice/plugins/releases/latest) &nbsp;
-[Read the manual →](pitchflattener/README.md)
-
----
-
-## Reversinator
-
-> Real-time reverse effects, recreating Backwards Machine's three modes.
-
-<p align="center">
-  <img src="reversinator/docs/screenshot.png" alt="Reversinator" width="760">
-</p>
-
-A real-time reverser that faithfully recreates Backwards Machine's three effects, **Reverse Playback**, **Forward Backwards** and **Reverse Repeat**, rebuilt from a study of the original's signal flow. It lives in a new resizable interface with a live display of each read head sweeping backwards through your audio, and it fixes the original's glitches, so every change is click-free.
-
-- **Checked against the real thing**: nulls against the original's own renders at 0.999+ correlation
-- **Three classic effects**, with the original's sweeps, windows, vibrato and gain staging
-- **Live snippet display** that draws every read head as it sweeps backwards through your input
-- **Click-free everywhere**: TIME sweeps, mode switches, the big REVERSER button and host bypass all crossfade, at any buffer size
-- **Hourglass TIME** from 0.5 to 4 s, plus feedback that builds cascades of echoes, alternating direction
-- **Resizable from 75% to 200%**, mono or stereo, any sample rate, zero latency
-
-<details>
-<summary>More screenshots</summary>
-<br>
-<p align="center">
-  <img src="reversinator/docs/guide/display-reverse-playback.png" alt="Reversinator display in Reverse Playback" width="400">
-  <img src="reversinator/docs/guide/display-reverse-repeat.png" alt="Reversinator display in Reverse Repeat" width="400">
-</p>
-</details>
-
-**VST3** (macOS, Windows) · **AU** (macOS) · **AAX** &nbsp;&nbsp;
-[![Get Reversinator with Sammy J's Plugins](https://img.shields.io/badge/get_it-Sammy_J's_Plugins-d00a35?style=flat-square)](https://github.com/samueljustice/plugins/releases/latest) &nbsp;
-[Read the manual →](reversinator/README.md)
 
 ---
 
@@ -236,6 +92,45 @@ Roarschach is a modular voice processor built for exploration and fun. Fifteen m
 
 ---
 
+## Swooshbuckler
+
+> Generates whooshes from up to ten sounds, and records them.
+
+<p align="center">
+  <img src="swooshbuckler/docs/screenshot.png" alt="Swooshbuckler" width="820">
+</p>
+
+Drop in up to ten sounds (cloth, air, engines, creatures, metal) and Swooshbuckler works out what each one is and sends it to Bus A, Bus B or the Hits. Then it rides every fader by itself, so the layers swell, fly past as Doppler passes and fall away. Hold **Swell** (the space bar, a MIDI note or a click on the sea) to push it all harder. Arm the tape and it records every whoosh into one file and skips the silence. Missed one? **Last 60 s** grabs the last minute anyway.
+
+- **Auto Ride** across up to ten looping tracks, each fader on its own path, shaped by Energy, Rate, Fill, Chaos and Pitch
+- **Smart loading** finds the separate sounds in each file, skips the gaps and guesses what each one is from the audio and the file name
+- **Per-track pitch** in semitones and cents, with **Vari** on for tape-style varispeed or off to change the pitch and keep the speed
+- **Two Doppler buses** with Width, Bend, Low End, Swirl, an envelope filter and Drive. Bus A can duck and darken Bus B, or they **Take Turns**
+- **Stowaway**, an optional third bus: the rig's **Sub**, a **Wake** behind Bus A's passes, a third mover (**Fly**) or a layer that is only ridden (**Dry**)
+- **Spectral morph pad** blends A into B (Blend, Glide or vocoder-style Cross), and can wander along a Lorenz loop, a rose or a figure eight
+- **Aim** lands your impacts right on the peak of each pass, or a **hit gate** fires them at the biggest swells; **Sync Hits** stacks their transients into one huge hit
+- **Throw** fires one whoosh on demand, playing or stopped, and **Render Variations** writes a batch of them straight to files
+- **Takes** keeps this run's recordings to hear, drag out or bin, and the whole session saves to a file of its own
+- **Four drag-a-cable modulators** (LFO, Random, Follower, Macro), plus **7 factory presets**, your own presets, A / B, Undo and **Randomise** with a history
+
+<details>
+<summary>More screenshots</summary>
+<br>
+<p align="center">
+  <img src="swooshbuckler/docs/images/morph-pad.png" alt="Swooshbuckler spectral morph pad" width="400">
+  <img src="swooshbuckler/docs/images/sea.png" alt="Swooshbuckler the sea" width="400">
+</p>
+<p align="center">
+  <img src="swooshbuckler/docs/images/tracks.png" alt="Swooshbuckler tracks" width="820">
+</p>
+</details>
+
+**App** (macOS, Windows) · **VST3** · **AU** · **AAX** &nbsp;&nbsp;
+[![Get Swooshbuckler with Sammy J's Plugins](https://img.shields.io/badge/get_it-Sammy_J's_Plugins-d00a35?style=flat-square)](https://github.com/samueljustice/plugins/releases/latest) &nbsp;
+[Read the manual →](swooshbuckler/README.md)
+
+---
+
 ## Tonal Recall
 
 ![Work in progress](https://img.shields.io/badge/WORK_IN_PROGRESS-D00000?style=for-the-badge)
@@ -274,6 +169,38 @@ Tonal Recall is made for trailer sound design: stings, tails and hits that shoul
 
 ---
 
+## Reversinator
+
+> Real-time reverse effects, recreating Backwards Machine's three modes.
+
+<p align="center">
+  <img src="reversinator/docs/screenshot.png" alt="Reversinator" width="760">
+</p>
+
+A real-time reverser that faithfully recreates Backwards Machine's three effects, **Reverse Playback**, **Forward Backwards** and **Reverse Repeat**, rebuilt from a study of the original's signal flow. It lives in a new resizable interface with a live display of each read head sweeping backwards through your audio, and it fixes the original's glitches, so every change is click-free.
+
+- **Checked against the real thing**: nulls against the original's own renders at 0.999+ correlation
+- **Three classic effects**, with the original's sweeps, windows, vibrato and gain staging
+- **Live snippet display** that draws every read head as it sweeps backwards through your input
+- **Click-free everywhere**: TIME sweeps, mode switches, the big REVERSER button and host bypass all crossfade, at any buffer size
+- **Hourglass TIME** from 0.5 to 4 s, plus feedback that builds cascades of echoes, alternating direction
+- **Resizable from 75% to 200%**, mono or stereo, any sample rate, zero latency
+
+<details>
+<summary>More screenshots</summary>
+<br>
+<p align="center">
+  <img src="reversinator/docs/guide/display-reverse-playback.png" alt="Reversinator display in Reverse Playback" width="400">
+  <img src="reversinator/docs/guide/display-reverse-repeat.png" alt="Reversinator display in Reverse Repeat" width="400">
+</p>
+</details>
+
+**VST3** (macOS, Windows) · **AU** (macOS) · **AAX** &nbsp;&nbsp;
+[![Get Reversinator with Sammy J's Plugins](https://img.shields.io/badge/get_it-Sammy_J's_Plugins-d00a35?style=flat-square)](https://github.com/samueljustice/plugins/releases/latest) &nbsp;
+[Read the manual →](reversinator/README.md)
+
+---
+
 ## Sound Advice
 
 > Shows a random piece of advice from film, TV and game sound professionals and other creative people.
@@ -294,6 +221,85 @@ A page of advice from people who work on film, TV, game and trailer sound: re-re
 **App** (macOS, Windows) · **VST3** · **AU** · **AAX** &nbsp;&nbsp;
 [![Get Sound Advice with Sammy J's Plugins](https://img.shields.io/badge/get_it-Sammy_J's_Plugins-9a5a3a?style=flat-square)](https://github.com/samueljustice/plugins/releases/latest) &nbsp;
 [Read the manual →](soundadvice/README.md)
+
+---
+
+## Work in progress
+
+![Work in progress](https://img.shields.io/badge/WORK_IN_PROGRESS-D00000?style=for-the-badge)
+
+These two work, but they are still being developed, so expect changes between releases.
+
+### Subbertone
+
+> Adds a pitch-tracked sub an octave down, plus harmonics, saturation, filtering and limiting.
+
+<p align="center">
+  <img src="subbertone/docs/screenshot.jpg" alt="Subbertone" width="820">
+</p>
+
+Subbertone follows the pitch of your bass, engine or drone and adds a clean sub one octave below. That's only the start: build its harmonics bar by bar, from pure sub reinforcement, to the trick that makes a bass audible on speakers that can't play a sub, to a growling, talking octave-down monster. Saturation, a resonant filter and a mastering stage finish it off, with about 2 ms of latency that your host compensates for.
+
+- **Phase Align** lines the new harmonics up with your bass's own, so they add up instead of cancelling. Notes thin out far less, repeat hits land at the same level, and it adds no latency
+- **16-bar harmonic editor** with a live meter on every bar: H1 is the sub, H2 to H16 its harmonics. Draw them, pick a pattern, or switch the **sub off** and keep only the harmonics for small speakers
+- **Six saturation types** (Tape, Valve, Console, Transformer, Rectifier, Wavefolder) into a **resonant, envelope-swept filter** that makes the bass talk
+- **Master stage**: Inflate with a Curve control, then a look-ahead brickwall limiter with a ceiling and a gain-reduction meter
+- **Steady tracking**: octave jumps are confirmed before the sub follows, dropouts are held, Glide tames wandering engines, and a Lo Cut keeps a very low sub from eating your headroom
+- **32 factory presets** in five groups, including engines from inline-4 to V12, V-twin and 2-stroke
+
+<details>
+<summary>More screenshots</summary>
+<br>
+<p align="center">
+  <img src="subbertone/docs/harmonics.png" alt="Subbertone harmonic editor with Phase Align on" width="787">
+</p>
+<p align="center">
+  <img src="subbertone/docs/output-master.jpg" alt="Subbertone OUTPUT and MASTER sections" width="626">
+</p>
+<p align="center">
+  <img src="subbertone/docs/presets.png" alt="Subbertone presets menu" width="400">
+  <img src="subbertone/docs/patterns.png" alt="Subbertone patterns menu" width="400">
+</p>
+</details>
+
+**VST3** (macOS, Windows) · **AU** (macOS) · **AAX** &nbsp;&nbsp;
+[![Get Subbertone with Sammy J's Plugins](https://img.shields.io/badge/get_it-Sammy_J's_Plugins-d00a35?style=flat-square)](https://github.com/samueljustice/plugins/releases/latest) &nbsp;
+[Read the manual →](subbertone/README.md)
+
+---
+
+### Pitch Flattener
+
+> Removes pitch movement from Doppler passes, sirens and vibrato.
+
+<p align="center">
+  <img src="pitchflattener/docs/screenshot.png" alt="Pitch Flattener" width="680">
+</p>
+
+Pitch Flattener takes the pitch movement out of a sound and keeps its energy and character: the Doppler sweep from a pass-by, the wail from a siren, the vibrato from a voice. Or lock a warbling tone to one note. Pick a Source Type and it loads a pitch detector built for that kind of sound, looks about 2.6 seconds ahead, and lines the correction up with the audio sample-accurately. Made for offline rendering: the Soundminer DSP rack, a DAW bounce or AudioSuite-style processing.
+
+- **Nine Source Types** (Vocal, Instrument, Siren, Whistle, Engine / Doppler, Engine Run-up, Drone, Noisy Field, Custom), each with its own tuned detector; Siren runs two at once, so fast yelps and sirens in traffic both track
+- **ANALYSE**: play a sound once and it picks the Source Type, learns the sound's pitch line, and follows that line on later plays even where live tracking would hop to another partial
+- **Lookahead tracking** fixes octave errors, bridges gaps and smooths with zero lag, so the very first syllable or rev is already flat
+- **Shift Below** leaves everything above a set frequency unshifted, so an engine's fixed resonances don't dive as the correction grows
+- **Latch, Fixed or Auto**: hold each sound at the pitch it starts on, flatten everything to one note (type `A4`), or take out only the vibrato and keep the melody
+- **Live pitch display**: eight seconds of detection, track, target and corrected output over a spectrogram
+- **Wobble warning**: a red warning when the output isn't coming out flat, suggesting the Source Type that would do better
+- **Measured, not guessed**: the test suite flattens a siren wail to within 2 cents and an engine pass-by to within 1 cent
+- **Amount** for half-flattened results, **Formant** for natural-sounding voices, and presets you can save
+
+<details>
+<summary>More screenshots</summary>
+<br>
+<p align="center">
+  <img src="pitchflattener/docs/display-engine.png" alt="Pitch Flattener display on an engine pass-by" width="400">
+  <img src="pitchflattener/docs/display-voice.png" alt="Pitch Flattener display on a voice" width="400">
+</p>
+</details>
+
+**VST3** (macOS, Windows) · **AU** (macOS) · **AAX** &nbsp;&nbsp;
+[![Get Pitch Flattener with Sammy J's Plugins](https://img.shields.io/badge/get_it-Sammy_J's_Plugins-d00a35?style=flat-square)](https://github.com/samueljustice/plugins/releases/latest) &nbsp;
+[Read the manual →](pitchflattener/README.md)
 
 ---
 
