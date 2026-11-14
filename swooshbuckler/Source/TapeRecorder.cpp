@@ -1,4 +1,5 @@
 #include "TapeRecorder.h"
+#include "MasterProcessor.h"
 
 namespace
 {
@@ -41,7 +42,9 @@ namespace
             const auto** floats = reinterpret_cast<const float**>(samples);
             if (m_pending.size() == 1 && m_inputChannels > 1)
             {
-                // Mono fold-down: plain average (keeps level-matched mono, no clipping)
+                // Mono fold-down of Stereo: plain average (keeps level-matched mono, no clipping). A wider take is
+                // folded before it gets here (TakeWriter), so this is never an average of more than two channels.
+                jassert(m_inputChannels == 2);
                 auto& p = m_pending[0];
                 const float g = 1.0f / static_cast<float>(m_inputChannels);
                 for (int i = 0; i < numSamples; ++i)
@@ -97,11 +100,11 @@ namespace
             if (count <= 0)
                 return true;
 
-            const float* chans[8] {};
-            for (int ch = 0; ch < juce::jmin(8, m_out.getNumChannels()); ++ch)
-                chans[ch] = m_out.getReadPointer(ch, offset);
+            std::array<const float*, room::c_maxChannels> chans {};
+            for (int ch = 0; ch < juce::jmin(room::c_maxChannels, m_out.getNumChannels()); ++ch)
+                chans[static_cast<size_t>(ch)] = m_out.getReadPointer(ch, offset);
             m_written += count;
-            return m_inner->writeFromFloatArrays(chans, m_out.getNumChannels(), count);
+            return m_inner->writeFromFloatArrays(chans.data(), m_out.getNumChannels(), count);
         }
 
         std::unique_ptr<juce::AudioFormatWriter> m_inner;
@@ -159,9 +162,11 @@ namespace
         juce::Random m_random;
     };
 
+    /** channelLine: the file's channels by name, in file order ("L C R Ls Rs LFE"), for files wider than Stereo
+        and each file of a Multi-Mono set; empty for the rest, which are written as they always were. */
     std::unique_ptr<juce::AudioFormatWriter> createWriter(const juce::File& file, double inputRate, int inputChannels,
                                                           const TapeRecorder::Options& o, const TapeRecorder::Naming& naming,
-                                                          juce::String& error)
+                                                          const juce::String& channelLine, juce::String& error)
     {
         file.deleteFile();
         auto stream = std::make_unique<juce::FileOutputStream>(file);
@@ -191,9 +196,16 @@ namespace
                 metadata.set("CueNote1TimeStamp", "0");
                 metadata.set("CueNote1Identifier", "0");
                 metadata.set("CueNote1Text", "Creator: " + naming.creator + ". Software: " + naming.software);
+                if (channelLine.isNotEmpty())
+                {
+                    metadata.set("NumCueNotes", "3");
+                    metadata.set("CueNote2TimeStamp", "0");
+                    metadata.set("CueNote2Identifier", "0");
+                    metadata.set("CueNote2Text", "Channels: " + channelLine);
+                }
                 break;
             case TapeRecorder::FileType::Flac:
-                format = std::make_unique<juce::FlacAudioFormat>(); // its Vorbis comments are written once it is closed (finishFile)
+                format = std::make_unique<juce::FlacAudioFormat>(); // its Vorbis comments are written once it is closed (TakeWriter::close)
                 break;
             case TapeRecorder::FileType::Wav:
             default:
@@ -202,8 +214,11 @@ namespace
                 metadata = juce::WavAudioFormat::createBWAVMetadata(
                     naming.description, naming.creator, "Swooshbuckler", juce::Time::getCurrentTime(), 0,
                     "A=PCM,F=" + juce::String(juce::roundToInt(fileRate)) + ",W=" + juce::String(bits)
-                        + ",M=" + (channels == 1 ? juce::String("mono") : juce::String("stereo")) + ",T=Swooshbuckler");
+                        + ",M=" + (channels == 1 ? juce::String("mono") : channels == 2 ? juce::String("stereo") : juce::String("multichannel"))
+                        + ",T=Swooshbuckler");
                 metadata.set(juce::WavAudioFormat::riffInfoComment2, naming.description);
+                if (channelLine.isNotEmpty())
+                    metadata.set(juce::WavAudioFormat::aswgChannelConfig, channelLine); // iXML, read back by TakeFile
                 metadata.set(juce::WavAudioFormat::riffInfoArtist, naming.creator);
                 metadata.set(juce::WavAudioFormat::riffInfoSoftware, naming.software);
                 break;
@@ -302,123 +317,6 @@ namespace
         return true;
     }
 
-    struct FlacBlock
-    {
-        int type = 0;
-        juce::MemoryBlock data;
-    };
-
-    /** Reads a FLAC file's metadata blocks; leaves the stream at the first audio frame. */
-    bool readFlacBlocks(juce::InputStream& in, std::vector<FlacBlock>& blocks)
-    {
-        char tag[4] {};
-        if (in.read(tag, 4) != 4 || std::memcmp(tag, "fLaC", 4) != 0)
-            return false;
-        for (bool last = false; ! last;)
-        {
-            unsigned char head[4] {};
-            if (in.read(head, 4) != 4)
-                return false;
-            last = (head[0] & 0x80) != 0;
-            const auto length = static_cast<size_t>((head[1] << 16) | (head[2] << 8) | head[3]);
-            FlacBlock block;
-            block.type = head[0] & 0x7f;
-            if (in.readIntoMemoryBlock(block.data, static_cast<juce::pointer_sized_int>(length)) != length)
-                return false;
-            blocks.push_back(std::move(block));
-        }
-        return true;
-    }
-
-    juce::StringArray flacComments(const juce::File& file, juce::String* vendor = nullptr)
-    {
-        juce::StringArray comments;
-        juce::FileInputStream in(file);
-        std::vector<FlacBlock> blocks;
-        if (! in.openedOk() || ! readFlacBlocks(in, blocks))
-            return comments;
-        for (const auto& block : blocks)
-        {
-            if (block.type != 4)
-                continue;
-            juce::MemoryInputStream data(block.data, false);
-            const auto vendorLength = static_cast<size_t>(data.readInt());
-            juce::MemoryBlock text;
-            data.readIntoMemoryBlock(text, static_cast<juce::pointer_sized_int>(vendorLength));
-            if (vendor != nullptr)
-                *vendor = juce::String::fromUTF8(static_cast<const char*>(text.getData()), static_cast<int>(text.getSize()));
-            const int count = data.readInt();
-            for (int i = 0; i < count && ! data.isExhausted(); ++i)
-            {
-                const auto length = static_cast<size_t>(data.readInt());
-                juce::MemoryBlock entry;
-                data.readIntoMemoryBlock(entry, static_cast<juce::pointer_sized_int>(length));
-                comments.add(juce::String::fromUTF8(static_cast<const char*>(entry.getData()), static_cast<int>(entry.getSize())));
-            }
-        }
-        return comments;
-    }
-
-    /** Gives a closed FLAC file its Vorbis comments (NAME=value): the file is written again with the comment block
-        replaced, next to the original, and swapped in. */
-    bool setFlacComments(const juce::File& file, const juce::StringArray& comments)
-    {
-        juce::String vendor;
-        flacComments(file, &vendor);
-        if (vendor.isEmpty())
-            vendor = "Swooshbuckler";
-
-        juce::MemoryOutputStream block;
-        auto writeText = [&block](const juce::String& text)
-        {
-            const auto bytes = text.getNumBytesAsUTF8();
-            block.writeInt(static_cast<int>(bytes));
-            block.write(text.toRawUTF8(), bytes);
-        };
-        writeText(vendor);
-        block.writeInt(comments.size());
-        for (const auto& c : comments)
-            writeText(c);
-
-        juce::FileInputStream in(file);
-        std::vector<FlacBlock> blocks;
-        if (! in.openedOk() || ! readFlacBlocks(in, blocks))
-            return false;
-        bool replaced = false;
-        for (auto& b : blocks)
-            if (b.type == 4)
-            {
-                b.data = block.getMemoryBlock();
-                replaced = true;
-            }
-        if (! replaced)
-            blocks.push_back({ 4, block.getMemoryBlock() });
-
-        juce::TemporaryFile temp(file);
-        {
-            juce::FileOutputStream out(temp.getFile());
-            if (! out.openedOk())
-                return false;
-            out.write("fLaC", 4);
-            for (size_t i = 0; i < blocks.size(); ++i)
-            {
-                const auto length = blocks[i].data.getSize();
-                const unsigned char head[4] = { static_cast<unsigned char>((i + 1 == blocks.size() ? 0x80 : 0) | blocks[i].type),
-                                                static_cast<unsigned char>((length >> 16) & 0xff),
-                                                static_cast<unsigned char>((length >> 8) & 0xff),
-                                                static_cast<unsigned char>(length & 0xff) };
-                out.write(head, 4);
-                out.write(blocks[i].data.getData(), length);
-            }
-            if (out.writeFromInputStream(in, -1) < 0)
-                return false;
-            out.flush();
-            if (out.getStatus().failed())
-                return false;
-        }
-        return temp.overwriteTargetFileWithTemporary();
-    }
-
     /** Appends a marker chunk to a closed AIFF file (a chunk after the sound is part of the format). */
     bool appendAiffMarkers(const juce::File& file, const std::vector<TapeRecorder::Cue>& cues)
     {
@@ -479,16 +377,243 @@ namespace
         return juce::String(minutes) + ":" + juce::String(seconds - 60.0 * minutes, 3).paddedLeft('0', 6);
     }
 
-    /** After the writer has closed a file: FLAC gets its description, WAV its cue points. */
-    void finishFile(const juce::File& file, TapeRecorder::FileType type, const TapeRecorder::Naming& naming,
-                    const std::vector<TapeRecorder::Cue>& cues)
+    /** The pointers of an AudioBuffer's channels from a sample on. */
+    std::array<const float*, room::c_maxChannels> pointersOf(const juce::AudioBuffer<float>& audio, int startSample)
     {
-        if (type == TapeRecorder::FileType::Flac)
-            setFlacComments(file, { "DESCRIPTION=" + naming.description, "ARTIST=" + naming.creator, "ENCODER=" + naming.software });
-        else if (type == TapeRecorder::FileType::Wav)
-            appendWavCues(file, cues);
+        std::array<const float*, room::c_maxChannels> p {};
+        for (int ch = 0; ch < juce::jmin(room::c_maxChannels, audio.getNumChannels()); ++ch)
+            p[static_cast<size_t>(ch)] = audio.getReadPointer(ch, startSample);
+        return p;
     }
 }
+
+//==============================================================================
+/**
+ * One take on its way to disk: an interleaved file in the chosen Channel Order, or a Multi-Mono set, from audio in
+ * processing order. Mono of a take wider than Stereo is folded here (room::fold) and held under the Ceiling by a
+ * limiter whose look-ahead is taken back out, so the file lines up with the take. On close the files get their
+ * speaker mask (WAV), channel names, description and markers; a take that is not kept, or that failed anywhere, is
+ * deleted whole, every file of it. Never the audio thread.
+ */
+class TapeRecorder::TakeWriter
+{
+public:
+    ~TakeWriter()
+    {
+        if (! m_closed)
+            discard();
+    }
+
+    bool open(const juce::File& file, double inputRate, int inputChannels, const Options& options, const Naming& naming, juce::String& error)
+    {
+        m_options = options;
+        m_naming = naming;
+        m_inputChannels = inputChannels;
+        m_fileRate = options.fileRate > 0.0 ? options.fileRate : inputRate;
+        const auto width = takefile::widthForChannels(inputChannels);
+        if (! width.has_value())
+        {
+            error = "A take has 1, 2, 4, 6, 8, 10 or 12 channels, not " + juce::String(inputChannels) + ".";
+            return false;
+        }
+        m_inWidth = *width;
+        const auto fileWidth = options.mono ? room::Width::Mono : m_inWidth;
+        m_format = { fileWidth, options.order, fileWidth == room::Width::Mono ? takefile::Layout::Interleaved : options.layout };
+        const bool multi = m_format.layout == takefile::Layout::MultiMono;
+        const int fileChannels = room::layout(fileWidth).numChannels;
+        if (options.type == FileType::Flac && ! multi && fileChannels > takefile::c_maxFlacChannels)
+        {
+            error = "FLAC files hold at most 8 channels, and " + juce::String(room::layout(fileWidth).name) + " has "
+                  + juce::String(fileChannels) + ". Choose WAV or AIFF, or Multi-Mono files.";
+            return false;
+        }
+        m_files = takefile::filesOf(file, fileWidth, m_format.layout);
+
+        m_fold = options.mono && inputChannels > 2;
+        if (m_fold)
+        {
+            m_limiter.prepare(inputRate, 1);
+            MasterProcessor::Parameters p;
+            p.limiterOn = true;
+            p.ceilingDb = juce::jlimit(-12.0f, 0.0f, options.foldCeilingDb);
+            m_limiter.setParameters(p);
+            m_skip = m_limiter.getLatencySamples();
+        }
+
+        // Each writer: the take's channels in file order, one channel of a Multi-Mono set, or the Mono fold.
+        Options each = options;
+        each.mono = options.mono && ! m_fold; // Stereo to Mono stays the writer's own average
+        const int inputs = m_fold || multi ? 1 : inputChannels;
+        for (int i = 0; i < m_files.size(); ++i)
+        {
+            juce::String line;
+            if (multi)
+                line = room::info(room::layout(fileWidth).speakers[static_cast<size_t>(i)]).name;
+            else if (fileChannels > 2)
+                line = takefile::channelLine(fileWidth, options.order);
+            auto writer = createWriter(m_files[i], inputRate, inputs, each, naming, line, error);
+            if (writer == nullptr)
+            {
+                discard();
+                return false;
+            }
+            m_writers.push_back(std::move(writer));
+        }
+        for (int i = 0; i < room::c_maxChannels; ++i)
+            m_order[static_cast<size_t>(i)] = i;
+        if (! multi && ! options.mono)
+            m_order = room::fileChannels(m_inWidth, options.order);
+        m_closed = false;
+        return true;
+    }
+
+    /** numSamples of every input channel, in processing order. */
+    bool write(const float* const* channels, int numSamples)
+    {
+        if (m_closed || numSamples <= 0)
+            return m_ok;
+        if (m_fold)
+        {
+            m_buffer.setSize(1, numSamples, false, false, true);
+            float* out = m_buffer.getWritePointer(0);
+            const auto& fold = room::fold(m_inWidth, room::Width::Mono);
+            juce::FloatVectorOperations::clear(out, numSamples);
+            for (int ch = 0; ch < m_inputChannels; ++ch)
+                if (const float g = fold.gain[0][static_cast<size_t>(ch)]; g != 0.0f)
+                    juce::FloatVectorOperations::addWithMultiply(out, channels[ch], g, numSamples);
+            writeFolded(numSamples);
+        }
+        else if (m_format.layout == takefile::Layout::MultiMono)
+        {
+            for (size_t ch = 0; ch < m_writers.size(); ++ch)
+                m_ok = m_writers[ch]->writeFromFloatArrays(&channels[ch], 1, numSamples) && m_ok;
+        }
+        else
+        {
+            std::array<const float*, room::c_maxChannels> inFileOrder {};
+            for (int i = 0; i < m_inputChannels; ++i)
+                inFileOrder[static_cast<size_t>(i)] = channels[m_order[static_cast<size_t>(i)]];
+            m_ok = m_writers.front()->writeFromFloatArrays(inFileOrder.data(), m_inputChannels, numSamples) && m_ok;
+        }
+        return m_ok;
+    }
+
+    /**
+     * Ends the take. keep false, or a write that failed: every file of it is deleted (keepPartial keeps an
+     * interleaved file that was written up to a failure, as the rolling tape always has; a Multi-Mono set is never
+     * kept in part). Otherwise each file gets its mask, channel names and description, and the markers: as WAV cue
+     * points always, and when allMarkers also as AIFF markers and FLAC comments. markersAdded is false if a WAV or
+     * AIFF file had no room for them (4 GB). Returns whether the take was kept.
+     */
+    bool close(bool keep, const std::vector<Cue>& markers, bool allMarkers, bool& markersAdded, bool keepPartial = false)
+    {
+        markersAdded = true;
+        if (m_closed)
+            return false;
+        if (m_fold && m_ok)
+        {
+            // The limiter's look-ahead still holds the end of the take.
+            const int tail = m_limiter.getLatencySamples();
+            m_buffer.setSize(1, juce::jmax(1, tail), false, false, true);
+            m_buffer.clear();
+            writeFolded(tail);
+        }
+        m_writers.clear(); // flushes the resamplers and closes the files
+        m_closed = true;
+        const bool multi = m_format.layout == takefile::Layout::MultiMono;
+        if (! keep || (! m_ok && (multi || ! keepPartial)))
+        {
+            deleteFiles();
+            return false;
+        }
+        const int fileChannels = room::layout(m_format.width).numChannels;
+        for (int i = 0; i < m_files.size(); ++i)
+        {
+            const auto& file = m_files[i];
+            const juce::String line = multi ? juce::String(room::info(room::layout(m_format.width).speakers[static_cast<size_t>(i)]).name)
+                                            : fileChannels > 2 ? takefile::channelLine(m_format.width, m_format.order) : juce::String();
+            switch (m_options.type)
+            {
+                case FileType::Flac:
+                {
+                    juce::StringArray comments { "DESCRIPTION=" + m_naming.description, "ARTIST=" + m_naming.creator, "ENCODER=" + m_naming.software };
+                    if (line.isNotEmpty())
+                        comments.add("CHANNELS=" + line);
+                    if (! multi && fileChannels > 2)
+                        comments.add("WAVEFORMATEXTENSIBLE_CHANNEL_MASK=0x" + juce::String::toHexString(static_cast<int>(takefile::maskFor(m_format.width, m_format.order))).toUpperCase());
+                    if (allMarkers)
+                        for (const auto& marker : markers)
+                            comments.add("MARKER=" + markerTime(marker.frame, m_fileRate) + " " + marker.label);
+                    takefile::setFlacComments(file, comments);
+                    break;
+                }
+                case FileType::Aiff:
+                    if (allMarkers)
+                        markersAdded = appendAiffMarkers(file, markers) && markersAdded;
+                    break;
+                case FileType::Wav:
+                default:
+                    if (! multi && fileChannels > 2 && ! takefile::setWavChannelMask(file, takefile::maskFor(m_format.width, m_format.order)))
+                    {
+                        deleteFiles();
+                        return false;
+                    }
+                    markersAdded = appendWavCues(file, markers) && markersAdded;
+                    break;
+            }
+        }
+        return true;
+    }
+
+    /** Closes and deletes every file of the take. */
+    void discard()
+    {
+        m_writers.clear();
+        m_closed = true;
+        deleteFiles();
+    }
+
+    const juce::Array<juce::File>& files() const { return m_files; }
+    const takefile::Format& format() const { return m_format; }
+
+private:
+    void writeFolded(int numSamples)
+    {
+        float* out = m_buffer.getWritePointer(0);
+        float* chans[1] = { out };
+        m_limiter.process(chans, 1, numSamples);
+        // The first look-ahead's worth out of the limiter is the silence it started with.
+        const int skip = static_cast<int>(juce::jmin<std::int64_t>(m_skip, numSamples));
+        m_skip -= skip;
+        if (numSamples > skip)
+        {
+            const float* from[1] = { out + skip };
+            m_ok = m_writers.front()->writeFromFloatArrays(from, 1, numSamples - skip) && m_ok;
+        }
+    }
+
+    void deleteFiles()
+    {
+        for (const auto& f : m_files)
+            f.deleteFile();
+    }
+
+    Options m_options;
+    Naming m_naming;
+    takefile::Format m_format;
+    room::Width m_inWidth = room::Width::Stereo;
+    int m_inputChannels = 2;
+    double m_fileRate = 48000.0;
+    juce::Array<juce::File> m_files;
+    std::vector<std::unique_ptr<juce::AudioFormatWriter>> m_writers;
+    std::array<int, room::c_maxChannels> m_order {};
+    bool m_fold = false;
+    MasterProcessor m_limiter;
+    std::int64_t m_skip = 0;
+    juce::AudioBuffer<float> m_buffer;
+    bool m_ok = true;
+    bool m_closed = true;
+};
 
 //==============================================================================
 /**
@@ -519,14 +644,15 @@ public:
     bool open(juce::String& error)
     {
         m_naming = m_owner.getNaming();
-        m_file = m_owner.nextFile(m_folder, {}, extensionFor(m_options.type));
-        m_inner = createWriter(m_file, getSampleRate(), static_cast<int>(getNumChannels()), m_options, m_naming, error);
-        if (m_inner == nullptr)
+        auto writer = std::make_unique<TakeWriter>();
+        if (! writer->open(m_owner.nextFile(m_folder, {}, extensionFor(m_options.type)), getSampleRate(),
+                           static_cast<int>(getNumChannels()), m_options, m_naming, error))
             return false;
+        m_inner = std::move(writer);
         m_fileStart = m_consumed;
         m_marks.clear();
         const juce::ScopedLock sl(m_owner.m_fileLock);
-        m_owner.m_currentFile = m_file;
+        m_owner.m_currentFile = m_inner->files()[0];
         return true;
     }
 
@@ -556,11 +682,11 @@ public:
             }
             if (m_inner != nullptr)
             {
-                const float* chans[8] {};
-                const int channels = juce::jmin(8, static_cast<int>(getNumChannels()));
+                std::array<const float*, room::c_maxChannels> chans {};
+                const int channels = juce::jmin(room::c_maxChannels, static_cast<int>(getNumChannels()));
                 for (int ch = 0; ch < channels; ++ch)
-                    chans[ch] = floats[ch] + done;
-                m_inner->writeFromFloatArrays(chans, channels, count);
+                    chans[static_cast<size_t>(ch)] = floats[ch] + done;
+                m_inner->write(chans.data(), count);
             }
             m_consumed += count;
             m_owner.m_takenSamples.fetch_add(count, std::memory_order_relaxed);
@@ -598,11 +724,11 @@ private:
         if (m_inner == nullptr)
             return;
         const double fileRate = m_options.fileRate > 0.0 ? m_options.fileRate : getSampleRate();
-        m_inner.reset(); // flushes the resampler and closes the file
         const auto samples = m_consumed - m_fileStart;
         if (! keep || samples <= 0)
         {
-            m_file.deleteFile();
+            m_inner->discard(); // every file of it
+            m_inner.reset();
             return;
         }
 
@@ -626,24 +752,40 @@ private:
             groupKinds = bit;
             cues.push_back({ static_cast<std::int64_t>(std::llround(static_cast<double>(mark.position) * fileRate / getSampleRate())), label });
         }
-        finishFile(m_file, m_options.type, m_naming, cues);
+        bool markersAdded = true;
+        const bool kept = m_inner->close(true, cues, false, markersAdded, true); // flushes the resampler, closes the files
+        const auto files = m_inner->files();
+        const auto format = m_inner->format();
+        m_inner.reset();
+        if (! kept)
+        {
+            const juce::ScopedLock sl(m_owner.m_metaLock);
+            m_owner.m_writeError = "Writing " + files[0].getFileName() + " failed.";
+            return;
+        }
 
         {
             const juce::ScopedLock sl(m_owner.m_fileLock);
-            m_owner.m_lastFile = m_file;
+            m_owner.m_lastFile = files[0];
         }
         const juce::ScopedLock sl(m_owner.m_metaLock);
-        m_owner.m_finished.push_back({ m_file, static_cast<double>(samples) / getSampleRate(),
-                                       m_options.type == FileType::Wav ? static_cast<int>(cues.size()) : 0, m_options.perWhoosh });
+        FinishedTake take;
+        take.file = files[0];
+        take.files = files;
+        take.format = format;
+        take.seconds = static_cast<double>(samples) / getSampleRate();
+        take.markers = m_options.type == FileType::Wav ? static_cast<int>(cues.size()) : 0;
+        take.whoosh = m_options.perWhoosh;
+        m_owner.m_finished.push_back(take);
         if (m_naming.style == NameStyle::Counter)
-            m_owner.m_counter = juce::jmax(m_owner.m_counter, m_owner.numberOf(m_file) + 1);
+            m_owner.m_counter = juce::jmax(m_owner.m_counter, m_owner.numberOf(files[0]) + 1);
     }
 
     TapeRecorder& m_owner;
-    juce::File m_folder, m_file;
+    juce::File m_folder;
     Options m_options;
     Naming m_naming;
-    std::unique_ptr<juce::AudioFormatWriter> m_inner;
+    std::unique_ptr<TakeWriter> m_inner;
     std::int64_t m_consumed = 0, m_fileStart = 0; // samples of the take's stream taken so far; where this file began
     std::vector<Mark> m_marks;
     bool m_failed = false;
@@ -675,21 +817,37 @@ juce::File TapeRecorder::defaultFolder()
 juce::String TapeRecorder::extensionOf(FileType type) { return extensionFor(type); }
 
 bool TapeRecorder::writeFile(const juce::File& file, const juce::AudioBuffer<float>& audio, int startSample, int numSamples,
-                             double rate, const Options& options, const Naming& naming, juce::String& error)
+                             double rate, const Options& options, const Naming& naming, juce::String& error,
+                             juce::Array<juce::File>* written)
 {
-    auto writer = createWriter(file, rate, audio.getNumChannels(), options, naming, error);
-    if (writer == nullptr)
+    TakeWriter writer;
+    if (! writer.open(file, rate, audio.getNumChannels(), options, naming, error))
         return false;
-    const bool ok = writer->writeFromAudioSampleBuffer(audio, startSample, numSamples);
-    writer.reset(); // flushes the resampler and closes the file
-    if (! ok)
+    const auto channels = pointersOf(audio, startSample);
+    constexpr int c_piece = 65536;
+    bool ok = true;
+    for (int done = 0; done < numSamples && ok; done += c_piece)
+    {
+        std::array<const float*, room::c_maxChannels> at {};
+        for (size_t ch = 0; ch < at.size(); ++ch)
+            at[ch] = channels[ch] != nullptr ? channels[ch] + done : nullptr;
+        ok = writer.write(at.data(), juce::jmin(c_piece, numSamples - done));
+    }
+    bool markersAdded = true;
+    if (! writer.close(ok, {}, false, markersAdded))
     {
         error = "Writing " + file.getFileName() + " failed.";
-        file.deleteFile();
         return false;
     }
-    finishFile(file, options.type, naming, {});
+    if (written != nullptr)
+        *written = writer.files();
     return true;
+}
+
+juce::Array<juce::File> TapeRecorder::filesFor(const juce::File& file, int numChannels, const Options& options)
+{
+    const auto width = options.mono ? room::Width::Mono : takefile::widthForChannels(numChannels).value_or(room::Width::Stereo);
+    return takefile::filesOf(file, width, options.layout);
 }
 
 //==============================================================================
@@ -706,14 +864,12 @@ bool TapeRecorder::FileWriter::open(const juce::File& file, double rate, int num
 {
     if (isOpen())
         close({});
-    m_writer = createWriter(file, rate, numChannels, options, naming, error);
-    m_file = file;
-    m_options = options;
-    m_naming = naming;
-    m_rate = options.fileRate > 0.0 ? options.fileRate : rate;
+    auto writer = std::make_unique<TakeWriter>();
+    m_ok = writer->open(file, rate, numChannels, options, naming, error);
+    m_files = m_ok ? writer->files() : juce::Array<juce::File> {};
+    m_writer = m_ok ? std::move(writer) : nullptr;
     m_channels = numChannels;
     m_position = 0;
-    m_ok = m_writer != nullptr;
     m_markersAdded = true;
     return m_ok;
 }
@@ -722,7 +878,8 @@ bool TapeRecorder::FileWriter::write(const juce::AudioBuffer<float>& audio, int 
 {
     if (! isOpen() || numSamples <= 0)
         return isOpen();
-    m_ok = m_writer->writeFromAudioSampleBuffer(audio, startSample, numSamples) && m_ok;
+    jassert(audio.getNumChannels() >= m_channels);
+    m_ok = m_writer->write(pointersOf(audio, startSample).data(), numSamples) && m_ok;
     m_position += numSamples;
     return m_ok;
 }
@@ -742,37 +899,16 @@ bool TapeRecorder::FileWriter::close(const std::vector<Cue>& markers)
 {
     if (! isOpen())
         return false;
-    m_writer.reset(); // closes the file
-    if (! m_ok)
-    {
-        m_file.deleteFile();
-        return false;
-    }
-    switch (m_options.type)
-    {
-        case FileType::Flac:
-        {
-            juce::StringArray comments { "DESCRIPTION=" + m_naming.description, "ARTIST=" + m_naming.creator, "ENCODER=" + m_naming.software };
-            for (const auto& marker : markers)
-                comments.add("MARKER=" + markerTime(marker.frame, m_rate) + " " + marker.label);
-            setFlacComments(m_file, comments);
-            break;
-        }
-        case FileType::Aiff:
-            m_markersAdded = appendAiffMarkers(m_file, markers);
-            break;
-        case FileType::Wav:
-        default:
-            m_markersAdded = appendWavCues(m_file, markers);
-            break;
-    }
-    return true;
+    const bool kept = m_writer->close(m_ok, markers, true, m_markersAdded); // every file goes if any write failed
+    m_writer.reset();
+    return kept;
 }
 
 void TapeRecorder::FileWriter::abandon()
 {
+    if (m_writer != nullptr)
+        m_writer->discard();
     m_writer.reset();
-    m_file.deleteFile();
 }
 
 void TapeRecorder::setNaming(const Naming& naming)
@@ -815,7 +951,9 @@ juce::File TapeRecorder::nextFile(const juce::File& folder, const juce::String& 
     {
         const auto stem = prefix + "_" + juce::String::formatted("%04d", n);
         const auto file = folder.getChildFile(stem + suffix + extension);
-        if (! file.exists() || n > m_counter + 100000)
+        // A Multi-Mono set has no file of that name, but every set of Stereo or wider has an .L file.
+        const auto set = folder.getChildFile(stem + suffix + room::info(room::Speaker::L).suffix + extension);
+        if ((! file.exists() && ! set.exists()) || n > m_counter + 100000)
             return file;
     }
 }
@@ -823,7 +961,10 @@ juce::File TapeRecorder::nextFile(const juce::File& folder, const juce::String& 
 int TapeRecorder::numberOf(const juce::File& file) const
 {
     // The NNNN of <Name>_NNNN[_suffix]: the first all-digit part after an underscore, from the right.
-    const auto parts = juce::StringArray::fromTokens(file.getFileNameWithoutExtension(), "_", {});
+    auto name = file.getFileNameWithoutExtension();
+    if (const int dot = name.lastIndexOfChar('.'); dot > 0)
+        name = name.substring(0, dot); // a file of a Multi-Mono set: <Name>_NNNN.Ls
+    const auto parts = juce::StringArray::fromTokens(name, "_", {});
     for (int i = parts.size(); --i >= 1;)
         if (parts[i].length() == 4 && parts[i].containsOnly("0123456789"))
             return parts[i].getIntValue();
@@ -850,7 +991,7 @@ juce::String TapeRecorder::readDescription(const juce::File& file)
 {
     if (file.hasFileExtension("flac"))
     {
-        for (const auto& c : flacComments(file))
+        for (const auto& c : takefile::flacComments(file))
             if (c.startsWithIgnoreCase("DESCRIPTION="))
                 return c.fromFirstOccurrenceOf("=", false, false);
         return {};
@@ -933,6 +1074,20 @@ void TapeRecorder::closeWhoosh()
                       static_cast<double>(m_whooshLoud.load()) >= c_minWhooshSeconds * m_recordRate.load() ? 1 : 0 });
 }
 
+double TapeRecorder::retroCapacityFor(double sampleRate, int numChannels, int seconds)
+{
+    const auto asked = static_cast<std::int64_t>(sampleRate * seconds);
+    const auto fits = c_maxRetroBytes / (static_cast<std::int64_t>(juce::jmax(1, numChannels)) * static_cast<std::int64_t>(sizeof(float)));
+    return static_cast<double>(juce::jmin(asked, fits)) / juce::jmax(1.0, sampleRate);
+}
+
+int TapeRecorder::retroSamples(double sampleRate, int numChannels, int seconds)
+{
+    const double capacity = retroCapacityFor(sampleRate, numChannels, seconds);
+    m_retroCapacitySeconds.store(capacity);
+    return static_cast<int>(capacity * sampleRate) + 1;
+}
+
 void TapeRecorder::setRetroSeconds(int seconds)
 {
     seconds = juce::jlimit(c_retroSeconds, c_maxRetroSeconds, seconds);
@@ -940,19 +1095,21 @@ void TapeRecorder::setRetroSeconds(int seconds)
         return;
     m_retroSeconds = seconds;
     // A bigger (or smaller) ring, made here and swapped in under the lock (the audio thread only try-locks it).
-    juce::AudioBuffer<float> ring(m_numChannels, static_cast<int>(m_sampleRate * seconds) + 1);
+    juce::AudioBuffer<float> ring(m_numChannels, retroSamples(m_sampleRate, m_numChannels, seconds));
     ring.clear();
     const juce::SpinLock::ScopedLockType lock(m_retroLock);
     m_retroGeneration.fetch_add(1);
     std::swap(m_retro, ring);
-    if (m_retro.getNumSamples() != static_cast<int>(m_sampleRate * m_retroSeconds.load()) + 1 || m_retro.getNumChannels() != m_numChannels)
-        m_retro.setSize(m_numChannels, static_cast<int>(m_sampleRate * m_retroSeconds.load()) + 1, false, true, false); // prepared meanwhile
+    if (const int wanted = retroSamples(m_sampleRate, m_numChannels, m_retroSeconds.load());
+        m_retro.getNumSamples() != wanted || m_retro.getNumChannels() != m_numChannels)
+        m_retro.setSize(m_numChannels, wanted, false, true, false); // prepared meanwhile
     m_retroWrite = 0;
     m_retroTotal = 0;
 }
 
 void TapeRecorder::prepare(double sampleRate, int numChannels)
 {
+    numChannels = juce::jlimit(1, room::c_maxChannels, numChannels);
     m_preroll.setSize(juce::jmax(1, numChannels), juce::jmax(16, static_cast<int>(c_gatePrerollSeconds * sampleRate)));
     m_preroll.clear();
     m_fade.setSize(juce::jmax(1, numChannels), juce::jmax(8, static_cast<int>(c_gateFadeSeconds * sampleRate)));
@@ -981,7 +1138,7 @@ void TapeRecorder::prepare(double sampleRate, int numChannels)
     m_retroGeneration.fetch_add(1);
     m_sampleRate = sampleRate;
     m_numChannels = juce::jmax(1, numChannels);
-    m_retro.setSize(m_numChannels, static_cast<int>(sampleRate * m_retroSeconds.load()) + 1, false, true, false);
+    m_retro.setSize(m_numChannels, retroSamples(sampleRate, m_numChannels, m_retroSeconds.load()), false, true, false);
     m_retro.clear();
     m_retroWrite = 0;
     m_retroTotal = 0;
@@ -1055,7 +1212,10 @@ void TapeRecorder::process(const float* const* channels, int numChannels, int nu
             {
                 blockBase = m_streamPos;
                 blockCount = numSamples;
-                writeBlock(channels, numSamples);
+                std::array<const float*, room::c_maxChannels> all {};
+                for (int ch = 0; ch < juce::jmin(room::c_maxChannels, m_numChannels); ++ch)
+                    all[static_cast<size_t>(ch)] = channels[juce::jmin(ch, numChannels - 1)];
+                writeBlock(all.data(), numSamples);
                 m_capturing = false; // Skip Silence switched on mid-take starts from the next sound
                 m_prerollFill = 0;
                 m_fadeInLeft = 0;
@@ -1111,10 +1271,10 @@ void TapeRecorder::process(const float* const* channels, int numChannels, int nu
                     while (left > 0)
                     {
                         const int n = juce::jmin(left, prerollSize - read);
-                        const float* seg[8] {};
-                        for (int ch = 0; ch < juce::jmin(8, m_preroll.getNumChannels()); ++ch)
-                            seg[ch] = m_preroll.getReadPointer(ch, read);
-                        writeBlock(seg, n);
+                        std::array<const float*, room::c_maxChannels> seg {};
+                        for (int ch = 0; ch < juce::jmin(room::c_maxChannels, m_preroll.getNumChannels()); ++ch)
+                            seg[static_cast<size_t>(ch)] = m_preroll.getReadPointer(ch, read);
+                        writeBlock(seg.data(), n);
                         read = (read + n) % prerollSize;
                         left -= n;
                     }
@@ -1145,37 +1305,38 @@ void TapeRecorder::process(const float* const* channels, int numChannels, int nu
                     const int rising = juce::jmin(plain, m_fadeInLeft);
                     if (rising > 0)
                     {
-                        const float* seg[8] {};
-                        for (int ch = 0; ch < juce::jmin(8, m_fade.getNumChannels()); ++ch)
+                        std::array<const float*, room::c_maxChannels> seg {};
+                        for (int ch = 0; ch < juce::jmin(room::c_maxChannels, m_fade.getNumChannels()); ++ch)
                         {
                             const float* in = channels[juce::jmin(ch, numChannels - 1)];
                             float* out = m_fade.getWritePointer(ch);
                             for (int i = 0; i < rising; ++i)
                                 out[i] = in[i] * static_cast<float>(fadeLen - m_fadeInLeft + i) / static_cast<float>(fadeLen);
-                            seg[ch] = out;
+                            seg[static_cast<size_t>(ch)] = out;
                         }
-                        writeBlock(seg, rising);
+                        writeBlock(seg.data(), rising);
                         m_fadeInLeft -= rising;
                     }
                     if (plain > rising)
                     {
-                        const float* seg[8] {};
-                        for (int ch = 0; ch < juce::jmin(8, numChannels); ++ch)
-                            seg[ch] = channels[ch] + rising;
-                        writeBlock(seg, plain - rising);
+                        // Every channel the tape was prepared with (a caller with fewer repeats its last one).
+                        std::array<const float*, room::c_maxChannels> seg {};
+                        for (int ch = 0; ch < juce::jmin(room::c_maxChannels, m_numChannels); ++ch)
+                            seg[static_cast<size_t>(ch)] = channels[juce::jmin(ch, numChannels - 1)] + rising;
+                        writeBlock(seg.data(), plain - rising);
                     }
                     if (count > plain)
                     {
-                        const float* seg[8] {};
-                        for (int ch = 0; ch < juce::jmin(8, m_fade.getNumChannels()); ++ch)
+                        std::array<const float*, room::c_maxChannels> seg {};
+                        for (int ch = 0; ch < juce::jmin(room::c_maxChannels, m_fade.getNumChannels()); ++ch)
                         {
                             const float* in = channels[juce::jmin(ch, numChannels - 1)];
                             float* out = m_fade.getWritePointer(ch);
                             for (int i = plain; i < count; ++i)
                                 out[i - plain] = in[i] * static_cast<float>(m_hangLeft - i) / static_cast<float>(fadeLen);
-                            seg[ch] = out;
+                            seg[static_cast<size_t>(ch)] = out;
                         }
-                        writeBlock(seg, count - plain);
+                        writeBlock(seg.data(), count - plain);
                     }
                     m_hangLeft -= count;
                     if (m_hangLeft <= 0)
@@ -1398,18 +1559,11 @@ bool TapeRecorder::saveRetro(const juce::File& folder, const Options& options, j
     }
 
     const auto naming = getNaming();
-    written = nextFile(folder, "_retro", extensionFor(options.type));
-    auto writer = createWriter(written, rate, copy.getNumChannels(), options, naming, error);
-    if (writer == nullptr)
+    juce::Array<juce::File> files;
+    const auto name = nextFile(folder, "_retro", extensionFor(options.type));
+    if (! writeFile(name, copy, first, copy.getNumSamples() - first, rate, options, naming, error, &files))
         return false;
-
-    if (! writer->writeFromAudioSampleBuffer(copy, first, copy.getNumSamples() - first))
-    {
-        error = "Writing " + written.getFileName() + " failed.";
-        return false;
-    }
-    writer.reset(); // flushes the resampler and closes the file
-    finishFile(written, options.type, naming, {});
+    written = files[0];
     if (naming.style == NameStyle::Counter)
     {
         const juce::ScopedLock sl(m_metaLock);

@@ -3247,10 +3247,11 @@ void SwooshbucklerAudioProcessorEditor::timerCallback()
 
     // The LAST button says how much it keeps, Takes how many there are; a whoosh file closed while the tape rolls
     // is announced, and so is a file the tape could not open.
-    if (const int minutes = m_processor.getRetroMinutes(); minutes != m_retroShown)
+    // (Its real length where the memory for it is capped: a wide room at a high rate.)
+    if (const int kept = m_processor.getRetroMinutes() * 1000 + static_cast<int>(m_processor.getRetroSecondsKept()); kept != m_retroShown)
     {
-        m_retroShown = minutes;
-        m_retroButton.setButtonText(minutes == 1 ? juce::String("Last 60 s") : "Last " + juce::String(minutes) + " Min");
+        m_retroShown = kept;
+        m_retroButton.setButtonText(m_processor.retroLabel());
     }
     if (const int generation = m_processor.getTakesGeneration(); generation != m_takesShown)
     {

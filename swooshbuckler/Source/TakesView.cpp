@@ -1,5 +1,6 @@
 #include "TakesView.h"
 #include "LookAndFeel.h"
+#include "TakeFile.h"
 
 namespace TC = Theme::Colours;
 
@@ -57,7 +58,9 @@ void TakesView::syncTakes()
         {
             auto thumb = std::make_unique<juce::AudioThumbnail>(256, m_formats, m_cache);
             thumb->addChangeListener(this);
-            thumb->setSource(new juce::FileInputSource(take.file));
+            // Read as the take: a Multi-Mono set as one, the channels in the room's order whatever the file's.
+            if (auto reader = takefile::openReader(take.file))
+                thumb->setReader(reader.release(), static_cast<juce::int64>(take.file.hashCode64() ^ take.file.getLastModificationTime().toMilliseconds()));
             m_thumbs[take.id] = std::move(thumb);
         }
     repaint();
@@ -172,7 +175,10 @@ void TakesView::mouseDrag(const juce::MouseEvent& e)
     if (m_pressRow >= static_cast<int>(takes.size()) || ! takes[static_cast<size_t>(m_pressRow)].file.existsAsFile())
         return;
     m_dragged = true;
-    juce::DragAndDropContainer::performExternalDragDropOfFiles({ takes[static_cast<size_t>(m_pressRow)].file.getFullPathName() }, false, this);
+    juce::StringArray paths; // every file of a Multi-Mono set: Pro Tools takes them as one clip
+    for (const auto& f : takes[static_cast<size_t>(m_pressRow)].files)
+        paths.add(f.getFullPathName());
+    juce::DragAndDropContainer::performExternalDragDropOfFiles(paths, false, this);
 }
 
 void TakesView::mouseUp(const juce::MouseEvent& e)
@@ -198,9 +204,9 @@ void TakesView::mouseUp(const juce::MouseEvent& e)
             break;
         case Zone::Bin:
             if (m_processor.deleteTake(take.id))
-                status("Moved " + take.file.getFileName() + " to the trash");
+                status("Moved " + takefile::displayName(take.files) + " to the trash");
             else
-                status("Couldn't move " + take.file.getFileName() + " to the trash");
+                status("Couldn't move " + takefile::displayName(take.files) + " to the trash");
             break;
         case Zone::Body:
             if (m_processor.getAuditionTake() == take.id)
@@ -281,7 +287,7 @@ void TakesView::paint(juce::Graphics& g)
 
         // Name, what it is, how long
         g.setColour(missing ? TC::textFaint : TC::text);
-        Theme::fitText(g, take.file.getFileName(), r.name, m_fonts.body(), juce::Justification::centredLeft, Theme::Fit::Name);
+        Theme::fitText(g, takefile::displayName(take.files), r.name, m_fonts.body(), juce::Justification::centredLeft, Theme::Fit::Name);
         g.setColour(TC::textDim);
         Theme::fitText(g, missing ? juce::String("Missing") : take.kind, r.kind, m_fonts.caption(), juce::Justification::centredLeft);
         const int whole = static_cast<int>(take.seconds);

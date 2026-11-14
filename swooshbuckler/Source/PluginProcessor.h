@@ -246,7 +246,9 @@ public:
     struct Take
     {
         int id = 0;
-        juce::File file;
+        juce::File file;        // the first of its files: the one shown and played from
+        juce::Array<juce::File> files; // every file of it (a Multi-Mono set has one per channel), in processing order
+        takefile::Format format; // its width, Channel Order and File Layout, as its files say
         juce::String kind;      // "Tape", "Whoosh", "Last 60 s", "Variation", "Variations", ...
         double seconds = 0.0;
         int markers = 0;
@@ -263,7 +265,7 @@ public:
     /** Goes up whenever the list changes. */
     int getTakesGeneration() const { return m_takesGeneration; }
     void setTakeStarred(int id, bool starred);
-    /** Moves the file to the system trash and takes it off the list. False if the file could not be moved.
+    /** Moves its files to the system trash and takes it off the list. False if a file could not be moved.
         toTrash false deletes the file outright (tests: nothing is left in the trash). */
     bool deleteTake(int id, bool toTrash = true);
     /** Plays a take through the output, on top of the rig (it is not recorded). Click again, or another, to stop. */
@@ -292,6 +294,19 @@ public:
     void setFileType(int type);
     bool getMono() const;
     void setMono(bool mono);
+    /** Channel Order of files of 5.1 and wider (Pro Tools (Film) unless chosen otherwise), and File Layout
+        (Interleaved unless chosen otherwise): for the tape, the saved last minutes and Render Variations. */
+    room::FileOrder getChannelOrder() const;
+    void setChannelOrder(room::FileOrder order);
+    takefile::Layout getFileLayout() const;
+    void setFileLayout(takefile::Layout layout);
+    /** How the tape and the saved last minutes write files now: the settings above, the file type, bit depth and
+        rate, and the Ceiling for a Mono fold of a wider room. */
+    TapeRecorder::Options tapeOptions() const;
+    /** How much the saved last minutes really hold at this width and rate (the memory for them is capped). */
+    double getRetroSecondsKept() const { return m_recorder.getRetroCapacitySeconds(); }
+    /** "Last 60 s", "Last 3 Min", or the real length when the memory cap holds less: "Last 55 s", "Last 3:42". */
+    juce::String retroLabel() const;
     bool getAutoRecord() const;
     void setAutoRecord(bool on);
     /** Skip Silence (on unless switched off): the tape leaves the quiet stretches out. Off: one continuous take. */
@@ -519,8 +534,6 @@ private:
     int m_pipeChannels = 2;
     std::array<float, room::c_maxChannels> m_loudnessWeight {}; // per pipe channel, BS.1770 (room::loudnessWeight)
     std::array<float, room::c_maxChannels> m_monoFold {};       // per pipe channel: its share of the mono scope
-    // The tape is still stereo: it gets the pipe folded to Stereo (room::fold), at the render rate.
-    juce::AudioBuffer<float> m_tapeFold;
     std::array<std::atomic<float>, room::c_maxChannels> m_channelPeak {}, m_channelPeakHold {};
     void publishChannelPeaks(const float* peaks, int numSamples);
 

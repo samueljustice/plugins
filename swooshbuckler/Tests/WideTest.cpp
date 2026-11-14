@@ -9,8 +9,8 @@
 //     alone, and the other way round). Its CPU at 12 channels against 2.
 //   - The whole plug-in at each width: no crash, the room's width and meters follow the bus, L and R carry the
 //     same sound as the Stereo render (Mono: its fold), every other channel is silent, the latency is the same
-//     at every width, rendering above the device rate too, and the tape (still stereo) gets the room folded to
-//     Stereo.
+//     at every width, rendering above the device rate too, and the tape records the room at its width: every
+//     channel of a 7.1.4 take, read back in the room's order, is the output's.
 //
 // Usage: SwooshbucklerWide [scratch folder]. Run it from a scratch folder; nothing is read from or written to the
 // user's settings.
@@ -20,6 +20,7 @@
 #include "Parameters.h"
 #include "Room.h"
 #include "RoomMaster.h"
+#include "TakeFile.h"
 
 #include <chrono>
 #include <cmath>
@@ -486,8 +487,8 @@ int main(int argc, char* argv[])
     //==========================================================================
     std::cout << "The tape" << std::endl;
     {
-        // The tape is stereo for now: a 7.1.4 room reaches it folded to Stereo, which (with the sound in L and R
-        // alone) is L and R as they are.
+        // The tape records the room at its width: a 7.1.4 take has twelve channels, and read back (in the room's
+        // order, whatever order the file has them in) each is the output's channel as it was played.
         Plug plug(sources, room::Width::Surround714, 0);
         auto& p = plug.proc;
         p.setSkipSilence(false);
@@ -499,11 +500,9 @@ int main(int argc, char* argv[])
         p.stopRecording();
         juce::AudioBuffer<float> file;
         {
-            juce::AudioFormatManager formats;
-            formats.registerBasicFormats();
             for (int wait = 0; wait < 200 && p.isRecording(); ++wait)
                 juce::Thread::sleep(10);
-            std::unique_ptr<juce::AudioFormatReader> r(formats.createReaderFor(p.getLastRecording()));
+            const auto r = takefile::openReader(p.getLastRecording());
             if (r != nullptr)
             {
                 file.setSize(static_cast<int>(r->numChannels), static_cast<int>(r->lengthInSamples));
@@ -512,7 +511,7 @@ int main(int argc, char* argv[])
         }
         // Line the file up with the output (the take starts where the tape was armed, near the start).
         float best = 1.0f;
-        if (file.getNumChannels() == 2 && file.getNumSamples() > 48000)
+        if (file.getNumChannels() == 12 && out.getNumChannels() == 12 && file.getNumSamples() > 48000)
         {
             const int n = 48000;
             for (int lag = -4096; lag <= 4096; ++lag)
@@ -521,15 +520,16 @@ int main(int argc, char* argv[])
                 const int f0 = 48000;
                 if (o0 < 0 || o0 + n > out.getNumSamples() || f0 + n > file.getNumSamples())
                     continue;
-                const float d = std::max(maxDiff(out.getReadPointer(0) + o0, file.getReadPointer(0) + f0, n),
-                                         maxDiff(out.getReadPointer(1) + o0, file.getReadPointer(1) + f0, n));
+                float d = 0.0f;
+                for (int ch = 0; ch < 12; ++ch)
+                    d = std::max(d, maxDiff(out.getReadPointer(ch) + o0, file.getReadPointer(ch) + f0, n));
                 best = std::min(best, d);
             }
         }
         std::cout << "         take: " << file.getNumChannels() << " channels, " << file.getNumSamples() << " samples, against the output "
                   << juce::String(db(best), 1) << " dB" << std::endl;
-        check(file.getNumChannels() == 2 && file.getNumSamples() > 48000 * 2 && best < 1.0e-5f,
-              "7.1.4: the tape records the room folded to Stereo (L and R as they are played)");
+        check(file.getNumChannels() == 12 && file.getNumSamples() > 48000 * 2 && best < 1.0e-5f,
+              "7.1.4: the tape records all twelve channels, each as it is played");
     }
 
     Proc::useSettings(nullptr);

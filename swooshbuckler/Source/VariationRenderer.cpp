@@ -19,7 +19,8 @@ namespace
         int highest = 0;
         for (const auto& entry : juce::RangedDirectoryIterator(folder, false, name + "_*", juce::File::findFiles))
         {
-            const auto digits = entry.getFile().getFileNameWithoutExtension().substring(name.length() + 1);
+            // <name>_012, or a file of a Multi-Mono set, <name>_012.Ls
+            const auto digits = entry.getFile().getFileNameWithoutExtension().substring(name.length() + 1).upToFirstOccurrenceOf(".", false, false);
             if (digits.isNotEmpty() && digits.length() <= 6 && digits.containsOnly("0123456789"))
                 highest = juce::jmax(highest, digits.getIntValue());
         }
@@ -109,7 +110,8 @@ VariationRenderer::Plan VariationRenderer::planOf(const Job& job)
     plan.firstName = fileNameOf(plan.stem, plan.firstNumber, plan.lastNumber);
     const auto extension = TapeRecorder::extensionOf(job.options.type);
     plan.combined = job.folder.getChildFile(plan.stem + "_All" + extension);
-    for (int n = 2; plan.combined.exists(); ++n)
+    auto taken = [&](const juce::File& f) { return takefile::anyExists(TapeRecorder::filesFor(f, 2, job.options)) || f.exists(); };
+    for (int n = 2; taken(plan.combined); ++n)
         plan.combined = job.folder.getChildFile(plan.stem + "_All_" + juce::String(n) + extension);
     return plan;
 }
@@ -289,6 +291,8 @@ VariationRenderer::Job VariationRenderer::defaultJob() const
     job.options.bitDepth = m_rig.getBitDepth();
     job.options.type = static_cast<TapeRecorder::FileType>(m_rig.getFileType());
     job.options.mono = m_rig.getMono();
+    job.options.order = m_rig.getChannelOrder();
+    job.options.layout = m_rig.getFileLayout();
     job.creator = m_rig.getCreator().isNotEmpty() ? m_rig.getCreator() : juce::String("Samuel Justice");
     return job;
 }
@@ -596,13 +600,13 @@ void VariationRenderer::run()
         else
         {
             juce::String error;
-            if (separate && (file.exists() || ! TapeRecorder::writeFile(file, m_take, first, samples, m_job.rate, m_job.options, naming, error)))
+            juce::Array<juce::File> setFiles;
+            const auto wanted = TapeRecorder::filesFor(file, m_take.getNumChannels(), m_job.options);
+            if (separate && (takefile::anyExists(wanted) || ! TapeRecorder::writeFile(file, m_take, first, samples, m_job.rate, m_job.options, naming, error, &setFiles)))
             {
                 if (error.isEmpty())
-                    error = file.getFileName() + " is already there, and nothing is ever written over.";
-                else
-                    file.deleteFile();
-                outcome = State::Failed;
+                    error = takefile::displayName(wanted) + " is already there, and nothing is ever written over.";
+                outcome = State::Failed; // writeFile leaves nothing of a file (or set) it could not write whole
                 failure = error;
                 break;
             }
@@ -618,8 +622,8 @@ void VariationRenderer::run()
             const juce::ScopedLock sl(m_lock);
             if (separate)
             {
-                m_files.push_back(file);
-                m_written.push_back({ file, seconds, 0 });
+                m_files.push_back(setFiles[0]);
+                m_written.push_back({ setFiles[0], seconds, 0 });
             }
             m_progress.audioSeconds += seconds;
         }
@@ -646,8 +650,8 @@ void VariationRenderer::run()
             const bool marked = all.markersAdded();
             {
                 const juce::ScopedLock sl(m_lock);
-                m_files.push_back(plan.combined);
-                m_written.push_back({ plan.combined, seconds, marked ? static_cast<int>(markers.size()) : 0 });
+                m_files.push_back(all.files()[0]);
+                m_written.push_back({ all.files()[0], seconds, marked ? static_cast<int>(markers.size()) : 0 });
             }
             if (! marked && outcome != State::Failed)
             {

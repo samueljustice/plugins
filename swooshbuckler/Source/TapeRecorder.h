@@ -2,6 +2,9 @@
 
 #include <JuceHeader.h>
 
+#include "Room.h"
+#include "TakeFile.h"
+
 #include <atomic>
 
 /**
@@ -22,12 +25,21 @@
  * <Name>_YYYY-MM-DD_HH-MM-SS.wav, in the chosen folder (see Naming). Every file carries a description (BWF bext and
  * LIST INFO in WAV, a comment in AIFF, Vorbis comments in FLAC).
  * Rate (e.g. 96 kHz), bit depth, file type and mono/stereo are chosen per recording (Options).
+ *
+ * WIDTH: the tape takes whatever it is prepared with, 1 to 12 channels in PROCESSING ORDER (room::layout: the
+ * width is known from the count, which is different for every width). Files of the room's width are written in the
+ * chosen Channel Order, interleaved or as a Multi-Mono set (one file per channel, all or none of them kept), with
+ * the speaker mask and channel names described in TakeFile.h. Mono folds a wider take with room::fold (Stereo is
+ * averaged as it always was) and holds the fold under the Ceiling with a limiter.
  */
 class TapeRecorder
 {
 public:
     static constexpr int c_retroSeconds = 60;         // how much the retro buffer keeps unless setRetroSeconds says more
     static constexpr int c_maxRetroSeconds = 300;
+    /** The retro buffer never holds more than this, whatever the width and rate: 512 MB is the whole 300 s of
+        Stereo at 192 kHz, but under a minute of 7.1.4 at 192 kHz. getRetroCapacitySeconds() says what it holds. */
+    static constexpr std::int64_t c_maxRetroBytes = 512LL * 1024 * 1024;
     static constexpr double c_minWhooshSeconds = 0.2; // One File per Whoosh: less sound than this is not kept
 
     enum class FileType { Wav = 0, Aiff, Flac };
@@ -38,8 +50,11 @@ public:
         int bitDepth = 24;            // 16, 24, or 32 (float, WAV only; AIFF/FLAC fall back to 24)
         double fileRate = 0.0;        // 0 = session rate; otherwise windowed-sinc conversion, e.g. 96000
         FileType type = FileType::Wav;
-        bool mono = false;            // fold the stereo output down to one channel
+        bool mono = false;            // fold the output down to one channel
         bool perWhoosh = false;       // One File per Whoosh (the gate is on whatever setSignalGate says)
+        room::FileOrder order = room::FileOrder::ProTools;           // Channel Order of an interleaved file (5.1 and wider)
+        takefile::Layout layout = takefile::Layout::Interleaved;     // one file, or one mono file per channel
+        float foldCeilingDb = -0.3f;  // the limiter on a Mono fold of a take wider than Stereo
     };
 
     /** How files are named and described. Message thread; it can change while a take is open (the next file uses it). */
@@ -67,7 +82,9 @@ public:
     /** Files the tape has closed and kept since the last call (newest last). Any thread but the audio thread. */
     struct FinishedTake
     {
-        juce::File file;
+        juce::File file;              // the first of its files (a Multi-Mono set's first channel)
+        juce::Array<juce::File> files; // every file of it, in processing order
+        takefile::Format format;
         double seconds = 0.0;
         int markers = 0;
         bool whoosh = false; // one of One File per Whoosh's files
@@ -142,10 +159,16 @@ public:
     bool saveRetro(const juce::File& folder, int bitDepth, juce::File& written, juce::String& error, double fileRate = 0.0);
     bool saveRetro(const juce::File& folder, const Options& options, juce::File& written, juce::String& error);
     double getSessionRate() const { return m_sampleRate; }
-    /** How much the retro buffer keeps (60 to c_maxRetroSeconds). The buffer is emptied when this changes. Two
-        channels of float at the session rate: 23 MB a minute at 48 kHz, 92 MB a minute at 192 kHz. Message thread. */
+    /** How much the retro buffer is asked to keep (60 to c_maxRetroSeconds). The buffer is emptied when this
+        changes. Float at the session rate: 23 MB a minute for Stereo at 48 kHz, 92 MB at 192 kHz, six times that
+        for 7.1.4, never more than c_maxRetroBytes. Message thread. */
     void setRetroSeconds(int seconds);
     int getRetroSeconds() const { return m_retroSeconds.load(); }
+    /** What it really holds at the prepared width and rate: getRetroSeconds(), or less where c_maxRetroBytes cuts
+        it short. Any thread. */
+    double getRetroCapacitySeconds() const { return m_retroCapacitySeconds.load(); }
+    /** The seconds the buffer holds for this many channels at this rate, asked for `seconds`. */
+    static double retroCapacityFor(double sampleRate, int numChannels, int seconds);
 
     /** Samples the rolling take lost because the writer FIFO was full (reset by start()). Any thread. */
     std::int64_t getDroppedSamples() const { return m_droppedSamples.load(); }
@@ -162,10 +185,15 @@ public:
     static juce::File defaultFolder();
 
     /** Writes finished audio to `file` the way the tape writes its own: the same file types, bit depths, mono fold,
-        rate conversion (options.fileRate, 0 = `rate`) and description. Replaces a file that is already there; a
-        file that could not be written whole is deleted. Any thread but the audio thread. */
+        rate conversion (options.fileRate, 0 = `rate`), Channel Order, File Layout and description. `audio` is in
+        processing order, 1 to 12 channels. A Multi-Mono set is written beside `file` (<name>.L.wav ...). Replaces
+        files that are already there; nothing is left of a take that could not be written whole. `written` (if
+        given) gets its files. Any thread but the audio thread. */
     static bool writeFile(const juce::File& file, const juce::AudioBuffer<float>& audio, int startSample, int numSamples,
-                          double rate, const Options& options, const Naming& naming, juce::String& error);
+                          double rate, const Options& options, const Naming& naming, juce::String& error,
+                          juce::Array<juce::File>* written = nullptr);
+    /** The files writing `file` with these options and this many channels makes. */
+    static juce::Array<juce::File> filesFor(const juce::File& file, int numChannels, const Options& options);
     /** ".wav", ".aif" or ".flac". */
     static juce::String extensionOf(FileType type);
 
@@ -176,6 +204,7 @@ public:
      * into the file's comments. Marker positions are frames of the file, which are frames of what is written as
      * long as options.fileRate is 0 or `rate`. Any thread but the audio thread.
      */
+    class TakeWriter;
     class FileWriter
     {
     public:
@@ -184,6 +213,8 @@ public:
 
         bool open(const juce::File& file, double rate, int numChannels, const Options& options, const Naming& naming, juce::String& error);
         bool isOpen() const { return m_writer != nullptr; }
+        /** The files it writes (one, or a Multi-Mono set), in processing order. */
+        juce::Array<juce::File> files() const { return m_files; }
         bool write(const juce::AudioBuffer<float>& audio, int startSample, int numSamples);
         bool writeSilence(int numSamples);
         /** Frames written so far: where a marker for what is written next belongs. */
@@ -197,11 +228,8 @@ public:
         void abandon();
 
     private:
-        std::unique_ptr<juce::AudioFormatWriter> m_writer;
-        juce::File m_file;
-        Options m_options;
-        Naming m_naming;
-        double m_rate = 48000.0;
+        std::unique_ptr<TakeWriter> m_writer;
+        juce::Array<juce::File> m_files;
         int m_channels = 2;
         std::int64_t m_position = 0;
         bool m_ok = true;
@@ -287,6 +315,8 @@ private:
     // Retro ring (written on the audio thread, read on the message thread).
     juce::AudioBuffer<float> m_retro;
     std::atomic<int> m_retroSeconds { c_retroSeconds };
+    std::atomic<double> m_retroCapacitySeconds { static_cast<double>(c_retroSeconds) };
+    int retroSamples(double sampleRate, int numChannels, int seconds); // sets m_retroCapacitySeconds
     std::atomic<int> m_retroWrite { 0 };
     std::atomic<std::int64_t> m_retroTotal { 0 };
     juce::SpinLock m_retroLock; // held while preparing / reallocating, and briefly per piece while saveRetro copies

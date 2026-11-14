@@ -73,6 +73,7 @@ set(SWOOSHBUCKLER_DSP_SOURCES
     Source/Cargo.cpp
     Source/MasterProcessor.cpp
     Source/TapeRecorder.cpp
+    Source/TakeFile.cpp
     Source/SampleClassifier.cpp
     Source/RigEngine.cpp
     Source/SpectralMorph.cpp
@@ -265,6 +266,17 @@ if(SWOOSHBUCKLER_TESTS)
     target_compile_definitions(SwooshbucklerWide PRIVATE $<TARGET_PROPERTY:Swooshbuckler,COMPILE_DEFINITIONS>)
     target_link_libraries(SwooshbucklerWide PRIVATE Swooshbuckler)
 
+    # Files test: takes of every room width on disk. Every width, Channel Order (Pro Tools (Film), SMPTE / WAV),
+    # File Layout (Interleaved, Multi-Mono) and file type written and read back with the test's own parser (the WAV
+    # speaker mask, the channel names, each channel's sound in its slot, the markers, Multi-Mono sets complete and
+    # named, all or nothing), the tape and the saved last minutes at 12 channels, the 512 MB cap, the Mono fold,
+    # RF64, audition at any width, and a Multi-Mono set as one take.
+    juce_add_console_app(SwooshbucklerFiles PRODUCT_NAME "SwooshbucklerFiles")
+    target_sources(SwooshbucklerFiles PRIVATE Tests/FilesTest.cpp)
+    target_include_directories(SwooshbucklerFiles PRIVATE Source ${CMAKE_CURRENT_BINARY_DIR}/Swooshbuckler_artefacts/JuceLibraryCode $<TARGET_PROPERTY:Swooshbuckler,INCLUDE_DIRECTORIES>)
+    target_compile_definitions(SwooshbucklerFiles PRIVATE $<TARGET_PROPERTY:Swooshbuckler,COMPILE_DEFINITIONS>)
+    target_link_libraries(SwooshbucklerFiles PRIVATE Swooshbuckler)
+
     # First-run test: the demo sounds (typed right from their audio, one undo step, Play makes sound), typed
     # values against every knob's readout, MIDI controllers learned and kept, and file names cut in the middle.
     juce_add_console_app(SwooshbucklerFirstRun PRODUCT_NAME "SwooshbucklerFirstRun")
@@ -302,6 +314,15 @@ if(SWOOSHBUCKLER_TOOLS)
     target_include_directories(SwooshbucklerAudit PRIVATE Source ${CMAKE_CURRENT_BINARY_DIR}/Swooshbuckler_artefacts/JuceLibraryCode $<TARGET_PROPERTY:Swooshbuckler,INCLUDE_DIRECTORIES>)
     target_compile_definitions(SwooshbucklerAudit PRIVATE $<TARGET_PROPERTY:Swooshbuckler,COMPILE_DEFINITIONS>)
     target_link_libraries(SwooshbucklerAudit PRIVATE Swooshbuckler)
+
+    # Ident files: one set per width, Channel Order and File Layout, each channel beeping its number at a pitch of
+    # its own, for importing into Pro Tools and Soundminer to see which speaker each channel lands on
+    # (tools/IdentFiles.cpp). Usage: SwooshbucklerIdent <folder> [--types wav,aif,flac] [--rate 48000] [--bits 24].
+    juce_add_console_app(SwooshbucklerIdent PRODUCT_NAME "SwooshbucklerIdent")
+    target_sources(SwooshbucklerIdent PRIVATE tools/IdentFiles.cpp)
+    target_include_directories(SwooshbucklerIdent PRIVATE Source ${CMAKE_CURRENT_BINARY_DIR}/Swooshbuckler_artefacts/JuceLibraryCode $<TARGET_PROPERTY:Swooshbuckler,INCLUDE_DIRECTORIES>)
+    target_compile_definitions(SwooshbucklerIdent PRIVATE $<TARGET_PROPERTY:Swooshbuckler,COMPILE_DEFINITIONS>)
+    target_link_libraries(SwooshbucklerIdent PRIVATE Swooshbuckler)
 
     # UI shots: renders the real editor offline to PNG files at any window scale, one picture per panel and per
     # state, and checks that every text fits its box and is capitalised by the one rule (tools/UiShot.cpp,

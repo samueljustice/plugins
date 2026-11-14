@@ -191,7 +191,7 @@ void SwooshbucklerAudioProcessor::prepareToPlay(double sampleRate, int samplesPe
     // seed. No key is held across it either (its note-off may never come).
     m_hostWasPlaying = false;
     m_keysDown = {};
-    m_audition.prepare(sampleRate);
+    m_audition.prepare(sampleRate, room::widthFor(getBusesLayout().getMainOutputChannelSet()).value_or(room::Width::Stereo));
     prepareInternal();
 }
 
@@ -227,8 +227,7 @@ void SwooshbucklerAudioProcessor::prepareInternal()
     m_engine.prepare(m_renderRate, m_blockSize);
     m_master.prepare(m_renderRate, m_width);
     if (! m_offline)
-        m_recorder.prepare(m_renderRate, 2); // the tape is stereo for now: it records the room folded to Stereo
-    m_tapeFold.setSize(2, c_maxSection);
+        m_recorder.prepare(m_renderRate, m_pipeChannels); // the tape records the room at its width (Mono as Stereo)
     m_work.setSize(m_pipeChannels, m_blockSize);
 
     // Latency: the engine and the limiter (in device samples), and when rendering high, the input the
@@ -300,18 +299,7 @@ void SwooshbucklerAudioProcessor::renderAtRenderRate(const float* inL, const flo
         }
     }
     if (! m_offline)
-    {
-        // The tape gets the full-rate signal. It is stereo for now: a wider room reaches it folded to Stereo.
-        if (numChans == 2)
-            m_recorder.process(chans, 2, n);
-        else
-        {
-            jassert(n <= m_tapeFold.getNumSamples());
-            float* folded[2] = { m_tapeFold.getWritePointer(0), m_tapeFold.getWritePointer(1) };
-            room::applyFold(room::fold(m_width, room::Width::Stereo), chans, folded, n);
-            m_recorder.process(folded, 2, n);
-        }
-    }
+        m_recorder.process(chans, numChans, n); // the full-rate signal, every channel of the room
 }
 
 void SwooshbucklerAudioProcessor::releaseResources()
@@ -1465,11 +1453,7 @@ bool SwooshbucklerAudioProcessor::isUserEdit(int) const
 bool SwooshbucklerAudioProcessor::arm(juce::String& error)
 {
     m_recorder.setSignalGate(getSkipSilence());
-    TapeRecorder::Options o;
-    o.bitDepth = getBitDepth();
-    o.fileRate = static_cast<double>(getRecordRate()); // 0 = the session rate
-    o.type = static_cast<TapeRecorder::FileType>(getFileType());
-    o.mono = getMono();
+    auto o = tapeOptions();
     o.perWhoosh = getOneFilePerWhoosh();
     refreshTakes();
     m_filesThisTake = 0;
@@ -1480,11 +1464,7 @@ bool SwooshbucklerAudioProcessor::arm(juce::String& error)
 bool SwooshbucklerAudioProcessor::startRecording(juce::String& error)
 {
     // One continuous take in one file, whatever the settings say about whooshes.
-    TapeRecorder::Options o;
-    o.bitDepth = getBitDepth();
-    o.fileRate = static_cast<double>(getRecordRate()); // 0 = the session rate
-    o.type = static_cast<TapeRecorder::FileType>(getFileType());
-    o.mono = getMono();
+    const auto o = tapeOptions();
     refreshTakes();
     m_filesThisTake = 0;
     updateTapeNaming();
@@ -1519,6 +1499,52 @@ void SwooshbucklerAudioProcessor::setFileType(int type) { m_settings->setValue("
 bool SwooshbucklerAudioProcessor::getMono() const { return m_settings->getBoolValue("mono", false); }
 void SwooshbucklerAudioProcessor::setMono(bool mono) { m_settings->setValue("mono", mono); m_settings->saveIfNeeded(); }
 
+room::FileOrder SwooshbucklerAudioProcessor::getChannelOrder() const
+{
+    return m_settings->getIntValue("channelOrder", 0) == 1 ? room::FileOrder::Smpte : room::FileOrder::ProTools;
+}
+
+void SwooshbucklerAudioProcessor::setChannelOrder(room::FileOrder order)
+{
+    m_settings->setValue("channelOrder", order == room::FileOrder::Smpte ? 1 : 0);
+    m_settings->saveIfNeeded();
+}
+
+takefile::Layout SwooshbucklerAudioProcessor::getFileLayout() const
+{
+    return m_settings->getIntValue("fileLayout", 0) == 1 ? takefile::Layout::MultiMono : takefile::Layout::Interleaved;
+}
+
+void SwooshbucklerAudioProcessor::setFileLayout(takefile::Layout layout)
+{
+    m_settings->setValue("fileLayout", layout == takefile::Layout::MultiMono ? 1 : 0);
+    m_settings->saveIfNeeded();
+}
+
+TapeRecorder::Options SwooshbucklerAudioProcessor::tapeOptions() const
+{
+    TapeRecorder::Options o;
+    o.bitDepth = getBitDepth();
+    o.fileRate = static_cast<double>(getRecordRate()); // 0 = the session rate
+    o.type = static_cast<TapeRecorder::FileType>(getFileType());
+    o.mono = getMono();
+    o.order = getChannelOrder();
+    o.layout = getFileLayout();
+    if (m_raw.ceiling != nullptr)
+        o.foldCeilingDb = m_raw.ceiling->load();
+    return o;
+}
+
+juce::String SwooshbucklerAudioProcessor::retroLabel() const
+{
+    // What the button saves: the length asked for, or (where the memory cap cuts it short) what it really holds.
+    const int asked = getRetroMinutes() * 60;
+    const int kept = static_cast<int>(getRetroSecondsKept());
+    if (kept > 0 && kept < asked)
+        return kept < 60 ? "Last " + juce::String(kept) + " s" : juce::String::formatted("Last %d:%02d", kept / 60, kept % 60);
+    return asked == 60 ? juce::String("Last 60 s") : "Last " + juce::String(asked / 60) + " Min";
+}
+
 void SwooshbucklerAudioProcessor::stopRecording()
 {
     m_recorder.stop();
@@ -1527,16 +1553,11 @@ void SwooshbucklerAudioProcessor::stopRecording()
 
 bool SwooshbucklerAudioProcessor::saveRetro(juce::File& written, juce::String& error)
 {
-    // The same file type, bit depth, sample rate and channels as the tape.
-    TapeRecorder::Options o;
-    o.bitDepth = getBitDepth();
-    o.fileRate = static_cast<double>(getRecordRate()); // 0 = the session rate
-    o.type = static_cast<TapeRecorder::FileType>(getFileType());
-    o.mono = getMono();
+    // The same file type, bit depth, sample rate, channels, order and layout as the tape.
     updateTapeNaming();
-    if (! m_recorder.saveRetro(getRecordFolder(), o, written, error))
+    if (! m_recorder.saveRetro(getRecordFolder(), tapeOptions(), written, error))
         return false;
-    registerTake(written, getRetroMinutes() == 1 ? juce::String("Last 60 s") : "Last " + juce::String(getRetroMinutes()) + " Min");
+    registerTake(written, retroLabel());
     return true;
 }
 
@@ -1722,18 +1743,19 @@ void SwooshbucklerAudioProcessor::registerTake(const juce::File& fileToAdd, cons
         });
         return;
     }
+    // The take the file belongs to: a Multi-Mono set is one take, whichever of its files is handed in.
+    const auto found = takefile::find(file);
     if (seconds < 0.0)
-    {
-        juce::AudioFormatManager formats;
-        formats.registerBasicFormats();
-        if (std::unique_ptr<juce::AudioFormatReader> reader { formats.createReaderFor(file) })
+        if (const auto reader = takefile::openReader(found))
             seconds = reader->sampleRate > 0.0 ? static_cast<double>(reader->lengthInSamples) / reader->sampleRate : 0.0;
-    }
-    for (auto it = m_takes.begin(); it != m_takes.end();) // the same file again (written over): one entry
-        it = it->file == file ? m_takes.erase(it) : it + 1;
+    const auto first = found.files.isEmpty() ? file : found.files[0];
+    for (auto it = m_takes.begin(); it != m_takes.end();) // the same take again (written over): one entry
+        it = it->file == first ? m_takes.erase(it) : it + 1;
     Take take;
     take.id = m_nextTakeId++;
-    take.file = file;
+    take.file = first;
+    take.files = found.files.isEmpty() ? juce::Array<juce::File> { file } : found.files;
+    take.format = found.format;
     take.kind = kind;
     take.seconds = juce::jmax(0.0, seconds);
     take.markers = markers;
@@ -1769,8 +1791,12 @@ bool SwooshbucklerAudioProcessor::deleteTake(int id, bool toTrash)
         if (it->id == id)
         {
             if (m_audition.getFile() == it->file)
-                m_audition.close(); // it holds the file open, and an open file can't be moved everywhere
-            if (it->file.existsAsFile() && ! (toTrash ? it->file.moveToTrash() : it->file.deleteFile()))
+                m_audition.close(); // it holds the files open, and an open file can't be moved everywhere
+            bool all = true;
+            for (const auto& f : it->files)
+                if (f.existsAsFile() && ! (toTrash ? f.moveToTrash() : f.deleteFile()))
+                    all = false;
+            if (! all)
                 return false;
             m_takes.erase(it);
             ++m_takesGeneration;

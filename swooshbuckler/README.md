@@ -859,7 +859,7 @@ cmake -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build --config Release
 ```
 
-This builds the app, the VST3 and the AU (macOS) into `build/Swooshbuckler_artefacts/Release/`, along with the offline test programs: `SwooshbucklerRig`, `SwooshbucklerCargo`, `SwooshbucklerClassify`, `SwooshbucklerPitch`, `SwooshbucklerMorph`, `SwooshbucklerMaster`, `SwooshbucklerSession`, `SwooshbucklerRender`, `SwooshbucklerKeep`, `SwooshbucklerRouting`, `SwooshbucklerStowaway`, `SwooshbucklerRoom`, `SwooshbucklerWide`, `SwooshbucklerFirstRun` and `SwooshbucklerUi`. Pass `-DSWOOSHBUCKLER_TESTS=OFF` to skip the tests, or `-DSWOOSHBUCKLER_FORMATS="Standalone;VST3"` to choose the formats.
+This builds the app, the VST3 and the AU (macOS) into `build/Swooshbuckler_artefacts/Release/`, along with the offline test programs: `SwooshbucklerRig`, `SwooshbucklerCargo`, `SwooshbucklerClassify`, `SwooshbucklerPitch`, `SwooshbucklerMorph`, `SwooshbucklerMaster`, `SwooshbucklerSession`, `SwooshbucklerRender`, `SwooshbucklerKeep`, `SwooshbucklerRouting`, `SwooshbucklerStowaway`, `SwooshbucklerRoom`, `SwooshbucklerWide`, `SwooshbucklerFiles`, `SwooshbucklerFirstRun` and `SwooshbucklerUi`. Pass `-DSWOOSHBUCKLER_TESTS=OFF` to skip the tests, or `-DSWOOSHBUCKLER_FORMATS="Standalone;VST3"` to choose the formats.
 
 ### Version
 
@@ -876,6 +876,16 @@ cmake --build build --target SwooshbucklerUiShot
 ```
 
 `--scale` takes 0.5 to 2.0, `--list` prints every text with its box and every panel with its bounds (a panel that runs into another, or out of the window, is a fault), `--sea` adds a picture of the sea at each of its moments and times a frame of it, and `--state` opens a session file instead of the tool's own sounds. The colours, spacing and type sizes all live in [Source/Theme.h](Source/Theme.h).
+
+### Channel ident files
+
+`SwooshbucklerIdent` writes test files for checking where each channel of a surround file lands in Pro Tools, Soundminer or any other program: one file (or Multi-Mono set) for every width, Channel Order and File Layout. The speakers take turns: the first speaker of the Pro Tools (Film) order beeps once, the second twice, and so on, each at a pitch of its own (the LFE low), and each turn has a marker with the speaker's name. A `README.txt` in the folder lists what each file should play where.
+
+```bash
+cmake -B build -DSWOOSHBUCKLER_TOOLS=ON
+cmake --build build --target SwooshbucklerIdent
+./build/SwooshbucklerIdent_artefacts/Release/SwooshbucklerIdent ident-files --types wav,aif,flac
+```
 
 ### The pictures in this manual
 
