@@ -3,7 +3,10 @@ name: AAX signing watchdog
 # After a plug-in release, its macOS AAX is signed on Samuel's Mac (PACE signing needs his iLok) by the job
 # bundle/install-aax-signer.sh installs, then notarised and published by the Notarise AAX workflow. This
 # waits for "<Name>-<version>-macOS-AAX.zip" to appear on the release and fails if it hasn't within
-# WAIT_HOURS, so a missed signing shows up as a failed run (and a GitHub email) instead of going unnoticed.
+# WAIT_MINUTES, so a missed signing shows up as a failed run (and a GitHub email) instead of going unnoticed.
+# Windows AAX are signed on Samuel's Windows PC (wraptool can only sign Windows binaries on Windows); once
+# that's set up, the repository variable AAX_WINDOWS_SIGNING=true makes this also wait for
+# "<Name>-<version>-Windows-AAX.zip".
 on:
   workflow_run:
     # Must match the plug-in workflows' "name:" lines.
@@ -21,14 +24,15 @@ permissions:
   actions: read
 
 env:
-  WAIT_HOURS: 4
+  WAIT_MINUTES: 30
+  WINDOWS: ${{ vars.AAX_WINDOWS_SIGNING == 'true' }}
 
 jobs:
   wait:
     # Only tagged releases that built and published (tags look like <plugin>-v1.2.3).
     if: github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push' && contains(github.event.workflow_run.head_branch, '-v')
     runs-on: ubuntu-latest
-    timeout-minutes: 270
+    timeout-minutes: 45
     env:
       GH_TOKEN: ${{ github.token }}
       TAG: ${{ github.event.workflow_run.head_branch }}
@@ -41,25 +45,31 @@ jobs:
           echo "The $TAG build made no macOS AAX: nothing to wait for."
           exit 0
         fi
-        deadline=$(( $(date +%s) + WAIT_HOURS * 3600 ))
-        seen_upload=""
+        wanted=('-macOS-AAX\.zip$')
+        [[ "$WINDOWS" == "true" ]] && wanted+=('-Windows-AAX\.zip$')
+        deadline=$(( $(date +%s) + WAIT_MINUTES * 60 ))
         while :; do
           assets=$(gh release view "$TAG" -R "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name' 2>/dev/null || true)
-          if grep -q -- '-macOS-AAX\.zip$' <<< "$assets"; then
-            echo "Published: $(grep -- '-macOS-AAX\.zip$' <<< "$assets")"
+          missing=()
+          for w in "${wanted[@]}"; do grep -q -- "$w" <<< "$assets" || missing+=("$w"); done
+          if [[ ${#missing[@]} -eq 0 ]]; then
+            echo "Published:"; grep -E -- '-(macOS|Windows)-AAX\.zip$' <<< "$assets"
             exit 0
           fi
-          if [[ -z "$seen_upload" ]] && grep -q -- '-macOS-AAX-unnotarized\.zip$' <<< "$assets"; then
-            seen_upload=1
-            echo "$(date -u +%H:%M) Signed AAX uploaded; waiting for the Notarise AAX workflow."
-          fi
           if (( $(date +%s) >= deadline )); then
-            if [[ -n "$seen_upload" ]]; then
-              echo "::error::$TAG's AAX was signed but not published within $WAIT_HOURS h: check the Notarise AAX workflow."
-            else
-              echo "::error::$TAG's macOS AAX wasn't signed within $WAIT_HOURS h. On the Mac with the iLok, run bundle/sign-aax.sh (or check ~/Library/Logs/SammyJ-AAX-Signer.log)."
-            fi
+            for w in "${missing[@]}"; do
+              case "$w" in
+                *macOS*)
+                  if grep -q -- '-macOS-AAX-unnotarized\.zip$' <<< "$assets"; then
+                    echo "::error::$TAG's macOS AAX was signed but not published within $WAIT_MINUTES min: check the Notarise AAX workflow."
+                  else
+                    echo "::error::$TAG's macOS AAX wasn't signed within $WAIT_MINUTES min. On the Mac with the iLok, check ~/Library/Logs/SammyJ-AAX-Signer.log or run bundle/sign-aax.sh."
+                  fi ;;
+                *Windows*)
+                  echo "::error::$TAG's Windows AAX wasn't signed within $WAIT_MINUTES min. On the Windows PC, check the AAX signing task's log or run its signing script." ;;
+              esac
+            done
             exit 1
           fi
-          sleep 120
+          sleep 60
         done
