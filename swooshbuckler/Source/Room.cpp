@@ -250,6 +250,15 @@ const SpeakerInfo& info(Speaker speaker) noexcept
     return c_speakers[static_cast<size_t>(std::clamp(static_cast<int>(speaker), 0, c_numSpeakers - 1))];
 }
 
+float loudnessWeight(Speaker speaker) noexcept
+{
+    const auto& s = info(speaker);
+    if (s.role == Role::Lfe)
+        return 0.0f;
+    const float around = std::abs(s.azimuth);
+    return std::abs(s.elevation) < 30.0f && around >= 60.0f && around <= 120.0f ? 1.41f : 1.0f;
+}
+
 Speaker mirrored(Speaker speaker) noexcept
 {
     switch (speaker)

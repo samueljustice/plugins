@@ -73,6 +73,12 @@ namespace room
     /** The other side's speaker (L <-> R, Lss <-> Rss ...); C and LFE are their own mirror. */
     Speaker mirrored(Speaker speaker) noexcept;
 
+    /** How much a speaker's power counts in a loudness reading, ITU-R BS.1770-4 (table 4), from where it stands:
+        1.41 (+1.5 dB) for an ear-level speaker between 60 and 120 degrees round (the Ls / Rs of Quad and 5.1 at
+        110, the side surrounds at 90), 1 for every other speaker (the fronts, the rear surrounds at 135, the tops),
+        0 for the LFE, which a loudness reading leaves out. */
+    float loudnessWeight(Speaker speaker) noexcept;
+
     struct Layout
     {
         Width width;

@@ -80,6 +80,7 @@ set(SWOOSHBUCKLER_DSP_SOURCES
     Source/PitchShifter.cpp
     Source/SpaceReverb.cpp
     Source/Room.cpp
+    Source/RoomMaster.cpp
 )
 
 target_sources(Swooshbuckler
@@ -253,6 +254,16 @@ if(SWOOSHBUCKLER_TESTS)
     target_include_directories(SwooshbucklerRoom PRIVATE Source ${CMAKE_CURRENT_BINARY_DIR}/Swooshbuckler_artefacts/JuceLibraryCode $<TARGET_PROPERTY:Swooshbuckler,INCLUDE_DIRECTORIES>)
     target_compile_definitions(SwooshbucklerRoom PRIVATE $<TARGET_PROPERTY:Swooshbuckler,COMPILE_DEFINITIONS>)
     target_link_libraries(SwooshbucklerRoom PRIVATE Swooshbuckler)
+
+    # Wide test: the plug-in at every room width. The seven layouts accepted (and only those; the app stays
+    # Stereo), the AAX plug-in ID of each, the output stage's two limiters (the main channels linked, the LFE on
+    # its own) and its latency on every channel, and the whole plug-in at each width carrying the Stereo render
+    # in L and R with every other channel silent.
+    juce_add_console_app(SwooshbucklerWide PRODUCT_NAME "SwooshbucklerWide")
+    target_sources(SwooshbucklerWide PRIVATE Tests/WideTest.cpp)
+    target_include_directories(SwooshbucklerWide PRIVATE Source ${CMAKE_CURRENT_BINARY_DIR}/Swooshbuckler_artefacts/JuceLibraryCode $<TARGET_PROPERTY:Swooshbuckler,INCLUDE_DIRECTORIES>)
+    target_compile_definitions(SwooshbucklerWide PRIVATE $<TARGET_PROPERTY:Swooshbuckler,COMPILE_DEFINITIONS>)
+    target_link_libraries(SwooshbucklerWide PRIVATE Swooshbuckler)
 
     # First-run test: the demo sounds (typed right from their audio, one undo step, Play makes sound), typed
     # values against every knob's readout, MIDI controllers learned and kept, and file names cut in the middle.

@@ -212,6 +212,16 @@ public:
     /** A throw is waiting, in flight, or its sources are still open. Audio thread. */
     bool isThrowing() const;
     void process(const float* inL, const float* inR, float* outL, float* outR, int numSamples);
+    /** The same into a room of numChannels (2 or more) in its processing order (room::layout): for now the
+        stereo render goes to L and R, which are channels 0 and 1 at every width from Stereo up, and every other
+        channel is silent. */
+    void process(const float* inL, const float* inR, float* const* out, int numChannels, int numSamples)
+    {
+        jassert(numChannels >= 2);
+        process(inL, inR, out[0], out[1], numSamples);
+        for (int ch = 2; ch < numChannels; ++ch)
+            std::fill_n(out[ch], numSamples, 0.0f);
+    }
     float getLatencySamples() const;
 
     /** The moments of the last process() call worth a marker in a recording: a doppler pass at its closest (while

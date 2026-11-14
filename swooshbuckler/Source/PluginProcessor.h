@@ -5,6 +5,8 @@
 #include "Downsampler.h"
 #include "EditHistory.h"
 #include "MasterProcessor.h"
+#include "Room.h"
+#include "RoomMaster.h"
 #include "Parameters.h"
 #include "TapeRecorder.h"
 #include "TakeAudition.h"
@@ -367,6 +369,20 @@ public:
     /** The highest such level since the last call, then starts again: for the meter's peak-hold line. */
     float takeOutputPeak() { return m_outputPeakHold.exchange(0.0f, std::memory_order_relaxed); }
 
+    // The room ------------------------------------------------------------------
+    /** How wide the output is. In a plug-in host it is the track's width (the output bus); the app is Stereo for
+        now. Set when the processor is prepared. Any thread. */
+    room::Width getRoomWidth() const { return static_cast<room::Width>(m_roomWidth.load(std::memory_order_relaxed)); }
+    /** How many speaker meters the width has (room::layout(getRoomWidth()).numChannels), in its processing order. */
+    int getMeterChannels() const { return room::layout(getRoomWidth()).numChannels; }
+    /** One speaker's level, as getOutputPeak is for the whole output (after the limiter, before Master Trim);
+        0 for a channel the width does not have. */
+    float getChannelPeak(int channel) const;
+    /** The highest level of that speaker since the last call, then starts again (one reader per channel). */
+    float takeChannelPeak(int channel);
+    /** The LFE's own limiter: its deepest reduction in the last block (dB, <= 0; 0 without an LFE). */
+    float getLfeGainReductionDb() const { return m_master.getLfeGainReductionDb(); }
+
     static constexpr int c_scopeSize = 1 << 13;
     static constexpr int c_maxSection = 512; // the most samples processed between parameter and modulator updates
     /** Copies the most recent count mono output samples (count <= c_scopeSize). */
@@ -395,7 +411,8 @@ private:
     void timerCallback() override;
     void updateEngineParams();
     void prepareInternal();
-    void renderAtRenderRate(const float* inL, const float* inR, float* l, float* r, int n);
+    /** Renders n samples into the room's pipe (m_pipeChannels channels, see RoomMaster) at the render rate. */
+    void renderAtRenderRate(const float* inL, const float* inR, float* const* chans, int n);
     void applyRestoredState(const juce::ValueTree& cargo, int editorWidth, const juce::String& presetName); //
     void restoreStateTree(juce::ValueTree tree);
     void noteRecentSession(const juce::File& file);
@@ -485,7 +502,7 @@ private:
     float m_transportGain = 0.0f;
     bool m_tapeRested = false; // the tape has been told the rig is at rest (audio thread)
     juce::SmoothedValue<float, juce::ValueSmoothingTypes::Multiplicative> m_trimGain { 1.0f }; // Master Trim, device rate
-    MasterProcessor m_master;
+    RoomMaster m_master;
     // Stop: the tail rings out (render-rate samples; audio thread)
     std::int64_t m_tailElapsed = 0, m_tailQuiet = 0;
     bool m_tailDone = false;
@@ -495,6 +512,18 @@ private:
     std::unique_ptr<juce::PropertiesFile> m_ownSettings;
     juce::PropertiesFile* m_settings = nullptr;
 
+    // The room (set in prepareInternal, while nothing is processed). The pipe is the width the audio is carried
+    // at, Mono carried as Stereo and folded at the output (see RoomMaster).
+    std::atomic<int> m_roomWidth { static_cast<int>(room::Width::Stereo) };
+    room::Width m_width = room::Width::Stereo;
+    int m_pipeChannels = 2;
+    std::array<float, room::c_maxChannels> m_loudnessWeight {}; // per pipe channel, BS.1770 (room::loudnessWeight)
+    std::array<float, room::c_maxChannels> m_monoFold {};       // per pipe channel: its share of the mono scope
+    // The tape is still stereo: it gets the pipe folded to Stereo (room::fold), at the render rate.
+    juce::AudioBuffer<float> m_tapeFold;
+    std::array<std::atomic<float>, room::c_maxChannels> m_channelPeak {}, m_channelPeakHold {};
+    void publishChannelPeaks(const float* peaks, int numSamples);
+
     juce::AudioBuffer<float> m_work;
     double m_deviceRate = 0.0, m_renderRate = 48000.0;
     int m_blockSize = 512;
@@ -502,7 +531,7 @@ private:
     // it, and a limiter after that (removing the top of the spectrum moves the peaks, so the ceiling is held again).
     juce::AudioBuffer<float> m_highRate;
     Downsampler m_down;
-    MasterProcessor m_monitorLimiter;
+    RoomMaster m_monitorLimiter;
     int m_recordRateOverride = -1;
 
     struct Raw

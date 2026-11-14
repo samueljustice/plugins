@@ -20,7 +20,8 @@ namespace
 SwooshbucklerAudioProcessor::SwooshbucklerAudioProcessor() : SwooshbucklerAudioProcessor(nullptr) {}
 
 SwooshbucklerAudioProcessor::SwooshbucklerAudioProcessor(juce::PropertiesFile* offlineSettings)
-    // Sample-based instrument: no audio input (so no feedback loop, no microphone), MIDI in, stereo out.
+    // Sample-based instrument: no audio input (so no feedback loop, no microphone), MIDI in, stereo out by default
+    // (a host may make it any of the room's widths: see isBusesLayoutSupported).
     : AudioProcessor(BusesProperties().withOutput("Output", juce::AudioChannelSet::stereo(), true))
     , m_offline(offlineSettings != nullptr)
     , m_state(*this, nullptr, "Swooshbuckler", Params::createLayout(m_stowModeSource))
@@ -162,8 +163,15 @@ SwooshbucklerAudioProcessor::~SwooshbucklerAudioProcessor()
 
 bool SwooshbucklerAudioProcessor::isBusesLayoutSupported(const BusesLayout& layouts) const
 {
-    const auto out = layouts.getMainOutputChannelSet();
-    if (out != juce::AudioChannelSet::stereo() && out != juce::AudioChannelSet::mono())
+    // Any of the room's seven widths (Mono, Stereo, Quad, 5.1, 7.1, 7.1.2, 7.1.4) as JUCE's own channel set. In
+    // AAX each one becomes a stem format with a plug-in ID of its own (JUCE's default IDs come from a fixed table
+    // of channel sets, so Mono and Stereo keep theirs); VST3 and AU map them to their speaker arrangements.
+    // The app stays Stereo (or Mono): its audio device would otherwise be matched to a surround layout by its
+    // output count, unasked, and channels the device does not have would be lost.
+    const auto width = room::widthFor(layouts.getMainOutputChannelSet());
+    if (! width.has_value())
+        return false;
+    if (wrapperType == wrapperType_Standalone && *width != room::Width::Stereo && *width != room::Width::Mono)
         return false;
     return layouts.getMainInputChannelSet().isDisabled();
 }
@@ -197,32 +205,52 @@ void SwooshbucklerAudioProcessor::prepareInternal()
     m_renderRate = recordRate > m_deviceRate + 0.5 ? recordRate : m_deviceRate;
     const double ratio = m_renderRate / m_deviceRate;
 
+    // The room: the track's width (the output bus). The audio is carried at the pipe's width (Mono as Stereo).
+    m_width = room::widthFor(getBusesLayout().getMainOutputChannelSet()).value_or(room::Width::Stereo);
+    m_roomWidth.store(static_cast<int>(m_width), std::memory_order_relaxed);
+    m_pipeChannels = RoomMaster::pipeChannels(m_width);
+    {
+        const auto& pipe = room::layout(RoomMaster::pipeWidth(m_width));
+        const auto& toMono = room::fold(pipe.width, room::Width::Mono);
+        m_loudnessWeight.fill(0.0f);
+        m_monoFold.fill(0.0f);
+        for (int ch = 0; ch < pipe.numChannels; ++ch)
+        {
+            m_loudnessWeight[static_cast<size_t>(ch)] = room::loudnessWeight(pipe.speakers[static_cast<size_t>(ch)]);
+            m_monoFold[static_cast<size_t>(ch)] = toMono.gain[0][static_cast<size_t>(ch)];
+        }
+    }
+    for (auto& peak : m_channelPeak)
+        peak.store(0.0f, std::memory_order_relaxed);
+
     updateEngineParams();
     m_engine.prepare(m_renderRate, m_blockSize);
-    m_master.prepare(m_renderRate, 2);
+    m_master.prepare(m_renderRate, m_width);
     if (! m_offline)
-        m_recorder.prepare(m_renderRate, 2);
-    m_work.setSize(2, m_blockSize);
+        m_recorder.prepare(m_renderRate, 2); // the tape is stereo for now: it records the room folded to Stereo
+    m_tapeFold.setSize(2, c_maxSection);
+    m_work.setSize(m_pipeChannels, m_blockSize);
 
     // Latency: the engine and the limiter (in device samples), and when rendering high, the input the
     // downsampler needs ahead of its output plus the monitor limiter's look-ahead.
     double latency = (static_cast<double>(m_engine.getLatencySamples()) + m_master.getLatencySamples()) / ratio;
     if (ratio > 1.0)
     {
-        m_down.prepare(ratio, 2);
-        m_highRate.setSize(2, m_down.maxInputsFor(c_maxSection));
+        m_down.prepare(ratio, m_pipeChannels);
+        m_highRate.setSize(m_pipeChannels, m_down.maxInputsFor(c_maxSection));
         m_highRate.clear();
-        m_monitorLimiter.prepare(m_deviceRate, 2);
+        m_monitorLimiter.prepare(m_deviceRate, m_width);
         latency += m_down.getLatencySamples() + m_monitorLimiter.getLatencySamples();
     }
     setLatencySamples(juce::roundToInt(latency));
 }
 
-void SwooshbucklerAudioProcessor::renderAtRenderRate(const float* inL, const float* inR, float* l, float* r, int n)
+void SwooshbucklerAudioProcessor::renderAtRenderRate(const float* inL, const float* inR, float* const* chans, int n)
 {
+    const int numChans = m_pipeChannels;
     const bool playing = m_playing.load();
     m_engine.setReleased(! playing); // Stop: the sources let go, the echoes and Space ring out
-    m_engine.process(inL, inR, l, r, n);
+    m_engine.process(inL, inR, chans, numChans, n);
     // The pass peaks and hits of this block, for the take's markers: they reach the tape after the limiter's look-ahead.
     static_assert(static_cast<int>(RigEngine::MarkPassA) == static_cast<int>(TapeRecorder::MarkPassA)
                   && static_cast<int>(RigEngine::MarkHit) == static_cast<int>(TapeRecorder::MarkHit)
@@ -231,9 +259,9 @@ void SwooshbucklerAudioProcessor::renderAtRenderRate(const float* inL, const flo
         m_recorder.addMarker(m_engine.getMarker(i).offset + m_master.getLatencySamples(), m_engine.getMarker(i).kind);
     const bool throwing = m_engine.isThrowing(); // a throw with the rig stopped: its tail is waited for afterwards
 
-    // Inflate, then Push (drive into the limiter; the ceiling stays put), then the limiter.
-    float* chans[2] = { l, r };
-    m_master.process(chans, 2, n);
+    // Inflate, then Push (drive into the limiter; the ceiling stays put), then the limiter: one linked across the
+    // main channels, one of its own on the LFE.
+    m_master.process(chans, numChans, n);
 
     // Transport, ahead of the tape so a take starts and ends as cleanly as what you hear. Stopped, the tail rings
     // until it has stayed under the floor for 100 ms (not before the sources have gone) or the time is up.
@@ -246,8 +274,9 @@ void SwooshbucklerAudioProcessor::renderAtRenderRate(const float* inL, const flo
     else if (! m_tailDone)
     {
         float peak = 0.0f;
-        for (int i = 0; i < n; ++i)
-            peak = juce::jmax(peak, std::abs(l[i]), std::abs(r[i]));
+        for (int ch = 0; ch < numChans; ++ch)
+            for (int i = 0; i < n; ++i)
+                peak = juce::jmax(peak, std::abs(chans[ch][i]));
         m_tailElapsed += n;
         m_tailQuiet = peak < juce::Decibels::decibelsToGain(c_tailFloorDb) ? m_tailQuiet + n : 0;
         m_tailDone = static_cast<double>(m_tailElapsed) > c_tailMaxSeconds * m_renderRate
@@ -266,12 +295,23 @@ void SwooshbucklerAudioProcessor::renderAtRenderRate(const float* inL, const flo
         {
             m_transportGain = target > m_transportGain ? juce::jmin(target, m_transportGain + step)
                                                        : juce::jmax(target, m_transportGain - step);
-            l[i] *= m_transportGain;
-            r[i] *= m_transportGain;
+            for (int ch = 0; ch < numChans; ++ch)
+                chans[ch][i] *= m_transportGain;
         }
     }
     if (! m_offline)
-        m_recorder.process(chans, 2, n); // the tape gets the full-rate signal
+    {
+        // The tape gets the full-rate signal. It is stereo for now: a wider room reaches it folded to Stereo.
+        if (numChans == 2)
+            m_recorder.process(chans, 2, n);
+        else
+        {
+            jassert(n <= m_tapeFold.getNumSamples());
+            float* folded[2] = { m_tapeFold.getWritePointer(0), m_tapeFold.getWritePointer(1) };
+            room::applyFold(room::fold(m_width, room::Width::Stereo), chans, folded, n);
+            m_recorder.process(folded, 2, n);
+        }
+    }
 }
 
 void SwooshbucklerAudioProcessor::releaseResources()
@@ -532,6 +572,7 @@ void SwooshbucklerAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
         buffer.clear();
         m_audition.process(buffer, 0, n); // a take being auditioned plays whether the rig does or not
         publishOutputPeak(0.0f, n);
+        publishChannelPeaks(nullptr, n);
         return;
     }
 
@@ -566,8 +607,10 @@ void SwooshbucklerAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
 
     const int inputChannels = getTotalNumInputChannels();
     const int outChannels = buffer.getNumChannels();
-    float* outL = m_work.getWritePointer(0);
-    float* outR = m_work.getWritePointer(1);
+    const int pipe = m_pipeChannels;
+    std::array<float*, room::c_maxChannels> work {};
+    for (int ch = 0; ch < pipe; ++ch)
+        work[static_cast<size_t>(ch)] = m_work.getWritePointer(ch);
     for (int start = 0; start < n; start += maxSection)
     {
         const int len = juce::jmin(maxSection, n - start);
@@ -585,7 +628,7 @@ void SwooshbucklerAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
 
         if (m_renderRate <= m_deviceRate + 0.5)
         {
-            renderAtRenderRate(inL, inR, outL, outR, len);
+            renderAtRenderRate(inL, inR, work.data(), len);
         }
         else
         {
@@ -594,55 +637,88 @@ void SwooshbucklerAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
             // (The audio input is at the device rate, so it isn't used as a source while rendering high.)
             const int needed = m_down.inputsNeeded(len);
             jassert(needed <= m_highRate.getNumSamples()); // sized for a whole section in prepareInternal
-            float* hiL = m_highRate.getWritePointer(0);
-            float* hiR = m_highRate.getWritePointer(1);
+            std::array<float*, room::c_maxChannels> hi {};
             for (int pos = 0; pos < needed; pos += 256)
-                renderAtRenderRate(nullptr, nullptr, hiL + pos, hiR + pos, juce::jmin(256, needed - pos));
-            const float* in[2] = { hiL, hiR };
-            float* out[2] = { outL, outR };
-            m_down.process(in, out, len);
-            m_monitorLimiter.process(out, 2, len);
+            {
+                for (int ch = 0; ch < pipe; ++ch)
+                    hi[static_cast<size_t>(ch)] = m_highRate.getWritePointer(ch) + pos;
+                renderAtRenderRate(nullptr, nullptr, hi.data(), juce::jmin(256, needed - pos));
+            }
+            std::array<const float*, room::c_maxChannels> in {};
+            for (int ch = 0; ch < pipe; ++ch)
+                in[static_cast<size_t>(ch)] = m_highRate.getReadPointer(ch);
+            m_down.process(in.data(), work.data(), len);
+            m_monitorLimiter.process(work.data(), pipe, len);
         }
 
         // Master Trim (what you hear; the tape above already has the full-level signal).
         double preTrimSquares = 0.0;
         float preTrimPeak = 0.0f;
+        std::array<float, room::c_maxChannels> channelPeaks {};
         {
+            // The Output Follower hears the rig before the trim, so turning Trim down never changes the sound. It
+            // reads the room's loudness: each speaker's power weighted as ITU-R BS.1770 weights it (the side
+            // surrounds +1.5 dB, the LFE left out), scaled so that Stereo reads as the mean of L and R.
+            for (int ch = 0; ch < pipe; ++ch)
+            {
+                const float* x = work[static_cast<size_t>(ch)];
+                const double weight = 0.5 * static_cast<double>(m_loudnessWeight[static_cast<size_t>(ch)]);
+                double squares = 0.0;
+                float peak = 0.0f;
+                for (int i = 0; i < len; ++i)
+                {
+                    squares += static_cast<double>(x[i]) * x[i];
+                    peak = juce::jmax(peak, std::abs(x[i]));
+                }
+                preTrimSquares += weight * squares;
+                channelPeaks[static_cast<size_t>(ch)] = peak;
+                preTrimPeak = juce::jmax(preTrimPeak, peak); // the OUT meter: what the tape gets
+            }
+            if (m_width == room::Width::Mono)
+            {
+                // One speaker: its meter shows the mono the output is folded to.
+                float peak = 0.0f;
+                for (int i = 0; i < len; ++i)
+                    peak = juce::jmax(peak, std::abs(0.5f * (work[0][i] + work[1][i])));
+                channelPeaks = {};
+                channelPeaks[0] = peak;
+            }
             const float trimDb = m_raw.masterTrim->load();
             m_trimGain.setTargetValue(trimDb <= -59.9f ? 1.0e-4f : juce::Decibels::decibelsToGain(trimDb));
-            preTrimSquares = 0.0;
             for (int i = 0; i < len; ++i)
             {
-                // The Output Follower hears the rig before the trim, so turning Trim down never changes the sound.
-                preTrimSquares += 0.5 * (static_cast<double>(outL[i]) * outL[i] + static_cast<double>(outR[i]) * outR[i]);
-                preTrimPeak = juce::jmax(preTrimPeak, std::abs(outL[i]), std::abs(outR[i])); // the OUT meter: what the tape gets
                 const float trim = m_trimGain.getNextValue();
                 const float g = trim <= 1.0e-4f ? 0.0f : trim;
-                outL[i] *= g;
-                outR[i] *= g;
+                for (int ch = 0; ch < pipe; ++ch)
+                    work[static_cast<size_t>(ch)][i] *= g;
             }
         }
 
-        // Output
-        if (outChannels >= 2)
-        {
-            buffer.copyFrom(0, start, m_work, 0, 0, len);
-            buffer.copyFrom(1, start, m_work, 1, 0, len);
-            for (int ch = 2; ch < outChannels; ++ch)
-                buffer.clear(ch, start, len);
-        }
-        else if (outChannels == 1)
+        // Output: the pipe's channels as they are (a host's bus is the room's width), or Mono folded from Stereo.
+        if (outChannels == 1 && pipe == 2)
         {
             buffer.copyFrom(0, start, m_work, 0, 0, len);
             buffer.addFrom(0, start, m_work, 1, 0, len);
             buffer.applyGain(0, start, len, 0.5f);
+        }
+        else
+        {
+            for (int ch = 0; ch < outChannels; ++ch)
+            {
+                if (ch < pipe)
+                    buffer.copyFrom(ch, start, m_work, ch, 0, len);
+                else
+                    buffer.clear(ch, start, len);
+            }
         }
 
         // Scope + meter
         int w = m_scopeWrite.load(std::memory_order_relaxed);
         for (int i = 0; i < len; ++i)
         {
-            const float v = 0.5f * (outL[i] + outR[i]);
+            float v = 0.0f; // the room folded to mono (0.5 (L + R) from Stereo)
+            for (int ch = 0; ch < pipe; ++ch)
+                v += m_monoFold[static_cast<size_t>(ch)] * work[static_cast<size_t>(ch)][i];
             m_outRing.push(v);
             m_scope[static_cast<size_t>(w)] = v;
             w = (w + 1) & (c_scopeSize - 1);
@@ -659,6 +735,7 @@ void SwooshbucklerAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
         m_followerLevels[ModMatrix::FollowMasterPitch] = master[1];
         m_followerLevels[ModMatrix::FollowMasterBright] = master[2];
         publishOutputPeak(preTrimPeak, len);
+        publishChannelPeaks(channelPeaks.data(), len);
     }
     // A take being auditioned: on top of the output, after the tape, the meters and the trim.
     m_audition.process(buffer, 0, n);
@@ -887,6 +964,29 @@ void SwooshbucklerAudioProcessor::publishOutputPeak(float peak, int numSamples)
     // the worst that does is show one peak for one more reading.
     if (peak > m_outputPeakHold.load(std::memory_order_relaxed))
         m_outputPeakHold.store(peak, std::memory_order_relaxed);
+}
+
+void SwooshbucklerAudioProcessor::publishChannelPeaks(const float* peaks, int numSamples)
+{
+    // Each speaker's meter falls back like the OUT meter (see publishOutputPeak). nullptr: silence.
+    const float decay = std::exp(-static_cast<float>(numSamples) / (0.3f * static_cast<float>(juce::jmax(1.0, m_deviceRate))));
+    for (size_t ch = 0; ch < m_channelPeak.size(); ++ch)
+    {
+        const float peak = peaks != nullptr ? peaks[ch] : 0.0f;
+        m_channelPeak[ch].store(juce::jmax(peak, m_channelPeak[ch].load(std::memory_order_relaxed) * decay), std::memory_order_relaxed);
+        if (peak > m_channelPeakHold[ch].load(std::memory_order_relaxed))
+            m_channelPeakHold[ch].store(peak, std::memory_order_relaxed);
+    }
+}
+
+float SwooshbucklerAudioProcessor::getChannelPeak(int channel) const
+{
+    return channel >= 0 && channel < room::c_maxChannels ? m_channelPeak[static_cast<size_t>(channel)].load(std::memory_order_relaxed) : 0.0f;
+}
+
+float SwooshbucklerAudioProcessor::takeChannelPeak(int channel)
+{
+    return channel >= 0 && channel < room::c_maxChannels ? m_channelPeakHold[static_cast<size_t>(channel)].exchange(0.0f, std::memory_order_relaxed) : 0.0f;
 }
 
 void SwooshbucklerAudioProcessor::copyScope(float* dest, int count) const
