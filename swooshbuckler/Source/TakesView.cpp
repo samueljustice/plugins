@@ -103,6 +103,8 @@ TakesView::Row TakesView::rowBounds(int index) const
     r.length = a.removeFromRight(54);
     a.removeFromRight(6);
     r.kind = a.removeFromRight(70);
+    a.removeFromRight(6);
+    r.width = a.removeFromRight(76);
     a.removeFromRight(8);
     r.name = a;
     return r;
@@ -124,8 +126,28 @@ int TakesView::rowAt(juce::Point<int> p, Zone& zone) const
 juce::String TakesView::getTooltip()
 {
     Zone zone = Zone::None;
-    if (rowAt(getMouseXYRelative(), zone) < 0)
+    const auto mouse = getMouseXYRelative();
+    const int row = rowAt(mouse, zone);
+    if (row < 0)
         return {};
+    // The width tag: what the take is, and how it came to be that width.
+    if (zone == Zone::Body && rowBounds(row).width.contains(mouse))
+    {
+        const auto& take = m_processor.getTakes()[static_cast<size_t>(row)];
+        const juce::String width(room::layout(take.format.width).name);
+        const bool multi = take.files.size() > 1;
+        juce::String tip = SwooshbucklerAudioProcessor::widthTag(take) + "\n";
+        if (take.foldedFrom.has_value())
+            tip << "Played in " << room::layout(*take.foldedFrom).name << " and folded down to " << width
+                << (room::layout(*take.foldedFrom).numChannels > 2 ? ", held under the Ceiling." : ".")
+                << " For a real " << width << " render, use Render Variations at " << width << ".";
+        else
+            tip << width << (take.format.width == room::Width::Mono ? ": one channel." : ": " + juce::String(room::layout(take.format.width).numChannels) + " channels")
+                << (take.format.width == room::Width::Mono ? juce::String()
+                    : multi ? juce::String(", a Multi-Mono set of ") + juce::String(take.files.size()) + " files that plays and drags out as one take."
+                            : juce::String(" in one file: ") + takefile::channelLine(take.format.width, take.format.order) + ".");
+        return tip;
+    }
     switch (zone)
     {
         case Zone::Star: return "Keep\nStarred takes stay in this list when it is full. Without a star, the oldest take leaves the list first; its file stays where it is.";
@@ -275,8 +297,20 @@ void TakesView::paint(juce::Graphics& g)
             const auto it = m_thumbs.find(take.id);
             if (it != m_thumbs.end() && it->second->getTotalLength() > 0.0)
             {
-                g.setColour(isPlaying ? TC::flight : TC::sources.withAlpha(missing ? 0.3f : 0.85f));
-                it->second->drawChannels(g, r.wave.reduced(2, 1), 0.0, it->second->getTotalLength(), 1.0f);
+                auto& thumb = *it->second;
+                const auto colour = isPlaying ? TC::flight : TC::sources.withAlpha(missing ? 0.3f : 0.85f);
+                if (thumb.getNumChannels() <= 2)
+                {
+                    g.setColour(colour);
+                    thumb.drawChannels(g, r.wave.reduced(2, 1), 0.0, thumb.getTotalLength(), 1.0f);
+                }
+                else
+                {
+                    // A room's speakers drawn over each other in one lane: twelve lanes of 2 pixels would show nothing.
+                    g.setColour(colour.withMultipliedAlpha(0.4f));
+                    for (int ch = 0; ch < thumb.getNumChannels(); ++ch)
+                        thumb.drawChannel(g, r.wave.reduced(2, 1), 0.0, thumb.getTotalLength(), ch, 1.0f);
+                }
             }
             if (isPlaying)
             {
@@ -288,6 +322,8 @@ void TakesView::paint(juce::Graphics& g)
         // Name, what it is, how long
         g.setColour(missing ? TC::textFaint : TC::text);
         Theme::fitText(g, takefile::displayName(take.files), r.name, m_fonts.body(), juce::Justification::centredLeft, Theme::Fit::Name);
+        g.setColour(take.foldedFrom.has_value() ? TC::textFaint : TC::textDim);
+        Theme::fitText(g, SwooshbucklerAudioProcessor::widthTag(take), r.width, m_fonts.caption(), juce::Justification::centredLeft);
         g.setColour(TC::textDim);
         Theme::fitText(g, missing ? juce::String("Missing") : take.kind, r.kind, m_fonts.caption(), juce::Justification::centredLeft);
         const int whole = static_cast<int>(take.seconds);

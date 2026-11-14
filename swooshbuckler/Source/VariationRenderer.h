@@ -17,8 +17,9 @@ class SwooshbucklerAudioProcessor;
  *   Whole Ride : a set number of seconds of the rig as it sounds while it plays (the ride, the passes, the hits and
  *                the modulators all running), taken after a pre-roll so it does not start from silence, with a
  *                short fade at each end
- * The files are written the way the tape writes its own (file type, bit depth, sample rate, mono or stereo,
- * description) and join the Takes.
+ * The files are written the way the tape writes its own (file type, bit depth, sample rate, Channel Order, File
+ * Layout, description) and join the Takes. Their width is the panel's own (Job::width): the batch is rendered
+ * natively in that room, Mono to 7.1.4, whatever the track or the audio device is.
  *
  * The batch is rendered faster than real time, on this object's own thread, through a second rig made from the
  * session as it is when Render is pressed (SwooshbucklerAudioProcessor::makeOfflineCopy: the same parameters, wires
@@ -90,9 +91,23 @@ public:
         Files files = Files::PerVariation;
         double gapSeconds = 0.5;               // One File With Markers: the silence between two variations
         double rate = 48000.0;                 // the rate the rig renders at, and the files' rate
-        TapeRecorder::Options options;         // file type, bit depth, mono (its fileRate is not used: see rate)
+        /** The room the variations are rendered in, natively, whatever the live rig's track or audio device is:
+            the second rig is prepared at this width (Mono and Stereo play the stereo engine, Quad and wider the
+            room's), and the files have its channels. */
+        room::Width width = room::Width::Stereo;
+        TapeRecorder::Options options;         // file type, bit depth, Channel Order, File Layout (its fileRate is not
+                                               // used: see rate; its mono and stereo folds are left off: see width)
         juce::String creator { "Samuel Justice" };
     };
+    /** The channels each file of a job has (a Multi-Mono set: the channels of the set). */
+    static int channelsOf(const Job& job);
+    /** Why a job can't be written in the format chosen (FLAC holds at most eight channels in one file), in a
+        plain sentence; empty when it can. Said before anything is rendered. */
+    static juce::String formatProblem(const Job& job);
+    /** Render Variations' Width, as it was last chosen: a width, or nothing to follow the width the rig plays at
+        (the default). */
+    std::optional<room::Width> chosenWidth() const;
+    void chooseWidth(std::optional<room::Width> width);
 
     /** What a batch's files will be called. */
     struct Plan
@@ -128,14 +143,24 @@ public:
         int files = 0;
         double soundSeconds = 0.0;   // every variation, and the gaps of the one file
         double renderSeconds = 0.0;  // going by how fast the last batch went on this machine
-        double oneFileBytes = 0.0;   // One File With Markers / Both: how big the one file comes to (0 otherwise)
+        double oneFileBytes = 0.0;   // One File With Markers / Both: how big the one file comes to, each file of it
+                                     // for a Multi-Mono set (0 otherwise)
+        double totalBytes = 0.0;     // every file of the batch, uncompressed (FLAC comes to less); 0 = not worked out
     };
-    /** A WAV or AIFF file has no room for markers at 4 GB or more: the one file is kept under this, with room to spare
-        for the estimate being short. FLAC lists its markers in its comments and has no such limit. */
+    /** A WAV file has no room for markers at 4 GB or more, and an AIFF file goes wrong past 2 GB: the one file is
+        kept under these, with room to spare for the estimate being short. FLAC lists its markers in its comments
+        and has no such limit. */
     static constexpr double c_maxOneFileBytes = 0.9 * 4294967295.0;
+    static constexpr double c_maxOneAiffBytes = 0.9 * 2147483647.0;
+    static double oneFileLimit(const Job& job);
     static bool oneFileTooBig(const Job& job, const Estimate& estimate);
+    /** The sentence the panel shows (and start() refuses with) when the one file would be too big. */
+    static juce::String oneFileTooBigText(const Job& job);
+    /** "about 41 MB", "about 2.3 GB". */
+    static juce::String roughSize(double bytes);
     Estimate estimate(const Job& job) const;
-    /** "100 files, one whoosh each: about 5 minutes of sound, ready in about 20 seconds." */
+    /** "100 files, one whoosh each: about 5 minutes of sound, ready in about 20 seconds." With the size worked out:
+        "100 files, one whoosh each: about 5 minutes of sound (about 86 MB), ready in about 20 seconds." */
     static juce::String estimateText(const Job& job, const Estimate& estimate);
     /** "about 20 seconds", "about 5 minutes". */
     static juce::String roughly(double seconds);

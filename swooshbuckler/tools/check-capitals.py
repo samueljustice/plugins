@@ -17,7 +17,7 @@ from pathlib import Path
 ALLOWED_CAPS = {
     "GR", "LFO", "MIDI", "CC", "WAV", "AIFF", "FLAC", "MP3", "CPU", "DAW", "AU", "VST3", "AAX", "DC", "ID",
     "A", "B", "M", "S", "H", "L", "R", "T", "F", "K", "I", "OK", "UI", "US", "PDF", "SVG", "PNG", "FFT",
-    "RMS", "EQ", "HZ", "DB", "JUCE", "SDK", "URL", "HTML", "CSV", "II", "III", "IV", "LFE",
+    "RMS", "EQ", "HZ", "DB", "JUCE", "SDK", "URL", "HTML", "CSV", "II", "III", "IV", "LFE", "SMPTE",
 }
 
 # Words that stay lower-case inside a Title Case name.

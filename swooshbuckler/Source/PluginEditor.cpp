@@ -465,13 +465,41 @@ SwooshbucklerAudioProcessorEditor::SettingsPanel::SettingsPanel(SwooshbucklerAud
             refresh();
         };
     }
-    const char* chNames[] = { "Stereo", "Mono" };
-    for (int i = 0; i < 2; ++i)
+    // Channels: the room as it is played (the button is named after it), or folded down to Stereo or Mono.
+    for (int i = 0; i < 3; ++i)
     {
         setup(m_channels[static_cast<size_t>(i)]);
-        m_channels[static_cast<size_t>(i)].setButtonText(chNames[i]);
-        m_channels[static_cast<size_t>(i)].onClick = [this, i] { m_owner.m_processor.setMono(i == 1); refresh(); };
+        m_channels[static_cast<size_t>(i)].onClick = [this, i]
+        {
+            m_owner.m_processor.setTapeFold(static_cast<SwooshbucklerAudioProcessor::TapeFold>(i));
+            refresh();
+        };
     }
+    m_channels[1].setButtonText("Stereo");
+    m_channels[2].setButtonText("Mono");
+    for (int i = 0; i < room::c_numFileOrders; ++i)
+    {
+        auto& b = m_orders[static_cast<size_t>(i)];
+        setup(b);
+        b.setButtonText(room::fileOrderName(static_cast<room::FileOrder>(i)));
+        b.onClick = [this, i] { m_owner.m_processor.setChannelOrder(static_cast<room::FileOrder>(i)); refresh(); };
+    }
+    m_orders[0].setTooltip("Pro Tools (Film)\nThe channels of 5.1 and wider files in the order of a Pro Tools track: L C R Ls Rs LFE, "
+                           "and for 7.1 L C R Lss Rss Lsr Rsr LFE. The line underneath spells out the order you get. "
+                           "Multi-Mono files have no order: each channel is a file of its own.");
+    m_orders[1].setTooltip("SMPTE / WAV\nThe channels of 5.1 and wider files in the order most other programs read: L R C LFE Ls Rs, "
+                           "and for 7.1 L R C LFE Lsr Rsr Lss Rss, with the speaker positions written into the file. The line underneath "
+                           "spells out the order you get.");
+    for (int i = 0; i < takefile::c_numLayouts; ++i)
+    {
+        auto& b = m_layouts[static_cast<size_t>(i)];
+        setup(b);
+        b.setButtonText(takefile::layoutName(static_cast<takefile::Layout>(i)));
+        b.onClick = [this, i] { m_owner.m_processor.setFileLayout(static_cast<takefile::Layout>(i)); refresh(); };
+    }
+    m_layouts[0].setTooltip("Interleaved\nOne file that holds every channel.");
+    m_layouts[1].setTooltip("Multi-Mono\nOne mono file for each channel, named the Pro Tools way (Whoosh_0001.L.wav, Whoosh_0001.R.wav ...), "
+                            "so Pro Tools takes them in as one clip. The Takes list shows a set as one take.");
 
     {
         const char* typeTips[] = { "WAV\nThe most widely read format. The only one that can hold 32-bit float.",
@@ -489,8 +517,10 @@ SwooshbucklerAudioProcessorEditor::SettingsPanel::SettingsPanel(SwooshbucklerAud
         for (size_t i = 1; i < m_rates.size(); ++i)
             m_rates[i].setTooltip(juce::String(c_rateNames[i]) + "\nRecords at this rate. Above the device rate the rig itself runs faster, "
                                   "so the recording keeps the extra high end (good for pitching it down later).");
-        m_channels[0].setTooltip("Stereo\nRecords both channels, with all the movement across the field.");
-        m_channels[1].setTooltip("Mono\nFolds the output to one channel: half the size, for sounds you'll pan yourself.");
+        m_channels[1].setTooltip("Stereo\nFolds the room down to two channels as it records, held under the Ceiling. The file says it is a fold-down, "
+                                 "and the Takes list shows it as Stereo Fold. For a real stereo render, use Render Variations at Stereo.");
+        m_channels[2].setTooltip("Mono\nFolds the output to one channel: half the size, for sounds you'll pan yourself. A room wider than Stereo "
+                                 "is folded to Stereo first, then to one channel, held under the Ceiling.");
         m_auto.setTooltip("Auto-Arm on Opening\nArms the tape every time Swooshbuckler opens, so you never miss the first good take.");
         m_choose.setTooltip("Choose\nChoose the folder recordings are saved to.");
         m_desktop.setTooltip("Desktop\nSave recordings to the default folder again.");
@@ -558,7 +588,8 @@ SwooshbucklerAudioProcessorEditor::SettingsPanel::SettingsPanel(SwooshbucklerAud
         // Two channels of 32-bit float: 23 MB a minute at 48 kHz, four times that at 192 kHz.
         b.setTooltip(juce::String(lengthNames[i]) + "\nHow much the Last button can save after the fact. The sound is held in memory all the time: about "
                      + juce::String(23 * value) + " MB at a 48 kHz recording rate, " + juce::String(46 * value) + " MB at 96 kHz and "
-                     + juce::String(92 * value) + " MB at 192 kHz. Changing it empties what is held.");
+                     + juce::String(92 * value) + " MB at 192 kHz for Stereo. A wider room needs more for each channel, and the memory "
+                     "is never more than 512 MB: where that holds less, the Last button shows the real length. Changing it empties what is held.");
         b.onClick = [this, value] { m_owner.m_processor.setRetroMinutes(value); refresh(); };
     }
 
@@ -595,8 +626,29 @@ void SwooshbucklerAudioProcessorEditor::SettingsPanel::refresh()
     m_bits[2].setEnabled(type == 0); // 32-bit float is WAV only
     for (int i = 0; i < 6; ++i)
         m_rates[static_cast<size_t>(i)].setToggleState(c_rateValues[i] == rate, juce::dontSendNotification);
-    m_channels[0].setToggleState(! p.getMono(), juce::dontSendNotification);
-    m_channels[1].setToggleState(p.getMono(), juce::dontSendNotification);
+    // Channels: the room's own width first, then the folds narrower than it.
+    {
+        const auto room = p.getRoomWidth(), tape = p.getTapeWidth();
+        const juce::String roomName(room::layout(room).name);
+        m_channels[0].setButtonText(roomName);
+        m_channels[0].setTooltip(roomName + "\nRecords the room as you hear it: "
+                                 + (room == room::Width::Mono ? juce::String("one channel.")
+                                                              : juce::String(room::layout(room).numChannels) + " channels, every one of them its own."));
+        m_channels[1].setVisible(room::layout(room).numChannels > 2);
+        m_channels[2].setVisible(room != room::Width::Mono);
+        m_channels[0].setToggleState(tape == room, juce::dontSendNotification);
+        m_channels[1].setToggleState(tape == room::Width::Stereo && room != room::Width::Stereo, juce::dontSendNotification);
+        m_channels[2].setToggleState(tape == room::Width::Mono && room != room::Width::Mono, juce::dontSendNotification);
+        const bool order = takefile::orderMatters(tape) && p.getFileLayout() == takefile::Layout::Interleaved;
+        for (int i = 0; i < 2; ++i)
+        {
+            m_orders[static_cast<size_t>(i)].setToggleState(static_cast<int>(p.getChannelOrder()) == i, juce::dontSendNotification);
+            m_orders[static_cast<size_t>(i)].setEnabled(order);
+            m_layouts[static_cast<size_t>(i)].setToggleState(static_cast<int>(p.getFileLayout()) == i, juce::dontSendNotification);
+            m_layouts[static_cast<size_t>(i)].setEnabled(takefile::layoutMatters(tape));
+        }
+        resized(); // the Channels buttons that show depend on the room
+    }
     m_auto.setToggleState(p.getAutoRecord(), juce::dontSendNotification);
     m_skip.setToggleState(p.getSkipSilence(), juce::dontSendNotification);
     m_perWhoosh.setToggleState(p.getOneFilePerWhoosh(), juce::dontSendNotification);
@@ -623,7 +675,7 @@ void SwooshbucklerAudioProcessorEditor::SettingsPanel::mouseDown(const juce::Mou
 
 void SwooshbucklerAudioProcessorEditor::SettingsPanel::resized()
 {
-    m_panel = getLocalBounds().withSizeKeepingCentre(1060, 700);
+    m_panel = getLocalBounds().withSizeKeepingCentre(1060, 770);
     auto r = m_panel.reduced(28, 0);
     r.removeFromTop(56);
 
@@ -665,8 +717,35 @@ void SwooshbucklerAudioProcessorEditor::SettingsPanel::resized()
     buttons(section(2, 28), bits, 3, 120);
     juce::TextButton* rates[] = { &m_rates[0], &m_rates[1], &m_rates[2], &m_rates[3], &m_rates[4], &m_rates[5] };
     buttons(section(3, 28), rates, 6, 98);
-    juce::TextButton* channels[] = { &m_channels[0], &m_channels[1] };
-    buttons(section(4, 28), channels, 2, 100);
+    {
+        // The buttons that are showing, side by side (a Stereo room has no Stereo fold, a Mono room no folds).
+        auto row = section(4, 28);
+        for (auto& b : m_channels)
+            if (b.isVisible() || &b == &m_channels[0])
+            {
+                b.setBounds(row.removeFromLeft(100));
+                row.removeFromLeft(6);
+            }
+    }
+    {
+        // Channel Order and File Layout side by side, then the line that spells out what you get.
+        auto captions = r.removeFromTop(20);
+        auto row = r.removeFromTop(28);
+        r.removeFromTop(4);
+        m_orderCaption = captions.removeFromLeft(286);
+        juce::TextButton* orders[] = { &m_orders[0], &m_orders[1] };
+        auto left = row.removeFromLeft(286);
+        orders[0]->setBounds(left.removeFromLeft(150));
+        left.removeFromLeft(6);
+        orders[1]->setBounds(left.removeFromLeft(130));
+        captions.removeFromLeft(24);
+        row.removeFromLeft(24);
+        m_layoutCaption = captions.removeFromLeft(236);
+        juce::TextButton* layouts[] = { &m_layouts[0], &m_layouts[1] };
+        buttons(row, layouts, 2, 115);
+        m_orderLine = r.removeFromTop(38);
+        r.removeFromTop(8);
+    }
 
     {
         // Take Name and Creator side by side, then File Names and Keep the Last.
@@ -727,14 +806,36 @@ void SwooshbucklerAudioProcessorEditor::SettingsPanel::paint(juce::Graphics& g)
     const char* moreCaptions[] = { "Take Name", "Creator", "File Names", "Keep the Last" };
     for (size_t i = 0; i < m_moreCaptions.size(); ++i)
         Theme::fitText(g, moreCaptions[i], m_moreCaptions[i], f.caption(), juce::Justification::centredLeft);
+    auto& p = m_owner.m_processor;
+    const auto tape = p.getTapeWidth();
+    const bool order = takefile::orderMatters(tape) && p.getFileLayout() == takefile::Layout::Interleaved;
+    g.setColour(order ? TC::textDim : TC::textFaint);
+    Theme::fitText(g, "Channel Order", m_orderCaption, f.caption(), juce::Justification::centredLeft);
+    g.setColour(takefile::layoutMatters(tape) ? TC::textDim : TC::textFaint);
+    Theme::fitText(g, "File Layout", m_layoutCaption, f.caption(), juce::Justification::centredLeft);
     g.setColour(TC::text);
-    Theme::fitText(g, m_owner.m_processor.getRecordFolder().getFullPathName(),
+    Theme::fitText(g, p.getRecordFolder().getFullPathName(),
                    m_captions[0].withY(m_captions[0].getBottom()).withHeight(22), f.body(), juce::Justification::centredLeft, Theme::Fit::Name);
 
+    // What the tape's files will hold: the order spelt out, or what the file type can't do.
+    {
+        const auto problem = TapeRecorder::formatProblem(p.tapeOptions(), room::layout(p.getRoomWidth() == room::Width::Mono ? room::Width::Stereo : p.getRoomWidth()).numChannels);
+        juce::String line = takefile::orderLine(tape, p.getChannelOrder(), p.getFileLayout());
+        if (tape != p.getRoomWidth())
+            line << " Folded down from the room's " << room::layout(p.getRoomWidth()).name << ".";
+        if (problem.isNotEmpty())
+            Theme::fitLines(g, problem, m_orderLine, f.body(), TC::hits.brighter(0.2f));
+        else
+            Theme::fitLines(g, line, m_orderLine, f.body(), TC::textDim);
+    }
+
     // What the sample rate means in practice
-    auto& p = m_owner.m_processor;
-    const juce::String last = p.getRetroMinutes() == 1 ? juce::String("Last 60 s saves the last minute in the same format.")
-                                                       : "Last " + juce::String(p.getRetroMinutes()) + " Min saves the last " + juce::String(p.getRetroMinutes()) + " minutes in the same format.";
+    const int kept = static_cast<int>(p.getRetroSecondsKept());
+    juce::String last = p.getRetroMinutes() == 1 ? juce::String("Last 60 s saves the last minute in the same format.")
+                                                 : "Last " + juce::String(p.getRetroMinutes()) + " Min saves the last " + juce::String(p.getRetroMinutes()) + " minutes in the same format.";
+    if (kept > 0 && kept < p.getRetroMinutes() * 60)
+        last = p.retroLabel() + " saves the last " + (kept < 60 ? juce::String(kept) + " seconds" : juce::String::formatted("%d:%02d", kept / 60, kept % 60))
+             + " in the same format: at " + juce::String(room::layout(p.getRoomWidth()).name) + " and this rate, that is all 512 MB of memory holds.";
     juce::String note = (p.getOneFilePerWhoosh() ? "Armed, the tape writes a new file for every whoosh and leaves the quiet between them out. "
                          : p.getSkipSilence() ? "Armed, the tape writes whenever there is sound and skips the quiet stretches. "
                                               : "Armed, the tape rolls all the time. ") + last;
@@ -2555,6 +2656,16 @@ void SwooshbucklerAudioProcessorEditor::showVariations()
     m_variations.toFront(false);
 }
 
+namespace
+{
+    /** A take as the Takes list names it: its file, or a Multi-Mono set as "<name> (6 Mono Files)". */
+    juce::String takeName(const juce::File& file)
+    {
+        const auto found = takefile::find(file);
+        return takefile::displayName(found.files.isEmpty() ? juce::Array<juce::File> { file } : found.files);
+    }
+}
+
 void SwooshbucklerAudioProcessorEditor::toggleLog()
 {
     if (m_processor.isRecording())
@@ -2567,7 +2678,7 @@ void SwooshbucklerAudioProcessorEditor::toggleLog()
         if (files <= 0 || file == juce::File())
             toast("Nothing was recorded: there was no sound while the tape was armed");
         else
-            toast((files > 1 ? "Saved " + juce::String(files) + " files, the last is " : juce::String("Saved ")) + file.getFileName()
+            toast((files > 1 ? "Saved " + juce::String(files) + " files, the last is " : juce::String("Saved ")) + takeName(file)
                       + (dropped > 0.005 ? " (the disk fell behind: " + juce::String(dropped, 2) + " s are missing)" : juce::String()),
                   file);
     }
@@ -2590,7 +2701,7 @@ void SwooshbucklerAudioProcessorEditor::saveRetro()
     juce::File written;
     juce::String error;
     if (m_processor.saveRetro(written, error))
-        toast("Saved " + written.getFileName(), written);
+        toast("Saved " + takeName(written), written);
     else
         toast(error);
 }
@@ -3259,7 +3370,7 @@ void SwooshbucklerAudioProcessorEditor::timerCallback()
         const auto& takes = m_processor.getTakes();
         m_takesButton.setButtonText(takes.empty() ? juce::String("Takes") : "Takes " + juce::String(static_cast<int>(takes.size())));
         if (m_takesSeen >= 0 && generation != m_takesSeen && m_processor.isRecording() && ! takes.empty() && takes.front().kind == "Whoosh")
-            toast("Saved " + takes.front().file.getFileName(), takes.front().file);
+            toast("Saved " + takefile::displayName(takes.front().files), takes.front().file);
         m_takesSeen = generation;
     }
     // Render Variations: the header button shows how far a batch is, and says so when it has ended with the panel closed.

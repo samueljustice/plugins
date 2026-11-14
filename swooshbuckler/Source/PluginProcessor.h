@@ -249,6 +249,7 @@ public:
         juce::File file;        // the first of its files: the one shown and played from
         juce::Array<juce::File> files; // every file of it (a Multi-Mono set has one per channel), in processing order
         takefile::Format format; // its width, Channel Order and File Layout, as its files say
+        std::optional<room::Width> foldedFrom; // a fold-down of a wider room: the width it was played at
         juce::String kind;      // "Tape", "Whoosh", "Last 60 s", "Variation", "Variations", ...
         double seconds = 0.0;
         int markers = 0;
@@ -257,7 +258,10 @@ public:
     static constexpr int c_maxTakes = 20;
     /** Adds a file to the takes (any thread: off the message thread it is added a moment later). kind is the short
         tag shown beside it; seconds < 0 = read the length from the file. */
-    void registerTake(const juce::File& file, const juce::String& kind, double seconds = -1.0, int markers = 0);
+    void registerTake(const juce::File& file, const juce::String& kind, double seconds = -1.0, int markers = 0,
+                      std::optional<room::Width> foldedFrom = std::nullopt);
+    /** What the Takes list says a take's width is: "7.1.4", "Stereo", or for a fold-down "Stereo Fold". */
+    static juce::String widthTag(const Take& take);
     const std::vector<Take>& getTakes() const { return m_takes; }
     /** Puts the files the tape has closed (and Render Variations has written) since the last look into the takes.
         The processor does it by itself four times a second and when the tape stops; this is for looking sooner. */
@@ -292,16 +296,22 @@ public:
     double getDeviceRate() const { return m_deviceRate; }
     int getFileType() const;          // 0 WAV, 1 AIFF, 2 FLAC
     void setFileType(int type);
-    bool getMono() const;
-    void setMono(bool mono);
+    /** The width of the tape's files (and the saved last minutes'): the room as played (the default), or folded
+        down to Stereo (a room wider than Stereo) or to Mono. */
+    enum class TapeFold { AsPlayed = 0, Stereo, Mono };
+    TapeFold getTapeFold() const;
+    void setTapeFold(TapeFold fold);
+    /** The width the tape's files have right now: the room's, or the fold chosen when it is narrower. */
+    room::Width getTapeWidth() const;
     /** Channel Order of files of 5.1 and wider (Pro Tools (Film) unless chosen otherwise), and File Layout
-        (Interleaved unless chosen otherwise): for the tape, the saved last minutes and Render Variations. */
+        (Interleaved unless chosen otherwise): for the tape, the saved last minutes and Render Variations (one
+        setting, shown in Settings and in the Render Variations panel). */
     room::FileOrder getChannelOrder() const;
     void setChannelOrder(room::FileOrder order);
     takefile::Layout getFileLayout() const;
     void setFileLayout(takefile::Layout layout);
     /** How the tape and the saved last minutes write files now: the settings above, the file type, bit depth and
-        rate, and the Ceiling for a Mono fold of a wider room. */
+        rate, the room it is played in and the Ceiling for a fold of a wider room. */
     TapeRecorder::Options tapeOptions() const;
     /** How much the saved last minutes really hold at this width and rate (the memory for them is capped). */
     double getRetroSecondsKept() const { return m_recorder.getRetroCapacitySeconds(); }
@@ -360,8 +370,10 @@ public:
     bool isOffline() const { return m_offline; }
     /** Offline copies only: everything starts again from silence at this sample rate (512-sample blocks), with
         every random source drawn from `seed`, Master Trim out of the way (files get the level the tape gets) and
-        the rig stopped. The same seed and settings give the same samples. The thread that calls processBlock. */
-    void prepareOffline(double sampleRate, std::uint32_t seed);
+        the rig stopped, playing in a room of `width` (its output bus is made that width: Mono and Stereo use the
+        stereo engine, Quad and wider the room's). The same seed, settings and width give the same samples. The
+        thread that calls processBlock, with buffers of room::layout(width).numChannels channels. */
+    void prepareOffline(double sampleRate, std::uint32_t seed, room::Width width = room::Width::Stereo);
     /** Offline copies only, the thread that calls processBlock, between blocks. Where every track is in its sounds
         and where each fader's ride is, so the next render of a batch can carry on from there (see carryOn). */
     RigEngine::Places getPlaces() const { return m_engine.getPlaces(); }

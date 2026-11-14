@@ -42,7 +42,7 @@ private:
     enum class Zone { None, Star, Body, Show, Bin };
     struct Row
     {
-        juce::Rectangle<int> all, star, wave, name, kind, length, show, bin;
+        juce::Rectangle<int> all, star, wave, name, width, kind, length, show, bin;
     };
     Row rowBounds(int index) const;
     /** The take and the part of its row under a point (-1 = none). */

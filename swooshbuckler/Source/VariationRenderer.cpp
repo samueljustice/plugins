@@ -113,7 +113,7 @@ VariationRenderer::Plan VariationRenderer::planOf(const Job& job)
     plan.firstName = fileNameOf(plan.stem, plan.firstNumber, plan.lastNumber);
     const auto extension = TapeRecorder::extensionOf(job.options.type);
     plan.combined = job.folder.getChildFile(plan.stem + "_All" + extension);
-    auto taken = [&](const juce::File& f) { return takefile::anyExists(TapeRecorder::filesFor(f, 2, job.options)) || f.exists(); };
+    auto taken = [&](const juce::File& f) { return takefile::anyExists(TapeRecorder::filesFor(f, room::layout(job.width).numChannels, job.options)) || f.exists(); };
     for (int n = 2; taken(plan.combined); ++n)
         plan.combined = job.folder.getChildFile(plan.stem + "_All_" + juce::String(n) + extension);
     return plan;
@@ -196,18 +196,69 @@ VariationRenderer::Estimate VariationRenderer::estimate(const Job& job) const
     e.files = job.files == Files::PerVariation ? count : job.files == Files::OneWithMarkers ? 1 : count + 1;
     e.soundSeconds = each * count + (job.files == Files::PerVariation ? 0.0 : job.gapSeconds * (count - 1));
     e.renderSeconds = each * count / speed;
+    // Sizes: every channel of the width (a Multi-Mono set's files hold one each), at the file's bit depth.
+    const bool wav = job.options.type == TapeRecorder::FileType::Wav;
+    const int bits = ! wav && job.options.bitDepth == 32 ? 24 : job.options.bitDepth;
+    const int channels = channelsOf(job);
+    const bool multi = job.options.layout == takefile::Layout::MultiMono && channels > 1;
+    const double bytesPerSecond = job.rate * channels * bits / 8.0;
+    const double oneFile = e.soundSeconds * bytesPerSecond;
     if (job.files != Files::PerVariation)
-    {
-        const bool wav = job.options.type == TapeRecorder::FileType::Wav;
-        const int bits = ! wav && job.options.bitDepth == 32 ? 24 : job.options.bitDepth;
-        e.oneFileBytes = e.soundSeconds * job.rate * (job.options.mono ? 1.0 : 2.0) * bits / 8.0;
-    }
+        e.oneFileBytes = multi ? oneFile / channels : oneFile;
+    e.totalBytes = (job.files != Files::OneWithMarkers ? each * count * bytesPerSecond : 0.0) + (job.files != Files::PerVariation ? oneFile : 0.0);
     return e;
+}
+
+int VariationRenderer::channelsOf(const Job& job)
+{
+    return room::layout(TapeRecorder::fileWidthOf(job.options, room::layout(job.width).numChannels)).numChannels;
+}
+
+juce::String VariationRenderer::formatProblem(const Job& job)
+{
+    return TapeRecorder::formatProblem(job.options, room::layout(job.width).numChannels);
+}
+
+std::optional<room::Width> VariationRenderer::chosenWidth() const
+{
+    const int chosen = m_rig.getVariationValue("Width", "-1").getIntValue();
+    if (chosen < 0 || chosen >= room::c_numWidths)
+        return std::nullopt;
+    return static_cast<room::Width>(chosen);
+}
+
+void VariationRenderer::chooseWidth(std::optional<room::Width> width)
+{
+    m_rig.setVariationValue("Width", juce::String(width.has_value() ? static_cast<int>(*width) : -1));
+}
+
+double VariationRenderer::oneFileLimit(const Job& job)
+{
+    return job.options.type == TapeRecorder::FileType::Aiff ? c_maxOneAiffBytes : c_maxOneFileBytes;
 }
 
 bool VariationRenderer::oneFileTooBig(const Job& job, const Estimate& e)
 {
-    return job.files != Files::PerVariation && job.options.type != TapeRecorder::FileType::Flac && e.oneFileBytes > c_maxOneFileBytes;
+    return job.files != Files::PerVariation && job.options.type != TapeRecorder::FileType::Flac && e.oneFileBytes > oneFileLimit(job);
+}
+
+juce::String VariationRenderer::oneFileTooBigText(const Job& job)
+{
+    const bool aiff = job.options.type == TapeRecorder::FileType::Aiff;
+    return aiff ? juce::String("One AIFF file with all of them would be over 2 GB, more than AIFF can hold. Make fewer or shorter variations, "
+                               "choose WAV or FLAC in Settings, Multi-Mono files, or One File Per Variation.")
+                : juce::String("One file with all of them would be over 4 GB, too big for markers. Make fewer or shorter variations, "
+                               "choose FLAC in Settings, Multi-Mono files, or One File Per Variation.");
+}
+
+juce::String VariationRenderer::roughSize(double bytes)
+{
+    const double mb = bytes / (1024.0 * 1024.0);
+    if (mb < 1.0)
+        return "under 1 MB";
+    if (mb < 1000.0)
+        return "about " + juce::String(static_cast<int>(std::floor(mb + 0.5))) + " MB";
+    return "about " + juce::String(mb / 1024.0, 1) + " GB";
 }
 
 juce::String VariationRenderer::estimateText(const Job& job, const Estimate& e)
@@ -224,7 +275,14 @@ juce::String VariationRenderer::estimateText(const Job& job, const Estimate& e)
         case Files::PerVariation:
         default:                    what = count == 1 ? "1 file with one " + thing + " in it" : juce::String(count) + " files, one " + thing + " each"; break;
     }
-    return what + ": " + roughly(e.soundSeconds) + " of sound, ready in " + roughly(e.renderSeconds) + ".";
+    juce::String size;
+    if (e.totalBytes > 0.0) // FLAC packs it smaller: its size is said as a most
+    {
+        const auto rough = roughSize(e.totalBytes);
+        const bool flac = job.options.type == TapeRecorder::FileType::Flac;
+        size = " (" + (flac && rough.startsWith("about ") ? "at most " + rough.substring(6) : rough) + ")";
+    }
+    return what + ": " + roughly(e.soundSeconds) + " of sound" + size + ", ready in " + roughly(e.renderSeconds) + ".";
 }
 
 //==============================================================================
@@ -292,9 +350,14 @@ VariationRenderer::Job VariationRenderer::defaultJob() const
     // The tape's rate: the one chosen in Settings, or the session's.
     job.rate = m_rig.getRecordRate() > 0 ? static_cast<double>(m_rig.getRecordRate())
                                          : (m_rig.getDeviceRate() > 0.0 ? m_rig.getDeviceRate() : 48000.0);
+    // The width: Render Variations' own choice, or the room the rig plays in. The rest of the format is the tape's
+    // (Channel Order and File Layout are one setting, shown in Settings and in the panel); the files are never a
+    // fold, whatever the tape's own width is: the batch is rendered at the width asked for.
+    job.width = chosenWidth().value_or(m_rig.getRoomWidth());
     job.options.bitDepth = m_rig.getBitDepth();
     job.options.type = static_cast<TapeRecorder::FileType>(m_rig.getFileType());
-    job.options.mono = m_rig.getMono();
+    job.options.mono = false;
+    job.options.stereo = false;
     job.options.order = m_rig.getChannelOrder();
     job.options.layout = m_rig.getFileLayout();
     job.creator = m_rig.getCreator().isNotEmpty() ? m_rig.getCreator() : juce::String("Samuel Justice");
@@ -322,10 +385,16 @@ bool VariationRenderer::start(const Job& job, juce::String& error)
     m_job.rate = job.rate > 0.0 ? job.rate : 48000.0;
     m_job.options.fileRate = 0.0; // the rig renders at the files' rate: nothing to convert
     m_job.options.perWhoosh = false;
+    m_job.options.played.reset(); // rendered at its own width: never a fold-down
+    // Whatever the format can't do is said now, before anything is rendered.
+    if (const auto problem = formatProblem(m_job); problem.isNotEmpty())
+    {
+        error = problem;
+        return false;
+    }
     if (oneFileTooBig(m_job, estimate(m_job)))
     {
-        error = "One file with all of them would be over 4 GB, too big for markers. Make fewer or shorter variations, "
-                "choose FLAC in Settings, or choose One File Per Variation.";
+        error = oneFileTooBigText(m_job);
         return false;
     }
     if (m_job.folder == juce::File() || (! m_job.folder.isDirectory() && ! m_job.folder.createDirectory()))
@@ -405,7 +474,7 @@ juce::String VariationRenderer::describeHow() const
     if (m_job.mode == Mode::SmallChanges)
         how << ", How Different " << juce::roundToInt(100.0f * m_job.amount) << "%";
     how << ", Batch " << juce::String(m_job.batchSeed) << ", " << eachName(m_job.each) << ", Length "
-        << juce::String(m_job.each == Each::WholeRide ? m_job.rideSeconds : m_job.seconds, 1) << " s";
+        << juce::String(m_job.each == Each::WholeRide ? m_job.rideSeconds : m_job.seconds, 1) << " s, " << room::layout(m_job.width).name;
     return how;
 }
 
@@ -491,7 +560,7 @@ int VariationRenderer::renderOne(int index, int& first, juce::String& descriptio
     description = "Swooshbuckler " + Version::number() + ". Variation " + juce::String(index + 1) + " of " + juce::String(m_job.count)
                 + ", " + describeHow() + ". Preset: " + preset + ". " + describeSettings();
 
-    rig.prepareOffline(m_job.rate, engineSeed);
+    rig.prepareOffline(m_job.rate, engineSeed, m_job.width); // natively in the room asked for
     // Every render after the first carries on through the sounds from where the one before stopped (the first
     // starts at the start markers), as the rig does when you throw several in a row; the rides carry on too
     // (Whole Ride) or start from a moment of their own (One Whoosh: the balance its throw takes).
@@ -510,8 +579,15 @@ int VariationRenderer::renderOne(int index, int& first, juce::String& descriptio
     }
     juce::MidiBuffer midi;
     const int capacity = m_take.getNumSamples();
+    const int channels = m_take.getNumChannels(); // the width's: every speaker counts towards "sound"
     int length = 0;
-    auto loud = [this](int i, float over) { return std::abs(m_take.getSample(0, i)) > over || std::abs(m_take.getSample(1, i)) > over; };
+    auto loud = [this, channels](int i, float over)
+    {
+        for (int ch = 0; ch < channels; ++ch)
+            if (std::abs(m_take.getSample(ch, i)) > over)
+                return true;
+        return false;
+    };
 
     if (ride)
     {
@@ -523,7 +599,7 @@ int VariationRenderer::renderOne(int index, int& first, juce::String& descriptio
         {
             if (threadShouldExit())
                 return -1;
-            juce::AudioBuffer<float> block(m_take.getArrayOfWritePointers(), 2, length, c_block);
+            juce::AudioBuffer<float> block(m_take.getArrayOfWritePointers(), channels, length, c_block);
             rig.processBlock(block, midi);
             length += c_block;
         }
@@ -537,7 +613,7 @@ int VariationRenderer::renderOne(int index, int& first, juce::String& descriptio
             return 0;
         const int fadeIn = juce::jmin(samples / 2, juce::roundToInt(c_rideFadeInSeconds * m_job.rate));
         const int fadeOut = juce::jmin(samples / 2, juce::roundToInt(c_rideFadeOutSeconds * m_job.rate));
-        for (int ch = 0; ch < 2; ++ch)
+        for (int ch = 0; ch < channels; ++ch)
         {
             m_take.applyGainRamp(ch, first, fadeIn, 0.0f, 1.0f);
             m_take.applyGainRamp(ch, first + samples - fadeOut, fadeOut, 1.0f, 0.0f);
@@ -551,7 +627,7 @@ int VariationRenderer::renderOne(int index, int& first, juce::String& descriptio
     {
         if (threadShouldExit())
             return -1;
-        juce::AudioBuffer<float> block(m_take.getArrayOfWritePointers(), 2, length, c_block);
+        juce::AudioBuffer<float> block(m_take.getArrayOfWritePointers(), channels, length, c_block);
         rig.processBlock(block, midi);
         length += c_block;
         if (rig.isAtRest())
@@ -568,7 +644,7 @@ int VariationRenderer::renderOne(int index, int& first, juce::String& descriptio
         --end;
     // A short fade at the very end (a tail that outlasted the time allowed is not chopped).
     const int fade = juce::jmin(end - first, juce::roundToInt(c_endFadeSeconds * m_job.rate));
-    for (int ch = 0; ch < 2; ++ch)
+    for (int ch = 0; ch < channels; ++ch)
         m_take.applyGainRamp(ch, end - fade, fade, 1.0f, 0.0f);
     return end - first;
 }
@@ -581,7 +657,7 @@ void VariationRenderer::run()
     // emptying; or a ride and its pre-roll.
     const double longest = ride ? c_ridePreRollSeconds + m_job.rideSeconds + 0.1
                                 : m_job.seconds + SwooshbucklerAudioProcessor::c_tailMaxSeconds + 1.5;
-    m_take.setSize(2, c_block * (1 + static_cast<int>(longest * m_job.rate) / c_block));
+    m_take.setSize(room::layout(m_job.width).numChannels, c_block * (1 + static_cast<int>(longest * m_job.rate) / c_block));
 
     TapeRecorder::Naming naming;
     naming.creator = m_job.creator;
@@ -605,7 +681,7 @@ void VariationRenderer::run()
                            + " one after another, a marker at the start of each. " + describeHow() + ". Preset: " + m_copy->currentPresetName + "."
                            + (m_job.mode == Mode::NewPasses ? " " + describeSettings()
                               : m_job.mode == Mode::SmallChanges ? " Starting from: " + describeSettings() : juce::String());
-        if (all.open(plan.combined, m_job.rate, 2, m_job.options, naming, failure))
+        if (all.open(plan.combined, m_job.rate, m_take.getNumChannels(), m_job.options, naming, failure))
             setProgress([&](Progress& p) { p.combinedFile = plan.combined.getFileName(); });
         else
             outcome = State::Failed;

@@ -417,22 +417,27 @@ public:
             return false;
         }
         m_inWidth = *width;
-        const auto fileWidth = options.mono ? room::Width::Mono : m_inWidth;
+        const auto fileWidth = fileWidthOf(options, inputChannels);
         m_format = { fileWidth, options.order, fileWidth == room::Width::Mono ? takefile::Layout::Interleaved : options.layout };
         const bool multi = m_format.layout == takefile::Layout::MultiMono;
         const int fileChannels = room::layout(fileWidth).numChannels;
-        if (options.type == FileType::Flac && ! multi && fileChannels > takefile::c_maxFlacChannels)
+        if (const auto problem = formatProblem(options, inputChannels); problem.isNotEmpty())
         {
-            error = "FLAC files hold at most 8 channels, and " + juce::String(room::layout(fileWidth).name) + " has "
-                  + juce::String(fileChannels) + ". Choose WAV or AIFF, or Multi-Mono files.";
+            error = problem;
             return false;
         }
         m_files = takefile::filesOf(file, fileWidth, m_format.layout);
+        // A fold-down says so in every file of it.
+        m_foldedFrom = TapeRecorder::foldedFrom(options, inputChannels);
+        if (m_foldedFrom.has_value())
+            m_naming.description = foldNote(*m_foldedFrom, fileWidth) + m_naming.description;
 
-        m_fold = options.mono && inputChannels > 2;
+        // A take wider than Stereo folded to Mono or Stereo: room::fold, then a limiter linked across its channels.
+        m_fold = fileWidth != m_inWidth && inputChannels > 2;
+        m_foldChannels = fileChannels;
         if (m_fold)
         {
-            m_limiter.prepare(inputRate, 1);
+            m_limiter.prepare(inputRate, m_foldChannels);
             MasterProcessor::Parameters p;
             p.limiterOn = true;
             p.ceilingDb = juce::jlimit(-12.0f, 0.0f, options.foldCeilingDb);
@@ -440,10 +445,10 @@ public:
             m_skip = m_limiter.getLatencySamples();
         }
 
-        // Each writer: the take's channels in file order, one channel of a Multi-Mono set, or the Mono fold.
+        // Each writer: the take's channels in file order, one channel of a Multi-Mono set, or the fold.
         Options each = options;
-        each.mono = options.mono && ! m_fold; // Stereo to Mono stays the writer's own average
-        const int inputs = m_fold || multi ? 1 : inputChannels;
+        each.mono = fileWidth == room::Width::Mono && ! m_fold; // Stereo to Mono stays the writer's own average
+        const int inputs = multi ? 1 : m_fold ? m_foldChannels : inputChannels;
         for (int i = 0; i < m_files.size(); ++i)
         {
             juce::String line;
@@ -451,7 +456,7 @@ public:
                 line = room::info(room::layout(fileWidth).speakers[static_cast<size_t>(i)]).name;
             else if (fileChannels > 2)
                 line = takefile::channelLine(fileWidth, options.order);
-            auto writer = createWriter(m_files[i], inputRate, inputs, each, naming, line, error);
+            auto writer = createWriter(m_files[i], inputRate, inputs, each, m_naming, line, error);
             if (writer == nullptr)
             {
                 discard();
@@ -461,7 +466,7 @@ public:
         }
         for (int i = 0; i < room::c_maxChannels; ++i)
             m_order[static_cast<size_t>(i)] = i;
-        if (! multi && ! options.mono)
+        if (! multi && fileWidth == m_inWidth)
             m_order = room::fileChannels(m_inWidth, options.order);
         m_closed = false;
         return true;
@@ -474,13 +479,16 @@ public:
             return m_ok;
         if (m_fold)
         {
-            m_buffer.setSize(1, numSamples, false, false, true);
-            float* out = m_buffer.getWritePointer(0);
-            const auto& fold = room::fold(m_inWidth, room::Width::Mono);
-            juce::FloatVectorOperations::clear(out, numSamples);
-            for (int ch = 0; ch < m_inputChannels; ++ch)
-                if (const float g = fold.gain[0][static_cast<size_t>(ch)]; g != 0.0f)
-                    juce::FloatVectorOperations::addWithMultiply(out, channels[ch], g, numSamples);
+            m_buffer.setSize(m_foldChannels, numSamples, false, false, true);
+            const auto& fold = room::fold(m_inWidth, m_format.width);
+            for (int out = 0; out < m_foldChannels; ++out)
+            {
+                float* to = m_buffer.getWritePointer(out);
+                juce::FloatVectorOperations::clear(to, numSamples);
+                for (int ch = 0; ch < m_inputChannels; ++ch)
+                    if (const float g = fold.gain[static_cast<size_t>(out)][static_cast<size_t>(ch)]; g != 0.0f)
+                        juce::FloatVectorOperations::addWithMultiply(to, channels[ch], g, numSamples);
+            }
             writeFolded(numSamples);
         }
         else if (m_format.layout == takefile::Layout::MultiMono)
@@ -514,7 +522,7 @@ public:
         {
             // The limiter's look-ahead still holds the end of the take.
             const int tail = m_limiter.getLatencySamples();
-            m_buffer.setSize(1, juce::jmax(1, tail), false, false, true);
+            m_buffer.setSize(m_foldChannels, juce::jmax(1, tail), false, false, true);
             m_buffer.clear();
             writeFolded(tail);
         }
@@ -575,21 +583,28 @@ public:
 
     const juce::Array<juce::File>& files() const { return m_files; }
     const takefile::Format& format() const { return m_format; }
+    std::optional<room::Width> foldedFrom() const { return m_foldedFrom; }
 
 private:
     void writeFolded(int numSamples)
     {
-        float* out = m_buffer.getWritePointer(0);
-        float* chans[1] = { out };
-        m_limiter.process(chans, 1, numSamples);
+        std::array<float*, room::c_maxChannels> chans {};
+        for (int ch = 0; ch < m_foldChannels; ++ch)
+            chans[static_cast<size_t>(ch)] = m_buffer.getWritePointer(ch);
+        m_limiter.process(chans.data(), m_foldChannels, numSamples);
         // The first look-ahead's worth out of the limiter is the silence it started with.
         const int skip = static_cast<int>(juce::jmin<std::int64_t>(m_skip, numSamples));
         m_skip -= skip;
-        if (numSamples > skip)
-        {
-            const float* from[1] = { out + skip };
-            m_ok = m_writers.front()->writeFromFloatArrays(from, 1, numSamples - skip) && m_ok;
-        }
+        if (numSamples <= skip)
+            return;
+        std::array<const float*, room::c_maxChannels> from {};
+        for (int ch = 0; ch < m_foldChannels; ++ch)
+            from[static_cast<size_t>(ch)] = chans[static_cast<size_t>(ch)] + skip;
+        if (m_format.layout == takefile::Layout::MultiMono)
+            for (size_t ch = 0; ch < m_writers.size(); ++ch)
+                m_ok = m_writers[ch]->writeFromFloatArrays(&from[ch], 1, numSamples - skip) && m_ok;
+        else
+            m_ok = m_writers.front()->writeFromFloatArrays(from.data(), m_foldChannels, numSamples - skip) && m_ok;
     }
 
     void deleteFiles()
@@ -608,6 +623,8 @@ private:
     std::vector<std::unique_ptr<juce::AudioFormatWriter>> m_writers;
     std::array<int, room::c_maxChannels> m_order {};
     bool m_fold = false;
+    int m_foldChannels = 1;
+    std::optional<room::Width> m_foldedFrom;
     MasterProcessor m_limiter;
     std::int64_t m_skip = 0;
     juce::AudioBuffer<float> m_buffer;
@@ -756,6 +773,7 @@ private:
         const bool kept = m_inner->close(true, cues, false, markersAdded, true); // flushes the resampler, closes the files
         const auto files = m_inner->files();
         const auto format = m_inner->format();
+        const auto folded = m_inner->foldedFrom();
         m_inner.reset();
         if (! kept)
         {
@@ -773,6 +791,7 @@ private:
         take.file = files[0];
         take.files = files;
         take.format = format;
+        take.foldedFrom = folded;
         take.seconds = static_cast<double>(samples) / getSampleRate();
         take.markers = m_options.type == FileType::Wav ? static_cast<int>(cues.size()) : 0;
         take.whoosh = m_options.perWhoosh;
@@ -846,8 +865,43 @@ bool TapeRecorder::writeFile(const juce::File& file, const juce::AudioBuffer<flo
 
 juce::Array<juce::File> TapeRecorder::filesFor(const juce::File& file, int numChannels, const Options& options)
 {
-    const auto width = options.mono ? room::Width::Mono : takefile::widthForChannels(numChannels).value_or(room::Width::Stereo);
-    return takefile::filesOf(file, width, options.layout);
+    return takefile::filesOf(file, fileWidthOf(options, numChannels), options.layout);
+}
+
+room::Width TapeRecorder::fileWidthOf(const Options& options, int numChannels)
+{
+    const auto own = takefile::widthForChannels(numChannels).value_or(room::Width::Stereo);
+    if (options.mono)
+        return room::Width::Mono;
+    if (options.stereo && room::canFold(own, room::Width::Stereo))
+        return room::Width::Stereo;
+    return own;
+}
+
+std::optional<room::Width> TapeRecorder::foldedFrom(const Options& options, int numChannels)
+{
+    const auto played = options.played.value_or(takefile::widthForChannels(numChannels).value_or(room::Width::Stereo));
+    const auto file = fileWidthOf(options, numChannels);
+    if (file == played || ! room::canFold(played, file))
+        return std::nullopt;
+    return played;
+}
+
+juce::String TapeRecorder::formatProblem(const Options& options, int numChannels)
+{
+    const auto width = fileWidthOf(options, numChannels);
+    const int channels = room::layout(width).numChannels;
+    const bool multi = options.layout == takefile::Layout::MultiMono && width != room::Width::Mono;
+    if (options.type == FileType::Flac && ! multi && channels > takefile::c_maxFlacChannels)
+        return "A FLAC file holds at most 8 channels, and " + juce::String(room::layout(width).name) + " has " + juce::String(channels)
+             + ". Choose WAV or AIFF, or Multi-Mono files.";
+    return {};
+}
+
+juce::String TapeRecorder::foldNote(room::Width from, room::Width to)
+{
+    return "Folded down from " + juce::String(room::layout(from).name) + " to " + juce::String(room::layout(to).name)
+         + (room::layout(from).numChannels > 2 ? ", held under the Ceiling. " : ". ");
 }
 
 //==============================================================================
@@ -1418,6 +1472,12 @@ bool TapeRecorder::start(const juce::File& folder, const Options& options, juce:
 {
     stop();
 
+    // A format that can't hold this take says so now, not at the first whoosh.
+    if (const auto problem = formatProblem(options, m_numChannels); problem.isNotEmpty())
+    {
+        error = problem;
+        return false;
+    }
     if (! folder.isDirectory() && ! folder.createDirectory())
     {
         error = "Couldn't create the folder " + folder.getFullPathName();
@@ -1493,6 +1553,11 @@ bool TapeRecorder::saveRetro(const juce::File& folder, int bitDepth, juce::File&
 
 bool TapeRecorder::saveRetro(const juce::File& folder, const Options& options, juce::File& written, juce::String& error)
 {
+    if (const auto problem = formatProblem(options, m_numChannels); problem.isNotEmpty())
+    {
+        error = problem;
+        return false;
+    }
     juce::AudioBuffer<float> copy;
     int available = 0;
     double rate = 48000.0;

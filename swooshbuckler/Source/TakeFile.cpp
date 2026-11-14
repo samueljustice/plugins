@@ -197,6 +197,22 @@ juce::String channelLine(room::Width width, room::FileOrder order)
     return room::orderLabel(width, order);
 }
 
+juce::String orderLine(room::Width width, room::FileOrder order, Layout layout)
+{
+    const juce::String name(room::layout(width).name);
+    if (width == room::Width::Mono)
+        return "Mono: one channel in one file.";
+    if (layout == Layout::Interleaved)
+        return name + " in one file: " + channelLine(width, order) + "." + (orderMatters(width) ? "" : " Channel Order is for 5.1 and wider.");
+    // A Multi-Mono set has no order of its own: its files are listed the way Pro Tools lists a track's channels.
+    const int n = room::layout(width).numChannels;
+    const auto& proTools = room::fileChannels(width, room::FileOrder::ProTools);
+    juce::StringArray suffixes;
+    for (int i = 0; i < n; ++i)
+        suffixes.add(room::multiMonoSuffix(width, proTools[static_cast<size_t>(i)]));
+    return name + " as " + juce::String(n) + " files ending " + suffixes.joinIntoString(" ") + ".";
+}
+
 std::uint32_t maskFor(room::Width width, room::FileOrder order) noexcept
 {
     const auto& wanted = room::fileChannels(width, order);

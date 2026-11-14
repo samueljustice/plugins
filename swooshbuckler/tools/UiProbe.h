@@ -157,7 +157,7 @@ namespace UiProbe
     inline bool isAcronym(const juce::String& word)
     {
         static const juce::StringArray known { "GR", "LFO", "MIDI", "CC", "WAV", "AIFF", "FLAC", "DAW", "VST", "VST3", "AU", "AAX", "JUCE", "IBM",
-                                               "SIL", "MIT", "UTC", "CD", "OK", "MB", "GB", "AB", "RMS", "EQ", "FX", "URL", "ID", "USB", "CPU", "II", "III", "LFE" };
+                                               "SIL", "MIT", "UTC", "CD", "OK", "MB", "GB", "AB", "RMS", "EQ", "FX", "URL", "ID", "USB", "CPU", "II", "III", "LFE", "SMPTE" };
         return known.contains(word);
     }
 

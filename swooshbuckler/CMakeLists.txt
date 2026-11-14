@@ -312,6 +312,17 @@ if(SWOOSHBUCKLER_TESTS)
     target_compile_definitions(SwooshbucklerFiles PRIVATE $<TARGET_PROPERTY:Swooshbuckler,COMPILE_DEFINITIONS>)
     target_link_libraries(SwooshbucklerFiles PRIVATE Swooshbuckler)
 
+    # Export test: Render Variations at every room width through the real renderer (channel count, the Pro Tools
+    # and SMPTE / WAV orders against the Multi-Mono files, speaker masks, file names, markers, the same batch twice,
+    # Mono as the Stereo fold, a 7.1.4 render's sound in the room), the Width choice, the estimate, FLAC and AIFF
+    # limits said before rendering, wide takes in the Takes, and the tape in a 7.1.4 room (the labelled Stereo
+    # fold under the Ceiling, the saved last minutes' real length).
+    juce_add_console_app(SwooshbucklerExport PRODUCT_NAME "SwooshbucklerExport")
+    target_sources(SwooshbucklerExport PRIVATE Tests/ExportTest.cpp)
+    target_include_directories(SwooshbucklerExport PRIVATE Source ${CMAKE_CURRENT_BINARY_DIR}/Swooshbuckler_artefacts/JuceLibraryCode $<TARGET_PROPERTY:Swooshbuckler,INCLUDE_DIRECTORIES>)
+    target_compile_definitions(SwooshbucklerExport PRIVATE $<TARGET_PROPERTY:Swooshbuckler,COMPILE_DEFINITIONS>)
+    target_link_libraries(SwooshbucklerExport PRIVATE Swooshbuckler)
+
     # First-run test: the demo sounds (typed right from their audio, one undo step, Play makes sound), typed
     # values against every knob's readout, MIDI controllers learned and kept, and file names cut in the middle.
     juce_add_console_app(SwooshbucklerFirstRun PRODUCT_NAME "SwooshbucklerFirstRun")

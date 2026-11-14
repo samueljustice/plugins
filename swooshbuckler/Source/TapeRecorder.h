@@ -29,8 +29,9 @@
  * WIDTH: the tape takes whatever it is prepared with, 1 to 12 channels in PROCESSING ORDER (room::layout: the
  * width is known from the count, which is different for every width). Files of the room's width are written in the
  * chosen Channel Order, interleaved or as a Multi-Mono set (one file per channel, all or none of them kept), with
- * the speaker mask and channel names described in TakeFile.h. Mono folds a wider take with room::fold (Stereo is
- * averaged as it always was) and holds the fold under the Ceiling with a limiter.
+ * the speaker mask and channel names described in TakeFile.h. Mono or Stereo folds a wider take with room::fold
+ * (Stereo to Mono is averaged as it always was) and holds the fold under the Ceiling with a limiter; a file
+ * narrower than the room it was played in is a fold-down and says so in its description (foldNote).
  */
 class TapeRecorder
 {
@@ -51,11 +52,28 @@ public:
         double fileRate = 0.0;        // 0 = session rate; otherwise windowed-sinc conversion, e.g. 96000
         FileType type = FileType::Wav;
         bool mono = false;            // fold the output down to one channel
+        bool stereo = false;          // fold a take wider than Stereo down to Stereo (mono wins when both are set)
         bool perWhoosh = false;       // One File per Whoosh (the gate is on whatever setSignalGate says)
         room::FileOrder order = room::FileOrder::ProTools;           // Channel Order of an interleaved file (5.1 and wider)
         takefile::Layout layout = takefile::Layout::Interleaved;     // one file, or one mono file per channel
-        float foldCeilingDb = -0.3f;  // the limiter on a Mono fold of a take wider than Stereo
+        float foldCeilingDb = -0.3f;  // the limiter on a fold of a take wider than Stereo
+        /** The width the take was played at, when it is not the width of the audio handed in (a Mono room is
+            carried as Stereo): a file narrower than this is a fold-down, and says so. */
+        std::optional<room::Width> played;
     };
+
+    /** The width a take of numChannels is written at with these options: Mono, Stereo (a wider take folded), or
+        the take's own. */
+    static room::Width fileWidthOf(const Options& options, int numChannels);
+    /** The width the take was played at (options.played, or the width of numChannels), when the file is a
+        fold-down of it; nothing otherwise. */
+    static std::optional<room::Width> foldedFrom(const Options& options, int numChannels);
+    /** Why a take of numChannels can't be written with these options, in a plain sentence; empty when it can. For
+        saying so before anything is rendered or recorded (FLAC holds at most eight channels in one file). */
+    static juce::String formatProblem(const Options& options, int numChannels);
+    /** The sentence a folded file's description ends with: " Folded down from 7.1.4 to Stereo, held under the
+        Ceiling." */
+    static juce::String foldNote(room::Width from, room::Width to);
 
     /** How files are named and described. Message thread; it can change while a take is open (the next file uses it). */
     enum class NameStyle { Counter = 0, DateTime };
@@ -85,6 +103,7 @@ public:
         juce::File file;              // the first of its files (a Multi-Mono set's first channel)
         juce::Array<juce::File> files; // every file of it, in processing order
         takefile::Format format;
+        std::optional<room::Width> foldedFrom; // a fold-down: the width it was played at
         double seconds = 0.0;
         int markers = 0;
         bool whoosh = false; // one of One File per Whoosh's files

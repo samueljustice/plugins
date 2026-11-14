@@ -24,7 +24,13 @@
 //                             the panels that open over the window
 //   variations-cancelled.png variations-choices.png variations-repeat.png variations-finished.png
 //                             Render Variations cancelled part-way, with its other choices, repeating a batch, and done
-//   menu.png                  the preset menu open
+//   variations-51.png variations-714-multimono.png variations-714-finished.png variations-714-flac.png
+//                             Render Variations wider than the rig: the order line at 5.1, Multi-Mono at 7.1.4, a 7.1.4
+//                             batch done, and FLAC refusing 7.1.4 in one file before anything is rendered
+//   settings-714.png settings-714-stereo-fold.png settings-714-flac.png takes-714.png
+//                             the rig in a 7.1.4 room: the tape's settings (as played, folded to Stereo, FLAC refused)
+//                             and the Takes list with a 7.1.4 take, a Stereo fold, a Multi-Mono set and 7.1.4 variations
+//   menu.png                 the preset menu open
 //   name-dialog.png           the window that asks for a preset's name
 //
 // --sea adds one crop of the sea at each of its moments (a hit, a throw, a ripple with the swell up, recording,
@@ -677,8 +683,74 @@ int main(int argc, char* argv[])
             rig.run(0.3);
             v.timerCallback();
             shots.shoot("variations-finished", &v);
+
+            // Wider than the rig plays: the order line at 5.1, Multi-Mono at 7.1.4, a 7.1.4 batch rendered, and FLAC,
+            // which can't hold 7.1.4 in one file, said before anything is rendered.
+            pick(v.m_width, static_cast<int>(room::Width::Surround51) + 1);
+            rig.run(0.1);
+            shots.shoot("variations-51", &v);
+            pick(v.m_width, static_cast<int>(room::Width::Surround714) + 1);
+            pick(v.m_layout, 2);
+            rig.run(0.1);
+            shots.shoot("variations-714-multimono", &v);
+            pick(v.m_layout, 1);
+            v.m_count.setText("2", true);
+            v.startBatch();
+            proc.getVariations().waitUntilDone(120000);
+            rig.run(0.3);
+            v.timerCallback();
+            shots.shoot("variations-714-finished", &v);
+            proc.setFileType(2);
+            v.readSettings();
+            rig.run(0.1);
+            shots.shoot("variations-714-flac", &v);
+            proc.setFileType(0);
+            pick(v.m_width, static_cast<int>(proc.getRoomWidth()) + 1); // back to following the rig
             v.m_count.setText("100", true);
             ed.m_variations.setVisible(false);
+
+            // The rig in a 7.1.4 room (a host's track): the tape's settings, and takes of every kind in the list (the
+            // room as played, a Stereo fold, a Multi-Mono set and a 7.1.4 variation).
+            {
+                auto widen = [&](room::Width width)
+                {
+                    auto layout = proc.getBusesLayout();
+                    layout.outputBuses.getReference(0) = room::channelSet(width);
+                    proc.setBusesLayout(layout);
+                    proc.prepareToPlay(UiRig::c_fs, UiRig::c_block);
+                    rig.block.setSize(room::layout(width).numChannels, UiRig::c_block);
+                };
+                widen(room::Width::Surround714);
+                rig.run(2.0);
+                ed.saveRetro();                                   // 7.1.4, as played
+                proc.setTapeFold(Proc::TapeFold::Stereo);
+                ed.saveRetro();                                   // a Stereo fold
+                proc.setTapeFold(Proc::TapeFold::AsPlayed);
+                proc.setFileLayout(takefile::Layout::MultiMono);
+                ed.saveRetro();                                   // a Multi-Mono set
+                proc.setFileLayout(takefile::Layout::Interleaved);
+                proc.timerCallback();
+                rig.run(0.2);
+                ed.m_settings.refresh();
+                ed.m_settings.setVisible(true);
+                ed.m_settings.toFront(false);
+                shots.shoot("settings-714", &ed.m_settings);
+                proc.setTapeFold(Proc::TapeFold::Stereo);
+                ed.m_settings.refresh();
+                shots.shoot("settings-714-stereo-fold", &ed.m_settings);
+                proc.setTapeFold(Proc::TapeFold::AsPlayed);
+                proc.setFileType(2);
+                ed.m_settings.refresh();
+                shots.shoot("settings-714-flac", &ed.m_settings);
+                proc.setFileType(0);
+                ed.m_settings.setVisible(false);
+                ed.showTakes();
+                rig.run(0.2);
+                shots.shoot("takes-714", &ed.m_takes);
+                ed.m_takes.setVisible(false);
+                widen(room::Width::Stereo);
+                rig.run(0.2);
+            }
 
             ed.m_about.setVisible(true);
             ed.m_about.toFront(false);

@@ -347,7 +347,7 @@ int main(int argc, char* argv[])
         rig.run(4.0);
         p.setFileType(2);
         p.setBitDepth(16);
-        p.setMono(true);
+        p.setTapeFold(SwooshbucklerAudioProcessor::TapeFold::Mono);
         juce::File written;
         juce::String error;
         check(p.saveRetro(written, error), "LAST 60s: saves " + error);
@@ -358,7 +358,7 @@ int main(int argc, char* argv[])
               "LAST 60s: written as the tape is set (FLAC, 16-bit, mono): " + written.getFileName());
         p.setFileType(0);
         p.setBitDepth(24);
-        p.setMono(false);
+        p.setTapeFold(SwooshbucklerAudioProcessor::TapeFold::AsPlayed);
     }
 
     // Harvesting on the real plug-in: one file per whoosh with names, descriptions and markers; the takes; audition.

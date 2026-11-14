@@ -1013,7 +1013,7 @@ int main(int argc, char* argv[])
             job.count = 20;
             const auto rides = renderer.estimate(job);
             check(rides.files == 20 && std::abs(rides.soundSeconds - 600.0) < 1.0e-6
-                      && VariationRenderer::estimateText(job, rides).startsWith("20 files, one ride each: about 10 minutes of sound, ready in "),
+                      && VariationRenderer::estimateText(job, rides).startsWith("20 files, one ride each: about 10 minutes of sound (about 165 MB), ready in "),
                   "estimate: " + VariationRenderer::estimateText(job, rides));
             check(VariationRenderer::roughly(0.4) == "about a second" && VariationRenderer::roughly(89.0) == "about 89 seconds"
                       && VariationRenderer::roughly(150.0) == "about 3 minutes" && VariationRenderer::roughly(3.0 * 3600.0) == "about 3 hours",

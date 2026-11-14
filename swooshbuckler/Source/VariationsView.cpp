@@ -129,11 +129,21 @@ VariationsView::VariationsView(SwooshbucklerAudioProcessor& processor, const The
     };
     m_batchName.onFocusLost = [this] { keepChoices(); syncControls(); };
 
-    for (auto* box : { &m_each, &m_mode, &m_batch, &m_names, &m_files })
+    for (auto* box : { &m_each, &m_mode, &m_batch, &m_names, &m_files, &m_width, &m_order, &m_layout })
     {
         box->setWantsKeyboardFocus(false);
         addAndMakeVisible(*box);
     }
+    m_width.onChange = [this]
+    {
+        // The width the rig plays at is followed (the default); any other is kept as chosen.
+        const auto width = static_cast<room::Width>(juce::jlimit(0, room::c_numWidths - 1, m_width.getSelectedId() - 1));
+        m_processor.getVariations().chooseWidth(width == m_processor.getRoomWidth() ? std::nullopt : std::optional<room::Width>(width));
+        fillMenus(); // the Channel Order items show this width's orders
+        syncControls();
+    };
+    m_order.onChange = [this] { m_processor.setChannelOrder(static_cast<room::FileOrder>(juce::jlimit(0, 1, m_order.getSelectedId() - 1))); syncControls(); };
+    m_layout.onChange = [this] { m_processor.setFileLayout(static_cast<takefile::Layout>(juce::jlimit(0, 1, m_layout.getSelectedId() - 1))); syncControls(); };
     m_each.onChange = [this]
     {
         const bool ride = m_each.getSelectedId() == 2;
@@ -249,6 +259,34 @@ void VariationsView::fillMenus()
          { { VariationRenderer::filesName(Files::PerVariation), "Every variation is a file of its own" },
            { VariationRenderer::filesName(Files::OneWithMarkers), "One long file, with a named marker at each variation" },
            { VariationRenderer::filesName(Files::Both), "The separate files, and the one long file as well" } });
+
+    // Width: every room, each saying how many channels it gives; the one the rig plays at says so.
+    {
+        m_width.clear(juce::dontSendNotification);
+        const auto rig = m_processor.getRoomWidth();
+        for (int w = 0; w < room::c_numWidths; ++w)
+        {
+            const auto& layout = room::layout(static_cast<room::Width>(w));
+            const juce::String channels = layout.numChannels == 1 ? juce::String("1 channel") : juce::String(layout.numChannels) + " channels";
+            addChoice(*m_width.getRootMenu(), w + 1, layout.name, static_cast<room::Width>(w) == rig ? channels + ", as the rig plays" : channels);
+        }
+        m_width.setSelectedId(static_cast<int>(defaults.width) + 1, juce::dontSendNotification);
+    }
+    // Channel Order: each order as it is at this width (both are the same below 5.1).
+    {
+        m_order.clear(juce::dontSendNotification);
+        for (int o = 0; o < room::c_numFileOrders; ++o)
+        {
+            const auto order = static_cast<room::FileOrder>(o);
+            addChoice(*m_order.getRootMenu(), o + 1, room::fileOrderName(order),
+                      takefile::orderMatters(defaults.width) ? juce::String(room::orderLabel(defaults.width, order))
+                                                             : juce::String("The same as the other below 5.1"));
+        }
+        m_order.setSelectedId(static_cast<int>(defaults.options.order) + 1, juce::dontSendNotification);
+    }
+    fill(m_layout, static_cast<int>(defaults.options.layout),
+         { { takefile::layoutName(takefile::Layout::Interleaved), "One file with every channel" },
+           { takefile::layoutName(takefile::Layout::MultiMono), "A mono file for each channel, named the Pro Tools way" } });
     fillBatchMenu();
 }
 
@@ -369,6 +407,8 @@ VariationRenderer::Job VariationsView::job() const
     j.batchName = m_batchName.getText().trim();
     j.files = static_cast<Files>(juce::jlimit(0, 2, m_files.getSelectedId() - 1));
     j.gapSeconds = juce::jlimit(0.0, VariationRenderer::c_maxGapSeconds, m_gap.getText().getDoubleValue());
+    if (m_width.getSelectedId() > 0)
+        j.width = static_cast<room::Width>(juce::jlimit(0, room::c_numWidths - 1, m_width.getSelectedId() - 1));
     if (VariationRenderer::Batch batch; repeatedBatch(batch))
         j.batchSeed = batch.number;
     return j;
@@ -381,7 +421,7 @@ juce::String VariationsView::formatLine() const
     const int bits = j.options.type != TapeRecorder::FileType::Wav && j.options.bitDepth == 32 ? 24 : j.options.bitDepth;
     juce::String line;
     line << types[juce::jlimit(0, 2, static_cast<int>(j.options.type))] << ", " << bits << "-bit" << (bits == 32 ? " float" : "") << ", "
-         << oneDecimal(j.rate / 1000.0) << " kHz, " << (j.options.mono ? "mono" : "stereo");
+         << oneDecimal(j.rate / 1000.0) << " kHz";
     return line;
 }
 
@@ -404,7 +444,7 @@ void VariationsView::syncControls()
     const bool rendering = m_processor.getVariations().isRendering();
     const auto j = job();
     for (auto* c : std::initializer_list<juce::Component*> { &m_count, &m_length, &m_each, &m_mode, &m_batch, &m_names, &m_files, &m_choose, &m_dated,
-                                                              &m_render })
+                                                              &m_render, &m_width })
         c->setEnabled(! rendering);
     auto dim = [rendering](juce::Component& c, bool used)
     {
@@ -412,6 +452,17 @@ void VariationsView::syncControls()
         c.setAlpha(used ? 1.0f : 0.35f);
     };
     dim(m_amount, j.mode == Mode::SmallChanges);
+    // Channel Order only means something for one file of 5.1 or wider; File Layout from Stereo up.
+    dim(m_order, takefile::orderMatters(j.width) && j.options.layout == takefile::Layout::Interleaved);
+    dim(m_layout, takefile::layoutMatters(j.width));
+    m_width.setTooltip("Width\nThe room the variations are rendered in, from Mono to 7.1.4: each one is made at that width from the start, "
+                       "whatever your track or audio device is, so the same batch can be had in Mono, Stereo, 5.1 and 7.1.4. It starts at "
+                       "the width the rig plays at.");
+    m_order.setTooltip("Channel Order\nThe order of the channels in a 5.1 or wider file: Pro Tools (Film), the order of a Pro Tools track, "
+                       "or SMPTE / WAV, the order most other programs read. The line underneath spells out the order you get. The same "
+                       "setting as in Settings, for the tape.");
+    m_layout.setTooltip("File Layout\nInterleaved: one file that holds every channel. Multi-Mono: a mono file for each channel, named the Pro Tools "
+                        "way (.L .C .R ...), so Pro Tools takes them in as one clip. The same setting as in Settings, for the tape.");
     // The name box is always there to type in. A name left in it while another File Names choice is in use is shown fainter.
     m_batchName.setEnabled(! rendering);
     m_batchName.setAlpha(j.names == Names::BatchNameAndCounter || m_batchName.isEmpty() ? 1.0f : 0.45f);
@@ -456,9 +507,14 @@ void VariationsView::syncControls()
         default:                    m_firstLine = "First file: " + plan.firstName + extension + format; break;
     }
     const auto estimate = m_processor.getVariations().estimate(j);
-    m_getLine = VariationRenderer::oneFileTooBig(j, estimate)
-                    ? juce::String("That one file would be over 4 GB, too big for markers. Make fewer or shorter ones, or use FLAC.")
-                    : VariationRenderer::estimateText(j, estimate);
+    const auto problem = VariationRenderer::formatProblem(j);
+    const bool tooBig = VariationRenderer::oneFileTooBig(j, estimate);
+    m_getProblem = problem.isNotEmpty() || tooBig;
+    m_getLine = problem.isNotEmpty() ? problem
+              : tooBig ? (j.options.type == TapeRecorder::FileType::Aiff
+                              ? juce::String("That one AIFF file would be over 2 GB, more than AIFF can hold. Make fewer or shorter ones, or use WAV.")
+                              : juce::String("That one file would be over 4 GB, too big for markers. Make fewer or shorter ones, or use FLAC."))
+                       : VariationRenderer::estimateText(j, estimate);
     m_syncedMinute = juce::Time::getCurrentTime().getMinutes();
     repaint();
 }
@@ -512,7 +568,7 @@ void VariationsView::resized()
     struct Row
     {
         juce::Rectangle<int> captions, controls;
-        std::array<juce::Rectangle<int>, 11>& names;
+        std::array<juce::Rectangle<int>, 14>& names;
         size_t& next;
         juce::Rectangle<int> take(int width, int gapAfter = 20)
         {
@@ -559,6 +615,15 @@ void VariationsView::resized()
         m_gap.setBounds(gap.removeFromLeft(44));
         m_gapUnit = gap.withTrimmedLeft(6);
     }
+    // Width, Channel Order, File Layout, and under them what each file will hold
+    {
+        auto line = row();
+        m_width.setBounds(line.take(120));
+        m_order.setBounds(line.take(190));
+        m_layout.setBounds(line.take(150, 0));
+        m_orderText = r.withTrimmedTop(-8).removeFromTop(20);
+        r.removeFromTop(12 + 4);
+    }
     // Folder: where it is, and the two ways to say where
     {
         m_captions[caption++] = r.removeFromTop(20);
@@ -597,13 +662,16 @@ void VariationsView::paint(juce::Graphics& g)
                                  Icons::Icon::Variations);
 
     const char* captions[] = { "How Many", "What Each File Is", "Length", "What Varies", "How Different", "Batch",
-                               "File Names", "Batch Name", "Files", "Gap", "Folder" };
+                               "File Names", "Batch Name", "Files", "Gap", "Width", "Channel Order", "File Layout", "Folder" };
     const auto mode = static_cast<Mode>(juce::jlimit(0, 2, m_mode.getSelectedId() - 1));
     const bool small = mode == Mode::SmallChanges;
     const bool gapped = m_files.getSelectedId() - 1 != static_cast<int>(Files::PerVariation);
+    const auto j = job();
+    const bool ordered = takefile::orderMatters(j.width) && j.options.layout == takefile::Layout::Interleaved;
+    const bool laidOut = takefile::layoutMatters(j.width);
     for (size_t i = 0; i < m_captions.size(); ++i)
     {
-        const bool used = (i != 4 || small) && (i != 9 || gapped);
+        const bool used = (i != 4 || small) && (i != 9 || gapped) && (i != 11 || ordered) && (i != 12 || laidOut);
         g.setColour(used ? TC::textDim : TC::textFaint);
         Theme::fitText(g, captions[i], m_captions[i], m_fonts.caption(), juce::Justification::centredLeft);
     }
@@ -625,8 +693,10 @@ void VariationsView::paint(juce::Graphics& g)
                                 : folder().getFullPathName();
         Theme::fitText(g, fitPath(body, path, m_folderText.getWidth()), m_folderText, body, juce::Justification::centredLeft, Theme::Fit::Name);
         g.setColour(TC::textDim);
+        Theme::fitText(g, takefile::orderLine(j.width, j.options.order, j.options.layout), m_orderText, body, juce::Justification::centredLeft,
+                       Theme::Fit::Sentence);
         Theme::fitText(g, m_firstLine, m_firstText, body, juce::Justification::centredLeft, Theme::Fit::Name);
-        g.setColour(TC::text);
+        g.setColour(m_getProblem ? TC::hits.brighter(0.2f) : TC::text);
         Theme::fitText(g, m_getLine, m_getText, body, juce::Justification::centredLeft, Theme::Fit::Sentence);
         g.setColour(TC::textDim);
         VariationRenderer::Batch batch;

@@ -57,6 +57,17 @@ namespace takefile
         "L C R Ls Rs LFE". */
     juce::String channelLine(room::Width width, room::FileOrder order);
 
+    /** The line under the Channel Order and File Layout choices, spelling out what a take of this width gives:
+        "5.1 in one file: L C R Ls Rs LFE." (interleaved, in the order chosen; below 5.1 it adds that Channel Order
+        is for 5.1 and wider), "5.1 as 6 files ending .L .C .R .Ls .Rs .LFE." (Multi-Mono, the suffixes in the Pro
+        Tools order), "Mono: one channel in one file." */
+    juce::String orderLine(room::Width width, room::FileOrder order, Layout layout);
+
+    /** Channel Order matters for this width (5.1 and wider: Mono, Stereo and Quad have one order), and File Layout
+        (Stereo and wider: Mono is one file either way). */
+    inline bool orderMatters(room::Width width) noexcept { return room::layout(width).numChannels >= 6; }
+    inline bool layoutMatters(room::Width width) noexcept { return width != room::Width::Mono; }
+
     /** The speaker mask a WAV file of this width in this order carries: room::wavChannelMask where the order is the
         mask's own (SMPTE / WAV, and Mono to Quad, which have one order), 0 for the Pro Tools (Film) order of 5.1 and
         wider. */

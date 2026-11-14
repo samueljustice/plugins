@@ -1516,8 +1516,28 @@ void SwooshbucklerAudioProcessor::setRecordRate(int rate)
 
 int SwooshbucklerAudioProcessor::getFileType() const { return juce::jlimit(0, 2, m_settings->getIntValue("fileType", 0)); }
 void SwooshbucklerAudioProcessor::setFileType(int type) { m_settings->setValue("fileType", juce::jlimit(0, 2, type)); m_settings->saveIfNeeded(); }
-bool SwooshbucklerAudioProcessor::getMono() const { return m_settings->getBoolValue("mono", false); }
-void SwooshbucklerAudioProcessor::setMono(bool mono) { m_settings->setValue("mono", mono); m_settings->saveIfNeeded(); }
+SwooshbucklerAudioProcessor::TapeFold SwooshbucklerAudioProcessor::getTapeFold() const
+{
+    return static_cast<TapeFold>(juce::jlimit(0, 2, m_settings->getIntValue("tapeFold", 0)));
+}
+
+void SwooshbucklerAudioProcessor::setTapeFold(TapeFold fold)
+{
+    m_settings->setValue("tapeFold", static_cast<int>(fold));
+    m_settings->saveIfNeeded();
+}
+
+room::Width SwooshbucklerAudioProcessor::getTapeWidth() const
+{
+    const auto room = getRoomWidth();
+    switch (getTapeFold())
+    {
+        case TapeFold::Mono:   return room::Width::Mono;
+        case TapeFold::Stereo: return room::canFold(room, room::Width::Stereo) ? room::Width::Stereo : room;
+        case TapeFold::AsPlayed:
+        default:               return room;
+    }
+}
 
 room::FileOrder SwooshbucklerAudioProcessor::getChannelOrder() const
 {
@@ -1547,7 +1567,11 @@ TapeRecorder::Options SwooshbucklerAudioProcessor::tapeOptions() const
     o.bitDepth = getBitDepth();
     o.fileRate = static_cast<double>(getRecordRate()); // 0 = the session rate
     o.type = static_cast<TapeRecorder::FileType>(getFileType());
-    o.mono = getMono();
+    // The tape gets the pipe (a Mono room is carried as Stereo, so As Played there is the Mono fold of it).
+    const auto width = getTapeWidth();
+    o.mono = width == room::Width::Mono;
+    o.stereo = width == room::Width::Stereo;
+    o.played = getRoomWidth();
     o.order = getChannelOrder();
     o.layout = getFileLayout();
     if (m_raw.ceiling != nullptr)
@@ -1575,9 +1599,10 @@ bool SwooshbucklerAudioProcessor::saveRetro(juce::File& written, juce::String& e
 {
     // The same file type, bit depth, sample rate, channels, order and layout as the tape.
     updateTapeNaming();
-    if (! m_recorder.saveRetro(getRecordFolder(), tapeOptions(), written, error))
+    const auto options = tapeOptions();
+    if (! m_recorder.saveRetro(getRecordFolder(), options, written, error))
         return false;
-    registerTake(written, retroLabel());
+    registerTake(written, retroLabel(), -1.0, 0, TapeRecorder::foldedFrom(options, m_pipeChannels));
     return true;
 }
 
@@ -1630,7 +1655,7 @@ std::unique_ptr<SwooshbucklerAudioProcessor> SwooshbucklerAudioProcessor::makeOf
     return copy;
 }
 
-void SwooshbucklerAudioProcessor::prepareOffline(double sampleRate, std::uint32_t seed)
+void SwooshbucklerAudioProcessor::prepareOffline(double sampleRate, std::uint32_t seed, room::Width width)
 {
     jassert(m_offline);
     // Stopped, nothing held, nothing waiting.
@@ -1651,7 +1676,18 @@ void SwooshbucklerAudioProcessor::prepareOffline(double sampleRate, std::uint32_
     m_engine.setSeed(seed);
     m_mods.setSeed(static_cast<juce::int64>(seed));
     m_recordRateOverride = 0; // the rig renders at the rate it is prepared at
-    setPlayConfigDetails(0, 2, sampleRate, c_maxSection);
+    // The room it plays in: the output bus as JUCE's own set for the width (a discrete set of the same count would
+    // not be a room), whatever the live rig's track or device is. An offline copy is no app, so every width is
+    // allowed (isBusesLayoutSupported).
+    auto layout = getBusesLayout();
+    if (! layout.outputBuses.isEmpty())
+        layout.outputBuses.getReference(0) = room::channelSet(width);
+    for (auto& input : layout.inputBuses)
+        input = juce::AudioChannelSet::disabled();
+    const bool set = setBusesLayout(layout);
+    jassert(set);
+    juce::ignoreUnused(set);
+    setRateAndBufferSizeDetails(sampleRate, c_maxSection);
     prepareToPlay(sampleRate, c_maxSection); // empties the engine, the modulators and the output stage
     // The morph wander sets off from where the X / Y controls are.
     m_wanderOn = false;
@@ -1757,24 +1793,31 @@ void SwooshbucklerAudioProcessor::refreshTakes()
     for (const auto& take : m_recorder.takeFinishedTakes())
     {
         ++m_filesThisTake;
-        registerTake(take.file, take.whoosh ? "Whoosh" : "Tape", take.seconds, take.markers);
+        registerTake(take.file, take.whoosh ? "Whoosh" : "Tape", take.seconds, take.markers, take.foldedFrom);
     }
     if (m_variations != nullptr)
         for (const auto& written : m_variations->takeWritten())
             registerTake(written.file, written.markers > 0 ? "Variations" : "Variation", written.seconds, written.markers); // one file that holds them all is one take
 }
 
-void SwooshbucklerAudioProcessor::registerTake(const juce::File& fileToAdd, const juce::String& kindToShow, double seconds, int markers)
+juce::String SwooshbucklerAudioProcessor::widthTag(const Take& take)
+{
+    const juce::String width(room::layout(take.format.width).name);
+    return take.foldedFrom.has_value() ? width + " Fold" : width;
+}
+
+void SwooshbucklerAudioProcessor::registerTake(const juce::File& fileToAdd, const juce::String& kindToShow, double seconds, int markers,
+                                               std::optional<room::Width> foldedFrom)
 {
     const juce::File file(fileToAdd);     // copies: the caller may have handed us a take of the list that is about
     const juce::String kind(kindToShow);  // to be replaced
     if (! juce::MessageManager::existsAndIsCurrentThread())
     {
         juce::WeakReference<SwooshbucklerAudioProcessor> weak(this);
-        juce::MessageManager::callAsync([weak, file, kind, seconds, markers]
+        juce::MessageManager::callAsync([weak, file, kind, seconds, markers, foldedFrom]
         {
             if (auto* self = weak.get())
-                self->registerTake(file, kind, seconds, markers);
+                self->registerTake(file, kind, seconds, markers, foldedFrom);
         });
         return;
     }
@@ -1791,6 +1834,7 @@ void SwooshbucklerAudioProcessor::registerTake(const juce::File& fileToAdd, cons
     take.file = first;
     take.files = found.files.isEmpty() ? juce::Array<juce::File> { file } : found.files;
     take.format = found.format;
+    take.foldedFrom = foldedFrom;
     take.kind = kind;
     take.seconds = juce::jmax(0.0, seconds);
     take.markers = markers;
