@@ -1,51 +1,85 @@
 #!/bin/bash
-# The background job bundle/install-aax-signer.sh installs on Samuel's Mac (launchd, every 10 minutes).
-# Each run fetches the current bundle/sign-aax.sh, resolve-releases.sh and plugins.txt from main and runs
-# sign-aax.sh, which signs the macOS AAX of any new release and starts its notarisation. Shows a macOS
-# notification when it signs something or when signing fails (e.g. the iLok isn't available).
-# Log: ~/Library/Logs/SammyJ-AAX-Signer.log
+# The prompt bundle/install-aax-signer.sh sets up on Samuel's Mac (a launchd job, every 2 minutes).
+# When a release's "AAX signing" run reaches "Sign on the Mac", it asks once: plug the iLok into this Mac,
+# then Sign (runs `sign-aax`) or Later (run `sign-aax` yourself when ready). It never signs on its own,
+# because the iLok may be in the PC. Log: ~/Library/Logs/SammyJ-AAX-Signer.log
 set -uo pipefail
 
 export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
 repo="samueljustice/plugins"
+stage="Sign on the Mac"
 state="$HOME/Library/Application Support/SammyJ/aax-signer"
+asked="$state/asked-runs"
 mkdir -p "$state"
+touch "$asked"
 
 notify() {
-  osascript -e "display notification \"$2\" with title \"Sammy J AAX signing\" subtitle \"$1\"" >/dev/null 2>&1 || true
+  osascript - "$1" "$2" >/dev/null 2>&1 << 'EOF' || true
+on run argv
+  display notification (item 2 of argv) with title "AAX signing" subtitle (item 1 of argv)
+end run
+EOF
 }
 
-# One run at a time (a slow notarisation upload can outlast the 10-minute interval).
-lock="$state/run.lock"
+# One prompt at a time.
+lock="$state/prompt.lock"
 if ! mkdir "$lock" 2>/dev/null; then
-  if [[ -n "$(find "$lock" -maxdepth 0 -mmin +60 2>/dev/null)" ]]; then rm -rf "$lock"; mkdir "$lock"; else exit 0; fi
+  [[ -n "$(find "$lock" -maxdepth 0 -mmin +60 2>/dev/null)" ]] || exit 0   # a prompt is already open
+  rm -rf "$lock"; mkdir "$lock" || exit 0
 fi
-work="$(mktemp -d)"
-trap 'rm -rf "$work" "$lock"' EXIT
+trap 'rm -rf "$lock"' EXIT
 
-echo "== $(date '+%Y-%m-%d %H:%M:%S')"
-gh auth status >/dev/null 2>&1 || { echo "gh isn't logged in"; notify "Can't check releases" "GitHub CLI isn't logged in (run gh auth login)."; exit 1; }
+gh auth status >/dev/null 2>&1 || exit 0   # offline or logged out: nothing to ask about
 
-# Today's scripts from main, so the job never needs reinstalling when they change.
-mkdir -p "$work/bundle"
-for f in sign-aax.sh resolve-releases.sh plugins.txt; do
-  gh api "repos/$repo/contents/bundle/$f?ref=main" -H "Accept: application/vnd.github.raw" > "$work/bundle/$f" \
-    || { echo "couldn't fetch bundle/$f"; exit 0; }   # offline: try again next time, quietly
-done
-chmod +x "$work/bundle/"*.sh
+# Runs waiting for the Mac that haven't been asked about yet.
+runs=$(gh run list -R "$repo" --workflow aax-signing.yml --status in_progress --limit 50 \
+         --json databaseId,displayTitle --jq '.[] | "\(.databaseId)|\(.displayTitle)"' 2>/dev/null) || exit 0
+new_runs=()
+releases=()
+while IFS='|' read -r run title; do
+  [[ -z "$run" ]] && continue
+  grep -qx "$run" "$asked" && continue
+  jobs=$(gh run view "$run" -R "$repo" --json jobs --jq '.jobs[] | "\(.name)|\(.status)"' 2>/dev/null) || continue
+  grep -qx "$stage|in_progress" <<< "$jobs" || continue
+  new_runs+=("$run")
+  releases+=("${title##* }")
+done <<< "$runs"
+[[ ${#new_runs[@]} -eq 0 ]] && exit 0
 
-cd "$state"
-# Only releases published after the job was installed; older ones are signed by hand when wanted.
-since=$(cat "$state/since" 2>/dev/null || true)
-output=$("$work/bundle/sign-aax.sh" ${since:+--since "$since"} 2>&1)
+printf '%s\n' "${new_runs[@]}" >> "$asked"
+list=$(printf '%s\n' "${releases[@]}")
+echo "== $(date '+%Y-%m-%d %H:%M:%S') waiting for the Mac: $(paste -sd ' ' - <<< "$list")"
+
+answer=$(osascript - "$list" 2>/dev/null << 'EOF'
+on run argv
+  set releaseList to item 1 of argv
+  try
+    set reply to display dialog "Ready to sign the AAX for:" & return & return & releaseList & return & return & ¬
+      "Plug the iLok into this Mac, then click Sign." with title "AAX signing" ¬
+      buttons {"Later", "Sign"} default button "Sign" cancel button "Later" giving up after 1200
+    if gave up of reply then return "later"
+    return button returned of reply
+  on error
+    return "later"
+  end try
+end run
+EOF
+)
+
+if [[ "$answer" != "Sign" ]]; then
+  echo "   later (run sign-aax when the iLok is in this Mac)"
+  exit 0
+fi
+
+notify "Signing" "$(paste -sd ',' - <<< "$list" | sed 's/,/, /g')"
+output=$("$HOME/.local/bin/sign-aax" 2>&1)
 status=$?
 echo "$output"
-
 if [[ $status -ne 0 ]]; then
-  reason=$(grep -m1 -E 'wraptool Error|LICENSE ERROR|failed|Missing|not found|not in the keychain' <<< "$output" | cut -c1-180)
-  notify "Signing failed" "${reason:-See ~/Library/Logs/SammyJ-AAX-Signer.log}"
+  reason=$(grep -m1 -E 'wraptool Error|LICENSE ERROR|iLok|failed|not found' <<< "$output" | cut -c1-180)
+  notify "Signing failed" "${reason:-See ~/Library/Logs/SammyJ-AAX-Signer.log}. Fix it, then run sign-aax."
   exit 1
 fi
-signed=$(grep '^Signed:' <<< "$output" | sed 's/^Signed: *//' | paste -sd ',' - | sed 's/,/, /g')
-[[ -n "$signed" ]] && notify "Signed and sent for notarisation" "$signed"
+done_list=$(grep '^Signed:' <<< "$output" | sed 's/^Signed: *//' | paste -sd ',' - | sed 's/,/, /g')
+notify "Signed on the Mac" "${done_list:-Nothing needed signing}. Move the iLok to the PC next."
 exit 0
