@@ -246,7 +246,7 @@ public:
     void setSkipSilence(int track, bool skip);
 
     bool loadFile(int track, const juce::File& file, juce::String& error);
-    /** Loads audio made in memory (the demo sounds) into a track, exactly as a file of that name would be: analysed,
+    /** Loads audio made in memory (the tools' and tests' demo sounds) into a track, exactly as a file of that name would be: analysed,
         typed, routed, and one undo step. One channel, or two (left and right). Message thread. */
     bool loadBuffer(int track, const juce::AudioBuffer<float>& audio, double sampleRate, const juce::String& name);
 

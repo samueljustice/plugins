@@ -3,7 +3,7 @@
 //   SwooshbucklerUiShot --out <dir> [--scale 0.6|1.0|1.5|2.0] [--seconds 3] [--state <session file>]
 //                       [--work <private dir>] [--list] [--no-images] [--constellation] [--sea]
 //
-// It makes the processor and its editor with no window on screen, loads the built-in demo sounds (or a session
+// It makes the processor and its editor with no window on screen, loads its own demo sounds (or a session
 // file given with --state), plays for a few seconds so the sea, the rides, the scopes and the meters are alive
 // (the editor's timers are stepped by hand), and writes:
 //
@@ -394,7 +394,7 @@ int main(int argc, char* argv[])
         shots.crop(shots.shoot("empty"), "sea-idle", rig.editor->m_sea.getBounds());
         rig.editor.reset();
 
-        // The sounds: a session file, or the built-in demo sounds. The editor is made after them (there is no
+        // The sounds: a session file, or the tool's own demo sounds (tools/DemoSounds.cpp). The editor is made after them (there is no
         // message loop to tell an open one).
         if (options.state != juce::File())
         {
