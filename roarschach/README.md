@@ -379,7 +379,7 @@ The view above the chain is drawn live in OpenGL from the audio and the controls
 
 <img src="docs/colour-moods.gif" alt="One blot seed with three presets in turn, each with its colour settled: Init in the default pale blue-grey, Kaiju in ember red and Iron Tyrant in warm stone; each preset also gives the blot a different shape" width="720">
 
-Right-click the creature for **Evolution: Live** (it keeps evolving), **Evolution: Frozen** (it holds its current form and colour, also after the editor is closed or the project reloaded; it still moves with the voice) and **Reset creature** (it eases back to a young blot over a few seconds and grows a new one).
+Right-click the creature for **Evolution: Live** (it keeps evolving), **Evolution: Frozen** (it holds its current form and colour, also after the editor is closed or the project reloaded; it still moves with the voice) and **Reset creature** (it eases back to a young blot over a few seconds and grows a new one). Under **Visualiser**, **Full** draws the creature as smoothly as the graphics card allows, **Low** draws it at a lighter quality and at most 15 frames a second, and **Off** shows a still cloud and leaves the graphics card alone; the choice is kept on this computer and applies to every instance. The view draws nothing while its window is minimised or hidden, and slows to two frames a second while its window is covered or on another desktop.
 
 <img src="docs/creature-menu.jpg" alt="The creature's right-click menu over the lower-left of the ember-red view: a Creature heading, Evolution: Live (ticked), Evolution: Frozen and Reset creature" width="420">
 

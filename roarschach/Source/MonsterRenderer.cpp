@@ -1509,12 +1509,12 @@ namespace roar
         const float lastGpu = m_freshGpuMs;   // each reading reaches the governor once
         const int changesBefore = m_governor.changes;
         m_governor.noteLoad ((double) W * (double) H);
-        const int governed = m_governor.step (f.interval, f.targetInterval, lastGpu, f.dtClamped);
+        const int governed = m_low ? m_governor.tier : m_governor.step (f.interval, f.targetInterval, lastGpu, f.dtClamped);
         if (m_governor.changes != changesBefore)
             rememberTier();
         // (measurement never leaves the buffer's tiers for the single pass, which costs more a pixel
         // than tier 1: the single pass is drawn where the buffer cannot run at all, and for a test)
-        int tier = m_forcedTier >= 0 ? std::min (m_forcedTier, m_capTier) : std::min (governed, m_capTier);
+        int tier = m_forcedTier >= 0 ? std::min (m_forcedTier, m_capTier) : std::min (m_low ? 1 : governed, m_capTier);
         if (! m_simOk)
             tier = 0;
 

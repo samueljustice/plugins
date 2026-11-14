@@ -3275,6 +3275,70 @@ namespace
             check(image.isValid() && median > 0.55f && median < 0.92f && dark > 50,
                   "editor: without OpenGL the creature view is a still pale cloud with a message (median luma " + juce::String(median, 2) + ")");
         }
+        {
+            // The visualiser: Full asks for frames, Off keeps no context and asks for none (a still
+            // cloud, no message), Low asks for at most 15 a second; a view that cannot be seen asks
+            // for none, and one its window reports covered two a second. The choice reaches every
+            // open view on its next tick.
+            using V = MonsterView::Visualiser;
+            auto q = makeProcessor(48000.0, 512);
+            std::unique_ptr<juce::AudioProcessorEditor> base(q->createEditor()), base2(q->createEditor());
+            auto& ed = *dynamic_cast<RoarschachAudioProcessorEditor*>(base.get());
+            auto& ed2 = *dynamic_cast<RoarschachAudioProcessorEditor*>(base2.get());
+            ed.setSize(RoarschachAudioProcessorEditor::c_baseWidth, RoarschachAudioProcessorEditor::c_baseHeight);
+            ed2.setSize(RoarschachAudioProcessorEditor::c_baseWidth, RoarschachAudioProcessorEditor::c_baseHeight);
+            auto& view = RoarschachEditorInspector::monster(ed);
+            auto& other = RoarschachEditorInspector::monster(ed2);
+            view.setSeenForTests(0);
+            other.setSeenForTests(0);
+            const auto ticks = [](MonsterView& v, int n) { const int before = v.framesRequestedForTests(); for (int i = 0; i < n; ++i) v.tickForTests(); return v.framesRequestedForTests() - before; };
+            const int full = ticks(view, 10);
+            const bool fullAttached = view.hasGLContextForTests();
+            const int fullHz = view.frameRateForTests();
+            MonsterView::setVisualiserForAll(V::low);
+            const int low = ticks(view, 10);
+            const int lowHz = view.frameRateForTests();
+            MonsterView::setVisualiserForAll(V::off);
+            const int off = ticks(view, 10);
+            ticks(other, 1);
+            const bool offDetached = ! view.hasGLContextForTests() && ! other.hasGLContextForTests() && other.getVisualiser() == V::off;
+            const auto still = view.createComponentSnapshot(view.getLocalBounds(), true, 1.0f);
+            double sum = 0.0;
+            int n = 0, dark = 0;
+            for (int y = 0; y < still.getHeight(); y += 2)
+                for (int x = 0; x < still.getWidth(); x += 2, ++n)
+                {
+                    const auto c = still.getPixelAt(x, y);
+                    sum += static_cast<double>(c.getBrightness());
+                    // (in the middle, where the no-OpenGL message would stand; the readouts' backing is at the edges)
+                    const bool middle = std::abs(x - still.getWidth() / 2) < 150 && std::abs(y - still.getHeight() / 2) < 30;
+                    dark += middle && 0.3f * c.getFloatRed() + 0.59f * c.getFloatGreen() + 0.11f * c.getFloatBlue() < 0.3f ? 1 : 0;
+                }
+            std::unique_ptr<juce::AudioProcessorEditor> base3(q->createEditor());
+            auto& opened = RoarschachEditorInspector::monster(*dynamic_cast<RoarschachAudioProcessorEditor*>(base3.get()));
+            const bool openedOff = opened.getVisualiser() == V::off && ! opened.hasGLContextForTests();
+            base3.reset();
+            MonsterView::setVisualiserForAll(V::full);
+            const int back = ticks(view, 10);
+            const bool backAttached = view.hasGLContextForTests();
+            view.setSeenForTests(1);
+            const int unseen = ticks(view, 10);
+            const int unseenHz = view.frameRateForTests();
+            view.setSeenForTests(2);
+            const int covered = ticks(view, 10);
+            const int coveredHz = view.frameRateForTests();
+            view.setSeenForTests(0);
+            const int seenAgain = ticks(view, 10);
+            std::printf("  creature view, frames asked for in 10 ticks: full %d (%d Hz), low %d (%d Hz), off %d, full again %d; not seen %d (%d Hz), covered %d (%d Hz), seen again %d;"
+                        " off: mean brightness %.2f, %d dark pixels of %d\n", full, fullHz, low, lowHz, off, back, unseen, unseenHz, covered, coveredHz, seenAgain, n > 0 ? sum / n : 0.0, dark, n);
+            check(full == 10 && fullAttached && fullHz >= 15, "creature view: Full draws a frame on every tick");
+            check(low == 10 && lowHz <= 15, "creature view: Low draws at most 15 frames a second (" + juce::String(lowHz) + ")");
+            check(off == 0 && offDetached && openedOff, "creature view: Off keeps no OpenGL context and draws no frames, in every open view and the next one opened");
+            check(n > 0 && sum / n > 0.5 && dark == 0, "creature view: Off shows the still cloud without the no-OpenGL message (mean brightness " + juce::String(n > 0 ? sum / n : 0.0, 2) + ", "
+                                                                + juce::String(dark) + " dark pixels in the middle)");
+            check(back == 10 && backAttached, "creature view: back from Off it attaches its context and draws again");
+            check(unseen == 0 && covered == 10 && coveredHz <= 2 && seenAgain == 10, "creature view: no frames while it cannot be seen, two a second while its window reports it covered, all again once seen");
+        }
         auto p = makeProcessor(48000.0, 512);
         std::unique_ptr<juce::AudioProcessorEditor> editorBase(p->createEditor());
         auto& editor = *dynamic_cast<RoarschachAudioProcessorEditor*>(editorBase.get());
@@ -3844,8 +3908,20 @@ namespace
             check(Editor::rememberScale(file, 0.1f) && near(Editor::readRememberedScale(file), Editor::c_minScale), "a remembered size below the smallest is clamped");
             check(!Editor::rememberScale(file, std::numeric_limits<float>::quiet_NaN()) && near(Editor::readRememberedScale(file), Editor::c_minScale),
                   "a non-finite size is not remembered");
+            {
+                using V = MonsterView::Visualiser;
+                check(Editor::readRememberedVisualiser(file) == V::full, "no settings file: the visualiser is Full");
+                bool all = true;
+                for (const auto v : { V::low, V::off, V::full, V::off })
+                    all = all && Editor::rememberVisualiser(file, v) && Editor::readRememberedVisualiser(file) == v;
+                check(all, "the visualiser chosen is remembered (Full, Low and Off)");
+                check(near(Editor::readRememberedScale(file), Editor::c_minScale), "remembering the visualiser keeps the remembered size");
+                Editor::rememberScale(file, 0.9f);
+                check(Editor::readRememberedVisualiser(file) == V::off, "remembering the size keeps the visualiser");
+            }
             file.replaceWithText("not a settings file");
             check(Editor::readRememberedScale(file) == 0.0f, "a damaged settings file gives no remembered size");
+            check(Editor::readRememberedVisualiser(file) == MonsterView::Visualiser::full, "a damaged settings file gives the visualiser Full");
             file.deleteFile();
             check(Editor::getSettingsFile().getFileName() == "Roarschach.settings"
                       && Editor::getSettingsFile().getParentDirectory().getFileName() == "Sammy J",

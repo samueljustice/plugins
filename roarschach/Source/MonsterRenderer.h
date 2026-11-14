@@ -186,6 +186,10 @@ namespace roar
         int getTier() const { return m_tier; }
         /** Harness and tests: hold a tier (-1 = the governor decides). */
         void setForcedTier (int tier) { m_forcedTier = tier; }
+        /** The view's Visualiser: Low. The lightest buffered tier (the single pass where the GPU has
+            no buffer), whatever the governor would choose; the governor is not stepped meanwhile, so
+            what it remembers of this GPU stays its own. */
+        void setLowQuality (bool low) { m_low = low; }
         /** Harness and tests: a fixed 1/30 s step whatever the wall clock says. */
         void setFixedStep (bool fixed) { m_fixedStep = fixed; }
         void requestReseed() { m_needsSeed = true; }
@@ -342,6 +346,7 @@ namespace roar
         float m_pendSeconds = 0.0f;
         bool m_needsSeed = true;
         int m_tier = 0, m_prevTier = -1, m_forcedTier = -1, m_capTier = 3;
+        bool m_low = false;
         bool m_fixedStep = false;
         bool m_tierCapture = false;  // the tier being left drew once more and was kept, for the crossfade
         float m_tierFade = -1.0f;    // >= 0: crossfading from the kept frame (seconds into it)

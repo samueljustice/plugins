@@ -60,6 +60,9 @@ public:
     /** The scale kept in that file; 0 if there is none (or it cannot be read). */
     static float readRememberedScale(const juce::File& settingsFile);
     static bool rememberScale(const juce::File& settingsFile, float scale);
+    /** How much the creature view draws, as last chosen on this computer (Full where none is kept). */
+    static MonsterView::Visualiser readRememberedVisualiser(const juce::File& settingsFile);
+    static bool rememberVisualiser(const juce::File& settingsFile, MonsterView::Visualiser visualiser);
 
     //==============================================================================
     /** Cmd+Z / Ctrl+Z (with Shift: redo) for the last roll or preset load. True if it undid or

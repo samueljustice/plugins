@@ -4779,6 +4779,32 @@ inline void testInkBypass()
               + juce::String(stageRig - stageRigBefore, 4) + " against " + juce::String(stagePlain - stagePlainBefore, 4) + ")");
     check(wokeAfter > 0.0 && wokeAfter <= 0.3, "bypass: leaving it wakes the creature within 0.3 s (" + juce::String(wokeAfter, 2) + " s)");
     check(cutAsleepAfter > 0.0 && cutAsleepAfter <= 0.6, "bypass: a host that stops calling the plug-in puts it to sleep within 0.6 s (" + juce::String(cutAsleepAfter, 2) + " s)");
+    // (asleep, the frames come at the idle rate at once: the cloud's slow dispersal is drawn at it)
+    check(idleAfter > 0.0 && idleAfter <= 4.0 && cutIdleAfter > 0.0 && cutIdleAfter <= 4.5, "bypass: the frames slow to the idle rate within 4 s, as when the host stops calling (" + juce::String(idleAfter, 2) + " s, "
+                                                                                                + juce::String(cutIdleAfter, 2) + " s)");
+}
+
+/** The visualiser at Low: the lightest buffered tier whatever the governor would choose, and the
+    governor left as it was. */
+inline void testInkLowQuality()
+{
+    const InkScript script;
+    InkRig rig(576, 160, 3u, 0.6f);
+    if (! rig.ok())
+        return;
+    rig.setTier(-1);
+    rig.run(4.0, &script.audio);
+    const int fullTier = rig.monster->getQualityTier();
+    const int governed = rig.monster->getRendererForTests().getGovernor().tier;
+    rig.monster->setVisualiser(MonsterView::Visualiser::low);
+    rig.run(1.0, &script.audio);
+    const int lowTier = rig.monster->getQualityTier();
+    const int governedLow = rig.monster->getRendererForTests().getGovernor().tier;
+    rig.monster->setVisualiser(MonsterView::Visualiser::full);
+    rig.run(1.0, &script.audio);
+    const int backTier = rig.monster->getQualityTier();
+    std::printf("  visualiser: Full draws tier %d (the governor's %d), Low tier %d (the governor still at %d), Full again tier %d\n", fullTier, governed, lowTier, governedLow, backTier);
+    check(lowTier == std::min(1, fullTier) && governedLow == governed && backTier == fullTier, "visualiser: Low draws the lightest buffered tier and leaves the governor as it was");
 }
 #endif
 
@@ -4823,6 +4849,8 @@ inline void testInk()
         testInkWisps();
     if (wanted("bypass"))
         testInkBypass();
+    if (wanted("visualiser"))
+        testInkLowQuality();
    #endif
     if (wanted("ripples"))
         testInkRipples();

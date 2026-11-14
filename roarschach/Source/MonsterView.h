@@ -30,7 +30,13 @@
  * processor: the stage switches structure in, the characters bend it; CreatureAnatomy turns both
  * into the shape); the view only reads the evaluated parameters and smooths them. The renderer
  * (MonsterRenderer) steps an ink buffer on capable GPUs and draws one stateless pass on weak or
- * software ones. A right-click on the view offers Live / Frozen evolution and a reset.
+ * software ones. A right-click on the view offers Live / Frozen evolution, a reset, and how much
+ * the view draws (Visualiser: Full, Low or Off).
+ *
+ * It draws nothing while it cannot be seen: no frames at all while it is not showing (hidden, or
+ * its window minimised where the window can say so), and two a second where the window reports
+ * itself covered or on another desktop (some hosts show the view from another process, where that
+ * report may be wrong: then the picture slows rather than stops).
  *
  * Threads: the audio thread writes MonsterFeatures (atomics); the message thread writes the knob
  * values with setParams() (atomics); the GL thread reads both in renderOpenGL() and keeps its own
@@ -68,6 +74,19 @@ public:
     explicit MonsterView (const roar::MonsterFeatures& features, const roar::CreatureShared* creature = nullptr);
     ~MonsterView() override;
 
+    /** How much the view draws. full: the quality the graphics card can carry; low: the lightest
+        quality that still keeps the ink's own motion, at most 15 frames a second; off: a still
+        cloud, with no OpenGL at all. */
+    enum class Visualiser { full = 0, low, off };
+    /** Every view in this process follows this on its next timer tick. Message thread. */
+    static void setVisualiserForAll (Visualiser);
+    static Visualiser visualiserForAll();
+    Visualiser getVisualiser() const noexcept { return m_visualiser; }
+    /** This view at once (the timer also follows visualiserForAll()). Message thread. */
+    void setVisualiser (Visualiser);
+    /** Called with the menu's choice (the editor remembers it on this computer). */
+    std::function<void (Visualiser)> onVisualiserChosen;
+
     /** The right-click menu's actions (set by the editor; the menu shows only when they are set). */
     std::function<bool()> isCreatureFrozen;
     std::function<void (bool)> setCreatureFrozen;
@@ -95,6 +114,17 @@ public:
         so the component paints its fallback itself). */
     void giveUpOnGLForTests() { giveUpOnGL(); refreshOverlay (0.0f); }
     bool isGLAttachedForTests() const { return m_context.isAttached(); }
+    /** Tests: the context is set to this view (made natively once it is on screen). */
+    bool hasGLContextForTests() const { return m_context.getTargetComponent() != nullptr; }
+    /** Tests: one tick of the view's frame timer; the GL frames it has asked for so far; whether
+        drawing is paused (the view cannot be seen) or slowed (its window reports it covered); and
+        the view taken as seen (0), not shown (1) or covered (2) whatever the window says (-1). */
+    void tickForTests() { timerCallback(); }
+    int framesRequestedForTests() const noexcept { return m_framesRequested; }
+    bool isPausedForTests() const noexcept { return m_seen == Seen::no; }
+    bool isSlowedForTests() const noexcept { return m_seen == Seen::covered; }
+    int frameRateForTests() const noexcept { return m_timerHz; }
+    void setSeenForTests (int seen) { m_testSeen = seen; }
 
     /** Tests and snapshots: a fixed 1/30 s step, so frames repeat. */
     void setFixedStepForTests (bool fixed) { m_testFixedStep.store (fixed, std::memory_order_relaxed); }
@@ -172,6 +202,8 @@ private:
     void drawFrame (float dt, float scale, int width, int height);
     void updateAnimation (float dt);
     void showCreatureMenu();
+    enum class Seen { yes, covered, no };
+    Seen whetherSeen() const;
 
     static constexpr int c_numBands = roar::MonsterFeatures::numBands;
 
@@ -210,6 +242,7 @@ private:
     std::atomic<bool> m_idle { false };      // asleep and fully settled: frames can come slowly
     std::atomic<int> m_tier { -1 };          // the renderer's tier (the idle frame rate depends on it)
     std::atomic<int> m_awakeHz { 30 };       // frames a second awake (fewer where the GPU is given relief)
+    std::atomic<bool> m_lowQuality { false };  // Visualiser: Low (written on the message thread)
 
     // Frame read-back for snapshots (never used while a host runs the plug-in).
     std::atomic<bool> m_captureRequested { false };
@@ -262,6 +295,11 @@ private:
     int m_timerHz = 30;        // the frame timer's current rate (30 awake, slower once asleep and settled)
     int m_ticksWithoutGL = 0;  // timer ticks spent on screen without a working GL context
     bool m_glGivenUp = false;  // no context could be made: detached, so paint() draws the fallback
+    Visualiser m_visualiser = Visualiser::full;
+    bool m_offShown = false;   // Visualiser: Off, painted as a still cloud
+    Seen m_seen = Seen::yes;   // whether the view can be seen (frames stop or slow while it cannot)
+    int m_testSeen = -1;
+    int m_framesRequested = 0;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (MonsterView)
 };
