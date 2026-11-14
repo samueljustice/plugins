@@ -395,7 +395,7 @@ juce::String VariationsView::whatVariesSentence(Mode mode, float amount)
             return "Each one is a fresh Randomise: a different sound every time.";
         case Mode::NewPasses:
         default:
-            return "Your settings stay exactly as they are. Each whoosh plays on from where the last one stopped, and flies its own way.";
+            return "Your settings stay exactly as they are. Each one plays on from where the last one stopped, and flies its own way.";
     }
 }
 
@@ -430,7 +430,7 @@ void VariationsView::syncControls()
                           ? "What Varies\nYour settings, with each knob moved a little either way, by up to How Different. A family of sounds around the one you dialled in."
                           : j.mode == Mode::RandomiseEverything
                                 ? "What Varies\nA fresh Randomise for every file, so each one is a different sound. Your tracks, their levels and any locked section stay as they are."
-                                : "What Varies\nEvery knob, wire and modulator stays exactly as you set it. Each whoosh carries on through your sounds from "
+                                : "What Varies\nEvery knob, wire and modulator stays exactly as you set it. Each file carries on through your sounds from "
                                   "where the last one stopped, and each pass flies its own way: how near it comes, when it is closest, and the balance "
                                   "of your tracks as the ride moves them.");
     m_batch.setTooltip(m_repeat == Repeat::New
