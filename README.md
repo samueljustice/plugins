@@ -29,7 +29,7 @@ Want just one? Each plug-in's own download is below, or browse all <a href="http
 | [<img src="pitchflattener/docs/screenshot.png" width="400" alt="Pitch Flattener">](#pitch-flattener) | [<img src="reversinator/docs/screenshot.png" width="400" alt="Reversinator">](#reversinator) |
 | **[Pitch Flattener](#pitch-flattener)**<br>![Work in progress](https://img.shields.io/badge/WORK_IN_PROGRESS-D00000?style=for-the-badge)<br>Removes pitch movement from Doppler passes, sirens and vibrato | **[Reversinator](#reversinator)**<br>Real-time reverse effects, recreating Backwards Machine |
 
-[<img src="roarschach/docs/screenshot.jpg" width="812" alt="Roarschach">](#roarschach)<br>
+[<img src="roarschach/docs/hero.gif" width="812" alt="Roarschach">](#roarschach)<br>
 **[Roarschach](#roarschach)**<br>![Work in progress](https://img.shields.io/badge/WORK_IN_PROGRESS-D00000?style=for-the-badge)<br>A modular voice processor for exploration and fun
 
 [<img src="soundadvice/docs/screenshot.png" width="812" alt="Sound Advice">](#sound-advice)<br>
@@ -191,7 +191,7 @@ A real-time reverser that faithfully recreates Backwards Machine's three effects
 > *Fifteen modules, any order. See where your voice ends up.*
 
 <p align="center">
-  <img src="roarschach/docs/screenshot.jpg" alt="Roarschach" width="820">
+  <img src="roarschach/docs/hero.gif" alt="Roarschach" width="820">
 </p>
 
 Roarschach is a modular voice processor built for exploration and fun. Fifteen modules (PITCH, CHAMBER, CLEAN, DE-ESS, DETAIL, VOCODER, RING, SHIMMER, GROWL, SWIRL, ROAR, ENSEMBLE, TAME, SUB and OVERTONE) run between an input stage and a level-matched output, in any order. Use a few lightly for a bigger, wider voice, or stack them into creatures, machines and anything in between, and a creature drawn in OpenGL reacts to every sound and every knob.
@@ -210,10 +210,10 @@ Roarschach is a modular voice processor built for exploration and fun. Fifteen m
 <summary>More screenshots</summary>
 <br>
 <p align="center">
-  <img src="roarschach/docs/view-forming.jpg" alt="Roarschach creature forming out of the fog" width="400"> <img src="roarschach/docs/view-crown.jpg" alt="Roarschach creature after a long, loud session, its clouds ember red" width="400">
+  <img src="roarschach/docs/view-forming.gif" alt="Roarschach ink blot gathering out of the cloud" width="400"> <img src="roarschach/docs/view-dissolving.gif" alt="Roarschach ink blot tearing back into smoke" width="400">
 </p>
 <p align="center">
-  <img src="roarschach/docs/colour-moods.jpg" alt="Roarschach clouds settled in four colours: pale blue-grey at Init, ember red, electric blue and violet" width="604">
+  <img src="roarschach/docs/colour-moods.gif" alt="Roarschach cloud settled in three colours: pale blue-grey at Init, ember red and warm stone" width="604">
 </p>
 <p align="center">
   <img src="roarschach/docs/panel-out.png" alt="Roarschach output stage" width="300"> <img src="roarschach/docs/tooltip.png" alt="Roarschach tooltip" width="474">
