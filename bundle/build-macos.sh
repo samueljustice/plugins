@@ -64,13 +64,15 @@ EOF
   # instead of installing to the plug-in folder. Not version-checked: always lay down the version this
   # installer carries, even over a newer build someone installed by hand.
   pkgbuild --analyze --root "$root" "$work/pkgs/$pkgid.plist" >/dev/null
-  local n
-  n=$(/usr/libexec/PlistBuddy -c "Print" "$work/pkgs/$pkgid.plist" | grep -c "RootRelativeBundlePath" || true)
-  for ((i = 0; i < n; i++)); do
+  # One entry per top-level bundle (a nested bundle, like a PACE-signed AAX's __Pace_Eden.bundle, is listed
+  # inside its parent's ChildBundles, not at the top level).
+  local i=0
+  while /usr/libexec/PlistBuddy -c "Print :$i:RootRelativeBundlePath" "$work/pkgs/$pkgid.plist" >/dev/null 2>&1; do
     /usr/libexec/PlistBuddy -c "Delete :$i:BundleIsRelocatable" "$work/pkgs/$pkgid.plist" 2>/dev/null || true
     /usr/libexec/PlistBuddy -c "Add :$i:BundleIsRelocatable bool false" "$work/pkgs/$pkgid.plist"
     /usr/libexec/PlistBuddy -c "Delete :$i:BundleIsVersionChecked" "$work/pkgs/$pkgid.plist" 2>/dev/null || true
     /usr/libexec/PlistBuddy -c "Add :$i:BundleIsVersionChecked bool false" "$work/pkgs/$pkgid.plist"
+    i=$((i + 1))
   done
 
   pkgbuild --identifier "$pkgid" --version "$version" --root "$root" \
