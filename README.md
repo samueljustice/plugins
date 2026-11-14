@@ -36,6 +36,9 @@ If these get some use in your work and you'd like to chip in, toss a coin in the
 [<img src="roarschach/docs/hero.gif" width="812" alt="Roarschach">](#roarschach)<br>
 **[Roarschach](#roarschach)**<br>![Work in progress](https://img.shields.io/badge/WORK_IN_PROGRESS-D00000?style=for-the-badge)<br>A modular voice processor for exploration and fun
 
+[<img src="tonalrecall/docs/screenshot.png" width="812" alt="Tonal Recall">](#tonal-recall)<br>
+**[Tonal Recall](#tonal-recall)**<br>![Work in progress](https://img.shields.io/badge/WORK_IN_PROGRESS-D00000?style=for-the-badge)<br>Pitch-matches sound effects to music, offline in Pro Tools AudioSuite
+
 [<img src="soundadvice/docs/screenshot.png" width="812" alt="Sound Advice">](#sound-advice)<br>
 **[Sound Advice](#sound-advice)**<br>Advice from film, TV and game sound professionals and other creative people
 
@@ -233,6 +236,44 @@ Roarschach is a modular voice processor built for exploration and fun. Fifteen m
 
 ---
 
+## Tonal Recall
+
+![Work in progress](https://img.shields.io/badge/WORK_IN_PROGRESS-D00000?style=for-the-badge)
+
+> Pitch-matches a sound effect to the music under it, offline in Pro Tools AudioSuite.
+
+<p align="center">
+  <img src="tonalrecall/docs/screenshot.png" alt="Tonal Recall" width="820">
+</p>
+
+Tonal Recall is made for trailer sound design: stings, tails and hits that should sit on the music's note. Play it the music, play it the sound effect, and it works out the shift that puts the effect on one of the music's notes, shows it, and stamps it onto the clip when you render. The clip keeps its length and the timing of its hits. It works offline, on clips; it is not a live effect.
+
+- **Learn by playing**: arm LEARN, select the clip and press Preview in the AudioSuite window. Learn switches itself off at the end of the selection
+- **Finds what the music rests on**: the key, the root, the strong notes and the music's own tuning
+- **A sting, not a tune**: one fixed shift onto the nearest strong note by default, with two more ready-made curves, SUBTLE and MOVING, that lean with the music
+- **Editable curve**: pull the line, draw it freehand, snap it to the music's notes or scale, undo and redo
+- **Hear it first**: Preview plays the stamped effect, and HEAR plays the pitch under the mouse as you drag, like a held key
+- **Keeps length and timing**: hits stay within a millisecond of where they were
+- **Graceful tails**: where the effect outlasts the music you learned, the curve eases to a stop and the window marks that stretch as predicted
+- **Mono and stereo in any mix**, and **COPY VALUES** for matching by hand in another tool
+
+<details>
+<summary>More screenshots</summary>
+<br>
+<p align="center">
+  <img src="tonalrecall/docs/music.png" alt="Tonal Recall music panel" width="400"> <img src="tonalrecall/docs/tail.png" alt="Tonal Recall effect scan with a predicted tail" width="400">
+</p>
+<p align="center">
+  <img src="tonalrecall/docs/strip-shift.png" alt="Tonal Recall shift, Bend and Stamp" width="820">
+</p>
+</details>
+
+**AAX AudioSuite** (macOS, Windows) · **VST3** and **AU** for offline use in other hosts &nbsp;&nbsp;
+[![Get Tonal Recall with Sammy J's Plugins](https://img.shields.io/badge/get_it-Sammy_J's_Plugins-d00a35?style=flat-square)](https://github.com/samueljustice/plugins/releases/latest) &nbsp;
+[Read the manual →](tonalrecall/README.md)
+
+---
+
 ## Sound Advice
 
 > Shows a random piece of advice from film, TV and game sound professionals and other creative people.
@@ -266,8 +307,8 @@ Every project builds with CMake and expects its dependencies in `SDK/` at the ro
 
 | Dependency | Used by |
 |---|---|
-| [JUCE](https://github.com/juce-framework/JUCE) 8.0.8, at `SDK/JUCE` | Swooshbuckler, Sound Advice, Subbertone, Pitch Flattener, Reversinator, Roarschach, Stretch Armstrong |
-| [RubberBand](https://breakfastquay.com/rubberband/) 4.0.0, at `SDK/rubberband-4.0.0` | Pitch Flattener, Stretch Armstrong |
+| [JUCE](https://github.com/juce-framework/JUCE) 8.0.8, at `SDK/JUCE` | Swooshbuckler, Sound Advice, Subbertone, Pitch Flattener, Reversinator, Roarschach, Tonal Recall, Stretch Armstrong |
+| [RubberBand](https://breakfastquay.com/rubberband/) 4.0.0, at `SDK/rubberband-4.0.0` | Pitch Flattener, Tonal Recall, Stretch Armstrong |
 | Beat-and-Tempo-Tracking, at `SDK/Beat-and-Tempo-Tracking`, and [py-ptsl](https://pypi.org/project/py-ptsl/) | PTSL Beat Tool |
 
 Then, from a project's folder:
@@ -294,7 +335,7 @@ git tag swooshbuckler-v1.0.0
 git push origin swooshbuckler-v1.0.0
 ```
 
-The tag prefixes are `swooshbuckler-v`, `soundadvice-v`, `subbertone-v`, `pitchflattener-v`, `reversinator-v`, `roarschach-v`, `stretcharmstrong-v` and `ptsl-beattool-v`.
+The tag prefixes are `swooshbuckler-v`, `soundadvice-v`, `subbertone-v`, `pitchflattener-v`, `reversinator-v`, `roarschach-v`, `tonalrecall-v`, `stretcharmstrong-v` and `ptsl-beattool-v`.
 
 When a plug-in's release finishes, `build-release_bundle.yml` rebuilds the combined **Sammy J's Plugins** installer for macOS and Windows from every plug-in's newest release, and publishes it as the repository's Latest release (tagged `bundle-v<date>.<run>`, with the build's date and time in the file names, like `SammyJ-Plugins-2026-11-08-1253-macOS-Installer.pkg`). It then points the **Get them all** buttons at the top of this README at those files and says when they were built (it rewrites the block between the `get-them-all` markers and commits it), and deletes the installer releases it replaces. It doesn't rebuild the plug-ins; it repackages what their releases published. The plug-ins it includes are listed in [`bundle/plugins.txt`](bundle/plugins.txt). After publishing, it points the Get them all buttons at the new files and sets every plug-in's download link, here and in each plug-in's own README, to that plug-in's newest release, so those never need editing by hand. On macOS the download is a disk image holding the installer and **Uninstall Sammy J's Plugins**, an app that removes everything again and, if asked, the settings and presets listed in [`bundle/userdata.txt`](bundle/userdata.txt); on Windows the installer's own uninstaller does the same. Run it by hand from the Actions tab to rebuild it now.
 
