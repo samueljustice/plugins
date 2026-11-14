@@ -249,7 +249,7 @@ public:
     {
         int id = 0;
         juce::File file;
-        juce::String kind;      // "Tape", "Whoosh", "Last 60 s", ...
+        juce::String kind;      // "Tape", "Whoosh", "Last 60 s", "Variation", "Variations", ...
         double seconds = 0.0;
         int markers = 0;
         bool starred = false;   // kept: it stays in the list when newer takes push the others out
@@ -334,6 +334,10 @@ public:
     /** The folder batches go to; empty (the default) = a new dated folder inside the recordings folder each time. */
     juce::String getVariationFolder() const;
     void setVariationFolder(const juce::String& path);
+    /** Everything else the panel keeps between runs (which choice each menu is on, the batches rendered lately,
+        how fast the last batch went), each under a key of its own in the settings file. */
+    juce::String getVariationValue(const juce::String& key, const juce::String& fallback = {}) const;
+    void setVariationValue(const juce::String& key, const juce::String& value);
 
     /** A second rig for rendering offline: the same parameters, wires, mixer and samples as this one right now
         (the sample data is shared, not copied), stopped, with no tape, no timers and nothing saved to the

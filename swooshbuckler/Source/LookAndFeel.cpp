@@ -456,8 +456,10 @@ void SwooshLookAndFeel::drawPopupMenuItem(juce::Graphics& g, const juce::Rectang
     {
         const auto key = Theme::localiseShortcuts(shortcutKeyText);
         const int width = juce::roundToInt(Theme::textWidth(m_fonts.caption(), key)) + 10;
+        // Half the row at least; more when the item's own name leaves it (a menu whose items say what they give).
+        const int room = juce::jmax(r.getWidth() / 2, r.getWidth() - juce::roundToInt(Theme::textWidth(m_fonts.control(), text)) - 20);
         g.setColour(isActive ? TC::textFaint : TC::textFaint.withAlpha(0.5f));
-        Theme::fitText(g, key, r.removeFromRight(juce::jmin(width, r.getWidth() / 2)).toFloat(),
+        Theme::fitText(g, key, r.removeFromRight(juce::jmin(width, room)).toFloat(),
                        m_fonts.caption(), juce::Justification::centredRight);
     }
     g.setColour(! isActive ? TC::textFaint.withAlpha(0.6f) : (isHighlighted ? TC::text : TC::text.withAlpha(0.9f)));

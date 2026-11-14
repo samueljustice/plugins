@@ -77,7 +77,8 @@ public:
         message, once. */
     juce::String takeWriteError();
 
-    /** What a file says about itself (the description written by this class), and its cue points. For tests and tools. */
+    /** What a file says about itself (the description written by this class), and its cue points (a WAV file's)
+        or markers (an AIFF file's). For tests and tools. */
     static juce::String readDescription(const juce::File& file);
     struct Cue
     {
@@ -167,6 +168,41 @@ public:
                           double rate, const Options& options, const Naming& naming, juce::String& error);
     /** ".wav", ".aif" or ".flac". */
     static juce::String extensionOf(FileType type);
+
+    /**
+     * A file written a piece at a time, with named markers: what Render Variations uses for one file that holds
+     * every variation. The same file types, bit depths, mono fold and description as writeFile(). The markers are
+     * WAV cue points with labels and AIFF markers; FLAC has no markers, so there the list of names and times goes
+     * into the file's comments. Marker positions are frames of the file, which are frames of what is written as
+     * long as options.fileRate is 0 or `rate`. Any thread but the audio thread.
+     */
+    class FileWriter
+    {
+    public:
+        FileWriter();
+        ~FileWriter(); // a file still open is closed without markers
+
+        bool open(const juce::File& file, double rate, int numChannels, const Options& options, const Naming& naming, juce::String& error);
+        bool isOpen() const { return m_writer != nullptr; }
+        bool write(const juce::AudioBuffer<float>& audio, int startSample, int numSamples);
+        bool writeSilence(int numSamples);
+        /** Frames written so far: where a marker for what is written next belongs. */
+        std::int64_t position() const { return m_position; }
+        /** Closes the file and adds the markers. False if anything written to it failed (the file is then deleted). */
+        bool close(const std::vector<Cue>& markers);
+        /** Closes the file and deletes it. */
+        void abandon();
+
+    private:
+        std::unique_ptr<juce::AudioFormatWriter> m_writer;
+        juce::File m_file;
+        Options m_options;
+        Naming m_naming;
+        double m_rate = 48000.0;
+        int m_channels = 2;
+        std::int64_t m_position = 0;
+        bool m_ok = true;
+    };
 
 private:
     class Sink;

@@ -1478,6 +1478,14 @@ float SwooshbucklerAudioProcessor::getVariationAmount() const { return juce::jli
 void SwooshbucklerAudioProcessor::setVariationAmount(float amount) { m_settings->setValue("variationAmount", static_cast<double>(juce::jlimit(0.0f, 1.0f, amount))); m_settings->saveIfNeeded(); }
 juce::String SwooshbucklerAudioProcessor::getVariationFolder() const { return m_settings->getValue("variationFolder").trim(); }
 void SwooshbucklerAudioProcessor::setVariationFolder(const juce::String& path) { m_settings->setValue("variationFolder", path.trim()); m_settings->saveIfNeeded(); }
+juce::String SwooshbucklerAudioProcessor::getVariationValue(const juce::String& key, const juce::String& fallback) const { return m_settings->getValue("variation" + key, fallback); }
+void SwooshbucklerAudioProcessor::setVariationValue(const juce::String& key, const juce::String& value)
+{
+    if (m_settings->getValue("variation" + key) == value && m_settings->containsKey("variation" + key))
+        return;
+    m_settings->setValue("variation" + key, value);
+    m_settings->saveIfNeeded();
+}
 
 std::unique_ptr<SwooshbucklerAudioProcessor> SwooshbucklerAudioProcessor::makeOfflineCopy()
 {
@@ -1617,7 +1625,7 @@ void SwooshbucklerAudioProcessor::refreshTakes()
     }
     if (m_variations != nullptr)
         for (const auto& written : m_variations->takeWritten())
-            registerTake(written.file, "Variation", written.seconds);
+            registerTake(written.file, written.markers > 0 ? "Variations" : "Variation", written.seconds, written.markers); // one file that holds them all is one take
 }
 
 void SwooshbucklerAudioProcessor::registerTake(const juce::File& fileToAdd, const juce::String& kindToShow, double seconds, int markers)

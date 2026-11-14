@@ -62,6 +62,16 @@
 - **The window is 1520 x 924**, 24 taller than before, to give the bottom row room for Stowaway's plate. At its smallest it still opens whole on a 1440 x 900 screen.
 - **Modulation is laid out as the other panels are**: its name, its hint and the **Cables** button in a title bar along the top, and the four modulators under it across the panel's width.
 
+### Render Variations
+
+- **What Varies says what you get**: **My Settings, New Passes** (where it starts: every knob, wire and modulator exactly as you set it, only the passes differ), **My Settings, Small Changes** (with Amount) and **Randomise Everything**.
+- **What Each File Is**: **One Whoosh**, a single thrown whoosh from silence until it rings out, or **Whole Ride**, a set number of seconds (1 to 120) of the rig as you hear it with Play on, ride, passes, hits and modulation running. A ride is taken after two seconds of playing, so it never starts from silence, and fades for a moment at each end.
+- **Batch** takes the place of the number you had to type: **New Batch Every Time**, **Repeat Last Batch**, or **Repeat Batch...** from the last six by name, date and time. A repeated batch gives the same files again with the same settings and sounds. The batch's number is still written into every file and shown in small print when a batch is done.
+- **File Names**: **Counter**, **Date And Time**, **Preset And Counter** or **Batch Name And Counter** (a name you type), with a line that shows what the first file will be called. Nothing is ever written over.
+- **Files**: **One File Per Variation**, **One File With Markers** (every variation in one long file with a named marker at the start of each and a gap of silence between, 0.5 s to start; cue points in WAV, markers in AIFF, a list in the comments of FLAC; one take in Takes), or **Both**.
+- **Before you render, the panel says what you will get**: for example "100 files, one whoosh each: about 5 minutes of sound, ready in about 20 seconds."
+- Every menu item says beside it what it gives, and the tooltips say it in plain words.
+
 ## 2.0.0
 
 ### Interface

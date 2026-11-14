@@ -122,7 +122,7 @@ From left to right, in three groups with a thin rule between them: the transport
 | The star | **Keep This Roll**: saves the settings as they are as a preset of your own, called Roll, Roll 2 and so on. |
 | Tape (**Arm**) | The tape machine. See [Recording](#recording). It reads **Arm**, **Armed** (with a blinking red dot, waiting for sound) or **Rec mm:ss** (recording, reels spinning). |
 | **Last 60 s** | Saves the last minute of output to a file, even if the tape wasn't armed. With **Keep the Last** in Settings at 3 or 5 minutes it reads Last 3 Min or Last 5 Min and saves that much. |
-| **Variations** | Opens [Render Variations](#render-variations): a batch of whooshes rendered straight to files. While a batch renders it lights up and reads **Render 37%**. |
+| **Variations** | Opens [Render Variations](#render-variations): lots of versions of your sound rendered straight to files. While a batch renders it lights up and reads **Render 37%**. |
 | **Takes** | Opens [Takes](#takes): the recordings of this run, to hear, drag out, keep or delete. The number beside it is how many there are. |
 | **Settings** | Opens [Settings](#settings-and-recording): where recordings go and how they're written, and the audio device in the app. |
 
@@ -608,7 +608,7 @@ Click **Takes** in the header (or a "Saved ..." message) to open the list of thi
 |---|---|
 | Star | Keeps the take in the list. When the list is full the oldest take without a star leaves first. Leaving the list never deletes a file. |
 | Waveform and name | Click to hear the take; click again, or another take, to stop. It plays over whatever the rig is doing, after the tape, so it is never recorded. A line shows where it is. Drag the row out to the Finder or Explorer, or straight onto a track in your DAW, to copy the file there. |
-| Tag and length | What it is (Tape, Whoosh, Last 60s, Variation) and how long. A file that has been moved or deleted since reads Missing. |
+| Tag and length | What it is (Tape, Whoosh, Last 60s, Variation, or Variations for one file that holds a whole batch) and how long. A file that has been moved or deleted since reads Missing. |
 | **Show** | Shows the file in the Finder or Explorer. |
 | Bin | Moves the file to the system trash and takes it off the list. |
 
@@ -618,26 +618,31 @@ Click **Takes** in the header (or a "Saved ..." message) to open the list of thi
 
 <img src="docs/images/variations.png" width="1520" alt="Render Variations">
 
-Click **Variations** in the header to render a batch of whooshes straight to files, without playing them. Each file is one thrown whoosh (the same [Throw](#throw) as the Ride panel's), rendered from silence until its echoes and Space have rung out, with the silence in front taken off and a short fade at the very end. The files go through the same output stage as the tape (Inflate, Push, the limiter and its Ceiling, the tremolo, Space) and are not affected by Master Trim.
+Click **Variations** in the header to make lots of versions of your sound as files, without playing them. Spend twenty minutes dialling in a sound you like, then ask for 100 of it: the same settings, wires and modulation, with different passes each time.
 
-The batch renders in the background, much faster than real time (on the machine this was written on, 100 whooshes of 3 seconds take about 20 seconds), through a second copy of the rig made from your session at the moment you press Render. The rig you hear is never touched: it keeps playing, you can keep working, and nothing you change afterwards reaches the batch.
+The batch renders in the background, much faster than real time (on the machine this was written on, 100 whooshes of 3 seconds take about 20 seconds), through a second copy of the rig made from your session at the moment you press Render. The rig you hear is never touched: it keeps playing, you can keep working, and nothing you change afterwards reaches the batch. Every file goes through the same output stage as the tape (Inflate, Push, the limiter and its Ceiling, the tremolo, Space) and is not affected by Master Trim.
 
 | Control | What it does |
 |---|---|
-| **Count** | How many whooshes to render, from 1 to 1000. It starts at 100 and remembers what you set. |
-| **Length** | How long each thrown whoosh is, from 0.3 to 6 seconds; it peaks half-way through. It starts out as the Ride panel's Throw Length. Every file runs on after its whoosh until the tail has rung out (six seconds at the most), so the files are longer than this. |
-| **Batch Seed** | The number every file's random draws come from. The same seed, with the same settings and samples, renders the same batch again, sample for sample (16-bit files differ only in their dither); another seed renders another batch. **New Seed** draws a new one, and a new one is drawn after every batch unless you typed your own. |
-| **What Varies** | **Randomise Everything**: a fresh Randomise roll for every file, so the ride, the buses, the Hits and the space all change; your tracks, their levels, the output, every knob a roll doesn't name and any section you have locked stay as they are. **Small Changes**: every file starts from the settings as they are, nudges each of those controls by up to Amount, and starts each track a little further into its sample: a family of whooshes around one you like. **Seed Only**: the settings stay exactly as they are and only the rig's own dice change: how each pass flies, how close it comes and which sound of each track it picks. |
-| **Amount** | How far Small Changes may move each control: at 100%, up to half of its travel either way, and up to four semitones of Pitch. |
-| **Folder** | Where the files go. **Dated Folder** (the default) gives every batch a new folder of its own inside the recordings folder, named after the take name and the date and time. **Choose...** picks a folder that stays; numbers carry on after the files already there, so nothing is ever written over. |
+| **How Many** | How many variations to make, from 1 to 1000. It starts at 100 and remembers what you set. |
+| **What Each File Is** | **One Whoosh**: a single pass, like pressing [Throw](#throw): it starts from silence and runs until its echoes and Space have rung out, with the silence in front taken off and a short fade at the very end. **Whole Ride**: a stretch of the rig as you hear it with Play on, with the ride, the passes, the hits and the modulators all running. Two seconds are played first and left out, so a file never opens on the rig starting up from silence, and each end has a short fade so neither clicks. |
+| **Length** | One Whoosh: how long each whoosh takes to go by, from 0.3 to 6 seconds (it starts out as the Ride panel's Throw Length); the file runs on until the tail has rung out, so it is longer than this. Whole Ride: how many seconds go into each file, from 1 to 120. |
+| **What Varies** | **My Settings, New Passes** (where it starts): every knob, wire and modulator stays exactly as you set it; only the passes differ: how each one flies, how close it comes and which sound of each track it plays. **My Settings, Small Changes**: your settings with every sound-shaping knob moved a little either way, by up to Amount, and each track starting a little further into its sample: a family of sounds around the one you dialled in. **Randomise Everything**: a fresh Randomise for every file, so each is a different sound; your tracks, their levels, the output, every knob Randomise doesn't touch and any section you have locked stay as they are. |
+| **Amount** | My Settings, Small Changes: how far each knob may move. At 100%, up to half of its travel either way, and up to four semitones of Pitch. |
+| **Batch** | **New Batch Every Time** (where it starts): every Render makes variations you have not had before. **Repeat Last Batch**: the same variations as the last batch again, sample for sample (16-bit files differ only in their dither), as long as your settings and sounds are the same: handy for the same whooshes in another file type, or with one knob changed. **Repeat Batch...** lists the last six batches by name, date and time. Repeating a batch also sets How Many, What Each File Is, Length and What Varies back to what that batch had. |
+| **File Names** | What the files are called: **Counter** (`Whoosh_001`, after the Take Name from Settings, or the preset's), **Date And Time** (`Whoosh_2026-11-13_1432_001`), **Preset And Counter** (`Jet Passes_001`) or **Batch Name And Counter** (a name you type in **Batch Name**: `Dragon Wings_001`). A batch that reaches 1000 gets four digits. The line under the folder shows what the first file will be called. Nothing is ever written over: numbers carry on after the files already in the folder. |
+| **Files** | **One File Per Variation** (where it starts), **One File With Markers**: every variation in one long file (`<name>_All`, or `<name>_All_2` and so on if that is taken), with a marker at the start of each named after the variation and **Gap** seconds of silence between them (0.5 s to start, up to 10 s), or **Both**. WAV files get cue points with labels and AIFF files markers, which DAWs and editors show; FLAC has no markers, so there the names and times are written into the file's comments. In [Takes](#takes) the long file is one take. |
+| **Folder** | Where the files go. **Dated Folder** (the default) gives every batch a new folder of its own inside the recordings folder, named after the take name and the date and time. **Choose...** picks a folder that stays. |
 | **Render** | Starts the batch. |
-| **Cancel** | Stops it. The files already rendered are kept; the one in hand is dropped, so nothing half-written is left. |
+| **Cancel** | Stops it. The files already made are kept, and the long file is closed with the variations it has; the one in hand is dropped, so nothing half-written is left. |
 | **Show in Finder** / **Show in Explorer** | Shows the batch's folder. |
 | **Open Takes** | Opens [Takes](#takes), where the newest 20 of the rendered files can be heard, starred and dragged out. |
 
-While a batch renders the panel shows a progress bar with the percentage, which file it is on ("37 of 100" and the file's name) and an estimate of the time left. You can close the panel; the header button keeps showing the percentage, and the status line says when the batch is done. When it has finished the panel reads "100 files in" and the folder's name, with the batch seed underneath.
+Before you press Render the panel says what you will get: the first file's name and format, then how much it comes to, for example "100 files, one whoosh each: about 5 minutes of sound, ready in about 20 seconds." The time goes by how fast the last batch went on your machine. Under it a sentence says what the chosen What Varies gives.
 
-Files are named `<Name>_001`, `<Name>_002` and so on (four digits for a batch that reaches 1000), where the name is the Take Name from Settings, or the preset's. The file type, bit depth, sample rate and mono or stereo are the tape's, from Settings. Every file carries a description: which variation of which batch it is, the batch seed, and the value of every control it was made with, so a favourite can be dialled in again by hand or rendered again from its seed.
+While a batch renders the panel shows a progress bar with the percentage, which variation it is on ("37 of 100" and its name) and roughly how long is left. You can close the panel; the header button keeps showing the percentage, and the status line says when the batch is done. When it has finished the panel says what was made and where, with the batch's number in small print underneath.
+
+The file type, bit depth, sample rate and mono or stereo are the tape's, from Settings. Every file carries a description: which variation of which batch it is, the batch's number, and the value of every control it was made with, so a favourite can be dialled in again by hand.
 
 If the rig has nothing to play (no samples loaded and every lane muted, say) the batch stops with a message and writes no files.
 

@@ -419,6 +419,66 @@ namespace
         return temp.overwriteTargetFileWithTemporary();
     }
 
+    /** Appends a marker chunk to a closed AIFF file (a chunk after the sound is part of the format). */
+    bool appendAiffMarkers(const juce::File& file, const std::vector<TapeRecorder::Cue>& cues)
+    {
+        if (cues.empty())
+            return true;
+        const auto size = file.getSize();
+        {
+            juce::FileInputStream in(file);
+            char tag[4] {};
+            if (! in.openedOk() || in.read(tag, 4) != 4 || std::memcmp(tag, "FORM", 4) != 0)
+                return false;
+        }
+        const auto count = juce::jmin(static_cast<int>(cues.size()), 0x7fff);
+        juce::MemoryOutputStream body;
+        body.writeShortBigEndian(static_cast<short>(count));
+        for (int i = 0; i < count; ++i)
+        {
+            // A name is a count byte and up to 255 bytes, padded so the two together are an even number of bytes.
+            const auto& cue = cues[static_cast<size_t>(i)];
+            auto text = cue.label;
+            while (text.getNumBytesAsUTF8() > 255)
+                text = text.dropLastCharacters(1);
+            const auto bytes = static_cast<int>(text.getNumBytesAsUTF8());
+            body.writeShortBigEndian(static_cast<short>(i + 1));
+            body.writeIntBigEndian(static_cast<int>(static_cast<std::uint32_t>(juce::jlimit<std::int64_t>(0, 0xffffffffLL, cue.frame))));
+            body.writeByte(static_cast<char>(bytes));
+            body.write(text.toRawUTF8(), static_cast<size_t>(bytes));
+            if ((bytes & 1) == 0)
+                body.writeByte(0);
+        }
+        juce::MemoryOutputStream chunk;
+        if ((size & 1) != 0)
+            chunk.writeByte(0);
+        chunk.write("MARK", 4);
+        chunk.writeIntBigEndian(static_cast<int>(body.getDataSize()));
+        chunk.write(body.getData(), body.getDataSize());
+        if ((body.getDataSize() & 1) != 0)
+            chunk.writeByte(0);
+
+        const auto newSize = size + static_cast<juce::int64>(chunk.getDataSize());
+        if (newSize - 8 > 0xffffffffLL)
+            return false;
+        juce::FileOutputStream out(file); // opens at the end of the file
+        if (! out.openedOk() || ! out.setPosition(size) || ! out.write(chunk.getData(), chunk.getDataSize()))
+            return false;
+        if (! out.setPosition(4))
+            return false;
+        out.writeIntBigEndian(static_cast<int>(static_cast<std::uint32_t>(newSize - 8)));
+        out.flush();
+        return true;
+    }
+
+    /** "0:07.250": where a marker is, for a file type that can only say so in words. */
+    juce::String markerTime(std::int64_t frame, double rate)
+    {
+        const double seconds = static_cast<double>(frame) / juce::jmax(1.0, rate);
+        const int minutes = static_cast<int>(seconds / 60.0);
+        return juce::String(minutes) + ":" + juce::String(seconds - 60.0 * minutes, 3).paddedLeft('0', 6);
+    }
+
     /** After the writer has closed a file: FLAC gets its description, WAV its cue points. */
     void finishFile(const juce::File& file, TapeRecorder::FileType type, const TapeRecorder::Naming& naming,
                     const std::vector<TapeRecorder::Cue>& cues)
@@ -632,6 +692,88 @@ bool TapeRecorder::writeFile(const juce::File& file, const juce::AudioBuffer<flo
     return true;
 }
 
+//==============================================================================
+TapeRecorder::FileWriter::FileWriter() = default;
+
+TapeRecorder::FileWriter::~FileWriter()
+{
+    if (isOpen())
+        close({});
+}
+
+bool TapeRecorder::FileWriter::open(const juce::File& file, double rate, int numChannels, const Options& options, const Naming& naming,
+                                    juce::String& error)
+{
+    if (isOpen())
+        close({});
+    m_writer = createWriter(file, rate, numChannels, options, naming, error);
+    m_file = file;
+    m_options = options;
+    m_naming = naming;
+    m_rate = options.fileRate > 0.0 ? options.fileRate : rate;
+    m_channels = numChannels;
+    m_position = 0;
+    m_ok = m_writer != nullptr;
+    return m_ok;
+}
+
+bool TapeRecorder::FileWriter::write(const juce::AudioBuffer<float>& audio, int startSample, int numSamples)
+{
+    if (! isOpen() || numSamples <= 0)
+        return isOpen();
+    m_ok = m_writer->writeFromAudioSampleBuffer(audio, startSample, numSamples) && m_ok;
+    m_position += numSamples;
+    return m_ok;
+}
+
+bool TapeRecorder::FileWriter::writeSilence(int numSamples)
+{
+    if (! isOpen())
+        return false;
+    juce::AudioBuffer<float> quiet(m_channels, juce::jmin(4096, juce::jmax(1, numSamples)));
+    quiet.clear();
+    for (int left = numSamples; left > 0 && m_ok; left -= quiet.getNumSamples())
+        write(quiet, 0, juce::jmin(left, quiet.getNumSamples()));
+    return m_ok;
+}
+
+bool TapeRecorder::FileWriter::close(const std::vector<Cue>& markers)
+{
+    if (! isOpen())
+        return false;
+    m_writer.reset(); // closes the file
+    if (! m_ok)
+    {
+        m_file.deleteFile();
+        return false;
+    }
+    switch (m_options.type)
+    {
+        case FileType::Flac:
+        {
+            juce::StringArray comments { "DESCRIPTION=" + m_naming.description, "ARTIST=" + m_naming.creator, "ENCODER=" + m_naming.software };
+            for (const auto& marker : markers)
+                comments.add("MARKER=" + markerTime(marker.frame, m_rate) + " " + marker.label);
+            setFlacComments(m_file, comments);
+            break;
+        }
+        case FileType::Aiff:
+            appendAiffMarkers(m_file, markers);
+            break;
+        case FileType::Wav:
+        default:
+            appendWavCues(m_file, markers);
+            break;
+    }
+    return true;
+}
+
+void TapeRecorder::FileWriter::abandon()
+{
+    m_writer.reset();
+    m_file.deleteFile();
+}
+
 void TapeRecorder::setNaming(const Naming& naming)
 {
     const juce::ScopedLock sl(m_metaLock);
@@ -724,10 +866,13 @@ std::vector<TapeRecorder::Cue> TapeRecorder::readCues(const juce::File& file)
 {
     std::vector<Cue> cues;
     juce::WavAudioFormat wav;
+    juce::AiffAudioFormat aiff;
     auto stream = std::make_unique<juce::FileInputStream>(file);
     if (! stream->openedOk())
         return cues;
-    std::unique_ptr<juce::AudioFormatReader> reader { wav.createReaderFor(stream.release(), true) };
+    const bool isAiff = file.hasFileExtension("aif;aiff");
+    std::unique_ptr<juce::AudioFormatReader> reader { isAiff ? aiff.createReaderFor(stream.release(), true)
+                                                             : wav.createReaderFor(stream.release(), true) };
     if (reader == nullptr)
         return cues;
     const auto& meta = reader->metadataValues;

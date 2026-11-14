@@ -1137,9 +1137,8 @@ SwooshbucklerAudioProcessorEditor::SwooshbucklerAudioProcessorEditor(Swooshbuckl
     m_takesButton.setTooltip("Takes\nThe recordings of this run, newest first, with how many there are: tape takes, whoosh files and Last 60 s saves. "
                              "Open it to hear them, drag them out to the Finder / Explorer or into your DAW, keep or delete them.");
     m_takesButton.onClick = [this] { showTakes(); };
-    m_variationsButton.setTooltip("Render Variations\nRenders a batch of whooshes straight to files, in the background and faster than real time: "
-                                  "choose how many (100 unless you say otherwise), how long, and what changes from one to the next. "
-                                  "While a batch renders, this button shows how far it is.");
+    m_variationsButton.setTooltip("Render Variations\nMakes lots of versions of your sound as files, without you playing them: say 100 whooshes "
+                                  "with your settings, each with different passes. While they are being made, this button shows how far it is.");
     m_variationsButton.onClick = [this] { showVariations(); };
     m_playButton.setTooltip("Play / Stop\nStarts and stops the whole rig. Stop lets the tail ring out. The app always opens stopped, so nothing blasts out when you load a session. In a DAW it can be automated, and with Follow Host on the transport starts and stops it too.");
     m_playButton.onClick = [this] { m_processor.setPlaying(! m_processor.isPlaying()); };

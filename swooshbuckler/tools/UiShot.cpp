@@ -22,6 +22,8 @@
 //   cables.png                three wires, cables on, the buses linked (the Linked, Resting and Disabled looks)
 //   settings.png takes.png variations.png variations-rendering.png about.png update.png
 //                             the panels that open over the window
+//   variations-cancelled.png variations-choices.png variations-repeat.png variations-finished.png
+//                             Render Variations cancelled part-way, with its other choices, repeating a batch, and done
 //   menu.png                  the preset menu open
 //   name-dialog.png           the window that asks for a preset's name
 //
@@ -642,7 +644,39 @@ int main(int argc, char* argv[])
             shots.shoot("variations-rendering", &ed.m_variations);
             proc.getVariations().cancel();
             proc.getVariations().waitUntilDone(60000);
+            rig.run(0.2);
+            ed.m_variations.timerCallback();
+            shots.shoot("variations-cancelled", &ed.m_variations);
+
+            // The other choices: a whole ride, small changes, a typed batch name and one file with markers...
+            auto& v = ed.m_variations;
+            auto pick = [](juce::ComboBox& box, int id) { box.setSelectedId(id, juce::sendNotificationSync); };
+            pick(v.m_each, 2);
+            pick(v.m_mode, 2);
+            pick(v.m_names, 4);
+            v.m_batchName.setText("Dragon Wings", true);
+            pick(v.m_files, 2);
             rig.run(0.1);
+            shots.shoot("variations-choices", &v);
+            // ...date and time, both kinds of file, Randomise Everything and a batch to repeat...
+            pick(v.m_names, 2);
+            pick(v.m_files, 3);
+            pick(v.m_batch, 2); // takes the count, lengths and What Varies of the batch it repeats
+            rig.run(0.1);
+            shots.shoot("variations-repeat", &v);
+            // ...and a small batch that has finished.
+            pick(v.m_batch, 1);
+            pick(v.m_each, 1);
+            pick(v.m_files, 1);
+            pick(v.m_mode, 1);
+            pick(v.m_names, 1);
+            v.m_count.setText("3", true);
+            v.startBatch();
+            proc.getVariations().waitUntilDone(120000);
+            rig.run(0.3);
+            v.timerCallback();
+            shots.shoot("variations-finished", &v);
+            v.m_count.setText("100", true);
             ed.m_variations.setVisible(false);
 
             ed.m_about.setVisible(true);
