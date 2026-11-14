@@ -6,7 +6,7 @@ It's a VST3 / AU plug-in (audio passes straight through, untouched) and a standa
 
 ![Sound Advice](docs/screenshot.png)
 
-**[Download the latest release](https://github.com/samueljustice/plugins/releases/tag/soundadvice-v1.0.13)**: macOS installer (app, VST3, AU; signed and notarised, universal, macOS 11+), the app on its own as a `.dmg`, or the Windows installer (VST3 and app).
+**[Get it with Sammy J's Plugins](https://github.com/samueljustice/plugins/releases/latest)**, the installer for every Sammy J plug-in: on macOS the app, VST3, AU and AAX (signed and notarised, universal, macOS 11+), on Windows the app, VST3 and AAX.
 
 ## What's in it
 

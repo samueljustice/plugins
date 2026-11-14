@@ -31,23 +31,11 @@ Swooshbuckler is a standalone app for macOS and Windows, and also a VST3 plug-in
 
 ## Download
 
-[![Download Swooshbuckler v2.1.0](https://img.shields.io/badge/download-v2.1.0-d00a35?style=for-the-badge)](https://github.com/samueljustice/plugins/releases/tag/swooshbuckler-v2.1.0)
+[![Get Swooshbuckler with Sammy J's Plugins](https://img.shields.io/badge/get_it-Sammy_J's_Plugins-d00a35?style=for-the-badge)](https://github.com/samueljustice/plugins/releases/latest)
 
-Or get every Sammy J plug-in at once, Swooshbuckler included, with one installer that always has the newest version of each (its file names carry the date and time it was built):
+Swooshbuckler comes in **Sammy J's Plugins**, one installer with the newest version of every Sammy J plug-in. On macOS it's a disk image holding the installer (click **Customize** to choose plug-ins and formats: the app, VST3, AU and AAX) and an uninstaller; on Windows it's an installer with the app, VST3 and AAX.
 
-[![Everything for macOS](https://img.shields.io/badge/Everything_for_macOS-000000?style=flat-square&logo=apple&logoColor=white)](https://github.com/samueljustice/plugins/releases/latest)
-[![Everything for Windows](https://img.shields.io/badge/Everything_for_Windows-0078D6?style=flat-square&logo=windows&logoColor=white)](https://github.com/samueljustice/plugins/releases/latest)
-
-Swooshbuckler's own release (above, or every version on the [releases page](https://github.com/samueljustice/plugins/releases?q=swooshbuckler)) has these files:
-
-| File | What's in it |
-|---|---|
-| `Swooshbuckler-x.y.z-macOS-Installer.pkg` | The app, the VST3 and the AU. Click **Customize** to choose which. |
-| `Swooshbuckler-x.y.z-macOS-App.dmg` | Just the app. Drag it to Applications. |
-| `Swooshbuckler-x.y.z-Windows-Installer.exe` | The app and the VST3. |
-| `...-VST3.zip`, `...-AU.zip`, `...-Windows-App.zip` | Each part on its own, for installing by hand. |
-
-macOS builds are universal (Apple silicon and Intel), signed and notarised, and need macOS 11 or later. Windows builds need 64-bit Windows 10 or later.
+macOS builds are universal (Apple silicon and Intel), signed and notarised, and need macOS 11 or later. Windows builds need 64-bit Windows 10 or later. Every version's own files are on the [releases page](https://github.com/samueljustice/plugins/releases?q=swooshbuckler).
 
 What's changed in each version is in the [changelog](CHANGELOG.md).
 

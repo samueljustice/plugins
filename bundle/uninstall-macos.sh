@@ -38,7 +38,7 @@ remove() {
 case "$mode" in
   list)
     each_plugin | while IFS='|' read -r id _prefix name _bundle app; do
-      if [[ -n "$app" ]]; then echo "$name (app, VST3, AU)"; else echo "$name (VST3, AU)"; fi
+      if [[ -n "$app" ]]; then echo "$name (app, VST3, AU, AAX)"; else echo "$name (VST3, AU, AAX)"; fi
     done
     ;;
 
@@ -47,6 +47,7 @@ case "$mode" in
       [[ -n "$bundle" ]] || continue
       remove "$root/Library/Audio/Plug-Ins/VST3/$bundle.vst3"
       remove "$root/Library/Audio/Plug-Ins/Components/$bundle.component"
+      remove "$root/Library/Application Support/Avid/Audio/Plug-Ins/$bundle.aaxplugin"
       [[ -n "$app" ]] && remove "$root/Applications/$app.app"
       if [[ -z "$root" ]]; then
         # This installer's receipts, and the ones the plug-in's own stand-alone installer left.
