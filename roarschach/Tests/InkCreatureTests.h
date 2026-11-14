@@ -634,6 +634,53 @@ inline Stereo inkRippleAudio(const InkScript& script, const std::vector<double>&
     return a;
 }
 
+/** The light a ripple puts on open cloud: the same frame with the ripples drawn and left out, both
+    averaged over cells of this many pixels (so the cloud read a little aside, which only moves its
+    texture, averages out and the light the swell catches is left), compared only where the frame
+    without them is pale cloud with no ink in the cell, away from the view's darkened edges. lift:
+    the brightest cells' share brighter (the 99th percentile), shade: the darkest cells' share darker
+    (the 1st), cells: how many cells were open cloud. */
+struct InkRippleLight
+{
+    double lift = 0.0, shade = 0.0;
+    int cells = 0;
+};
+
+inline InkRippleLight inkRippleLight(const InkPicture& on, const InkPicture& off, int cell)
+{
+    InkRippleLight out;
+    if (! on.valid() || on.w != off.w || on.h != off.h || cell < 1)
+        return out;
+    std::vector<double> ratio;
+    const int x0 = on.w / 16, x1 = on.w - on.w / 16, y0 = on.h / 10, y1 = on.h - on.h / 10;
+    for (int cy = y0; cy + cell <= y1; cy += cell)
+        for (int cx = x0; cx + cell <= x1; cx += cell)
+        {
+            double a = 0.0, b = 0.0;
+            float darkest = 1.0f;
+            for (int y = cy; y < cy + cell; ++y)
+                for (int x = cx; x < cx + cell; ++x)
+                {
+                    a += on.at(x, y);
+                    b += off.at(x, y);
+                    darkest = std::min(darkest, off.at(x, y));
+                }
+            const double n = static_cast<double>(cell * cell);
+            a /= n;
+            b /= n;
+            if (b < 0.55 || darkest < 0.40f)
+                continue;   // (not open cloud: ink in it, or the cloud's shaded underside)
+            ratio.push_back(a / b - 1.0);
+        }
+    out.cells = static_cast<int>(ratio.size());
+    if (ratio.size() < 20)
+        return out;
+    std::sort(ratio.begin(), ratio.end());
+    out.lift = std::max(0.0, ratio[static_cast<size_t>(0.99 * static_cast<double>(ratio.size() - 1))]);
+    out.shade = std::max(0.0, -ratio[static_cast<size_t>(0.01 * static_cast<double>(ratio.size() - 1))]);
+    return out;
+}
+
 //==============================================================================================
 // The screenshot tool.
 inline juce::Image inkSheet(const std::vector<juce::Image>& cells, int columns, const juce::StringArray& labels = {})
@@ -1442,7 +1489,7 @@ inline int runInkShots(const juce::File& dir, const juce::File& clips)
         const int count = juce::SystemStats::getEnvironmentVariable("ROARSCHACH_INK_SEEDS", "2").getIntValue();
         const std::vector<double> hitsAt { 7.5, 9.0, 9.45, 9.9, 12.4, 13.6 };
         const auto audio = inkRippleAudio(script, hitsAt, juce::SystemStats::getEnvironmentVariable("ROARSCHACH_INK_THUMP", "0.6").getFloatValue());
-        const std::vector<double> after { 0.0, 0.1, 0.2, 0.35, 0.5, 0.7, 1.0, 1.4, 2.0 };
+        const std::vector<double> after { 0.0, 0.067, 0.1, 0.2, 0.3, 0.35, 0.5, 0.7, 0.8, 1.0, 1.4, 2.0 };
         for (int seed = 1; seed <= count; ++seed)
             for (const auto& tierText : tiers)
             {
@@ -1480,8 +1527,10 @@ inline int runInkShots(const juce::File& dir, const juce::File& clips)
                         diffs.push_back(d.rescaled(864, 240));
                         labels.add("hit " + juce::String(static_cast<int>(h)) + " +" + juce::String(dt, 2) + " s");
                         const auto& rp = rig.monster->getRipplesForTests();
-                        std::printf("    %s: %d ring(s) in flight, %d started, %d held back; tremble %.2f; differs from the frame without by %.1f per mille\n", name.toRawUTF8(), rp.live(), rp.started,
-                                    rp.refused, static_cast<double>(rp.tremble), 1000.0 * a.rmsDifference(b));
+                        const auto light = inkRippleLight(a, b, a.h / 40);
+                        std::printf("    %s: %d ring(s) in flight, %d started, %d topped up, %d held back; tremble %.2f; differs from the frame without by %.1f per mille;"
+                                    " over open cloud (%d cells) lifted %.1f %%, shaded %.1f %%\n", name.toRawUTF8(), rp.live(), rp.started, rp.merged,
+                                    rp.refused, static_cast<double>(rp.trembleDrawn()), 1000.0 * a.rmsDifference(b), light.cells, 100.0 * light.lift, 100.0 * light.shade);
                     }
                 const auto tag = "seed" + juce::String(seed) + "-tier" + juce::String(tier);
                 save(inkSheet(cells, 3, labels), tag + "-sheet.png");
@@ -4140,7 +4189,9 @@ inline void testInkRippleModel()
         std::array<float, 3> mids {};
         for (int k = 0; k < 3; ++k)
         {
-            q.step(0.4f, k + 1, 0.8f, 0.0f, 1.0f, f);
+            for (int i = 0; i < 4; ++i)
+                q.step(0.1f, k, 0.0f, 0.0f, 1.0f, f);
+            q.step(0.1f, k + 1, 0.8f, 0.0f, 1.0f, f);
             float newest = 9.0f;
             for (const auto& ring : q.rings)
                 if (ring.age >= 0.0f && ring.age < newest)
@@ -4164,7 +4215,61 @@ inline void testInkRippleModel()
             f.step(1.0f / 30.0f, {});
             r.step(1.0f / 30.0f, hits, 0.9f, 0.0f, 1.0f, f);
         }
-        check(r.started <= 2 * roar::AudioForces::c_maxFlashesPerSecond && r.refused > 0, "ripples: hits six times a second start rings within the flash limit (" + juce::String(r.started) + " in 2 s)");
+        check(r.started <= 2 * roar::AudioForces::c_maxFlashesPerSecond && r.merged > 0, "ripples: hits six times a second start rings within the flash limit, the ones close behind topping up the newest ("
+                                                                                  + juce::String(r.started) + " in 2 s, " + juce::String(r.merged) + " topped up)");
+        {
+            // (with the flash limit spent, a hit starts no ring)
+            roar::SurfaceRipples h;
+            roar::AudioForces spent;
+            h.step(1.0f / 30.0f, 0, 0.0f, 0.0f, 1.0f, spent);
+            while (spent.allowFlash()) {}
+            spent.clock += 0.2f;
+            h.step(1.0f / 30.0f, 1, 0.9f, 0.0f, 1.0f, spent);
+            check(h.started == 0 && h.refused == 1, "ripples: a hit with the flash limit spent starts no ring");
+        }
+        {
+            // one swell leads: a hit 0.2 s behind the newest ring tops it up; one 0.5 s behind starts
+            // a new ring and leaves the earlier one at 0.4; the tremble is held low while a ring is young
+            roar::SurfaceRipples h;
+            roar::AudioForces ff;
+            h.step(1.0f / 30.0f, 0, 0.0f, 0.8f, 1.0f, ff);
+            for (int i = 0; i < 60; ++i)
+                h.step(1.0f / 30.0f, 0, 0.0f, 0.8f, 1.0f, ff);
+            const float steadyTremble = h.trembleDrawn();
+            h.step(1.0f / 30.0f, 1, 0.5f, 0.8f, 1.0f, ff);
+            for (int i = 0; i < 6; ++i)
+                h.step(1.0f / 30.0f, 1, 0.0f, 0.8f, 1.0f, ff);
+            h.step(1.0f / 30.0f, 2, 0.9f, 0.8f, 1.0f, ff);
+            const bool toppedUp = h.started == 1 && h.merged == 1 && h.live() == 1 && std::abs(h.rings[0].strength - 0.9f) < 0.002f;
+            for (int i = 0; i < 4; ++i)
+                h.step(1.0f / 30.0f, 2, 0.0f, 0.8f, 1.0f, ff);
+            const float heldTremble = h.trembleDrawn();
+            for (int i = 0; i < 9; ++i)
+                h.step(1.0f / 30.0f, 2, 0.0f, 0.8f, 1.0f, ff);
+            h.step(1.0f / 30.0f, 3, 1.0f, 0.8f, 1.0f, ff);
+            float older = 0.0f, newer = 0.0f;
+            for (const auto& ring : h.rings)
+                if (ring.age >= 0.0f)
+                    (ring.age < 0.1f ? newer : older) = ring.weight;
+            std::printf("  ripples: a hit 0.2 s behind a ring tops it up (%d started, %d topped up); 0.5 s behind, a new ring (weights %.2f, %.2f); the tremble %.2f steady, %.2f with a young ring\n",
+                        h.started, h.merged, static_cast<double>(older), static_cast<double>(newer), static_cast<double>(steadyTremble), static_cast<double>(heldTremble));
+            check(toppedUp, "ripples: a hit close behind the newest ring tops it up instead of starting another");
+            check(h.started == 2 && std::abs(older - roar::SurfaceRipples::c_olderWeight) < 0.001f && newer == 1.0f, "ripples: a new ring leads, the earlier one falls back to 0.4");
+            check(heldTremble < 0.5f * steadyTremble && steadyTremble > 0.5f, "ripples: the tremble is held low while a young ring spreads");
+            // the swell leaves fast and slows: out of the body within a quarter second, near the view's edge in about 1.3 s
+            using SR = roar::SurfaceRipples;
+            check(SR::radiusAt(0.1f) > 0.35f && SR::radiusAt(0.2f) > 0.55f && std::abs(SR::radiusAt(1.3f) - 1.78f) < 0.06f && SR::radiusAt(1.0f) - SR::radiusAt(0.7f) < SR::radiusAt(0.3f) - SR::radiusAt(0.0f),
+                  "ripples: a ring leaves the body fast and slows as it spreads");
+            // a weak hit is faint (strength to the power 1.5)
+            roar::SurfaceRipples a, b;
+            roar::AudioForces fa, fb;
+            a.step(0.03f, 0, 0.0f, 0.0f, 1.0f, fa);
+            b.step(0.03f, 0, 0.0f, 0.0f, 1.0f, fb);
+            a.step(0.03f, 1, 1.0f, 0.0f, 1.0f, fa);
+            b.step(0.03f, 1, 0.3f, 0.0f, 1.0f, fb);
+            check(std::abs(b.light(0) / a.light(0) - std::pow(0.3f, 1.5f)) < 0.01f && std::abs(b.amplitude(0) / a.amplitude(0) - std::pow(0.3f, 1.5f)) < 0.01f,
+                  "ripples: a 0.3 hit is about a sixth of a full one");
+        }
         roar::SurfaceRipples asleep, weak;
         asleep.step(0.1f, 0, 0.0f, 0.0f, 0.0f, f);
         asleep.step(0.1f, 1, 0.9f, 0.0f, 0.0f, f);
@@ -4321,20 +4426,36 @@ inline void testInkRipplePictures()
     for (const int tier : { 0, 3 })
     {
         // the same frames with the ripples drawn and left out: what differs is the ripple alone
-        InkRig on(W, H, 3u, 0.6f), off(W, H, 3u, 0.6f);
-        if (! on.ok() || ! off.ok())
+        InkRig on(W, H, 3u, 0.6f), off(W, H, 3u, 0.6f), voice(W, H, 3u, 0.6f);
+        if (! on.ok() || ! off.ok() || ! voice.ok())
             return;
         on.setTier(tier);
         off.setTier(tier);
+        voice.setTier(tier);
         on.monster->setTrembleOffForTests(true);
         off.monster->setRipplesOffForTests(true);
-        on.run(hit - 0.2, &audio);
-        off.run(hit - 0.2, &audio);
+        // ---- the voice alone (from its first syllables to just before the hit): no ring reads,
+        // and the tremble stays small (the frames with the ripples and the tremble drawn against
+        // the same frames without either)
+        double voiceMost = 0.0, voiceLift = 0.0;
+        for (const double t : { 3.6, 4.4, 5.2, hit - 0.2 })
+        {
+            const double go = t - static_cast<double>(off.frames) / 30.0 - 1.0 / 30.0;
+            on.run(go, &audio);
+            off.run(go, &audio);
+            voice.run(go, &audio);
+            const auto b = off.shot(&audio), v = voice.shot(&audio);
+            on.step(&audio);
+            voiceMost = std::max(voiceMost, v.rmsDifference(b));
+            voiceLift = std::max(voiceLift, std::max(inkRippleLight(v, b, H / 40).lift, inkRippleLight(v, b, H / 40).shade));
+        }
+        const int startedByVoice = voice.monster->getRipplesForTests().started;
         const double before = on.shot(&audio).rmsDifference(off.shot(&audio));
         const int startedBefore = on.monster->getRipplesForTests().started;
         std::vector<std::pair<double, double>> diffs;
+        double lift03 = 0.0, lift08 = 0.0;
         int most = 0;
-        for (const double t : { 0.25, 0.5, 0.9, 1.5, 2.2, 2.9 })
+        for (const double t : { 0.1, 0.25, 0.3, 0.5, 0.8, 0.9, 1.5, 2.2, 2.9 })
         {
             const double target = hit + t;
             const double go = target - static_cast<double>(on.frames) / 30.0 - 1.0 / 30.0;
@@ -4342,19 +4463,37 @@ inline void testInkRipplePictures()
             off.run(go, &audio);
             const auto a = on.shot(&audio), b = off.shot(&audio);
             diffs.push_back({ t, a.rmsDifference(b) });
+            const auto light = inkRippleLight(a, b, H / 40);
+            if (t == 0.3)
+                lift03 = light.lift;
+            if (t == 0.8)
+                lift08 = light.lift;
             most = std::max(most, on.monster->getRipplesForTests().live());
         }
         const auto& rp = on.monster->getRipplesForTests();
-        std::printf("  ripples on tier %d: a thump in the voice started %d ring(s) (%d before it, %d held back); the picture differs from the same frame without them by %.1f per mille before it, then",
-                    tier, rp.started - startedBefore, startedBefore, rp.refused, 1000.0 * before);
+        std::printf("  ripples on tier %d: the voice alone started %d ring(s) and differs from the frames without ripples or tremble by %.1f per mille at most (open cloud lit or shaded %.1f %% at most);"
+                    " a thump in the voice started %d ring(s) (%d held back); the picture differs from the same frame without them by %.1f per mille before it, then",
+                    tier, startedByVoice, 1000.0 * voiceMost, 100.0 * voiceLift, rp.started - startedBefore, rp.refused, 1000.0 * before);
         double peak = 0.0;
         for (const auto& d : diffs)
         {
             std::printf(" %.1f (%.2f s)", 1000.0 * d.second, d.first);
             peak = std::max(peak, d.second);
         }
-        std::printf("\n");
+        std::printf("; open cloud lifted %.1f %% at 0.3 s and %.1f %% at 0.8 s\n", 100.0 * lift03, 100.0 * lift08);
         pictureCheck(rp.started > startedBefore && peak > 0.008 && peak > 4.0 * before + 0.002, "ripples: a hit visibly ripples the picture (tier " + juce::String(tier) + ", " + juce::String(1000.0 * peak, 1) + " per mille)");
+        // (the hit is counted about 30 ms after it starts and the ring leaves at once: the frame a
+        // tenth of a second after the thump already shows it)
+        pictureCheck(diffs.front().second > 3.0 * before + 0.006, "ripples: the ring shows within a few frames of the hit (tier " + juce::String(tier) + ", " + juce::String(1000.0 * diffs.front().second, 1) + " per mille at 0.1 s)");
+        // (the crest catches its own light: it reads on pale cloud while it travels. Measured on
+        // this thump, a full-strength hit, on both tiers: 11 to 13 % at 0.3 s and about 6 % at 0.8 s;
+        // the swell before this change lifted the cloud by 1 to 2 %)
+        pictureCheck(lift03 >= 0.08 && lift08 >= 0.04, "ripples: the swell's crest lights the open cloud it crosses (tier " + juce::String(tier) + ", " + juce::String(100.0 * lift03, 1) + " % at 0.3 s, "
+                                                         + juce::String(100.0 * lift08, 1) + " % at 0.8 s)");
+        // (a voice coming out of silence is an onset and may start a weak ring: drawn by its
+        // strength to the power 1.5 it is faint, a sixth or less of a heavy hit's light)
+        pictureCheck(voiceMost < 0.003 && voiceLift < 0.02, "ripples: the voice alone shows no ring to speak of and the tremble stays small (tier " + juce::String(tier) + ", "
+                                                               + juce::String(startedByVoice) + " rings, " + juce::String(1000.0 * voiceMost, 1) + " per mille, " + juce::String(100.0 * voiceLift, 1) + " %)");
         pictureCheck(diffs.back().second < 0.25 * peak + 0.001, "ripples: the ripple has settled within three seconds of the hit (tier " + juce::String(tier) + ", " + juce::String(1000.0 * diffs.back().second, 1) + " per mille left)");
         pictureCheck(most <= roar::SurfaceRipples::c_maxRings, "ripples: at most four rings in flight on the drawn view");
     }

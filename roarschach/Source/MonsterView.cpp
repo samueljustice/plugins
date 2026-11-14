@@ -756,13 +756,14 @@ void MonsterView::drawFrame (float dt, float scale, int width, int height)
     fr.set (U::uRingBody, m_ringBody);
     fr.set (U::uStrain, juce::jlimit (0.0f, 1.0f, m_strain));
     {
-        // the ripples: each ring's radius, amplitude and middle (above or below the body's), the tremble
+        // the ripples: each ring's radius, amplitude, middle (above or below the body's) and light, the tremble
         const auto& rp = m_ripples;
         const float on = m_testRipplesOff.load (std::memory_order_relaxed) ? 0.0f : 1.0f;
         fr.set (U::uRippleR, rp.radius (0), rp.radius (1), rp.radius (2), rp.radius (3));
         fr.set (U::uRippleA, on * rp.amplitude (0), on * rp.amplitude (1), on * rp.amplitude (2), on * rp.amplitude (3));
         fr.set (U::uRippleY, rp.rings[0].offsetY, rp.rings[1].offsetY, rp.rings[2].offsetY, rp.rings[3].offsetY);
-        fr.set (U::uRippleT, m_testTrembleOff.load (std::memory_order_relaxed) ? 0.0f : rp.tremble, rp.trembleClock, 0.0f, 0.0f);
+        fr.set (U::uRippleL, on * rp.light (0), on * rp.light (1), on * rp.light (2), on * rp.light (3));
+        fr.set (U::uRippleT, m_testTrembleOff.load (std::memory_order_relaxed) ? 0.0f : rp.trembleDrawn(), rp.trembleClock, 0.0f, 0.0f);
     }
 
     rgb (U::uColOuter, juce::Colour (m_outsideArgb.load (std::memory_order_relaxed)));
