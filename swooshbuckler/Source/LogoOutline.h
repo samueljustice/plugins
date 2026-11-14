@@ -60,6 +60,10 @@ public:
     /** The resampled contours as closed subpaths, in normalised coordinates. */
     juce::Path createOutlinePath() const;
 
+    /** The contours of the cherry, or of everything else (the grenade, its ring and both stems), as closed
+        subpaths in normalised coordinates. */
+    juce::Path createOutlinePath(bool cherry) const;
+
     struct FrameStats
     {
         int strips = 0;                    // line strips in the frame

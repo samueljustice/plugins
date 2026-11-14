@@ -1698,7 +1698,8 @@ int main(int argc, char* argv[])
                       + juce::String(SeaVisualiser::c_cometGroups) + ", so a thrown whoosh cannot label past the end)");
         }
 
-        // The mark in the stars: brighter stars taken off the logo's own outline, joined into closed shapes.
+        // The mark in the stars: stars on the logo's silhouette, joined by lines. On its outer edges they sit on the
+        // outline itself; on the ring, the stems and the lever's tail they run down the middle, half a line's width off it.
         {
             const auto outline = sea.m_logo->createOutlinePath();
             float furthest = 0.0f;
@@ -1714,10 +1715,58 @@ int main(int argc, char* argv[])
                 joined.insert(line.first);
                 joined.insert(line.second);
             }
-            check(sea.m_constellation.size() >= 12 && sea.m_constellationLines.size() >= sea.m_constellation.size()
-                      && joined.size() == sea.m_constellation.size() && furthest < 0.01f,
-                  "sea: the constellation is " + juce::String((int) sea.m_constellation.size()) + " stars on the mark's outline (the furthest "
-                      + juce::String(furthest, 4) + " of a unit off it), every one joined by a line");
+            const int stars = (int) sea.m_constellation.size();
+            check(stars >= 45 && stars <= 90 && (int) sea.m_constellationLines.size() >= stars - 6
+                      && (int) joined.size() == stars && furthest < 0.02f,
+                  "sea: the constellation is " + juce::String(stars) + " stars on the mark (the furthest "
+                      + juce::String(furthest, 4) + " of a unit off its outline), every one joined by a line");
+        }
+
+        // It is the whole mark, not a corner of it: the stars reach to every side of the logo, the cherry is drawn all
+        // the way round in its own stars, and the grenade's round body has stars along the bottom of it.
+        {
+            auto boundsOf = [](const std::vector<juce::Point<float>>& points)
+            {
+                if (points.empty())
+                    return juce::Rectangle<float>();
+                juce::Point<float> low = points.front(), high = points.front();
+                for (const auto& p : points)
+                {
+                    low = { juce::jmin(low.x, p.x), juce::jmin(low.y, p.y) };
+                    high = { juce::jmax(high.x, p.x), juce::jmax(high.y, p.y) };
+                }
+                return juce::Rectangle<float>(low, high);
+            };
+            const auto mark = sea.m_logo->createOutlinePath().getBounds();
+            const auto cherry = sea.m_logo->createOutlinePath(true).getBounds();
+            const auto grenade = sea.m_logo->createOutlinePath(false).getBounds();
+
+            std::vector<juce::Point<float>> all, onCherry, onBody;
+            for (const auto& s : sea.m_constellation)
+            {
+                all.push_back(s.at);
+                if (s.cherry)
+                    onCherry.push_back(s.at);
+                else if (s.at.y < grenade.getY() + 0.35f * grenade.getHeight() && s.at.x < cherry.getX())   // y is up: the bottom of the grenade
+                    onBody.push_back(s.at);
+            }
+            const auto starsBounds = boundsOf(all), cherryStars = boundsOf(onCherry), bodyStars = boundsOf(onBody);
+            const float acrossMark = starsBounds.getWidth() / mark.getWidth(), upMark = starsBounds.getHeight() / mark.getHeight();
+            const float acrossCherry = cherryStars.getWidth() / cherry.getWidth(), upCherry = cherryStars.getHeight() / cherry.getHeight();
+            const float acrossBody = bodyStars.getWidth() / grenade.getWidth();
+            check(acrossMark > 0.93f && upMark > 0.93f && onCherry.size() >= 10 && acrossCherry > 0.9f && upCherry > 0.9f
+                      && onBody.size() >= 5 && acrossBody > 0.4f,
+                  "sea: the constellation is the whole mark (its stars span " + juce::String(juce::roundToInt(acrossMark * 100.0f)) + "% by "
+                      + juce::String(juce::roundToInt(upMark * 100.0f)) + "% of the logo; the cherry has " + juce::String((int) onCherry.size())
+                      + " of its own, spanning " + juce::String(juce::roundToInt(acrossCherry * 100.0f)) + "% by "
+                      + juce::String(juce::roundToInt(upCherry * 100.0f)) + "% of it; the bottom of the grenade's body has "
+                      + juce::String((int) onBody.size()) + ", across " + juce::String(juce::roundToInt(acrossBody * 100.0f)) + "% of the grenade)");
+
+            // And it is big enough to read: a sixth of the sea's width or more, filling the sky's height.
+            const auto area = sea.constellationArea();
+            check(area.getWidth() >= sea.getWidth() * 0.16f && area.getHeight() >= sea.getHeight() * 0.30f * 0.8f,
+                  "sea: the constellation is " + juce::String(juce::roundToInt(area.getWidth())) + " by " + juce::String(juce::roundToInt(area.getHeight()))
+                      + " in a sea " + juce::String(sea.getWidth()) + " wide with " + juce::String(juce::roundToInt(sea.getHeight() * 0.30f)) + " of sky");
         }
 
         // It shows in open sky: clear of the moon, of the panel's name and of the Morph button, and above the water.

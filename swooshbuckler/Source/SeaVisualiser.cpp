@@ -324,65 +324,20 @@ void SeaVisualiser::buildConstellation()
     if (m_logo == nullptr || ! m_logo->isLoaded())
         return;
 
-    // The mark's outline, as a handful of brighter stars on it joined by faint lines. The outline has thousands
-    // of segments; a constellation wants a couple of dozen points, so each contour is walked and a star is
-    // dropped every so many units of its length.
-    const auto path = m_logo->createOutlinePath();
-
-    struct Contour { int first = 0, count = 0; float length = 0.0f; };
-    std::vector<juce::Point<float>> points;
-    std::vector<float> lengths;   // arc length to each point
-    std::vector<Contour> contours;
-
-    juce::PathFlatteningIterator it(path, {}, 0.004f);
-    float runningLength = 0.0f;
-    bool startNew = true;
-    while (it.next())
+    // The mark as stars: its silhouette (the grenade's body, cap and lever, the pull ring, the cherry and the two
+    // stems), with a star on every corner and a few round every curve. The sharper the corner, the bigger the star.
+    // Worked out once for the whole program (it takes a few hundredths of a second, and the mark never changes).
+    static const LogoConstellation mark = LogoConstellation::build(*m_logo);
+    juce::Random r(1337);
+    juce::Point<float> low { 1.0e6f, 1.0e6f }, high { -1.0e6f, -1.0e6f };
+    for (const auto& s : mark.stars)
     {
-        if (startNew)
-        {
-            contours.push_back({ static_cast<int>(points.size()), 0, 0.0f });
-            runningLength = 0.0f;
-            points.push_back({ it.x1, it.y1 });
-            lengths.push_back(0.0f);
-        }
-        startNew = it.isLastInSubpath();
-        runningLength += juce::Point<float>(it.x1, it.y1).getDistanceFrom({ it.x2, it.y2 });
-        points.push_back({ it.x2, it.y2 });
-        lengths.push_back(runningLength);
-        auto& c = contours.back();
-        c.count = static_cast<int>(points.size()) - c.first;
-        c.length = runningLength;
+        m_constellation.push_back({ s.at, 1.3f + 1.3f * s.weight + 0.35f * r.nextFloat(), r.nextFloat() * 6.28f, s.cherry });
+        low = { juce::jmin(low.x, s.at.x), juce::jmin(low.y, s.at.y) };
+        high = { juce::jmax(high.x, s.at.x), juce::jmax(high.y, s.at.y) };
     }
-
-    float longest = 0.0f;
-    for (const auto& c : contours)
-        longest = juce::jmax(longest, c.length);
-    if (longest <= 0.0f)
-        return;
-
-    for (const auto& c : contours)
-    {
-        if (c.length < longest * 0.18f || c.count < 4)
-            continue;
-        const int stars = juce::jlimit(4, 9, juce::roundToInt(4.0f + 5.0f * c.length / longest));
-        const int first = static_cast<int>(m_constellation.size());
-        for (int s = 0; s < stars; ++s)
-        {
-            const float want = c.length * static_cast<float>(s) / static_cast<float>(stars);
-            int index = c.first;
-            for (int k = c.first; k < c.first + c.count; ++k, index = k)
-                if (lengths[static_cast<size_t>(k)] >= want)
-                    break;
-            const auto p = points[static_cast<size_t>(juce::jlimit(c.first, c.first + c.count - 1, index))];
-            m_constellation.push_back({ p, 1.5f + 1.1f * m_random.nextFloat(), m_random.nextFloat() * 6.28f });
-        }
-        const int added = static_cast<int>(m_constellation.size()) - first;
-        for (int s = 0; s < added; ++s)
-            m_constellationLines.push_back({ first + s, first + (s + 1) % added }); // the contour closes
-        if (m_constellation.size() >= 30)
-            break;
-    }
+    m_constellationBounds = m_constellation.empty() ? juce::Rectangle<float>() : juce::Rectangle<float>(low, high);
+    m_constellationLines = mark.lines;
 }
 
 juce::Rectangle<float> SeaVisualiser::clearOf(juce::Rectangle<float> area, const juce::Rectangle<float>* keepOut, int numKeepOut,
@@ -413,9 +368,13 @@ juce::Rectangle<float> SeaVisualiser::constellationArea() const
 {
     // Open sky: right of the moon, left of whatever the window puts in the sea's top right, above the horizon.
     // Taken from the sea's shape, not from the last frame, so it can be asked for before anything is painted.
+    // It is as tall as the sky lets it be: the mark has to be big enough to be known for what it is.
     const float horizon = static_cast<float>(getHeight()) * 0.30f;
-    const float span = juce::jmax(40.0f, horizon - 22.0f);
-    return juce::Rectangle<float>(span, span).withCentre({ static_cast<float>(getWidth()) * 0.55f, horizon * 0.50f });
+    const float top = c_frame + 4.0f, bottom = horizon - 5.0f;   // under the frame, over the water
+    const float shapeW = juce::jmax(0.1f, m_constellationBounds.getWidth()), shapeH = juce::jmax(0.1f, m_constellationBounds.getHeight());
+    const float unit = juce::jmax(40.0f, juce::jmin((bottom - top) / shapeH, static_cast<float>(getWidth()) * 0.28f / shapeW));
+    return juce::Rectangle<float>(unit * shapeW, unit * shapeH)
+        .withCentre({ static_cast<float>(getWidth()) * 0.57f, 0.5f * (top + bottom) });
 }
 
 void SeaVisualiser::paintConstellation(juce::Graphics& g, float w)
@@ -424,28 +383,30 @@ void SeaVisualiser::paintConstellation(juce::Graphics& g, float w)
         return;
 
     const auto area = constellationArea();
-    const juce::Point<float> centre = area.getCentre();
-    const float span = area.getWidth();
+    const juce::Point<float> centre = area.getCentre(), middle = m_constellationBounds.getCentre();
+    const float unit = area.getWidth() / juce::jmax(0.1f, m_constellationBounds.getWidth());
     juce::ignoreUnused(w);
-    auto place = [&](juce::Point<float> p) { return juce::Point<float>(centre.x + p.x * span, centre.y - p.y * span); };
+    auto place = [&](juce::Point<float> p) { return juce::Point<float>(centre.x + (p.x - middle.x) * unit, centre.y - (p.y - middle.y) * unit); };
 
     const float alpha = juce::jlimit(0.0f, 1.0f, m_constellationOpacity);
     const float t = m_constellationTime;
+    const juce::Colour colours[2] = { c_moonlight, c_moonlight.interpolatedWith(juce::Colour(0xffff8f7a), 0.42f) }; // the cherry: a little warm
 
-    g.setColour(c_moonlight.withAlpha(0.14f * alpha));
     for (const auto& line : m_constellationLines)
     {
-        const auto a = place(m_constellation[static_cast<size_t>(line.first)].at);
-        const auto b = place(m_constellation[static_cast<size_t>(line.second)].at);
-        g.drawLine({ a, b }, 0.8f);
+        const auto& from = m_constellation[static_cast<size_t>(line.first)];
+        const auto& to = m_constellation[static_cast<size_t>(line.second)];
+        g.setColour(colours[from.cherry && to.cherry ? 1 : 0].withAlpha(0.21f * alpha));
+        g.drawLine({ place(from.at), place(to.at) }, 0.8f);
     }
     for (const auto& s : m_constellation)
     {
         const float twinkle = 0.55f + 0.45f * std::sin(t * 2.1f + s.phase);
         const auto p = place(s.at);
-        g.setColour(c_moonlight.withAlpha(0.20f * alpha * twinkle));
-        g.fillEllipse(juce::Rectangle<float>(s.size * 3.2f, s.size * 3.2f).withCentre(p));
-        g.setColour(c_moonlight.withAlpha(juce::jmin(1.0f, 0.55f + 0.35f * twinkle) * alpha));
+        const auto colour = colours[s.cherry ? 1 : 0];
+        g.setColour(colour.withAlpha(0.20f * alpha * twinkle));
+        g.fillEllipse(juce::Rectangle<float>(s.size * 3.0f, s.size * 3.0f).withCentre(p));
+        g.setColour(colour.withAlpha(juce::jmin(1.0f, 0.55f + 0.35f * twinkle) * alpha));
         g.fillEllipse(juce::Rectangle<float>(s.size, s.size).withCentre(p));
     }
 }

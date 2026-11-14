@@ -93,6 +93,7 @@ target_sources(Swooshbuckler
     Source/MorphPad.cpp
     Source/MorphWander.cpp
     Source/LogoOutline.cpp
+    Source/LogoConstellation.cpp
     Source/ModPanel.cpp
     Source/UpdatePopup.cpp
     Source/TakeAudition.cpp

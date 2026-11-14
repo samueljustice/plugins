@@ -1,6 +1,7 @@
 #pragma once
 
 #include <JuceHeader.h>
+#include "LogoConstellation.h"
 #include "LogoOutline.h"
 #include "PluginProcessor.h"
 #include "Theme.h"
@@ -132,10 +133,11 @@ private:
     struct Star { float x, y, size, phase; };
     std::vector<Star> m_stars;    // the twinkling few; the rest are in the sky image
 
-    // The mark in the stars: brighter stars on the logo's outline, joined by faint lines.
-    struct ConstellationStar { juce::Point<float> at; float size, phase; };
+    // The mark in the stars: brighter stars on the logo's silhouette, joined by faint lines.
+    struct ConstellationStar { juce::Point<float> at; float size, phase; bool cherry; };
     std::vector<ConstellationStar> m_constellation;          // normalised, centred, y-up
     std::vector<std::pair<int, int>> m_constellationLines;
+    juce::Rectangle<float> m_constellationBounds;            // of the stars, in the same coordinates
     float m_constellationOpacity = 0.0f, m_constellationTime = 0.0f, m_constellationLeft = 0.0f, m_constellationNext = 20.0f;
     bool m_constellationHeld = false;
     int m_takesSeen = -1;
