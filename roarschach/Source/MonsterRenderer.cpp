@@ -646,7 +646,7 @@ namespace roar
             pose.look.feather *= (1.0f - 0.5f * tame) * (1.0f - 0.55f * m_inkTidy) * (1.0f - 0.3f * gateShut);
             pose.look.density *= 1.0f + 0.35f * std::max (0.6f * tame, strain);
         }
-        // the weighted jaw opens the rift; the lips' syllables wobble the strands; a shut gate closes it
+        // the weighted jaw opens the rift; the lips' syllables move its ragged edge; a shut gate closes it
         const float jaw = std::min (1.0f, std::max (0.0f, f.get (U::uJaw)));
         // (and no rift until there is a body round it: a hole in the first shred on the fold is a ring)
         pose.maw[2] = CreatureAnatomy::opening (jaw, stage) * awake * (1.0f - 0.85f * clamp01 (f.get (U::uGateClosed)))
@@ -784,17 +784,21 @@ namespace roar
             const float* harm = f.at (U::uOvHarm);
             for (int i = 0; i < 5; ++i)
             {
-                // (none near the fold: a pair of spines there, rising over the middle, is a pair of horns;
-                // and each a tuft of thin ones, never one long curved one, which is a horn or a tusk)
+                // (none near the fold: a pair of wisps there, rising over the middle, is a pair of horns)
                 const float x = (0.24f + 0.10f * (float) i) * m_inkFitK;
-                const float lean = 0.45f + 0.20f * (float) i - 0.10f * (float) (i % 2);
-                // (only on a body that has formed: a crown over shreds still gathering hangs in the cloud)
-                float len = (0.05f + 0.13f * clamp01 (harm[i])) * clamp01 (ovLevel * 2.0f) * clamp01 (harm[i] * 6.0f) * eggOff * smooth (0.75f, 0.95f, F0);
-                // (rooted well inside the mass, where the carried ink always stands: a spine is never
-                // left hanging in the cloud over an edge the flow has moved)
+                // (each leaves its own way, no two alike: side by side and parallel they are a comb)
+                static constexpr float leans[5] = { 0.15f, 1.05f, -0.30f, 0.70f, 1.40f };
+                const float lean = leans[i];
+                // (only on a body that has formed: wisps over shreds still gathering hang in the cloud;
+                // and only once the module is turned up enough to mean it: at a few per cent, as a new
+                // instance has it, the body has none)
+                float len = (0.09f + 0.18f * clamp01 (harm[i])) * clamp01 (ovLevel * 2.0f) * clamp01 (harm[i] * 6.0f) * eggOff * smooth (0.75f, 0.95f, F0)
+                          * smooth (0.10f, 0.35f, clamp01 (f.overtoneAmount));
+                // (rooted just inside the mass, where the carried ink stands: a wisp is never left
+                // hanging in the cloud over an edge the flow has moved, and most of it shows beyond it)
                 float y = 0.33f;
                 if (len > 0.012f)
-                    while (y > -0.3f && CreatureAnatomy::sdf (pose, x, y) > -0.05f)
+                    while (y > -0.3f && CreatureAnatomy::sdf (pose, x, y) > -0.02f)
                         y -= 0.012f;
                 len = len > 0.012f ? len + 0.04f : 0.0f;
                 // (as long as there is room above it: the band at the view's top is cloud, and a spine
@@ -809,7 +813,6 @@ namespace roar
                 else if (wantLen > 0.0f)
                     sp[0] += (y - sp[0]) * ease;
                 sp[1] += (wantLen - sp[1]) * ease;
-                // (each leans its own way, outwards more than in: a crown, never a comb)
                 f.setAt (U::uSpine, i, x, sp[0], sp[1], lean);
             }
             // CHAMBER: the view's own ringing and room; the bands leave at a slow pace and return

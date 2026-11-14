@@ -54,7 +54,8 @@ public:
         float detailHigh = 0.20f;
         float swirl = 0.0f;        // SWIRL amount (the bound eddy pair's strength)
         float ensemble = 0.0f;     // ENSEMBLE amount (the pale echoes' spread)
-        float overtone = 0.0f;     // OVERTONE amount (the bristles' length)
+        float overtone = 0.0f;     // OVERTONE amount, as its effect (the wisps' length)
+        float overtoneTravel = 0.0f;   // ... and as the knob stands, 0..1 (no wisps at a few per cent)
         float ring = 0.0f;         // RING amount (the ripples from the rift)
         float cleanOn = 1.0f;      // CLEAN is On: its gate may close the lips
         float clean = 0.0f;        // CLEAN's containment above its usual setting (0..1): how tidy the edge is
@@ -174,7 +175,7 @@ private:
     std::atomic<float> m_pitchSt { -2.0f }, m_size { 0.35f }, m_growl { 0.30f }, m_liquid { 0.30f },
                        m_roar { 0.35f }, m_sub { 0.25f }, m_gravel { 0.0f },
                        m_detailLow { 0.30f }, m_detailHigh { 0.20f },
-                       m_swirlKnob { 0.0f }, m_ensembleKnob { 0.0f }, m_overtoneKnob { 0.0f }, m_ringKnob { 0.0f },
+                       m_swirlKnob { 0.0f }, m_ensembleKnob { 0.0f }, m_overtoneKnob { 0.0f }, m_overtoneTravel { 0.0f }, m_ringKnob { 0.0f },
                        m_cleanOn { 1.0f }, m_clean { 0.0f };
     std::array<std::atomic<float>, roar::CreatureMood::numAxes> m_moodTarget {};
     std::array<std::atomic<float>, roar::CreatureMood::numAxes> m_testMood { { { -1.0f }, { -1.0f }, { -1.0f }, { -1.0f } } };

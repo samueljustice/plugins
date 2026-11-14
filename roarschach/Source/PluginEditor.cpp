@@ -377,6 +377,8 @@ void RoarschachAudioProcessorEditor::updateMonsterParams()
     params.swirl = on(Params::swirlOn) * effect(view::swirl, Params::swirl);
     params.ensemble = on(Params::ensembleOn) * effect(view::ensemble, Params::ensemble);
     params.overtone = on(Params::overtoneOn) * effect(view::overtone, Params::overtone);
+    // (the knob's own travel too: the wisps are drawn only once it is turned up)
+    params.overtoneTravel = on(Params::overtoneOn) * percent(Params::overtone);
     params.ring = on(Params::ringOn) * percent(Params::ring);
     params.cleanOn = on(Params::cleanOn);
     // (the edge is tidied only by containment beyond the usual fifth: the usual setting leaves the ink as it is)

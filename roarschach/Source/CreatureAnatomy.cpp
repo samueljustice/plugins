@@ -14,7 +14,10 @@ namespace roar
         constexpr float c_pi = 3.14159265f;
         constexpr float c_far = 5.0f;              // where an unused primitive is parked
         constexpr float c_maxY = 0.42f, c_maxX = 1.25f;
-        constexpr int c_tries = 64;
+        constexpr int c_tries = 192;
+        // a blot is a sprawl, not a head: the round mass on the fold holds no more than this share
+        // of the ink, and the ink lies at least this far from the fold on the whole
+        constexpr float c_maxDome = 0.15f, c_minSpread = 0.26f;
 
         float clamp01 (float v) { return std::isfinite (v) ? std::min (1.0f, std::max (0.0f, v)) : 0.0f; }
         float clampf (float v, float lo, float hi) { return std::min (hi, std::max (lo, v)); }
@@ -88,16 +91,19 @@ namespace roar
             {
                 case A::Build::single:
                 {
-                    const float rx = r.rr (0.15f, 0.26f), ry = r.rr (0.17f, 0.30f);
+                    // (a modest mass: the blot's weight is in what is chained out from it. A large round
+                    // trunk with the rest hung on it is a head.)
+                    const float rx = r.rr (0.11f, 0.17f), ry = r.rr (0.10f, 0.16f);
                     addLobe (0.0f, cy, rx, ry, 0.0f, 0.0f, true);
                     g.mawY = cy + r.rr (-0.35f, 0.10f) * ry;
                     break;
                 }
                 case A::Build::split:
                 {
-                    // two lobes either side of a pale seam, joined by a bridge on the fold (above them:
-                    // two masses side by side over the rift would be a face layout)
-                    const float ry = r.rr (0.18f, 0.28f), x0 = r.rr (0.13f, 0.19f), rx = x0 - r.rr (0.012f, 0.030f);
+                    // two lobes side by side that meet on the fold, with a bridge on it above them. (They
+                    // overlap there: a pale seam left down the fold between two dark masses is a nose
+                    // between two sockets.)
+                    const float ry = r.rr (0.18f, 0.28f), x0 = r.rr (0.13f, 0.19f), rx = x0 + r.rr (0.012f, 0.030f);
                     addLobe (x0, cy - 0.03f, rx, ry, r.rr (-0.25f, 0.25f), 0.0f, true);
                     const float br = r.rr (0.07f, 0.10f), by = cy - 0.03f + ry * r.rr (0.45f, 0.75f);
                     addLobe (0.0f, by, br * 1.15f, br, 0.0f, 0.0f, true);
@@ -122,7 +128,11 @@ namespace roar
                     // a ring of lobes round a bay on the fold; the bay is open at one end, so the
                     // cloud it lets in is never an enclosed hole
                     const float R = r.rr (0.16f, 0.21f), lr = R * r.rr (0.44f, 0.54f);
-                    const bool up = r.chance (0.5f);
+                    // (always open downwards, an arch: open upwards, the bay is a pale column on the fold
+                    // between two risen masses and over the rift, which is a brow, a nose and a mouth.
+                    // The draw is still made, so a seed's later draws stay where they were.)
+                    r.chance (0.5f);
+                    const bool up = false;
                     const float sgn = up ? -1.0f : 1.0f;   // the closed end is below (the ring opens upwards) or above
                     for (const float deg : { 0.0f, 65.0f, 125.0f })
                     {
@@ -130,7 +140,10 @@ namespace roar
                         const float x = R * std::sin (a), y = cy + sgn * R * std::cos (a);
                         // along the ring: the long radius lies on the tangent
                         const float tangent = std::atan2 (-sgn * std::sin (a), std::cos (a));
-                        addLobe (x, y, R * 0.62f, lr, tangent, 0.0f, true);
+                        // (the mass at the closed end is the heaviest: the rift is in it, and with the jaw
+                        // hung open a slight one is torn through, the blot left in two halves)
+                        const float heavy = deg == 0.0f ? 1.35f : 1.0f;
+                        addLobe (x, y, R * 0.62f * heavy, lr * heavy, tangent, 0.0f, true);
                     }
                     auto& b = g.bays[(size_t) g.numBays++];
                     b.x = 0.0f;
@@ -446,24 +459,9 @@ namespace roar
             if (ragged)
                 torn = clamp01 ((NoiseSampler::shared().sample (x * 4.5f + P.look.oy, y * 4.5f + P.look.ox, 0.5f)[0] - 0.5f) * 1.45f + 0.5f);
             const float rw = mrx * std::pow (1.0f - ty * ty, 1.1f) * (0.35f + 1.5f * uneven) * (0.55f + 0.9f * torn);
-            float rift = std::max (std::abs (mcx) - rw, std::abs (mcy) - mry) + (1.0f - smooth (0.0f, 0.02f, open)) * 0.25f;
-            // strands of ink left across the rift, thinning as it opens: unevenly spaced and leaning
-            float sx = x * (1.0f + 1.6f * (y - P.maw[0]));
-            float swell = 0.5f;
-            // (close enough that at least a pair of them crosses the rift wherever it is wide)
-            const float gap = std::max (0.01f, mrx * (0.20f + 0.55f * P.look.strandGap));
-            if (ragged)
-            {
-                const auto& n = NoiseSampler::shared();
-                sx += (n.sample (y * 1.3f + P.look.ox, 0.37f + P.look.oy, 1.0f)[0] - 0.5f) * 0.16f;
-            }
-            float f = sx / gap;
-            f += 0.33f * std::sin (f * 2.1f + P.look.ox * 50.0f);
-            if (ragged)
-                swell = NoiseSampler::shared().sample (std::floor (f) * 0.173f + P.look.oy, y * 2.3f + P.look.ox, 0.0f)[0];
-            const float dist = std::abs (f - std::floor (f) - 0.5f) * gap;
-            const float thread = (-0.003f + (0.011f + 0.010f * P.maw[3]) * smooth (0.30f, 0.75f, swell)) * (1.0f - open * 2.6f) - dist;
-            d = smax (d, -std::max (rift, thread), 0.03f);
+            const float rift = std::max (std::abs (mcx) - rw, std::abs (mcy) - mry) + (1.0f - smooth (0.0f, 0.02f, open)) * 0.25f;
+            // (one ragged opening with nothing left across it: strands across a tear are a row of teeth)
+            d = smax (d, -rift, 0.03f);
         }
         // the bays: tapered cuts that widen towards the outside
         for (int i = 0; i < maxBays; ++i)
@@ -582,6 +580,132 @@ namespace roar
                 }
         }
 
+        // the largest round mass centred on the fold (how far inside the ink the fold's points are),
+        // how far the ink lies from the fold, and what rises beside that mass above its top
+        {
+            float R = 0.0f, at = 0.0f;
+            for (int j = 0; j < c_ny; ++j)
+            {
+                const float d = -sdf (p, 0.02f, Grid::y (j));
+                if (d > R)
+                {
+                    R = d;
+                    at = Grid::y (j);
+                }
+            }
+            rep.dome = rep.area > 1.0e-4f ? c_pi * R * R / rep.area : 0.0f;
+            rep.domeY = at;
+            double sx = 0.0;
+            float lump = 0.0f;
+            for (int j = 0; j < c_ny; ++j)
+                for (int i = 0; i < c_nx; ++i)
+                    if (g.at (i, j) != 0)
+                    {
+                        sx += (double) Grid::x (i);
+                        // (beside the mass, within twice its radius of the fold, above its top)
+                        if (Grid::x (i) > 0.6f * R && Grid::x (i) < 2.2f * R + 0.05f)
+                            lump = std::max (lump, Grid::y (j) - (at + R));
+                    }
+            rep.spread = (float) (sx / (double) count);
+            rep.topLumps = lump;
+        }
+        // the thick mass on the fold: the mask worn away by 0.06 (limbs and necks go), what is left
+        // that reaches the fold, grown back by as much
+        {
+            constexpr int r = 4;   // (cells: about 0.065)
+            std::array<std::uint8_t, (size_t) (c_nx * c_ny)> worn {}, mark {};
+            const auto inkAt = [&g] (int i, int j)
+            {
+                if (j < 0 || j >= c_ny || i >= c_nx)
+                    return false;
+                return g.at (i < 0 ? -1 - i : i, j) != 0;   // (the other half is the mirror image)
+            };
+            for (int j = 0; j < c_ny; ++j)
+                for (int i = 0; i < c_nx; ++i)
+                {
+                    bool all = g.at (i, j) != 0;
+                    for (int dj = -r; dj <= r && all; ++dj)
+                        for (int di = -r; di <= r && all; ++di)
+                            if (di * di + dj * dj <= r * r)
+                                all = inkAt (i + di, j + dj);
+                    worn[(size_t) (j * c_nx + i)] = all ? 1 : 0;
+                }
+            int top = 0;
+            for (int j = 0; j < c_ny; ++j)
+                for (int i = 0; i < 5; ++i)
+                    if (worn[(size_t) (j * c_nx + i)] != 0 && mark[(size_t) (j * c_nx + i)] == 0)
+                    {
+                        mark[(size_t) (j * c_nx + i)] = 1;
+                        stack[(size_t) top++] = j * c_nx + i;
+                    }
+            while (top > 0)
+            {
+                const int c = stack[(size_t) --top], ci = c % c_nx, cj = c / c_nx;
+                for (int dj = -1; dj <= 1; ++dj)
+                    for (int di = -1; di <= 1; ++di)
+                    {
+                        const int ni = ci + di, nj = cj + dj;
+                        if (ni < 0 || nj < 0 || ni >= c_nx || nj >= c_ny)
+                            continue;
+                        const int k = nj * c_nx + ni;
+                        if (worn[(size_t) k] != 0 && mark[(size_t) k] == 0)
+                        {
+                            mark[(size_t) k] = 1;
+                            stack[(size_t) top++] = k;
+                        }
+                    }
+            }
+            int n = 0, iMax = 0, jMin = c_ny, jMax = -1;
+            for (int j = 0; j < c_ny; ++j)
+                for (int i = 0; i < c_nx; ++i)
+                {
+                    if (g.at (i, j) == 0)
+                        continue;
+                    bool near = false;
+                    for (int dj = -r; dj <= r && ! near; ++dj)
+                        for (int di = -r; di <= r && ! near; ++di)
+                        {
+                            const int ni = i + di, nj = j + dj;
+                            if (di * di + dj * dj <= r * r && ni >= 0 && nj >= 0 && ni < c_nx && nj < c_ny)
+                                near = mark[(size_t) (nj * c_nx + ni)] != 0;
+                        }
+                    if (near)
+                    {
+                        ++n;
+                        iMax = std::max (iMax, i);
+                        jMin = std::min (jMin, j);
+                        jMax = std::max (jMax, j);
+                    }
+                }
+            rep.core = (float) n / (float) count;
+            rep.coreRound = n > 0 ? (float) n / (float) ((iMax + 1) * (jMax - jMin + 1)) : 0.0f;
+        }
+        // cloud the ink all but encloses, off the fold and above the rift's level: of eight ways
+        // out of it, at most two are open within a sixth of a view height (mirrored, a pair of sockets)
+        {
+            const float reach = 0.16f;
+            for (int j = 0; j < c_ny; ++j)
+                for (int i = 0; i < c_nx; ++i)
+                {
+                    if (g.at (i, j) != 0 || Grid::x (i) < 0.06f || Grid::x (i) > 0.75f || Grid::y (j) < p.maw[0] - 0.02f)
+                        continue;
+                    int shut = 0;
+                    for (int k = 0; k < 8; ++k)
+                    {
+                        const float a = (float) k * 0.785398f, cx = std::cos (a), sy = std::sin (a);
+                        bool hit = false;
+                        for (float t = 0.02f; t <= reach && ! hit; t += 0.02f)
+                        {
+                            const float x = std::abs (Grid::x (i) + cx * t), y = Grid::y (j) + sy * t;
+                            const int ii = (int) (x / c_gridW * (float) c_nx), jj = (int) ((y + 0.5f) * (float) c_ny);
+                            hit = ii >= 0 && jj >= 0 && ii < c_nx && jj < c_ny && g.at (ii, jj) != 0;
+                        }
+                        shut += hit ? 1 : 0;
+                    }
+                    rep.sockets += shut >= 6 ? 1 : 0;
+                }
+        }
+
         // extent, outline, and the convex hull of both halves (the concave majorant of the row extents)
         std::array<float, (size_t) c_ny> ext {};
         int edges = 0;
@@ -683,7 +807,7 @@ namespace roar
             const auto& l = g.limbs[(size_t) i];
             const float w = gateWeight (l.gate, gs);
             // (a branch keeps reaching out long after it arrives: the late stages' new structure)
-            const float reachOn = l.parent >= 0 ? 1.0f + 0.6f * smooth (l.gate + 0.15f, l.gate + 0.45f, gs) : 1.0f;
+            const float reachOn = l.parent >= 0 ? 1.0f + 1.0f * smooth (l.gate + 0.15f, l.gate + 0.45f, gs) : 1.0f;
             const float k = (l.thread ? 1.0f : lenK * reachOn * (1.0f - 0.12f * beast)) * w;
             float rx, ry;
             if (l.parent >= 0 && l.parent < i)
@@ -732,7 +856,8 @@ namespace roar
                 auto& b = p.limbB[(size_t) i];
                 if (b[2] <= 0.004f)
                     continue;
-                const float w = (1.0f - smooth (0.26f, 0.40f, b[0])) * smooth (coreTop - 0.10f, coreTop + 0.02f, b[1])
+                // (far out too: a pair of limbs raised over the middle mass from its shoulders is a pair of horns)
+                const float w = (1.0f - smooth (0.55f, 0.85f, b[0])) * smooth (coreTop - 0.10f, coreTop + 0.02f, b[1])
                               * smooth (0.03f, 0.09f, b[1] - a[1]) * smooth (p.maw[0] + 0.04f, p.maw[0] + 0.12f, b[1]);
                 if (w <= 0.0f)
                     continue;
@@ -761,7 +886,10 @@ namespace roar
 
         p.look = g.look;
         p.look.flow *= 1.0f + 0.25f * stage;
-        p.look.carry *= (1.0f + 0.25f * fluid) * (1.0f + 0.35f * smooth (0.55f, 1.0f, stage));
+        // (late, it is torn further and its edge frays more: the top stages are told from the middle
+        // ones at a glance, by ribbons and bays, not by a few more curls)
+        p.look.carry *= (1.0f + 0.25f * fluid) * (1.0f + 0.60f * smooth (0.50f, 1.0f, stage));
+        p.look.feather *= 1.0f + 0.45f * smooth (0.50f, 1.0f, stage);
         // young, the blot is a dense mass the eddies barely tear; grown, they tear it into ribbons
         p.look.ribbon = std::min (1.0f, p.look.ribbon * (0.55f + 0.45f * smooth (0.0f, 0.45f, stage)) + 0.40f * smooth (0.55f, 1.0f, stage));
         p.centreY = cy + drop;
@@ -862,13 +990,13 @@ namespace roar
     CreatureAnatomy::Genome CreatureAnatomy::generate (std::uint32_t seed)
     {
         Genome g;
-        int face = 0;
+        int face = 0, sprawl = 0;
         for (int attempt = 0; attempt < c_tries; ++attempt)
         {
             std::uint32_t state = seed ^ (0x7f4a7c15u * (std::uint32_t) attempt);
             state = splitmix (state);
             g = candidate (seed, state);
-            bool ok = true, faceFail = false;
+            bool ok = true, faceFail = false, sprawlFail = false;
             for (const float stage : { 0.3f, 0.6f, 1.0f })
             {
                 auto pose = evaluate (g, stage);
@@ -885,15 +1013,20 @@ namespace roar
                     ok = false;
                 if (rep.faceLayout)
                     ok = false, faceFail = true;
+                // (grown, it sprawls: one round mass on the fold with the rest hung on it is a head)
+                if (stage >= 0.5f && (rep.dome > c_maxDome || rep.spread < c_minSpread))
+                    ok = false, sprawlFail = true;
                 if (! ok)
                     break;
             }
             g.rerolls = attempt;
             g.faceRerolls = face;
+            g.sprawlRerolls = sprawl;
             g.valid = ok;
             if (ok)
                 break;
             face += faceFail ? 1 : 0;
+            sprawl += sprawlFail ? 1 : 0;
         }
         return g;
     }

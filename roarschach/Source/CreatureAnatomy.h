@@ -49,7 +49,7 @@ namespace roar
             float bank = 1.0f;      // how heavy the cloud in front stands
             float glow = 0.0f;      // the rift's light: 0 a dark tear, 1 lit breath
             float flow = 1.0f;      // the eddies' gain
-            float strandGap = 0.6f; // spacing of the strands across the rift, of its half width
+            float strandGap = 0.6f; // (a draw the generator still makes, so a seed's other draws stay where they were; nothing reads it)
             float ox = 0.0f, oy = 0.0f;   // where this blot reads its noise
         };
 
@@ -62,10 +62,11 @@ namespace roar
             std::array<Limb, maxLimbs> limbs {};
             std::array<Bay, maxBays> bays {};
             float centreY = 0.0f;
-            float mawY = 0.0f, mawHalf = 0.06f, strands = 0.5f;
+            float mawY = 0.0f, mawHalf = 0.06f, strands = 0.5f;   // (strands: how uneven the rift's edge is; the name is the genome's)
             Look look;
             int rerolls = 0;        // candidates thrown away before this one
             int faceRerolls = 0;    // ... of them for the face rules
+            int sprawlRerolls = 0;  // ... of them for one round mass on the fold, or ink that keeps too close to it
             bool valid = false;     // false: no candidate passed (the last one is kept)
         };
 
@@ -76,7 +77,7 @@ namespace roar
             std::array<std::array<float, 4>, maxLobes> blobR {};   // cos, sin, weight, core
             std::array<std::array<float, 4>, maxLimbs> limbA {};   // root xy, bend xy
             std::array<std::array<float, 4>, maxLimbs> limbB {};   // tip xy, root radius, tip radius
-            std::array<float, 4> maw {};                           // height on the fold, half width, opening, strand amount
+            std::array<float, 4> maw {};                           // height on the fold, half width, opening, how uneven its edge is
             std::array<std::array<float, 4>, maxBays> bay {};      // centre xy, radius, direction (radians)
             Look look;
             float centreY = 0.0f;
@@ -114,6 +115,13 @@ namespace roar
             int limbs = 0;                // limbs switched in
             bool faceLayout = false;      // two large lobes side by side above the rift, one between them
             float perimeter = 0.0f;       // both halves, view heights
+            float dome = 0.0f;            // share of the ink in the largest round mass centred on the fold
+            float domeY = 0.0f;           // ... where on the fold its middle is
+            float spread = 0.0f;          // the ink's mean distance from the fold, view heights
+            int sockets = 0;              // cells of cloud above the rift's level that the ink all but encloses
+            float core = 0.0f;            // share of the ink in the thick mass on the fold (what is left of it once thin parts are worn away, grown back)
+            float coreRound = 0.0f;       // ... how round that mass is: its area over its bounding box's (a disc 0.79)
+            float topLumps = 0.0f;        // how far ink beside the dome rises above it (a pair of lumps over a round mass)
         };
         static Report inspect (const Pose&);
 

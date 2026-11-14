@@ -92,6 +92,7 @@ void MonsterView::setParams (const Params& params)
     m_swirlKnob.store (params.swirl, std::memory_order_relaxed);
     m_ensembleKnob.store (params.ensemble, std::memory_order_relaxed);
     m_overtoneKnob.store (params.overtone, std::memory_order_relaxed);
+    m_overtoneTravel.store (params.overtoneTravel, std::memory_order_relaxed);
     m_ringKnob.store (params.ring, std::memory_order_relaxed);
     m_cleanOn.store (params.cleanOn, std::memory_order_relaxed);
     m_clean.store (params.clean, std::memory_order_relaxed);
@@ -497,6 +498,7 @@ void MonsterView::updateAnimation (float dt)
     knob (m_knobs.swirl, m_swirlKnob, 0.0f, 1.0f);
     knob (m_knobs.ensemble, m_ensembleKnob, 0.0f, 1.0f);
     knob (m_knobs.overtone, m_overtoneKnob, 0.0f, 1.0f);
+    knob (m_knobs.overtoneTravel, m_overtoneTravel, 0.0f, 1.0f);
     knob (m_knobs.ring, m_ringKnob, 0.0f, 1.0f);
 
     // The other modules (each feature already fades to 0 with its module's On switch).
@@ -779,6 +781,7 @@ void MonsterView::drawFrame (float dt, float scale, int width, int height)
         fr.seedGlide = juce::jlimit (0.0f, 1.0f, m_evo[E::seedGlide]);
         const float testFormation = m_testFormation.load (std::memory_order_relaxed);
         fr.inputLoud = m_inputLoud;
+        fr.overtoneAmount = m_knobs.overtoneTravel;
         fr.inkFormation = testFormation >= 0.0f ? juce::jlimit (0.0f, 1.0f, testFormation)
                                                 : m_formation.inkFormation();
     }

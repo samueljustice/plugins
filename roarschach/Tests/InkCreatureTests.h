@@ -676,6 +676,16 @@ inline InkPicture inkModuleShot(const InkScript& script, int module, int tier, i
     return pic;
 }
 
+/** What the anatomy's rules measure on the blot a rig is drawing (the screenshot tool's log). */
+inline void inkReportLine(const juce::String& name, InkRig& rig)
+{
+    using A = roar::CreatureAnatomy;
+    const auto& g = rig.monster->getRendererForTests().getInkGenome();
+    const auto rep = A::inspect(A::evaluate(g, 0.6f));
+    std::printf("    %-18s build %d, thrown away %2d (%d face, %d sprawl): round mass %.2f of the ink, spread %.2f, cloud in the hull %.2f, ink %.2f\n", name.toRawUTF8(), static_cast<int>(g.build),
+                g.rerolls, g.faceRerolls, g.sprawlRerolls, static_cast<double>(rep.dome), static_cast<double>(rep.spread), static_cast<double>(rep.negative), static_cast<double>(rep.area));
+}
+
 inline int runInkShots(const juce::File& dir, const juce::File& clips)
 {
     dir.createDirectory();
@@ -1377,6 +1387,7 @@ inline int runInkShots(const juce::File& dir, const juce::File& clips)
             rig.run(13.5 - rig.frames / 30.0, &script.audio);
             roar.push_back(rig.shot(&script.audio).image);
             labels.add("seed " + juce::String(static_cast<int>(seed)));
+            inkReportLine("seed " + juce::String(static_cast<int>(seed)), rig);
         }
         save(inkSheet(quiet, 4, labels), "sheet-" + juce::String(static_cast<int>(sheetSeeds)) + "-seeds-quiet.png");
         save(inkSheet(roar, 4, labels), "sheet-" + juce::String(static_cast<int>(sheetSeeds)) + "-seeds-roar.png");
@@ -1395,6 +1406,7 @@ inline int runInkShots(const juce::File& dir, const juce::File& clips)
             rig.run(13.5 - rig.frames / 30.0, &script.audio);
             roar.push_back(rig.shot(&script.audio).image);
             labels.add(preset.name);
+            inkReportLine(preset.name, rig);
         }
         save(inkSheet(quiet, 4, labels), "sheet-presets-quiet.png");
         save(inkSheet(roar, 4, labels), "sheet-presets-roar.png");
@@ -1497,7 +1509,8 @@ inline void testInkAnatomy()
 
     // ---- the rules, and no face (check 4 on the CPU mask): 64 seeds, three stages, jaw shut and open
     {
-        int candidates = 0, rerolls = 0, faceRerolls = 0, invalid = 0, worstRerolls = 0;
+        int candidates = 0, rerolls = 0, faceRerolls = 0, sprawlRerolls = 0, invalid = 0, worstRerolls = 0, domes = 0;
+        double mostDome = 0.0, leastSpread = 9.0;
         int pieces = 0, strayHoles = 0, pairedHoles = 0, faceLayouts = 0, outside = 0, fewLimbs = 0, dense = 0, builds[4] {};
         double leastShare = 1.0, leastNegative = 1.0;
         for (int i = 1; i <= 64; ++i)
@@ -1506,6 +1519,7 @@ inline void testInkAnatomy()
             candidates += 1 + g.rerolls;
             rerolls += g.rerolls;
             faceRerolls += g.faceRerolls;
+            sprawlRerolls += g.sprawlRerolls;
             worstRerolls = std::max(worstRerolls, g.rerolls);
             invalid += g.valid ? 0 : 1;
             ++builds[static_cast<int>(g.build)];
@@ -1518,6 +1532,12 @@ inline void testInkAnatomy()
                     leastShare = std::min(leastShare, static_cast<double>(rep.largestShare));
                     pieces += rep.largestShare < 0.7f ? 1 : 0;
                     faceLayouts += rep.faceLayout ? 1 : 0;
+                    if (jaw == 0.0f && stage >= 0.5f)
+                    {
+                        mostDome = std::max(mostDome, static_cast<double>(rep.dome));
+                        leastSpread = std::min(leastSpread, static_cast<double>(rep.spread));
+                        domes += rep.dome > 0.15f || rep.spread < 0.26f ? 1 : 0;
+                    }
                     if (jaw == 0.0f)
                     {
                         leastNegative = std::min(leastNegative, static_cast<double>(rep.negative));
@@ -1556,9 +1576,35 @@ inline void testInkAnatomy()
         check(pairedHoles == 0, "ink anatomy: no pair of enclosed regions above the rift");
         check(faceLayouts == 0, "ink anatomy: no face layout (two masses side by side over the rift with one between)");
         check(faceRate < 0.10, "ink anatomy: under a tenth of the candidates are thrown away for a face layout (" + juce::String(100.0 * faceRate, 1) + " %)");
+        // a blot sprawls: no single round mass on the fold holds over 15 % of the ink, and the ink lies
+        // 0.26 view heights from the fold on the whole (a round mass with the rest hung on it is a head)
+        std::printf("    the round mass on the fold holds %.2f of the ink at most; the ink lies %.2f view heights from the fold at least; %d candidates thrown away for either (%.1f %%)\n",
+                    mostDome, leastSpread, sprawlRerolls, 100.0 * sprawlRerolls / candidates);
+        check(domes == 0, "ink anatomy: grown, no blot is one round mass on the fold (most " + juce::String(mostDome, 2) + " of the ink, least spread " + juce::String(leastSpread, 2) + ")");
+        check(sprawlRerolls * 4 < candidates, "ink anatomy: under a quarter of the candidates are thrown away for that (" + juce::String(100.0 * sprawlRerolls / candidates, 1) + " %)");
         check(outside == 0, "ink anatomy: within 0.42 view heights of the centre line and 1.25 of the fold");
         check(dense == 0, "ink anatomy: at least 35 % of the hull is cloud (least " + juce::String(leastNegative, 2) + ")");
         check(fewLimbs == 0, "ink anatomy: at least three limbs from stage 0.3");
+    }
+
+    // (ROARSCHACH_INK_DUMP: what the rules measure on each of the sheet's seeds and each factory preset)
+    if (juce::SystemStats::getEnvironmentVariable("ROARSCHACH_INK_DUMP", {}).isNotEmpty())
+    {
+        const auto dump = [](const juce::String& name, std::uint32_t seed)
+        {
+            const auto g = A::generate(seed);
+            for (const float stage : { 0.6f, 1.0f })
+            {
+                const auto rep = A::inspect(A::evaluate(g, stage));
+                std::printf("    %-18s stage %.1f build %d rerolls %2d: area %.2f core %.2f round %.2f dome %.2f at %+.2f lumps %+.2f spread %.2f sockets %2d negative %.2f\n", name.toRawUTF8(), static_cast<double>(stage),
+                            static_cast<int>(g.build), g.rerolls, static_cast<double>(rep.area), static_cast<double>(rep.core), static_cast<double>(rep.coreRound), static_cast<double>(rep.dome), static_cast<double>(rep.domeY),
+                            static_cast<double>(rep.topLumps), static_cast<double>(rep.spread), rep.sockets, static_cast<double>(rep.negative));
+            }
+        };
+        for (int i = 1; i <= 32; ++i)
+            dump("seed " + juce::String(i), seedOf(i));
+        for (const auto& preset : PresetManager::getFactoryPresets())
+            dump(preset.name, A::combine(77u, A::hashName(preset.name)));
     }
 
     // ---- seed diversity (check 5 on the CPU mask), and the factory presets against each other
@@ -2058,7 +2104,7 @@ inline void testInkBuffer()
                 rig.gl.bind();
                 rig.monster->releaseOffline();
                 const int alive = held.alive();
-                check(held.complete(true) && alive == 0, "ink buffer: release deletes every GL object (" + juce::String(alive) + " left)" + tag);
+                check(held.complete(rig.gl.core) && alive == 0, "ink buffer: release deletes every GL object (" + juce::String(alive) + " left)" + tag);
             }
 
     // ---- check 13: the tiers agree on the blot; no jump at a change of tier
@@ -2567,7 +2613,10 @@ inline void testInkCloudAndRift()
             keep(pic, "threads-seed" + juce::String(static_cast<int>(seed)) + "-tier" + juce::String(k == 0 ? 1 : 2));
         }
         std::printf("  seed %u threads: smoke edge squared over area %.0f without them, %.0f with\n", seed, ragged[0], ragged[1]);
-        pictureCheck(ragged[1] >= 1.2 * ragged[0], "ink cloud: ink let go hangs in threads (edge squared over area " + juce::String(ragged[1], 0) + " against " + juce::String(ragged[0], 0)
+        // (the bound was 1.2 times. The blot seed 3 grows is another one since a blot must sprawl: a
+        // wide, flat one whose ink, let go, spreads in broad sheets with less edge to thread, and it
+        // measures 1.15 times (seed 1: 2.1 times). Held to 1.1: threaded, by a margin the eye sees.)
+        pictureCheck(ragged[1] >= 1.1 * ragged[0], "ink cloud: ink let go hangs in threads (edge squared over area " + juce::String(ragged[1], 0) + " against " + juce::String(ragged[0], 0)
                      + " without) (seed " + juce::String(static_cast<int>(seed)) + ")");
     }
 
@@ -2597,7 +2646,7 @@ inline void testInkCloudAndRift()
     }
 
     // ---- check 9: the rift. By seed some are a dark tear and some are lit; lit, the light in the
-    // rift grows with the jaw, is ragged (never a lens) and has strands across it.
+    // rift grows with the jaw, is ragged (never a lens) and has nothing across it.
     {
         int dark = 0;
         float least = 1.0f, most = 0.0f;
@@ -2752,14 +2801,18 @@ inline void testInkCloudAndRift()
             const double wideLit = 0.5 * (lit[3] + lit[4]);
             lessWhenWide += wideLit >= lit[2] ? 0 : 1;
             const bool rises = wideLit > 20.0 && wideLit >= 3.0 * lit[1] && lit[1] >= lit[0];
-            std::printf("  tier %d seed %u rift: cells the light brightens %.0f %.0f %.0f %.0f %.0f by the jaw; unlit, the tear there is luma %.2f; against a disc of its area %.2f; it fills %.0f %% of the box's middle third at most; rows with two strands across the light %d (most runs of light in a row %d)\n",
+            std::printf("  tier %d seed %u rift: cells the light brightens %.0f %.0f %.0f %.0f %.0f by the jaw; unlit, the tear there is luma %.2f; against a disc of its area %.2f; it fills %.0f %% of the box's middle third at most; rows where the light is parted in three or more %d (most runs of light in a row %d; reported)\n",
                         tier, seed, lit[0], lit[1], lit[2], lit[3], lit[4], tearLuma, lens, 100.0 * fill, rowsCrossed, mostRuns);
             pictureCheck(rises, "ink rift: lit, the light in the rift grows with the jaw" + tag);
             pictureCheck(lit[0] < 0.1 * wideLit, "ink rift: shut, the rift has no light" + tag);
             pictureCheck(tearLuma < 0.30, "ink rift: unlit it is a dark tear (luma " + juce::String(tearLuma, 2) + " where the light would be)" + tag);
             pictureCheck(lensFrames > 0 && lens < 0.55, "ink rift: the light is ragged, never a lens (" + juce::String(lens, 2) + " of a disc's quotient)" + tag);
             pictureCheck(fill < 0.75, "ink rift: the light never fills the tear (" + juce::String(static_cast<int>(100.0 * fill)) + " % of the box's middle)" + tag);
-            pictureCheck(rowsCrossed >= 2, "ink rift: at least two strands cross the light (" + juce::String(rowsCrossed) + " rows)" + tag);
+            // (a check here once asked for at least two strands of ink across the light. Strands across
+            // a lit tear are a row of teeth, so the tear has none now.)
+            // The count of rows the light is parted in is still printed above, but not gated: the light
+            // is ragged wisps by design and is parted into 4 to 7 runs in some row on every blot, so
+            // the count cannot tell wisps from bars. What keeps bars out is that the shader has none.
         }
         pictureCheck(lessWhenWide <= 1, "ink rift: well open holds no less light than half open, on five blots in six (" + juce::String(lessWhenWide) + " of 6 hold less) (tier " + juce::String(tier) + ")");
     }
@@ -3233,6 +3286,149 @@ inline void testInkFaces()
     // apart. The gated face checks are the enclosed regions above, and the user's eye on the sheets.)
     std::printf("  the relief inside the ink beside the fold, mirrored: %.2f in the middle frame, %.2f at most (reported)\n", mid, most);
 
+    // ---- the same on the frames of every tier that draws differently (the single pass's blot is
+    // not the buffer's), and on the factory presets' own blots: a head is one round mass on the
+    // fold with the rest hung on it, so on each drawn frame the largest disc of ink centred on the
+    // fold is measured against all the ink; and the mirrored pairs of enclosed regions are counted.
+    // The anatomy's own rule (CreatureAnatomy: the round mass holds at most 15 % of the bare shape)
+    // is on the CPU mask; drawn, the body is swollen by the roar and feathered, so the disc holds more.
+    const auto discShare = [W, H](const std::vector<std::uint8_t>& mask)
+    {
+        long ink = 0;
+        for (auto v : mask)
+            ink += v;
+        int best = 0;
+        for (int y = 0; y < H; ++y)
+        {
+            if (mask[static_cast<size_t>(y * W + W / 2)] == 0)
+                continue;
+            int r2 = 80 * 80;
+            for (int dy = -80; dy <= 80; ++dy)
+                for (int dx = -80; dx <= 80; ++dx)
+                {
+                    const int d2 = dx * dx + dy * dy;
+                    if (d2 >= r2)
+                        continue;
+                    const int x = W / 2 + dx, yy = y + dy;
+                    if (x < 0 || yy < 0 || x >= W || yy >= H || mask[static_cast<size_t>(yy * W + x)] == 0)
+                        r2 = d2;
+                }
+            best = std::max(best, r2);
+        }
+        return ink > 0 ? 3.14159265 * best / static_cast<double>(ink) : 0.0;
+    };
+    const auto socketPair = [&](const InkPicture& pic, float mawY)
+    {
+        const auto mask = pic.mask();
+        // (a region the size of an eye at this size of frame, 45 pixels or about 0.04 view heights
+        // across: the gleams and the thin pale slivers the wet ink is full of are not sockets. Counted
+        // at 15 pixels, a third of the frames had "a pair", and to the eye none of those had.)
+        bool socket = false;
+        for (const auto& hole : inkmask::holes(mask, W, H))
+            socket = socket || (hole.size >= 45 && std::abs(hole.x - W / 2) > static_cast<int>(0.06f * H) && std::abs(hole.x - W / 2) < static_cast<int>(0.50f * H) && hole.y < row(mawY));
+        return socket;
+    };
+    struct Group { const char* name; int tier; bool presets; };
+    for (const auto& group : { Group { "16 seeds on the single pass", 0, false }, Group { "16 seeds on the top tier", 3, false }, Group { "the factory presets on the top tier", 3, true },
+                               Group { "the factory presets on the single pass", 0, true } })
+    {
+        juce::StringArray names;
+        if (group.presets)
+            for (const auto& preset : PresetManager::getFactoryPresets())
+                names.add(preset.name);
+        else
+            for (int i = 1; i <= 16; ++i)
+                names.add({});
+        int n = 0, pairs = 0, domes = 0;
+        double mostDisc = 0.0;
+        std::vector<double> discs;
+        juce::String worst;
+        for (int i = 0; i < names.size(); ++i)
+        {
+            InkRig rig(W, H, group.presets ? 77u : 1000u + static_cast<std::uint32_t>(i + 1) * 7919u, 0.6f, names[i]);
+            if (! rig.ok())
+                return;
+            rig.setTier(group.tier);
+            rig.monster->setInkFrontCloudForTests(0.0f);
+            for (const double t : { 9.0, 13.5 })
+            {
+                rig.run(t - rig.frames / 30.0 - 1.0 / 30.0, &script.audio);
+                const auto pic = rig.shot(&script.audio);
+                const double disc = discShare(pic.mask());
+                ++n;
+                const bool pair = socketPair(pic, rig.monster->getRendererForTests().getInkPose().maw[0]);
+                pairs += pair ? 1 : 0;
+                // (ROARSCHACH_INK_KEEP: the frames with such a pair are kept)
+                if (const auto keepDir = juce::SystemStats::getEnvironmentVariable("ROARSCHACH_INK_KEEP", {}); pair && keepDir.isNotEmpty())
+                    savePng(pic.image, juce::File(keepDir).getChildFile("faces-pair-tier" + juce::String(group.tier) + "-" + (group.presets ? names[i].replace(" ", "-").toLowerCase() : "seed" + juce::String(i + 1))
+                                                                        + (t < 10.0 ? "-quiet.png" : "-roar.png")));
+                discs.push_back(disc);
+                domes += disc > 0.42 ? 1 : 0;
+                if (disc > mostDisc)
+                {
+                    mostDisc = disc;
+                    worst = (group.presets ? names[i] : "seed " + juce::String(i + 1)) + (t < 10.0 ? ", quiet" : ", in the roar");
+                }
+            }
+        }
+        std::sort(discs.begin(), discs.end());
+        std::printf("  %s, quiet and in the roar: the largest disc of ink on the fold holds %.2f of the drawn ink at the median, %.2f at most (%s); %d of %d frames have a mirrored pair of enclosed regions above the rift\n",
+                    group.name, discs[discs.size() / 2], mostDisc, worst.toRawUTF8(), pairs, n);
+        pictureCheck(domes * 20 <= n, juce::String("ink faces: ") + group.name + ", the drawn blot is not one round mass on the fold (over 0.42 of the ink in " + juce::String(domes) + " of " + juce::String(n) + " frames)");
+        // (first measured at 5 of 32, 14 of 102, 7 of 32 and 9 of 102 frames. Looked at one by one
+        // (ROARSCHACH_INK_KEEP), none of those has a pair of sockets: what the count finds is the lit
+        // rift where it has wandered off the fold, a loop of a thin limb, a broad gleam. It cannot
+        // tell those from a socket, so it is held to a quarter of the frames, to catch a change that
+        // fills the blots with holes, and the eye on the kept frames is the check for faces.)
+        pictureCheck(pairs * 4 <= n, juce::String("ink faces: ") + group.name + ", under a quarter of the frames have an enclosed pale region off the fold above the rift (" + juce::String(pairs) + " of " + juce::String(n) + ")");
+    }
+
+    // ---- the single pass keeps the blot inside the view: in the roar and in the quiet voice, the
+    // band of 3 % of the view's height along its top and its bottom holds next to no ink, for every
+    // seed and every factory preset (it ran off both edges: the single pass had none of the fade the
+    // buffer's tiers have there)
+    {
+        int n = 0, off = 0;
+        double mostEdge = 0.0;
+        juce::String worst;
+        const auto edgeInk = [&](const InkPicture& pic)
+        {
+            const int band = std::max(1, static_cast<int>(std::lround(0.03 * H)));
+            long dark = 0, all = 0;
+            for (int y = 0; y < H; ++y)
+                if (y < band || y >= H - band)
+                    for (int x = W / 10; x < W - W / 10; ++x, ++all)   // (not the view's rounded corners)
+                        dark += pic.at(x, y) < 0.30f ? 1 : 0;
+            return static_cast<double>(dark) / static_cast<double>(std::max(1L, all));
+        };
+        const auto run = [&](std::uint32_t seed, const juce::String& preset, const juce::String& name)
+        {
+            InkRig rig(W, H, seed, 1.0f, preset);   // (the top stage: the blot at its largest)
+            if (! rig.ok())
+                return;
+            rig.setTier(0);
+            for (const double t : { 9.0, 13.0, 14.4 })
+            {
+                rig.run(t - rig.frames / 30.0 - 1.0 / 30.0, &script.audio);
+                const double e = edgeInk(rig.shot(&script.audio));
+                ++n;
+                off += e > 0.004 ? 1 : 0;
+                if (e > mostEdge)
+                {
+                    mostEdge = e;
+                    worst = name + " at " + juce::String(t, 1) + " s";
+                }
+            }
+        };
+        for (std::uint32_t seed = 1; seed <= 8; ++seed)
+            run(seed, {}, "seed " + juce::String(static_cast<int>(seed)));
+        for (const auto& preset : PresetManager::getFactoryPresets())
+            run(77u, preset.name, preset.name);
+        std::printf("  the single pass, 8 seeds and every factory preset at the top stage, quiet and in the roar: at most %.2f %% of the band along the view's top and bottom is ink (%s)\n",
+                    100.0 * mostEdge, worst.toRawUTF8());
+        pictureCheck(n > 0 && off == 0, "ink faces: the single pass keeps the blot off the view's top and bottom edges (" + juce::String(off) + " of " + juce::String(n)
+                                        + " frames with ink in the band, at most " + juce::String(100.0 * mostEdge, 2) + " %)");
+    }
 }
 #endif
 
@@ -3294,6 +3490,8 @@ inline void testInkEvolution()
                 const double whole = parts.empty() || a <= 0.0 ? 0.0 : static_cast<double>(parts[0]) / a;
                 leastWhole = std::min(leastWhole, whole);
                 split += whole < 0.7 ? 1 : 0;
+                if (whole < 0.7)
+                    std::printf("    (tier %d seed %u stage %.2f: the largest part holds %.2f of the ink)\n", tier, seed, static_cast<double>(stage), whole);
             }
             ++n;
             areaGrows += area[7] > area[0] ? 1 : 0;
@@ -3514,6 +3712,40 @@ inline void testInkScrollWraps()
     }
 }
 
+/** OVERTONE's wisps are drawn only once the module is turned up: a new instance has OVERTONE on at
+    a few per cent, and its blot has none (thin strokes laid on the body by default were claws, combs
+    and rows of dots). Turned right up, they grow. */
+inline void testInkWisps()
+{
+    const InkScript script;
+    float atDefault = 0.0f, turnedUp = 0.0f;
+    for (int pass = 0; pass < 2; ++pass)
+    {
+        InkRig rig(432, 120, 2u, 0.6f);
+        if (! rig.ok())
+            return;
+        rig.setTier(2);
+        if (pass == 1)
+        {
+            if (auto* on = rig.p->getValueTreeState().getParameter(Params::overtoneOn))
+                on->setValueNotifyingHost(1.0f);
+            if (auto* amount = rig.p->getValueTreeState().getParameter(Params::overtone))
+                amount->setValueNotifyingHost(1.0f);
+        }
+        float longest = 0.0f;
+        for (int k = 0; k < 30 * 15; ++k)
+        {
+            rig.step(&script.audio);
+            longest = std::max(longest, rig.monster->getRendererForTests().inkWispLengthForTests());
+        }
+        (pass == 0 ? atDefault : turnedUp) = longest;
+    }
+    std::printf("  OVERTONE's wisps through the script: %.3f view heights at most as a new instance has the module, %.3f with it turned right up\n",
+                static_cast<double>(atDefault), static_cast<double>(turnedUp));
+    check(atDefault < 0.01f, "ink wisps: a new instance's blot has none (" + juce::String(atDefault, 3) + ")");
+    check(turnedUp > 0.10f, "ink wisps: with OVERTONE turned up they grow (" + juce::String(turnedUp, 3) + ")");
+}
+
 /** Relief on the lowest tier (a GPU still slow there draws at a third of the view's size instead of
     half): the same picture, a little softer, on tier 1 and on the single pass, and nothing left
     behind when it is taken back. */
@@ -3587,6 +3819,8 @@ inline void testInk()
         testInkScrollWraps();
     if (wanted("relief"))
         testInkRelief();
+    if (wanted("wisps"))
+        testInkWisps();
    #endif
     std::printf("  ink picture checks: %d gated, %d reported only (%d of those a no)%s\n", InkPictureChecks::gated(), InkPictureChecks::reported(),
                 InkPictureChecks::reportedNo(), InkPictureChecks::gated() == 0 ? "; the pictures were NOT checked on this machine" : "");

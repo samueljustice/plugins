@@ -92,6 +92,7 @@ namespace roar
         float seedGlide = 1.0f;             // 0..1 between them
         float inkFormation = 1.0f;          // 0 cloud .. 1 formed (InkFormation, from the view)
         float inputLoud = 0.0f;             // how loud the voice coming in is, 0..1
+        float overtoneAmount = 1.0f;        // OVERTONE's Amount as set, 0..1 (its wisps are drawn only once it is turned up)
     };
 
     /**
@@ -203,6 +204,14 @@ namespace roar
         /** Tests: what this process remembers of each GPU's settled tier is forgotten. */
         static void forgetTiersForTests();
 
+        /** Tests: the longest of OVERTONE's wisps as last posed, view heights (0: none). */
+        float inkWispLengthForTests() const
+        {
+            float longest = 0.0f;
+            for (const auto& s : m_inkSpine)
+                longest = std::max (longest, s[1]);
+            return longest;
+        }
         /** Tests: the slow scrolls moved on as this many seconds would move them (at rest). */
         void advanceInkScrollsForTests (double seconds);
         /** Tests: seconds (at rest) until this slow scroll next wraps; inkScrollCount of them. */
