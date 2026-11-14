@@ -7,6 +7,11 @@
 #   bundle/sign-aax.sh reversinator    just these plug-ins
 #   bundle/sign-aax.sh --force ...     re-sign even if the release already has a signed AAX
 #   bundle/sign-aax.sh --local ...     sign and verify only: no upload (leaves the zips in ./aax-signed)
+#   bundle/sign-aax.sh --since <time>  only releases published after that time (ISO 8601, e.g. 2026-11-14T12:00:00Z)
+#
+# bundle/install-aax-signer.sh installs a background job that runs this every 10 minutes, so new releases
+# get signed on their own (see bundle/aax-signer-agent.sh), and the "AAX signing watchdog" workflow fails
+# if a release's signed AAX hasn't been published within a few hours.
 #
 # For each plug-in it takes the unsigned AAX that the release's own build uploaded as an artifact
 # ("<Name>-macOS-AAX-unsigned"), signs it (with the hardened runtime, so Apple can notarise it), checks the
@@ -31,11 +36,14 @@ config="${SAMMYJ_PACE_CONFIG:-$HOME/.config/sammyj/pace.env}"
 
 force=0
 local_only=0
+since=""
 wanted=()
-for arg in "$@"; do
+while [[ $# -gt 0 ]]; do
+  arg="$1"; shift
   case "$arg" in
     --force) force=1 ;;
     --local) local_only=1 ;;
+    --since) since="${1:?--since needs a time}"; shift ;;
     -h|--help) sed -n '2,26p' "$0"; exit 0 ;;
     *) wanted+=("$arg") ;;
   esac
@@ -70,10 +78,22 @@ while IFS='|' read -r id _prefix name bundle _app; do
   version=$(grep "^$id|" "$releases" | cut -d'|' -f3)
   echo "== $name $version ($tag)"
 
-  if [[ $force -eq 0 && $local_only -eq 0 ]] \
-     && grep -q -- '-macOS-AAX\.zip$' <<< "$(gh release view "$tag" -R "$repo" --json assets --jq '.assets[].name')"; then
+  if [[ -n "$since" ]]; then
+    published=$(gh release view "$tag" -R "$repo" --json publishedAt --jq .publishedAt)
+    if [[ "$published" < "$since" ]]; then
+      echo "   published before $since: left for a manual run"
+      continue
+    fi
+  fi
+  assets=$(gh release view "$tag" -R "$repo" --json assets --jq '.assets[].name')
+  if [[ $force -eq 0 && $local_only -eq 0 ]] && grep -q -- '-macOS-AAX\.zip$' <<< "$assets"; then
     echo "   already has a signed AAX (use --force to redo it)"
     skipped+=("$name: already signed")
+    continue
+  fi
+  if [[ $force -eq 0 && $local_only -eq 0 ]] && grep -q -- '-macOS-AAX-unnotarized\.zip$' <<< "$assets"; then
+    echo "   signed and waiting for the Notarise AAX workflow (use --force to redo it)"
+    skipped+=("$name: waiting for notarisation")
     continue
   fi
 
