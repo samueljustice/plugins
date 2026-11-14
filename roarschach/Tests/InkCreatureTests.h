@@ -3827,6 +3827,57 @@ inline void testInkEvolution()
                                             + juce::String(earlyPpa, 0) + " -> " + juce::String(latePpa, 0) + ")");
         pictureCheck(worstJump < 2.0, "ink evolution: no frame of the session jumps (the largest change " + juce::String(worstJump, 2) + " times the frames round it)");
     }
+
+    // ---- a preset change glides from one blot to the next: no frame of the glide jumps (every
+    // value of the blot's look is mixed between the two, and nothing drawn from them flips)
+    for (const int tier : { 0, 3 })
+    {
+        InkRig rig(576, 160, 5u, 0.6f, "Golem");
+        if (! rig.ok())
+            return;
+        rig.setTier(tier);
+        rig.monster->setRipplesOffForTests(true);
+        rig.run(3.2, &script.audio);
+        const int other = presetIndex("Possessed");
+        if (other >= 0)
+            rig.p->getPresetManager().loadFactoryPresetForHost(other);
+        std::vector<double> steps;
+        InkPicture last;
+        float glideFrom = -1.0f, glideTo = 0.0f;
+        for (int i = 0; i < static_cast<int>(7.6 * 30.0); ++i)
+        {
+            const auto pic = rig.shot(&script.audio);
+            float g = 0.0f;
+            rig.p->withCreatureForTests([&g](roar::CreatureEvolution& e) { g = e.getSeedGlide(); });
+            if (glideFrom < 0.0f)
+                glideFrom = g;
+            glideTo = g;
+            if (last.valid())
+                steps.push_back(pic.rmsDifference(last));
+            last = pic;
+        }
+        double worstJump = 0.0, worstAt = 0.0;
+        for (size_t i = 0; i < steps.size(); ++i)
+        {
+            std::vector<double> round;
+            for (size_t k = i >= 4 ? i - 4 : 0; k <= std::min(steps.size() - 1, i + 4); ++k)
+                if (k != i)
+                    round.push_back(steps[k]);
+            std::sort(round.begin(), round.end());
+            const double jump = steps[i] / std::max(1.0e-3, round[round.size() / 2]);
+            if (jump > worstJump)
+            {
+                worstJump = jump;
+                worstAt = static_cast<double>(i + 1) / 30.0;
+            }
+        }
+        std::printf("  tier %d: a preset change glides %.2f -> %.2f over %.1f s; the largest jump %.2f times the frames round it (%.2f s in)\n", tier,
+                    static_cast<double>(glideFrom), static_cast<double>(glideTo), steps.size() / 30.0, worstJump, worstAt);
+        check(other >= 0 && glideTo - glideFrom > 0.5f, "ink evolution: a preset change glides to the next blot");
+        // (measured 1.25 and 1.49; with the side that tears first an either-or of the gliding
+        // look, the torn patches swapped 5 s in and the frame stood 4.0 and 1.9 times the frames round it)
+        pictureCheck(worstJump < 1.8, "ink evolution: no frame of a preset change's glide jumps (tier " + juce::String(tier) + ": the largest change " + juce::String(worstJump, 2) + " times the frames round it)");
+    }
 }
 #endif
 

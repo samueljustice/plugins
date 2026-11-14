@@ -822,7 +822,9 @@ void main()
     // its mirror image, or two remnants left either side of the fold, are a pair of eyes.
     {
         vec4 an = NZ (p * vec2 (0.42, 0.55) + uCloudO.xy * 0.8 + 0.71, 2.5);
-        float sideFirst = fract (uInkO.x * 7.31 + uInkO.y * 3.17) < 0.5 ? -1.0 : 1.0;
+        // (which side goes first is the blot's own, and glides with it: a hard either-or of a
+        // value that glides during a preset change swapped the torn patches in one frame)
+        float sideFirst = clamp (1.8 * sin (6.2832 * (uInkO.x * 7.31 + uInkO.y * 3.17)), -1.0, 1.0);
         float tornAway = smoothstep (0.47, 0.63, sv (an) + 0.11 * sgn * sideFirst * smoothstep (0.02, 0.30, un));
 #ifdef INK_BUFFER
         float smallMass = 1.0 - smoothstep (0.06, 0.18, roundInk);
