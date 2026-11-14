@@ -5,7 +5,7 @@
 #include "Theme.h"
 
 /**
- * "A new version is available": dims the whole ship and shows a riveted card like the About and Settings panels,
+ * "A new version is available": dims the whole window and shows a card like the About and Settings panels,
  * with DOWNLOAD (lit, opens the release page), LATER and SKIP THIS VERSION. Escape or a click outside the card is
  * Later, Return is Download. Laid out at the editor's design size and scaled with it.
  */
@@ -27,7 +27,7 @@ private:
 
     const Theme::Fonts& m_fonts;
     sammyj::UpdateInfo m_info;
-    juce::TextButton m_download { "DOWNLOAD" }, m_later { "LATER" }, m_skip { "SKIP THIS VERSION" };
+    juce::TextButton m_download { "Download" }, m_later { "Later" }, m_skip { "Skip This Version" };
     juce::Rectangle<int> m_panel, m_textArea;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(UpdatePopup)

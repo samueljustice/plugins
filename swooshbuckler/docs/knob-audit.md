@@ -8,7 +8,8 @@ Every knob was swept across its travel through the real plug-in, offline, and me
 
 - growls and a steady 330 Hz tone on Bus A;
 - a wind bed and a hiss bed on Bus B;
-- impacts on the hits.
+- impacts on the hits;
+- a wideband rumble and a steady low drone, which Stowaway takes by itself in Sub; any source can be sent to Stowaway (`--src wind@s`).
 
 It sets a knob to each point of its travel, renders 20 s three times (from different stretches of the rig's random passes) and measures:
 
@@ -78,6 +79,58 @@ Each knob was swept in its default setting and in variations: other sources, oth
 | **Tremolo Rate** | Even. The readout showed odd decimals. | The readout is fixed. |
 | **Tremolo Threshold** | The bottom half barely changed, and the last 2% was dead. | Spread over the whole travel: 0.98·(1 − (1 − k)^1.5). The readout is in dB under the recent peak. The default is 45% (the same sound). |
 
+## Stowaway
+
+Stowaway's five knobs were swept in each Mode, eleven steps each, 20 s three times. There is no Before column: this is how they were built. **Level** is Stowaway's own level over its loud moments, **movement** is how far that level rises and falls (its 95th percentile against its 10th), and LUFS is the whole output.
+
+```
+SwooshbucklerAudit --param stowFollow --steps 11 --src growl,drone --work /tmp/run1
+SwooshbucklerAudit --param stowFilter --steps 11 --src wind@s --set stowMode=1 --bands --work /tmp/run2
+```
+
+### Sub
+
+| Knob | Measured |
+|---|---|
+| **Follow** | On a steady drone under growls on Bus A, the sub's movement goes 1.0 → 12.6 dB, 1.1 to 1.3 dB for every 10% from end to end, with no dead stretch. Its level stays within 0.5 dB (−11.0 → −11.5 dB): the make-up holds. With nothing on Bus A or Bus B (its own tracks ridden instead) the movement is the same shape, 1.0 → 13.4 dB. |
+| **Low End** | The sub's level rises 5.4 to 6.1 dB over the travel, about 0.6 dB per 10% and even (rumble −15.1 → −9.7 dB, drone −11.4 → −5.3 dB), and the output 1.8 to 3.6 LU. The centroid falls from 56 to 48 Hz as the octave below comes in. Nothing appears above 2 kHz at any setting (under −114 dB against the whole). |
+| **Filter** | The crossover, 40 to 250 Hz, reading in Hz. On a rumble the output rises 12.7 LU over the travel, more per step at the bottom (4.2 LU from 40 to 53 Hz) than at the top (0.3 LU from 219 to 250 Hz), because that is where a rumble's energy is; the centroid climbs evenly, 31 → 79 Hz, about 5 Hz per 10%. The default, 120 Hz, is at 50%. |
+| **Drive** | The sub's movement falls from 9.5 to about 8 dB on a rumble while its level rises 1.9 dB (1.5 dB on a drone). The output rises 4.2 LU, 0.2 to 0.5 LU per 10%, with the larger steps in the top half: the overtones Drive adds sit where the ear is more sensitive, so it sounds louder than its level says. Nothing appears above 2 kHz. |
+| **Width** | Not used: a sub is mono. The knob rests and reads Mono. |
+
+### Wake
+
+| Knob | Measured |
+|---|---|
+| **Follow** | Under growls on Bus A, with hiss on Stowaway: the trail's movement goes 4.5 → 21.8 dB, 1.2 to 1.9 dB per 10%, even from 10% up. Its level stays within 0.8 dB (−11.2 → −10.8 dB). |
+| **Low End** | On wind: the band under 200 Hz rises 4.0 dB against the whole (−7.0 → −3.0 dB) and the centroid falls 1278 → 857 Hz, evenly; the trail's level rises 2.2 dB. On hiss, which has nothing down there to work on, it does almost nothing (0.1 LU). |
+| **Filter** | The tilt. On wind, below the middle the low-pass takes the centroid 1278 → 110 Hz and the output down 7.9 LU, most of it in the bottom 20% (as the cutoff falls under the wind's own body); above the middle the high-pass takes the band under 200 Hz from −7 to −50 dB and the centroid up to 5.7 kHz, for 3.7 LU. 40% to 60% is nearly open (0.2 LU): the middle is a safe place to leave it. On hiss the low-pass side is a 36 LU fall and the high-pass side is inaudible, as it should be. |
+| **Drive** | On wind: the trail's movement falls 19.7 → 10.4 dB, about 1 dB per 10%, while its level stays within 0.5 dB. The output rises 4.1 LU as the trail gets denser. |
+| **Width** | Side against middle rises −12.9 → −10.0 dB and the pan movement 0.15 → 0.34, evenly, 0.02 per 10% (the growls on Bus A are in the measure too). The trail's level does not change. |
+
+### Fly
+
+| Knob | Measured |
+|---|---|
+| **Follow** | Moves when the passes come, not how loud they are: level and movement stay within the spread between renders across the whole travel (movement 21 to 22 dB). The timing is checked by `SwooshbucklerStowaway`: at 100% every pass is at its closest with one of Bus A's, at 0% they keep their own time. |
+| **Low End** | On wind: the band under 200 Hz rises 4.1 dB (−7.0 → −2.9 dB), the centroid falls 1073 → 706 Hz, the level rises 2.5 dB, all evenly. |
+| **Filter** | The same tilt as in Wake, with the same shape: on wind 9.0 LU down over the low-pass half and 5.9 LU over the high-pass half, 40% to 60% open. |
+| **Drive** | The level rises 1.9 dB and the movement falls 23.9 → 21.3 dB, evenly (0.1 to 0.3 dB per 10%); the output rises 1.5 LU. |
+| **Width** | On wind, pan movement goes 0.03 → 0.38 and side against middle −13.5 → −5.6 dB, both evenly. On hiss the first 10% does more than the rest (correlation 0.96 → 0.08), because the time difference between the ears arrives with the first of the width; Bus A's Width does the same on hiss (0.76 → 0.34). |
+
+### Dry
+
+| Knob | Measured |
+|---|---|
+| **Follow** | Movement 4.5 → 15.9 dB, 0.7 to 1.3 dB per 10% and even; the level stays within 0.8 dB (−11.3 → −10.5 dB). |
+| **Filter** | The same tilt: on wind 8.7 LU down over the low-pass half, 4.6 LU over the high-pass half, 40% to 60% open. |
+| **Width** | Not measurable here: the tool's sources are mono, and on a mono sound Width does nothing in Dry (measured: no change at any setting). The stereo case is checked by `SwooshbucklerStowaway`. |
+| **Low End**, **Drive** | Not used. The knobs rest. |
+
+The four modes against each other, the same low drone on Stowaway over growls and wind at the starting settings: the output is −9.2 LUFS in Sub, −9.0 in Wake, −9.5 in Fly and −9.0 in Dry. Stowaway's own level over 90 s, checked by `SwooshbucklerStowaway` on a drone, a bed and gappy bursts, is within 1.2 dB across the four (0.4, 1.2 and 0.8 dB).
+
+The factory presets were rendered too, on growls, wind, hits and a rumble with Stowaway switched on as a sub: the seven older presets come out within 1.1 LU of where they are without it (−9.5 to −11.2 LUFS), with the sub at −15 to −17 dB under them. The five Stowaway presets come out between −7.5 and −11.3 LUFS, depending on what is sent to Stowaway.
+
 ## Modulators and Morph
 
 | Control | Before | Now |
@@ -93,6 +146,5 @@ Each knob was swept in its default setting and in variations: other sources, oth
 These were noted and left for later:
 
 - Playing bright material fast (Pitch up, or VARI on with Semitones up) aliases, because the varispeed read has no anti-alias filter. It darkens beds above about +6 semitones.
-- With Auto Ride off or Swell held, the rig runs hot into the limiter (about 8 dB of gain reduction at Push 0). That is gain staging upstream of Output.
 - Doppler and Bend set each pass's speed when the pass starts, so a modulator on them changes the bend from the next pass on.
 - The morph pad's wander runs in the editor, so it stops while the window is closed.

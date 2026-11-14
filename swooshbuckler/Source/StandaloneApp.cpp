@@ -5,6 +5,7 @@
 #include <JuceHeader.h>
 #include <juce_audio_plugin_client/Standalone/juce_StandaloneFilterWindow.h>
 #include "PluginProcessor.h"
+#include "SessionAutosave.h"
 
 namespace
 {
@@ -28,8 +29,13 @@ namespace
 
         void initialise(const juce::String&) override
         {
+            // One settings object for the app and the rig: two on the same file would each write back the
+            // values they read at launch, undoing the other's changes.
+            SwooshbucklerAudioProcessor::useSettings(m_properties.getUserSettings());
+            // The last argument: every MIDI input is opened (and new ones as they are plugged in), so a keyboard
+            // plays the Keys modes without a visit to the audio settings.
             auto holder = std::make_unique<juce::StandalonePluginHolder>(m_properties.getUserSettings(), false, juce::String {}, nullptr,
-                                                                       juce::Array<juce::StandalonePluginHolder::PluginInOuts> {}, false);
+                                                                       juce::Array<juce::StandalonePluginHolder::PluginInOuts> {}, true);
             m_window = std::make_unique<juce::StandaloneFilterWindow>(getApplicationName(), juce::Colour(0xff0a1a22), std::move(holder));
             m_window->setUsingNativeTitleBar(true);
 
@@ -44,12 +50,45 @@ namespace
                     m_window->pluginHolder->showAudioSettingsDialog();
             };
             m_window->setVisible(true);
+
+            // The session is saved on a clean quit (below). While the app runs, a copy is kept beside the settings
+            // whenever something changed, and a copy left by a run that did not end cleanly is loaded now.
+            if (auto* processor = dynamic_cast<SwooshbucklerAudioProcessor*>(m_window->pluginHolder->processor.get()))
+            {
+                const auto file = m_properties.getUserSettings()->getFile().getSiblingFile("Swooshbuckler.autosave");
+                const bool recovered = SessionAutosave::recover(*processor, file);
+                m_autosave = std::make_unique<SessionAutosave>(*processor, &processor->getCargo(),
+                                                               [processor] { return processor->getMods().changeCount(); }, file,
+                                                               SessionAutosave::Timing {},
+                                                               [processor] (int index) { return processor->isUserEdit(index); });
+                if (recovered)
+                    m_autosave->markChanged(); // keep the recovered session on disk until the next clean quit
+
+                // The window's title says which session file this is (Save Session As / Open Session set it).
+                m_title.update = [this, processor]
+                {
+                    const auto file = processor->getSessionFile();
+                    const auto title = file != juce::File() ? getApplicationName() + " - " + file.getFileNameWithoutExtension() : getApplicationName();
+                    if (m_window != nullptr && m_window->getName() != title)
+                        m_window->setName(title);
+                };
+                m_title.update();
+                m_title.startTimer(500);
+            }
         }
 
         void shutdown() override
         {
             SwooshbucklerAudioProcessor::showAudioSettings = nullptr;
+            m_title.stopTimer();
+            m_title.update = nullptr;
+            // Both ways out (the window's close button and Quit) have put the session in the settings by now.
+            const bool saved = m_properties.saveIfNeeded();
+            if (m_autosave != nullptr && saved)
+                m_autosave->finish(); // the copy is only for runs that don't get this far
+            m_autosave = nullptr;
             m_window = nullptr;
+            SwooshbucklerAudioProcessor::useSettings(nullptr);
             m_properties.saveIfNeeded();
         }
 
@@ -63,6 +102,12 @@ namespace
     private:
         juce::ApplicationProperties m_properties;
         std::unique_ptr<juce::StandaloneFilterWindow> m_window;
+        std::unique_ptr<SessionAutosave> m_autosave;
+        struct TitleTimer : juce::Timer
+        {
+            std::function<void()> update;
+            void timerCallback() override { if (update) update(); }
+        } m_title;
     };
 }
 

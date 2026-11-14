@@ -6,9 +6,11 @@
 // mixer (mute / solo), session save / restore, the tape recorder, presets.
 
 #include <JuceHeader.h>
+#include "TestClock.h"
 #include "Cargo.h"
 #include "MasterProcessor.h"
 #include "Presets.h"
+#include "RigEngine.h"
 #include "TapeRecorder.h"
 
 namespace
@@ -23,6 +25,82 @@ namespace
         if (! ok) ++g_failures;
     }
 
+    juce::File writeMono(const juce::File& folder, const juce::String& name, const juce::AudioBuffer<float>& buffer,
+                         double rate, int bits = 24)
+    {
+        auto file = folder.getChildFile(name);
+        file.deleteFile();
+        juce::WavAudioFormat wav;
+        std::unique_ptr<juce::AudioFormatWriter> writer(wav.createWriterFor(new juce::FileOutputStream(file), rate, 1, bits, {}, 0));
+        if (writer != nullptr)
+            writer->writeFromAudioSampleBuffer(buffer, 0, buffer.getNumSamples());
+        return file;
+    }
+
+    juce::AudioBuffer<float> sines(double rate, double seconds, std::initializer_list<double> freqs, float amp)
+    {
+        juce::AudioBuffer<float> b(1, static_cast<int>(rate * seconds));
+        b.clear();
+        float* d = b.getWritePointer(0);
+        for (const double f : freqs)
+            for (int i = 0; i < b.getNumSamples(); ++i)
+                d[i] += amp * static_cast<float>(std::sin(juce::MathConstants<double>::twoPi * f * i / rate));
+        return b;
+    }
+
+    /** Amplitude of the component at f (Hann-windowed single-bin transform). */
+    double toneLevel(const float* x, int n, double f, double rate)
+    {
+        double re = 0.0, im = 0.0, sum = 0.0;
+        for (int i = 0; i < n; ++i)
+        {
+            const double w = 0.5 - 0.5 * std::cos(juce::MathConstants<double>::twoPi * i / (n - 1));
+            const double a = juce::MathConstants<double>::twoPi * f * i / rate;
+            re += w * x[i] * std::cos(a);
+            im += w * x[i] * std::sin(a);
+            sum += w;
+        }
+        return 2.0 * std::sqrt(re * re + im * im) / sum;
+    }
+
+    double rmsOf(const float* x, int n)
+    {
+        double s = 0.0;
+        for (int i = 0; i < n; ++i)
+            s += static_cast<double>(x[i]) * x[i];
+        return std::sqrt(s / juce::jmax(1, n));
+    }
+
+    /** The tests hand the tape sound far faster than real time. Waits for its writer thread whenever it is a second
+        behind (it may fall three behind before sound is dropped), however slow the machine is. */
+    void keepUp(const TapeRecorder& tape)
+    {
+        if (tape.getBacklogSeconds() > 1.0)
+            for (int tries = 0; tries < 60000 && tape.getBacklogSeconds() > 0.25; ++tries)
+                juce::Thread::sleep(1);
+    }
+
+    /** One second of a sine track through a CargoPlayer (looping, 48 kHz session) at a steady speed. */
+    std::vector<float> playSine(double fileRate, double freq, float rate, const CargoData** dataOut = nullptr)
+    {
+        static std::vector<std::unique_ptr<CargoData>> keep;
+        keep.push_back(std::make_unique<CargoData>());
+        auto& d = *keep.back();
+        d.sampleRate = fileRate;
+        d.audio = sines(fileRate, 6.0, { freq }, 0.5f);
+        d.analyse();
+        if (dataOut != nullptr)
+            *dataOut = &d;
+        CargoPlayer player;
+        player.prepare(c_rate);
+        sj::Random rng;
+        std::vector<float> out(static_cast<size_t>(c_rate), 0.0f);
+        for (int pos = 0; pos + c_block <= static_cast<int>(out.size()); pos += c_block)
+            player.render(&d, CargoRole::Bed, false, rate, 0.0f, rng, 0.1f, CargoCue {}, out.data() + pos, c_block);
+        return out;
+    }
+
+    double dbOf(double ratio) { return 20.0 * std::log10(juce::jmax(1.0e-12, ratio)); }
 }
 
 int main(int argc, char* argv[])
@@ -322,6 +400,409 @@ int main(int argc, char* argv[])
     }
 
 
+    // Start markers: saved with the session, reset by a new file, and part of undo.
+    {
+        const auto wavA = writeMono(folder, "marker_a.wav", sines(c_rate, 2.0, { 440.0 }, 0.4f), c_rate);
+        juce::String err;
+        CargoHold hold;
+        hold.loadFile(0, wavA, err);
+        hold.loadFile(3, wavA, err);
+        hold.setStart(0, 0.4f);
+        hold.setStart(3, 0.25f);
+        CargoHold back;
+        back.fromValueTree(hold.toValueTree());
+        check(std::abs(back.getStart(0) - 0.4f) < 1.0e-4f && std::abs(back.getStart(3) - 0.25f) < 1.0e-4f && back.getStart(1) == 0.0f,
+              "start marker: survives save/restore (" + juce::String(back.getStart(0), 3) + ", " + juce::String(back.getStart(3), 3) + ")");
+
+        hold.loadFile(0, wavA, err);
+        check(hold.getStart(0) == 0.0f && std::abs(hold.getStart(3) - 0.25f) < 1.0e-4f,
+              "start marker: a new file starts from its beginning (other tracks keep theirs)");
+        hold.undo(0);
+        check(std::abs(hold.getStart(0) - 0.4f) < 1.0e-4f, "start marker: undoing the load brings the marker back");
+        hold.redo(0);
+        check(hold.getStart(0) == 0.0f, "start marker: redo resets it again");
+        hold.clear(3);
+        const float cleared = hold.getStart(3);
+        hold.undo(3);
+        check(cleared == 0.0f && std::abs(hold.getStart(3) - 0.25f) < 1.0e-4f, "start marker: Remove resets it and undo restores it");
+    }
+
+    // Lifetime: data replaced while a player still reads it is kept until the engine has let go of it.
+    {
+        const auto wav = writeMono(folder, "lifetime.wav", sines(c_rate, 2.0, { 330.0 }, 0.4f), c_rate);
+        juce::String err;
+        CargoHold hold;
+        hold.loadFile(0, wav, err);
+        RigEngine engine;
+        engine.setCargoHold(&hold);
+        RigEngine::Params p;
+        engine.setParams(p);
+        engine.prepare(c_rate, c_block);
+        engine.setParams(p);
+        std::vector<float> l(c_block), r(c_block);
+        for (int i = 0; i < 40; ++i)
+            engine.process(nullptr, nullptr, l.data(), r.data(), c_block);
+
+        std::weak_ptr<const CargoData> old = hold.get(0);
+        hold.fromValueTree(juce::ValueTree("Cargo")); // a new session: no undo step holds the old audio
+        // The audio thread is paused (a bypassed plug-in, a stalled device): however old the retired data gets,
+        // the engine's player still points at it.
+        const int kept = hold.purgeRetired(0);
+        check(! old.expired() && kept >= 1, "lifetime: retired data survives while the engine still reads it");
+        for (int i = 0; i < 200; ++i)
+            engine.process(nullptr, nullptr, l.data(), r.data(), c_block);
+        hold.purgeRetired(0);
+        check(old.expired(), "lifetime: it is freed once the engine has moved on");
+    }
+
+    // Lifetime: an engine that is reset (or whose audio has stopped) lets go of the data it was reading, so it is
+    // freed without the engine having to run again.
+    {
+        const auto wav = writeMono(folder, "lifetime2.wav", sines(c_rate, 2.0, { 330.0 }, 0.4f), c_rate);
+        juce::String err;
+        CargoHold hold;
+        hold.loadFile(0, wav, err);
+        RigEngine engine;
+        engine.setCargoHold(&hold);
+        RigEngine::Params p;
+        engine.setParams(p);
+        engine.prepare(c_rate, c_block);
+        std::vector<float> l(c_block), r(c_block);
+        for (int k = 0; k < 2; ++k)
+        {
+            for (int i = 0; i < 40; ++i)
+                engine.process(nullptr, nullptr, l.data(), r.data(), c_block);
+            std::weak_ptr<const CargoData> old = hold.get(0);
+            hold.fromValueTree(juce::ValueTree("Cargo"));
+            hold.purgeRetired(0);
+            const bool heldWhileRead = ! old.expired();
+            if (k == 0) engine.reset(); else engine.letGoOfCargo();
+            hold.purgeRetired(0);
+            check(heldWhileRead && old.expired(), k == 0 ? "lifetime: a reset engine lets go of the data it was reading"
+                                                         : "lifetime: so does an engine whose audio has stopped");
+            hold.loadFile(0, wav, err);
+        }
+    }
+
+    // Undo steps keep the audio but not the octave copies (nearly as much memory again), once the engine can no
+    // longer be reading them; undo builds the copies again. And the undo history is capped by how much it holds.
+    {
+        const auto wav = writeMono(folder, "undomem.wav", sines(c_rate, 4.0, { 330.0, 5000.0 }, 0.3f), c_rate);
+        juce::String err;
+        CargoHold hold;
+        hold.loadFile(0, wav, err);
+        const auto original = hold.get(0);
+        const std::vector<float> mip0 = original->mips[0];
+        const std::int64_t audioBytes = static_cast<std::int64_t>(original->length()) * 4;
+
+        RigEngine engine;
+        engine.setCargoHold(&hold);
+        RigEngine::Params p;
+        engine.setParams(p);
+        engine.prepare(c_rate, c_block);
+        std::vector<float> l(c_block), r(c_block);
+        for (int i = 0; i < 40; ++i)
+            engine.process(nullptr, nullptr, l.data(), r.data(), c_block);
+
+        hold.reverse(0, 0, original->length());
+        const std::int64_t withCopies = hold.getUndoBytes();
+        hold.purgeRetired(0); // the engine hasn't run since the edit: it still reads the old data
+        check(! original->mips[0].empty() && hold.getUndoBytes() == withCopies,
+              "undo memory: a step the engine may still be reading keeps its octave copies");
+        for (int i = 0; i < 200; ++i)
+            engine.process(nullptr, nullptr, l.data(), r.data(), c_block);
+        hold.purgeRetired(0);
+        const std::int64_t without = hold.getUndoBytes();
+        std::cout << "         one undo step of a 4 s sound: " << withCopies / 1024 << " KB with its octave copies, " << without / 1024
+                  << " KB once the engine has let go (the audio alone is " << audioBytes / 1024 << " KB)" << std::endl;
+        check(original->mips[0].empty() && without == audioBytes && withCopies > audioBytes * 18 / 10,
+              "undo memory: once the engine has let go, the step keeps only the audio");
+        check(! hold.get(0)->mips[0].empty(), "undo memory: the sound in use keeps its octave copies");
+
+        hold.undo(0);
+        check(hold.get(0) == original && original->mips[0] == mip0, "undo memory: undo brings the octave copies back, the same as before");
+        for (int i = 0; i < 200; ++i)
+            engine.process(nullptr, nullptr, l.data(), r.data(), c_block);
+        hold.purgeRetired(0);
+        check(! original->mips[0].empty(), "undo memory: they stay while the sound is the one in use");
+        hold.redo(0);
+        check(! hold.get(0)->mips[0].empty(), "undo memory: redo brings them back too");
+
+        // The cap: about two and a half steps' worth. The oldest edits are forgotten, the newest always stays.
+        hold.setUndoByteLimit(audioBytes * 5);
+        for (int k = 0; k < 8; ++k)
+        {
+            hold.reverse(0, 0, hold.get(0)->length());
+            hold.purgeRetired(0);
+        }
+        int steps = 0;
+        const std::int64_t capped = hold.getUndoBytes();
+        while (hold.canUndoLatest() && steps < 100)
+        {
+            hold.undoLatest();
+            ++steps;
+        }
+        std::cout << "         undo cap: " << capped / 1024 << " KB held under a " << audioBytes * 5 / 1024 << " KB limit, " << steps << " steps left to undo" << std::endl;
+        check(capped <= audioBytes * 5 && steps >= 2 && steps <= 5, "undo memory: the history is capped by size, oldest edits first");
+        hold.setUndoByteLimit(1);
+        hold.reverse(0, 0, hold.get(0)->length());
+        check(hold.canUndoLatest() && hold.undoLatest() == 0, "undo memory: however small the limit, the latest edit can be undone");
+
+        // The same after more edits on one track than its history keeps (the per-track count trims first).
+        hold.setUndoByteLimit(CargoHold::c_undoByteLimit);
+        for (int k = 0; k < 45; ++k)
+        {
+            hold.reverse(0, 0, hold.get(0)->length());
+            hold.purgeRetired(0);
+        }
+        hold.setUndoByteLimit(1);
+        hold.reverse(0, 0, hold.get(0)->length());
+        const auto latest = hold.get(0);
+        check(hold.canUndo(0) && hold.canUndoLatest() && hold.undoLatest() == 0 && hold.get(0) != latest,
+              "undo memory: the latest edit can still be undone after a long run of edits on one track");
+        hold.setUndoByteLimit(CargoHold::c_undoByteLimit);
+    }
+
+    // Band-limited playback: what a faster read pushes over Nyquist is filtered out, not folded back.
+    {
+        const auto level = [](const std::vector<float>& v) { return rmsOf(v.data() + 9600, static_cast<int>(v.size()) - 9600 - c_block); };
+
+        // Unpitched playback is the file itself, sample for sample (times the auto gain).
+        {
+            const CargoData* d = nullptr;
+            const auto out = playSine(c_rate, 1234.5, 1.0f, &d);
+            double worst = 0.0;
+            for (int i = 4800; i < static_cast<int>(out.size()) - c_block; ++i) // (the last part block isn't rendered)
+                worst = std::max(worst, std::abs(static_cast<double>(out[static_cast<size_t>(i)])
+                                                 - static_cast<double>(d->autoGain) * d->audio.getSample(0, i)));
+            check(worst < 1.0e-6, "playback: speed 1 is sample exact (worst error " + juce::String(dbOf(worst / 0.5), 1) + " dB)");
+        }
+
+        const double ref = level(playSine(c_rate, 1000.0, 1.0f));
+        struct Case { double fileRate, freq; float rate; const char* what; };
+        const Case folding[] = {
+            { 48000.0, 15000.0, 2.0f, "15 kHz up an octave (30 kHz)" },
+            { 48000.0, 19000.0, 1.4983f, "19 kHz up 7 semitones (28.5 kHz)" },
+            { 48000.0, 10000.0, 2.8284f, "10 kHz up 18 semitones (28.3 kHz)" },
+            { 48000.0, 7000.0, 4.0f, "7 kHz up two octaves (28 kHz)" },
+            { 48000.0, 13000.0, 4.0f, "13 kHz up two octaves (52 kHz)" },
+            { 96000.0, 30000.0, 1.0f, "30 kHz in a 96 kHz file, unpitched" },
+            { 96000.0, 30000.0, 4.0f, "30 kHz in a 96 kHz file, up two octaves" },
+        };
+        for (const auto& c : folding)
+        {
+            const double db = dbOf(level(playSine(c.fileRate, c.freq, c.rate)) / ref);
+            check(db < -60.0, juce::String("playback: no fold-back from ") + c.what + " (" + juce::String(db, 1) + " dB)");
+        }
+        const Case kept[] = {
+            { 48000.0, 5000.0, 2.0f, "5 kHz up an octave" },
+            { 48000.0, 8000.0, 1.4983f, "8 kHz up 7 semitones" },
+            { 48000.0, 3000.0, 4.0f, "3 kHz up two octaves" },
+            { 48000.0, 9000.0, 0.5f, "9 kHz down an octave" },
+            { 96000.0, 8000.0, 1.0f, "8 kHz in a 96 kHz file" },
+            { 44100.0, 12000.0, 1.0f, "12 kHz in a 44.1 kHz file" },
+        };
+        for (const auto& c : kept)
+        {
+            const double db = dbOf(level(playSine(c.fileRate, c.freq, c.rate)) / ref);
+            check(std::abs(db) < 0.5, juce::String("playback: keeps ") + c.what + " at its level (" + juce::String(db, 2) + " dB)");
+        }
+
+        // The octave copies line up with the audio: where the speed crosses from one to the next, both give the
+        // same signal, so the hand-over (a short crossfade as well) cannot click.
+        {
+            CargoData d;
+            d.sampleRate = c_rate;
+            d.audio = sines(c_rate, 2.0, { 300.0, 1700.0, 4100.0, 6000.0 }, 0.2f);
+            d.analyse();
+            check(! d.mips[0].empty() && ! d.mips[3].empty() && CargoPlayer::levelFor(d, 1.0) == 0 && CargoPlayer::levelFor(d, 1.99) == 0
+                      && CargoPlayer::levelFor(d, 2.0) == 1 && CargoPlayer::levelFor(d, 5.0) == 2 && CargoPlayer::levelFor(d, 40.0) == 4,
+                  "playback: four octave copies, picked by speed");
+            for (int lv = 0; lv < 4; ++lv)
+            {
+                // Tones that are still under the output's Nyquist at the speed where copy lv hands over to lv + 1.
+                const double inc = static_cast<double>(2 << lv);
+                const double down = 1.0 / static_cast<double>(1 << lv);
+                CargoData t;
+                t.sampleRate = c_rate;
+                t.audio = sines(c_rate, 2.0, { 300.0 * down, 1700.0 * down, 4100.0 * down, 6000.0 * down }, 0.2f);
+                t.analyse();
+                double diff = 0.0, sum = 0.0;
+                for (int i = 0; i < 4000; ++i)
+                {
+                    const double pos = 2000.37 + i * 20.731;
+                    const double a = CargoPlayer::readBandLimited(t, lv, pos, inc);
+                    const double b = CargoPlayer::readBandLimited(t, lv + 1, pos, inc);
+                    diff += (a - b) * (a - b);
+                    sum += a * a;
+                }
+                const double db = 10.0 * std::log10(juce::jmax(1.0e-20, diff / juce::jmax(1.0e-20, sum)));
+                check(db < -50.0, "playback: copies " + juce::String(lv) + " and " + juce::String(lv + 1)
+                                                      + " agree where they hand over (" + juce::String(db, 1) + " dB apart)");
+            }
+
+            // A pitch sweep through two hand-overs is as smooth as a steady read.
+            CargoPlayer player;
+            player.prepare(c_rate);
+            sj::Random rng;
+            std::vector<float> out(static_cast<size_t>(c_rate * 0.5), 0.0f);
+            const int chunks = static_cast<int>(out.size()) / 64;
+            for (int k = 0; k < chunks; ++k)
+            {
+                const float rate = 1.5f * std::pow(2.0f, 1.7f * static_cast<float>(k) / static_cast<float>(chunks)); // 1.5 .. 4.9
+                player.render(&d, CargoRole::Bed, false, rate, 0.0f, rng, 0.05f, CargoCue {}, out.data() + k * 64, 64);
+            }
+            bool finite = true;
+            float peak = 0.0f;
+            for (const float v : out) { finite = finite && std::isfinite(v); peak = std::max(peak, std::abs(v)); }
+            check(finite && peak > 0.05f && peak < 1.2f, "playback: a pitch sweep across the octave copies stays clean (peak "
+                                                             + juce::String(peak, 3) + ")");
+        }
+    }
+
+    // A hiss pitched up loses exactly the part that no longer fits under Nyquist, no more and no less: up an octave
+    // half of white noise is left (-3 dB and a little for the filter's slope), up two octaves a quarter. Folding
+    // back would keep all of it (0 dB); filtering too hard would lose more.
+    {
+        CargoData d;
+        d.sampleRate = c_rate;
+        d.audio.setSize(1, static_cast<int>(6.0 * c_rate));
+        juce::uint32 seed = 12345u;
+        for (int i = 0; i < d.audio.getNumSamples(); ++i)
+        {
+            seed = seed * 1664525u + 1013904223u;
+            d.audio.setSample(0, i, 0.3f * (static_cast<float>(seed >> 8) / 8388608.0f - 1.0f));
+        }
+        d.analyse();
+        const auto play = [&d](float rate)
+        {
+            CargoPlayer player;
+            player.prepare(c_rate);
+            sj::Random rng;
+            std::vector<float> out(static_cast<size_t>(c_rate), 0.0f);
+            for (int pos = 0; pos + c_block <= static_cast<int>(out.size()); pos += c_block)
+                player.render(&d, CargoRole::Bed, false, rate, 0.0f, rng, 0.1f, CargoCue {}, out.data() + pos, c_block);
+            return rmsOf(out.data() + 9600, static_cast<int>(out.size()) - 9600 - c_block);
+        };
+        const double unity = play(1.0f);
+        const double up1 = dbOf(play(2.0f) / unity), up2 = dbOf(play(4.0f) / unity), up19 = dbOf(play(2.9966f) / unity);
+        check(up1 < -2.6 && up1 > -4.6, "playback: white noise up an octave keeps the half that fits (" + juce::String(up1, 2) + " dB)");
+        check(up19 < -4.4 && up19 > -6.4, "playback: white noise up 19 semitones keeps the third that fits (" + juce::String(up19, 2) + " dB)");
+        check(up2 < -5.6 && up2 > -7.6, "playback: white noise up two octaves keeps the quarter that fits (" + juce::String(up2, 2) + " dB)");
+    }
+
+    // The band-limited read stays cheap: ten tracks pitched up 21 semitones (the longest kernel in normal use).
+    {
+        CargoData d;
+        d.sampleRate = c_rate;
+        d.audio = sines(c_rate, 8.0, { 220.0, 3100.0 }, 0.3f);
+        d.analyse();
+        std::vector<float> out(c_block);
+        sj::Random rng;
+        float sum = 0.0f;
+        const auto t0 = TestClock::cpuMs();
+        for (int track = 0; track < 10; ++track)
+        {
+            CargoPlayer player;
+            player.prepare(c_rate);
+            for (int pos = 0; pos < static_cast<int>(10.0 * c_rate); pos += c_block)
+            {
+                player.render(&d, CargoRole::Bed, false, 3.364f, 0.0f, rng, 0.5f, CargoCue {}, out.data(), c_block);
+                sum += out[0];
+            }
+        }
+        const double seconds = (TestClock::cpuMs() - t0) * 0.001;
+        check(std::isfinite(sum) && seconds < 1.25, "playback: ten pitched tracks x 10 s took " + juce::String(seconds, 3) + " s ("
+                                                        + juce::String(static_cast<int>(10.0 / seconds)) + "x real time, need 8x)");
+    }
+
+    // Paste between files of different rates goes through the same band-limited kernel.
+    {
+        juce::String err;
+        CargoHold hold;
+        hold.loadFile(0, writeMono(folder, "paste_96k.wav", sines(96000.0, 0.5, { 1000.0, 30000.0 }, 0.4f), 96000.0), err);
+        hold.loadFile(1, writeMono(folder, "paste_48k.wav", sines(c_rate, 0.5, { 200.0 }, 0.1f), c_rate), err);
+        hold.copy(0, 0, hold.get(0)->length());
+        hold.paste(1, 0);
+        const auto pasted = hold.get(1);
+        const int n = 20000;
+        const double wanted = toneLevel(pasted->audio.getReadPointer(0) + 2000, n, 1000.0, c_rate);
+        const double folded = toneLevel(pasted->audio.getReadPointer(0) + 2000, n, 18000.0, c_rate);
+        check(pasted->length() == 24000 + 24000 && std::abs(wanted - 0.4) < 0.01 && dbOf(folded / wanted) < -60.0,
+              "paste: a 96 kHz clip pasted into a 48 kHz track keeps its 1 kHz (" + juce::String(wanted, 3) + ") and its 30 kHz does not fold ("
+                  + juce::String(dbOf(folded / wanted), 1) + " dB)");
+    }
+
+    // Auto gain: levels by RMS, but never lifts a peaky sound over full scale.
+    {
+        CargoData clicks;
+        clicks.sampleRate = c_rate;
+        clicks.audio.setSize(1, static_cast<int>(c_rate * 2.0));
+        clicks.audio.clear();
+        for (int k = 0; k < 4; ++k)
+            for (int i = 0; i < 4800; ++i) // a 0.9 spike, then a quiet 100 ms tail
+                clicks.audio.setSample(0, 4800 + k * 20000 + i,
+                                       (i < 8 ? 0.9f : 0.02f * std::exp(-static_cast<float>(i) / 1500.0f))
+                                           * static_cast<float>(std::sin(0.9 * i)));
+        clicks.analyse();
+        float peak = 0.0f;
+        for (const auto& reg : clicks.regions)
+            peak = std::max(peak, clicks.audio.getMagnitude(0, reg.start, reg.end - reg.start));
+        check(! clicks.regions.empty() && clicks.autoGain > 1.0f && peak * clicks.autoGain <= 1.0005f,
+              "auto gain: a peaky sound is lifted to full scale, not past it (peak after gain "
+                  + juce::String(peak * clicks.autoGain, 3) + ", gain " + juce::String(clicks.autoGain, 2) + ")");
+
+        CargoData steady;
+        steady.sampleRate = c_rate;
+        steady.audio = sines(c_rate, 1.0, { 500.0 }, 0.05f);
+        steady.analyse();
+        const double rms = rmsOf(steady.audio.getReadPointer(0), steady.length());
+        check(std::abs(steady.autoGain * rms - 0.22) < 0.01, "auto gain: a steady sound still reaches the RMS target ("
+                                                                 + juce::String(steady.autoGain * rms, 3) + ")");
+    }
+
+    // Loading: a long file says it was cut short, and a batch accounts for every file.
+    {
+        juce::String err;
+        // 10.5 minutes at 8 kHz (8-bit, so the file stays small): only the first 10 minutes are loaded.
+        juce::AudioBuffer<float> longOne(1, static_cast<int>(8000.0 * 630.0));
+        for (int i = 0; i < longOne.getNumSamples(); ++i)
+            longOne.setSample(0, i, 0.3f * static_cast<float>(std::sin(0.2 * i)));
+        const auto longFile = writeMono(folder, "long_file.wav", longOne, 8000.0, 8);
+        const auto shortFile = writeMono(folder, "short_file.wav", sines(c_rate, 0.5, { 440.0 }, 0.3f), c_rate);
+        CargoHold hold;
+        check(hold.loadFile(0, longFile, err) && hold.get(0)->length() == 8000 * 600
+                  && hold.getLoadNote(0) == "Loaded the first 10:00 of 10:30",
+              "loading: a file over ten minutes is cut and says so (\"" + hold.getLoadNote(0) + "\")");
+        hold.loadFile(1, shortFile, err);
+        check(hold.getLoadNote(1).isEmpty(), "loading: a file that fits has no note");
+        hold.trim(0, 0, 8000 * 60);
+        check(hold.getLoadNote(0).isEmpty(), "loading: the note goes once the track is edited");
+
+        auto bogus = folder.getChildFile("x.mp4");
+        bogus.replaceWithText("not audio");
+        juce::StringArray paths;
+        paths.add(bogus.getFullPathName());
+        for (int i = 0; i < 12; ++i)
+            paths.add(shortFile.getFullPathName());
+        CargoHold batch;
+        const auto report = batch.loadFiles(paths);
+        check(report.tracks.size() == 10 && report.noRoom == 2 && report.failed.size() == 1 && report.failed[0] == "x.mp4"
+                  && batch.firstEmptyTrack() == -1 && report.hasProblems(),
+              "loading: a batch of 13 adds 10, counts 2 with no track left and 1 unreadable");
+        check(report.summary() == "Added 10. 2 didn't fit (ten tracks at most). Couldn't read x.mp4 (try WAV, AIFF, FLAC, OGG or MP3).",
+              "loading: the status line says all of it (\"" + report.summary() + "\")");
+
+        CargoHold one;
+        juce::StringArray two;
+        two.add(longFile.getFullPathName());
+        two.add(shortFile.getFullPathName());
+        const auto r2 = one.loadFiles(two, 4);
+        check(r2.tracks.size() == 2 && r2.tracks[0] == 4 && r2.tracks[1] == 0 && ! r2.hasProblems()
+                  && r2.summary().startsWith("Added ") && r2.summary().endsWith("Loaded the first 10:00 of 10:30 (long_file.wav)."),
+              "loading: an explicit first track, then the empty ones, with the note for the long file (\"" + r2.summary() + "\")");
+    }
+
     // Delay line: the interpolation fraction keeps full precision high up the ring (no 1/64-sample steps).
     {
         sj::DelayLine line;
@@ -386,6 +867,871 @@ int main(int argc, char* argv[])
         TapeRecorder empty;
         empty.prepare(c_rate, 2);
         check(! empty.saveRetro(tapeFolder, 24, written, error), "tape: saving an empty retro buffer is refused");
+
+        error.clear();
+        // Skip Silence: whooshes over a bed that never falls silent (1 s loud, 4 s of bed 40 dB under it, four
+        // times). The gate measures against the recent peak, so the bed between the whooshes is left out; each
+        // whoosh keeps three quarters of a second behind it and (after the first) a quarter second in front.
+        auto readAll = [&formats](const juce::File& f, juce::AudioBuffer<float>& into)
+        {
+            std::unique_ptr<juce::AudioFormatReader> r(formats.createReaderFor(f));
+            if (r == nullptr)
+                return 0.0;
+            into.setSize(static_cast<int>(r->numChannels), static_cast<int>(r->lengthInSamples));
+            r->read(&into, 0, static_cast<int>(r->lengthInSamples), 0, true, true);
+            return r->sampleRate;
+        };
+        auto whooshesOverBed = [&](TapeRecorder& t)
+        {
+            for (int pos = 0; pos < static_cast<int>(20.0 * c_rate); pos += c_block)
+            {
+                for (int i = 0; i < c_block; ++i)
+                {
+                    const int at = pos + i;
+                    const bool loud = (at % static_cast<int>(5.0 * c_rate)) < static_cast<int>(c_rate);
+                    const float v = (loud ? 0.5f : 0.005f) * static_cast<float>(std::sin(0.03 * at));
+                    block.setSample(0, i, v);
+                    block.setSample(1, i, v);
+                }
+                t.process(block.getArrayOfReadPointers(), 2, c_block);
+                keepUp(t);
+            }
+        };
+        {
+            TapeRecorder gated;
+            gated.prepare(c_rate, 2);
+            gated.setSignalGate(true);
+            check(gated.start(tapeFolder, 24, error), "tape: starts a take with Skip Silence " + error);
+            whooshesOverBed(gated);
+            gated.stop();
+            juce::AudioBuffer<float> audio;
+            readAll(gated.getLastFile(), audio);
+            const double seconds = audio.getNumSamples() / c_rate;
+            check(seconds > 7.0 && seconds < 8.6,
+                  "tape: Skip Silence leaves out the bed between whooshes (" + juce::String(seconds, 2) + " s kept of 20 s)");
+            // The first join (1.75 s in: 1 s of whoosh and 0.75 s behind it) is faded, not a cut in the middle of the bed.
+            float quietest = 1.0f;
+            const int window = static_cast<int>(0.002 * c_rate);
+            for (int start = static_cast<int>(1.65 * c_rate); start + window < juce::jmin(audio.getNumSamples(), static_cast<int>(1.85 * c_rate)); start += window / 2)
+                quietest = std::min(quietest, audio.getMagnitude(0, start, window));
+            check(quietest < 0.0006f, "tape: the tape fades out and in around a skipped stretch (level at the join "
+                                          + juce::String(juce::Decibels::gainToDecibels(quietest), 1) + " dB, the bed is -46 dB)");
+
+            // Held open (the rig ringing out after Stop), the gate keeps rolling through the quiet.
+            TapeRecorder held;
+            held.prepare(c_rate, 2);
+            held.setSignalGate(true);
+            held.setGateHold(true);
+            check(held.start(tapeFolder, 24, error), "tape: starts a held take " + error);
+            whooshesOverBed(held);
+            held.stop();
+            readAll(held.getLastFile(), audio);
+            check(std::abs(audio.getNumSamples() / c_rate - 20.0) < 0.1, "tape: a held gate keeps the quiet tail ("
+                                                                             + juce::String(audio.getNumSamples() / c_rate, 2) + " s of 20 s)");
+
+            // A sound that comes back while the gate is fading out: the tape comes back up from where the fade had
+            // got to, without a step. A steady level shows it: 1 s loud, then a bed 34 dB under it, and one loud
+            // sample at the end of the 10 ms block that starts two thirds of the way through the 30 ms fade.
+            {
+                constexpr int c_piece = 480;
+                const int lastLoud = static_cast<int>(c_rate) / c_piece - 1;                      // the last loud block
+                const int closes = lastLoud * c_piece + static_cast<int>(0.75 * c_rate);          // where the fade would end
+                const int back = (closes - static_cast<int>(0.02 * c_rate)) / c_piece * c_piece; // start of the block that reopens
+                TapeRecorder reopened;
+                reopened.prepare(c_rate, 2);
+                reopened.setSignalGate(true);
+                TapeRecorder::Options floatFile;
+                floatFile.bitDepth = 32;
+                check(reopened.start(tapeFolder, floatFile, error), "tape: starts a take for the reopening gate " + error);
+                juce::AudioBuffer<float> piece(2, c_piece);
+                for (int pos = 0; pos < back + 4 * c_piece; pos += c_piece)
+                {
+                    for (int i = 0; i < c_piece; ++i)
+                    {
+                        const int at = pos + i;
+                        const float v = (at < static_cast<int>(c_rate) || at == back + c_piece - 1) ? 0.5f : 0.01f;
+                        piece.setSample(0, i, v);
+                        piece.setSample(1, i, v);
+                    }
+                    reopened.process(piece.getArrayOfReadPointers(), 2, c_piece);
+                }
+                reopened.stop();
+                readAll(reopened.getLastFile(), audio);
+                float biggestStep = 0.0f, lowest = 1.0f;
+                for (int i = closes - static_cast<int>(0.03 * c_rate); i < back + c_piece - 2 && i + 1 < audio.getNumSamples(); ++i)
+                {
+                    biggestStep = std::max(biggestStep, std::abs(audio.getSample(0, i + 1) - audio.getSample(0, i)));
+                    lowest = std::min(lowest, audio.getSample(0, i));
+                }
+                check(audio.getNumSamples() == back + 4 * c_piece && lowest < 0.008f && lowest > 0.001f,
+                      "tape: a sound that returns during the fade reopens the gate (the bed had faded to "
+                          + juce::String(lowest / 0.01f, 2) + " of its level)");
+                check(biggestStep < 3.0f * 0.01f / static_cast<float>(0.03 * c_rate),
+                      "tape: the reopened gate comes back up without a step (biggest step in the bed "
+                          + juce::String(biggestStep / 0.01f, 4) + " of its level)");
+            }
+
+            TapeRecorder continuous;
+            continuous.prepare(c_rate, 2);
+            continuous.setSignalGate(false);
+            check(continuous.start(tapeFolder, 24, error), "tape: starts a continuous take " + error);
+            whooshesOverBed(continuous);
+            continuous.stop();
+            std::unique_ptr<juce::AudioFormatReader> all(formats.createReaderFor(continuous.getLastFile()));
+            check(all != nullptr && std::abs(static_cast<double>(all->lengthInSamples) - 20.0 * c_rate) < 2.0 * c_block,
+                  "tape: with Skip Silence off the take is continuous (20 s)");
+            check(all != nullptr && all->metadataValues[juce::WavAudioFormat::bwavOriginator] == "Samuel Justice",
+                  "tape: the file names its author (" + (all != nullptr ? all->metadataValues[juce::WavAudioFormat::bwavOriginator] : juce::String()) + ")");
+        }
+
+        // 16-bit takes are dithered: a tone of 0.4 of a 16-bit step survives (without dither the file is flat),
+        // and the dither adds no offset.
+        {
+            TapeRecorder dithered;
+            dithered.prepare(c_rate, 2);
+            check(dithered.start(tapeFolder, 16, error), "tape: starts a 16-bit take " + error);
+            const double amp = 0.4 / 32768.0, w = juce::MathConstants<double>::twoPi * 1000.0 / c_rate;
+            for (int pos = 0; pos < static_cast<int>(4.0 * c_rate); pos += c_block)
+            {
+                for (int i = 0; i < c_block; ++i)
+                    for (int ch = 0; ch < 2; ++ch)
+                        block.setSample(ch, i, static_cast<float>(amp * std::sin(w * (pos + i))));
+                dithered.process(block.getArrayOfReadPointers(), 2, c_block);
+                keepUp(dithered);
+            }
+            dithered.stop();
+            juce::AudioBuffer<float> audio;
+            readAll(dithered.getLastFile(), audio);
+            double inPhase = 0.0, mean = 0.0;
+            for (int i = 0; i < audio.getNumSamples(); ++i)
+            {
+                inPhase += audio.getSample(0, i) * std::sin(w * i);
+                mean += audio.getSample(0, i);
+            }
+            const double found = 2.0 * inPhase / juce::jmax(1, audio.getNumSamples()) * 32768.0;
+            mean = mean / juce::jmax(1, audio.getNumSamples()) * 32768.0;
+            check(dithered.getDroppedSamples() == 0 && found > 0.3 && found < 0.5,
+                  "tape: 16-bit dither keeps a tone smaller than one step (" + juce::String(found, 3) + " of a step, 0.4 sent)");
+            check(std::abs(mean) < 0.05, "tape: 16-bit dither adds no offset (" + juce::String(mean, 3) + " of a step)");
+        }
+
+        // The writer's FIFO is sized by time (3 s at any rate), and lost audio is counted in seconds of the take.
+        {
+            TapeRecorder fast;
+            fast.prepare(192000.0, 2);
+            check(fast.getFifoSamples() >= 3 * 192000, "tape: the writer FIFO holds 3 s at 192 kHz (" + juce::String(fast.getFifoSamples()) + " samples)");
+            check(fast.start(tapeFolder, 24, error), "tape: starts a 192 kHz take " + error);
+            for (int i = 0; i < c_block; ++i)
+                for (int ch = 0; ch < 2; ++ch)
+                    block.setSample(ch, i, 0.1f * static_cast<float>(std::sin(0.01 * i)));
+            // 2.5 s arriving all at once (a stalled disk catching up): it must all fit.
+            for (int pos = 0; pos < static_cast<int>(2.5 * 192000.0); pos += c_block)
+                fast.process(block.getArrayOfReadPointers(), 2, c_block);
+            check(fast.getDroppedSamples() == 0, "tape: 2.5 s of 192 kHz audio in one burst is not dropped ("
+                                                     + juce::String(fast.getDroppedSamples()) + " samples lost)");
+            // 30 s more at once does overflow: the loss is reported in seconds at the take's own rate.
+            for (int pos = 0; pos < static_cast<int>(30.0 * 192000.0); pos += c_block)
+                fast.process(block.getArrayOfReadPointers(), 2, c_block);
+            const auto dropped = fast.getDroppedSamples();
+            check(dropped > 0 && std::abs(fast.getDroppedSeconds() - static_cast<double>(dropped) / 192000.0) < 1.0e-6,
+                  "tape: dropped audio is counted in seconds at the take's rate (" + juce::String(fast.getDroppedSeconds(), 2) + " s)");
+            fast.stop();
+        }
+
+        // LAST 60s is written with the options it is given (file type, bit depth, mono).
+        {
+            TapeRecorder retro;
+            retro.prepare(c_rate, 2);
+            for (int pos = 0; pos < static_cast<int>(3.0 * c_rate); pos += c_block)
+            {
+                for (int i = 0; i < c_block; ++i)
+                    for (int ch = 0; ch < 2; ++ch)
+                        block.setSample(ch, i, 0.25f * static_cast<float>(std::sin(0.05 * (pos + i))));
+                retro.process(block.getArrayOfReadPointers(), 2, c_block);
+            }
+            TapeRecorder::Options o;
+            o.bitDepth = 16;
+            o.type = TapeRecorder::FileType::Flac;
+            o.mono = true;
+            check(retro.saveRetro(tapeFolder, o, written, error), "tape: LAST 60s saves " + error);
+            std::unique_ptr<juce::AudioFormatReader> r(formats.createReaderFor(written));
+            check(written.hasFileExtension("flac") && r != nullptr && r->bitsPerSample == 16 && r->numChannels == 1,
+                  "tape: LAST 60s uses the chosen file type, bit depth and channels");
+        }
+
+        // Harvesting ---------------------------------------------------------------------------------------------
+        auto tone = [&](TapeRecorder& t, double seconds, float level, int startAt = 0)
+        {
+            for (int pos = 0; pos < static_cast<int>(seconds * c_rate); pos += c_block)
+            {
+                for (int i = 0; i < c_block; ++i)
+                    for (int ch = 0; ch < 2; ++ch)
+                        block.setSample(ch, i, level * static_cast<float>(std::sin(0.05 * (startAt + pos + i))));
+                t.process(block.getArrayOfReadPointers(), 2, c_block);
+                keepUp(t);
+            }
+        };
+        auto waitForFiles = [](TapeRecorder& t, std::vector<TapeRecorder::FinishedTake>& into, size_t count)
+        {
+            for (int tries = 0; tries < 6000 && into.size() < count; ++tries) // (a wait that ends when they are there)
+            {
+                for (auto& f : t.takeFinishedTakes())
+                    into.push_back(f);
+                if (into.size() < count)
+                    juce::Thread::sleep(10);
+            }
+        };
+
+        // Names: <Name>_NNNN with a counter that goes on, never taking a number a file already has; or the date and time.
+        {
+            auto names = folder.getChildFile("names");
+            names.deleteRecursively();
+            names.createDirectory();
+            names.getChildFile("Jet Passes_0002.wav").create(); // already there from an earlier run
+            TapeRecorder t;
+            t.prepare(c_rate, 2);
+            TapeRecorder::Naming naming;
+            naming.prefix = "Jet Passes";
+            t.setNaming(naming);
+            juce::StringArray made;
+            for (int k = 0; k < 2; ++k)
+            {
+                check(t.start(names, 24, error), "names: starts a take " + error);
+                tone(t, 0.5, 0.25f);
+                t.stop();
+                made.add(t.getLastFile().getFileName());
+            }
+            tone(t, 1.0, 0.25f);
+            check(t.saveRetro(names, 24, written, error), "names: LAST 60s saves " + error);
+            made.add(written.getFileName());
+            check(made.joinIntoString(", ") == "Jet Passes_0001.wav, Jet Passes_0003.wav, Jet Passes_0004_retro.wav",
+                  "names: a counter that goes on and skips a number already in the folder (" + made.joinIntoString(", ") + ")");
+
+            // A take with nothing in it leaves no file and gives its number back.
+            t.setSignalGate(true);
+            check(t.start(names, 24, error), "names: starts an empty take " + error);
+            const auto emptyFile = t.getCurrentFile();
+            block.clear();
+            for (int k = 0; k < 100; ++k)
+                t.process(block.getArrayOfReadPointers(), 2, c_block);
+            t.stop();
+            t.setSignalGate(false);
+            check(emptyFile.getFileName() == "Jet Passes_0005.wav" && ! emptyFile.exists() && t.getLastFile() == juce::File(),
+                  "names: a take with no sound leaves no file behind (" + emptyFile.getFileName() + ")");
+            check(t.nextFile(names, {}, ".wav").getFileName() == "Jet Passes_0005.wav", "names: and its number is used by the next one");
+
+            naming.prefix = "A/B: test?";
+            naming.style = TapeRecorder::NameStyle::DateTime;
+            t.setNaming(naming);
+            const auto dated = t.nextFile(names, {}, ".wav").getFileNameWithoutExtension();
+            const auto stamp = dated.fromLastOccurrenceOf("test_", false, false);
+            check(juce::File::createLegalFileName(dated) == dated && stamp.length() == 19 && stamp[4] == '-' && stamp[10] == '_',
+                  "names: the date and time form, with a name made safe for a file (" + dated + ")");
+            naming.prefix = "   ";
+            naming.style = TapeRecorder::NameStyle::Counter;
+            t.setNaming(naming);
+            check(t.nextFile(names, {}, ".wav").getFileName().startsWith("Swooshbuckler_"), "names: an empty name falls back to Swooshbuckler");
+        }
+
+        // The same description in every file type, and who made it.
+        {
+            auto meta = folder.getChildFile("meta");
+            meta.deleteRecursively();
+            meta.createDirectory();
+            TapeRecorder::Naming naming;
+            naming.prefix = "Meta";
+            naming.description = juce::String::fromUTF8("Swooshbuckler 9.9.9. Preset: Jet Passes. Energy 36 %, Rate 2.1 s. Caf\xc3\xa9.");
+            naming.creator = "Anne Bonny";
+            naming.software = "Swooshbuckler 9.9.9";
+            const TapeRecorder::FileType types[] = { TapeRecorder::FileType::Wav, TapeRecorder::FileType::Aiff, TapeRecorder::FileType::Flac };
+            const char* typeNames[] = { "WAV", "AIFF", "FLAC" };
+            for (int k = 0; k < 3; ++k)
+            {
+                TapeRecorder t;
+                t.prepare(c_rate, 2);
+                t.setNaming(naming);
+                TapeRecorder::Options o;
+                o.type = types[k];
+                check(t.start(meta, o, error), juce::String("metadata: starts a ") + typeNames[k] + " take " + error);
+                tone(t, 1.0, 0.25f);
+                t.stop();
+                const auto file = t.getLastFile();
+                const auto read = TapeRecorder::readDescription(file);
+                std::unique_ptr<juce::AudioFormatReader> r(formats.createReaderFor(file));
+                check(read == naming.description, juce::String("metadata: the description is in the ") + typeNames[k] + " file (" + read + ")");
+                check(r != nullptr && std::abs(static_cast<double>(r->lengthInSamples) - c_rate) < 2.0 * c_block,
+                      juce::String("metadata: the ") + typeNames[k] + " file still plays, all 1 s of it");
+                if (k == 0)
+                    check(r != nullptr && r->metadataValues[juce::WavAudioFormat::bwavOriginator] == "Anne Bonny"
+                              && r->metadataValues[juce::WavAudioFormat::riffInfoArtist] == "Anne Bonny"
+                              && r->metadataValues[juce::WavAudioFormat::riffInfoSoftware] == "Swooshbuckler 9.9.9",
+                          "metadata: the WAV names the Creator and the software");
+                if (k == 2)
+                {
+                    juce::MemoryBlock bytes;
+                    file.loadFileAsData(bytes);
+                    const std::string all(static_cast<const char*>(bytes.getData()), bytes.getSize());
+                    check(all.find("ARTIST=Anne Bonny") != std::string::npos && all.find("ENCODER=Swooshbuckler 9.9.9") != std::string::npos,
+                          "metadata: the FLAC names the Creator and the software");
+                }
+                // LAST 60s the same way.
+                check(t.saveRetro(meta, o, written, error) && TapeRecorder::readDescription(written) == naming.description,
+                      juce::String("metadata: LAST 60s carries it too (") + typeNames[k] + ") " + error);
+            }
+        }
+
+        // Markers: cue points with labels, where the audio thread said, in the file's own frames.
+        {
+            auto marks = folder.getChildFile("marks");
+            marks.deleteRecursively();
+            marks.createDirectory();
+            auto describe = [](const std::vector<TapeRecorder::Cue>& cues, double rate)
+            {
+                juce::StringArray parts;
+                for (const auto& c : cues)
+                    parts.add(c.label + " @ " + juce::String(static_cast<double>(c.frame) / rate, 3));
+                return parts.joinIntoString(", ");
+            };
+            // A continuous take: markers at 0.5 s, 1.0 s (two kinds at once), and one that comes due two blocks later.
+            {
+                TapeRecorder t;
+                t.prepare(c_rate, 2);
+                TapeRecorder::Options o;
+                o.fileRate = 96000.0; // the cue points are in the file's frames, not the session's
+                check(t.start(marks, o, error), "markers: starts a take " + error);
+                const int blocks = static_cast<int>(2.0 * c_rate) / c_block;
+                for (int k = 0; k < blocks; ++k)
+                {
+                    const int from = k * c_block, to = from + c_block;
+                    auto in = [&](int sample) { return sample >= from && sample < to; };
+                    if (in(24000)) t.addMarker(24000 - from, TapeRecorder::MarkPassA);
+                    if (in(48000)) { t.addMarker(48000 - from, TapeRecorder::MarkPassB); t.addMarker(48000 - from + 30, TapeRecorder::MarkHit); t.addMarker(48000 - from + 60, TapeRecorder::MarkHit); }
+                    if (in(72000 - 2 * c_block)) t.addMarker(72000 - from, TapeRecorder::MarkThrow); // told ahead of time
+                    for (int i = 0; i < c_block; ++i)
+                        for (int ch = 0; ch < 2; ++ch)
+                            block.setSample(ch, i, 0.25f * static_cast<float>(std::sin(0.05 * (from + i))));
+                    t.process(block.getArrayOfReadPointers(), 2, c_block);
+                    keepUp(t);
+                }
+                t.stop();
+                const auto cues = TapeRecorder::readCues(t.getLastFile());
+                const auto text = describe(cues, 96000.0);
+                check(cues.size() == 3 && text == "Pass A @ 0.500, Pass B + Hit @ 1.000, Throw @ 1.500", "markers: read back from the cue chunk (" + text + ")");
+                std::unique_ptr<juce::AudioFormatReader> r(formats.createReaderFor(t.getLastFile()));
+                check(r != nullptr && std::abs(static_cast<double>(r->lengthInSamples) - 2.0 * 96000.0) < 4.0 * c_block,
+                      "markers: the file with markers still reads as 2 s of audio");
+                std::vector<TapeRecorder::FinishedTake> done;
+                for (auto& f : t.takeFinishedTakes())
+                    done.push_back(f);
+                check(done.size() == 1 && done[0].markers == 3 && std::abs(done[0].seconds - 2.0) < 0.05 && ! done[0].whoosh,
+                      "markers: the finished take says how long it is and how many markers it has");
+            }
+            // Skip Silence: a marker in a stretch the tape left out is dropped; one after the gap sits where its
+            // sound is in the file, not where it was in time.
+            {
+                TapeRecorder t;
+                t.prepare(c_rate, 2);
+                t.setSignalGate(true);
+                check(t.start(marks, 24, error), "markers: starts a gated take " + error);
+                tone(t, 1.0, 0.5f);                       // 0 .. 1 s: sound
+                t.addMarker(0, TapeRecorder::MarkPassA);  // 1.0 s: the tape is still rolling (its hang)
+                tone(t, 2.0, 0.0f);                       // 1 .. 3 s: silence (the tape stops at 1.75 s)
+                t.addMarker(0, TapeRecorder::MarkHit);    // 3.0 s: nothing is being written
+                tone(t, 1.0, 0.0f);                       // 3 .. 4 s
+                tone(t, 0.5, 0.5f);                       // 4 .. 4.5 s: sound again
+                t.addMarker(0, TapeRecorder::MarkThrow);  // 4.5 s
+                tone(t, 0.5, 0.5f, static_cast<int>(0.5 * c_rate));
+                t.stop();
+                const auto cues = TapeRecorder::readCues(t.getLastFile());
+                // In the file: 0 .. 1.75 s is the first sound and its hang, then 0.25 s of pre-roll, then the second sound.
+                const bool placed = cues.size() == 2 && cues[0].label == "Pass A" && std::abs(static_cast<double>(cues[0].frame) / c_rate - 1.0) < 0.02
+                                    && cues[1].label == "Throw" && std::abs(static_cast<double>(cues[1].frame) / c_rate - 2.5) < 0.03;
+                check(placed, "markers: with Skip Silence they follow the sound into the file (" + describe(cues, c_rate) + ")");
+            }
+            // AIFF and FLAC takes carry no cue points, and are not harmed by being told about markers.
+            {
+                TapeRecorder t;
+                t.prepare(c_rate, 2);
+                TapeRecorder::Options o;
+                o.type = TapeRecorder::FileType::Flac;
+                check(t.start(marks, o, error), "markers: starts a FLAC take " + error);
+                t.addMarker(1000, TapeRecorder::MarkHit);
+                tone(t, 1.0, 0.25f);
+                t.stop();
+                std::unique_ptr<juce::AudioFormatReader> r(formats.createReaderFor(t.getLastFile()));
+                check(r != nullptr && std::abs(static_cast<double>(r->lengthInSamples) - c_rate) < 2.0 * c_block, "markers: a FLAC take ignores them");
+            }
+        }
+
+        // One File per Whoosh: the four whooshes over a bed become four numbered files; a blip is not kept.
+        {
+            auto whooshes = folder.getChildFile("whooshes");
+            whooshes.deleteRecursively();
+            whooshes.createDirectory();
+            TapeRecorder t;
+            t.prepare(c_rate, 2);
+            TapeRecorder::Naming naming;
+            naming.prefix = "Ride";
+            t.setNaming(naming);
+            TapeRecorder::Options o;
+            o.perWhoosh = true;
+            check(t.start(whooshes, o, error), "one file per whoosh: starts " + error);
+            check(whooshes.getNumberOfChildFiles(juce::File::findFiles) == 0, "one file per whoosh: no file until there is sound");
+            std::vector<TapeRecorder::FinishedTake> done;
+            // The first whoosh's file is closed and listed while the tape is still armed and nothing is arriving.
+            tone(t, 1.0, 0.5f);
+            t.addMarker(0, TapeRecorder::MarkPassA); // 1.0 s: in the first file's tail
+            tone(t, 1.5, 0.0f);
+            waitForFiles(t, done, 1);
+            check(done.size() == 1 && done[0].file.getFileName() == "Ride_0001.wav" && done[0].whoosh && t.isRecording(),
+                  "one file per whoosh: the file is closed when the whoosh has ended, with the tape still armed");
+            // A blip (50 ms): its file is thrown away and its number given back.
+            tone(t, 0.05, 0.5f);
+            tone(t, 2.0, 0.0f);
+            // Three more whooshes over a quiet bed.
+            for (int k = 0; k < 3; ++k)
+            {
+                tone(t, 1.0, 0.5f);
+                tone(t, 3.0, 0.005f);
+            }
+            // And one still sounding when the tape is stopped.
+            tone(t, 0.6, 0.5f);
+            t.stop();
+            waitForFiles(t, done, 5);
+            juce::StringArray names;
+            bool lengths = done.size() == 5;
+            for (size_t k = 0; k < done.size(); ++k)
+            {
+                names.add(done[k].file.getFileName());
+                std::unique_ptr<juce::AudioFormatReader> r(formats.createReaderFor(done[k].file));
+                const double seconds = r != nullptr ? static_cast<double>(r->lengthInSamples) / r->sampleRate : 0.0;
+                // 1 s of sound, its 0.75 s tail, and (after the first) 0.25 s of pre-roll; the last was cut at 0.6 s.
+                const double expected = k == 0 ? 1.75 : (k == 4 ? 0.85 : 2.0);
+                lengths = lengths && std::abs(seconds - expected) < 0.06 && std::abs(done[k].seconds - seconds) < 0.01;
+            }
+            check(names.joinIntoString(" ") == "Ride_0001.wav Ride_0002.wav Ride_0003.wav Ride_0004.wav Ride_0005.wav",
+                  "one file per whoosh: five whooshes, five numbered files, the blip left out (" + names.joinIntoString(" ") + ")");
+            check(lengths, "one file per whoosh: each file is its whoosh with its lead-in and tail");
+            check(whooshes.getNumberOfChildFiles(juce::File::findFiles) == 5, "one file per whoosh: nothing else is left in the folder ("
+                                                                                   + juce::String(whooshes.getNumberOfChildFiles(juce::File::findFiles)) + " files)");
+            const auto cues = done.empty() ? std::vector<TapeRecorder::Cue>() : TapeRecorder::readCues(done[0].file);
+            check(cues.size() == 1 && cues[0].label == "Pass A" && std::abs(static_cast<double>(cues[0].frame) / c_rate - 1.0) < 0.02
+                      && (done.size() < 2 || TapeRecorder::readCues(done[1].file).empty()),
+                  "one file per whoosh: a marker goes into the file of its own whoosh");
+            check(t.getDroppedSamples() == 0, "one file per whoosh: no audio dropped");
+        }
+
+        // One File per Whoosh: a marker in the very last block of a whoosh (the end of its fade out) is in its file.
+        {
+            auto edge = folder.getChildFile("whoosh-edge");
+            edge.deleteRecursively();
+            edge.createDirectory();
+            TapeRecorder t;
+            t.prepare(c_rate, 2);
+            TapeRecorder::Options o;
+            o.perWhoosh = true;
+            check(t.start(edge, o, error), "whoosh edge: starts " + error);
+            tone(t, 1.0, 0.5f); // 188 blocks of sound; the 0.75 s hang then ends 160 samples into the 140th quiet block
+            const int soundBlocks = (static_cast<int>(1.0 * c_rate) + c_block - 1) / c_block;
+            const int hang = static_cast<int>((TapeRecorder::c_gateQuietSeconds + TapeRecorder::c_gateHangSeconds) * c_rate);
+            const int lastBlock = (hang - c_block) / c_block; // the quiet block the gate closes in
+            block.clear();
+            for (int k = 0; k < lastBlock + 40; ++k)
+            {
+                if (k == lastBlock)
+                    t.addMarker(10, TapeRecorder::MarkHit);
+                t.process(block.getArrayOfReadPointers(), 2, c_block);
+            }
+            std::vector<TapeRecorder::FinishedTake> done;
+            waitForFiles(t, done, 1);
+            t.stop();
+            const auto cues = done.empty() ? std::vector<TapeRecorder::Cue>() : TapeRecorder::readCues(done[0].file);
+            const double expected = static_cast<double>((soundBlocks + lastBlock) * c_block + 10) / c_rate;
+            check(done.size() == 1 && cues.size() == 1 && cues[0].label == "Hit" && std::abs(static_cast<double>(cues[0].frame) / c_rate - expected) < 0.001
+                      && std::abs(done[0].seconds - expected) < 0.01,
+                  "whoosh edge: a marker in a whoosh's last block is written (" + juce::String(cues.size()) + " cues, file "
+                      + juce::String(done.empty() ? 0.0 : done[0].seconds, 3) + " s, marker due at " + juce::String(expected, 3) + " s)");
+        }
+
+        // One File per Whoosh: a take opened while the last one was still sounding, with the rig coming to rest
+        // before any of it is fed, starts clean: the last take's whoosh is not "closed" in the new one.
+        {
+            auto again = folder.getChildFile("whoosh-rearm");
+            again.deleteRecursively();
+            again.createDirectory();
+            TapeRecorder t;
+            t.prepare(c_rate, 2);
+            TapeRecorder::Options o;
+            o.perWhoosh = true;
+            check(t.start(again, o, error), "whoosh re-arm: starts " + error);
+            tone(t, 1.0, 0.5f); // still sounding
+            t.stop();
+            check(t.start(again, o, error), "whoosh re-arm: starts again " + error);
+            check(t.rest(), "whoosh re-arm: the rig rests before the new take gets any sound");
+            tone(t, 2.0, 0.5f);
+            tone(t, 1.5, 0.0f);
+            tone(t, 1.0, 0.5f);
+            t.stop();
+            std::vector<TapeRecorder::FinishedTake> done;
+            waitForFiles(t, done, 3);
+            juce::StringArray lengths;
+            for (const auto& f : done)
+                lengths.add(juce::String(f.seconds, 2));
+            // 1 s (cut by the stop), 2 s with its 0.75 s tail, 1 s with 0.25 s of pre-roll.
+            check(done.size() == 3 && again.getNumberOfChildFiles(juce::File::findFiles) == 3
+                      && std::abs(done[0].seconds - 1.0) < 0.06 && std::abs(done[1].seconds - 2.75) < 0.06 && std::abs(done[2].seconds - 1.25) < 0.06,
+                  "whoosh re-arm: the new take's whooshes are whole (" + lengths.joinIntoString(", ") + " s)");
+        }
+
+        // LAST 60s can keep more: three minutes hold 100 s of sound, one minute holds the last 60.
+        {
+            TapeRecorder t;
+            t.prepare(8000.0, 2);
+            auto fill = [&](double seconds)
+            {
+                for (int pos = 0; pos < static_cast<int>(seconds * 8000.0); pos += c_block)
+                {
+                    for (int i = 0; i < c_block; ++i)
+                        for (int ch = 0; ch < 2; ++ch)
+                            block.setSample(ch, i, 0.25f * static_cast<float>(std::sin(0.05 * (pos + i))));
+                    t.process(block.getArrayOfReadPointers(), 2, c_block);
+                }
+            };
+            auto savedSeconds = [&]
+            {
+                if (! t.saveRetro(tapeFolder, 24, written, error))
+                    return 0.0;
+                std::unique_ptr<juce::AudioFormatReader> r(formats.createReaderFor(written));
+                return r != nullptr ? static_cast<double>(r->lengthInSamples) / r->sampleRate : 0.0;
+            };
+            fill(100.0);
+            const double oneMinute = savedSeconds();
+            t.setRetroSeconds(180);
+            const double afterChange = savedSeconds(); // emptied by the change
+            fill(100.0);
+            const double threeMinutes = savedSeconds();
+            check(std::abs(oneMinute - 59.5) < 0.2 && afterChange == 0.0 && std::abs(threeMinutes - 99.5) < 0.2 && t.getRetroSeconds() == 180,
+                  "retro length: one minute keeps 60 s, three minutes keep all 100 s (" + juce::String(oneMinute, 1) + " s, "
+                      + juce::String(threeMinutes, 1) + " s)");
+            t.setRetroSeconds(100000);
+            check(t.getRetroSeconds() == TapeRecorder::c_maxRetroSeconds, "retro length: held to five minutes at most");
+        }
+    }
+
+    // Stereo sources: a stereo file keeps its side signal, mono readers are untouched, and bus B plays a bed wide.
+    {
+        const int n = static_cast<int>(c_rate * 4.0);
+        juce::AudioBuffer<float> wide(2, n), mono(1, n);
+        {
+            // Two noises with nothing in common, most of their energy low (where the two ears hear a pass in step,
+            // so left against right says how wide the sound is and not how far apart the ears are).
+            juce::Random rl(11), rr(23);
+            float a = 0.0f, b = 0.0f;
+            for (int i = 0; i < n; ++i)
+            {
+                a += 0.05f * ((2.0f * rl.nextFloat() - 1.0f) - a);
+                b += 0.05f * ((2.0f * rr.nextFloat() - 1.0f) - b);
+                wide.setSample(0, i, 1.5f * a);
+                wide.setSample(1, i, 1.5f * b);
+            }
+        }
+        auto writeStereo = [&](const juce::String& name, const juce::AudioBuffer<float>& buffer)
+        {
+            auto file = folder.getChildFile(name);
+            file.deleteFile();
+            juce::WavAudioFormat wav;
+            std::unique_ptr<juce::AudioFormatWriter> writer(wav.createWriterFor(new juce::FileOutputStream(file), c_rate, 2, 24, {}, 0));
+            if (writer != nullptr)
+                writer->writeFromAudioSampleBuffer(buffer, 0, buffer.getNumSamples());
+            return file;
+        };
+        const auto stereoLayout = juce::AudioChannelSet::stereo();
+
+        // The fold.
+        const auto folded = CargoHold::foldToMidSide(wide, stereoLayout);
+        const auto carrier = CargoHold::foldToMono(wide, stereoLayout);
+        {
+            bool same = folded.getNumChannels() == 2 && carrier.getNumChannels() == 1;
+            double worst = 0.0;
+            for (int i = 0; same && i < n; ++i)
+            {
+                same = juce::exactlyEqual(folded.getSample(0, i), carrier.getSample(0, i));
+                worst = std::max({ worst, std::abs(static_cast<double>(folded.getSample(0, i) + folded.getSample(1, i) - wide.getSample(0, i))),
+                                   std::abs(static_cast<double>(folded.getSample(0, i) - folded.getSample(1, i) - wide.getSample(1, i))) });
+            }
+            check(same && worst < 1.0e-6, "stereo: the fold keeps the mono sum as it was and a side signal that gives left and right back (worst "
+                                              + juce::String(worst, 8) + ")");
+
+            juce::AudioBuffer<float> twin(2, n), flipped(2, n);
+            twin.copyFrom(0, 0, wide, 0, 0, n);
+            twin.copyFrom(1, 0, wide, 0, 0, n);
+            flipped.copyFrom(0, 0, wide, 0, 0, n);
+            flipped.copyFrom(1, 0, wide, 0, 0, n);
+            flipped.applyGain(1, 0, n, -1.0f);
+            const auto twinFold = CargoHold::foldToMidSide(twin, stereoLayout);
+            const auto flipFold = CargoHold::foldToMidSide(flipped, stereoLayout);
+            check(twinFold.getNumChannels() == 1, "stereo: a file with the same sound on both sides stays mono");
+            const float flipRms = flipFold.getRMSLevel(0, 0, n), sideRms = wide.getRMSLevel(0, 0, n);
+            check(flipFold.getNumChannels() == 1 && std::abs(flipRms - sideRms) < 0.01f * sideRms,
+                  "stereo: sides that cancel don't: the mono sum is one side at full level (" + juce::String(flipRms, 3) + " of "
+                      + juce::String(sideRms, 3) + ")");
+        }
+        const auto wideFile = writeStereo("stereo_wide.wav", wide);
+
+        // Loading, editing, saving. The mono file is the stereo one's mono sum exactly as it was loaded (float).
+        juce::String err;
+        CargoHold hold;
+        hold.loadFile(0, wideFile, err);
+        const auto loaded = hold.get(0);
+        if (loaded != nullptr)
+            mono.copyFrom(0, 0, loaded->audio, 0, 0, n);
+        const auto monoFile = writeMono(folder, "stereo_as_mono.wav", mono, c_rate, 32);
+        hold.loadFile(1, monoFile, err);
+        check(loaded != nullptr && loaded->hasSide() && loaded->length() == n && ! loaded->sideMips[0].empty()
+                  && hold.get(1) != nullptr && ! hold.get(1)->hasSide() && hold.get(1)->sideMips[0].empty(),
+              "stereo: a stereo file loads with its side signal, a mono file without");
+        {
+            bool sameMono = loaded != nullptr && hold.get(1) != nullptr && loaded->regions.size() == hold.get(1)->regions.size()
+                            && juce::exactlyEqual(loaded->autoGain, hold.get(1)->autoGain);
+            for (int i = 0; sameMono && i < n; i += 7)
+                sameMono = juce::exactlyEqual(loaded->audio.getSample(0, i), hold.get(1)->audio.getSample(0, i));
+            check(sameMono, "stereo: its mono sum, regions and level are those of the same sound loaded as a mono file");
+        }
+        {
+            const auto tree = hold.toValueTree();
+            const auto node0 = tree.getChildWithProperty("index", 0), node1 = tree.getChildWithProperty("index", 1);
+            check(node0.hasProperty("sideFlac") && ! node1.hasProperty("sideFlac") && ! node1.hasProperty("sideRaw"),
+                  "stereo session: the side signal is saved only for a sound that has one");
+            CargoHold back;
+            back.fromValueTree(tree);
+            double worst = 1.0;
+            if (back.get(0) != nullptr && back.get(0)->hasSide() && back.get(0)->length() == n)
+            {
+                worst = 0.0;
+                for (int ch = 0; ch < 2; ++ch)
+                    for (int i = 0; i < n; ++i)
+                        worst = std::max(worst, std::abs(static_cast<double>(back.get(0)->audio.getSample(ch, i) - loaded->audio.getSample(ch, i))));
+            }
+            check(worst < 1.0e-6 && back.get(1) != nullptr && ! back.get(1)->hasSide(),
+                  "stereo session: both come back as they were (worst " + juce::String(worst, 8) + ")");
+
+            // A session written before there were side signals: the same tree without them.
+            auto older = tree.createCopy();
+            older.getChildWithProperty("index", 0).removeProperty("sideFlac", nullptr);
+            CargoHold old;
+            old.fromValueTree(older);
+            bool sameMono = old.get(0) != nullptr && ! old.get(0)->hasSide() && old.get(0)->length() == n;
+            for (int i = 0; sameMono && i < n; i += 5)
+                sameMono = juce::exactlyEqual(old.get(0)->audio.getSample(0, i), back.get(0)->audio.getSample(0, i));
+            check(sameMono, "stereo session: a session without side signals loads as mono, the same mono sum");
+        }
+        {
+            CargoHold edit;
+            edit.loadFile(0, wideFile, err);
+            edit.trim(0, n / 4, n / 2);
+            const bool trimmed = edit.get(0)->hasSide() && edit.get(0)->length() == n / 4
+                                 && juce::exactlyEqual(edit.get(0)->audio.getSample(1, 10), loaded->audio.getSample(1, n / 4 + 10));
+            edit.copy(0, 100, 600);
+            edit.paste(0, 0);
+            const bool pasted = edit.get(0)->hasSide() && edit.get(0)->length() == n / 4 + 500
+                                && juce::exactlyEqual(edit.get(0)->audio.getSample(1, 20), loaded->audio.getSample(1, n / 4 + 120));
+            edit.reverse(0, 0, edit.get(0)->length());
+            const bool reversed = juce::exactlyEqual(edit.get(0)->audio.getSample(1, edit.get(0)->length() - 21), loaded->audio.getSample(1, n / 4 + 120));
+            edit.loadFile(1, monoFile, err);
+            edit.paste(1, 0); // a stereo cut into a mono sound: it becomes stereo, the old part in the middle
+            const bool promoted = edit.get(1)->hasSide() && edit.get(1)->audio.getSample(1, 520) == 0.0f
+                                  && edit.get(1)->audio.getSample(1, 30) != 0.0f;
+            edit.undo(1);
+            check(trimmed && pasted && reversed && promoted && ! edit.get(1)->hasSide(),
+                  "stereo: edits carry the side signal with the sound (trim, copy and paste, reverse, undo)");
+        }
+
+        // The player: asking for the side signal changes nothing in what it plays.
+        {
+            auto renderPlayer = [&](bool withSide, std::vector<float>& sideOut)
+            {
+                CargoPlayer player;
+                player.prepare(c_rate);
+                sj::Random rng;
+                rng.seed(5);
+                std::vector<float> out(static_cast<size_t>(c_rate * 2.0)), side(out.size());
+                for (size_t pos = 0; pos + c_block <= out.size(); pos += c_block)
+                    player.render(loaded.get(), CargoRole::Bed, true, 1.26f, 0.4f, rng, 0.6f, CargoCue {}, out.data() + pos, c_block,
+                                  withSide ? side.data() + pos : nullptr);
+                sideOut = side;
+                return out;
+            };
+            std::vector<float> none, side;
+            const auto plain = renderPlayer(false, none);
+            const auto with = renderPlayer(true, side);
+            const double sideRms = rmsOf(side.data(), static_cast<int>(side.size())), outRms = rmsOf(with.data(), static_cast<int>(with.size()));
+            check(plain == with && sideRms > 0.5 * outRms && sideRms < 2.0 * outRms,
+                  "stereo player: the mono sum is the same sample for sample, with the side signal beside it at its level");
+        }
+
+        // The engine. One track, the ride held still, no Space: left against right over 8 s.
+        struct Heard
+        {
+            std::vector<float> l, r;
+            double correlation = 0.0, monoRms = 0.0;
+        };
+        auto renderRig = [&](const juce::File& file, int bus, float doppler, float width, int passMode, bool colours)
+        {
+            CargoHold h;
+            juce::String e;
+            h.loadFile(0, file, e);
+            h.setBusOverride(0, bus);
+            RigEngine engine;
+            engine.setCargoHold(&h);
+            RigEngine::Params q;
+            q.rideOn = false;
+            q.space = 0.0f;
+            q.fill = 0.0f;
+            for (auto& b : q.buses)
+            {
+                b.doppler = doppler;
+                b.width = width;
+                b.passMode = passMode;
+                b.duck = b.key = 0.0f;
+                if (! colours)
+                    b.low = b.swirl = b.filter = b.drive = 0.0f;
+            }
+            engine.setParams(q);
+            engine.prepare(c_rate, c_block);
+            engine.setParams(q);
+            Heard out;
+            const int total = static_cast<int>(c_rate * 8.0) / c_block * c_block;
+            out.l.resize(static_cast<size_t>(total));
+            out.r.resize(static_cast<size_t>(total));
+            for (int pos = 0; pos < total; pos += c_block)
+                engine.process(nullptr, nullptr, out.l.data() + pos, out.r.data() + pos, c_block);
+            double ll = 0.0, rr = 0.0, lr = 0.0, mm = 0.0;
+            for (int i = static_cast<int>(c_rate); i < total; ++i)
+            {
+                const double a = out.l[static_cast<size_t>(i)], b = out.r[static_cast<size_t>(i)];
+                ll += a * a; rr += b * b; lr += a * b;
+                mm += 0.25 * (a + b) * (a + b);
+            }
+            out.correlation = lr / std::sqrt(std::max(1.0e-30, ll * rr));
+            out.monoRms = std::sqrt(mm / (total - c_rate));
+            return out;
+        };
+        auto monoDifference = [](const Heard& a, const Heard& b) // of the two mono folds, against the first one's level
+        {
+            double diff = 0.0, ref = 0.0;
+            for (size_t i = 0; i < a.l.size(); ++i)
+            {
+                const double x = 0.5 * (a.l[i] + a.r[i]), y = 0.5 * (b.l[i] + b.r[i]);
+                diff += (x - y) * (x - y);
+                ref += x * x;
+            }
+            return 10.0 * std::log10(std::max(1.0e-30, diff) / std::max(1.0e-30, ref));
+        };
+
+        const auto bedWide = renderRig(wideFile, 1, 0.0f, 1.0f, 0, false);
+        const auto bedMono = renderRig(monoFile, 1, 0.0f, 1.0f, 0, false);
+        check(bedMono.correlation > 0.35 && bedWide.correlation < bedMono.correlation - 0.3 && bedWide.correlation > -0.1,
+              "stereo bed: on bus B at Doppler 0% it comes out wide (left against right " + juce::String(bedWide.correlation, 2)
+                  + ", the same sound as a mono file " + juce::String(bedMono.correlation, 2) + ")");
+        // Folded to mono, the mono file's sound is all there: what the fold adds is the little of the side signal
+        // that the time difference between the ears lets through while a pass is off centre.
+        const double folds = monoDifference(bedMono, bedWide);
+        check(folds < -6.0 && bedWide.monoRms > 0.98 * bedMono.monoRms && bedWide.monoRms < 1.15 * bedMono.monoRms,
+              "stereo bed: folded to mono nothing cancels (" + juce::String(bedWide.monoRms, 4) + " against the mono file's "
+                  + juce::String(bedMono.monoRms, 4) + ", difference " + juce::String(folds, 1) + " dB)");
+
+        const auto colouredWide = renderRig(wideFile, 1, 0.0f, 1.0f, 0, true);
+        const auto colouredMono = renderRig(monoFile, 1, 0.0f, 1.0f, 0, true);
+        check(colouredWide.correlation < colouredMono.correlation - 0.3 && colouredWide.correlation > -0.1
+                  && colouredWide.monoRms > 0.98 * colouredMono.monoRms,
+              "stereo bed: it stays wide through Low End, Swirl and Filter, and never goes out of phase ("
+                  + juce::String(colouredWide.correlation, 2) + " against " + juce::String(colouredMono.correlation, 2) + ")");
+
+        const auto halfWide = renderRig(wideFile, 1, 0.5f, 1.0f, 0, false);
+        const auto halfMono = renderRig(monoFile, 1, 0.5f, 1.0f, 0, false);
+        const auto fullWide = renderRig(wideFile, 1, 1.0f, 1.0f, 0, false);
+        const auto fullMono = renderRig(monoFile, 1, 1.0f, 1.0f, 0, false);
+        const double gap0 = bedMono.correlation - bedWide.correlation, gapHalf = halfMono.correlation - halfWide.correlation;
+        check(gapHalf > 0.05 && gapHalf < 0.75 * gap0 && fullWide.l == fullMono.l && fullWide.r == fullMono.r,
+              "stereo bed: it narrows as Doppler rises and is the moving point at 100% (narrower than the mono file by "
+                  + juce::String(gap0, 2) + " at 0%, " + juce::String(gapHalf, 2) + " at 50%, the same output at 100%)");
+
+        const auto narrowWide = renderRig(wideFile, 1, 0.0f, 0.0f, 0, false);
+        const auto narrowMono = renderRig(monoFile, 1, 0.0f, 0.0f, 0, false);
+        check(narrowWide.l == narrowMono.l && narrowWide.r == narrowMono.r, "stereo bed: Width 0% is mono");
+
+        const auto flyWide = renderRig(wideFile, 1, 0.0f, 1.0f, 1, false);
+        const auto flyMono = renderRig(monoFile, 1, 0.0f, 1.0f, 1, false);
+        const auto busAWide = renderRig(wideFile, 0, 0.0f, 1.0f, 0, true);
+        const auto busAMono = renderRig(monoFile, 0, 0.0f, 1.0f, 0, true);
+        const auto hitWide = renderRig(wideFile, CargoHold::c_hitsBus, 0.0f, 1.0f, 0, true);
+        const auto hitMono = renderRig(monoFile, CargoHold::c_hitsBus, 0.0f, 1.0f, 0, true);
+        check(flyWide.l == flyMono.l && flyWide.r == flyMono.r && busAWide.l == busAMono.l && busAWide.r == busAMono.r
+                  && hitWide.l == hitMono.l && hitWide.r == hitMono.r,
+              "stereo: Fly-By passes, bus A and the hits play the mono sum, sample for sample what the mono file gives");
+
+        // Turning the width away while the bed plays: Width, Pass Mode, Doppler and the track's bus each changed in
+        // one go, mid-stream. The sound is smooth (low-passed noise), so a step in the side signal would be the
+        // biggest jump from one sample to the next by far.
+        {
+            auto steepest = [&](bool change)
+            {
+                CargoHold h;
+                juce::String e;
+                h.loadFile(0, wideFile, e);
+                h.setBusOverride(0, 1);
+                RigEngine engine;
+                engine.setCargoHold(&h);
+                RigEngine::Params q;
+                q.rideOn = false;
+                q.space = 0.0f;
+                q.fill = 0.0f;
+                for (auto& b : q.buses)
+                {
+                    b.doppler = 0.0f;
+                    b.width = 1.0f;
+                    b.passMode = 0;
+                    b.duck = b.key = b.low = b.swirl = b.filter = b.drive = 0.0f;
+                }
+                engine.setParams(q);
+                engine.prepare(c_rate, c_block);
+                engine.setParams(q);
+                const int total = static_cast<int>(c_rate * 9.0) / c_block * c_block;
+                std::vector<float> l(static_cast<size_t>(c_block)), r(l.size());
+                float lastL = 0.0f, lastR = 0.0f, worst = 0.0f;
+                int step = 0;
+                for (int pos = 0; pos < total; pos += c_block)
+                {
+                    const int second = pos / static_cast<int>(c_rate);
+                    if (change && second > step)
+                    {
+                        step = second;
+                        for (auto& b : q.buses)
+                        {
+                            b.width = step == 2 ? 0.0f : 1.0f;
+                            b.passMode = step == 4 ? 1 : 0;
+                            b.doppler = step == 6 ? 1.0f : 0.0f;
+                        }
+                        engine.setParams(q);
+                        if (step == 8)
+                            h.setBusOverride(0, 0);
+                    }
+                    engine.process(nullptr, nullptr, l.data(), r.data(), c_block);
+                    for (int i = 0; i < c_block; ++i)
+                    {
+                        if (pos + i > static_cast<int>(c_rate))
+                            worst = std::max({ worst, std::abs(l[static_cast<size_t>(i)] - lastL), std::abs(r[static_cast<size_t>(i)] - lastR) });
+                        lastL = l[static_cast<size_t>(i)];
+                        lastR = r[static_cast<size_t>(i)];
+                    }
+                }
+                return worst;
+            };
+            const float steady = steepest(false), changed = steepest(true);
+            check(steady > 0.0f && changed < 1.5f * steady,
+                  "stereo bed: Width, Pass Mode, Doppler and the bus changed while it plays leave no step (steepest "
+                      + juce::String(changed, 4) + " a sample, " + juce::String(steady, 4) + " left alone)");
+        }
     }
 
     // Presets: every sample-track level is a session parameter; Cargo Run still exists.

@@ -26,7 +26,7 @@ namespace
         {
             case ModMatrix::Type::Lfo:      return "Modulator Type: LFO\nA steady repeating wave that moves each wired knob up and down around where you set it. Pick its shape below.";
             case ModMatrix::Type::Random:   return "Modulator Type: Random\nA smooth random wander up and down around each wired knob, never the same twice.";
-            case ModMatrix::Type::Follower: return "Modulator Type: Follower\nFollows the loudness of bus A, bus B, the hits or the output (choose which underneath): the louder it gets, the further it turns each wired knob (one way only).";
+            case ModMatrix::Type::Follower: return "Modulator Type: Follower\nFollows the loudness of bus A, bus B, the hits or the output, or the Master track's loudness, pitch or brightness (choose which underneath): the more there is of it, the further it turns each wired knob (one way only).";
             case ModMatrix::Type::Macro:    return "Modulator Type: Macro\nOne knob that turns every knob it is wired to at once, each by its own depth. Great to automate from your DAW.";
         }
         return {};
@@ -35,13 +35,8 @@ namespace
 
 juce::Colour ModPanel::sourceColour(int source)
 {
-    static const juce::Colour colours[ModMatrix::c_numSources] = {
-        juce::Colour(0xffffd166), // sun yellow
-        juce::Colour(0xffff6b9a), // hibiscus pink
-        juce::Colour(0xff5ee0a8), // palm green
-        juce::Colour(0xffa78bff), // twilight violet
-    };
-    return colours[juce::jlimit(0, ModMatrix::c_numSources - 1, source)];
+    // The modulators' own family (Theme::modColour): none is a section's colour or the brass.
+    return Theme::modColour(juce::jlimit(0, ModMatrix::c_numSources - 1, source));
 }
 
 //==============================================================================
@@ -49,7 +44,7 @@ class ModPanel::Card : public juce::Component, public juce::TooltipClient
 {
 public:
     Card(ModPanel& owner, int source)
-        : m_owner(owner), m_source(source), m_knob(owner.m_fonts, sourceColour(source)),
+        : m_owner(owner), m_source(source), m_knob(owner.m_fonts, sourceColour(source), WheelKnob::Size::Secondary),
           m_typeAttachment(owner.m_processor.getState(), ParamIDs::modType[source], m_type),
           m_shapeAttachment(owner.m_processor.getState(), ParamIDs::modShape[source], m_shape),
           m_followAttachment(owner.m_processor.getState(), ParamIDs::modFollow[source], m_follow),
@@ -57,7 +52,7 @@ public:
     {
         m_type.addItemList({ "LFO", "Random", "Follower", "Macro" }, 1);
         m_shape.addItemList({ "Sine", "Triangle", "Ramp", "Square", "Steps" }, 1);
-        m_follow.addItemList({ "Bus A", "Bus B", "Hits", "Output" }, 1);
+        m_follow.addItemList(ModMatrix::followerNames(), 1);
         // Attachments set the selection before the items existed: sync once more.
         m_type.setSelectedItemIndex(juce::roundToInt(owner.m_processor.getState().getRawParameterValue(ParamIDs::modType[source])->load()),
                                     juce::dontSendNotification);
@@ -66,7 +61,10 @@ public:
         m_follow.setSelectedItemIndex(juce::roundToInt(owner.m_processor.getState().getRawParameterValue(ParamIDs::modFollow[source])->load()),
                                       juce::dontSendNotification);
         m_follow.setTooltip("Follows\nWhat the follower listens to: bus A, bus B or the hits on their own, or the whole output. "
-                            "Follow one bus to make the other react to it, or follow the hits to make every impact kick a knob.");
+                            "Follow one bus to make the other react to it, or follow the hits to make every impact kick a knob.\n"
+                            "Master, Master Pitch and Master Brightness follow the Master track (the lane with the lit star): how loud, "
+                            "how high and how bright that sound is at the moment it is playing, each over the sound's own range. "
+                            "They rest until a track is made the Master.");
         m_type.onChange = [this] { updateType(); };
         m_shape.setTooltip("LFO Shape\nSine and Triangle are smooth, Ramp rises then drops, Square jumps between two values, Steps jumps to a new random value every cycle.");
         m_clear.setTooltip("Clear\nPulls out every wire of this modulator. The knobs go back to just where you set them.");
@@ -86,9 +84,9 @@ public:
     {
         const auto t = type();
         m_knob.caption = knobCaption(t);
-        m_knob.setTooltip(t == ModMatrix::Type::Macro ? "Amount\nThe macro's value: turn it and every wired knob follows, each by its own depth.\nDouble-click to reset it."
-                          : t == ModMatrix::Type::Follower ? "Speed\nHow quickly it follows its input: slow is smooth and gentle, fast is jumpy and follows every hit.\nDouble-click to reset it."
-                                                           : "Rate\nHow fast it moves, from one cycle every 20 seconds to 8 times a second.\nDouble-click to reset it.");
+        m_knob.setTooltip(t == ModMatrix::Type::Macro ? "Amount\nThe macro's value: turn it and every wired knob follows, each by its own depth."
+                          : t == ModMatrix::Type::Follower ? "Speed\nHow quickly it follows its input: slow is smooth and gentle, fast is jumpy and follows every hit."
+                                                           : "Rate\nHow fast it moves, from one cycle every 20 seconds to 8 times a second.");
         // The readout in the knob's own units: the cycle time or rate, the follow time, or the amount.
         m_knob.textFromValueFunction = [t](double v)
         {
@@ -106,7 +104,7 @@ public:
         m_type.setTooltip(typeTip(t));
         m_shape.setVisible(t == ModMatrix::Type::Lfo);
         m_follow.setVisible(t == ModMatrix::Type::Follower);
-        m_knob.repaint();
+        m_knob.valueTextChanged();
         repaint();
         // Bipolar (LFO / Random) or one-way (Follower / Macro) changes the arcs on the wired knobs.
         juce::MessageManager::callAsync([safe = juce::Component::SafePointer<ModWires>(&m_owner.m_wires)] { if (safe != nullptr) safe->rebuild(); });
@@ -117,7 +115,7 @@ public:
         return static_cast<ModMatrix::Type>(juce::jlimit(0, 3, m_type.getSelectedItemIndex()));
     }
 
-    juce::Rectangle<float> jackArea() const { return { 12.0f, 10.0f, c_jackRadius * 2.0f, c_jackRadius * 2.0f }; }
+    juce::Rectangle<float> jackArea() const { return { 12.0f, 7.0f, c_jackRadius * 2.0f, c_jackRadius * 2.0f }; }
 
     juce::String getTooltip() override
     {
@@ -130,20 +128,26 @@ public:
         return {};
     }
 
+    // Every type is laid out the same way. Along the top: the jack, the name, the wires it has, Clear. Under that:
+    // the type and (for an LFO or a Follower) its second menu at the left, the scope in the middle, the knob at the right.
     void resized() override
     {
-        auto r = getLocalBounds().reduced(10, 8);
-        auto top = r.removeFromTop(22);
-        top.removeFromLeft(static_cast<int>(c_jackRadius * 2.0f) + 8 + 60);
-        m_type.setBounds(top.removeFromRight(juce::jmin(104, top.getWidth())));
+        auto r = getLocalBounds().reduced(8, 6);
+        auto knob = r.removeFromRight(WheelKnob::cellWidth(WheelKnob::Size::Secondary) + 10);
+        m_knob.setBounds(knob.withSizeKeepingCentre(knob.getWidth(), juce::jmin(knob.getHeight(), WheelKnob::cellHeight(WheelKnob::Size::Secondary))));
+        r.removeFromRight(6);
+        auto top = r.removeFromTop(20);
+        m_clear.setBounds(top.removeFromRight(48));
+        top.removeFromRight(6);
+        m_nameArea = top.withTrimmedLeft(static_cast<int>(c_jackRadius * 2.0f) + 12).withWidth(52);
+        m_summaryArea = top.withLeft(m_nameArea.getRight() + 6);
         r.removeFromTop(6);
-        auto bottom = r.removeFromBottom(22);
-        m_clear.setBounds(bottom.removeFromRight(54));
-        m_shape.setBounds(bottom.removeFromLeft(juce::jmin(104, bottom.getWidth())));
+        auto menus = r.removeFromLeft(88);
+        m_type.setBounds(menus.removeFromTop(22));
+        menus.removeFromTop(6);
+        m_shape.setBounds(menus.removeFromTop(22));
         m_follow.setBounds(m_shape.getBounds());
-        r.removeFromBottom(6);
-        m_knob.setBounds(r.removeFromRight(juce::jmin(78, r.getWidth())));
-        r.removeFromRight(8);
+        r.removeFromLeft(8);
         m_scopeArea = r;
     }
 
@@ -151,11 +155,13 @@ public:
     {
         const auto colour = sourceColour(m_source);
         const auto& fonts = m_owner.m_fonts;
-        auto bounds = getLocalBounds().toFloat().reduced(0.5f);
-        g.setColour(TC::panelRaised);
-        g.fillRoundedRectangle(bounds, 6.0f);
-        g.setColour(colour.withAlpha(0.45f));
-        g.drawRoundedRectangle(bounds, 6.0f, 1.0f);
+        // A plate of its own, owned by its colour: a bar down its left edge.
+        const auto bounds = getLocalBounds().toFloat();
+        g.setColour(TC::raised.withAlpha(0.6f));
+        Theme::Plate::fill(g, bounds, Theme::Cut::control);
+        Theme::Plate::edge(g, bounds, Theme::Cut::control, TC::edgeDark.withAlpha(0.8f), TC::edgeLight.withMultipliedAlpha(0.5f));
+        g.setColour(colour);
+        g.fillRect(juce::Rectangle<float>(bounds.getX() + 2.0f, bounds.getY() + 32.0f, 3.0f, bounds.getHeight() - 40.0f));
 
         // The jack: a brass socket in the modulator's colour. Drag it onto a knob.
         const auto jack = jackArea();
@@ -170,21 +176,23 @@ public:
             g.fillEllipse(jack.expanded(4.0f));
         }
 
-        g.setFont(fonts.display(19.0f));
-        g.setColour(colour);
-        g.drawText(sourceName(m_source), juce::Rectangle<float>(jack.getRight() + 8.0f, 7.0f, 70.0f, 24.0f), juce::Justification::centredLeft);
+        Theme::stampText(g, sourceName(m_source), m_nameArea.toFloat().expanded(0.0f, 3.0f), fonts.display(), juce::Justification::centredLeft, colour);
+
+        // What it is wired to: "1 wire - Bus B Swirl".
+        g.setColour(m_wires > 0 ? TC::text : TC::textFaint);
+        Theme::fitText(g, m_summary, m_summaryArea, fonts.caption(), juce::Justification::centredLeft, Theme::Fit::Message);
 
         // Scope: what the modulator is doing (the last 4 s)
         const auto sa = m_scopeArea.toFloat();
-        g.setColour(TC::scope);
-        g.fillRoundedRectangle(sa, 4.0f);
+        SwooshLookAndFeel::drawWell(g, sa);
         const bool bipolar = type() == ModMatrix::Type::Lfo || type() == ModMatrix::Type::Random;
         if (bipolar)
         {
             g.setColour(TC::grid);
             g.drawHorizontalLine(static_cast<int>(sa.getCentreY()), sa.getX() + 4.0f, sa.getRight() - 4.0f);
         }
-        juce::Path p;
+        auto& p = m_path; // kept between frames
+        p.clear();
         for (int k = 0; k < c_history; ++k)
         {
             const float v = m_history[static_cast<size_t>((m_head + k) % c_history)];
@@ -194,17 +202,32 @@ public:
             if (k == 0) p.startNewSubPath(x, y); else p.lineTo(x, y);
         }
         g.setColour(colour.withAlpha(0.25f));
-        g.strokePath(p, juce::PathStrokeType(5.0f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+        g.strokePath(p, juce::PathStrokeType(5.0f, juce::PathStrokeType::beveled, juce::PathStrokeType::butt));
         g.setColour(colour);
-        g.strokePath(p, juce::PathStrokeType(1.6f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+        g.strokePath(p, juce::PathStrokeType(1.6f, juce::PathStrokeType::beveled, juce::PathStrokeType::butt));
+    }
 
-        const int wires = m_owner.m_processor.getMods().numRoutes(m_source);
-        g.setFont(fonts.label(10.5f));
-        g.setColour(wires > 0 ? TC::text : TC::textFaint);
-        const int infoX = m_shape.isVisible() || m_follow.isVisible() ? m_shape.getRight() + 8 : 10;
-        const auto infoArea = juce::Rectangle<int>(infoX, m_clear.getY(), m_clear.getX() - infoX - 4, m_clear.getHeight());
-        g.drawText(wires == 0 ? juce::String("drag the jack to a knob") : juce::String(wires) + (wires == 1 ? " wire" : " wires"),
-                   infoArea, juce::Justification::centredLeft, true);
+    /** The line beside the name: how many wires, and what they land on (by the parameters' own names). */
+    void updateSummary()
+    {
+        auto& mods = m_owner.m_processor.getMods();
+        juce::String text;
+        int count = 0;
+        for (const auto& route : mods.getRoutes())
+        {
+            if (route.source != m_source)
+                continue;
+            juce::String name = route.param;
+            if (auto* param = m_owner.m_processor.getState().getParameter(route.param))
+                name = param->getName(48);
+            text << (count++ == 0 ? "" : ", ") << name;
+        }
+        text = count == 0 ? juce::String("No wires") : juce::String(count) + (count == 1 ? " wire - " : " wires - ") + text;
+        if (text != m_summary)
+        {
+            m_summary = text;
+            repaint(m_summaryArea);
+        }
     }
 
     void push()
@@ -213,11 +236,19 @@ public:
         m_head = (m_head + 1) % c_history;
         repaint(m_scopeArea);
         const int wires = m_owner.m_processor.getMods().numRoutes(m_source);
-        if (wires != m_wires)
+        const int generation = m_owner.m_processor.getMods().generation();
+        // The summary is written when the wiring changes, and looked at again twice a second (a wire can move
+        // from one knob to another without the count changing).
+        if (wires != m_wires || generation != m_generation || (++m_summaryTick % 15) == 0)
         {
-            m_wires = wires;
-            m_clear.setEnabled(wires > 0);
-            repaint();
+            if (wires != m_wires)
+            {
+                m_wires = wires;
+                m_clear.setEnabled(wires > 0);
+                repaint();
+            }
+            m_generation = generation;
+            updateSummary();
         }
     }
 
@@ -256,10 +287,13 @@ private:
     int m_source;
     juce::ComboBox m_type, m_shape, m_follow;
     WheelKnob m_knob;
-    juce::TextButton m_clear { "CLEAR" };
+    juce::TextButton m_clear { "Clear" };
     juce::AudioProcessorValueTreeState::ComboBoxAttachment m_typeAttachment, m_shapeAttachment, m_followAttachment;
     juce::AudioProcessorValueTreeState::SliderAttachment m_knobAttachment;
-    juce::Rectangle<int> m_scopeArea;
+    juce::Rectangle<int> m_scopeArea, m_nameArea, m_summaryArea;
+    juce::String m_summary { "No wires" };
+    juce::Path m_path;
+    int m_generation = -1, m_summaryTick = 0;
     std::array<float, c_history> m_history {};
     int m_head = 0;
     int m_wires = -1;
@@ -285,7 +319,7 @@ void ModPanel::paint(juce::Graphics&) {}
 void ModPanel::resized()
 {
     auto r = getLocalBounds();
-    const int gap = 12;
+    const int gap = 8;
     const int w = (r.getWidth() - gap * (ModMatrix::c_numSources - 1)) / ModMatrix::c_numSources;
     for (auto& c : m_cards)
     {
@@ -302,8 +336,14 @@ juce::Point<float> ModPanel::getJackCentre(int source) const
 
 void ModPanel::timerCallback()
 {
-    for (auto& c : m_cards)
-        c->push();
+    int hovered = -1;
+    for (size_t i = 0; i < m_cards.size(); ++i)
+    {
+        m_cards[i]->push();
+        if (m_cards[i]->isMouseOver(true))
+            hovered = static_cast<int>(i);
+    }
+    m_wires.setHoverCard(hovered); // the modulator under the mouse: its cables stand out
     m_wires.updateKnobs();
 }
 
@@ -345,27 +385,41 @@ ModTarget* ModWires::knobAt(juce::Point<float> p, juce::String* id) const
     return best;
 }
 
-juce::Path ModWires::cablePath(juce::Point<float> from, juce::Point<float> to) const
+juce::Path ModWires::cablePath(juce::Point<float> from, juce::Point<float> to, const juce::Point<float>* gate) const
 {
-    // A hanging cable: both handles pulled down by a sag that grows with the span.
-    const float span = from.getDistanceFrom(to);
+    // A hanging cable: both handles pulled down by a sag that grows with the span. One that goes to a knob comes
+    // up to the knob's gate (beside its caption and value, never over them) and curves in to its plug from there.
+    const auto end = gate != nullptr ? *gate : to;
+    const float span = from.getDistanceFrom(end);
     const float sag = 24.0f + span * 0.22f;
+    // The modulators are along the bottom of the window, so nearly every cable goes up: it leaves its jack straight
+    // up (out of the top of its card, over none of the card's own text) and hangs from there. One that goes
+    // across or down hangs from the jack as it always did.
+    const bool up = end.y < from.y - 30.0f;
+    const auto leave = up ? from + juce::Point<float>((end.x - from.x) * 0.06f, -juce::jlimit(36.0f, 120.0f, (from.y - end.y) * 0.42f))
+                          : from + (end - from) * 0.25f + juce::Point<float>(0.0f, sag);
     juce::Path p;
     p.startNewSubPath(from);
-    p.cubicTo(from + (to - from) * 0.25f + juce::Point<float>(0.0f, sag),
-              from + (to - from) * 0.75f + juce::Point<float>(0.0f, sag * 0.8f), to);
+    if (gate == nullptr)
+    {
+        p.cubicTo(leave, from + (to - from) * 0.75f + juce::Point<float>(0.0f, sag * 0.8f), to);
+        return p;
+    }
+    const float rise = juce::jmax(8.0f, end.y - to.y);
+    p.cubicTo(leave, end + juce::Point<float>(0.0f, juce::jlimit(40.0f, 130.0f, sag * 0.9f)), end);
+    p.cubicTo(end - juce::Point<float>(0.0f, rise * 0.55f), { end.x, to.y }, to);
     return p;
 }
 
 void ModWires::drawCable(juce::Graphics& g, const juce::Path& p, juce::Colour c, float alpha)
 {
     g.setColour(TC::shadow.withAlpha(0.45f * alpha));
-    g.strokePath(p, juce::PathStrokeType(4.5f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded),
+    g.strokePath(p, juce::PathStrokeType(4.5f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded), // round object: a cable
                  juce::AffineTransform::translation(0.0f, 2.0f));
     g.setColour(c.darker(0.35f).withAlpha(alpha));
-    g.strokePath(p, juce::PathStrokeType(3.6f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+    g.strokePath(p, juce::PathStrokeType(3.6f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded)); // round object: a cable
     g.setColour(c.brighter(0.25f).withAlpha(alpha * 0.9f));
-    g.strokePath(p, juce::PathStrokeType(1.2f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+    g.strokePath(p, juce::PathStrokeType(1.2f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded)); // round object: a cable
 }
 
 void ModWires::rebuild()
@@ -388,11 +442,21 @@ void ModWires::rebuild()
         auto* knob = it->second;
         const bool bipolar = isSourceBipolar ? isSourceBipolar(r.source) : m_matrix.isBipolar(r.source);
         arcs[knob].push_back({ ModPanel::sourceColour(r.source), r.depth, bipolar });
-        if (! knob->isShowing() || ! isTargetInView(knob))
+        if (! Theme::isShownInWindow(*knob) || ! isTargetInView(knob))
             continue; // scrolled out of view (a track lane): no plug or cable until it scrolls back
         // Plugs sit on the dial's upper right, one per wire, around the rim.
         const int k = plugCount[knob]++;
-        m_plugs.push_back({ r, getLocalPoint(knob, knob->getPlugPosition(k)), knob });
+        Plug plug;
+        plug.route = r;
+        plug.pos = getLocalPoint(knob, knob->getPlugPosition(k));
+        plug.knob = knob;
+        juce::Point<float> gate;
+        if (knob->getCableGate(k, gate))
+        {
+            plug.gate = getLocalPoint(knob, gate);
+            plug.hasGate = true;
+        }
+        m_plugs.push_back(plug);
     }
     for (const auto& [id, knob] : m_knobs)
         if (knob != nullptr)
@@ -401,6 +465,29 @@ void ModWires::rebuild()
             knob->setModArcs(it != arcs.end() ? it->second : std::vector<ModTarget::ModArc> {});
         }
 
+    drawCables();
+}
+
+int ModWires::hoverSource() const { return m_hoverPlug >= 0 ? m_hoverPlug : m_hoverCard; }
+
+void ModWires::setHover(int card, int plug)
+{
+    const int before = hoverSource();
+    m_hoverCard = card;
+    m_hoverPlug = plug;
+    if (hoverSource() != before && m_hasCables)
+        drawCables();
+}
+
+float ModWires::cableAlpha(int source) const
+{
+    // The modulator under the mouse (its card, or one of its plugs): its cables at full strength, the others faded.
+    const int hover = hoverSource();
+    return hover < 0 ? c_cableAlpha : (source == hover ? c_cableAlphaHovered : c_cableAlphaFaded);
+}
+
+void ModWires::drawCables()
+{
     // The cables, drawn once into an image at the screen's resolution.
     const float scale = m_scale; // physical pixels per unit, learnt in paint
     const int iw = juce::jmax(1, juce::roundToInt(static_cast<float>(getWidth()) * scale));
@@ -414,11 +501,17 @@ void ModWires::rebuild()
     {
         juce::Graphics g(m_cables);
         g.addTransform(juce::AffineTransform::scale(scale));
-        for (const auto& plug : m_plugs)
-        {
-            const auto jack = getLocalPoint(m_panel, m_panel->getJackCentre(plug.route.source));
-            drawCable(g, cablePath(jack, plug.pos), ModPanel::sourceColour(plug.route.source), 0.62f);
-        }
+        // The faded ones first, so the one that stands out lies over them.
+        const int hover = hoverSource();
+        for (int pass = 0; pass < 2; ++pass)
+            for (const auto& plug : m_plugs)
+            {
+                if ((plug.route.source == hover) != (pass == 1))
+                    continue;
+                const auto jack = getLocalPoint(m_panel, m_panel->getJackCentre(plug.route.source));
+                drawCable(g, cablePath(jack, plug.pos, plug.hasGate ? &plug.gate : nullptr), ModPanel::sourceColour(plug.route.source),
+                          cableAlpha(plug.route.source));
+            }
     }
     repaint();
 }
@@ -509,6 +602,36 @@ void ModWires::updateKnobs()
         }
 }
 
+void ModWires::clearLandFlash()
+{
+    if (m_landKnob != nullptr)
+        m_landKnob->setWireHover(juce::Colours::transparentBlack);
+    m_landKnob = nullptr;
+    m_landFlash = 0.0f;
+}
+
+void ModWires::frame(float dt)
+{
+    if (m_landSlot < 0)
+        return;
+    const bool settling = m_landScale.stepHelm(dt);
+    if (m_landFlash > 0.0f)
+    {
+        m_landFlash -= dt;
+        if (m_landFlash <= 0.0f)
+            clearLandFlash();
+    }
+    for (const auto& plug : m_plugs)
+        if (plug.route.slot == m_landSlot)
+        {
+            const float room = c_plugRadius * 2.0f;
+            repaint(juce::Rectangle<float>(room * 2.0f, room * 2.0f).withCentre(plug.pos).getSmallestIntegerContainer());
+            break;
+        }
+    if (! settling && m_landFlash <= 0.0f)
+        m_landSlot = -1;
+}
+
 void ModWires::paint(juce::Graphics& g)
 {
     // Cable image resolution: the physical scale in half steps (so a live window resize doesn't redraw it every frame).
@@ -528,7 +651,9 @@ void ModWires::paint(juce::Graphics& g)
     for (const auto& plug : m_plugs)
     {
         const auto c = ModPanel::sourceColour(plug.route.source);
-        const auto r = juce::Rectangle<float>(c_plugRadius * 2.0f, c_plugRadius * 2.0f).withCentre(plug.pos);
+        // Round object: a plug. The one that has just landed is still settling onto its seat.
+        const float size = c_plugRadius * 2.0f * (plug.route.slot == m_landSlot ? juce::jlimit(0.8f, 1.6f, m_landScale.value) : 1.0f);
+        const auto r = juce::Rectangle<float>(size, size).withCentre(plug.pos);
         g.setColour(TC::shadow.withAlpha(0.6f));
         g.fillEllipse(r.translated(0.0f, 1.5f));
         g.setColour(c);
@@ -540,11 +665,10 @@ void ModWires::paint(juce::Graphics& g)
             const auto text = juce::String(plug.route.depth > 0.0f ? "+" : "") + juce::String(juce::roundToInt(plug.route.depth * 100.0f)) + "%";
             auto bubble = juce::Rectangle<float>(48.0f, 18.0f).withCentre(plug.pos.translated(0.0f, -18.0f));
             g.setColour(TC::panelRaised);
-            g.fillRoundedRectangle(bubble, 4.0f);
+            Theme::Plate::fill(g, bubble, Theme::Cut::small);
             g.setColour(c);
-            g.drawRoundedRectangle(bubble, 4.0f, 1.0f);
-            g.setFont(m_fonts.label(11.0f));
-            g.drawText(text, bubble, juce::Justification::centred);
+            Theme::Plate::stroke(g, bubble, Theme::Cut::small);
+            Theme::fitText(g, text, bubble, m_fonts.caption(), juce::Justification::centred);
         }
     }
 
@@ -556,6 +680,14 @@ void ModWires::paint(juce::Graphics& g)
         g.fillEllipse(juce::Rectangle<float>(c_plugRadius * 2.4f, c_plugRadius * 2.4f).withCentre(m_dragTo));
     }
 }
+
+void ModWires::mouseMove(const juce::MouseEvent& e)
+{
+    const auto* plug = plugAt(e.position);
+    setHover(m_hoverCard, plug != nullptr ? plug->route.source : -1);
+}
+
+void ModWires::mouseExit(const juce::MouseEvent&) { setHover(m_hoverCard, -1); }
 
 bool ModWires::hitTest(int x, int y)
 {
@@ -606,7 +738,18 @@ void ModWires::endWire(juce::Point<float> at)
     {
         const int slot = m_matrix.connect(m_dragSource, id, 0.5f);
         if (slot >= 0)
+        {
             m_newestSlot[m_knobs[id]] = slot;
+            // It clicks in: the plug drops onto its seat and the knob's ring flashes in the wire's colour.
+            clearLandFlash();
+            m_landSlot = slot;
+            m_landScale.snap(1.4f);
+            m_landScale.to(1.0f);
+            m_landFlash = 0.2f;
+            m_landKnob = m_knobs[id];
+            if (m_landKnob != nullptr)
+                m_landKnob->setWireHover(ModPanel::sourceColour(m_dragSource));
+        }
         if (onStatus)
             onStatus(slot >= 0 ? ModPanel::sourceName(m_dragSource) + " wired. Drag its plug up or down for depth, right-click to pull it out."
                                : juce::String("No more room for wires (") + juce::String(ModMatrix::c_maxRoutes) + " max).");
@@ -665,7 +808,7 @@ void ModWires::showPlugMenu(const Plug& plug)
 {
     const auto route = plug.route;
     juce::PopupMenu menu;
-    menu.addSectionHeader(describe(route).toUpperCase());
+    menu.addSectionHeader(describe(route));
     menu.addItem(1, "Invert");
     menu.addItem(2, "Depth 25%");
     menu.addItem(3, "Depth 50%");

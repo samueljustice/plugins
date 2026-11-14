@@ -5,12 +5,12 @@
 **Toys I've made for sound designers.**
 
 <!-- get-them-all:start (written by .github/workflows/build-release_bundle.yml; edits here are replaced) -->
-### Get them all (last built 11 Nov 2026, 08:58 UTC)
+### Get them all (last built 13 Nov 2026, 18:39 UTC)
 
-[![Get them all for macOS](https://img.shields.io/badge/Get_them_all-macOS-000000?style=for-the-badge&logo=apple&logoColor=white)](https://github.com/samueljustice/plugins/releases/download/bundle-v2026.11.11.110/SammyJ-Plugins-2026-11-11-0858-macOS.dmg)
-[![Get them all for Windows](https://img.shields.io/badge/Get_them_all-Windows-0078D6?style=for-the-badge&logo=windows&logoColor=white)](https://github.com/samueljustice/plugins/releases/download/bundle-v2026.11.11.110/SammyJ-Plugins-2026-11-11-0858-Windows-Installer.exe)
+[![Get them all for macOS](https://img.shields.io/badge/Get_them_all-macOS-000000?style=for-the-badge&logo=apple&logoColor=white)](https://github.com/samueljustice/plugins/releases/download/bundle-v2026.11.13.120/SammyJ-Plugins-2026-11-13-1839-macOS.dmg)
+[![Get them all for Windows](https://img.shields.io/badge/Get_them_all-Windows-0078D6?style=for-the-badge&logo=windows&logoColor=white)](https://github.com/samueljustice/plugins/releases/download/bundle-v2026.11.13.120/SammyJ-Plugins-2026-11-13-1839-Windows-Installer.exe)
 
-<sub>One installer with the newest version of every plug-in: Swooshbuckler 1.4.2 · Sound Advice 1.0.13 · Subbertone 1.3.2 · Pitch Flattener 2.4.0 · Reversinator 2.0.4 · Roarschach 1.1.0. The apps, the VST3s and (on macOS) the AUs. It removes older copies first, so nothing shows up twice in your host. To remove them again: on macOS, run Uninstall Sammy J's Plugins from the same disk image; on Windows, use Settings &gt; Apps.<br>
+<sub>One installer with the newest version of every plug-in: Swooshbuckler 2.0.0 · Sound Advice 1.0.13 · Subbertone 1.3.2 · Pitch Flattener 2.4.0 · Reversinator 2.0.4 · Roarschach 1.1.0. The apps, the VST3s and (on macOS) the AUs. It removes older copies first, so nothing shows up twice in your host. To remove them again: on macOS, run Uninstall Sammy J's Plugins from the same disk image; on Windows, use Settings &gt; Apps.<br>
 Want just one? Each plug-in's own download is below, or browse all <a href="https://github.com/samueljustice/plugins/releases">releases</a>.</sub>
 <!-- get-them-all:end -->
 
@@ -25,12 +25,12 @@ Want just one? Each plug-in's own download is below, or browse all <a href="http
 
 | [<img src="swooshbuckler/docs/screenshot.png" width="400" alt="Swooshbuckler">](#swooshbuckler) | [<img src="subbertone/docs/screenshot.jpg" width="400" alt="Subbertone">](#subbertone) |
 |:---:|:---:|
-| **[Swooshbuckler](#swooshbuckler)**<br>Generates whooshes from up to ten sounds | **[Subbertone](#subbertone)**<br>Adds a pitch-tracked sub and harmonics to bass |
+| **[Swooshbuckler](#swooshbuckler)**<br>Generates whooshes from up to ten sounds | **[Subbertone](#subbertone)**<br>![Work in progress](https://img.shields.io/badge/WORK_IN_PROGRESS-D00000?style=for-the-badge)<br>Adds a pitch-tracked sub and harmonics to bass |
 | [<img src="pitchflattener/docs/screenshot.png" width="400" alt="Pitch Flattener">](#pitch-flattener) | [<img src="reversinator/docs/screenshot.png" width="400" alt="Reversinator">](#reversinator) |
-| **[Pitch Flattener](#pitch-flattener)**<br>Removes pitch movement from Doppler passes, sirens and vibrato | **[Reversinator](#reversinator)**<br>Real-time reverse effects, recreating Backwards Machine |
+| **[Pitch Flattener](#pitch-flattener)**<br>![Work in progress](https://img.shields.io/badge/WORK_IN_PROGRESS-D00000?style=for-the-badge)<br>Removes pitch movement from Doppler passes, sirens and vibrato | **[Reversinator](#reversinator)**<br>Real-time reverse effects, recreating Backwards Machine |
 
 [<img src="roarschach/docs/screenshot.jpg" width="812" alt="Roarschach">](#roarschach)<br>
-**[Roarschach](#roarschach)**<br>A modular voice processor for exploration and fun
+**[Roarschach](#roarschach)**<br>![Work in progress](https://img.shields.io/badge/WORK_IN_PROGRESS-D00000?style=for-the-badge)<br>A modular voice processor for exploration and fun
 
 [<img src="soundadvice/docs/screenshot.png" width="812" alt="Sound Advice">](#sound-advice)<br>
 **[Sound Advice](#sound-advice)**<br>Advice from film, TV and game sound professionals and other creative people
@@ -47,22 +47,24 @@ Want just one? Each plug-in's own download is below, or browse all <a href="http
   <img src="swooshbuckler/docs/screenshot.png" alt="Swooshbuckler" width="820">
 </p>
 
-Drop in up to ten sounds (cloth, air, engines, creatures, metal) and Swooshbuckler works out what each one is and sends it to Bus A, Bus B or the Hits. Then it rides every fader by itself, so the layers swell, fly past as Doppler passes and fall away. Hold **Swell** (the space bar, a MIDI note or a click on the sea) to push it all harder. Arm the tape and it records every whoosh into one file and skips the silence. Missed one? **LAST 60s** grabs the last minute anyway.
+Drop in up to ten sounds (cloth, air, engines, creatures, metal) and Swooshbuckler works out what each one is and sends it to Bus A, Bus B or the Hits. Then it rides every fader by itself, so the layers swell, fly past as Doppler passes and fall away. Hold **Swell** (the space bar, a MIDI note or a click on the sea) to push it all harder. Arm the tape and it records every whoosh into one file and skips the silence. Missed one? **Last 60 s** grabs the last minute anyway.
 
-- **Auto ride** across up to ten looping tracks, each fader on its own path, shaped by Energy, Rate, Fill, Chaos and Pitch
+- **Auto Ride** across up to ten looping tracks, each fader on its own path, shaped by Energy, Rate, Fill, Chaos and Pitch
 - **Smart loading** finds the separate sounds in each file, skips the gaps and guesses what each one is from the audio and the file name
-- **Per-track pitch** in semitones and cents, with **VARI** on for tape-style varispeed or off to change the pitch and keep the speed
+- **Per-track pitch** in semitones and cents, with **Vari** on for tape-style varispeed or off to change the pitch and keep the speed
 - **Two Doppler buses** with Width, Bend, Low End, Swirl, an envelope filter and Drive. Bus A can duck and darken Bus B, or they **Take Turns**
 - **Spectral morph pad** blends A into B (Blend, Glide or vocoder-style Cross), and can wander along a Lorenz loop, a rose or a figure eight
-- **Hit gate** fires your impacts at the biggest swells, and **Sync Hits** stacks their transients into one huge hit
-- **Four drag-a-cable modulators** (LFO, Random, Follower, Macro), plus **7 factory presets** and a RANDOMISE button
+- **Aim** lands your impacts right on the peak of each pass, or a **hit gate** fires them at the biggest swells; **Sync Hits** stacks their transients into one huge hit
+- **Throw** fires one whoosh on demand, playing or stopped, and **Render Variations** writes a batch of them straight to files
+- **Takes** keeps this run's recordings to hear, drag out or bin, and the whole session saves to a file of its own
+- **Four drag-a-cable modulators** (LFO, Random, Follower, Macro), plus **7 factory presets**, your own presets, A / B, Undo and **Randomise** with a history
 
 <details>
 <summary>More screenshots</summary>
 <br>
 <p align="center">
   <img src="swooshbuckler/docs/images/morph-pad.png" alt="Swooshbuckler spectral morph pad" width="400">
-  <img src="swooshbuckler/docs/images/cables.png" alt="Swooshbuckler modulation cables" width="400">
+  <img src="swooshbuckler/docs/images/sea.png" alt="Swooshbuckler the sea" width="400">
 </p>
 <p align="center">
   <img src="swooshbuckler/docs/images/tracks.png" alt="Swooshbuckler tracks" width="820">
@@ -70,12 +72,14 @@ Drop in up to ten sounds (cloth, air, engines, creatures, metal) and Swooshbuckl
 </details>
 
 **App** (macOS, Windows) · **VST3** · **AU** &nbsp;&nbsp;
-[![Download Swooshbuckler](https://img.shields.io/badge/download-v1.4.2-d00a35?style=flat-square)](https://github.com/samueljustice/plugins/releases/tag/swooshbuckler-v1.4.2) &nbsp;
+[![Download Swooshbuckler](https://img.shields.io/badge/download-v2.1.0-d00a35?style=flat-square)](https://github.com/samueljustice/plugins/releases/tag/swooshbuckler-v2.1.0) &nbsp;
 [Read the manual →](swooshbuckler/README.md)
 
 ---
 
 ## Subbertone
+
+![Work in progress](https://img.shields.io/badge/WORK_IN_PROGRESS-D00000?style=for-the-badge)
 
 > Adds a pitch-tracked sub an octave down, plus harmonics, saturation, filtering and limiting.
 
@@ -114,6 +118,8 @@ Subbertone follows the pitch of your bass, engine or drone and adds a clean sub 
 ---
 
 ## Pitch Flattener
+
+![Work in progress](https://img.shields.io/badge/WORK_IN_PROGRESS-D00000?style=for-the-badge)
 
 > Removes pitch movement from Doppler passes, sirens and vibrato.
 
@@ -179,6 +185,8 @@ A real-time reverser that faithfully recreates Backwards Machine's three effects
 ---
 
 ## Roarschach
+
+![Work in progress](https://img.shields.io/badge/WORK_IN_PROGRESS-D00000?style=for-the-badge)
 
 > *Fifteen modules, any order. See where your voice ends up.*
 
@@ -264,7 +272,7 @@ cmake --build build --config Release
 
 See each project's README for its own options.
 
-**AAX:** add `-DSAMMYJ_AAX=ON` to build the AAX format too (macOS and Windows), and `-DAAX_SDK_PATH=<folder>` to use Avid's AAX SDK instead of the one bundled with JUCE (see [`cmake/AAX.cmake`](cmake/AAX.cmake)). The SDK isn't in this repository: it's Avid's. The release workflows fetch it from a private repository and upload each plug-in's AAX as a build artifact. It's unsigned, so it loads only in Pro Tools Developer until it is signed with PACE's wraptool.
+**AAX:** add `-DSAMMYJ_AAX=ON` to build the AAX format too (macOS and Windows), and `-DAAX_SDK_PATH=<folder>` to use Avid's AAX SDK instead of the one bundled with JUCE (see [`cmake/AAX.cmake`](cmake/AAX.cmake)). The SDK isn't in this repository: it's Avid's. The release workflows fetch it from a private repository and upload each plug-in's AAX as a build artifact. That build is unsigned. Pro Tools needs it signed with PACE's wraptool, which goes through an iLok account, so the signing runs on a Mac: after a release, run `bundle/sign-aax.sh` (all plug-ins, or name some). It signs each plug-in's macOS AAX with the hardened runtime, then the Notarise AAX workflow notarises it and adds `<Name>-<version>-macOS-AAX.zip` to the release. Windows AAX signing needs a Windows code-signing certificate, so Windows AAX aren't published yet.
 
 </details>
 

@@ -1,0 +1,70 @@
+name: Notarise AAX
+
+# Started by bundle/sign-aax.sh after it signs a plug-in's macOS AAX with PACE's wraptool on Samuel's Mac
+# (PACE signing needs his iLok, so it can't run here). This notarises and staples that signed AAX,
+# publishes it on the release as <Name>-<version>-macOS-AAX.zip, and removes the unnotarised upload.
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag, e.g. reversinator-v2.0.4
+        required: true
+      asset:
+        description: The signed, unnotarised zip on that release
+        required: true
+      final:
+        description: Name to publish it under
+        required: true
+      bundle:
+        description: Bundle name inside the zip (without .aaxplugin)
+        required: true
+
+permissions:
+  contents: write
+
+concurrency:
+  group: notarize-aax-${{ inputs.tag }}
+  cancel-in-progress: false
+
+jobs:
+  notarise:
+    runs-on: macos-15
+    timeout-minutes: 60
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TAG: ${{ inputs.tag }}
+      ASSET: ${{ inputs.asset }}
+      FINAL: ${{ inputs.final }}
+      BUNDLE: ${{ inputs.bundle }}
+    steps:
+    - uses: actions/checkout@v5
+
+    - name: Download the signed AAX
+      run: |
+        [[ "$ASSET" == *-macOS-AAX-unnotarized.zip && "$FINAL" == *-macOS-AAX.zip ]] || { echo "Unexpected asset names"; exit 1; }
+        mkdir aax
+        gh release download "$TAG" -p "$ASSET" -D aax
+        ditto -x -k "aax/$ASSET" aax
+        P="aax/$BUNDLE.aaxplugin"
+        [[ -d "$P" ]] || { echo "$BUNDLE.aaxplugin not in $ASSET"; exit 1; }
+        codesign --verify --deep --strict --verbose=2 "$P"
+        codesign -dv --verbose=2 "$P" 2>&1 | grep -E 'Authority=Developer ID Application|flags='
+        codesign -dv "$P" 2>&1 | grep -q 'flags=.*runtime' || { echo "Not signed with the hardened runtime"; exit 1; }
+        [[ -d "$P/Contents/__Pace_Eden.bundle" ]] || echo "warning: no PACE signature resources in the bundle"
+
+    - name: Notarise and staple
+      env:
+        APPLE_ID: ${{ secrets.APPLE_ID }}
+        APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+        APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      run: |
+        bundle/notarise.sh "aax/$BUNDLE.aaxplugin"
+        codesign --verify --deep --strict "aax/$BUNDLE.aaxplugin"
+        xcrun stapler validate "aax/$BUNDLE.aaxplugin"
+
+    - name: Publish on the release
+      run: |
+        (cd aax && ditto -c -k --keepParent "$BUNDLE.aaxplugin" "../$FINAL")
+        gh release upload "$TAG" "$FINAL" --clobber
+        gh release delete-asset "$TAG" "$ASSET" --yes
+        gh release view "$TAG" --json assets --jq '.assets[].name'

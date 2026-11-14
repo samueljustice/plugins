@@ -13,7 +13,8 @@
  *
  *   LFO      : sine, triangle, ramp, square or steps (sample and hold), bipolar
  *   Random   : a smooth random walk, bipolar
- *   Follower : follows the loudness of bus A, bus B, the hits or the output, unipolar
+ *   Follower : follows the loudness of bus A, bus B, the hits or the output, or the Master track's loudness,
+ *              pitch or brightness, unipolar
  *   Macro    : a knob you turn (or automate), unipolar
  *
  * A wire adds depth x modulator to the knob's own (normalised) value. The parameter
@@ -50,7 +51,8 @@ public:
     int connect(int source, const juce::String& paramId, float depth = 0.5f);
     /** expectedGeneration (from generation()) guards against a restore having renumbered the slots meanwhile. */
     void disconnect(int slot, int expectedGeneration = -1);
-    /** Doesn't call onChange (it fires on every mouse move of a depth drag); the caller updates its own view. */
+    /** Doesn't call onChange (it fires on every mouse move of a depth drag); the caller updates its own view.
+        A new depth moves changeCount(), so the session autosave knows about it. */
     bool setDepth(int slot, float depth, int expectedGeneration = -1);
     /** Bumped whenever slots are renumbered (restore, clear). */
     int generation() const { return m_generation.load(); }
@@ -62,6 +64,8 @@ public:
     juce::ValueTree toValueTree() const;          // any thread
     void fromValueTree(const juce::ValueTree&);   // any thread (notifies only when called on the message thread)
     void notifyChanged() { changed(); }           // message thread
+    /** Moves whenever the wires change (the session autosave watches it). Any thread. */
+    int changeCount() const { return m_changeCount.load(); }
 
     /** Called on every change (message thread), e.g. to redraw the wires. */
     std::function<void()> onChange;
@@ -75,12 +79,18 @@ public:
         int follow = 0;    // Follower: which input (an index into FollowerInputs)
     };
 
-    /** What a Follower can listen to: RMS of the last block of each. */
-    enum FollowerInput { FollowBusA = 0, FollowBusB, FollowHits, FollowOutput, c_numFollowerInputs };
+    /** What a Follower can listen to. The first five are the RMS of the last block of each; the Master ones are
+        the Master track's loudness, pitch and brightness where it is playing, already 0..1 over its own range. */
+    enum FollowerInput { FollowBusA = 0, FollowBusB, FollowHits, FollowStow, FollowOutput,
+                         FollowMaster, FollowMasterPitch, FollowMasterBright, c_numFollowerInputs };
+    static juce::StringArray followerNames() { return { "Bus A", "Bus B", "Hits", "Stowaway", "Output", "Master", "Master Pitch", "Master Brightness" }; }
     using FollowerInputs = std::array<float, c_numFollowerInputs>;
 
     void prepare(double sampleRate);
     void reset();
+    /** Starts the Random and Steps modulators' draws again from this seed (offline renders that must repeat).
+        Before prepare() or reset(), not while process() runs. */
+    void setSeed(juce::int64 seed) { m_rng.setSeed(seed); }
     /** Advances the modulators by numSamples and sums the offsets. */
     void process(const std::array<SourceSettings, c_numSources>& settings, int numSamples, const FollowerInputs& followerInputs);
     /** Normalised offset for a target (sum of its wires, smoothed). 0 when nothing is wired to it. */
@@ -112,6 +122,7 @@ private:
     std::array<Slot, c_maxRoutes> m_slots;
 
     std::atomic<int> m_generation { 0 };
+    std::atomic<int> m_changeCount { 0 };
     mutable std::mutex m_lock;                      // guards m_params (message thread / state save)
     std::array<juce::String, c_maxRoutes> m_params; // param ID per slot ("" = free)
     void changed();
