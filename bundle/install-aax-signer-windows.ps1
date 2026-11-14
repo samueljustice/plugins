@@ -2,6 +2,8 @@
 #   - the `sign-aax` command (%LOCALAPPDATA%\SammyJ\bin\sign-aax.cmd, added to your user PATH): runs the latest
 #     bundle/sign-aax-windows.ps1 from main, which signs the Windows AAX of every release waiting at
 #     "Sign on the PC" (or the plug-ins you name);
+#   - "Sign AAX" (a shortcut on the Desktop and in the Start menu under Sammy J; pin it to the taskbar): opens a
+#     console window running sign-aax, which stays open until you press a key;
 #   - a prompt (the scheduled task "Sammy J AAX signing prompt", every 2 minutes while you're logged on) that
 #     asks once per release when signing is waiting: move the iLok here, then Sign or Later. It never signs
 #     without you.
@@ -23,6 +25,9 @@ $agent = Join-Path $dir 'aax-signer-agent-windows.ps1'
 $launcher = Join-Path $dir 'aax-signer-agent.vbs'
 $runner = Join-Path $dir 'sign-aax.ps1'
 $cmd = Join-Path $bin 'sign-aax.cmd'
+$window = Join-Path $dir 'sign-aax-window.cmd'
+$startMenu = Join-Path ([Environment]::GetFolderPath('Programs')) 'Sammy J'
+$shortcuts = @((Join-Path ([Environment]::GetFolderPath('Desktop')) 'Sign AAX.lnk'), (Join-Path $startMenu 'Sign AAX.lnk'))
 
 function Set-UserPath([string]$Folder, [bool]$Present) {
   $current = [Environment]::GetEnvironmentVariable('Path', 'User')
@@ -37,9 +42,11 @@ if (Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue) {
 }
 
 if ($Uninstall) {
-  Remove-Item -Force -ErrorAction SilentlyContinue $agent, $launcher, $runner, $cmd
+  Remove-Item -Force -ErrorAction SilentlyContinue $agent, $launcher, $runner, $cmd, $window
+  Remove-Item -Force -ErrorAction SilentlyContinue $shortcuts
+  if ((Test-Path $startMenu) -and -not (Get-ChildItem $startMenu)) { Remove-Item $startMenu }
   Set-UserPath $bin $false
-  Write-Host "Removed sign-aax and its prompt (%APPDATA%\SammyJ\pace.json and the log are left alone)."
+  Write-Host "Removed sign-aax, the Sign AAX shortcuts and the prompt (%APPDATA%\SammyJ\pace.json and the log are left alone)."
   exit 0
 }
 
@@ -94,6 +101,30 @@ try {
 [IO.File]::WriteAllText($cmd, ("@powershell.exe -NoProfile -ExecutionPolicy Bypass -File ""$runner"" %*`r`n" +
                                "@exit /b %ERRORLEVEL%`r`n"), (New-Object Text.ASCIIEncoding))
 
+# Sign AAX: the click-to-sign shortcut. Its console window shows sign-aax's progress and result, and stays
+# open until a key is pressed so errors (such as the iLok not being in this PC) can be read. The launcher is
+# a .cmd written as a file, so no arguments pass through PowerShell's quoting.
+[IO.File]::WriteAllText($window, (
+  "@echo off`r`n" +
+  "title Sign AAX`r`n" +
+  "echo Signing the AAX waiting for this PC. Make sure the iLok is plugged in.`r`n" +
+  "echo.`r`n" +
+  "call ""$cmd""`r`n" +
+  "echo.`r`n" +
+  "echo Done: press any key to close.`r`n" +
+  "pause >nul`r`n"), (New-Object Text.ASCIIEncoding))
+New-Item -ItemType Directory -Force $startMenu | Out-Null
+$shell = New-Object -ComObject WScript.Shell
+foreach ($path in $shortcuts) {
+  $link = $shell.CreateShortcut($path)
+  $link.TargetPath = $window
+  $link.WorkingDirectory = $env:USERPROFILE
+  $link.Description = 'Sign the AAX plug-ins waiting at "Sign on the PC" (needs the iLok in this PC)'
+  $link.IconLocation = "$env:SystemRoot\System32\shell32.dll,47"
+  $link.Save()
+}
+[void][Runtime.InteropServices.Marshal]::ReleaseComObject($shell)
+
 # wscript starts the prompt without flashing a console window every 2 minutes.
 [IO.File]::WriteAllText($launcher, ("CreateObject(""WScript.Shell"").Run ""powershell.exe -NoProfile -ExecutionPolicy Bypass " +
                                     "-WindowStyle Hidden -File """"$agent"""""", 0, True`r`n"), (New-Object Text.ASCIIEncoding))
@@ -114,5 +145,7 @@ Set-UserPath $bin $true
 if (($env:Path.Split(';') | ForEach-Object { $_.TrimEnd('\') }) -notcontains $bin.TrimEnd('\')) { $env:Path += ";$bin" }
 
 Write-Host "Installed sign-aax ($cmd) and its prompt (scheduled task ""$taskName"")."
+Write-Host "Sign AAX shortcuts: $($shortcuts -join ' and ')"
+Write-Host 'To keep it handy: right-click "Sign AAX" > Pin to taskbar.'
 Write-Host "Open a new terminal to type sign-aax anywhere ($bin is now on your user PATH)."
 Write-Host "Log: $log    Remove with: powershell -ExecutionPolicy Bypass -File $PSCommandPath -Uninstall"
