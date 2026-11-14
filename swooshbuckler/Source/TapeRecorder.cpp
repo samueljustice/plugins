@@ -942,19 +942,30 @@ juce::File TapeRecorder::nextFile(const juce::File& folder, const juce::String& 
     auto prefix = juce::File::createLegalFileName(m_naming.prefix.trim()).substring(0, 80).trim();
     if (prefix.isEmpty())
         prefix = "Swooshbuckler";
+    // A name is taken if a file has it, or a Multi-Mono set does: a set has no file of that name, but every set of
+    // Stereo or wider has an .L file. (Opening a take deletes what is in its way, so a name must never be given twice.)
+    auto taken = [&](const juce::String& stem)
+    {
+        return folder.getChildFile(stem + extension).exists()
+            || folder.getChildFile(stem + room::info(room::Speaker::L).suffix + extension).exists();
+    };
     if (m_naming.style == NameStyle::DateTime)
-        // <Name>_YYYY-MM-DD_HH-MM-SS (getNonexistentChildFile numbers two in the same second apart).
-        return folder.getNonexistentChildFile(prefix + "_" + juce::Time::getCurrentTime().formatted("%Y-%m-%d_%H-%M-%S") + suffix, extension, false);
+    {
+        // <Name>_YYYY-MM-DD_HH-MM-SS; two in the same second are numbered apart (..._2, ..._3).
+        const auto stem = prefix + "_" + juce::Time::getCurrentTime().formatted("%Y-%m-%d_%H-%M-%S") + suffix;
+        auto name = stem;
+        const juce::String join = juce::CharacterFunctions::isDigit(stem.getLastCharacter()) ? "_" : "";
+        for (int n = 2; taken(name) && n < 100000; ++n)
+            name = stem + join + juce::String(n);
+        return folder.getChildFile(name + extension);
+    }
     // <Name>_NNNN: the next number of this session that no file in the folder has yet (whatever its type or suffix
     // would be, a number is used once). A file that is thrown away gives its number back.
     for (int n = m_counter;; ++n)
     {
-        const auto stem = prefix + "_" + juce::String::formatted("%04d", n);
-        const auto file = folder.getChildFile(stem + suffix + extension);
-        // A Multi-Mono set has no file of that name, but every set of Stereo or wider has an .L file.
-        const auto set = folder.getChildFile(stem + suffix + room::info(room::Speaker::L).suffix + extension);
-        if ((! file.exists() && ! set.exists()) || n > m_counter + 100000)
-            return file;
+        const auto stem = prefix + "_" + juce::String::formatted("%04d", n) + suffix;
+        if (! taken(stem) || n > m_counter + 100000)
+            return folder.getChildFile(stem + extension);
     }
 }
 

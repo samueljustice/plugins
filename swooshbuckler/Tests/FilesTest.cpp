@@ -574,6 +574,29 @@ int main(int argc, char* argv[])
             check(t.takeFinishedTakes().empty() && filesIn(dir) == 0, "a 7.1.4 whoosh too short to keep leaves none of its 12 files");
         }
 
+        // Names by date and time: two Multi-Mono sets in the same second get names of their own (a set has no
+        // file of the plain name, and opening a take deletes what is in its way: the first set would be lost).
+        {
+            const auto dir = fresh(folder, "tape_dated");
+            TapeRecorder t;
+            auto dated = naming();
+            dated.style = TapeRecorder::NameStyle::DateTime;
+            t.setNaming(dated);
+            TapeRecorder::Options o;
+            o.layout = takefile::Layout::MultiMono;
+            bool distinct = true;
+            juce::StringArray names;
+            for (int i = 0; i < 4; ++i) // four at once: at least two of them share a second
+            {
+                const auto name = t.nextFile(dir, "_retro", ".wav");
+                distinct = distinct && ! names.contains(name.getFileName());
+                names.add(name.getFileName());
+                juce::String why;
+                distinct = TapeRecorder::writeFile(name, levels(6, 480), 0, 480, c_fs, o, dated, why) && distinct;
+            }
+            check(distinct && filesIn(dir) == 24, "four 5.1 sets named by the clock in one go: four names, 24 files (" + juce::String(filesIn(dir)) + ")");
+        }
+
         // Mono of a 7.1.4 take: the room's fold to Mono, lined up with the take (the limiter's delay taken out),
         // and held under the Ceiling.
         {
