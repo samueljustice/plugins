@@ -2,6 +2,7 @@
 # Sets up AAX signing on Samuel's Mac (the one the iLok plugs into):
 #   - the `sign-aax` command (~/.local/bin/sign-aax): runs the latest bundle/sign-aax.sh from main, which signs
 #     the macOS AAX of every release waiting at "Sign on the Mac" (or the plug-ins you name);
+#   - "Sign AAX" (~/Applications/Sign AAX.app, keep it in the Dock): opens a Terminal window running sign-aax;
 #   - a prompt (launchd, every 2 minutes) that asks once per release when signing is waiting: plug the iLok
 #     in, then Sign or Later. It never signs without you.
 #
@@ -17,6 +18,7 @@ here="$(cd "$(dirname "$0")" && pwd)"
 dir="$HOME/Library/Application Support/SammyJ/aax-signer"
 bin="$HOME/.local/bin"
 plist="$HOME/Library/LaunchAgents/$label.plist"
+app="$HOME/Applications/Sign AAX.app"
 log="$HOME/Library/Logs/SammyJ-AAX-Signer.log"
 domain="gui/$(id -u)"
 
@@ -24,7 +26,8 @@ launchctl bootout "$domain/$label" >/dev/null 2>&1 || true
 
 if [[ "${1:-}" == "--uninstall" ]]; then
   rm -f "$plist" "$dir/aax-signer-agent.sh" "$bin/sign-aax"
-  echo "Removed sign-aax and its prompt (~/.config/sammyj and the log are left alone)."
+  rm -rf "$app"
+  echo "Removed sign-aax, the Sign AAX app and the prompt (~/.config/sammyj and the log are left alone)."
   exit 0
 fi
 
@@ -69,7 +72,19 @@ cat > "$plist" << EOF
 EOF
 launchctl bootstrap "$domain" "$plist"
 
-echo "Installed sign-aax ($bin/sign-aax) and its prompt."
+# Sign AAX: the click-to-sign shortcut. A Terminal window shows sign-aax's progress and result.
+mkdir -p "$(dirname "$app")"
+rm -rf "$app"
+osacompile -o "$app" - << APPLESCRIPT
+tell application "Terminal"
+  activate
+  do script "clear; echo 'Signing the AAX waiting for this Mac. Make sure the iLok is plugged in.'; echo; '$bin/sign-aax'; echo; echo 'Done: you can close this window.'"
+end tell
+APPLESCRIPT
+/usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier com.samueljustice.sammyj.sign-aax" "$app/Contents/Info.plist" 2>/dev/null \
+  || /usr/libexec/PlistBuddy -c "Add :CFBundleIdentifier string com.samueljustice.sammyj.sign-aax" "$app/Contents/Info.plist"
+
+echo "Installed sign-aax ($bin/sign-aax), the Sign AAX app ($app: drag it to the Dock) and the prompt."
 case ":$PATH:" in
   *":$bin:"*) ;;
   *) echo "Add $bin to your PATH to type sign-aax anywhere, e.g.: echo 'export PATH=\"\$HOME/.local/bin:\$PATH\"' >> ~/.zshrc" ;;
