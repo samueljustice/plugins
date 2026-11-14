@@ -1122,7 +1122,7 @@ int SwooshbucklerAudioProcessor::loadDemoSounds()
 {
     if (m_cargo.firstEmptyTrack() < 0)
         return 0;
-    // One undo step for the four of them.
+    // One undo step for all of them.
     EditHistory::Group group(*m_history, "Load Demo Sounds");
     int loaded = 0;
     for (const auto& sound : DemoSounds::all())

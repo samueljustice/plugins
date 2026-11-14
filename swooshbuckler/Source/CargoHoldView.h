@@ -23,7 +23,7 @@
  *    inside to select; double-click a region to grab it.
  *  - Every edit joins the rig's one undo history (Cmd+Z and Shift+Cmd+Z,
  *    handled by the window). Space holds Swell; the other keys are the window's.
- *  - Empty, the drop zone offers Load Demo Sounds (four sounds made on the spot).
+ *  - Empty, the drop zone offers Load Demo Sounds (five sounds made on the spot).
  *  - A right-click on a track's fader types a value or learns a MIDI controller
  *    for it (showControlMenu, which the Energy knob uses too).
  */

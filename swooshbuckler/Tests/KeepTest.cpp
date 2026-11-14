@@ -170,6 +170,58 @@ int main(int argc, char* argv[])
         check(near(rig.plain(ParamIDs::inflate), 0.9f) && rig.proc.currentPresetName == factory.name,
               "presets: the output stage is left alone, and the preset's name is shown");
 
+        // The Stowaway presets: each switches Stowaway on and sets its Mode, one for each mode at least; the others
+        // leave the switch where it is (on or off) and put the Mode and the five knobs back where they start.
+        {
+            int perMode[ParamIDs::numStowModes] = {};
+            bool switchOn = true, modeSet = true, othersLeaveSwitch = true, othersResetMode = true, legal = true;
+            juce::StringArray stowNames;
+            for (const auto& preset : Presets::factory())
+            {
+                for (const auto& [id, value] : preset.values)
+                {
+                    auto* p = rig.proc.getState().getParameter(id);
+                    legal = legal && p != nullptr && ! Presets::isSessionParameter(id) && value >= p->getNormalisableRange().start && value <= p->getNormalisableRange().end;
+                }
+                const bool uses = preset.values.count(ParamIDs::stowOn) != 0;
+                if (uses)
+                {
+                    stowNames.add(preset.name);
+                    rig.move(ParamIDs::stowOn, 0.0f);
+                    rig.proc.applyLook(preset, Presets::Unlisted::Default, preset.name, preset.name);
+                    const int mode = juce::roundToInt(rig.plain(ParamIDs::stowMode));
+                    switchOn = switchOn && rig.plain(ParamIDs::stowOn) > 0.5f;
+                    modeSet = modeSet && preset.values.count(ParamIDs::stowMode) != 0 && mode == juce::roundToInt(preset.values.at(ParamIDs::stowMode));
+                    ++perMode[juce::jlimit(0, ParamIDs::numStowModes - 1, mode)];
+                }
+                else
+                {
+                    for (const float on : { 0.0f, 1.0f })
+                    {
+                        rig.move(ParamIDs::stowOn, on);
+                        rig.move(ParamIDs::stowMode, static_cast<float>(ParamIDs::StowFly));
+                        rig.move(ParamIDs::stow[ParamIDs::StowFollow], 0.1f);
+                        rig.proc.applyLook(preset, Presets::Unlisted::Default, preset.name, preset.name);
+                        othersLeaveSwitch = othersLeaveSwitch && near(rig.plain(ParamIDs::stowOn), on);
+                        othersResetMode = othersResetMode && juce::roundToInt(rig.plain(ParamIDs::stowMode)) == ParamIDs::StowSub
+                                          && near(rig.plain(ParamIDs::stow[ParamIDs::StowFollow]), 0.7f);
+                    }
+                }
+            }
+            check(legal, "presets: every value in every factory preset belongs to a parameter a preset may set, inside its range");
+            check(stowNames.size() >= 4 && stowNames.size() <= 6 && perMode[ParamIDs::StowSub] >= 1 && perMode[ParamIDs::StowWake] >= 1
+                      && perMode[ParamIDs::StowFly] >= 1 && perMode[ParamIDs::StowDry] >= 1,
+                  "presets: " + juce::String(stowNames.size()) + " use Stowaway, at least one in each Mode (" + stowNames.joinIntoString(", ") + ")");
+            check(switchOn && modeSet, "presets: each of them switches Stowaway on and sets its Mode");
+            check(othersLeaveSwitch && othersResetMode, "presets: the others leave Stowaway's switch where it is, on or off, and put its Mode and knobs back where they start");
+            const auto& sub = *std::find_if(Presets::factory().begin(), Presets::factory().end(), [](const Presets::Preset& p) { return p.name == "Sub Under Jets"; });
+            rig.proc.applyLook(sub, Presets::Unlisted::Default, sub.name, sub.name);
+            auto* filter = rig.param(ParamIDs::stow[ParamIDs::StowFilter]);
+            check(filter->getText(filter->getValue(), 0) == "100 Hz", "presets: Sub Under Jets puts the crossover at 100 Hz (it reads " + filter->getText(filter->getValue(), 0) + ")");
+            rig.move(ParamIDs::stowOn, 0.0f);
+            rig.proc.applyLook(factory, Presets::Unlisted::Default, factory.name, factory.name);
+        }
+
         // Randomise: only what it rolls moves.
         rig.move(ParamIDs::hitHold, 0.8f);
         rig.move(ParamIDs::duckReturn, 0.6f);

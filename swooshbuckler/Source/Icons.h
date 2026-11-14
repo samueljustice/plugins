@@ -326,6 +326,7 @@ namespace Icons
             }
             case Icon::LetterA:
             case Icon::LetterB:
+            case Icon::LetterS:
                 break; // letters are set in type by whoever draws the nameplate
         }
     }

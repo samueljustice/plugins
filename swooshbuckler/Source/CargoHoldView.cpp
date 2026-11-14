@@ -986,11 +986,11 @@ CargoHoldView::CargoHoldView(SwooshbucklerAudioProcessor& processor, const Theme
         m_lanes[static_cast<size_t>(t)]->refresh();
     }
 
-    // The empty state's way to hear the rig at once: four made-up sounds, one of each main kind.
+    // The empty state's way to hear the rig at once: five made-up sounds, one of each main kind.
     m_demo.setColour(juce::TextButton::buttonOnColourId, TC::sources);
     m_demo.setWantsKeyboardFocus(false);
-    m_demo.setTooltip("Load Demo Sounds\nFills four tracks with sounds made on the spot: a growl, a wind bed, air swishes and hits, "
-                      "one for each part of the rig. Press Play (or Return) and you have a whoosh to shape. "
+    m_demo.setTooltip("Load Demo Sounds\nFills five tracks with sounds made on the spot: a growl, a wind bed, air swishes, hits and "
+                      "a rumble, one for each part of the rig. Press Play (or Return) and you have a whoosh to shape. "
                       "Undo takes them out again, and you can drop your own sounds in beside them or over them.");
     m_demo.onClick = [this] { loadDemo(); };
     addChildComponent(m_demo);
@@ -1369,7 +1369,7 @@ void CargoHoldView::loadDemo()
         lane->refresh();
     for (auto& lane : m_lanes)
         if (lane->hasData()) { m_active = lane->getTrack(); break; }
-    status(loaded > 0 ? "Demo sounds loaded. Press Play to hear them; Undo takes them out."
+    status(loaded > 0 ? "Demo sounds loaded. Press Play to hear them, and switch Stowaway on for a sub. Undo takes them out."
                       : "!Every track is in use: remove one to make room for the demo sounds.");
     resized();
     updateButtons();

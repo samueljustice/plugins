@@ -53,7 +53,7 @@ What's changed in each version is in the [changelog](CHANGELOG.md).
 
 ## Quick start
 
-No sounds to hand? Click **Load Demo Sounds** in the empty Tracks panel. It fills four tracks with a growl, a wind bed, air swishes and hits, so you can press Play and hear the rig straight away.
+No sounds to hand? Click **Load Demo Sounds** in the empty Tracks panel. It fills five tracks with a growl, a wind bed, air swishes, hits and a rumble, so you can press Play and hear the rig straight away. Switch [Stowaway](#stowaway) on and the rumble becomes the rig's sub.
 
 1. **Drop sounds into Tracks**, or click the drop zone to browse. Anything works: cloth, air, engines, animals, metal, voices. Each file gets its own looping track. Swooshbuckler finds the separate sounds in it, guesses what type of sound it is, and sends it to Bus A, Bus B, Stowaway or the Hits.
 2. **Press Play.** With **Auto Ride** on (it is by default), every track's fader moves by itself at its own speed. When the layers swell together you get a whoosh.
@@ -136,7 +136,7 @@ This is where your sounds live: up to ten files, each on its own looping lane. F
 
 **Loading sounds**
 
-- **Load Demo Sounds**, the button in the empty drop zone, fills four tracks with sounds Swooshbuckler makes on the spot (nothing is read from disk): **Demo Growl**, a creature's voice in five phrases, on Bus A; **Demo Wind Bed**, eight seconds of gusting wind in stereo that loops without a seam, on Bus B; **Demo Swish**, six air swishes of different lengths, on Bus B; and **Demo Hit**, a thump, a crack, a clang and a boom, on the Hits. They are the same every time, they behave like any sound you load, and one Undo (Cmd+Z) takes all four out again. With fewer than four tracks free it loads as many as fit.
+- **Load Demo Sounds**, the button in the empty drop zone, fills five tracks with sounds Swooshbuckler makes on the spot (nothing is read from disk): **Demo Growl**, a creature's voice in five phrases, on Bus A; **Demo Wind Bed**, eight seconds of gusting wind in stereo that loops without a seam, on Bus B; **Demo Swish**, six air swishes of different lengths, on Bus B; **Demo Hit**, a thump, a crack, a clang and a boom, on the Hits; and **Demo Rumble**, eight seconds of deep rumble that loops without a seam. The rumble is there for [Stowaway](#stowaway): it plays on Bus A while Stowaway is off, and the moment you switch Stowaway on it moves there and becomes the rig's sub. They are the same every time, they behave like any sound you load, and one Undo (Cmd+Z) takes all five out again. With fewer than five tracks free it loads as many as fit. Four lanes are in view at a time, so Demo Rumble is one scroll down the list.
 - Drag audio files onto the drop zone, or anywhere in the window, or click the drop zone to browse. You can pick several files at once.
 - Each file takes the next empty track. Drop a file onto a lane that already has a sound to replace it.
 - Swooshbuckler reads WAV, AIFF, FLAC, OGG and MP3, and on macOS also CAF and M4A.
@@ -377,6 +377,15 @@ The strip along the bottom of each bus's panel shows the last 3 seconds of what 
 
 One extra bus beside Bus A and Bus B, for a layer that should not fly about with the others, or that should fly on its own. A track gets there from its lane's bus tag (see [Choosing the bus](#choosing-the-bus)); Rumble goes there by itself while Stowaway is on and its Mode is Sub. Its switch (**Stowaway**), **Stowaway Mode** and its five knobs, **Follow**, **Low End**, **Filter**, **Drive** and **Width**, are in the host's parameter list, and the knobs can be wired to the [modulators](#modulation). The knobs keep their names in every mode.
 
+| Mode | What it is for | How a track gets there |
+|------|----------------|------------------------|
+| **Sub** | The low end under everything: planted in the middle, mono, swelling with Bus A. Only the low end of what you send it comes through. | A Rumble track goes there by itself. Any other track: choose Stowaway on its bus tag. |
+| **Wake** | A trail behind each of Bus A's passes: debris, spray, a tail of air. | Choose Stowaway on the track's bus tag. |
+| **Fly** | A third thing in the air, with doppler passes of its own. | Choose Stowaway on the track's bus tag. |
+| **Dry** | A layer that stays what it is: ridden, and nothing else. | Choose Stowaway on the track's bus tag. |
+
+To hear it straight away, click **Load Demo Sounds** and switch Stowaway on: **Demo Rumble** moves to it and becomes the sub. Five of the [factory presets](#presets-and-randomise) are built around it, one or two for each mode. How far each knob goes in each mode is measured in the [knob audit](docs/knob-audit.md#stowaway).
+
 #### On / Off, and the plate
 
 <img src="docs/images/stowaway.png" width="356" alt="Stowaway's plate, open"> <img src="docs/images/stowaway-folded.png" width="180" alt="Stowaway's plate, off and folded">
@@ -399,7 +408,7 @@ The mode Stowaway starts in. It is planted in the middle with no doppler, and wh
 | **Follow** | 70% | How much the sub swells with Bus A's passes. At 0% it is a steady sub. At 100% it rises and falls as far as Bus A does, and each 10% takes on a tenth of that swell. The sub is turned up as Follow rises, by as much as the swell it is following takes away (about 4.5 dB at 100% under a typical bed, never more than 6 dB), so on average it stays as loud and only its movement changes. |
 | **Low End** | 0% | Adds a note an octave below what came through the crossover, and overtones just above it, which is what lets a small speaker hear the sub. |
 | **Filter** | 120 Hz | The crossover, from 40 to 250 Hz. It is steep: 48 dB per octave, so sound one octave above the crossover is more than 45 dB down and two octaves above it is gone. |
-| **Drive** | 0% | Thickens the sub and flattens its swell. It works against the sub's own level, so it does the same to a quiet rumble as to a loud one, and it does not turn the sub up. |
+| **Drive** | 0% | Thickens the sub and flattens its swell. It works against the sub's own level, so it does the same to a quiet rumble as to a loud one, and it turns the sub up by less than 2 dB over its whole travel (it sounds like more, because the overtones it adds are easier to hear than the sub under them). |
 | **Width** | Mono | Not used: a sub is mono, the same in both speakers. |
 
 - **What Follow goes by.** Bus A's level against its own recent peak and, the stiller the faders are, how near Bus A's pass is. While the sub has a bus to follow, its own tracks are not ridden: Bus A is its swell. If no track is playing on Bus A it follows Bus B the same way. If none is playing on either, its tracks are ridden like any others and Follow sets how deep, so the sub is never stuck silent.
@@ -672,11 +681,23 @@ Click the **Swooshbuckler** title or the version number to open it. It shows the
 
 ## Presets and Randomise
 
-The factory presets are **Steady Energy**, **Jet Passes**, **Monster Swells**, **Gentle Breeze**, **Fast and Furious**, **Magic Dust** and **Heavy Hits**. Pick one from the preset name, or step through them with **<** and **>**. Every control glides to its new setting while it plays, so you can switch mid-whoosh. Grab a knob during the glide and your move wins.
+The factory presets are **Steady Energy**, **Jet Passes**, **Monster Swells**, **Gentle Breeze**, **Fast and Furious**, **Magic Dust** and **Heavy Hits**, and five built around [Stowaway](#stowaway): **Sub Under Jets**, **Deep Quake**, **Debris Wake**, **Three Movers** and **Dry Rider**. Pick one from the preset name, or step through them with **<** and **>**. Every control glides to its new setting while it plays, so you can switch mid-whoosh. Grab a knob during the glide and your move wins.
 
-A preset is a complete look: every control it owns that it doesn't set goes back to its default. The presets set Pass too: **Jet Passes**, **Monster Swells** and **Fast and Furious** put Bus A on Fly-By, and the others use Bed on both buses.
+A preset is a complete look: every control it owns that it doesn't set goes back to its default. The presets set Pass too: **Jet Passes**, **Monster Swells**, **Fast and Furious**, **Sub Under Jets**, **Deep Quake** and **Debris Wake** put Bus A on Fly-By, **Three Movers** puts both buses on Fly-By, and the others use Bed on both buses.
 
-**Randomise** rolls Energy, Rate, Fill, Chaos and Pitch (whole semitones from −7 to +7), the bus knobs (Doppler, Width, Bend, Low End, Swirl, Filter and Drive, plus Ducked and Filtered on B), the hit knobs (Sensitivity, Boost, Release and Duck) and Space. Width stays between 35% and 100% and Bend between 30% and 90%, so a roll never leaves a pass stuck in the middle or screaming. Only those knobs move. Everything a roll doesn't name stays exactly where you set it: Hold, Floor, Return, each bus's Pass menu, Throw Length, the morph's dot and mode.
+The five Stowaway presets switch Stowaway on and set its Mode and knobs. A preset never moves a track, so in Wake, Fly and Dry there is nothing on Stowaway until you send a track there from its lane's bus tag; in Sub a Rumble track goes by itself.
+
+| Preset | Stowaway | What to put on it |
+|--------|----------|-------------------|
+| **Sub Under Jets** | **Sub**, crossover 100 Hz, Follow 90%, a little Low End and Drive. Bus A flies fast fly-bys over it. | A rumble, or anything with weight: only its low end is used. |
+| **Deep Quake** | **Sub**, crossover 70 Hz, Low End 70%, Drive 45%, under slow, deep swells pitched down. | The same. |
+| **Debris Wake** | **Wake**, Follow 100%, Width 85%, the Filter thinning its low end. Bus A on Fly-By, so every pass drags a trail. | Debris, spray, rattle, a tail of air. |
+| **Three Movers** | **Fly**, Follow 0% (its own time), Width 100%, with both buses on Fly-By. | A third source to fly: another engine, a voice, a tone. |
+| **Dry Rider** | **Dry**, Follow 60%, Width 100%, over buses with plenty of Swirl, Drive and Space. | Whatever must stay itself: a voice, a production sound. |
+
+The other seven leave Stowaway's switch where it is, and put its Mode back to Sub and its knobs back where they start.
+
+**Randomise** rolls Energy, Rate, Fill, Chaos and Pitch (whole semitones from −7 to +7), the bus knobs (Doppler, Width, Bend, Low End, Swirl, Filter and Drive, plus Ducked and Filtered on B), the hit knobs (Sensitivity, Boost, Release and Duck), Space, and Stowaway's five knobs (never its Mode or its switch). Width stays between 35% and 100% and Bend between 30% and 90%, so a roll never leaves a pass stuck in the middle or screaming. Only those knobs move. Everything a roll doesn't name stays exactly where you set it: Hold, Floor, Return, each bus's Pass menu, Throw Length, the morph's dot and mode.
 
 Presets and Randomise set the sound, not your session. They leave these alone:
 
@@ -692,7 +713,7 @@ Presets and Randomise set the sound, not your session. They leave these alone:
 
 ### Section dice and locks
 
-Each of Ride, Bus A, Bus B, Hits and Output has a small die and a small padlock in its title bar.
+Each of Ride, Bus A, Bus B, Hits and Output has a small die and a small padlock in its title bar, and so has Stowaway while its plate is open.
 
 - **The die** rolls just that section and leaves everything else where it is. The Output die rolls Space and, gently, Inflate (up to 50%) and Push (up to +6 dB); the header's Randomise never touches those two.
 - **The lock** keeps that section out of the header's Randomise, and out of Randomise Everything in [Render Variations](#render-variations). Lock the bus you like and keep rolling the rest. A locked section's own die still rolls it. The locks are saved with the session.

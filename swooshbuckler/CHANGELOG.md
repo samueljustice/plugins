@@ -2,32 +2,61 @@
 
 ## Unreleased
 
-- **Stowaway: one extra bus beside Bus A and Bus B.** Send a track to it from the lane's bus tag (**Stowaway**, with an **S** on the tag and the lane in kelp green). Outside Fly its tracks play in the middle; they reach the output through Space and the Everything tremolo like the buses (except in Dry), and feed neither Bus A nor Bus B. The choice is saved with the session and is one undo step.
-- **Sub mode: Stowaway as the rig's sub.** Whatever is sent to it, only its low end comes through, in mono. **Filter** is the crossover, from 40 to 250 Hz (120 Hz where it starts), and it is steep: 48 dB per octave after a 20 Hz high-pass, so white noise comes out more than 60 dB down one octave above the crossover and more than 140 dB down two octaves above, at any sample rate up to 192 kHz.
-- **Sub: Follow makes it swell with Bus A.** At 0% it is a steady sub; at 100% it rises and falls as far as Bus A does, and every 10% takes on a tenth of that. With no track on Bus A it follows Bus B, and with none on either its own tracks are ridden instead, so it is never stuck silent. While it has a bus to follow, its own tracks are not ridden.
-- **Sub: Low End and Drive come after the crossover.** Low End adds a note an octave down and overtones just above the crossover; Drive thickens the sub and flattens its swell without turning it up, and does the same to a quiet rumble as to a loud one. A second low-pass after them keeps what they add within about an octave above the crossover. Width is not used in Sub and reads Mono.
-- **Sub's make-up for Follow is measured.** The sub is turned up by as much as the swell it follows takes away, learned over a few passes: about 4.5 dB at 100% under a typical bed, more under fly-bys or a gappy sound, never more than 6 dB.
-- **Wake mode: a trail behind Bus A.** Stowaway opens as Bus A falls away and sits behind the pass that has just gone by, so every pass drags a wake. **Follow** is how far it shuts between passes (0% a steady layer, 100% silent until Bus A falls), **Width** is how far out it sits, and **Low End**, **Filter** and **Drive** colour it. With no sound on Bus A it goes by Bus A's passes alone, so it is never stuck silent.
-- **Dry mode: riding only.** Stowaway's tracks play at their faders and rides with no movement, no Fill echoes, no Space and no Everything tremolo, and join the mix straight at the output stage. **Follow** is how much of the ride they keep, **Filter** still applies, and a stereo file keeps its left and right, as wide as **Width** says. Low End and Drive are not used.
-- **Fly mode: a third mover.** Stowaway's tracks fly their own doppler passes, one Fly-By at a time, apart from Bus A's and Bus B's. **Follow** ties them to Bus A's passes: at 0% they keep their own time, at 100% each one is at its closest at the same moment as one of Bus A's. **Width** is how far across each pass travels, and **Low End**, **Filter** and **Drive** colour the sound before it flies.
-- **Fly's passes repeat.** They are drawn from a random source of Fly's own, started from the rig's seed: a bounce and each of the Variations comes out the same every time, and Bus A's and Bus B's passes are where they would be without it.
-- **Fly sleeps when it has nothing to play.** With no track on Stowaway, a silent one, or the rig stopped and its passes rung out, it does no work. Flying, it measured 0.9% of one processor core at 48 kHz.
-- **A Pass S marker** is written in a take where each of Fly's passes is at its closest. Aim, Link and Pass Mode leave Fly alone, and a throw is flown on it as on the buses.
+### Stowaway: one extra bus
+
+- **Stowaway is a third bus beside Bus A and Bus B**, with a **Mode** menu and five knobs that keep their names in every mode: **Follow**, **Low End**, **Filter**, **Drive** and **Width**. The Mode decides what it is: the rig's **Sub**, a **Wake** behind Bus A's passes, a third mover (**Fly**), or a layer that is only ridden (**Dry**).
+- **It is optional, and starts switched off.** Its plate has an **On / Off** switch that says which it is in a word. Off, Stowaway is silent and does no work, and tracks sent to it wait unplayed instead of moving to another bus. Switching fades it in or out over 60 ms, so it never clicks.
+- **Send a track to it from the lane's bus tag**: Auto, Bus A, Bus B, Hits or **Stowaway**. A Stowaway track's tag carries an **S** and its lane takes Stowaway's kelp green. Choosing Stowaway while it is off switches it on in the same undo step, and the status line says so. The choice is saved with the session.
+- **Rumble goes there by itself** while Stowaway is on and its Mode is Sub. Otherwise a Rumble track on Auto plays on Bus A. A bus chosen by hand always stays.
+- **In the host.** The switch, **Stowaway Mode** and the five knobs are in the parameter list and can be automated. The knobs read by the mode in use, and can be wired to the modulators.
+
+### Sub
+
+- **Only the low end comes through, in mono, whatever you send it.** A 20 Hz high-pass, then a crossover of 48 dB per octave that **Filter** sets from 40 to 250 Hz (120 Hz where it starts). White noise comes out more than 60 dB down one octave above the crossover and more than 140 dB down two octaves above, at any sample rate up to 192 kHz.
+- **Follow makes it swell with Bus A.** At 0% it is a steady sub; at 100% it rises and falls as far as Bus A does, and every 10% takes on a tenth of that. With no track on Bus A it follows Bus B, and with none on either its own tracks are ridden instead, so it is never stuck silent.
+- **Follow does not turn it down.** The sub is turned up by as much as the swell it follows takes away, learned over a few passes: about 4.5 dB at 100% under a typical bed, never more than 6 dB.
+- **Low End and Drive come after the crossover.** Low End adds a note an octave down and overtones just above the crossover; Drive thickens the sub and flattens its swell, and does the same to a quiet rumble as to a loud one. A second low-pass after them keeps what they add within about an octave above the crossover.
+- **Width is not used in Sub** and reads Mono.
+
+### Wake
+
+- **A trail behind Bus A.** Stowaway opens as Bus A falls away and sits behind the pass that has just gone by, so every pass drags a wake. With no sound on Bus A it goes by Bus A's passes alone, so it is never stuck silent.
+- **Follow** is how far it shuts between passes (0% a steady layer, 100% silent until Bus A falls), **Width** is how far out it sits, and **Low End**, **Filter** and **Drive** colour it.
+
+### Fly
+
+- **A third mover.** Stowaway's tracks fly their own doppler passes, one Fly-By at a time, apart from Bus A's and Bus B's. **Width** is how far across each pass travels, and **Low End**, **Filter** and **Drive** colour the sound before it flies.
+- **Follow ties its passes to Bus A's.** At 0% they keep their own time; at 100% each one is at its closest at the same moment as one of Bus A's.
+- **Its passes repeat.** They are drawn from a random source of Fly's own, started from the rig's seed: a bounce and each of the Variations comes out the same every time, and Bus A's and Bus B's passes are where they would be without it.
+- **A Pass S marker** is written in a take where each of Fly's passes is at its closest. Aim, Link and Pass Mode leave Fly alone.
+- **It sleeps when it has nothing to play.** With no track on Stowaway, a silent one, or the rig stopped and its passes rung out, it does no work. Flying, it measured 0.9% of one processor core at 48 kHz.
+
+### Dry
+
+- **Riding only.** Stowaway's tracks play at their faders and rides with no movement, no Fill echoes, no Space and no Everything tremolo, and join the mix straight at the output stage.
+- **Follow** is how much of the ride they keep, **Filter** still applies, and a stereo file keeps its left and right, as wide as **Width** says. Low End and Drive are not used.
+
+### Stowaway with the rest of the rig
+
 - **Filter outside Sub is a tilt.** Open in the middle, a low-pass below it (down to 150 Hz) and a high-pass above it (up to 2.5 kHz). It reads **Open** in the middle and what gets through either side, such as **Under 670 Hz**.
-- **Changing Stowaway's Mode never clicks.** It fades out over 30 ms, changes over in silence and fades back in, by hand or under automation. A track changing bus is faded across too.
+- **Changing the Mode never clicks.** Stowaway fades out over 30 ms, changes over in silence and fades back in, by hand or under automation. A track changing bus is faded across too.
 - **The modes are matched in level.** The same sound on Stowaway comes out within about 1 dB in Sub, Wake and Dry at the starting settings. Fly is as loud as the same sound flying by on Bus A in Fly-By mode (within 1 dB).
-- **Throws reach Stowaway too**, with the rig playing or from rest: from rest its tracks swell to the throw's peak and are gone with its tail; with the rig playing the throw lifts them to their fader level and no further. In Wake a throw leaves its own trail behind its peak.
-- **Stowaway Mode** (Sub, Wake, Fly, Dry) and five knobs, **Follow**, **Low End**, **Filter**, **Drive** and **Width**, are in the host's parameter list and are saved with the session. The knobs read by the mode: in Sub, Filter reads a crossover from 40 to 250 Hz (120 Hz where it starts) and Width reads Mono. The five knobs can be wired to the modulators.
-- **Rumble goes to Stowaway by itself while the Mode is Sub.** In Wake, Fly and Dry a Rumble track on Auto plays on Bus A, as the other Bus A types do. A bus chosen by hand always stays.
+- **Outside Fly its tracks play in the middle.** They reach the output through Space and the Everything tremolo like the buses (except in Dry), and feed neither Bus A nor Bus B. Take Turns, Link and the morph stay between Bus A and Bus B.
+- **Throws reach Stowaway too**, with the rig playing or from rest: from rest its tracks swell to the throw's peak and are gone with its tail; with the rig playing the throw lifts them to their fader level and no further. In Wake a throw leaves its own trail behind its peak, and in Fly it is flown as on the buses.
 - **The hits duck Stowaway** in Wake, Fly and Dry, by Hit Duck like the buses. In Sub they leave it alone, so the low end stays under a hit.
-- **Randomise rolls Stowaway's five knobs and never its Mode.** A preset may set the Mode.
 - **A Follower can follow Stowaway**: the Follows menu reads Bus A, Bus B, Hits, Stowaway, Output, Master, Master Pitch, Master Brightness.
-- **Stowaway has its own plate in the window**, at the bottom left beside Modulation: its nameplate with an **S**, an **On / Off** switch that says which it is in a word, the **Mode** menu, five wheels (**Follow**, **Low End**, **Filter**, **Drive**, **Width**) with their values, a scope strip, a die and a lock. A wheel that does nothing in the current Mode rests, and every wheel's tooltip says what it does in that Mode.
-- **Stowaway has an On / Off switch, and starts off.** Off, it is silent and does no work, its whole plate rests (darker, a hollow **S**, **Off** in its scope's window), and tracks sent to it wait unplayed instead of moving to another bus; their tags show a hollow **S** and say so. Switching fades it in or out over 60 ms, so it never clicks. The switch is in the host's parameter list and can be automated.
-- **Sending a track to Stowaway switches it on.** Choosing Stowaway in a lane's bus menu while it is off turns it on in the same undo step, and the status line says so.
-- **Rumble goes to Stowaway only while it is on and its Mode is Sub.** In a new session, where Stowaway is off, a Rumble track on Auto plays on Bus A.
-- **Presets and Randomise never switch Stowaway off.** A preset that uses Stowaway switches it on; Randomise and the section dice leave the switch alone.
-- **Stowaway's plate folds.** Folded, it is a slim plate with the switch, the Mode, a line saying what Stowaway is now and its scope, and Modulation has the rest of the row. The chevron, or a click on the nameplate, opens it to show the wheels, the die and the lock, and Modulation gives up the width. It eases open and shut, opens by itself the first time Stowaway is switched on, and is remembered in the session.
+
+### Presets, Randomise and the demo sounds
+
+- **Five new factory presets built around Stowaway**: **Sub Under Jets** (a planted sub under fast fly-bys), **Deep Quake** (a low, driven sub under slow swells), **Debris Wake** (a trail behind every fly-by), **Three Movers** (both buses and Stowaway all flying) and **Dry Rider** (an untouched layer riding over a heavily worked rig). Each switches Stowaway on and sets its Mode. In Wake, Fly and Dry, send a track to Stowaway to hear it.
+- **Presets and Randomise never switch Stowaway off.** The other presets leave the switch where it is and put the Mode and knobs back where they start. Randomise and Stowaway's own die roll its five knobs and never its Mode.
+- **Load Demo Sounds has a fifth sound, Demo Rumble**: eight seconds of deep rumble that loops without a seam. It plays on Bus A while Stowaway is off and becomes the sub the moment Stowaway is switched on. With the rumble, the demo sounds play about 1 dB louder, with 5 dB more under 120 Hz.
+
+### Stowaway on the screen
+
+- **Its own plate**, at the bottom left beside Modulation: its nameplate with an **S**, the **On / Off** switch, the **Mode** menu, five wheels with their values, a scope strip, a die and a lock. A wheel that does nothing in the current Mode rests, and every wheel's tooltip says what it does in that Mode.
+- **Off, the whole plate rests**: darker, a hollow **S**, and **Off** in its scope's window. Tracks waiting on it show a hollow **S** on their tags and say so.
+- **The plate folds.** Folded, it is a slim plate with the switch, the Mode, a line saying what Stowaway is now and its scope, and Modulation has the rest of the row. The chevron, or a click on the nameplate, opens it to show the wheels, the die and the lock, and Modulation gives up the width. It eases open and shut, opens by itself the first time Stowaway is switched on, and is remembered in the session.
 - **Stowaway shows in the sea**, in kelp green, with its name: a Sub lifts the whole swell and colours the water, a Wake lays a trail where Bus A's comet has just been, Fly is a third comet, and Dry is a lantern floating in the middle that glows with its level. Switched off, it shows nothing.
 - **The window is 1520 x 924**, 24 taller than before, to give the bottom row room for Stowaway's plate. At its smallest it still opens whole on a 1440 x 900 screen.
 - **Modulation is laid out as the other panels are**: its name, its hint and the **Cables** button in a title bar along the top, and the four modulators under it across the panel's width.

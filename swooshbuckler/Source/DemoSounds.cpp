@@ -329,6 +329,52 @@ juce::AudioBuffer<float> DemoSounds::hit()
 }
 
 //==============================================================================
+juce::AudioBuffer<float> DemoSounds::rumble()
+{
+    // A rumble, as of something very large a long way off: noise kept under about 90 Hz, a boom around 45 Hz
+    // that wanders, and a little grit above it (up to a few hundred hertz) so that it can still be made out on
+    // small speakers. It heaves slowly and loops without a seam, as the bed does.
+    const double seconds = 8.0, seam = 0.8;
+    const int len = samples(seconds), extra = samples(seam);
+    juce::AudioBuffer<float> made(1, len + extra);
+    {
+        Noise noise(71);
+        Svf deep, boom, grit;
+        OnePole gritTop;
+        float* out = made.getWritePointer(0);
+        for (int i = 0; i < len + extra; ++i)
+        {
+            const double t = i / c_fs;
+            const float white = noise();
+            // Whole numbers of cycles in the loop, so the heave joins up at the seam.
+            const double heave = 0.74 + 0.16 * std::sin(c_twoPi * 2.0 * t / seconds + 1.1)
+                                      + 0.10 * std::sin(c_twoPi * 5.0 * t / seconds + 0.2);
+            deep.run(white, 90.0, 0.7);
+            boom.run(white, 45.0 * std::pow(2.0, 0.25 * std::sin(c_twoPi * 3.0 * t / seconds + 2.0)), 4.0);
+            grit.run(white, 210.0, 0.8);
+            const float v = 3.0f * deep.low + 1.1f * boom.band + 0.16f * gritTop.low(grit.band, 500.0);
+            out[i] = static_cast<float>(heave) * v;
+        }
+    }
+
+    juce::AudioBuffer<float> b(1, len);
+    const float* in = made.getReadPointer(0);
+    float* out = b.getWritePointer(0);
+    for (int i = 0; i < len; ++i)
+    {
+        if (i < extra)
+        {
+            const double x = static_cast<double>(i) / extra;
+            out[i] = static_cast<float>(std::sin(0.5 * c_pi * x)) * in[i] + static_cast<float>(std::cos(0.5 * c_pi * x)) * in[len + i];
+        }
+        else
+            out[i] = in[i];
+    }
+    normalise(b, 0.7f);
+    return b;
+}
+
+//==============================================================================
 std::vector<DemoSounds::Sound> DemoSounds::all()
 {
     std::vector<Sound> sounds;
@@ -336,5 +382,6 @@ std::vector<DemoSounds::Sound> DemoSounds::all()
     sounds.push_back({ "Demo Wind Bed", windBed() });
     sounds.push_back({ "Demo Swish", swish() });
     sounds.push_back({ "Demo Hit", hit() });
+    sounds.push_back({ "Demo Rumble", rumble() });
     return sounds;
 }

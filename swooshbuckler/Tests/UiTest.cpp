@@ -990,7 +990,8 @@ int main(int argc, char* argv[])
                 check(strips && ride.contains(ed.m_rideStripArea) && ed.m_rideStripArea.getWidth() > 200,
                       "strips: a scope strip the width of its panel along the bottom of Bus A, Bus B, Hits and Output, under the knobs; the ride's last 8 s in Ride" + at);
 
-                // Four whole lanes in view, never a half-cut one; the drop zone under them is one slim line.
+                // The five demo sounds: four whole lanes in view, never a half-cut one, and the fifth a scroll away;
+                // the drop zone under them is one slim line.
                 auto& hold = ed.m_hold;
                 int lanes = 0, whole = 0, laneHeight = 0;
                 for (auto* lane : hold.m_laneHolder.getChildren())
@@ -1000,8 +1001,9 @@ int main(int argc, char* argv[])
                         laneHeight = lane->getHeight();
                         whole += hold.m_viewport.getBounds().contains(hold.getLocalArea(lane, lane->getLocalBounds())) ? 1 : 0;
                     }
-                check(lanes == 4 && whole == 4 && laneHeight >= 64 && hold.m_viewport.getHeight() == 4 * laneHeight,
-                      "lanes: four whole lanes in view (" + juce::String(laneHeight) + " high), the list exactly four lanes tall" + at);
+                check(lanes == 5 && whole == 4 && laneHeight >= 64 && hold.m_viewport.getHeight() == 4 * laneHeight
+                          && hold.m_laneHolder.getHeight() == 5 * laneHeight,
+                      "lanes: five tracks, four whole lanes in view (" + juce::String(laneHeight) + " high), the list exactly four lanes tall and the fifth a scroll away" + at);
                 check(hold.m_dropZone.getHeight() > 0 && hold.m_dropZone.getHeight() <= 24 && hold.m_dropZone.getY() >= hold.m_viewport.getBottom()
                           && hold.getLocalBounds().contains(hold.m_dropZone),
                       "lanes: with tracks loaded the drop zone is one slim line under them (" + juce::String(hold.m_dropZone.getHeight()) + " px)" + at);
