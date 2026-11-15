@@ -5375,8 +5375,12 @@ namespace
             {
                 silent = true;
                 play(1.0);   // (the input level falls silent first: a sound would take the hint away)
+                play(1.5);
                 monster.setHint("Play a voice through it to wake the creature. Pick a preset or roll a die to change it.");
-                play(2.5);
+                monster.refreshOverlay(2.0f);   // (the 1.5 s of silence it waits for, at once)
+                play(0.5);
+                if (!monster.isHintShowing())
+                    std::printf("  (the hint is not up: input level %.4f)\n", static_cast<double>(p->getMonsterFeatures().inputLevel.load()));
                 const auto picture = editorPicture(2.0f);
                 const auto view = stage.getLocalArea(&monster, monster.getLocalBounds());
                 save(picture.getClippedImage((view.withTop(view.getBottom() - 70) * 2).getIntersection(picture.getBounds())), "hint-asleep@2x.png");
