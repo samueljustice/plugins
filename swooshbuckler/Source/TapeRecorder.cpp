@@ -1201,7 +1201,7 @@ void TapeRecorder::closeWhoosh()
 double TapeRecorder::retroCapacityFor(double sampleRate, int numChannels, int seconds)
 {
     const auto asked = static_cast<std::int64_t>(sampleRate * seconds);
-    const auto fits = c_maxRetroBytes / (static_cast<std::int64_t>(juce::jmax(1, numChannels)) * static_cast<std::int64_t>(sizeof(float)));
+    const auto fits = retroCapFor(numChannels) / (static_cast<std::int64_t>(juce::jmax(1, numChannels)) * static_cast<std::int64_t>(sizeof(float)));
     return static_cast<double>(juce::jmin(asked, fits)) / juce::jmax(1.0, sampleRate);
 }
 
@@ -1218,17 +1218,61 @@ void TapeRecorder::setRetroSeconds(int seconds)
     if (seconds == m_retroSeconds.load())
         return;
     m_retroSeconds = seconds;
+    if (! m_retroInUse.load())
+    {
+        retroSamples(m_sampleRate, m_numChannels, seconds); // what the button says; the memory waits
+        return;
+    }
     // A bigger (or smaller) ring, made here and swapped in under the lock (the audio thread only try-locks it).
-    juce::AudioBuffer<float> ring(m_numChannels, retroSamples(m_sampleRate, m_numChannels, seconds));
-    ring.clear();
+    // Not cleared: only what has been written since is ever read, so its pages are taken as the ring fills.
+    juce::AudioBuffer<float> ring;
+    ring.setSize(m_numChannels, retroSamples(m_sampleRate, m_numChannels, seconds), false, false, false);
     const juce::SpinLock::ScopedLockType lock(m_retroLock);
     m_retroGeneration.fetch_add(1);
     std::swap(m_retro, ring);
     if (const int wanted = retroSamples(m_sampleRate, m_numChannels, m_retroSeconds.load());
         m_retro.getNumSamples() != wanted || m_retro.getNumChannels() != m_numChannels)
-        m_retro.setSize(m_numChannels, wanted, false, true, false); // prepared meanwhile
+        m_retro.setSize(m_numChannels, wanted, false, false, false); // prepared meanwhile
     m_retroWrite = 0;
     m_retroTotal = 0;
+}
+
+void TapeRecorder::useRetro()
+{
+    m_retroAsked.store(false);
+    if (m_retroInUse.exchange(true))
+        return;
+    int channels = 0, size = 0;
+    {
+        const juce::SpinLock::ScopedLockType lock(m_retroLock);
+        channels = m_numChannels;
+        size = retroSamples(m_sampleRate, m_numChannels, m_retroSeconds.load());
+    }
+    // Made here and swapped in under the lock (the audio thread only try-locks it). Not cleared: only what has
+    // been written since is ever read, so its pages are taken as the ring fills.
+    juce::AudioBuffer<float> ring;
+    ring.setSize(channels, size, false, false, false);
+    const juce::SpinLock::ScopedLockType lock(m_retroLock);
+    m_retroGeneration.fetch_add(1);
+    std::swap(m_retro, ring);
+    if (const int wanted = retroSamples(m_sampleRate, m_numChannels, m_retroSeconds.load());
+        m_retro.getNumSamples() != wanted || m_retro.getNumChannels() != m_numChannels)
+        m_retro.setSize(m_numChannels, wanted, false, false, false); // prepared meanwhile
+    m_retroWrite = 0;
+    m_retroTotal = 0;
+}
+
+void TapeRecorder::allocateRetroIfAsked()
+{
+    if (m_retroAsked.load() && ! m_retroInUse.load())
+        useRetro();
+}
+
+std::int64_t TapeRecorder::getRetroBytes() const
+{
+    const juce::SpinLock::ScopedLockType lock(m_retroLock);
+    return m_retro.getNumSamples() <= 1 ? 0
+         : static_cast<std::int64_t>(m_retro.getNumChannels()) * m_retro.getNumSamples() * static_cast<std::int64_t>(sizeof(float));
 }
 
 void TapeRecorder::prepare(double sampleRate, int numChannels)
@@ -1258,12 +1302,17 @@ void TapeRecorder::prepare(double sampleRate, int numChannels)
         start(folder, options, error);
     }
 
+    juce::AudioBuffer<float> old; // let go of outside the lock
     const juce::SpinLock::ScopedLockType lock(m_retroLock);
     m_retroGeneration.fetch_add(1);
     m_sampleRate = sampleRate;
     m_numChannels = juce::jmax(1, numChannels);
-    m_retro.setSize(m_numChannels, retroSamples(sampleRate, m_numChannels, m_retroSeconds.load()), false, true, false);
-    m_retro.clear();
+    const int size = retroSamples(sampleRate, m_numChannels, m_retroSeconds.load());
+    if (m_retroInUse.load())
+        m_retro.setSize(m_numChannels, size, false, false, false); // not cleared: see useRetro
+    else
+        std::swap(m_retro, old); // no memory until it can be used (setRetroOnDemand)
+    m_retroAsked.store(false);
     m_retroWrite = 0;
     m_retroTotal = 0;
 }
@@ -1500,8 +1549,21 @@ void TapeRecorder::process(const float* const* channels, int numChannels, int nu
 
     // Retro ring
     const juce::SpinLock::ScopedTryLockType lock(m_retroLock);
-    if (! lock.isLocked() || m_retro.getNumSamples() <= 1)
+    if (! lock.isLocked())
         return;
+    if (m_retro.getNumSamples() <= 1)
+    {
+        // No memory taken yet (setRetroOnDemand): the first sound asks the message thread for it.
+        if (! m_retroInUse.load(std::memory_order_relaxed) && ! m_retroAsked.load(std::memory_order_relaxed))
+            for (int ch = 0; ch < numChannels; ++ch)
+                if (const auto range = juce::FloatVectorOperations::findMinAndMax(channels[ch], numSamples);
+                    range.getStart() < -1.0e-4f || range.getEnd() > 1.0e-4f)
+                {
+                    m_retroAsked.store(true, std::memory_order_relaxed);
+                    break;
+                }
+        return;
+    }
 
     const int size = m_retro.getNumSamples();
     int write = m_retroWrite.load();

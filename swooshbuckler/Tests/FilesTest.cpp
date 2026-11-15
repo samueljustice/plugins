@@ -988,10 +988,50 @@ int main(int argc, char* argv[])
         const double stereo = t.getRetroCapacitySeconds();
         std::cout << "         five minutes asked: 7.1.4 at 192 kHz holds " << wide << " s, Stereo " << stereo << " s, 7.1.4 at 48 kHz "
                   << TapeRecorder::retroCapacityFor(48000.0, 12, 300) << " s" << std::endl;
-        const double expectWide = static_cast<double>(TapeRecorder::c_maxRetroBytes / (12 * 4)) / 192000.0;
-        check(std::abs(wide - expectWide) < 0.01 && wide > 58.0 && wide < 58.5, "7.1.4 at 192 kHz: capped at 512 MB, 58 s, and it says so");
-        check(std::abs(stereo - 300.0) < 0.01 && std::abs(TapeRecorder::retroCapacityFor(48000.0, 12, 60) - 60.0) < 0.01,
-              "Stereo keeps its five minutes; a minute of 7.1.4 at 48 kHz is a minute");
+        const double expectWide = static_cast<double>(TapeRecorder::c_maxRetroBytesRoom / (12 * 4)) / 192000.0;
+        check(std::abs(wide - expectWide) < 0.01 && wide > 12.4 && wide < 12.6, "7.1.4 at 192 kHz: capped at the room's 115 MB, 12.5 s, and it says so");
+        check(std::abs(stereo - 300.0) < 0.01 && std::abs(TapeRecorder::retroCapacityFor(192000.0, 2, 300) - 300.0) < 0.01,
+              "Stereo keeps its five minutes, at 192 kHz too (512 MB)");
+        check(std::abs(TapeRecorder::retroCapacityFor(48000.0, 10, 60) - 60.0) < 0.01 && std::abs(TapeRecorder::retroCapacityFor(48000.0, 8, 60) - 60.0) < 0.01
+                  && std::abs(TapeRecorder::retroCapacityFor(48000.0, 12, 60) - 50.0) < 0.01
+                  && TapeRecorder::c_maxRetroBytesRoom <= 120LL * 1000 * 1000,
+              "in a room: a whole minute of 7.1 and 7.1.2 at 48 kHz, 50 s of 7.1.4, never more than 115 MB");
+
+        // On demand (the plug-in and the app): no memory until it can be used.
+        {
+            TapeRecorder lazy;
+            lazy.setRetroOnDemand();
+            lazy.prepare(c_fs, 12);
+            const bool noneAtPrepare = lazy.getRetroBytes() == 0;
+            const bool sameLength = std::abs(lazy.getRetroCapacitySeconds() - 50.0) < 0.01;
+            feed(lazy, 12, 1.0, [](int, std::int64_t) { return 0.0f; });
+            lazy.allocateRetroIfAsked();
+            const bool noneForSilence = lazy.getRetroBytes() == 0;
+            feed(lazy, 12, 0.1, [](int ch, std::int64_t) { return levelOf(ch); });
+            const bool noneOnAudioThread = lazy.getRetroBytes() == 0; // only a flag is raised there
+            lazy.allocateRetroIfAsked();
+            const auto taken = lazy.getRetroBytes();
+            const auto expected = static_cast<std::int64_t>(12) * (static_cast<std::int64_t>(50.0 * c_fs) + 1) * 4;
+            feed(lazy, 12, 2.0, [](int ch, std::int64_t) { return levelOf(ch); });
+            juce::File kept;
+            juce::String keptError;
+            const bool keptSaved = lazy.saveRetro(fresh(folder, "lazy"), 24, kept, keptError);
+            lazy.prepare(c_fs, 6);
+            const bool takenAgain = lazy.getRetroBytes() == static_cast<std::int64_t>(6) * (static_cast<std::int64_t>(60.0 * c_fs) + 1) * 4;
+            std::cout << "         on demand at 7.1.4, 48 kHz: " << noneAtPrepare << noneForSilence << noneOnAudioThread << " nothing until sound, then "
+                      << taken / 1000000 << " MB; saved " << keptSaved << " " << keptError << std::endl;
+            check(noneAtPrepare && sameLength && noneForSilence && noneOnAudioThread,
+                  "on demand: no memory when prepared, none for silence, the audio thread only asks; the button's length is known already");
+            check(taken == expected && keptSaved && takenAgain,
+                  "on demand: the first sound gets it (50 s of 7.1.4, " + juce::String(taken / 1000000) + " MB), it saves, and a new prepare keeps it " + keptError);
+
+            TapeRecorder played;
+            played.setRetroOnDemand();
+            played.prepare(c_fs, 2);
+            played.useRetro(); // Play or arm
+            check(played.getRetroBytes() == static_cast<std::int64_t>(2) * (static_cast<std::int64_t>(60.0 * c_fs) + 1) * 4,
+                  "on demand: Play or arm takes it at once, before the first sound");
+        }
 
         const auto dir = fresh(folder, "retro");
         t.setNaming(naming());

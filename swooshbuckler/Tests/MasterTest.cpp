@@ -451,6 +451,45 @@ int main()
             check(std::abs(d.getLatencySamples() - std::round(d.getLatencySamples())) < 1.0e-9 && std::abs(ahead - d.getLatencySamples()) < 1.0e-9,
                   "a whole-number ratio has a whole-number latency, exactly");
     }
+    for (const double ratio : { 2.0, 4.0 })
+    {
+        // Primed (as the processor primes it after every prepare), an impulse the engine renders first after the
+        // prepare comes out exactly as late as one rendered long after: the reported latency, every time.
+        // Without priming the first one came out getLatencySamples() early (26 samples at 2:1 and 4:1).
+        Downsampler d;
+        d.prepare(ratio, 1);
+        d.prime();
+        constexpr int c_block = 64;
+        constexpr int c_laterBlock = 100;
+        std::vector<float> in, out;
+        for (int b = 0; b <= c_laterBlock + 10; ++b)
+        {
+            const int needed = d.inputsNeeded(c_block);
+            const size_t start = in.size();
+            in.resize(start + static_cast<size_t>(needed), 0.0f);
+            if (b == 0 || b == c_laterBlock)
+                in[start] = 1.0f; // what the engine renders first in this block
+            std::vector<float> block(static_cast<size_t>(c_block));
+            const float* inCh[1] = { in.data() + start };
+            float* outCh[1] = { block.data() };
+            d.process(inCh, outCh, c_block);
+            out.insert(out.end(), block.begin(), block.end());
+        }
+        auto peakAfter = [&out](int from, int to)
+        {
+            int at = from;
+            for (int k = from; k < to; ++k)
+                if (std::abs(out[static_cast<size_t>(k)]) > std::abs(out[static_cast<size_t>(at)]))
+                    at = k;
+            return at;
+        };
+        const int first = peakAfter(0, c_laterBlock * c_block / 2);
+        const int later = peakAfter(c_laterBlock * c_block, static_cast<int>(out.size())) - c_laterBlock * c_block;
+        std::cout << "  primed at " << ratio << ":1: the first sound after a prepare comes out " << first << " samples late, one started later "
+                  << later << "; reported " << d.getLatencySamples() << std::endl;
+        check(first == later && std::abs(first - d.getLatencySamples()) < 1.0e-9,
+              "primed, the first sound after a prepare is as late as every later one: the reported latency");
+    }
     {
         // The whole high-rate path: limit at 96 kHz, downsample to 48 kHz, hold the ceiling again.
         const auto limited = runFresh(96000.0, pluginRelease(9.0f), hitsAndSweep(96000.0));

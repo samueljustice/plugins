@@ -1,5 +1,6 @@
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
+#include "SettingsFile.h"
 #include "VariationRenderer.h"
 #include "Version.h"
 
@@ -7,13 +8,10 @@ namespace
 {
     std::unique_ptr<juce::PropertiesFile> openSettings()
     {
-        juce::PropertiesFile::Options o;
-        o.applicationName = "Swooshbuckler";
-        o.folderName = "Sweet Justice";
-        o.filenameSuffix = "settings";
-        o.osxLibrarySubFolder = "Application Support";
-        o.commonToAllUsers = false;
-        return std::make_unique<juce::PropertiesFile>(o);
+        // The file every Swooshbuckler shares; an old one that still holds the app's session gives it up first, so
+        // this instance never reads or writes megabytes (SettingsFile.h).
+        settingsfile::separateAppSession(settingsfile::defaultFile());
+        return std::make_unique<juce::PropertiesFile>(settingsfile::defaultFile(), settingsfile::options());
     }
 }
 
@@ -145,6 +143,9 @@ SwooshbucklerAudioProcessor::SwooshbucklerAudioProcessor(juce::PropertiesFile* o
         m_ownSettings = openSettings();
         m_settings = m_ownSettings.get();
     }
+    // The saved last minutes take their memory at the first Play, arm or sound, not here: an instance that is
+    // never played costs nothing for them.
+    m_recorder.setRetroOnDemand();
     m_recorder.setRetroSeconds(getRetroMinutes() * 60);
     m_listening.store(juce::jlimit(0, room::c_numWidths - 1, m_settings->getIntValue("listening", static_cast<int>(room::Width::Stereo))));
     // The learned MIDI controllers: "target:cc" pairs.
@@ -248,6 +249,7 @@ void SwooshbucklerAudioProcessor::prepareInternal()
     if (ratio > 1.0)
     {
         m_down.prepare(ratio, m_pipeChannels);
+        m_down.prime(); // the first sound after a prepare is as late as the latency below, like every later one
         m_highRate.setSize(m_pipeChannels, m_down.maxInputsFor(c_maxSection));
         m_highRate.clear();
         m_monitorLimiter.prepare(m_deviceRate, m_width);
@@ -890,8 +892,7 @@ void SwooshbucklerAudioProcessor::saveMidiControls()
             pairs.add(juce::String(t) + ":" + juce::String(cc));
     if (m_settings != nullptr && ! m_offline)
     {
-        m_settings->setValue("midiControls", pairs.joinIntoString(","));
-        m_settings->saveIfNeeded();
+        storeSetting("midiControls", pairs.joinIntoString(","));
     }
     ++m_ccGeneration;
 }
@@ -949,6 +950,8 @@ void SwooshbucklerAudioProcessor::runWander(int numSamples)
 
 void SwooshbucklerAudioProcessor::setPlaying(bool on)
 {
+    if (on && ! m_offline && juce::MessageManager::existsAndIsCurrentThread())
+        m_recorder.useRetro(); // the saved last minutes' memory, before the first sound (it allocates)
     if (on && ! m_playing.load())
         m_restartPending.store(true);
     m_playing.store(on);
@@ -1456,14 +1459,12 @@ void SwooshbucklerAudioProcessor::noteRecentSession(const juce::File& file)
     paths.insert(0, file.getFullPathName());
     while (paths.size() > 10)
         paths.remove(paths.size() - 1);
-    m_settings->setValue("recentSessions", paths.joinIntoString("\n"));
-    m_settings->saveIfNeeded();
+    storeSetting("recentSessions", paths.joinIntoString("\n"));
 }
 
 void SwooshbucklerAudioProcessor::clearRecentSessions()
 {
-    m_settings->removeValue("recentSessions");
-    m_settings->saveIfNeeded();
+    settingsfile::remove(*m_settings, "recentSessions");
 }
 
 bool SwooshbucklerAudioProcessor::isUserEdit(int) const
@@ -1474,6 +1475,7 @@ bool SwooshbucklerAudioProcessor::isUserEdit(int) const
 
 bool SwooshbucklerAudioProcessor::arm(juce::String& error)
 {
+    m_recorder.useRetro();
     m_recorder.setSignalGate(getSkipSilence());
     auto o = tapeOptions();
     o.perWhoosh = getOneFilePerWhoosh();
@@ -1485,6 +1487,7 @@ bool SwooshbucklerAudioProcessor::arm(juce::String& error)
 
 bool SwooshbucklerAudioProcessor::startRecording(juce::String& error)
 {
+    m_recorder.useRetro();
     // One continuous take in one file, whatever the settings say about whooshes.
     const auto o = tapeOptions();
     refreshTakes();
@@ -1505,8 +1508,7 @@ int SwooshbucklerAudioProcessor::getRecordRate() const
 
 void SwooshbucklerAudioProcessor::setRecordRate(int rate)
 {
-    m_settings->setValue("recordRate", rate);
-    m_settings->saveIfNeeded();
+    storeSetting("recordRate", rate);
     if (m_deviceRate > 0.0 && ! isRecording())
     {
         // Re-render at the new rate (the tape stays closed while it changes).
@@ -1517,7 +1519,7 @@ void SwooshbucklerAudioProcessor::setRecordRate(int rate)
 }
 
 int SwooshbucklerAudioProcessor::getFileType() const { return juce::jlimit(0, 2, m_settings->getIntValue("fileType", 0)); }
-void SwooshbucklerAudioProcessor::setFileType(int type) { m_settings->setValue("fileType", juce::jlimit(0, 2, type)); m_settings->saveIfNeeded(); }
+void SwooshbucklerAudioProcessor::setFileType(int type) { storeSetting("fileType", juce::jlimit(0, 2, type)); }
 SwooshbucklerAudioProcessor::TapeFold SwooshbucklerAudioProcessor::getTapeFold() const
 {
     return static_cast<TapeFold>(juce::jlimit(0, 2, m_settings->getIntValue("tapeFold", 0)));
@@ -1525,8 +1527,7 @@ SwooshbucklerAudioProcessor::TapeFold SwooshbucklerAudioProcessor::getTapeFold()
 
 void SwooshbucklerAudioProcessor::setTapeFold(TapeFold fold)
 {
-    m_settings->setValue("tapeFold", static_cast<int>(fold));
-    m_settings->saveIfNeeded();
+    storeSetting("tapeFold", static_cast<int>(fold));
 }
 
 room::Width SwooshbucklerAudioProcessor::getTapeWidth() const
@@ -1550,8 +1551,7 @@ bool SwooshbucklerAudioProcessor::setListening(room::Width width)
     if (isRecording())
         return false; // the tape is written at the room's width: it cannot change under a take
     m_listening.store(static_cast<int>(width));
-    m_settings->setValue("listening", static_cast<int>(width));
-    m_settings->saveIfNeeded();
+    storeSetting("listening", static_cast<int>(width));
     if (onListeningChanged)
         onListeningChanged();
     return true;
@@ -1611,8 +1611,7 @@ room::FileOrder SwooshbucklerAudioProcessor::getChannelOrder() const
 
 void SwooshbucklerAudioProcessor::setChannelOrder(room::FileOrder order)
 {
-    m_settings->setValue("channelOrder", order == room::FileOrder::WavStandard ? 1 : 0);
-    m_settings->saveIfNeeded();
+    storeSetting("channelOrder", order == room::FileOrder::WavStandard ? 1 : 0);
 }
 
 takefile::Layout SwooshbucklerAudioProcessor::getFileLayout() const
@@ -1622,8 +1621,7 @@ takefile::Layout SwooshbucklerAudioProcessor::getFileLayout() const
 
 void SwooshbucklerAudioProcessor::setFileLayout(takefile::Layout layout)
 {
-    m_settings->setValue("fileLayout", layout == takefile::Layout::MultiMono ? 1 : 0);
-    m_settings->saveIfNeeded();
+    storeSetting("fileLayout", layout == takefile::Layout::MultiMono ? 1 : 0);
 }
 
 TapeRecorder::Options SwooshbucklerAudioProcessor::tapeOptions() const
@@ -1682,20 +1680,19 @@ VariationRenderer& SwooshbucklerAudioProcessor::getVariations()
 }
 
 int SwooshbucklerAudioProcessor::getVariationCount() const { return juce::jlimit(1, VariationRenderer::c_maxCount, m_settings->getIntValue("variationCount", 100)); }
-void SwooshbucklerAudioProcessor::setVariationCount(int count) { m_settings->setValue("variationCount", juce::jlimit(1, VariationRenderer::c_maxCount, count)); m_settings->saveIfNeeded(); }
+void SwooshbucklerAudioProcessor::setVariationCount(int count) { storeSetting("variationCount", juce::jlimit(1, VariationRenderer::c_maxCount, count)); }
 int SwooshbucklerAudioProcessor::getVariationMode() const { return juce::jlimit(0, 2, m_settings->getIntValue("variationMode", 0)); }
-void SwooshbucklerAudioProcessor::setVariationMode(int mode) { m_settings->setValue("variationMode", juce::jlimit(0, 2, mode)); m_settings->saveIfNeeded(); }
+void SwooshbucklerAudioProcessor::setVariationMode(int mode) { storeSetting("variationMode", juce::jlimit(0, 2, mode)); }
 float SwooshbucklerAudioProcessor::getVariationAmount() const { return juce::jlimit(0.0f, 1.0f, static_cast<float>(m_settings->getDoubleValue("variationAmount", 0.3))); }
-void SwooshbucklerAudioProcessor::setVariationAmount(float amount) { m_settings->setValue("variationAmount", static_cast<double>(juce::jlimit(0.0f, 1.0f, amount))); m_settings->saveIfNeeded(); }
+void SwooshbucklerAudioProcessor::setVariationAmount(float amount) { storeSetting("variationAmount", static_cast<double>(juce::jlimit(0.0f, 1.0f, amount))); }
 juce::String SwooshbucklerAudioProcessor::getVariationFolder() const { return m_settings->getValue("variationFolder").trim(); }
-void SwooshbucklerAudioProcessor::setVariationFolder(const juce::String& path) { m_settings->setValue("variationFolder", path.trim()); m_settings->saveIfNeeded(); }
+void SwooshbucklerAudioProcessor::setVariationFolder(const juce::String& path) { storeSetting("variationFolder", path.trim()); }
 juce::String SwooshbucklerAudioProcessor::getVariationValue(const juce::String& key, const juce::String& fallback) const { return m_settings->getValue("variation" + key, fallback); }
 void SwooshbucklerAudioProcessor::setVariationValue(const juce::String& key, const juce::String& value)
 {
     if (m_settings->getValue("variation" + key) == value && m_settings->containsKey("variation" + key))
         return;
-    m_settings->setValue("variation" + key, value);
-    m_settings->saveIfNeeded();
+    storeSetting("variation" + key, value);
 }
 
 std::unique_ptr<SwooshbucklerAudioProcessor> SwooshbucklerAudioProcessor::makeOfflineCopy()
@@ -1784,8 +1781,7 @@ void SwooshbucklerAudioProcessor::setOneFilePerWhoosh(bool on)
 {
     if (on == getOneFilePerWhoosh())
         return;
-    m_settings->setValue("oneFilePerWhoosh", on);
-    m_settings->saveIfNeeded();
+    storeSetting("oneFilePerWhoosh", on);
     if (isRecording())
     {
         // The open take is written the old way: close it and carry on in a new one.
@@ -1796,11 +1792,11 @@ void SwooshbucklerAudioProcessor::setOneFilePerWhoosh(bool on)
 }
 
 juce::String SwooshbucklerAudioProcessor::getTakeName() const { return m_settings->getValue("takeName").trim(); }
-void SwooshbucklerAudioProcessor::setTakeName(const juce::String& name) { m_settings->setValue("takeName", name.trim()); m_settings->saveIfNeeded(); updateTapeNaming(); }
+void SwooshbucklerAudioProcessor::setTakeName(const juce::String& name) { storeSetting("takeName", name.trim()); updateTapeNaming(); }
 juce::String SwooshbucklerAudioProcessor::getCreator() const { return m_settings->getValue("creator").trim(); }
-void SwooshbucklerAudioProcessor::setCreator(const juce::String& creator) { m_settings->setValue("creator", creator.trim()); m_settings->saveIfNeeded(); updateTapeNaming(); }
+void SwooshbucklerAudioProcessor::setCreator(const juce::String& creator) { storeSetting("creator", creator.trim()); updateTapeNaming(); }
 int SwooshbucklerAudioProcessor::getNameStyle() const { return juce::jlimit(0, 1, m_settings->getIntValue("nameStyle", 0)); }
-void SwooshbucklerAudioProcessor::setNameStyle(int style) { m_settings->setValue("nameStyle", juce::jlimit(0, 1, style)); m_settings->saveIfNeeded(); updateTapeNaming(); }
+void SwooshbucklerAudioProcessor::setNameStyle(int style) { storeSetting("nameStyle", juce::jlimit(0, 1, style)); updateTapeNaming(); }
 
 int SwooshbucklerAudioProcessor::getRetroMinutes() const
 {
@@ -1810,8 +1806,7 @@ int SwooshbucklerAudioProcessor::getRetroMinutes() const
 
 void SwooshbucklerAudioProcessor::setRetroMinutes(int minutes)
 {
-    m_settings->setValue("retroMinutes", minutes == 3 || minutes == 5 ? minutes : 1);
-    m_settings->saveIfNeeded();
+    storeSetting("retroMinutes", minutes == 3 || minutes == 5 ? minutes : 1);
     m_recorder.setRetroSeconds(getRetroMinutes() * 60);
 }
 
@@ -2000,8 +1995,7 @@ juce::File SwooshbucklerAudioProcessor::getRecordFolder() const
 
 void SwooshbucklerAudioProcessor::setRecordFolder(const juce::File& folder)
 {
-    m_settings->setValue("recordFolder", folder.getFullPathName());
-    m_settings->saveIfNeeded();
+    storeSetting("recordFolder", folder.getFullPathName());
 }
 
 int SwooshbucklerAudioProcessor::getBitDepth() const
@@ -2012,8 +2006,7 @@ int SwooshbucklerAudioProcessor::getBitDepth() const
 
 void SwooshbucklerAudioProcessor::setBitDepth(int bits)
 {
-    m_settings->setValue("bitDepth", bits);
-    m_settings->saveIfNeeded();
+    storeSetting("bitDepth", bits);
 }
 
 bool SwooshbucklerAudioProcessor::getAutoRecord() const
@@ -2023,8 +2016,7 @@ bool SwooshbucklerAudioProcessor::getAutoRecord() const
 
 void SwooshbucklerAudioProcessor::setAutoRecord(bool on)
 {
-    m_settings->setValue("autoRecord", on);
-    m_settings->saveIfNeeded();
+    storeSetting("autoRecord", on);
 }
 
 bool SwooshbucklerAudioProcessor::getSkipSilence() const
@@ -2034,8 +2026,7 @@ bool SwooshbucklerAudioProcessor::getSkipSilence() const
 
 void SwooshbucklerAudioProcessor::setSkipSilence(bool on)
 {
-    m_settings->setValue("skipSilence", on);
-    m_settings->saveIfNeeded();
+    storeSetting("skipSilence", on);
     m_recorder.setSignalGate(on); // an open take follows at once
 }
 
@@ -2054,6 +2045,10 @@ void SwooshbucklerAudioProcessor::timerCallback()
         setPlaying(false);
 
     refreshHostReadouts();
+
+    // A host's transport, a key or a throw played the rig before anything here asked for the saved last minutes.
+    if (! m_offline)
+        m_recorder.allocateRetroIfAsked();
 
     // The tape: the files it has closed go into the takes, and the next file is named and described by the
     // settings as they are now.
@@ -2323,6 +2318,12 @@ void SwooshbucklerAudioProcessor::applyRestoredState(const juce::ValueTree& carg
 
 std::function<void()> SwooshbucklerAudioProcessor::showAudioSettings;
 juce::PropertiesFile* SwooshbucklerAudioProcessor::s_sharedSettings = nullptr;
+
+void SwooshbucklerAudioProcessor::storeSetting(const juce::String& key, const juce::var& value)
+{
+    // Only this key goes into the file as it is now: another instance's (or the app's) newer values stay.
+    settingsfile::store(*m_settings, key, value);
+}
 
 juce::AudioProcessorEditor* SwooshbucklerAudioProcessor::createEditor()
 {

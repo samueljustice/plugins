@@ -309,7 +309,7 @@ if(SWOOSHBUCKLER_TESTS)
     # Files test: takes of every room width on disk. Every width, Channel Order (Like Pro Tools, WAV Standard),
     # File Layout (Interleaved, Multi-Mono) and file type written and read back with the test's own parser (the WAV
     # speaker mask, the channel names, each channel's sound in its slot, the markers, Multi-Mono sets complete and
-    # named, all or nothing), the tape and the saved last minutes at 12 channels, the 512 MB cap, the Mono fold,
+    # named, all or nothing), the tape and the saved last minutes at 12 channels, their memory cap and taking it only when needed, the Mono fold,
     # RF64, audition at any width, and a Multi-Mono set as one take.
     juce_add_console_app(SwooshbucklerFiles PRODUCT_NAME "SwooshbucklerFiles")
     target_sources(SwooshbucklerFiles PRIVATE Tests/FilesTest.cpp)

@@ -1,4 +1,5 @@
 #include "Shortcuts.h"
+#include "SettingsFile.h"
 #include "Theme.h"
 
 namespace Shortcuts
@@ -223,7 +224,7 @@ void Registry::store(Action action)
 {
     if (m_settings == nullptr)
         return;
-    m_settings->setValue("shortcut_" + juce::String(info(action).id), describe(key(action)));
+    settingsfile::store(*m_settings, "shortcut_" + juce::String(info(action).id), describe(key(action)));
 }
 
 juce::String Registry::keyText(Action action) const

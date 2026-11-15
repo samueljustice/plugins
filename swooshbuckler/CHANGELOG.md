@@ -19,6 +19,10 @@
 
 ### Other changes
 
+- **The app's session has a file of its own.** The app kept its last session, sounds and all, in the settings file it shares with the plug-in, so a plug-in open in a DAW rewrote megabytes for every option it saved and could put back an older app session over the one the app saved when it quit. The shared file now holds only the small settings, each change writes only itself (so the app and every plug-in keep each other's changes), and an existing file gives the app's session to the app's new file the first time it is opened.
+- **Last 60 s takes its memory only once it can be used,** at the first Play, arm or sound, so an instance that is never played costs nothing for it. In a room each instance holds at most 115 MB: a whole minute of Quad to 7.1.2 at 48 kHz, 50 seconds of 7.1.4 (the button says so). Mono and Stereo are as before.
+- **Rendering above the session rate keeps one latency.** With Sample Rate above the session's, the first sound after the audio started came out about half a millisecond earlier than the latency the host is told (and than every later sound). It is now as late as the rest.
+- **The tape says how to free a setting it holds.** Room Width, Listening and Sample Rate can't change while the tape is armed; the message now says to click the tape to disarm it, and names the control.
 - **A calmer sea.** The lines of the sea stay where they are and only the waves travel along them, more slowly than before. The lines used to slide away to the horizon all the time, which made the whole picture rush backwards.
 - **Render Variations: just type a name.** The Batch Name box is always there to type in, and typing a name sets File Names to Batch Name And Counter for you.
 - **Render Variations: every whoosh is a whoosh of its own.** With My Settings, New Passes your settings stay exactly as they are, and each whoosh of a batch carries on through your sounds from where the last one stopped, the way the rig does when you press Throw several times in a row. The first starts at each track's flag. Whole Ride files carry on from one to the next in the same way.

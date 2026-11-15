@@ -13,8 +13,11 @@
  *  - Rolling record: while on, everything that leaves the app streams to a WAV
  *    file (background thread via AudioFormatWriter::ThreadedWriter; the audio
  *    thread only copies into a FIFO and never blocks).
- *  - Retro capture: the last c_retroSeconds are always kept in RAM, so a happy
+ *  - Retro capture: the last c_retroSeconds are kept in RAM, so a happy
  *    accident can be saved after the fact even if the tape was not rolling.
+ *    With setRetroOnDemand() (the plug-in and the app) the memory for it is only
+ *    taken once it can be used: at the first Play, the first arm, or the first
+ *    sound the tape hears (useRetro, allocateRetroIfAsked; never on the audio thread).
  *
  *  - One File per Whoosh: the take is cut into one file for each stretch of sound (the Skip Silence gate finds
  *    them), each opened and closed on the writer thread; stretches shorter than c_minWhooshSeconds are thrown away.
@@ -38,9 +41,13 @@ class TapeRecorder
 public:
     static constexpr int c_retroSeconds = 60;         // how much the retro buffer keeps unless setRetroSeconds says more
     static constexpr int c_maxRetroSeconds = 300;
-    /** The retro buffer never holds more than this, whatever the width and rate: 512 MB is the whole 300 s of
-        Stereo at 192 kHz, but under a minute of 7.1.4 at 192 kHz. getRetroCapacitySeconds() says what it holds. */
+    /** The retro buffer of Mono or Stereo never holds more than this: 512 MB is the whole 300 s of Stereo at
+        192 kHz. getRetroCapacitySeconds() says what it holds. */
     static constexpr std::int64_t c_maxRetroBytes = 512LL * 1024 * 1024;
+    /** In a room (Quad and wider) it holds no more than a minute of 7.1.2 at 48 kHz, 115 MB: a whole minute of
+        Quad, 5.1, 7.1 and 7.1.2 at 48 kHz, 50 s of 7.1.4, less at higher rates. A session of several instances in
+        a room would otherwise take hundreds of MB each. */
+    static constexpr std::int64_t c_maxRetroBytesRoom = 60LL * 48000 * 10 * static_cast<std::int64_t>(sizeof(float));
     static constexpr double c_minWhooshSeconds = 0.2; // One File per Whoosh: less sound than this is not kept
 
     enum class FileType { Wav = 0, Aiff, Flac };
@@ -180,14 +187,29 @@ public:
     double getSessionRate() const { return m_sampleRate; }
     /** How much the retro buffer is asked to keep (60 to c_maxRetroSeconds). The buffer is emptied when this
         changes. Float at the session rate: 23 MB a minute for Stereo at 48 kHz, 92 MB at 192 kHz, six times that
-        for 7.1.4, never more than c_maxRetroBytes. Message thread. */
+        for 7.1.4, never more than c_maxRetroBytes (Mono, Stereo) or c_maxRetroBytesRoom (wider). Message thread. */
     void setRetroSeconds(int seconds);
     int getRetroSeconds() const { return m_retroSeconds.load(); }
-    /** What it really holds at the prepared width and rate: getRetroSeconds(), or less where c_maxRetroBytes cuts
-        it short. Any thread. */
+    /** What it really holds at the prepared width and rate: getRetroSeconds(), or less where the cap cuts it
+        short (the same whether or not the memory has been taken yet). Any thread. */
     double getRetroCapacitySeconds() const { return m_retroCapacitySeconds.load(); }
     /** The seconds the buffer holds for this many channels at this rate, asked for `seconds`. */
     static double retroCapacityFor(double sampleRate, int numChannels, int seconds);
+    /** The most the buffer takes for this many channels (c_maxRetroBytes or c_maxRetroBytesRoom). */
+    static std::int64_t retroCapFor(int numChannels) { return numChannels > 2 ? c_maxRetroBytesRoom : c_maxRetroBytes; }
+
+    /** From now on prepare() takes no memory for the retro buffer until it can be used: useRetro() or
+        allocateRetroIfAsked() takes it. Without this call (tools, tests) prepare() takes it as always. Call it
+        before the first prepare. */
+    void setRetroOnDemand() { m_retroInUse.store(false); }
+    /** The retro buffer is wanted (Play, arm): takes its memory now if it hasn't yet, and from then on prepare()
+        takes it too. Message thread (never the audio thread: it allocates). */
+    void useRetro();
+    /** Takes the memory if the tape has heard sound since it was prepared without it (a host's transport, a key,
+        a throw: the audio thread only raises a flag). Message thread, from a timer. */
+    void allocateRetroIfAsked();
+    /** The retro buffer's memory, in bytes (0 until it is taken). Message thread. */
+    std::int64_t getRetroBytes() const;
 
     /** Samples the rolling take lost because the writer FIFO was full (reset by start()). Any thread. */
     std::int64_t getDroppedSamples() const { return m_droppedSamples.load(); }
@@ -341,6 +363,8 @@ private:
     int retroSamples(double sampleRate, int numChannels, int seconds); // sets m_retroCapacitySeconds
     std::atomic<int> m_retroWrite { 0 };
     std::atomic<std::int64_t> m_retroTotal { 0 };
-    juce::SpinLock m_retroLock; // held while preparing / reallocating, and briefly per piece while saveRetro copies
+    mutable juce::SpinLock m_retroLock; // held while preparing / reallocating, and briefly per piece while saveRetro copies
     std::atomic<int> m_retroGeneration { 0 }; // bumped by prepare (saveRetro aborts if it changes mid-copy)
+    std::atomic<bool> m_retroInUse { true };  // false until it can be used (setRetroOnDemand)
+    std::atomic<bool> m_retroAsked { false }; // the audio thread heard sound while the buffer had no memory
 };

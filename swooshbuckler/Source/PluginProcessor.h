@@ -316,6 +316,8 @@ public:
     TapeRecorder::Options tapeOptions() const;
     /** How much the saved last minutes really hold at this width and rate (the memory for them is capped). */
     double getRetroSecondsKept() const { return m_recorder.getRetroCapacitySeconds(); }
+    /** The memory the saved last minutes have taken: none until the first Play, arm or sound. Message thread. */
+    std::int64_t getRetroBytes() const { return m_recorder.getRetroBytes(); }
     /** "Last 60 s", "Last 3 Min", or the real length when the memory cap holds less: "Last 55 s", "Last 3:42". */
     juce::String retroLabel() const;
     bool getAutoRecord() const;
@@ -401,8 +403,8 @@ public:
         processBlock, after a block. */
     bool isAtRest() const { return ! m_playing.load() && m_uiThrows.load() == 0 && m_transportGain <= 0.0f && m_drainLeft <= 0; }
 
-    /** The settings file to use instead of opening our own: the standalone app shares its file (two objects on
-        one file would overwrite each other's values), and tests point it at a scratch file. Not owned; set it
+    /** The settings file to use instead of opening our own: the standalone app gives its rig the object it uses
+        itself, and tests point it at a scratch file. Not owned; set it
         before the processor is made and clear it after the processor is gone. Message thread. */
     static void useSettings(juce::PropertiesFile* shared) { s_sharedSettings = shared; }
     /** The settings file this rig reads and writes (its own, the standalone app's, or a test's). It may be
@@ -593,6 +595,8 @@ private:
     static juce::PropertiesFile* s_sharedSettings;
     std::unique_ptr<juce::PropertiesFile> m_ownSettings;
     juce::PropertiesFile* m_settings = nullptr;
+    /** Writes one setting: into the shared file as it is on disk now, nothing else (SettingsFile.h). */
+    void storeSetting(const juce::String& key, const juce::var& value);
 
     // The room (set in prepareInternal, while nothing is processed). The pipe is the width the audio is carried
     // at, Mono carried as Stereo and folded at the output (see RoomMaster).

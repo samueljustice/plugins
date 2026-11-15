@@ -796,7 +796,11 @@ int main(int argc, char* argv[])
         {
             Rig rig(sources);
             rig.widen(W::Surround714);
+            const auto idle = rig.proc.getRetroBytes();
             rig.proc.setPlaying(true);
+            const auto playing = rig.proc.getRetroBytes();
+            check(idle == 0 && playing > 0 && playing <= TapeRecorder::c_maxRetroBytesRoom + 12 * 4,
+                  "the saved last minutes take no memory until Play, then at most the room's cap (" + juce::String(playing / 1000000) + " MB at 7.1.4)");
             rig.run(3.0);
             auto& p = rig.proc;
             juce::File written;
@@ -831,7 +835,7 @@ int main(int argc, char* argv[])
             p.setFileType(0);
             p.setPlaying(false);
 
-            // The saved last minutes' length is the real one under the 512 MB cap: 7.1.4 at 192 kHz.
+            // The saved last minutes' length is the real one under the room's cap: 7.1.4 at 192 kHz.
             p.setRetroMinutes(5);
             rig.widen(W::Surround714, 192000.0);
             const double kept = TapeRecorder::retroCapacityFor(192000.0, 12, 300);

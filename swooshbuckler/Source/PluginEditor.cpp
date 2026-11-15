@@ -458,7 +458,7 @@ SwooshbucklerAudioProcessorEditor::SettingsPanel::SettingsPanel(SwooshbucklerAud
         {
             if (m_owner.m_processor.isRecording())
             {
-                m_owner.toast("Stop the tape to change its sample rate");
+                m_owner.toast("Click the tape to disarm it, then change Sample Rate");
                 return;
             }
             m_owner.m_processor.setRecordRate(value);
@@ -586,11 +586,12 @@ SwooshbucklerAudioProcessorEditor::SettingsPanel::SettingsPanel(SwooshbucklerAud
         setup(b);
         b.setButtonText(lengthNames[i]);
         const int value = minutes[i];
-        // Two channels of 32-bit float: 23 MB a minute at 48 kHz, four times that at 192 kHz.
-        b.setTooltip(juce::String(lengthNames[i]) + "\nHow much the Last button can save after the fact. The sound is held in memory all the time: about "
-                     + juce::String(23 * value) + " MB at a 48 kHz recording rate, " + juce::String(46 * value) + " MB at 96 kHz and "
-                     + juce::String(92 * value) + " MB at 192 kHz for Stereo. A wider room needs more for each channel, and the memory "
-                     "is never more than 512 MB: where that holds less, the Last button shows the real length. Changing it empties what is held.");
+        // Two channels of 32-bit float: 23 MB a minute at 48 kHz, four times that at 192 kHz. A room: TapeRecorder's cap.
+        b.setTooltip(juce::String(lengthNames[i]) + "\nHow much the Last button can save after the fact. The sound is held in memory from the first time "
+                     "the rig plays: about " + juce::String(23 * value) + " MB at a 48 kHz recording rate, " + juce::String(46 * value) + " MB at 96 kHz and "
+                     + juce::String(92 * value) + " MB at 192 kHz for Stereo, never more than 512 MB. In a room it is never more than "
+                     + juce::String(TapeRecorder::c_maxRetroBytesRoom / 1000000) + " MB for each Swooshbuckler: a minute of 5.1 or 7.1 at 48 kHz, "
+                     "50 seconds of 7.1.4, less at higher rates. Where that holds less, the Last button shows the real length. Changing it empties what is held.");
         b.onClick = [this, value] { m_owner.m_processor.setRetroMinutes(value); refresh(); };
     }
 
@@ -618,7 +619,7 @@ SwooshbucklerAudioProcessorEditor::SettingsPanel::SettingsPanel(SwooshbucklerAud
             b.onClick = [this, width]
             {
                 if (! m_owner.m_processor.setListening(width))
-                    m_owner.toast("Stop the tape to change what you are listening on");
+                    m_owner.toast("Click the tape to disarm it, then change Listening");
                 refresh();
             };
         }
@@ -890,7 +891,9 @@ void SwooshbucklerAudioProcessorEditor::SettingsPanel::paint(juce::Graphics& g)
                                                  : "Last " + juce::String(p.getRetroMinutes()) + " Min saves the last " + juce::String(p.getRetroMinutes()) + " minutes in the same format.";
     if (kept > 0 && kept < p.getRetroMinutes() * 60)
         last = p.retroLabel() + " saves the last " + (kept < 60 ? juce::String(kept) + " seconds" : juce::String::formatted("%d:%02d", kept / 60, kept % 60))
-             + " in the same format: at " + juce::String(room::layout(p.getRoomWidth()).name) + " and this rate, that is all 512 MB of memory holds.";
+             + " in the same format: at " + juce::String(room::layout(p.getRoomWidth()).name) + " and this rate, that is all "
+             + (room::layout(p.getRoomWidth()).numChannels > 2 ? juce::String(TapeRecorder::c_maxRetroBytesRoom / 1000000) : juce::String(512))
+             + " MB of memory holds.";
     juce::String note = (p.getOneFilePerWhoosh() ? "Armed, the tape writes a new file for every whoosh and leaves the quiet between them out. "
                          : p.getSkipSilence() ? "Armed, the tape writes whenever there is sound and skips the quiet stretches. "
                                               : "Armed, the tape rolls all the time. ") + last;
@@ -1307,7 +1310,9 @@ SwooshbucklerAudioProcessorEditor::SwooshbucklerAudioProcessorEditor(Swooshbuckl
     m_content.addAndMakeVisible(m_tape);
     m_tape.setTooltip("Tape\nArm it and it records whenever there is sound, skipping the quiet stretches, into one long file of usable whooshes. Click again to stop and close the file. Pass peaks and hits are marked in WAV files, so a take arrives ready to spot. Where it saves, in which format, Skip Silence (off for one continuous take) and One File per Whoosh (a separate file for each) are in Settings; what it has saved is in Takes.");
     m_tape.onClick = [this] { toggleLog(); };
-    m_retroButton.setTooltip("Last 60 Seconds\nThe rig always remembers the last minute. Click to save it to a file, even if the tape wasn't armed: for the happy accident you didn't record. Keep the Last in Settings makes it 3 or 5 minutes.");
+    m_retroButton.setTooltip("Last 60 Seconds\nOnce it has played, the rig always remembers the last minute. Click to save it to a file, even if the tape wasn't armed: "
+                             "for the happy accident you didn't record. Keep the Last in Settings makes it 3 or 5 minutes. In a room it takes at most "
+                             + juce::String(TapeRecorder::c_maxRetroBytesRoom / 1000000) + " MB of memory, so 7.1.4 keeps 50 seconds at 48 kHz and the button says so.");
     m_takesButton.setTooltip("Takes\nThe recordings of this run, newest first, with how many there are: tape takes, whoosh files and Last 60 s saves. "
                              "Open it to hear them, drag them out to the Finder / Explorer or into your DAW, keep or delete them.");
     m_takesButton.onClick = [this] { showTakes(); };
@@ -1354,7 +1359,7 @@ SwooshbucklerAudioProcessorEditor::SwooshbucklerAudioProcessorEditor(Swooshbuckl
                 return;
             if (! m_processor.setListening(static_cast<room::Width>(id - 1)))
             {
-                toast("Stop the tape to change what you are listening on");
+                toast("Click the tape to disarm it, then change Room Width");
                 m_roomWidth.setSelectedId(static_cast<int>(m_processor.getListening()) + 1, juce::dontSendNotification);
             }
             if (m_settings.isVisible())
