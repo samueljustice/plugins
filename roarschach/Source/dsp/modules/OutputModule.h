@@ -23,20 +23,33 @@ namespace roar
         float releaseMs = 60.0f;      // 1..1000 ms; with Auto it sets how quickly Auto breathes
         bool autoRelease = true;      // program-dependent release with an adaptive hold
         float mix = 1.0f;             // 0..1
+        bool levelMatch = true;       // Level Match
     };
 
     /**
      * OUTPUT (fixed): the end of the chain. Every sample, stereo-linked:
      *
-     *   wet --> HPF 30 Hz (24 dB/oct) --> LPF 18 kHz (12 dB/oct) --> auto gain --> Ride --> Push
-     *       --> mix with the dry --> MAXIMIZER --> CLIPPER --> SAFETY --> clamp at Ceiling --> out
+     *   wet --> HPF 30 Hz (24 dB/oct) --> LPF 18 kHz (12 dB/oct) --> x comp --> x match --> Ride
+     *       --> Push --> mix with the dry --> MAXIMIZER --> CLIPPER --> SAFETY --> clamp at Ceiling --> out
      *   (the maximizer's reduction and the clipper's residual are each DC-blocked)
      *
-     *   Auto gain   matches the wet's loudness (measured before Push, the 20-80 Hz band at -6 dB)
-     *               to the raw input's (K-style, 400 ms); +6 / -12 dB, 400 ms glide, held while
-     *               the input is below -50 dBFS. It never pushes on its own: a boost is limited to
-     *               Ceiling + 3 dB - the wet's 1 s peak.
-     *   Ride        RMS (10 ms) at -8 dBFS, 10:1, 6 dB knee, 3 ms / 150 ms, at most -12 dB.
+     *   Comp        1 / IN's total gain, sample-aligned (IN's gain trace delayed by the chain's
+     *               module latency): whatever working level IN chose, the wet comes back at the
+     *               input's level. Always on while a dry is present.
+     *   Level Match one held gain M (-12..+15 dB) that corrects what the modules change at the
+     *               working level. It learns on matched frames only: IN learnt and on its target,
+     *               confident sound within L - 10 .. L + 3 dB of the take's loud end (IN's flag
+     *               trace), and the wet no more than 24 dB under the dry (20 ms levels, K-style,
+     *               the wet's 20-80 Hz band at -6 dB). M is the ratio of the cumulative power
+     *               means of dry and wet: held for 0.15 s of matched sound, then moving at most
+     *               24 dB/s to 0.5 s, 6 dB/s to 2 s and 0.5 dB/s to 10 s, after which it is a
+     *               constant. A settings change starts a probe that replaces the match only when
+     *               new evidence disagrees by 4 dB after 0.5 s, 3 dB after 1 s or 2 dB after 2 s
+     *               of matched sound; an IN gain move of more than 2 dB re-opens the slow phase.
+     *               Level Match Off glides the match to 0 dB over 20 ms (learning continues);
+     *               switching it On again learns afresh. Measured before Ride, Push and the
+     *               maximizer, so it cannot pump.
+     *   Ride       RMS (10 ms) at -8 dBFS, 10:1, 6 dB knee, 3 ms / 150 ms, at most -12 dB.
      *   Push        0..+24 dB, relative to the ceiling: the gain is Push + Ceiling + 1 dB
      *               (laws::pushGainDb), so Ceiling only sets the output level, never the drive. 20 ms.
      *
@@ -80,9 +93,12 @@ namespace roar
      *
      * The dry for Mix (and the auto gain reference) is the raw input aligned with OUTPUT's input:
      * delayed by the chain latency before OUTPUT and phase-matched by the processor. The dry gets
-     * the same Push gain as the wet (auto gain already matches the wet to it), and the two are
-     * crossfaded at equal power (cos / sin of Mix x 90 degrees), so Mix changes the blend, not the
-     * level. The mix happens before the maximizer, so the ceiling holds at any Mix.
+     * the same Push gain as the wet (the match already matches the wet to it), and the two are
+     * crossfaded with cos / sin of Mix x 90 degrees times k = sqrt (Pt / (Pt + 2 c s X)), where
+     * Pt = c^2 Pd + s^2 Pw and X is the dry / wet cross power held to 0 .. sqrt (Pd Pw) (powers
+     * over 400 ms): the mix has the power interpolation of the two, whether they are related (a
+     * wet close to the dry) or not, so Mix changes the blend, not the level. k = 1 at 0 and 100 %.
+     * The mix happens before the maximizer, so the ceiling holds at any Mix.
      *
      * Latency L + Dtp + 49 + Ls + Dtp (573 at 48 kHz), constant for every setting. No allocation
      * after prepare(), NaN-safe (non-finite input is taken as silence, input held to +80 dBFS).
@@ -109,11 +125,16 @@ namespace roar
         int getLatencySamples() const override { return m_latency; }
         bool makesStereo() const override { return false; }
 
-        /** Without a dry: Mix is taken as 100 % and auto gain holds its gain. */
+        /** Without a dry: Mix is taken as 100 %, comp is 1 and the match holds (nothing learns). */
         void process (float* l, float* r, int n, bool stereo, const VoiceFrameView& voice) override;
 
-        /** dryL / dryR: the raw input aligned with this module's input (dryR may be null: dryL is used). */
-        void processWithDry (float* l, float* r, const float* dryL, const float* dryR, int n, bool stereo);
+        /**
+         * dryL / dryR: the raw input aligned with this module's input (dryR may be null: dryL is
+         * used). gainTrace / activeTrace: IN's total gain and matched flag per sample, delayed to
+         * line up with this module's input (null: gain 1, never matched).
+         */
+        void processWithDry (float* l, float* r, const float* dryL, const float* dryR,
+                             const float* gainTrace, const float* activeTrace, int n, bool stereo);
 
         void copyStateFrom (const Module& other) override;
         void copyLeftStateToRight() override;
@@ -121,14 +142,46 @@ namespace roar
 
         void setParams (const OutputSettings& s);
 
-        /** Test hooks (all on in the plug-in). */
+        /** Test hooks (all on in the plug-in). autoGain false switches comp and the match off. */
         void setTestOptions (bool filters, bool autoGain, bool ride);
+        /** Test hook: the wet's polarity inverted against the dry before the mix. */
+        void setTestInvertWet (bool inverted) { m_s.invertWet = inverted; }
+
+        // ---- The level match's learnt state (kept across resets, saved with the session).
+        struct MatchState
+        {
+            double matchDb = 0.0;          // M
+            double seconds = 0.0;          // a: matched seconds of the current learn (0..10)
+            double dryPower = 0.0, wetPower = 0.0;   // Dacc, Wacc: cumulative power means
+            double dataSeconds = 0.0;      // what the accumulators hold
+            bool haveGainRef = false;
+            double gainRefDb = 0.0;        // IN's gain (dB) when the data began
+            bool haveKey = false;
+            std::uint64_t key = 0;         // the settings key the data belongs to
+        };
+        MatchState getMatchState() const;
+        /** A session restore: the kept state; probe and prior are cleared, M applies at once. */
+        void restoreLearning (const MatchState& m);
+        /** Forget the match (M = 0): a fresh learn. */
+        void clearLearning();
+        /** A hint (a preset's match): M = hint, worth 0.5 s of matched sound. */
+        void applyHint (double matchDb);
+        /** The settings key of this chunk (every field of the chain's settings but OUTPUT's own). A
+            change starts a probe; with `adopt` the key is taken as the one in force without one. */
+        void setSettingsKey (std::uint64_t key, bool adopt = false);
 
         // Readouts (the last chunk)
         float getReductionDb() const { return m_s.reductionDb; }        // maximizer, <= 0
         float getClipDb() const { return m_s.clipActivityDb; }          // peak dB flattened by the clipper, >= 0
         float getSafetyReductionDb() const { return m_s.safetyDb; }     // safety stage, <= 0
-        float getAutoGainDb() const { return static_cast<float> (m_s.autoGainDb); }
+        float getMatchDb() const { return static_cast<float> (m_m.matchDb); }
+        float getMatchSeconds() const { return static_cast<float> (m_m.seconds); }
+        float getMatchDataSeconds() const { return static_cast<float> (m_m.dataSeconds); }
+        bool isProbing() const { return m_s.probing; }
+        int getProbeAdoptions() const { return m_s.probeAdoptions; }        // since prepare()
+        std::uint64_t getMatchedFrames() const { return m_s.matchedFrames; }   // since prepare()
+        std::uint64_t getWetRejectedFrames() const { return m_s.wetRejectedFrames; }   // IN matched, the wet gate said no
+        float getMixGain() const { return static_cast<float> (m_s.mixK); }  // k of the mix law, the last frame
         float getRideDb() const { return static_cast<float> (m_ride.getValue()); }
         float getPushDb() const { return static_cast<float> (m_s.pushDb); }
         std::uint64_t getClampCount() const { return m_s.clampCount; }
@@ -207,7 +260,8 @@ namespace roar
         void resetClipper();
         void primeRamp (GainRamp& ramp, int attack);
         int attackSamples (double ms) const;
-        void endFrame();
+        void endFrame (bool learn);
+        void freshLearn();
         void designTruePeak();
         void designHalfband();
         void designDecimator();
@@ -222,9 +276,9 @@ namespace roar
         double m_lowPassHz = 18000.0;
         double m_smoothCoeff = 0.0;
         double m_rideMsCoeff = 0.0;
-        double m_peakRelease = 0.0;
-        double m_meterCoeff = 0.0, m_glideCoeff = 0.0;    // per frame
-        int m_meanFrames = 1;
+        double m_level20Coeff = 0.0;                      // per frame: the match's 20 ms levels
+        double m_matchBlendStep = 0.0;                    // per sample: the Level Match switch's 20 ms ramp
+        double m_rhoCoeff = 0.0;                          // per sample: the mix law's 400 ms powers
         double m_slowCoeff = 0.0, m_safetyRelease = 0.0;
         int m_holdMin = 1200, m_holdMax = 7200, m_eventGap = 144;
         double m_rampStep = 0.0, m_clipStep = 0.0;
@@ -255,16 +309,31 @@ namespace roar
             double releaseMs = 60.0;
             bool autoRelease = true;
             bool filters = true, autoGainOn = true, ride = true;
+            bool invertWet = false;
             bool snap = true;
 
-            // Auto gain
+            // Level match: the frame measurement (cleared on reset).
             double wetSum = 0.0, drySum = 0.0;
             int framePhase = 0;
-            double wetMeter = 0.0, dryMeter = 0.0;
-            int learnedFrames = 0;
-            double autoGainDb = 0.0;
-            double gainPrev = 1.0, gainNext = 1.0;
-            double wetPeak = 0.0;
+            double dry20 = 0.0, wet20 = 0.0;              // 20 ms one-poles of the frame powers
+            float lastGain = 1.0f, lastActive = 0.0f;     // IN's traces at the frame's last sample
+            bool matchOn = true;                          // the Level Match switch
+            double matchBlend = 1.0;                      // its 20 ms ramp
+            double matchApplied = 0.0;                    // M through the 20 ms smoother (dB)
+
+            // The probe and the prior (kept across resets, not saved).
+            bool probing = false;
+            double probeSeconds = 0.0, probeDry = 0.0, probeWet = 0.0;
+            double priorDb = 0.0, priorWeight = 0.0;
+
+            // Counters for the tests (kept across resets).
+            int probeAdoptions = 0;
+            std::uint64_t matchedFrames = 0, wetRejectedFrames = 0;
+
+            // Mix law: running powers and cross power of what reaches the mix.
+            double mixCount = 0.0;
+            double mixDd = 0.0, mixWw = 0.0, mixDw = 0.0;
+            double mixK = 1.0, mixKPrev = 1.0;
 
             // Ride
             double rideMs = 0.0;
@@ -292,5 +361,6 @@ namespace roar
         };
 
         State m_s;
+        MatchState m_m;
     };
 }

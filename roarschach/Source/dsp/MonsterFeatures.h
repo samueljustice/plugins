@@ -64,6 +64,22 @@ namespace roar
         std::atomic<float> limiterGrDb { 0.0f };   // maximizer gain reduction, dB (<= 0)
         std::atomic<float> pushDb { 0.0f };        // the Push setting in effect, dB
         std::atomic<float> clipDb { 0.0f };        // clipper activity: peak dB flattened per chunk (>= 0)
+
+        // The learnt levels (IN's take gain and OUTPUT's match), for the session state: written
+        // once per chunk, read by getStateInformation. A torn read costs at most one chunk of learning.
+        std::atomic<int> levelInLearnt { 0 };
+        std::atomic<double> levelInDb { -150.0 };       // the take's loud end L
+        std::atomic<double> levelInEvidence { 0.0 };    // E, seconds
+        std::atomic<double> levelOutDb { 0.0 };         // M
+        std::atomic<double> levelOutSeconds { 0.0 };    // matched seconds of the learn
+        std::atomic<double> levelOutDryPower { 0.0 };   // the cumulative power means
+        std::atomic<double> levelOutWetPower { 0.0 };
+        std::atomic<double> levelOutData { 0.0 };       // seconds they hold
+        std::atomic<int> levelOutHaveGainRef { 0 };
+        std::atomic<double> levelOutGainRefDb { 0.0 };  // IN's gain when the data began
+        std::atomic<int> levelOutHaveKey { 0 };
+        std::atomic<std::uint64_t> levelOutKey { 0 };   // the settings key the data belongs to
+
         // Hits in the output (HitDetector; the picture's ripples). hits is the count so far (wraps
         // at hitCountMask); hitLog keeps the last few hits, each packed with its own count, so a
         // reader never pairs a count with another hit's strength (publishHit, strongestHitSince).

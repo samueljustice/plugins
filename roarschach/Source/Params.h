@@ -130,6 +130,8 @@ namespace Params
     inline constexpr const char* chamberRoom = "chamberRoom";
     inline constexpr const char* chamberSpeaker = "chamberSpeaker";
     inline constexpr const char* chamberBoom = "chamberBoom";
+    // OUTPUT's Level Match (appended later, version hint 3)
+    inline constexpr const char* outMatch = "outMatch";
 
     // ---------------------------------------------------------------------------------- choice names
     inline constexpr std::array<const char*, 3> pitchModeNames { "Shift", "Snap", "Mono" };
@@ -215,7 +217,7 @@ namespace Params
                                  // decibels: 0 = linear, else the value at mid travel (a skewed taper)
         const char* const* choices;
         int numChoices;
-        int version = versionHint;   // the ParameterID version hint: 1 for 1.0's rows, 2 for 1.1's
+        int version = versionHint;   // the ParameterID version hint: 1 for 1.0's rows, 2 for 1.1's, 3 for Level Match
     };
 
     // The movable modules. Declared here because the position ranges depend on it. The first 14
@@ -248,6 +250,13 @@ namespace Params
             return s;
         }
 
+        /** A version-3 row (Level Match, appended after CHAMBER). */
+        constexpr Spec v3 (Spec s)
+        {
+            s.version = 3;
+            return s;
+        }
+
         template <size_t N>
         constexpr Spec choice (const char* id, const char* name, const std::array<const char*, N>& names, int def)
         {
@@ -271,7 +280,7 @@ namespace Params
         }
     }
 
-    inline constexpr int numParameters = 96;
+    inline constexpr int numParameters = 97;
     inline constexpr int numLegacyParameters = 87;   // 1.0's rows: indices 0..86
 
     inline constexpr std::array<Spec, numParameters> all {
@@ -388,6 +397,8 @@ namespace Params
         detail::v2 (detail::choice (chamberRoom, "Chamber Room", chamberRoomNames, 2)),
         detail::v2 (detail::choice (chamberSpeaker, "Chamber Speaker", chamberSpeakerNames, 1)),
         detail::v2 (detail::choice (chamberBoom, "Chamber Boom", chamberBoomNames, 1)),
+        // OUTPUT's Level Match (version hint 3).
+        detail::v3 (detail::toggle (outMatch, "Level Match", true)),
     };
 
     /** Index of a parameter in `all` (the AU index), -1 if unknown. */
@@ -612,9 +623,9 @@ namespace Params
                     if (c != nullptr && (indexOf (c) < 0 || spec (c).kind != Kind::choice))
                         return false;
             }
-            // 1.0's rows have version 1, the appended ones 2.
+            // 1.0's rows have version 1, 1.1's (CHAMBER) 2, Level Match 3.
             for (int i = 0; i < numParameters; ++i)
-                if (all[static_cast<size_t> (i)].version != (i < numLegacyParameters ? 1 : 2))
+                if (all[static_cast<size_t> (i)].version != (i < numLegacyParameters ? 1 : (i < 96 ? 2 : 3)))
                     return false;
             // Every position parameter belongs to exactly one module.
             int positions = 0;
@@ -669,12 +680,13 @@ namespace Params
         }
     }
 
-    static_assert (all.size() == 96, "the parameter table has 96 parameters (87 from 1.0, 9 appended in 1.1)");
+    static_assert (all.size() == 97, "the parameter table has 97 parameters (87 from 1.0, 9 appended in 1.1, Level Match)");
     static_assert (detail::tableIsConsistent(), "module table and parameter table disagree");
     static_assert (detail::defaultOrderIsReference(), "the default positions resolve to the reference order");
     static_assert (indexOf (inTrim) == 0 && indexOf (outPush) == 79 && indexOf (mix) == 86, "AU index order is frozen");
     static_assert (indexOf (overtoneOn) == 64 && indexOf (ringOn) == 70, "AU index order is frozen");
     static_assert (indexOf (chamberOn) == 87 && indexOf (chamberBoom) == 95, "1.1's rows are appended");
+    static_assert (indexOf (outMatch) == 96, "Level Match is appended");
     static_assert (moduleIndexForCode ("CH") == static_cast<int> (ModuleId::chamber), "module codes");
     static_assert (moduleIndexForCode ("RM") == static_cast<int> (ModuleId::ring)
                    && moduleIndexForCode ("OV") == static_cast<int> (ModuleId::overtone), "module codes");

@@ -56,6 +56,15 @@ namespace roar
         bool isOn (int module) const;
     };
 
+    /** The learnt levels of IN and OUTPUT, as a session saves them. */
+    struct LevelState
+    {
+        bool inLearnt = false;
+        double inDb = -150.0;          // the take's loud end L
+        double inEvidence = 0.0;       // E, seconds
+        OutputModule::MatchState out;
+    };
+
     /** The resolved order and the stereo split slot (numModules: the whole chain is mono). */
     struct Topology
     {
@@ -73,10 +82,16 @@ namespace roar
      *           --> chain A (or A and B during a reorder fade): the 15 movable modules in the resolved
      *               order, mono up to the first stereo-creating module, stereo from there, then
      *               the post-chain hook (CHAMBER's Boom shelf)
-     *           --> OUTPUT (filters, auto gain, Ride, Push, Mix with the phase-matched dry, maximizer,
-     *               clipper, safety) --> out
+     *           --> OUTPUT (filters, comp and level match, Ride, Push, Mix with the phase-matched dry,
+     *               maximizer, clipper, safety) --> out
      *
      *   host in --> delay (sum of the module latencies) --> DryPhaseMatch --> OUTPUT's dry
+     *   IN's gain and matched-flag traces --> delay (the same) --> OUTPUT (comp = 1 / IN's gain)
+     *
+     * Levels: IN learns the take's working level and OUTPUT the chain's gain at it (both kept
+     * across resets and passes, saved with the session: restoreLevels, publish). Every chunk the
+     * settings key (an FNV-1a hash of every setting but OUTPUT's own) goes to OUTPUT; a change
+     * starts its probe.
      *
      * Order (spec §3.1): the modules sorted by (position, defaultIndex), read once per chunk. The
      * stereo split is the slot of the first module that creates stereo (ENSEMBLE when On, SHIMMER
@@ -141,8 +156,28 @@ namespace roar
         std::uint64_t getClampCount() const { return m_output.getClampCount(); }
         const OutputModule& getOutput() const { return m_output; }
 
-        /** Test hooks: OUTPUT's filters, auto gain and Ride (all on in the plug-in). */
+        const InModule& getIn() const { return m_in; }
+
+        /** Test hooks: OUTPUT's filters, comp and level match, and Ride (all on in the plug-in). */
         void setOutputTestOptions (bool filters, bool autoGain, bool ride) { m_output.setTestOptions (filters, autoGain, ride); }
+        void setOutputTestInvertWet (bool inverted) { m_output.setTestInvertWet (inverted); }
+        /** Test hooks: forget what IN / OUTPUT learnt. */
+        void clearLevelsForTests() { m_in.clearLearning(); m_output.clearLearning(); }
+
+        /** A new pass (playback started or the playhead jumped): IN's pass state starts again.
+            Nothing that is heard changes. Audio thread. */
+        void beginPass();
+        /** A session restore (audio thread, at the start of a block): the settings' Off to On
+            transitions are consumed first, so they cannot clear what is restored. */
+        void restoreLevels (const LevelState& levels, const ChainSettings& settings);
+        /** A preset's match hint (audio thread). Ignored when the match already holds data for these
+            settings (re-selecting the current preset). Returns false when ignored. */
+        bool applyMatchHint (double matchDb, const ChainSettings& settings);
+        /** The learnt levels now (audio thread, or while not processing). */
+        LevelState getLevels() const;
+
+        /** The settings key: 64-bit FNV-1a over every field of the settings except OUTPUT's. */
+        static std::uint64_t settingsKey (const ChainSettings& settings);
 
         /** The requested topology for these settings (pure function, also used by tests). */
         static Topology topologyFor (const ChainSettings& settings);
@@ -222,6 +257,7 @@ namespace roar
         int frontSet() const { return m_fadePos >= 0 ? 1 - m_active : m_active; }
         void startReorder (const Topology& next);
         void publish (const ChainSettings& settings, const float* outL, const float* outR, int n, MonsterFeatures& features);
+        void refillLevelDelays();
         static DryPhaseMatch::Settings dryMatchSettings (const ChainSettings& s);
 
         double m_fs = 48000.0;
@@ -249,6 +285,10 @@ namespace roar
         // Dry for OUTPUT's Mix: the host input delayed by the module latency, phase-matched.
         std::array<DelayLine, 2> m_dryDelay;
         DryPhaseMatch m_dryMatch;
+        // IN's gain and matched-flag traces, delayed by the module latency (OUTPUT's comp).
+        DelayLine m_gainDelay, m_activeDelay;
+        std::vector<float> m_gainD, m_activeD;
+        bool m_adoptKeyNext = false;   // a hint was applied: its chunk's key is the one in force
 
         std::vector<float> m_dryL, m_dryR, m_monoIn, m_aL, m_aR, m_bL, m_bR, m_scratchR;
 

@@ -147,6 +147,75 @@ namespace
     const std::array<juce::Identifier, 4> c_creatureFamily { juce::Identifier { "viewCreatureFluid" }, juce::Identifier { "viewCreatureBeast" },
                                                              juce::Identifier { "viewCreatureEldritch" }, juce::Identifier { "viewCreatureDeep" } };
 
+    // The learnt levels in the state (root attributes beside stateVersion; a state without them
+    // loads as "nothing learnt", and builds that do not know them ignore them).
+    const juce::Identifier c_levelInLearnt   { "levelInLearnt" };
+    const juce::Identifier c_levelInDb       { "levelInDb" };
+    const juce::Identifier c_levelInEvidence { "levelInEvidence" };
+    const juce::Identifier c_levelOutDb      { "levelOutDb" };
+    const juce::Identifier c_levelOutSeconds { "levelOutSeconds" };
+    const juce::Identifier c_levelOutDryDb   { "levelOutDryDb" };
+    const juce::Identifier c_levelOutWetDb   { "levelOutWetDb" };
+    const juce::Identifier c_levelOutData    { "levelOutData" };
+    const juce::Identifier c_levelOutGainDb  { "levelOutGainDb" };
+    const juce::Identifier c_levelOutKey     { "levelOutKey" };
+
+    double round2(double x) { return std::round(x * 100.0) / 100.0; }
+    double powerToDb(double p) { return p > 1.0e-20 ? round2(10.0 * std::log10(p)) : -200.0; }
+    double dbToPower(double db) { return db <= -199.0 ? 0.0 : std::pow(10.0, db / 10.0); }
+
+    /** A finite number from an attribute, or nullopt (missing, empty or "nan" / "inf"). */
+    std::optional<double> finiteAttribute(const juce::XmlElement& xml, const juce::Identifier& id)
+    {
+        if (!xml.hasAttribute(id.toString()))
+            return std::nullopt;
+        const auto text = xml.getStringAttribute(id.toString()).trim();
+        if (text.isEmpty() || !text.containsOnly("+-.0123456789eE"))
+            return std::nullopt;
+        const double v = text.getDoubleValue();
+        return std::isfinite(v) ? std::optional<double>(v) : std::nullopt;
+    }
+
+    roar::LevelState readLevelState(const juce::XmlElement& xml)
+    {
+        roar::LevelState l;
+        const auto learnt = finiteAttribute(xml, c_levelInLearnt);
+        const auto inDb = finiteAttribute(xml, c_levelInDb);
+        const auto inEvidence = finiteAttribute(xml, c_levelInEvidence);
+        if (learnt && inDb && inEvidence && *learnt >= 0.5)
+        {
+            l.inLearnt = true;
+            l.inDb = juce::jlimit(-70.0, 12.0, *inDb);
+            l.inEvidence = juce::jlimit(0.0, 4.0, *inEvidence);
+        }
+
+        const auto outDb = finiteAttribute(xml, c_levelOutDb);
+        const auto outSeconds = finiteAttribute(xml, c_levelOutSeconds);
+        const auto outDry = finiteAttribute(xml, c_levelOutDryDb);
+        const auto outWet = finiteAttribute(xml, c_levelOutWetDb);
+        const auto outData = finiteAttribute(xml, c_levelOutData);
+        if (outDb && outSeconds && outDry && outWet && outData)
+        {
+            l.out.matchDb = juce::jlimit(-12.0, 15.0, *outDb);
+            l.out.seconds = juce::jlimit(0.0, 10.0, *outSeconds);
+            l.out.dryPower = dbToPower(*outDry);
+            l.out.wetPower = dbToPower(*outWet);
+            l.out.dataSeconds = juce::jlimit(0.0, 10000.0, *outData);
+            if (const auto g = finiteAttribute(xml, c_levelOutGainDb))
+            {
+                l.out.haveGainRef = true;
+                l.out.gainRefDb = juce::jlimit(-18.0, 48.0, *g);
+            }
+            const auto key = xml.getStringAttribute(c_levelOutKey.toString()).trim();
+            if (key.length() == 16 && key.containsOnly("0123456789abcdefABCDEF"))
+            {
+                l.out.haveKey = true;
+                l.out.key = static_cast<std::uint64_t>(key.getHexValue64());
+            }
+        }
+        return l;
+    }
+
     // The chain holds sound after the input stops (CHAMBER's rooms ring for up to 0.75 s, with
     // Resonance up to about 1.1 s; the ensemble lines, the body combs, the release times); this
     // covers it with room to spare.
@@ -178,6 +247,155 @@ RoarschachAudioProcessor::RoarschachAudioProcessor()
     m_creature.setSeed(seed);
     m_creatureShared.publish(m_creature.evaluate());
     m_viewOptions.set(c_creatureSeed, static_cast<int>(seed));
+
+    // Presets carry OUTPUT's level match as a hint; the initial program posts its own here (a
+    // session restore, which comes later, overwrites it).
+    m_presetManager.setLevelHooks([this](double matchDb) { postLevelHint(matchDb); },
+                                  [this] { return m_features.levelOutDb.load(std::memory_order_relaxed); });
+    {
+        const auto& initial = PresetManager::getFactoryPresets();
+        const int index = juce::jmax(0, m_presetManager.getCurrentFactoryIndex());
+        if (juce::isPositiveAndBelow(index, static_cast<int>(initial.size())))
+        {
+            const auto& values = initial[static_cast<size_t>(index)].values;
+            const auto it = values.find(PresetManager::c_levelMatchKey);
+            if (it != values.end())
+                postLevelHint(static_cast<double>(it->second));
+        }
+    }
+}
+
+void RoarschachAudioProcessor::postLevelHint(double matchDb)
+{
+    if (!std::isfinite(matchDb))
+        return;
+    const juce::ScopedLock sl(m_levelRequestLock);
+    const auto n = ++m_levelRequestCounter;
+    m_levelHint.seq.store(0, std::memory_order_release);   // being written
+    m_levelHint.matchDb.store(matchDb, std::memory_order_relaxed);
+    m_levelHint.seq.store(n, std::memory_order_release);
+    m_levelPosted.store(n, std::memory_order_release);
+}
+
+void RoarschachAudioProcessor::postLevelRestore(const roar::LevelState& l)
+{
+    const juce::ScopedLock sl(m_levelRequestLock);
+    const auto n = ++m_levelRequestCounter;
+    auto& r = m_levelRestore;
+    r.seq.store(0, std::memory_order_release);   // being written
+    r.inLearnt.store(l.inLearnt ? 1 : 0, std::memory_order_relaxed);
+    r.inDb.store(l.inDb, std::memory_order_relaxed);
+    r.inEvidence.store(l.inEvidence, std::memory_order_relaxed);
+    r.outDb.store(l.out.matchDb, std::memory_order_relaxed);
+    r.outSeconds.store(l.out.seconds, std::memory_order_relaxed);
+    r.outDry.store(l.out.dryPower, std::memory_order_relaxed);
+    r.outWet.store(l.out.wetPower, std::memory_order_relaxed);
+    r.outData.store(l.out.dataSeconds, std::memory_order_relaxed);
+    r.outHaveGainRef.store(l.out.haveGainRef ? 1 : 0, std::memory_order_relaxed);
+    r.outGainRefDb.store(l.out.gainRefDb, std::memory_order_relaxed);
+    r.outHaveKey.store(l.out.haveKey ? 1 : 0, std::memory_order_relaxed);
+    r.outKey.store(l.out.key, std::memory_order_relaxed);
+    r.seq.store(n, std::memory_order_release);
+    m_levelPosted.store(n, std::memory_order_release);
+}
+
+void RoarschachAudioProcessor::applyLevelRequests(const roar::ChainSettings& settings)
+{
+    // Audio thread. A slot being written (seq 0, or changed while read) waits for the next block.
+    struct Pending { juce::uint32 seq; bool restore; roar::LevelState levels; double hint; };
+    std::array<Pending, 2> pending {};
+    int count = 0;
+
+    {
+        auto& r = m_levelRestore;
+        const auto seq = r.seq.load(std::memory_order_acquire);
+        if (seq != 0 && seq > m_levelApplied)
+        {
+            roar::LevelState l;
+            l.inLearnt = r.inLearnt.load(std::memory_order_relaxed) != 0;
+            l.inDb = r.inDb.load(std::memory_order_relaxed);
+            l.inEvidence = r.inEvidence.load(std::memory_order_relaxed);
+            l.out.matchDb = r.outDb.load(std::memory_order_relaxed);
+            l.out.seconds = r.outSeconds.load(std::memory_order_relaxed);
+            l.out.dryPower = r.outDry.load(std::memory_order_relaxed);
+            l.out.wetPower = r.outWet.load(std::memory_order_relaxed);
+            l.out.dataSeconds = r.outData.load(std::memory_order_relaxed);
+            l.out.haveGainRef = r.outHaveGainRef.load(std::memory_order_relaxed) != 0;
+            l.out.gainRefDb = r.outGainRefDb.load(std::memory_order_relaxed);
+            l.out.haveKey = r.outHaveKey.load(std::memory_order_relaxed) != 0;
+            l.out.key = r.outKey.load(std::memory_order_relaxed);
+            std::atomic_thread_fence(std::memory_order_acquire);
+            if (r.seq.load(std::memory_order_relaxed) == seq)
+                pending[static_cast<size_t>(count++)] = { seq, true, l, 0.0 };
+        }
+    }
+    {
+        auto& h = m_levelHint;
+        const auto seq = h.seq.load(std::memory_order_acquire);
+        if (seq != 0 && seq > m_levelApplied)
+        {
+            const double db = h.matchDb.load(std::memory_order_relaxed);
+            std::atomic_thread_fence(std::memory_order_acquire);
+            if (h.seq.load(std::memory_order_relaxed) == seq)
+                pending[static_cast<size_t>(count++)] = { seq, false, {}, db };
+        }
+    }
+
+    if (count == 2 && pending[1].seq < pending[0].seq)
+        std::swap(pending[0], pending[1]);
+    for (int k = 0; k < count; ++k)
+    {
+        const auto& p = pending[static_cast<size_t>(k)];
+        if (p.restore)
+            m_chain.restoreLevels(p.levels, settings);
+        else
+            m_chain.applyMatchHint(p.hint, settings);
+        m_levelApplied = std::max(m_levelApplied, p.seq);
+    }
+}
+
+void RoarschachAudioProcessor::checkPassBoundary(int numSamples)
+{
+    // Audio thread: a pass begins when the transport starts, or when the playhead lands more than
+    // 8 samples away from where the last block ended. A host without a sample time has passes at
+    // reset() only.
+    auto* playHead = getPlayHead();
+    if (playHead == nullptr)
+        return;
+    const auto position = playHead->getPosition();
+    if (!position.hasValue())
+        return;
+    const auto time = position->getTimeInSamples();
+    if (!time.hasValue())
+        return;
+
+    const bool playing = position->getIsPlaying();
+    bool newPass = false;
+    if (playing && !m_wasPlaying)
+        newPass = true;
+    else if (playing && m_haveLastTime && std::abs(*time - (m_lastTime + m_lastBlockSize)) > 8)
+        newPass = true;
+    if (newPass)
+        m_chain.beginPass();
+
+    m_wasPlaying = playing;
+    m_haveLastTime = true;
+    m_lastTime = *time;
+    m_lastBlockSize = numSamples;
+}
+
+void RoarschachAudioProcessor::checkLevelNotifications()
+{
+    // Message thread. Not while a restore or a hint is on its way (the published values are about
+    // to be replaced: that is a load, not a learn).
+    const bool inLearnt = m_features.levelInLearnt.load(std::memory_order_relaxed) != 0;
+    const bool stopped = m_features.levelOutSeconds.load(std::memory_order_relaxed) >= 10.0 - 1.0e-6;
+    const bool settled = m_levelAppliedPublished.load(std::memory_order_acquire) == m_levelPosted.load(std::memory_order_acquire);
+    if (m_levelTracked && settled && ((inLearnt && !m_lastInLearnt) || (stopped && !m_lastMatchStopped)))
+        m_hostDisplay.post(juce::AudioProcessorListener::ChangeDetails().withNonParameterStateChanged(true));
+    m_levelTracked = true;
+    m_lastInLearnt = inLearnt;
+    m_lastMatchStopped = stopped;
 }
 
 juce::AudioProcessorValueTreeState::ParameterLayout RoarschachAudioProcessor::createParameterLayout()
@@ -427,6 +645,7 @@ void RoarschachAudioProcessor::CreatureClock::timerCallback()
     const float dt = static_cast<float>((now - m_last) * 0.001);
     m_last = now;
     m_processor.stepCreature(dt);   // (clamped to half a second inside: a stalled thread doesn't jump it)
+    m_processor.checkLevelNotifications();
 }
 
 bool RoarschachAudioProcessor::isCreatureFrozen() const
@@ -537,6 +756,58 @@ void RoarschachAudioProcessor::getStateInformation(juce::MemoryBlock& destData)
 
     state.setProperty(c_stateVersion, c_currentStateVersion, nullptr);
     state.setProperty(c_pluginVersion, JucePlugin_VersionString, nullptr);
+
+    // The learnt levels: what the audio thread published, or a restore still on its way to it.
+    {
+        roar::LevelState l;
+        const auto restoreSeq = m_levelRestore.seq.load(std::memory_order_acquire);
+        const auto hintSeq = m_levelHint.seq.load(std::memory_order_acquire);
+        const auto applied = m_levelAppliedPublished.load(std::memory_order_acquire);
+        if (restoreSeq > applied && restoreSeq > hintSeq)
+        {
+            const auto& r = m_levelRestore;
+            l.inLearnt = r.inLearnt.load() != 0;
+            l.inDb = r.inDb.load();
+            l.inEvidence = r.inEvidence.load();
+            l.out.matchDb = r.outDb.load();
+            l.out.seconds = r.outSeconds.load();
+            l.out.dryPower = r.outDry.load();
+            l.out.wetPower = r.outWet.load();
+            l.out.dataSeconds = r.outData.load();
+            l.out.haveGainRef = r.outHaveGainRef.load() != 0;
+            l.out.gainRefDb = r.outGainRefDb.load();
+            l.out.haveKey = r.outHaveKey.load() != 0;
+            l.out.key = r.outKey.load();
+        }
+        else
+        {
+            const auto& f = m_features;
+            l.inLearnt = f.levelInLearnt.load() != 0;
+            l.inDb = f.levelInDb.load();
+            l.inEvidence = f.levelInEvidence.load();
+            l.out.matchDb = f.levelOutDb.load();
+            l.out.seconds = f.levelOutSeconds.load();
+            l.out.dryPower = f.levelOutDryPower.load();
+            l.out.wetPower = f.levelOutWetPower.load();
+            l.out.dataSeconds = f.levelOutData.load();
+            l.out.haveGainRef = f.levelOutHaveGainRef.load() != 0;
+            l.out.gainRefDb = f.levelOutGainRefDb.load();
+            l.out.haveKey = f.levelOutHaveKey.load() != 0;
+            l.out.key = f.levelOutKey.load();
+        }
+        state.setProperty(c_levelInLearnt, l.inLearnt ? 1 : 0, nullptr);
+        state.setProperty(c_levelInDb, round2(l.inLearnt ? l.inDb : -150.0), nullptr);
+        state.setProperty(c_levelInEvidence, round2(l.inEvidence), nullptr);
+        state.setProperty(c_levelOutDb, round2(l.out.matchDb), nullptr);
+        state.setProperty(c_levelOutSeconds, round2(l.out.seconds), nullptr);
+        state.setProperty(c_levelOutDryDb, powerToDb(l.out.dryPower), nullptr);
+        state.setProperty(c_levelOutWetDb, powerToDb(l.out.wetPower), nullptr);
+        state.setProperty(c_levelOutData, round2(l.out.dataSeconds), nullptr);
+        if (l.out.haveGainRef)
+            state.setProperty(c_levelOutGainDb, round2(l.out.gainRefDb), nullptr);
+        if (l.out.haveKey)
+            state.setProperty(c_levelOutKey, juce::String::toHexString(static_cast<juce::int64>(l.out.key)).paddedLeft('0', 16), nullptr);
+    }
 
     {
         const juce::ScopedLock sl(m_viewLock);
@@ -662,6 +933,9 @@ void RoarschachAudioProcessor::setStateInformation(const void* data, int sizeInB
                              nullptr);
 
     m_presetManager.restoreState(presetInfo, [this, &tree] { m_parameters.replaceState(tree); });
+    // The learnt levels, after the parameters (the audio thread applies them at the start of the
+    // next block with the restored settings). Missing or non-finite values: nothing learnt.
+    postLevelRestore(readLevelState(*xmlState));
     // (again, now that the preset's name is the loaded one: a creature tick that ran on another
     // thread while the state was being read spent the first on the name before it, and the blot
     // of the loaded preset is shown at once, never glided to)
@@ -874,6 +1148,7 @@ roar::ChainSettings RoarschachAudioProcessor::readSettings() const
     s.output.releaseMs = value(outRelease);
     s.output.autoRelease = toggle(outAuto);
     s.output.mix = percent(mix);
+    s.output.levelMatch = toggle(outMatch);
 
     static constexpr auto positionIndices = []
     {
@@ -1049,6 +1324,10 @@ void RoarschachAudioProcessor::render(juce::AudioBuffer<float>& buffer, bool byp
         m_heldPositions = settings.positions;
         m_haveHeldPositions = true;
     }
+
+    // Session restores and preset hints, in the order they were posted; then the pass boundary.
+    applyLevelRequests(settings);
+    checkPassBoundary(numSamples);
     const float bypassTarget = bypassed ? 1.0f : 0.0f;
 
     // Process in fixed-size chunks so any host block size works without allocation.
@@ -1094,5 +1373,6 @@ void RoarschachAudioProcessor::render(juce::AudioBuffer<float>& buffer, bool byp
     for (int ch = numOutChannels; ch < std::min(numOutputs, numBufferChannels); ++ch)
         buffer.clear(ch, 0, numSamples);
 
+    m_levelAppliedPublished.store(m_levelApplied, std::memory_order_release);
     m_wasBypassed = bypassed;
 }

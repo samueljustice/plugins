@@ -106,6 +106,12 @@ public:
     /** The chain settings the parameters describe right now (any thread; atomics only). */
     roar::ChainSettings readSettings() const;
 
+    /** Posts OUTPUT's level match hint to the audio thread (what a preset load does; any thread
+        but the audio thread). Applied at the start of the next block, in order with restores. */
+    void postLevelHint(double matchDb);
+    /** Posts learnt levels to the audio thread, as a session restore does (tests). */
+    void postLevelRestore(const roar::LevelState& levels);
+
     // Parameters
     juce::AudioProcessorValueTreeState m_parameters;
 
@@ -160,6 +166,9 @@ private:
     int choice(ParamIndex p) const;
 
     void render(juce::AudioBuffer<float>& buffer, bool bypassed);
+    void applyLevelRequests(const roar::ChainSettings& settings);
+    void checkPassBoundary(int numSamples);
+    void checkLevelNotifications();
     void handlePendingReset(bool bypassed);
     void delayDry(const juce::AudioBuffer<float>& buffer, int start, int numSamples, int numInputs, int numOutChannels);
     void applyBypassFade(juce::AudioBuffer<float>& buffer, int start, int numSamples, int numChannels, float target);
@@ -190,6 +199,44 @@ private:
     // acts on new requests at the start of the next block.
     std::atomic<juce::uint32> m_resetRequests { 0 };
     juce::uint32 m_resetRequestsHandled = 0;     // audio thread
+
+    // The learnt levels: session restores and preset hints go to the audio thread through two
+    // slots, each stamped with a number from one shared counter (0 while being written), and are
+    // applied at the start of a block in that order. Writers are serialised by the lock; the audio
+    // thread only reads atomics.
+    struct LevelRestoreSlot
+    {
+        std::atomic<juce::uint32> seq { 0 };
+        std::atomic<int> inLearnt { 0 };
+        std::atomic<double> inDb { -150.0 }, inEvidence { 0.0 };
+        std::atomic<double> outDb { 0.0 }, outSeconds { 0.0 }, outDry { 0.0 }, outWet { 0.0 }, outData { 0.0 };
+        std::atomic<int> outHaveGainRef { 0 };
+        std::atomic<double> outGainRefDb { 0.0 };
+        std::atomic<int> outHaveKey { 0 };
+        std::atomic<std::uint64_t> outKey { 0 };
+    };
+    struct LevelHintSlot
+    {
+        std::atomic<juce::uint32> seq { 0 };
+        std::atomic<double> matchDb { 0.0 };
+    };
+    juce::CriticalSection m_levelRequestLock;
+    juce::uint32 m_levelRequestCounter = 0;                 // under m_levelRequestLock
+    LevelRestoreSlot m_levelRestore;
+    LevelHintSlot m_levelHint;
+    juce::uint32 m_levelApplied = 0;                        // audio thread: the last request applied
+    std::atomic<juce::uint32> m_levelAppliedPublished { 0 }; // ... once a chunk has published its result
+    std::atomic<juce::uint32> m_levelPosted { 0 };          // the last request posted
+
+    // Passes (audio thread): the transport starting, or the playhead jumping, begins one.
+    bool m_wasPlaying = false;
+    bool m_haveLastTime = false;
+    juce::int64 m_lastTime = 0;
+    int m_lastBlockSize = 0;
+
+    // The host is told once when IN learns a take and once when the match stops (message thread).
+    bool m_levelTracked = false;
+    bool m_lastInLearnt = false, m_lastMatchStopped = false;
 
     // Raw parameter values, in Params::all order (looked up once).
     std::array<std::atomic<float>*, Params::numParameters> m_values {};

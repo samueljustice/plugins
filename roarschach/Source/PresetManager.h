@@ -90,6 +90,11 @@ public:
 
     static constexpr const char* c_fileExtension = ".roarschachpreset";
 
+    /** The reserved key (not a parameter) under which a preset carries OUTPUT's level match (dB):
+        a factory preset's match at the working level, or the instance's match when a user preset
+        was saved. A load posts it to the audio thread as a hint. */
+    static constexpr const char* c_levelMatchKey = "levelOutDb";
+
     /** A compiled-in preset: real (not normalised) values by parameter ID; anything missing takes
         its default. */
     struct FactoryPreset
@@ -110,6 +115,10 @@ public:
     explicit PresetManager(juce::AudioProcessorValueTreeState& parameters, HostNotifier notifyHost = {},
                            roar::PositionWrites* positionWrites = nullptr);
     ~PresetManager() override;
+
+    /** The level match hint: postHint is called (from the loading thread) after a preset that
+        carries one has been applied; currentMatch gives the instance's match for a user preset save. */
+    void setLevelHooks(std::function<void(double)> postHint, std::function<double()> currentMatch);
 
     /** Rescans the user folder. Factory presets always come first, in a fixed order. */
     void refresh();
@@ -215,8 +224,12 @@ private:
     void parameterValueChanged(int parameterIndex, float newValue) override;
     void parameterGestureChanged(int, bool) override {}
 
+    void postHintFrom(const Values& values) const;
+
     juce::AudioProcessorValueTreeState& m_parameters;
     const HostNotifier m_notifyHost;
+    std::function<void(double)> m_postHint;
+    std::function<double()> m_currentMatch;
     roar::PositionWrites* const m_positionWrites;
 
     juce::CriticalSection m_operationLock; // serialises everything that changes the preset

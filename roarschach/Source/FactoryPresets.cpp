@@ -201,13 +201,24 @@ namespace
                   .set(Params::outAuto, autoRelease).set(Params::mix, mixPercent);
         }
 
-        /** Every parameter, by ID (the table PresetManager applies). */
+        /** OUTPUT's level match for this sound at the working level (dB), measured on dialogue:
+            loaded as a hint, so the first seconds of a new take are already near the right level. */
+        Sound& match(float matchDb)
+        {
+            m_match = matchDb;
+            m_haveMatch = true;
+            return *this;
+        }
+
+        /** Every parameter, by ID (the table PresetManager applies), and the match hint under its reserved key. */
         std::map<juce::String, float> values() const
         {
             jassert(std::all_of(m_set.begin(), m_set.end(), [](bool s) { return s; })); // a preset that forgot a module line
             std::map<juce::String, float> v;
             for (size_t i = 0; i < m_values.size(); ++i)
                 v[Params::all[i].id] = m_values[i];
+            if (m_haveMatch)
+                v[PresetManager::c_levelMatchKey] = m_match;
             return v;
         }
 
@@ -229,6 +240,8 @@ namespace
 
         std::array<float, Params::numParameters> m_values {};
         std::array<bool, Params::numParameters> m_set {};
+        float m_match = 0.0f;
+        bool m_haveMatch = false;
     };
 
     PresetManager::FactoryPreset preset(const char* name, const char* category, const Sound& sound)

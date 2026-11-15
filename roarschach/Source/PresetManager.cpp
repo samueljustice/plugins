@@ -492,6 +492,25 @@ bool PresetManager::loadFactoryPresetForHost(int factoryIndex)
     return applyFactory(factoryIndex, Origin::host);
 }
 
+void PresetManager::setLevelHooks(std::function<void(double)> postHint, std::function<double()> currentMatch)
+{
+    const juce::ScopedLock op(m_operationLock);
+    m_postHint = std::move(postHint);
+    m_currentMatch = std::move(currentMatch);
+}
+
+void PresetManager::postHintFrom(const Values& values) const
+{
+    if (!m_postHint)
+        return;
+    for (const auto& [id, value] : values)
+        if (id == c_levelMatchKey && std::isfinite(value))
+        {
+            m_postHint(static_cast<double>(value));
+            return;
+        }
+}
+
 bool PresetManager::applyFactory(int factoryIndex, Origin origin)
 {
     if (!juce::isPositiveAndBelow(factoryIndex, getNumFactory()))
@@ -503,7 +522,9 @@ bool PresetManager::applyFactory(int factoryIndex, Origin origin)
 
     {
         const ScopedApply applying(*this);
-        applyValues(Values(preset.values.begin(), preset.values.end()));
+        const Values values(preset.values.begin(), preset.values.end());
+        applyValues(values);
+        postHintFrom(values);   // after the last parameter
 
         const juce::ScopedLock sl(m_lock);
         m_kind = Kind::factory;
@@ -536,6 +557,7 @@ bool PresetManager::applyUserFile(const juce::File& file, Origin origin)
     {
         const ScopedApply applying(*this);
         applyValues(values);
+        postHintFrom(values);   // after the last parameter
 
         const juce::ScopedLock sl(m_lock);
         m_kind = Kind::user;
@@ -689,6 +711,17 @@ bool PresetManager::saveUserPreset(const juce::String& rawName)
         auto* child = xml.createNewChildElement(c_paramTag.toString());
         child->setAttribute(c_idAttr.toString(), id);
         child->setAttribute(c_valueAttr.toString(), static_cast<double>(value));
+    }
+    // The instance's level match travels with the sound (not a parameter: applyValues ignores it).
+    if (m_currentMatch)
+    {
+        const double match = m_currentMatch();
+        if (std::isfinite(match))
+        {
+            auto* child = xml.createNewChildElement(c_paramTag.toString());
+            child->setAttribute(c_idAttr.toString(), juce::String(c_levelMatchKey));
+            child->setAttribute(c_valueAttr.toString(), std::round(match * 100.0) / 100.0);
+        }
     }
 
     // Written to a hidden temporary file first, then moved over the target in one step.

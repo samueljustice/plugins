@@ -19,7 +19,8 @@ namespace roar::laws
     // ---------------------------------------------------------------------------------- IN
     /** Auto Level's target offset for the Input knob (dB): Input moves the levelled voice by half its value. */
     inline double inAutoTargetOffsetDb (double trimDb) { return 0.5 * trimDb; }
-    inline constexpr double inAutoMinGainDb = -12.0, inAutoMaxGainDb = 30.0;
+    /** Auto Level's take gain range (dB). */
+    inline constexpr double inAutoMinGainDb = -18.0, inAutoMaxGainDb = 24.0;
 
     // ---------------------------------------------------------------------------------- PITCH
     /** The drive amount d (the drive stage's own scale: gain 24 d^1.5 dB) for Drive u: the gain in dB
