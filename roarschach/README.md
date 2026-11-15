@@ -64,7 +64,7 @@ The order is saved with the session and with presets, and the host can automate 
 
 OUTPUT always ends the chain. In order, it:
 
-1. **Matches the level** of the processed voice to the input, so turning modules on and off does not make the voice much louder or quieter. It learns what the modules do to the level of the voice and then holds that one gain: it does not ride the level, does not duck after a loud sound and leaves what CLEAN's leveller and the other dynamics do. After a settings change it follows only once the voice has shown a clear difference. **Level Match** (on by default, in the host's parameter list) switches it off. The matching never drives the voice into the ceiling by itself: that is Push's job.
+1. **Matches the level** of the processed voice to the input, so turning modules on and off does not make the voice much louder or quieter. It learns what the modules do to the level of the voice and then holds that one gain: it does not ride the level, does not duck after a loud sound and leaves what CLEAN's leveller and the other dynamics do. After a settings change it follows only once the voice has shown a clear difference. The **MATCH** switch at the top of the OUTPUT tile (Level Match in the host, on by default) switches it off. The matching never drives the voice into the ceiling by itself: that is Push's job.
 2. **Pushes** the voice by up to +24 dB. Push is measured against the ceiling, so lowering the Ceiling lowers the output without driving the limiter harder.
 3. **Mixes** in the dry voice at the same loudness as the processed one (the dry is pushed too, and the blend follows how alike the two are, so a processed voice close to the dry adds no level at mid Mix), so the limiter and the clipper hold the ceiling at any Mix and Mix changes the character, not the level.
 4. **Limits** at the **Ceiling** with a look-ahead limiter. More Push is louder and denser; the peaks never pass the ceiling, which is true-peak safe.
@@ -341,6 +341,7 @@ Every room has headroom at every setting: each was measured at the extremes of e
 | **Attack** | 0.2 to 10 ms | 2 ms | How early the limiter starts turning down before a peak. With Auto off and a short Release, 0.3–3 ms crunches the low end. |
 | **Release** | 1 ms to 1 s | 60 ms | How fast the limiter recovers. With Auto off: 2–10 ms crunch, 25–60 ms grit, 200 ms and up clean. |
 | **Auto** | on / off | On | Auto release: adapts the recovery to the material and keeps the low end clean. Release sets how quickly it breathes. |
+| **Match** | on / off | On | Level match, the switch at the top of the tile: holds the processed voice at the level of the input (see [The output stage](#the-output-stage)). Off: the voice leaves at the level the modules give it, and Push still drives it into the ceiling. |
 | **Mix** | 0 to 100% | 100% | Blends the processed voice with the dry voice, which is delayed and phase-matched to line up with it. The two are matched in loudness, so Mix changes the character, not the level. |
 
 The meters show the output level (with the ceiling marked), the limiter's gain reduction (GR) and how much the clipper takes (CLIP). See [The output stage](#the-output-stage) for how Attack and Release shape the crunch.

@@ -115,6 +115,7 @@ namespace
         { Params::outAttack, "ATTACK", "How early the limiter starts turning down before a peak. With Auto off and a short Release, 0.3-3 ms crunches the low end. With Auto on it changes little." },
         { Params::outRelease, "RELEASE", "How fast the limiter recovers. With Auto off: 2-10 ms crunch, 25-60 ms grit, 200 ms and up clean." },
         { Params::outAuto, "AUTO", "Auto release: adapts the recovery to the material and keeps the low end clean. Release sets how quickly it breathes." },
+        { Params::outMatch, "MATCH", "Level match: holds the processed voice at the level of the input, so turning modules on and off does not make it much louder or quieter. It learns one gain and holds it; it does not ride the level. Off: the voice leaves at the level the modules give it, and Push still drives it into the ceiling." },
         { Params::mix, "MIX", "Blends the processed voice with the dry voice at the same loudness, so only the character changes." },
         { Params::chamber, "AMT", "AMT (Chamber in the host): how much of the voice played into the room is blended under the dry voice. 15-35 % adds a subtle edge, 45-65 % is a clear chamber; around 80 % the two are equal; at 100 % the room leads." },
         { Params::chamberResonance, "TAIL", "TAIL (Resonance in the host): how much the room rings after each sound. Lower is tight and boxy; higher lets its resonances sustain longer. The level stays the same." },
@@ -1294,7 +1295,18 @@ public:
         m_autoCaption.setBorderSize({ 0, 0, 0, 0 });
         addAndMakeVisible(m_autoCaption);
         m_autoAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment>(m_owner.m_parameters, Params::outAuto, m_auto);
+
+        // Level Match: a switch with its name, in the header across from the title (as IN's AUTO).
+        m_match.setButtonText(captionFor(Params::outMatch));
+        m_match.setClickingTogglesState(true);
+        RoarschachLookAndFeel::setSwitch(m_match);
+        m_match.setTooltip(tooltipFor(Params::outMatch));
+        m_match.setTitle("Level Match");
+        addAndMakeVisible(m_match);
+        m_matchAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment>(m_owner.m_parameters, Params::outMatch, m_match);
     }
+
+    static constexpr int c_matchWidth = 84;
 
     static constexpr int c_rowHeight = c_captionHeight + 80;
     static constexpr int c_rowGap = 14;   // between row 1's values and row 2's captions: the rows read apart
@@ -1321,6 +1333,8 @@ public:
         fitCaptions();
         const int captionWidth = static_cast<int>(std::ceil(textWidth(m_owner.m_fonts.caption(c_captionFont), m_autoCaption.getText()) + 2.0f));
         m_autoCaption.setBounds(m_auto.getBounds().getCentreX() - captionWidth / 2, y2, captionWidth, c_captionHeight);
+        // In the header across from the title, on its line and clear of row 1's captions below.
+        m_match.setBounds(getWidth() - 12 - c_matchWidth, 2, c_matchWidth, c_hit);
     }
 
     void paint(juce::Graphics& g) override
@@ -1424,9 +1438,9 @@ public:
         }
     }
 
-    juce::TextButton m_auto;
+    juce::TextButton m_auto, m_match;
     juce::Label m_autoCaption;
-    std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> m_autoAttachment;
+    std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> m_autoAttachment, m_matchAttachment;
     float m_out = 0.0f, m_gr = 0.0f, m_heldGr = 0.0f, m_clip = 0.0f, m_ceiling = -1.0f, m_clipHeld = 0.0f;
     double m_holdStartMs = 0.0, m_clipUntilMs = 0.0, m_clipPeakMs = 0.0;
     std::array<float, 6> m_last {};

@@ -4718,6 +4718,38 @@ namespace
                 if (auto* label = dynamic_cast<juce::Label*>(c); label != nullptr && label->getText() == "SHAPE")
                     captionsApart += RoarschachLookAndFeel::isCaptionLive(*label) == (styleOf(Params::outClipShape) == static_cast<int>(Style::full)) ? 0 : 1;
             check(captionsApart == 0, "an unused knob's caption changes with it");
+
+            // OUTPUT's MATCH switch: in the header across from the title, inside the tile, clear of every
+            // other control and caption, and it is the Level Match parameter both ways.
+            {
+                auto* out = strip.getOutputTile();
+                juce::TextButton* match = nullptr;
+                for (auto* c : out->getChildren())
+                    if (auto* b = dynamic_cast<juce::TextButton*>(c); b != nullptr && b->getTitle() == "Level Match")
+                        match = b;
+                check(match != nullptr && match->isVisible() && match->getButtonText() == "MATCH" && match->getTooltip().isNotEmpty(),
+                      "OUTPUT has a MATCH switch with a tooltip");
+                if (match != nullptr)
+                {
+                    const auto r = match->getBounds();
+                    check(out->getLocalBounds().contains(r) && r.getX() > out->getWidth() / 2 && r.getBottom() <= SignalFlowStrip::c_headerHeight + 4,
+                          "the MATCH switch sits in OUTPUT's header, right of the title, inside the tile");
+                    int touching = 0;
+                    for (auto* c : out->getChildren())
+                        if (c != match && c->isVisible() && c->getBounds().intersects(r))
+                        {
+                            ++touching;
+                            std::printf("    MATCH (%s) meets %s\n", r.toString().toRawUTF8(), c->getBounds().toString().toRawUTF8());
+                        }
+                    check(touching == 0, "the MATCH switch is clear of every other control and caption");
+                    const auto matchWas = getParam(*p, Params::outMatch);
+                    setParam(*p, Params::outMatch, 0.0f);
+                    const bool offShown = !match->getToggleState();
+                    match->setToggleState(true, juce::sendNotificationSync);   // (what a click does, without the message loop)
+                    check(offShown && match->getToggleState() && getParam(*p, Params::outMatch) >= 0.5f, "the MATCH switch shows and sets Level Match");
+                    setParam(*p, Params::outMatch, matchWas);
+                }
+            }
         }
 
         // 11. Ink on paper: state by shape, contrast from pixels in the palest, a warm and a cold mood,
@@ -4870,7 +4902,7 @@ namespace
             }
             Theme::applyMood(Theme::c_referenceHue, Theme::c_referenceChroma);
 
-            // d) Targets at 65 %: the On lamps, dice, move chips, mode chips, the AUTO switches and the
+            // d) Targets at 65 %: the On lamps, dice, move chips, mode chips, the AUTO and MATCH switches and the
             //    header's buttons click in 16 px or more at the smallest window.
             {
                 auto p = makeProcessor(48000.0, 512);
@@ -4901,7 +4933,7 @@ namespace
                 for (auto* tile : { strip.getInTile(), strip.getOutputTile() })
                     for (auto* c : tile->getChildren())
                         if (dynamic_cast<juce::TextButton*>(c) != nullptr)
-                            target(c, "an AUTO switch");
+                            target(c, "a switch (AUTO, MATCH)");
                 for (auto* c : RoarschachEditorInspector::content(editor).getChildren())
                     if (dynamic_cast<juce::Button*>(c) != nullptr && dynamic_cast<juce::HyperlinkButton*>(c) == nullptr)
                         target(c, "a header button");
@@ -5315,7 +5347,7 @@ namespace
             tilePicture(strip.getModuleTile(static_cast<int>(Params::ModuleId::ring)), "panel-ring@2x.png");
             choices({ Params::ringCarrier, Params::ringTrack, Params::ringMode, Params::ringBody });
             tilePicture(strip.getOutputTile(), "panel-out@2x.png");
-            choices({ Params::outAuto });
+            choices({ Params::outAuto, Params::outMatch });
             p->setCurrentProgram(presetIndex("Iron Tyrant"));
             play(1.5);
             strip.finishAnimations();
