@@ -29,18 +29,16 @@ Built 14 Nov 2026, 15:03 UTC. Older versions are on the <a href="https://github.
 | [Roarschach](#roarschach) | [Swooshbuckler](#swooshbuckler) | [Tonal Recall](#tonal-recall) |
 |:---:|:---:|:---:|
 | [<img src="roarschach/docs/hero.gif" width="250" alt="Roarschach">](#roarschach) | [<img src="swooshbuckler/docs/screenshot.png" width="250" alt="Swooshbuckler">](#swooshbuckler) | [<img src="tonalrecall/docs/screenshot.png" width="250" alt="Tonal Recall">](#tonal-recall) |
-| <sub>A modular voice processor for exploration and fun<br>![Work in progress](https://img.shields.io/badge/work_in_progress-D00000?style=flat-square)</sub> | <sub>Generates whooshes from up to ten sounds</sub> | <sub>Pitch-matches sound effects to music in Pro Tools AudioSuite<br>![Work in progress](https://img.shields.io/badge/work_in_progress-D00000?style=flat-square)</sub> |
+| <sub>A modular voice processor for exploration and fun</sub> | <sub>Generates whooshes from up to ten sounds</sub> | <sub>Pitch-matches sound effects to music in Pro Tools AudioSuite</sub> |
 
-| [Reversinator](#reversinator) | [Sound Advice](#sound-advice) | [Subbertone](#subbertone) | [Pitch Flattener](#pitch-flattener) |
+| [Pitch Flattener](#pitch-flattener) | [Reversinator](#reversinator) | [Sound Advice](#sound-advice) | [Subbertone](#subbertone) |
 |:---:|:---:|:---:|:---:|
-| [<img src="reversinator/docs/screenshot.png" width="180" alt="Reversinator">](#reversinator) | [<img src="soundadvice/docs/screenshot.png" width="180" alt="Sound Advice">](#sound-advice) | [<img src="subbertone/docs/screenshot.jpg" width="180" alt="Subbertone">](#subbertone) | [<img src="pitchflattener/docs/screenshot.png" width="180" alt="Pitch Flattener">](#pitch-flattener) |
-| <sub>Real-time reverse effects</sub> | <sub>Advice from sound professionals</sub> | <sub>Sub and harmonics for bass<br>![Work in progress](https://img.shields.io/badge/work_in_progress-D00000?style=flat-square)</sub> | <sub>Learns a sound and plays it back with its pitch flat<br>![Work in progress](https://img.shields.io/badge/work_in_progress-D00000?style=flat-square)</sub> |
+| [<img src="pitchflattener/docs/screenshot.png" width="180" alt="Pitch Flattener">](#pitch-flattener) | [<img src="reversinator/docs/screenshot.png" width="180" alt="Reversinator">](#reversinator) | [<img src="soundadvice/docs/screenshot.png" width="180" alt="Sound Advice">](#sound-advice) | [<img src="subbertone/docs/screenshot.jpg" width="180" alt="Subbertone">](#subbertone) |
+| <sub>Learns a sound and plays it back with its pitch flat</sub> | <sub>Real-time reverse effects</sub> | <sub>Advice from sound professionals</sub> | <sub>Sub and harmonics for bass<br>![Work in progress](https://img.shields.io/badge/work_in_progress-D00000?style=flat-square)</sub> |
 
 </div>
 
 ## Roarschach
-
-![Work in progress](https://img.shields.io/badge/WORK_IN_PROGRESS-D00000?style=for-the-badge)
 
 <p align="center">
   <img src="roarschach/docs/hero.gif" alt="Roarschach" width="820">
@@ -94,8 +92,6 @@ There is more in it: a spectral morph between the two buses, a third bus called 
 
 ## Tonal Recall
 
-![Work in progress](https://img.shields.io/badge/WORK_IN_PROGRESS-D00000?style=for-the-badge)
-
 <p align="center">
   <img src="tonalrecall/docs/screenshot.png" alt="Tonal Recall" width="820">
 </p>
@@ -120,6 +116,30 @@ It is an offline tool for Pro Tools AudioSuite, not a live effect. The VST3 and 
 
 **AAX AudioSuite** (macOS, Windows) · **VST3** and **AU** for offline use in other hosts<br>
 [Get it in the installer](https://github.com/samueljustice/plugins/releases/latest) · [Read the manual →](tonalrecall/README.md)
+
+## Pitch Flattener
+
+<p align="center">
+  <img src="pitchflattener/docs/screenshot.png" alt="Pitch Flattener" width="820">
+</p>
+
+Takes the pitch movement out of a sound: the sweep of a pass-by, a siren's wail, an engine's climb, vibrato. Press Learn and play the sound once. It reads the pitch of the whole sound and makes a flat version by speeding the playback up and slowing it down from moment to moment, so the pitch stays put however fast it bends, and the length changes. Play the same sound again and you hear the flat version, from wherever you start.
+
+It can hold the sound at the top of its pitch, the bottom, the middle, where it starts, or a note you type. It is made for a rack or a DAW (learn, then play or render), and adds a fixed delay of 0.4 seconds that the host makes up for. In its tests a 7-semitone pass-by and a siren wailing over 15 semitones both come out with no measurable movement.
+
+<details>
+<summary>More screenshots</summary>
+<br>
+<p align="center">
+  <img src="pitchflattener/docs/flight.png" alt="Pitch Flattener FLIGHT view" width="820">
+</p>
+<p align="center">
+  <img src="pitchflattener/docs/controls.png" alt="Pitch Flattener TARGET, NOTE, AMOUNT and LINE" width="820">
+</p>
+</details>
+
+**VST3** (macOS, Windows) · **AU** (macOS) · **AAX**<br>
+[Get it in the installer](https://github.com/samueljustice/plugins/releases/latest) · [Read the manual →](pitchflattener/README.md)
 
 ## Reversinator
 
@@ -158,7 +178,7 @@ Audio passes straight through it, so it can sit on a mix bus, or run as an app o
 
 ![Work in progress](https://img.shields.io/badge/WORK_IN_PROGRESS-D00000?style=for-the-badge)
 
-These two work, but I'm still changing them, so expect differences between releases.
+This one works, but I'm still changing it, so expect differences between releases.
 
 ### Subbertone
 
@@ -185,32 +205,6 @@ Follows the pitch of a bass, engine or drone and adds a sub an octave below. You
 
 **VST3** (macOS, Windows) · **AU** (macOS) · **AAX**<br>
 [Get it in the installer](https://github.com/samueljustice/plugins/releases/latest) · [Read the manual →](subbertone/README.md)
-
----
-
-### Pitch Flattener
-
-<p align="center">
-  <img src="pitchflattener/docs/screenshot.png" alt="Pitch Flattener" width="820">
-</p>
-
-Takes the pitch movement out of a sound: the sweep of a pass-by, a siren's wail, an engine's climb, vibrato. Press Learn and play the sound once. It reads the pitch of the whole sound and makes a flat version by speeding the playback up and slowing it down from moment to moment, so the pitch stays put however fast it bends, and the length changes. Play the same sound again and you hear the flat version, from wherever you start.
-
-It can hold the sound at the top of its pitch, the bottom, the middle, where it starts, or a note you type. It is made for a rack or a DAW (learn, then play or render), and adds a fixed delay of 0.4 seconds that the host makes up for. In its tests a 7-semitone pass-by and a siren wailing over 15 semitones both come out with no measurable movement.
-
-<details>
-<summary>More screenshots</summary>
-<br>
-<p align="center">
-  <img src="pitchflattener/docs/flight.png" alt="Pitch Flattener FLIGHT view" width="820">
-</p>
-<p align="center">
-  <img src="pitchflattener/docs/controls.png" alt="Pitch Flattener TARGET, NOTE, AMOUNT and LINE" width="820">
-</p>
-</details>
-
-**VST3** (macOS, Windows) · **AU** (macOS) · **AAX**<br>
-[Get it in the installer](https://github.com/samueljustice/plugins/releases/latest) · [Read the manual →](pitchflattener/README.md)
 
 ## For developers
 
