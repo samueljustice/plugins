@@ -14,7 +14,12 @@ namespace
     constexpr int c_headerHeight = 56;
     constexpr int c_stripHeight = 336;
     constexpr int c_sectionGap = 12;
-    constexpr float c_viewRadius = 8.0f;
+    // The picture's corner radius: the module tiles' own, so the picture reads as the largest tile on
+    // the sheet (a clean rounded box, the grid's width, a section gap above the strip).
+    constexpr float c_viewRadius = Theme::Metrics::radius;
+    constexpr int c_markWidth = 34, c_markHeight = 25;   // the ink mark in the header (designed at 30 x 22)
+    constexpr int c_moodEveryTicks = 6;       // the palette follows the cloud about 5 times a second (30 Hz timer)
+    constexpr float c_moodSmoothing = 0.35f;  // ... each step a third of the way (no jump when the visualiser is Off)
     constexpr int c_displayReserve = 40;      // the least a display keeps for menus and a title bar
     constexpr int c_hostFrameReserve = 110;   // a host's plug-in window: title bar and its own header
     constexpr float c_hostWidthShare = 0.95f; // ... and the share of the display's width a first window takes
@@ -23,6 +28,7 @@ namespace
     const juce::Identifier c_viewEditorScale { "viewEditorScale" };
     const juce::Identifier c_viewHintDone { "viewHintDone" };
     const char* const c_settingsScaleKey = "editorScale";
+    const char* const c_settingsVisualiserKey = "visualiser";
     const juce::Identifier c_undoFocus { "undoFocus" };   // a control Cmd+Z works from while it has the focus
 
     const char* const c_hintText = "Play a voice through it to wake the creature. Pick a preset or roll a die to change it.";
@@ -54,6 +60,10 @@ namespace
     const juce::String c_title = "ROARSCHACH";
     const juce::String c_taglineText = juce::String(Theme::tagline) + "  /";
 
+    // The editor whose cloud tints the palette (it is shared by every open instance, so only one may
+    // drive it at a time): the one opened, or last pointed at, most recently.
+    const void* g_moodDriver = nullptr;
+
     // Preset menu item IDs: factory presets are 1..getNumFactory() (they lead the preset list in a
     // fixed order, so their index is stable), user presets count up from c_firstUserItemId.
     constexpr int c_saveAsItemId = 1001, c_deleteItemId = 1002, c_revealItemId = 1003, c_undoItemId = 1004, c_redoItemId = 1005;
@@ -76,7 +86,7 @@ RoarschachAudioProcessorEditor::RoarschachAudioProcessorEditor(RoarschachAudioPr
     m_content.onResized = [this] { layoutContent(); };
     addAndMakeVisible(m_content);
 
-    m_monsterView.setCorner(c_viewRadius, Theme::Colours::background);
+    m_monsterView.setCorner(c_viewRadius, Theme::Colours::paper);
     m_monsterView.isCreatureFrozen = [&audioProcessor] { return audioProcessor.isCreatureFrozen(); };
     m_monsterView.setCreatureFrozen = [&audioProcessor](bool frozen) { audioProcessor.setCreatureFrozen(frozen); };
     m_monsterView.resetCreature = [&audioProcessor] { audioProcessor.resetCreature(); };
@@ -88,10 +98,18 @@ RoarschachAudioProcessorEditor::RoarschachAudioProcessorEditor(RoarschachAudioPr
         m_monsterView.onAudioHeard = [&audioProcessor] { audioProcessor.setViewValue(c_viewHintDone, true); };
     }
     updateMonsterParams();
+    g_moodDriver = this;
+    {
+        const auto tone = m_monsterView.shownTone();
+        m_moodTone = tone;
+        applyMood(true);
+    }
     m_content.addAndMakeVisible(m_monsterView);
     m_content.addAndMakeVisible(m_strip);
 
     m_aboutButton.setButtonText("?");
+    RoarschachLookAndFeel::setQuiet(m_aboutButton);
+    RoarschachLookAndFeel::setCircled(m_aboutButton);
     m_aboutButton.setTooltip("About Roarschach, and a quick start");
     m_aboutButton.onClick = [this] { showAboutWindow(); };
     m_content.addAndMakeVisible(m_aboutButton);
@@ -99,8 +117,8 @@ RoarschachAudioProcessorEditor::RoarschachAudioProcessorEditor(RoarschachAudioPr
     setupPresetBar();
     setupDice();
 
-    m_websiteLink.setFont(m_fonts->label(10.5f), false, juce::Justification::centredLeft);
-    m_websiteLink.setColour(juce::HyperlinkButton::textColourId, Theme::Colours::textDim); // amber on hover (ThemeLink)
+    m_websiteLink.setFont(m_fonts->caption(Theme::Type::credit), false, juce::Justification::centredLeft);
+    m_websiteLink.setColour(juce::HyperlinkButton::textColourId, Theme::Colours::inkDim); // the dyed ink on hover (ThemeLink)
     m_websiteLink.setTooltip("Open sweetjusticesound.com");
     m_content.addAndMakeVisible(m_websiteLink);
 
@@ -126,6 +144,15 @@ RoarschachAudioProcessorEditor::RoarschachAudioProcessorEditor(RoarschachAudioPr
     // and must neither read nor change the size this computer remembers.
     m_useMachineSettings = audioProcessor.wrapperType != juce::AudioProcessor::wrapperType_Undefined;
 
+    // How much the creature view draws: chosen in its menu, kept on this computer, and the same for
+    // every instance (the open ones follow at once, new ones read it here).
+    if (m_useMachineSettings)
+    {
+        MonsterView::setVisualiserForAll(readRememberedVisualiser(getSettingsFile()));
+        m_monsterView.onVisualiserChosen = [](MonsterView::Visualiser v) { rememberVisualiser(getSettingsFile(), v); };
+    }
+    m_monsterView.setVisualiser(MonsterView::visualiserForAll());
+
     // This instance's own size (a session), else the size last chosen on this computer, else the
     // largest default that leaves room on the main display.
     const auto usable = [](double v) { return std::isfinite(v) && v > 0.0; };
@@ -149,6 +176,10 @@ RoarschachAudioProcessorEditor::RoarschachAudioProcessorEditor(RoarschachAudioPr
     setSize(juce::roundToInt(c_baseWidth * scale), juce::roundToInt(c_baseHeight * scale));
     m_sizeRestored = true;
 
+    // Everything built before it had a parent (the knobs' value boxes) takes this LookAndFeel's colours.
+    sendLookAndFeelChange();
+    addMouseListener(&m_moodFocus, true);
+
     startTimerHz(30);
 
     // Look for a newer release once the UI is up (a background thread; silent if it can't connect).
@@ -162,6 +193,9 @@ RoarschachAudioProcessorEditor::~RoarschachAudioProcessorEditor()
 {
     stopTimer();
     removeMouseListener(&m_diceFocusRelease);
+    removeMouseListener(&m_moodFocus);
+    if (g_moodDriver == this)
+        g_moodDriver = nullptr;
     rememberSizeNow();
 
     // The update check first (its thread stops, its callback never runs), then its popup.
@@ -223,7 +257,50 @@ void RoarschachAudioProcessorEditor::resized()
 
 void RoarschachAudioProcessorEditor::paint(juce::Graphics& g)
 {
-    g.fillAll(Theme::Colours::background);
+    g.fillAll(Theme::Colours::paper);
+}
+
+void RoarschachAudioProcessorEditor::MoodFocus::mouseEnter(const juce::MouseEvent&)
+{
+    g_moodDriver = &m_editor;
+}
+
+//==============================================================================
+// The colour mood
+//==============================================================================
+void RoarschachAudioProcessorEditor::followMood()
+{
+    // The cloud's tone as shown, eased (the creature view eases its own, but with the visualiser Off
+    // its tone is the settings' and would jump), then into the palette a few times a second. The palette
+    // only changes, and the window only repaints, when the quantised tone does.
+    if (g_moodDriver == nullptr)
+        g_moodDriver = this;
+    if (g_moodDriver != this)
+        return;
+
+    const auto target = m_monsterView.shownTone();
+    const float dh = std::remainder(target.hue - m_moodTone.hue, 360.0f);
+    m_moodTone.hue = std::fmod(m_moodTone.hue + dh * c_moodSmoothing + 360.0f, 360.0f);
+    m_moodTone.chroma += (target.chroma - m_moodTone.chroma) * c_moodSmoothing;
+    applyMood(false);
+}
+
+void RoarschachAudioProcessorEditor::applyMood(bool force)
+{
+    if (!Theme::applyMood(m_moodTone.hue, m_moodTone.chroma) && !force)
+        return;
+    refreshPalette();
+}
+
+void RoarschachAudioProcessorEditor::refreshPalette()
+{
+    m_paletteSerialSeen = Theme::paletteSerial();
+    m_lookAndFeel.refreshColours();
+    m_monsterView.setCorner(c_viewRadius, Theme::Colours::paper);
+    m_websiteLink.setColour(juce::HyperlinkButton::textColourId, Theme::Colours::inkDim);
+    repaint();
+    if (m_aboutWindow != nullptr)
+        m_aboutWindow->refreshColours();
 }
 
 void RoarschachAudioProcessorEditor::layoutContent()
@@ -231,28 +308,35 @@ void RoarschachAudioProcessorEditor::layoutContent()
     auto bounds = m_content.getLocalBounds();
 
     auto header = bounds.removeFromTop(c_headerHeight).reduced(c_margin, 0);
-    m_aboutButton.setBounds(header.removeFromRight(26).withSizeKeepingCentre(26, 26));
+    m_aboutButton.setBounds(header.removeFromRight(28).withSizeKeepingCentre(28, 28));
 
-    // Website link sits after the title and tagline (widths match paintContent()).
+    // The credit line's link sits after the tagline, one separator's spacing after its last slash (the
+    // same two spaces as round the others), its text drawn on the tagline's exact baseline: the button's
+    // whole-pixel bounds only take the clicks (paintContent() draws the tagline the same way).
     {
-        const float titleWidth = juce::GlyphArrangement::getStringWidth(m_fonts->heading(20.0f), c_title);
-        const float taglineWidth = juce::GlyphArrangement::getStringWidth(m_fonts->label(10.5f), c_taglineText);
-        const int linkX = c_margin + 30 + 12 + juce::roundToInt(titleWidth) + 4 + 14 + juce::roundToInt(taglineWidth) + 8;
-        const int linkWidth = juce::roundToInt(juce::GlyphArrangement::getStringWidth(m_fonts->label(10.5f), "SWEETJUSTICESOUND.COM")) + 6;
-        m_websiteLink.setBounds(linkX, 2 + (c_headerHeight - 20) / 2, linkWidth, 20);
+        const auto font = m_fonts->caption(Theme::Type::credit);
+        const auto r = creditLineBounds();
+        const float baseline = creditBaseline();
+        const float x = r.getX() + juce::GlyphArrangement::getStringWidth(font, c_taglineText + "  X") - juce::GlyphArrangement::getStringWidth(font, "X");
+        const int linkWidth = juce::roundToInt(juce::GlyphArrangement::getStringWidth(font, "SWEETJUSTICESOUND.COM")) + 6;
+        const auto linkBounds = juce::Rectangle<int>(static_cast<int>(std::floor(x)) - 1, static_cast<int>(std::floor(baseline - font.getAscent())) - 3,
+                                                     linkWidth, juce::roundToInt(font.getHeight()) + 6);
+        m_websiteLink.setBounds(linkBounds);
+        m_websiteLink.setTextOrigin({ x - static_cast<float>(linkBounds.getX()), baseline - static_cast<float>(linkBounds.getY()) });
     }
 
-    // Preset bar, right-aligned next to the About button: < name > die SAVE.
+    // Preset bar, right-aligned next to the About button: < name > die SAVE. The name is the
+    // picture's title: set in the display face on a ruled line, no box.
     header.removeFromRight(14);
-    auto presetRow = header.removeFromRight(430).withSizeKeepingCentre(430, 26);
-    m_presetSaveButton.setBounds(presetRow.removeFromRight(64));
-    presetRow.removeFromRight(8);
-    m_presetDice.setBounds(presetRow.removeFromRight(26));
-    presetRow.removeFromRight(4);
-    m_presetNextButton.setBounds(presetRow.removeFromRight(26));
-    presetRow.removeFromRight(4);
-    m_presetPrevButton.setBounds(presetRow.removeFromLeft(26));
-    presetRow.removeFromLeft(4);
+    auto presetRow = header.removeFromRight(430).withSizeKeepingCentre(430, 28);
+    m_presetSaveButton.setBounds(presetRow.removeFromRight(64).withSizeKeepingCentre(64, 26));   // (drawn as an outlined tag)
+    presetRow.removeFromRight(10);
+    m_presetDice.setBounds(presetRow.removeFromRight(28));
+    presetRow.removeFromRight(6);
+    m_presetNextButton.setBounds(presetRow.removeFromRight(28));
+    presetRow.removeFromRight(2);
+    m_presetPrevButton.setBounds(presetRow.removeFromLeft(28));
+    presetRow.removeFromLeft(2);
     m_presetNameButton.setBounds(presetRow);
 
     bounds.reduce(c_margin, 0);
@@ -263,34 +347,78 @@ void RoarschachAudioProcessorEditor::layoutContent()
     m_monsterView.setBounds(bounds);
 }
 
+juce::Rectangle<float> RoarschachAudioProcessorEditor::wordmarkBounds() const
+{
+    auto header = m_content.getLocalBounds().removeFromTop(c_headerHeight).reduced(c_margin, 0).toFloat();
+    header.removeFromLeft(static_cast<float>(c_markWidth) + 12.0f);
+    const float w = juce::GlyphArrangement::getStringWidth(m_fonts->display(Theme::Type::wordmark), c_title);
+    return header.withWidth(w + 4.0f);
+}
+
+float RoarschachAudioProcessorEditor::creditBaseline() const
+{
+    // The wordmark's baseline.
+    const auto mark = wordmarkBounds();
+    const auto display = m_fonts->display(Theme::Type::wordmark);
+    return std::round(mark.getCentreY() + (display.getAscent() - display.getDescent()) * 0.5f) + 1.0f;
+}
+
+juce::Rectangle<float> RoarschachAudioProcessorEditor::creditLineBounds() const
+{
+    // On the wordmark's baseline, after it.
+    const auto mark = wordmarkBounds();
+    const auto credit = m_fonts->caption(Theme::Type::credit);
+    const float baseline = creditBaseline();
+    const float h = credit.getHeight();
+    return { mark.getRight() + 16.0f, baseline - credit.getAscent() - (h - credit.getAscent() - credit.getDescent()) * 0.5f,
+             900.0f, h };
+}
+
 void RoarschachAudioProcessorEditor::paintContent(juce::Graphics& g)
 {
     using namespace Theme::Colours;
 
-    g.fillAll(background);
+    g.fillAll(paper);
+    Theme::fillPaperGrain(g, m_content.getLocalBounds().toFloat());
 
-    // Header: the mark, the name and the tagline (the website link and the preset bar are components).
+    // Header: the ink mark (nothing behind it), the wordmark in the display face, and on its baseline the
+    // credit line (the website link and the preset bar are components).
     auto header = m_content.getLocalBounds().removeFromTop(c_headerHeight).reduced(c_margin, 0).toFloat();
+    RoarschachLookAndFeel::drawMark(g, header.removeFromLeft(static_cast<float>(c_markWidth))
+                                             .withSizeKeepingCentre(static_cast<float>(c_markWidth), static_cast<float>(c_markHeight)));
 
-    RoarschachLookAndFeel::drawMark(g, header.removeFromLeft(30.0f).withSizeKeepingCentre(30.0f, 22.0f));
-    header.removeFromLeft(12.0f);
+    g.setFont(m_fonts->display(Theme::Type::wordmark));
+    g.setColour(ink);
+    g.drawText(c_title, wordmarkBounds(), juce::Justification::centredLeft, false);
 
-    const auto titleFont = m_fonts->heading(20.0f);
-    g.setFont(titleFont);
-    g.setColour(text);
-    const float titleWidth = juce::GlyphArrangement::getStringWidth(titleFont, c_title);
-    g.drawText(c_title, header.removeFromLeft(titleWidth + 4.0f), juce::Justification::centredLeft, false);
+    {
+        // (on the wordmark's exact baseline, as the link after it)
+        juce::GlyphArrangement credit;
+        credit.addLineOfText(m_fonts->caption(Theme::Type::credit), c_taglineText, creditLineBounds().getX(), creditBaseline());
+        g.setColour(inkDim);
+        credit.draw(g);
+    }
 
-    header.removeFromLeft(14.0f);
-    g.setFont(m_fonts->label(10.5f));
-    g.setColour(textFaint);
-    g.drawText(c_taglineText, header.withTrimmedTop(4.0f), juce::Justification::centredLeft, false);
+    // The preset bar is one ruled field: a line under the name running from the left chevron to the right.
+    const auto from = m_presetPrevButton.getBounds().toFloat(), to = m_presetNextButton.getBounds().toFloat();
+    const auto name = m_presetNameButton.getBounds().toFloat();
+    g.setColour(rule);
+    g.fillRect(juce::Rectangle<float>(from.getX() + 4.0f, name.getBottom() + 1.0f, to.getRight() - 4.0f - (from.getX() + 4.0f), 1.0f));
 }
 
 void RoarschachAudioProcessorEditor::timerCallback()
 {
     updatePresetDisplay();
     updateMonsterParams();
+    if (++m_moodTick >= c_moodEveryTicks)
+    {
+        m_moodTick = 0;
+        followMood();
+    }
+    // The palette is shared by every open instance: another editor may have moved it. Then this
+    // window takes the whole of it at once (never a few tiles in the new mood on a sheet in the previous one).
+    if (Theme::paletteSerial() != m_paletteSerialSeen)
+        refreshPalette();
 
     if (m_scaleToRemember > 0.0f && juce::Time::getMillisecondCounterHiRes() >= m_rememberAtMs)
         rememberSizeNow();
@@ -333,6 +461,23 @@ bool RoarschachAudioProcessorEditor::rememberScale(const juce::File& settingsFil
 
     juce::PropertiesFile settings(settingsFile, settingsOptions());
     settings.setValue(c_settingsScaleKey, static_cast<double>(juce::jlimit(c_minScale, c_maxScale, scale)));
+    return settings.save();
+}
+
+MonsterView::Visualiser RoarschachAudioProcessorEditor::readRememberedVisualiser(const juce::File& settingsFile)
+{
+    if (!settingsFile.existsAsFile())
+        return MonsterView::Visualiser::full;
+
+    juce::PropertiesFile settings(settingsFile, settingsOptions());
+    const auto text = settings.getValue(c_settingsVisualiserKey, "full");
+    return text == "low" ? MonsterView::Visualiser::low : text == "off" ? MonsterView::Visualiser::off : MonsterView::Visualiser::full;
+}
+
+bool RoarschachAudioProcessorEditor::rememberVisualiser(const juce::File& settingsFile, MonsterView::Visualiser visualiser)
+{
+    juce::PropertiesFile settings(settingsFile, settingsOptions());
+    settings.setValue(c_settingsVisualiserKey, visualiser == MonsterView::Visualiser::low ? "low" : visualiser == MonsterView::Visualiser::off ? "off" : "full");
     return settings.save();
 }
 
@@ -460,8 +605,13 @@ void RoarschachAudioProcessorEditor::setupPresetBar()
     m_presetNameButton.setTooltip("Choose a preset, or save, delete and find your presets. Undo Load in this menu (or " + undoKey
                                   + " straight after loading) brings back the sound you had, edits and all.");
     m_presetNameButton.onClick = [this] { showPresetMenu(); };
+    RoarschachLookAndFeel::setDisplayFace(m_presetNameButton);
+    RoarschachLookAndFeel::setQuiet(m_presetNameButton);
+    RoarschachLookAndFeel::setQuiet(m_presetPrevButton);
+    RoarschachLookAndFeel::setQuiet(m_presetNextButton);
 
     m_presetSaveButton.setButtonText("SAVE");
+    RoarschachLookAndFeel::setTag(m_presetSaveButton);   // filled with the dye while the preset is edited
     m_presetSaveButton.setTooltip("Save the current settings as a preset");
     m_presetSaveButton.onClick = [this]
     {
@@ -495,7 +645,6 @@ void RoarschachAudioProcessorEditor::setupDice()
     m_presetDice.setTooltip("Loads a random factory preset, never the one showing. Every factory preset comes up once "
                             "before any comes up again. " + undoHint);
     m_presetDice.setTitle("Random Preset");
-    m_presetDice.setAccent(Theme::Colours::output);
     m_presetDice.onClick = [this] { m_audioProcessor.getDice().rollPreset(); afterRoll(); };
     m_presetDice.onSecondaryClick = [this] { showDiceMenu(m_presetDice); };
     m_presetDice.onUndoKey = [this](bool redo) { return diceUndoKey(redo); };
@@ -592,6 +741,8 @@ void RoarschachAudioProcessorEditor::updatePresetDisplay()
 
     if (m_presetNameButton.getButtonText() != text)
         m_presetNameButton.setButtonText(text);
+    if (m_presetSaveButton.getToggleState() != pm.isModified())
+        m_presetSaveButton.setToggleState(pm.isModified(), juce::dontSendNotification);
 }
 
 void RoarschachAudioProcessorEditor::showPresetMenu()
@@ -683,7 +834,10 @@ void RoarschachAudioProcessorEditor::showPresetMenu()
     menu.addItem(c_deleteItemId, "Delete \"" + currentMenuName + "\"", fileToDelete != juce::File());
     menu.addItem(c_revealItemId, "Show Presets Folder");
 
-    menu.showMenuAsync(RoarschachLookAndFeel::menuOptionsFor(m_presetNameButton, m_presetNameButton.getWidth()),
+    auto options = RoarschachLookAndFeel::menuOptionsFor(m_presetNameButton, m_presetNameButton.getWidth());
+    if (m_menuParentForSnapshots != nullptr)
+        options = options.withParentComponent(m_menuParentForSnapshots);
+    menu.showMenuAsync(options,
                        [safe = juce::Component::SafePointer<RoarschachAudioProcessorEditor>(this), userFiles, fileToDelete,
                         nameToDelete = currentMenuName](int result)
     {
@@ -858,6 +1012,7 @@ void RoarschachAudioProcessorEditor::showAlert(std::unique_ptr<juce::AlertWindow
     // window so it is always destroyed before the LookAndFeel it uses.
     m_alert = std::move(alert);
     m_alert->setLookAndFeel(&m_lookAndFeel); // already set by makeAlert(); kept for any alert made elsewhere
+    RoarschachLookAndFeel::arrangeDialog(*m_alert);
 
     m_alert->enterModalState(true, juce::ModalCallbackFunction::create(
         [safe = juce::Component::SafePointer<RoarschachAudioProcessorEditor>(this), onResult](int result)

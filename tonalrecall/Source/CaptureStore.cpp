@@ -89,7 +89,9 @@ void CaptureStore::ensureAllocated()
     const auto bins = static_cast<std::size_t>(kCapacity / kPeakHop + 1);
     m_storage.reset(new float[static_cast<std::size_t>(kCapacity) * kNumSlots]);
     m_peakStorage.reset(new float[bins * kNumSlots]);
-    m_channelStorage.reset(new float[static_cast<std::size_t>(kCapacity) * 2]);
+    // Both slots keep their channels as well as the sum, so each can be played back in stereo.
+    // Like the rest, only the pages a capture writes cost memory.
+    m_channelStorage.reset(new float[static_cast<std::size_t>(kCapacity) * 2 * kNumSlots]);
 
     for (int i = 0; i < kNumSlots; ++i)
     {
@@ -97,11 +99,9 @@ void CaptureStore::ensureAllocated()
         s.lock.lock();
         s.buffer = m_storage.get() + static_cast<std::size_t>(kCapacity) * static_cast<std::size_t>(i);
         s.peaks = m_peakStorage.get() + bins * static_cast<std::size_t>(i);
-        if (static_cast<Slot>(i) == Slot::Sfx)
-        {
-            s.channel[0] = m_channelStorage.get();
-            s.channel[1] = m_channelStorage.get() + static_cast<std::size_t>(kCapacity);
-        }
+        auto* channels = m_channelStorage.get() + static_cast<std::size_t>(kCapacity) * 2 * static_cast<std::size_t>(i);
+        s.channel[0] = channels;
+        s.channel[1] = channels + static_cast<std::size_t>(kCapacity);
         s.lock.unlock();
     }
     m_allocated.store(true, std::memory_order_release);

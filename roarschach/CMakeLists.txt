@@ -146,13 +146,14 @@ target_compile_definitions(Roarschach
     JUCE_USE_CURL=0
 )
 
-# The licence text for the About panel, the typeface and the logo.
+# The licence text for the About panel, the typefaces and the logo. (Each font's licence is beside
+# it in Resources/Fonts.)
 juce_add_binary_data(RoarschachBinaryData
     SOURCES
     LICENSE
-    Resources/Fonts/AzeretMono-Regular.ttf
-    Resources/Fonts/AzeretMono-Medium.ttf
-    Resources/Fonts/AzeretMono-Bold.ttf
+    Resources/Fonts/SourceSans3-Regular.ttf
+    Resources/Fonts/SourceSans3-Semibold.ttf
+    Resources/Fonts/Marcellus-Regular.ttf
     Resources/sj-logo.svg
 )
 

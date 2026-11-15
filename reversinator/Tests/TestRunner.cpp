@@ -838,7 +838,8 @@ namespace
                 return std::abs(a.getRed() - b.getRed()) < 12 && std::abs(a.getGreen() - b.getGreen()) < 12
                     && std::abs(a.getBlue() - b.getBlue()) < 12 && a.getAlpha() == 255;
             };
-            const bool roundedBox = boxImage.getPixelAt(0, 0).getAlpha() == 0 && boxImage.getPixelAt(30, 10).getAlpha() == 255;
+            // Corners are only eased (2 px), so the corner pixel is partly covered rather than empty.
+            const bool roundedBox = boxImage.getPixelAt(0, 0).getAlpha() < 255 && boxImage.getPixelAt(30, 10).getAlpha() == 255;
             const bool menuFrame = menuImage.getPixelAt(0, 0).getAlpha() < 128 && close(menuImage.getPixelAt(0, 20), Theme::Colours::outline)
                                 && close(menuImage.getPixelAt(20, 20), Theme::Colours::panelRaised);
 
@@ -854,7 +855,7 @@ namespace
             slider.setLookAndFeel(nullptr);
 
             check(stockColours.isEmpty() && gripDiffers && menuFace.containsIgnoreCase("Azeret") && roundedBox && menuFrame && centredEditing,
-                  "no JUCE default styling (colours, menu font " + menuFace + ", menu frame, rounded text boxes, centred editing, resize grip)"
+                  "no JUCE default styling (colours, menu font " + menuFace + ", menu frame, eased text box corners, centred editing, resize grip)"
                       + (stockColours.isEmpty() ? juce::String() : "  stock: " + stockColours.joinIntoString(", "))
                       + (roundedBox ? "" : "  square text box") + (menuFrame ? "" : "  menu frame")
                       + (centredEditing ? "" : "  editing text not centred"));

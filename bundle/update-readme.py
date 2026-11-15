@@ -46,15 +46,15 @@ def main() -> int:
     base = f"https://github.com/{repo}/releases/download/{tag}"
     block = "\n".join([
         START,
-        f"### Get them all (last built {built})",
+        "### Get them all",
         "",
         f"[![Get them all for macOS](https://img.shields.io/badge/Get_them_all-macOS-000000?style=for-the-badge&logo=apple&logoColor=white)]({base}/{mac})",
         f"[![Get them all for Windows](https://img.shields.io/badge/Get_them_all-Windows-0078D6?style=for-the-badge&logo=windows&logoColor=white)]({base}/{win})",
         "",
-        f"<sub>One installer with the newest version of every plug-in: {inside}. The apps, the VST3s, the AUs (macOS) and the signed AAX for Pro Tools. "
-        "It removes older copies first, so nothing shows up twice in your host. "
-        "To remove them again: on macOS, run Uninstall Sammy J's Plugins from the same disk image; on Windows, use Settings &gt; Apps.<br>",
-        f"Each plug-in's own files and older versions are on the <a href=\"https://github.com/{repo}/releases\">releases</a> page.</sub>",
+        f"<sub>One installer with the newest version of every plug-in: {inside}.<br>",
+        "Apps, VST3, AU and signed AAX for Pro Tools. It replaces older copies, and comes with an uninstaller "
+        "(macOS: on the disk image; Windows: Settings &gt; Apps).<br>",
+        f"Built {built}. Older versions are on the <a href=\"https://github.com/{repo}/releases\">releases</a> page.</sub>",
         END,
     ])
 

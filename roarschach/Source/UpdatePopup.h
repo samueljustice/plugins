@@ -10,8 +10,8 @@
 
 /**
  * "A new version is available", drawn inside the editor: a dim backdrop over the whole editor and a
- * card in the middle, styled like the editor's alerts (panel, accent dot, title in capitals, a row of
- * pill buttons with the Return-key action tinted amber).
+ * card in the middle, styled like the editor's alerts (raised paper, title in the display face, a row of
+ * chips with the Return-key action filled with the dyed ink).
  *
  * The editor owns it, keeps it the size of the editor (the card stays centred) and deletes it when
  * onClose is called. Clicks on the backdrop do nothing, as with the editor's alerts. Escape is Later;
@@ -31,9 +31,10 @@ public:
     bool keyPressed(const juce::KeyPress&) override;
 
     juce::Rectangle<int> getCardBounds() const;
+    int buttonWidth() const;
 
 private:
-    /** A pill like the alerts' buttons; the primary one is tinted in the accent. */
+    /** A chip like the alerts' buttons; the primary one is filled with the dyed ink. */
     class DialogButton : public juce::TextButton
     {
     public:

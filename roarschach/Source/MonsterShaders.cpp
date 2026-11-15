@@ -69,7 +69,7 @@ uniform vec4 uMaw;       // the rift: height on the fold, half width, opening, h
 uniform vec4 uBay[2];    // bays: centre xy, radius, direction
 uniform vec4 uFlowK;     // eddy gain, small-eddy share, bound pair strength, 1 / its radius squared
 uniform vec4 uFlowO;     // where the large eddies are read xy, the small ones xy
-uniform vec4 uFlowC;     // the bound pair's centre xy, spare, the body's centre height
+uniform vec4 uFlowC;     // the bound pair's centre xy, which side tears first (-1 or +1, 0 half way through a glide), the body's centre height
 uniform vec4 uCarry;     // carry time formed, extra carry unformed, how unformed (0 formed .. 1 cloud), the smoke's further carry
 uniform vec4 uInkF;      // formation, roar (capacity), feather, density
 uniform vec4 uInkO;      // the blot's noise offset xy, a slow scroll, ribbon
@@ -86,11 +86,12 @@ uniform vec4 uModD;      // OVERTONE: the core's thinning; DE-ESS: spray; SUB: t
 uniform vec4 uModE;      // CLEAN: tidiness; the wisps' sway (a phase); spare
 uniform vec4 uChamber;   // CHAMBER: the room's ringing, its walls, the bands' phase, the shadow's length
 uniform vec4 uSpine[5];  // OVERTONE: each wisp's root xy, length, lean
-// hits: each ring's radius, the amplitude it reads the picture aside by, and its middle above or
-// below the body's (view heights); the low end's tremble and its clock
+// hits: each ring's radius, the amplitude it reads the picture aside by, its middle above or
+// below the body's (view heights) and the light its slope catches; the low end's tremble and its clock
 uniform vec4 uRippleR;
 uniform vec4 uRippleA;
 uniform vec4 uRippleY;
+uniform vec4 uRippleL;
 uniform vec4 uRippleT;
 // the maker's mark, hidden: now and then the ink gathers into it
 uniform float uEgg;
@@ -634,57 +635,71 @@ void main()
 // ---- The single pass: the whole creature without any buffer. The held ink is the target itself,
 // per pixel; a halo and a smoke fringe stand in for the free pigment; two cloud layers.
 const char* const c_inkSingle = R"GLSL(
-// ---- hits ripple the picture like a struck water surface. No line is drawn: the cloud and the
-// ink are read a little aside along each ring's radius, a short train of crests behind its front
-// that widens as it spreads, so the picture itself heaves and settles. Seen across a surface, the
-// rings are wider than they are tall; their front is bent and their strength broken by the cloud's
-// own noise, so no ring is a clean circle, and none shows within the body's middle, where rings
-// round one point would be a target. Read folded, the two sides ripple as each other's mirror
-// image. A sustained low end trembles the surface finely instead.
-float gRippleShade = 0.0;   // the light the slopes catch (added to the picture at the end)
+// ---- hits ripple the picture like a stomp into water. No line is drawn: the cloud and the ink
+// are read a little aside along each ring's radius, one broad swell (a crest with a trough behind
+// it) that leaves the body fast and slows as it spreads, so the picture itself heaves and settles;
+// and the swell's slope catches its own light, lifted on the side that faces up and shaded on the
+// side that faces down, so it reads on pale cloud. Seen across a surface, the rings are wider than
+// they are tall; their front is bent and their strength broken by the cloud's own noise, so no
+// ring is a clean circle, and none shows within the body's middle, where rings round one point
+// would be a target. Read folded, the two sides ripple as each other's mirror image. A sustained
+// low end trembles the surface finely instead.
+float gRippleShade = 0.0;   // the light the slopes catch (the picture is lifted or shaded by it at the end)
 
-vec2 rippleWave (float x, float radius, float amp)
+vec3 rippleWave (float x, float radius, float amp)
 {
-    // (x: how far behind the front; returns the displacement and its slope)
-    float w = 0.07 + 0.12 * radius;
-    float k = 6.2832 / (0.11 + 0.09 * radius);
+    // (x: how far past the front; returns the displacement, its slope, and the light's shape -1..1)
+    // (the front leads: the swell rises out of still water ahead of it and settles behind it)
+    float w = (0.16 + 0.06 * radius) * (x > 0.0 ? 0.45 : 1.0);
+    float k = 6.2832 / (0.30 + 0.10 * radius);
+    float bell = exp (-x * x / (w * w));
     // (never so steep that the picture folds over on itself: a crest, not a crease)
-    float env = exp (-x * x / (w * w)) * min (amp, 0.7 / k);
-    return env * vec2 (sin (k * x), k * cos (k * x));
+    float env = bell * min (amp, 0.7 / k);
+    // (the light gathers on the crest's top, a soft band, and the trough behind is a broad shade)
+    float c = cos (k * x);
+    return vec3 (env * sin (k * x), env * k * c, bell * (c > 0.0 ? c * c * c : c));
 }
 
-float rippleRing (vec2 p, float radius, float amp, float offsetY, float bend, inout vec2 shift)
+float rippleRing (vec2 p, float radius, float amp, float offsetY, float lit, float bend, inout vec2 shift)
 {
-    // (one ring: the picture read aside along its radius, measured across the surface; returns its slope)
-    if (amp <= 0.0)
+    // (one ring: the picture read aside along its radius, measured across the surface; returns its light)
+    if (amp <= 0.0 && lit <= 0.0)
         return 0.0;
     vec2 d = vec2 (p.x, (p.y - uFlowC.w - offsetY) * 1.45);
     float r = length (d);
-    vec2 wv = rippleWave (r + bend - radius, radius, amp);
+    vec3 wv = rippleWave (r + bend - radius, radius, amp);
     shift += wv.x * vec2 (d.x, 1.45 * d.y) / max (r, 1.0e-3);
-    return wv.y;
+    // (lit from above: the slope that faces up catches more, the one that faces down is shaded
+    // more, so the ring is never evenly bright all the way round)
+    float up = d.y / max (r, 1.0e-3);
+    float s = lit * wv.z;
+    return s * (s > 0.0 ? 0.85 * (0.7 + 0.3 * up) : 1.1 * (0.7 - 0.3 * up));
 }
 
 vec2 rippleAt (vec2 p)
 {
-    float struck = uRippleA.x + uRippleA.y + uRippleA.z + uRippleA.w;
+    float struck = uRippleA.x + uRippleA.y + uRippleA.z + uRippleA.w + uRippleL.x + uRippleL.y + uRippleL.z + uRippleL.w;
     vec2 shift = vec2 (0.0);
     vec2 q = vec2 (abs (p.x), p.y);
     if (struck > 0.0)
     {
         vec4 n = NZ (q * vec2 (1.9, 2.6) + uCloudO.xy * 0.7 + 0.53, 1.5);
-        float bend = 0.12 * (sv (n) - 0.5);
-        float patchy = 0.25 + 0.75 * smoothstep (0.30, 0.70, n.a);
+        float bend = 0.16 * (sv (n) - 0.5);
+        float patchy = 0.55 + 0.45 * smoothstep (0.30, 0.70, n.a);
         // (where two rings cross, the surface is pushed both ways at once)
-        float slope = rippleRing (p, uRippleR.x, uRippleA.x, uRippleY.x, bend, shift)
-                    + rippleRing (p, uRippleR.y, uRippleA.y, uRippleY.y, bend, shift)
-                    + rippleRing (p, uRippleR.z, uRippleA.z, uRippleY.z, bend, shift)
-                    + rippleRing (p, uRippleR.w, uRippleA.w, uRippleY.w, bend, shift);
-        // (nothing in the body's middle: no target round one point; and faint where a ring crosses
-        // the fold, so it never stands over the body as one arch: it spreads out to the sides)
-        float away = smoothstep (0.04, 0.24, length (vec2 (p.x, (p.y - uFlowC.w) * 1.45))) * (0.2 + 0.8 * smoothstep (0.05, 0.45, abs (p.x)));
+        float shade = rippleRing (p, uRippleR.x, uRippleA.x, uRippleY.x, uRippleL.x, bend, shift)
+                    + rippleRing (p, uRippleR.y, uRippleA.y, uRippleY.y, uRippleL.y, bend, shift)
+                    + rippleRing (p, uRippleR.z, uRippleA.z, uRippleY.z, uRippleL.z, bend, shift)
+                    + rippleRing (p, uRippleR.w, uRippleA.w, uRippleY.w, uRippleL.w, bend, shift);
+        // (nothing in the body's middle: no target round one point; and fainter where a ring
+        // crosses the fold: it leaves fast, so its arcs above and below pass before they can stand
+        // over the body as an arch)
+        float away = smoothstep (0.04, 0.24, length (vec2 (p.x, (p.y - uFlowC.w) * 1.45))) * (0.45 + 0.55 * smoothstep (0.04, 0.30, abs (p.x)));
         shift *= patchy * away;
-        gRippleShade = clamp (slope * patchy * away, -1.0, 1.0);
+        // (and its light least of all over the fold: a lit crest passing over the head stood
+        // there for a moment as a pale halo)
+        shade *= shade > 0.0 ? 0.3 + 0.7 * smoothstep (0.04, 0.40, abs (p.x)) : 1.0;
+        gRippleShade = clamp (shade * patchy * away, -0.4, 0.4);
     }
     if (uRippleT.x > 0.002)
     {
@@ -807,7 +822,10 @@ void main()
     // its mirror image, or two remnants left either side of the fold, are a pair of eyes.
     {
         vec4 an = NZ (p * vec2 (0.42, 0.55) + uCloudO.xy * 0.8 + 0.71, 2.5);
-        float sideFirst = fract (uInkO.x * 7.31 + uInkO.y * 3.17) < 0.5 ? -1.0 : 1.0;
+        // (which side goes first is the blot's own, worked out from its settled look offsets on the
+        // CPU: deriving it here from the offsets while they glide swapped the torn patches in one
+        // frame of a preset change; the CPU crossfades it through 0 instead)
+        float sideFirst = uFlowC.z;
         float tornAway = smoothstep (0.47, 0.63, sv (an) + 0.11 * sgn * sideFirst * smoothstep (0.02, 0.30, un));
 #ifdef INK_BUFFER
         float smallMass = 1.0 - smoothstep (0.06, 0.18, roundInk);
@@ -1032,10 +1050,14 @@ void main()
     float up = (1.0 - smoothstep (-0.75 + 0.85 * ragB + 0.5 * (fray - 0.5), -0.05 + 0.85 * ragB + 0.5 * (fray - 0.5), riftAt.y)) * smoothstep (-1.0, -0.80, riftAt.y);
     // (a small tear holds an ember, not a lamp)
     float tearSize = smoothstep (0.035, 0.11, 0.005 + open * (0.80 + 0.45 * uInkF.y));
-    float glow = breathAmt * across * up * (0.60 + 0.40 * ragA) * (0.25 + 0.75 * tearSize);
+    float glow = breathAmt * across * up * (0.60 + 0.40 * ragA) * (0.45 + 0.55 * tearSize);
     // (and where it thins, it thins in shreds of its own, so its bound is frayed all round, the top
     // included; inside it stays whole)
-    glow *= mix (0.15 + 1.2 * fray, 1.0, smoothstep (0.35, 0.75, across * up));
+    float core = smoothstep (0.35, 0.75, across * up);
+    glow *= mix (0.15 + 1.2 * fray, 1.0, core);
+    // (its middle whole and bright wherever the breath is: a product of several shares, each under
+    // one, left a lit tear a dull patch darker than the cloud round the blot, easy to miss)
+    glow = max (glow, 0.85 * min (1.0, 1.4 * breathAmt) * core);
     // (and no second light above it: a lit plume over a lit tear, whatever its shape, was a mark
     // above a mark on the fold, a brow over a mouth or a skull's two hollows over its nose)
     // (what shows through the tear is the cloud deep behind the body, in its shade: unlit, a tear
@@ -1043,12 +1065,13 @@ void main()
     // shape of its own on the fold, with a mirrored outline: a bridge, a blade, a small figure.)
     // (never one flat tone: its dim banks drift with the breath)
     col *= 1.0 - min (1.0, 1.6 * hole) * (0.95 - 0.07 * smoothstep (0.38, 0.70, 0.55 * sv (ga) + 0.45 * sv (gn) + 0.2 * (rnv - 0.5)));
-    // (lit vapour, warm and dim at its edges: never a white lamp)
+    // (lit vapour, warm and dim at its edges, its core as bright as the cloud or a little brighter:
+    // never a white lamp)
     // (warm in every mood: breath lit pale as the cloud is a bone-white mark on the dark)
     // (laid over everything else at the end, the cloud in front excepted: drawn here, under the
     // pigment, the folded smoke, the echoes and the haze over the tear still marked it, and the
     // light stood parted by a mirrored V, slats and a bridge)
-    vec3 glowCol = mix (light, vec3 (1.0), 0.3) * mix (vec3 (1.0), accent, 0.80 + 0.15 * (1.0 - glow)) * (0.46 + 0.34 * glow);
+    vec3 glowCol = mix (light, vec3 (1.0), 0.3) * mix (vec3 (1.0), accent, 0.80 + 0.15 * (1.0 - glow)) * (0.60 + 0.55 * glow);
     // (only in the tear as it is cut: where the ink round it is too thin for a tear, the light
     // showed through the thin rim alone, a lit hood round a dark face)
     float glowK = clamp (glow, 0.0, 1.0) * hole;
@@ -1248,8 +1271,8 @@ void main()
     col = vec3 (1.0) - (vec3 (1.0) - col) * (vec3 (1.0) - 0.70 * vapour * 0.30 * smoothstep (0.10, 0.35, halo) * light * mix (vec3 (1.0), accent, 0.7));
 
     // the light the ripples' slopes catch: a heave of the surface, never a lit line (the crests
-    // catch less than the troughs lose: lit, a ring round the body stood over it as a pale arch)
-    col *= 1.0 + 0.38 * gRippleShade * (gRippleShade > 0.0 ? 0.45 : 1.0);
+    // catch less than the troughs lose: lit evenly, a ring round the body stood over it as a pale arch)
+    col *= 1.0 + gRippleShade;
 
     // vignette, grain, dither
     vec2 uvq = frag / uRes;

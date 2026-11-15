@@ -35,7 +35,7 @@ namespace roar
         X (uCloudK, 4, 1) X (uCloudO, 4, 1) X (uBreath, 4, 1) X (uHold, 4, 1) X (uPig, 4, 1) \
         X (uCloudT, 4, 1) X (uSubPulse, 4, 1) X (uSparkP, 4, 3) \
         X (uModA, 4, 1) X (uModB, 4, 1) X (uModC, 4, 1) X (uModD, 4, 1) X (uModE, 4, 1) X (uClean, 1, 1) X (uChamber, 4, 1) X (uSpine, 4, 5) \
-        X (uRippleR, 4, 1) X (uRippleA, 4, 1) X (uRippleY, 4, 1) X (uRippleT, 4, 1)
+        X (uRippleR, 4, 1) X (uRippleA, 4, 1) X (uRippleY, 4, 1) X (uRippleL, 4, 1) X (uRippleT, 4, 1)
 
     enum class U : int
     {
@@ -186,12 +186,18 @@ namespace roar
         int getTier() const { return m_tier; }
         /** Harness and tests: hold a tier (-1 = the governor decides). */
         void setForcedTier (int tier) { m_forcedTier = tier; }
+        /** The view's Visualiser: Low. The lightest buffered tier (the single pass where the GPU has
+            no buffer), whatever the governor would choose; the governor is not stepped meanwhile, so
+            what it remembers of this GPU stays its own. */
+        void setLowQuality (bool low) { m_low = low; }
         /** Harness and tests: a fixed 1/30 s step whatever the wall clock says. */
         void setFixedStep (bool fixed) { m_fixedStep = fixed; }
         void requestReseed() { m_needsSeed = true; }
         void setPassTimer (PassTimer* t) { m_passTimer = t; }
         const Stats& getStats() const { return m_stats; }
         const QualityGovernor& getGovernor() const { return m_governor; }
+        /** Tests: the time the ink buffer has been stepped by since it was made. */
+        double getInkSecondsForTests() const { return m_inkSimSeconds; }
         /** Tests: the governor itself (to script its readings). */
         QualityGovernor& governorForTests() { return m_governor; }
         /** Relief on the lowest tier (see QualityGovernor): none while a test holds a tier, unless a
@@ -304,6 +310,7 @@ namespace roar
         bool m_inkBytes = false, m_inkBytesForced = false;
         bool m_inkSimToggle = false;
         float m_inkSimDt = 0.0f;     // time the buffer has not been stepped for (asleep: every other frame)
+        double m_inkSimSeconds = 0.0;   // the buffer's own clock: all the time it has been stepped by
         float m_inkTotal = 1.0f, m_inkBudget = 1.0f;
         float m_inkFPrev = -1.0f, m_inkFRate = 0.0f, m_inkKick = 0.0f, m_inkFalling = 0.0f, m_inkFloor = 0.0f, m_inkSmoke = 1.0f, m_inkGather = 0.0f;
         float m_inkLetGo = 0.0f;     // how lately the body was let go: up as the hold gives, down as it gathers again
@@ -342,6 +349,7 @@ namespace roar
         float m_pendSeconds = 0.0f;
         bool m_needsSeed = true;
         int m_tier = 0, m_prevTier = -1, m_forcedTier = -1, m_capTier = 3;
+        bool m_low = false;
         bool m_fixedStep = false;
         bool m_tierCapture = false;  // the tier being left drew once more and was kept, for the crossfade
         float m_tierFade = -1.0f;    // >= 0: crossfading from the kept frame (seconds into it)

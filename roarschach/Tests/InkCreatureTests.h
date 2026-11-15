@@ -286,25 +286,101 @@ namespace inkmask
         return m;
     }
 
-    /** The mask cropped to its own bounding box and resampled to n x n (for comparing structure
-        apart from scale). */
-    inline Mask normalised(const Mask& m, int w, int h, int n)
+    /** The ink's own extent: the bounding box of its parts of at least minPart pixels and at least
+        2 % of the largest part (a drawn frame's rounded corners are dark specks of a dozen pixels
+        each: counted, they made the box the whole frame every time). { x0, y0, x1, y1 },
+        inclusive; x1 < x0 for none. */
+    struct Box { int x0, y0, x1, y1; };
+    inline Box extent(const Mask& m, int w, int h, int minPart = 50)
     {
-        int x0 = w, x1 = -1, y0 = h, y1 = -1;
-        for (int y = 0; y < h; ++y)
-            for (int x = 0; x < w; ++x)
-                if (m[static_cast<size_t>(y * w + x)] != 0)
-                {
-                    x0 = std::min(x0, x); x1 = std::max(x1, x); y0 = std::min(y0, y); y1 = std::max(y1, y);
-                }
+        Box box { w, h, -1, -1 };
+        // (and the view's own dark rim, a few pixels round its edge and its rounded corners, is not
+        // ink either)
+        const int rim = 4, corner = std::max(8, h / 10);
+        const auto edge = [w, h, rim, corner](int k)
+        {
+            const int x = std::min(k % w, w - 1 - k % w), y = std::min(k / w, h - 1 - k / w);
+            return x < rim || y < rim || (x < corner && y < corner);
+        };
+        std::vector<std::uint8_t> seen(m.size(), 0);
+        std::vector<int> stack, part;
+        std::vector<std::pair<int, Box>> found;
+        for (int start = 0; start < w * h; ++start)
+        {
+            if (m[static_cast<size_t>(start)] == 0 || seen[static_cast<size_t>(start)] != 0 || edge(start))
+                continue;
+            part.clear();
+            stack.push_back(start);
+            seen[static_cast<size_t>(start)] = 1;
+            while (!stack.empty())
+            {
+                const int c = stack.back();
+                stack.pop_back();
+                part.push_back(c);
+                const int cx = c % w, cy = c / w;
+                for (int dy = -1; dy <= 1; ++dy)
+                    for (int dx = -1; dx <= 1; ++dx)
+                    {
+                        const int nx = cx + dx, ny = cy + dy;
+                        if (nx < 0 || ny < 0 || nx >= w || ny >= h)
+                            continue;
+                        const int k = ny * w + nx;
+                        if (m[static_cast<size_t>(k)] != 0 && seen[static_cast<size_t>(k)] == 0 && ! edge(k))
+                        {
+                            seen[static_cast<size_t>(k)] = 1;
+                            stack.push_back(k);
+                        }
+                    }
+            }
+            if (static_cast<int>(part.size()) < minPart)
+                continue;
+            Box pb { w, h, -1, -1 };
+            for (const int c : part)
+            {
+                pb.x0 = std::min(pb.x0, c % w); pb.x1 = std::max(pb.x1, c % w);
+                pb.y0 = std::min(pb.y0, c / w); pb.y1 = std::max(pb.y1, c / w);
+            }
+            found.push_back({ static_cast<int>(part.size()), pb });
+        }
+        // (the body and what is a real piece of it: a part under 2 % of the largest, a curl of
+        // smoke far out in the cloud, does not stretch the box)
+        int largest = 0;
+        for (const auto& f : found)
+            largest = std::max(largest, f.first);
+        for (const auto& f : found)
+            if (f.first * 50 >= largest)
+            {
+                box.x0 = std::min(box.x0, f.second.x0); box.x1 = std::max(box.x1, f.second.x1);
+                box.y0 = std::min(box.y0, f.second.y0); box.y1 = std::max(box.y1, f.second.y1);
+            }
+        return box;
+    }
+
+    /** The mask cropped to the ink's own extent and resampled to n x n, each cell the share of ink
+        it covers (at least half: ink), so the figure does not hang on which pixel a cell happens to
+        sample (for comparing structure apart from scale). box: where the extent was found. */
+    inline Mask normalised(const Mask& m, int w, int h, int n, Box* box = nullptr)
+    {
+        const auto b = extent(m, w, h);
+        if (box != nullptr)
+            *box = b;
         Mask out(static_cast<size_t>(n * n), 0);
-        if (x1 < x0)
+        if (b.x1 < b.x0)
             return out;
+        const int bw = b.x1 - b.x0 + 1, bh = b.y1 - b.y0 + 1;
         for (int j = 0; j < n; ++j)
             for (int i = 0; i < n; ++i)
             {
-                const int x = x0 + (i * (x1 - x0 + 1)) / n, y = y0 + (j * (y1 - y0 + 1)) / n;
-                out[static_cast<size_t>(j * n + i)] = m[static_cast<size_t>(y * w + x)];
+                const int xa = b.x0 + (i * bw) / n, xb = std::max(xa + 1, b.x0 + ((i + 1) * bw) / n);
+                const int ya = b.y0 + (j * bh) / n, yb = std::max(ya + 1, b.y0 + ((j + 1) * bh) / n);
+                int ink = 0, all = 0;
+                for (int y = ya; y < yb; ++y)
+                    for (int x = xa; x < xb; ++x)
+                    {
+                        ink += m[static_cast<size_t>(y * w + x)];
+                        ++all;
+                    }
+                out[static_cast<size_t>(j * n + i)] = 2 * ink >= all ? 1 : 0;
             }
         return out;
     }
@@ -406,6 +482,9 @@ struct InkRig
     int frames = 0;
     int position = 0;
     int drawsPerFrame = 1;
+    float frameSeconds = 1.0f / 30.0f;   // each frame's time (the audio moves on by as much)
+    bool bypassed = false;    // the host bypasses the plug-in (processBlockBypassed)
+    bool hostCalls = true;    // false: the host stops calling the plug-in (the audio still moves on)
 
     InkRig(int width, int height, std::uint32_t seed, float pinnedStage = -1.0f, const juce::String& preset = {}, bool core = true)
         : gl(width, height, core)
@@ -449,7 +528,8 @@ struct InkRig
     /** One frame; audio (nullptr: silence) is read from `position` on, at this gain. */
     void step(const Stereo* audio, float gain = 1.0f)
     {
-        for (int done = 0; done < frameSamples; done += block)
+        const int samples = static_cast<int>(std::lround(static_cast<double>(frameSeconds) * sr));   // (frameSamples at 30 Hz)
+        for (int done = 0; done < samples; done += block)
         {
             buffer.clear();
             if (audio != nullptr)
@@ -461,7 +541,12 @@ struct InkRig
                         buffer.setSample(ch, i, src[static_cast<size_t>(position + i)] * gain);
                 }
             position += block;
-            p->processBlock(buffer, midi);
+            if (! hostCalls)
+                continue;
+            if (bypassed)
+                p->processBlockBypassed(buffer, midi);
+            else
+                p->processBlock(buffer, midi);
         }
         if (frames % 3 == 0)
             p->stepCreatureForTests(0.1f);   // (the creature's clock: ten times a second)
@@ -470,7 +555,7 @@ struct InkRig
         juce::gl::glViewport(0, 0, gl.w, gl.h);
         // (drawsPerFrame: the display's own pace, when it redraws the view more often than 30 times a second)
         for (int k = 0; k < drawsPerFrame; ++k)
-            monster->renderOffline(1.0f / 30.0f / static_cast<float>(drawsPerFrame), gl.w, gl.h, gl.core);
+            monster->renderOffline(frameSeconds / static_cast<float>(drawsPerFrame), gl.w, gl.h, gl.core);
         ++frames;
     }
 
@@ -625,6 +710,53 @@ inline Stereo inkRippleAudio(const InkScript& script, const std::vector<double>&
         addThump(a.r, InkRig::sr, at[k], amp, 21u + static_cast<unsigned>(k));
     }
     return a;
+}
+
+/** The light a ripple puts on open cloud: the same frame with the ripples drawn and left out, both
+    averaged over cells of this many pixels (so the cloud read a little aside, which only moves its
+    texture, averages out and the light the swell catches is left), compared only where the frame
+    without them is pale cloud with no ink in the cell, away from the view's darkened edges. lift:
+    the brightest cells' share brighter (the 99th percentile), shade: the darkest cells' share darker
+    (the 1st), cells: how many cells were open cloud. */
+struct InkRippleLight
+{
+    double lift = 0.0, shade = 0.0;
+    int cells = 0;
+};
+
+inline InkRippleLight inkRippleLight(const InkPicture& on, const InkPicture& off, int cell)
+{
+    InkRippleLight out;
+    if (! on.valid() || on.w != off.w || on.h != off.h || cell < 1)
+        return out;
+    std::vector<double> ratio;
+    const int x0 = on.w / 16, x1 = on.w - on.w / 16, y0 = on.h / 10, y1 = on.h - on.h / 10;
+    for (int cy = y0; cy + cell <= y1; cy += cell)
+        for (int cx = x0; cx + cell <= x1; cx += cell)
+        {
+            double a = 0.0, b = 0.0;
+            float darkest = 1.0f;
+            for (int y = cy; y < cy + cell; ++y)
+                for (int x = cx; x < cx + cell; ++x)
+                {
+                    a += on.at(x, y);
+                    b += off.at(x, y);
+                    darkest = std::min(darkest, off.at(x, y));
+                }
+            const double n = static_cast<double>(cell * cell);
+            a /= n;
+            b /= n;
+            if (b < 0.55 || darkest < 0.40f)
+                continue;   // (not open cloud: ink in it, or the cloud's shaded underside)
+            ratio.push_back(a / b - 1.0);
+        }
+    out.cells = static_cast<int>(ratio.size());
+    if (ratio.size() < 20)
+        return out;
+    std::sort(ratio.begin(), ratio.end());
+    out.lift = std::max(0.0, ratio[static_cast<size_t>(0.99 * static_cast<double>(ratio.size() - 1))]);
+    out.shade = std::max(0.0, -ratio[static_cast<size_t>(0.01 * static_cast<double>(ratio.size() - 1))]);
+    return out;
 }
 
 //==============================================================================================
@@ -1435,7 +1567,7 @@ inline int runInkShots(const juce::File& dir, const juce::File& clips)
         const int count = juce::SystemStats::getEnvironmentVariable("ROARSCHACH_INK_SEEDS", "2").getIntValue();
         const std::vector<double> hitsAt { 7.5, 9.0, 9.45, 9.9, 12.4, 13.6 };
         const auto audio = inkRippleAudio(script, hitsAt, juce::SystemStats::getEnvironmentVariable("ROARSCHACH_INK_THUMP", "0.6").getFloatValue());
-        const std::vector<double> after { 0.0, 0.1, 0.2, 0.35, 0.5, 0.7, 1.0, 1.4, 2.0 };
+        const std::vector<double> after { 0.0, 0.067, 0.1, 0.2, 0.3, 0.35, 0.5, 0.7, 0.8, 1.0, 1.4, 2.0 };
         for (int seed = 1; seed <= count; ++seed)
             for (const auto& tierText : tiers)
             {
@@ -1473,8 +1605,10 @@ inline int runInkShots(const juce::File& dir, const juce::File& clips)
                         diffs.push_back(d.rescaled(864, 240));
                         labels.add("hit " + juce::String(static_cast<int>(h)) + " +" + juce::String(dt, 2) + " s");
                         const auto& rp = rig.monster->getRipplesForTests();
-                        std::printf("    %s: %d ring(s) in flight, %d started, %d held back; tremble %.2f; differs from the frame without by %.1f per mille\n", name.toRawUTF8(), rp.live(), rp.started,
-                                    rp.refused, static_cast<double>(rp.tremble), 1000.0 * a.rmsDifference(b));
+                        const auto light = inkRippleLight(a, b, a.h / 40);
+                        std::printf("    %s: %d ring(s) in flight, %d started, %d topped up, %d held back; tremble %.2f; differs from the frame without by %.1f per mille;"
+                                    " over open cloud (%d cells) lifted %.1f %%, shaded %.1f %%\n", name.toRawUTF8(), rp.live(), rp.started, rp.merged,
+                                    rp.refused, static_cast<double>(rp.trembleDrawn()), 1000.0 * a.rmsDifference(b), light.cells, 100.0 * light.lift, 100.0 * light.shade);
                     }
                 const auto tag = "seed" + juce::String(seed) + "-tier" + juce::String(tier);
                 save(inkSheet(cells, 3, labels), tag + "-sheet.png");
@@ -3596,7 +3730,7 @@ inline void testInkEvolution()
     for (const int tier : { 0, 2 })
     {
         int areaGrows = 0, edgeGrows = 0, n = 0, tooAlike = 0, split = 0;
-        double worstAlike = 0.0, leastWhole = 1.0;
+        double worstAlike = 0.0, leastWhole = 1.0, widestBox = 0.0;
         std::vector<double> alike;
         for (const std::uint32_t seed : { 1u, 2u, 3u, 4u })
         {
@@ -3613,7 +3747,10 @@ inline void testInkEvolution()
                 const double a = inkmask::area(m), e = inkmask::perimeter(m, W, H);
                 area.push_back(a);
                 ppa.push_back(e * e / std::max(1.0, a));
-                norm.push_back(inkmask::normalised(m, W, H, 64));
+                inkmask::Box box {};
+                norm.push_back(inkmask::normalised(m, W, H, 64, &box));
+                // (the extent is the ink's, not the frame's: else nothing is scaled at all)
+                widestBox = std::max(widestBox, static_cast<double>(box.x1 - box.x0 + 1) * static_cast<double>(box.y1 - box.y0 + 1) / (W * H));
                 const auto parts = inkmask::parts(m, W, H);
                 const double whole = parts.empty() || a <= 0.0 ? 0.0 : static_cast<double>(parts[0]) / a;
                 leastWhole = std::min(leastWhole, whole);
@@ -3632,10 +3769,12 @@ inline void testInkEvolution()
                         std::printf("    (tier %d seed %u stages %.2f and %.2f: overlap %.2f once scaled to the same extent)\n", tier, seed, a / 7.0, b / 7.0, v);
                     worstAlike = std::max(worstAlike, v);
                     alike.push_back(v);
-                    // (the spec's bound was 0.85; re-set once from the first run on the drawn frames,
-                    // which measured 0.88: on the densest seeds the trunk holds most of the ink, so a
-                    // limb that reaches out late or a wing the eddies tear changes the overlap little.
-                    // The median below holds the stages apart on the whole)
+                    // (measured on the ink's own extent, cells averaged: 0.835 at most on the single
+                    // pass and 0.785 on tier 2, about 0.6 at the median. The bound sits above the
+                    // worst: on the densest seeds the trunk holds most of the ink, so a limb that
+                    // reaches out late or a wing the eddies tear changes the overlap little, and the
+                    // same blot re-shot reads about 0.98. The median below holds the stages apart on
+                    // the whole)
                     tooAlike += v > 0.90 ? 1 : 0;
                 }
             std::printf("  tier %d seed %u over 8 stages: ink %.1f %.1f %.1f %.1f %.1f %.1f %.1f %.1f %%; edge squared over area %.0f %.0f %.0f %.0f %.0f %.0f %.0f %.0f\n",
@@ -3648,7 +3787,11 @@ inline void testInkEvolution()
         pictureCheck(edgeGrows == n, t + "the drawn outline grows more involved with the stage (" + juce::String(edgeGrows) + " of " + juce::String(n) + " seeds)");
         std::sort(alike.begin(), alike.end());
         const double medianAlike = alike.empty() ? 1.0 : alike[alike.size() / 2];
-        std::printf("  tier %d: stages over 0.3 apart, once scaled to the same extent: overlap %.2f at the median, %.2f at most\n", tier, medianAlike, worstAlike);
+        std::printf("  tier %d: stages over 0.3 apart, once scaled to the ink's own extent (at most %.2f of the frame's area): overlap %.3f at the median, %.3f at most\n", tier, widestBox,
+                    medianAlike, worstAlike);
+        // (a blot whose wings reach across the view has an extent nearly as wide as the view: what
+        // is never the ink's is the whole frame)
+        pictureCheck(widestBox > 0.0 && widestBox < 0.9, t + "the stages are scaled to the ink's extent, not the frame's (at most " + juce::String(widestBox, 2) + " of its area)");
         pictureCheck(tooAlike == 0, t + "drawn stages over 0.3 apart differ in structure, not only in size (most alike " + juce::String(worstAlike, 2) + ", bound 0.90)");
         pictureCheck(medianAlike < 0.75, t + "on the whole drawn stages over 0.3 apart are different blots (median overlap " + juce::String(medianAlike, 2) + ")");
         pictureCheck(split == 0, t + "one body at every stage (the largest part holds at least " + juce::String(leastWhole, 2) + " of the ink)");
@@ -3689,12 +3832,41 @@ inline void testInkEvolution()
             std::printf("  character %-8s stage 0.85: ink %.1f %%, its centre %.3f of the height down, %.2f of it within 0.15 view heights of the fold\n", names[c],
                         100.0 * a / (W * H), lowY.back(), coreShare.back());
         }
+        // yardsticks with the same ruler: the neutral blot re-shot at a stage 0.007 away (the floor:
+        // the same blot), and at a stage 0.14 away (a step of growth anyone would see)
+        inkmask::Box box {};
+        double widest = 0.0;
+        for (const auto& m : masks)
+        {
+            inkmask::normalised(m, W, H, 64, &box);
+            widest = std::max(widest, static_cast<double>(box.x1 - box.x0 + 1) * static_cast<double>(box.y1 - box.y0 + 1) / (W * H));
+        }
+        const auto floorPic = stageShot(2u, 2, 0.857f, neutral), stepPic = stageShot(2u, 2, 0.71f, neutral);
+        if (! floorPic.valid() || ! stepPic.valid())
+            return;
+        const double sameBlot = inkmask::iou(norm[0], inkmask::normalised(floorPic.mask(), W, H, 64));
+        const double stageStep = inkmask::iou(norm[0], inkmask::normalised(stepPic.mask(), W, H, 64));
         double mostAlike = 0.0;
+        juce::String pairs;
         for (int a = 0; a < 5; ++a)
             for (int b = a + 1; b < 5; ++b)
-                mostAlike = std::max(mostAlike, inkmask::iou(norm[static_cast<size_t>(a)], norm[static_cast<size_t>(b)]));
-        std::printf("  the characters' blots, once scaled to the same extent: most alike pair %.2f\n", mostAlike);
-        pictureCheck(mostAlike < 0.85, "ink evolution: the four characters and the neutral blot all differ (most alike " + juce::String(mostAlike, 2) + ")");
+            {
+                const double v = inkmask::iou(norm[static_cast<size_t>(a)], norm[static_cast<size_t>(b)]);
+                pairs << names[a] << "/" << names[b] << " " << juce::String(v, 3) << " ";
+                mostAlike = std::max(mostAlike, v);
+            }
+        std::printf("  the characters' blots, once scaled to the ink's own extent (at most %.2f of the frame's area): %s; the same blot re-shot %.3f, a stage 0.14 away %.3f\n", widest,
+                    pairs.toRawUTF8(), sameBlot, stageStep);
+        pictureCheck(widest > 0.0 && widest < 0.9, "ink evolution: the characters are scaled to the ink's extent, not the frame's (at most " + juce::String(widest, 2) + " of its area)");
+        // (the bound is the run's own yardstick: every pair differs more than one blot does from
+        // itself a stage 0.14 earlier, a step of growth anyone would see. Measured: the closest pair
+        // neutral and eldritch at 0.78, the stage step 0.83, the same blot re-shot 0.98. If those two
+        // should read further apart, that is a change to how far eldritch bends the build, not to
+        // this check)
+        pictureCheck(sameBlot > 0.95 && mostAlike < stageStep, "ink evolution: the four characters and the neutral blot all differ (most alike " + juce::String(mostAlike, 3) + "; the same blot re-shot "
+                                                                     + juce::String(sameBlot, 3) + ", a stage 0.14 away " + juce::String(stageStep, 3) + ")");
+        // (each against neutral only: deep's centre is lower than neutral's, but eldritch and fluid
+        // hang as low or lower, so this does not single deep out among the four)
         pictureCheck(lowY[4] > lowY[0], "ink evolution: deep hangs the mass lower (" + juce::String(lowY[4], 3) + " against " + juce::String(lowY[0], 3) + ")");
         pictureCheck(coreShare[2] > coreShare[0], "ink evolution: beast puts more of the ink in the core on the fold (" + juce::String(coreShare[2], 2) + " against " + juce::String(coreShare[0], 2) + ")");
     }
@@ -3770,6 +3942,57 @@ inline void testInkEvolution()
         pictureCheck(latePpa > earlyPpa, "ink evolution: the drawn creature late in a long session is more involved than early in it ("
                                             + juce::String(earlyPpa, 0) + " -> " + juce::String(latePpa, 0) + ")");
         pictureCheck(worstJump < 2.0, "ink evolution: no frame of the session jumps (the largest change " + juce::String(worstJump, 2) + " times the frames round it)");
+    }
+
+    // ---- a preset change glides from one blot to the next: no frame of the glide jumps (every
+    // value of the blot's look is mixed between the two, and nothing drawn from them flips)
+    for (const int tier : { 0, 3 })
+    {
+        InkRig rig(576, 160, 5u, 0.6f, "Golem");
+        if (! rig.ok())
+            return;
+        rig.setTier(tier);
+        rig.monster->setRipplesOffForTests(true);
+        rig.run(3.2, &script.audio);
+        const int other = presetIndex("Possessed");
+        if (other >= 0)
+            rig.p->getPresetManager().loadFactoryPresetForHost(other);
+        std::vector<double> steps;
+        InkPicture last;
+        float glideFrom = -1.0f, glideTo = 0.0f;
+        for (int i = 0; i < static_cast<int>(7.6 * 30.0); ++i)
+        {
+            const auto pic = rig.shot(&script.audio);
+            float g = 0.0f;
+            rig.p->withCreatureForTests([&g](roar::CreatureEvolution& e) { g = e.getSeedGlide(); });
+            if (glideFrom < 0.0f)
+                glideFrom = g;
+            glideTo = g;
+            if (last.valid())
+                steps.push_back(pic.rmsDifference(last));
+            last = pic;
+        }
+        double worstJump = 0.0, worstAt = 0.0;
+        for (size_t i = 0; i < steps.size(); ++i)
+        {
+            std::vector<double> round;
+            for (size_t k = i >= 4 ? i - 4 : 0; k <= std::min(steps.size() - 1, i + 4); ++k)
+                if (k != i)
+                    round.push_back(steps[k]);
+            std::sort(round.begin(), round.end());
+            const double jump = steps[i] / std::max(1.0e-3, round[round.size() / 2]);
+            if (jump > worstJump)
+            {
+                worstJump = jump;
+                worstAt = static_cast<double>(i + 1) / 30.0;
+            }
+        }
+        std::printf("  tier %d: a preset change glides %.2f -> %.2f over %.1f s; the largest jump %.2f times the frames round it (%.2f s in)\n", tier,
+                    static_cast<double>(glideFrom), static_cast<double>(glideTo), steps.size() / 30.0, worstJump, worstAt);
+        check(other >= 0 && glideTo - glideFrom > 0.5f, "ink evolution: a preset change glides to the next blot");
+        // (measured 1.25 and 1.49; with the side that tears first an either-or of the gliding
+        // look, the torn patches swapped 5 s in and the frame stood 4.0 and 1.9 times the frames round it)
+        pictureCheck(worstJump < 1.8, "ink evolution: no frame of a preset change's glide jumps (tier " + juce::String(tier) + ": the largest change " + juce::String(worstJump, 2) + " times the frames round it)");
     }
 }
 #endif
@@ -3947,7 +4170,7 @@ struct InkHits
                     if (static_cast<double>(i + n) / sr < from)
                         continue;
                     at.push_back(static_cast<double>(i + n) / sr);
-                    strength.push_back(d.strength());
+                    strength.push_back(d.strengthOf(k + 1));
                 }
                 seen = d.hits();
             }
@@ -3993,8 +4216,9 @@ inline void testInkRippleModel()
                 reference = h.strength;
             bool same = h.strength.size() == reference.size();
             for (size_t k = 0; same && k < reference.size(); ++k)
-                same = std::abs(h.strength[k] - reference[k]) < 0.06f && h.strength[k] >= 0.5f;
-            check(same, "ripples: the thumps are as strong at " + juce::String(sr / 1000.0, 1) + " kHz in blocks of " + juce::String(block) + " (strong hits, within 0.06 of 44.1 kHz in blocks of 16)");
+                same = std::abs(h.strength[k] - reference[k]) < 0.06f && h.strength[k] >= 0.8f;
+            // (each of the four measures 1.00: a hit no longer rises over the tail of the one before)
+            check(same, "ripples: the thumps are as strong at " + juce::String(sr / 1000.0, 1) + " kHz in blocks of " + juce::String(block) + " (each 0.8 or more, within 0.06 of 44.1 kHz in blocks of 16)");
         }
     std::printf("  ripples: four thumps found at four rates and three block sizes, strengths %.2f..%.2f, counted at most %.0f ms after each starts\n",
                 reference.empty() ? 0.0 : static_cast<double>(*std::min_element(reference.begin(), reference.end())),
@@ -4030,6 +4254,39 @@ inline void testInkRippleModel()
         check(found == 3 && d.rings() == 3, "ripples: thumps into steady speech start a ring each, and the speech none (" + juce::String(found) + " of 3, " + juce::String(d.rings()) + " rings)");
     }
 
+    // ---- a bright onset as sudden and as loud as a thump (a sung consonant at full level) is
+    // counted but weighed by its low end, too little for a ring; a thump after it starts one
+    {
+        const double sr = 48000.0;
+        Signal s(static_cast<size_t>(5.0 * sr), 0.0f);
+        for (int k = 0; k < 3; ++k)
+        {
+            const double from = 0.5 + 1.2 * static_cast<double>(k);
+            for (int i = 0; i < static_cast<int>(0.4 * sr); ++i)
+            {
+                const double t = static_cast<double>(i) / sr;
+                const double saw = 2.0 * std::fmod(t * (330.0 + 40.0 * k), 1.0) - 1.0;
+                s[static_cast<size_t>(from * sr) + static_cast<size_t>(i)] += static_cast<float>(0.6 * std::min(1.0, t / 0.001) * std::exp(-t / 0.2) * saw);
+            }
+        }
+        addThump(s, sr, 4.2, 0.6f, 17u);
+        const InkHits h(s, sr, 512);
+        float bright = 0.0f, thump = 0.0f;
+        int brightRings = 0, thumpRings = 0;
+        for (size_t k = 0; k < h.at.size(); ++k)
+        {
+            const bool isThump = h.at[k] > 4.15;
+            (isThump ? thump : bright) = std::max(isThump ? thump : bright, h.strength[k]);
+            (isThump ? thumpRings : brightRings) += h.strength[k] >= roar::SurfaceRipples::c_minStrength ? 1 : 0;
+        }
+        std::printf("  ripples: three bright onsets as sudden as a thump, %d hits, strongest %.2f; a thump after them %.2f (the low end's weight: %.2f at -2 dB, %.2f at -5 dB, %.2f at -8 dB)\n",
+                    static_cast<int>(h.at.size()) - (thump > 0.0f ? 1 : 0), static_cast<double>(bright), static_cast<double>(thump),
+                    static_cast<double>(roar::HitDetector::lowWeightOf(0.631f)), static_cast<double>(roar::HitDetector::lowWeightOf(0.316f)),
+                    static_cast<double>(roar::HitDetector::lowWeightOf(0.158f)));
+        check(brightRings == 0 && thumpRings == 1 && thump >= 0.8f, "ripples: a bright onset, sudden and loud but mostly above the low end, starts no ring; a thump does ("
+                                                                     + juce::String(bright, 2) + " against " + juce::String(thump, 2) + ")");
+    }
+
     // ---- through the plug-in, at its defaults, in host blocks of 16 and 4096: thumps into the
     // script's voice are hits, the voice's own syllables are not (from 0.4 s on: its first syllable
     // out of silence is an onset). The thumps fall between syllables: one that lands on a loud
@@ -4051,7 +4308,7 @@ inline void testInkRippleModel()
                 const int now = f.hits.load();
                 if (now != seen)
                 {
-                    const float st = f.hitStrength.load();
+                    const float st = f.strongestHitSince(seen, now);
                     const double t = static_cast<double>(start) / sr;
                     list << juce::String(t, 2) << " s " << juce::String(st, 2) << ", ";
                     if (st >= roar::SurfaceRipples::c_minStrength && t >= 0.4)
@@ -4132,7 +4389,9 @@ inline void testInkRippleModel()
         std::array<float, 3> mids {};
         for (int k = 0; k < 3; ++k)
         {
-            q.step(0.4f, k + 1, 0.8f, 0.0f, 1.0f, f);
+            for (int i = 0; i < 4; ++i)
+                q.step(0.1f, k, 0.0f, 0.0f, 1.0f, f);
+            q.step(0.1f, k + 1, 0.8f, 0.0f, 1.0f, f);
             float newest = 9.0f;
             for (const auto& ring : q.rings)
                 if (ring.age >= 0.0f && ring.age < newest)
@@ -4156,13 +4415,159 @@ inline void testInkRippleModel()
             f.step(1.0f / 30.0f, {});
             r.step(1.0f / 30.0f, hits, 0.9f, 0.0f, 1.0f, f);
         }
-        check(r.started <= 2 * roar::AudioForces::c_maxFlashesPerSecond && r.refused > 0, "ripples: hits six times a second start rings within the flash limit (" + juce::String(r.started) + " in 2 s)");
+        check(r.started <= 2 * roar::AudioForces::c_maxFlashesPerSecond && r.merged > 0, "ripples: hits six times a second start rings within the flash limit, the ones close behind topping up the newest ("
+                                                                                  + juce::String(r.started) + " in 2 s, " + juce::String(r.merged) + " topped up)");
+        {
+            // (with the flash limit spent, a hit starts no ring)
+            roar::SurfaceRipples h;
+            roar::AudioForces spent;
+            h.step(1.0f / 30.0f, 0, 0.0f, 0.0f, 1.0f, spent);
+            while (spent.allowFlash()) {}
+            spent.clock += 0.2f;
+            h.step(1.0f / 30.0f, 1, 0.9f, 0.0f, 1.0f, spent);
+            check(h.started == 0 && h.refused == 1, "ripples: a hit with the flash limit spent starts no ring");
+        }
+        {
+            // one swell leads: a hit 0.2 s behind the newest ring tops it up; one 0.5 s behind starts
+            // a new ring and leaves the earlier one at 0.4; the tremble is held low while a ring is young
+            roar::SurfaceRipples h;
+            roar::AudioForces ff;
+            h.step(1.0f / 30.0f, 0, 0.0f, 0.8f, 1.0f, ff);
+            for (int i = 0; i < 60; ++i)
+                h.step(1.0f / 30.0f, 0, 0.0f, 0.8f, 1.0f, ff);
+            const float steadyTremble = h.trembleDrawn();
+            h.step(1.0f / 30.0f, 1, 0.5f, 0.8f, 1.0f, ff);
+            for (int i = 0; i < 6; ++i)
+                h.step(1.0f / 30.0f, 1, 0.0f, 0.8f, 1.0f, ff);
+            h.step(1.0f / 30.0f, 2, 0.9f, 0.8f, 1.0f, ff);
+            const bool toppedUp = h.started == 1 && h.merged == 1 && h.live() == 1 && std::abs(h.rings[0].strength - 0.9f) < 0.002f;
+            for (int i = 0; i < 4; ++i)
+                h.step(1.0f / 30.0f, 2, 0.0f, 0.8f, 1.0f, ff);
+            const float heldTremble = h.trembleDrawn();
+            for (int i = 0; i < 9; ++i)
+                h.step(1.0f / 30.0f, 2, 0.0f, 0.8f, 1.0f, ff);
+            h.step(1.0f / 30.0f, 3, 1.0f, 0.8f, 1.0f, ff);
+            float older = 0.0f, newer = 0.0f;
+            for (const auto& ring : h.rings)
+                if (ring.age >= 0.0f)
+                    (ring.age < 0.1f ? newer : older) = ring.weight;
+            std::printf("  ripples: a hit 0.2 s behind a ring tops it up (%d started, %d topped up); 0.5 s behind, a new ring (weights %.2f, %.2f); the tremble %.2f steady, %.2f with a young ring\n",
+                        h.started, h.merged, static_cast<double>(older), static_cast<double>(newer), static_cast<double>(steadyTremble), static_cast<double>(heldTremble));
+            check(toppedUp, "ripples: a hit close behind the newest ring tops it up instead of starting another");
+            check(h.started == 2 && std::abs(older - roar::SurfaceRipples::c_olderWeight) < 0.001f && newer == 1.0f, "ripples: a new ring leads, the earlier one falls back to 0.4");
+            check(heldTremble < 0.5f * steadyTremble && steadyTremble > 0.5f, "ripples: the tremble is held low while a young ring spreads");
+            // the swell leaves fast and slows: out of the body within a quarter second, near the view's edge in about 1.3 s
+            using SR = roar::SurfaceRipples;
+            check(SR::radiusAt(0.1f) > 0.35f && SR::radiusAt(0.2f) > 0.55f && std::abs(SR::radiusAt(1.3f) - 1.78f) < 0.06f && SR::radiusAt(1.0f) - SR::radiusAt(0.7f) < SR::radiusAt(0.3f) - SR::radiusAt(0.0f),
+                  "ripples: a ring leaves the body fast and slows as it spreads");
+            // a weak hit is faint (strength to the power 1.5)
+            roar::SurfaceRipples a, b;
+            roar::AudioForces fa, fb;
+            a.step(0.03f, 0, 0.0f, 0.0f, 1.0f, fa);
+            b.step(0.03f, 0, 0.0f, 0.0f, 1.0f, fb);
+            a.step(0.03f, 1, 1.0f, 0.0f, 1.0f, fa);
+            b.step(0.03f, 1, 0.3f, 0.0f, 1.0f, fb);
+            check(std::abs(b.light(0) / a.light(0) - std::pow(0.3f, 1.5f)) < 0.01f && std::abs(b.amplitude(0) / a.amplitude(0) - std::pow(0.3f, 1.5f)) < 0.01f,
+                  "ripples: a 0.3 hit is about a sixth of a full one");
+        }
         roar::SurfaceRipples asleep, weak;
         asleep.step(0.1f, 0, 0.0f, 0.0f, 0.0f, f);
         asleep.step(0.1f, 1, 0.9f, 0.0f, 0.0f, f);
         weak.step(0.1f, 0, 0.0f, 0.0f, 1.0f, f);
         weak.step(0.1f, 1, 0.5f * roar::SurfaceRipples::c_minStrength, 0.0f, 1.0f, f);
         check(asleep.live() == 0 && weak.live() == 0, "ripples: no ring while asleep, and none from a weak hit");
+    }
+
+    // ---- a run of equal thumps: equal hits (a hit never feeds its own baseline), at every rate
+    for (const double sr : c_rates)
+        for (const float amp : { 0.5f, 0.15f })
+            for (const double gap : { 0.7, 0.4, 0.25 })
+            {
+                Signal s(static_cast<size_t>((1.0 + 10.0 * gap) * sr), 0.0f);
+                for (int k = 0; k < 10; ++k)
+                    addThump(s, sr, 0.5 + gap * k, amp);
+                const InkHits h(s, sr, 512);
+                // (the first rises out of silence; each after it over the tail of the one before, which
+                // makes it a little less sudden: the run after the first is one strength, not a fade)
+                const float first = h.strength.empty() ? 0.0f : h.strength.front();
+                const float lo = h.strength.size() < 2 ? 0.0f : *std::min_element(h.strength.begin() + 1, h.strength.end());
+                const float hi = h.strength.size() < 2 ? 0.0f : *std::max_element(h.strength.begin() + 1, h.strength.end());
+                if (sr == 48000.0)
+                {
+                    std::printf("  ripples: ten equal thumps (%.0f dBFS) %.2f s apart are %d hits of strength", 20.0 * std::log10(static_cast<double>(amp)), gap, static_cast<int>(h.strength.size()));
+                    for (const float x : h.strength)
+                        std::printf(" %.2f", static_cast<double>(x));
+                    std::printf("\n");
+                }
+                check(h.strength.size() == 10 && lo >= 0.8f * first && hi - lo <= 0.03f, "ripples: ten equal thumps " + juce::String(gap, 2) + " s apart are ten hits of one strength, not a fade ("
+                                                                                           + juce::String(sr / 1000.0, 1) + " kHz: " + juce::String(static_cast<int>(h.strength.size())) + " hits, the first "
+                                                                                           + juce::String(first, 2) + ", the rest " + juce::String(lo, 2) + ".." + juce::String(hi, 2) + ")");
+            }
+
+    // ---- the published hits: a count is never read with another hit's strength
+    {
+        using F = roar::MonsterFeatures;
+        F f;
+        f.publishHit(1, 0.9f);
+        const int early = f.hits.load();   // (a reader that read the count here, before the next hit)
+        f.publishHit(2, 0.05f);
+        const float atEarly = f.strongestHitSince(0, early), both = f.strongestHitSince(0, 2), second = f.strongestHitSince(1, 2), none = f.strongestHitSince(2, 2);
+        check(std::abs(atEarly - 0.9f) < 0.002f && std::abs(both - 0.9f) < 0.002f && std::abs(second - 0.05f) < 0.002f && none == 0.0f,
+              "ripples: a published hit's strength is its own, and a frame that saw several takes the strongest (" + juce::String(atEarly, 3) + ", " + juce::String(both, 3) + ", "
+                  + juce::String(second, 3) + ")");
+        for (int c = 3; c <= 9; ++c)
+            f.publishHit(c, c == 4 ? 1.0f : 0.3f);
+        check(std::abs(f.strongestHitSince(2, 9) - 0.3f) < 0.002f, "ripples: hits overwritten in the log are not read with a later hit's count");
+        F w;
+        w.publishHit(F::hitCountMask, 0.2f);
+        w.publishHit(F::hitCountMask + 1, 0.7f);   // (wraps to 0)
+        roar::SurfaceRipples r;
+        roar::AudioForces forces;
+        r.step(1.0f / 30.0f, F::hitCountMask, 0.0f, 0.0f, 1.0f, forces);
+        const int now = w.hits.load();
+        r.step(1.0f / 30.0f, now, w.strongestHitSince(r.lastHits, now), 0.0f, 1.0f, forces);
+        check(now == 0 && r.started == 1 && std::abs(r.rings[0].strength - 0.7f) < 0.002f, "ripples: the hit count wraps without losing a hit");
+    }
+
+    // ---- ten equal thumps through the plug-in and the view's read: ten rings of the same strength
+    for (const int block : { 64, 4096 })
+    {
+        const double sr = 48000.0, gap = 0.4;
+        Signal s(static_cast<size_t>((1.0 + 10.0 * gap) * sr), 0.0f);
+        for (int k = 0; k < 10; ++k)
+            addThump(s, sr, 0.5 + gap * k, 0.5f, 31u + static_cast<unsigned>(k));
+        auto p = makeProcessor(sr, block);
+        const auto& f = p->getMonsterFeatures();
+        roar::SurfaceRipples r;
+        roar::AudioForces forces;
+        double lastFrame = 0.0;
+        juce::String list;
+        render(*p, dual(s), block, false, [&](int start)
+        {
+            // (a frame at most 30 times a second, between host blocks, as the view reads the features)
+            const double t = static_cast<double>(start) / sr;
+            if (t - lastFrame < 1.0 / 30.0)
+                return;
+            const auto dt = static_cast<float>(t - lastFrame);
+            lastFrame = t;
+            forces.step(dt, {});
+            const int hits = f.hits.load(std::memory_order_acquire);
+            const float strength = f.strongestHitSince(r.lastHits, hits);
+            if (hits != r.lastHits)
+                list << juce::String(t, 2) << " s " << juce::String(strength, 2) << ", ";
+            r.step(dt, hits, strength, 0.0f, 1.0f, forces);
+        });
+        float lo = 1.0f, hi = 0.0f;
+        for (const auto& ring : r.rings)
+            if (ring.age >= 0.0f)
+            {
+                lo = std::min(lo, ring.strength);
+                hi = std::max(hi, ring.strength);
+            }
+        std::printf("  ripples: ten equal thumps %.1f s apart through the plug-in in blocks of %d: %d rings started (%d held back), the last ones %.2f..%.2f; hits read at %s\n", gap, block, r.started,
+                    r.refused, static_cast<double>(lo), static_cast<double>(hi), list.toRawUTF8());
+        check(r.started == 10 && r.refused == 0 && lo >= 0.6f && hi - lo <= 0.15f, "ripples: ten equal thumps through the plug-in start ten rings of the same strength (blocks of "
+                                                                                        + juce::String(block) + ": " + juce::String(r.started) + " rings)");
     }
 }
 
@@ -4221,20 +4626,36 @@ inline void testInkRipplePictures()
     for (const int tier : { 0, 3 })
     {
         // the same frames with the ripples drawn and left out: what differs is the ripple alone
-        InkRig on(W, H, 3u, 0.6f), off(W, H, 3u, 0.6f);
-        if (! on.ok() || ! off.ok())
+        InkRig on(W, H, 3u, 0.6f), off(W, H, 3u, 0.6f), voice(W, H, 3u, 0.6f);
+        if (! on.ok() || ! off.ok() || ! voice.ok())
             return;
         on.setTier(tier);
         off.setTier(tier);
+        voice.setTier(tier);
         on.monster->setTrembleOffForTests(true);
         off.monster->setRipplesOffForTests(true);
-        on.run(hit - 0.2, &audio);
-        off.run(hit - 0.2, &audio);
+        // ---- the voice alone (from its first syllables to just before the hit): no ring reads,
+        // and the tremble stays small (the frames with the ripples and the tremble drawn against
+        // the same frames without either)
+        double voiceMost = 0.0, voiceLift = 0.0;
+        for (const double t : { 3.6, 4.4, 5.2, hit - 0.2 })
+        {
+            const double go = t - static_cast<double>(off.frames) / 30.0 - 1.0 / 30.0;
+            on.run(go, &audio);
+            off.run(go, &audio);
+            voice.run(go, &audio);
+            const auto b = off.shot(&audio), v = voice.shot(&audio);
+            on.step(&audio);
+            voiceMost = std::max(voiceMost, v.rmsDifference(b));
+            voiceLift = std::max(voiceLift, std::max(inkRippleLight(v, b, H / 40).lift, inkRippleLight(v, b, H / 40).shade));
+        }
+        const int startedByVoice = voice.monster->getRipplesForTests().started;
         const double before = on.shot(&audio).rmsDifference(off.shot(&audio));
         const int startedBefore = on.monster->getRipplesForTests().started;
         std::vector<std::pair<double, double>> diffs;
+        double lift03 = 0.0, lift08 = 0.0;
         int most = 0;
-        for (const double t : { 0.25, 0.5, 0.9, 1.5, 2.2, 2.9 })
+        for (const double t : { 0.1, 0.25, 0.3, 0.5, 0.8, 0.9, 1.5, 2.2, 2.9 })
         {
             const double target = hit + t;
             const double go = target - static_cast<double>(on.frames) / 30.0 - 1.0 / 30.0;
@@ -4242,19 +4663,38 @@ inline void testInkRipplePictures()
             off.run(go, &audio);
             const auto a = on.shot(&audio), b = off.shot(&audio);
             diffs.push_back({ t, a.rmsDifference(b) });
+            const auto light = inkRippleLight(a, b, H / 40);
+            if (t == 0.3)
+                lift03 = light.lift;
+            if (t == 0.8)
+                lift08 = light.lift;
             most = std::max(most, on.monster->getRipplesForTests().live());
         }
         const auto& rp = on.monster->getRipplesForTests();
-        std::printf("  ripples on tier %d: a thump in the voice started %d ring(s) (%d before it, %d held back); the picture differs from the same frame without them by %.1f per mille before it, then",
-                    tier, rp.started - startedBefore, startedBefore, rp.refused, 1000.0 * before);
+        std::printf("  ripples on tier %d: the voice alone started %d ring(s) and differs from the frames without ripples or tremble by %.1f per mille at most (open cloud lit or shaded %.1f %% at most);"
+                    " a thump in the voice started %d ring(s) (%d held back); the picture differs from the same frame without them by %.1f per mille before it, then",
+                    tier, startedByVoice, 1000.0 * voiceMost, 100.0 * voiceLift, rp.started - startedBefore, rp.refused, 1000.0 * before);
         double peak = 0.0;
         for (const auto& d : diffs)
         {
             std::printf(" %.1f (%.2f s)", 1000.0 * d.second, d.first);
             peak = std::max(peak, d.second);
         }
-        std::printf("\n");
+        std::printf("; open cloud lifted %.1f %% at 0.3 s and %.1f %% at 0.8 s\n", 100.0 * lift03, 100.0 * lift08);
         pictureCheck(rp.started > startedBefore && peak > 0.008 && peak > 4.0 * before + 0.002, "ripples: a hit visibly ripples the picture (tier " + juce::String(tier) + ", " + juce::String(1000.0 * peak, 1) + " per mille)");
+        // (the hit is counted about 30 ms after it starts and the ring leaves at once: the frame a
+        // tenth of a second after the thump already shows it)
+        pictureCheck(diffs.front().second > 3.0 * before + 0.006, "ripples: the ring shows within a few frames of the hit (tier " + juce::String(tier) + ", " + juce::String(1000.0 * diffs.front().second, 1) + " per mille at 0.1 s)");
+        // (the crest catches its own light: it reads on pale cloud while it travels. Measured on
+        // this thump on both tiers: about 9 % at 0.3 s and 6 % at 0.8 s (it lands in the voice, so a
+        // little of its peak is the voice's, and its strength is weighed by its low end's share);
+        // a swell drawn at 1 to 2 % could not be seen)
+        pictureCheck(lift03 >= 0.08 && lift08 >= 0.04, "ripples: the swell's crest lights the open cloud it crosses (tier " + juce::String(tier) + ", " + juce::String(100.0 * lift03, 1) + " % at 0.3 s, "
+                                                         + juce::String(100.0 * lift08, 1) + " % at 0.8 s)");
+        // (a voice coming out of silence is an onset and may start a weak ring: drawn by its
+        // strength to the power 1.5 it is faint, a sixth or less of a heavy hit's light)
+        pictureCheck(voiceMost < 0.003 && voiceLift < 0.02, "ripples: the voice alone shows no ring to speak of and the tremble stays small (tier " + juce::String(tier) + ", "
+                                                               + juce::String(startedByVoice) + " rings, " + juce::String(1000.0 * voiceMost, 1) + " per mille, " + juce::String(100.0 * voiceLift, 1) + " %)");
         pictureCheck(diffs.back().second < 0.25 * peak + 0.001, "ripples: the ripple has settled within three seconds of the hit (tier " + juce::String(tier) + ", " + juce::String(1000.0 * diffs.back().second, 1) + " per mille left)");
         pictureCheck(most <= roar::SurfaceRipples::c_maxRings, "ripples: at most four rings in flight on the drawn view");
     }
@@ -4292,6 +4732,134 @@ inline void testInkRipplePictures()
                 n, pairs, pairsOff, mostDisc);
     pictureCheck(pairs * 4 <= n && pairs <= pairsOff + n / 10, "ripples: the rings open no pair of pale regions above the rift (" + juce::String(pairs) + " of " + juce::String(n) + ", " + juce::String(pairsOff) + " without)");
     pictureCheck(domes * 20 <= n, "ripples: the blot in the rings is not one round mass on the fold (" + juce::String(domes) + " of " + juce::String(n) + ")");
+}
+
+/** Host bypass: the chain runs on underneath (leaving bypass is seamless) and keeps publishing,
+    but the view reads it as silence: asleep at once, no ring, the readouts at rest, the creature
+    not growing; it wakes with the sound when the host processes again. A host that stops calling
+    the plug-in puts it to sleep too, half a second later. */
+inline void testInkBypass()
+{
+    const InkScript script;
+    const double from = 4.0, to = 9.0;   // (the voice, with thumps in it)
+    const auto audio = inkRippleAudio(script, { 5.3, 5.7, 6.1, 6.5 });
+    InkRig rig(288, 80, 3u), plain(288, 80, 3u), cut(288, 80, 3u);
+    if (! rig.ok() || ! plain.ok() || ! cut.ok())
+        return;
+    for (auto* r : { &rig, &plain, &cut })
+        r->p->withCreatureForTests([](roar::CreatureEvolution& e) { e.setTimeScaleForTests(4.0f); });
+    rig.run(from, &audio);
+    plain.run(from, &audio);
+    cut.run(from, &audio);
+    const bool awakeBefore = ! rig.monster->isAsleepForTests() && ! rig.monster->readsSilenceForTests();
+    float stageRig = 0.0f, stagePlain = 0.0f;
+    rig.p->withCreatureForTests([&stageRig](roar::CreatureEvolution& e) { stageRig = e.getStage(); });
+    plain.p->withCreatureForTests([&stagePlain](roar::CreatureEvolution& e) { stagePlain = e.getStage(); });
+    const float stageRigBefore = stageRig, stagePlainBefore = stagePlain;
+    const int startedBefore = rig.monster->getRipplesForTests().started, plainStartedBefore = plain.monster->getRipplesForTests().started;
+
+    rig.bypassed = true;
+    cut.hostCalls = false;
+    double asleepAfter = -1.0, idleAfter = -1.0, cutAsleepAfter = -1.0, cutIdleAfter = -1.0;
+    float intensity = 0.0f, plainIntensity = 0.0f;
+    bool silentAll = true, flagAll = true;
+    for (int i = 0; rig.frames < static_cast<int>(std::lround(to * 30.0)); ++i)
+    {
+        rig.step(&audio);
+        plain.step(&audio);
+        cut.step(&audio);
+        const double t = static_cast<double>(i + 1) / 30.0;
+        silentAll = silentAll && rig.monster->readsSilenceForTests();
+        flagAll = flagAll && rig.p->getMonsterFeatures().hostBypassed.load();
+        if (asleepAfter < 0.0 && rig.monster->isAsleepForTests())
+            asleepAfter = t;
+        if (idleAfter < 0.0 && rig.monster->isIdleForTests())
+            idleAfter = t;
+        if (cutAsleepAfter < 0.0 && cut.monster->isAsleepForTests())
+            cutAsleepAfter = t;
+        if (cutIdleAfter < 0.0 && cut.monster->isIdleForTests())
+            cutIdleAfter = t;
+        rig.p->withCreatureForTests([&intensity](roar::CreatureEvolution& e) { intensity = std::max(intensity, e.getIntensity()); });
+        plain.p->withCreatureForTests([&plainIntensity](roar::CreatureEvolution& e) { plainIntensity = std::max(plainIntensity, e.getIntensity()); });
+    }
+    rig.monster->refreshOverlay(0.0f);
+    plain.monster->refreshOverlay(0.0f);
+    const auto readouts = rig.monster->getReadoutsForTests(), plainReadouts = plain.monster->getReadoutsForTests();
+    rig.p->withCreatureForTests([&stageRig](roar::CreatureEvolution& e) { stageRig = e.getStage(); });
+    plain.p->withCreatureForTests([&stagePlain](roar::CreatureEvolution& e) { stagePlain = e.getStage(); });
+    const int rings = rig.monster->getRipplesForTests().started - startedBefore, plainRings = plain.monster->getRipplesForTests().started - plainStartedBefore;
+    const float tremble = rig.monster->getRipplesForTests().tremble;
+
+    rig.bypassed = false;
+    double wokeAfter = -1.0;
+    for (int i = 0; i < 15; ++i)
+    {
+        rig.step(&audio);
+        if (wokeAfter < 0.0 && ! rig.monster->isAsleepForTests() && ! rig.monster->readsSilenceForTests())
+            wokeAfter = static_cast<double>(i + 1) / 30.0;
+    }
+
+    std::printf("  host bypass over the voice with four thumps: asleep after %.2f s, idle after %.2f s (-1: not within the run), %d rings (%d without bypass), tremble %.2f; readouts \"%s\" (without: \"%s\");"
+                " stage %.4f -> %.4f (without bypass %.4f -> %.4f), intensity at most %.2f (%.2f); awake again %.2f s after; host stops calling: asleep after %.2f s, idle after %.2f s\n",
+                asleepAfter, idleAfter, rings, plainRings, static_cast<double>(tremble), readouts.toRawUTF8(), plainReadouts.toRawUTF8(), static_cast<double>(stageRigBefore),
+                static_cast<double>(stageRig), static_cast<double>(stagePlainBefore), static_cast<double>(stagePlain), static_cast<double>(intensity),
+                static_cast<double>(plainIntensity), wokeAfter, cutAsleepAfter, cutIdleAfter);
+    check(awakeBefore && flagAll && silentAll, "bypass: the view reads the features as silence on every frame the host bypasses");
+    // (the frames slow only once the formation has settled, as after any silence: reported, not checked)
+    check(asleepAfter > 0.0 && asleepAfter <= 0.1, "bypass: the creature is asleep at once (" + juce::String(asleepAfter, 2) + " s)");
+    check(rings == 0 && plainRings > 0 && tremble < 0.01f, "bypass: no ring and no tremble (" + juce::String(rings) + " rings; " + juce::String(plainRings) + " without bypass)");
+    check(readouts == "F0 -- | DETAIL 0.0 / 0.0 dB", "bypass: the readouts rest (" + readouts + ")");
+    // (nothing new feeds the growth; what was already in flight settles as when the transport stops)
+    check(intensity <= 0.0f && plainIntensity > 0.1f && stageRig - stageRigBefore < 0.5f * (stagePlain - stagePlainBefore),
+          "bypass: the sound does not grow the creature, as it does unbypassed (intensity " + juce::String(intensity, 2) + " against " + juce::String(plainIntensity, 2) + "; stage "
+              + juce::String(stageRig - stageRigBefore, 4) + " against " + juce::String(stagePlain - stagePlainBefore, 4) + ")");
+    check(wokeAfter > 0.0 && wokeAfter <= 0.3, "bypass: leaving it wakes the creature within 0.3 s (" + juce::String(wokeAfter, 2) + " s)");
+    check(cutAsleepAfter > 0.0 && cutAsleepAfter <= 0.6, "bypass: a host that stops calling the plug-in puts it to sleep within 0.6 s (" + juce::String(cutAsleepAfter, 2) + " s)");
+    // (asleep, the frames come at the idle rate at once: the cloud's slow dispersal is drawn at it)
+    check(idleAfter > 0.0 && idleAfter <= 4.0 && cutIdleAfter > 0.0 && cutIdleAfter <= 4.5, "bypass: the frames slow to the idle rate within 4 s, as when the host stops calling (" + juce::String(idleAfter, 2) + " s, "
+                                                                                                + juce::String(cutIdleAfter, 2) + " s)");
+}
+
+/** The visualiser at Low: the lightest buffered tier whatever the governor would choose, and the
+    governor left as it was. */
+inline void testInkLowQuality()
+{
+    const InkScript script;
+    InkRig rig(576, 160, 3u, 0.6f);
+    if (! rig.ok())
+        return;
+    rig.setTier(-1);
+    rig.run(4.0, &script.audio);
+    const int fullTier = rig.monster->getQualityTier();
+    const int governed = rig.monster->getRendererForTests().getGovernor().tier;
+    rig.monster->setVisualiser(MonsterView::Visualiser::low);
+    rig.run(1.0, &script.audio);
+    const int lowTier = rig.monster->getQualityTier();
+    const int governedLow = rig.monster->getRendererForTests().getGovernor().tier;
+    // (Low's own pace, 15 frames a second, with the frames' own time: the ink keeps time with the
+    // view, awake and asleep, as it does at 30)
+    const auto inkClock = [&rig, &script](int hz, bool sound)
+    {
+        rig.monster->setFixedStepForTests(false);
+        rig.frameSeconds = 1.0f / static_cast<float>(hz);
+        const double before = rig.monster->getRendererForTests().getInkSecondsForTests();
+        for (int i = 0; i < 2 * hz; ++i)
+            rig.step(sound ? &script.audio : nullptr);
+        rig.frameSeconds = 1.0f / 30.0f;
+        rig.monster->setFixedStepForTests(true);
+        return rig.monster->getRendererForTests().getInkSecondsForTests() - before;
+    };
+    const double inkAwake15 = inkClock(15, true), inkAsleep15 = inkClock(15, false), inkAwake30 = inkClock(30, true);
+    rig.monster->setVisualiser(MonsterView::Visualiser::full);
+    rig.run(1.0, &script.audio);
+    const int backTier = rig.monster->getQualityTier();
+    std::printf("  visualiser: Full draws tier %d (the governor's %d), Low tier %d (the governor still at %d), Full again tier %d;"
+                " 2 s of frames move the ink by %.3f s at 15 Hz awake, %.3f s at 15 Hz asleep, %.3f s at 30 Hz\n",
+                fullTier, governed, lowTier, governedLow, backTier, inkAwake15, inkAsleep15, inkAwake30);
+    check(lowTier == std::min(1, fullTier) && governedLow == governed && backTier == fullTier, "visualiser: Low draws the lightest buffered tier and leaves the governor as it was");
+    check(std::abs(inkAwake15 - 2.0) < 0.15 && std::abs(inkAsleep15 - 2.0) < 0.15 && std::abs(inkAwake30 - 2.0) < 0.15,
+          "visualiser: at 15 frames a second the ink moves at its own speed, as at 30 (" + juce::String(inkAwake15, 3) + " s, "
+              + juce::String(inkAsleep15, 3) + " s asleep, " + juce::String(inkAwake30, 3) + " s in 2 s)");
 }
 #endif
 
@@ -4334,6 +4902,10 @@ inline void testInk()
         testInkRelief();
     if (wanted("wisps"))
         testInkWisps();
+    if (wanted("bypass"))
+        testInkBypass();
+    if (wanted("visualiser"))
+        testInkLowQuality();
    #endif
     if (wanted("ripples"))
         testInkRipples();

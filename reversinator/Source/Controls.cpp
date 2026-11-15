@@ -8,12 +8,12 @@ namespace
     const juce::Identifier c_focusRingsProperty { "reversinatorFocusRings" };
     const juce::Identifier c_capitalsProperty { "reversinatorCapitals" };
 
-    constexpr float c_valueBoxHeight = 18.0f;
+    constexpr float c_valueBoxHeight = 20.0f;
     constexpr float c_valueBoxGap = 10.0f;
 
     // The house style's metrics (as Subbertone's LookAndFeel). Menu metrics are at design size and
     // scaled by menuScale().
-    constexpr float c_menuRadius = 6.0f;
+    constexpr float c_menuRadius = 2.0f;
     constexpr float c_menuBorder = 5.0f;
     constexpr float c_menuTickColumn = 22.0f;
     constexpr float c_menuTextInset = 24.0f;
@@ -22,9 +22,40 @@ namespace
     constexpr float c_menuSeparatorHeight = 9.0f;
     constexpr float c_menuFontHeight = 13.0f;
 
-    constexpr float c_tipRadius = 5.0f;
+    constexpr float c_tipRadius = 2.0f;
     constexpr float c_tipPadX = 10.0f, c_tipPadY = 7.0f;
     constexpr float c_tipMaxWidth = 420.0f;
+
+    // Everything is square-shouldered, like moulded keys and stamped plates: corners are only eased.
+    constexpr float c_corner = 2.0f;
+
+    /** A key in its well. `down` draws it pushed in (held, or latched on). Returns the key's top face. */
+    juce::Rectangle<float> drawKeycap(juce::Graphics& g, juce::Rectangle<float> well, juce::Colour face, bool down, bool hover)
+    {
+        const float travel = 3.0f;
+
+        g.setColour(juce::Colours::black.withAlpha(0.6f));
+        g.fillRoundedRectangle(well, c_corner + 0.5f);
+
+        auto cap = well.reduced(1.5f).withTrimmedBottom(travel);
+        if (down)
+            cap = cap.translated(0.0f, travel - 1.0f);
+        else
+        {
+            g.setColour(face.darker(0.8f));                       // the key's front edge
+            g.fillRoundedRectangle(cap.translated(0.0f, travel), c_corner);
+        }
+
+        g.setGradientFill(juce::ColourGradient(face.brighter(hover ? 0.16f : 0.06f), 0.0f, cap.getY(),
+                                               face.darker(0.14f), 0.0f, cap.getBottom(), false));
+        g.fillRoundedRectangle(cap, c_corner);
+
+        g.setColour(juce::Colours::white.withAlpha(0.24f));       // lit top edge
+        g.fillRect(cap.getX() + 2.0f, cap.getY() + 1.0f, cap.getWidth() - 4.0f, 1.0f);
+        g.setColour(juce::Colours::black.withAlpha(0.28f));       // shaded bottom edge
+        g.fillRect(cap.getX() + 2.0f, cap.getBottom() - 2.0f, cap.getWidth() - 4.0f, 1.0f);
+        return cap;
+    }
 
     juce::Colour accentOf(const juce::Slider& slider)
     {
@@ -90,7 +121,7 @@ namespace
         return b.findColour(juce::TextButton::buttonColourId).isTransparent();
     }
 
-    float fieldRadius(int height) { return std::min(5.0f, static_cast<float>(height) * 0.25f); }
+    float fieldRadius(int) { return c_corner; }
 
     //==============================================================================
     // Tab in a window shows its focus rings, a click in it hides them (stateless: the state is a property
@@ -242,7 +273,7 @@ juce::Slider::SliderLayout Controls::LookAndFeel::getSliderLayout(juce::Slider& 
     juce::Slider::SliderLayout layout;
     auto bounds = slider.getLocalBounds();
     const int boxHeight = static_cast<int>(c_valueBoxHeight);
-    layout.textBoxBounds = bounds.removeFromTop(boxHeight).withSizeKeepingCentre(std::min(bounds.getWidth(), 84), boxHeight);
+    layout.textBoxBounds = bounds.removeFromTop(boxHeight).withSizeKeepingCentre(std::min(bounds.getWidth() - 12, 84), boxHeight);
     bounds.removeFromTop(static_cast<int>(c_valueBoxGap));
 
     // Inset the track by the thumb radius (as JUCE's own layouts do), so the thumb, the
@@ -256,9 +287,10 @@ juce::Label* Controls::LookAndFeel::createSliderTextBox(juce::Slider& slider)
     auto* label = juce::LookAndFeel_V4::createSliderTextBox(slider);
     label->setFont(m_fonts.body(12.5f));
     label->setJustificationType(juce::Justification::centred);
-    label->setColour(juce::Label::textColourId, text);
-    label->setColour(juce::Label::outlineColourId, juce::Colours::transparentBlack);
-    label->setColour(juce::Label::backgroundColourId, juce::Colours::transparentBlack);
+    // A recessed readout, lit in the control's own colour.
+    label->setColour(juce::Label::textColourId, accentOf(slider).brighter(0.25f));
+    label->setColour(juce::Label::outlineColourId, outline);
+    label->setColour(juce::Label::backgroundColourId, scope);
 
     // While a value is typed: a rounded field in the slider's own accent (outline, selection, caret),
     // with the text centred like the value it replaces. Label::createEditorComponent() copies these to
@@ -394,7 +426,7 @@ void Controls::LookAndFeel::drawPopupMenuItemWithOptions(juce::Graphics& g, cons
     if (highlighted)
     {
         g.setColour(accent.withAlpha(0.16f));
-        g.fillRoundedRectangle(row.reduced(0.0f, 1.0f), 4.0f * s);
+        g.fillRoundedRectangle(row.reduced(0.0f, 1.0f), 1.0f * s);
     }
 
     auto content = row;
@@ -558,16 +590,22 @@ void Controls::LookAndFeel::drawThumb(juce::Graphics& g, juce::Point<float> cent
 {
     using namespace Theme::Colours;
 
-    const auto r = juce::Rectangle<float>(width, 10.0f).withCentre(centre);
-    g.setColour(juce::Colours::black.withAlpha(0.45f));
-    g.fillRoundedRectangle(r.translated(0.0f, 1.5f), 5.0f);
-    g.setGradientFill(juce::ColourGradient(panelRaised.brighter(hot ? 0.45f : 0.32f), r.getCentreX(), r.getY(),
-                                           panelRaised.brighter(0.05f), r.getCentreX(), r.getBottom(), false));
-    g.fillRoundedRectangle(r, 5.0f);
-    g.setColour(outline.brighter(0.3f));
-    g.drawRoundedRectangle(r.reduced(0.5f), 5.0f, 1.0f);
+    // A fader cap: a ridged block with a painted line across the middle.
+    const auto r = juce::Rectangle<float>(width, 16.0f).withCentre(centre);
+    g.setColour(juce::Colours::black.withAlpha(0.5f));
+    g.fillRoundedRectangle(r.translated(0.0f, 2.0f), 1.5f);
+    g.setGradientFill(juce::ColourGradient(panelRaised.brighter(hot ? 0.75f : 0.6f), r.getCentreX(), r.getY(),
+                                           panelRaised.brighter(0.12f), r.getCentreX(), r.getBottom(), false));
+    g.fillRoundedRectangle(r, 1.5f);
+
+    g.setColour(juce::Colours::black.withAlpha(0.35f));
+    for (const float dy : { -5.0f, -3.0f, 3.0f, 5.0f })
+        g.fillRect(r.getX() + 2.0f, centre.y + dy - 0.5f, r.getWidth() - 4.0f, 1.0f);
+    g.setColour(juce::Colours::white.withAlpha(0.25f));
+    g.fillRect(r.getX() + 1.0f, r.getY() + 1.0f, r.getWidth() - 2.0f, 1.0f);
+
     g.setColour(accent);
-    g.fillRoundedRectangle(r.withSizeKeepingCentre(width * 0.45f, 2.0f), 1.0f);
+    g.fillRect(r.getX() + 2.0f, centre.y - 1.5f, r.getWidth() - 4.0f, 3.0f);
 }
 
 void Controls::LookAndFeel::drawHourglass(juce::Graphics& g, juce::Rectangle<float> area, float sliderPos,
@@ -638,9 +676,9 @@ void Controls::LookAndFeel::drawHourglass(juce::Graphics& g, juce::Rectangle<flo
     {
         const auto cap = juce::Rectangle<float>(glassWidth + 12.0f, 6.0f).withCentre({ cx, capY });
         g.setGradientFill(juce::ColourGradient(panelRaised.brighter(0.35f), cx, cap.getY(), panelRaised.darker(0.2f), cx, cap.getBottom(), false));
-        g.fillRoundedRectangle(cap, 3.0f);
+        g.fillRoundedRectangle(cap, 1.0f);
         g.setColour(outline.brighter(0.2f));
-        g.drawRoundedRectangle(cap.reduced(0.5f), 3.0f, 1.0f);
+        g.drawRoundedRectangle(cap.reduced(0.5f), 1.0f, 1.0f);
     }
 }
 
@@ -690,9 +728,9 @@ void Controls::LookAndFeel::drawLoop(juce::Graphics& g, juce::Rectangle<float> a
     // Rail and thumb
     const auto rail = juce::Rectangle<float>(4.0f, minPos - maxPos + 8.0f).withCentre({ cx, centre.y });
     g.setColour(scope);
-    g.fillRoundedRectangle(rail, 2.0f);
+    g.fillRect(rail);
     g.setColour(accent.withAlpha(0.85f));
-    g.fillRoundedRectangle(rail.withTop(sliderPos), 2.0f);
+    g.fillRect(rail.withTop(sliderPos));
 
     drawThumb(g, { cx, sliderPos }, 26.0f, accent, hot);
 }
@@ -718,13 +756,13 @@ void Controls::LookAndFeel::drawFader(juce::Graphics& g, juce::Rectangle<float> 
 
     const auto rail = juce::Rectangle<float>(6.0f, minPos - maxPos + 8.0f).withCentre({ cx, (minPos + maxPos) * 0.5f });
     g.setColour(scope);
-    g.fillRoundedRectangle(rail, 3.0f);
+    g.fillRect(rail);
     g.setColour(outlineSoft);
-    g.drawRoundedRectangle(rail.reduced(0.5f), 3.0f, 1.0f);
+    g.drawRect(rail, 1.0f);
 
     const auto fill = rail.withTop(sliderPos);
     g.setGradientFill(juce::ColourGradient(accent.brighter(0.2f), cx, sliderPos, accent.darker(0.5f), cx, rail.getBottom(), false));
-    g.fillRoundedRectangle(fill, 3.0f);
+    g.fillRect(fill.reduced(1.0f, 0.0f));
 
     drawThumb(g, { cx, sliderPos }, 30.0f, accent, hot);
 }
@@ -736,25 +774,33 @@ void Controls::LookAndFeel::drawButtonBackground(juce::Graphics& g, juce::Button
                                                  bool isMouseOverButton, bool isButtonDown)
 {
     if (backgroundColour.isTransparent())
-        return; // a text link: no pill (see drawButtonText)
+        return; // a text link: no key (see drawButtonText)
 
+    // A flat square key: lit top edge, shaded bottom edge.
     const auto r = button.getLocalBounds().toFloat().reduced(0.5f);
-    const float corner = std::min(r.getWidth(), r.getHeight()) * 0.5f;
     const bool enabled = button.isEnabled();
-    const auto fill = enabled ? backgroundColour : backgroundColour.withMultipliedAlpha(0.5f);
+    const auto fill = enabled ? backgroundColour.brighter(0.25f) : backgroundColour.withMultipliedAlpha(0.5f);
 
-    g.setColour(fill.brighter(isButtonDown ? 0.2f : isMouseOverButton && enabled ? 0.1f : 0.0f));
-    g.fillRoundedRectangle(r, corner);
+    g.setColour(fill.brighter(isButtonDown ? 0.0f : isMouseOverButton && enabled ? 0.22f : 0.1f));
+    g.fillRoundedRectangle(r, c_corner);
+
+    if (enabled && ! isButtonDown)
+    {
+        g.setColour(juce::Colours::white.withAlpha(0.16f));
+        g.fillRect(r.getX() + 2.0f, r.getY() + 1.0f, r.getWidth() - 4.0f, 1.0f);
+        g.setColour(juce::Colours::black.withAlpha(0.35f));
+        g.fillRect(r.getX() + 2.0f, r.getBottom() - 2.0f, r.getWidth() - 4.0f, 1.5f);
+    }
 
     if (shouldShowFocusRing(button))
     {
         g.setColour(reverser);
-        g.drawRoundedRectangle(r.reduced(0.25f), corner, 1.5f);
+        g.drawRoundedRectangle(r.reduced(0.25f), c_corner, 1.5f);
     }
     else
     {
-        g.setColour(! enabled ? outline.withMultipliedAlpha(0.6f) : isMouseOverButton ? textDim : outline);
-        g.drawRoundedRectangle(r, corner, 1.0f);
+        g.setColour(! enabled ? outline.withMultipliedAlpha(0.6f) : isMouseOverButton ? textDim : outline.brighter(0.2f));
+        g.drawRoundedRectangle(r, c_corner, 1.0f);
     }
 }
 
@@ -916,7 +962,7 @@ std::unique_ptr<juce::FocusOutline> Controls::LookAndFeel::createFocusOutlineFor
         void drawOutline(juce::Graphics& g, int width, int height) override
         {
             g.setColour(reverser);
-            g.drawRoundedRectangle(juce::Rectangle<float>(static_cast<float>(width), static_cast<float>(height)).reduced(0.75f), 5.0f, 1.5f);
+            g.drawRoundedRectangle(juce::Rectangle<float>(static_cast<float>(width), static_cast<float>(height)).reduced(0.75f), c_corner, 1.5f);
         }
     };
 
@@ -926,10 +972,11 @@ std::unique_ptr<juce::FocusOutline> Controls::LookAndFeel::createFocusOutlineFor
 //==============================================================================
 // ModeSelector
 //==============================================================================
-Controls::ModeSelector::Lamp::Lamp(const juce::String& title, const juce::String& subtitle, const Theme::Fonts& fonts)
+Controls::ModeSelector::Lamp::Lamp(const juce::String& title, const juce::String& subtitle, juce::Colour colour, const Theme::Fonts& fonts)
     : juce::Button(title)
     , m_title(title)
     , m_subtitle(subtitle)
+    , m_colour(colour)
     , m_fonts(fonts)
 {
     setClickingTogglesState(false);
@@ -940,63 +987,37 @@ void Controls::ModeSelector::Lamp::paintButton(juce::Graphics& g, bool isMouseOv
 {
     using namespace Theme::Colours;
 
+    // A wide key in its own colour. The chosen one stays pushed in and lights up; the others are
+    // dark plastic with a window of their colour.
     const bool on = getToggleState();
-    auto r = getLocalBounds().toFloat().reduced(2.0f);
+    const auto well = getLocalBounds().toFloat().reduced(3.0f, 5.0f);
+    const auto face = on ? m_colour : panelRaised.brighter(0.18f);
+    auto cap = drawKeycap(g, well, face, on || isButtonDown, isMouseOver);
 
-    if (on || isMouseOver)
+    if (on)   // glow around a lit key
     {
-        g.setColour(on ? panelRaised : panelRaised.withAlpha(0.6f));
-        g.fillRoundedRectangle(r, 8.0f);
-        g.setColour(on ? mode.withAlpha(0.35f) : outlineSoft);
-        g.drawRoundedRectangle(r.reduced(0.5f), 8.0f, 1.0f);
+        g.setColour(m_colour.withAlpha(0.10f));
+        g.drawRoundedRectangle(well.expanded(1.0f), 3.0f, 2.0f);
     }
 
-    // Lamp
-    auto lampArea = r.removeFromLeft(54.0f);
-    const float d = std::min(26.0f, lampArea.getHeight() - 10.0f);
-    const auto lamp = juce::Rectangle<float>(d, d).withCentre(lampArea.getCentre());
+    auto window = cap.removeFromLeft(34.0f).withSizeKeepingCentre(10.0f, 22.0f);
+    g.setColour(on ? juce::Colours::white.withAlpha(0.85f) : m_colour.withAlpha(isMouseOver ? 0.95f : 0.75f));
+    g.fillRect(window);
+    g.setColour(juce::Colours::black.withAlpha(0.35f));
+    g.drawRect(window, 1.0f);
 
-    g.setColour(juce::Colours::black.withAlpha(0.5f));
-    g.fillEllipse(lamp.expanded(3.0f).translated(0.0f, 1.0f));
-    g.setColour(outline.brighter(0.25f));
-    g.fillEllipse(lamp.expanded(2.5f));
-
-    if (on)
-    {
-        for (int i = 3; i >= 1; --i)
-        {
-            g.setColour(mode.withAlpha(0.07f * static_cast<float>(4 - i)));
-            g.fillEllipse(lamp.expanded(static_cast<float>(i) * 3.5f));
-        }
-        g.setGradientFill(juce::ColourGradient(mode.brighter(0.7f), lamp.getCentreX(), lamp.getY() + d * 0.25f,
-                                               mode.darker(0.45f), lamp.getCentreX(), lamp.getBottom(), true));
-    }
-    else
-    {
-        g.setGradientFill(juce::ColourGradient(juce::Colour(0xff3a342c), lamp.getCentreX(), lamp.getY(),
-                                               juce::Colour(0xff1f1b16), lamp.getCentreX(), lamp.getBottom(), false));
-    }
-    g.fillEllipse(lamp);
-
-    // Specular highlight
-    g.setColour(juce::Colours::white.withAlpha(on ? 0.55f : (isButtonDown ? 0.2f : 0.12f)));
-    g.fillEllipse(lamp.withSizeKeepingCentre(d * 0.45f, d * 0.22f).translated(0.0f, -d * 0.25f));
-
-    // Text (Button has a member called "text", so qualify the colour)
-    r.removeFromRight(6.0f);
-    auto textArea = r.withSizeKeepingCentre(r.getWidth(), 34.0f);
-    const auto& textColour = Theme::Colours::text;
-    g.setColour(on ? textColour : (isMouseOver ? textColour.withAlpha(0.85f) : textDim));
+    auto textArea = cap.withTrimmedRight(6.0f).withSizeKeepingCentre(cap.getWidth() - 6.0f, 34.0f).translated(-3.0f, 0.0f);
+    g.setColour(on ? background : Theme::Colours::text.withAlpha(0.85f));
     g.setFont(m_fonts.heading(11.5f));
     g.drawFittedText(m_title.toUpperCase(), textArea.removeFromTop(17.0f).toNearestInt(), juce::Justification::centredLeft, 1);
-    g.setColour(on ? textDim : textFaint);
+    g.setColour(on ? background.withAlpha(0.8f) : textDim.withAlpha(0.8f));
     g.setFont(m_fonts.body(10.5f));
     g.drawFittedText(m_subtitle, textArea.toNearestInt(), juce::Justification::centredLeft, 1);
 
     if (Controls::LookAndFeel::shouldShowFocusRing(*this))
     {
-        g.setColour(reverser);
-        g.drawRoundedRectangle(getLocalBounds().toFloat().reduced(2.75f), 8.0f, 1.5f);
+        g.setColour(on ? Theme::Colours::text : reverser);
+        g.drawRoundedRectangle(well.expanded(1.5f), 3.0f, 1.5f);
     }
 }
 
@@ -1011,7 +1032,8 @@ Controls::ModeSelector::ModeSelector(juce::RangedAudioParameter& modeParameter, 
 
     for (size_t i = 0; i < m_lamps.size(); ++i)
     {
-        m_lamps[i] = std::make_unique<Lamp>(modes[i].first, modes[i].second, fonts);
+        const juce::Colour colours[] { Theme::Colours::mode, Theme::Colours::modeSecond, Theme::Colours::modeThird };
+        m_lamps[i] = std::make_unique<Lamp>(modes[i].first, modes[i].second, colours[i], fonts);
         m_lamps[i]->onClick = [this, i] { m_attachment.setValueAsCompleteGesture(static_cast<float>(i)); };
         addAndMakeVisible(*m_lamps[i]);
     }
@@ -1052,56 +1074,35 @@ void Controls::ReverserButton::paintButton(juce::Graphics& g, bool isMouseOver, 
 {
     using namespace Theme::Colours;
 
+    // A big square key: lit blue and pushed in while reversing, dark and raised when not.
     const bool on = getToggleState();
-    const auto bounds = getLocalBounds().toFloat();
-    const float d = std::min(bounds.getWidth(), bounds.getHeight()) - 10.0f;
-    const auto body = juce::Rectangle<float>(d, d).withCentre(bounds.getCentre());
+    const auto well = getLocalBounds().toFloat().reduced(5.0f);
 
-    // Glow when reversing
     if (on)
-    {
         for (int i = 3; i >= 1; --i)
         {
-            g.setColour(reverser.withAlpha(0.06f * static_cast<float>(4 - i)));
-            g.fillEllipse(body.expanded(static_cast<float>(i) * 2.0f));
+            g.setColour(reverser.withAlpha(0.05f * static_cast<float>(4 - i)));
+            g.fillRoundedRectangle(well.expanded(static_cast<float>(i) * 2.0f), 3.0f);
         }
-    }
 
-    g.setColour(juce::Colours::black.withAlpha(0.45f));
-    g.fillEllipse(body.translated(0.0f, 2.0f));
-
-    // Bezel and face
-    g.setGradientFill(juce::ColourGradient(panelRaised.brighter(0.55f), body.getCentreX(), body.getY(),
-                                           panelRaised.darker(0.3f), body.getCentreX(), body.getBottom(), false));
-    g.fillEllipse(body);
-
-    const auto face = body.reduced(d * 0.09f);
-    g.setGradientFill(juce::ColourGradient(panelRaised.brighter(isButtonDown ? 0.05f : (isMouseOver ? 0.28f : 0.2f)),
-                                           face.getCentreX(), face.getY(),
-                                           panelRaised.darker(0.15f), face.getCentreX(), face.getBottom(), false));
-    g.fillEllipse(face);
-    g.setColour(on ? reverser.withAlpha(0.9f) : outline.brighter(0.2f));
-    g.drawEllipse(face, on ? 1.6f : 1.0f);
+    const auto cap = drawKeycap(g, well, on ? reverser : panelRaised.brighter(0.2f), on || isButtonDown, isMouseOver);
 
     // Arrow: left while reversing, right when playing forwards.
-    const float s = face.getWidth() * 0.22f;
-    const auto c = face.getCentre();
+    const float s = cap.getWidth() * 0.2f;
+    const auto c = cap.getCentre();
     juce::Path arrow;
     if (on) arrow.addTriangle(c.x - s * 1.05f, c.y, c.x + s * 0.75f, c.y - s, c.x + s * 0.75f, c.y + s);
     else    arrow.addTriangle(c.x + s * 1.05f, c.y, c.x - s * 0.75f, c.y - s, c.x - s * 0.75f, c.y + s);
 
-    g.setColour(on ? reverser : textDim);
-    g.strokePath(arrow, juce::PathStrokeType(2.0f, juce::PathStrokeType::mitered, juce::PathStrokeType::rounded));
+    g.setColour(on ? background : textDim);
     if (on)
-    {
-        g.setColour(reverser.withAlpha(0.25f));
         g.fillPath(arrow);
-    }
+    g.strokePath(arrow, juce::PathStrokeType(2.0f, juce::PathStrokeType::mitered, juce::PathStrokeType::square));
 
     if (Controls::LookAndFeel::shouldShowFocusRing(*this))
     {
-        g.setColour(reverser);
-        g.drawEllipse(body.expanded(3.5f), 1.5f);
+        g.setColour(on ? Theme::Colours::text : reverser);
+        g.drawRoundedRectangle(well.expanded(2.0f), 3.0f, 1.5f);
     }
 }
 

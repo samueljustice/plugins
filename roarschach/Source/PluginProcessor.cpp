@@ -373,7 +373,8 @@ roar::CreatureEvolution::Inputs RoarschachAudioProcessor::readCreatureInputs()
     }
 
     roar::CreatureEvolution::Inputs in;
-    in.stale = m_creatureStaleSeconds >= 0.5f;
+    // (host bypass too: the chain runs on underneath, but none of it is heard, so none of it grows the creature)
+    in.stale = m_creatureStaleSeconds >= 0.5f || f.hostBypassed.load(std::memory_order_relaxed);
     in.inputLevel = get(f.inputLevel);
     in.outputLevel = get(f.outputLevel);
     in.jaw = get(f.jaw);
@@ -1003,6 +1004,12 @@ void RoarschachAudioProcessor::applyBypassFade(juce::AudioBuffer<float>& buffer,
 void RoarschachAudioProcessor::render(juce::AudioBuffer<float>& buffer, bool bypassed)
 {
     juce::ScopedNoDenormals noDenormals;
+
+    // Published first, on every call (whatever returns early below): the views read the chain's
+    // values as silence while the host bypasses. The plug-in has no bypass parameter of its own,
+    // so every format's wrapper (AAX, AU, VST3) bypasses through processBlockBypassed. The flag, not
+    // the 20 ms fade, so the picture lets go the moment bypass is pressed.
+    m_features.hostBypassed.store(bypassed, std::memory_order_relaxed);
 
     const int numInputs  = std::min(getTotalNumInputChannels(), buffer.getNumChannels());
     const int numOutputs = getTotalNumOutputChannels();

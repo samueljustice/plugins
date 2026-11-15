@@ -11,11 +11,17 @@ target_sources(ReversinatorTests
         ../Source/PluginEditor.cpp
         ../Source/Controls.cpp
         ../Source/SnippetDisplay.cpp
+        ../Source/TimeHighway.cpp
         ../Source/AboutPanel.cpp
         ../Source/UpdatePopup.cpp
         ../Source/ReverseEngine.cpp
         ../../common/SammyJUpdateCheck.cpp
 )
+
+# As in the plug-in (see ../CMakeLists.txt): the engine's float arithmetic is not merged.
+if(NOT MSVC)
+    set_source_files_properties(../Source/ReverseEngine.cpp PROPERTIES COMPILE_OPTIONS "-ffp-contract=off")
+endif()
 
 target_include_directories(ReversinatorTests PRIVATE ../Source ../../common)
 
@@ -38,6 +44,7 @@ target_link_libraries(ReversinatorTests
     PRIVATE
         ReversinatorBinaryData
         juce::juce_audio_utils
+        juce::juce_opengl
     PUBLIC
         juce::juce_recommended_config_flags
         juce::juce_recommended_warning_flags

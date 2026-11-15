@@ -444,7 +444,6 @@ namespace Params
         const char* code;              // two letters, used in presets, tests and order strings
         const char* uiName;
         int defaultIndex;
-        std::uint32_t accent;          // ARGB
         const char* onId;
         const char* posId;
         std::array<const char*, 4> knobIds;   // nullptr where unused (PITCH has 3, CHAMBER 4)
@@ -452,41 +451,37 @@ namespace Params
     };
 
     inline constexpr std::array<ModuleSpec, numModules> modules {
-        ModuleSpec { ModuleId::pitch, "PI", "PITCH", 0, 0xffa992ffu, pitchOn, pitchPos,
+        ModuleSpec { ModuleId::pitch, "PI", "PITCH", 0, pitchOn, pitchPos,
                      { pitch, pitchSize, pitchDrive, nullptr }, { pitchMode, pitchFormant, nullptr, nullptr } },
-        ModuleSpec { ModuleId::clean, "CL", "CLEAN", 1, 0xff8fb7a3u, cleanOn, cleanPos,
+        ModuleSpec { ModuleId::clean, "CL", "CLEAN", 1, cleanOn, cleanPos,
                      { cleanContain, cleanGate, nullptr, nullptr }, { cleanTone, nullptr, nullptr, nullptr } },
-        ModuleSpec { ModuleId::deess, "DS", "DE-ESS", 2, 0xffb3c6dcu, deessOn, deessPos,
+        ModuleSpec { ModuleId::deess, "DS", "DE-ESS", 2, deessOn, deessPos,
                      { deess, nullptr, nullptr, nullptr }, { deessMode, nullptr, nullptr, nullptr } },
-        ModuleSpec { ModuleId::detail, "DT", "DETAIL", 3, 0xff6fd6b4u, detailOn, detailPos,
+        ModuleSpec { ModuleId::detail, "DT", "DETAIL", 3, detailOn, detailPos,
                      { detailLow, detailHigh, nullptr, nullptr }, { detailSpeed, nullptr, nullptr, nullptr } },
-        ModuleSpec { ModuleId::vocoder, "VO", "VOCODER", 4, 0xffc6e86bu, vocoderOn, vocoderPos,
+        ModuleSpec { ModuleId::vocoder, "VO", "VOCODER", 4, vocoderOn, vocoderPos,
                      { gravel, nullptr, nullptr, nullptr }, { vocoderOctave, nullptr, nullptr, nullptr } },
-        ModuleSpec { ModuleId::ring, "RM", "RING", 5, 0xffe6edf5u, ringOn, ringPos,
+        ModuleSpec { ModuleId::ring, "RM", "RING", 5, ringOn, ringPos,
                      { ring, ringFreq, ringRatio, nullptr }, { ringCarrier, ringTrack, ringMode, ringBody } },
-        ModuleSpec { ModuleId::shimmer, "SH", "SHIMMER", 6, 0xff7fe3f0u, shimmerOn, shimmerPos,
+        ModuleSpec { ModuleId::shimmer, "SH", "SHIMMER", 6, shimmerOn, shimmerPos,
                      { shimmer, shimmerRate, nullptr, nullptr }, { shimmerMode, nullptr, nullptr, nullptr } },
-        ModuleSpec { ModuleId::growl, "GR", "GROWL", 7, 0xffef6f8eu, growlOn, growlPos,
+        ModuleSpec { ModuleId::growl, "GR", "GROWL", 7, growlOn, growlPos,
                      { growl, growlRate, nullptr, nullptr }, { growlShape, growlCharacter, nullptr, nullptr } },
-        ModuleSpec { ModuleId::swirl, "SW", "SWIRL", 8, 0xffd38cf0u, swirlOn, swirlPos,
+        ModuleSpec { ModuleId::swirl, "SW", "SWIRL", 8, swirlOn, swirlPos,
                      { swirl, swirlRate, nullptr, nullptr }, { swirlCircuit, swirlMotion, nullptr, nullptr } },
-        ModuleSpec { ModuleId::roar, "RO", "ROAR", 9, 0xffff7a45u, roarOn, roarPos,
+        ModuleSpec { ModuleId::roar, "RO", "ROAR", 9, roarOn, roarPos,
                      { roar, roarTone, nullptr, nullptr }, { roarVoicing, nullptr, nullptr, nullptr } },
-        ModuleSpec { ModuleId::ensemble, "EN", "ENSEMBLE", 10, 0xff5ec8d8u, ensembleOn, ensemblePos,
+        ModuleSpec { ModuleId::ensemble, "EN", "ENSEMBLE", 10, ensembleOn, ensemblePos,
                      { ensemble, ensembleWidth, nullptr, nullptr }, { ensembleVoices, ensembleMotion, nullptr, nullptr } },
-        ModuleSpec { ModuleId::tame, "TA", "TAME", 11, 0xffd9b66au, tameOn, tamePos,
+        ModuleSpec { ModuleId::tame, "TA", "TAME", 11, tameOn, tamePos,
                      { tame, nullptr, nullptr, nullptr }, { nullptr, nullptr, nullptr, nullptr } },
-        ModuleSpec { ModuleId::sub, "SU", "SUB", 12, 0xff6f8dffu, subOn, subPos,
+        ModuleSpec { ModuleId::sub, "SU", "SUB", 12, subOn, subPos,
                      { sub, subDrive, nullptr, nullptr }, { subRegister, subCharacter, nullptr, nullptr } },
-        ModuleSpec { ModuleId::overtone, "OV", "OVERTONE", 13, 0xffff6fcfu, overtoneOn, overtonePos,
+        ModuleSpec { ModuleId::overtone, "OV", "OVERTONE", 13, overtoneOn, overtonePos,
                      { overtone, overtoneFreq, nullptr, nullptr }, { overtonePattern, overtoneMode, nullptr, nullptr } },
-        ModuleSpec { ModuleId::chamber, "CH", "CHAMBER", 1, 0xffb08968u, chamberOn, chamberPos,
+        ModuleSpec { ModuleId::chamber, "CH", "CHAMBER", 1, chamberOn, chamberPos,
                      { chamber, chamberResonance, chamberDrive, chamberWidth }, { chamberRoom, chamberSpeaker, chamberBoom, nullptr } },
     };
-
-    // The fixed ends of the chain.
-    inline constexpr std::uint32_t accentIn = 0xff7f97a6u;       // IN: teal-grey
-    inline constexpr std::uint32_t accentOutput = 0xffffb54du;   // OUTPUT and chrome: amber
 
     // The OUTPUT tile's controls, in tile order (Push, Ceiling, Clip, Clip Shape, Attack, Release,
     // Auto, Mix), and IN's.

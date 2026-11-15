@@ -123,16 +123,20 @@ namespace roar
     };
 
     /**
-     * Hits ripple the picture like a struck water surface. Each hit the processor counts
-     * (HitDetector) starts a ring from the middle of the body, a little above or below it on the
-     * fold, that grows at a fixed speed and dies away as it spreads; at most four are in flight (a
-     * fifth replaces the earliest), and as their middles differ a little they cross. Each ring's
-     * strength is the hit's; a weak one starts no ring at all. Rings count against the flash limit
-     * (AudioForces::allowFlash), unless an onset was just allowed for the same moment. A sustained
-     * low end trembles the surface finely instead (tremble, with its own clock).
+     * Hits ripple the picture like a stomp into water. Each hit the processor counts (HitDetector)
+     * starts one swell round the middle of the body, a little above or below it on the fold: it
+     * leaves fast (out of the body within a quarter second) and slows as it spreads, so it is seen
+     * at once and then crosses the cloud for a second or so; it is damped as it goes and thinned
+     * as it spreads. One swell leads: a hit within 0.3 s of the newest ring tops that ring up
+     * instead of starting another, and a new ring leaves the earlier ones at 0.4 of their strength.
+     * At most four are in flight (a fifth replaces the earliest). A ring's strength is the hit's,
+     * drawn by its power 1.5, so a full hit is whole and a weak one faint; a hit under 0.25
+     * starts no ring at all. Rings count against the flash limit (AudioForces::allowFlash), unless
+     * an onset was just allowed for the same moment. A sustained low end trembles the surface
+     * finely instead (tremble, with its own clock), held low while a young ring is spreading.
      *
-     * The shader reads the picture a little along the radius from each ring's middle: a surface
-     * wave, never a drawn line (MonsterShaders).
+     * The shader reads the picture a little along the radius from each ring's middle, and the
+     * slope of the swell catches its own light: a surface wave, never a drawn line (MonsterShaders).
      */
     struct SurfaceRipples
     {
@@ -140,33 +144,47 @@ namespace roar
         struct Ring
         {
             float age = -1.0f;       // seconds since the hit (< 0: none)
-            float strength = 0.0f;   // the hit's, 0..1
+            float strength = 0.0f;   // the hit's, 0..1 (the strongest, where later hits topped it up)
             float offsetY = 0.0f;    // its middle above (+) or below the body's, view heights
+            float weight = 1.0f;     // 0.4 for each newer ring started since: one swell leads
         };
 
         std::array<Ring, c_maxRings> rings {};
         float tremble = 0.0f;        // the low end's fine tremble, 0..1 (followed)
+        float trembleHold = 1.0f;    // its share drawn: 0.4 while a young ring spreads (followed)
         float trembleClock = 0.0f;   // its own clock, wrapped
         int lastHits = 0;
         bool seen = false;           // a count has been read (the first is taken as it is)
-        int started = 0, refused = 0;   // counters (tests): rings started, hits the flash limit held back
+        int started = 0, refused = 0, merged = 0;   // counters (tests): rings started, hits the flash limit held back, hits that topped up a ring
 
         void reset() { *this = SurfaceRipples(); }
 
-        /** hits: the detector's count; strength: the latest hit's; rumble: the low end, 0..1;
+        /** hits: the detector's count; strength: the strongest of the hits since the last step's count; rumble: the low end, 0..1;
             awake: 0 asleep .. 1; forces: the flash limit. */
         void step (float dt, int hits, float strength, float rumble, float awake, AudioForces& forces);
 
-        /** A ring's radius and its displacement's amplitude, view heights (0 for none). */
+        /** A ring's radius, view heights (0 for none). */
         float radius (int i) const;
+        /** Its displacement's amplitude, view heights (0 for none). */
         float amplitude (int i) const;
+        /** The light its slope catches: the share the picture is lifted or shaded by at its steepest (0 for none). */
+        float light (int i) const;
+        /** The tremble as drawn (held low while a young ring spreads). */
+        float trembleDrawn() const { return tremble * trembleHold; }
         int live() const;
 
-        static constexpr float c_speed = 0.75f;        // view heights a second
-        static constexpr float c_decaySeconds = 1.3f;  // the wave's own damping
-        static constexpr float c_lifeSeconds = 2.6f;
-        static constexpr float c_peak = 0.04f;         // the displacement of the strongest ring at its start, view heights
-        static constexpr float c_minStrength = 0.12f;  // a hit weaker than this starts no ring
+        /** A ring's radius at this age: out of the body fast, then slower across the cloud. */
+        static float radiusAt (float age);
+
+        static constexpr float c_decaySeconds = 0.9f;  // the wave's own damping
+        static constexpr float c_lightSeconds = 1.0f;  // ... and its light's
+        static constexpr float c_lifeSeconds = 1.8f;   // (the last 0.4 s a fade)
+        static constexpr float c_peak = 0.030f;        // the displacement of the strongest ring at its start, view heights
+        static constexpr float c_peakLight = 0.60f;    // the light of the strongest ring at its start
+        static constexpr float c_minStrength = 0.25f;  // a hit weaker than this starts no ring
+        static constexpr float c_topUpSeconds = 0.30f; // a hit this soon after the newest ring tops it up
+        static constexpr float c_olderWeight = 0.4f;   // what a new ring leaves the earlier ones
+        static constexpr float c_youngSeconds = 0.8f;  // the tremble is held low while a ring is younger than this
     };
 
     /**

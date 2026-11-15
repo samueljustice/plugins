@@ -1,27 +1,30 @@
 # SammyJs Reversinator
 
-A VST3/AU real-time reverser for macOS and Windows. Reversinator is a faithful, modernised recreation of **Backwards Machine** (The Sound Guy, 2007), the classic plugin that "reverses continuous audio in real time". Its three effects, Reverse Playback, Forward Backwards and Reverse Repeat, were rebuilt from a study of the original's signal flow, so they behave and sound like it. They run inside a new interface that shows the reverser at work.
+A VST3/AU real-time reverser for macOS and Windows. Reversinator recreates **Backwards Machine** (The Sound Guy, 2007), a plugin that "reverses continuous audio in real time". Its three effects, Reverse Playback, Forward Backwards and Reverse Repeat, were rebuilt from a study of the original's signal flow, so they behave and sound like it. They run inside a new interface that shows the reverser at work.
 
-### [Get it with Sammy J's Plugins](https://github.com/samueljustice/plugins/releases/latest), the installer for every Sammy J plug-in
+It comes in [Sammy J's Plugins](https://github.com/samueljustice/plugins/releases/latest), one installer for all of these plug-ins.
 
 ![Reversinator](docs/screenshot.png)
 
-## Features
+## Overview
 
-- **The three Backwards Machine effects**, with the original's sweeps, windows, vibrato, feedback routing, gain staging, parameter ranges and control tapers.
-- **Checked against the real thing.** The vendor's dry demo clip, run through Reversinator, nulls against the vendor's own Backwards Machine renders of it:
+Reversinator has the three Backwards Machine effects, with the original's sweeps, windows, vibrato, feedback routing, gain staging, parameter ranges and control tapers.
 
-  | Effect | Correlation | Residual |
-  |---|---|---|
-  | Reverse Playback | 0.9994 | 29 dB down |
-  | Forward Backwards | 0.9995 | 30 dB down |
-  | Reverse Repeat | 0.9990 | 27 dB down |
+It was checked against the original. The vendor's dry demo clip, run through Reversinator, nulls against the vendor's own Backwards Machine renders of it:
 
-  For comparison, a single 192 kbps MP3 round trip, the format the demos were published in, leaves about 33 dB. The renders match how the vendor made the demos: processed at 44.1 kHz with the snippet clock started 448 samples before the clip, and Reverse Repeat at the TIME its demo used (2.0047 s).
-- **Click-free everywhere.** REVERSER switches with a 10 ms crossfade, as on the original. TIME changes crossfade between the old and new read positions. Switching effects crossfades straight into the new one, because every effect shares the same input history. Host bypass crossfades too, and the effect keeps running underneath, so un-bypassing lands in a live effect. Wet, dry and feedback changes are smoothed. All of this is independent of the host's buffer size.
-- **Live snippet display**: a scrolling view of the recent input with each read head drawn as it sweeps backwards through it, so you can see what each effect is doing.
-- **Modern interface** in the spirit of the original: mode lamps, the big REVERSER button, an hourglass TIME control and a feedback loop. The window is resizable from 75% to 200%. Menus, fields, links, tooltips and keyboard focus rings share Subbertone's look.
-- Mono or stereo at any sample rate. The effect itself is a delay, so no latency is reported to the host.
+| Effect | Correlation | Residual |
+|---|---|---|
+| Reverse Playback | 0.9994 | 29 dB down |
+| Forward Backwards | 0.9995 | 30 dB down |
+| Reverse Repeat | 0.9990 | 27 dB down |
+
+For comparison, a single 192 kbps MP3 round trip, the format the demos were published in, leaves about 33 dB. The renders match how the vendor made the demos: processed at 44.1 kHz with the snippet clock started 448 samples before the clip, and Reverse Repeat at the TIME its demo used (2.0047 s).
+
+Nothing clicks. REVERSER switches with a 10 ms crossfade, as on the original. TIME changes crossfade between the old and new read positions. Switching effects crossfades straight into the new one, because every effect shares the same input history. Host bypass crossfades too, and the effect keeps running underneath, so un-bypassing lands in a live effect. Wet, dry and feedback changes are smoothed. All of this is independent of the host's buffer size.
+
+The display is an OpenGL scene: a road running from now into the past, as wide as the input was loud, with each read head drawn as a gate of light sweeping back along it, so you can see what each effect is doing. The interface follows the original's layout, built like hardware: three coloured mode keys, the big REVERSER key, an hourglass TIME control and a feedback loop. The window is resizable from 75% to 200%.
+
+It runs mono or stereo at any sample rate. The effect itself is a delay, so no latency is reported to the host.
 
 ## A tour of the window
 
@@ -38,36 +41,37 @@ A VST3/AU real-time reverser for macOS and Windows. Reversinator is a faithful, 
 
 ### 1. Snippet display
 
-The display shows the last few seconds of input and where the effect is reading from it. Time runs from right to left: **NOW** is the right-hand edge, with a grid line for every second before it.
+The display shows the last few seconds of input and where the effect is reading from it, as a road seen in perspective. **NOW** is the near edge at the bottom, and the past runs away to the horizon, with a line across for every second.
 
-- The grey shape is the input's level, newest at the right.
-- The amber line at NOW is where new audio comes in.
-- Each blue line with a dot is a **read head**: the point in the input being played back. A head starts at NOW and sweeps back to 2 × TIME ago, playing what it passes backwards at normal speed. It brightens as its snippet fades in and dims as it fades out.
+- The road is the input's level: the louder the input was at a moment, the wider the road is there.
+- The amber line along the near edge is where new audio comes in.
+- Each gate of light across the road, with a post at each side, is a **read head**: the point in the input being played back. A head starts at NOW and sweeps back to 2 × TIME ago, playing what it passes backwards at normal speed. It brightens as its snippet fades in and dims as it fades out.
+- Stars stream out of the horizon while the effect is reversing.
 - Top left is the effect's name. Top right is **REVERSING** or **FORWARDS** (see [REVERSER](#3-reverser)) and the TIME setting.
 
-The display always shows enough history for every head, a little over twice TIME (two and a half times in Reverse Repeat). Each effect at TIME 2.00 s:
+The road always shows enough history for every head, a little over twice TIME (two and a half times in Reverse Repeat). Seconds near the horizon are drawn closer together. If OpenGL is not available, the display falls back to a flat timeline with NOW at the right-hand edge. Each effect at TIME 2.00 s:
 
-<img src="docs/guide/display-reverse-playback.png" width="804" alt="The snippet display in Reverse Playback: two read heads two seconds apart, both half bright">
+<img src="docs/guide/display-reverse-playback.png" width="804" alt="The snippet display in Reverse Playback: two gates on the road, one and three seconds back, both half bright">
 
 **Reverse Playback**: two heads, TIME apart. As one fades out the other fades in, so the backwards stream never stops.
 
-<img src="docs/guide/display-forward-backwards.png" width="804" alt="The snippet display in Forward Backwards: one read head one second back, and a dot at NOW">
+<img src="docs/guide/display-forward-backwards.png" width="804" alt="The snippet display in Forward Backwards: one gate one second back, and one at NOW">
 
-**Forward Backwards**: one backwards head, plus a dot at NOW for the forwards sound. As one brightens the other fades, so the sound turns smoothly from forwards to backwards and back, once per TIME period.
+**Forward Backwards**: one backwards head, plus a gate that stays at NOW for the forwards sound. As one brightens the other fades, so the sound turns smoothly from forwards to backwards and back, once per TIME period.
 
 <img src="docs/guide/display-reverse-repeat.png" width="804" alt="The snippet display in Reverse Repeat: the read head one second back and its repeat four seconds back">
 
 **Reverse Repeat**: the backwards head and its repeat. The repeat plays again, TIME/2 later and with a slight vibrato, what the first head played.
 
-<img src="docs/guide/display-forwards.png" width="804" alt="The snippet display with REVERSER set to forwards: grey read heads and FORWARDS at the top right">
+<img src="docs/guide/display-forwards.png" width="804" alt="The snippet display with REVERSER set to forwards: grey gates and stars, and FORWARDS at the top right">
 
-**REVERSER set to forwards**: the heads turn grey but keep moving. The effect keeps running, so switching back to reverse lands in it at once.
+**REVERSER set to forwards**: the scene turns grey and the stars drift back slowly, but the heads keep moving. The effect keeps running, so switching back to reverse lands in it at once.
 
 ### 2. MODE
 
-<img src="docs/guide/mode.png" width="248" alt="The MODE panel with Reverse Playback lit">
+<img src="docs/guide/mode.png" width="248" alt="The MODE panel with the Reverse Playback key lit">
 
-Click a lamp to choose one of the three effects. The lit lamp is the one playing, and each lamp sums up its effect in a line:
+Click a key to choose one of the three effects. Each key has its own colour. The one playing stays pushed in and lit, and each key sums up its effect in a line:
 
 - **Reverse Playback**: overlapping backward snippets, for a continuous backwards stream.
 - **Forward Backwards**: fades between the forwards sound and the backwards one.
@@ -77,14 +81,14 @@ Switching crossfades into the new effect over 30 ms. Every effect reads the same
 
 ### 3. REVERSER
 
-<img src="docs/guide/reverser-on.png" width="160" alt="The REVERSER button reversing: a left arrow with a blue glow"> <img src="docs/guide/reverser-off.png" width="160" alt="The REVERSER button set to forwards: a grey right arrow">
+<img src="docs/guide/reverser-on.png" width="160" alt="The REVERSER key reversing: lit blue with a left arrow"> <img src="docs/guide/reverser-off.png" width="160" alt="The REVERSER key set to forwards: dark with a right arrow">
 
-The big round button chooses between the effect and the forwards input:
+The big square key chooses between the effect and the forwards input:
 
-- **Arrow left, blue glow** (the default): you hear the effect, and the display reads REVERSING.
-- **Arrow right, grey**: you hear the input forwards at the WET MIX level, with DRY MIX added, and the display reads FORWARDS.
+- **Lit blue, arrow left** (the default): you hear the effect, and the display reads REVERSING.
+- **Dark, arrow right**: you hear the input forwards at the WET MIX level, with DRY MIX added, and the display reads FORWARDS.
 
-The switch crossfades over 10 ms, so it never clicks, and the effect keeps running underneath. Automate it to flip a phrase backwards and back on the beat. The label under the button reads REVƎRSƎЯ, partly backwards, as on Backwards Machine.
+The switch crossfades over 10 ms, so it never clicks, and the effect keeps running underneath. Automate it to flip a phrase backwards and back on the beat. The label under the key reads REVƎRSƎЯ, partly backwards, as on Backwards Machine.
 
 ### 4. TIME
 
@@ -94,7 +98,7 @@ The switch crossfades over 10 ms, so it never clicks, and the effect keeps runni
 
 The hourglass sets the length of each snippet that is played backwards, from 0.5 to 4 seconds. Sand fills it from the bottom as TIME gets longer. The default of 2 seconds tends to sound best. Short times get more of the control's travel: halfway up is about 1.4 s.
 
-TIME changes crossfade over 20 ms from the old timing to the new, so you can sweep it while audio plays. The snippet display widens or narrows to match.
+TIME changes crossfade over 20 ms from the old timing to the new, so you can sweep it while audio plays. The snippet display shows more or less of the past to match.
 
 ### 5. FEEDBACK DEPTH
 
@@ -102,7 +106,7 @@ The loop, beside the hourglass, feeds the effect back into itself, from 0 to 75%
 
 ### 6. VOLUME
 
-<img src="docs/guide/volume.png" width="200" alt="The VOLUME panel: WET MIX at 100% and DRY MIX at 10%">
+<img src="docs/guide/volume.png" width="200" alt="The VOLUME panel: WET MIX at 100% and DRY MIX at 25%">
 
 - **WET MIX**: the level of the effect, and of the forwards input when REVERSER is set to forwards. The default is 100%.
 - **DRY MIX**: mixes in the original input. Usually 0% (the default), but useful for hearing forwards and backwards together.
@@ -119,7 +123,7 @@ Both use the original's squared law, so 50% is -12 dB. The ticks mark every 25%.
 
 ### 8. Resizing
 
-Drag the grip in the bottom-right corner to resize the window, from 75% to 200% of its normal size (615 × 420 to 1640 × 1120). The proportions stay the same, and the size is saved with your session.
+Drag the grip in the bottom-right corner to resize the window, from 75% to 200% of its normal size (615 × 459 to 1640 × 1224). The proportions stay the same, and the size is saved with your session.
 
 ## Mouse and keyboard
 
@@ -129,8 +133,8 @@ Drag the grip in the bottom-right corner to resize the window, from 75% to 200% 
 | Nudge one of them | Scroll the mouse wheel over it. |
 | Reset one of them to its default | Double-click it, or Alt-click it (Option-click on a Mac). |
 | Type a value | Click the value above the control (see below). |
-| Choose an effect | Click its lamp. |
-| Switch REVERSER | Click the round button. |
+| Choose an effect | Click its key. |
+| Switch REVERSER | Click the big square key. |
 | See what a control does | Rest the mouse on it. |
 
 ### Typing a value
@@ -149,7 +153,7 @@ Rest the mouse on any control for a moment and a tooltip says what it does.
 
 <img src="docs/guide/focus.png" width="248" alt="The MODE panel with Reverse Playback lit and the blue keyboard focus ring on Forward Backwards">
 
-When the host passes keystrokes to the plugin window, Tab and Shift-Tab move the keyboard focus through the mode lamps, REVERSER, the four value boxes and **?**. A blue ring shows which lamp or button has it, and Return presses that one. A value box opens for typing as soon as Tab reaches it. The ring appears only once you press Tab, and a click hides it again. Above, Reverse Playback is playing and the ring is on Forward Backwards.
+When the host passes keystrokes to the plugin window, Tab and Shift-Tab move the keyboard focus through the mode keys, REVERSER, the four value boxes and **?**. A blue ring shows which key has it, and Return presses that one. A value box opens for typing as soon as Tab reaches it. The ring appears only once you press Tab, and a click hides it again. Above, Reverse Playback is playing and the ring is on Forward Backwards.
 
 ## The effects
 
@@ -249,6 +253,7 @@ See [LICENSE](LICENSE). The plugin uses the JUCE framework; see JUCE's license f
 
 ## Version History
 
+- **v2.1.0**: A new look. The display is an OpenGL scene: a road running from now into the past, with each read head a gate of light sweeping back along it. The controls are built like hardware, with coloured mode keys, a square REVERSER key, ridged fader caps and lit readouts. Apple silicon builds now produce the same output as Intel and Windows builds. The parameters and saved sessions are unchanged.
 - **v2.0.4**: It tells you when a new version is out: when you open it and a newer release has been published, a small window offers Download (the release page), Later or Skip this version. It checks in the background at most once a day, and says nothing when you're offline. The sound, the parameters and saved sessions are unchanged from 2.0.3.
 - **v2.0.3**: Hosts list it under **Sammy J**, alongside the other plug-ins. The sound, parameters and saved sessions are unchanged.
 - **v2.0.2**: The About panel's licence text and the plugin's copyright string show the year the plugin was built. The README gains a tour of the window, with screenshots. The sound and parameters are unchanged.

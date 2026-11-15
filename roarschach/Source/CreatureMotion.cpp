@@ -275,11 +275,23 @@ namespace roar
                     r = Ring();
             }
 
-        // a new hit (the count moved on by a few: one ring, the latest hit's strength)
-        const int moved = hits - lastHits;
+        // a new hit (the count moved on by a few: one ring, at the strongest of their strengths;
+        // the count wraps at 2^30)
+        const int moved = (hits - lastHits) & 0x3fffffff;
         if (seen && moved > 0 && moved < 64 && strength >= c_minStrength && awake > 0.1f)
         {
-            if (forces.flashedWithin (0.1f) || forces.allowFlash())
+            int newest = -1;
+            for (int i = 0; i < c_maxRings; ++i)
+                if (rings[(size_t) i].age >= 0.0f && (newest < 0 || rings[(size_t) i].age < rings[(size_t) newest].age))
+                    newest = i;
+            if (newest >= 0 && rings[(size_t) newest].age < c_topUpSeconds)
+            {
+                // (one swell, not two crossing: the newest takes the stronger of the two)
+                auto& r = rings[(size_t) newest];
+                r.strength = std::max (r.strength, strength * awake);
+                ++merged;
+            }
+            else if (forces.flashedWithin (0.1f) || forces.allowFlash())
             {
                 size_t slot = 0;
                 for (size_t i = 0; i < rings.size(); ++i)
@@ -292,9 +304,13 @@ namespace roar
                     if (rings[i].age > rings[slot].age)
                         slot = i;
                 }
+                // (the new swell leads: the ones before it fall back)
+                for (auto& r : rings)
+                    if (r.age >= 0.0f)
+                        r.weight *= c_olderWeight;
                 // (its middle a little above or below the body's, never twice the same: the rings cross)
                 const float u = std::fmod ((float) (started + 1) * 0.6180339f, 1.0f);
-                rings[slot] = Ring { 0.0f, strength * awake, 0.07f * (2.0f * u - 1.0f) };
+                rings[slot] = Ring { 0.0f, strength * awake, 0.07f * (2.0f * u - 1.0f), 1.0f };
                 ++started;
             }
             else
@@ -306,13 +322,34 @@ namespace roar
         seen = true;
 
         follow (tremble, clean (rumble, 0.0f, 1.0f) * awake, dt, 0.60f, 0.40f);   // (sustained: a hit's own low end is a ring, not a tremble)
+        bool young = false;
+        for (const auto& r : rings)
+            young = young || (r.age >= 0.0f && r.age < c_youngSeconds);
+        follow (trembleHold, young ? 0.4f : 1.0f, dt, 0.40f, 0.05f);   // (held at once, let go slowly)
         trembleClock = std::fmod (trembleClock + dt, 64.0f);
+    }
+
+    float SurfaceRipples::radiusAt (float age)
+    {
+        // (0.50 at 0.1 s, 0.69 at 0.2 s, 0.89 at 0.35 s, 1.24 at 0.7 s, 1.50 at 1 s, the view's
+        // side at about 1.3 s: a stomp's first push, from the body's edge, then the swell's own pace)
+        return age >= 0.0f ? 0.25f + 0.85f * age + 0.45f * (1.0f - std::exp (-age / 0.22f)) : 0.0f;
     }
 
     float SurfaceRipples::radius (int i) const
     {
         const auto& r = rings[(size_t) std::clamp (i, 0, c_maxRings - 1)];
-        return r.age >= 0.0f ? c_speed * r.age : 0.0f;
+        return r.age >= 0.0f ? radiusAt (r.age) : 0.0f;
+    }
+
+    namespace
+    {
+        // (a full hit is whole, a weak one faint: a 0.3 hit is about a sixth of a full one)
+        float ringShare (const SurfaceRipples::Ring& r, float life)
+        {
+            const float end = 1.0f - std::clamp ((r.age - (life - 0.4f)) / 0.4f, 0.0f, 1.0f);
+            return std::pow (std::clamp (r.strength, 0.0f, 1.0f), 1.5f) * r.weight * end;
+        }
     }
 
     float SurfaceRipples::amplitude (int i) const
@@ -321,9 +358,16 @@ namespace roar
         if (r.age < 0.0f)
             return 0.0f;
         // (struck at once, damped as it goes and thinned as it spreads; gone smoothly at its end)
-        const float rad = c_speed * r.age;
-        const float end = 1.0f - std::clamp ((r.age - (c_lifeSeconds - 0.4f)) / 0.4f, 0.0f, 1.0f);
-        return c_peak * r.strength * std::exp (-r.age / c_decaySeconds) / std::sqrt (1.0f + rad / 0.25f) * end;
+        return c_peak * ringShare (r, c_lifeSeconds) * std::exp (-r.age / c_decaySeconds) / std::sqrt (1.0f + radiusAt (r.age) / 0.6f);
+    }
+
+    float SurfaceRipples::light (int i) const
+    {
+        const auto& r = rings[(size_t) std::clamp (i, 0, c_maxRings - 1)];
+        if (r.age < 0.0f)
+            return 0.0f;
+        // (its own gain, not the displacement's slope: the swell reads on pale cloud as it travels)
+        return c_peakLight * ringShare (r, c_lifeSeconds) * std::exp (-r.age / c_lightSeconds) / std::sqrt (1.0f + radiusAt (r.age) / 1.5f);
     }
 
     int SurfaceRipples::live() const

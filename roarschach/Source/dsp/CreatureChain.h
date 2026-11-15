@@ -254,6 +254,7 @@ namespace roar
 
         float m_outputLevel = 0.0f;
         HitDetector m_hits;          // hits in the output, for the picture's ripples
+        int m_hitsPublished = 0;     // the detector's count as last published
         float m_levelRelease = 0.999f;
         int m_generation = 0;
     };

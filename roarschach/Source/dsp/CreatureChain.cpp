@@ -536,9 +536,18 @@ namespace roar
         m_output.publishFeatures (f);
         f.clipDb.store (m_output.getClipDb(), std::memory_order_relaxed);
         f.outputLevel.store (std::min (m_outputLevel, 1.0f), std::memory_order_relaxed);
-        f.hitStrength.store (m_hits.strength(), std::memory_order_relaxed);
         f.rumble.store (m_hits.rumble(), std::memory_order_relaxed);
-        f.hits.store (m_hits.hits(), std::memory_order_relaxed);
+        {
+            // every hit counted since the last chunk, oldest first, each with its own strength
+            const int count = m_hits.hits();
+            const int moved = std::min ((count - m_hitsPublished) & MonsterFeatures::hitCountMask, MonsterFeatures::numHitLog);
+            for (int k = moved - 1; k >= 0; --k)
+            {
+                const int c = (count - k) & MonsterFeatures::hitCountMask;
+                f.publishHit (c, m_hits.strengthOf (c));
+            }
+            m_hitsPublished = count;
+        }
 
         int mask = 0;
         for (int m = 0; m < c_numModules; ++m)

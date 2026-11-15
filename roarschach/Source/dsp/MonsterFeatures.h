@@ -1,5 +1,6 @@
 #pragma once
 
+#include <algorithm>
 #include <array>
 #include <atomic>
 #include <cstdint>
@@ -8,8 +9,9 @@ namespace roar
 {
     // Features the audio thread publishes once per chunk for the visualiser and the strip readouts.
     // Every field is a relaxed atomic: the GL and message threads read them, a torn frame between
-    // fields is fine. Modules write their own fields in Module::publishFeatures(), scaled by their
-    // On fade, so an Off module reads 0 (the views smooth that over 200 ms).
+    // fields is fine (a hit's count and strength are the exception: publishHit). Modules write
+    // their own fields in Module::publishFeatures(), scaled by their On fade, so an Off module
+    // reads 0 (the views smooth that over 200 ms).
     struct MonsterFeatures
     {
         static constexpr int numBands = 32;
@@ -62,8 +64,13 @@ namespace roar
         std::atomic<float> limiterGrDb { 0.0f };   // maximizer gain reduction, dB (<= 0)
         std::atomic<float> pushDb { 0.0f };        // the Push setting in effect, dB
         std::atomic<float> clipDb { 0.0f };        // clipper activity: peak dB flattened per chunk (>= 0)
-        std::atomic<int> hits { 0 };               // hits in the output so far (HitDetector; the picture's ripples)
-        std::atomic<float> hitStrength { 0.0f };   // the latest hit's strength, 0..1
+        // Hits in the output (HitDetector; the picture's ripples). hits is the count so far (wraps
+        // at hitCountMask); hitLog keeps the last few hits, each packed with its own count, so a
+        // reader never pairs a count with another hit's strength (publishHit, strongestHitSince).
+        static constexpr int hitCountMask = 0x3fffffff;
+        static constexpr int numHitLog = 4;
+        std::atomic<int> hits { 0 };
+        std::array<std::atomic<std::uint32_t>, numHitLog> hitLog {};
         std::atomic<float> rumble { 0.0f };        // the output's low end, 0..1 (a fine tremble while it is sustained)
 
         // Bit m (Params::ModuleId order) set while module m is On.
@@ -73,6 +80,45 @@ namespace roar
         std::atomic<std::uint64_t> orderInUse { 0 };
         std::atomic<int> stereoSplit { 0 };
         std::atomic<int> generation { 0 };         // bumped per chunk
+        // The host is bypassing the plug-in (processBlockBypassed). The chain keeps running
+        // underneath so that leaving bypass is seamless, and keeps publishing; the views read every
+        // value above as silence while this is set.
+        std::atomic<bool> hostBypassed { false };
+
+        /** Audio thread: hit number count (already counted) had this strength. Log first, count last. */
+        void publishHit (int count, float strength) noexcept
+        {
+            count &= hitCountMask;
+            hitLog[static_cast<size_t> (count % numHitLog)].store (packHit (count, strength), std::memory_order_relaxed);
+            hits.store (count, std::memory_order_release);
+        }
+
+        /** Hits counted after `last` up to `now` (a count read from `hits` first): the strongest of
+            those still in the log, 0..1 (0 when none moved or every one was overwritten). */
+        float strongestHitSince (int last, int now) const noexcept
+        {
+            const int moved = (now - last) & hitCountMask;
+            float strongest = 0.0f;
+            for (int k = 0; k < std::min (moved, numHitLog); ++k)
+            {
+                const int count = (now - k) & hitCountMask;
+                const auto v = hitLog[static_cast<size_t> (count % numHitLog)].load (std::memory_order_acquire);
+                if (static_cast<int> (v >> c_strengthBits) == (count & c_packedCountMask))
+                    strongest = std::max (strongest, static_cast<float> (v & c_strengthMax) / static_cast<float> (c_strengthMax));
+            }
+            return strongest;
+        }
+
+        static std::uint32_t packHit (int count, float strength) noexcept
+        {
+            const float s = strength >= 0.0f ? std::min (strength, 1.0f) : 0.0f;   // (NaN: 0)
+            const auto q = static_cast<std::uint32_t> (s * static_cast<float> (c_strengthMax) + 0.5f);
+            return (static_cast<std::uint32_t> (count & c_packedCountMask) << c_strengthBits) | q;
+        }
+
+        static constexpr int c_strengthBits = 10;
+        static constexpr std::uint32_t c_strengthMax = (1u << c_strengthBits) - 1u;
+        static constexpr int c_packedCountMask = (1 << (32 - c_strengthBits)) - 1;
 
         MonsterFeatures()
         {
@@ -84,6 +130,8 @@ namespace roar
                 b.store (0.0f, std::memory_order_relaxed);
             for (auto& b : overtoneBandLevel)
                 b.store (0.0f, std::memory_order_relaxed);
+            for (auto& h : hitLog)
+                h.store (0, std::memory_order_relaxed);
         }
     };
 }
