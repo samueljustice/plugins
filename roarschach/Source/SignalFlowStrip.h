@@ -187,5 +187,6 @@ private:
     AnimationTimer m_animationTimer { *this };
 
     juce::Component* m_menuParent = nullptr;
+    float m_titlePoint = Theme::Type::tileTitle;   // the module names' size: the largest at which every name fits its tile
     double m_lastTickMs = 0.0;
 };

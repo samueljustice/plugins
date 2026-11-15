@@ -172,7 +172,7 @@ namespace Theme
         const float ic = juce::jlimit(0.050f, 0.110f, chroma * 1.20f);
 
         r.paper = lch(0.765f, pc, paperHue);
-        r.wash = lch(0.792f, pc * 0.8f, paperHue);
+        r.wash = lch(0.782f, pc * 0.8f, paperHue);   // barely lighter than the paper: a wash, not a card
         r.sheet = lch(0.885f, pc * 0.55f, paperHue);
         r.groove = lch(0.700f, pc * 0.9f, paperHue);
 
@@ -281,6 +281,9 @@ namespace Theme
         ++s.serial;
     }
 
+    /** The creature view's GL clear colour: the picture's own ground, part of its look (not a role). */
+    inline constexpr juce::uint32 c_glClear = 0xff090b0f;
+
     /** The mark in colour, kept for the About window only (the editor's mark is one ink). */
     namespace Brand
     {
@@ -355,7 +358,8 @@ namespace Theme
         inline constexpr float wordmark = 27.0f;   ///< ROARSCHACH in the header
         inline constexpr float presetName = 17.0f; ///< the preset's name in the header
         inline constexpr float heading = 17.0f;    ///< dialog and About titles
-        inline constexpr float tileTitle = 14.5f;  ///< a module's name on its tile
+        inline constexpr float tileTitle = 14.5f;  ///< a module's name on its tile (all at one size: the largest every name fits)
+        inline constexpr float tileTitleMin = 11.5f;
         inline constexpr float menuHeader = 13.5f; ///< a section of a menu
         inline constexpr float body = 13.5f;       ///< prose: tooltips, dialogs, the hint over the picture
         inline constexpr float prose = 12.5f;      ///< dense prose: the About window's quick start and licence

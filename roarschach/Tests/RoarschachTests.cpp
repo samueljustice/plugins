@@ -35,6 +35,7 @@
 #endif
 
 #include "CreatureAnatomy.h"
+#include "../../common/SammyJUpdateCheck.h"
 #include "CreatureEvolution.h"
 #include "CreatureFlow.h"
 #include "CreatureMood.h"
@@ -84,6 +85,9 @@ struct RoarschachEditorInspector
     static DiceButton& presetDice(RoarschachAudioProcessorEditor& e) { return e.m_presetDice; }
     static void updateMonster(RoarschachAudioProcessorEditor& e) { e.updateMonsterParams(); }
     static void followMood(RoarschachAudioProcessorEditor& e) { e.followMood(); }
+    static void showPresetMenu(RoarschachAudioProcessorEditor& e) { e.showPresetMenu(); }
+    static void showUpdatePopup(RoarschachAudioProcessorEditor& e, const sammyj::UpdateInfo& i) { e.showUpdatePopup(i); }
+    static void closeUpdatePopup(RoarschachAudioProcessorEditor& e) { e.closeUpdatePopup(); }
 };
 
 namespace
@@ -4605,7 +4609,22 @@ namespace
         p->setViewValue("viewEditorScale", 1.0);
         // The pictures show the horned form (the middle of the stage spine), whatever the seed's growth.
         p->withCreatureForTests([](roar::CreatureEvolution& e) { e.setPinnedStageForTests(0.4f); });
-        const auto voice = dual(makeVoice(sr, 4.0, 98.0));
+        // The voice: a made one, or a recording (ROARSCHACH_SNAP_WAV, any rate is played as it is).
+        auto voice = dual(makeVoice(sr, 4.0, 98.0));
+        if (const auto wav = juce::SystemStats::getEnvironmentVariable("ROARSCHACH_SNAP_WAV", {}); wav.isNotEmpty())
+        {
+            juce::AudioFormatManager formats;
+            formats.registerBasicFormats();
+            if (std::unique_ptr<juce::AudioFormatReader> reader(formats.createReaderFor(juce::File(wav))); reader != nullptr && reader->lengthInSamples > block)
+            {
+                const int length = static_cast<int>(reader->lengthInSamples);
+                juce::AudioBuffer<float> file(static_cast<int>(reader->numChannels), length);
+                reader->read(&file, 0, length, 0, true, true);
+                voice.l.assign(file.getReadPointer(0), file.getReadPointer(0) + length);
+                voice.r = file.getNumChannels() > 1 ? Signal(file.getReadPointer(1), file.getReadPointer(1) + length) : voice.l;
+                std::printf("  (the voice: %s, %d samples)\n", wav.toRawUTF8(), length);
+            }
+        }
         int position = 0;
         juce::AudioBuffer<float> buffer(2, block);
         juce::MidiBuffer midi;
@@ -4712,9 +4731,14 @@ namespace
             save(stage.createComponentSnapshot(a.withTrimmedLeft(a.getWidth() / 2 - 40), true, 2.0f), "02b-strip-right@2x.png");
         }
 
-        // 2. Presets that light the other parts of the creature.
-        for (const char* name : { "Cyber Commander", "Ribcage", "Smashed", "Pulse Choir", "Kaiju" })
+        // 2. Presets that light the other parts of the creature (or those named in ROARSCHACH_SNAP_PRESETS,
+        //    comma-separated; the last one named is the one the close-ups below are of).
+        juce::StringArray snapPresets { "Cyber Commander", "Ribcage", "Smashed", "Pulse Choir", "Kaiju" };
+        if (const auto list = juce::SystemStats::getEnvironmentVariable("ROARSCHACH_SNAP_PRESETS", {}); list.isNotEmpty())
+            snapPresets = juce::StringArray::fromTokens(list, ",", "");
+        for (const auto& presetName : snapPresets)
         {
+            const char* name = presetName.toRawUTF8();
             const int index = presetIndex(name);
             if (index < 0)
                 continue;
@@ -4905,6 +4929,60 @@ namespace
             tile.mouseUp(mouseEventFor(tile, to - tile.getPosition().toFloat(), from - tile.getPosition().toFloat(), true));
             play(0.4);
             save(stage.createComponentSnapshot(stripArea(), true, 2.0f), "11-after-drop@2x.png");
+        }
+
+        // 5b. The open preset list, and the update card over the editor.
+        {
+            editor.setMenuParentForSnapshots(&stage);
+            RoarschachEditorInspector::showPresetMenu(editor);
+            runLoop(60);
+            juce::Component* menuWindow = nullptr;
+            for (auto* c : stage.getChildren())
+                if (c != &editor && c->isVisible())
+                    menuWindow = c;
+            if (menuWindow != nullptr)
+            {
+                const auto area = menuWindow->getBounds().getUnion({ baseW - 520, 0, 520, 56 }).expanded(16).getIntersection(stage.getLocalBounds());
+                save(stage.createComponentSnapshot(area, true, 2.0f), "13-preset-list@2x.png");
+            }
+            else
+                std::printf("  (the preset list did not open in time)\n");
+            editor.setMenuParentForSnapshots(nullptr);
+            juce::PopupMenu::dismissAllActiveMenus();
+            runLoop(200);
+
+            sammyj::UpdateInfo info;
+            info.pluginId = "roarschach";
+            info.currentVersion = JucePlugin_VersionString;
+            info.latestVersion = "9.9.9";
+            RoarschachEditorInspector::showUpdatePopup(editor, info);
+            runLoop(100);
+            save(stage.createComponentSnapshot(editor.getBounds(), true, 2.0f).getClippedImage(juce::Rectangle<int>(baseW - 560, baseH - 260, 1120, 520)),
+                 "14-update-popup@2x.png");
+            RoarschachEditorInspector::closeUpdatePopup(editor);
+            runLoop(100);
+        }
+
+        // 5c. Init at the smallest and the largest window (65 % and 125 %), the creature formed.
+        {
+            p->setCurrentProgram(presetIndex("Init"));
+            play(1.0);
+            for (const float scale : { 0.65f, 1.25f })
+            {
+                const int w = juce::roundToInt(baseW * scale), h = juce::roundToInt(baseH * scale);
+                stage.setSize(w, h + 100);
+                editor.setBounds(0, 0, w, h);
+                play(1.0);
+                waitFormed();
+                strip.finishAnimations();
+                const auto slug = juce::String(juce::roundToInt(scale * 100.0f));
+                save(editorPicture(1.0f), "15-init-" + slug + ".png");
+                if (scale < 1.0f)
+                    save(editorPicture(2.0f), "15-init-" + slug + "@2x.png");
+            }
+            stage.setSize(baseW, baseH + 100);
+            editor.setBounds(0, 0, baseW, baseH);
+            play(0.5);
         }
 
         // 6. A small editor (the minimum scale) for legibility.

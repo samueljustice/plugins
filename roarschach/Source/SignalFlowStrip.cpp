@@ -612,6 +612,17 @@ public:
     }
 
     juce::Rectangle<int> footerBounds() const { return { 10, getHeight() - 6 - c_footerHeight, getWidth() - 20, c_footerHeight }; }
+    /** The header between the On lamp and the move chip: the slot number, then the name. */
+    juce::Rectangle<float> titleArea() const
+    {
+        return getLocalBounds().removeFromTop(c_headerHeight).withTrimmedLeft(29).withTrimmedRight(c_pad + 30).toFloat();
+    }
+    /** The room the name has after the widest slot number. */
+    float titleRoom() const
+    {
+        const auto numberFont = m_owner.m_fonts.value(c_smallFont);
+        return titleArea().getWidth() - textWidth(numberFont, "88") - 5.0f;
+    }
     /** The row above the footer: the mode chip, then the module's die at its right end. */
     juce::Rectangle<int> chipRowBounds() const
     {
@@ -680,13 +691,13 @@ public:
 
         // The slot number (the chain order), then the name in the display face: ink when On, the faint
         // ink when Off (with the hollow lamp, the outlined knobs and the OFF footer, never tone alone).
-        auto header = getLocalBounds().removeFromTop(c_headerHeight).withTrimmedLeft(29).withTrimmedRight(c_pad + 30).toFloat();
+        auto header = titleArea();
         const auto numberFont = m_owner.m_fonts.value(c_smallFont);
         const auto number = juce::String(m_slot + 1).paddedLeft('0', 2);
         g.setFont(numberFont);
         g.setColour(inkFaint);
         g.drawText(number, header.removeFromLeft(textWidth(numberFont, number) + 5.0f), juce::Justification::centredLeft, false);
-        g.setFont(m_owner.m_fonts.title(Type::tileTitle));
+        g.setFont(m_owner.m_fonts.title(m_owner.m_titlePoint));
         g.setColour(m_on ? ink : inkFaint);
         g.drawText(m_title, header.translated(0.0f, 1.0f), juce::Justification::centredLeft, false);
 
@@ -1615,6 +1626,12 @@ void SignalFlowStrip::resized()
     for (auto& a : m_animations)
         a.active = false;
     layoutTiles(false, 0.0);
+
+    // One size for every module's name: the largest (up to the title size) at which the longest fits.
+    m_titlePoint = Theme::Type::tileTitle;
+    for (const auto& tile : m_tiles)
+        while (m_titlePoint > Theme::Type::tileTitleMin && textWidth(m_fonts.title(m_titlePoint), tile->m_title) > tile->titleRoom())
+            m_titlePoint -= 0.25f;
 }
 
 void SignalFlowStrip::layoutTiles(bool animate, double durationMs)

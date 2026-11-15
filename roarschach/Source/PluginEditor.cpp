@@ -14,6 +14,10 @@ namespace
     constexpr int c_headerHeight = 56;
     constexpr int c_stripHeight = 336;
     constexpr int c_sectionGap = 12;
+    // The picture's corner radius. Its edges dissolve into the paper (MonsterView), so the corner is
+    // all but square; but the view's corner mask needs a radius of a few pixels, or it veils the whole
+    // picture (its distance is zero everywhere inside a square corner).
+    constexpr float c_viewRadius = 3.0f;
     constexpr int c_markWidth = 34, c_markHeight = 25;   // the ink mark in the header (designed at 30 x 22)
     constexpr int c_moodEveryTicks = 6;       // the palette follows the cloud about 5 times a second (30 Hz timer)
     constexpr float c_moodSmoothing = 0.35f;  // ... each step a third of the way (no jump when the visualiser is Off)
@@ -83,7 +87,7 @@ RoarschachAudioProcessorEditor::RoarschachAudioProcessorEditor(RoarschachAudioPr
     m_content.onResized = [this] { layoutContent(); };
     addAndMakeVisible(m_content);
 
-    m_monsterView.setCorner(0.0f, Theme::Colours::paper);
+    m_monsterView.setCorner(c_viewRadius, Theme::Colours::paper);
     m_monsterView.isCreatureFrozen = [&audioProcessor] { return audioProcessor.isCreatureFrozen(); };
     m_monsterView.setCreatureFrozen = [&audioProcessor](bool frozen) { audioProcessor.setCreatureFrozen(frozen); };
     m_monsterView.resetCreature = [&audioProcessor] { audioProcessor.resetCreature(); };
@@ -287,7 +291,7 @@ void RoarschachAudioProcessorEditor::applyMood(bool force)
         return;
 
     m_lookAndFeel.refreshColours();
-    m_monsterView.setCorner(0.0f, Theme::Colours::paper);
+    m_monsterView.setCorner(c_viewRadius, Theme::Colours::paper);
     m_websiteLink.setColour(juce::HyperlinkButton::textColourId, Theme::Colours::inkDim);
     repaint();
     if (m_aboutWindow != nullptr)
@@ -800,7 +804,10 @@ void RoarschachAudioProcessorEditor::showPresetMenu()
     menu.addItem(c_deleteItemId, "Delete \"" + currentMenuName + "\"", fileToDelete != juce::File());
     menu.addItem(c_revealItemId, "Show Presets Folder");
 
-    menu.showMenuAsync(RoarschachLookAndFeel::menuOptionsFor(m_presetNameButton, m_presetNameButton.getWidth()),
+    auto options = RoarschachLookAndFeel::menuOptionsFor(m_presetNameButton, m_presetNameButton.getWidth());
+    if (m_menuParentForSnapshots != nullptr)
+        options = options.withParentComponent(m_menuParentForSnapshots);
+    menu.showMenuAsync(options,
                        [safe = juce::Component::SafePointer<RoarschachAudioProcessorEditor>(this), userFiles, fileToDelete,
                         nameToDelete = currentMenuName](int result)
     {

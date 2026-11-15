@@ -73,6 +73,9 @@ public:
         prepared it). */
     static juce::String latencyNote(int latencySamples, double sampleRate);
 
+    /** Pictures only: the preset list opens inside this component (so a snapshot can show it). */
+    void setMenuParentForSnapshots(juce::Component* parent) { m_menuParentForSnapshots = parent; }
+
 private:
     // Everything visible lives in here, at design size; the editor just scales it.
     struct Content : public juce::Component
@@ -103,6 +106,7 @@ private:
     MoodFocus m_moodFocus { *this };
     roar::CreatureMood::Tone m_moodTone { Theme::c_referenceHue, Theme::c_referenceChroma };
     int m_moodTick = 0;
+    juce::Component* m_menuParentForSnapshots = nullptr;
     void showAboutWindow();
     void updateMonsterParams();
 

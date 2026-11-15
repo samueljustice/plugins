@@ -505,10 +505,10 @@ void MonsterView::drawFeather (juce::Graphics& g, juce::Rectangle<float> bounds)
     if (m_feather.getWidth() != w || m_feather.getHeight() != h || m_featherArgb != paperColour.getARGB())
     {
         m_featherArgb = paperColour.getARGB();
-        m_feather = juce::Image (juce::Image::ARGB, w, h, true);
+        m_feather = juce::Image (juce::Image::ARGB, w, h, true, juce::SoftwareImageType());
         constexpr float side = 22.0f, top = 18.0f, foot = 34.0f;
         const auto ease = [] (float t) { t = juce::jlimit (0.0f, 1.0f, t); return t * t * (3.0f - 2.0f * t); };
-        juce::Image::BitmapData px (m_feather, juce::Image::BitmapData::writeOnly);
+        juce::Image::BitmapData px (m_feather, juce::Image::BitmapData::readWrite);
         for (int y = 0; y < h; ++y)
         {
             const float fy = std::min (ease (static_cast<float> (y) / top), ease (static_cast<float> (h - 1 - y) / foot));
@@ -919,7 +919,9 @@ void MonsterView::renderOpenGL()
     const int height = juce::roundToInt (scale * (float) m_height.load (std::memory_order_relaxed));
 
     glViewport (0, 0, width, height);
-    juce::OpenGLHelpers::clear (juce::Colour (m_outsideArgb.load (std::memory_order_relaxed)));
+    // (the picture's own ground, never the paper: the frame is composed over it, and a pale clear would
+    // wash the ink out to grey)
+    juce::OpenGLHelpers::clear (juce::Colour (Theme::c_glClear));
 
     if (! m_renderer.isCreated() || width <= 0 || height <= 0)
         return;
