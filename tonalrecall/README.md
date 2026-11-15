@@ -4,7 +4,7 @@
 
 An offline pitch matcher for Pro Tools AudioSuite by **Samuel Justice**, made for trailer sound design. Play it the music, play it a sound effect, and it works out the shift that puts the effect on one of the music's notes, shows it, and stamps it onto the clip when you render. The clip keeps its length and the timing of its hits.
 
-### [Get it with Sammy J's Plugins](https://github.com/samueljustice/plugins/releases/latest), the installer for every Sammy J plug-in
+It comes in [Sammy J's Plugins](https://github.com/samueljustice/plugins/releases/latest), one installer for all of these plug-ins.
 
 <img src="docs/screenshot.png" alt="The Tonal Recall window: on the left the learned music, G minor, as a list of its notes over time; on the right a sound effect's pitch line before and after the shift, with the LOCKED, SUBTLE and MOVING curves named; below, the shift to match, +0 st 32 c to G4, the BEND slider and the STAMP button" width="980">
 
