@@ -2,7 +2,7 @@
 
 ![Work in progress](https://img.shields.io/badge/WORK_IN_PROGRESS-D00000?style=for-the-badge)
 
-A VST3/AU subharmonic generator by **Samuel Justice**. Subbertone tracks the pitch of your bass, engine or drone, synthesises a clean sub one octave below it, and lets you build its harmonics bar by bar: from a pure sub reinforcement, to the small-speaker "hear the bass on a phone" trick, to a growling, talking octave-down bass. For passages that are hard to track as they play, such as engines, LEARN works the pitch out from one pass of a loop. A mastering stage (Inflate and a brickwall limiter) finishes the output.
+A VST3/AU subharmonic generator by **Samuel Justice**, made mostly for cars and other engines. Subbertone tracks the pitch of an engine or exhaust, synthesises a clean sub one octave below it, and lets you build its harmonics bar by bar, so a thin recording gets weight that follows the revs. Engines are hard to track as they play, so LEARN works the pitch out from one pass of a loop, with hindsight, and the sub then follows that. It also works on voices, creature sounds, drones and bass, from a pure sub reinforcement, to the small-speaker "hear the bass on a phone" trick, to a growling, talking octave-down bass. A mastering stage (Inflate and a brickwall limiter) finishes the output. See [Known limitations](#known-limitations) for what it does not do well yet.
 
 It comes in [Sammy J's Plugins](https://github.com/samueljustice/plugins/releases/latest), one installer for all of these plug-ins.
 
@@ -114,6 +114,28 @@ With the view closed, the scope's readout says whether the sub follows a learned
 - If the audio changes after learning (an edit, another take, a note moved to another pitch, a different plug-in before Subbertone), the parts that no longer match are tracked live, and LEARN shows a red dot; learn the passage again to update it. A small shift in time, such as latency added before Subbertone, is found and allowed for.
 - Where a learned passage was quiet enough to count as silence, the sub stops. Lower the Threshold well below where the passage was learned (more than about 7 dB) and those quiet parts are tracked live instead, so they get a sub too; learn the passage again to have them follow learned pitch.
 - On a stereo track, insert Subbertone in stereo, so it tracks both sides together. A dual-mono insert, such as Logic's Dual Mono, is two separate Subbertones, one for each side, and each side learns only when LEARN is pressed on that side.
+
+## Known limitations
+
+Subbertone is built around engines first, and LEARN is new. This is what to expect.
+
+**What LEARN handles well**
+- Close recordings of an engine or exhaust: run-ups, runs through the gears (a gear shift is a clean step in the line) and steady revs. In tests on about 860 different engine recordings, the learned line was clean on roughly two in three, and on about nine in ten for V10s and eight in ten for V12s, flat-plane V8s and flat-sixes.
+- Voices and bass, where it follows the notes.
+
+**What it does not handle well yet**
+- **Pass-bys, distant and in-car recordings.** The pitch bends as the car passes and the engine is often quieter than road and wind noise. These stay on live tracking, and the result is hit and miss.
+- **Motorcycles with fast gear changes, and animal calls.** About half of the motorcycle recordings and fewer than half of the animal calls gave a clean line. Calls that go above 1 kHz or wobble quickly are the hardest.
+- **V-twins, inline-4s and inline-5s** are in between: roughly six in ten.
+- **The line can sit an octave higher than you want.** LEARN goes for the strongest line, which on V engines is the firing rate. On some four-cylinder and two-stroke recordings that is twice the firing rate, and the sub comes out higher than it should. Double-click LEARN and pick a lower line in the view.
+- **A wrong line doesn't always flag itself.** The amber "pitch was ambiguous" edge shows less often than a wrong line happens. After learning something new, open the view and look at the line against the dots of the live tracker.
+- **Live tracking on engines is unsteady.** Without LEARN, the tracker often sits on a lower line than the firing rate and hops between lines as the revs move. Glide and Max Pitch help; LEARN is the fix.
+
+**Limits by design**
+- LEARN needs a host timeline and a passage of 1 to 60 seconds, up to 10 minutes in all for each instance. It isn't available in the standalone app, in Pro Tools' AudioSuite or in clip launchers. In hosts that don't report their loop points it finishes on the second pass of the loop.
+- The deeper subs make nothing below 20 Hz. With the sub and both deeper subs at 100%, peaks can be about 9 dB higher than the sub alone, so watch the limiter.
+- In Pro Tools, Subbertone is offered in mono and stereo, not multi-mono or surround.
+- LEARN and the new editor were tested mostly with automated host tests and offline renders. If something behaves oddly in your host, please [open an issue](https://github.com/samueljustice/plugins/issues).
 
 ## Controls
 
