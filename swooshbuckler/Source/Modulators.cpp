@@ -26,6 +26,10 @@ const std::vector<juce::String>& ModMatrix::targets()
             ids.emplace_back(id);
         for (auto* id : { ParamIDs::roomSpread, ParamIDs::roomHeight }) // the room's Spread and Height (the speakers' gains glide)
             ids.emplace_back(id);
+        // Direction and Side: the modulator decides pass by pass, as each pass starts (see centred()).
+        for (auto* id : { ParamIDs::direction[0], ParamIDs::direction[1], ParamIDs::stowDirection,
+                          ParamIDs::side[0], ParamIDs::side[1], ParamIDs::stowSide })
+            ids.emplace_back(id);
         jassert(ids.size() <= 64);
         return ids;
     }();
@@ -168,6 +172,15 @@ int ModMatrix::numRoutes(int source) const
         if (! m_params[s].isEmpty() && m_slots[s].source.load() == source)
             ++n;
     return n;
+}
+
+bool ModMatrix::hasWireTo(const juce::String& paramId) const
+{
+    const std::lock_guard<std::mutex> lock(m_lock);
+    for (const auto& param : m_params)
+        if (param == paramId)
+            return true;
+    return false;
 }
 
 juce::ValueTree ModMatrix::toValueTree() const
@@ -332,6 +345,7 @@ void ModMatrix::process(const std::array<SourceSettings, c_numSources>& settings
 
     // Sum the wires per target, then glide (15 ms) so square / steps don't click.
     std::fill(m_targetOffsets.begin(), m_targetOffsets.end(), 0.0f);
+    std::fill(m_centred.begin(), m_centred.end(), 0.0f);
     auto& wired = m_wired;
     wired.fill(false);
     for (auto& slot : m_slots)
@@ -344,6 +358,8 @@ void ModMatrix::process(const std::array<SourceSettings, c_numSources>& settings
         // Bipolar sources swing +-depth/2 around the knob (depth 100% covers the whole range).
         const float v = bipolar[src] ? 0.5f * values[src] : values[src];
         m_targetOffsets[static_cast<size_t>(target)] += slot.depth.load(std::memory_order_relaxed) * v;
+        // Against the source's own middle (0 for an LFO or Random, 0.5 for a Follower or a Macro).
+        m_centred[static_cast<size_t>(target)] += slot.depth.load(std::memory_order_relaxed) * (bipolar[src] ? 0.5f * values[src] : values[src] - 0.5f);
         wired[static_cast<size_t>(target)] = true;
     }
     const float a = 1.0f - std::exp(static_cast<float>(-dt) / 0.015f);

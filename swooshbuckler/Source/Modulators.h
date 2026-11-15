@@ -60,6 +60,8 @@ public:
     void clear();
     std::vector<Route> getRoutes() const;
     int numRoutes(int source) const;
+    /** A wire reaches this parameter. */
+    bool hasWireTo(const juce::String& paramId) const;
 
     juce::ValueTree toValueTree() const;          // any thread
     void fromValueTree(const juce::ValueTree&);   // any thread (notifies only when called on the message thread)
@@ -99,6 +101,10 @@ public:
     void process(const std::array<SourceSettings, c_numSources>& settings, int numSamples, const FollowerInputs& followerInputs);
     /** Normalised offset for a target (sum of its wires, smoothed). 0 when nothing is wired to it. */
     float offset(int target) const { return m_offsets[static_cast<size_t>(target)]; }
+    /** Where the modulators wired to a target stand against their own middles right now (the sum of the wires,
+        not smoothed): at or over 0 the first of a two-way choice, under it the other. For targets that are decided
+        at a moment (a pass's Direction and Side), not moved. 0 when nothing is wired to it. */
+    float centred(int target) const { return m_centred[static_cast<size_t>(target)]; }
 
     // Any thread (UI views) ----------------------------------------------------
     /** Current value of a source: -1..1 for LFO / Random, 0..1 for Follower / Macro. */
@@ -144,6 +150,7 @@ private:
     juce::Random m_rng { 0x5eed };
     std::vector<float> m_offsets = std::vector<float>(64, 0.0f);
     std::vector<float> m_targetOffsets = std::vector<float>(64, 0.0f);
+    std::vector<float> m_centred = std::vector<float>(64, 0.0f);
     std::array<bool, 64> m_wired {};
     std::array<std::atomic<float>, c_numSources> m_sourceView {};
     std::array<std::atomic<bool>, c_numSources> m_bipolarView {};

@@ -351,7 +351,7 @@ Bus A ("growls, tones, crackle, rumble - and the key for B") is the aggressive b
 | **Ducked** (B only) | 35% | How far Bus A pushes Bus B down at A's peaks, up to −20 dB, judged against A's own recent peak so it works the same on quiet and loud material. |
 | **Filtered** (B only) | 30% | How far Bus A closes a low-pass filter on Bus B at A's peaks, down to about 280 Hz at 100%, so B goes dark under A rather than just quieter. |
 | **Pass** (in each title bar) | Bed / Bed | How the bus's two doppler passes follow each other. **Bed**: they overlap, one coming in as the other goes out, so the bus keeps a steady level. Best for beds, air and long energy files. The two are at different pitches while they overlap, which thickens noise and can sound like two notes on a tone. **Fly-By**: one pass at a time, with a long approach, the peak at its closest point and a shorter tail, so each sound is heard once and at one pitch. The level dips between passes (by about 10 dB) without going silent, and the passes are a little louder to make up for it, so a bus is about as loud in either mode. Best for a single clear whoosh, for tones, and for sounds with a sharp start. The passes peak at the same moments in both, so Aim, Link and the sea work the same, and switching mid-pass glides. With Link on, Bus B uses Bus A's Pass and its own menu is dimmed. |
-| **Link** (in B's title bar) | off | Bus B flies the same doppler passes as Bus A: at the same moment, as close, in the same direction, with A's Doppler, Width and Pass. The two buses move as one source, for one consistent whoosh. B keeps its own Bend, so its pitch can bend more or less. While linked, B's own Doppler, Width and Pass show a chain link in Bus A's colour and can't be moved, and they come back as you set them when you unlink. Leave it off to keep energy beds on B moving on their own. |
+| **Link** (in B's title bar) | off | Bus B flies the same doppler passes as Bus A: at the same moment, as close, in the same direction, with A's Doppler, Width and Pass, and in a surround room on A's Flight Path, with A's Direction and Side. The two buses move as one source, for one consistent whoosh. B keeps its own Bend, so its pitch can bend more or less. While linked, B's own Doppler, Width and Pass show a chain link in Bus A's colour and can't be moved, and they come back as you set them when you unlink. Leave it off to keep energy beds on B moving on their own. |
 | **Take Turns** (in B's title bar) | off | Only the louder bus plays at full level and the other ducks under it by the Ducked amount (at 0% Ducked it does nothing), so they trade places. The other bus has to be clearly louder (about 2 dB) for 30 ms before the turn passes. Off: A always ducks B. |
 | **Flight Path** (at the left of the bus's strip) | Across / Across | Where the bus's passes fly in a surround room: **Across**, **Through**, **Overhead** or **Around**. It rests at Mono and Stereo, where every pass flies across. With Link on, Bus B flies Bus A's path. See [Flight Paths](#flight-paths). |
 
@@ -584,7 +584,7 @@ Click **Settings** to open. Close it with Close, Esc, or a click outside the pan
 - **The tape (Arm).** Click to arm. Everything goes into one file until you click the tape again, press New or close Swooshbuckler. The Rec timer counts only what's been written. A take with no sound in it leaves no file behind.
 - **One File per Whoosh** (off by default, in Settings). The armed tape writes a separate file for each whoosh, so a session of riding leaves a folder of numbered whooshes and not one long take to cut up. A whoosh has ended when the output has sat about 25 dB under its recent peaks for three quarters of a second (the same test Skip Silence uses, and the quiet between whooshes is always left out), or when a thrown whoosh has rung out with the rig stopped. Each file keeps the quarter second before its sound and its tail. Sounds with less than a fifth of a second of level in them are not kept, so clicks and blips don't become files. Each file appears in [Takes](#takes) as its whoosh ends. Whooshes that overlap, with no quiet between them, share a file.
 - **Markers.** WAV takes carry cue points with labels, so a long take arrives already spotted in Reaper, Soundminer and other tools that read them: **Pass A** and **Pass B** where a doppler pass on that bus goes by at its closest (with Link on the two buses fly the same passes, so only Pass A is written), **Pass S** where one of Stowaway's own passes does (in Fly), **Throw** at the peak of a thrown whoosh, and **Hit** where an aimed or synced hit lands or the hit gate opens. Markers that fall together are one cue, such as "Throw + Hit". They are placed in the file itself, so they stay on their sounds when Skip Silence has left stretches out. AIFF, FLAC and Last 60 s files have no markers.
-- **What each file says about itself.** Every file carries a description: the Swooshbuckler version, the width, and in a room wider than Stereo the room (each Flight Path, Spread, Height, Centre Speaker and LFE Mode), then the preset and Energy, Rate, Fill, Chaos, Pitch, Space, the Pass Modes, Morph and Aim as they were when the file was started. It also names the Creator from Settings and the software. In a WAV these are the broadcast-wave description and originator and the INFO comment, artist and software; in an AIFF, comments; in a FLAC, the DESCRIPTION, ARTIST and ENCODER tags. The broadcast-wave description (what Pro Tools and Soundminer show) holds 256 characters, so it stops after the last whole item that fits; the whole description is in the INFO comment. Surround files also name their channels: see [Exporting at any width](#exporting-at-any-width).
+- **What each file says about itself.** Every file carries a description: the Swooshbuckler version, the width, and in a room wider than Stereo the room (each Flight Path, with the Direction and Side its passes are held to, Spread, Height, Height Varies, Centre Speaker and LFE Mode), then the preset and Energy, Rate, Fill, Chaos, Pitch, Space, the Pass Modes, Morph and Aim as they were when the file was started. A whoosh from Render Variations also says which way it flies and, in a room, on which side ("This whoosh: Front To Back, Left."). It also names the Creator from Settings and the software. In a WAV these are the broadcast-wave description and originator and the INFO comment, artist and software; in an AIFF, comments; in a FLAC, the DESCRIPTION, ARTIST and ENCODER tags. The broadcast-wave description (what Pro Tools and Soundminer show) holds 256 characters, so it stops after the last whole item that fits; the whole description is in the INFO comment. Surround files also name their channels: see [Exporting at any width](#exporting-at-any-width).
 - **Skip Silence** (on by default, in Settings). The tape judges quiet against the recent peaks, not against a fixed level, because a rig with a bed in it never falls truly silent. It stops rolling once the output has sat about 25 dB under the recent peaks (or under about −56 dBFS) for three quarters of a second, and starts again when the sound comes back, keeping the quarter second before it so attacks survive. Each join is faded over 30 ms. The recent peak is remembered for about 10 seconds and then follows the level down, so a quieter passage is recorded once it is the new normal. After Stop the tape keeps the whole tail, and once the rig has come to rest the tape stops rolling until the next Play. How much is left out depends on the sound: deep, slow swells (a high Energy, few layers) leave gaps to skip, while a busy rig with a steady bed is recorded almost whole. Switch Skip Silence off for one continuous take.
 - **If the disk can't keep up**, the tape buffers about 3 seconds of audio at any sample rate before anything is lost, and the message that names the saved file says how much is missing.
 - **Last 60 s.** Once it has played, Swooshbuckler always keeps the last minute of output (or the last 3 or 5 minutes: **Keep the Last** in Settings, at the memory cost given there). The memory for it is taken the first time the rig plays; if that first time is a DAW's transport or a key rather than Play, the first fiftieth of a second or so of that one sound is not kept. Click Last 60 s to save it, even if the tape wasn't armed and even while a take is going. Silence at the start is trimmed. It's written the way the tape is set: the same File Type, Bit Depth, Sample Rate, Channels, Channel Order and File Layout. In a room (Quad and wider) it holds at most 115 MB for each Swooshbuckler, so a session with several instances in 7.1.4 doesn't fill the computer's memory: that is a whole minute of 5.1 or 7.1 at 48 kHz but 50 seconds of 7.1.4, 25 seconds at 96 kHz and 12 seconds at 192 kHz. The button then shows the real length ("Last 50 s"). Mono and Stereo hold up to 512 MB, which is the whole 5 minutes even at 192 kHz.
@@ -720,18 +720,28 @@ Along the foot of the sea. Every control on it is a host parameter, so it can be
 | **LFE Mode** | Off / Discrete / Mixdown (Off) | What plays from the LFE, the subwoofer channel. See [The LFE](#the-lfe). From 5.1 up. |
 | **LFE Level** | −40 to 0 dB (−10 dB, marked Unity) | How loud the LFE is. It rests while LFE Mode is Off. |
 
+**Height Varies** (a host parameter, Room Height Varies, 0–100%, 50% to start with; it has no control on the strip yet) is how much the height of each pass differs from the next one's, at 7.1.2 and 7.1.4. At 0% every Across, Through and Around pass flies at ear level and every Overhead pass flies its whole arch. Turned up, each pass picks a height of its own: the others rise towards the speakers overhead as they come by (as high as an Overhead pass at 100%), and Overhead passes fly a little lower. A pass is as loud at any height. Height then sets how much of that reaches the speakers overhead: at Height 0% none of it does.
+
 ### Flight Paths
 
-Each bus has a **Flight Path** menu at the left of its strip, and Stowaway has one of its own in its open plate, for its passes in Fly. The bus's **Width** knob is how much of the path a pass travels.
+Each bus has a **Flight Path** menu at the left of its strip, and Stowaway has one of its own in its open plate, for its passes in Fly. A pass flies its path over the part of it you hear: it waits at the start of the path while it fades in, travels while it is within about 10 dB of its loudest, and is at the path's middle at its loudest moment. The bus's **Width** knob is how much of the path it travels.
 
 | Flight Path | Where the passes go |
 |---|---|
-| **Across** (the default) | From one side to the other, in front of you. A closer pass comes nearer to you. |
-| **Through** | From the front to the back, past you, off to one side. |
-| **Overhead** | Up over your head, from the front to behind you. The speakers overhead carry it at 7.1.2 and 7.1.4; in a room without them it is heard at ear level. |
-| **Around** | Once round you, at the same distance all the way. A pass is at its loudest halfway round, which is behind you. |
+| **Across** (the default) | From one side to the other, in front of you. A closer pass comes nearer, but never nearer than half way from the screen, so it stays in the front speakers at every width (at 7.1 and wider a sound half way down the room is half in the side speakers). |
+| **Through** | From the front to the back, past you, well out to one side of your head however close it comes: at its nearest about four fifths of it is in that side's speakers. |
+| **Overhead** | From the front speakers up over your head and down into the rear ones. At the top of its arch nearly all of it is in the speakers overhead (7.1.2 and 7.1.4), and over a whole pass about three fifths; the ear-level speakers carry the rest, so it is heard to arrive and leave. With four speakers overhead it travels from the front pair to the rear pair; with two, the ear-level speakers carry the travel. In a room without speakers overhead it is heard at ear level. |
+| **Around** | Round you, at the same distance all the way: from in front, down one side, behind you and back up the other. It goes exactly once round at a Width of 70% (where the buses start), less of the circle below that, and further round above it (one and a third times at 100%). A pass is at its loudest half way round, which is behind you for some passes and in front of you for others (see Side). It holds one level and one brightness all the way, as loud as a pass on the other paths is over its swell, whatever Doppler is set to. |
 
-Each pass picks its own direction (left to right or right to left, front to back or back to front). Changing the path glides over a quarter of a second. With **Link** on, Bus B flies Bus A's passes on Bus A's path, and its menu shows the chain link. **Randomise** and the dice of Bus A, Bus B and Stowaway roll the paths, and a preset puts them back to Across.
+**Direction.** Each bus has a Direction (host parameters Bus A Direction, Bus B Direction and Stowaway Direction; they have no controls on screen yet): **Random**, where each pass picks its own way, or one way or the other for every pass. What the two ways are follows the Flight Path: **Left To Right** or **Right To Left** on Across, **Front To Back** or **Back To Front** on Through and Overhead, **Clockwise** or **Anticlockwise** (seen from above) on Around. In a host's own list they read Random, Forwards and Backwards, Forwards being the first of each pair. Direction works in Stereo too, where every pass crosses from side to side.
+
+**Side.** Each bus has a Side as well (Bus A Side, Bus B Side, Stowaway Side): **Random**, **Left** or **Right**. It is the side of your head a Through or Overhead pass takes; on Around, Left puts the loudest point of the circle in front of you and Right puts it behind you. Across has no sides. Left to Random, each pass picks its own.
+
+A modulator can decide either of them: with one wired to a bus's Direction or Side, each pass flies the way the modulator stands at the moment the pass starts (above its middle: forwards, or the left; below it: backwards, or the right), whatever the choice says. A pass never turns round in flight. A square LFO alternates them; Steps deals them out at random in time. (Direction and Side are in the list of things a wire can reach; the place on screen to plug a wire into them comes with their controls.)
+
+Changing the path glides over a quarter of a second. With **Link** on, Bus B flies Bus A's passes on Bus A's path, in A's Direction and on A's Side, and its menu shows the chain link. **Randomise** and the dice of Bus A, Bus B and Stowaway roll the paths, and a preset puts them back to Across; Direction and Side belong to your session (you set them to the picture), so presets and Randomise leave them alone.
+
+**Render Variations** gives every whoosh of a batch a way, a side and a height of its own, so a batch has whooshes going both ways and passing on both sides; a Direction or Side you have set is kept for all of them.
 
 **Everything else in the room.** The hits play in front: in the middle (between left and right, or from the centre speaker with Centre Speaker on), or, with **Aim**, where the pass they are aimed at is closest. A thrown whoosh flies the bus's path like a pass. Stowaway in **Sub** stays in the middle in front, in **Wake** trails Bus A's pass on its path, in **Fly** flies its own Flight Path, and in **Dry** stays in front, untouched. A stereo bed on Bus B keeps its width, spread over the speakers on each side by Spread.
 
@@ -816,27 +826,40 @@ Mono is one file with no ending. A set has no order of its own, so Channel Order
 
 ### Fold-downs
 
-A fold-down plays or writes a room on fewer speakers by mixing them together. Swooshbuckler folds one step at a time, each step turning the speakers it joins down 3 dB:
+A fold-down plays or writes a room on fewer speakers by mixing them together. Between rooms Swooshbuckler folds one step at a time, each step turning the speakers it joins down 3 dB:
 
 - 7.1.4 to 7.1.2: the front and rear overhead speakers of each side join into one.
 - The speakers overhead to 7.1: the front ones into L and R, the rear ones into the rear surrounds, Lts and Rts into the sides.
 - 7.1 to 5.1: each side's side and rear surround into Ls or Rs.
 - 5.1 to Quad: the centre into L and R.
-- Quad to Stereo: Ls into L, Rs into R. So 5.1 to Stereo is the usual broadcast fold.
-- Stereo to Mono: half of L and R together. Mono from a room always goes by way of Stereo.
+
+To **Stereo** every speaker goes straight to its own side, the way the usual broadcast fold (ITU-R BS.775) folds 5.1:
+
+| Speaker | Into L and R at |
+|---|---|
+| L, R | 0 dB, each into its own side |
+| C | −3 dB, into both |
+| Ls, Rs (Quad, 5.1), Lss, Rss, Lsr, Rsr (7.1 and wider) | −3 dB |
+| Ltf, Rtf (the front pair overhead) | −3 dB |
+| Ltr, Rtr (the rear pair overhead), Lts, Rts (7.1.2) | −6 dB |
+| LFE | left out |
+
+So 5.1 to Stereo is the broadcast fold exactly, and a side or rear surround of 7.1 is treated as the surround of 5.1 is: it is not folded to 5.1 first and then to Stereo, which would turn it down twice. (A pass beside you or behind you is in one speaker at its loudest moment; folded in two steps it came out 6 dB down, and a 7.1.4 whoosh folded to Stereo was 2 to 5 dB quieter at its peak than the same whoosh rendered at Stereo.) **Mono** is half of L and R of the Stereo fold together, always by way of Stereo.
 
 The LFE is left out of a fold to a width without one: in Discrete the sub is in the front speakers already, and in Mixdown it is made from them. Folds happen when the tape writes **Stereo** or **Mono** from a wider room, when the app plays a room on an audio device with too few outputs, and when Takes plays a wider take than you are listening on. Every fold you hear or write is held under the Ceiling, and a folded file says in its description what it was folded from ("Folded down from 7.1.4 to Stereo, held under the Ceiling.").
 
 **What it cannot do**
 
-- **A surround take folded to stereo will not match the stereo render.** Stereo has the ear delays and the shading of the ear turned away; the room doesn't, and the fold steps leave the reverb about 2 dB quieter. For stereo files, render at Stereo with Render Variations.
+- **A surround take folded to stereo will not match the stereo render.** Stereo has the ear delays and the shading of the ear turned away, which the room doesn't. The level is close but not the same: over a whoosh a fold of 5.1 or 7.1 is within about 1 dB of the Stereo render, and a fold of 7.1.4 runs 1 to 2 dB louder (a sound shared by a front speaker and a surround or overhead speaker of the same side adds up in the fold), so the limiter that holds a fold under the Ceiling works a little more on it. For stereo files, render at Stereo with Render Variations.
 - **A narrow take cannot be made wider.** A Stereo take stays Stereo; render the room with Render Variations at the width you want.
 - **It is channel-based only:** no Dolby Atmos objects, no ADM metadata, no binaural or Ambisonics. The four Flight Paths are fixed; there are no drawn paths.
-- A sound in one speaker loses 3 dB at each fold step it goes through: a sound in one overhead speaker of 7.1.2 is 9 dB down in Stereo.
+- A sound in one speaker loses 3 dB at each fold step it goes through, and never more than 6 dB: a sound in one surround speaker is 3 dB down in Stereo, one in an overhead speaker of 7.1.2 is 6 dB down.
 
 ### Pro Tools and other hosts
 
 Pro Tools (AAX) is the host surround is made for. Make an **instrument track** of the width you want (mono, stereo, quad, 5.1, 7.1, 7.1.2 or 7.1.4) and insert Swooshbuckler on it: each width is a plug-in of its own to Pro Tools, so it is offered on every one of those tracks. The VST3 and the AU offer the same seven widths, so other hosts that give an instrument a surround track can use them too, but surround is only checked in Pro Tools.
+
+The sound does not depend on the host's buffer size. The rig is rendered 32 samples at a time, counted from when it starts and not from the start of each buffer, and the modulators and the controls they move are updated every 512 samples, so odd buffer sizes, buffers a host splits at loop points or for automation, and a host that asks for one sample at a time all give the same samples a 512-sample buffer gives, at no extra cost. (In a host whose buffers are not multiples of 32 a key or a control change can act up to 31 samples late.)
 
 ### A multichannel interface in the app
 
@@ -882,7 +905,8 @@ Presets and Randomise set the sound, not your session. They leave these alone:
 
 - your tracks, their levels and each track's pitch and Vari
 - Inflate, Push, Ceiling, Trim and the Peak Tremolo
-- the room strip: Spread, Height, Centre Speaker, LFE Mode and LFE Level
+- the room strip: Spread, Height, Centre Speaker, LFE Mode and LFE Level, and Height Varies
+- each bus's and Stowaway's Direction and Side
 - Auto Ride, Follow Master, Aim, Sync Hits, the Gate and Duck modes, Take Turns and Link
 - the Master track, each track's bus and the morph's ropes
 - the morph's On switch, wander, shape and speed

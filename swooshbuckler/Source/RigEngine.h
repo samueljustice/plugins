@@ -89,9 +89,13 @@
  *              The colour chain works on the lanes as it works on left and right in stereo (so Filter and Drive act
  *              on a whole pass, and it costs what it costs in stereo); ducking, the tremolo and the fades are gains
  *              on the lanes. Only the mix pans, with gains that are ramped across each chunk.
- *   Flight Path where a bus's passes fly (room::flight): Across, Through, Overhead, Around. Width is how much of
- *              the path a pass travels (0%: it stays at the path's half-way point). A change of path glides.
- *              Around has no approach: the pass keeps one distance, so it has no doppler bend and no swell of its own.
+ *   Flight Path where a bus's passes fly (room::flight): Across, Through, Overhead, Around. A pass flies its path
+ *              over the part of it that is heard (pathProgress), and Width is how much of the path it travels (0%:
+ *              it stays at the path's half-way point). A change of path glides. Each pass has a way (Direction),
+ *              a side (Side) and a height of its own (Height Varies): drawn pass by pass, held by the bus's
+ *              choice, or decided by a modulator as the pass starts. Linked, bus B flies bus A's.
+ *              Around has no approach: the pass keeps one distance, so it has no doppler bend and no swell of its
+ *              own; it holds the level and the brightness a crossing pass has on average (orbitLoudness).
  *   hits       one stream, at the front (a phantom centre, or the centre speaker with Centre Speaker on); with AIM,
  *              at the closest point of the pass or throw they were aimed at.
  *   Stowaway   Sub: at the front, equal in L and R, and its stem is kept for an LFE (getSubStem). Wake: on bus A's
@@ -147,6 +151,10 @@ public:
         float drive = 0.0f;
         float width = 1.0f;
         int path = 0;        // Fly's Flight Path in a room (room::Path)
+        // Fly's Direction and Side, as a bus's (see BusParams).
+        int direction = 0, side = 0;
+        bool directionWired = false, sideWired = false;
+        float directionMod = 0.0f, sideMod = 0.0f;
     };
 
     struct BusParams
@@ -159,6 +167,15 @@ public:
         float key = 0.3f;   // low-passed by bus A (ignored on bus A)
         int passMode = 0;   // 0 Bed (two overlapped passes, a steady level), 1 Fly-By (one pass at a time). Linked: bus A's.
         int path = 0;       // Flight Path in a room (room::Path): 0 Across, 1 Through, 2 Overhead, 3 Around. Linked: bus A's.
+        // Direction: which way a pass flies. 0 Random (each pass draws its own), 1 forwards (left to right on
+        // Across, also in Stereo; front to back on Through and Overhead; clockwise on Around), 2 backwards.
+        // Side: which side of the listener a pass takes (Through, Overhead), and where an Around pass is half way
+        // round, at its loudest. 0 Random, 1 left (Around: loudest in front), 2 right (Around: loudest behind).
+        // A modulator wired to either decides instead, pass by pass, as the pass starts: above its middle
+        // (...Mod >= 0) is forwards / the first side, below it backwards / the other. Linked: bus A's.
+        int direction = 0, side = 0;
+        bool directionWired = false, sideWired = false;
+        float directionMod = 0.0f, sideMod = 0.0f;
     };
 
     struct Params
@@ -216,6 +233,8 @@ public:
         // The room (Quad and wider; nothing at Mono and Stereo).
         float roomSpread = 0.0f;  // how far every object bleeds into the other speakers (0 a point .. 1 everywhere)
         float roomHeight = 1.0f;  // how much of an object's height reaches the top speakers
+        float roomHeightVaries = 0.5f; // how far each pass's own altitude may differ: 0 every pass at ear level (Overhead: its full arch) ..
+                                       // 1 anywhere from ear level to as high as an Overhead pass (Overhead: down to 60% of its arch)
         bool roomCentre = false;  // the centre speaker is used (off: a phantom centre between L and R)
         int lfeMode = LfeOff;     // what feeds the LFE (widths with one): see the class comment
         float lfeLevelDb = c_lfeReferenceDb; // the LFE's gain, -40 .. 0 dB
@@ -267,6 +286,12 @@ public:
         bool ridden = false;   // the tracks in the balance their rides have them in when it is thrown: each at a moment
                                // of its own swell, the loudest at its fader and none more than 9 dB under its own;
                                // with Auto Ride off that is every track at its fader, as without it
+        // Which way it flies and which side it takes, where bus A's Direction and Side are Random (a choice made
+        // there, or a modulator wired to it, wins): +1 forwards / the right (Around: loudest behind), -1
+        // backwards / the left (Around: loudest in front), 0 the engine's own draw. And how high it flies of what
+        // Height Varies allows (0 .. 1; below 0: the engine's own draw).
+        int direction = 0, side = 0;
+        float lift = -1.0f;
     };
     /** Throw one whoosh: a single pass, the same on both buses, that starts delaySamples from the start of the
         next process() call and peaks half a Throw Length later (or as `flight` says). velocity 0..1 sets how close
@@ -304,7 +329,10 @@ public:
     void process(const float* inL, const float* inR, float* outL, float* outR, int numSamples);
     /** The same into numChannels (2 or more) channels in the width's processing order (room::layout): the first
         two are L and R at every width from Stereo up. Channels the width does not have are silent, and so is its
-        LFE. Fewer channels than the width has: the rest of the room is not written. */
+        LFE. Fewer channels than the width has: the rest of the room is not written.
+        The engine works in chunks of c_chunk samples counted from the start of each call (the last may be short),
+        so what it renders depends on how a stream is cut into calls. The plug-in always calls it with the same
+        lengths whatever the host's block sizes are (SwooshbucklerAudioProcessor::c_quantum). */
     void process(const float* inL, const float* inR, float* const* out, int numChannels, int numSamples);
     /** Audio thread, after process(), in a room: Stowaway's Sub as one stem: the same samples that went to L and
         R (each got exactly this), before the Everything tremolo and Space. (The LFE in Discrete is fed from its
@@ -450,7 +478,13 @@ private:
         float machBase = 0.2f; // the pass's speed before Bend (a linked bus applies its own Bend to the shared pass)
         float machRef = 0.2f;  // that speed within the limits: the swell and the air filter follow it, whatever Bend is
         bool aimed = false;    // AIM has decided about this pass's peak
-        float side = 1.0f;     // a room: which side of the listener it passes (Through, Overhead) or where it starts (Around); it alternates
+        float side = 1.0f;     // a room: which side of the listener it passes (Through, Overhead: -1 left, +1 right), or where it is
+                               // half way round (Around: +1 behind, -1 ahead). Drawn pass by pass, or as Side says
+        float lift = 0.0f;     // a room: how high it flies of what Height Varies allows (0 .. 1), drawn pass by pass
+        // Around: the nearness its level is held at and how bright it is held (see orbitLoudness), and what they
+        // were worked out for.
+        float orbitLoud = 0.25f, orbitAir = 1.0f;
+        std::array<float, 7> orbitFor { -1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f };
         double lastBase = 0.0; // a room: the delay it was read at last (for the read's speed while a path glides)
         sj::OnePole airL, airR;
         sj::OnePole airSL, airSR; // the same air on a stereo bed's side signal, at each ear
@@ -520,8 +554,18 @@ private:
         float distance = 1.0f; // from the listener, in room units
         float orbit = 0.0f;    // how far the path is Around (0..1): no approach, so no bend and no swell
     };
-    /** The pass h at progress u on a path: Width (its law) is how much of the path it travels. */
-    static Place placeOf(const Head& h, float u, float widthLaw, const PathGlide& path);
+    /** The pass h on a path, `along` of the way down it (see pathProgress): Width (its law) is how much of the path
+        it travels. Around: the whole circle at a Width of c_orbitFullWidth, less of it under that, and further
+        round over it. Its height: see Params::roomHeightVaries. */
+    Place placeOf(const Head& h, float along, float widthLaw, const PathGlide& path) const;
+    /** How far along its path a pass is (0 .. 1, 0.5 its nearest point) at progress u, for a window of this shape
+        (0 Bed .. 1 Fly-By): the path is flown over the part of the pass that is heard, within 10 dB of the
+        window's top, and the pass waits at the path's ends while it fades in and out. */
+    static float pathProgress(float u, float shape);
+    /** Around: the nearness a pass's level is held at so that it is as loud, all the way round, as the same pass
+        is over its swell on the other paths (the same energy under the same window), and (h.orbitAir) how bright
+        it is held: as bright as that swell is on average. Worked out again only when what they depend on changes. */
+    static float orbitLoudness(Head& h, float doppler, float shape);
     /** The speakers' gains for a stream at a place (they carry the +3 dB a centred stream has in stereo, so a
         stream at the phantom centre is as loud in L and R as it is in the stereo engine). An object near the
         listener bleeds into more speakers, on top of Spread. */
@@ -530,7 +574,7 @@ private:
         of a pass that keeps its distance. Keeps h.lastBase. */
     PassPoint roomPoint(Head& h, float u, float widthLaw, float orbit) const;
     /** Air for a room: the pass dulls with distance as in stereo, with no head shadow (one filter, airL). */
-    static void roomAir(Head& h, float doppler, float orbit, float fs, bool sides);
+    static void roomAir(Head& h, float doppler, float orbit, float fs, bool sides, float shape);
     /** The throws' lane: the speaker gains of the voices in flight (heads: this bus's copies), blended by their
         power. at: where each is, if wanted. False with none in flight (the lane keeps the gains it had). */
     bool throwGains(const std::array<Head, c_throws>& heads, float widthLaw, room::Gains& gains, room::Position* at) const;
@@ -917,6 +961,7 @@ private:
     float m_fs = 48000.0f;
     Params m_params;
     sj::Random m_rng;
+    sj::Random m_placeRng; // a room's own draws (which side, how high): apart from m_rng, so Stereo draws what it always did
     std::uint32_t m_seed = c_defaultSeed;          // see setSeed
     std::uint32_t rideSeed(int track) const { return static_cast<std::uint32_t>(4242 + 977 * track) + (m_seed - c_defaultSeed); }
     CargoHold* m_cargo = nullptr;
@@ -967,6 +1012,7 @@ private:
     bool m_restartPending = false;                  // restart() asked: done once the sources are silent
     void restartNow();
     float m_releaseGain = 1.0f;                     // 1 = the sources play, 0 = released
+    bool m_releaseSnap = true;                      // the first chunk after prepare(): the sources start where setReleased says (open or let go), no fade
     std::array<sj::Spring, c_tracks> m_levelSprings;
     sj::Spring m_swellSpring, m_energySpring, m_pitchSpring, m_fillSpring, m_spaceSpring;
     // How still the faders are (0 = the ride at full depth .. 1 = not moving): the stiller, the more Low End, Swirl
@@ -1089,6 +1135,7 @@ private:
     // old width's too, while the speakers that have gone fade out (m_liveHold: samples left of that).
     int m_liveChannels = 2, m_liveHold = 0;
     float m_spreadNow = 0.0f, m_heightNow = 1.0f, m_centreNow = 0.0f; // the room's settings, glided
+    float m_variesNow = 0.5f;      // Height Varies, glided
     bool m_roomSnap = true;        // nothing to glide from: the next chunk's gains start where they end
     // The hits: where they are, where they are going (AIM), and their speaker gains at the end of the last chunk.
     room::Position m_hitsAt, m_hitsTo;

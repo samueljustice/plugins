@@ -13,6 +13,9 @@
 //     latency is the same at every width, rendering above the device rate too, and the tape records the room at
 //     its width: every channel of a 7.1.4 take, read back in the room's order, is the output's. What the whole
 //     plug-in costs at 7.1.4 against Stereo, rendering at 48, 96 and 192 kHz.
+//   - Block sizes: the same samples whatever sizes of block the host asks for (1, 7, 32, 37, 64, 441, a first block
+//     of 7, random sizes), in Stereo, at 7.1.4 and rendering above the device rate; small blocks cost no more.
+//   - Direction on a wire: a square LFO wired to a bus's Direction sets each pass's way as the pass starts.
 //
 // Usage: SwooshbucklerWide [scratch folder]. Run it from a scratch folder; nothing is read from or written to the
 // user's settings.
@@ -27,7 +30,9 @@
 
 #include <chrono>
 #include <cmath>
+#include <functional>
 #include <iostream>
+#include <vector>
 
 namespace
 {
@@ -576,6 +581,140 @@ int main(int argc, char* argv[])
                   << juce::String(db(best), 1) << " dB" << std::endl;
         check(file.getNumChannels() == 12 && file.getNumSamples() > 48000 * 2 && best < 1.0e-5f && sounding == 11,
               "7.1.4: the tape records all twelve channels, each as it is played (eleven sounding, the LFE silent)");
+    }
+
+    //==========================================================================
+    std::cout << "Block sizes: the sound does not depend on how the host cuts it up" << std::endl;
+    {
+        // The rig playing, a modulator at work on it (so the parameters move), a whoosh thrown at the start: the
+        // same three seconds whatever the sizes of the blocks the host asks for.
+        const auto render = [&](room::Width width, int recordRate, const std::function<int(int)>& sizeOf, double* cpuPercent = nullptr)
+        {
+            Plug plug(sources, width, recordRate);
+            plug.proc.getMods().connect(0, "aWidth", 0.8f);
+            plug.proc.getMods().connect(2, ParamIDs::space, 0.5f);
+            plug.proc.setPlaying(true);
+            plug.proc.throwWhoosh();
+            const int channels = plug.proc.getTotalNumOutputChannels();
+            const int total = static_cast<int>(3.0 * c_fs);
+            juce::AudioBuffer<float> out(channels, total);
+            juce::AudioBuffer<float> block(channels, 1024);
+            juce::MidiBuffer midi;
+            const double t0 = TestClock::cpuMs();
+            for (int pos = 0, b = 0; pos < total; ++b)
+            {
+                const int n = juce::jlimit(1, juce::jmin(1024, total - pos), sizeOf(b));
+                juce::AudioBuffer<float> part(block.getArrayOfWritePointers(), channels, n);
+                part.clear();
+                plug.proc.processBlock(part, midi);
+                for (int ch = 0; ch < channels; ++ch)
+                    out.copyFrom(ch, pos, part, ch, 0, n);
+                pos += n;
+            }
+            if (cpuPercent != nullptr)
+                *cpuPercent = 100.0 * (TestClock::cpuMs() - t0) / 3000.0;
+            return out;
+        };
+        struct Pattern { const char* name; std::function<int(int)> sizeOf; };
+        juce::Random pick(77);
+        std::vector<int> randomSizes;
+        for (int i = 0; i < 100000; ++i)
+            randomSizes.push_back(1 + pick.nextInt(600));
+        const std::vector<Pattern> patterns {
+            { "1", [](int) { return 1; } }, { "7", [](int) { return 7; } }, { "32", [](int) { return 32; } }, { "37", [](int) { return 37; } },
+            { "64", [](int) { return 64; } }, { "441", [](int) { return 441; } }, { "one of 7 then 512s", [](int b) { return b == 0 ? 7 : 512; } },
+            { "random, 1 to 600", [&randomSizes](int b) { return randomSizes[static_cast<size_t>(b) % randomSizes.size()]; } },
+        };
+        struct Case { room::Width width; int recordRate; };
+        for (const auto& c : { Case { room::Width::Stereo, 0 }, Case { room::Width::Surround714, 0 }, Case { room::Width::Surround51, 96000 } })
+        {
+            const auto reference = render(c.width, c.recordRate, [](int) { return 512; });
+            float worst = 0.0f, peak = 0.0f;
+            juce::String worstWhere;
+            for (int ch = 0; ch < reference.getNumChannels(); ++ch)
+                peak = std::max(peak, maxAbs(reference.getReadPointer(ch), reference.getNumSamples()));
+            for (const auto& pattern : patterns)
+            {
+                const auto out = render(c.width, c.recordRate, pattern.sizeOf);
+                for (int ch = 0; ch < reference.getNumChannels(); ++ch)
+                    if (const float d = maxDiff(out.getReadPointer(ch), reference.getReadPointer(ch), reference.getNumSamples()); d > worst)
+                    {
+                        worst = d;
+                        worstWhere = pattern.name;
+                    }
+            }
+            check(worst == 0.0f && peak > 0.05f,
+                  nameOf(c.width) + (c.recordRate > 0 ? " rendering at 96 kHz" : "") + ": blocks of 1, 7, 32, 37, 64, 441, a first block of 7 and random sizes give the samples blocks of 512 give"
+                      + (worst > 0.0f ? " (apart by " + juce::String(db(worst), 1) + " dB with blocks of " + worstWhere + ")" : juce::String(" (exactly)")));
+        }
+        // And small blocks cost no more: the rig is rendered 32 samples at a time whatever the host asks for.
+        double cost[4] = { 0.0, 0.0, 0.0, 0.0 };
+        const int sizes[4] = { 512, 64, 32, 16 };
+        for (int k = 0; k < 4; ++k)
+        {
+            double best = 1.0e9;
+            for (int rep = 0; rep < 3; ++rep)
+            {
+                double percent = 0.0;
+                const int size = sizes[k];
+                render(room::Width::Surround714, 0, [size](int) { return size; }, &percent);
+                best = std::min(best, percent);
+            }
+            cost[k] = best;
+        }
+        std::cout << "         7.1.4, of a core: blocks of 512 " << juce::String(cost[0], 2) << "%, 64 " << juce::String(cost[1], 2) << "%, 32 " << juce::String(cost[2], 2) << "%, 16 "
+                  << juce::String(cost[3], 2) << "%" << std::endl;
+        check(cost[3] < 1.25 * cost[0] + 0.5, "blocks of 16 cost about what blocks of 512 do (no more than a quarter over)");
+    }
+
+    //==========================================================================
+    std::cout << "Direction on a wire: a modulator decides which way each pass flies, as the pass starts" << std::endl;
+    {
+        // A square LFO wired to bus A's Direction, in Stereo (where Direction is left to right or right to left):
+        // each pass flies the way the LFO stood when it started, forwards over its middle and backwards under it.
+        Plug plug(sources, room::Width::Stereo, 0);
+        plug.setPlain(ParamIDs::modType[0], 0.0f);  // LFO
+        plug.setPlain(ParamIDs::modShape[0], 3.0f); // Square
+        plug.setPlain(ParamIDs::modKnob[0], 0.12f); // slow: a few passes to each half
+        plug.setPlain(ParamIDs::direction[0], 2.0f); // (the wire wins over the menu)
+        plug.setPlain(ParamIDs::passMode[0], 1.0f);
+        plug.proc.getMods().connect(0, ParamIDs::direction[0], 1.0f);
+        plug.proc.setPlaying(true);
+        juce::AudioBuffer<float> block(2, c_block);
+        juce::MidiBuffer midi;
+        int passes = 0, right = 0, forwards = 0, backwards = 0;
+        float lastAge[2] = { 1.0f, 1.0f }, lfoBefore = 0.0f;
+        int started[2] = { 0, 0 }; // how the LFO stood when the head's pass started (+1 / -1), 0 once it has been read
+        for (int b = 0; b < static_cast<int>(90.0 * c_fs / c_block); ++b)
+        {
+            block.clear();
+            plug.proc.processBlock(block, midi);
+            const float lfo = plug.proc.getMods().getSourceValue(0);
+            for (int h = 0; h < 2; ++h)
+            {
+                const auto view = plug.proc.getEngine().getFlightView(h);
+                if (view.age < lastAge[h] - 0.5f) // a new pass (only counted if the LFO did not turn over just then)
+                    started[h] = lfo * lfoBefore > 0.0f ? (lfo > 0.0f ? 1 : -1) : 0;
+                if (started[h] != 0 && view.age > 0.15f && view.age < 0.35f)
+                {
+                    // On its way in a pass that flies left to right is on the left.
+                    const int way = view.x < 0.0f ? 1 : -1;
+                    ++passes;
+                    right += way == started[h] ? 1 : 0;
+                    (way > 0 ? forwards : backwards) += 1;
+                    started[h] = 0;
+                }
+                lastAge[h] = view.age;
+            }
+            lfoBefore = lfo;
+        }
+        check(passes >= 12 && right == passes && forwards >= 3 && backwards >= 3,
+              "a square LFO wired to Direction: " + juce::String(right) + " of " + juce::String(passes) + " passes fly the way it stood as they started (" + juce::String(forwards)
+                  + " left to right, " + juce::String(backwards) + " right to left)");
+        check(ModMatrix::targetIndex(ParamIDs::direction[0]) >= 0 && ModMatrix::targetIndex(ParamIDs::direction[1]) >= 0 && ModMatrix::targetIndex(ParamIDs::stowDirection) >= 0
+                  && ModMatrix::targetIndex(ParamIDs::side[0]) >= 0 && ModMatrix::targetIndex(ParamIDs::side[1]) >= 0 && ModMatrix::targetIndex(ParamIDs::stowSide) >= 0
+                  && ModMatrix::targetIndex(ParamIDs::roomHeight) < ModMatrix::targetIndex(ParamIDs::direction[0]),
+              "Direction and Side of bus A, bus B and Stowaway are modulation targets (added at the end of the list)");
     }
 
     //==========================================================================

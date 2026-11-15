@@ -25,10 +25,10 @@ namespace
         { "Rss", ".Rss", Role::Main,     90.0f,  0.0f,    1.0f,  0.0f, 0.0f, Type::rightSurroundSide, 0x400 },
         { "Lsr", ".Lsr", Role::Main,   -135.0f,  0.0f,   -1.0f, -1.0f, 0.0f, Type::leftSurroundRear,  0x10 },
         { "Rsr", ".Rsr", Role::Main,    135.0f,  0.0f,    1.0f, -1.0f, 0.0f, Type::rightSurroundRear, 0x20 },
-        { "Ltf", ".Ltf", Role::Height,  -45.0f, 45.0f,   -1.0f,  1.0f, 1.0f, Type::topFrontLeft,      0x1000 },
-        { "Rtf", ".Rtf", Role::Height,   45.0f, 45.0f,    1.0f,  1.0f, 1.0f, Type::topFrontRight,     0x4000 },
-        { "Ltr", ".Ltr", Role::Height, -135.0f, 45.0f,   -1.0f, -1.0f, 1.0f, Type::topRearLeft,       0x8000 },
-        { "Rtr", ".Rtr", Role::Height,  135.0f, 45.0f,    1.0f, -1.0f, 1.0f, Type::topRearRight,      0x20000 },
+        { "Ltf", ".Ltf", Role::Height,  -45.0f, 45.0f,   -1.0f,  c_topDepth, 1.0f, Type::topFrontLeft,      0x1000 },
+        { "Rtf", ".Rtf", Role::Height,   45.0f, 45.0f,    1.0f,  c_topDepth, 1.0f, Type::topFrontRight,     0x4000 },
+        { "Ltr", ".Ltr", Role::Height, -135.0f, 45.0f,   -1.0f, -c_topDepth, 1.0f, Type::topRearLeft,       0x8000 },
+        { "Rtr", ".Rtr", Role::Height,  135.0f, 45.0f,    1.0f, -c_topDepth, 1.0f, Type::topRearRight,      0x20000 },
         { "Lts", ".Lts", Role::Height,  -90.0f, 45.0f,   -1.0f,  0.0f, 1.0f, Type::topSideLeft,       0x1000 },
         { "Rts", ".Rts", Role::Height,   90.0f, 45.0f,    1.0f,  0.0f, 1.0f, Type::topSideRight,      0x4000 },
     } };
@@ -111,6 +111,9 @@ namespace
 
         const float g = gain * c_foldStep;
         const bool hasTopMiddle = to.indexOf(S::Lts) >= 0;
+        // To Stereo every ear-level surround goes straight to its side at -3 dB (see the header): not side to
+        // surround to front, 3 dB at each step.
+        const bool toStereo = to.width == Width::Stereo;
         switch (speaker)
         {
             case S::Ltf: route(hasTopMiddle ? S::Lts : S::L, g, to, lfe, column); break;
@@ -120,9 +123,9 @@ namespace
             case S::Lts: route(S::Lss, g, to, lfe, column); break;
             case S::Rts: route(S::Rss, g, to, lfe, column); break;
             case S::Lss:
-            case S::Lsr: route(S::Ls, g, to, lfe, column); break;
+            case S::Lsr: route(toStereo ? S::L : S::Ls, g, to, lfe, column); break;
             case S::Rss:
-            case S::Rsr: route(S::Rs, g, to, lfe, column); break;
+            case S::Rsr: route(toStereo ? S::R : S::Rs, g, to, lfe, column); break;
             case S::Ls:  route(S::L, g, to, lfe, column); break;
             case S::Rs:  route(S::R, g, to, lfe, column); break;
             case S::C:
@@ -388,10 +391,13 @@ void pan(Width width, Position position, const PanSettings& settings, Gains& gai
     {
         const float topPoint = top * point;
         const float topEven = top * spread / m.topSpeakers;
-        const float topFront = m.topRearL >= 0 ? frontOfTwo : 1.0f;
+        // Four tops stand half way to the front and back walls (c_topDepth), not at them: the pair in front has
+        // it all from there forwards, the pair behind from there backwards.
+        const float sTop = std::sin(c_halfPi * clamp11(y / c_topDepth));
+        const float topFront = m.topRearL >= 0 ? 0.5f * (1.0f + sTop) : 1.0f;
         put(gains, m.topFrontL, topPoint * topFront * left + topEven);
         put(gains, m.topFrontR, topPoint * topFront * right + topEven);
-        const float topRear = m.topRearL >= 0 ? rearOfTwo : 0.0f;
+        const float topRear = m.topRearL >= 0 ? 0.5f * (1.0f - sTop) : 0.0f;
         put(gains, m.topRearL, topPoint * topRear * left + topEven);
         put(gains, m.topRearR, topPoint * topRear * right + topEven);
     }
@@ -410,36 +416,37 @@ const char* pathName(Path path) noexcept
     return "";
 }
 
-Flight flight(Path path, float progress, float closeness, float direction, float side) noexcept
+Flight flight(Path path, float progress, float closeness, float direction, float side, float altitude) noexcept
 {
-    const float p = clamp01(progress);
+    // (Around may lap: its progress is not held to 0..1, only to something a sine can take.)
+    const float p = path == Path::Around ? (progress == progress ? std::max(-4.0f, std::min(5.0f, progress)) : 0.0f) : clamp01(progress);
     const float close = clamp01(closeness);
+    const float high = clamp01(altitude);
     const float dir = direction < 0.0f ? -1.0f : 1.0f;
     const float sd = side < 0.0f ? -1.0f : 1.0f;
     const float u = 2.0f * p - 1.0f;
+    const float c = std::cos(c_halfPi * u);
+    const float rise = high * c * c; // up to its altitude at the nearest point, at ear level at the walls
 
     Position at;
     float arch = 0.0f; // how high above the listener the pass really is (Overhead only)
     switch (path)
     {
         case Path::Across:
-            at = { dir * u, 1.0f - 0.75f * close, 0.0f };
+            at = { dir * u, 1.0f - c_acrossNearest * close, rise };
             break;
         case Path::Through:
-            at = { sd * (0.6f - 0.48f * close), -dir * u, 0.0f };
+            at = { sd * (c_throughFar - (c_throughFar - c_throughNear) * close), -dir * u, rise };
             break;
         case Path::Overhead:
-        {
-            const float c = std::cos(c_halfPi * u);
-            at = { sd * 0.3f * (1.0f - close), -dir * u, c * c };
+            at = { sd * 0.3f * (1.0f - close), -dir * u, rise };
             arch = (0.8f - 0.55f * close) * std::sqrt(1.0f - u * u);
             break;
-        }
         case Path::Around:
         {
             const float r = 1.0f - 0.55f * close;
-            const float a = dir * c_twoPi * p + (sd < 0.0f ? 2.0f * c_halfPi : 0.0f);
-            at = { r * std::sin(a), r * std::cos(a), 0.0f };
+            const float a = (sd > 0.0f ? 2.0f * c_halfPi : 0.0f) + dir * c_twoPi * (p - 0.5f);
+            at = { r * std::sin(a), r * std::cos(a), high };
             break;
         }
     }

@@ -460,10 +460,13 @@ namespace
                   && std::string(room::pathName(Path::Overhead)) == "Overhead" && std::string(room::pathName(Path::Around)) == "Around",
               "the four paths are named Across, Through, Overhead, Around");
 
+        // (Overhead with the arch the engine gives it; the others at ear level, as the engine flies them with
+        // Height Varies at 0.)
         const auto at = [](Path path, float progress, float closeness = 0.0f, float direction = 1.0f, float side = 1.0f)
         {
-            return room::flight(path, progress, closeness, direction, side);
+            return room::flight(path, progress, closeness, direction, side, path == Path::Overhead ? room::c_archTop : 0.0f);
         };
+        const double top = room::c_archTop;
         const auto is = [](const room::Flight& f, double x, double y, double z)
         {
             return near(f.position.x, x, 1.0e-5) && near(f.position.y, y, 1.0e-5) && near(f.position.z, z, 1.0e-5);
@@ -473,20 +476,32 @@ namespace
         check(is(at(Path::Across, 0.0f), -1.0, 1.0, 0.0) && is(at(Path::Across, 0.5f), 0.0, 1.0, 0.0) && is(at(Path::Across, 1.0f), 1.0, 1.0, 0.0)
                   && is(at(Path::Across, 0.0f, 0.0f, -1.0f), 1.0, 1.0, 0.0) && is(at(Path::Across, 1.0f, 0.0f, -1.0f), -1.0, 1.0, 0.0),
               "Across: left to right along the front wall; the other direction runs right to left");
-        check(is(at(Path::Across, 0.5f, 1.0f), 0.0, 0.25, 0.0) && is(at(Path::Across, 0.25f, 0.5f), -0.5, 0.625, 0.0)
+        check(is(at(Path::Across, 0.5f, 1.0f), 0.0, 0.5, 0.0) && is(at(Path::Across, 0.25f, 0.5f), -0.5, 0.75, 0.0)
                   && is(at(Path::Across, 0.3f, 0.4f, 1.0f, -1.0f), at(Path::Across, 0.3f, 0.4f).position.x, at(Path::Across, 0.3f, 0.4f).position.y, 0.0),
-              "Across: closeness brings the line from the front wall to a quarter of the way from the listener; side is not used");
+              "Across: closeness brings the line from the front wall to half way to the listener, no nearer; side is not used");
 
         // Through.
         check(is(at(Path::Through, 0.0f), 0.6, 1.0, 0.0) && is(at(Path::Through, 0.5f), 0.6, 0.0, 0.0) && is(at(Path::Through, 1.0f), 0.6, -1.0, 0.0)
-                  && is(at(Path::Through, 0.0f, 0.0f, -1.0f), 0.6, -1.0, 0.0) && is(at(Path::Through, 0.5f, 1.0f, 1.0f, -1.0f), -0.12, 0.0, 0.0),
-              "Through: front wall to back wall past the head, 0.6 out when far and 0.12 when close, on either side; the other direction runs back to front");
+                  && is(at(Path::Through, 0.0f, 0.0f, -1.0f), 0.6, -1.0, 0.0) && is(at(Path::Through, 0.5f, 1.0f, 1.0f, -1.0f), -0.5, 0.0, 0.0),
+              "Through: front wall to back wall past the head, 0.6 out when far and 0.5 when close, on either side; the other direction runs back to front");
 
         // Overhead.
-        check(is(at(Path::Overhead, 0.0f), 0.3, 1.0, 0.0) && is(at(Path::Overhead, 0.5f), 0.3, 0.0, 1.0) && is(at(Path::Overhead, 1.0f), 0.3, -1.0, 0.0)
-                  && is(at(Path::Overhead, 0.25f), 0.3, 0.5, 0.5) && is(at(Path::Overhead, 0.5f, 1.0f, 1.0f, -1.0f), 0.0, 0.0, 1.0)
+        check(is(at(Path::Overhead, 0.0f), 0.3, 1.0, 0.0) && is(at(Path::Overhead, 0.5f), 0.3, 0.0, top) && is(at(Path::Overhead, 1.0f), 0.3, -1.0, 0.0)
+                  && is(at(Path::Overhead, 0.25f), 0.3, 0.5, 0.5 * top) && is(at(Path::Overhead, 0.5f, 1.0f, 1.0f, -1.0f), 0.0, 0.0, top)
                   && is(at(Path::Overhead, 1.0f, 0.0f, -1.0f, -1.0f), -0.3, 1.0, 0.0),
-              "Overhead: an arch from the front wall over the listener to the back wall, on the floor at the walls and at the ceiling overhead");
+              "Overhead: an arch from the front wall over the listener to the back wall, on the floor at the walls and " + num(top, 2) + " of the way to the ceiling overhead");
+        // Height: every path rises to the altitude it is given at its nearest point (Around keeps it all the way).
+        {
+            bool rises = true;
+            for (const auto path : { Path::Across, Path::Through, Path::Overhead })
+                rises = rises && near(room::flight(path, 0.5f, 0.3f, 1.0f, 1.0f, 0.4f).position.z, 0.4, 1.0e-6) && near(room::flight(path, 0.0f, 0.3f, 1.0f, 1.0f, 0.4f).position.z, 0.0, 1.0e-6)
+                        && near(room::flight(path, 1.0f, 0.3f, 1.0f, 1.0f, 0.4f).position.z, 0.0, 1.0e-6) && near(room::flight(path, 0.25f, 0.3f, 1.0f, 1.0f, 0.4f).position.z, 0.2, 1.0e-6)
+                        && near(room::flight(path, 0.5f, 0.3f, 1.0f, 1.0f, 7.0f).position.z, 1.0, 1.0e-6) && near(room::flight(path, 0.5f, 0.3f, 1.0f, 1.0f, -2.0f).position.z, 0.0, 1.0e-6);
+            for (const float p : { 0.0f, 0.3f, 0.5f, 1.0f })
+                rises = rises && near(room::flight(Path::Around, p, 0.3f, 1.0f, 1.0f, 0.4f).position.z, 0.4, 1.0e-6);
+            check(rises && near(room::flight(Path::Across, 0.5f, 0.3f, 1.0f, 1.0f).position.z, 0.0),
+                  "height: a pass is at its altitude at its nearest point and at ear level at the walls (Around: all the way round); none asked for is ear level");
+        }
 
         // Around.
         check(is(at(Path::Around, 0.0f), 0.0, 1.0, 0.0) && is(at(Path::Around, 0.25f), 1.0, 0.0, 0.0) && is(at(Path::Around, 0.5f), 0.0, -1.0, 0.0)
@@ -495,6 +510,11 @@ namespace
         check(is(at(Path::Around, 0.25f, 0.0f, -1.0f), -1.0, 0.0, 0.0) && is(at(Path::Around, 0.0f, 0.0f, 1.0f, -1.0f), 0.0, -1.0, 0.0)
                   && is(at(Path::Around, 0.25f, 0.0f, 1.0f, -1.0f), -1.0, 0.0, 0.0) && is(at(Path::Around, 0.25f, 1.0f), 0.45, 0.0, 0.0),
               "Around: the other direction goes by the left first; the other side starts behind; the closest circle has radius 0.45");
+        check(is(at(Path::Around, 0.5f, 0.0f, 1.0f, 1.0f), 0.0, -1.0, 0.0) && is(at(Path::Around, 0.5f, 0.0f, -1.0f, 1.0f), 0.0, -1.0, 0.0)
+                  && is(at(Path::Around, 0.5f, 0.0f, 1.0f, -1.0f), 0.0, 1.0, 0.0) && is(at(Path::Around, 0.5f, 0.0f, -1.0f, -1.0f), 0.0, 1.0, 0.0),
+              "Around: half way through it is straight behind (one side) or straight ahead (the other), whichever way it turns");
+        check(is(at(Path::Around, 1.25f), 1.0, 0.0, 0.0) && is(at(Path::Around, -0.25f), -1.0, 0.0, 0.0) && is(at(Path::Around, 1.5f), 0.0, -1.0, 0.0),
+              "Around: progress past the ends carries on round (a pass may lap)");
 
         // Every path: inside the room, no jumps, clamped ends, mirrored by side, distance as documented.
         bool inside = true, clamped = true, sidesMirror = true, distanceOk = true;
@@ -526,9 +546,10 @@ namespace
                         }
                         const auto under = room::flight(path, -3.0f, closeness, direction, side), start = room::flight(path, 0.0f, closeness, direction, side);
                         const auto over = room::flight(path, 4.0f, closeness, direction, side), end = room::flight(path, 1.0f, closeness, direction, side);
-                        clamped = clamped && is(under, start.position.x, start.position.y, start.position.z) && is(over, end.position.x, end.position.y, end.position.z);
+                        if (path != Path::Around) // (Around laps: checked above)
+                            clamped = clamped && is(under, start.position.x, start.position.y, start.position.z) && is(over, end.position.x, end.position.y, end.position.z);
                     }
-        check(inside && clamped, "every path stays inside the room, and progress outside 0..1 holds at the ends");
+        check(inside && clamped, "every path stays inside the room, and progress outside 0..1 holds at the ends (but Around's)");
         {
             const float nan = std::numeric_limits<float>::quiet_NaN();
             bool sane = true;
@@ -552,7 +573,7 @@ namespace
             for (const float closeness : { 0.2f, 0.6f, 1.0f })
                 for (int i = 0; i <= 100; ++i)
                     nearestInMiddle = nearestInMiddle && at(path, static_cast<float>(i) / 100.0f, closeness).distance >= at(path, 0.5f, closeness).distance - 1.0e-6f;
-            check(nearestInMiddle && closeMid < 0.5 * farMid && at(path, 0.0f, 1.0f).distance > 2.0 * closeMid,
+            check(nearestInMiddle && closeMid < farMid - 0.05 && at(path, 0.0f, 1.0f).distance > 2.0 * closeMid,
                   std::string(room::pathName(path)) + ": nearest half way through; " + num(farMid) + " away for a far pass, " + num(closeMid) + " for the closest");
         }
         {
@@ -599,9 +620,55 @@ namespace
                     peak = p;
                     peakAt = i;
                 }
-            check(peakAt == 50 && near(peak, 1.0, 1.0e-5) && groupPower(w, at(Path::Overhead, 0.0f), tops) < 1.0e-12 && groupPower(w, at(Path::Overhead, 1.0f), tops) < 1.0e-12
-                      && near(groupPower(w, at(Path::Overhead, 0.0f), fronts), 1.0, 1.0e-5) && near(groupPower(w, at(Path::Overhead, 1.0f), rears), 1.0, 1.0e-5),
-                  name(w) + ": Overhead starts in the front speakers, is in the tops alone overhead, and ends in the rear ones");
+            // Overhead: the tops have nearly all of it at the top of the arch, never all (the side speakers the
+            // rest), and the ear-level speakers carry it up from the front and down behind.
+            check(peakAt == 50 && peak > 0.9 && peak < 0.97 && near(groupPower(w, at(Path::Overhead, 0.5f), sides), 1.0 - peak, 1.0e-5)
+                      && groupPower(w, at(Path::Overhead, 0.0f), tops) < 1.0e-12 && groupPower(w, at(Path::Overhead, 1.0f), tops) < 1.0e-12
+                      && near(groupPower(w, at(Path::Overhead, 0.0f), fronts), 1.0, 1.0e-5) && near(groupPower(w, at(Path::Overhead, 1.0f), rears), 1.0, 1.0e-5)
+                      && groupPower(w, at(Path::Overhead, 0.25f), fronts) > 0.3 && groupPower(w, at(Path::Overhead, 0.75f), rears) > 0.3,
+                  name(w) + ": Overhead starts in the front speakers, has " + std::to_string(std::lround(100.0 * peak)) + "% in the tops overhead (the sides the rest), and ends in the rear ones");
+        }
+        {
+            // The four tops: the pair in front has nearly all of what is overhead a third of the way back from the
+            // front wall, the pair behind as far from the back (they stand half way to the walls).
+            const auto f = at(Path::Overhead, 0.35f), b = at(Path::Overhead, 0.65f);
+            const double ahead = toDb(std::sqrt(groupPower(Width::Surround714, f, { S::Ltf, S::Rtf }) / groupPower(Width::Surround714, f, { S::Ltr, S::Rtr })));
+            const double behind = toDb(std::sqrt(groupPower(Width::Surround714, b, { S::Ltr, S::Rtr }) / groupPower(Width::Surround714, b, { S::Ltf, S::Rtf })));
+            check(ahead > 9.0 && behind > 9.0 && near(ahead, behind, 1.0e-3),
+                  "7.1.4: overhead the sound is heard to travel: 0.3 in front of the listener the front tops are " + num(ahead, 1) + " dB over the rear ones (over 9), and as far behind the other way");
+            bool whole = true;
+            for (int iy = -20; iy <= 20; ++iy)
+            {
+                const auto g = panned(Width::Surround714, 0.2f, static_cast<float>(iy) / 20.0f, 1.0f, 0.0f, 0.0f);
+                double pw = 0.0;
+                for (const float v : g)
+                    pw += static_cast<double>(v) * v;
+                whole = whole && near(pw, 1.0, 1.0e-5);
+            }
+            check(whole && near(groupPower(Width::Surround714, room::Flight { { 0.0f, 0.5f, 1.0f }, 1.0f }, { S::Ltf, S::Rtf }), 1.0, 1.0e-5)
+                      && near(groupPower(Width::Surround714, room::Flight { { 0.0f, -0.7f, 1.0f }, 1.0f }, { S::Ltr, S::Rtr }), 1.0, 1.0e-5)
+                      && near(groupPower(Width::Surround714, room::Flight { { 0.0f, 0.0f, 1.0f }, 1.0f }, { S::Ltf, S::Rtf }), 0.5, 1.0e-5),
+                  "7.1.4: the front tops have all of it from half way to the front wall on, the rear tops from half way back, and the power is whole all the way");
+        }
+        {
+            // Across where there are side speakers: never less than half in front, whatever the closeness (it
+            // was 15% for the closest pass), and Through well out to its own side however close.
+            double least71 = 1.0, least51 = 1.0, leastSide = 1.0;
+            for (int i = 0; i <= 20; ++i)
+            {
+                const float closeness = static_cast<float>(i) / 20.0f;
+                for (int k = 0; k <= 40; ++k)
+                {
+                    const auto f = at(Path::Across, static_cast<float>(k) / 40.0f, closeness);
+                    least71 = std::min(least71, groupPower(Width::Surround71, f, fronts));
+                    least51 = std::min(least51, groupPower(Width::Surround51, f, fronts));
+                }
+                leastSide = std::min({ leastSide, groupPower(Width::Surround71, at(Path::Through, 0.5f, closeness), rights), groupPower(Width::Surround71, at(Path::Through, 0.5f, closeness, 1.0f, -1.0f), lefts),
+                                       groupPower(Width::Surround51, at(Path::Through, 0.2f, closeness), rights) });
+            }
+            check(least71 >= 0.5 - 1.0e-6 && least51 > 0.85,
+                  "Across is in front at every closeness: at least " + std::to_string(std::lround(100.0 * least71)) + "% in the front speakers at 7.1 (half or more), " + std::to_string(std::lround(100.0 * least51)) + "% at 5.1");
+            check(leastSide > 0.85, "Through passes one side of the head however close it is: at least " + std::to_string(std::lround(100.0 * leastSide)) + "% on its own side (over 85%)");
         }
         check(groupPower(Width::Surround714, at(Path::Overhead, 0.35f), { S::Ltf, S::Rtf }) > groupPower(Width::Surround714, at(Path::Overhead, 0.35f), { S::Ltr, S::Rtr })
                   && groupPower(Width::Surround714, at(Path::Overhead, 0.65f), { S::Ltr, S::Rtr }) > groupPower(Width::Surround714, at(Path::Overhead, 0.65f), { S::Ltf, S::Rtf }),
@@ -680,13 +747,16 @@ namespace
         // Wider folds: the steps in a row.
         pin(Width::Surround714, Width::Surround51,
             "L = 1.000 L 0.707 Ltf; R = 1.000 R 0.707 Rtf; C = 1.000 C; LFE = 1.000 LFE; Ls = 0.707 Lss 0.500 Ltr 0.707 Lsr; Rs = 0.707 Rss 0.500 Rtr 0.707 Rsr; ");
+        // To Stereo: every ear-level surround straight to its side at -3 dB, as ITU-R BS.775 folds the surrounds
+        // of 5.1 (not side to surround to front, 3 dB at each step); a top by way of the speaker under it.
+        pin(Width::Surround71, Width::Stereo, "L = 1.000 L 0.707 C 0.707 Lss 0.707 Lsr; R = 1.000 R 0.707 C 0.707 Rss 0.707 Rsr; ");
         pin(Width::Surround714, Width::Stereo,
-            "L = 1.000 L 0.707 C 0.500 Lss 0.707 Ltf 0.354 Ltr 0.500 Lsr; R = 1.000 R 0.707 C 0.500 Rss 0.707 Rtf 0.354 Rtr 0.500 Rsr; ");
+            "L = 1.000 L 0.707 C 0.707 Lss 0.707 Ltf 0.500 Ltr 0.707 Lsr; R = 1.000 R 0.707 C 0.707 Rss 0.707 Rtf 0.500 Rtr 0.707 Rsr; ");
         pin(Width::Surround712, Width::Stereo,
-            "L = 1.000 L 0.707 C 0.500 Lss 0.500 Lsr 0.354 Lts; R = 1.000 R 0.707 C 0.500 Rss 0.500 Rsr 0.354 Rts; ");
+            "L = 1.000 L 0.707 C 0.707 Lss 0.707 Lsr 0.500 Lts; R = 1.000 R 0.707 C 0.707 Rss 0.707 Rsr 0.500 Rts; ");
         pin(Width::Surround51, Width::Mono, "C = 0.500 L 0.500 R 0.707 C 0.354 Ls 0.354 Rs; ");
         pin(Width::Surround51, Width::Stereo, "L = 1.000 L 0.707 C 0.707 LFE 0.707 Ls; R = 1.000 R 0.707 C 0.707 LFE 0.707 Rs; ", LfeFold::IntoFronts);
-        pin(Width::Surround71, Width::Mono, "C = 0.500 L 0.500 R 0.707 C 0.707 LFE 0.250 Lss 0.250 Rss 0.250 Lsr 0.250 Rsr; ", LfeFold::IntoFronts);
+        pin(Width::Surround71, Width::Mono, "C = 0.500 L 0.500 R 0.707 C 0.707 LFE 0.354 Lss 0.354 Rss 0.354 Lsr 0.354 Rsr; ", LfeFold::IntoFronts);
 
         // Every pair: sizes, the identity, the LFE, mirror symmetry, and steps in a row give the same matrix.
         bool sizes = true, identity = true, lfeKept = true, lfeDropped = true, lfeFolded = true, mirror = true, noUpmix = true, exact = true, canOk = true;
@@ -744,6 +814,9 @@ namespace
 
         // Steps in a row: folding by way of any width in between gives the same matrix, as long as the tops go
         // straight to the bed (by way of 7.1.2 they would land in the sides instead, so that way is left out).
+        // Not to Stereo or Mono from 7.1 and wider: there the side and rear surrounds go straight to L and R at
+        // -3 dB, where by way of 5.1 they would lose 3 dB twice (a pass beside or behind the listener came out
+        // 6 dB down). That is checked on its own below.
         double worstChain = 0.0;
         for (const Width from : c_widths)
             for (const Width via : c_widths)
@@ -752,6 +825,9 @@ namespace
                     if (! (static_cast<int>(to) < static_cast<int>(via) && static_cast<int>(via) < static_cast<int>(from)))
                         continue;
                     if (from == Width::Surround714 && via == Width::Surround712)
+                        continue;
+                    if (static_cast<int>(to) <= static_cast<int>(Width::Stereo) && static_cast<int>(from) >= static_cast<int>(Width::Surround71)
+                        && static_cast<int>(via) < static_cast<int>(Width::Surround71) && via != Width::Stereo)
                         continue;
                     const auto& a = room::fold(from, via);
                     const auto& b = room::fold(via, to);
@@ -766,6 +842,29 @@ namespace
                         }
                 }
         check(worstChain < 1.0e-6, "a fold by way of a width in between is the same as the fold straight there (worst difference " + num(worstChain, 8) + ")");
+        {
+            // To Stereo: one sound in one ear-level surround, whichever it is and whatever the width, comes out
+            // 3 dB down and no more; one in a top that has a front speaker under it the same, any other top 6 dB.
+            bool surrounds = true, topsOk = true;
+            for (const Width from : { Width::Quad, Width::Surround51, Width::Surround71, Width::Surround712, Width::Surround714 })
+            {
+                const auto& m = room::fold(from, Width::Stereo);
+                const auto& in = room::layout(from);
+                for (int c = 0; c < in.numChannels; ++c)
+                {
+                    const S speaker = in.speakers[static_cast<size_t>(c)];
+                    const double pw = static_cast<double>(m.gain[0][static_cast<size_t>(c)]) * m.gain[0][static_cast<size_t>(c)]
+                                    + static_cast<double>(m.gain[1][static_cast<size_t>(c)]) * m.gain[1][static_cast<size_t>(c)];
+                    if (speaker == S::Ls || speaker == S::Rs || speaker == S::Lss || speaker == S::Rss || speaker == S::Lsr || speaker == S::Rsr)
+                        surrounds = surrounds && near(pw, 0.5, 1.0e-6);
+                    if (speaker == S::Ltf || speaker == S::Rtf)
+                        topsOk = topsOk && near(pw, 0.5, 1.0e-6);
+                    if (speaker == S::Ltr || speaker == S::Rtr || speaker == S::Lts || speaker == S::Rts)
+                        topsOk = topsOk && near(pw, 0.25, 1.0e-6);
+                }
+            }
+            check(surrounds && topsOk, "to Stereo a sound in any one surround speaker is 3 dB down at every width (as ITU folds 5.1), in a front top 3 dB, in any other top 6 dB");
+        }
 
         // applyFold does what the matrix says.
         {

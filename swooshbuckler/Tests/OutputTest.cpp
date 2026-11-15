@@ -938,7 +938,7 @@ int main(int argc, char* argv[])
             { "Overhead", [](Plug& p) { p.setPlain(ParamIDs::flightPath[0], 2.0f); p.setPlain(ParamIDs::flightPath[1], 2.0f); } },
             { "Around", [](Plug& p) { p.setPlain(ParamIDs::flightPath[0], 3.0f); p.setPlain(ParamIDs::flightPath[1], 3.0f); } },
             { "Around, Doppler 10%", [](Plug& p) { p.setPlain(ParamIDs::flightPath[0], 3.0f); p.setPlain(ParamIDs::flightPath[1], 3.0f); p.setPlain("aDoppler", 0.1f); p.setPlain("bDoppler", 0.1f); } },
-            { "Around, Doppler 100%", [](Plug& p) { p.setPlain(ParamIDs::flightPath[0], 3.0f); p.setPlain(ParamIDs::flightPath[1], 3.0f); p.setPlain("aDoppler", 1.0f); p.setPlain("bDoppler", 1.0f); }, false },
+            { "Around, Doppler 100%", [](Plug& p) { p.setPlain(ParamIDs::flightPath[0], 3.0f); p.setPlain(ParamIDs::flightPath[1], 3.0f); p.setPlain("aDoppler", 1.0f); p.setPlain("bDoppler", 1.0f); } },
             { "Spread 100%", [](Plug& p) { p.setPlain(ParamIDs::roomSpread, 1.0f); } },
             { "Centre Speaker on", [](Plug& p) { p.setPlain(ParamIDs::roomCentre, 1.0f); } },
             { "Space 70%", [](Plug& p) { p.setPlain(ParamIDs::space, 0.7f); } },
@@ -991,9 +991,9 @@ int main(int argc, char* argv[])
         }
         std::cout << "         furthest from Stereo: " << num(worst, 2) << " dB (" << worstWhere << "); as plain power " << num(worstPlain, 2) << " dB" << std::endl;
         // The plain power is the room's doing; the weighted reading is higher wherever sound is in the surrounds,
-        // which BS.1770 counts 1.5 dB up (Ls / Rs, the sides). Around with Doppler at 100% is not held: Doppler
-        // brings a pass nearer, and a pass going Around stays that near (as loud, as bright) all the way round,
-        // where a crossing pass is only there for a moment.
+        // which BS.1770 counts 1.5 dB up (Ls / Rs, the sides). Around is held at every Doppler: a pass going
+        // Around holds the level and the brightness a crossing pass has on average over its swell (it was 1.9 dB
+        // over Stereo with Doppler at 100%, held as near and as bright as a crossing pass is for a moment).
         check(worstPlain < 0.5, "every room carries the Stereo render's power at the same settings (within 0.5 dB)");
         check(worst < 1.5, "and reads within 1.5 dB of its loudness (the surrounds count 1.5 dB up in a loudness reading)");
     }

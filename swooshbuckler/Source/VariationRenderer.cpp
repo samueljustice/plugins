@@ -610,6 +610,12 @@ int VariationRenderer::renderOne(int index, int& first, int& closest, juce::Stri
     flight.nearer = (c_nearerAtNoChaos + (1.0f - c_nearerAtNoChaos) * chaos) * (2.0f * random.nextFloat() - 1.0f);
     flight.ridden = true;
     const auto moment = static_cast<std::uint32_t>(random.nextInt()) | 1u;
+    // Which way it flies, which side of you it takes and how high it goes: drawn here, take by take, so a batch
+    // has some of each (a rig that has just been made would draw the same for every file). Bus A's Direction and
+    // Side, where they are set, are kept. (Drawn after everything else, so nothing else about a take depends on them.)
+    flight.direction = random.nextBool() ? 1 : -1;
+    flight.side = random.nextBool() ? 1 : -1;
+    flight.lift = random.nextFloat();
 
     // What the file says about itself, the most telling first (a WAV file's BWF description keeps 256 bytes): which
     // variation of which batch, the width and the room, how it was made, then every setting it was made with.
@@ -617,6 +623,25 @@ int VariationRenderer::renderOne(int index, int& first, int& closest, juce::Stri
                 + ", Batch " + juce::String(m_job.batchSeed) + ", " + room::layout(m_job.width).name + ".";
     if (const auto roomText = rig.describeRoom(m_job.width); roomText.isNotEmpty())
         description << " " << roomText;
+    if (! ride)
+    {
+        // Which way this whoosh flies (and which side it takes, in a room), unless a modulator decides.
+        auto choice = [&rig](const char* id) { return juce::roundToInt(rig.getState().getRawParameterValue(id)->load()); };
+        const bool inRoom = room::layout(m_job.width).numChannels > 2;
+        const int path = inRoom ? choice(ParamIDs::flightPath[0]) : 0; // Stereo: every pass crosses from side to side
+        const int way = choice(ParamIDs::direction[0]) != ParamIDs::DirectionRandom ? choice(ParamIDs::direction[0])
+                      : flight.direction > 0 ? ParamIDs::DirectionForwards : ParamIDs::DirectionBackwards;
+        const int which = choice(ParamIDs::side[0]) != ParamIDs::SideRandom ? choice(ParamIDs::side[0])
+                        : flight.side > 0 ? ParamIDs::SideRight : ParamIDs::SideLeft;
+        const auto& mods = rig.getMods();
+        if (m_job.width != room::Width::Mono && ! mods.hasWireTo(ParamIDs::direction[0]))
+        {
+            description << " This whoosh: " << Params::directionLabel(path, way);
+            if (inRoom && Params::sideLabel(path, which) != nullptr && ! mods.hasWireTo(ParamIDs::side[0]))
+                description << ", " << Params::sideLabel(path, which);
+            description << ".";
+        }
+    }
     description << " " << describeHow() << ". Preset: " << preset << ". " << describeSettings();
 
     rig.prepareOffline(m_job.rate, engineSeed, m_job.width); // natively in the room asked for

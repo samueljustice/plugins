@@ -52,6 +52,18 @@ SwooshbucklerAudioProcessor::SwooshbucklerAudioProcessor(juce::PropertiesFile* o
     m_raw.roomSpread = raw(ParamIDs::roomSpread);
     m_raw.roomHeight = raw(ParamIDs::roomHeight);
     m_raw.roomCentre = raw(ParamIDs::roomCentre);
+    m_raw.roomHeightVaries = raw(ParamIDs::roomHeightVaries);
+    for (int b = 0; b < ParamIDs::numBuses; ++b)
+    {
+        m_raw.direction[b] = raw(ParamIDs::direction[b]);
+        m_raw.side[b] = raw(ParamIDs::side[b]);
+        m_directionTarget[b] = ModMatrix::targetIndex(ParamIDs::direction[b]);
+        m_sideTarget[b] = ModMatrix::targetIndex(ParamIDs::side[b]);
+    }
+    m_raw.stowDirection = raw(ParamIDs::stowDirection);
+    m_raw.stowSide = raw(ParamIDs::stowSide);
+    m_directionTarget[ParamIDs::numBuses] = ModMatrix::targetIndex(ParamIDs::stowDirection);
+    m_sideTarget[ParamIDs::numBuses] = ModMatrix::targetIndex(ParamIDs::stowSide);
     m_raw.roomLfeMode = raw(ParamIDs::roomLfeMode);
     m_raw.roomLfeLevel = raw(ParamIDs::roomLfeLevel);
     m_raw.stowOn = raw(ParamIDs::stowOn);
@@ -200,6 +212,10 @@ void SwooshbucklerAudioProcessor::prepareToPlay(double sampleRate, int samplesPe
         m_trimGain.setCurrentAndTargetValue(trimDb <= -59.9f ? 1.0e-4f : juce::Decibels::decibelsToGain(trimDb));
     }
     m_blockSize = juce::jmax(256, samplesPerBlock);
+    m_carry = 0;
+    m_sinceControl = 0;
+    m_followSquares = 0.0;
+    m_followSamples = 0;
     m_mods.prepare(sampleRate); // the modulators run once per device block
     m_outRing.prepare(sampleRate);
     // A host that prepares again and plays straight on (a bounce) is a transport start too: the ride begins from its
@@ -353,6 +369,17 @@ void SwooshbucklerAudioProcessor::publishModViews()
         if (m_mods.isWired(t))
             m_mods.publishTarget(t, juce::jlimit(0.0f, 1.0f, m_modTargets[i].param->convertTo0to1(m_modTargets[i].raw->load()) + m_mods.offset(t)));
     }
+    publishDirectionViews();
+}
+
+void SwooshbucklerAudioProcessor::publishDirectionViews()
+{
+    // A wired Direction or Side shows the choice its modulator makes right now (the second or the third of the
+    // three: forwards or backwards, left or right), not a place between two choices.
+    for (const auto* targets : { m_directionTarget, m_sideTarget })
+        for (int k = 0; k <= ParamIDs::numBuses; ++k)
+            if (const int t = targets[k]; t >= 0 && m_mods.isWired(t))
+                m_mods.publishTarget(t, m_mods.centred(t) >= 0.0f ? 0.5f : 1.0f);
 }
 
 void SwooshbucklerAudioProcessor::runModulators(int numSamples)
@@ -419,11 +446,26 @@ void SwooshbucklerAudioProcessor::updateEngineParams()
         d.key = get(ParamIDs::Key);
         d.passMode = juce::jlimit(0, 1, juce::roundToInt(m_raw.passMode[b]->load()));
         d.path = juce::jlimit(0, ParamIDs::numFlightPaths - 1, juce::roundToInt(m_raw.flightPath[b]->load()));
+        // Direction and Side: the choice, and where a modulator wired to it stands (it decides as a pass starts).
+        d.direction = juce::jlimit(0, ParamIDs::numDirections - 1, juce::roundToInt(m_raw.direction[b]->load()));
+        d.side = juce::jlimit(0, ParamIDs::numDirections - 1, juce::roundToInt(m_raw.side[b]->load()));
+        d.directionWired = m_mods.isWired(m_directionTarget[b]);
+        d.directionMod = m_mods.centred(m_directionTarget[b]);
+        d.sideWired = m_mods.isWired(m_sideTarget[b]);
+        d.sideMod = m_mods.centred(m_sideTarget[b]);
     }
+    p.stow.direction = juce::jlimit(0, ParamIDs::numDirections - 1, juce::roundToInt(m_raw.stowDirection->load()));
+    p.stow.side = juce::jlimit(0, ParamIDs::numDirections - 1, juce::roundToInt(m_raw.stowSide->load()));
+    p.stow.directionWired = m_mods.isWired(m_directionTarget[ParamIDs::numBuses]);
+    p.stow.directionMod = m_mods.centred(m_directionTarget[ParamIDs::numBuses]);
+    p.stow.sideWired = m_mods.isWired(m_sideTarget[ParamIDs::numBuses]);
+    p.stow.sideMod = m_mods.centred(m_sideTarget[ParamIDs::numBuses]);
     static_assert(ParamIDs::numFlightPaths == room::c_numPaths, "the same Flight Paths");
     p.stow.path = juce::jlimit(0, ParamIDs::numFlightPaths - 1, juce::roundToInt(m_raw.stowFlightPath->load()));
     p.roomSpread = modValue(m_raw.roomSpread);
+    publishDirectionViews();
     p.roomHeight = modValue(m_raw.roomHeight);
+    p.roomHeightVaries = m_raw.roomHeightVaries->load();
     p.roomCentre = m_raw.roomCentre->load() > 0.5f;
     static_assert(ParamIDs::numLfeModes == RigEngine::c_lfeModes, "the same LFE modes"); // (the levels: checked by the SpaceLfe test)
     p.lfeMode = juce::jlimit(0, ParamIDs::numLfeModes - 1, juce::roundToInt(m_raw.roomLfeMode->load()));
@@ -570,6 +612,8 @@ void SwooshbucklerAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
         m_drainLeft -= n;
     if (! playing && m_transportGain <= 0.0f && m_drainLeft <= 0)
     {
+        m_carry = 0;        // (silence: the rig has rung out) the stream's grid starts again when it wakes
+        m_sinceControl = 0;
         // The tape isn't fed while the rig rests: Skip Silence's gate closes here, not at the next Play.
         if (! m_tapeRested)
             m_tapeRested = m_offline || m_recorder.rest();
@@ -599,6 +643,7 @@ void SwooshbucklerAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
         m_restartPending.store(false);
         m_engine.restartSeeded();
         m_mods.reset();
+        m_sinceControl = 0; // the modulators' grid starts again with them
         m_wanderOn = false; // the wander sets off again from where the X / Y controls are
         m_wanderBlend = 0.0f;
         m_morphX = m_raw.morphX->load();
@@ -609,12 +654,16 @@ void SwooshbucklerAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
     if (m_uiThrows.exchange(0) > 0)
         m_engine.throwWhoosh(0, -1.0f, m_offlineFlight); // as close as the bus draws it
 
-    // Hosts may send more than the prepared block size (offline / freewheel). Never reallocate here: work in
-    // sections of the prepared size instead.
-    // Sections are also capped so the modulators (and the parameters they move) update at least every 512 samples,
-    // so an offline bounce with huge blocks sounds like realtime playback.
-    const int maxSection = juce::jmin(m_work.getNumSamples(), c_maxSection);
-    if (maxSection <= 0)
+    // THE STREAM'S OWN GRID. The rig is rendered a quantum (c_quantum samples) at a time, counted from when it woke,
+    // not from the start of the host's block: what is left of a quantum when the host's block ends is played at the
+    // start of the next one. The modulators, the wander and the parameters they move are updated every
+    // c_maxSection samples of that same stream. So the sound does not depend on the size of the host's blocks
+    // (odd sizes, blocks split at loop points or by automation, one sample at a time), and a tiny block costs no
+    // more than a quantum's share. A host whose blocks are multiples of the quantum never has anything left over.
+    // (A key or a parameter change that arrives inside a quantum already rendered acts at the start of the next:
+    // at most c_quantum - 1 samples late, and only in a host whose blocks are not multiples of it.)
+    static_assert(c_maxSection % c_quantum == 0, "the modulators are updated on a quantum's edge");
+    if (m_work.getNumSamples() < c_quantum)
     {
         buffer.clear();
         return;
@@ -626,20 +675,57 @@ void SwooshbucklerAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
     std::array<float*, room::c_maxChannels> work {};
     for (int ch = 0; ch < pipe; ++ch)
         work[static_cast<size_t>(ch)] = m_work.getWritePointer(ch);
-    for (int start = 0; start < n; start += maxSection)
+    auto nextEvent = midi.cbegin();
+    for (int start = 0; start < n;)
     {
-        const int len = juce::jmin(maxSection, n - start);
-        runModulators(len);
-        runWander(len);
+        // What is left of the last quantum first.
+        if (m_carry > 0)
+        {
+            const int take = juce::jmin(m_carry, n - start), from = c_quantum - m_carry;
+            if (outChannels == 1 && pipe == 2) // Mono, folded from Stereo
+            {
+                buffer.copyFrom(0, start, m_work, 0, from, take);
+                buffer.addFrom(0, start, m_work, 1, from, take);
+                buffer.applyGain(0, start, take, 0.5f);
+            }
+            else
+            {
+                for (int ch = 0; ch < outChannels; ++ch)
+                {
+                    if (ch < pipe)
+                        buffer.copyFrom(ch, start, m_work, ch, from, take);
+                    else
+                        buffer.clear(ch, start, take);
+                }
+            }
+            m_carry -= take;
+            start += take;
+            continue;
+        }
 
-        // The keys of this section (a thrown whoosh starts at its note's own sample).
-        for (const auto meta : midi)
-            if (meta.samplePosition >= start && meta.samplePosition < start + len)
-                handleMidi(meta.getMessage(), meta.samplePosition - start, true);
-        updateEngineParams();
+        const int len = c_quantum;
+        const bool control = m_sinceControl <= 0; // the modulators and the parameters: every c_maxSection samples
+        if (control)
+        {
+            runModulators(c_maxSection);
+            runWander(c_maxSection);
+            m_sinceControl = c_maxSection;
+        }
+        m_sinceControl -= len;
 
-        const float* inL = inputChannels > 0 ? buffer.getReadPointer(0, start) : nullptr;
-        const float* inR = inputChannels > 1 ? buffer.getReadPointer(1, start) : nullptr;
+        // The keys of this quantum (a thrown whoosh starts at its note's own sample), and any that arrived inside
+        // what was already rendered.
+        for (; nextEvent != midi.cend() && (*nextEvent).samplePosition < start + len; ++nextEvent)
+        {
+            handleMidi((*nextEvent).getMessage(), juce::jmax(0, (*nextEvent).samplePosition - start), true);
+            m_keysMoved = true; // a key sets pitches: the engine has them before this quantum is rendered
+        }
+        if (control || m_keysMoved)
+            updateEngineParams();
+        m_keysMoved = false;
+        juce::ignoreUnused(inputChannels);
+        const float* const inL = nullptr; // sample-based: the plug-in has no audio input
+        const float* const inR = nullptr;
 
         if (m_renderRate <= m_deviceRate + 0.5)
         {
@@ -709,23 +795,7 @@ void SwooshbucklerAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
             }
         }
 
-        // Output: the pipe's channels as they are (a host's bus is the room's width), or Mono folded from Stereo.
-        if (outChannels == 1 && pipe == 2)
-        {
-            buffer.copyFrom(0, start, m_work, 0, 0, len);
-            buffer.addFrom(0, start, m_work, 1, 0, len);
-            buffer.applyGain(0, start, len, 0.5f);
-        }
-        else
-        {
-            for (int ch = 0; ch < outChannels; ++ch)
-            {
-                if (ch < pipe)
-                    buffer.copyFrom(ch, start, m_work, ch, 0, len);
-                else
-                    buffer.clear(ch, start, len);
-            }
-        }
+        m_carry = len; // played by the top of the loop, as far as the host's block goes
 
         // Scope + meter
         int w = m_scopeWrite.load(std::memory_order_relaxed);
@@ -739,18 +809,33 @@ void SwooshbucklerAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
             w = (w + 1) & (c_scopeSize - 1);
         }
         m_scopeWrite.store(w, std::memory_order_release);
-        m_followerLevels[ModMatrix::FollowOutput] = static_cast<float>(std::sqrt(preTrimSquares / juce::jmax(1, len)));
-        const auto sections = m_engine.takeSectionLevels();
-        m_followerLevels[ModMatrix::FollowBusA] = sections[0];
-        m_followerLevels[ModMatrix::FollowBusB] = sections[1];
-        m_followerLevels[ModMatrix::FollowHits] = sections[2];
-        m_followerLevels[ModMatrix::FollowStow] = sections[RigEngine::SectionStow];
-        const auto& master = m_engine.getMasterFollow();
-        m_followerLevels[ModMatrix::FollowMaster] = master[0];
-        m_followerLevels[ModMatrix::FollowMasterPitch] = master[1];
-        m_followerLevels[ModMatrix::FollowMasterBright] = master[2];
+        // The Followers hear the rig a section at a time (the levels over the last c_maxSection samples).
+        m_followSquares += preTrimSquares;
+        m_followSamples += len;
+        if (m_sinceControl <= 0)
+        {
+            m_followerLevels[ModMatrix::FollowOutput] = static_cast<float>(std::sqrt(m_followSquares / juce::jmax(1, m_followSamples)));
+            m_followSquares = 0.0;
+            m_followSamples = 0;
+            const auto sections = m_engine.takeSectionLevels();
+            m_followerLevels[ModMatrix::FollowBusA] = sections[0];
+            m_followerLevels[ModMatrix::FollowBusB] = sections[1];
+            m_followerLevels[ModMatrix::FollowHits] = sections[2];
+            m_followerLevels[ModMatrix::FollowStow] = sections[RigEngine::SectionStow];
+            const auto& master = m_engine.getMasterFollow();
+            m_followerLevels[ModMatrix::FollowMaster] = master[0];
+            m_followerLevels[ModMatrix::FollowMasterPitch] = master[1];
+            m_followerLevels[ModMatrix::FollowMasterBright] = master[2];
+        }
         publishOutputPeak(preTrimPeak, len);
         publishChannelPeaks(channelPeaks.data(), len);
+    }
+    // Keys that arrived inside what was already rendered, in a block that rendered nothing new: they act at the
+    // start of the next quantum.
+    for (; nextEvent != midi.cend(); ++nextEvent)
+    {
+        handleMidi((*nextEvent).getMessage(), 0, true);
+        m_keysMoved = true;
     }
     // A take being auditioned: on top of the output, after the tape, the meters and the trim.
     m_audition.process(buffer, 0, n);
@@ -1839,9 +1924,23 @@ juce::String SwooshbucklerAudioProcessor::describeRoom(room::Width width) const
         auto* param = m_state.getParameter(id);
         return param != nullptr ? param->getCurrentValueAsText() : juce::String();
     };
+    // A Flight Path with the way and the side its passes are held to, where they are: "Through (Front To Back, Left)".
+    auto flight = [this, &text](const char* pathId, const char* directionId, const char* sideId)
+    {
+        auto choice = [this](const char* id) { return juce::roundToInt(m_state.getRawParameterValue(id)->load()); };
+        const int path = choice(pathId);
+        juce::StringArray held;
+        if (const int way = choice(directionId); way != ParamIDs::DirectionRandom)
+            held.add(Params::directionLabel(path, way));
+        if (const int which = choice(sideId); which != ParamIDs::SideRandom && Params::sideLabel(path, which) != nullptr)
+            held.add(Params::sideLabel(path, which));
+        return text(pathId) + (held.isEmpty() ? juce::String() : " (" + held.joinIntoString(", ") + ")");
+    };
     juce::String d;
-    d << "Flight Paths A " << text(ParamIDs::flightPath[0]) << ", B " << text(ParamIDs::flightPath[1]) << ", Stowaway " << text(ParamIDs::stowFlightPath)
-      << ". Spread " << text(ParamIDs::roomSpread) << ", Height " << text(ParamIDs::roomHeight)
+    d << "Flight Paths A " << flight(ParamIDs::flightPath[0], ParamIDs::direction[0], ParamIDs::side[0])
+      << ", B " << flight(ParamIDs::flightPath[1], ParamIDs::direction[1], ParamIDs::side[1])
+      << ", Stowaway " << flight(ParamIDs::stowFlightPath, ParamIDs::stowDirection, ParamIDs::stowSide)
+      << ". Spread " << text(ParamIDs::roomSpread) << ", Height " << text(ParamIDs::roomHeight) << ", Height Varies " << text(ParamIDs::roomHeightVaries)
       << ", Centre Speaker " << text(ParamIDs::roomCentre) << ", LFE " << text(ParamIDs::roomLfeMode);
     if (const auto* mode = m_state.getRawParameterValue(ParamIDs::roomLfeMode); mode != nullptr && mode->load() > 0.5f)
         d << " " << text(ParamIDs::roomLfeLevel);

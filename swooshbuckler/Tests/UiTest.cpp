@@ -1992,10 +1992,13 @@ int main(int argc, char* argv[])
                 bool ok = false;
                 const int sides = static_cast<int>(std::count(quarters.begin(), quarters.end(), true));
                 // (frontMost and backMost: the least and the most of y, the front of the room at +1)
-                if (path == 0) { ok = frontMost > 0.2f && leftMost < -0.4f && rightMost > 0.4f && highest < 0.01f; how = "in front, from side to side, at ear level"; }
-                if (path == 1) { ok = backMost > 0.6f && frontMost < -0.6f && highest < 0.01f; how = "from the front wall to the back, at ear level"; }
-                if (path == 2) { ok = highest > 0.8f && innerMost < 0.15f && backMost > 0.3f && frontMost < -0.3f; how = "from the front, up into the middle and on behind"; }
-                if (path == 3) { ok = sides == 4 && highest < 0.01f; how = "through all four corners of the room"; }
+                // (How high: the others no higher than half an Overhead pass's arch, Height Varies being at the 50% it
+                // starts at; Overhead most of the way up its arch, which stops short of the ceiling.)
+                const float lowMost = 0.5f * room::c_archTop + 0.01f;
+                if (path == 0) { ok = frontMost > 0.2f && leftMost < -0.4f && rightMost > 0.4f && highest < lowMost; how = "in front, from side to side, low"; }
+                if (path == 1) { ok = backMost > 0.6f && frontMost < -0.6f && highest < lowMost; how = "from the front wall to the back, low"; }
+                if (path == 2) { ok = highest > 0.6f && highest <= room::c_archTop + 0.01f && innerMost < 0.15f && backMost > 0.3f && frontMost < -0.3f; how = "from the front, up into the middle and on behind"; }
+                if (path == 3) { ok = sides == 4 && highest < lowMost; how = "through all four corners of the room"; }
                 std::cout << "         " << pathNames[path] << ": dots from " << juce::String(frontMost, 2) << " to " << juce::String(backMost, 2) << " front to back, "
                           << juce::String(leftMost, 2) << " to " << juce::String(rightMost, 2) << " across, nearest the middle " << juce::String(innerMost, 2)
                           << ", " << sides << " quarters, as high as " << juce::String(highest, 2) << std::endl;

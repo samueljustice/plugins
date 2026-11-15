@@ -85,6 +85,7 @@ namespace Presets
             || id == play || id == keysMode || id == throwLength // the transport, what MIDI keys do, how long a throw is
             || id == rideFollowMaster // needs this session's Master track
             || id.startsWith("room") // the room's own settings go with the speakers, not with a look (the Flight Paths are part of a look)
+            || id.endsWith("Direction") || id.endsWith("Side") // which way and which side the passes fly is set to the picture, not by a look
             || id.startsWith("mod"); // the modulators and their wires belong to the session, not to a preset
     }
 

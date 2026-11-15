@@ -25,7 +25,8 @@
  *
  * Speakers stand on the walls of that box, as they do on a film panner: L and R in the front corners, C in the
  * middle of the front wall, the side surrounds half way down the side walls, the rear surrounds (and the Ls / Rs
- * of 5.1 and Quad) in the back corners, the tops above the corners (7.1.4) or above the side surrounds (7.1.2).
+ * of 5.1 and Quad) in the back corners, the tops of 7.1.2 above the side surrounds, the four tops of 7.1.4 above
+ * the side walls half way to the front and back walls.
  *
  * PROCESSING ORDER is JUCE's: the channels of a juce::AudioChannelSet in ascending channel type. That is what
  * processBlock sees in every plug-in format (the AAX wrapper turns Pro Tools' own order into it):
@@ -120,8 +121,9 @@ namespace room
     // How it works. The POWER a speaker gets is the product of three shares:
     //   height   the tops get sin^2(pi/2 * z * Height) of the power, the ear-level bed the rest. A width with no
     //            tops keeps everything in the bed.
-    //   depth    rows of speakers across the room. Two rows (front and back: Quad, 5.1, the tops of 7.1.4) share
-    //            the power as cos^2 / sin^2 across the whole depth. Three rows (7.1's front, sides, rears) share
+    //   depth    rows of speakers across the room. Two rows (front and back: Quad, 5.1) share the power as
+    //            cos^2 / sin^2 across the whole depth; the four tops of 7.1.4 do the same between y = -0.5 and
+    //            0.5 (they stand half way to the walls: c_topDepth), so a sound overhead is heard to travel. Three rows (7.1's front, sides, rears) share
     //            it between the two rows the position lies between, so y = 0 is the side speakers alone. One row
     //            (the tops of 7.1.2) takes it all.
     //   across   within a row, left and right share the power as cos^2 / sin^2 across the width. The front row
@@ -156,34 +158,53 @@ namespace room
     //==================================================================================================================
     // FLIGHT PATHS
     //
-    // Where a pass is, as a pure function of how far through it is. `closeness` (0 far ... 1 close) brings the
-    // path nearer the listener; `direction` and `side` are +1 or -1 (anything else is read by its sign).
+    // Where a pass is, as a pure function of how far along its path it is. `closeness` (0 far ... 1 close) brings
+    // the path nearer the listener; `direction` and `side` are +1 or -1 (anything else is read by its sign);
+    // `altitude` (0 ear level ... 1 the ceiling) is how high the pass is at its nearest point.
     //
     //   Across    along a line in front of the listener, from the left wall to the right (direction +1) or right
-    //             to left (-1). The line is at the front wall for a far pass and comes to a quarter of the way
-    //             from the listener for the closest. `side` is not used.
-    //                 x = direction * u      y = 1 - 0.75 * closeness      z = 0          (u = 2 * progress - 1)
+    //             to left (-1). The line is at the front wall for a far pass and comes half way to the listener
+    //             for the closest: no nearer, so that the pass stays in front where there are side speakers too
+    //             (7.1 and wider give a position half way down the room half to the fronts, and one nearer than
+    //             that mostly to the sides). `side` is not used.
+    //                 x = direction * u      y = 1 - 0.5 * closeness                     (u = 2 * progress - 1)
     //   Through   from the front wall to the back (direction +1) or back to front (-1), passing the head on its
-    //             left (side -1) or right (+1): just off the ear for a close pass, 0.6 out for a far one.
-    //                 x = side * (0.6 - 0.48 * closeness)      y = -direction * u      z = 0
-    //   Overhead  front to back (direction +1) or back to front in an arch over the listener: on the floor at the
-    //             walls, at the ceiling overhead, a little to one side for a far pass.
-    //                 x = side * 0.3 * (1 - closeness)      y = -direction * u      z = cos^2(pi/2 * u)
-    //   Around    one full circle round the listener, clockwise seen from above (direction +1: front, right,
-    //             back, left) or anticlockwise, starting straight ahead (side +1) or straight behind (-1). The
-    //             circle touches the walls for a far pass and shrinks to 0.45 for the closest.
-    //                 r = 1 - 0.55 * closeness      x = r * sin(a)      y = r * cos(a)      z = 0
-    //                 a = direction * 2 pi * progress (+ pi when side is -1)
+    //             left (side -1) or right (+1), always well out to that side: 0.6 for a far pass, 0.5 for the
+    //             closest. (How close a pass is, is heard in its level, its brightness and its bend; brought in
+    //             to the middle of the room it would be in both sides' speakers alike, the opposite of close.)
+    //                 x = side * (0.6 - 0.1 * closeness)      y = -direction * u
+    //   Overhead  front to back (direction +1) or back to front, over the listener, a little to one side for a
+    //             far pass. Its altitude is its arch.
+    //                 x = side * 0.3 * (1 - closeness)      y = -direction * u
+    //   Around    round the listener, clockwise seen from above (direction +1: front, right, back, left) or
+    //             anticlockwise. Half way through (progress 0.5) it is straight behind (side +1) or straight ahead
+    //             (-1); progress 0 to 1 is one whole circle, and progress beyond that carries on round. The circle
+    //             touches the walls for a far pass and shrinks to 0.45 for the closest.
+    //                 r = 1 - 0.55 * closeness      x = r * sin(a)      y = r * cos(a)
+    //                 a = direction * 2 pi * (progress - 0.5) (+ pi when side is +1)
     //
-    // `distance` is how far the pass is from the listener in room units, for level and pitch. On the floor that is
-    // the length of (x, y). Overhead flies an arch whose top is 0.8 - 0.55 * closeness above the listener:
-    // distance^2 = x^2 + y^2 + top^2 * (1 - y^2). (The panner's z runs the full 0..1 whatever the closeness, so
-    // that the tops are always used.) Across, Through and Overhead are nearest half way through; Around keeps one
-    // distance all the way: a circle has no approach.
+    // HEIGHT. Across, Through and Overhead rise to their altitude at the nearest point and are at ear level at the
+    // walls: z = altitude * cos^2(pi/2 * u). Around keeps its altitude all the way: z = altitude. An Overhead pass
+    // is given c_archTop by the engine, which also flies every path over the part of the pass that is heard
+    // (RigEngine::pathProgress): the pass is heard to come up from the front speakers, is nearly all in the
+    // speakers overhead at the top of its arch (sin^2(pi/2 * 0.85) = 0.95; the side speakers the rest), and goes
+    // down into the rear ones. Over a whole pass the speakers overhead have about three fifths of the sound, and
+    // a room with one pair of them still hears it travel. (Flown to the ceiling, and from wall to wall over the
+    // whole pass, loud or not, nine tenths of a pass was in the tops: the ear-level speakers were 10 to 15 dB
+    // down.)
+    //
+    // `distance` is how far the pass is from the listener in room units (what the engine spreads a near sound
+    // by). On the floor that is the length of (x, y). Overhead flies an arch whose top is 0.8 - 0.55 * closeness
+    // above the listener: distance^2 = x^2 + y^2 + top^2 * (1 - y^2). Across, Through and Overhead are nearest half
+    // way through; Around keeps one distance all the way: a circle has no approach.
     //==================================================================================================================
 
     enum class Path { Across, Through, Overhead, Around };
     constexpr int c_numPaths = 4;
+    constexpr float c_acrossNearest = 0.5f;                     // Across: how far from the front wall the closest pass flies
+    constexpr float c_throughFar = 0.6f, c_throughNear = 0.5f;  // Through: how far out to its side a far and a close pass fly
+    constexpr float c_archTop = 0.85f;                          // Overhead: the top of the arch (all but a twentieth in the tops there)
+    constexpr float c_topDepth = 0.5f;                          // where the four tops of 7.1.4 stand between the listener and the walls
 
     const char* pathName(Path path) noexcept; // "Across" ...
 
@@ -193,15 +214,15 @@ namespace room
         float distance = 1.0f;
     };
 
-    /** Progress and closeness outside 0..1 are held at the ends (not a number is read as 0), so the position is
-        always inside the room. */
-    Flight flight(Path path, float progress, float closeness, float direction, float side) noexcept;
+    /** Closeness and altitude outside 0..1 are held at the ends, and so is progress (but Around's, which may lap);
+        not a number is read as 0. The position is always inside the room. */
+    Flight flight(Path path, float progress, float closeness, float direction, float side, float altitude = 0.0f) noexcept;
 
     //==================================================================================================================
     // FOLD-DOWNS
     //
-    // A fixed matrix from every width to every narrower one. They are built from these steps, each speaker going
-    // to its nearest neighbours in the narrower width. Every step coefficient is -3 dB (0.7071) except the last:
+    // A fixed matrix from every width to every narrower one, each speaker going to its nearest neighbours in the
+    // narrower width. Every coefficient is -3 dB (0.7071) for each step a speaker's signal takes, but the last:
     //
     //   7.1.4 -> 7.1.2   Ltf and Ltr -> Lts, -3 dB each (and the same on the right)
     //   tops  -> 7.1     Ltf -> L, Ltr -> Lsr, Lts -> Lss, -3 dB
@@ -210,10 +231,25 @@ namespace room
     //   Quad  -> Stereo  Ls -> L, Rs -> R, -3 dB       (so 5.1 -> Stereo is the ITU-R BS.775 fold: L + 0.7071 C + 0.7071 Ls)
     //   Stereo -> Mono   0.5 (L + R)
     //
-    // A wider fold is those steps in a row (7.1.4 -> Stereo: Ltr reaches L at 0.7071^3), and Mono is always the
-    // Stereo fold averaged, never an average of all the channels. Only the 5.1 -> Stereo coefficients are a
-    // standard; the 7.1 and height steps are this plug-in's own choice (-3 dB wherever two speakers merge into one,
-    // so that a sound panned half way between them keeps its level).
+    // A wider fold between rooms is those steps in a row (7.1.4 -> 5.1: Ltr reaches Ls at 0.7071^2). Only the
+    // 5.1 -> Stereo coefficients are a standard; the 7.1 and height steps are this plug-in's own choice: -3 dB
+    // wherever two speakers merge into one, which keeps the power of a sound panned half way between them and of
+    // sounds that are unrelated in the two (a reverb's returns).
+    //
+    // TO STEREO (and Mono, which is always the Stereo fold averaged, never an average of all the channels) the
+    // steps are NOT taken in a row below ear level: every surround speaker goes straight to its side at -3 dB,
+    // side and rear surrounds of 7.1 as the Ls of 5.1 does in the ITU fold. In a row, by way of Ls, they would
+    // lose 3 dB twice, and that is the wrong sum for what this plug-in puts there: a pass beside the listener is
+    // in ONE side speaker at its loudest moment, and one going Around is in one rear pair, so they came out 6 dB
+    // down where the same pass at 5.1 loses the ITU fold's 3 dB, and a 7.1.4 take folded to Stereo was 2 to 5 dB
+    // quieter at its climax than the same whoosh rendered at Stereo. A top still takes its step to the ear-level
+    // speaker under it first:
+    //
+    //   to Stereo   L = L + 0.7071 (C + Ls + Lss + Lsr + Ltf) + 0.5 (Ltr + Lts)        (and the same on the right)
+    //
+    // So one sound in one surround speaker is 3 dB down in Stereo at every width, one in a rear or side top 6 dB,
+    // and one shared by a front speaker and a surround of the same side comes out up to 1.8 dB up, as it does
+    // in the ITU fold of 5.1.
     //
     // THE LFE is kept where the narrower width has one and dropped where it has none (LfeFold::Drop, the default):
     // the mains already carry the low end, so nothing is lost. That holds for everything this plug-in puts in the
@@ -228,20 +264,20 @@ namespace room
     //     that is in L, C and Ltf at once);
     //   - folded to Stereo or wider, its power is between c_foldMinPowerDb and c_foldMaxPowerDb of the sound's.
     //     The loss is 3 dB for each step a speaker's signal takes: the most is a sound in one top speaker of
-    //     7.1.2 folded to Stereo, three steps;
+    //     7.1.2 folded to Stereo or to 5.1, two steps;
     //   - folded to Mono it can lose 6 dB more (c_foldMonoMinPowerDb): that is the Stereo to Mono average, which
     //     halves a sound that is hard to one side.
-    // A take of several unrelated full-scale channels can go higher, up to foldWorstCaseGain() (11.5 dB for
+    // A take of several unrelated full-scale channels can go higher, up to foldWorstCaseGain() (12.7 dB for
     // 7.1.4 to Stereo); folds that are written to a file or played therefore go through a limiter.
     //==================================================================================================================
 
     enum class LfeFold { Drop, IntoFronts };
 
     constexpr float c_foldStep = 0.70710678f; // -3 dB
-    constexpr float c_foldMaxPeakDb = 3.6f;
-    constexpr float c_foldMaxPowerDb = 4.9f;
-    constexpr float c_foldMinPowerDb = -9.1f;
-    constexpr float c_foldMonoMinPowerDb = -15.1f;
+    constexpr float c_foldMaxPeakDb = 3.9f;
+    constexpr float c_foldMaxPowerDb = 5.7f;
+    constexpr float c_foldMinPowerDb = -6.1f;
+    constexpr float c_foldMonoMinPowerDb = -12.1f;
 
     struct FoldMatrix
     {

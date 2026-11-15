@@ -439,23 +439,28 @@ int main(int argc, char* argv[])
 
             // Every whoosh has a Closest marker at its loudest moment: the middle of its loudest 50 ms, found here
             // on its own (the power of every channel), in its file and in each file of its Multi-Mono set.
-            auto loudest = [](const Audio& a)
+            // (A whoosh can be as loud for a moment either side of its loudest 50 ms: the marker is right if the
+            // 50 ms round it are as loud as any, within a hundredth of a dB, wherever exactly it stands.)
+            auto powerAt = [](const Audio& a, int start)
+            {
+                const int window = juce::roundToInt(0.05 * c_fs);
+                double p = 0.0;
+                for (int ch = 0; ch < a.channels(); ++ch)
+                    for (int i = juce::jmax(0, start); i < juce::jmin(a.length(), start + window); ++i)
+                        p += static_cast<double>(a.samples.getSample(ch, i)) * a.samples.getSample(ch, i);
+                return p;
+            };
+            auto loudest = [&powerAt](const Audio& a)
             {
                 const int window = juce::roundToInt(0.05 * c_fs);
                 double best = -1.0;
                 int at = -1;
                 for (int start = 0; start + window <= a.length(); start += 24)
-                {
-                    double p = 0.0;
-                    for (int ch = 0; ch < a.channels(); ++ch)
-                        for (int i = start; i < start + window; ++i)
-                            p += static_cast<double>(a.samples.getSample(ch, i)) * a.samples.getSample(ch, i);
-                    if (p > best)
+                    if (const double p = powerAt(a, start); p > best)
                     {
                         best = p;
                         at = start + window / 2;
                     }
-                }
                 return at;
             };
             const auto closest = TapeRecorder::readCues(base.getChildFile("pt").getChildFile("Whoosh_001.wav"));
@@ -466,7 +471,10 @@ int main(int argc, char* argv[])
                 const auto c = TapeRecorder::readCues(base.getChildFile("mm").getChildFile(width == W::Mono ? juce::String("Whoosh_001.wav") : "Whoosh_001." + s + ".wav"));
                 setClosest = setClosest && c.size() == 1 && ! closest.empty() && c[0].frame == closest[0].frame;
             }
-            check(closest.size() == 1 && closest[0].label == "Closest" && std::abs(static_cast<int>(closest[0].frame) - peak) <= 48 && setClosest,
+            const int half = juce::roundToInt(0.025 * c_fs);
+            const bool atLoudest = ! closest.empty() && (std::abs(static_cast<int>(closest[0].frame) - peak) <= 48
+                                                         || powerAt(pt, static_cast<int>(closest[0].frame) - half) > 0.998 * powerAt(pt, peak - half));
+            check(closest.size() == 1 && closest[0].label == "Closest" && atLoudest && setClosest,
                   name + ": a Closest marker at the whoosh's loudest moment (" + (closest.empty() ? juce::String("none") : num(closest[0].frame / c_fs, 3) + " s")
                       + ", loudest 50 ms centred at " + num(peak / c_fs, 3) + " s), in every file of its set");
 
@@ -692,8 +700,56 @@ int main(int argc, char* argv[])
             check(sides > 0.1 && rears > 0.1,
                   "in the room: going Around, the sides and the rears each carry their share (" + num(100.0 * sides, 1) + "%, " + num(100.0 * rears, 1)
                       + "%; the fronts " + num(100.0 * fronts, 1) + "%)");
+            check(fronts > 0.1, "in the room: going Around, the front speakers have their turn too (" + num(100.0 * fronts, 1) + "%: a whoosh goes all the way round)");
             const double tops = part(overhead, { "Ltf", "Rtf", "Ltr", "Rtr" });
-            check(tops > 0.15, "in the room: Overhead, the tops carry " + num(100.0 * tops, 1) + "% of it");
+            const double floorEnds = part(overhead, { "L", "R", "C", "Lsr", "Rsr" });
+            check(tops > 0.3 && tops < 0.75 && floorEnds > 0.12,
+                  "in the room: Overhead, the tops carry " + num(100.0 * tops, 1) + "% of it (the middle of the pass, not nearly all of it) and the front and rear speakers "
+                      + num(100.0 * floorEnds, 1) + "% (it comes up from the front and goes down behind)");
+
+            // A batch has whooshes on both sides and going both ways: twelve at 7.1 flying Through.
+            rig.set(ParamIDs::flightPath[0], 1.0f);
+            rig.set(ParamIDs::flightPath[1], 1.0f);
+            auto job = makeJob(rig, out.getChildFile("room-sides"), W::Surround71, 12, 2024);
+            job.options.layout = takefile::Layout::MultiMono;
+            render(rig, job);
+            int onLeft = 0, onRight = 0, toBack = 0, toFront = 0, said = 0;
+            for (int i = 1; i <= 12; ++i)
+            {
+                const auto stem = "Whoosh_" + juce::String(i).paddedLeft('0', 3);
+                auto each = shares(job.folder, W::Surround71, stem);
+                const double left = part(each, { "L", "Lss", "Lsr" }), right = part(each, { "R", "Rss", "Rsr" });
+                (left > right ? onLeft : onRight) += 1;
+                const auto text = TapeRecorder::readDescription(job.folder.getChildFile(stem + ".L.wav"));
+                const bool back = text.contains("This whoosh: Front To Back"), front = text.contains("This whoosh: Back To Front");
+                toBack += back ? 1 : 0;
+                toFront += front ? 1 : 0;
+                // What the file says about itself is what is in it.
+                said += (back || front) && text.contains(left > right ? "To Front, Left." : "To Front, Right.") != text.contains(left > right ? "To Back, Left." : "To Back, Right.") ? 1 : 0;
+            }
+            check(onLeft >= 2 && onRight >= 2 && toBack >= 2 && toFront >= 2,
+                  "a batch of twelve Through whooshes at 7.1 passes on both sides (" + juce::String(onLeft) + " on the left, " + juce::String(onRight) + " on the right) and goes both ways ("
+                      + juce::String(toBack) + " front to back, " + juce::String(toFront) + " back to front)");
+            check(said == 12, "and every file says which way its whoosh flies and on which side, as it is heard (" + juce::String(said) + " of 12)");
+            // Held by Side and Direction: every one of them on the right, front to back.
+            rig.set(ParamIDs::side[0], 2.0f);
+            rig.set(ParamIDs::direction[0], 1.0f);
+            job.folder = out.getChildFile("room-held");
+            job.count = 6;
+            render(rig, job);
+            int held = 0;
+            for (int i = 1; i <= 6; ++i)
+            {
+                const auto stem = "Whoosh_" + juce::String(i).paddedLeft('0', 3);
+                auto each = shares(job.folder, W::Surround71, stem);
+                held += part(each, { "R", "Rss", "Rsr" }) > 2.0 * part(each, { "L", "Lss", "Lsr" })
+                        && TapeRecorder::readDescription(job.folder.getChildFile(stem + ".L.wav")).contains("This whoosh: Front To Back, Right.") ? 1 : 0;
+            }
+            check(held == 6, "with Side on Right and Direction on Front To Back every whoosh of a batch passes on the right, front to back (" + juce::String(held) + " of 6)");
+            rig.set(ParamIDs::side[0], 0.0f);
+            rig.set(ParamIDs::direction[0], 0.0f);
+            rig.set(ParamIDs::flightPath[0], 0.0f);
+            rig.set(ParamIDs::flightPath[1], 0.0f);
         }
     }
 

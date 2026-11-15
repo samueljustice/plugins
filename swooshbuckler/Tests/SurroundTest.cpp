@@ -399,6 +399,7 @@ int main(int argc, char* argv[])
             Scene scene;
             scene.load(0, src.hissA, 0);
             scene.p.buses[0].path = path;
+            scene.p.roomHeightVaries = 0.0f; // every pass at ear level (Overhead: its whole arch); the heights passes draw are checked further down
             scene.start(width);
             Take take;
             scene.run(take, static_cast<int>(60.0 * c_fs / c_block));
@@ -510,13 +511,13 @@ int main(int argc, char* argv[])
                 case room::Path::Across:
                     check(inOrder == static_cast<int>(passes.size()) && cx > 0.9, name + ": every pass starts in the speakers of one side and ends in the other's, as the object does");
                     check(bothWays[0] > 0 && bothWays[1] > 0, name + ": some passes go left to right and some right to left");
-                    check(topPeak == 0.0f, name + ": nothing in the tops");
+                    check(topPeak == 0.0f, name + ": nothing in the tops (Height Varies at 0)");
                     break;
                 case room::Path::Through:
                     check(inOrder == static_cast<int>(passes.size()) && cy > 0.9, name + ": every pass starts in the front speakers and ends in the rear ones (or the other way), as the object does");
                     check(width == room::Width::Surround51 || viaMiddle == static_cast<int>(passes.size()), name + ": by way of the side speakers");
                     check(bothWays[0] > 0 && bothWays[1] > 0, name + ": some passes go front to back and some back to front");
-                    check(topPeak == 0.0f, name + ": nothing in the tops");
+                    check(topPeak == 0.0f, name + ": nothing in the tops (Height Varies at 0)");
                     break;
                 case room::Path::Overhead:
                     check(inOrder == static_cast<int>(passes.size()) && cy > 0.9, name + ": every pass starts in the front speakers and ends in the rear ones (or the other way), as the object does");
@@ -533,7 +534,7 @@ int main(int argc, char* argv[])
                         if (spk.isMain(ch) && ! isTop(spk.info(ch)) && spk.info(ch).x != 0.0f)
                             everySpeaker = everySpeaker && wasLoudest[static_cast<size_t>(ch)];
                     check(everySpeaker && cx > 0.9 && cy > 0.9, name + ": the fronts, the sides and the rears each take their turn as the loudest speaker, as the object goes round");
-                    check(topPeak == 0.0f, name + ": nothing in the tops");
+                    check(topPeak == 0.0f, name + ": nothing in the tops (Height Varies at 0)");
                     break;
                 }
             }
@@ -1173,6 +1174,373 @@ int main(int argc, char* argv[])
         check(allFinite(back) && twelve.rig.getWidth() == room::Width::Stereo && tail == 0.0f && back.blocks[200].power[4] > 0.0 && back.blocks.back().total > 0.0,
               "a change to 7.1.4 and back: the room sounds, then only L and R do");
     }
+
+    //==================================================================================================================
+    std::cout << "Direction, Side and height: thrown whooshes, read from the speakers' energy" << std::endl;
+    {
+        // One thrown whoosh from a rig at rest, on its own take.
+        const auto thrown = [&](Scene& scene, const RigEngine::ThrowFlight& flight)
+        {
+            Take take;
+            scene.rig.throwWhoosh(0, -1.0f, flight);
+            scene.run(take, static_cast<int>(2.6 * c_fs / c_block));
+            return take;
+        };
+        const auto rest = [&](Scene& scene, int bus, room::Width width)
+        {
+            scene.load(0, src.hissA, bus);
+            scene.p.throwSeconds = 1.5f;
+            scene.rig.setReleased(true); // only the throws sound
+            scene.start(width);
+        };
+        // The blocks of a take that are within 20 dB of its loudest, and a mean over a part of them (0..1 of the way).
+        const auto heard = [](const Take& take)
+        {
+            double top = 0.0;
+            for (const auto& b : take.blocks)
+                top = std::max(top, b.total);
+            std::vector<int> blocks;
+            for (int b = 0; b < static_cast<int>(take.blocks.size()); ++b)
+                if (take.blocks[static_cast<size_t>(b)].total > 0.01 * top)
+                    blocks.push_back(b);
+            return blocks;
+        };
+        const auto part = [](const Take& take, const std::vector<int>& blocks, double from, double to, const std::function<double(const Block&)>& value)
+        {
+            double sum = 0.0;
+            int n = 0;
+            for (size_t i = static_cast<size_t>(from * static_cast<double>(blocks.size())); i < static_cast<size_t>(to * static_cast<double>(blocks.size())); ++i, ++n)
+                sum += value(take.blocks[static_cast<size_t>(blocks[i])]);
+            return n > 0 ? sum / n : 0.0;
+        };
+        // Which way a take went: +1 forwards (left to right; front to back; clockwise), -1 backwards, 0 unclear.
+        const auto wayOf = [&](const Take& take, const Speakers& spk, int path)
+        {
+            const auto blocks = heard(take);
+            if (blocks.size() < 12)
+                return 0;
+            if (path == static_cast<int>(room::Path::Around))
+            {
+                // The turn of the energy's place about the listener, seen from above (clockwise: front, right, back).
+                double turn = 0.0;
+                room::Position before = spk.centroid(take.blocks[static_cast<size_t>(blocks.front())]);
+                for (int b : blocks)
+                {
+                    const auto c = spk.centroid(take.blocks[static_cast<size_t>(b)]);
+                    turn += static_cast<double>(c.x) * before.y - static_cast<double>(before.x) * c.y;
+                    before = c;
+                }
+                return turn > 0.05 ? 1 : turn < -0.05 ? -1 : 0;
+            }
+            const auto along = [&](const Block& b)
+            {
+                return path == static_cast<int>(room::Path::Across) ? 1.0 - 2.0 * spk.share(b, isLeft) : spk.share(b, isBehind) - spk.share(b, isAhead);
+            };
+            const double first = part(take, blocks, 0.0, 0.3, along), last = part(take, blocks, 0.7, 1.0, along);
+            return last > first + 0.3 ? 1 : first > last + 0.3 ? -1 : 0;
+        };
+        // Which side it took at its loudest: -1 left, +1 right (Around: -1 loudest in front, +1 loudest behind).
+        const auto sideOf = [&](const Take& take, const Speakers& spk, int path)
+        {
+            const auto blocks = heard(take);
+            int loudest = 0;
+            for (int b : blocks)
+                if (take.blocks[static_cast<size_t>(b)].total > take.blocks[static_cast<size_t>(loudest)].total)
+                    loudest = b;
+            const auto& block = take.blocks[static_cast<size_t>(loudest)];
+            const double lean = path == static_cast<int>(room::Path::Around) ? spk.share(block, isBehind) - spk.share(block, isAhead) : 1.0 - 2.0 * spk.share(block, isLeft);
+            // (An Overhead pass flies only a little to one side: it goes over the listener.)
+            const double clear = path == static_cast<int>(room::Path::Overhead) ? 0.04 : 0.2;
+            return lean > clear ? 1 : lean < -clear ? -1 : 0;
+        };
+
+        const Speakers spk(room::Width::Surround71);
+        const char* ways[] = { "left to right / right to left", "front to back / back to front", "front to back / back to front", "clockwise / anticlockwise" };
+        for (int path = 0; path < room::c_numPaths; ++path)
+        {
+            const juce::String name = juce::String("7.1, ") + room::pathName(static_cast<room::Path>(path));
+            int held[2] = { 0, 0 }, drawn[2] = { 0, 0 }, wired = 0, asked = 0, kept = 0;
+            for (int choice = 1; choice <= 2; ++choice)
+            {
+                Scene scene;
+                scene.p.buses[0].path = path;
+                scene.p.buses[0].direction = choice;
+                scene.p.roomHeightVaries = 0.0f;
+                rest(scene, 0, room::Width::Surround71);
+                for (int n = 0; n < 8; ++n)
+                {
+                    RigEngine::ThrowFlight flight;
+                    flight.direction = n % 2 == 0 ? 1 : -1; // (the bus's choice wins)
+                    held[choice - 1] += wayOf(thrown(scene, flight), spk, path) == (choice == 1 ? 1 : -1) ? 1 : 0;
+                }
+            }
+            {
+                Scene scene;
+                scene.p.buses[0].path = path;
+                scene.p.roomHeightVaries = 0.0f;
+                rest(scene, 0, room::Width::Surround71);
+                for (int n = 0; n < 16; ++n)
+                {
+                    const int way = wayOf(thrown(scene, {}), spk, path);
+                    drawn[0] += way > 0 ? 1 : 0;
+                    drawn[1] += way < 0 ? 1 : 0;
+                }
+                // The flight's own way, where the bus leaves it to the pass.
+                for (int n = 0; n < 8; ++n)
+                {
+                    RigEngine::ThrowFlight flight;
+                    flight.direction = n % 2 == 0 ? 1 : -1;
+                    asked += wayOf(thrown(scene, flight), spk, path) == flight.direction ? 1 : 0;
+                }
+                // A modulator wired to Direction: where it stands as the pass starts decides, whatever the menu says.
+                scene.p.buses[0].direction = 2;
+                scene.p.buses[0].directionWired = true;
+                for (int n = 0; n < 8; ++n)
+                {
+                    scene.p.buses[0].directionMod = n % 2 == 0 ? 0.3f : -0.3f;
+                    scene.rig.setParams(scene.p);
+                    wired += wayOf(thrown(scene, {}), spk, path) == (n % 2 == 0 ? 1 : -1) ? 1 : 0;
+                }
+                // Bus B's own Direction is not what a throw flies (a throw is bus A's pass on every bus).
+                scene.p.buses[0].directionWired = false;
+                scene.p.buses[0].direction = 1;
+                scene.p.buses[1].direction = 2;
+                scene.rig.setParams(scene.p);
+                for (int n = 0; n < 4; ++n)
+                    kept += wayOf(thrown(scene, {}), spk, path) == 1 ? 1 : 0;
+            }
+            check(held[0] == 8 && held[1] == 8, name + ": Direction holds every pass to one way or the other (" + ways[path] + "): " + juce::String(held[0]) + " and " + juce::String(held[1]) + " of 8");
+            check(drawn[0] >= 3 && drawn[1] >= 3 && drawn[0] + drawn[1] == 16, name + ": left to Random, passes go both ways (" + juce::String(drawn[0]) + " and " + juce::String(drawn[1]) + " of 16)");
+            check(asked == 8 && wired == 8 && kept == 4, name + ": a throw's own way is flown where Direction is Random; a modulator wired to Direction decides pass by pass, over the menu");
+        }
+        // Side: Through and Overhead on the left or the right, Around loudest in front or behind.
+        for (const int path : { static_cast<int>(room::Path::Through), static_cast<int>(room::Path::Overhead), static_cast<int>(room::Path::Around) })
+        {
+            const juce::String name = juce::String("7.1, ") + room::pathName(static_cast<room::Path>(path));
+            int held[2] = { 0, 0 }, drawn[2] = { 0, 0 }, asked = 0, wired = 0;
+            for (int choice = 1; choice <= 2; ++choice)
+            {
+                Scene scene;
+                scene.p.buses[0].path = path;
+                scene.p.buses[0].side = choice;
+                scene.p.roomHeightVaries = 0.0f;
+                for (auto& b : scene.p.buses)
+                    b.doppler = 0.2f; // far passes: an Overhead pass that comes close flies over the middle, on neither side
+                rest(scene, 0, room::Width::Surround71);
+                for (int n = 0; n < 8; ++n)
+                    held[choice - 1] += sideOf(thrown(scene, {}), spk, path) == (choice == 1 ? -1 : 1) ? 1 : 0;
+            }
+            {
+                Scene scene;
+                scene.p.buses[0].path = path;
+                scene.p.roomHeightVaries = 0.0f;
+                for (auto& b : scene.p.buses)
+                    b.doppler = 0.2f;
+                rest(scene, 0, room::Width::Surround71);
+                for (int n = 0; n < 16; ++n)
+                {
+                    const int side = sideOf(thrown(scene, {}), spk, path);
+                    drawn[0] += side < 0 ? 1 : 0;
+                    drawn[1] += side > 0 ? 1 : 0;
+                }
+                for (int n = 0; n < 8; ++n)
+                {
+                    RigEngine::ThrowFlight flight;
+                    flight.side = n % 2 == 0 ? 1 : -1;
+                    asked += sideOf(thrown(scene, flight), spk, path) == flight.side ? 1 : 0;
+                }
+                scene.p.buses[0].side = 1;
+                scene.p.buses[0].sideWired = true;
+                for (int n = 0; n < 8; ++n)
+                {
+                    scene.p.buses[0].sideMod = n % 2 == 0 ? 0.3f : -0.3f;
+                    scene.rig.setParams(scene.p);
+                    wired += sideOf(thrown(scene, {}), spk, path) == (n % 2 == 0 ? -1 : 1) ? 1 : 0;
+                }
+            }
+            const bool around = path == static_cast<int>(room::Path::Around);
+            check(held[0] == 8 && held[1] == 8, name + ": Side holds every pass to " + (around ? "loudest in front or loudest behind" : "the left or the right") + " (" + juce::String(held[0]) + " and " + juce::String(held[1]) + " of 8)");
+            check(drawn[0] >= 3 && drawn[1] >= 3 && asked == 8 && wired == 8,
+                  name + ": left to Random the passes take both (" + juce::String(drawn[0]) + " and " + juce::String(drawn[1]) + " of 16); a throw's own side and a wired modulator are followed");
+        }
+        // Through at its closest is still on one side of the head (it was in both sides' speakers alike).
+        {
+            Scene scene;
+            scene.p.buses[0].path = static_cast<int>(room::Path::Through);
+            scene.p.buses[0].side = 1;
+            scene.p.roomHeightVaries = 0.0f;
+            rest(scene, 0, room::Width::Surround71);
+            Take take;
+            scene.rig.throwWhoosh(0, 1.0f); // as hard as a key is played: right by
+            scene.run(take, static_cast<int>(2.6 * c_fs / c_block));
+            const auto blocks = heard(take);
+            const double left = part(take, blocks, 0.0, 1.0, [&](const Block& b) { return spk.share(b, isLeft); });
+            check(left > 0.75, "7.1, Through: the closest pass there is goes by on its own side (" + juce::String(juce::roundToInt(100.0 * left)) + "% of the heard part's power on the left, over 75%)");
+        }
+        // Link: bus B flies bus A's Flight Path, Direction and Side, not its own.
+        for (const auto width : { room::Width::Surround51, room::Width::Surround714 })
+        {
+            const Speakers wide(width);
+            int linked = 0, own = 0;
+            for (int link = 0; link < 2; ++link)
+            {
+                Scene scene;
+                scene.load(0, src.hissA, 1); // only bus B sounds
+                scene.p.linkBuses = link == 1;
+                scene.p.roomHeightVaries = 0.0f;
+                scene.p.buses[0].path = static_cast<int>(room::Path::Through);
+                scene.p.buses[0].direction = 1;
+                scene.p.buses[0].side = 1;
+                scene.p.buses[1].path = static_cast<int>(room::Path::Across);
+                scene.p.buses[1].direction = 2;
+                for (auto& b : scene.p.buses)
+                    b.doppler = 0.2f;
+                scene.start(width);
+                Take take;
+                scene.run(take, static_cast<int>(40.0 * c_fs / c_block));
+                // (Bus A is silent here: bus B's own objects say how loud each of its passes is; linked, they fly
+                // in step with bus A's, whose clocks say how far through each is.)
+                const auto levelB = [](int h) { return [h](const Block& b) { return b.object[static_cast<size_t>(RigEngine::ObjPassB1 + h)].level; }; };
+                // Where bus B's energy is over the whole ride: on Through held to the left and front to back it is
+                // on the left and as much behind as ahead; on its own Across it is in front and on both sides.
+                double leftPower = 0.0, aheadPower = 0.0, total = 0.0;
+                for (const auto& b : take.blocks)
+                {
+                    leftPower += wide.share(b, isLeft) * b.total;
+                    aheadPower += wide.share(b, isAhead) * b.total;
+                    total += b.total;
+                }
+                const double leftShare = leftPower / total, aheadShare = aheadPower / total;
+                // And which way: the energy's place moves front to back (linked) on every pass of bus A's.
+                int toBack = 0, passes = 0;
+                for (int h = 0; h < 2; ++h)
+                    for (const auto& pass : passesOf(take, ageA(h), levelB(h), levelB(1 - h)))
+                    {
+                        const auto behind = [&](const Block& b) { return wide.share(b, isBehind) - wide.share(b, isAhead); };
+                        toBack += third(take, pass, 2, behind) > third(take, pass, 0, behind) + 0.3 ? 1 : 0;
+                        ++passes;
+                    }
+                std::cout << "         " << nameOf(width) << (link == 1 ? ", linked: " : ", not linked: ") << juce::String(juce::roundToInt(100.0 * leftShare)) << "% on the left, " << juce::String(juce::roundToInt(100.0 * aheadShare))
+                          << "% ahead, " << toBack << " of " << passes << " of bus A's passes heard front to back" << std::endl;
+                if (link == 1)
+                    linked = leftShare > 0.75 && aheadShare < 0.7 && passes >= 4 && toBack == passes ? 1 : 0;
+                else
+                    own = leftShare > 0.35 && leftShare < 0.65 && aheadShare > 0.8 ? 1 : 0;
+            }
+            check(linked == 1, nameOf(width) + ": linked, bus B flies bus A's Flight Path, Direction and Side (Through, front to back, on the left) whatever its own are");
+            check(own == 1, nameOf(width) + ": not linked, bus B flies its own (Across, in front)");
+        }
+        // Around goes round: the fronts, the sides and the rears each have their turn, none far under the others.
+        for (const auto width : { room::Width::Surround51, room::Width::Surround71, room::Width::Surround714 })
+        {
+            const Speakers wide(width);
+            const bool sides = width != room::Width::Surround51;
+            double worst = 0.0;
+            int behind = 0, ahead = 0;
+            Scene scene;
+            scene.p.buses[0].path = static_cast<int>(room::Path::Around);
+            scene.p.roomHeightVaries = 0.0f;
+            for (auto& b : scene.p.buses)
+                b.width = 0.7f; // the Width the buses open with: once round
+            rest(scene, 0, width);
+            for (int n = 0; n < 10; ++n)
+            {
+                const auto take = thrown(scene, {});
+                double front = 0.0, side = 0.0, rear = 0.0;
+                const int window = 18; // about 100 ms
+                for (int b = 0; b + window <= static_cast<int>(take.blocks.size()); b += window / 2)
+                {
+                    double f = 0.0, sd = 0.0, r = 0.0;
+                    for (int k = b; k < b + window; ++k)
+                    {
+                        const auto& block = take.blocks[static_cast<size_t>(k)];
+                        f += block.total * wide.share(block, [](const Info& i) { return i.role == room::Role::Main && i.y > 0.5f; });
+                        sd += block.total * wide.share(block, isSideRow);
+                        r += block.total * wide.share(block, [](const Info& i) { return i.role == room::Role::Main && i.y < -0.5f; });
+                    }
+                    front = std::max(front, f);
+                    side = std::max(side, sd);
+                    rear = std::max(rear, r);
+                }
+                const double most = std::max({ front, side, rear });
+                worst = std::max({ worst, static_cast<double>(db(most / front)), static_cast<double>(db(most / rear)), sides ? static_cast<double>(db(most / side)) : 0.0 });
+                (sideOf(take, wide, static_cast<int>(room::Path::Around)) > 0 ? behind : ahead) += 1;
+            }
+            check(worst < 12.0 && behind >= 2 && ahead >= 2,
+                  nameOf(width) + ", Around: a thrown whoosh is heard in front, at the sides and behind (the quietest of them " + num(worst, 1) + " dB under the loudest, under 12), loudest behind in "
+                      + juce::String(behind) + " of 10 and in front in " + juce::String(ahead));
+        }
+        // Height: every pass flies at a height of its own, as far as Height Varies lets it; the power is whole.
+        {
+            const Speakers wide(room::Width::Surround714);
+            struct Heights { double least = 1.0, most = 0.0, power = 0.0; float second = 0.0f; };
+            const auto fly = [&](float varies, float height, int path)
+            {
+                Heights out;
+                Scene scene;
+                scene.p.buses[0].path = path;
+                scene.p.roomHeightVaries = varies;
+                scene.p.roomHeight = height;
+                rest(scene, 0, room::Width::Surround714);
+                for (int n = 0; n < 30; ++n)
+                {
+                    const auto take = thrown(scene, {});
+                    const auto blocks = heard(take);
+                    double top = 0.0;
+                    for (int b : blocks)
+                        top = std::max(top, wide.share(take.blocks[static_cast<size_t>(b)], isTop));
+                    out.least = std::min(out.least, top);
+                    out.most = std::max(out.most, top);
+                    out.power += meanPower(take);
+                    out.second = std::max(out.second, stepsOf(take).second);
+                }
+                return out;
+            };
+            const int across = static_cast<int>(room::Path::Across);
+            const auto none = fly(0.0f, 1.0f, across), half = fly(0.5f, 1.0f, across), full = fly(1.0f, 1.0f, across), floor = fly(1.0f, 0.0f, across);
+            const double archShare = std::pow(std::sin(0.5 * c_pi * room::c_archTop), 2.0), halfShare = std::pow(std::sin(0.25 * c_pi * room::c_archTop), 2.0);
+            std::cout << "         7.1.4, Across, 30 whooshes: the tops' largest share of a whoosh is " << juce::String(juce::roundToInt(100.0 * none.least)) << " to " << juce::String(juce::roundToInt(100.0 * none.most)) << "% at Height Varies 0%, "
+                      << juce::String(juce::roundToInt(100.0 * half.least)) << " to " << juce::String(juce::roundToInt(100.0 * half.most)) << "% at 50%, " << juce::String(juce::roundToInt(100.0 * full.least)) << " to " << juce::String(juce::roundToInt(100.0 * full.most)) << "% at 100%; at Height 0% "
+                      << juce::String(juce::roundToInt(100.0 * floor.most)) << "%; power against Varies 0%: " << num(db(half.power / none.power), 2) << " and " << num(db(full.power / none.power), 2) << " dB" << std::endl;
+            check(none.most == 0.0 && floor.most == 0.0, "7.1.4, Across: at Height Varies 0% every pass is at ear level, and at Height 0% nothing reaches the tops whatever the passes draw");
+            check(full.least < 0.15 && full.most > 0.5 && full.most <= archShare + 0.03 && half.most > 0.1 && half.most <= halfShare + 0.03 && half.least < 0.08,
+                  "7.1.4, Across: turned up, each pass flies at a height of its own, from ear level to as high as Height Varies allows (at most " + juce::String(juce::roundToInt(100.0 * halfShare)) + "% in the tops at 50%, "
+                      + juce::String(juce::roundToInt(100.0 * archShare)) + "% at 100%)");
+            check(std::abs(db(half.power / none.power)) < 0.1f && std::abs(db(full.power / none.power)) < 0.1f && std::abs(db(floor.power / none.power)) < 0.1f,
+                  "7.1.4, Across: a pass is as loud at any height (the same thirty whooshes within 0.1 dB, whatever Height Varies and Height are)");
+            check(full.second < 1.5f * none.second + 1.0e-3f, "7.1.4, Across: flying high adds no clicks (largest change of step " + num(full.second, 4) + ", at ear level " + num(none.second, 4) + ")");
+            // Overhead: its arch, a little lower pass by pass as Height Varies allows; the tops never have it all.
+            const int overhead = static_cast<int>(room::Path::Overhead);
+            const auto arch = fly(0.0f, 1.0f, overhead), varied = fly(1.0f, 1.0f, overhead);
+            check(arch.least > archShare - 0.12 && arch.most <= archShare + 0.03 && varied.least < arch.least - 0.05 && varied.least > 0.45 && varied.most <= archShare + 0.03,
+                  "7.1.4, Overhead: at the top of the arch the tops have " + juce::String(juce::roundToInt(100.0 * arch.least)) + " to " + juce::String(juce::roundToInt(100.0 * arch.most)) + "% (never all of it: the ear-level speakers carry the rest); with Height Varies at 100% "
+                      + juce::String(juce::roundToInt(100.0 * varied.least)) + " to " + juce::String(juce::roundToInt(100.0 * varied.most)) + "%");
+        }
+        // The first whoosh thrown from a new rig is like every later one: nothing of the tracks at its head.
+        for (const auto width : { room::Width::Stereo, room::Width::Surround71 })
+        {
+            Scene scene;
+            scene.p.roomHeightVaries = 0.0f;
+            scene.load(1, src.drone, 0);
+            rest(scene, 0, width);
+            double head[2] = { 0.0, 0.0 }, top[2] = { 0.0, 0.0 };
+            for (int n = 0; n < 2; ++n)
+            {
+                const auto take = thrown(scene, {});
+                const int opening = static_cast<int>(0.15 * c_fs / c_block);
+                for (int b = 0; b < static_cast<int>(take.blocks.size()); ++b)
+                {
+                    top[n] = std::max(top[n], take.blocks[static_cast<size_t>(b)].total);
+                    if (b < opening)
+                        head[n] = std::max(head[n], take.blocks[static_cast<size_t>(b)].total);
+                }
+            }
+            check(db(head[0] / top[0]) < -30.0f && std::abs(db(head[0] / top[0]) - db(head[1] / top[1])) < 6.0f,
+                  nameOf(width) + ": the first whoosh thrown from a new rig opens as quietly as the second (its first 150 ms " + num(db(head[0] / top[0]), 1) + " dB under its loudest moment, the second's "
+                      + num(db(head[1] / top[1]), 1) + " dB)");
+        }
+    }
+
 
     //==================================================================================================================
     std::cout << "Speed: the engine in a room against Stereo" << std::endl;

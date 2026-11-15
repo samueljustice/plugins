@@ -511,6 +511,54 @@ namespace
         check(peaks, "variety: no peak is over the Ceiling");
         check(lengths, "variety: every file is the " + juce::String(seconds, 1) + " s asked for and its ring-out");
         check(starts, "variety: every file starts at its first sound, from silence");
+        {
+            // The first file of a batch opens like the others: no burst of the tracks at its head (a rig that had
+            // never thrown played its sources for a moment before letting them go). The first 150 ms of each file,
+            // against the file's own loudest 150 ms.
+            std::vector<double> opening;
+            for (const auto& file : files)
+            {
+                const auto a = readFile(file);
+                const int window = juce::roundToInt(0.15 * c_fs);
+                double first = 0.0, most = 0.0;
+                for (int start = 0; start + window <= a.samples.getNumSamples(); start += window / 2)
+                {
+                    const double level = a.samples.getRMSLevel(0, start, window) + a.samples.getRMSLevel(1, start, window);
+                    if (start == 0)
+                        first = level;
+                    most = juce::jmax(most, level);
+                }
+                opening.push_back(static_cast<double>(db(static_cast<float>(first / juce::jmax(1.0e-9, most)))));
+            }
+            double others = 0.0;
+            for (size_t i = 1; i < opening.size(); ++i)
+                others += opening[i] / static_cast<double>(opening.size() - 1);
+            check(opening.size() == 10 && opening[0] < -12.0 && opening[0] < others + 6.0,
+                  "variety: the first file opens as the others do (its first 150 ms are " + juce::String(-opening[0], 1) + " dB under its loudest, the others' "
+                      + juce::String(-others, 1) + " dB on average)");
+            int toRight = 0;
+            for (const auto& shape : shapes)
+                toRight += shape.leftToRight() ? 1 : 0;
+            check(toRight >= 2 && toRight <= 8, "variety: some whooshes go left to right and some right to left (" + juce::String(toRight) + " of 10 left to right)");
+        }
+        // Direction held: every whoosh of a batch the one way, then the other.
+        for (int choice = 1; choice <= 2; ++choice)
+        {
+            auto* direction = rig.proc.getState().getParameter(ParamIDs::direction[0]);
+            direction->setValueNotifyingHost(direction->convertTo0to1(static_cast<float>(choice)));
+            const auto heldFolder = out.getChildFile("variety-held");
+            heldFolder.deleteRecursively();
+            render(rig, makeJob(rig, heldFolder, VariationRenderer::Mode::NewPasses, 8, seconds, batch));
+            int toRight = 0, said = 0;
+            const auto held = shapesIn(heldFolder);
+            for (const auto& shape : held)
+                toRight += shape.leftToRight() ? 1 : 0;
+            for (const auto& file : filesIn(heldFolder))
+                said += TapeRecorder::readDescription(file).contains(choice == 1 ? "This whoosh: Left To Right." : "This whoosh: Right To Left.") ? 1 : 0;
+            check(held.size() == 8 && toRight == (choice == 1 ? 8 : 0) && said == 8,
+                  juce::String("variety: with Direction on ") + Params::directionLabel(0, choice) + " every whoosh of a batch goes that way, and says so (" + juce::String(toRight) + " of 8 left to right)");
+            direction->setValueNotifyingHost(direction->getDefaultValue());
+        }
 
         // The same batch again: the same ten files.
         const auto againFolder = out.getChildFile("variety-again");

@@ -99,12 +99,18 @@ namespace
     constexpr float c_roomSeconds = 0.03f;       // Spread, Height and Centre Speaker glide this fast
     constexpr float c_hitsMoveSeconds = 0.004f;  // the hits moving to where they were aimed (they are there before they sound)
     constexpr float c_nearSpread = 0.5f;         // an object right at the listener bleeds this far into every speaker
-    constexpr float c_orbitNearness = 0.6f;      // Around: the pass's nearness, all the way round
-    // Around: the nearness its level is taken at. A pass on the other paths swells to its closest point and falls
-    // away again; one going Around holds one level all the way, and held at c_orbitNearness's it was louder over
-    // the whole pass than the others are (1.1 dB at the Doppler the buses open with). This is the nearness whose
-    // level, held, is as loud as a crossing pass is over its swell (measured by the Output test at every width).
-    constexpr float c_orbitLoudness = 0.25f;
+    // Around: the closeness its level is worked out for (see orbitLoudness: every circle is as loud as a pass of
+    // the middle closeness is on the other paths, whatever its own radius), and the Width at which a pass goes
+    // exactly once round (the Width the buses open with).
+    constexpr float c_orbitCloseness = 0.55f;
+    constexpr float c_orbitFullWidth = 0.7f;
+    constexpr float c_orbitBendDb = 9.8f; // Around: what the bend costs a crossing pass, in dB per speed squared (see orbitLoudness)
+    // Height Varies: at 100% an Overhead pass may fly this much lower than its full arch (the other paths: from
+    // ear level up to that arch).
+    constexpr float c_archVaries = 0.25f;
+    constexpr std::uint32_t c_placeSeed = 0x51DEu; // a room's own draws start here, from the engine's seed
+    // The part of a pass that is heard: within this much of its window's top (-10 dB). Its path is flown over that.
+    constexpr float c_heardLevel = 0.3162f;
     constexpr float c_thirdTailSeconds = 0.25f;  // a bus's throw lane is left to ring out this long after the last throw
     constexpr float c_shareSeconds = 0.01f;      // how fast Low End's shares follow the lanes' levels
     constexpr float c_gainSeconds = 0.01f;       // a speaker's gain never goes from nothing to full faster than this
@@ -296,6 +302,7 @@ void RigEngine::prepare(double sampleRate, int maxBlockSize)
     m_liveHold = 0;
 
     m_rng.seed(m_seed);
+    m_placeRng.seed(m_seed ^ c_placeSeed);
     m_stow.fly.rng.seed(m_seed ^ c_flySeed);
     reset();
 }
@@ -330,6 +337,7 @@ void RigEngine::reset()
     for (auto& q : m_throwQueue) q = QueuedThrow {};
     m_throwPeakView.store(-1.0f, std::memory_order_relaxed);
     m_restartPending = false;
+    m_releaseSnap = true;
     m_coverageFor.fill(nullptr);
     m_ridePhase.fill(0.0);
     m_rideDepth.fill(0.0f);
@@ -364,11 +372,6 @@ void RigEngine::reset()
         startPass(bus.heads[0], m_params.buses[i]);
         startPass(bus.heads[1], m_params.buses[i], bus.heads[0].lenIn);
         bus.heads[1].time = static_cast<double>(bus.heads[1].lenIn);
-        // A room: the two passes go by on opposite sides, and each changes sides with every pass (so do the throws).
-        bus.heads[0].side = 1.0f;
-        bus.heads[1].side = -1.0f;
-        for (size_t v = 0; v < bus.throwHeads.size(); ++v)
-            bus.throwHeads[v].side = (v & 1) != 0 ? 1.0f : -1.0f;
         // Linked: B starts on A's Doppler and Width and on A's passes (A was set up just before it).
         auto snapped = m_params.buses[i];
         if (m_params.linkBuses && i > 0)
@@ -427,6 +430,7 @@ void RigEngine::reset()
         dc.reset();
     m_spreadNow = sj::clamp(m_params.roomSpread, 0.0f, 1.0f);
     m_heightNow = sj::clamp(m_params.roomHeight, 0.0f, 1.0f);
+    m_variesNow = sj::clamp(m_params.roomHeightVaries, 0.0f, 1.0f);
     m_centreNow = m_params.roomCentre ? 1.0f : 0.0f;
     m_roomSnap = true;
     m_spaceFoldSet = false;
@@ -510,6 +514,7 @@ void RigEngine::reseedNow()
     // The same start every time: the random sources from their seeds, every delay and tail empty, every glide at
     // its target, the passes and the rides from the top.
     m_rng.seed(m_seed);
+    m_placeRng.seed(m_seed ^ c_placeSeed);
     m_stow.fly.rng.seed(m_seed ^ c_flySeed);
     for (int t = 0; t < c_tracks; ++t)
         m_rideDrift[static_cast<size_t>(t)].prepare(m_fs, 0.3f + 0.11f * static_cast<float>(t), rideSeed(t));
@@ -544,6 +549,7 @@ void RigEngine::reseedNow()
     m_lastHitTiming = -1;
     m_hitMarks.fill(-1.0);
     m_releaseGain = 0.0f;
+    m_releaseSnap = false;
     m_reseedPending = false;
 }
 
@@ -633,12 +639,26 @@ void RigEngine::startThrows(int frames)
         BusParams lead;
         lead.doppler = knobNow(0, 0);
         lead.bend = knobNow(0, 2);
+        const auto& a = m_params.buses[0]; // bus A's Direction and Side (and the modulators wired to them)
+        lead.direction = a.direction;
+        lead.directionWired = a.directionWired;
+        lead.directionMod = a.directionMod;
+        lead.side = a.side;
+        lead.sideWired = a.sideWired;
+        lead.sideMod = a.sideMod;
         const float seconds = ::Params::throwSeconds(m_params.throwSeconds, m_params.rate);
         const auto& flight = q.flight;
         auto& first = m_buses[0].throwHeads[voice];
         startPass(first, lead, sj::clamp(flight.approach, 0.2f, 0.8f) * seconds);
         first.lenOut = seconds - first.lenIn;
         first.length = seconds;
+        // The flight's own way, side and height, where bus A leaves them to the pass.
+        if (flight.direction != 0 && lead.direction == 0 && ! lead.directionWired)
+            first.dir = flight.direction > 0 ? 1.0f : -1.0f;
+        if (flight.side != 0 && lead.side == 0 && ! lead.sideWired)
+            first.side = flight.side > 0 ? 1.0f : -1.0f;
+        if (flight.lift >= 0.0f)
+            first.lift = sj::clamp(flight.lift, 0.0f, 1.0f);
         auto& v = m_throws[voice];
         v = ThrowVoice {};
         if (q.velocity >= 0.0f)
@@ -811,8 +831,14 @@ void RigEngine::startPass(Head& h, const BusParams& p, float lenIn, sj::Random* 
     h.mach = sj::clamp(h.machBase * sj::clamp(p.bend, 0.0f, 1.0f), 0.0f, machLimit(h.lenIn));
     h.closeness = sj::clamp(0.55f + 0.45f * d * draw.bipolar() * (0.4f + c), 0.0f, 1.0f);
     h.closest = 0.004f * std::exp2(5.0f * (1.0f - h.closeness));
-    h.dir = draw.bipolar() >= 0.0f ? 1.0f : -1.0f;
-    h.side = -h.side; // not drawn: the passes of a room alternate, and the draws stay what they are
+    // Which way: as Direction says, or as the modulator wired to it stands right now; left to itself each pass
+    // draws its own (the draw is made whatever decides, so every other draw stays what it is).
+    const float drawn = draw.bipolar() >= 0.0f ? 1.0f : -1.0f;
+    h.dir = p.directionWired ? (p.directionMod >= 0.0f ? 1.0f : -1.0f) : p.direction == 1 ? 1.0f : p.direction == 2 ? -1.0f : drawn;
+    // A room: which side it takes and how high it flies, pass by pass, from draws of their own.
+    const float sideDrawn = m_placeRng.bipolar() >= 0.0f ? 1.0f : -1.0f;
+    h.side = p.sideWired ? (p.sideMod >= 0.0f ? -1.0f : 1.0f) : p.side == 1 ? -1.0f : p.side == 2 ? 1.0f : sideDrawn;
+    h.lift = m_placeRng.unipolar();
     h.aimed = false;
 }
 
@@ -829,6 +855,7 @@ void RigEngine::followPass(Head& h, const Head& from, float bend, bool newPass)
     h.closeness = from.closeness;
     h.dir = from.dir;
     h.side = from.side;
+    h.lift = from.lift;
     if (newPass)
         h.aimed = false;
     if (newPass)
@@ -869,6 +896,13 @@ void RigEngine::renderTracks(int frames)
     // Everything that glides is stepped by the time this chunk really covers (a block's last chunk can be short).
     const float seconds = static_cast<float>(frames) / m_fs;
     glideMods(frames);
+    // The first chunk of a new engine: a rig at rest starts with its sources let go. (Left open, they played for the
+    // 60 ms it takes to let go: a burst of the tracks at the head of the first throw, and never again after it.)
+    if (m_releaseSnap)
+    {
+        m_releaseSnap = false;
+        m_releaseGain = m_released ? 0.0f : 1.0f;
+    }
     // Stop lets go of the sources (60 ms down); Play brings them back (10 ms up, under the transport fade).
     if (m_restartPending)
     {
@@ -1051,7 +1085,7 @@ void RigEngine::renderTracks(int frames)
     // A room: hits that are not aimed play at the front; aimed ones go to where their pass will be (below).
     auto hitsGoTo = [this](const Head& h, const PathGlide& path)
     {
-        const Place place = placeOf(h, 0.5f, 1.0f, path); // the pass at its closest
+        const Place place = placeOf(h, 0.5f, 1.0f, path); // the pass at its nearest point
         m_hitsTo = place.position;
         m_hitsDistanceTo = place.distance;
     };
@@ -1971,6 +2005,12 @@ void RigEngine::renderFly(int frames)
     BusParams pass;
     pass.doppler = c_flyDoppler;
     pass.bend = c_flyBend;
+    pass.direction = m_params.stow.direction;
+    pass.directionWired = m_params.stow.directionWired;
+    pass.directionMod = m_params.stow.directionMod;
+    pass.side = m_params.stow.side;
+    pass.sideWired = m_params.stow.sideWired;
+    pass.sideMod = m_params.stow.sideMod;
     const float law = passWidthLaw(s.now.width);
     // A room: each pass is one stream at a place on Fly's own Flight Path, read once (see the class comment).
     const bool room = m_room;
@@ -2003,8 +2043,6 @@ void RigEngine::renderFly(int frames)
         startPass(f.heads[1], pass, half, &f.rng);
         startPass(f.heads[0], pass, half, &f.rng);
         f.heads[1].time = static_cast<double>(half);
-        f.heads[0].side = 1.0f;
-        f.heads[1].side = -1.0f;
         f.inbound = 0;
         f.segTime = 0.0;
         f.segLen = half;
@@ -2021,7 +2059,7 @@ void RigEngine::renderFly(int frames)
     for (auto& h : f.heads)
     {
         if (room)
-            roomAir(h, c_flyDoppler, orbit1, fs, false);
+            roomAir(h, c_flyDoppler, orbit1, fs, false, 1.0f);
         else
             passAir(h, c_flyDoppler, law, fs, false);
     }
@@ -2101,7 +2139,7 @@ void RigEngine::renderFly(int frames)
     if (room)
         for (size_t k = 0; k < f.heads.size(); ++k)
         {
-            const Place place = placeOf(f.heads[k], f.heads[k].age, law, s.path);
+            const Place place = placeOf(f.heads[k], pathProgress(f.heads[k].age, 1.0f), law, s.path);
             s.at[k] = place.position;
             roomGains(place.position, place.distance, s.gainTo[k]);
         }
@@ -2118,7 +2156,7 @@ void RigEngine::renderFly(int frames)
             followPass(h, a, c_flyBend, true);
             h.time = a.time - static_cast<double>(frames) * dt;
             if (room)
-                roomAir(h, c_flyDoppler, m_throwOrbit1, fs, false);
+                roomAir(h, c_flyDoppler, m_throwOrbit1, fs, false, 1.0f);
             else
                 passAir(h, c_flyDoppler, law, fs, false);
             const float level = m_throws[v].level;
@@ -2177,7 +2215,7 @@ void RigEngine::renderWake(int frames, float key0, float key1)
     room::Position placeSum { 0.0f, 0.0f, 0.0f };
     float distanceSum = 0.0f;
     const float trailLaw = m_throwWidthLaw * passWidthLaw(s.now.width);
-    auto trail = [&](const Head& h, float out, float level, float& bloom)
+    auto trail = [&](const Head& h, float out, float level, float& bloom, float shape)
     {
         const float b = wakeBloom(out) * level;
         bloom = std::max(bloom, b);
@@ -2185,7 +2223,7 @@ void RigEngine::renderWake(int frames, float key0, float key1)
         weight += b + 1.0e-3f;
         if (m_room)
         {
-            const Place place = placeOf(h, 0.5f + c_wakeLag * (h.progress() - 0.5f), trailLaw, a.path);
+            const Place place = placeOf(h, 0.5f + c_wakeLag * (pathProgress(h.progress(), shape) - 0.5f), trailLaw, a.path);
             placeSum.x += (b + 1.0e-3f) * place.position.x;
             placeSum.y += (b + 1.0e-3f) * place.position.y;
             placeSum.z += (b + 1.0e-3f) * place.position.z;
@@ -2194,10 +2232,10 @@ void RigEngine::renderWake(int frames, float key0, float key1)
     };
     for (const auto& h : a.heads)
         if (const float u = h.progress(); u > 0.5f)
-            trail(h, 2.0f * u - 1.0f, 1.0f, passBloom);
+            trail(h, 2.0f * u - 1.0f, 1.0f, passBloom, a.passShape);
     for (size_t v = 0; v < m_throws.size(); ++v)
         if (const float u = a.throwHeads[v].progress(); m_throws[v].active && u > 0.5f)
-            trail(a.throwHeads[v], (2.0f * u - 1.0f) / c_flyTail, m_throws[v].level, throwBloom);
+            trail(a.throwHeads[v], (2.0f * u - 1.0f) / c_flyTail, m_throws[v].level, throwBloom, 1.0f);
     const float byPass = std::max({ a.passShape, m_proxBlend, 1.0f - heard });
     const float open = 1.0f - (1.0f - fallen) * (1.0f - byPass * passBloom) * (1.0f - sj::clamp(throwBloom, 0.0f, 1.0f));
     w.amount = starting ? open : w.amount + (open - w.amount) * glide(frames, c_wakeAmountSeconds, fs);
@@ -2571,6 +2609,15 @@ void RigEngine::renderBus(BusState& bus, int frames, float key, bool isKeyBus,
     p.drive = knob(6, mod[6]);
     p.duck = isKeyBus ? 0.0f : knob(7, mod[7]);
     p.key = isKeyBus ? 0.0f : knob(8, mod[8]);
+    {
+        const auto& own = m_params.buses[busIndex]; // (linked, bus B flies A's passes: A's way and side with them)
+        p.direction = own.direction;
+        p.directionWired = own.directionWired;
+        p.directionMod = own.directionMod;
+        p.side = own.side;
+        p.sideWired = own.sideWired;
+        p.sideMod = own.sideMod;
+    }
 
     const float fs = m_fs;
     const double dt = 1.0 / m_sampleRate;
@@ -2683,7 +2730,7 @@ void RigEngine::renderBus(BusState& bus, int frames, float key, bool isKeyBus,
     {
         auto& h = bus.heads[k];
         if (room)
-            roomAir(h, p.doppler, orbit1, fs, sideHeard);
+            roomAir(h, p.doppler, orbit1, fs, sideHeard, shape1);
         else
             passAir(h, p.doppler, widthLaw, fs, sideHeard);
 
@@ -2780,7 +2827,7 @@ void RigEngine::renderBus(BusState& bus, int frames, float key, bool isKeyBus,
         h.x = h.dir * std::tanh(5.0f * (h.age - 0.5f));
         if (room)
         {
-            const Place place = placeOf(h, h.age, widthLaw, bus.path);
+            const Place place = placeOf(h, pathProgress(h.age, shape1), widthLaw, bus.path);
             bus.at[k] = place.position;
             roomGains(place.position, place.distance, bus.gainTo[k]);
         }
@@ -2795,7 +2842,7 @@ void RigEngine::renderBus(BusState& bus, int frames, float key, bool isKeyBus,
         auto& h = bus.throwHeads[v];
         const float doppler = m_throwDoppler, law = m_throwWidthLaw, level = m_throws[v].level;
         if (room)
-            roomAir(h, doppler, m_throwOrbit1, fs, false);
+            roomAir(h, doppler, m_throwOrbit1, fs, false, 1.0f);
         else
             passAir(h, doppler, law, fs, false);
         const float throwOrbitStep = (m_throwOrbit1 - m_throwOrbit0) / static_cast<float>(frames);
@@ -4215,17 +4262,88 @@ void RigEngine::PathGlide::step(int wanted, float seconds)
         mix = std::min(1.0f, mix + seconds / c_pathSeconds);
 }
 
-RigEngine::Place RigEngine::placeOf(const Head& h, float u, float widthLaw, const PathGlide& path)
+float RigEngine::pathProgress(float u, float shape)
+{
+    // Where each window comes within c_heardLevel of its top. Bed: sin(pi u). Fly-By: the raised cosines of
+    // passWindow, turned round: 0.5 - 0.5 cos(pi (2u)^approach) on the way in, 0.5 + 0.5 cos(pi (2u - 1) / tail)
+    // on the way out.
+    static const float bedFrom = std::asin(c_heardLevel) / sj::c_pi;
+    static const float flyFrom = 0.5f * std::pow(std::acos(1.0f - 2.0f * c_heardLevel) / sj::c_pi, 1.0f / c_flyApproach);
+    static const float flyTo = 0.5f + 0.5f * c_flyTail * std::acos(2.0f * c_heardLevel - 1.0f) / sj::c_pi;
+    const float s = sj::clamp(shape, 0.0f, 1.0f);
+    const float from = bedFrom + s * (flyFrom - bedFrom);
+    const float to = (1.0f - bedFrom) + s * (flyTo - (1.0f - bedFrom));
+    // The nearest point stays the middle of the path: the way in is flown over the heard part of the approach,
+    // the way out over the heard part of the tail.
+    return u < 0.5f ? 0.5f * sj::clamp((u - from) / (0.5f - from), 0.0f, 1.0f)
+                    : 0.5f + 0.5f * sj::clamp((u - 0.5f) / (to - 0.5f), 0.0f, 1.0f);
+}
+
+float RigEngine::orbitLoudness(Head& h, float doppler, float shape)
+{
+    const std::array<float, 7> now { doppler, shape, h.machRef, h.lenIn, h.lenOut, h.closest, h.mach };
+    if (now == h.orbitFor)
+        return h.orbitLoud;
+    h.orbitFor = now;
+    // A pass's gain is window * (1 + 0.8 Doppler (nearness - 0.35)): on the other paths the nearness swells to 1
+    // at the nearest point, round the listener it is held. The held value L that gives the circle the energy of
+    // the swell under the same window:  (1 + 0.8 D (L - 0.35))^2 * sum(window^2) = sum(window^2 * (1 + 0.8 D
+    // (nearness - 0.35))^2), summed over the pass in time (its two halves can differ in length). How wide the
+    // swell is depends on Doppler (the pass's speed), on how long the pass is and on the window, so no one value
+    // is right for them all. (The level is that of a pass of the middle closeness, whatever the circle's radius.)
+    //
+    // The air: a crossing pass is dull far off and bright only as it goes by (roomAir), and a circle held as
+    // bright as that brightest moment all the way round was louder for it: with the level held at one value as
+    // well, up to 2 dB louder than a crossing at Doppler 100%. It is held at the swell's own brightness, averaged
+    // (in octaves) over the pass's energy.
+    //
+    // The bend: a crossing pass is read faster on the way in and slower on the way out, which moves its sound up
+    // and then down the spectrum, and that costs it loudness a circle (no bend) does not lose: measured against
+    // Stereo with the Output test's sources, c_orbitBendDb * speed^2 (0.1 dB at the Doppler and Bend the buses
+    // open with, 0.7 dB with Doppler at 100%). The circle's level is brought down by as much.
+    const float d = sj::clamp(doppler, 0.0f, 1.0f);
+    const float middle = 0.004f * std::exp2(5.0f * (1.0f - c_orbitCloseness));
+    constexpr int steps = 48;
+    float swell = 0.0f, flat = 0.0f, air = 0.0f, airWeight = 0.0f;
+    for (int i = 0; i < steps; ++i)
+    {
+        const float u = (static_cast<float>(i) + 0.5f) / static_cast<float>(steps);
+        const float half = u < 0.5f ? h.lenIn : h.lenOut;
+        const float x = h.machRef * (2.0f * u - 1.0f) * half;
+        const float w = passWindow(u, shape);
+        const float g = w * (1.0f + 0.8f * d * (middle / std::sqrt(x * x + middle * middle) - 0.35f));
+        swell += g * g * half;
+        flat += w * w * half;
+        // (The pass's own closeness here: how bright a pass is goes by how near it comes.)
+        const float near = std::pow(sj::clamp(0.006f / std::sqrt(x * x + h.closest * h.closest), 0.0f, 1.0f), 0.6f);
+        const float own = w * (1.0f + 0.8f * d * (h.closest / std::sqrt(x * x + h.closest * h.closest) - 0.35f));
+        air += own * own * half * std::log(std::max(1.0e-3f, near * (0.3f + 0.7f * std::sin(sj::c_pi * u))));
+        airWeight += own * own * half;
+    }
+    h.orbitAir = std::exp(air / std::max(airWeight, 1.0e-9f));
+    if (d < 1.0e-3f)
+        return h.orbitLoud = 0.35f;
+    const float bend = sj::dbToGain(-c_orbitBendDb * h.mach * h.mach);
+    return h.orbitLoud = sj::clamp(0.35f + (bend * std::sqrt(swell / std::max(flat, 1.0e-9f)) - 1.0f) / (0.8f * d), 0.0f, 1.0f);
+}
+
+RigEngine::Place RigEngine::placeOf(const Head& h, float along, float widthLaw, const PathGlide& path) const
 {
     // How far along its path: Across, Through and Overhead go from wall to wall the way a pass crosses the stereo
     // field (quickly through the middle, slowing towards the walls, and only as far as Width lets it); Around goes
-    // round at an even speed. Width 0 leaves every path at its half-way point.
-    const float crossing = 0.5f + 0.5f * passAzimuth(u, 1.0f, widthLaw);
-    const float circling = 0.5f + (u - 0.5f) * widthLaw;
+    // round at an even speed, once at the Width the buses open with. Width 0 leaves every path at its half-way point.
+    static const float fullCircle = passWidthLaw(c_orbitFullWidth);
+    const float crossing = 0.5f + 0.5f * passAzimuth(along, 1.0f, widthLaw);
+    const float circling = 0.5f + (along - 0.5f) * widthLaw / fullCircle;
+    // How high: an Overhead pass flies its arch (a little lower, pass by pass, as Height Varies allows); the others
+    // fly at ear level, and up to as high as that arch as Height Varies is turned up.
+    const float archHigh = room::c_archTop * (1.0f - c_archVaries * m_variesNow * (1.0f - h.lift));
+    const float flatHigh = room::c_archTop * m_variesNow * h.lift;
     auto on = [&](int which)
     {
         const auto p = static_cast<room::Path>(juce::jlimit(0, room::c_numPaths - 1, which));
-        return room::flight(p, p == room::Path::Around ? circling : crossing, h.closeness, h.dir, h.side);
+        return room::flight(p, p == room::Path::Around ? circling : crossing, h.closeness, h.dir, h.side,
+                            p == room::Path::Overhead ? archHigh : flatHigh);
     };
     Place place;
     const room::Flight to = on(path.to);
@@ -4268,8 +4386,8 @@ RigEngine::PassPoint RigEngine::roomPoint(Head& h, float u, float widthLaw, floa
         // the path glides to or from it the delay moves there, and the read's band limit goes by how fast.
         const double still = static_cast<double>(c_baseDelay) + static_cast<double>(h.closest);
         pt.base += static_cast<double>(orbit) * (still - pt.base);
-        pt.nearness += orbit * (c_orbitNearness - pt.nearness);
-        pt.loud += orbit * (c_orbitLoudness - pt.loud);
+        pt.nearness += orbit * (h.orbitLoud - pt.nearness); // (Low End, Swirl and Filter go by the nearness its level is held at)
+        pt.loud += orbit * (h.orbitLoud - pt.loud);
         const double speed = orbit >= 1.0f ? 1.0 : 1.0 - (pt.base - h.lastBase) * m_sampleRate;
         pt.stretch = sj::SincKernel::stretchFor(sj::clamp(static_cast<float>(speed), 0.0f, 4.0f));
     }
@@ -4277,16 +4395,21 @@ RigEngine::PassPoint RigEngine::roomPoint(Head& h, float u, float widthLaw, floa
     return pt;
 }
 
-void RigEngine::roomAir(Head& h, float doppler, float orbit, float fs, bool sides)
+void RigEngine::roomAir(Head& h, float doppler, float orbit, float fs, bool sides, float shape)
 {
-    // As passAir, without the head shadow (the listener's own head does that in a room), and for a pass that
-    // goes Around as bright all the way round as it is at its distance.
-    const float s = (static_cast<float>(h.time) - h.lenIn) * (1.0f - orbit);
+    // As passAir, without the head shadow (the listener's own head does that in a room). A pass that goes Around
+    // is one brightness all the way round (see orbitLoudness); while the path glides, in between (in octaves).
+    const float s = static_cast<float>(h.time) - h.lenIn;
     const float x = h.machRef * s;
     const float dist = std::sqrt(x * x + h.closest * h.closest);
     const float near = std::pow(sj::clamp(0.006f / dist, 0.0f, 1.0f), 0.6f);
-    const float swell = sj::lerp(std::sin(sj::c_pi * h.progress()), 1.0f, orbit);
-    const float cutoff = sj::clamp(19000.0f * sj::lerp(1.0f, near * (0.3f + 0.7f * swell), doppler), 600.0f, 20000.0f);
+    float cutoff = sj::clamp(19000.0f * sj::lerp(1.0f, near * (0.3f + 0.7f * std::sin(sj::c_pi * h.progress())), doppler), 600.0f, 20000.0f);
+    if (orbit > 0.0f)
+    {
+        orbitLoudness(h, doppler, shape); // (roomPoint reads the level it holds)
+        const float held = sj::clamp(19000.0f * sj::lerp(1.0f, h.orbitAir, doppler), 600.0f, 20000.0f);
+        cutoff *= std::pow(held / cutoff, orbit);
+    }
     h.airL.set(cutoff, fs);
     if (sides)
         h.airSL.set(cutoff, fs);
@@ -4301,7 +4424,7 @@ bool RigEngine::throwGains(const std::array<Head, c_throws>& heads, float widthL
         if (! m_throws[v].active)
             continue;
         const float u = heads[v].progress();
-        const Place place = placeOf(heads[v], u, widthLaw, m_buses[0].path); // a throw flies bus A's path on every bus
+        const Place place = placeOf(heads[v], pathProgress(u, 1.0f), widthLaw, m_buses[0].path); // a throw flies bus A's path on every bus
         if (at != nullptr)
             at[v] = place.position;
         room::Gains g;
@@ -4406,6 +4529,7 @@ void RigEngine::stepRoom(int frames)
     const float c = m_roomSnap ? 1.0f : glide(frames, c_roomSeconds, m_fs);
     m_spreadNow += (sj::clamp(m_params.roomSpread, 0.0f, 1.0f) - m_spreadNow) * c;
     m_heightNow += (sj::clamp(m_params.roomHeight, 0.0f, 1.0f) - m_heightNow) * c;
+    m_variesNow += (sj::clamp(m_params.roomHeightVaries, 0.0f, 1.0f) - m_variesNow) * c;
     m_centreNow += ((m_params.roomCentre ? 1.0f : 0.0f) - m_centreNow) * c;
     // The hits: to the front, or to where they were aimed (see renderTracks).
     const float move = m_roomSnap ? 1.0f : glide(frames, c_hitsMoveSeconds, m_fs);

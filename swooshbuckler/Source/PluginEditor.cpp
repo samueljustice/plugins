@@ -3495,8 +3495,9 @@ void SwooshbucklerAudioProcessorEditor::RoomStrip::paint(juce::Graphics& g)
 juce::String SwooshbucklerAudioProcessorEditor::flightPathTip()
 {
     return "Where this bus's passes fly in a room. Across: from one side to the other, in front of you. Through: from "
-           "the front to the back, past you. Overhead: up over your head, from the front to behind you. Around: once "
-           "round you. Each pass picks its own direction.";
+           "the front to the back, past one side of you. Overhead: up over your head, from the front to behind you. "
+           "Around: round you, from in front, down one side, behind you and back. Each pass picks its own direction "
+           "and side unless the bus's Direction and Side hold it to one.";
 }
 
 juce::String SwooshbucklerAudioProcessorEditor::roomRestReason(const juce::String& control) const

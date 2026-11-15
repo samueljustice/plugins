@@ -467,7 +467,8 @@ public:
     float getLfeGainReductionDb() const { return m_master.getLfeGainReductionDb(); }
 
     static constexpr int c_scopeSize = 1 << 13;
-    static constexpr int c_maxSection = 512; // the most samples processed between parameter and modulator updates
+    static constexpr int c_maxSection = 512; // the samples between parameter and modulator updates (a multiple of c_quantum)
+    static constexpr int c_quantum = 32;     // the rig is rendered this many samples at a time, whatever the host's block size (see processBlock)
     /** Copies the most recent count mono output samples (count <= c_scopeSize). */
     void copyScope(float* dest, int count) const;
 
@@ -620,6 +621,11 @@ private:
     void publishChannelPeaks(const float* peaks, int numSamples);
 
     juce::AudioBuffer<float> m_work;
+    int m_carry = 0;        // samples of the last quantum (the end of m_work's first c_quantum) the host has not had yet
+    int m_sinceControl = 0; // samples until the modulators and parameters are next updated (0: now)
+    double m_followSquares = 0.0; // the output's power since that update, for the Output Follower
+    int m_followSamples = 0;
+    bool m_keysMoved = false; // a key arrived since the parameters were last handed to the engine
     double m_deviceRate = 0.0, m_renderRate = 48000.0;
     int m_blockSize = 512;
     // Rendering above the device rate: the render, the band-limited downsampler that makes what you hear from
@@ -647,6 +653,8 @@ private:
         std::atomic<float>* passMode[ParamIDs::numBuses] {};
         std::atomic<float>* flightPath[ParamIDs::numBuses] {}, *stowFlightPath = nullptr;
         std::atomic<float>* roomSpread = nullptr, *roomHeight = nullptr, *roomCentre = nullptr;
+        std::atomic<float>* direction[ParamIDs::numBuses] {}, *side[ParamIDs::numBuses] {}, *stowDirection = nullptr, *stowSide = nullptr;
+        std::atomic<float>* roomHeightVaries = nullptr;
         std::atomic<float>* roomLfeMode = nullptr, *roomLfeLevel = nullptr;
         std::atomic<float>* stowOn = nullptr, *stowMode = nullptr, *stow[ParamIDs::numStowControls] {};
         std::atomic<float>* tremOn = nullptr, *tremDepth = nullptr, *tremRate = nullptr, *tremThreshold = nullptr, *tremShape = nullptr, *tremTarget = nullptr;
@@ -666,10 +674,12 @@ private:
     std::vector<ModTarget> m_modTargets;   // aligned with ModMatrix::targets()
     ModMatrix::FollowerInputs m_followerLevels {}; // RMS of the output, bus A, bus B and the hits (the Followers' inputs)
     std::array<int, ParamIDs::numCargoTracks> m_trackPitchTarget {}; // each track's pitch as a modulation target index
+    int m_directionTarget[ParamIDs::numBuses + 1] {}, m_sideTarget[ParamIDs::numBuses + 1] {}; // Direction and Side as modulation targets (bus A, bus B, Stowaway)
     /** A parameter's value with its wires applied (audio thread, no allocation). */
     float modValue(std::atomic<float>* raw);
     void runModulators(int numSamples);
-    void publishModViews(); // the knobs' live dots while stopped
+    void publishModViews();
+    void publishDirectionViews(); // the knobs' live dots while stopped
 
     std::array<float, c_scopeSize> m_scope {};
     std::atomic<int> m_scopeWrite { 0 };
