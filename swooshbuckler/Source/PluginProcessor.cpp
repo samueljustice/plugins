@@ -157,6 +157,8 @@ SwooshbucklerAudioProcessor::SwooshbucklerAudioProcessor(juce::PropertiesFile* o
             m_ccOf[static_cast<size_t>(target)].store(cc);
     }
     updateCcPump();
+    if (! m_offline)
+        m_retroPump.startTimerHz(50);
     startTimerHz(4);
 }
 
@@ -169,6 +171,7 @@ SwooshbucklerAudioProcessor::~SwooshbucklerAudioProcessor()
     m_history.reset();
     stopTimer();
     m_ccPump.stopTimer();
+    m_retroPump.stopTimer();
     m_recorder.stop();
 }
 
@@ -864,6 +867,14 @@ juce::RangedAudioParameter* SwooshbucklerAudioProcessor::midiTargetParameter(int
 int SwooshbucklerAudioProcessor::getMidiControl(int target) const
 {
     return target >= 0 && target < c_numCcTargets ? m_ccOf[static_cast<size_t>(target)].load(std::memory_order_relaxed) : -1;
+}
+
+void SwooshbucklerAudioProcessor::RetroPump::timerCallback()
+{
+    // A host's transport or a key played the rig before anything on this thread asked for the saved last minutes.
+    owner.m_recorder.allocateRetroIfAsked();
+    if (owner.m_recorder.isRetroInUse())
+        stopTimer(); // taken (here, or by Play or arm): prepare keeps it from now on
 }
 
 void SwooshbucklerAudioProcessor::updateCcPump()
@@ -2045,10 +2056,6 @@ void SwooshbucklerAudioProcessor::timerCallback()
         setPlaying(false);
 
     refreshHostReadouts();
-
-    // A host's transport, a key or a throw played the rig before anything here asked for the saved last minutes.
-    if (! m_offline)
-        m_recorder.allocateRetroIfAsked();
 
     // The tape: the files it has closed go into the takes, and the next file is named and described by the
     // settings as they are now.

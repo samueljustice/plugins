@@ -572,6 +572,15 @@ private:
         void timerCallback() override { owner.applyMidiControls(); }
         SwooshbucklerAudioProcessor& owner;
     } m_ccPump { *this };
+    // The saved last minutes' memory, when the rig is first played from the audio thread (a host's transport, a
+    // key): the audio thread raises a flag at the first sound and this takes the memory within a fiftieth of a
+    // second, so only the very start of that first fade-in is missed. It stops once the memory is taken.
+    struct RetroPump : juce::Timer
+    {
+        explicit RetroPump(SwooshbucklerAudioProcessor& p) : owner(p) {}
+        void timerCallback() override;
+        SwooshbucklerAudioProcessor& owner;
+    } m_retroPump { *this };
     void updateCcPump();
     int keysMode() const;
     int stowMode() const; // ParamIDs::StowMode

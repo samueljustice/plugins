@@ -205,9 +205,12 @@ public:
     /** The retro buffer is wanted (Play, arm): takes its memory now if it hasn't yet, and from then on prepare()
         takes it too. Message thread (never the audio thread: it allocates). */
     void useRetro();
-    /** Takes the memory if the tape has heard sound since it was prepared without it (a host's transport, a key,
-        a throw: the audio thread only raises a flag). Message thread, from a timer. */
+    /** Takes the memory if the tape has heard sound since it was prepared without it (a host's transport, a key:
+        the audio thread only raises a flag). What sounded before this call is not in the buffer, so call it often.
+        Message thread, from a timer. */
     void allocateRetroIfAsked();
+    /** Whether the memory has been asked for (useRetro), or was never on demand. Any thread. */
+    bool isRetroInUse() const { return m_retroInUse.load(); }
     /** The retro buffer's memory, in bytes (0 until it is taken). Message thread. */
     std::int64_t getRetroBytes() const;
 

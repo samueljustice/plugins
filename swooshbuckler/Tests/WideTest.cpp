@@ -278,17 +278,17 @@ int main(int argc, char* argv[])
     std::cout << "Loudness weights" << std::endl;
     {
         using S = room::Speaker;
-        auto near = [](float a, float b) { return std::abs(a - b) < 1.0e-6f; };
-        check(near(room::loudnessWeight(S::L), 1.0f) && near(room::loudnessWeight(S::R), 1.0f) && near(room::loudnessWeight(S::C), 1.0f),
+        auto nearly = [](float a, float b) { return std::abs(a - b) < 1.0e-6f; };
+        check(nearly(room::loudnessWeight(S::L), 1.0f) && nearly(room::loudnessWeight(S::R), 1.0f) && nearly(room::loudnessWeight(S::C), 1.0f),
               "BS.1770: the fronts count 1");
-        check(near(room::loudnessWeight(S::Ls), 1.41f) && near(room::loudnessWeight(S::Rs), 1.41f) && near(room::loudnessWeight(S::Lss), 1.41f)
-                  && near(room::loudnessWeight(S::Rss), 1.41f),
+        check(nearly(room::loudnessWeight(S::Ls), 1.41f) && nearly(room::loudnessWeight(S::Rs), 1.41f) && nearly(room::loudnessWeight(S::Lss), 1.41f)
+                  && nearly(room::loudnessWeight(S::Rss), 1.41f),
               "BS.1770: the surrounds between 60 and 120 degrees (Ls / Rs at 110, the sides at 90) count +1.5 dB");
-        check(near(room::loudnessWeight(S::Lsr), 1.0f) && near(room::loudnessWeight(S::Rsr), 1.0f),
+        check(nearly(room::loudnessWeight(S::Lsr), 1.0f) && nearly(room::loudnessWeight(S::Rsr), 1.0f),
               "BS.1770: the rear surrounds at 135 degrees count 1");
         bool tops = true;
         for (auto s : { S::Ltf, S::Rtf, S::Ltr, S::Rtr, S::Lts, S::Rts })
-            tops = tops && near(room::loudnessWeight(s), 1.0f);
+            tops = tops && nearly(room::loudnessWeight(s), 1.0f);
         check(tops, "BS.1770: the tops count 1");
         check(room::loudnessWeight(S::Lfe) == 0.0f, "BS.1770: the LFE is left out");
     }

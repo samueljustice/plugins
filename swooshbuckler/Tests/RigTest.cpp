@@ -1325,9 +1325,9 @@ int main(int argc, char* argv[])
                         last = i;
                 return (last - pre) / c_rate;
             };
-            const double big = fadeSeconds(256), small = fadeSeconds(7);
-            std::cout << "  fader glide: " << big << " s with 256-sample blocks, " << small << " s with 7-sample blocks" << std::endl;
-            check(big > 0.02 && std::abs(small - big) < 0.15 * big, "glides take the same time at any block size");
+            const double big = fadeSeconds(256), little = fadeSeconds(7); // (not "small": a macro in the Windows headers)
+            std::cout << "  fader glide: " << big << " s with 256-sample blocks, " << little << " s with 7-sample blocks" << std::endl;
+            check(big > 0.02 && std::abs(little - big) < 0.15 * big, "glides take the same time at any block size");
         }
 
         // ---- Pass Mode, the passes moving the colours, ride make-up and head shadow ---------------------------------

@@ -35,6 +35,7 @@
 #include <cmath>
 #include <iostream>
 #include <map>
+#include <vector>
 
 namespace
 {
@@ -847,6 +848,60 @@ int main(int argc, char* argv[])
             check(p.getTapeWidth() == W::Stereo && ! TapeRecorder::foldedFrom(p.tapeOptions(), 2).has_value(), "the tape: in Stereo, Stereo is as played, not a fold");
             p.setTapeFold(SwooshbucklerAudioProcessor::TapeFold::AsPlayed);
         }
+    }
+
+    // Sample Rate above the session's: the first sound after a prepare is as late as the host is told, like every
+    // later one (the downsampler is primed in prepare; unprimed, the first run came out 26 samples early). The same
+    // rig, same seed, rendered at the session rate and at twice it: the second lags the first by the difference
+    // of the two reported latencies.
+    {
+        auto firstRun = [&sources](int recordRate, int& latency)
+        {
+            Rig rig(sources);
+            rig.proc.overrideRecordRate(recordRate);
+            rig.proc.prepareToPlay(c_fs, 512);
+            rig.set(ParamIDs::space, 0.0f);
+            rig.set(ParamIDs::inflate, 0.0f);
+            rig.set(ParamIDs::push, 0.0f);
+            latency = rig.proc.getLatencySamples();
+            rig.proc.setPlaying(true);
+            std::vector<float> out;
+            juce::AudioBuffer<float> block(rig.proc.getTotalNumOutputChannels(), 512);
+            juce::MidiBuffer midi;
+            for (int i = 0; i < static_cast<int>(4.0 * c_fs / 512.0); ++i)
+            {
+                block.clear();
+                rig.proc.processBlock(block, midi);
+                out.insert(out.end(), block.getReadPointer(0), block.getReadPointer(0) + 512);
+            }
+            return out;
+        };
+        int latencyAtSession = 0, latencyAbove = 0;
+        const auto atSession = firstRun(0, latencyAtSession);
+        const auto above = firstRun(static_cast<int>(2.0 * c_fs), latencyAbove);
+        const int from = static_cast<int>(0.25 * c_fs), to = static_cast<int>(3.5 * c_fs);
+        double best = -1.0;
+        int bestLag = -1;
+        for (int lag = 0; lag <= 300; ++lag)
+        {
+            double cross = 0.0, a2 = 0.0, b2 = 0.0;
+            for (int i = from; i < to; ++i)
+            {
+                const double a = atSession[static_cast<size_t>(i)], b = above[static_cast<size_t>(i + lag)];
+                cross += a * b;
+                a2 += a * a;
+                b2 += b * b;
+            }
+            if (const double r = cross / std::sqrt(a2 * b2 + 1.0e-30); r > best)
+            {
+                best = r;
+                bestLag = lag;
+            }
+        }
+        std::cout << "  Sample Rate above the session's: reported " << latencyAbove << " against " << latencyAtSession << ", the first run measured "
+                  << bestLag << " later (correlation " << num(best, 3) << ")" << std::endl;
+        check(latencyAbove > latencyAtSession && bestLag == latencyAbove - latencyAtSession && best > 0.9,
+              "rendering above the session rate, the first sound after a prepare is as late as the latency the host is told");
     }
 
     SwooshbucklerAudioProcessor::useSettings(nullptr);
