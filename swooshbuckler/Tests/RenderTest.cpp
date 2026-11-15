@@ -34,9 +34,20 @@
 #include <algorithm>
 #include <cmath>
 #include <iostream>
+#include <vector>
 
 namespace
 {
+    /** The markers at the start of each variation (each whoosh's "Closest" marker left out). */
+    std::vector<TapeRecorder::Cue> startsOf(const std::vector<TapeRecorder::Cue>& cues)
+    {
+        std::vector<TapeRecorder::Cue> starts;
+        for (const auto& c : cues)
+            if (! c.label.endsWith(" Closest"))
+                starts.push_back(c);
+        return starts;
+    }
+
     constexpr double c_fs = 48000.0;
     int g_failures = 0;
 
@@ -836,7 +847,8 @@ int main(int argc, char* argv[])
                       && files[0].getFileName() == "Whoosh_All.wav" && progress.combinedFile == "Whoosh_All.wav",
                   "one file: four variations make one file, Whoosh_All.wav (" + juce::String(files.size()) + " files)");
             const auto all = files.size() == 1 ? readFile(files[0]) : Audio {};
-            const auto cues = files.size() == 1 ? TapeRecorder::readCues(files[0]) : std::vector<TapeRecorder::Cue> {};
+            const auto allCues = files.size() == 1 ? TapeRecorder::readCues(files[0]) : std::vector<TapeRecorder::Cue> {};
+            const auto cues = startsOf(allCues);
             const int gap = static_cast<int>(0.5 * c_fs);
             bool names = cues.size() == 4, places = cues.size() == 4 && separate.size() == 4, same = places, quiet = places;
             std::int64_t at = 0;
@@ -861,7 +873,17 @@ int main(int argc, char* argv[])
                     same = false;
                 at += n + gap;
             }
-            check(cues.size() == 4, "one file: it has four markers (" + juce::String(static_cast<int>(cues.size())) + ")");
+            check(cues.size() == 4, "one file: it has four markers at the starts (" + juce::String(static_cast<int>(cues.size())) + ")");
+            // After each start, the whoosh's closest point: where its own file has its Closest marker.
+            bool closest = allCues.size() == 8 && separate.size() == 4;
+            for (int i = 0; i < 4 && closest; ++i)
+            {
+                const auto own = TapeRecorder::readCues(separate[i]);
+                const auto& start = allCues[static_cast<size_t>(2 * i)];
+                const auto& mark = allCues[static_cast<size_t>(2 * i + 1)];
+                closest = own.size() == 1 && own[0].label == "Closest" && mark.label == start.label + " Closest" && mark.frame == start.frame + own[0].frame;
+            }
+            check(closest, "one file: and after each, a marker at that whoosh's closest point, where its own file has its Closest marker");
             check(names, "one file: each marker has its variation's name, Whoosh_001 to Whoosh_004 (" + where + ")");
             check(places, "one file: each marker is at the first sample of its variation, half a second of gap after the one before");
             check(same, "one file: between the markers is the same sound as the separate files, sample for sample");
@@ -871,7 +893,7 @@ int main(int argc, char* argv[])
                   "one file: its description says what it holds and which batch it is");
             rig.proc.refreshTakes();
             const auto& takes = rig.proc.getTakes();
-            check(! takes.empty() && takes[0].kind == "Variations" && takes[0].markers == 4 && takes[0].file.getFileName() == "Whoosh_All.wav"
+            check(! takes.empty() && takes[0].kind == "Variations" && takes[0].markers == 8 && takes[0].file.getFileName() == "Whoosh_All.wav"
                       && std::abs(takes[0].seconds - all.seconds()) < 0.01,
                   "one file: the Takes list shows it as one take");
 
@@ -883,14 +905,14 @@ int main(int argc, char* argv[])
             const auto first = render(rig, job);
             const auto firstAll = bothFolder.getChildFile("Whoosh_All.wav");
             const auto before = firstAll.loadFileAsString().hashCode64();
-            const auto bothCues = TapeRecorder::readCues(firstAll);
+            const auto bothCues = startsOf(TapeRecorder::readCues(firstAll));
             const auto firstOne = readFile(bothFolder.getChildFile("Whoosh_001.wav"));
             check(first.files == 5 && filesIn(bothFolder).size() == 5 && bothCues.size() == 4
                       && bothCues[1].frame == firstOne.samples.getNumSamples() + static_cast<int>(1.25 * c_fs),
                   "both: four files and the one file with them all, its gap the 1.25 s asked for");
             const auto second = render(rig, job);
             const auto bothFiles = filesIn(bothFolder);
-            const auto secondCues = TapeRecorder::readCues(bothFolder.getChildFile("Whoosh_All_2.wav"));
+            const auto secondCues = startsOf(TapeRecorder::readCues(bothFolder.getChildFile("Whoosh_All_2.wav")));
             check(second.files == 5 && bothFiles.size() == 10 && bothFolder.getChildFile("Whoosh_008.wav").existsAsFile()
                       && bothFolder.getChildFile("Whoosh_All_2.wav").existsAsFile() && firstAll.loadFileAsString().hashCode64() == before
                       && secondCues.size() == 4 && secondCues[0].label == "Whoosh_005",
@@ -903,7 +925,7 @@ int main(int argc, char* argv[])
             job.folder = aiffFolder;
             job.options.type = TapeRecorder::FileType::Aiff;
             render(rig, job);
-            const auto aiffCues = TapeRecorder::readCues(aiffFolder.getChildFile("Whoosh_All.aif"));
+            const auto aiffCues = startsOf(TapeRecorder::readCues(aiffFolder.getChildFile("Whoosh_All.aif")));
             const auto aiff = readFile(aiffFolder.getChildFile("Whoosh_All.aif"));
             bool aiffOk = aiffCues.size() == 4 && cues.size() == 4 && aiff.samples.getNumSamples() == all.samples.getNumSamples();
             for (size_t i = 0; i < aiffCues.size() && aiffOk; ++i)
@@ -1107,7 +1129,7 @@ int main(int argc, char* argv[])
         renderer.waitUntilDone(60000);
         const auto progress = renderer.getProgress();
         const auto files = filesIn(cancelFolder);
-        const auto cues = files.size() == 1 ? TapeRecorder::readCues(files[0]) : std::vector<TapeRecorder::Cue> {};
+        const auto cues = files.size() == 1 ? startsOf(TapeRecorder::readCues(files[0])) : std::vector<TapeRecorder::Cue> {};
         const auto a = files.size() == 1 ? readFile(files[0]) : Audio {};
         check(progress.state == VariationRenderer::State::Cancelled && progress.done >= 3 && files.size() == 1 && static_cast<int>(cues.size()) == progress.done
                   && a.seconds() > 3.0 && cues.back().frame < a.samples.getNumSamples() && std::abs(a.seconds() - (progress.audioSeconds + 0.5 * (progress.done - 1))) < 0.01,

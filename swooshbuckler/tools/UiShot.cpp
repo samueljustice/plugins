@@ -24,9 +24,11 @@
 //                             the panels that open over the window
 //   variations-cancelled.png variations-choices.png variations-repeat.png variations-finished.png
 //                             Render Variations cancelled part-way, with its other choices, repeating a batch, and done
-//   variations-51.png variations-714-multimono.png variations-714-finished.png variations-714-flac.png
+//   variations-51.png variations-714-multimono.png variations-714-finished.png variations-714-multimono-finished.png
+//   variations-714-flac.png
 //                             Render Variations wider than the rig: the order line at 5.1, Multi-Mono at 7.1.4, a 7.1.4
-//                             batch done, and FLAC refusing 7.1.4 in one file before anything is rendered
+//                             batch done (interleaved, and as Multi-Mono sets: takes and files counted), and FLAC refusing
+//                             7.1.4 in one file before anything is rendered (Render rests)
 //   settings-714.png settings-714-stereo-fold.png settings-714-flac.png takes-714.png
 //                             the rig in a 7.1.4 room: the tape's settings (as played, folded to Stereo, FLAC refused)
 //                             and the Takes list with a 7.1.4 take, a Stereo fold, a Multi-Mono set and 7.1.4 variations
@@ -765,6 +767,13 @@ int main(int argc, char* argv[])
             rig.run(0.3);
             v.timerCallback();
             shots.shoot("variations-714-finished", &v);
+            pick(v.m_layout, 2);
+            v.startBatch();
+            proc.getVariations().waitUntilDone(120000);
+            rig.run(0.3);
+            v.timerCallback();
+            shots.shoot("variations-714-multimono-finished", &v);
+            pick(v.m_layout, 1);
             proc.setFileType(2);
             v.readSettings();
             rig.run(0.1);

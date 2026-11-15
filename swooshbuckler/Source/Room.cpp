@@ -29,8 +29,8 @@ namespace
         { "Rtf", ".Rtf", Role::Height,   45.0f, 45.0f,    1.0f,  1.0f, 1.0f, Type::topFrontRight,     0x4000 },
         { "Ltr", ".Ltr", Role::Height, -135.0f, 45.0f,   -1.0f, -1.0f, 1.0f, Type::topRearLeft,       0x8000 },
         { "Rtr", ".Rtr", Role::Height,  135.0f, 45.0f,    1.0f, -1.0f, 1.0f, Type::topRearRight,      0x20000 },
-        { "Ltm", ".Ltm", Role::Height,  -90.0f, 45.0f,   -1.0f,  0.0f, 1.0f, Type::topSideLeft,       0x1000 },
-        { "Rtm", ".Rtm", Role::Height,   90.0f, 45.0f,    1.0f,  0.0f, 1.0f, Type::topSideRight,      0x4000 },
+        { "Lts", ".Lts", Role::Height,  -90.0f, 45.0f,   -1.0f,  0.0f, 1.0f, Type::topSideLeft,       0x1000 },
+        { "Rts", ".Rts", Role::Height,   90.0f, 45.0f,    1.0f,  0.0f, 1.0f, Type::topSideRight,      0x4000 },
     } };
 
 
@@ -41,26 +41,26 @@ namespace
         { Width::Quad,        "Quad",   4,  { S::L, S::R, S::Ls, S::Rs }, -1, -1 },
         { Width::Surround51,  "5.1",    6,  { S::L, S::R, S::C, S::Lfe, S::Ls, S::Rs }, 3, 2 },
         { Width::Surround71,  "7.1",    8,  { S::L, S::R, S::C, S::Lfe, S::Lss, S::Rss, S::Lsr, S::Rsr }, 3, 2 },
-        { Width::Surround712, "7.1.2",  10, { S::L, S::R, S::C, S::Lfe, S::Lss, S::Rss, S::Lsr, S::Rsr, S::Ltm, S::Rtm }, 3, 2 },
+        { Width::Surround712, "7.1.2",  10, { S::L, S::R, S::C, S::Lfe, S::Lss, S::Rss, S::Lsr, S::Rsr, S::Lts, S::Rts }, 3, 2 },
         { Width::Surround714, "7.1.4",  12, { S::L, S::R, S::C, S::Lfe, S::Lss, S::Rss, S::Ltf, S::Rtf, S::Ltr, S::Rtr, S::Lsr, S::Rsr }, 3, 2 },
     } };
 
-    // The two file orders, as speakers.
+    // The two file orders, as speakers: as Pro Tools writes each width, and the WAV mask order.
     struct OrderList
     {
-        std::array<S, c_maxChannels> film, smpte;
+        std::array<S, c_maxChannels> proTools, wav;
     };
 
     const std::array<OrderList, c_numWidths> c_orders { {
         { { S::C }, { S::C } },
         { { S::L, S::R }, { S::L, S::R } },
         { { S::L, S::R, S::Ls, S::Rs }, { S::L, S::R, S::Ls, S::Rs } },
-        { { S::L, S::C, S::R, S::Ls, S::Rs, S::Lfe },
+        { { S::L, S::R, S::C, S::Lfe, S::Ls, S::Rs },
           { S::L, S::R, S::C, S::Lfe, S::Ls, S::Rs } },
-        { { S::L, S::C, S::R, S::Lss, S::Rss, S::Lsr, S::Rsr, S::Lfe },
+        { { S::L, S::R, S::C, S::Lfe, S::Lsr, S::Rsr, S::Lss, S::Rss },
           { S::L, S::R, S::C, S::Lfe, S::Lsr, S::Rsr, S::Lss, S::Rss } },
-        { { S::L, S::C, S::R, S::Lss, S::Rss, S::Lsr, S::Rsr, S::Lfe, S::Ltm, S::Rtm },
-          { S::L, S::R, S::C, S::Lfe, S::Lsr, S::Rsr, S::Lss, S::Rss, S::Ltm, S::Rtm } },
+        { { S::L, S::R, S::C, S::Lfe, S::Lsr, S::Rsr, S::Lss, S::Rss, S::Lts, S::Rts },
+          { S::L, S::R, S::C, S::Lfe, S::Lsr, S::Rsr, S::Lss, S::Rss, S::Lts, S::Rts } },
         { { S::L, S::C, S::R, S::Lss, S::Rss, S::Lsr, S::Rsr, S::Lfe, S::Ltf, S::Rtf, S::Ltr, S::Rtr },
           { S::L, S::R, S::C, S::Lfe, S::Lsr, S::Rsr, S::Lss, S::Rss, S::Ltf, S::Rtf, S::Ltr, S::Rtr } },
     } };
@@ -110,15 +110,15 @@ namespace
         }
 
         const float g = gain * c_foldStep;
-        const bool hasTopMiddle = to.indexOf(S::Ltm) >= 0;
+        const bool hasTopMiddle = to.indexOf(S::Lts) >= 0;
         switch (speaker)
         {
-            case S::Ltf: route(hasTopMiddle ? S::Ltm : S::L, g, to, lfe, column); break;
-            case S::Rtf: route(hasTopMiddle ? S::Rtm : S::R, g, to, lfe, column); break;
-            case S::Ltr: route(hasTopMiddle ? S::Ltm : S::Lsr, g, to, lfe, column); break;
-            case S::Rtr: route(hasTopMiddle ? S::Rtm : S::Rsr, g, to, lfe, column); break;
-            case S::Ltm: route(S::Lss, g, to, lfe, column); break;
-            case S::Rtm: route(S::Rss, g, to, lfe, column); break;
+            case S::Ltf: route(hasTopMiddle ? S::Lts : S::L, g, to, lfe, column); break;
+            case S::Rtf: route(hasTopMiddle ? S::Rts : S::R, g, to, lfe, column); break;
+            case S::Ltr: route(hasTopMiddle ? S::Lts : S::Lsr, g, to, lfe, column); break;
+            case S::Rtr: route(hasTopMiddle ? S::Rts : S::Rsr, g, to, lfe, column); break;
+            case S::Lts: route(S::Lss, g, to, lfe, column); break;
+            case S::Rts: route(S::Rss, g, to, lfe, column); break;
             case S::Lss:
             case S::Lsr: route(S::Ls, g, to, lfe, column); break;
             case S::Rss:
@@ -184,9 +184,9 @@ namespace
         const bool sides = m.sideL >= 0;
         m.rearL = l.indexOf(sides ? S::Lsr : S::Ls);
         m.rearR = l.indexOf(sides ? S::Rsr : S::Rs);
-        const bool topMiddle = l.indexOf(S::Ltm) >= 0;
-        m.topFrontL = l.indexOf(topMiddle ? S::Ltm : S::Ltf);
-        m.topFrontR = l.indexOf(topMiddle ? S::Rtm : S::Rtf);
+        const bool topMiddle = l.indexOf(S::Lts) >= 0;
+        m.topFrontL = l.indexOf(topMiddle ? S::Lts : S::Ltf);
+        m.topFrontR = l.indexOf(topMiddle ? S::Rts : S::Rtf);
         m.topRearL = l.indexOf(S::Ltr);
         m.topRearR = l.indexOf(S::Rtr);
         m.bedSpeakers = 2.0f + (sides ? 2.0f : 0.0f) + (m.rearL >= 0 ? 2.0f : 0.0f);
@@ -200,7 +200,7 @@ namespace
         const OrderList& lists = c_orders[static_cast<size_t>(index(l.width))];
         for (size_t o = 0; o < c_numFileOrders; ++o)
         {
-            const auto& list = o == 0 ? lists.film : lists.smpte;
+            const auto& list = o == 0 ? lists.proTools : lists.wav;
             size_t at = 0;
             for (size_t c = 0; c < static_cast<size_t>(l.numChannels); ++c)
             {
@@ -275,8 +275,8 @@ Speaker mirrored(Speaker speaker) noexcept
         case S::Rtf: return S::Ltf;
         case S::Ltr: return S::Rtr;
         case S::Rtr: return S::Ltr;
-        case S::Ltm: return S::Rtm;
-        case S::Rtm: return S::Ltm;
+        case S::Lts: return S::Rts;
+        case S::Rts: return S::Lts;
         case S::C:
         case S::Lfe: break;
     }
@@ -491,7 +491,7 @@ void applyFold(const FoldMatrix& matrix, const float* const* in, float* const* o
 //======================================================================================================================
 const char* fileOrderName(FileOrder order) noexcept
 {
-    return order == FileOrder::ProTools ? "Pro Tools (Film)" : "SMPTE / WAV";
+    return order == FileOrder::ProTools ? "Like Pro Tools" : "WAV Standard";
 }
 
 const std::array<int, c_maxChannels>& fileChannels(Width width, FileOrder order) noexcept
@@ -505,6 +505,12 @@ const char* orderLabel(Width width, FileOrder order) noexcept
 }
 
 std::uint32_t wavChannelMask(Width width) noexcept { return c_tables.files[static_cast<size_t>(index(width))].mask; }
+
+bool ordersDiffer(Width width) noexcept
+{
+    const auto& t = c_tables.files[static_cast<size_t>(index(width))];
+    return t.channels[0] != t.channels[1];
+}
 
 const char* multiMonoSuffix(Width width, int processingChannel) noexcept
 {

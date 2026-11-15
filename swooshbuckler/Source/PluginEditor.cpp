@@ -484,12 +484,13 @@ SwooshbucklerAudioProcessorEditor::SettingsPanel::SettingsPanel(SwooshbucklerAud
         b.setButtonText(room::fileOrderName(static_cast<room::FileOrder>(i)));
         b.onClick = [this, i] { m_owner.m_processor.setChannelOrder(static_cast<room::FileOrder>(i)); refresh(); };
     }
-    m_orders[0].setTooltip("Pro Tools (Film)\nThe channels of 5.1 and wider files in the order of a Pro Tools track: L C R Ls Rs LFE, "
-                           "and for 7.1 L C R Lss Rss Lsr Rsr LFE. The line underneath spells out the order you get. "
-                           "Multi-Mono files have no order: each channel is a file of its own.");
-    m_orders[1].setTooltip("SMPTE / WAV\nThe channels of 5.1 and wider files in the order most other programs read: L R C LFE Ls Rs, "
-                           "and for 7.1 L R C LFE Lsr Rsr Lss Rss, with the speaker positions written into the file. The line underneath "
-                           "spells out the order you get.");
+    m_orders[0].setTooltip("Like Pro Tools\nEach width the way Pro Tools itself writes it: up to 7.1.2 in the standard WAV order (L R C LFE ...) "
+                           "with the speakers labelled in the header, and 7.1.4 in Pro Tools' own order (L C R Lss Rss Lsr Rsr LFE, then the "
+                           "tops) with each channel named inside the file. Below 7.1.4 both choices give the same file; a FLAC file always "
+                           "has FLAC's own order. The line underneath spells out the order you get.");
+    m_orders[1].setTooltip("WAV Standard\nThe standard WAV order at every width, with the speakers labelled in the header: for 7.1.4 "
+                           "L R C LFE Lsr Rsr Lss Rss Ltf Rtf Ltr Rtr. For programs that only read those labels. Below 7.1.4 both choices "
+                           "give the same file. The line underneath spells out the order you get.");
     for (int i = 0; i < takefile::c_numLayouts; ++i)
     {
         auto& b = m_layouts[static_cast<size_t>(i)];
@@ -498,8 +499,8 @@ SwooshbucklerAudioProcessorEditor::SettingsPanel::SettingsPanel(SwooshbucklerAud
         b.onClick = [this, i] { m_owner.m_processor.setFileLayout(static_cast<takefile::Layout>(i)); refresh(); };
     }
     m_layouts[0].setTooltip("Interleaved\nOne file that holds every channel.");
-    m_layouts[1].setTooltip("Multi-Mono\nOne mono file for each channel, named the Pro Tools way (Whoosh_0001.L.wav, Whoosh_0001.R.wav ...), "
-                            "so Pro Tools takes them in as one clip. The Takes list shows a set as one take.");
+    m_layouts[1].setTooltip("Multi-Mono\nOne mono file for each channel, its name ending in the speaker as Pro Tools names it "
+                            "(Whoosh_0001.L.wav, Whoosh_0001.C.wav ...). The Takes list shows a set as one take.");
 
     {
         const char* typeTips[] = { "WAV\nThe most widely read format. The only one that can hold 32-bit float.",
@@ -669,7 +670,7 @@ void SwooshbucklerAudioProcessorEditor::SettingsPanel::refresh()
         m_channels[0].setToggleState(tape == room, juce::dontSendNotification);
         m_channels[1].setToggleState(tape == room::Width::Stereo && room != room::Width::Stereo, juce::dontSendNotification);
         m_channels[2].setToggleState(tape == room::Width::Mono && room != room::Width::Mono, juce::dontSendNotification);
-        const bool order = takefile::orderMatters(tape) && p.getFileLayout() == takefile::Layout::Interleaved;
+        const bool order = takefile::orderMatters(tape, p.getFileLayout(), TapeRecorder::containerOf(static_cast<TapeRecorder::FileType>(p.getFileType())));
         for (int i = 0; i < 2; ++i)
         {
             m_orders[static_cast<size_t>(i)].setToggleState(static_cast<int>(p.getChannelOrder()) == i, juce::dontSendNotification);
@@ -861,7 +862,7 @@ void SwooshbucklerAudioProcessorEditor::SettingsPanel::paint(juce::Graphics& g)
         Theme::fitText(g, moreCaptions[i], m_moreCaptions[i], f.caption(), juce::Justification::centredLeft);
     auto& p = m_owner.m_processor;
     const auto tape = p.getTapeWidth();
-    const bool order = takefile::orderMatters(tape) && p.getFileLayout() == takefile::Layout::Interleaved;
+    const bool order = takefile::orderMatters(tape, p.getFileLayout(), TapeRecorder::containerOf(static_cast<TapeRecorder::FileType>(p.getFileType())));
     g.setColour(order ? TC::textDim : TC::textFaint);
     Theme::fitText(g, "Channel Order", m_orderCaption, f.caption(), juce::Justification::centredLeft);
     g.setColour(takefile::layoutMatters(tape) ? TC::textDim : TC::textFaint);
@@ -873,7 +874,8 @@ void SwooshbucklerAudioProcessorEditor::SettingsPanel::paint(juce::Graphics& g)
     // What the tape's files will hold: the order spelt out, or what the file type can't do.
     {
         const auto problem = TapeRecorder::formatProblem(p.tapeOptions(), room::layout(p.getRoomWidth() == room::Width::Mono ? room::Width::Stereo : p.getRoomWidth()).numChannels);
-        juce::String line = takefile::orderLine(tape, p.getChannelOrder(), p.getFileLayout());
+        juce::String line = takefile::orderLine(tape, p.getChannelOrder(), p.getFileLayout(),
+                                                TapeRecorder::containerOf(static_cast<TapeRecorder::FileType>(p.getFileType())));
         if (tape != p.getRoomWidth())
             line << " Folded down from the room's " << room::layout(p.getRoomWidth()).name << ".";
         if (problem.isNotEmpty())

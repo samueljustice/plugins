@@ -1,11 +1,20 @@
 // Files test: takes of every room width on disk.
 //
 //   - Every width x Channel Order x File Layout x file type is written (TapeRecorder::FileWriter, what Render
-//     Variations uses) and read back with a parser of this test's own: the WAV header (format tag, channel count,
-//     the speaker mask: the right one, not JUCE's five-front 7.1 or none at all), the AIFF header, the channel
-//     names in the metadata, and each channel's sound in the slot the order puts it (the orders are typed out
-//     here, not taken from Room). The markers are there, a Multi-Mono set is complete and named the Pro Tools way
-//     with nothing else beside it, and the take reader hands every one back in the room's order.
+//     Variations uses) and read back with a parser of this test's own: the WAV header (format tag, format chunk
+//     size, channel count, the speaker mask: the right one, not JUCE's five-front 7.1 or none at all), the iXML
+//     track list every WAV file ends with, the AIFF header and its CHAN chunk, the FLAC comments, and each
+//     channel's sound in the slot the order puts it (the orders, masks, Pro Tools' iXML words and Core Audio's
+//     labels are typed out here, not taken from Room). The markers are there, a Multi-Mono set is complete and
+//     named after Avid's speaker names with nothing else beside it, and the take reader hands every one back in
+//     the room's order.
+//   - As Pro Tools writes it: the headers of Pro Tools 2026's own bounces (Quad, 5.1, 7.1, 7.1.2, 7.1.4), typed
+//     out here, against ours for Like Pro Tools: format tag and chunk size, channels, mask, order, and at 7.1.4 the
+//     iXML track list element for element. Files built like Pro Tools' (a 7.1.4 film-order file with only an
+//     iXML track list, a 7.1 with only a mask) are read back in the room's order. With SWOOSHBUCKLER_PT_BOUNCES set
+//     to a folder holding the bounces themselves (quad.wav 50.wav 51.wav 71.wav 712.wav 714.wav), they are
+//     compared header for header and read too.
+//   - What a file says about itself: the BWF description never stops mid-word, the whole of it is in LIST INFO.
 //   - FLAC: wider than eight channels is refused with a plain message and leaves nothing.
 //   - All or nothing: a Multi-Mono set that can't be written whole, or is abandoned, leaves no file behind.
 //   - The tape at 12 and 6 channels, interleaved and Multi-Mono, with its markers; a whoosh too short to keep
@@ -14,8 +23,9 @@
 //   - RF64: the mask is set in an RF64 header too.
 //   - Audition: a 7.1.4 file and a Multi-Mono set play each channel to its own speaker; narrower and wider takes
 //     are placed or folded.
-//   - The rig: Channel Order and File Layout default to Pro Tools (Film) and Interleaved and are kept; a Multi-Mono
-//     set is one take in the Takes, and deleting it deletes every file.
+//   - The rig: Channel Order and File Layout default to Like Pro Tools and Interleaved and are kept (a setting left
+//     by 2.1.0, "mono", breaks nothing); a Multi-Mono set is one take in the Takes, and deleting it deletes every
+//     file.
 //
 // Usage: SwooshbucklerFiles [scratch folder]. Run it from a scratch folder; nothing is read from or written to the
 // user's settings.
@@ -27,10 +37,14 @@
 #include "TakeFile.h"
 #include "TapeRecorder.h"
 
+#include <array>
 #include <cmath>
 #include <cstring>
 #include <iostream>
 #include <map>
+#include <optional>
+#include <utility>
+#include <vector>
 
 namespace
 {
@@ -48,21 +62,85 @@ namespace
     constexpr W c_widths[] = { W::Mono, W::Stereo, W::Quad, W::Surround51, W::Surround71, W::Surround712, W::Surround714 };
     juce::String nameOf(W w) { return room::layout(w).name; }
 
-    // The orders, typed out (file channel by file channel).
-    juce::String typedOrder(W w, room::FileOrder order)
+    // The orders, typed out (file channel by file channel): Like Pro Tools is what Pro Tools 2026 bounces (the WAV
+    // order up to 7.1.2, the film order at 7.1.4); WAV Standard and every FLAC file the WAV order.
+    juce::String typedOrder(W w, room::FileOrder order, TapeRecorder::FileType type = TapeRecorder::FileType::Wav)
     {
-        const bool film = order == room::FileOrder::ProTools;
+        const bool film = order == room::FileOrder::ProTools && type != TapeRecorder::FileType::Flac;
         switch (w)
         {
             case W::Mono:        return "C";
             case W::Stereo:      return "L R";
             case W::Quad:        return "L R Ls Rs";
-            case W::Surround51:  return film ? "L C R Ls Rs LFE" : "L R C LFE Ls Rs";
-            case W::Surround71:  return film ? "L C R Lss Rss Lsr Rsr LFE" : "L R C LFE Lsr Rsr Lss Rss";
-            case W::Surround712: return film ? "L C R Lss Rss Lsr Rsr LFE Ltm Rtm" : "L R C LFE Lsr Rsr Lss Rss Ltm Rtm";
+            case W::Surround51:  return "L R C LFE Ls Rs";
+            case W::Surround71:  return "L R C LFE Lsr Rsr Lss Rss";
+            case W::Surround712: return "L R C LFE Lsr Rsr Lss Rss Lts Rts";
             case W::Surround714: return film ? "L C R Lss Rss Lsr Rsr LFE Ltf Rtf Ltr Rtr" : "L R C LFE Lsr Rsr Lss Rss Ltf Rtf Ltr Rtr";
         }
         return {};
+    }
+
+    // Pro Tools' word for each speaker in an iXML FUNCTION (its 7.1.4 bounce: L C R Sl Sr Ls Rs LFE Tl Tr Trl Trr).
+    juce::String typedFunction(W w, const juce::String& speaker)
+    {
+        const std::map<juce::String, juce::String> words { { "L", "L" }, { "R", "R" }, { "C", "C" }, { "LFE", "LFE" }, { "Ls", "Ls" }, { "Rs", "Rs" },
+                                                           { "Lss", "Sl" }, { "Rss", "Sr" }, { "Lsr", "Ls" }, { "Rsr", "Rs" }, { "Ltf", "Tl" }, { "Rtf", "Tr" },
+                                                           { "Ltr", "Trl" }, { "Rtr", "Trr" }, { "Lts", "Tl" }, { "Rts", "Tr" } };
+        const auto word = w == W::Mono ? juce::String("M") : words.at(speaker);
+        return word + "-" + nameOf(w);
+    }
+
+    // Core Audio's channel label for each speaker (CoreAudioBaseTypes.h).
+    std::uint32_t typedLabel(const juce::String& speaker)
+    {
+        const std::map<juce::String, std::uint32_t> labels { { "L", 1 }, { "R", 2 }, { "C", 3 }, { "LFE", 4 }, { "Ls", 5 }, { "Rs", 6 }, { "Lss", 5 },
+                                                             { "Rss", 6 }, { "Lsr", 33 }, { "Rsr", 34 }, { "Ltf", 13 }, { "Rtf", 15 }, { "Ltr", 52 },
+                                                             { "Rtr", 54 }, { "Lts", 49 }, { "Rts", 51 } };
+        return labels.at(speaker);
+    }
+
+    // The order Pro Tools lists a track's channels in (Avid's AAX stem formats), typed out.
+    juce::String typedTrackOrder(W w)
+    {
+        switch (w)
+        {
+            case W::Mono:        return "C";
+            case W::Stereo:      return "L R";
+            case W::Quad:        return "L R Ls Rs";
+            case W::Surround51:  return "L C R Ls Rs LFE";
+            case W::Surround71:  return "L C R Lss Rss Lsr Rsr LFE";
+            case W::Surround712: return "L C R Lss Rss Lsr Rsr LFE Lts Rts";
+            case W::Surround714: return "L C R Lss Rss Lsr Rsr LFE Ltf Rtf Ltr Rtr";
+        }
+        return {};
+    }
+
+    /** An iXML TRACK_LIST as "interleave|channel|name|function" for each track, and whether it has the elements
+        Pro Tools writes (BWFXML > IXML_VERSION, TRACK_LIST > TRACK_COUNT, TRACK > CHANNEL_INDEX INTERLEAVE_INDEX
+        NAME FUNCTION) with a TRACK_COUNT that is the number of tracks. */
+    juce::StringArray ixmlTracks(const juce::String& text, bool& shaped)
+    {
+        juce::StringArray tracks;
+        shaped = false;
+        const auto xml = juce::parseXML(text);
+        if (xml == nullptr || ! xml->hasTagName("BWFXML") || xml->getChildByName("IXML_VERSION") == nullptr)
+            return tracks;
+        const auto* list = xml->getChildByName("TRACK_LIST");
+        if (list == nullptr || list->getChildByName("TRACK_COUNT") == nullptr)
+            return tracks;
+        shaped = true;
+        for (const auto* t : list->getChildWithTagNameIterator("TRACK"))
+        {
+            const juce::StringArray want { "CHANNEL_INDEX", "INTERLEAVE_INDEX", "NAME", "FUNCTION" };
+            juce::StringArray have;
+            for (const auto* e : t->getChildIterator())
+                have.add(e->getTagName());
+            shaped = shaped && have == want;
+            tracks.add(t->getChildElementAllSubText("INTERLEAVE_INDEX", {}) + "|" + t->getChildElementAllSubText("CHANNEL_INDEX", {}) + "|"
+                       + t->getChildElementAllSubText("NAME", {}) + "|" + t->getChildElementAllSubText("FUNCTION", {}));
+        }
+        shaped = shaped && list->getChildElementAllSubText("TRACK_COUNT", {}).getIntValue() == tracks.size();
+        return tracks;
     }
 
     // The WAV speaker masks, typed out.
@@ -124,6 +202,12 @@ namespace
         std::vector<double> means; // each file channel's mean level
         juce::String ixml;
         int cues = 0;
+        std::uint32_t fmtSize = 0;
+        int cbSize = -1;
+        bool bext = false;
+        juce::String bextDescription, infoComment;
+        std::vector<std::uint32_t> chanLabels; // an AIFF CHAN chunk's labels (UseChannelDescriptions)
+        bool dataBeforeIxml = false;
     };
 
     std::uint32_t le32(const unsigned char* p) { return static_cast<std::uint32_t>(p[0]) | (static_cast<std::uint32_t>(p[1]) << 8) | (static_cast<std::uint32_t>(p[2]) << 16) | (static_cast<std::uint32_t>(p[3]) << 24); }
@@ -152,6 +236,8 @@ namespace
             if (std::memcmp(id, "fmt ", 4) == 0)
             {
                 haveFmt = true;
+                r.fmtSize = len;
+                r.cbSize = len >= 18 ? le16(body + 16) : -1;
                 r.tag = le16(body);
                 r.channels = le16(body + 2);
                 r.rate = le32(body + 4);
@@ -169,7 +255,33 @@ namespace
                 dataSize = (len == 0xffffffffu) ? size - dataStart : len;
             }
             else if (std::memcmp(id, "iXML", 4) == 0)
+            {
                 r.ixml = juce::String::fromUTF8(reinterpret_cast<const char*>(body), static_cast<int>(len));
+                r.dataBeforeIxml = dataStart != 0;
+            }
+            else if (std::memcmp(id, "bext", 4) == 0 && len >= 256)
+            {
+                r.bext = true;
+                size_t n = 0;
+                while (n < 256 && body[n] != 0)
+                    ++n;
+                r.bextDescription = juce::String::fromUTF8(reinterpret_cast<const char*>(body), static_cast<int>(n));
+            }
+            else if (std::memcmp(id, "LIST", 4) == 0 && len >= 4 && std::memcmp(body, "INFO", 4) == 0)
+            {
+                for (size_t at = 4; at + 8 <= len;)
+                {
+                    const std::uint32_t sub = le32(body + at + 4);
+                    if (std::memcmp(body + at, "ICMT", 4) == 0)
+                    {
+                        size_t n = 0;
+                        while (n < sub && body[at + 8 + n] != 0)
+                            ++n;
+                        r.infoComment = juce::String::fromUTF8(reinterpret_cast<const char*>(body + at + 8), static_cast<int>(n));
+                    }
+                    at += 8 + sub + (sub & 1);
+                }
+            }
             else if (std::memcmp(id, "cue ", 4) == 0)
                 r.cues = static_cast<int>(le32(body));
             pos += 8 + len + (len & 1);
@@ -226,6 +338,9 @@ namespace
             }
             else if (std::memcmp(id, "SSND", 4) == 0)
                 dataStart = pos + 8 + 8 + be32(body);
+            else if (std::memcmp(id, "CHAN", 4) == 0 && len >= 12 && be32(body) == 0)
+                for (std::uint32_t c = 0; c < be32(body + 8) && 12 + 20 * (c + 1) <= len; ++c)
+                    r.chanLabels.push_back(be32(body + 12 + 20 * c));
             pos += 8 + len + (len & 1);
         }
         if (dataStart == 0 || r.channels <= 0)
@@ -316,6 +431,68 @@ namespace
         return true;
     }
 
+
+    /** A WAV file built the way Pro Tools writes one: JUNK, a 40-byte format chunk (extensible with `mask`, or with
+        no mask the plain form: tag 1, no extension), 24-bit data where file channel i holds the level of processing
+        channel processingOf[i], and an iXML chunk after the sound when one is given. */
+    void writeProToolsLike(const juce::File& file, W w, const std::array<int, room::c_maxChannels>& processingOf, std::optional<std::uint32_t> mask,
+                           const juce::String& ixml, int frames = 480)
+    {
+        const int n = room::layout(w).numChannels;
+        juce::MemoryOutputStream data;
+        for (int f = 0; f < frames; ++f)
+            for (int i = 0; i < n; ++i)
+            {
+                const auto v = static_cast<std::int32_t>(std::lround(levelOf(processingOf[static_cast<size_t>(i)]) * 8388607.0));
+                data.writeByte(static_cast<char>(v & 0xff));
+                data.writeByte(static_cast<char>((v >> 8) & 0xff));
+                data.writeByte(static_cast<char>((v >> 16) & 0xff));
+            }
+        juce::MemoryOutputStream m;
+        m.write("RIFF", 4); m.writeInt(0); m.write("WAVE", 4);
+        m.write("JUNK", 4); m.writeInt(64); m.writeRepeatedByte(0, 64);
+        m.write("fmt ", 4); m.writeInt(40);
+        m.writeShort(static_cast<short>(mask.has_value() ? 0xfffe : 1)); m.writeShort(static_cast<short>(n)); m.writeInt(48000);
+        m.writeInt(48000 * 3 * n); m.writeShort(static_cast<short>(3 * n)); m.writeShort(24);
+        if (mask.has_value())
+        {
+            m.writeShort(22); m.writeShort(24); m.writeInt(static_cast<int>(*mask));
+            m.writeInt(1); m.writeShort(0); m.writeShort(0x10);
+            const unsigned char tail[8] = { 0x80, 0x00, 0x00, 0xaa, 0x00, 0x38, 0x9b, 0x71 };
+            m.write(tail, 8);
+        }
+        else
+            m.writeRepeatedByte(0, 24);
+        m.write("data", 4); m.writeInt(static_cast<int>(data.getDataSize())); m.write(data.getData(), data.getDataSize());
+        if ((data.getDataSize() & 1) != 0)
+            m.writeByte(0);
+        if (ixml.isNotEmpty())
+        {
+            const auto bytes = ixml.getNumBytesAsUTF8();
+            m.write("iXML", 4); m.writeInt(static_cast<int>(bytes)); m.write(ixml.toRawUTF8(), bytes);
+            if ((bytes & 1) != 0)
+                m.writeByte(0);
+        }
+        juce::MemoryBlock block = m.getMemoryBlock();
+        const auto riffSize = static_cast<std::uint32_t>(block.getSize() - 8);
+        std::memcpy(static_cast<char*>(block.getData()) + 4, &riffSize, 4);
+        file.replaceWithData(block.getData(), block.getSize());
+    }
+
+    /** Pro Tools 2026's 7.1.4 iXML, element for element (its own bounce of a clip called 714), for a clip `name`. */
+    juce::String proTools714Ixml(const juce::String& name)
+    {
+        const char* names[] = { "L", "C", "R", "Lss", "Rss", "Lsr", "Rsr", "LFE", "Ltf", "Rtf", "Ltr", "Rtr" };
+        const char* functions[] = { "L", "C", "R", "Sl", "Sr", "Ls", "Rs", "LFE", "Tl", "Tr", "Trl", "Trr" };
+        juce::String x = "<?xml version=\"1.0\"?>\n<BWFXML>\n    <IXML_VERSION>2.01</IXML_VERSION>\n    <PT_VERSION>release-2026-r2-ptsw-release</PT_VERSION>\n"
+                         "    <TRACK_LIST>\n        <TRACK_COUNT>12</TRACK_COUNT>\n";
+        for (int i = 0; i < 12; ++i)
+            x << "        <TRACK>\n            <CHANNEL_INDEX>" << (i + 1) << "</CHANNEL_INDEX>\n            <INTERLEAVE_INDEX>" << (i + 1)
+              << "</INTERLEAVE_INDEX>\n            <NAME>" << name << "-" << names[i] << "</NAME>\n            <FUNCTION>" << functions[i]
+              << "-7.1.4</FUNCTION>\n        </TRACK>\n";
+        return x + "    </TRACK_LIST>\n</BWFXML>";
+    }
+
     int filesIn(const juce::File& folder)
     {
         return folder.getNumberOfChildFiles(juce::File::findFiles);
@@ -385,7 +562,7 @@ int main(int argc, char* argv[])
         int cases = 0;
         for (auto type : types)
             for (auto w : c_widths)
-                for (auto order : { room::FileOrder::ProTools, room::FileOrder::Smpte })
+                for (auto order : { room::FileOrder::ProTools, room::FileOrder::WavStandard })
                     for (auto layout : { takefile::Layout::Interleaved, takefile::Layout::MultiMono })
                     {
                         const auto& l = room::layout(w);
@@ -425,8 +602,11 @@ int main(int argc, char* argv[])
                         ok = ok && got == want && filesIn(dir) == want.size();
 
                         // Each file, read by this test: its header and where every channel's sound is.
-                        const auto line = typedOrder(w, order);
+                        const auto line = typedOrder(w, order, type);
                         const auto tokens = juce::StringArray::fromTokens(line, " ", "");
+                        const auto trackTokens = juce::StringArray::fromTokens(typedTrackOrder(w), " ", "");
+                        // Like Pro Tools at 7.1.4: the film order, a plain 40-byte format chunk and no mask.
+                        const bool plain714 = w == W::Surround714 && order == room::FileOrder::ProTools && ! multi;
                         bool placed = true, header = true, named = true;
                         for (int fi = 0; fi < files.size() && ok; ++fi)
                         {
@@ -444,20 +624,44 @@ int main(int argc, char* argv[])
                             {
                                 if (fileChannels <= 2)
                                     header = header && ! parsed.extensible && parsed.tag == 1 && parsed.bits == 24;
+                                else if (plain714)
+                                    header = header && ! parsed.extensible && parsed.tag == 1 && parsed.fmtSize == 40 && parsed.cbSize == 0 && parsed.mask == 0
+                                                    && parsed.bits == 24;
                                 else
-                                {
-                                    const std::uint32_t mask = (order == room::FileOrder::Smpte || w == W::Quad) ? typedMask(w) : 0u;
-                                    header = header && parsed.extensible && parsed.mask == mask && parsed.subTag == 1 && parsed.bits == 24;
-                                }
+                                    header = header && parsed.extensible && parsed.fmtSize == 40 && parsed.mask == typedMask(w) && parsed.subTag == 1 && parsed.bits == 24;
                                 header = header && parsed.cues == 2;
-                                named = named && (expectLine.isEmpty() ? ! parsed.ixml.contains("channelConfig")
-                                                                       : parsed.ixml.contains("<channelConfig>" + expectLine + "</channelConfig>"));
+                                // Every WAV file names its channels in an iXML track list after the sound, as Pro Tools does.
+                                bool shaped = false;
+                                const auto tracks = ixmlTracks(parsed.ixml, shaped);
+                                juce::StringArray wantTracks;
+                                if (multi)
+                                {
+                                    const auto speaker = juce::String(room::info(l.speakers[static_cast<size_t>(fi)]).name);
+                                    wantTracks.add("1|" + juce::String(trackTokens.indexOf(speaker) + 1) + "|Take_0001-" + speaker + "|" + typedFunction(w, speaker));
+                                }
+                                else
+                                    for (int i = 0; i < n; ++i)
+                                        wantTracks.add(juce::String(i + 1) + "|" + juce::String(i + 1) + "|Take_0001-" + tokens[i] + "|" + typedFunction(w, tokens[i]));
+                                named = named && shaped && tracks == wantTracks && parsed.dataBeforeIxml;
+                                if (! (shaped && tracks == wantTracks))
+                                    std::cout << "         iXML " << tracks.joinIntoString(", ") << " / want " << wantTracks.joinIntoString(", ") << std::endl;
                             }
                             else
                                 named = named && takefile::readChannelLine(files[fi]) == expectLine;
+                            if (type == TapeRecorder::FileType::Aiff)
+                            {
+                                // Core Audio's channel layout: every speaker of a file wider than Stereo, and each file of a set.
+                                std::vector<std::uint32_t> labels;
+                                if (multi)
+                                    labels.push_back(typedLabel(room::info(l.speakers[static_cast<size_t>(fi)]).name));
+                                else if (n > 2)
+                                    for (const auto& t : tokens)
+                                        labels.push_back(typedLabel(t));
+                                header = header && parsed.chanLabels == labels;
+                            }
                             if (type == TapeRecorder::FileType::Flac && fileChannels > 2)
                                 header = header && takefile::flacComments(files[fi]).contains("WAVEFORMATEXTENSIBLE_CHANNEL_MASK=0x"
-                                                                                               + juce::String::toHexString(static_cast<int>((order == room::FileOrder::Smpte || w == W::Quad) ? typedMask(w) : 0u)).toUpperCase());
+                                                                                               + juce::String::toHexString(static_cast<int>(typedMask(w))).toUpperCase());
                             // The markers, in each file.
                             if (type == TapeRecorder::FileType::Flac)
                             {
@@ -479,13 +683,150 @@ int main(int argc, char* argv[])
                         const auto found = files.isEmpty() ? takefile::Found {} : takefile::find(files[files.size() - 1]);
                         const bool back = channels == n && inProcessingOrder(means, n) && found.files.size() == files.size()
                                        && found.format.width == w && found.format.layout == (multi ? takefile::Layout::MultiMono : takefile::Layout::Interleaved)
-                                       && found.described == (multi || n > 2)
-                                       && (multi || n <= 4 || found.format.order == order);
+                                       && found.described == (multi || n > 2 || type == TapeRecorder::FileType::Wav)
+                                       && (multi || ! room::ordersDiffer(w) || found.format.order == takefile::orderFor(TapeRecorder::containerOf(type), order));
                         check(ok && placed && header && named && back,
                               label + ": " + juce::String(files.size()) + (files.size() == 1 ? " file" : " files") + (ok ? "" : " (files wrong)")
                                   + (placed ? "" : " (channels misplaced)") + (header ? "" : " (header or markers wrong)")
                                   + (named ? "" : " (channel names wrong)") + (back ? "" : " (read back wrong)"));
                     }
+    }
+
+    //==========================================================================
+    std::cout << "As Pro Tools writes it" << std::endl;
+    {
+        // Pro Tools 2026 r2's own interleaved bounces, read byte by byte (the owner's files): the format chunk is 40
+        // bytes at every width; Quad to 7.1.2 are extensible with the mask, in the mask's order; 7.1.4 is a PLAIN
+        // header (tag 1, no extension) in the film order, its channels named only by an iXML track list after the
+        // sound. Every one has a bext chunk.
+        struct Bounce { const char* file; W width; int tag; std::uint32_t mask; const char* order; };
+        const std::vector<Bounce> bounces {
+            { "quad.wav", W::Quad,        0xfffe, 0x33,   "L R Ls Rs" },
+            { "51.wav",   W::Surround51,  0xfffe, 0x3F,   "L R C LFE Ls Rs" },
+            { "71.wav",   W::Surround71,  0xfffe, 0x63F,  "L R C LFE Lsr Rsr Lss Rss" },
+            { "712.wav",  W::Surround712, 0xfffe, 0x563F, "L R C LFE Lsr Rsr Lss Rss Lts Rts" },
+            { "714.wav",  W::Surround714, 1,      0,      "L C R Lss Rss Lsr Rsr LFE Ltf Rtf Ltr Rtr" },
+        };
+        bool shapedPt = false;
+        const auto ptTracks = ixmlTracks(proTools714Ixml("714"), shapedPt);
+        const auto dir = fresh(folder, "protools");
+        const auto ptFolder = juce::SystemStats::getEnvironmentVariable("SWOOSHBUCKLER_PT_BOUNCES", {});
+        for (const auto& b : bounces)
+        {
+            const int n = room::layout(b.width).numChannels;
+            juce::String error;
+            const auto file = dir.getChildFile("Take_0001_" + nameOf(b.width) + ".wav");
+            TapeRecorder::Naming named = naming();
+            const bool written = TapeRecorder::writeFile(file, levels(n, 4800), 0, 4800, c_fs, {}, named, error);
+            const auto ours = parseWav(file);
+            const auto tokens = juce::StringArray::fromTokens(b.order, " ", "");
+            bool placed = ours.ok && ours.channels == n;
+            for (int i = 0; i < n && placed; ++i)
+                placed = channelOfLevel(ours.means[static_cast<size_t>(i)]) == processingIndex(b.width, tokens[i]);
+            const bool header = ours.ok && ours.tag == b.tag && ours.fmtSize == 40 && ours.channels == n && ours.mask == b.mask
+                             && (b.tag == 1 ? ours.cbSize == 0 && ! ours.extensible : ours.extensible) && ours.bext && ours.dataBeforeIxml;
+            bool shaped = false;
+            const auto tracks = ixmlTracks(ours.ixml, shaped);
+            bool sameList = shaped && tracks.size() == n;
+            if (b.width == W::Surround714)
+            {
+                // Element for element as Pro Tools has it: the same indexes and FUNCTION words, NAME <clip>-<speaker>.
+                sameList = sameList && shapedPt && ptTracks.size() == n;
+                for (int i = 0; i < n && sameList; ++i)
+                {
+                    const auto mine = juce::StringArray::fromTokens(tracks[i], "|", ""), theirs = juce::StringArray::fromTokens(ptTracks[i], "|", "");
+                    sameList = mine[0] == theirs[0] && mine[1] == theirs[1] && mine[3] == theirs[3]
+                            && mine[2].fromLastOccurrenceOf("-", false, false) == theirs[2].fromLastOccurrenceOf("-", false, false);
+                }
+            }
+            check(written && header && placed && sameList,
+                  nameOf(b.width) + " Like Pro Tools: format tag 0x" + juce::String::toHexString(ours.tag).toUpperCase() + ", " + juce::String(ours.fmtSize)
+                      + "-byte format chunk, " + juce::String(ours.channels) + " channels, mask 0x" + juce::String::toHexString(static_cast<int>(ours.mask)).toUpperCase()
+                      + ", " + b.order + (b.width == W::Surround714 ? ", iXML track list as Pro Tools'" : ", and an iXML track list")
+                      + (header ? "" : " (header differs)") + (placed ? "" : " (order differs)") + (sameList ? "" : " (track list differs)"));
+
+            // The bounce itself, when it is to hand.
+            if (ptFolder.isNotEmpty())
+            {
+                const auto ptFile = juce::File(ptFolder).getChildFile(b.file);
+                const auto pt = parseWav(ptFile);
+                bool ptShaped = false;
+                const auto theirTracks = ixmlTracks(pt.ixml, ptShaped);
+                bool sameAsBounce = pt.ok && pt.tag == ours.tag && pt.fmtSize == ours.fmtSize && pt.channels == ours.channels && pt.mask == ours.mask
+                                 && pt.extensible == ours.extensible && pt.bext && pt.bits == 24
+                                 && (b.width == W::Surround714 ? ptShaped && pt.cbSize == 0 && pt.dataBeforeIxml && theirTracks.size() == n : pt.ixml.isEmpty());
+                for (int i = 0; i < theirTracks.size() && sameAsBounce; ++i)
+                {
+                    const auto mine = juce::StringArray::fromTokens(tracks[i], "|", ""), theirs = juce::StringArray::fromTokens(theirTracks[i], "|", "");
+                    sameAsBounce = mine[0] == theirs[0] && mine[1] == theirs[1] && mine[3] == theirs[3]
+                                && mine[2].fromLastOccurrenceOf("-", false, false) == theirs[2].fromLastOccurrenceOf("-", false, false);
+                }
+                // Read as a take: its width, and each file channel taken to the speaker Pro Tools put there.
+                const auto found = takefile::find(ptFile);
+                bool mapped = found.knownWidth && found.format.width == b.width && found.numChannels == n && found.described;
+                for (int i = 0; i < n && mapped; ++i)
+                    mapped = found.processingOf[static_cast<size_t>(i)] == processingIndex(b.width, tokens[i]);
+                check(sameAsBounce && mapped, juce::String("Pro Tools' own ") + b.file + ": the same header as ours" + (sameAsBounce ? "" : " (differs)")
+                                                   + ", and read as " + nameOf(b.width) + " with every channel on its speaker" + (mapped ? "" : " (read wrong)"));
+            }
+        }
+        if (ptFolder.isNotEmpty())
+        {
+            const auto five = takefile::find(juce::File(ptFolder).getChildFile("50.wav"));
+            const auto parsed = parseWav(juce::File(ptFolder).getChildFile("50.wav"));
+            check(five.numChannels == 5 && ! five.knownWidth && parsed.mask == 0x37,
+                  "Pro Tools' own 5.0 (mask 0x37): no width of ours, read as its five channels as they are");
+        }
+        else
+            std::cout << "         (SWOOSHBUCKLER_PT_BOUNCES not set: Pro Tools' own files not compared, only their typed headers)" << std::endl;
+
+        // Files built like Pro Tools' are read in the room's order: 7.1.4 with only its iXML track list, 7.1 with
+        // only its mask, and a 5.1 another program marked with the side pair (0x60F).
+        {
+            const auto film = dir.getChildFile("Film714.wav");
+            writeProToolsLike(film, W::Surround714, room::fileChannels(W::Surround714, room::FileOrder::ProTools), std::nullopt, proTools714Ixml("Film714"));
+            const auto masked = dir.getChildFile("Mask71.wav");
+            writeProToolsLike(masked, W::Surround71, room::fileChannels(W::Surround71, room::FileOrder::WavStandard), 0x63Fu, {});
+            const auto side = dir.getChildFile("Side51.wav");
+            writeProToolsLike(side, W::Surround51, room::fileChannels(W::Surround51, room::FileOrder::WavStandard), 0x60Fu, {});
+            const auto bare = dir.getChildFile("Bare714.wav");
+            writeProToolsLike(bare, W::Surround714, room::fileChannels(W::Surround714, room::FileOrder::WavStandard), std::nullopt, {});
+            for (const auto& [file, what] : std::vector<std::pair<juce::File, juce::String>> {
+                     { film, "a 7.1.4 file like Pro Tools' (film order, plain header, an iXML track list)" },
+                     { masked, "a 7.1 file with only a mask (0x63F)" },
+                     { side, "a 5.1 file marked with the side pair (0x60F)" },
+                     { bare, "a 7.1.4 file that says nothing, in the WAV order" } })
+            {
+                int channels = 0;
+                const auto means = readMeans(file, channels);
+                const auto found = takefile::find(file);
+                check(inProcessingOrder(means, channels) && channels == found.numChannels && found.described == (file != bare),
+                      what + ": read in the room's order" + (found.described ? "" : " (taken as the WAV order)"));
+            }
+        }
+    }
+
+    //==========================================================================
+    std::cout << "What a file says about itself" << std::endl;
+    {
+        const auto dir = fresh(folder, "describe");
+        auto long_ = naming();
+        juce::StringArray items;
+        for (int i = 0; i < 40; ++i)
+            items.add("Setting Number " + juce::String(i) + " " + juce::String(i * 7) + "%");
+        long_.description = "Swooshbuckler 9.9.9. Variation 3 of 10, Batch 424242, 7.1.4. Flight Paths A Overhead, B Through, Stowaway Around. "
+                          + items.joinIntoString(", ") + ".";
+        juce::String error;
+        const auto file = dir.getChildFile("Long.wav");
+        TapeRecorder::writeFile(file, levels(12, 480), 0, 480, c_fs, {}, long_, error);
+        const auto parsed = parseWav(file);
+        const auto bext = parsed.bextDescription;
+        const bool whole = bext.getNumBytesAsUTF8() <= 256 && bext.endsWithChar('.') && long_.description.startsWith(bext.dropLastCharacters(1))
+                        && long_.description.substring(bext.length() - 1).startsWith(",") && bext.contains("Flight Paths A Overhead");
+        std::cout << "         BWF description (" << bext.getNumBytesAsUTF8() << " bytes) ends \"..." << bext.getLastCharacters(40) << "\"" << std::endl;
+        check(whole, "the BWF description keeps the first 256 bytes up to a whole item, ended with a full stop: never mid-word");
+        check(parsed.infoComment == long_.description && TapeRecorder::readDescription(file) == long_.description,
+              "the whole description is in LIST INFO, and that is what is read back");
     }
 
     //==========================================================================
@@ -535,7 +876,7 @@ int main(int argc, char* argv[])
                 t.setNaming(naming());
                 t.prepare(c_fs, n);
                 TapeRecorder::Options o;
-                o.order = room::FileOrder::Smpte;
+                o.order = room::FileOrder::WavStandard;
                 o.layout = layout;
                 juce::String error;
                 const bool started = t.start(dir, o, error);
@@ -689,6 +1030,21 @@ int main(int argc, char* argv[])
         const auto parsed = parseWav(file);
         check(set && parsed.rf64 && parsed.extensible && parsed.mask == 0x63F && parsed.channels == 8 && parsed.frames == 10,
               "an RF64 file's mask is set in place (film 7.1, 0x63F), the rest untouched");
+        // No mask (7.1.4 Like Pro Tools past 4 GB): the plain 40-byte form in place; and an iXML chunk added after the
+        // sound, the ds64 chunk's size saying so.
+        const bool plain = takefile::setWavChannelMask(file, std::nullopt);
+        const auto plainParsed = parseWav(file);
+        const juce::String text = "<BWFXML><TRACK_LIST><TRACK_COUNT>0</TRACK_COUNT></TRACK_LIST></BWFXML>";
+        const auto before = file.getSize();
+        const bool added = takefile::appendWavChunk(file, "iXML", text.toRawUTF8(), text.getNumBytesAsUTF8());
+        juce::MemoryBlock bytes;
+        file.loadFileAsData(bytes);
+        std::int64_t riffSize = 0;
+        if (bytes.getSize() >= 28)
+            std::memcpy(&riffSize, static_cast<const char*>(bytes.getData()) + 20, 8);
+        check(plain && plainParsed.tag == 1 && plainParsed.fmtSize == 40 && plainParsed.cbSize == 0 && plainParsed.channels == 8 && plainParsed.frames == 10
+                  && added && riffSize == file.getSize() - 8 && file.getSize() > before && takefile::readIxml(file) == text,
+              "RF64: the plain header Pro Tools writes for 7.1.4, and an iXML chunk added with the ds64 size updated");
     }
 
     //==========================================================================
@@ -697,7 +1053,7 @@ int main(int argc, char* argv[])
         const auto dir = fresh(folder, "audition");
         juce::String error;
         TapeRecorder::Options smpte;
-        smpte.order = room::FileOrder::Smpte;
+        smpte.order = room::FileOrder::WavStandard;
         TapeRecorder::writeFile(dir.getChildFile("Wide.wav"), levels(12, 24000), 0, 24000, c_fs, smpte, naming(), error);
         TapeRecorder::Options multi;
         multi.layout = takefile::Layout::MultiMono;
@@ -726,7 +1082,10 @@ int main(int argc, char* argv[])
         };
         juce::AudioBuffer<float> out;
         check(play(dir.getChildFile("Wide.wav"), W::Surround714, out) && inProcessingOrder(means(out), 12),
-              "a 7.1.4 file in the SMPTE / WAV order plays each channel to its own speaker");
+              "a 7.1.4 file in the WAV Standard order plays each channel to its own speaker");
+        TapeRecorder::writeFile(dir.getChildFile("Film.wav"), levels(12, 24000), 0, 24000, c_fs, {}, naming(), error);
+        check(play(dir.getChildFile("Film.wav"), W::Surround714, out) && inProcessingOrder(means(out), 12),
+              "a 7.1.4 file Like Pro Tools (film order, named only in iXML) plays each channel to its own speaker");
         check(play(dir.getChildFile("Set.Rtr.wav"), W::Surround714, out) && inProcessingOrder(means(out), 12),
               "a 7.1.4 Multi-Mono set plays as one, from whichever of its files");
         // 5.1 on 7.1: the surrounds go to the sides and rears at -3 dB each, the rest as they are.
@@ -771,15 +1130,20 @@ int main(int argc, char* argv[])
         {
             juce::PropertiesFile settings(settingsFile, options);
             settings.setValue("recordFolder", tapeFolder.getFullPathName());
+            settings.setValue("mono", true); // as 2.1.0 left it
             Proc::useSettings(&settings);
             std::unique_ptr<juce::AudioProcessor> base { createPluginFilter() };
             auto& p = *dynamic_cast<Proc*>(base.get());
             check(p.getChannelOrder() == room::FileOrder::ProTools && p.getFileLayout() == takefile::Layout::Interleaved
                       && p.tapeOptions().order == room::FileOrder::ProTools,
-                  "Channel Order is Pro Tools (Film) and File Layout Interleaved unless chosen otherwise");
-            p.setChannelOrder(room::FileOrder::Smpte);
+                  "Channel Order is Like Pro Tools and File Layout Interleaved unless chosen otherwise");
+            // 2.1.0 kept a Mono recording choice as "mono": it is not carried over (first release of the new
+            // Channels choice), and must not get in the way.
+            check(p.getTapeFold() == Proc::TapeFold::AsPlayed && p.getTapeWidth() == p.getRoomWidth() && ! p.tapeOptions().mono,
+                  "a \"mono\" setting left by 2.1.0 changes nothing: the tape records the room as played");
+            p.setChannelOrder(room::FileOrder::WavStandard);
             p.setFileLayout(takefile::Layout::MultiMono);
-            check(p.tapeOptions().order == room::FileOrder::Smpte && p.tapeOptions().layout == takefile::Layout::MultiMono,
+            check(p.tapeOptions().order == room::FileOrder::WavStandard && p.tapeOptions().layout == takefile::Layout::MultiMono,
                   "the tape and the saved last minutes write what is chosen");
 
             // A Multi-Mono set is one take, whichever of its files is handed in, and deleting it deletes them all.

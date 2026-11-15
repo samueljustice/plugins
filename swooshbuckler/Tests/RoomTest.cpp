@@ -92,7 +92,7 @@ namespace
             { Width::Quad,        "Quad",   4,  "L R Ls Rs",                                  juce::AudioChannelSet::quadraphonic() },
             { Width::Surround51,  "5.1",    6,  "L R C LFE Ls Rs",                            juce::AudioChannelSet::create5point1() },
             { Width::Surround71,  "7.1",    8,  "L R C LFE Lss Rss Lsr Rsr",                  juce::AudioChannelSet::create7point1() },
-            { Width::Surround712, "7.1.2",  10, "L R C LFE Lss Rss Lsr Rsr Ltm Rtm",          juce::AudioChannelSet::create7point1point2() },
+            { Width::Surround712, "7.1.2",  10, "L R C LFE Lss Rss Lsr Rsr Lts Rts",          juce::AudioChannelSet::create7point1point2() },
             { Width::Surround714, "7.1.4",  12, "L R C LFE Lss Rss Ltf Rtf Ltr Rtr Lsr Rsr",  juce::AudioChannelSet::create7point1point4() },
         };
 
@@ -162,8 +162,8 @@ namespace
         check(standOk, "tops are at the ceiling 45 degrees up, the others at ear level; front speakers are in front, rear ones behind");
         check(near(room::info(S::L).azimuth, -30.0) && near(room::info(S::C).azimuth, 0.0) && near(room::info(S::Ls).azimuth, -110.0)
                   && near(room::info(S::Lss).azimuth, -90.0) && near(room::info(S::Lsr).azimuth, -135.0)
-                  && near(room::info(S::Ltf).azimuth, -45.0) && near(room::info(S::Ltr).azimuth, -135.0) && near(room::info(S::Ltm).azimuth, -90.0),
-              "speaker angles: L 30, C 0, Ls 110, Lss 90, Lsr 135, Ltf 45, Ltr 135, Ltm 90 degrees");
+                  && near(room::info(S::Ltf).azimuth, -45.0) && near(room::info(S::Ltr).azimuth, -135.0) && near(room::info(S::Lts).azimuth, -90.0),
+              "speaker angles: L 30, C 0, Ls 110, Lss 90, Lsr 135, Ltf 45, Ltr 135, Lts 90 degrees");
     }
 
     //==================================================================================================================
@@ -351,9 +351,9 @@ namespace
             // 7.1.2's one top pair takes the whole ceiling; 7.1.4 shares it front to back.
             const auto top2 = panned(Width::Surround712, -1.0f, 1.0f, 1.0f);
             const auto top4 = panned(Width::Surround714, -1.0f, 0.0f, 1.0f);
-            check(near(gainOf(Width::Surround712, top2, S::Ltm), 1.0) && near(gainOf(Width::Surround714, top4, S::Ltf), 0.70710678, 1.0e-5)
+            check(near(gainOf(Width::Surround712, top2, S::Lts), 1.0) && near(gainOf(Width::Surround714, top4, S::Ltf), 0.70710678, 1.0e-5)
                       && near(gainOf(Width::Surround714, top4, S::Ltr), 0.70710678, 1.0e-5),
-                  "7.1.2: anywhere on the left of the ceiling is Ltm alone; 7.1.4: the middle of the ceiling's left edge is Ltf and Ltr at -3 dB");
+                  "7.1.2: anywhere on the left of the ceiling is Lts alone; 7.1.4: the middle of the ceiling's left edge is Ltf and Ltr at -3 dB");
         }
 
         // Spread.
@@ -573,7 +573,7 @@ namespace
             return sum;
         };
         const std::vector<S> fronts { S::L, S::R, S::C }, rears { S::Ls, S::Rs, S::Lsr, S::Rsr }, sides { S::Lss, S::Rss };
-        const std::vector<S> tops { S::Ltf, S::Rtf, S::Ltr, S::Rtr, S::Ltm, S::Rtm }, lefts { S::L, S::Ls, S::Lss, S::Lsr }, rights { S::R, S::Rs, S::Rss, S::Rsr };
+        const std::vector<S> tops { S::Ltf, S::Rtf, S::Ltr, S::Rtr, S::Lts, S::Rts }, lefts { S::L, S::Ls, S::Lss, S::Lsr }, rights { S::R, S::Rs, S::Rss, S::Rsr };
 
         for (const Width w : { Width::Quad, Width::Surround51, Width::Surround71, Width::Surround712, Width::Surround714 })
         {
@@ -671,10 +671,10 @@ namespace
         pin(Width::Surround71, Width::Surround51,
             "L = 1.000 L; R = 1.000 R; C = 1.000 C; LFE = 1.000 LFE; Ls = 0.707 Lss 0.707 Lsr; Rs = 0.707 Rss 0.707 Rsr; ");
         pin(Width::Surround712, Width::Surround71,
-            "L = 1.000 L; R = 1.000 R; C = 1.000 C; LFE = 1.000 LFE; Lss = 1.000 Lss 0.707 Ltm; Rss = 1.000 Rss 0.707 Rtm; Lsr = 1.000 Lsr; Rsr = 1.000 Rsr; ");
+            "L = 1.000 L; R = 1.000 R; C = 1.000 C; LFE = 1.000 LFE; Lss = 1.000 Lss 0.707 Lts; Rss = 1.000 Rss 0.707 Rts; Lsr = 1.000 Lsr; Rsr = 1.000 Rsr; ");
         pin(Width::Surround714, Width::Surround712,
             "L = 1.000 L; R = 1.000 R; C = 1.000 C; LFE = 1.000 LFE; Lss = 1.000 Lss; Rss = 1.000 Rss; Lsr = 1.000 Lsr; Rsr = 1.000 Rsr; "
-            "Ltm = 0.707 Ltf 0.707 Ltr; Rtm = 0.707 Rtf 0.707 Rtr; ");
+            "Lts = 0.707 Ltf 0.707 Ltr; Rts = 0.707 Rtf 0.707 Rtr; ");
         pin(Width::Surround714, Width::Surround71,
             "L = 1.000 L 0.707 Ltf; R = 1.000 R 0.707 Rtf; C = 1.000 C; LFE = 1.000 LFE; Lss = 1.000 Lss; Rss = 1.000 Rss; Lsr = 0.707 Ltr 1.000 Lsr; Rsr = 0.707 Rtr 1.000 Rsr; ");
         // Wider folds: the steps in a row.
@@ -683,7 +683,7 @@ namespace
         pin(Width::Surround714, Width::Stereo,
             "L = 1.000 L 0.707 C 0.500 Lss 0.707 Ltf 0.354 Ltr 0.500 Lsr; R = 1.000 R 0.707 C 0.500 Rss 0.707 Rtf 0.354 Rtr 0.500 Rsr; ");
         pin(Width::Surround712, Width::Stereo,
-            "L = 1.000 L 0.707 C 0.500 Lss 0.500 Lsr 0.354 Ltm; R = 1.000 R 0.707 C 0.500 Rss 0.500 Rsr 0.354 Rtm; ");
+            "L = 1.000 L 0.707 C 0.500 Lss 0.500 Lsr 0.354 Lts; R = 1.000 R 0.707 C 0.500 Rss 0.500 Rsr 0.354 Rts; ");
         pin(Width::Surround51, Width::Mono, "C = 0.500 L 0.500 R 0.707 C 0.354 Ls 0.354 Rs; ");
         pin(Width::Surround51, Width::Stereo, "L = 1.000 L 0.707 C 0.707 LFE 0.707 Ls; R = 1.000 R 0.707 C 0.707 LFE 0.707 Rs; ", LfeFold::IntoFronts);
         pin(Width::Surround71, Width::Mono, "C = 0.500 L 0.500 R 0.707 C 0.707 LFE 0.250 Lss 0.250 Rss 0.250 Lsr 0.250 Rsr; ", LfeFold::IntoFronts);
@@ -857,22 +857,27 @@ namespace
         std::cout << "File channel orders" << std::endl;
         using room::FileOrder;
 
-        check(std::string(room::fileOrderName(FileOrder::ProTools)) == "Pro Tools (Film)" && std::string(room::fileOrderName(FileOrder::Smpte)) == "SMPTE / WAV",
-              "the two orders are named Pro Tools (Film) and SMPTE / WAV");
+        check(std::string(room::fileOrderName(FileOrder::ProTools)) == "Like Pro Tools" && std::string(room::fileOrderName(FileOrder::WavStandard)) == "WAV Standard",
+              "the two orders are named Like Pro Tools and WAV Standard");
 
+        // Like Pro Tools: what Pro Tools 2026 writes for each width (its own bounces): the WAV mask order up to
+        // 7.1.2, the film order at 7.1.4. WAV Standard: the mask order everywhere.
         struct Expect { Width width; const char* film; const char* smpte; std::uint32_t mask; std::vector<int> filmChannels, smpteChannels; const char* suffixes; };
         const std::vector<Expect> expected {
             { Width::Mono,        "C", "C", 0x4, { 0 }, { 0 }, "" },
             { Width::Stereo,      "L R", "L R", 0x3, { 0, 1 }, { 0, 1 }, ".L .R" },
             { Width::Quad,        "L R Ls Rs", "L R Ls Rs", 0x33, { 0, 1, 2, 3 }, { 0, 1, 2, 3 }, ".L .R .Ls .Rs" },
-            { Width::Surround51,  "L C R Ls Rs LFE", "L R C LFE Ls Rs", 0x3F, { 0, 2, 1, 4, 5, 3 }, { 0, 1, 2, 3, 4, 5 }, ".L .R .C .LFE .Ls .Rs" },
-            { Width::Surround71,  "L C R Lss Rss Lsr Rsr LFE", "L R C LFE Lsr Rsr Lss Rss", 0x63F,
-              { 0, 2, 1, 4, 5, 6, 7, 3 }, { 0, 1, 2, 3, 6, 7, 4, 5 }, ".L .R .C .LFE .Lss .Rss .Lsr .Rsr" },
-            { Width::Surround712, "L C R Lss Rss Lsr Rsr LFE Ltm Rtm", "L R C LFE Lsr Rsr Lss Rss Ltm Rtm", 0x563F,
-              { 0, 2, 1, 4, 5, 6, 7, 3, 8, 9 }, { 0, 1, 2, 3, 6, 7, 4, 5, 8, 9 }, ".L .R .C .LFE .Lss .Rss .Lsr .Rsr .Ltm .Rtm" },
+            { Width::Surround51,  "L R C LFE Ls Rs", "L R C LFE Ls Rs", 0x3F, { 0, 1, 2, 3, 4, 5 }, { 0, 1, 2, 3, 4, 5 }, ".L .R .C .LFE .Ls .Rs" },
+            { Width::Surround71,  "L R C LFE Lsr Rsr Lss Rss", "L R C LFE Lsr Rsr Lss Rss", 0x63F,
+              { 0, 1, 2, 3, 6, 7, 4, 5 }, { 0, 1, 2, 3, 6, 7, 4, 5 }, ".L .R .C .LFE .Lss .Rss .Lsr .Rsr" },
+            { Width::Surround712, "L R C LFE Lsr Rsr Lss Rss Lts Rts", "L R C LFE Lsr Rsr Lss Rss Lts Rts", 0x563F,
+              { 0, 1, 2, 3, 6, 7, 4, 5, 8, 9 }, { 0, 1, 2, 3, 6, 7, 4, 5, 8, 9 }, ".L .R .C .LFE .Lss .Rss .Lsr .Rsr .Lts .Rts" },
             { Width::Surround714, "L C R Lss Rss Lsr Rsr LFE Ltf Rtf Ltr Rtr", "L R C LFE Lsr Rsr Lss Rss Ltf Rtf Ltr Rtr", 0x2D63F,
               { 0, 2, 1, 4, 5, 10, 11, 3, 6, 7, 8, 9 }, { 0, 1, 2, 3, 10, 11, 4, 5, 6, 7, 8, 9 }, ".L .R .C .LFE .Lss .Rss .Ltf .Rtf .Ltr .Rtr .Lsr .Rsr" },
         };
+        for (const auto& e : expected)
+            check(room::ordersDiffer(e.width) == (e.width == Width::Surround714), name(e.width) + ": the two orders are "
+                  + (room::ordersDiffer(e.width) ? "different" : "the same file"));
 
         // The order of a Pro Tools track, as JUCE's AAX wrapper has it (juce_audio_plugin_client_AAX.cpp).
         const std::vector<std::vector<Type>> aax {
@@ -894,7 +899,7 @@ namespace
                 case S::L: return 0x1;       case S::R: return 0x2;       case S::C: return 0x4;      case S::Lfe: return 0x8;
                 case S::Ls: case S::Lsr: return 0x10;                     case S::Rs: case S::Rsr: return 0x20;
                 case S::Lss: return 0x200;   case S::Rss: return 0x400;
-                case S::Ltf: case S::Ltm: return 0x1000;                  case S::Rtf: case S::Rtm: return 0x4000;
+                case S::Ltf: case S::Lts: return 0x1000;                  case S::Rtf: case S::Rts: return 0x4000;
                 case S::Ltr: return 0x8000;  case S::Rtr: return 0x20000;
             }
             return 0;
@@ -904,11 +909,12 @@ namespace
         for (const auto& e : expected)
         {
             const auto& l = room::layout(e.width);
-            const std::string film = room::orderLabel(e.width, FileOrder::ProTools), smpte = room::orderLabel(e.width, FileOrder::Smpte);
-            check(film == e.film && smpte == e.smpte, name(e.width) + ": Pro Tools (Film) \"" + film + "\", SMPTE / WAV \"" + smpte + "\"");
+            const std::string film = room::orderLabel(e.width, FileOrder::ProTools), smpte = room::orderLabel(e.width, FileOrder::WavStandard);
+            check(film == e.film && smpte == e.smpte, name(e.width) + ": Like Pro Tools \"" + film + "\", WAV Standard \"" + smpte + "\"");
 
             const auto& filmCh = room::fileChannels(e.width, FileOrder::ProTools);
-            const auto& smpteCh = room::fileChannels(e.width, FileOrder::Smpte);
+            const auto& smpteCh = room::fileChannels(e.width, FileOrder::WavStandard);
+            const auto trackCh = room::trackChannels(e.width);
             bool channelsOk = true, permutation = true, aaxOk = true, ascending = true;
             std::uint32_t seenFilm = 0, seenSmpte = 0, lastBit = 0, maskFromBits = 0;
             const auto set = room::channelSet(e.width);
@@ -919,7 +925,7 @@ namespace
                 permutation = permutation && filmCh[at] >= 0 && filmCh[at] < l.numChannels && smpteCh[at] >= 0 && smpteCh[at] < l.numChannels;
                 seenFilm |= 1u << filmCh[at];
                 seenSmpte |= 1u << smpteCh[at];
-                aaxOk = aaxOk && set.getTypeOfChannel(filmCh[at]) == aax[row][at];
+                aaxOk = aaxOk && trackCh[at] >= 0 && set.getTypeOfChannel(trackCh[at]) == aax[row][at];
                 const std::uint32_t bit = wavBit(l.speakers[static_cast<size_t>(smpteCh[at])]);
                 ascending = ascending && bit > lastBit && bit == room::info(l.speakers[static_cast<size_t>(smpteCh[at])]).wavBit;
                 lastBit = bit;
@@ -927,7 +933,8 @@ namespace
             }
             permutation = permutation && seenFilm == (1u << l.numChannels) - 1u && seenSmpte == seenFilm;
             check(channelsOk && permutation, name(e.width) + ": each file channel takes the right processing channel, and every channel is written once");
-            check(aaxOk && aax[row].size() == static_cast<size_t>(l.numChannels), name(e.width) + ": the Pro Tools (Film) order is the order of a Pro Tools track");
+            check(aaxOk && aax[row].size() == static_cast<size_t>(l.numChannels) && (l.numChannels == room::c_maxChannels || trackCh[static_cast<size_t>(l.numChannels)] == -1),
+                  name(e.width) + ": trackChannels is the order of a Pro Tools track");
 
             const auto mask = room::wavChannelMask(e.width);
             int bits = 0;
@@ -935,7 +942,7 @@ namespace
                 bits += static_cast<int>(b & 1u);
             check(mask == e.mask && bits == l.numChannels && ascending && maskFromBits == mask,
                   name(e.width) + ": WAV speaker mask 0x" + juce::String::toHexString(static_cast<int>(mask)).toUpperCase().toStdString()
-                      + ", one bit per channel, and the SMPTE / WAV order is the order of those bits");
+                      + ", one bit per channel, and the WAV Standard order is the order of those bits");
 
             std::string suffixes;
             for (int c = 0; c < l.numChannels; ++c)

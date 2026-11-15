@@ -1,6 +1,8 @@
 #include "TakesView.h"
 #include "LookAndFeel.h"
 #include "TakeFile.h"
+#include "TapeRecorder.h"
+#include "VariationRenderer.h"
 
 namespace TC = Theme::Colours;
 
@@ -48,6 +50,7 @@ void TakesView::syncTakes()
         if (! listed)
         {
             it->second->removeChangeListener(this);
+            m_closest.erase(it->first);
             it = m_thumbs.erase(it);
         }
         else
@@ -60,7 +63,16 @@ void TakesView::syncTakes()
             thumb->addChangeListener(this);
             // Read as the take: a Multi-Mono set as one, the channels in the room's order whatever the file's.
             if (auto reader = takefile::openReader(take.file))
+            {
+                // A rendered whoosh's closest point (its Closest marker), drawn as a tick on the waveform.
+                std::vector<float> closest;
+                if (reader->lengthInSamples > 0)
+                    for (const auto& cue : TapeRecorder::readCues(take.file))
+                        if (cue.label.endsWith(VariationRenderer::c_closestLabel))
+                            closest.push_back(static_cast<float>(static_cast<double>(cue.frame) / static_cast<double>(reader->lengthInSamples)));
+                m_closest[take.id] = std::move(closest);
                 thumb->setReader(reader.release(), static_cast<juce::int64>(take.file.hashCode64() ^ take.file.getLastModificationTime().toMilliseconds()));
+            }
             m_thumbs[take.id] = std::move(thumb);
         }
     repaint();
@@ -311,6 +323,13 @@ void TakesView::paint(juce::Graphics& g)
                     for (int ch = 0; ch < thumb.getNumChannels(); ++ch)
                         thumb.drawChannel(g, r.wave.reduced(2, 1), 0.0, thumb.getTotalLength(), ch, 1.0f);
                 }
+            }
+            if (const auto marks = m_closest.find(take.id); marks != m_closest.end())
+            {
+                g.setColour(TC::brass.withAlpha(missing ? 0.3f : 0.9f));
+                for (const float at : marks->second)
+                    if (at >= 0.0f && at <= 1.0f)
+                        g.fillRect(juce::Rectangle<float>(w.getX() + 2.0f + (w.getWidth() - 4.0f) * at - 0.5f, w.getY() + 1.0f, 1.0f, w.getHeight() - 2.0f));
             }
             if (isPlaying)
             {

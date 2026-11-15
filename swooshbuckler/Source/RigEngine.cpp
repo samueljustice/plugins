@@ -3516,8 +3516,8 @@ void RigEngine::roomReverbTaps(int frames, RoomReverb::Taps& taps)
             case S::Rs:  case S::Rss: return { 5, -1, 0.0f };
             case S::Lsr: return { 6, -1, 0.0f };
             case S::Rsr: return { 7, -1, 0.0f };
-            case S::Ltf: case S::Ltm: return { 8, -1, 0.0f };
-            case S::Rtf: case S::Rtm: return { 9, -1, 0.0f };
+            case S::Ltf: case S::Lts: return { 8, -1, 0.0f };
+            case S::Rtf: case S::Rts: return { 9, -1, 0.0f };
             case S::Ltr: return { 10, -1, 0.0f };
             case S::Rtr: return { 11, -1, 0.0f };
             case S::Lfe: break;

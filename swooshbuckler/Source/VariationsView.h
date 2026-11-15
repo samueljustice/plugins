@@ -44,6 +44,17 @@ public:
 
     static constexpr int c_panelWidth = 760, c_panelHeight = 590;
 
+    /** What Channel Order and File Layout do (their tooltips here and in Settings, after the name). */
+    static constexpr const char* c_channelOrderTip =
+        "Like Pro Tools writes each width the way Pro Tools itself does: up to 7.1.2 in the standard WAV order with the speakers "
+        "labelled in the header, and 7.1.4 in Pro Tools' own order (L C R ...) with each channel named inside the file. WAV Standard "
+        "writes 7.1.4 in the standard WAV order with the speakers labelled in the header too, for programs that only read that. "
+        "Below 7.1.4 both give the same file, and a FLAC file always has FLAC's own order. The line underneath spells out the "
+        "order you get.";
+    static constexpr const char* c_fileLayoutTip =
+        "Interleaved: one file that holds every channel. Multi-Mono: a mono file for each channel, its name ending in the speaker "
+        "as Pro Tools names it (Whoosh_0001.L.wav, Whoosh_0001.C.wav ...). The Takes list shows a set as one take.";
+
 private:
     void timerCallback() override;
     void readSettings();           // the controls from the saved settings and the rig as it is now
@@ -56,6 +67,7 @@ private:
     juce::File folder() const;
     juce::String formatLine() const;
     bool repeatedBatch(VariationRenderer::Batch& batch) const; // the batch Render would repeat, if any
+    juce::String planKey(const VariationRenderer::Job& j) const; // every choice that changes what Render makes
     void takeFrom(const VariationRenderer::Batch& batch);      // a batch to repeat: its count, lengths and what varied
 
     SwooshbucklerAudioProcessor& m_processor;
@@ -71,6 +83,8 @@ private:
     juce::Rectangle<int> m_panel, m_folderText, m_firstText, m_getText, m_variesText, m_bar, m_status, m_amountValue, m_lengthUnit, m_gapUnit, m_orderText;
     std::array<juce::Rectangle<int>, 14> m_captions;
     VariationRenderer::Progress m_shown;
+    juce::String m_shownPlan;          // the choices the batch shown was made with (or Render was refused for)
+    bool m_planChanged = false;        // a choice has changed since: the batch's Done / Cancelled line has gone
     juce::String m_error;              // a batch that could not start
     juce::String m_firstLine, m_getLine; // what Render will make, worked out when a control changes
     bool m_getProblem = false;         // m_getLine says why Render would be refused (the format, the one file's size)

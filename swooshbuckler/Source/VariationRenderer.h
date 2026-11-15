@@ -62,6 +62,7 @@ public:
     static constexpr double c_maxGapSeconds = 10.0;                         // One File With Markers: the silence between
     static constexpr double c_endFadeSeconds = 0.01;                        // the fade at the very end of every whoosh
     static constexpr float c_silence = 1.0e-4f;                             // -80 dBFS: under this the front of a whoosh is cut off
+    static constexpr const char* c_closestLabel = "Closest";                // the marker at a whoosh's closest (loudest) moment
     static constexpr int c_maxBatches = 6;                                  // how many batches are remembered to repeat
 
     enum class Mode { NewPasses = 0, SmallChanges, RandomiseEverything };
@@ -140,12 +141,13 @@ public:
     /** How much a batch comes to, before it is rendered. */
     struct Estimate
     {
-        int files = 0;
+        int files = 0;               // files on disk: each file of a Multi-Mono set counts
         double soundSeconds = 0.0;   // every variation, and the gaps of the one file
         double renderSeconds = 0.0;  // going by how fast the last batch went on this machine
         double oneFileBytes = 0.0;   // One File With Markers / Both: how big the one file comes to, each file of it
                                      // for a Multi-Mono set (0 otherwise)
         double totalBytes = 0.0;     // every file of the batch, uncompressed (FLAC comes to less); 0 = not worked out
+        int filesPerTake = 1;        // the channels of a Multi-Mono set, else 1
     };
     /** A WAV file has no room for markers at 4 GB or more, and an AIFF file goes wrong past 2 GB: the one file is
         kept under these, with room to spare for the estimate being short. FLAC lists its markers in its comments
@@ -162,6 +164,8 @@ public:
     /** "100 files, one whoosh each: about 5 minutes of sound, ready in about 20 seconds." With the size worked out:
         "100 files, one whoosh each: about 5 minutes of sound (about 86 MB), ready in about 20 seconds." */
     static juce::String estimateText(const Job& job, const Estimate& estimate);
+    /** 1200 as "1,200". */
+    static juce::String withCommas(int n);
     /** "about 20 seconds", "about 5 minutes". */
     static juce::String roughly(double seconds);
 
@@ -171,7 +175,8 @@ public:
         State state = State::Idle;
         int done = 0, total = 0;       // variations rendered, variations asked for
         int silent = 0;                // renders that had no sound in them (nothing is written for those)
-        int files = 0;                 // files written (one each, the one file that holds them all, or both)
+        int files = 0;                 // takes written (one each, the one file that holds them all, or both)
+        int filesPerTake = 1;          // files on disk for each of them: the channels of a Multi-Mono set, else 1
         Each each = Each::OneWhoosh;
         Files filing = Files::PerVariation;
         juce::String currentFile;      // the variation being rendered now
@@ -225,8 +230,13 @@ private:
     void releaseCopy(); // message thread: the second rig goes, and the live Cargo Hold stops lending
     /** Sets the second rig up for file `index` and renders it into m_take. Returns the number of samples from
         `first` on that belong in the file (0 = there was no sound), or -1 if it was cancelled. */
-    int renderOne(int index, int& first, juce::String& description);
-    juce::String describeHow() const;      // "My Settings, Small Changes 30%, Batch 4711, One Whoosh, Length 3.0 s"
+    /** Renders variation `index` into m_take: its length (0 silent, -1 cancelled), where its sound starts
+        (`first`), its loudest moment counted from `first` (`closest`, -1 for a Whole Ride, which has no one closest
+        point) and its description. */
+    int renderOne(int index, int& first, int& closest, juce::String& description);
+    /** The loudest moment of m_take's [first, first + samples): the middle of its loudest 50 ms, counted from first. */
+    int loudestMoment(int first, int samples) const;
+    juce::String describeHow() const;      // "Small Changes, How Different 30%, One Whoosh, Length 3.0 s"
     juce::String describeSettings() const; // every sound-shaping control of the second rig as it is now
     void rememberBatch(const Batch& batch); // message thread
     void setProgress(const std::function<void(Progress&)>& change);

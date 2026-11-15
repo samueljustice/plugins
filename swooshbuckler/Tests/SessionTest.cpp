@@ -431,7 +431,7 @@ int main(int argc, char* argv[])
             std::cout << std::endl;
             const auto description = TapeRecorder::readDescription(take.file);
             std::unique_ptr<juce::AudioFormatReader> r(juce::WavAudioFormat().createReaderFor(new juce::FileInputStream(take.file), true));
-            described = described && description.startsWith("Swooshbuckler " + juce::String(JucePlugin_VersionString) + ". Preset: Default. Energy ")
+            described = described && description.startsWith("Swooshbuckler " + juce::String(JucePlugin_VersionString) + ". Stereo. Preset: Default. Energy ")
                         && description.contains("Pass A Bed") && r != nullptr
                         && r->metadataValues[juce::WavAudioFormat::bwavOriginator] == "Anne Bonny";
             if (&take == &takes.front())

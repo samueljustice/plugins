@@ -566,8 +566,8 @@ Click **Settings** to open. Close it with Close, Esc, or a click outside the pan
 | **Bit Depth** | 16-Bit / 24-Bit / 32-Bit Float (24-Bit) | 32-Bit Float can't clip in the file, and is WAV only. 16-Bit files are dithered, so quiet fades end in a faint steady hiss and not in grit. |
 | **Sample Rate** | Session / 44.1 / 48 / 88.2 / 96 / 192 kHz (Session) | Session records at the audio device's or host's rate. Pick a higher rate and the whole rig runs at that rate, so the recording keeps the extra high end, which is good for pitching down later; you still hear it at the device rate, filtered so the extra high end is taken out cleanly and held to the Ceiling again. A note in the panel says which is happening. It can't be changed while the tape is armed. |
 | **Channels** | the room's width / Stereo / Mono (the room's width) | What the tape and Last 60 s write. The first button is the room as you hear it (**Stereo**, **5.1**, **7.1.4** and so on). **Stereo** is shown in a room wider than Stereo and folds it down to two channels as it records; **Mono** folds to one channel, for sounds you'll pan yourself. A fold is held under the Ceiling and says so in the file's description. See [Fold-downs](#fold-downs). |
-| **Channel Order** | Pro Tools (Film) / SMPTE / WAV (Pro Tools (Film)) | The order of the channels in a 5.1 or wider file. The line under it spells out the order you get. See [Channel Order](#channel-order). It rests below 5.1 and for Multi-Mono. |
-| **File Layout** | Interleaved / Multi-Mono (Interleaved) | One file that holds every channel, or one mono file per channel, named the Pro Tools way. See [Multi-Mono](#multi-mono). Channel Order and File Layout are one setting, shared with Render Variations. |
+| **Channel Order** | Like Pro Tools / WAV Standard (Like Pro Tools) | How an interleaved file is laid out: Like Pro Tools writes each width exactly as Pro Tools does; the two differ only at 7.1.4. The line under it spells out the order you get. See [Channel Order](#channel-order). It rests below 7.1.4, for Multi-Mono and for FLAC (which has an order of its own), and the line says why. |
+| **File Layout** | Interleaved / Multi-Mono (Interleaved) | One file that holds every channel, or one mono file per channel, its name ending in the speaker as Pro Tools names it. See [Multi-Mono](#multi-mono). Channel Order and File Layout are one setting, shared with Render Variations. |
 | **Auto-Arm on Opening** | (off) | Arms the tape as soon as Swooshbuckler opens. So you never miss the first good take. |
 | **Skip Silence** | (on) | On: the armed tape leaves the quiet stretches out (see [Recording](#recording)). Off: the tape rolls all the time, for one continuous take. You can switch it during a take. |
 | **One File per Whoosh** | (off) | On: the armed tape closes its file each time a whoosh has ended and opens the next one for the next whoosh (see [Recording](#recording)). Off: one file for the whole take. Switching it while the tape is armed closes the open take and arms again. |
@@ -584,7 +584,7 @@ Click **Settings** to open. Close it with Close, Esc, or a click outside the pan
 - **The tape (Arm).** Click to arm. Everything goes into one file until you click the tape again, press New or close Swooshbuckler. The Rec timer counts only what's been written. A take with no sound in it leaves no file behind.
 - **One File per Whoosh** (off by default, in Settings). The armed tape writes a separate file for each whoosh, so a session of riding leaves a folder of numbered whooshes and not one long take to cut up. A whoosh has ended when the output has sat about 25 dB under its recent peaks for three quarters of a second (the same test Skip Silence uses, and the quiet between whooshes is always left out), or when a thrown whoosh has rung out with the rig stopped. Each file keeps the quarter second before its sound and its tail. Sounds with less than a fifth of a second of level in them are not kept, so clicks and blips don't become files. Each file appears in [Takes](#takes) as its whoosh ends. Whooshes that overlap, with no quiet between them, share a file.
 - **Markers.** WAV takes carry cue points with labels, so a long take arrives already spotted in Reaper, Soundminer and other tools that read them: **Pass A** and **Pass B** where a doppler pass on that bus goes by at its closest (with Link on the two buses fly the same passes, so only Pass A is written), **Pass S** where one of Stowaway's own passes does (in Fly), **Throw** at the peak of a thrown whoosh, and **Hit** where an aimed or synced hit lands or the hit gate opens. Markers that fall together are one cue, such as "Throw + Hit". They are placed in the file itself, so they stay on their sounds when Skip Silence has left stretches out. AIFF, FLAC and Last 60 s files have no markers.
-- **What each file says about itself.** Every file carries a description: the Swooshbuckler version, the preset, and Energy, Rate, Fill, Chaos, Pitch, Space, the Pass Modes, Morph and Aim as they were when the file was started. It also names the Creator from Settings and the software. In a WAV these are the broadcast-wave description and originator and the INFO comment, artist and software; in an AIFF, comments; in a FLAC, the DESCRIPTION, ARTIST and ENCODER tags.
+- **What each file says about itself.** Every file carries a description: the Swooshbuckler version, the width, and in a room wider than Stereo the room (each Flight Path, Spread, Height, Centre Speaker and LFE Mode), then the preset and Energy, Rate, Fill, Chaos, Pitch, Space, the Pass Modes, Morph and Aim as they were when the file was started. It also names the Creator from Settings and the software. In a WAV these are the broadcast-wave description and originator and the INFO comment, artist and software; in an AIFF, comments; in a FLAC, the DESCRIPTION, ARTIST and ENCODER tags. The broadcast-wave description (what Pro Tools and Soundminer show) holds 256 characters, so it stops after the last whole item that fits; the whole description is in the INFO comment. Surround files also name their channels: see [Exporting at any width](#exporting-at-any-width).
 - **Skip Silence** (on by default, in Settings). The tape judges quiet against the recent peaks, not against a fixed level, because a rig with a bed in it never falls truly silent. It stops rolling once the output has sat about 25 dB under the recent peaks (or under about −56 dBFS) for three quarters of a second, and starts again when the sound comes back, keeping the quarter second before it so attacks survive. Each join is faded over 30 ms. The recent peak is remembered for about 10 seconds and then follows the level down, so a quieter passage is recorded once it is the new normal. After Stop the tape keeps the whole tail, and once the rig has come to rest the tape stops rolling until the next Play. How much is left out depends on the sound: deep, slow swells (a high Energy, few layers) leave gaps to skip, while a busy rig with a steady bed is recorded almost whole. Switch Skip Silence off for one continuous take.
 - **If the disk can't keep up**, the tape buffers about 3 seconds of audio at any sample rate before anything is lost, and the message that names the saved file says how much is missing.
 - **Last 60 s.** Swooshbuckler always keeps the last minute of output while it plays (or the last 3 or 5 minutes: **Keep the Last** in Settings, at the memory cost given there). Click Last 60 s to save it, even if the tape wasn't armed and even while a take is going. Silence at the start is trimmed. It's written the way the tape is set: the same File Type, Bit Depth, Sample Rate, Channels, Channel Order and File Layout. In a wide room it holds at most 512 MB, which is about 58 seconds of 7.1.4 at 192 kHz or about 3 minutes 50 seconds at 48 kHz; the button then shows the real length ("Last 58 s").
@@ -627,9 +627,11 @@ The batch renders in the background, much faster than real time (on the machine 
 | **How Different** | Used with My Settings, Small Changes: how far each file may stray from your sound. Low keeps the files close cousins of what you dialled in; at 100% each knob can move up to half of its travel either way, and Pitch up to four semitones. |
 | **Batch** | **New Batch Every Time** (where it starts): every Render makes variations you have not had before. **Repeat Last Batch**: the same variations as the last batch again, sample for sample (16-bit files differ only in their dither), as long as your settings and sounds are the same: handy for the same whooshes in another file type, or with one knob changed. **Repeat Batch...** lists the last six batches by name, date and time. Repeating a batch also sets How Many, What Each File Is, Length and What Varies back to what that batch had. |
 | **File Names** | What the files are called: **Counter** (where it starts: `Whoosh_001`, after the Take Name from Settings, or the preset's), **Date And Time** (`Whoosh_2026-11-13_1432_001`), **Preset And Counter** (`Jet Passes_001`) or **Batch Name And Counter** (a name you type in **Batch Name**: `Dragon Wings_001`; typing a name there chooses this for you). A batch that reaches 1000 gets four digits. The line under the folder shows what the first file will be called. Nothing is ever written over: numbers carry on after the files already in the folder. |
-| **Files** | **One File Per Variation** (where it starts), **One File With Markers**: every variation in one long file (`<name>_All`, or `<name>_All_2` and so on if that is taken), with a marker at the start of each named after the variation and **Gap** seconds of silence between them (0.5 s to start, up to 10 s), or **Both**. WAV files get cue points with labels and AIFF files markers, which DAWs and editors show; FLAC has no markers, so there the names and times are written into the file's comments. A WAV or AIFF file has no room for markers at 4 GB or more, so a long file that big is not started (FLAC has no such limit). In [Takes](#takes) the long file is one take. |
+| **Files** | **One File Per Variation** (where it starts), **One File With Markers**: every variation in one long file (`<name>_All`, or `<name>_All_2` and so on if that is taken), with a marker at the start of each named after the variation (and one at each whoosh's closest point, see below) and **Gap** seconds of silence between them (0.5 s to start, up to 10 s), or **Both**. WAV files get cue points with labels and AIFF files markers, which DAWs and editors show; FLAC has no markers, so there the names and times are written into the file's comments. A WAV or AIFF file has no room for markers at 4 GB or more, so a long file that big is not started (FLAC has no such limit). In [Takes](#takes) the long file is one take. |
 | **Width** | The room the variations are rendered in, from Mono to 7.1.4. Each file is made at that width from the start, whatever your track or audio device is, so the same batch can be had in Mono, Stereo, 5.1 and 7.1.4. It starts at the width the rig plays at. |
 | **Channel Order** and **File Layout** | The same setting as in Settings: see [Channel Order](#channel-order) and [Multi-Mono](#multi-mono). The line under them spells out the order, or the file endings, you get. |
+| **The line under them** | Says what Render will make: the first file's name, how many whooshes and, for Multi-Mono, how many files that is on disk ("100 whooshes, each as 12 mono files (1,200 files)"), how much sound and roughly how long it will take. If the format chosen can't hold the batch (FLAC at 7.1.4 in one file, one file over 4 GB) the line turns red and says what to change, and **Render** rests until it can. Once a batch has finished, its Done or Cancelled line stays until you change a choice. |
+| **Closest marker** | Every rendered whoosh (not a Whole Ride) has a marker named **Closest** at its loudest moment, where the pass is nearest, so an editor can snap it to picture; One File With Markers has it after each start marker ("Whoosh_003 Closest"). Takes draws it as a brass tick on the waveform. WAV files get it as a cue point, AIFF files as a marker, FLAC files in their comments. |
 | **Folder** | Where the files go. **Dated Folder** (the default) gives every batch a new folder of its own inside the recordings folder, named after the take name and the date and time. **Choose...** picks a folder that stays. |
 | **Render** | Starts the batch. |
 | **Cancel** | Stops it. The files already made are kept, and the long file is closed with the variations it has; the one in hand is dropped, so nothing half-written is left. |
@@ -696,7 +698,7 @@ Swooshbuckler plays in a room of speakers as well as in stereo. In a surround ro
 | **Quad** | L R Ls Rs |
 | **5.1** | L C R Ls Rs, LFE |
 | **7.1** | L C R, the sides Lss Rss, the rears Lsr Rsr, LFE |
-| **7.1.2** | 7.1 and two speakers overhead, Ltm Rtm |
+| **7.1.2** | 7.1 and two speakers overhead, Lts Rts |
 | **7.1.4** | 7.1 and four speakers overhead, Ltf Rtf (front) and Ltr Rtr (rear) |
 
 **Mono and Stereo** are the stereo rig as it always was, with the ear delays and the shading of the ear turned away; Mono is its mono render. The room's controls rest there, and their tooltips say why. **Quad and wider** are rooms: the passes fly through them as below. 7.1.2 is the widest Dolby Atmos bed, so use it (or 5.1 or 7.1) for a track that feeds an Atmos bed; a 7.1.4 track can't.
@@ -777,24 +779,29 @@ In a room the comets fly where the passes are: the front of the room is out towa
 
 - **The tape and Last 60 s** record the room as you hear it, every speaker and the LFE. **Channels** in Settings can fold it down to Stereo or Mono as it records: see [Fold-downs](#fold-downs).
 - **Render Variations** has a **Width** of its own and renders each file at that width from the start, whatever your track or audio device is: the way to get the same batch in Mono, Stereo, 5.1 and 7.1.4. See [Render Variations](#render-variations).
-- **WAV, AIFF and FLAC** all work. FLAC holds at most 8 channels in one file, so 7.1.2 and 7.1.4 in FLAC need Multi-Mono. A WAV in the SMPTE / WAV order carries the speaker positions in its header; every file names its channels in its description (iXML in a WAV, the comment in an AIFF, the CHANNELS tag in a FLAC).
+- **WAV, AIFF and FLAC** all work. FLAC holds at most 8 channels in one file, so 7.1.2 and 7.1.4 in FLAC need Multi-Mono.
+- **What a file says about its channels.** A WAV wider than Stereo labels its speakers in its header the way Pro Tools' own bounces do (below), and every WAV file, Multi-Mono files included, names each channel in an iXML track list, as Pro Tools does at 7.1.4. An AIFF wider than Stereo, and each AIFF of a Multi-Mono set, carries a channel layout that macOS and Logic read (a CHAN chunk) and the names in a comment. A FLAC file is always in FLAC's own order (L R C LFE Ls Rs; 7.1 L R C LFE Lsr Rsr Lss Rss), with the speaker positions and names in its comments: Channel Order does not apply to it.
+- **The two tops of 7.1.2** have no place of their own among the positions a WAV header can name, so they are marked as the top front pair, as Pro Tools marks them; macOS calls such a file 9.1. The iXML track list and the description name them Lts and Rts.
 
 #### Channel Order
 
-For 5.1 and wider files, in Settings and in Render Variations (one setting, shared). The line under it spells out the order you get, so nobody has to remember it.
+For interleaved WAV and AIFF files, in Settings and in Render Variations (one setting, shared). The line under it spells out the order you get, so nobody has to remember it.
 
-| Width | **Pro Tools (Film)** (the default): the order of a Pro Tools track | **SMPTE / WAV**: the order most other programs read |
+**Like Pro Tools** (the default) writes each width exactly as Pro Tools 2026 itself bounces it, header for header: Quad to 7.1.2 in the WAV order with the speakers labelled in the header, and 7.1.4 in Pro Tools' own order with a plain header and each channel named in an iXML track list. **WAV Standard** writes 7.1.4 in the WAV order with the speakers labelled in the header too, for programs that only read those labels. Below 7.1.4 the two are the same file.
+
+| Width | **Like Pro Tools** (the default) | **WAV Standard** |
 |---|---|---|
-| 5.1 | L C R Ls Rs LFE | L R C LFE Ls Rs |
-| 7.1 | L C R Lss Rss Lsr Rsr LFE | L R C LFE Lsr Rsr Lss Rss |
-| 7.1.2 | L C R Lss Rss Lsr Rsr LFE Ltm Rtm | L R C LFE Lsr Rsr Lss Rss Ltm Rtm |
-| 7.1.4 | L C R Lss Rss Lsr Rsr LFE Ltf Rtf Ltr Rtr | L R C LFE Lsr Rsr Lss Rss Ltf Rtf Ltr Rtr |
+| Quad | L R Ls Rs | the same |
+| 5.1 | L R C LFE Ls Rs | the same |
+| 7.1 | L R C LFE Lsr Rsr Lss Rss | the same |
+| 7.1.2 | L R C LFE Lsr Rsr Lss Rss Lts Rts | the same |
+| 7.1.4 | L C R Lss Rss Lsr Rsr LFE Ltf Rtf Ltr Rtr, named in iXML only | L R C LFE Lsr Rsr Lss Rss Ltf Rtf Ltr Rtr, labelled in the header |
 
-Stereo is L R and Quad L R Ls Rs in both. A WAV in the Pro Tools (Film) order can't carry speaker positions in its header (no position list in the WAV format describes that order), so it has none, and only its description names its channels.
+Stereo is L R. Reading a take back (Takes, playing it), Swooshbuckler goes by the speaker labels in the header when there are some and by the iXML track list when there are not, so it reads its own files and Pro Tools' the same way; a file that says nothing is taken to be in the WAV order.
 
 #### Multi-Mono
 
-**Multi-Mono** writes one mono file per speaker, each ending with its speaker the Pro Tools way, so Pro Tools takes a set in as one clip: `Whoosh_0001.L.wav`, `Whoosh_0001.C.wav` and so on.
+**Multi-Mono** writes one mono file per speaker, each ending with the speaker's name as Pro Tools names it (Avid's names for each track format): `Whoosh_0001.L.wav`, `Whoosh_0001.C.wav` and so on. Whether Pro Tools joins a set into one clip on import is still to be checked in Pro Tools itself (the ident files below are for that).
 
 | Width | File endings |
 |---|---|
@@ -802,17 +809,17 @@ Stereo is L R and Quad L R Ls Rs in both. A WAV in the Pro Tools (Film) order ca
 | Quad | .L .R .Ls .Rs |
 | 5.1 | .L .C .R .Ls .Rs .LFE |
 | 7.1 | .L .C .R .Lss .Rss .Lsr .Rsr .LFE |
-| 7.1.2 | the 7.1 endings and .Ltm .Rtm |
+| 7.1.2 | the 7.1 endings and .Lts .Rts |
 | 7.1.4 | the 7.1 endings and .Ltf .Rtf .Ltr .Rtr |
 
-Mono is one file with no ending. A set has no order of its own, so Channel Order rests for Multi-Mono. In Takes a set is one take.
+Mono is one file with no ending. A set has no order of its own, so Channel Order rests for Multi-Mono. In Takes a set is one take. Render Variations counts both the whooshes and the files of a Multi-Mono batch.
 
 ### Fold-downs
 
 A fold-down plays or writes a room on fewer speakers by mixing them together. Swooshbuckler folds one step at a time, each step turning the speakers it joins down 3 dB:
 
 - 7.1.4 to 7.1.2: the front and rear overhead speakers of each side join into one.
-- The speakers overhead to 7.1: the front ones into L and R, the rear ones into the rear surrounds, Ltm and Rtm into the sides.
+- The speakers overhead to 7.1: the front ones into L and R, the rear ones into the rear surrounds, Lts and Rts into the sides.
 - 7.1 to 5.1: each side's side and rear surround into Ls or Rs.
 - 5.1 to Quad: the centre into L and R.
 - Quad to Stereo: Ls into L, Rs into R. So 5.1 to Stereo is the usual broadcast fold.
@@ -844,7 +851,7 @@ Pro Tools (AAX) is the host surround is made for. Make an **instrument track** o
 | Quad | L R Ls Rs |
 | 5.1 | L R C LFE Ls Rs |
 | 7.1 | L R C LFE Lss Rss Lsr Rsr |
-| 7.1.2 | L R C LFE Lss Rss Lsr Rsr Ltm Rtm |
+| 7.1.2 | L R C LFE Lss Rss Lsr Rsr Lts Rts |
 | 7.1.4 | L R C LFE Lss Rss Lsr Rsr Ltf Rtf Ltr Rtr |
 
 That is the usual wiring of a 5.1, 7.1 or Atmos monitoring room, so most rooms need nothing more. A room wired another way is re-routed in the interface's own mixer. Settings spells the order out too.
@@ -1062,7 +1069,7 @@ cmake --build build --target SwooshbucklerUiShot
 
 ### Channel ident files
 
-`SwooshbucklerIdent` writes test files for checking where each channel of a surround file lands in Pro Tools, Soundminer or any other program: one file (or Multi-Mono set) for every width, Channel Order and File Layout. The speakers take turns: the first speaker of the Pro Tools (Film) order beeps once, the second twice, and so on, each at a pitch of its own (the LFE low), and each turn has a marker with the speaker's name. A `README.txt` in the folder lists what each file should play where.
+`SwooshbucklerIdent` writes test files for checking where each channel of a surround file lands in Pro Tools, Soundminer or any other program: one file (or Multi-Mono set) for every width, Channel Order and File Layout. The speakers take turns: the first speaker in the order Pro Tools lists a track's channels (L C R ...) beeps once, the second twice, and so on, each at a pitch of its own (the LFE low), and each turn has a marker with the speaker's name. A `README.txt` in the folder is the checklist: what each file should play where, in Pro Tools, Soundminer and with the signed AAX.
 
 ```bash
 cmake -B build -DSWOOSHBUCKLER_TOOLS=ON

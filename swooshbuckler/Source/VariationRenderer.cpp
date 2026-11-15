@@ -193,7 +193,9 @@ VariationRenderer::Estimate VariationRenderer::estimate(const Job& job) const
     const int count = juce::jlimit(1, c_maxCount, job.count);
     const double each = ride ? job.rideSeconds : job.seconds + tail;
     Estimate e;
-    e.files = job.files == Files::PerVariation ? count : job.files == Files::OneWithMarkers ? 1 : count + 1;
+    const int channelsOnDisk = channelsOf(job);
+    e.filesPerTake = job.options.layout == takefile::Layout::MultiMono && channelsOnDisk > 1 ? channelsOnDisk : 1;
+    e.files = (job.files == Files::PerVariation ? count : job.files == Files::OneWithMarkers ? 1 : count + 1) * e.filesPerTake;
     e.soundSeconds = each * count + (job.files == Files::PerVariation ? 0.0 : job.gapSeconds * (count - 1));
     e.renderSeconds = each * count / speed;
     // Sizes: every channel of the width (a Multi-Mono set's files hold one each), at the file's bit depth.
@@ -261,19 +263,41 @@ juce::String VariationRenderer::roughSize(double bytes)
     return "about " + juce::String(mb / 1024.0, 1) + " GB";
 }
 
+juce::String VariationRenderer::withCommas(int n)
+{
+    auto text = juce::String(std::abs(n));
+    for (int at = text.length() - 3; at > 0; at -= 3)
+        text = text.substring(0, at) + "," + text.substring(at);
+    return (n < 0 ? "-" : "") + text;
+}
+
 juce::String VariationRenderer::estimateText(const Job& job, const Estimate& e)
 {
     const int count = juce::jlimit(1, c_maxCount, job.count);
     const bool ride = job.each == Each::WholeRide;
-    const juce::String things = juce::String(count) + (ride ? (count == 1 ? " ride" : " rides") : (count == 1 ? " whoosh" : " whooshes"));
+    const juce::String things = withCommas(count) + (ride ? (count == 1 ? " ride" : " rides") : (count == 1 ? " whoosh" : " whooshes"));
     const juce::String thing = ride ? "ride" : "whoosh";
+    // A Multi-Mono set is one take but many files: the count of each is said, so the folder holds what was said.
+    const int per = e.filesPerTake;
+    const juce::String monoFiles = juce::String(per) + " mono files";
+    const juce::String filesOnDisk = " (" + withCommas(e.files) + " files)";
     juce::String what;
     switch (job.files)
     {
-        case Files::OneWithMarkers: what = "1 file with " + things + " in it"; break;
-        case Files::Both:           what = juce::String(e.files) + " files (" + things + ", and one file with all of them)"; break;
+        case Files::OneWithMarkers:
+            what = per > 1 ? things + " in one set of " + monoFiles : "1 file with " + things + " in it";
+            break;
+        case Files::Both:
+            what = per > 1 ? things + " and one set with all of them, each as " + monoFiles + filesOnDisk
+                           : withCommas(e.files) + " files (" + things + ", and one file with all of them)";
+            break;
         case Files::PerVariation:
-        default:                    what = count == 1 ? "1 file with one " + thing + " in it" : juce::String(count) + " files, one " + thing + " each"; break;
+        default:
+            if (per > 1)
+                what = count == 1 ? "1 " + thing + " as " + monoFiles : things + ", each as " + monoFiles + filesOnDisk;
+            else
+                what = count == 1 ? "1 file with one " + thing + " in it" : withCommas(count) + " files, one " + thing + " each";
+            break;
     }
     juce::String size;
     if (e.totalBytes > 0.0) // FLAC packs it smaller: its size is said as a most
@@ -427,6 +451,7 @@ bool VariationRenderer::start(const Job& job, juce::String& error)
         m_progress.batchSeed = m_job.batchSeed;
         m_progress.each = m_job.each;
         m_progress.filing = m_job.files;
+        m_progress.filesPerTake = estimate(m_job).filesPerTake;
         m_files.clear();
     }
     rememberBatch({ m_job.batchSeed, planOf(m_job).stem, juce::Time::getCurrentTime(), m_job.count, m_job.mode, m_job.amount, m_job.each,
@@ -473,9 +498,38 @@ juce::String VariationRenderer::describeHow() const
     juce::String how = modeName(m_job.mode);
     if (m_job.mode == Mode::SmallChanges)
         how << ", How Different " << juce::roundToInt(100.0f * m_job.amount) << "%";
-    how << ", Batch " << juce::String(m_job.batchSeed) << ", " << eachName(m_job.each) << ", Length "
-        << juce::String(m_job.each == Each::WholeRide ? m_job.rideSeconds : m_job.seconds, 1) << " s, " << room::layout(m_job.width).name;
+    how << ", " << eachName(m_job.each) << ", Length " << juce::String(m_job.each == Each::WholeRide ? m_job.rideSeconds : m_job.seconds, 1) << " s";
     return how;
+}
+
+int VariationRenderer::loudestMoment(int first, int samples) const
+{
+    const int window = juce::jlimit(1, juce::jmax(1, samples), juce::roundToInt(0.05 * m_job.rate));
+    const int channels = m_take.getNumChannels();
+    double sum = 0.0, best = -1.0;
+    int bestStart = 0;
+    auto power = [this, channels](int i)
+    {
+        double p = 0.0;
+        for (int ch = 0; ch < channels; ++ch)
+        {
+            const double v = m_take.getSample(ch, i);
+            p += v * v;
+        }
+        return p;
+    };
+    for (int i = 0; i < samples; ++i)
+    {
+        sum += power(first + i);
+        if (i >= window)
+            sum -= power(first + i - window);
+        if (i >= window - 1 && sum > best)
+        {
+            best = sum;
+            bestStart = i - window + 1;
+        }
+    }
+    return juce::jlimit(0, juce::jmax(0, samples - 1), bestStart + window / 2);
 }
 
 juce::String VariationRenderer::describeSettings() const
@@ -487,8 +541,9 @@ juce::String VariationRenderer::describeSettings() const
     return settings.joinIntoString(", ") + ".";
 }
 
-int VariationRenderer::renderOne(int index, int& first, juce::String& description)
+int VariationRenderer::renderOne(int index, int& first, int& closest, juce::String& description)
 {
+    closest = -1;
     auto& rig = *m_copy;
     // Where this render left the tracks and the rides, for the next one to carry on from.
     auto keepPlaces = [this, &rig]
@@ -556,9 +611,13 @@ int VariationRenderer::renderOne(int index, int& first, juce::String& descriptio
     flight.ridden = true;
     const auto moment = static_cast<std::uint32_t>(random.nextInt()) | 1u;
 
-    // What the file says about itself: which variation of which batch it is, then the settings it was made with.
+    // What the file says about itself, the most telling first (a WAV file's BWF description keeps 256 bytes): which
+    // variation of which batch, the width and the room, how it was made, then every setting it was made with.
     description = "Swooshbuckler " + Version::number() + ". Variation " + juce::String(index + 1) + " of " + juce::String(m_job.count)
-                + ", " + describeHow() + ". Preset: " + preset + ". " + describeSettings();
+                + ", Batch " + juce::String(m_job.batchSeed) + ", " + room::layout(m_job.width).name + ".";
+    if (const auto roomText = rig.describeRoom(m_job.width); roomText.isNotEmpty())
+        description << " " << roomText;
+    description << " " << describeHow() << ". Preset: " << preset << ". " << describeSettings();
 
     rig.prepareOffline(m_job.rate, engineSeed, m_job.width); // natively in the room asked for
     // Every render after the first carries on through the sounds from where the one before stopped (the first
@@ -646,6 +705,7 @@ int VariationRenderer::renderOne(int index, int& first, juce::String& descriptio
     const int fade = juce::jmin(end - first, juce::roundToInt(c_endFadeSeconds * m_job.rate));
     for (int ch = 0; ch < channels; ++ch)
         m_take.applyGainRamp(ch, end - fade, fade, 1.0f, 0.0f);
+    closest = loudestMoment(first, end - first); // the pass's closest point, for a marker an editor can snap to picture
     return end - first;
 }
 
@@ -677,8 +737,12 @@ void VariationRenderer::run()
     std::vector<TapeRecorder::Cue> markers;
     if (together)
     {
+        const auto roomText = m_copy->describeRoom(m_job.width);
         naming.description = "Swooshbuckler " + Version::number() + ". " + juce::String(m_job.count) + (m_job.count == 1 ? " variation" : " variations")
-                           + " one after another, a marker at the start of each. " + describeHow() + ". Preset: " + m_copy->currentPresetName + "."
+                           + " one after another, Batch " + juce::String(m_job.batchSeed) + ", " + room::layout(m_job.width).name + "."
+                           + (roomText.isNotEmpty() ? " " + roomText : juce::String())
+                           + (ride ? " A marker at the start of each. " : " A marker at the start of each and at its closest point. ")
+                           + describeHow() + ". Preset: " + m_copy->currentPresetName + "."
                            + (m_job.mode == Mode::NewPasses ? " " + describeSettings()
                               : m_job.mode == Mode::SmallChanges ? " Starting from: " + describeSettings() : juce::String());
         if (all.open(plan.combined, m_job.rate, m_take.getNumChannels(), m_job.options, naming, failure))
@@ -693,8 +757,8 @@ void VariationRenderer::run()
         const auto file = m_job.folder.getChildFile(name + extension);
         setProgress([&](Progress& p) { p.currentFile = separate ? file.getFileName() : name; });
 
-        int first = 0;
-        const int samples = renderOne(index, first, naming.description);
+        int first = 0, closest = -1;
+        const int samples = renderOne(index, first, closest, naming.description);
         if (samples < 0 || threadShouldExit())
         {
             outcome = State::Cancelled; // nothing of this variation has been written
@@ -717,7 +781,11 @@ void VariationRenderer::run()
             juce::String error;
             juce::Array<juce::File> setFiles;
             const auto wanted = TapeRecorder::filesFor(file, m_take.getNumChannels(), m_job.options);
-            if (separate && (takefile::anyExists(wanted) || ! TapeRecorder::writeFile(file, m_take, first, samples, m_job.rate, m_job.options, naming, error, &setFiles)))
+            // A whoosh's closest point is a named marker in its file (and in the one file), to snap to picture.
+            std::vector<TapeRecorder::Cue> cues;
+            if (closest >= 0)
+                cues.push_back({ closest, c_closestLabel });
+            if (separate && (takefile::anyExists(wanted) || ! TapeRecorder::writeFile(file, m_take, first, samples, m_job.rate, m_job.options, naming, error, &setFiles, cues)))
             {
                 if (error.isEmpty())
                     error = takefile::displayName(wanted) + " is already there, and nothing is ever written over.";
@@ -730,6 +798,8 @@ void VariationRenderer::run()
                 if (written > 0)
                     all.writeSilence(gap);
                 markers.push_back({ all.position(), name });
+                if (closest >= 0)
+                    markers.push_back({ all.position() + closest, name + " " + c_closestLabel });
                 all.write(m_take, first, samples);
             }
             ++written;

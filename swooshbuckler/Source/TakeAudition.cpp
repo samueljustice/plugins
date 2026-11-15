@@ -71,9 +71,9 @@ TakeAudition::Mix TakeAudition::mixFor(int takeChannels, room::Width outputWidth
             pair(S::Lss, S::Lsr);
         else if (s == S::Rs)
             pair(S::Rss, S::Rsr);
-        else if (s == S::Ltm)
+        else if (s == S::Lts)
             pair(S::Ltf, S::Ltr);
-        else if (s == S::Rtm)
+        else if (s == S::Rts)
             pair(S::Rtf, S::Rtr);
     }
     return mix;

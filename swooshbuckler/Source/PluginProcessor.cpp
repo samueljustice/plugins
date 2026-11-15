@@ -1606,12 +1606,12 @@ juce::String SwooshbucklerAudioProcessor::listeningLine(room::Width width, int d
 
 room::FileOrder SwooshbucklerAudioProcessor::getChannelOrder() const
 {
-    return m_settings->getIntValue("channelOrder", 0) == 1 ? room::FileOrder::Smpte : room::FileOrder::ProTools;
+    return m_settings->getIntValue("channelOrder", 0) == 1 ? room::FileOrder::WavStandard : room::FileOrder::ProTools;
 }
 
 void SwooshbucklerAudioProcessor::setChannelOrder(room::FileOrder order)
 {
-    m_settings->setValue("channelOrder", order == room::FileOrder::Smpte ? 1 : 0);
+    m_settings->setValue("channelOrder", order == room::FileOrder::WavStandard ? 1 : 0);
     m_settings->saveIfNeeded();
 }
 
@@ -1824,22 +1824,44 @@ juce::String SwooshbucklerAudioProcessor::getEffectiveTakeName() const
     return preset.isEmpty() || preset == "Default" ? juce::String("Swooshbuckler") : preset;
 }
 
-juce::String SwooshbucklerAudioProcessor::describeSettings() const
+juce::String SwooshbucklerAudioProcessor::describeRoom(room::Width width) const
 {
-    // Short enough for a BWF description (256 characters): the version, the preset, and the controls that say most
-    // about how the take was made.
+    if (room::layout(width).numChannels <= 2)
+        return {};
     auto text = [this](const char* id)
     {
         auto* param = m_state.getParameter(id);
         return param != nullptr ? param->getCurrentValueAsText() : juce::String();
     };
     juce::String d;
-    d << "Swooshbuckler " << Version::number() << ". Preset: " << currentPresetName
+    d << "Flight Paths A " << text(ParamIDs::flightPath[0]) << ", B " << text(ParamIDs::flightPath[1]) << ", Stowaway " << text(ParamIDs::stowFlightPath)
+      << ". Spread " << text(ParamIDs::roomSpread) << ", Height " << text(ParamIDs::roomHeight)
+      << ", Centre Speaker " << text(ParamIDs::roomCentre) << ", LFE " << text(ParamIDs::roomLfeMode);
+    if (const auto* mode = m_state.getRawParameterValue(ParamIDs::roomLfeMode); mode != nullptr && mode->load() > 0.5f)
+        d << " " << text(ParamIDs::roomLfeLevel);
+    return d + ".";
+}
+
+juce::String SwooshbucklerAudioProcessor::describeSettings() const
+{
+    // The most telling first, because a WAV file's BWF description keeps only its first 256 bytes (cut after a
+    // whole item): the version, the room, the preset, then the controls that say most about how the take was made.
+    auto text = [this](const char* id)
+    {
+        auto* param = m_state.getParameter(id);
+        return param != nullptr ? param->getCurrentValueAsText() : juce::String();
+    };
+    const auto width = getRoomWidth();
+    juce::String d;
+    d << "Swooshbuckler " << Version::number() << ". " << room::layout(width).name << ".";
+    if (const auto roomText = describeRoom(width); roomText.isNotEmpty())
+        d << " " << roomText;
+    d << " Preset: " << currentPresetName
       << ". Energy " << text(ParamIDs::energy) << ", Rate " << text(ParamIDs::rate) << ", Fill " << text(ParamIDs::fill)
       << ", Chaos " << text(ParamIDs::chaos) << ", Pitch " << text(ParamIDs::pitch) << ", Space " << text(ParamIDs::space)
       << ". Pass A " << text(ParamIDs::passMode[0]) << ", Pass B " << text(ParamIDs::passMode[1])
       << ". Morph " << text(ParamIDs::morphOn) << ", Aim " << text(ParamIDs::hitAim) << ".";
-    return d.substring(0, 256);
+    return d;
 }
 
 void SwooshbucklerAudioProcessor::updateTapeNaming()

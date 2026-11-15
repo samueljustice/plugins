@@ -181,7 +181,7 @@ namespace
             case W::Quad:        return { S::L, S::R, S::Ls, S::Rs };
             case W::Surround51:  return { S::L, S::R, S::C, S::Lfe, S::Ls, S::Rs };
             case W::Surround71:  return { S::L, S::R, S::C, S::Lfe, S::Lss, S::Rss, S::Lsr, S::Rsr };
-            case W::Surround712: return { S::L, S::R, S::C, S::Lfe, S::Lss, S::Rss, S::Lsr, S::Rsr, S::Ltm, S::Rtm };
+            case W::Surround712: return { S::L, S::R, S::C, S::Lfe, S::Lss, S::Rss, S::Lsr, S::Rsr, S::Lts, S::Rts };
             case W::Surround714: return { S::L, S::R, S::C, S::Lfe, S::Lss, S::Rss, S::Lsr, S::Rsr, S::Ltf, S::Rtf, S::Ltr, S::Rtr };
         }
         return {};
@@ -457,7 +457,7 @@ int main(int argc, char* argv[])
                   == "Plays on the first 12 outputs switched on, in this order: L R C LFE Lss Rss Lsr Rsr Ltf Rtf Ltr Rtr.",
               "7.1.4's line: the rears on 7 and 8, the tops last");
         check(Proc::listeningLine(W::Surround71, 8, 8) == "Plays on the first 8 outputs switched on, in this order: L R C LFE Lss Rss Lsr Rsr."
-                  && Proc::listeningLine(W::Surround712, 10, 10) == "Plays on the first 10 outputs switched on, in this order: L R C LFE Lss Rss Lsr Rsr Ltm Rtm.",
+                  && Proc::listeningLine(W::Surround712, 10, 10) == "Plays on the first 10 outputs switched on, in this order: L R C LFE Lss Rss Lsr Rsr Lts Rts.",
               "7.1 and 7.1.2 keep the same eight, 7.1.2 adds its two tops");
         {
             // The dialog: each speaker beside the number of the output it really plays on (a number and its speaker

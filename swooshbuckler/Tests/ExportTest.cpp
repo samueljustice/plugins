@@ -1,12 +1,14 @@
 // Export test: files at every room width, through the real renderer and the real tape.
 //
-//   - Render Variations at every width (Mono to 7.1.4), from a Stereo rig: the same batch rendered three times, in
-//     the Pro Tools (Film) order, in the SMPTE / WAV order and as Multi-Mono sets. Each file has the width's channel
-//     count; each interleaved channel holds, sample for sample, the Multi-Mono file of the speaker the order (typed
-//     out here) puts there, so the orders, the suffixes and the repeatability of a batch are checked together; the
-//     WAV speaker mask is the typed one (mask 0 for the Pro Tools order); the one file with markers has a named
-//     marker at the start of each variation, in every file of a set. Mono is the Stereo render's fold, and every
-//     width is the same batch (its loudest moment in the same place).
+//   - Render Variations at every width (Mono to 7.1.4), from a Stereo rig: the same batch rendered three times,
+//     Like Pro Tools, in the WAV Standard order and as Multi-Mono sets. Each file has the width's channel count;
+//     each interleaved channel holds, sample for sample, the Multi-Mono file of the speaker the order (typed out
+//     here) puts there, so the orders, the suffixes and the repeatability of a batch are checked together; the WAV
+//     header is the typed one (the mask, or at 7.1.4 Like Pro Tools a plain header); every whoosh has a "Closest"
+//     marker at its loudest 50 ms (found here on its own), and the one file with markers has a named marker at the
+//     start of each variation and at its closest point, in every file of a set; the description puts the
+//     variation, batch, width and room first, inside the BWF description's 256 bytes. Mono is the Stereo render's
+//     fold, and every width is the same batch (its loudest moment in the same place).
 //   - A 7.1.4 render's sound is really in the room: rears, sides and tops all carry some of it with the passes
 //     going Around and Overhead, and the default Across pass is not in L and R alone.
 //   - The Width choice: the rig's own width unless another is chosen; the estimate counts every channel (and a
@@ -53,6 +55,7 @@ namespace
     juce::String nameOf(W w) { return room::layout(w).name; }
 
     // The orders, typed out (file channel by file channel), not taken from Room.
+    // Like Pro Tools is what Pro Tools 2026 bounces: the WAV order up to 7.1.2, the film order at 7.1.4.
     juce::StringArray typedOrder(W w, room::FileOrder order)
     {
         const bool film = order == room::FileOrder::ProTools;
@@ -62,9 +65,9 @@ namespace
             case W::Mono:        text = "C"; break;
             case W::Stereo:      text = "L R"; break;
             case W::Quad:        text = "L R Ls Rs"; break;
-            case W::Surround51:  text = film ? "L C R Ls Rs LFE" : "L R C LFE Ls Rs"; break;
-            case W::Surround71:  text = film ? "L C R Lss Rss Lsr Rsr LFE" : "L R C LFE Lsr Rsr Lss Rss"; break;
-            case W::Surround712: text = film ? "L C R Lss Rss Lsr Rsr LFE Ltm Rtm" : "L R C LFE Lsr Rsr Lss Rss Ltm Rtm"; break;
+            case W::Surround51:  text = "L R C LFE Ls Rs"; break;
+            case W::Surround71:  text = "L R C LFE Lsr Rsr Lss Rss"; break;
+            case W::Surround712: text = "L R C LFE Lsr Rsr Lss Rss Lts Rts"; break;
             case W::Surround714: text = film ? "L C R Lss Rss Lsr Rsr LFE Ltf Rtf Ltr Rtr" : "L R C LFE Lsr Rsr Lss Rss Ltf Rtf Ltr Rtr"; break;
         }
         return juce::StringArray::fromTokens(text, " ", "");
@@ -331,22 +334,28 @@ int main(int argc, char* argv[])
     {
         using L = takefile::Layout;
         using O = room::FileOrder;
+        using C = takefile::Container;
         const std::pair<juce::String, juce::String> lines[] = {
-            { takefile::orderLine(W::Surround51, O::ProTools, L::Interleaved), "5.1 in one file: L C R Ls Rs LFE." },
-            { takefile::orderLine(W::Surround51, O::Smpte, L::Interleaved), "5.1 in one file: L R C LFE Ls Rs." },
-            { takefile::orderLine(W::Surround51, O::Smpte, L::MultiMono), "5.1 as 6 files ending .L .C .R .Ls .Rs .LFE." },
-            { takefile::orderLine(W::Surround714, O::ProTools, L::Interleaved), "7.1.4 in one file: L C R Lss Rss Lsr Rsr LFE Ltf Rtf Ltr Rtr." },
-            { takefile::orderLine(W::Surround714, O::Smpte, L::Interleaved), "7.1.4 in one file: L R C LFE Lsr Rsr Lss Rss Ltf Rtf Ltr Rtr." },
+            { takefile::orderLine(W::Surround51, O::ProTools, L::Interleaved), "5.1 in one file: L R C LFE Ls Rs. Channel Order is for 7.1.4." },
+            { takefile::orderLine(W::Surround51, O::WavStandard, L::Interleaved), "5.1 in one file: L R C LFE Ls Rs. Channel Order is for 7.1.4." },
+            { takefile::orderLine(W::Surround71, O::ProTools, L::Interleaved), "7.1 in one file: L R C LFE Lsr Rsr Lss Rss. Channel Order is for 7.1.4." },
+            { takefile::orderLine(W::Surround51, O::WavStandard, L::MultiMono), "5.1 as 6 files ending .L .C .R .Ls .Rs .LFE." },
+            { takefile::orderLine(W::Surround714, O::ProTools, L::Interleaved), "7.1.4 in one file: L C R Lss Rss Lsr Rsr LFE Ltf Rtf Ltr Rtr, as Pro Tools writes it." },
+            { takefile::orderLine(W::Surround714, O::ProTools, L::Interleaved, C::Aiff), "7.1.4 in one file: L C R Lss Rss Lsr Rsr LFE Ltf Rtf Ltr Rtr." },
+            { takefile::orderLine(W::Surround714, O::WavStandard, L::Interleaved), "7.1.4 in one file: L R C LFE Lsr Rsr Lss Rss Ltf Rtf Ltr Rtr." },
+            { takefile::orderLine(W::Surround71, O::ProTools, L::Interleaved, C::Flac), "7.1 in one file: L R C LFE Lsr Rsr Lss Rss, FLAC's own order." },
             { takefile::orderLine(W::Surround714, O::ProTools, L::MultiMono), "7.1.4 as 12 files ending .L .C .R .Lss .Rss .Lsr .Rsr .LFE .Ltf .Rtf .Ltr .Rtr." },
-            { takefile::orderLine(W::Surround712, O::ProTools, L::MultiMono), "7.1.2 as 10 files ending .L .C .R .Lss .Rss .Lsr .Rsr .LFE .Ltm .Rtm." },
-            { takefile::orderLine(W::Stereo, O::ProTools, L::Interleaved), "Stereo in one file: L R. Channel Order is for 5.1 and wider." },
+            { takefile::orderLine(W::Surround712, O::ProTools, L::MultiMono), "7.1.2 as 10 files ending .L .C .R .Lss .Rss .Lsr .Rsr .LFE .Lts .Rts." },
+            { takefile::orderLine(W::Stereo, O::ProTools, L::Interleaved), "Stereo in one file: L R." },
             { takefile::orderLine(W::Stereo, O::ProTools, L::MultiMono), "Stereo as 2 files ending .L .R." },
             { takefile::orderLine(W::Mono, O::ProTools, L::MultiMono), "Mono: one channel in one file." },
         };
         for (const auto& [got, want] : lines)
             check(got == want, "\"" + got + "\"");
-        check(! takefile::orderMatters(W::Quad) && takefile::orderMatters(W::Surround51) && ! takefile::layoutMatters(W::Mono) && takefile::layoutMatters(W::Stereo),
-              "Channel Order is lit for 5.1 and wider, File Layout from Stereo up");
+        check(! takefile::orderMatters(W::Surround712) && takefile::orderMatters(W::Surround714) && ! takefile::layoutMatters(W::Mono) && takefile::layoutMatters(W::Stereo)
+                  && takefile::orderMatters(W::Surround714, L::Interleaved, C::Aiff) && ! takefile::orderMatters(W::Surround714, L::Interleaved, C::Flac)
+                  && ! takefile::orderMatters(W::Surround714, L::MultiMono, C::Wav),
+              "Channel Order is lit for one 7.1.4 WAV or AIFF file only (not FLAC, not Multi-Mono), File Layout from Stereo up");
     }
 
     // Render Variations at every width, from a Stereo rig: Pro Tools order with the one file too, SMPTE / WAV, and
@@ -366,7 +375,7 @@ int main(int argc, char* argv[])
             const auto ptProgress = render(rig, job);
             job.folder = base.getChildFile("smpte");
             job.files = VariationRenderer::Files::PerVariation;
-            job.options.order = room::FileOrder::Smpte;
+            job.options.order = room::FileOrder::WavStandard;
             render(rig, job);
             job.folder = base.getChildFile("mm");
             job.files = VariationRenderer::Files::Both;
@@ -398,7 +407,7 @@ int main(int argc, char* argv[])
             // Every channel of both orders holds that speaker's Multi-Mono file, sample for sample: the order, the
             // suffixes and the batch's repeatability in one.
             bool ordered = true;
-            for (const auto order : { room::FileOrder::ProTools, room::FileOrder::Smpte })
+            for (const auto order : { room::FileOrder::ProTools, room::FileOrder::WavStandard })
             {
                 const auto& file = order == room::FileOrder::ProTools ? pt : smpte;
                 const auto names = typedOrder(width, order);
@@ -410,36 +419,92 @@ int main(int argc, char* argv[])
                 }
             }
             check(ordered, name + ": each channel is where the order puts it (" + typedOrder(width, room::FileOrder::ProTools).joinIntoString(" ")
-                               + " / " + typedOrder(width, room::FileOrder::Smpte).joinIntoString(" ") + "), and the same batch gives the same samples");
+                               + " / " + typedOrder(width, room::FileOrder::WavStandard).joinIntoString(" ") + "), and the same batch gives the same samples");
 
-            // The headers: the typed mask in the SMPTE / WAV order, mask 0 in the Pro Tools order (no mask describes
-            // it), Quad's one order masked either way, Mono and Stereo plain.
+            // The headers: the typed mask in the WAV Standard order, and Like Pro Tools too below 7.1.4; at 7.1.4 Like
+            // Pro Tools a plain header with no mask (its channels named in iXML), as Pro Tools writes it. Mono and
+            // Stereo plain.
             const auto ptHeader = takefile::readWavFormat(base.getChildFile("pt").getChildFile("Whoosh_001.wav"));
             const auto smpteHeader = takefile::readWavFormat(base.getChildFile("smpte").getChildFile("Whoosh_001.wav"));
             const bool wide = n > 2;
             const bool masks = ! wide ? ! ptHeader.extensible && ! smpteHeader.extensible
-                                      : ptHeader.extensible && smpteHeader.extensible && smpteHeader.mask == typedMask(width)
-                                            && ptHeader.mask == (width == W::Quad ? typedMask(width) : 0u);
-            check(masks, name + ": the speaker mask is right (Pro Tools 0x" + juce::String::toHexString(static_cast<int>(ptHeader.mask)) + ", SMPTE / WAV 0x"
+                                      : smpteHeader.extensible && smpteHeader.mask == typedMask(width)
+                                            && (width == W::Surround714 ? ! ptHeader.extensible && ptHeader.formatTag == 1 && ptHeader.mask == 0u
+                                                                        : ptHeader.extensible && ptHeader.mask == typedMask(width));
+            check(masks, name + ": the header is right (Like Pro Tools 0x" + juce::String::toHexString(static_cast<int>(ptHeader.mask)) + ", WAV Standard 0x"
                              + juce::String::toHexString(static_cast<int>(smpteHeader.mask)) + ")");
+
+            // Every whoosh has a Closest marker at its loudest moment: the middle of its loudest 50 ms, found here
+            // on its own (the power of every channel), in its file and in each file of its Multi-Mono set.
+            auto loudest = [](const Audio& a)
+            {
+                const int window = juce::roundToInt(0.05 * c_fs);
+                double best = -1.0;
+                int at = -1;
+                for (int start = 0; start + window <= a.length(); start += 24)
+                {
+                    double p = 0.0;
+                    for (int ch = 0; ch < a.channels(); ++ch)
+                        for (int i = start; i < start + window; ++i)
+                            p += static_cast<double>(a.samples.getSample(ch, i)) * a.samples.getSample(ch, i);
+                    if (p > best)
+                    {
+                        best = p;
+                        at = start + window / 2;
+                    }
+                }
+                return at;
+            };
+            const auto closest = TapeRecorder::readCues(base.getChildFile("pt").getChildFile("Whoosh_001.wav"));
+            const int peak = loudest(pt);
+            bool setClosest = true;
+            for (const auto& s : ptNames)
+            {
+                const auto c = TapeRecorder::readCues(base.getChildFile("mm").getChildFile(width == W::Mono ? juce::String("Whoosh_001.wav") : "Whoosh_001." + s + ".wav"));
+                setClosest = setClosest && c.size() == 1 && ! closest.empty() && c[0].frame == closest[0].frame;
+            }
+            check(closest.size() == 1 && closest[0].label == "Closest" && std::abs(static_cast<int>(closest[0].frame) - peak) <= 48 && setClosest,
+                  name + ": a Closest marker at the whoosh's loudest moment (" + (closest.empty() ? juce::String("none") : num(closest[0].frame / c_fs, 3) + " s")
+                      + ", loudest 50 ms centred at " + num(peak / c_fs, 3) + " s), in every file of its set");
 
             // One File With Markers: a named marker at the start of each variation, in every file of a set.
             const auto all = readFile(base.getChildFile("pt").getChildFile("Whoosh_All.wav"));
             const auto cues = TapeRecorder::readCues(base.getChildFile("pt").getChildFile("Whoosh_All.wav"));
             const auto gap = juce::roundToInt(0.25 * c_fs);
-            const bool marked = cues.size() == 2 && cues[0].frame == 0 && cues[0].label == "Whoosh_001" && cues[1].label == "Whoosh_002"
-                             && cues[1].frame == pt.length() + gap && all.channels() == n && all.length() == pt.length() + gap + pt2.length();
-            bool setMarked = mmProgress.files == 3;
+            const auto closest2 = TapeRecorder::readCues(base.getChildFile("pt").getChildFile("Whoosh_002.wav"));
+            const bool marked = cues.size() == 4 && cues[0].frame == 0 && cues[0].label == "Whoosh_001" && cues[2].label == "Whoosh_002"
+                             && cues[1].label == "Whoosh_001 Closest" && ! closest.empty() && cues[1].frame == closest[0].frame
+                             && cues[3].label == "Whoosh_002 Closest" && closest2.size() == 1 && cues[3].frame == cues[2].frame + closest2[0].frame
+                             && cues[2].frame == pt.length() + gap && all.channels() == n && all.length() == pt.length() + gap + pt2.length();
+            bool setMarked = mmProgress.files == 3 && mmProgress.filesPerTake == (width == W::Mono ? 1 : n);
             for (const auto& s : ptNames)
             {
                 const auto f = base.getChildFile("mm").getChildFile(width == W::Mono ? juce::String("Whoosh_All.wav") : "Whoosh_All." + s + ".wav");
                 const auto c = TapeRecorder::readCues(f);
-                setMarked = setMarked && c.size() == 2 && c[1].frame == cues[1].frame;
+                setMarked = setMarked && c.size() == 4 && c[2].frame == cues[2].frame && c[3].frame == cues[3].frame;
             }
-            check(marked && setMarked, name + ": the one file has a marker at each variation (" + juce::String(static_cast<int>(cues.size())) + " markers"
-                                           + (n > 1 ? ", in every file of its Multi-Mono set too)" : ")"));
-            check(TapeRecorder::readDescription(base.getChildFile("pt").getChildFile("Whoosh_001.wav")).contains("Length 0.8 s, " + name),
-                  name + ": the description says the width");
+            check(marked && setMarked, name + ": the one file has a marker at each variation and at its closest point (" + juce::String(static_cast<int>(cues.size()))
+                                           + " markers" + (n > 1 ? ", in every file of its Multi-Mono set too)" : ")"));
+
+            // What the file says about itself: variation, batch, width and (wider than Stereo) the room first, and
+            // all of that inside the BWF description, which ends on a whole item.
+            const auto described = TapeRecorder::readDescription(base.getChildFile("pt").getChildFile("Whoosh_001.wav"));
+            juce::String bext;
+            {
+                juce::AudioFormatManager formats;
+                formats.registerBasicFormats();
+                if (std::unique_ptr<juce::AudioFormatReader> r { formats.createReaderFor(base.getChildFile("pt").getChildFile("Whoosh_001.wav")) })
+                    bext = r->metadataValues[juce::WavAudioFormat::bwavDescription];
+            }
+            const juce::String head = "Variation 1 of 2, Batch 4711, " + name + ".";
+            const juce::String roomPart = "Flight Paths A Across, B Across, Stowaway Across. Spread ";
+            const bool says = described.contains(head) && described.contains("Length 0.8 s") && (n > 2) == described.contains(roomPart)
+                           && (n <= 2 || (described.contains("Centre Speaker Off") && described.contains("LFE Off")));
+            const bool inBext = bext.getNumBytesAsUTF8() <= 256 && bext.endsWithChar('.') && described.startsWith(bext.dropLastCharacters(1)) && bext.contains(head)
+                             && (n <= 2 || bext.contains("LFE Off"));
+            check(says && inBext, name + ": the description puts the variation, batch, width" + (n > 2 ? juce::String(" and room") : juce::String())
+                                      + " first, all of it in the BWF description (" + juce::String(static_cast<int>(bext.getNumBytesAsUTF8())) + " bytes: \""
+                                      + bext.substring(0, 150) + "...\")");
         }
 
         // Mono is the Stereo render folded (the same rig, the same batch), and every width is the same batch: its
@@ -524,6 +589,19 @@ int main(int argc, char* argv[])
             const auto stereo = renderer.estimate(job);
             job.width = W::Surround714;
             const auto wide = renderer.estimate(job);
+            job.options.layout = takefile::Layout::MultiMono;
+            const auto mono12 = renderer.estimate(job);
+            const auto mono12Text = VariationRenderer::estimateText(job, mono12);
+            check(mono12.files == 1200 && mono12.filesPerTake == 12 && mono12Text.startsWith("100 whooshes, each as 12 mono files (1,200 files): "),
+                  "estimate: Multi-Mono says takes and files (" + mono12Text + ")");
+            job.files = VariationRenderer::Files::Both;
+            const auto bothText = VariationRenderer::estimateText(job, renderer.estimate(job));
+            check(bothText.startsWith("100 whooshes and one set with all of them, each as 12 mono files (1,212 files): "), "estimate: " + bothText);
+            job.files = VariationRenderer::Files::OneWithMarkers;
+            const auto oneText = VariationRenderer::estimateText(job, renderer.estimate(job));
+            check(oneText.startsWith("100 whooshes in one set of 12 mono files: "), "estimate: " + oneText);
+            job.files = VariationRenderer::Files::PerVariation;
+            job.options.layout = takefile::Layout::Interleaved;
             check(std::abs(wide.totalBytes / stereo.totalBytes - 6.0) < 1.0e-9 && wide.totalBytes > 0.0
                       && VariationRenderer::estimateText(job, wide).contains(" of sound (about ") && VariationRenderer::estimateText(job, wide).contains(" MB), ready in "),
                   "estimate: 7.1.4 files come to six times Stereo's (" + VariationRenderer::estimateText(job, wide) + ")");

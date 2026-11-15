@@ -35,7 +35,7 @@
  *       Quad    L R Ls Rs
  *       5.1     L R C LFE Ls Rs
  *       7.1     L R C LFE Lss Rss Lsr Rsr
- *       7.1.2   L R C LFE Lss Rss Lsr Rsr Ltm Rtm
+ *       7.1.2   L R C LFE Lss Rss Lsr Rsr Lts Rts
  *       7.1.4   L R C LFE Lss Rss Ltf Rtf Ltr Rtr Lsr Rsr      (the rear surrounds come LAST)
  *
  * Everything here is allocation-free and lock-free: the tables are built when the program loads.
@@ -48,7 +48,7 @@ namespace room
     enum class Width { Mono, Stereo, Quad, Surround51, Surround71, Surround712, Surround714 };
 
     /** Every speaker any width has. 5.1 and Quad have one surround pair (Ls Rs); 7.1 and wider have sides and rears. */
-    enum class Speaker : std::uint8_t { L, R, C, Lfe, Ls, Rs, Lss, Rss, Lsr, Rsr, Ltf, Rtf, Ltr, Rtr, Ltm, Rtm };
+    enum class Speaker : std::uint8_t { L, R, C, Lfe, Ls, Rs, Lss, Rss, Lsr, Rsr, Ltf, Rtf, Ltr, Rtr, Lts, Rts };
     constexpr int c_numSpeakers = 16;
 
     enum class Role { Main, Lfe, Height };
@@ -203,8 +203,8 @@ namespace room
     // A fixed matrix from every width to every narrower one. They are built from these steps, each speaker going
     // to its nearest neighbours in the narrower width. Every step coefficient is -3 dB (0.7071) except the last:
     //
-    //   7.1.4 -> 7.1.2   Ltf and Ltr -> Ltm, -3 dB each (and the same on the right)
-    //   tops  -> 7.1     Ltf -> L, Ltr -> Lsr, Ltm -> Lss, -3 dB
+    //   7.1.4 -> 7.1.2   Ltf and Ltr -> Lts, -3 dB each (and the same on the right)
+    //   tops  -> 7.1     Ltf -> L, Ltr -> Lsr, Lts -> Lss, -3 dB
     //   7.1   -> 5.1     Lss and Lsr -> Ls, -3 dB each
     //   5.1   -> Quad    C -> L and R, -3 dB each; the LFE is dropped
     //   Quad  -> Stereo  Ls -> L, Rs -> R, -3 dB       (so 5.1 -> Stereo is the ITU-R BS.775 fold: L + 0.7071 C + 0.7071 Ls)
@@ -267,43 +267,48 @@ namespace room
     void applyFold(const FoldMatrix& matrix, const float* const* in, float* const* out, int numSamples) noexcept;
 
     //==================================================================================================================
-    // FILE CHANNEL ORDERS
+    // FILE CHANNEL ORDERS (Channel Order, for an interleaved WAV or AIFF file)
     //
-    //   Pro Tools (Film)   L C R Ls Rs LFE / L C R Lss Rss Lsr Rsr LFE, then the tops. The order of a Pro Tools
-    //                      track, and of JUCE's AAX wrapper.
-    //   SMPTE / WAV        L R C LFE Ls Rs / L R C LFE Lsr Rsr Lss Rss, then the tops: the speakers in the order
-    //                      of their bits in a WAV file's speaker mask (rears before sides).
-    // Mono, Stereo and Quad are the same in both.
+    //   Like Pro Tools   exactly what Pro Tools 2026 writes when it bounces each width (measured from its own files):
+    //                      Quad .. 7.1.2  the WAV speaker-mask order, with the mask in the header
+    //                                     (L R Ls Rs / L R C LFE Ls Rs / L R C LFE Lsr Rsr Lss Rss, then Lts Rts)
+    //                      7.1.4          the film order, L C R Lss Rss Lsr Rsr LFE Ltf Rtf Ltr Rtr, a plain header
+    //                                     with NO mask, and the channels named in an iXML track list
+    //   WAV Standard     the WAV speaker-mask order at every width, with the mask in the header (7.1.4: L R C LFE
+    //                    Lsr Rsr Lss Rss Ltf Rtf Ltr Rtr, mask 0x2D63F), for programs that only go by the mask.
+    // So the two differ only at 7.1.4. Mono and Stereo have one order. (A film order at every width, with no
+    // speaker labels, is not offered: nothing reads it right but by luck.) FLAC fixes its own channel order, the
+    // mask order, so a FLAC file is always written in it whatever Channel Order says.
     //
-    // THE WAV SPEAKER MASK (WAVEFORMATEXTENSIBLE dwChannelMask) for the SMPTE / WAV order:
+    // THE WAV SPEAKER MASK (WAVEFORMATEXTENSIBLE dwChannelMask) of the mask order:
     //       Mono    0x4       front centre
     //       Stereo  0x3       front left, front right
     //       Quad    0x33      + back left, back right
-    //       5.1     0x3F      + front centre, LFE (the surrounds are the BACK pair, as JUCE and most tools write 5.1)
+    //       5.1     0x3F      + front centre, LFE (the surrounds are the BACK pair, as Pro Tools writes 5.1)
     //       7.1     0x63F     + side left, side right (0x200, 0x400): the film 7.1, not the old five-front 0xFF
-    //       7.1.2   0x563F    + top front left, top front right (0x1000, 0x4000)
+    //       7.1.2   0x563F    + top front left, top front right (0x1000, 0x4000), as Pro Tools writes 7.1.2
     //       7.1.4   0x2D63F   + top back left, top back right (0x8000, 0x20000)
-    // The mask has eighteen speaker positions and none of them is a top side or top middle speaker, so the two
-    // tops of 7.1.2 are written as the top front pair (as FFmpeg's 7.1.2 layout does). A file in the Pro Tools
-    // (Film) order cannot be described by a mask, which only states which speakers are present, in mask order.
+    // The mask has eighteen speaker positions and none of them is a top side speaker, so the two tops of 7.1.2 are
+    // written as the top front pair, as Pro Tools does (macOS then calls the file 9.1).
     //==================================================================================================================
 
-    enum class FileOrder { ProTools, Smpte };
+    enum class FileOrder { ProTools, WavStandard };
     constexpr int c_numFileOrders = 2;
 
-    const char* fileOrderName(FileOrder order) noexcept; // "Pro Tools (Film)", "SMPTE / WAV"
+    const char* fileOrderName(FileOrder order) noexcept; // "Like Pro Tools", "WAV Standard"
 
     /** For each channel of the file, the processing channel it takes: file[i] = processing[fileChannels(...)[i]]. */
     const std::array<int, c_maxChannels>& fileChannels(Width width, FileOrder order) noexcept;
 
-    /** The order spelt out, for the line under the Channel Order menu: "L C R Ls Rs LFE". */
+    /** The order spelt out, for the line under the Channel Order menu: "L R C LFE Ls Rs". */
     const char* orderLabel(Width width, FileOrder order) noexcept;
 
-    /** The speaker mask of a file in the SMPTE / WAV order. */
+    /** The speaker mask of a file in the mask order (WAV Standard). */
     std::uint32_t wavChannelMask(Width width) noexcept;
 
-    /** The suffix of one channel's file in a Multi-Mono set (".L", ".Lss", ".Ltm"), by processing channel. Mono
-        has none: it is one file already. */
+    /** The two orders are different at this width (7.1.4 only). */
+    bool ordersDiffer(Width width) noexcept;
+
     const char* multiMonoSuffix(Width width, int processingChannel) noexcept;
 
     //==================================================================================================================
@@ -313,7 +318,7 @@ namespace room
     //       Quad    L R Ls Rs
     //       5.1     L R C LFE Ls Rs
     //       7.1     L R C LFE Lss Rss Lsr Rsr
-    //       7.1.2   L R C LFE Lss Rss Lsr Rsr Ltm Rtm
+    //       7.1.2   L R C LFE Lss Rss Lsr Rsr Lts Rts
     //       7.1.4   L R C LFE Lss Rss Lsr Rsr Ltf Rtf Ltr Rtr
     // This is how a monitor controller or interface is wired for 5.1, 7.1 and Dolby Atmos rooms (and Core Audio's
     // own 7.1.4 layout), and each room's outputs are the next narrower room's with speakers added, so a room wired
@@ -332,7 +337,23 @@ namespace room
         order.fill(-1);
         size_t next = 0;
         for (const Speaker s : { Speaker::L, Speaker::C, Speaker::R, Speaker::Ls, Speaker::Rs, Speaker::Lss, Speaker::Rss, Speaker::Lsr,
-                                 Speaker::Rsr, Speaker::Ltf, Speaker::Rtf, Speaker::Ltm, Speaker::Rtm, Speaker::Ltr, Speaker::Rtr, Speaker::Lfe })
+                                 Speaker::Rsr, Speaker::Ltf, Speaker::Rtf, Speaker::Lts, Speaker::Rts, Speaker::Ltr, Speaker::Rtr, Speaker::Lfe })
+            if (const int ch = l.indexOf(s); ch >= 0 && next < order.size())
+                order[next++] = ch;
+        return order;
+    }
+
+    /** The speakers in the order Pro Tools lists a track's channels (Avid's AAX stem formats: L C R Ls Rs LFE,
+        L C R Lss Rss Lsr Rsr LFE, then the tops): the order a Multi-Mono set's files are listed in. Each entry is
+        a processing channel; entries past the width's channels are -1. */
+    inline std::array<int, c_maxChannels> trackChannels(Width width) noexcept
+    {
+        const Layout& l = layout(width);
+        std::array<int, c_maxChannels> order;
+        order.fill(-1);
+        size_t next = 0;
+        for (const Speaker s : { Speaker::L, Speaker::C, Speaker::R, Speaker::Ls, Speaker::Rs, Speaker::Lss, Speaker::Rss, Speaker::Lsr,
+                                 Speaker::Rsr, Speaker::Lfe, Speaker::Ltf, Speaker::Rtf, Speaker::Lts, Speaker::Rts, Speaker::Ltr, Speaker::Rtr })
             if (const int ch = l.indexOf(s); ch >= 0 && next < order.size())
                 order[next++] = ch;
         return order;

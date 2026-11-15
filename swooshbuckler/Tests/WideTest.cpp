@@ -287,7 +287,7 @@ int main(int argc, char* argv[])
         check(near(room::loudnessWeight(S::Lsr), 1.0f) && near(room::loudnessWeight(S::Rsr), 1.0f),
               "BS.1770: the rear surrounds at 135 degrees count 1");
         bool tops = true;
-        for (auto s : { S::Ltf, S::Rtf, S::Ltr, S::Rtr, S::Ltm, S::Rtm })
+        for (auto s : { S::Ltf, S::Rtf, S::Ltr, S::Rtr, S::Lts, S::Rts })
             tops = tops && near(room::loudnessWeight(s), 1.0f);
         check(tops, "BS.1770: the tops count 1");
         check(room::loudnessWeight(S::Lfe) == 0.0f, "BS.1770: the LFE is left out");

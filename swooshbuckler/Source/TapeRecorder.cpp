@@ -162,8 +162,34 @@ namespace
         juce::Random m_random;
     };
 
-    /** channelLine: the file's channels by name, in file order ("L C R Ls Rs LFE"), for files wider than Stereo
-        and each file of a Multi-Mono set; empty for the rest, which are written as they always were. */
+    /** A BWF description holds 256 bytes: the text up to the last whole sentence or list item that fits, ended with
+        a full stop, so it never stops mid-word. (The whole text goes into LIST INFO as well.) */
+    juce::String bextDescription(const juce::String& text)
+    {
+        constexpr size_t c_bextBytes = 256;
+        if (text.getNumBytesAsUTF8() <= c_bextBytes)
+            return text;
+        juce::String best;
+        for (int i = 1; i < text.length(); ++i)
+            if ((text[i] == '.' || text[i] == ',') && (i + 1 == text.length() || text[i + 1] == ' '))
+            {
+                auto candidate = text.substring(0, i) + ".";
+                if (candidate.getNumBytesAsUTF8() > c_bextBytes)
+                    break;
+                best = std::move(candidate);
+            }
+        if (best.isNotEmpty())
+            return best;
+        // One long clause: up to the last space that fits.
+        auto cut = text;
+        while (cut.getNumBytesAsUTF8() > c_bextBytes)
+            cut = cut.substring(0, cut.length() - 1);
+        const int space = cut.lastIndexOfChar(' ');
+        return space > 0 ? cut.substring(0, space) : cut;
+    }
+
+    /** channelLine: the file's channels by name, in file order ("L R C LFE Ls Rs"), for files wider than Stereo
+        and each file of a Multi-Mono set; empty for the rest. */
     std::unique_ptr<juce::AudioFormatWriter> createWriter(const juce::File& file, double inputRate, int inputChannels,
                                                           const TapeRecorder::Options& o, const TapeRecorder::Naming& naming,
                                                           const juce::String& channelLine, juce::String& error)
@@ -209,16 +235,15 @@ namespace
                 break;
             case TapeRecorder::FileType::Wav:
             default:
-                // WAV: BWF bext (description, originator) and the same again as LIST INFO, which more programs show.
+                // WAV: BWF bext (description, originator) and the whole description as LIST INFO, which more programs
+                // show. The channels are named in an iXML chunk added when the file is closed (TakeWriter::close).
                 format = std::make_unique<juce::WavAudioFormat>();
                 metadata = juce::WavAudioFormat::createBWAVMetadata(
-                    naming.description, naming.creator, "Swooshbuckler", juce::Time::getCurrentTime(), 0,
+                    bextDescription(naming.description), naming.creator, "Swooshbuckler", juce::Time::getCurrentTime(), 0,
                     "A=PCM,F=" + juce::String(juce::roundToInt(fileRate)) + ",W=" + juce::String(bits)
                         + ",M=" + (channels == 1 ? juce::String("mono") : channels == 2 ? juce::String("stereo") : juce::String("multichannel"))
                         + ",T=Swooshbuckler");
                 metadata.set(juce::WavAudioFormat::riffInfoComment2, naming.description);
-                if (channelLine.isNotEmpty())
-                    metadata.set(juce::WavAudioFormat::aswgChannelConfig, channelLine); // iXML, read back by TakeFile
                 metadata.set(juce::WavAudioFormat::riffInfoArtist, naming.creator);
                 metadata.set(juce::WavAudioFormat::riffInfoSoftware, naming.software);
                 break;
@@ -418,7 +443,9 @@ public:
         }
         m_inWidth = *width;
         const auto fileWidth = fileWidthOf(options, inputChannels);
-        m_format = { fileWidth, options.order, fileWidth == room::Width::Mono ? takefile::Layout::Interleaved : options.layout };
+        // A FLAC file is in FLAC's own order whatever Channel Order says (its format fixes what each channel is).
+        m_format = { fileWidth, takefile::orderFor(containerOf(options.type), options.order),
+                     fileWidth == room::Width::Mono ? takefile::Layout::Interleaved : options.layout };
         const bool multi = m_format.layout == takefile::Layout::MultiMono;
         const int fileChannels = room::layout(fileWidth).numChannels;
         if (const auto problem = formatProblem(options, inputChannels); problem.isNotEmpty())
@@ -455,7 +482,7 @@ public:
             if (multi)
                 line = room::info(room::layout(fileWidth).speakers[static_cast<size_t>(i)]).name;
             else if (fileChannels > 2)
-                line = takefile::channelLine(fileWidth, options.order);
+                line = takefile::channelLine(fileWidth, m_format.order);
             auto writer = createWriter(m_files[i], inputRate, inputs, each, m_naming, line, error);
             if (writer == nullptr)
             {
@@ -467,7 +494,7 @@ public:
         for (int i = 0; i < room::c_maxChannels; ++i)
             m_order[static_cast<size_t>(i)] = i;
         if (! multi && fileWidth == m_inWidth)
-            m_order = room::fileChannels(m_inWidth, options.order);
+            m_order = room::fileChannels(m_inWidth, m_format.order);
         m_closed = false;
         return true;
     }
@@ -534,11 +561,12 @@ public:
             deleteFiles();
             return false;
         }
-        const int fileChannels = room::layout(m_format.width).numChannels;
+        const auto& l = room::layout(m_format.width);
+        const int fileChannels = l.numChannels;
         for (int i = 0; i < m_files.size(); ++i)
         {
             const auto& file = m_files[i];
-            const juce::String line = multi ? juce::String(room::info(room::layout(m_format.width).speakers[static_cast<size_t>(i)]).name)
+            const juce::String line = multi ? juce::String(room::info(l.speakers[static_cast<size_t>(i)]).name)
                                             : fileChannels > 2 ? takefile::channelLine(m_format.width, m_format.order) : juce::String();
             switch (m_options.type)
             {
@@ -548,7 +576,8 @@ public:
                     if (line.isNotEmpty())
                         comments.add("CHANNELS=" + line);
                     if (! multi && fileChannels > 2)
-                        comments.add("WAVEFORMATEXTENSIBLE_CHANNEL_MASK=0x" + juce::String::toHexString(static_cast<int>(takefile::maskFor(m_format.width, m_format.order))).toUpperCase());
+                        comments.add("WAVEFORMATEXTENSIBLE_CHANNEL_MASK=0x"
+                                     + juce::String::toHexString(static_cast<int>(takefile::maskFor(m_format.width, m_format.order).value_or(0u))).toUpperCase());
                     if (allMarkers)
                         for (const auto& marker : markers)
                             comments.add("MARKER=" + markerTime(marker.frame, m_fileRate) + " " + marker.label);
@@ -556,18 +585,38 @@ public:
                     break;
                 }
                 case FileType::Aiff:
+                {
+                    // Core Audio's channel layout for every file that has speakers to name.
+                    juce::Array<room::Speaker> speakers;
+                    if (multi)
+                        speakers.add(l.speakers[static_cast<size_t>(i)]);
+                    else if (fileChannels > 2)
+                        for (int ch = 0; ch < fileChannels; ++ch)
+                            speakers.add(l.speakers[static_cast<size_t>(room::fileChannels(m_format.width, m_format.order)[static_cast<size_t>(ch)])]);
+                    if (! speakers.isEmpty())
+                        takefile::appendAiffChannelLayout(file, speakers);
                     if (allMarkers)
                         markersAdded = appendAiffMarkers(file, markers) && markersAdded;
                     break;
+                }
                 case FileType::Wav:
                 default:
+                {
+                    // The format chunk as Pro Tools writes this width (a mask, or a plain header at 7.1.4 Like Pro
+                    // Tools), then the channels named in iXML after the sound, as Pro Tools puts it.
                     if (! multi && fileChannels > 2 && ! takefile::setWavChannelMask(file, takefile::maskFor(m_format.width, m_format.order)))
                     {
                         deleteFiles();
                         return false;
                     }
                     markersAdded = appendWavCues(file, markers) && markersAdded;
+                    const auto ixml = takefile::ixmlFor(m_format.width, m_format.order,
+                                                        multi ? file.getFileNameWithoutExtension().upToLastOccurrenceOf(".", false, false)
+                                                              : file.getFileNameWithoutExtension(),
+                                                        multi ? i : -1);
+                    takefile::appendWavChunk(file, "iXML", ixml.toRawUTF8(), ixml.getNumBytesAsUTF8());
                     break;
+                }
             }
         }
         return true;
@@ -835,9 +884,14 @@ juce::File TapeRecorder::defaultFolder()
 
 juce::String TapeRecorder::extensionOf(FileType type) { return extensionFor(type); }
 
+takefile::Container TapeRecorder::containerOf(FileType type)
+{
+    return type == FileType::Aiff ? takefile::Container::Aiff : type == FileType::Flac ? takefile::Container::Flac : takefile::Container::Wav;
+}
+
 bool TapeRecorder::writeFile(const juce::File& file, const juce::AudioBuffer<float>& audio, int startSample, int numSamples,
                              double rate, const Options& options, const Naming& naming, juce::String& error,
-                             juce::Array<juce::File>* written)
+                             juce::Array<juce::File>* written, const std::vector<Cue>& cues)
 {
     TakeWriter writer;
     if (! writer.open(file, rate, audio.getNumChannels(), options, naming, error))
@@ -853,7 +907,7 @@ bool TapeRecorder::writeFile(const juce::File& file, const juce::AudioBuffer<flo
         ok = writer.write(at.data(), juce::jmin(c_piece, numSamples - done));
     }
     bool markersAdded = true;
-    if (! writer.close(ok, {}, false, markersAdded))
+    if (! writer.close(ok, cues, true, markersAdded))
     {
         error = "Writing " + file.getFileName() + " failed.";
         return false;
@@ -1064,8 +1118,13 @@ juce::String TapeRecorder::readDescription(const juce::File& file)
     juce::AudioFormatManager formats;
     formats.registerBasicFormats();
     if (std::unique_ptr<juce::AudioFormatReader> reader { formats.createReaderFor(file) })
-        return file.hasFileExtension("wav") ? reader->metadataValues[juce::WavAudioFormat::bwavDescription]
-                                            : reader->metadataValues["CueNote0Text"];
+    {
+        // A WAV file's whole description is its LIST INFO comment; the BWF one is cut to 256 bytes.
+        if (! file.hasFileExtension("wav"))
+            return reader->metadataValues["CueNote0Text"];
+        const auto full = reader->metadataValues[juce::WavAudioFormat::riffInfoComment2];
+        return full.isNotEmpty() ? full : reader->metadataValues[juce::WavAudioFormat::bwavDescription];
+    }
     return {};
 }
 

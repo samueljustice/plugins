@@ -303,7 +303,8 @@ public:
     void setTapeFold(TapeFold fold);
     /** The width the tape's files have right now: the room's, or the fold chosen when it is narrower. */
     room::Width getTapeWidth() const;
-    /** Channel Order of files of 5.1 and wider (Pro Tools (Film) unless chosen otherwise), and File Layout
+    /** Channel Order of interleaved WAV and AIFF files (Like Pro Tools unless chosen otherwise; the two differ only
+        at 7.1.4), and File Layout
         (Interleaved unless chosen otherwise): for the tape, the saved last minutes and Render Variations (one
         setting, shown in Settings and in the Render Variations panel). */
     room::FileOrder getChannelOrder() const;
@@ -340,8 +341,13 @@ public:
     /** How much LAST 60s keeps: 1, 3 or 5 minutes. */
     int getRetroMinutes() const;
     void setRetroMinutes(int minutes);
-    /** The description written into every recorded file: version, preset and the main settings. Message thread. */
+    /** The description written into every recorded file: version, the room (wider than Stereo), preset and the main
+        settings, the most telling first (a WAV file's BWF description keeps the first 256 bytes). Message thread. */
     juce::String describeSettings() const;
+    /** The room's part of a description, for a width wider than Stereo (empty otherwise): "Flight Paths A Overhead,
+        B Across, Stowaway Around. Spread 40%, Height 100%, Centre Speaker Off, LFE Off." Any thread that may read
+        the parameters (an offline copy's own render thread). */
+    juce::String describeRoom(room::Width width) const;
 
     // Render Variations ---------------------------------------------------------
     /** Renders batches of thrown whooshes straight to files on its own thread, through a second rig (see

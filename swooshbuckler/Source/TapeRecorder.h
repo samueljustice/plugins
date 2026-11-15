@@ -54,7 +54,7 @@ public:
         bool mono = false;            // fold the output down to one channel
         bool stereo = false;          // fold a take wider than Stereo down to Stereo (mono wins when both are set)
         bool perWhoosh = false;       // One File per Whoosh (the gate is on whatever setSignalGate says)
-        room::FileOrder order = room::FileOrder::ProTools;           // Channel Order of an interleaved file (5.1 and wider)
+        room::FileOrder order = room::FileOrder::ProTools;           // Channel Order of an interleaved WAV or AIFF file (7.1.4)
         takefile::Layout layout = takefile::Layout::Interleaved;     // one file, or one mono file per channel
         float foldCeilingDb = -0.3f;  // the limiter on a fold of a take wider than Stereo
         /** The width the take was played at, when it is not the width of the audio handed in (a Mono room is
@@ -207,14 +207,17 @@ public:
         rate conversion (options.fileRate, 0 = `rate`), Channel Order, File Layout and description. `audio` is in
         processing order, 1 to 12 channels. A Multi-Mono set is written beside `file` (<name>.L.wav ...). Replaces
         files that are already there; nothing is left of a take that could not be written whole. `written` (if
-        given) gets its files. Any thread but the audio thread. */
+        given) gets its files; `cues` (frames of the file) become its markers, as for FileWriter. Any thread but
+        the audio thread. */
     static bool writeFile(const juce::File& file, const juce::AudioBuffer<float>& audio, int startSample, int numSamples,
                           double rate, const Options& options, const Naming& naming, juce::String& error,
-                          juce::Array<juce::File>* written = nullptr);
+                          juce::Array<juce::File>* written = nullptr, const std::vector<Cue>& cues = {});
     /** The files writing `file` with these options and this many channels makes. */
     static juce::Array<juce::File> filesFor(const juce::File& file, int numChannels, const Options& options);
     /** ".wav", ".aif" or ".flac". */
     static juce::String extensionOf(FileType type);
+    /** The file type as takefile knows it. */
+    static takefile::Container containerOf(FileType type);
 
     /**
      * A file written a piece at a time, with named markers: what Render Variations uses for one file that holds
