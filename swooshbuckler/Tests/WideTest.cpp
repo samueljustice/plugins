@@ -647,6 +647,81 @@ int main(int argc, char* argv[])
                   nameOf(c.width) + (c.recordRate > 0 ? " rendering at 96 kHz" : "") + ": blocks of 1, 7, 32, 37, 64, 441, a first block of 7 and random sizes give the samples blocks of 512 give"
                       + (worst > 0.0f ? " (apart by " + juce::String(db(worst), 1) + " dB with blocks of " + worstWhere + ")" : juce::String(" (exactly)")));
         }
+        // The host's transport starting a rig that is already playing by hand (Follow Host): the ride starts again
+        // from its seed at the first sample of that block, whatever was left over of the block before it.
+        {
+            struct Transport final : juce::AudioPlayHead
+            {
+                bool playing = false;
+                juce::Optional<PositionInfo> getPosition() const override
+                {
+                    PositionInfo info;
+                    info.setIsPlaying(playing);
+                    return info;
+                }
+            };
+            const auto started = [&](int blockBefore)
+            {
+                Plug plug(sources, room::Width::Stereo, 0);
+                Transport transport;
+                plug.proc.setPlayHead(&transport);
+                plug.proc.setPlaying(true);
+                juce::AudioBuffer<float> block(2, 1024);
+                juce::MidiBuffer midi;
+                for (int k = 0; k < 41; ++k) // most of half a second by hand, in blocks of this size
+                {
+                    juce::AudioBuffer<float> part(block.getArrayOfWritePointers(), 2, blockBefore);
+                    part.clear();
+                    plug.proc.processBlock(part, midi);
+                }
+                transport.playing = true;
+                const int total = static_cast<int>(c_fs);
+                juce::AudioBuffer<float> out(2, total);
+                for (int pos = 0; pos < total;)
+                {
+                    const int n = juce::jmin(512, total - pos);
+                    juce::AudioBuffer<float> part(out.getArrayOfWritePointers(), 2, pos, n);
+                    part.clear();
+                    plug.proc.processBlock(part, midi);
+                    pos += n;
+                }
+                plug.proc.setPlayHead(nullptr);
+                return out;
+            };
+            // Where the ride's first sound is: the same sample after blocks of 512 (nothing left over) and after
+            // blocks of 500 (the last one leaves 12 samples of a quantum behind).
+            const auto firstSound = [](const juce::AudioBuffer<float>& b)
+            {
+                for (int i = 0; i < b.getNumSamples(); ++i)
+                    if (std::abs(b.getSample(0, i)) > 1.0e-3f || std::abs(b.getSample(1, i)) > 1.0e-3f)
+                        return i;
+                return -1;
+            };
+            const auto even = started(512), odd = started(500);
+            // The best lag between the two rides over their first half second.
+            int bestLag = 99;
+            double bestDiff = 1.0e30;
+            const int from = 4800, n = 24000;
+            for (int lag = -40; lag <= 40; ++lag)
+            {
+                double d = 0.0;
+                for (int i = from; i < from + n; ++i)
+                {
+                    const double x = static_cast<double>(even.getSample(0, i)) - odd.getSample(0, i + lag);
+                    d += x * x;
+                }
+                if (d < bestDiff)
+                {
+                    bestDiff = d;
+                    bestLag = lag;
+                }
+            }
+            std::cout << "         the transport starts a rig playing by hand: first sound at sample " << firstSound(even) << " after blocks of 512, "
+                      << firstSound(odd) << " after blocks of 500; the two rides line up " << bestLag << " samples apart" << std::endl;
+            check(bestLag == 0 && firstSound(even) >= 0,
+                  "the host's transport starts the ride at its own first sample, whatever was left of the block before (the two starts " + juce::String(bestLag) + " samples apart)");
+        }
+
         // And small blocks cost no more: the rig is rendered 32 samples at a time whatever the host asks for.
         double cost[4] = { 0.0, 0.0, 0.0, 0.0 };
         const int sizes[4] = { 512, 64, 32, 16 };

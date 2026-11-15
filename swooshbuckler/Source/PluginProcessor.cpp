@@ -212,10 +212,6 @@ void SwooshbucklerAudioProcessor::prepareToPlay(double sampleRate, int samplesPe
         m_trimGain.setCurrentAndTargetValue(trimDb <= -59.9f ? 1.0e-4f : juce::Decibels::decibelsToGain(trimDb));
     }
     m_blockSize = juce::jmax(256, samplesPerBlock);
-    m_carry = 0;
-    m_sinceControl = 0;
-    m_followSquares = 0.0;
-    m_followSamples = 0;
     m_mods.prepare(sampleRate); // the modulators run once per device block
     m_outRing.prepare(sampleRate);
     // A host that prepares again and plays straight on (a bounce) is a transport start too: the ride begins from its
@@ -253,6 +249,13 @@ void SwooshbucklerAudioProcessor::prepareInternal()
     }
     for (auto& peak : m_channelPeak)
         peak.store(0.0f, std::memory_order_relaxed);
+
+    // The stream's grid starts again with the engine (see processBlock): nothing of the last quantum is left to
+    // play (it was rendered by the engine as it was, at the rate and the width it had).
+    m_carry = 0;
+    m_sinceControl = 0;
+    m_followSquares = 0.0;
+    m_followSamples = 0;
 
     updateEngineParams();
     m_engine.setWidth(RoomMaster::pipeWidth(m_width)); // Quad and wider: every pass is an object in the room
@@ -643,7 +646,13 @@ void SwooshbucklerAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
         m_restartPending.store(false);
         m_engine.restartSeeded();
         m_mods.reset();
-        m_sinceControl = 0; // the modulators' grid starts again with them
+        // The stream's grid starts again here, at this block's first sample: what was left of the last quantum
+        // belongs to the ride that has just been stopped, and played first it would start this one that many
+        // samples late (a different number each time).
+        m_carry = 0;
+        m_sinceControl = 0;
+        m_followSquares = 0.0;
+        m_followSamples = 0;
         m_wanderOn = false; // the wander sets off again from where the X / Y controls are
         m_wanderBlend = 0.0f;
         m_morphX = m_raw.morphX->load();
