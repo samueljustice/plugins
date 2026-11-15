@@ -1,4 +1,5 @@
 #include "Stamper.h"
+#include "PeakLimiter.h"
 #include "RubberBandDriver.h"
 
 #include <algorithm>
@@ -53,7 +54,14 @@ Stamper::Stamper(const Setup& setup)
     // Latency: input waits for a full chunk, then for the stretcher (its headroom), and then the
     // read-back needs room for the stretcher's delay at the lowest ratio (base / 0.25), plus the
     // interpolator's reach.
-    m_latency = m_chunk + m_driver->getHeadroom() + 3 * m_baseDelay + kInterpolatorReach;
+    m_shiftLatency = m_chunk + m_driver->getHeadroom() + 3 * m_baseDelay + kInterpolatorReach;
+
+    // The safety at the output. Its look-ahead is always part of the latency, on or off, so the
+    // latency depends on the sample rate alone.
+    m_limiter = std::make_unique<PeakLimiter>(m_setup.sampleRate, channels);
+    m_limiter->setEnabled(m_setup.safety);
+    m_limiter->setTrim(m_setup.trim);
+    m_latency = m_shiftLatency + m_limiter->delaySamples();
 
     m_in.assign(static_cast<std::size_t>(channels), std::vector<float>(static_cast<std::size_t>(m_chunk), 0.0f));
     m_inPtrs.resize(static_cast<std::size_t>(channels));
@@ -210,7 +218,7 @@ void Stamper::process(float* const* channels, int numSamples) noexcept
         // at t; reading there undoes the ratio-dependent part of its delay.
         for (int i = 0; i < n; ++i)
         {
-            const auto t = m_emitted - m_latency;
+            const auto t = m_emitted - m_shiftLatency;
             ++m_emitted;
             if (t < 0)
             {
@@ -265,6 +273,72 @@ void Stamper::process(float* const* channels, int numSamples) noexcept
         }
         done += n;
     }
+
+    m_limiter->process(channels, numSamples);
+}
+
+void Stamper::setTrim(float gain) noexcept { m_limiter->setTrim(gain); }
+float Stamper::limiterReductionDb() const noexcept { return m_limiter->maxReductionDb(); }
+
+//==============================================================================
+float StampLevels::trim() const noexcept
+{
+    if (! complete || outputPeak <= PeakLimiter::kCeiling)
+        return 1.0f;
+    return PeakLimiter::kCeiling / outputPeak;
+}
+
+float StampLevels::trimDb() const noexcept
+{
+    return 20.0f * std::log10(std::max(trim(), 1.0e-6f));
+}
+
+StampLevels measureStamp(Stamper::Setup setup, const std::vector<std::vector<float>>& channels, const std::function<bool()>& cancelled)
+{
+    StampLevels levels;
+    if (channels.empty() || channels[0].empty())
+        return levels;
+    const auto length = channels[0].size();
+    for (const auto& channel : channels)
+        if (channel.size() != length)
+            return levels;
+
+    setup.channels = static_cast<int>(channels.size());
+    setup.safety = false;
+    setup.loopLength = 0;
+    Stamper stamper(setup);
+
+    for (const auto& channel : channels)
+        for (const float v : channel)
+            levels.inputPeak = std::max(levels.inputPeak, std::abs(v));
+
+    // The effect, then silence for as long as the latency, so its end comes out too.
+    constexpr std::size_t kBlock = 4096;
+    std::vector<std::vector<float>> block(channels.size(), std::vector<float>(kBlock, 0.0f));
+    std::vector<float*> pointers(channels.size());
+    for (std::size_t c = 0; c < channels.size(); ++c)
+        pointers[c] = block[c].data();
+
+    const auto total = length + static_cast<std::size_t>(stamper.latencySamples());
+    for (std::size_t at = 0; at < total; at += kBlock)
+    {
+        if (cancelled && cancelled())
+            return levels;
+        const auto n = std::min(kBlock, total - at);
+        for (std::size_t c = 0; c < channels.size(); ++c)
+        {
+            const auto have = at < length ? std::min(n, length - at) : std::size_t { 0 };
+            std::copy_n(channels[c].begin() + static_cast<std::ptrdiff_t>(std::min(at, length)), have, block[c].begin());
+            std::fill(block[c].begin() + static_cast<std::ptrdiff_t>(have), block[c].begin() + static_cast<std::ptrdiff_t>(n), 0.0f);
+        }
+        stamper.process(pointers.data(), static_cast<int>(n));
+        for (std::size_t c = 0; c < channels.size(); ++c)
+            for (std::size_t i = 0; i < n; ++i)
+                levels.outputPeak = std::max(levels.outputPeak, std::abs(block[c][i]));
+    }
+
+    levels.complete = true;
+    return levels;
 }
 
 } // namespace tonalrecall::core

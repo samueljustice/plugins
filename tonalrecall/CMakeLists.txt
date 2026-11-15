@@ -8,7 +8,7 @@ endif()
 
 set(CMAKE_OSX_ARCHITECTURES "x86_64;arm64" CACHE STRING "Build architectures for macOS")
 
-set(TONALRECALL_VERSION "0.2.0" CACHE STRING "Tonal Recall version (major.minor.patch)")
+set(TONALRECALL_VERSION "0.2.2" CACHE STRING "Tonal Recall version (major.minor.patch)")
 project(TonalRecall VERSION ${TONALRECALL_VERSION})
 
 # The copyright year is the year it was built, so it never goes stale.

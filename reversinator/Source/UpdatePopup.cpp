@@ -111,9 +111,9 @@ void UpdatePopup::paint(juce::Graphics& g)
     const auto card = cardBounds();
     const auto r = card.toFloat();
     g.setColour(panel);
-    g.fillRoundedRectangle(r, 10.0f);
+    g.fillRoundedRectangle(r, 3.0f);
     g.setColour(outline);
-    g.drawRoundedRectangle(r.reduced(0.5f), 10.0f, 1.0f);
+    g.drawRoundedRectangle(r.reduced(0.5f), 3.0f, 1.0f);
 
     auto content = card.reduced(24, 0);
 

@@ -2,6 +2,7 @@
 
 #include <JuceHeader.h>
 
+#include "Audition.h"
 #include "CaptureStore.h"
 #include "MatchHub.h"
 #include "PluginProcessor.h"
@@ -9,6 +10,7 @@
 #include <array>
 #include <functional>
 #include <memory>
+#include <utility>
 
 namespace sammyj
 {
@@ -49,6 +51,8 @@ public:
     // The "AudioSuite only" notice (in Pro Tools it appears by itself when loaded as an insert).
     void showInsertNotice(bool shouldShow);
     void toggleLearnForTesting(tonalrecall::Slot slot) { toggleLearn(slot); }
+    // What a click on PLAY MUSIC, PLAY INPUT or PLAY OUTPUT does.
+    void togglePlayForTesting(tonalrecall::Playback what) { togglePlay(what); }
 
     static constexpr int kWidth = 980;
     static constexpr int kHeight = 706;
@@ -63,12 +67,32 @@ public:
     // Tests draw still frames: with motion off every transition reads as finished.
     static void setMotionEnabled(bool shouldMove) noexcept;
 
+    // Tests: the effect's scan in time. The view is in seconds of the effect; x and the plot are
+    // in the scan's own coordinates, which its curve editor and its playhead share.
+    std::pair<double, double> effectViewForTesting() const;
+    void setEffectViewForTesting(double start, double end);
+    void pressEffectViewButtonForTesting(const juce::String& name);   // "-", "+", "FIT" or "SOUND"
+    float effectXForSecondsForTesting(double seconds) const;
+    double effectSecondsForXForTesting(float x) const;
+    float effectPlayheadXForSecondsForTesting(double seconds) const;
+    double effectPlayheadSecondsForTesting() const;                    // negative: no playhead
+    juce::Rectangle<float> effectPlotForTesting() const;
+    std::pair<double, double> effectSoundRangeForTesting() const;      // what SOUND frames
+    juce::Component& effectScanForTesting();                           // the curve editor over the scan
+    juce::Component& effectOverviewForTesting();
+    double effectRedrawMsForTesting() const;                           // the last redraw for a new view
+    // The editing tools (DRAW, SNAP: 0 off, 1 notes, 2 scale; HEAR).
+    static void setEditToolsForTesting(bool draw, int snap, bool hear) noexcept;
+
 private:
     void timerCallback() override;
     void refresh(bool force);
     void startUpdateCheckWhenShown();
     void toggleLearn(tonalrecall::Slot slot);
     void clearSlot(tonalrecall::Slot slot);
+    void togglePlay(tonalrecall::Playback what);
+    void updatePlayback();   // the play buttons and playheads, from the audition bus
+    int playbackSignature() const;
     void changeOptions(const std::function<void(tonalrecall::MatchOptions&)>& change);
     void copyValues();
     juce::StringArray buildWarnings() const;
@@ -100,6 +124,7 @@ private:
     juce::StringArray m_warnings;
     double m_openedAt = 0.0;   // while the opening animation runs
     bool m_auditionHintShown = false;
+    int m_playbackShown = -1;   // playbackSignature() when the strip was last built
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(TonalRecallEditor)
 };

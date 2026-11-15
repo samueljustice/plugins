@@ -160,9 +160,9 @@ void AboutPanel::paint(juce::Graphics& g)
     const auto card = cardBounds();
     const auto r = card.toFloat();
     g.setColour(panel);
-    g.fillRoundedRectangle(r, 10.0f);
+    g.fillRoundedRectangle(r, 3.0f);
     g.setColour(outline);
-    g.drawRoundedRectangle(r.reduced(0.5f), 10.0f, 1.0f);
+    g.drawRoundedRectangle(r.reduced(0.5f), 3.0f, 1.0f);
 
     const auto row = [&](int y, int h) { return juce::Rectangle<int>(card.getX(), card.getY() + y, card.getWidth(), h); };
 
