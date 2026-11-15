@@ -6419,6 +6419,15 @@ namespace
 
     ChamberClipRender chamberClipRender(RoarschachAudioProcessor& p, const Stereo& in, double sr, int block)
     {
+        // OUTPUT's Level Match off (a test setup change, not a product one): the match is learnt over
+        // passes and holds a preset's hint for the settings it came with, so in one 2.5 s render a
+        // chain with CHAMBER on (new settings: the hint's weight dropped, the match learning with
+        // its fast phases) and the same chain with CHAMBER off (the hint held) run at different gains
+        // into the maximizer, and the difference measured here was the match's trajectory as much as
+        // the room's cost (modelled Tower Block +5.0 dB against Timber Room +4.2 with it on; +4.1
+        // against +3.8 with it off). These limits are about what CHAMBER costs the limiter at a fixed
+        // gain staging, as audited; the match's own effect on limiting is the levels groups' business.
+        setParam(p, Params::outMatch, 0.0f);
         restart(p, sr, block);
         std::vector<double> gr;
         const auto out = render(p, in, block, false, [&](int start)
