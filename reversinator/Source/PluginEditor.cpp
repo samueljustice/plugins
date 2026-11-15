@@ -52,6 +52,7 @@ ReversinatorAudioProcessorEditor::ReversinatorAudioProcessorEditor(ReversinatorA
     m_openGL.setComponentPaintingEnabled(true);
     m_openGL.setContinuousRepainting(true);
     m_openGL.attachTo(*this);
+    startTimerHz(15);
 
     // Looks for a newer release in the background (at most once a day; silent if offline) and shows
     // the popup if there is one. The offline test runner builds with this off, so it never goes online.
@@ -64,6 +65,7 @@ ReversinatorAudioProcessorEditor::ReversinatorAudioProcessorEditor(ReversinatorA
 ReversinatorAudioProcessorEditor::~ReversinatorAudioProcessorEditor()
 {
     m_updateCheck.reset();   // stop the check before anything it calls back into goes away
+    stopTimer();
     m_openGL.detach();
     m_tooltipWindow.setLookAndFeel(nullptr);
     setLookAndFeel(nullptr);
@@ -79,16 +81,24 @@ void ReversinatorAudioProcessorEditor::paint(juce::Graphics& g)
 
 void ReversinatorAudioProcessorEditor::setSceneLive(bool live)
 {
+    if (m_content.getDisplay().isSceneLive() == live)
+        return;
+
     m_content.getDisplay().setSceneLive(live);
     m_content.repaint();
     repaint();
 }
 
+void ReversinatorAudioProcessorEditor::timerCallback()
+{
+    // Live while a frame was drawn in the last second, so a short stall does not flip the display.
+    const auto last = m_lastSceneFrame.load();
+    setSceneLive(last != 0 && juce::Time::getMillisecondCounter() - last < 1000);
+}
+
 void ReversinatorAudioProcessorEditor::newOpenGLContextCreated()
 {
-    m_sceneReported = false;
-    if (! m_scene.create(m_openGL))
-        return;
+    m_scene.create(m_openGL);   // if the shader fails, nothing is drawn and the display stays flat
 }
 
 void ReversinatorAudioProcessorEditor::renderOpenGL()
@@ -111,23 +121,12 @@ void ReversinatorAudioProcessorEditor::renderOpenGL()
     m_scene.draw(m_openGL, pixels.withY(height - pixels.getBottom()), m_content.getDisplay().getFrame(),
                  juce::Time::getMillisecondCounterHiRes() * 0.001);
 
-    if (! m_sceneReported.exchange(true))
-        juce::MessageManager::callAsync([safe = juce::Component::SafePointer<ReversinatorAudioProcessorEditor>(this)]
-        {
-            if (safe != nullptr)
-                safe->setSceneLive(true);
-        });
+    m_lastSceneFrame = juce::jmax(juce::uint32(1), juce::Time::getMillisecondCounter());
 }
 
 void ReversinatorAudioProcessorEditor::openGLContextClosing()
 {
     m_scene.release();
-    m_sceneReported = false;
-    juce::MessageManager::callAsync([safe = juce::Component::SafePointer<ReversinatorAudioProcessorEditor>(this)]
-    {
-        if (safe != nullptr)
-            safe->setSceneLive(false);
-    });
 }
 
 void ReversinatorAudioProcessorEditor::showUpdatePopup(const sammyj::UpdateInfo& info)

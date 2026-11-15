@@ -13,7 +13,7 @@
  * Laid out at a fixed base size and scaled uniformly, so the window can be
  * resized (keeping its aspect ratio) without re-flowing anything.
  */
-class ReversinatorAudioProcessorEditor : public juce::AudioProcessorEditor, private juce::OpenGLRenderer
+class ReversinatorAudioProcessorEditor : public juce::AudioProcessorEditor, private juce::OpenGLRenderer, private juce::Timer
 {
 public:
     explicit ReversinatorAudioProcessorEditor(ReversinatorAudioProcessor&);
@@ -91,6 +91,10 @@ private:
     void openGLContextClosing() override;
     void setSceneLive(bool live);
 
+    // The display shows the scene's labels only while frames are actually being drawn, and its flat
+    // view otherwise. This follows the frames themselves, so it recovers after a context restart.
+    void timerCallback() override;
+
     ReversinatorAudioProcessor& m_processor;
     juce::SharedResourcePointer<Theme::Fonts> m_fonts;
     Controls::LookAndFeel m_lookAndFeel;
@@ -100,7 +104,7 @@ private:
 
     juce::OpenGLContext m_openGL;
     TimeHighway::Renderer m_scene;                       // GL thread only
-    std::atomic<bool> m_sceneReported { false };         // GL thread: has told the message thread it is drawing
+    std::atomic<juce::uint32> m_lastSceneFrame { 0 };    // when the GL thread last drew the scene (0: never)
     juce::Rectangle<int> m_sceneArea;                    // the display, in this component's coordinates
     juce::SpinLock m_sceneAreaLock;
 
