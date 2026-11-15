@@ -65,8 +65,9 @@ private:
     std::array<juce::Rectangle<float>, room::c_maxChannels> m_bars, m_names;
     juce::Rectangle<float> m_lfeGr;
     std::array<float, room::c_maxChannels> m_level {}, m_hold {};
+    std::array<float, room::c_maxChannels> m_paintedLevel {}, m_paintedHold {}; // as last painted: step() repaints when they have moved
     std::array<double, room::c_maxChannels> m_holdTime {};
-    float m_lfeGrDb = 0.0f;
+    float m_lfeGrDb = 0.0f, m_paintedLfeGrDb = 0.0f;
     double m_time = 0.0;
     static constexpr double c_holdSeconds = 1.5;
 };

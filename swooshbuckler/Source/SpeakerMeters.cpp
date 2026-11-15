@@ -86,7 +86,7 @@ void SpeakerMeters::step(float dt)
         // The highest level since the last look, so nothing between two frames is missed; the processor's own
         // reading falls back as the OUT meter's does.
         const float now = m_processor.takeChannelPeak(static_cast<int>(ch));
-        const float level = juce::jmax(now, m_processor.getChannelPeak(static_cast<int>(ch)));
+        float level = juce::jmax(now, m_processor.getChannelPeak(static_cast<int>(ch)));
         float hold = m_hold[ch];
         if (now >= hold)
         {
@@ -95,23 +95,24 @@ void SpeakerMeters::step(float dt)
         }
         else if (m_time - m_holdTime[ch] > c_holdSeconds)
             hold = juce::jmax(level, hold * std::exp(-dt / 0.15f));
-        if (std::abs(level - m_level[ch]) > 0.002f || std::abs(hold - m_hold[ch]) > 0.002f)
-        {
-            m_level[ch] = level;
-            m_hold[ch] = hold;
-            changed = true;
-        }
+        // Always kept, so a meter falls all the way to nothing (under -80 dB it is nothing); painted again only
+        // when it has moved enough to see.
+        if (level < 1.0e-4f)
+            level = 0.0f;
+        if (hold < 1.0e-4f)
+            hold = 0.0f;
+        changed = changed || std::abs(level - m_paintedLevel[ch]) > 0.002f || std::abs(hold - m_paintedHold[ch]) > 0.002f
+                  || ((level == 0.0f) != (m_paintedLevel[ch] == 0.0f)) || ((hold == 0.0f) != (m_paintedHold[ch] == 0.0f));
+        m_level[ch] = level;
+        m_hold[ch] = hold;
     }
     // The LFE's limiter: its deepest reduction of the last block, falling back at the GR meter's 12 dB a second.
     if (! m_lfeGr.isEmpty())
     {
         const float now = juce::jmin(0.0f, m_processor.getLfeGainReductionDb());
         const float gr = juce::jmin(now, juce::jmin(0.0f, m_lfeGrDb + 12.0f * dt));
-        if (std::abs(gr - m_lfeGrDb) > 0.05f)
-        {
-            m_lfeGrDb = gr;
-            changed = true;
-        }
+        changed = changed || std::abs(gr - m_paintedLfeGrDb) > 0.05f || ((gr < 0.0f) != (m_paintedLfeGrDb < 0.0f));
+        m_lfeGrDb = gr;
     }
     if (changed)
         repaint();
@@ -119,6 +120,9 @@ void SpeakerMeters::step(float dt)
 
 void SpeakerMeters::paint(juce::Graphics& g)
 {
+    m_paintedLevel = m_level;
+    m_paintedHold = m_hold;
+    m_paintedLfeGrDb = m_lfeGrDb;
     const auto& layout = room::layout(m_width);
     for (int i = 0; i < m_count; ++i)
     {

@@ -3526,7 +3526,8 @@ void SwooshbucklerAudioProcessorEditor::showRoom()
     const bool linked = m_processor.getState().getRawParameterValue(ParamIDs::linkBuses)->load() > 0.5f;
     const bool fly = m_processor.getStowawayMode() == ParamIDs::StowFly;
     const bool centreOn = m_processor.getState().getRawParameterValue(ParamIDs::roomCentre)->load() > 0.5f;
-    const juce::String key = juce::String(static_cast<int>(width)) + (app ? "a" : "h") + (linked ? "l" : "") + (fly ? "f" : "")
+    const bool lfeOn = juce::roundToInt(m_processor.getState().getRawParameterValue(ParamIDs::roomLfeMode)->load()) != 0;
+    const juce::String key = juce::String(static_cast<int>(width)) + (app ? "a" : "h") + (linked ? "l" : "") + (fly ? "f" : "") + (lfeOn ? "s" : "")
                              + (centreOn ? "c" : "") + juce::String(static_cast<int>(m_processor.getListening()));
     if (key == m_roomShown)
         return;
@@ -3570,8 +3571,10 @@ void SwooshbucklerAudioProcessorEditor::showRoom()
                                                   "plays them. Switching glides, with no click.", restCentre));
     look(m_lfeMode, restLfe);
     m_lfeMode.setTooltip(tip("LFE Mode", ParamIDs::lfeModeTip, restLfe));
-    look(*lfeLevel, restLfe);
-    lfeLevel->setTooltip(tip("LFE Level", ParamIDs::lfeLevelTip, restLfe));
+    // (LFE Level also rests while LFE Mode is Off: there is nothing for it to turn up.)
+    const auto restLevel = restLfe.isNotEmpty() || lfeOn ? restLfe : juce::String("It rests: LFE Mode is Off, so the LFE plays nothing. Choose Discrete or Mixdown to use it.");
+    look(*lfeLevel, restLevel);
+    lfeLevel->setTooltip(tip("LFE Level", ParamIDs::lfeLevelTip, restLevel));
 
     // Flight Path: each bus's (bus B's linked to A's while Link is on), and Stowaway's for Fly.
     for (size_t b = 0; b < m_flightPath.size(); ++b)
@@ -3581,7 +3584,7 @@ void SwooshbucklerAudioProcessorEditor::showRoom()
         Theme::setLook(menu, linkedB ? Theme::Look::Linked : (rest.isEmpty() ? Theme::Look::Normal : Theme::Look::Resting));
         menu.setTooltip(tip("Bus " + juce::String(ParamIDs::busNames[b]) + " Flight Path", flightPathTip(),
                             linkedB ? juce::String("While Link is on, bus B flies bus A's passes, on bus A's Flight Path.")
-                                    : rest.isNotEmpty() ? rest + " At Stereo every pass flies across, left to right." : juce::String()));
+                                    : rest.isNotEmpty() ? rest + (width == room::Width::Stereo ? " At Stereo every pass flies across, left to right." : "") : juce::String()));
     }
     const auto restStow = rest.isNotEmpty() ? rest
                                             : (fly ? juce::String() : juce::String("It rests: it is for Fly, Stowaway's own passes. The other modes do not fly."));

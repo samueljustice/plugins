@@ -1802,6 +1802,31 @@ int main(int argc, char* argv[])
                 lamps = lamps && (ch == 3 || sea.lampLevel(ch) > 0.05f);
             check(lamps, "room: the sea draws the plan of the room, every speaker's lamp lit by its level");
             checkTexts("the window at 5.1", ed, 1.0f, 1.0f);
+
+            // Each lamp and each meter is its own speaker's: with Centre Speaker off and LFE Mode Off the centre's and
+            // the LFE's go dark and still while the others stay lit, and they come back with the switch and the mode.
+            // And LFE Level rests while LFE Mode is Off (there is nothing for it to turn up), saying so.
+            const int centre = room::layout(room::Width::Surround51).centre, lfe = room::layout(room::Width::Surround51).lfe;
+            set(ParamIDs::roomCentre, 0.0f);
+            set(ParamIDs::roomLfeMode, 0.0f);
+            rig.run(4.0);
+            for (int i = 0; i < 40; ++i)
+                meters.step(0.1f); // (the rig's frames take no time: let the held peaks' 1.5 s pass)
+            bool own = centre == 2 && lfe == 3;
+            for (int ch = 0; ch < 6; ++ch)
+            {
+                const bool silent = ch == centre || ch == lfe;
+                own = own && (silent ? sea.lampLevel(ch) == 0.0f && meters.shownLevel(ch) == 0.0f && meters.shownHold(ch) == 0.0f : sea.lampLevel(ch) > 0.05f && meters.shownLevel(ch) > 0.0005f);
+            }
+            const bool levelRests = lookOf(lfeLevel) == Theme::Look::Resting && tipOf(lfeLevel).contains("LFE Mode is Off")
+                                    && lookOf(&ed.m_lfeMode) == Theme::Look::Normal && ed.m_roomCentre.getButtonText() == "Off";
+            set(ParamIDs::roomCentre, 1.0f);
+            set(ParamIDs::roomLfeMode, static_cast<float>(RigEngine::LfeMixdown));
+            rig.run(2.0);
+            check(own && sea.lampLevel(centre) > 0.05f && meters.shownLevel(centre) > 0.0005f && meters.shownLevel(lfe) > 0.0005f,
+                  "room: the centre's and the LFE's lamps and meters are their own (dark with Centre Speaker off and LFE Mode Off, their meters and held peaks fallen to nothing, the others lit; back with them)");
+            check(levelRests && lookOf(lfeLevel) == Theme::Look::Normal && ! tipOf(lfeLevel).contains("rests"),
+                  "room: LFE Level rests while LFE Mode is Off, saying so, and lights with Discrete or Mixdown");
         }
 
         // Quad: no centre speaker and no LFE, so those rest too, each saying so.
@@ -1896,7 +1921,7 @@ int main(int argc, char* argv[])
                 rig.run(1.0);
                 float frontMost = 1.0f, backMost = -1.0f, leftMost = 1.0f, rightMost = -1.0f, innerMost = 2.0f, highest = 0.0f;
                 std::array<bool, 4> quarters {};
-                int comets = 0, onTheirObjects = 0;
+                int comets = 0, onTheirObjects = 0, sided = 0, sameSide = 0;
                 const int frames = 7 * 60;
                 for (int f = 0; f < frames; ++f)
                 {
@@ -1912,6 +1937,14 @@ int main(int argc, char* argv[])
                         const auto& head = trail.back();
                         ++comets;
                         onTheirObjects += std::abs(head.x - want.x) < 0.15f && std::abs(head.y - want.y) < 0.15f && std::abs(head.z - want.z) < 0.15f ? 1 : 0;
+                        // Left in the room is left on the sea and left on the plan (the speakers' lamps are placed by the same rule).
+                        float lit = 0.0f;
+                        const auto dot = sea.planDot(i, &lit);
+                        if (std::abs(object.x) > 0.3f && lit > 0.15f)
+                        {
+                            ++sided;
+                            sameSide += head.x * object.x > 0.0f && (dot.x - c.x) * object.x > 0.0f ? 1 : 0;
+                        }
                     }
                     for (int o = RigEngine::ObjPassA1; o <= RigEngine::ObjPassB2; ++o)
                     {
@@ -1944,6 +1977,9 @@ int main(int argc, char* argv[])
                 check(comets > 100 && onTheirObjects >= comets * 9 / 10,
                       juce::String("room: ") + pathNames[path] + ": the buses' comets fly where their passes are in the room (" + juce::String(onTheirObjects)
                           + " of " + juce::String(comets) + " looks)");
+                check(path == 2 || (sided > 50 && sameSide >= sided * 9 / 10),
+                      juce::String("room: ") + pathNames[path] + ": a pass at the left of the room is at the left of the sea and of the plan (" + juce::String(sameSide)
+                          + " of " + juce::String(sided) + " looks)");
                 float nearest = 0.0f;
                 const float step = worstCometStep(5.0, nearest);
                 check(nearest >= 1.29f && step <= stereoStep * 1.4f,
