@@ -2,7 +2,7 @@
 
 # Sammy J's Plugins
 
-**Toys I've made for sound designers.**
+**Toys and utilities I've made for sound designers.**
 
 ![VST3](https://img.shields.io/badge/VST3-222?style=flat-square)
 ![AU](https://img.shields.io/badge/AU-222?style=flat-square)
